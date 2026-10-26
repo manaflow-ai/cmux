@@ -175,6 +175,75 @@ extension PageWebView {
         return .object(hovered)
     }
 
+    /// This page's fields of a `debug.webui` row (``WebUICensus``): what the host knows of the
+    /// page's state and what reached it while hidden.
+    nonisolated public struct Census: Equatable, Sendable {
+        /// `chromium` while a Chromium page shows the document, else `webkit`.
+        public var engine: String
+        /// The person cannot see the page: the engine was told it is hidden (no window or a hidden
+        /// ancestor), or it waits in a spare's parking view. Chrome counts no spare renderer as
+        /// visible (`WebContents::GetVisibility`, content/public/browser/web_contents.h).
+        public var hidden: Bool
+        /// The visibility the host last gave the engine; a parked spare is visible to its engine.
+        public var engineVisible: Bool
+        /// Seconds since the page was last hidden; nil while it shows.
+        public var hiddenForSeconds: Double?
+        /// The document has not finished loading.
+        public var loading: Bool
+        /// Parked in ``PageHostPool``'s parking view.
+        public var parked: Bool
+        /// Made by ``PageHostPool`` (may be rebound to another page).
+        public var pooled: Bool
+        /// Router events delivered while hidden (``PageRouter/debugDeliveriesWhileHidden``).
+        public var deliveriesWhileHidden: Int
+        /// Native script pushes (theme, glass, document attributes) while hidden.
+        public var pushesWhileHidden: Int
+    }
+
+    /// The page's `debug.webui` fields now.
+    public var census: Census {
+        Census(engine: chromiumSession != nil ? "chromium" : "webkit",
+               hidden: router.debugPageHidden, engineVisible: censusState.engineVisible,
+               hiddenForSeconds: censusState.hiddenSince.map { max(0, now().timeIntervalSince($0)) },
+               loading: !loaded, parked: isParkedSpare, pooled: isPooled,
+               deliveriesWhileHidden: router.debugDeliveriesWhileHidden,
+               pushesWhileHidden: censusState.pushesWhileHidden)
+    }
+
+    /// Zeroes the while-hidden counters (`debug.webui {reset: true}`, a bench's window start).
+    public func resetCensusCounters() {
+        router.debugDeliveriesWhileHidden = 0
+        censusState.pushesWhileHidden = 0
+    }
+
+    /// Records the visibility the host just gave the engine.
+    func noteCensusVisibility(_ visible: Bool) {
+        censusState.engineVisible = visible
+        updateCensusHidden()
+    }
+
+    /// A parking view took `subview` in (`parked`) or lets it go: every page view in it is parked
+    /// or not. A New Tab spare's page sits inside its agent pane view, which is what moves.
+    public static func noteCensusParked(_ parked: Bool, in subview: NSView) {
+        guard let page = subview as? PageWebView else {
+            for child in subview.subviews { noteCensusParked(parked, in: child) }
+            return
+        }
+        page.censusState.parked = parked
+        page.updateCensusHidden()
+    }
+
+    /// The hidden flag the counters read, and when the page was hidden.
+    private func updateCensusHidden() {
+        let hidden = !censusState.engineVisible || censusState.parked
+        router.debugPageHidden = hidden
+        if !hidden {
+            censusState.hiddenSince = nil
+        } else if censusState.hiddenSince == nil {
+            censusState.hiddenSince = now()
+        }
+    }
+
     /// The zoom the page shows at in either engine (UI scale times the page's own zoom): page
     /// CSS pixels are view points divided by it.
     public var debugPageZoom: Double { pageZoom }

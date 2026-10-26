@@ -1,8 +1,10 @@
 #!/usr/bin/env python3
 """idle-budget.py's pure parts: process kinds, per-kind sums, the v2 budget check (sessions, sums, ratios,
 assertions), the perf cron rows, the session table, energy per kind and tree, power assertions and the
-saver/thermal guard; and procs.py's counters (interrupt and package-idle wakeups apart, billed energy, GPU
-time, the coalition). Runs on any host (libproc loads only to measure)."""
+saver/thermal guard; procs.py's counters (interrupt and package-idle wakeups apart, billed energy, GPU time,
+the coalition); and the chrome-static reference (Chrome kinds, uBlock Origin parity, the reference browser
+refusal, ratio rows and their noise floor; xbench's Chrome switches). Runs on any host (libproc loads only to
+measure)."""
 
 from __future__ import annotations
 
@@ -22,6 +24,8 @@ spec.loader.exec_module(ib)
 procs = ib.procs
 
 APP = "/Users/x/DerivedData/cmux-t/Build/Products/Debug/cmux DEV t.app"
+CHROME = "/Applications/Chromium.app"
+CHROME_HELPERS = f"{CHROME}/Contents/Frameworks/Chromium Framework.framework/Versions/154.0.8037.58/Helpers"
 
 
 def row(kind, threads, wakeups, cpu=0.0, cpu_mw=0.0, billed_mw=0.0):
@@ -751,6 +755,250 @@ class SaverAndThermalTests(unittest.TestCase):
         held = procs.power_assertions({501}, PMSET)
         light = ib.summarize("light", {"processes": [], "ends": ends(False, False, assertions=held)}, budget)
         self.assertIn(["assertions", "held", 1, 0], light["over"])
+
+
+def ratio_rule(of, vs, field, max_ratio, session="tabs-static"):
+    return {"session": session, "of": of, "vs": vs, "field": field, "max_ratio": max_ratio}
+
+
+def chrome_entry(kinds, running=True, chrome_version="1.75.0", cmux_version="1.75.0", shape=None):
+    """A measured chrome-static session entry (run_chrome_static's block plus its kinds)."""
+    return {"exit": 0, "kinds": kinds, "over": [],
+            "chrome": {"app": CHROME, "version": "154.0.8037.58",
+                       "ublock": {"cmux_version": cmux_version, "chrome_version": chrome_version, "running": running},
+                       "unequal": list(shape or [])}}
+
+
+# A tabs-static cmux tree with uBlock Origin's extension renderer, and a Chrome tree with its own.
+CMUX_KINDS = {"app": {"n": 1, "wakeups_per_s": 10.0}, "cef-renderer": {"n": 11, "wakeups_per_s": 28.0},
+              "cef-extension": {"n": 1, "wakeups_per_s": 2.0}}
+CHROME_KINDS = {"browser": {"n": 1, "wakeups_per_s": 20.0}, "renderer": {"n": 16, "wakeups_per_s": 41.5},
+                "extension": {"n": 1, "wakeups_per_s": 2.0}}
+TREE_RULE = {"ratio_to_chrome": [ratio_rule("tree", "tree", "wakeups_per_s", 0.5)]}
+
+
+class ChromeReferenceTests(unittest.TestCase):
+    """The chrome-static reference (p14-energy-004): a Chromium that runs MV2, tabs-static's pages, uBlock Origin."""
+
+    def judge(self, sessions, budget, asked=True):
+        report = {"sessions": sessions}
+        overs, notes, refused = ib.judge_across(report, budget, asked)
+        return report, overs, notes, refused
+
+    def test_chrome_kinds(self):
+        self.assertEqual(ib.chrome_kind(f"{CHROME}/Contents/MacOS/Chromium --user-data-dir=/p/data"), "browser")
+        self.assertEqual(ib.chrome_kind(f"{CHROME_HELPERS}/Chromium Helper (Renderer).app/Contents/MacOS/"
+                                        "Chromium Helper (Renderer) --type=renderer --renderer-client-id=7"), "renderer")
+        self.assertEqual(ib.chrome_kind(f"{CHROME_HELPERS}/Chromium Helper (Renderer).app/Contents/MacOS/"
+                                        "Chromium Helper (Renderer) --type=renderer --extension-process"), "extension")
+        self.assertEqual(ib.chrome_kind(f"{CHROME_HELPERS}/Chromium Helper (GPU).app/Contents/MacOS/"
+                                        "Chromium Helper (GPU) --type=gpu-process"), "gpu")
+        self.assertEqual(ib.chrome_kind(f"{CHROME_HELPERS}/Chromium Helper.app/Contents/MacOS/Chromium Helper "
+                                        "--type=utility --utility-sub-type=network.mojom.NetworkService"), "utility")
+        self.assertEqual(ib.chrome_kind(f"{CHROME_HELPERS}/chrome_crashpad_handler --monitor-self"), "crashpad")
+        self.assertEqual(ib.chrome_kind(f"{CHROME_HELPERS}/Chromium Helper.app/Contents/MacOS/Chromium Helper "
+                                        "--type=ppapi"), "other")
+
+    def test_forty_against_sixty_three_and_a_half_at_half_is_over(self):
+        # The acceptance case: cmux's tree 40/s against Chrome's 63.5/s at max_ratio 0.5, both running uBlock Origin;
+        # tabs-static measured before chrome-static, judged all the same.
+        report, overs, notes, refused = self.judge(
+            {"tabs-static": {"kinds": CMUX_KINDS, "over": []}, ib.CHROME_SESSION: chrome_entry(CHROME_KINDS)}, TREE_RULE)
+        self.assertEqual(overs, [("tabs-static", ("tree", "wakeups_per_s/chrome:tree", 0.63, 0.5))])
+        self.assertEqual((notes, refused), ([], []))
+        row = report["ratio_to_chrome"][0]
+        self.assertEqual((row["cmux_value"], row["chrome_value"], row["verdict"]), (40.0, 63.5, "over"))
+        self.assertEqual(report["sessions"]["tabs-static"]["over"], [["tree", "wakeups_per_s/chrome:tree", 0.63, 0.5]])
+        self.assertTrue(report["chrome"]["parity"]["tabs-static"]["equal"])
+        self.assertEqual(report["chrome"]["kinds"], CHROME_KINDS)
+        self.assertIn("**over**", ib.ratio_table(report["ratio_to_chrome"]))
+        # Below the ratio: no over.
+        quiet = {**CMUX_KINDS, "cef-renderer": {"n": 11, "wakeups_per_s": 19.0}}
+        _, overs, _, _ = self.judge({"tabs-static": {"kinds": quiet, "over": []},
+                                     ib.CHROME_SESSION: chrome_entry(CHROME_KINDS)}, TREE_RULE)
+        self.assertEqual(overs, [])
+
+    def test_the_budget_file_rows_are_judged_once(self):
+        # The budget's own ratio_to_chrome rows go through one path: one over per row, not one per judge.
+        budget = ib.load_budget(ib.BUDGET_FILE)
+        chrome = {**CHROME_KINDS, "gpu": {"n": 1, "wakeups_per_s": 4.0}}
+        cmux = {**CMUX_KINDS, "cef-gpu": {"n": 1, "wakeups_per_s": 6.0}, "cef-host": {"n": 1, "wakeups_per_s": 1.0}}
+        _, overs, _, _ = self.judge({ib.CHROME_SESSION: chrome_entry(chrome), "tabs-static": {"kinds": cmux, "over": []}},
+                                    budget)
+        fields = [over[1] for _, over in overs]
+        self.assertEqual(len(fields), len(set(fields)))
+        self.assertIn("wakeups_per_s/chrome:gpu", fields)
+
+    def test_without_ublock_in_chrome_ratios_are_unequal_not_judged_and_refused(self):
+        report, overs, notes, refused = self.judge(
+            {"tabs-static": {"kinds": CMUX_KINDS, "over": []},
+             ib.CHROME_SESSION: chrome_entry(CHROME_KINDS, chrome_version=None, running=False)}, TREE_RULE)
+        self.assertEqual(overs, [])
+        row = report["ratio_to_chrome"][0]
+        self.assertEqual(row["verdict"], "not judged")
+        self.assertEqual(row["unequal"], ["no uBlock Origin was loaded into Chrome"])
+        self.assertIn("tabs-static tree wakeups_per_s/chrome:tree: not judged: unequal: no uBlock Origin was loaded "
+                      "into Chrome", notes)
+        self.assertEqual(refused, ["tabs-static: no uBlock Origin was loaded into Chrome"])
+        self.assertIn("unequal: no uBlock Origin was loaded into Chrome", ib.ratio_table(report["ratio_to_chrome"]))
+
+    def test_parity_comes_from_the_measured_sessions(self):
+        # uBlock Origin bundled but not run in the cmux session (built-in ad blocker off, a person's own copy
+        # found): no cef-extension process, so unequal although the bundle has the folder.
+        no_ext = {name: values for name, values in CMUX_KINDS.items() if name != "cef-extension"}
+        report, overs, _, refused = self.judge({"tabs-static": {"kinds": no_ext, "over": []},
+                                                ib.CHROME_SESSION: chrome_entry(CHROME_KINDS)}, TREE_RULE)
+        self.assertEqual(overs, [])
+        self.assertEqual(report["ratio_to_chrome"][0]["unequal"],
+                         ["uBlock Origin 1.75.0 did not run in the cmux session (no cef-extension process)"])
+        self.assertTrue(refused)
+        # Chrome listed uBlock Origin's target but measured no extension renderer: not running either.
+        no_chrome_ext = {name: values for name, values in CHROME_KINDS.items() if name != "extension"}
+        report, _, _, _ = self.judge({"tabs-static": {"kinds": CMUX_KINDS, "over": []},
+                                      ib.CHROME_SESSION: chrome_entry(no_chrome_ext)}, TREE_RULE)
+        self.assertEqual(report["ratio_to_chrome"][0]["unequal"],
+                         ["uBlock Origin 1.75.0 did not run in Chrome (no extension target or process)"])
+
+    def test_ublock_parity_needs_the_same_version_running(self):
+        self.assertTrue(ib.ublock_parity("1.75.0", True, "1.75.0", True)["equal"])
+        self.assertEqual(ib.ublock_parity("1.75.0", True, "1.75.0", False)["unequal"],
+                         ["uBlock Origin 1.75.0 did not run in Chrome (no extension target or process)"])
+        self.assertEqual(ib.ublock_parity("1.75.0", True, "1.74.0", True)["unequal"],
+                         ["uBlock Origin 1.74.0 in Chrome, 1.75.0 in cmux"])
+        self.assertIn("the cmux app bundles no uBlock Origin", ib.ublock_parity(None, False, "1.75.0", True)["unequal"])
+
+    def test_a_reference_that_cannot_run_mv2_is_refused(self):
+        mv2 = {"manifest_version": 2, "version": "1.75.0"}
+        self.assertIn("ignores --load-extension", ib.reference_refusal("com.google.Chrome", "155.0.7400.12", mv2))
+        self.assertIn("ignores --load-extension", ib.reference_refusal("com.google.Chrome.canary", "137.0.1.0", mv2))
+        self.assertIsNone(ib.reference_refusal("com.google.Chrome", "136.0.7103.2", mv2))
+        self.assertIn("no Manifest V2", ib.reference_refusal(ib.CHROME_FOR_TESTING_ID, "154.0.8037.92", mv2))
+        self.assertIsNone(ib.reference_refusal(ib.CHROME_FOR_TESTING_ID, "154.0.8037.92", {"manifest_version": 3}))
+        # ungoogled-chromium (org.chromium.Chromium) may: whether uBlock Origin started is checked in the run.
+        self.assertIsNone(ib.reference_refusal("org.chromium.Chromium", "154.0.8037.58", mv2))
+
+    def test_a_failed_chrome_static_is_refused_only_when_asked(self):
+        failed = {"exit": 1, "error": "RuntimeError: chrome-static: branded Google Chrome 155 ignores --load-extension"}
+        _, overs, notes, refused = self.judge({"tabs-static": {"kinds": CMUX_KINDS, "over": []},
+                                               ib.CHROME_SESSION: failed}, TREE_RULE)
+        self.assertEqual(overs, [])
+        self.assertEqual(notes, ["tabs-static tree wakeups_per_s/chrome:tree: not judged: reference session "
+                                 "chrome-static not measured"])
+        self.assertEqual(len(refused), 1)
+        self.assertIn("branded Google Chrome 155", refused[0])
+        _, _, _, refused = self.judge({"tabs-static": {"kinds": CMUX_KINDS, "over": []}}, TREE_RULE, asked=False)
+        self.assertEqual(refused, [])
+
+    def test_chrome_pages_out_of_shape_are_unequal(self):
+        # tabs-static's own plan: 5 hidden WebKit and 10 hidden Chromium pages, then the shown one.
+        pages = ib.IdlePages()
+        try:
+            keys = [key for _engine, _url, key in ib.tab_plan(pages, ib.TABS_STATIC)]
+        finally:
+            pages.close()
+        self.assertEqual((len(keys), keys[-1]), (16, "shown"))
+        good = {key: "visible" if key == "shown" else "hidden" for key in keys}
+        self.assertEqual(ib.chrome_shape_unequal(16, good, keys), [])
+        self.assertEqual(ib.chrome_shape_unequal(17, good, keys), ["Chrome had 17 page targets, tabs-static has 16"])
+        behind = {**good, "shown": "hidden"}
+        self.assertEqual(ib.chrome_shape_unequal(16, behind, keys),
+                         ["Chrome's tab visibility is not 1 shown, 15 hidden: shown=hidden"])
+        self.assertEqual(ib.chrome_shape_unequal(16, {}, keys[:1]),
+                         ["Chrome had 16 page targets, tabs-static has 1",
+                          "Chrome's tab visibility is not 1 shown, 0 hidden: w0=None"])
+        reason = ib.chrome_shape_unequal(16, behind, keys)[0]
+        report, overs, _, refused = self.judge({"tabs-static": {"kinds": CMUX_KINDS, "over": []},
+                                                ib.CHROME_SESSION: chrome_entry(CHROME_KINDS, shape=[reason])}, TREE_RULE)
+        self.assertEqual(overs, [])
+        self.assertEqual(report["ratio_to_chrome"][0]["unequal"], [reason])
+        self.assertEqual(refused, [f"tabs-static: {reason}"])
+
+    def test_chrome_at_zero_counts_as_the_floor(self):
+        # Chrome's GPU process at 0 wakeups and cmux's at 1 in a minute is noise: the floor (0.5/s), no over.
+        budget = {"ratio_to_chrome": [ratio_rule("cef-gpu", "gpu", "wakeups_per_s", 1.0),
+                                      ratio_rule("cef-host", "browser", "wakeups_per_s", 1.0)]}
+        chrome = {**CHROME_KINDS, "gpu": {"n": 1, "wakeups_per_s": 0.0}}
+        cmux = {**CMUX_KINDS, "cef-gpu": {"n": 1, "wakeups_per_s": 0.017}}
+        report, overs, notes, _ = self.judge({"tabs-static": {"kinds": cmux, "over": []},
+                                              ib.CHROME_SESSION: chrome_entry(chrome)}, budget)
+        self.assertEqual(overs, [])
+        gpu, host = report["ratio_to_chrome"]
+        self.assertEqual((gpu["ratio"], gpu["floor"], gpu["verdict"]), (0.034, 0.5, "ok"))
+        self.assertEqual(host["verdict"], "not judged")
+        self.assertIn("tabs-static cef-host wakeups_per_s/chrome:browser: not judged: cmux ran no cef-host", notes)
+        # cmux at 3/s against the floor is over, and the printed field says the floor was the reference.
+        cmux["cef-gpu"] = {"n": 1, "wakeups_per_s": 3.0}
+        _, overs, _, _ = self.judge({"tabs-static": {"kinds": cmux, "over": []},
+                                     ib.CHROME_SESSION: chrome_entry(chrome)}, budget)
+        self.assertEqual(overs, [("tabs-static", ("cef-gpu", "wakeups_per_s/chrome:gpu:floor", 6.0, 1.0))])
+        self.assertEqual(ib.over_line("tabs-static", overs[0][1]),
+                         "IDLE-BUDGET-OVER tabs-static cef-gpu wakeups_per_s/chrome:gpu:floor 6.0 > 1.0")
+        # A field with no floor and a reference of 0 judges nothing (ratio_over's rule).
+        self.assertEqual(ib.ratio_of(2.0, 0.0), (None, None))
+        self.assertEqual(ib.ratio_over("a", "x", {"a": {"x": 2.0}}, "b", {"b": {"x": 0.0}}, 1.0, "/c"), [])
+
+    def test_template_key_follows_the_browser_and_ublock(self):
+        base = ib.template_key("/A/Chromium.app", "154.0", "/u", "1.75.0")
+        self.assertEqual(base, ib.template_key("/A/Chromium.app", "154.0", "/u", "1.75.0"))
+        self.assertNotEqual(base, ib.template_key("/A/Chromium.app", "155.0", "/u", "1.75.0"))
+        self.assertNotEqual(base, ib.template_key("/A/Chromium.app", "154.0", "/u", "1.76.0"))
+        self.assertNotEqual(base, ib.template_key("/A/Chromium.app", "154.0", None, None))
+
+    def test_a_template_build_that_fails_leaves_no_template(self):
+        class Failing:
+            def launch(self, profile, url):
+                Path(profile, "data").mkdir()
+
+            def ready(self):
+                raise RuntimeError("no DevTools endpoint")
+
+            def quit(self):
+                pass
+
+        with tempfile.TemporaryDirectory() as folder:
+            template = str(Path(folder, "template-k"))
+            with self.assertRaises(RuntimeError):
+                ib.build_template(Failing(), template, 0)
+            self.assertEqual(list(Path(folder).iterdir()), [])
+
+    def test_chrome_static_settles_as_long_as_the_tab_sessions(self):
+        self.assertEqual(ib.settle_seconds(ib.CHROME_SESSION, 10), ib.FREEZE_HIDDEN_TABS_S + ib.FREEZE_GRACE_S)
+        self.assertEqual(ib.settle_seconds(ib.CHROME_SESSION, 90), 90)
+        self.assertEqual(ib.settle_seconds("light", 10), 10)
+
+    def test_manifest_version(self):
+        with tempfile.TemporaryDirectory() as folder:
+            self.assertIsNone(ib.manifest_version(folder))
+            Path(folder, "manifest.json").write_text(json.dumps({"version": "1.75.0", "manifest_version": 2}))
+            self.assertEqual(ib.manifest_version(folder), "1.75.0")
+            self.assertEqual(ib.read_manifest(folder)["manifest_version"], 2)
+
+    def test_chrome_rows_count_like_cmux_rows(self):
+        cmd = f"{CHROME}/Contents/MacOS/Chromium"
+        start = procs.usage_from_words(rusage_words(interrupt=10, energy=1_000_000_000), 1, 1)
+        end = procs.usage_from_words(rusage_words(interrupt=30, energy=3_000_000_000, billed=500_000_000), 1, 1)
+        born = procs.usage_from_words(rusage_words(interrupt=4, energy=2_000_000_000), 1, 1)
+        first = {7: (cmd, start, (0, 30, 0, 0, 100), {})}
+        last = {7: (cmd, end, (0, 31, 0, 0, 140), {1: (2_000, "CrBrowserMain")}),
+                8: (cmd, born, (0, 5, 0, 0, 2), {})}
+        rows = ib.process_rows(first, last, 2.0, {7: 0}, {7: 4_000_000}, ib.chrome_kind)
+        self.assertEqual([(r["pid"], r["kind"], r["energy_mw_cpu"], r["energy_mw_billed"], r["wakeups_per_s"], r["partial"])
+                          for r in rows], [(7, "browser", 1000.0, 1250.0, 10.0, False), (8, "browser", 1000.0, 1000.0, 2.0, True)])
+        self.assertEqual((rows[0]["gpu_ms_per_s"], rows[0]["csw_per_s"], rows[0]["threads_ran"]), (2.0, 20.0, 1))
+        browser = ib.aggregate({"processes": rows})["browser"]
+        self.assertEqual((browser["n"], browser["energy_mw_billed"], browser["wakeups_per_s"]), (2, 2250.0, 12.0))
+
+
+class XbenchChromeSwitchTests(unittest.TestCase):
+    def test_extensions_load_with_one_disable_features(self):
+        import xbench
+        browser = xbench.ChromiumBrowser("chrome", CHROME, None, None, extensions=["/tmp/ubo"])
+        switches = browser.switches()
+        self.assertIn("--load-extension=/tmp/ubo", switches)
+        self.assertEqual([s for s in switches if s.startswith("--disable-features=")], ["--disable-features=ChromeWhatsNewUI"])
+        plain = xbench.ChromiumBrowser("chrome", CHROME, None, None).switches()
+        self.assertEqual([s for s in plain if s.startswith("--disable-features=")], ["--disable-features=ChromeWhatsNewUI"])
+        self.assertFalse(any(s.startswith("--load-extension") for s in plain))
 
 
 if __name__ == "__main__":

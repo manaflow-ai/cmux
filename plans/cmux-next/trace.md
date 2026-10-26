@@ -625,10 +625,14 @@ one process have the same capacities.
 
 A file adds its header page and tables to the chunks: 64 bytes per name and per thread entry (App: 256 KiB of
 names and 128 KiB of threads), mostly untouched pages. `trace.start` caps the total bytes of the recording rings
-it would map and reports them in `trace.status`. Cleanup covers black-box files only: it deletes one whose pid is
-dead (`kill(pid, 0)` plus `process_start_unix_us`) and that is older than 3 days, then the oldest dead ones
-until the dead processes' black boxes take at most 16 MiB. It never deletes a live process's ring. Recording
-files are under the `trace.start` cap, not the cleanup cap.
+it would map and reports them in `trace.status`. Cleanup covers black-box files only: it deletes one whose pid has
+been dead (`kill(pid, 0)` plus `process_start_unix_us`) for more than 3 days, then the longest-dead ones until the
+dead processes' black boxes take at most 16 MiB. It never deletes a live process's ring. A ring's age is not its
+`start_unix_ns` or its mtime: the writer stores through a `MAP_SHARED` mapping, which does not reliably move the
+mtime, so a crashed 4-day session would read as 4 days old. The first cleanup that finds a ring's pid dead creates
+`<ring file name>.dead` with mtime = that cleanup's wall clock, and the age counts from that mtime (ties: the
+older `start_unix_ns` first). A marker whose ring is gone is deleted. Recording files are under the `trace.start`
+cap, not the cleanup cap.
 
 ### Versions
 

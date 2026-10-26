@@ -21,6 +21,12 @@ How it is enforced:
   `-DCMUX_BLOCKING_CHECKS`): recorded for `debug.blocking`, never a trap. Nightly: to come with the
   `nightly.yml` flag and PL-telemetry's hang-report sink (kind + image UUID + offset frames only, no paths or
   names); it will never trap and has no log or menu. Release: compiled out.
+  The same seam call on a shared pool thread (the Swift cooperative pool, `Task.detached`, an actor, a GCD root
+  queue such as `DispatchQueue.global`) is a violation too, recorded at its own `pool` site (`debug.blocking`
+  `context`, `contexts.pool`; not in the Debug menu); launch a Debug build with `CMUX_BLOCKING_TRAP_POOL=1` to
+  stop at it. A `BackgroundWork` lane item, a named queue, a named thread and `allowBlocking` may block. The pool
+  is found by the queue label (the `com.apple.root.` prefix, which the cooperative pool's queues share, on a
+  thread with no pthread name), which is libdispatch's, not API (p02-threads task 005).
 - **What the detector does not see yet** (slice (c): migrate to a seam, or the probe below finds it): every
   raw call that does not go through a seam (today almost all of them: `FileManager.default`, `Data(contentsOf:)`
   and so on), `NSXPCConnection.synchronousRemoteObjectProxy`, `DispatchQueue.asyncAndWait`, semaphore and group
