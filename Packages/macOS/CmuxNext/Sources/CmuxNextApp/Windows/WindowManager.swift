@@ -422,6 +422,14 @@ final class WindowManager {
         // Chromium stops later, as the last quit step (QuitCompletion).
     }
 
+    /// Quit: each open window's sidebar change still waiting for its idle task reaches the snapshot
+    /// store (`SidebarSnapshotRecorder.flushNow`), before the store's flush.
+    func flushSidebarSnapshots() async {
+        for controller in controllers {
+            await controller.sidebar.flushSnapshot()
+        }
+    }
+
     /// Copies each open window's frame and display into the registry.
     func captureGeometry() {
         for controller in controllers {
