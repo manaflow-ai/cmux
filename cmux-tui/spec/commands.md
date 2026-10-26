@@ -932,7 +932,7 @@ Result:
 object{
   schema:uint32,
   uptime_ms:uint64,
-  process:object{pid:uint32, role:string|null, role_raw:int32|null, darwin_bg:bool|null},
+  process:object{pid:uint32, role:string|null, role_raw:int32|null, darwin_bg:object{internal:bool, external:bool}|null},
   threads:array<object{
     name:string, tid:uint64|null,
     declared:qos, desired:qos, effective:qos|null,
@@ -960,8 +960,11 @@ rt_priority` for a real-time thread. `role` is the Mach task role (`reniced`,
 `unspecified`, `foreground`, `background`, `control`, `graphics-server`,
 `throttle`, `non-ui`, `default`, `darwin-bg`, or `other` with `role_raw`);
 the daemon sets `foreground` at start (Chromium's `SetCurrentTaskDefaultRole`).
-`darwin_bg` says whether PRIO_DARWIN_BG suppresses the process. Both are null
-on Linux. Threads are sorted by name, then tid.
+`darwin_bg` holds the daemon's two PRIO_DARWIN_BG flags, and either one
+suppresses it: `internal` is the one the daemon set on itself, `external` the
+one its parent set by pid or that it inherited from a suppressed parent (only
+another process can clear that one). `role` and `darwin_bg` are null on
+Linux. Threads are sorted by name, then tid.
 
 Errors: `daemon thread diagnostics require a trusted local connection`.
 

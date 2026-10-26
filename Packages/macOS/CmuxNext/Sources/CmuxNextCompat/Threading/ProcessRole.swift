@@ -9,6 +9,11 @@ public import Darwin
 /// throughput for `kBestEffort`, which is ``background``. ``backgroundSuppressed`` adds `PRIO_DARWIN_BG`
 /// (low-priority CPU, throttled disk and network I/O); ``foreground`` and ``background`` clear it.
 ///
+/// XNU keeps two `PRIO_DARWIN_BG` flags per task (bsd/kern/kern_resource.c, `do_background_proc`): the internal
+/// one a process sets on itself (``apply()``) and the external one another process sets by pid
+/// (``applySuppression(toChild:)``) or a child inherits from a suppressed parent. Either suppresses the task, and a
+/// process can clear only its own internal one. ``darwinBackground(pid:)`` reads both.
+///
 /// ```swift
 /// try ProcessRole.applyDefault()
 /// try ProcessRole.backgroundSuppressed.apply()
@@ -29,8 +34,9 @@ public enum ProcessRole: Sendable, Equatable {
         try ProcessRole.foreground.setPolicies()
     }
 
-    /// Moves this process to this role. Leaving suppression clears `PRIO_DARWIN_BG` before the role
-    /// changes; entering it sets `PRIO_DARWIN_BG` last.
+    /// Moves this process to this role. Leaving suppression clears this process's internal `PRIO_DARWIN_BG`
+    /// before the role changes; entering it sets that flag last. The external flag (a parent's suppression, or
+    /// inherited) stays: only another process can clear it.
     ///
     /// - Throws: The first ``ProcessRoleError`` the kernel returns.
     public func apply() throws(ProcessRoleError) {
@@ -40,8 +46,8 @@ public enum ProcessRole: Sendable, Equatable {
         if suppressed { try Self.setDarwinBackground(true, pid: 0) }
     }
 
-    /// Sets or clears `PRIO_DARWIN_BG` on a child this process started, as this role has it. A parent
-    /// holds no task port of the child, so the child's task role is the child's own (``applyDefault()``).
+    /// Sets or clears the external `PRIO_DARWIN_BG` flag of a child this process started, as this role has it.
+    /// A parent holds no task port of the child, so the child's task role is the child's own (``applyDefault()``).
     ///
     /// - Parameter pid: A running child of this process.
     /// - Throws: ``ProcessRoleError/darwinBackground(_:)`` with the errno.
@@ -60,12 +66,34 @@ public enum ProcessRole: Sendable, Equatable {
         return result == KERN_SUCCESS && count == 1 ? role : nil
     }
 
-    /// Whether `PRIO_DARWIN_BG` applies to `pid` (0: this process); nil when the read failed.
-    public static func isDarwinBackground(pid: pid_t = 0) -> Bool? {
-        // getpriority may return -1 on success: errno tells the two apart.
-        errno = 0
-        let value = getpriority(PRIO_DARWIN_PROCESS, id_t(pid))
-        return value == -1 && errno != 0 ? nil : value != 0
+    /// The two `PRIO_DARWIN_BG` flags of a process.
+    public struct DarwinBackground: Sendable, Equatable {
+        /// Set by the process on itself (``ProcessRole/apply()``), `PROC_FLAG_DARWINBG`.
+        public var internalFlag: Bool
+        /// Set by another process by pid (``ProcessRole/applySuppression(toChild:)``) or inherited from a
+        /// suppressed parent, `PROC_FLAG_EXT_DARWINBG`.
+        public var externalFlag: Bool
+
+        public init(internalFlag: Bool, externalFlag: Bool) {
+            self.internalFlag = internalFlag
+            self.externalFlag = externalFlag
+        }
+
+        /// Whether either flag suppresses the process.
+        public var isSuppressed: Bool { internalFlag || externalFlag }
+    }
+
+    /// The `PRIO_DARWIN_BG` flags of `pid` (this process by default), from `proc_pidinfo(PROC_PIDTBSDINFO)`;
+    /// nil when the read failed.
+    public static func darwinBackground(pid: pid_t = getpid()) -> DarwinBackground? {
+        var info = proc_bsdinfo()
+        let size = Int32(MemoryLayout<proc_bsdinfo>.size)
+        // SAFETY: `info` has room for the `size` bytes the flavor writes, and lives across the call.
+        guard unsafe blockingProcPidInfo(pid, PROC_PIDTBSDINFO, 0, &info, size) == size else { return nil }
+        return DarwinBackground(
+            internalFlag: info.pbi_flags & Self.darwinBackgroundFlag != 0,
+            externalFlag: info.pbi_flags & Self.externalDarwinBackgroundFlag != 0
+        )
     }
 
     private func setPolicies() throws(ProcessRoleError) {
@@ -102,6 +130,9 @@ public enum ProcessRole: Sendable, Equatable {
     private static let latencyTier5: integer_t = 0x00FF_0006
     private static let throughputTier0: integer_t = 0x00FE_0001
     private static let throughputTier5: integer_t = 0x00FE_0006
+    // sys/proc_info.h `pbi_flags` (XNU `proc_get_darwinbgstate`).
+    private static let darwinBackgroundFlag: UInt32 = 0x8000 // PROC_FLAG_DARWINBG
+    private static let externalDarwinBackgroundFlag: UInt32 = 0x10000 // PROC_FLAG_EXT_DARWINBG
 }
 
 /// Why a ``ProcessRole`` change failed; the process keeps the parts applied before the failing call.

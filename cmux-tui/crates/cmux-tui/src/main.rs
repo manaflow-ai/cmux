@@ -1776,6 +1776,7 @@ fn run_main() {
         return;
     }
     if raw_args.first().map(String::as_str) == Some("__terminal-host") {
+        set_default_task_role();
         if let Err(error) = run_terminal_host_process(&raw_args[1..]) {
             crate::client_log::stderr_log!("startup", "cmux-tui terminal host: {error}");
             client_log::exit(1);
@@ -2224,15 +2225,16 @@ impl Drop for LocalOwnerEventLoop {
     }
 }
 
-/// Starts the session server: surface environment, state root, mux, and listeners.
-/// Chromium's `SetCurrentTaskDefaultRole` for the daemon and the holder: the
-/// person's input passes through both. A refusal is logged, never fatal.
+/// Chromium's `SetCurrentTaskDefaultRole` for the daemon, the holder and the
+/// terminal hosts: the person's input passes through each. A refusal is
+/// logged, never fatal.
 fn set_default_task_role() {
     if let Err(error) = cmux_threads::process_role::set_default_role() {
         crate::client_log::stderr_log!("startup", "{BIN}: {error}");
     }
 }
 
+/// Starts the session server: surface environment, state root, mux, and listeners.
 fn run_server(
     args: Args,
     provider_workspace_authority: Option<ProviderWorkspaceAuthority>,
