@@ -18,20 +18,25 @@ final class ExternalOpenController {
     private(set) var pending: [ExternalOpenRoute] = []
     /// The `ssh://` link question: acpmux peers and saved SSH machines are known hosts, and
     /// "Always allow this host" writes `ssh.linkAllowedHosts` (Settings > Privacy and Security).
-    private(set) lazy var sshGate = ExternalLinkGate(
-        knownHosts: { [weak services] in
-            let saved = services?.machines.ssh.map(\.host.destination.host) ?? []
-            guard let socket = AgentLaneStore.shared.socketPath,
-                  let peers = try? await AcpmuxPeerList(socketPath: socket).peers(deadline: .seconds(1)) else { return saved }
-            return saved + peers.map(\.name) + ExternalLinkGate.peerHosts(peers.compactMap(\.url))
-        },
-        allowedHosts: { [weak services] in services?.settings.map { SSHLinkHostsSetting().hosts(in: $0.snapshot.root) } ?? [] },
-        rememberHost: { [weak services] host in
-            do { try await services?.settings?.allowSSHLinkHost(host) } catch {
-                services?.daemon.logger.error("always allow ssh link host failed: \(String(describing: error), privacy: .public)")
-            }
-        },
-        askSSH: { [weak services] target in await ExternalLinkGate.ask(target, in: services?.windows.active?.window) })
+    private(set) lazy var sshGate = makeSSHGate()
+
+    private func makeSSHGate() -> ExternalLinkGate {
+        let services = services
+        return ExternalLinkGate(
+            knownHosts: { @MainActor [weak services] in
+                let saved = services?.machines.ssh.map(\.host.destination.host) ?? []
+                guard let socket = AgentLaneStore.shared.socketPath,
+                      let peers = try? await AcpmuxPeerList(socketPath: socket).peers(deadline: .seconds(1)) else { return saved }
+                return saved + peers.map(\.name) + ExternalLinkGate.peerHosts(peers.compactMap(\.url))
+            },
+            allowedHosts: { @MainActor [weak services] in services?.settings.map { SSHLinkHostsSetting().hosts(in: $0.snapshot.root) } ?? [] },
+            rememberHost: { @MainActor [weak services] host in
+                do { try await services?.settings?.allowSSHLinkHost(host) } catch {
+                    services?.daemon.logger.error("always allow ssh link host failed: \(String(describing: error), privacy: .public)")
+                }
+            },
+            askSSH: { @MainActor [weak services] target in await ExternalLinkGate.ask(target, in: services?.windows.active?.window) })
+    }
 
     init(services: AppServices) {
         self.services = services
