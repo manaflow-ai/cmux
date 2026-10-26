@@ -175,6 +175,11 @@ void cmux_shim_set_accessibility(int browser_id, int enabled) {
     host->SetAccessibilityState(enabled != 0 ? STATE_ENABLED : STATE_DISABLED);
 }
 
+int cmux_shim_browser_set_embedder_visibility(int browser_id, int visibility) {
+  if (!fork_api().browser_set_embedder_visibility) return 0;
+  return fork_api().browser_set_embedder_visibility(browser_id, visibility);
+}
+
 int cmux_shim_print(int browser_id) {
   CefRefPtr<CefBrowserHost> host = HostOf(browser_id);
   if (!host) return 0;
