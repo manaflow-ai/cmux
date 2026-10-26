@@ -122,6 +122,16 @@ section on the main thread is allowed (a contended wait over 2 ms is recorded), 
 main thread (`blockingSync`) is still reported: the QoS override bounds the inversion, yet the main thread
 still waits for everything queued before it on that queue.
 
+Reviewed lock site, remote view frame gate (`RemoteFrameGate`, CmuxNextRemoteView, p07-memory-085): one
+`CmuxNextCompat.Mutex<Bool>` per started session of a remote desktop or remote browser pane. The decode
+task takes it once per frame and holds it across `presenter.present`, which only posts to the presenter's
+`LatestFrameMailbox` (its own `Mutex`, then at most one main-actor task spawn; never a wait). The main
+thread takes it in `close()` when the tab hides or closes, and waits at most for that one post. Lock order
+is gate, then mailbox; nothing takes them the other way. The lock is what makes "after `pause()` returns,
+no frame of that session reaches the presenter" hold, as Chrome's `RenderWidgetHostImpl::WasHidden`
+(content/browser/renderer_host/render_widget_host_impl.cc) stops a hidden widget's frames before it returns;
+an atomic flag alone would let a frame that passed the check before the close be presented after it.
+
 ## Renderer QoS (rendering-DESIGN R5)
 
 Threads that produce frames, by state. Chrome sets the QoS of a thread from its thread type

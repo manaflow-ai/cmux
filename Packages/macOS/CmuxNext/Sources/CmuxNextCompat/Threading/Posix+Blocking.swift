@@ -4,6 +4,7 @@ public import Darwin
 // `base::ScopedBlockingCall` in base/files/file_posix.cc and base/files/file_util_posix.cc). Each passes
 // its caller's `#fileID` and `#line`, which name the call site, and returns what the call returns.
 // Descriptor reads and writes of a socket or pipe are `blockingRead` / `blockingWrite` (BlockingDescriptorIO).
+// `flock` and `stat` are called unqualified with a typed closure: `Darwin.flock` and `Darwin.stat` name the structs.
 
 /// Opens a file, like `open(2)`, as a checked blocking call (kind ``BlockingKind/fileIO``).
 ///
@@ -76,7 +77,7 @@ public func blockingFsync(_ descriptor: Int32, fileID: StaticString = #fileID, l
 /// - Returns: What `flock(2)` returns.
 @inlinable
 public func blockingFlock(_ descriptor: Int32, _ operation: Int32, fileID: StaticString = #fileID, line: UInt = #line) -> Int32 {
-    return blockingCall(.fileIO, fileID: fileID, line: line) { Darwin.flock(descriptor, operation) }
+    return blockingCall(.fileIO, fileID: fileID, line: line) { () -> Int32 in flock(descriptor, operation) }
 }
 
 /// Sets a file's length, like `ftruncate(2)`, as a checked blocking call (kind ``BlockingKind/fileIO``).
@@ -129,7 +130,7 @@ public func blockingUnlink(_ path: UnsafePointer<CChar>, fileID: StaticString = 
 @inlinable
 public func blockingStat(_ path: UnsafePointer<CChar>, _ info: UnsafeMutablePointer<stat>,
                          fileID: StaticString = #fileID, line: UInt = #line) -> Int32 {
-    return blockingCall(.fsMetadata, fileID: fileID, line: line) { Darwin.stat(path, info) }
+    return blockingCall(.fsMetadata, fileID: fileID, line: line) { () -> Int32 in stat(path, info) }
 }
 
 /// Reads a link's own status, like `lstat(2)`, as a checked blocking call (kind ``BlockingKind/fsMetadata``).
