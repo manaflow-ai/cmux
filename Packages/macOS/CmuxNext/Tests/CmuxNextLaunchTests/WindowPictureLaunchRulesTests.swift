@@ -4,6 +4,7 @@ import CmuxNextCompat
 import CmuxNextWakeups
 import CoreGraphics
 import Foundation
+import Observation
 import Testing
 import UniformTypeIdentifiers
 
@@ -149,6 +150,85 @@ struct WindowPictureLaunchRulesTests {
         var seen: [String] = []
         for await name in marks { seen.append(name) }
         #expect(seen == ["launch_picture_decoded", "launch_picture_refused.theme"], "the refusal was not marked, or the picture was reported dropped")
+    }
+
+    /// The read's end says only whether a picture exists; its pixels come out through the rules alone.
+    @Test func theReadsEndGivesNoPicture() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "window-picture-rules-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        await WindowPictureStore(directory: directory, work: Self.work, encode: Self.png).save([try Self.shot()])
+        let store = WindowPictureStore(directory: directory, work: Self.work)
+        store.prefetchFront({ WindowPictureStore.FrontWindow(window: Self.window, profile: "default") })
+        #expect(await store.frontFinished(), "the read found no picture")
+        #expect(store.takeFront(matching: Self.meta(), launch: Self.facts { $0.recovered = true }) == nil, "a picture was shown after crash recovery")
+        #expect(await store.frontFinished() == false, "a refused picture stayed to be handed out")
+    }
+
+    // MARK: The quit's save
+
+    /// The quit keeps pictures only with the feature on and the setting read on; otherwise it deletes the last
+    /// quit's and draws no window for them.
+    @Test func theQuitKeepsPicturesOnlyWithTheFeatureAndTheSettingOn() async throws {
+        let cases: [(featureOn: Bool, savedPicture: Bool?, keeps: Bool)] = [
+            (true, true, true), (true, false, false), (true, nil, false), (false, true, false), (false, nil, false),
+        ]
+        for (featureOn, savedPicture, keeps) in cases {
+            let directory = FileManager.default.temporaryDirectory.appending(path: "window-picture-quit-\(UUID().uuidString)", directoryHint: .isDirectory)
+            defer { try? FileManager.default.removeItem(at: directory) }
+            let store = WindowPictureStore(directory: directory, work: Self.work, encode: Self.png)
+            await store.save([try Self.shot()])
+            try #require(FileManager.default.fileExists(atPath: directory.appending(path: "default/\(Self.window).json").path))
+            var asked = false
+            let shot = try Self.shot()
+            await store.saveAtQuit(featureOn: featureOn, savedPicture: savedPicture) {
+                asked = true
+                return [shot]
+            }
+            let setting = savedPicture.map(String.init(describing:)) ?? "not loaded"
+            let label = "feature \(featureOn), setting \(setting)"
+            #expect(asked == keeps, "\(label): the windows were drawn for pictures nobody keeps")
+            #expect(FileManager.default.fileExists(atPath: directory.path) == keeps, "\(label): the saved pictures were kept or lost wrongly")
+        }
+    }
+
+    /// `launch.savedPicture` as the app reads it: nil until the settings load.
+    @Observable @MainActor final class SavedPictureSetting {
+        var value: Bool?
+    }
+
+    /// Runs the main run loop until `done` holds, for at most 5 s; returns `done()`.
+    static func runMainLoop(until done: () -> Bool) -> Bool {
+        let end = Date(timeIntervalSinceNow: 5)
+        while !done(), Date() < end {
+            _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01))
+        }
+        return done()
+    }
+
+    /// Turning `launch.savedPicture` off deletes the saved pictures at once, with no quit; while the settings have not
+    /// loaded, and with it on, they stay.
+    @Test func turningTheSettingOffDeletesThePicturesWithNoQuit() async throws {
+        let directory = FileManager.default.temporaryDirectory.appending(path: "window-picture-setting-\(UUID().uuidString)", directoryHint: .isDirectory)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let store = WindowPictureStore(directory: directory, work: Self.work, encode: Self.png)
+        await store.save([try Self.shot()])
+        let setting = SavedPictureSetting()
+        let follower = store.followSavedPicture({ setting.value }, on: MainWorkScheduler.testing { _ in nil })
+        defer { follower.cancel() }
+
+        setting.value = true
+        _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.2))  // the change's flush runs
+        #expect(FileManager.default.fileExists(atPath: directory.path), "the pictures went while the setting was not loaded or on")
+
+        setting.value = false
+        #expect(Self.runMainLoop { !FileManager.default.fileExists(atPath: directory.path) }, "the pictures stayed on disk with the setting off")
+    }
+
+    static func shot() throws -> WindowPictureStore.Shot {
+        WindowPictureStore.Shot(eligibility: .init(incognito: false, onScreen: true, onActiveSpace: true, fullScreen: false, hiddenFromCapture: false),
+                                base: try image(color: CGColor(red: 0.5, green: 0.5, blue: 0.5, alpha: 1)),
+                                size: CGSize(width: 8, height: 6), layers: [], fills: [],
+                                background: .init(red: 0, green: 0, blue: 0), meta: meta())
     }
 
     // MARK: Privacy fills

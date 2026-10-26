@@ -90,8 +90,10 @@ extension WindowPictureStore {
         public let stale: Set<WindowPictureMeta.Region.Kind>
     }
 
-    /// The front window's picture when ``use(_:for:launch:)`` allows it for `opening`, at once and never waiting
-    /// (as ``takeFront()``). A refused picture is handed to nobody and dropped, and its ``Refusal/mark`` recorded.
+    /// The front window's picture when ``use(_:for:launch:)`` allows it for `opening`, at once and never waiting:
+    /// nil while the read runs, when the last quit saved none of that window, or once handed out or dropped. The
+    /// only public way to the picture. A refused picture is handed to nobody and dropped, and its ``Refusal/mark``
+    /// recorded.
     public func takeFront(matching opening: WindowPictureMeta, launch facts: LaunchFacts) -> ShownPicture? {
         guard let picture = launch.take() else { return nil }
         switch Self.use(picture.meta, for: opening, launch: facts) {

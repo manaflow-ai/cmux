@@ -205,10 +205,12 @@ final class QuitCoordinator {
                 // And each window one picture of it (`savedWindowPicture`, `launch.savedPicture`; either off, the last quit's go).
                 if let windowPictures = services.environment.windowPictures {
                     let pages = Dictionary(pageShots.map { ($0.key, $0.picture) }, uniquingKeysWith: { first, _ in first })
-                    let saves = services.features.isEnabled(.savedWindowPicture) && services.settings.map { $0.loadCount >= 1 && $0.snapshot.savedPicture } == true
-                    let secureInput = secureInputPages.union(services.cache.secureInputPages())  // checked again after the page captures
-                    await windowPictures.save(saves
-                        ? Self.windowPictureShots(services, terminals: terminalFrames, agents: agentPages, pages: pages, secureInput: secureInput) : [])
+                    let savedPicture = services.settings.flatMap { $0.loadCount >= 1 ? $0.snapshot.savedPicture : nil }
+                    await windowPictures.saveAtQuit(featureOn: services.features.isEnabled(.savedWindowPicture), savedPicture: savedPicture) {
+                        // Checked again after the page captures: Secure Input may have begun while they ran.
+                        let secureInput = services.cache.composeSecureInputPages(quitBegan: secureInputPages)
+                        return Self.windowPictureShots(services, terminals: terminalFrames, agents: agentPages, pages: pages, secureInput: secureInput)
+                    }
                 }
                 // Browser tabs reopen at their recorded page (before any
                 // session ends, while the daemon still answers).
@@ -318,12 +320,7 @@ final class QuitCoordinator {
         if services.agentTabs.existingView(key) != nil, let page = agents[key], let image = cgImage(page) {
             return .agentPage(image, size: page.size)
         }
-        if let page = services.cache.existingBrowser(key)?.tab {
-            // No window: not on screen, so no region either; withheld keeps the rule on the safe side.
-            let withheld = page.contentView.window.map { services.cache.withholdsLaunchPicture(key, page: page, in: $0, secureInput: secureInput) } ?? true
-            return .browserPage(page.contentView, picture: pages[key]?.image, pageFrame: pages[key]?.pageFrame ?? .zero, withheld: withheld)
-        }
-        return .cmuxPage
+        return services.cache.windowPictureSource(key, picture: pages[key], secureInput: secureInput) ?? .cmuxPage
     }
 
     /// Shows "Some sessions did not end" and waits for the answer.
