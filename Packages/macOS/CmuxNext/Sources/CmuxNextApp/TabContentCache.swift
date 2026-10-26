@@ -215,7 +215,7 @@ final class TabContentCache {
         self.terminalPointerFrames = terminalPointerFrames
         self.gpuResidency = gpuResidency
         normalWarmCapacity = SubsystemBudget.forThisMac(gpuResidentAvailable: gpuResidency != nil).warmTerminalSurfaces
-        webKit = WebKitEngine(fileInput: fileInput, stores: chromium.stores, energy: mainWork.energy, waitDeadlines: chromium.waitDeadlines)
+        webKit = WebKitEngine(fileInput: fileInput, stores: chromium.stores, energy: mainWork.energy, waitDeadlines: chromium.waitDeadlines, mainWork: mainWork)
         self.afterFrame = afterFrame
         browserTabs = BrowserTabService(daemon: daemon, chromium: chromium, mainWork: mainWork)
         wireNotices()
