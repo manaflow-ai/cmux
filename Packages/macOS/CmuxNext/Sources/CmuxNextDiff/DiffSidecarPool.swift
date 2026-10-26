@@ -1,3 +1,4 @@
+import CmuxNextWakeups
 public import Foundation
 
 /// Runs one encoded sidecar request (a `DiffRequest` JSON object) and returns
@@ -14,6 +15,8 @@ nonisolated struct DiffSidecarLauncher: DiffSidecarRunning {
     let cmux: URL
     let root: URL
     var limits = DiffSidecarProcess.Limits()
+    /// Spawns each child off the caller's actor; the diff a person opened shows its reply, so userVisible.
+    var launcher = ProcessLauncher(label: "com.cmuxterm.next.diff-sidecar", priority: .userVisible)
 
     /// The app bundle's `bin/cmux-diff-sidecar` and `bin/cmux`, nil when either
     /// is missing or not executable.
@@ -30,7 +33,7 @@ nonisolated struct DiffSidecarLauncher: DiffSidecarRunning {
     }
 
     func run(_ request: Data) async throws -> Data {
-        try await DiffSidecarProcess.run(executable: sidecar, arguments: arguments, request: request, limits: limits)
+        try await DiffSidecarProcess.run(executable: sidecar, arguments: arguments, request: request, launcher: launcher, limits: limits)
     }
 }
 

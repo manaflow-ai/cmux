@@ -63,23 +63,27 @@ public struct ProcessRunner {
         defer { progress?.cancel() }
 
         let box = ProcessBox(process)
+        // The spawn runs on the launcher's queue, never the caller's actor or the cooperative pool, and the
+        // child at the caller's priority's processQoS (Chromium's launcher thread,
+        // content/browser/child_process_launcher_helper.cc).
+        let launcher = ProcessLauncher(label: "com.cmuxterm.next.daemon.process", priority: WorkPriority(Task.currentPriority))
         // A cancelled caller kills the child, so the waiter below ends now
         // instead of at the child's own exit or the deadline.
         let status: Int32 = try await withTaskCancellationHandler {
             try await withThrowingTaskGroup(of: Int32?.self) { group in
                 group.addTask {
-                    await withCheckedContinuation { (continuation: CheckedContinuation<Int32?, Never>) in
-                        box.process.terminationHandler = { process in
-                            continuation.resume(returning: process.terminationStatus)
-                        }
-                        do {
-                            try box.process.run()
-                            if Task.isCancelled { box.kill() }
-                        } catch {
-                            box.process.terminationHandler = nil
-                            continuation.resume(returning: nil)
-                        }
+                    // Set before the launch: a child that exits at once still reports its status.
+                    let exit = FirstOutcome<Int32>()
+                    box.process.terminationHandler = { process in exit.resolve(process.terminationStatus) }
+                    do {
+                        try await launcher.launched(box.process)
+                    } catch {
+                        box.process.terminationHandler = nil
+                        return nil
                     }
+                    // A cancel or timeout during the launch found no child to kill: this kill reaches it.
+                    if Task.isCancelled { box.kill() }
+                    return await exit.value()
                 }
                 group.addTask {
                     guard let progressIdle, let progress else {
@@ -134,7 +138,7 @@ public struct ProcessRunner {
     }
 }
 
-/// `Process` is not Sendable; it is only touched from the group tasks above.
+/// `Process` is not Sendable; it is only touched from the group tasks above and the launcher queue they hand it to.
 final class ProcessBox: @unchecked Sendable {
     let process: Process
     /// Sends a signal (tests record it instead).
