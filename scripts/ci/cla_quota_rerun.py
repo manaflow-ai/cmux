@@ -27,8 +27,9 @@ late or not at all (12:35Z to 14:19Z on 2026-10-26, while #25466 sat blocked for
    rescues PolicyError and hides the reason), so a guard failure is re-run only with
    evidence of an API failure: its own log shows a 403 or rate limit before the reject;
    or its pull request changes none of the paths the guard validates (POLICY_PATHS), so
-   it proposes no policy and only a failed read can have rejected it (while the run is
-   on an early attempt, NO_POLICY_MAX_ATTEMPT); or a CLA Assistant job, on any pull
+   it proposes no policy and a failed read is the likely reject (a retry heuristic, not
+   proof: a stale event base or an old policy with no usable test merge is rejected too,
+   which is why it holds only while the run is below NO_POLICY_MAX_ATTEMPT); or a CLA Assistant job, on any pull
    request, logged "API rate limit exceeded for installation" within GUARD_WINDOW of it
    (the budget is the repository's, shared by both). None of these needs the response's
    x-ratelimit headers or a particular 403 wording. A reject with none of them is never
