@@ -25,6 +25,7 @@ mod code_mode;
 mod config;
 mod keybinding_tools;
 mod messages;
+mod placement;
 mod render_tool;
 mod schema;
 mod terminal_talk_tools;
@@ -167,16 +168,11 @@ pub(super) trait Backend {
             "this server cannot reach acpmux agent dispatch",
         ))
     }
-    /// Where this server's caller is: the app's `system.identify` answer,
-    /// whose `caller` names its workspace, screen, pane and tab and whose
-    /// `beside` names the column right of its chat; `None` when the
-    /// environment names no caller (a client outside a cmux chat or
-    /// terminal).
+    /// The app's `system.identify` (`caller`, `beside`); `None` with no caller (placement.rs).
     fn identity(&self) -> Result<Option<Value>, CallFailure> {
         Ok(None)
     }
-    /// What the person looks at: the app's focus from `snapshot.get` (its
-    /// window, workspace, pane and tab ids).
+    /// The app's focus from `snapshot.get` (placement.rs).
     fn focus(&self) -> Result<Option<Value>, CallFailure> {
         Ok(None)
     }
@@ -209,14 +205,6 @@ pub(super) trait Backend {
             idempotency_key: None,
         })
     }
-}
-
-/// What [`Server::place_beside`] did with a call's arguments.
-enum Beside {
-    Unchanged,
-    Placed(Map<String, Value>),
-    /// The call was answered (a new column, or its failure).
-    Answered(Value),
 }
 
 /// The CLI's transport, with the CLI's global options.
@@ -255,30 +243,11 @@ impl Backend for LiveBackend {
     }
 
     fn identity(&self) -> Result<Option<Value>, CallFailure> {
-        if super::app::caller_from(|key| std::env::var(key).ok()).is_none() {
-            return Ok(None);
-        }
-        let identity = transport::app_method(
-            &self.global,
-            "system.identify",
-            json!({}),
-            super::app::READ_TIMEOUT,
-            None,
-            false,
-        )?;
-        Ok(Some(identity))
+        placement::app_identity(&self.global)
     }
 
     fn focus(&self) -> Result<Option<Value>, CallFailure> {
-        let snapshot = transport::app_method(
-            &self.global,
-            "snapshot.get",
-            json!({}),
-            super::app::READ_TIMEOUT,
-            None,
-            false,
-        )?;
-        Ok(snapshot.get("topology").and_then(|topology| topology.get("focus")).cloned())
+        placement::app_focus(&self.global)
     }
 
     fn session_events(
@@ -912,16 +881,11 @@ impl<B: Backend> Server<B> {
     }
 
     fn call_v2(&self, tool: &v2_tools::V2Tool, arguments: &Map<String, Value>) -> Value {
-        let placed;
         let arguments = match self.place_beside(tool, arguments) {
-            Beside::Unchanged => arguments,
-            Beside::Placed(with_place) => {
-                placed = with_place;
-                &placed
-            }
-            Beside::Answered(result) => return result,
+            Ok(arguments) => arguments,
+            Err(answer) => return answer,
         };
-        let mut call = match tool.plan(arguments) {
+        let mut call = match tool.plan(&arguments) {
             Ok(call) => call,
             Err(error) => return tool_error(envelope(error, "not_run", None)),
         };
@@ -939,144 +903,6 @@ impl<B: Backend> Server<B> {
             ),
             Err(failure) => failure_result(failure),
         }
-    }
-
-    /// A terminal tab or web link that names no place goes beside the
-    /// caller's chat, in its own workspace ([`super::beside`]): the column
-    /// right of the chat takes it, and with none a split makes one (that
-    /// split answers the call). A client the app does not place keeps the
-    /// daemon's default.
-    fn place_beside(&self, tool: &v2_tools::V2Tool, arguments: &Map<String, Value>) -> Beside {
-        let terminal = tool.wire == "tab.create_terminal";
-        let open_url = tool.wire == "workspace.open_url";
-        if !(terminal || open_url)
-            || arguments.contains_key("session")
-            || !super::beside::names_no_place(arguments)
-        {
-            return Beside::Unchanged;
-        }
-        let Some(placement) = self
-            .backend
-            .identity()
-            .ok()
-            .flatten()
-            .and_then(|identity| super::beside::placement(&identity))
-        else {
-            return Beside::Unchanged;
-        };
-        if open_url {
-            return Beside::Answered(self.open_beside(arguments));
-        }
-        let mut with_place = arguments.clone();
-        match placement {
-            super::beside::Placement::Pane { workspace, pane } => {
-                with_place.insert("workspace".into(), json!(workspace));
-                with_place.insert("pane".into(), json!(pane));
-            }
-            super::beside::Placement::NewColumn { workspace, chat_pane } => {
-                return Beside::Answered(self.new_column(arguments, &workspace, &chat_pane));
-            }
-        }
-        Beside::Placed(with_place)
-    }
-
-    /// A link an agent opens with no workspace: the app's `browser.open_split`
-    /// (the path `cmux open URL` takes), whose `beside_caller` rule puts the
-    /// page in the column right of the chat, or a new column there. The
-    /// daemon's `workspace.open_url` would open it in Home, or, with the
-    /// workspace named, in the chat's own pane when the chat is not docked.
-    fn open_beside(&self, arguments: &Map<String, Value>) -> Value {
-        let key = arguments.get("idempotency_key").and_then(Value::as_str);
-        let mut params =
-            json!({"url": arguments.get("url").cloned().unwrap_or(Value::Null), "focus": false});
-        if let Some(key) = key {
-            params["idempotency_key"] = json!(key);
-        }
-        let timeout = super::app::waiting_run_timeout("openBrowser");
-        match self.backend.app("browser.open_split", params, timeout, key, true) {
-            Ok(value) => success(value, true),
-            Err(failure) => failure_result(failure),
-        }
-    }
-
-    /// The terminal a `tab_create_terminal` asked for, opened as a new
-    /// column right of the chat, then given its name.
-    fn new_column(
-        &self,
-        arguments: &Map<String, Value>,
-        workspace: &str,
-        chat_pane: &str,
-    ) -> Value {
-        let key = arguments.get("idempotency_key").and_then(Value::as_str);
-        let mut split = super::beside::split_params(arguments, workspace, chat_pane);
-        if let Some(key) = key {
-            split.insert("idempotency_key".into(), json!(format!("{key}-beside")));
-        }
-        let Some(tool) = v2_tools::find("pane_split") else {
-            return tool_error(envelope(
-                v2_tools::invalid("pane_split is unavailable"),
-                "not_run",
-                None,
-            ));
-        };
-        let result = self.call_v2(tool, &split);
-        if result["isError"] == true {
-            return result;
-        }
-        // A change answers `{revision, value}`; `value` is the created path.
-        let answer = &result["structuredContent"];
-        let created = if answer["value"].is_object() { &answer["value"] } else { answer };
-        if let Some(mut rename) = super::beside::rename_params(arguments, workspace, created) {
-            rename.remove("machine");
-            if let Some(key) = key {
-                rename.insert("idempotency_key".into(), json!(format!("{key}-name")));
-            }
-            // The terminal exists either way; a missing rename tool leaves it unnamed.
-            if let Some(tool) = v2_tools::find("tab_rename") {
-                let renamed = self.call_v2(tool, &rename);
-                if renamed["isError"] == true {
-                    return renamed;
-                }
-            }
-        }
-        result
-    }
-
-    /// Puts the caller's own ids in place of `current` selectors and the
-    /// app's focus in place of `focused` ([`caller_scope`]). A call to
-    /// another session than the server's has neither there.
-    fn place_caller(&self, call: &mut v2_tools::CallPlan) -> Result<(), Value> {
-        let Some(params) = call.plan.params.as_object_mut() else { return Ok(()) };
-        if call.session.is_some() {
-            return Ok(());
-        }
-        let caller = if caller_scope::wants_caller(params) {
-            match self.backend.identity() {
-                // The app answers an agent session it has no chat for
-                // with `found: false` and no workspace.
-                Ok(Some(identity)) => {
-                    let caller = identity.get("caller").cloned().unwrap_or(Value::Null);
-                    if !caller_scope::is_placed(&caller) {
-                        return Err(caller_scope::unresolved("the app does not know this chat"));
-                    }
-                    Some(caller)
-                }
-                Ok(None) => None,
-                Err(failure) => {
-                    let message = failure.error["message"].as_str().unwrap_or("no answer");
-                    return Err(caller_scope::unresolved(message));
-                }
-            }
-        } else {
-            None
-        };
-        // An app that cannot say what is in front leaves the daemon's
-        // `current`, its active object.
-        let focus = caller_scope::wants_focus(params)
-            .then(|| self.backend.focus().ok().flatten())
-            .flatten();
-        caller_scope::apply(params, caller.as_ref(), focus.as_ref());
-        Ok(())
     }
 
     fn call_window_list(&self, arguments: &Map<String, Value>) -> Value {

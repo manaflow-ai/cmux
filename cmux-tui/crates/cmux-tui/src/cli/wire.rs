@@ -117,25 +117,17 @@ fn run_once(global: &GlobalArgs, mut plan: RequestPlan, tries: &retry::Tries) ->
     let caller_route = global.socket.is_none() && global.session.is_none();
     // An agent's terminal with no place goes beside its chat (beside.rs).
     #[cfg(unix)]
-    if caller_route {
-        let key = request.get("idempotency_key").and_then(Value::as_str).map(str::to_owned);
-        match super::beside::apply_cli(global, &mut plan, &mut reader, key.as_deref()) {
-            super::beside::CliOutcome::Unchanged => {}
-            super::beside::CliOutcome::Placed => {
-                request["params"] = plan.params.clone();
-                encoded = match encode_request(&request) {
-                    Ok(encoded) => encoded,
-                    Err(code) => return code,
-                };
-            }
-            super::beside::CliOutcome::Answered(code) => {
-                if code == 0 {
-                    key_report.succeeded();
-                }
-                key_report.finish(global.output);
-                return code;
-            }
-        }
+    match super::beside::run_cli(
+        global,
+        &mut plan,
+        &mut request,
+        &mut reader,
+        caller_route,
+        &key_report,
+    ) {
+        Ok(Some(reencoded)) => encoded = reencoded,
+        Ok(None) => {}
+        Err(code) => return code,
     }
     // A browser tab in a session a cmux app owns is the app's to render.
     #[cfg(unix)]
@@ -223,7 +215,7 @@ fn run_once(global: &GlobalArgs, mut plan: RequestPlan, tries: &retry::Tries) ->
     code
 }
 
-fn encode_request(request: &Value) -> Result<Vec<u8>, i32> {
+pub(super) fn encode_request(request: &Value) -> Result<Vec<u8>, i32> {
     super::resolve::encode_request_bytes(request).map_err(|error| {
         eprintln!("cmux: {error}");
         2

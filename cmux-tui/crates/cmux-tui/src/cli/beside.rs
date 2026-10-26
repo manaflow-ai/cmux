@@ -169,6 +169,38 @@ pub(super) fn apply_cli(
     }
 }
 
+/// [`apply_cli`] at the CLI's send step (wire.rs): `Ok(Some(bytes))` for
+/// a request that now names the column right of the chat, `Ok(None)` for
+/// one left as it was, `Err(exit code)` when a new column answered it.
+#[cfg(unix)]
+pub(super) fn run_cli(
+    global: &super::GlobalArgs,
+    plan: &mut super::command::RequestPlan,
+    request: &mut Value,
+    reader: &mut std::io::BufReader<Box<dyn cmux_tui_core::platform::transport::Stream>>,
+    caller_route: bool,
+    key_report: &super::wire::KeyReport,
+) -> Result<Option<Vec<u8>>, i32> {
+    if !caller_route {
+        return Ok(None);
+    }
+    let key = request.get("idempotency_key").and_then(Value::as_str).map(str::to_owned);
+    match apply_cli(global, plan, reader, key.as_deref()) {
+        CliOutcome::Unchanged => Ok(None),
+        CliOutcome::Placed => {
+            request["params"] = plan.params.clone();
+            super::wire::encode_request(request).map(Some)
+        }
+        CliOutcome::Answered(code) => {
+            if code == 0 {
+                key_report.succeeded();
+            }
+            key_report.finish(global.output);
+            Err(code)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
