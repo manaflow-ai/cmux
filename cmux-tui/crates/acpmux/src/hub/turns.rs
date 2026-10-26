@@ -98,9 +98,12 @@ impl Hub {
         steer: bool,
         mut opts: PromptOptions,
     ) -> Result<Value, RpcError> {
-        // A deferred start reads the queues after its ready line: a new prompt waits, so it
-        // never runs ahead of a prompt queued under the previous daemon.
-        self.wait_logs().await;
+        // A deferred start reads the queues after its ready line: a new prompt waits for its
+        // chat's, so it never runs ahead of a prompt queued under the previous daemon, nor ahead
+        // of a turn adoption recovers.
+        self.wait_adopted(session).await;
+        self.session_log(session).await;
+        self.pair_logs(opts.provenance.as_ref()).await;
         let Some(prompt_id) = opts.prompt_id.clone() else {
             return self.prompt_unless_held(session, blocks, client, steer, opts).await;
         };
@@ -364,6 +367,8 @@ impl Hub {
             m.preview = Some(String::new());
             m.turn_count += 1;
         }
+        // A turn on lane reports only reports nothing (`lane_reports.rs`).
+        self.lane_turn_started(session, provenance.as_ref());
         // A family prompt (`subsessions.rs`) never clears the floor a Web
         // turn left: only a local turn the person or a client starts does.
         let family = super::subsession_guard::is_family_prompt(run.provenance.as_ref());
@@ -634,6 +639,8 @@ impl Hub {
         turn_seq: u64,
         joined: Option<&super::digest::DigestTurn>,
     ) -> Result<Value, RpcError> {
+        // This turn's number, before taking it lets the next one start (`lane_reports.rs`).
+        let turn = session.meta().turn_count;
         // A model switch (`detach_child`) ended this turn already: its failure is not the queue's.
         let detached = self.take_turn(session, turn_id).is_none_or(|t| t.turn_id != turn_id);
         session.queue_moved.notify_waiters();
@@ -803,7 +810,7 @@ impl Hub {
         }
         self.save_meta(session);
         self.send_offer_result(session);
-        self.lane_turn_ended(session, true);
+        self.lane_turn_ended(session, true, turn);
         result
     }
 
@@ -847,6 +854,7 @@ impl Hub {
         turn_id: &str,
         e: &RpcError,
     ) {
+        let turn = session.meta().turn_count;
         *session.turn.lock().unwrap() = None;
         let mut e = e.clone();
         crate::recovery::annotate(&mut e, Some(&session.meta().cwd));
@@ -873,7 +881,7 @@ impl Hub {
         self.save_meta(session);
         // The turn was counted: its lane's parent hears it failed, with no reply of its own
         // (`lane_reports.rs`).
-        self.lane_turn_ended(session, false);
+        self.lane_turn_ended(session, false, turn);
     }
 
     /// Waits until the inbound loop handled every agent message queued before
@@ -938,14 +946,17 @@ impl Hub {
     ) -> Result<Value, RpcError> {
         // Every switch into a mode that skips approvals, from any client (the app, the CLI, a
         // script), passes here: refused while `sessions.allowFullAccess` is off.
-        if super::start_mode::requests_full_access(m, &params)
-            && !super::start_mode::full_access_allowed()
-        {
+        if super::start_mode::requests_full_access(m, &params) && !self.full_access_allowed() {
             return Err(super::start_mode::full_access_off());
         }
         // Nor does a switch out of the mode a narrower policy needs (`policy_mode.rs`).
         self.refuse_wider_mode_as(session, m, &params, granted).await?;
         let child = self.child_for(session).await?;
+        // Again once the agent is there (its start can take seconds): MDM may have forced full
+        // access off since. A push after this ends the agent at the next prompt (`child_for`).
+        if super::start_mode::requests_full_access(m, &params) && !self.full_access_allowed() {
+            return Err(super::start_mode::full_access_off());
+        }
         let sid = session
             .meta()
             .agent_session_id
@@ -1025,6 +1036,15 @@ impl Hub {
             _ => {}
         }
         self.save_meta(session);
+        // MDM forced full access off while this switch waited on the harness (after both checks
+        // above). The mode is written before this reads the off, and the push writes the off
+        // before it returns, so a switch the push overtook ends here; one that finished first is
+        // an agent already in full access when MDM turned it off (#23322 b).
+        if self.managed_off_runs_full_access(session) {
+            let _spawning = session.spawn_lock.lock().await;
+            self.stop_full_access_agent(session).await;
+            return Err(super::start_mode::full_access_off());
+        }
         Ok(res)
     }
 

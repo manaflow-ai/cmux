@@ -63,11 +63,12 @@ merge `"listen": "127.0.0.1:PORT"` into the `websocket` object of
 `acpmux daemon start` and later restarts use it, and give the same port in the
 peer URL below.
 
-The daemon refuses a home or log that other users can write. If your umask
-makes new files group-writable, run `chmod 700 ~/.acpmux` before starting it;
-if `~/.acpmux/daemon.log` already exists and is group-writable, also run
-`chmod 600 ~/.acpmux/daemon.log`. Keep the log owner-only in your service
-supervisor.
+The daemon creates its home and its files owner-only, whatever your umask. It
+refuses a home or log that something else left writable by other users, and its
+error names the `chmod` that fixes it. If a service supervisor or a shell
+redirect creates the log, create it owner-only (for example with `umask 077`).
+An older acpmux that refuses its own new home under a group-writable umask
+needs `chmod 700 ~/.acpmux` before it starts.
 
 Back on your Mac, use an SSH alias that reaches your own remote account:
 

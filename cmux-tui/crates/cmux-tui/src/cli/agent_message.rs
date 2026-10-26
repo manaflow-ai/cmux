@@ -47,6 +47,10 @@ pub(super) struct MessagePlan {
     pub thread: Option<String>,
     pub reply_to: Option<String>,
     pub idempotency_key: Option<String>,
+    /// `target` is an `acp:` id the caller already resolved and scoped (`cmux agents chat
+    /// send`, which may find the chat in the app's own acpmux rather than the caller's): it is
+    /// sent as is, and the daemon resolves and delivers it in its own acpmux.
+    pub target_resolved: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -100,7 +104,15 @@ pub(super) fn parse_message(
     {
         return Err(UsageError::new("--from must be one line of at most 64 characters"));
     }
-    Ok(MessagePlan { target, body, from, thread, reply_to, idempotency_key: None })
+    Ok(MessagePlan {
+        target,
+        body,
+        from,
+        thread,
+        reply_to,
+        idempotency_key: None,
+        target_resolved: false,
+    })
 }
 
 pub(super) fn parse_inbox(
@@ -326,7 +338,11 @@ pub(super) fn send_and_deliver(
     let mut connection = Connection::open(global)?;
     let mut fields = Map::new();
     if let Some(target) = &plan.target {
-        let recipient = resolve_target(&mut connection, target)?;
+        let recipient = if plan.target_resolved {
+            target.clone()
+        } else {
+            resolve_target(&mut connection, target)?
+        };
         fields.insert("recipients".into(), json!([recipient]));
     }
     fields.insert("body".into(), Value::String(body));

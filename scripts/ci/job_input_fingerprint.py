@@ -101,7 +101,7 @@ SWIFT_TEST = (
     "scripts/sign-cmux-bundle-helpers.sh",
 ) + route.SWIFT_JOB_INPUTS + route.BUNDLE_INPUTS
 GENERATED = ("scripts/ci/defaults_guard.py", "docs/mdm", "docs/configuration.md") + route.BUNDLE_INPUTS
-# check-stamp --base HEAD^1 reads the base's settings sources and exports.
+# generated-files compares the exports with the base's (HEAD^1) settings sources and exports.
 SETTINGS_BASE = (
     "Packages/macOS/CmuxNext/Sources/CmuxNextSettings", "Packages/macOS/CmuxNext/Tests/CmuxNextSettingsTests",
     "schemas/settings", "schemas/settings-export", "docs/mdm", "scripts/ci/defaults_guard.py",

@@ -23,6 +23,8 @@ use std::{
     path::Path,
 };
 
+mod locking;
+
 type Result<T> = std::result::Result<T, i32>;
 fn error() -> i32 {
     io::Error::last_os_error().raw_os_error().unwrap_or(EACCES)

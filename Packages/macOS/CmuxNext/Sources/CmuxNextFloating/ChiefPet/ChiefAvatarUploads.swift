@@ -87,6 +87,8 @@ public final class ChiefAvatarUploads {
     /// order (``now(_:)``), and then apply over what the folder held.
     @ObservationIgnored private var listed = false
     @ObservationIgnored private var waiting: [@MainActor () -> Void] = []
+    /// The launch listing (the line's first step); nil with no folder.
+    @ObservationIgnored private var listing: Task<Void, Never>?
 
     /// - Parameter folder: where uploads are kept; nil keeps nothing (a test, or no support folder).
     public init(folder: URL?) {
@@ -97,7 +99,7 @@ public final class ChiefAvatarUploads {
             return
         }
         // The line's first step: the folder as the last run left it (first frames decoded off the main actor).
-        _ = serially { [weak self] in
+        listing = serially { [weak self] in
             let found = await Task.detached(priority: WorkPriority.userBlocking.taskPriority) { Self.scan(folder) }.value
             guard let self else { return }
             for (key, entry) in found {
@@ -132,6 +134,12 @@ public final class ChiefAvatarUploads {
     /// Applies `change` to what is published now, or, before the listing is, right after it.
     private func now(_ change: @escaping @MainActor () -> Void) {
         if listed { change() } else { waiting.append(change) }
+    }
+
+    /// Returns once the launch listing is published (at once when it is): a reader that must not
+    /// take "no upload yet" for "no upload" (an agent page asking right at launch) waits for it.
+    public func ready() async {
+        await listing?.value
     }
 
     /// Returns when every step asked for so far has run (tests).
