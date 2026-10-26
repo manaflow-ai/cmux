@@ -77,15 +77,16 @@ final class ComposeInlineAttachmentView: NSView {
     /// ``HomeContentMenu``) and Remove Attachment. The draft's file comes from the field that holds this view.
     override func menu(for event: NSEvent) -> NSMenu? {
         guard let attachment else { return nil }
-        var field: NSView? = superview
-        while let v = field, !(v is FieldTextView) { field = v.superview }
-        let lookup = (field as? FieldTextView)?.draftAttachmentFile
+        var holder: NSView? = superview
+        while let v = holder, !(v is FieldTextView) { holder = v.superview }
+        // The field (a main-actor view) is read when a row runs, on the main actor.
+        let field = holder as? FieldTextView
         let id = attachment.attachmentID
-        let resolve: @MainActor @Sendable () async -> URL? = { lookup?(id) }
+        let resolve: @MainActor @Sendable () async -> URL? = { [weak field] in field?.draftAttachmentFile(id) }
         let menu = NSMenu()
         HomeContentMenu(attachmentRows: HomeAttachmentRows(window: window))
-            .attachmentItems(name: attachment.model.fileName, resolve: resolve) {
-                if let file = lookup?(id) { NSWorkspace.shared.open(file) }
+            .attachmentItems(name: attachment.model.fileName, resolve: resolve) { [weak field] in
+                if let file = field?.draftAttachmentFile(id) { NSWorkspace.shared.open(file) }
             }.forEach(menu.addItem)
         menu.addItem(.separator())
         menu.addItem(MenuAction(title: CmuxStrings.removeAttachment, symbol: "xmark.circle") { [weak self] in self?.removeClicked() })

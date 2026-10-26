@@ -6,16 +6,17 @@ import AppKit
 /// fly in and out) is the vendored WindowView's, driven by `openThread`; the
 /// reply leaves through `ChatIntents.send` with the thread root.
 /// Offered only when the owner can take a reply (`ChatIntents.canReply`).
+/// Main actor, as its controller and the intents it asks.
+@MainActor
 final class PaneThread {
     /// The owning controller (it holds this object; weak, so no cycle).
     private weak var controller: ChatController?
-    private var monitors: [Any] = []
+    /// The local event monitors (`install`); they go with this object.
+    private let monitors = PaneEventMonitors()
     /// The press the outside-click monitor took (a mouse down and its up share the number).
     private var swallowedPress: Int?
 
     init(controller: ChatController) { self.controller = controller }
-
-    deinit { monitors.forEach { NSEvent.removeMonitor($0) } }
 
     private var openThread: PartRef? { controller?.store?.state.ui.openThread }
     private var field: NSTextView? { controller?.demo?.compose.textView.view }
@@ -69,7 +70,7 @@ final class PaneThread {
     /// it before a bubble behind the blur takes the press, and Esc closes it wherever the
     /// key focus is (the field handles its own Esc through `escape`).
     func install() {
-        guard monitors.isEmpty else { return }
+        guard monitors.tokens.isEmpty else { return }
         if let m = NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown, handler: { [weak self] e in
             guard let self, let controller = self.controller, self.isLive(e), controller.picker == nil else { return e }
             let host = controller.host
@@ -77,14 +78,14 @@ final class PaneThread {
             guard host.bounds.contains(p), self.clicked(p) else { return e }
             self.swallowedPress = e.eventNumber
             return nil
-        }) { monitors.append(m) }
+        }) { monitors.tokens.append(m) }
         if let m = NSEvent.addLocalMonitorForEvents(matching: .keyDown, handler: { [weak self] e in
             // Only while the key focus is in this pane (a terminal, the sidebar or the palette keep their Esc).
             guard e.keyCode == 53, let self, let controller = self.controller, self.isLive(e), controller.picker == nil,
                   let focus = controller.window?.firstResponder as? NSView, focus.isDescendant(of: controller.host),
                   focus !== self.field else { return e }
             return self.escape() ? nil : e
-        }) { monitors.append(m) }
+        }) { monitors.tokens.append(m) }
     }
 
     /// The mouse up of a press the outside-click monitor took: the click is done.
@@ -108,4 +109,11 @@ final class PaneThread {
         controller.window?.makeFirstResponder(doc)
         doc.takesFocus = false
     }
+}
+
+/// NSEvent local monitors, removed when released: the main-actor owner's deinit then touches none
+/// of its state.
+private final class PaneEventMonitors {
+    var tokens: [Any] = []
+    deinit { tokens.forEach { NSEvent.removeMonitor($0) } }
 }
