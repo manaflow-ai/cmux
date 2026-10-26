@@ -170,6 +170,13 @@ enum Op {
     },
     /// An op of the peer did not fit the queue: what it would have changed goes instead.
     LostPeer(String),
+    /// `_acpmux/peer_snapshot` (`read.rs`).
+    Read {
+        key: Key,
+        generation: Option<u64>,
+        bounds: (usize, usize),
+        reply: mpsc::SyncSender<Value>,
+    },
     Flush {
         peer: Option<String>,
         done: Option<mpsc::SyncSender<()>>,
@@ -662,6 +669,9 @@ impl Store {
                 drop(dropped);
                 self.lose_peer(peer, forget);
             }
+            Op::Read { key, generation, bounds, reply } => {
+                let _ = reply.send(self.read(&key, generation, bounds));
+            }
             Op::Flush { peer, done } => {
                 if done.is_none() {
                     self.dropped.lock().unwrap_or_else(|e| e.into_inner()).flushes.remove(&peer);
@@ -687,6 +697,8 @@ impl Store {
                 return;
             }
             Op::Flush { .. } => return,
+            // Its reader is answered at once that there is nothing (its reply went with it).
+            Op::Read { .. } => return,
             Op::LostPeer(_) => return self.take(op),
             Op::ForgetPeer(peer) => (peer, true),
             Op::Listed { peer, .. } | Op::Lagged { peer, .. } => (peer, false),
@@ -1447,6 +1459,8 @@ impl Hub {
         self.capture_on(peer, (generation, link), || self.peer_snapshots.page((peer, mux), page));
     }
 }
+
+mod read;
 
 #[cfg(test)]
 #[path = "peer_snapshot_tests.rs"]
