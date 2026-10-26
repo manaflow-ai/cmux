@@ -23,14 +23,15 @@ extension KeyBindingTable {
 
     /// The step a key with `readings` takes after the armed `keys` (empty
     /// for a first key).
-    public func step(after keys: [Shortcut], readings: [Shortcut], in context: KeyContext, // perf-hot: 0.5ms key-dispatch (every chord key-down)
+    public func step(after keys: [Shortcut], readings: some Collection<Shortcut>, in context: KeyContext, // perf-hot: 0.5ms key-dispatch (every chord key-down)
                      isRunnable: (ActionID) -> Bool) -> SequenceStep {
         // A bare sequence goes on only while the context still owns bare
         // keys: focus that moved into a text field mid-sequence types the key.
         if let first = keys.first, first.isBare, !context.ownsBareKeys { return .none }
+        let input = CompiledWhen.Input(context)
         if keys.count + 1 < Self.maxSequenceLength,
            let longer = readings.first(where: {
-               (!keys.isEmpty || !$0.isBare || context.ownsBareKeys) && continues(keys + [$0], in: context, isRunnable: isRunnable)
+               (!keys.isEmpty || !$0.isBare || context.ownsBareKeys) && continues(keys + [$0], in: input, isRunnable: isRunnable)
            }) {
             return .extend(longer)
         }
@@ -38,7 +39,7 @@ extension KeyBindingTable {
             return .extend(LeaderLayer.prefix)
         }
         for reading in readings {
-            if let winner = resolve(keys + [reading], in: context, isRunnable: isRunnable).winner { return .run(winner) }
+            if let winner = resolveWinner(keys + [reading], in: input, isRunnable: isRunnable) { return .run(winner) }
         }
         return .none
     }
