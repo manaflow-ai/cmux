@@ -11,6 +11,9 @@ import CmuxNextHistory
 final class VaultHostView: NSView {
     let vault: SessionVault
     private let appearanceState = VaultAppearance()
+    /// The view's place in the visibility tree (a page tab or the right sidebar's section): a theme change while it
+    /// is hidden resolves the colors once, on show.
+    private let visibility = ViewVisibility("vault")
 
     init(vault: SessionVault, registry: ActionRegistry) {
         self.vault = vault
@@ -46,12 +49,25 @@ final class VaultHostView: NSView {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
+        visibility.place(in: window)
         resolveColors()
     }
 
+    // R-hide: hiding forwards to the node.
+    override func viewDidHide() {
+        super.viewDidHide()
+        visibility.node.set(.hidden)
+    }
+
+    override func viewDidUnhide() {
+        super.viewDidUnhide()
+        visibility.node.set(.visible)
+    }
+
+    // R-appear: the colors feed the SwiftUI list, so a hidden vault resolves them on show.
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        resolveColors()
+        visibility.node.deferUntilVisible(key: "VaultHostView.appearance") { [weak self] in self?.resolveColors() }
     }
 
     private func resolveColors() {

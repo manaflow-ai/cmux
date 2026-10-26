@@ -38,10 +38,20 @@ final class LinkHintController {
         cancel()
         session = Session(keys: LinkHintSession(mode: mode), tab: tab, window: window, isFocused: isFocused,
                           openInSplit: openInSplit, notice: notice)
-        work = Task { [weak self] in
-            let value = try? await tab.evaluate(LinkHintSession.collectScript, world: .isolated, gesture: .cmux)
-            guard !Task.isCancelled else { return }
+        call(LinkHintSession.collectScript, on: tab) { [weak self] value in
             self?.collected(value.map(LinkHintSession.targets(from:)) ?? [], from: tab)
+        }
+    }
+
+    /// Runs `script` in `tab`'s isolated world as the pending page call, replacing the one in flight, then `then` with
+    /// its value (nil when it failed) unless a newer call or ``cancel()`` replaced it first.
+    private func call(_ script: String, on tab: CEFTab, then: @escaping (BrowserJSValue?) async -> Void) {
+        work?.cancel()
+        // main-hop-allow: the person's hint keys (userBlocking rest, p06 rule 2) reach the page through CEFTab's main-actor async evaluate; this task only starts that call and hands its value on
+        work = Task {
+            let value = try? await tab.evaluate(script, world: .isolated, gesture: .cmux)
+            guard !Task.isCancelled else { return }
+            await then(value)
         }
     }
 
@@ -84,6 +94,7 @@ final class LinkHintController {
         }
         session = nil
         // task-owner: fire-and-forget overlay removal; nothing waits on it.
+        // main-hop-allow: the removal is CEFTab's main-actor async evaluate, which this task only starts; no later call may cancel it
         Task { _ = try? await tab.evaluate(LinkHintSession.removeScript, world: .isolated, gesture: .cmux) }
     }
 
@@ -96,12 +107,7 @@ final class LinkHintController {
             session = nil
             return
         }
-        let draw = LinkHintSession.drawScript(current.keys.hints ?? [])
-        work = Task { [weak self] in
-            _ = try? await tab.evaluate(draw, world: .isolated, gesture: .cmux)
-            guard !Task.isCancelled else { return }
-            self?.apply(outcome, on: tab)
-        }
+        call(LinkHintSession.drawScript(current.keys.hints ?? []), on: tab) { [weak self] _ in self?.apply(outcome, on: tab) }
     }
 
     private func apply(_ outcome: LinkHintSession.Outcome, on tab: CEFTab) {
@@ -112,19 +118,15 @@ final class LinkHintController {
         case .narrow(let prefix):
             guard current.keys.hints != nil else { return }
             // A newer prefix wins over a draw or narrow still in flight.
-            work?.cancel()
-            work = Task { [weak self] in
-                let shown = try? await tab.evaluate(LinkHintSession.narrowScript(prefix), world: .isolated, gesture: .cmux)
-                guard !Task.isCancelled, shown != .bool(true) else { return }
+            call(LinkHintSession.narrowScript(prefix), on: tab) { [weak self] shown in
                 // The labels are gone (the page scrolled): end the session.
-                self?.cancel()
+                if shown != .bool(true) { self?.cancel() }
             }
         case .pick(let target):
             session = nil
-            work?.cancel()
-            work = Task {
+            call(LinkHintSession.removeScript, on: tab) { removed in
                 // Labels a scroll removed mean stale positions: click nothing.
-                guard (try? await tab.evaluate(LinkHintSession.removeScript, world: .isolated, gesture: .cmux)) == .bool(true) else { return }
+                guard removed == .bool(true) else { return }
                 switch current.keys.mode {
                 case .follow: await Self.click(target, in: tab)
                 case .newSplit: if let url = target.href { current.openInSplit(url) }

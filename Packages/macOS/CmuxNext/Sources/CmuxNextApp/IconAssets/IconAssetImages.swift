@@ -108,6 +108,7 @@ final class IconAssetImages {
         }
         guard !requested.contains(icon), let source = source() else { return nil }
         requested.insert(icon)
+        // main-hop-allow: the read is the owner daemon's get-blob and the decode is @concurrent, both off main; the resume only stores the image, and the app's one shared cache has no scheduler to post on
         Task { [weak self] in
             let blob: (data: Data, mediaType: String)
             do {

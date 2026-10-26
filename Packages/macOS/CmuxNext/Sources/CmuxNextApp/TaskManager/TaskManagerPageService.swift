@@ -86,6 +86,7 @@ final class TaskManagerPageService: InternalPageProvider {
             throw ActionFailure(message: TaskManagerKillRefusal.signalFailed.message)
         }
         // task-owner: one refresh after the kill; ends when the snapshot is read
+        // main-hop-allow: refresh is TaskManagerModel's main-actor async sample (its source samples off main); this task only starts it
         if let model { Task { await model.refresh() } }
     }
 

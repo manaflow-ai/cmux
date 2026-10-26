@@ -28,6 +28,7 @@ final class BrowserDesignModeController {
         modes.designMode.toggle()
         let on = modes.designMode, tab = entry.tab
         cards[key] = on ? BrowserDesignModeCards() : nil
+        // main-hop-allow: the person's toggle shows in this turn (the toolbar mode); the page script is the tab's main-actor async call, which this task only starts, and a failure resets the mode in its resume
         Task { [weak self, weak chrome = entry.chrome] in
             guard on else { return await tab.disableDesignMode() }
             do {
@@ -69,6 +70,7 @@ final class BrowserDesignModeController {
         }
         let rest = zip(made, deliveries).filter { if case .sendToHome = $0.1 { return false } else { return true } }.map(\.0)
         guard !rest.isEmpty else { return }
+        // main-hop-allow: the page snapshot and Home's attachment intake are main-actor async view calls (the page's engine, the composer's drop); the crop and the card files are the only work between them
         Task { [weak self, weak page, weak chat, weak home] in
             guard let page else { return }
             let shot = await Self.capture(page)
@@ -123,6 +125,7 @@ final class BrowserDesignModeController {
 
     /// The agent chat in the workspace of browser tab `key` whose pane was focused last.
     private func chatView(near key: String) -> AgentPaneView? {
+        // view-observation-allow: locateTab is one MachineTabIndex lookup (p06-scheduler-051), R-index's target; no walk, no observation
         guard let services, let (_, pane) = services.locateTab(key) else { return nil }
         let store = services.daemon(for: pane).store
         guard let workspace = store.workspace(containing: pane.handle) else { return nil }

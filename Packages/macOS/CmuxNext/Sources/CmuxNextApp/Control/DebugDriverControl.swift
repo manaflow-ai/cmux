@@ -250,7 +250,8 @@ enum DebugDriverControl {
             .mainActor("debug.passwords_reveal") { [weak services] call in
                 guard let services else { return .value(.null) }
                 let secret = SecretBytes(copying: Array((call.params["secret"]?.stringValue ?? "fixture").utf8))
-                let surface = NativePasswordSecretSurface(), anchor = services.windows.active?.window?.contentView
+                let surface = NativePasswordSecretSurface(pasteboard: ConcealedPasteboard(deadlines: services.mainDeadlines))
+                let anchor = services.windows.active?.window?.contentView
                 let site = call.params["site"]?.stringValue ?? "example.com"
                 // task-owner: the reveal sheet's own lifetime; it ends when the sheet is answered or the app quits.
                 // Off main until the sheet: the reveal itself is the surface's main-actor work.

@@ -2,6 +2,7 @@
 import CmuxNextCompat
 import CmuxNextPages
 import Testing
+import CmuxNextWakeups
 
 /// The icon picker is warm before its first open (cx-ag5.9.2): the app prepares its panel, page
 /// and symbol catalog at an idle moment after launch, so the first Set Icon opens as fast as later
@@ -10,7 +11,7 @@ import Testing
 struct IconPickerWarmTests {
     @Test func preparingMakesThePickerWarmBeforeAnyOpen() async {
         let host = WebUIHost.iconPickerTestHost()
-        let picker = IconPickerService(services: nil, webUI: host)
+        let picker = IconPickerService(services: nil, webUI: host, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         #expect(!picker.isWarm)
         #expect(host.openPages.isEmpty)
         await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
@@ -18,6 +19,22 @@ struct IconPickerWarmTests {
         }
         #expect(picker.isWarm)
         // The warm page is opened through the injected host, not around it.
+        #expect(host.openPages.count == 1)
+    }
+
+    /// Two prepares while the catalog loads share one load (p06-scheduler-320): each runs once it is in, as its own
+    /// posted task, and the picker makes one warm page.
+    @Test func preparesDuringTheCatalogLoadShareItAndEachRuns() async {
+        let host = WebUIHost.iconPickerTestHost()
+        let picker = IconPickerService(services: nil, webUI: host, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
+        var ran = 0
+        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+            let finished = { ran += 1; if ran == 2 { done.resume() } }
+            picker.prepare(then: finished)
+            picker.prepare(then: finished)
+        }
+        #expect(ran == 2)
+        #expect(picker.isWarm)
         #expect(host.openPages.count == 1)
     }
 }

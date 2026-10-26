@@ -42,8 +42,7 @@ final class VaultPageTab: BrowserTab {
     }
 
     func reload() {
-        let vault = vault
-        Task { await vault.reload() }
+        vault.startReload()
     }
 
     func goBack() {}

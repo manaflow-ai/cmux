@@ -10,7 +10,7 @@ final class NativePasswordSecretSurface: PasswordSecretSurface {
     private let center = CmuxDialogCenter(host: CmuxDialogCaptureExcludedHost())
     private let pasteboard: ConcealedPasteboard
 
-    init(pasteboard: ConcealedPasteboard = ConcealedPasteboard()) {
+    init(pasteboard: ConcealedPasteboard) {
         self.pasteboard = pasteboard
     }
 

@@ -118,32 +118,36 @@ final class ProjectsImport {
         let complete = (feed?.isReady ?? false) && (feed?.isEnabled ?? false)
         let alreadySent = sent
         let client = ProjectStateClient(connection: connection)
+        let mainWork = services.mainWork, logger = logger
         // task-owner: awaited at once by `sending` below. Only this task holds the snapshot, so it
         // is released when the batches are ready, not after the sends: a held snapshot would make
         // the next main-actor store change copy all 5000 chats.
-        let grouping = Task { await Self.batches(of: store, sent: alreadySent, complete: complete) }
-        sending = Task { [weak self] in
+        let grouping = Task { @concurrent in await Self.batches(of: store, sent: alreadySent, complete: complete) }
+        // R-hop: the grouping and the sends run off main; the bookkeeping is one posted `automation` task (the daemon
+        // gets the projects with no window on screen, and no person waits for them).
+        sending = Task { @concurrent in
             let batches = await grouping.value
             var delivered: [String: Int] = [:]
             var synced = !fresh
-            guard fresh || !batches.isEmpty else {
-                self?.finished(id, synced: synced, delivered: delivered)
-                return
-            }
-            do {
-                if fresh {
-                    try await client.sync(existing: [], gone: [], idempotencyKey: UUID().uuidString)
-                    synced = true
+            if fresh || !batches.isEmpty {
+                do {
+                    if fresh {
+                        try await client.sync(existing: [], gone: [], idempotencyKey: UUID().uuidString)
+                        synced = true
+                    }
+                    for batch in batches {
+                        try await client.observe(source: batch.source, entries: batch.entriesJSON, complete: true,
+                                                 idempotencyKey: UUID().uuidString)
+                        delivered[batch.source] = batch.fingerprint
+                    }
+                } catch {
+                    logger.error("project import failed: \(String(describing: error), privacy: .private)")
                 }
-                for batch in batches {
-                    try await client.observe(source: batch.source, entries: batch.entriesJSON, complete: true,
-                                             idempotencyKey: UUID().uuidString)
-                    delivered[batch.source] = batch.fingerprint
-                }
-            } catch {
-                self?.logger.error("project import failed: \(String(describing: error), privacy: .private)")
             }
-            self?.finished(id, synced: synced, delivered: delivered)
+            let ended = (synced: synced, delivered: delivered)
+            mainWork.postFromAnyThread(.automation, owner: "ProjectsImport.finished") { [weak self] in
+                self?.finished(id, synced: ended.synced, delivered: ended.delivered)
+            }
         }
     }
 

@@ -5,6 +5,7 @@ import CmuxNextSettings
 import Foundation
 import Testing
 @testable import CmuxNextApp
+import CmuxNextWakeups
 
 private typealias PageJSON = CmuxNextSettings.JSONValue
 
@@ -96,7 +97,8 @@ private typealias PageJSON = CmuxNextSettings.JSONValue
         let store = SamplePasswordStore()
         store.savedExceptions["work"] = store.savedExceptions["default"]
         let provider = PasswordsPageProvider(store: store, profiles: { [.init(id: "default", name: "Default")] },
-                                             confirmations: person, authenticator: person, secrets: person)
+                                             confirmations: person, authenticator: person, secrets: person,
+                                             mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         let page = HeldPage(namespace: "cmux.passwords.", provider: provider)
         try await page.subscribe(PasswordOps.changed)
         page.router.holdDelivery()

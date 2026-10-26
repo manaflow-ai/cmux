@@ -15,7 +15,8 @@ extension AppServices {
         display.setShowsFullURLs = { [weak self] full in
             guard let settings = self?.settings else { return }
             // task-owner: one settings write; ends when it lands (the snapshot brings it back to every bar).
-            Task { @MainActor in
+            // main-hop-allow: the write is SettingsController's own main-actor async write (its file write runs off main); this task only starts it
+            Task {
                 do { try await settings.setSetting(at: BrowserOmnibarSetting.showFullURLsPath, to: .bool(full), by: .user) } catch {
                     NSSound.beep()
                 }

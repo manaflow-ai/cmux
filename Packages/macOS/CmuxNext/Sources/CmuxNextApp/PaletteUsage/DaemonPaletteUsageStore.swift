@@ -79,6 +79,7 @@ final class DaemonPaletteUsageStore: PaletteUsageStore {
             fetchAgain = true
             return
         }
+        // main-hop-allow: one serial main-actor fetch: the client calls run off main, and each step between them reads and writes the store's own state (owner, revision, importedOn)
         fetching = Task { [weak self] in
             await self?.fetchOnce()
             guard let self else { return }
@@ -155,6 +156,7 @@ final class DaemonPaletteUsageStore: PaletteUsageStore {
     private func enqueue(_ write: Write) {
         pendingRuns.append((write, "palette-usage:\(UUID().uuidString)"))
         guard recorder == nil else { return }
+        // main-hop-allow: the one serial main-actor sender of pendingRuns, in order: the client calls run off main, the queue and the owner it reads between them are the store's main-actor state
         recorder = Task { [weak self] in
             await self?.recordPending()
             self?.recorder = nil

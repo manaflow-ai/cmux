@@ -174,7 +174,9 @@ final class TerminalClipboardReadService {
     }
 
     private func scope(for tab: TabModel?) -> CmuxDialogScope {
-        if let tab, let view = services?.cache.existingTerminal(tab.id)?.session.view, view.window != nil, !view.isHiddenOrHasHiddenAncestor {
+        // The tab's node (p06 recipe R-vis): visible while a visible pane selects the tab, with no walk up the views.
+        if let tab, let cache = services?.cache, let view = cache.existingTerminal(tab.id)?.session.view, view.window != nil,
+           cache.node(for: tab.id).isVisible {
             return .tab(view)
         }
         if let window = services?.windows.active?.window { return .window(window) }

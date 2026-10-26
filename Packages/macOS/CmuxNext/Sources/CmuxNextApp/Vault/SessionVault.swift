@@ -49,6 +49,12 @@ final class SessionVault {
         isLoading = false
     }
 
+    /// Starts ``reload()`` without waiting: the person's Refresh and the vault page's reload.
+    func startReload() {
+        // main-hop-allow: reload is the vault's main-actor async read (the source's journal refresh is its own async call); this task only starts it
+        Task { await reload() }
+    }
+
     /// Rebuilds the rows from what the source already holds.
     func rebuild() {
         rows = source.sessions().map {
