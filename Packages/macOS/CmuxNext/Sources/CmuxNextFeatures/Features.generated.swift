@@ -530,12 +530,12 @@ nonisolated extension Feature {
     )
 
     #if DEBUG || CMUX_BENCH_HOOKS
-    /// The Chromium host app quits when its page has been in no window for a while, and the page's next show starts a new host under its stand-in.
+    /// The Chromium host app quits when its page has been in no window for a while; a closed pane still quits it at once. The next show starts a new host, under the page background only: cmux cannot capture the host's pixels yet.
     public static let chromiumHostIdleExit = Feature(
         index: 31,
         name: "chromiumHostIdleExit",
         owner: "PL-memory",
-        description: "The Chromium host app quits when its page has been in no window for a while, and the page's next show starts a new host under its stand-in.",
+        description: "The Chromium host app quits when its page has been in no window for a while; a closed pane still quits it at once. The next show starts a new host, under the page background only: cmux cannot capture the host's pixels yet.",
         kind: .perfPath,
         process: .app,
         chromiumFeature: nil,

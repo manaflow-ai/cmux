@@ -32,6 +32,10 @@ import Observation
 /// nothing shows it. The page keeps its URL; its next show (or ``open(_:)``)
 /// starts a new host under a stand-in (the page background, and the owner's
 /// last picture of the page when it has one) until the new host's first context.
+/// A hidden page's host that crashes is not restarted until the page shows, as
+/// Chrome loads a crashed background tab again only when it is activated
+/// (`NavigationController::LoadIfNecessary` from `Browser::OnActiveTabChanged`,
+/// chrome/browser/ui/browser.cc).
 ///
 /// Tests pass a ``ChromiumHostLaunching`` stand-in, a clock and a short quit limit.
 @MainActor @Observable
@@ -44,8 +48,8 @@ public final class ChromiumHostSession {
         case running
         /// The host ended and does not start again until ``open(_:)``.
         case ended(String)
-        /// The host ended after its idle deadline; the page's next show (or
-        /// ``open(_:)``) starts a new one.
+        /// The host ended after its idle deadline, or ended while its page was hidden;
+        /// the page's next show (or ``open(_:)``) starts a new one.
         case exitedIdle
     }
 
@@ -197,16 +201,13 @@ public final class ChromiumHostSession {
 
     /// The page's view entered a window (`live`) or left it. A page that stops being live arms
     /// the idle exit; a live page cancels it, and starts a new host when the last one ended idle.
+    /// While the idle quit is in flight, hostEnded reads ``isLive`` when the host has ended.
     func setLive(_ live: Bool) {
         guard live != isLive else { return }
         isLive = live
         guard live else { return armIdleExit() }
         idleDeadline?.cancel()
-        if idleQuitting {
-            reopenWhenEnded = true
-        } else if phase == .exitedIdle {
-            startNew()
-        }
+        if phase == .exitedIdle { startNew() }
     }
 
     /// The idle deadline is set: the running host's page is not live.
@@ -255,9 +256,13 @@ public final class ChromiumHostSession {
         }
         return ["phase": phaseText, "pid": Int(pid), "fork_api": Int(forkAPI), "context_id": Int(contextID),
                 "shown_context_id": Int(view.contextID), "url": url, "title": title, "restarts": restarts,
-                "idle_exits": idleExits, "idle_exit_s": idleExit.map { Double($0.components.seconds) } ?? 0,
+                "idle_exits": idleExits, "idle_exit_s": idleExit.map(Self.seconds) ?? 0,
                 "live": isLive, "idle_exit_armed": isIdleExitArmed, "stand_in": view.standIn != nil,
                 "exits": exits, "error": lastError ?? "", "log_file": configuration.logFile ?? ""]
+    }
+
+    private static func seconds(_ duration: Duration) -> Double {
+        Double(duration.components.seconds) + Double(duration.components.attoseconds) / 1e18
     }
 
     // MARK: Lifecycle
@@ -402,7 +407,7 @@ public final class ChromiumHostSession {
             closing = false
             idleExits += 1
             phase = .exitedIdle
-            // Shown again while it quit: the new host starts under the stand-in.
+            // Shown again while it quit (and still shown), or opened: the new host starts under the stand-in.
             if reopenWhenEnded || isLive {
                 reopenWhenEnded = false
                 startNew()
@@ -416,6 +421,9 @@ public final class ChromiumHostSession {
             } else {
                 phase = .idle
             }
+        } else if idleExit != nil, !isLive {
+            // A hidden page's host crashed: nothing shows it, so the next show starts its host.
+            phase = .exitedIdle
         } else if policy.restarts(ranFor: ranFor, isFirstStart: isFirstStart) {
             restarts += 1
             isFirstStart = false

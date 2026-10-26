@@ -266,7 +266,7 @@ extension AppControl {
                 let pane = (call.params["pane"]?.stringValue ?? controller?.focus.state.pane).flatMap { controller?.content?.paneController(key: $0) }
                 let fields = chromiumHost.handle(op: call.params["op"]?.stringValue, url: call.params["url"]?.stringValue,
                                                  over: pane?.view.contentHost, focus: call.params["focus"]?.boolValue == true,
-                                                 idleExit: call.params["idle_exit_s"]?.doubleValue.map { Duration.seconds($0) })
+                                                 idleExitSeconds: call.params["idle_exit_s"]?.doubleValue)
                 return .value(JSONValue(foundation: fields) ?? .null)
             },
             .async("debug.chromium_host.measure") { call in

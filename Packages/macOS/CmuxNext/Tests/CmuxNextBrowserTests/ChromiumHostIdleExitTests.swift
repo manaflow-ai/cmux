@@ -3,6 +3,7 @@
 import AppKit
 @testable import CmuxNextBrowser
 import CmuxNextCompat
+import CmuxNextDesign
 @testable import CmuxNextWakeups
 import Darwin
 import Foundation
@@ -166,6 +167,128 @@ import Testing
         window.contentView?.addSubview(session.view)
         #expect(session.phase == .idle)
         #expect(launcher.count == 1)
+    }
+
+    /// Shown and hidden again while the idle quit is in flight: the page is hidden when the host
+    /// ends, so no host starts until the page shows.
+    @Test(.timeLimit(.minutes(1))) func aShowThenHideWhileTheHostQuitsStartsNoHost() async throws {
+        let launcher = Fake.FakeLauncher()
+        let rig = IdleDeadlineRig()
+        let window = window()
+        let (session, first) = try await running(in: window, launcher: launcher, rig: rig)
+        session.view.removeFromSuperview()
+        rig.fire(after: Self.idle)
+        _ = try #require(await helpers.frame(.quit, in: first.wire.frames))
+        window.contentView?.addSubview(session.view)
+        session.view.removeFromSuperview()
+        launcher.end(first, ChromiumHostExit(signal: nil, status: 0))
+        try await helpers.until("exited idle") { session.phase == .exitedIdle }
+        #expect(launcher.count == 1)
+        #expect(session.idleExits == 1)
+
+        window.contentView?.addSubview(session.view)
+        let second = try await helpers.nextLaunch(launcher)
+        #expect(try await helpers.firstFrame(of: second).text == "https://a.example/")
+        #expect(session.phase == .starting)
+    }
+
+    /// A hidden page's host that crashes waits for the page's next show, as Chrome reloads a
+    /// crashed background tab only when it is activated.
+    @Test(.timeLimit(.minutes(1))) func aHiddenPagesCrashedHostStartsOnlyOnTheNextShow() async throws {
+        let launcher = Fake.FakeLauncher()
+        let rig = IdleDeadlineRig()
+        let window = window()
+        let (session, first) = try await running(in: window, launcher: launcher, rig: rig)
+        session.view.removeFromSuperview()
+        launcher.end(first, ChromiumHostExit(signal: SIGSEGV, status: nil))
+        try await helpers.until("exited while hidden") { session.phase == .exitedIdle }
+        #expect(launcher.count == 1)
+        #expect(session.restarts == 0)
+        #expect(session.idleExits == 0)
+        #expect(!session.isIdleExitArmed)
+
+        window.contentView?.addSubview(session.view)
+        let second = try await helpers.nextLaunch(launcher)
+        #expect(try await helpers.firstFrame(of: second).text == "https://a.example/")
+        #expect(session.restarts == 0)
+    }
+
+    @Test func theReportKeepsAFractionalIdleDeadline() {
+        let rig = IdleDeadlineRig()
+        let session = ChromiumHostSession(configuration: Fake.configuration, launcher: Fake.FakeLauncher(), now: { ContinuousClock.now },
+                                          idleExit: ChromiumHostIdleExit(after: .milliseconds(1500), deadlines: rig.deadlines))
+        #expect(session.report["idle_exit_s"] as? Double == 1.5)
+    }
+
+    // MARK: The prototype
+
+    private static func helperOn() -> TunableStore {
+        let store = TunableStore()
+        store.register(BrowserHostTunables.all)
+        store.activate(file: nil)
+        store.set(BrowserHostTunables.helper.key, .bool(true))
+        return store
+    }
+
+    /// The prototype with an idle deadline, its sessions on `launcher`.
+    private func prototype(launcher: Fake.FakeLauncher, rig: IdleDeadlineRig) -> ChromiumHostPrototype {
+        ChromiumHostPrototype(makeConfiguration: { Fake.configuration }, tunables: Self.helperOn(),
+                              mainWork: MainWorkScheduler(budget: MainFrameBudget()), deadlines: rig.deadlines,
+                              idleExitAfter: Self.idle) { configuration, idleExit in
+            ChromiumHostSession(configuration: configuration, launcher: launcher, now: { ContinuousClock.now }, idleExit: idleExit)
+        }
+    }
+
+    /// With an idle deadline, a closed pane still ends its host at once; only a detached page waits.
+    @Test(.timeLimit(.minutes(1))) func aClosedPaneEndsItsHostAtOnceWithAnIdleDeadline() async throws {
+        let launcher = Fake.FakeLauncher()
+        let rig = IdleDeadlineRig()
+        let window = window()
+        let pane = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
+        window.contentView?.addSubview(pane)
+        let prototype = prototype(launcher: launcher, rig: rig)
+        #expect(prototype.open("https://a.example/", over: pane, focus: false)["error"] == nil)
+        let host = try await helpers.nextLaunch(launcher)
+        helpers.answer(host, context: 5, address: "https://a.example/")
+        try await helpers.until("running") { prototype.report["phase"] as? String == "running" }
+
+        pane.removeFromSuperview()
+        _ = try #require(await helpers.frame(.quit, in: host.wire.frames))
+        #expect(prototype.report["idle_exit_armed"] as? Bool == false)
+        launcher.end(host, ChromiumHostExit(signal: nil, status: 0))
+        try await helpers.until("closed") { prototype.report["phase"] as? String == "idle" }
+        #expect(launcher.count == 1)
+    }
+
+    @Test(.timeLimit(.minutes(1))) func aDetachedPageKeepsItsHostUntilTheIdleDeadline() async throws {
+        let launcher = Fake.FakeLauncher()
+        let rig = IdleDeadlineRig()
+        let window = window()
+        let pane = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
+        window.contentView?.addSubview(pane)
+        let prototype = prototype(launcher: launcher, rig: rig)
+        _ = prototype.open("https://a.example/", over: pane, focus: false)
+        let host = try await helpers.nextLaunch(launcher)
+        helpers.answer(host, context: 5, address: "https://a.example/")
+        try await helpers.until("running") { prototype.report["phase"] as? String == "running" }
+
+        let report = prototype.detach()
+        #expect(report["phase"] as? String == "running")
+        #expect(report["idle_exit_armed"] as? Bool == true)
+        #expect(report["live"] as? Bool == false)
+        rig.fire(after: Self.idle)
+        _ = try #require(await helpers.frame(.quit, in: host.wire.frames))
+    }
+
+    @Test(arguments: [0, -1, 0.5, 3601, 1e21, Double.infinity, Double.nan] as [Double])
+    func anIdleDeadlineOutOfRangeIsRefused(seconds: Double) {
+        let rig = IdleDeadlineRig()
+        let window = window()
+        let prototype = prototype(launcher: Fake.FakeLauncher(), rig: rig)
+        let reply = prototype.handle(op: "open", url: "https://a.example/", over: window.contentView, focus: false,
+                                     idleExitSeconds: seconds)
+        #expect((reply["error"] as? String)?.hasPrefix("idle_exit_s must be within") == true)
+        #expect(prototype.report["phase"] as? String == "none")
     }
 }
 
