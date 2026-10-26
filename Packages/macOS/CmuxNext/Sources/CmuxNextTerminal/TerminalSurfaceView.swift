@@ -123,6 +123,8 @@ public final class TerminalSurfaceView: NSView {
     /// insertText brings its trail (upstream Ghostty #13737).
     var leadSurrogate: UTF16.CodeUnit?
     var lastPerformKeyEventTimestamp: TimeInterval?
+    /// The key down `keyDown` runs through `interpretKeyEvents`, which `doCommand` re-sends.
+    var interpretingKeyDown: NSEvent?
     var previousPressureStage = 0
     /// The left press went to Ghostty as a link click, in a program that has the mouse or with
     /// Shift- or Option-Command (``TerminalPointerMods``): its drags and release go the same way.

@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextIcons
+import CmuxNextInput
 import QuartzCore
 
 /// Small borderless icon button with the shared chrome hover and pressed
@@ -35,10 +36,6 @@ final class SidebarIconButton: NSButton {
         didSet { refusesFirstResponder = !takesKeyFocus }
     }
     private var isKeyFocused = false { didSet { if isKeyFocused != oldValue { needsDisplay = true } } }
-    /// Mouse events never move the keyboard focus here: a click on a card's x would otherwise
-    /// leave the focus on a button that the card then hides, and typing would go nowhere.
-    private static let mouseEvents: Set<NSEvent.EventType> = [.leftMouseDown, .leftMouseUp, .rightMouseDown, .rightMouseUp,
-                                                               .otherMouseDown, .otherMouseUp]
     private lazy var keyRepaint = KeyWindowRepaint(self)
     /// The label point size the icon sits beside, read at layout time so density changes apply live.
     private let pointSize: () -> CGFloat
@@ -132,9 +129,13 @@ final class SidebarIconButton: NSButton {
 
     nonisolated override var wantsUpdateLayer: Bool { true }
 
+    /// Mouse buttons never move the keyboard focus here: a click on a card's x would otherwise
+    /// leave the focus on a button that the card then hides, and typing would go nowhere. The
+    /// event asking is the window's last dispatched one (the click or the Tab key in dispatch).
     override var acceptsFirstResponder: Bool {
         guard takesKeyFocus else { return super.acceptsFirstResponder }
-        return NSApp.isFullKeyboardAccessEnabled && isEnabled && !(NSApp.currentEvent.map { Self.mouseEvents.contains($0.type) } ?? false)
+        let clicked = (window as? InputTapHosting)?.inputTap?.lastDispatched?.eventClass == .button
+        return NSApp.isFullKeyboardAccessEnabled && isEnabled && !clicked
     }
     override var canBecomeKeyView: Bool { takesKeyFocus ? acceptsFirstResponder && !isHiddenOrHasHiddenAncestor : super.canBecomeKeyView }
 

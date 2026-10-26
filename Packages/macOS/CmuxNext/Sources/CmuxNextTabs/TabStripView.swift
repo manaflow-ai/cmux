@@ -247,10 +247,8 @@ public final class TabStripView: NSView {
     /// click in the strip still takes the keyboard, which ends (commits) the rename.
     public override var acceptsFirstResponder: Bool {
         if inlineRename.field != nil { return true }
-        return switch NSApp.currentEvent?.type {
-        case .leftMouseDown, .rightMouseDown, .otherMouseDown: false
-        default: true
-        }
+        // The event asking is the one in dispatch: the tap's last dispatched event.
+        return inputTap.lastDispatched?.type.isButtonDown != true
     }
 
     /// F2 starts the same inline editor as a screen-tab double-click. The
