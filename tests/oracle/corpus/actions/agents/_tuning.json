@@ -936,16 +936,12 @@
       ]
     },
     "chief.openViews": {
-      "receipt": "action.done",
+      "error": "control.unavailable",
       "invariants": [
-        "the Chief View Gallery page tab opens in the active window (ChiefViewsPage, pages.show, focus: false): a DEV build with the gallery tunable on by default (ChiefViewsTunables.gallery)"
+        "the bench build (Release, no DEBUG, bundle com.cmuxterm.app.debug.<tag>) has DevTools off, so ChiefViewsPage.unavailableReason refuses the action with ChiefViewsStrings.off and no Chief View Gallery tab opens"
       ],
-      "waitFor": {
-        "pointer": "/tabs/panes",
-        "predicate": "changed",
-        "maxMs": 5000
-      },
       "untested": [
+        "the Chief View Gallery page tab open (ChiefViewsPage, pages.show, focus: false): it needs a DEBUG or NIGHTLY build with DevTools on and the ChiefViewsTunables.gallery tunable",
         "the gallery's views: the fixture is offline and runs no agent, so they show no rows"
       ]
     },
