@@ -292,15 +292,16 @@ def run(name, helper, steps, setup=None, new_pane=False):
     except (ValueError, IndexError):
         timing = {"error": (result.stdout + result.stderr)[-300:]}
     got = wait(lambda: (lambda t: t if t == opts.text and focused_tab() not in (None, before) else None)(field_text()), 6)
-    text = got if got is not None else field_text()
     after = focused_tab()
+    # No new focused tab: the keys reached no new page, whatever the old page's field holds.
+    text = got if got is not None else (field_text() if after not in (None, before) else None)
     focus = rpc("debug.focus") or {}
     holds = focus.get("new_tab_key_holds")
     ok = got is not None and "error" not in timing and drained(focus) and (not new_pane or panes() == panes_before + 1)
     if not ok:
         print("  hold log:", json.dumps((focus.get("new_tab_key_log") or [])[-20:]), flush=True)
     row = {"run": name, "field": text, "pass": ok, "tab_before": before, "tab_after": after, "drained": drained(focus),
-           "panes": [panes_before, panes()], "holds_after": holds, **timing}
+           "new_pane": new_pane, "panes": [panes_before, panes()], "holds_after": holds, **timing}
     print(("PASS" if ok else "FAIL"), json.dumps(row), flush=True)
     return row
 

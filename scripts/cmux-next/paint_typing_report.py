@@ -87,6 +87,18 @@ def lost_keys(expected, got):
     return len(expected) - sum(block.size for block in matcher.get_matching_blocks())
 
 
+def landed_field(row):
+    """The field text of the new page the run's keys went to, or None when they went to no new page: a run() row
+    whose focused tab did not change (the old page, maybe the last run's, may hold the text already), or a new-pane
+    run whose pane count did not grow. A run_window() row reads only a new window's field already."""
+    if "tab_before" in row and row.get("tab_after") in (None, row["tab_before"]):
+        return None
+    panes = row.get("panes")
+    if row.get("new_pane") and not (isinstance(panes, list) and len(panes) == 2 and panes[1] > panes[0]):
+        return None
+    return row.get("field")
+
+
 def run_kind(name):
     """`cold-cmdn-3` -> `cold_cmdn`: the run's flow, its series key."""
     return name.rsplit("-", 1)[0].replace("-", "_")
@@ -94,13 +106,14 @@ def run_kind(name):
 
 def typing_series(rows, expected):
     """new-workspace-real-typing-e2e.py rows -> series per run kind: `.lost_keys`, one sample per run whose keys were
-    sent (a failed setup sends none), and `.failed_runs`, the runs that did not pass (setup failures included)."""
+    sent (a failed setup sends none; every key is lost when the keys reached no new page, landed_field), and
+    `.failed_runs`, the runs that did not pass (setup failures included)."""
     groups = collections.OrderedDict()
     for row in rows:
         groups.setdefault(run_kind(row["run"]), []).append(row)
     out = []
     for kind, sel in groups.items():
-        lost = [float(lost_keys(expected, r.get("field"))) for r in sel if "field" in r]
+        lost = [float(lost_keys(expected, landed_field(r))) for r in sel if "field" in r]
         if lost:
             out.append(Series(f"new_workspace_typing.{kind}.lost_keys", "count", lost))
         out.append(Series(f"new_workspace_typing.{kind}.failed_runs", "count", [float(sum(1 for r in sel if not r.get("pass")))]))

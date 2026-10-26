@@ -131,6 +131,21 @@ class SeriesTests(unittest.TestCase):
             "new_workspace_typing.warm_newwin.lost_keys": [0.0],
             "new_workspace_typing.warm_newwin.failed_runs": [0.0]})
 
+    def test_keys_that_reach_no_new_page_are_all_lost(self):
+        text = "hello world 123"
+        rows = [  # the focused tab did not change: the old page (the last run's) holds the text, the new one none
+                {"run": "warm-cmdn-1", "field": text + text, "pass": False, "tab_before": "t1", "tab_after": "t1"},
+                {"run": "warm-cmdn-2", "field": text, "pass": False, "tab_before": "t1", "tab_after": None},
+                {"run": "warm-cmdn-3", "field": text, "pass": True, "tab_before": "t1", "tab_after": "t2"},
+                # Cmd-D focused a new tab but made no pane: the keys reached no new pane's page
+                {"run": "warm-split-1", "field": text, "pass": False, "tab_before": "t2", "tab_after": "t3",
+                 "new_pane": True, "panes": [1, 1]},
+                {"run": "warm-split-2", "field": text, "pass": True, "tab_before": "t3", "tab_after": "t4",
+                 "new_pane": True, "panes": [1, 2]}]
+        got = {s.metric: s.samples for s in report.typing_series(rows, text)}
+        self.assertEqual(got["new_workspace_typing.warm_cmdn.lost_keys"], [15.0, 15.0, 0.0])
+        self.assertEqual(got["new_workspace_typing.warm_split.lost_keys"], [15.0, 0.0])
+
     def test_home_typing_series(self):
         got = {s.metric: (s.unit, s.samples) for s in report.home_typing_series(pace_steps(), ["x"])}
         self.assertEqual(got, {"home_typing_still.resize_pace.width_pass": ("ms", [1.25, 0.75]),
@@ -236,6 +251,40 @@ class SourceTests(unittest.TestCase):
         catalog = bl.load_by_path("perf_lab_catalog", str(PERF_LAB / "catalog.py")).load_catalog()
         self.assertLessEqual(set(STORY_SCRIPTS), {s.id for s in catalog.stories})
         self.assertEqual([p for p in catalog.problems if any(s in p for s in STORY_SCRIPTS)], [])
+
+
+def bench_sparse_paths():
+    """The sparse-checkout list of cmux-next-frame-pacing.yml's "Checkout the bench" step."""
+    lines = (ROOT / ".github/workflows/cmux-next-frame-pacing.yml").read_text().splitlines()
+    start = next(i for i, line in enumerate(lines) if line.strip() == "- name: Checkout the bench")
+    block = next(i for i in range(start, len(lines)) if lines[i].strip() == "sparse-checkout: |")
+    indent = len(lines[block]) - len(lines[block].lstrip())
+    paths = []
+    for line in lines[block + 1:]:
+        if line.strip() and len(line) - len(line.lstrip()) <= indent:
+            break
+        paths.append(line.strip())
+    return [p for p in paths if p]
+
+
+class WorkflowTests(unittest.TestCase):
+    def test_the_frame_pacing_checkout_holds_every_module_its_guards_import(self):
+        """The frame-pacing GUI lane runs cmd-n-paint-e2e.py and instant-new-surfaces-bench.py from its sparse
+        checkout: under `python3 -I` from a copy of only those paths, both start (their whole import closure, the
+        perf-lab modules loaded by path included, is in it)."""
+        paths = bench_sparse_paths()
+        with tempfile.TemporaryDirectory(prefix="frame-pacing-sparse-") as scratch:
+            for path in paths:
+                source, target = ROOT / path, Path(scratch) / path
+                target.parent.mkdir(parents=True, exist_ok=True)
+                if source.is_dir():
+                    shutil.copytree(source, target, ignore=shutil.ignore_patterns("__pycache__"))
+                else:
+                    shutil.copy2(source, target)
+            for name in ("cmd-n-paint-e2e.py", "instant-new-surfaces-bench.py"):
+                done = subprocess.run([sys.executable, "-I", "-B", str(Path(scratch) / "scripts/cmux-next" / name),
+                                       "--help"], capture_output=True, text=True, timeout=60)
+                self.assertEqual(done.returncode, 0, f"{name}: {done.stderr[-400:]}")
 
 
 if __name__ == "__main__":
