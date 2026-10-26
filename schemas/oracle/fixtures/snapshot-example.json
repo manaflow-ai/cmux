@@ -419,6 +419,7 @@
         {
           "workspace": "ws_000000000000000000000000000000b1",
           "screen": "screen_000000000000000000000000000000c1",
+          "active": true,
           "focusedPane": "pane_000000000000000000000000000000d1",
           "zoomedPane": null,
           "root": {
@@ -443,8 +444,60 @@
               }
             ]
           },
-          "dock": {"side": null, "fraction": null, "open": false},
-          "canvas": {"columns": 1, "firstVisibleColumn": 0, "offset": 0}
+          "strip": {"columns": 0, "firstVisibleColumn": null},
+          "canvas": null
+        },
+        {
+          "workspace": "ws_000000000000000000000000000000b1",
+          "screen": "screen_000000000000000000000000000000c2",
+          "active": false,
+          "focusedPane": null,
+          "zoomedPane": null,
+          "root": {
+            "kind": "strip",
+            "axis": "horizontal",
+            "ratios": [],
+            "pane": null,
+            "children": [
+              {
+                "kind": "column",
+                "axis": "vertical",
+                "ratios": [],
+                "pane": null,
+                "width": 0.5,
+                "dock": null,
+                "children": [
+                  {
+                    "kind": "row",
+                    "axis": null,
+                    "ratios": [],
+                    "pane": null,
+                    "height": 0.6,
+                    "children": [{"kind": "leaf", "axis": null, "ratios": [], "pane": "pane_000000000000000000000000000000d3", "children": []}]
+                  },
+                  {
+                    "kind": "row",
+                    "axis": null,
+                    "ratios": [],
+                    "pane": null,
+                    "height": 0.4,
+                    "children": [{"kind": "leaf", "axis": null, "ratios": [], "pane": "pane_000000000000000000000000000000d4", "children": []}]
+                  }
+                ]
+              },
+              {
+                "kind": "column",
+                "axis": "vertical",
+                "ratios": [],
+                "pane": null,
+                "width": 0.333,
+                "dock": {"edge": "right", "mode": "docked", "role": "agentChat", "pinned": false, "allowsTabs": false},
+                "children": [{"kind": "leaf", "axis": null, "ratios": [], "pane": "pane_000000000000000000000000000000d5", "children": []}]
+              }
+            ]
+          },
+          "strip": {"columns": 1, "firstVisibleColumn": null},
+          "canvas": {"order": ["pane_000000000000000000000000000000d4", "pane_000000000000000000000000000000d3"], "zoom": 1.25, "overview": false}
         }
       ]
     },

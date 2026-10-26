@@ -1752,7 +1752,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .target(
             name: "CmuxNextLayout",
-            dependencies: ["CmuxNextCompat", "CmuxNextWakeups", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextTrace", "CmuxNextSignposts"],
+            dependencies: ["CmuxNextCompat", "CmuxNextWakeups", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextTrace", "CmuxNextSignposts", "CmuxNextOracle"],
             resources: [
                 .process("Resources"),
             ],
