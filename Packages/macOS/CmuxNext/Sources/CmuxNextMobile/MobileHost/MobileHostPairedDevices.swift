@@ -229,6 +229,7 @@ public struct MobileHostPairedDevicesFile: Sendable {
     /// App quit only (`applicationWillTerminate`, under its reviewed blocking allowance): waits, up
     /// to `limit`, for the saves already queued, a removal's among them.
     public static func flush(within limit: TimeInterval = 2) {
+        // concurrency-allow: app quit only, inside allowBlocking(.terminate) in applicationWillTerminate; bounded by `limit` (2 s).
         let done = DispatchSemaphore(value: 0)
         queue.async { done.signal() }
         if done.blockingWait(timeout: .now() + limit) == .timedOut {
