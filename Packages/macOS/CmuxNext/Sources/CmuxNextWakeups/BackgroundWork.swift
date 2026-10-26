@@ -16,13 +16,13 @@ import Dispatch
 /// ``post(_:mayBlock:shutdown:fileID:line:_:)``. A caller that awaits work below its own priority boosts it at
 /// the call: the item runs at the higher of its priority and the caller's (`Task.currentPriority`).
 ///
-/// No later escalation, on any macOS: when a low task awaits an item and a higher task later awaits
-/// that low task, the item stays at its priority, possibly behind other low work. Swift's escalation
-/// hook (`withTaskPriorityEscalationHandler`) exists only on macOS 26 and its runtime entry point is
-/// strong-linked, so even a reference under `#available` stops launch on macOS 14 and 15. That is a
-/// latency inversion, never a main-thread wait (nothing here waits synchronously). So start work that
-/// a person may wait for at that priority; do not start it low and count on a later waiter to raise it.
-/// To keep work low, post it, or await it from a task that is itself low
+/// Later escalation goes through a handle: ``runHandle(_:mayBlock:shutdown:fileID:line:_:)`` queues an item at
+/// its own priority, and ``WorkHandle/raise(to:)`` or an await of ``WorkHandle/value`` (at the awaiter's
+/// priority) moves it up while queued, or overrides its slot thread's QoS while it runs (Chrome's
+/// `UpdateableSequencedTaskRunner::UpdatePriority` and `ScopedBoostablePriority`). `run` itself boosts only at
+/// the call: Swift's escalation hook (`withTaskPriorityEscalationHandler`) is macOS 26 only and strong-linked, so
+/// a later waiter of the task that awaits `run` does not reach the item. Work started low that a person may
+/// wait for later takes a handle; to keep work low, post it or await it from a low task
 /// (`Task(priority: WorkPriority.bestEffort.taskPriority)`).
 ///
 /// Startup fence: between ``beginBestEffortFence()`` and ``endBestEffortFence()`` posted
@@ -53,7 +53,7 @@ public final class BackgroundWork: Sendable {
     public let cpuWidth: Int
     /// The label prefix of every lane slot's dispatch queue (`<label>.<lane>.<priority or slot>`).
     public let label: String
-    private let lanes: [LaneScheduler]
+    let lanes: [LaneScheduler]
     private let onQueued: @Sendable (BlockingLane, WorkPriority) -> Void
     private let onRan: (@Sendable (BlockingLane, WorkPriority, UInt64, UInt64) -> Void)?
     /// False after ``stopReportingRuns()``: items submitted later skip `onRan` and the clock.
@@ -115,13 +115,13 @@ public final class BackgroundWork: Sendable {
                   uptimeNanos: uptimeNanos, taskHooks: .none)
     }
 
-    /// The designated init; tests pass ``TaskHooks`` to stop a task between its steps, and the clock of the
-    /// system lane's ``mayBlockThreshold``.
+    /// The designated init; tests pass ``TaskHooks`` to stop a task between its steps, the clock of the
+    /// system lane's ``mayBlockThreshold``, and a counting ``ThreadQoSOverride``.
     init(cpuWidth: Int, label: String, hangs: (any HangWatchScoping)? = nil,
          onQueued: @escaping @Sendable (BlockingLane, WorkPriority) -> Void,
          onRan: (@Sendable (BlockingLane, WorkPriority, UInt64, UInt64) -> Void)? = nil,
          uptimeNanos: (@Sendable () -> UInt64)?, taskHooks: TaskHooks,
-         mayBlockClock: any Clock<Duration> = ContinuousClock()) {
+         mayBlockClock: any Clock<Duration> = ContinuousClock(), qosOverride: ThreadQoSOverride = .system) {
         self.taskHooks = taskHooks
         self.cpuWidth = max(1, cpuWidth)
         self.label = label
@@ -140,7 +140,7 @@ public final class BackgroundWork: Sendable {
             let compensation = lane == .system
                 ? LaneScheduler.MayBlockCompensation(threshold: Self.mayBlockThreshold, clock: mayBlockClock) : nil
             return LaneScheduler(label: "\(label).\(lane)", policy: traits.policy, mayBlock: traits.mayBlock, caps: traits.caps,
-                                 compensation: compensation, hangWatched: watched)
+                                 compensation: compensation, hangWatched: watched, qosOverride: qosOverride)
         }
     }
 
@@ -175,7 +175,7 @@ public final class BackgroundWork: Sendable {
     }
 
     /// Runs `body` on `lane` at `priority` (boosted to the caller's priority at the call) and returns its
-    /// result. A later escalation of the caller does not boost it (see the type's note).
+    /// result. A later escalation of the caller does not boost it; a ``WorkHandle`` item can be raised later.
     ///
     /// - Parameters:
     ///   - priority: how much a person waits for it; the item runs at the higher of this and the caller's.
@@ -313,7 +313,7 @@ public final class BackgroundWork: Sendable {
     }
 
     /// Abandons a refused item and reports a queued one.
-    private func submitted(_ result: LaneScheduler.Submitted, _ job: LaneJob, on lane: BlockingLane) {
+    func submitted(_ result: LaneScheduler.Submitted, _ job: LaneJob, on lane: BlockingLane) {
         switch result {
         case .refused: job.abandon()
         case .started: break
@@ -381,7 +381,7 @@ public final class BackgroundWork: Sendable {
         }
     }
 
-    private func makeJob(id: UInt64, lane: BlockingLane, priority: WorkPriority, shutdown: ShutdownBehavior,
+    func makeJob(id: UInt64, lane: BlockingLane, priority: WorkPriority, shutdown: ShutdownBehavior,
                          site: CallSite, work unreported: @escaping @Sendable () -> Void,
                          abandoned: @escaping @Sendable () -> Void) -> LaneJob? {
         let work = reporting(unreported, lane: lane, priority: priority)
