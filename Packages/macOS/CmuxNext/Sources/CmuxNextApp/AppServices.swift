@@ -296,8 +296,8 @@ final class AppServices {
     /// and the DevTools divider move on a frame interval's first drag event and once more at its frame. Nil while it
     /// is off: each drag event moves them.
     private(set) lazy var dragFrameInput: FrameInputCoalescers? = features.isEnabled(.pointerFrameDrags) ? pointerFrames : nil
-    /// Hover (feature `pointerFrameHover`): the sidebar list, rail and space bar, and the tab strips hover on a frame
-    /// interval's first move and once more at its frame, at the latest point. Nil while it is off: each move hovers.
+    /// Hover (feature `pointerFrameHover`, also each main window's `hoverFrameInput`): hover sites act on a frame interval's
+    /// first move and once more at its frame, at the latest point. Nil while it is off: each move hovers.
     private(set) lazy var hoverFrameInput: FrameInputCoalescers? = features.isEnabled(.pointerFrameHover) ? pointerFrames : nil
     /// Terminals (feature `terminalPointerFrames`, p04-input-034): moves, drags and mouse-reporting trackpad scrolls
     /// reach Ghostty on a frame interval's first event and once more at its frame. Nil while it is off: each event
