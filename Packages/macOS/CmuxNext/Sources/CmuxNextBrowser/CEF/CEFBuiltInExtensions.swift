@@ -86,9 +86,10 @@ nonisolated struct CEFBuiltInExtensions: Equatable, Sendable {
 
     /// The built-in uBlock Origin folder under `resources` (the running app's
     /// Contents/Resources; symlinks resolved) when its manifest matches the
-    /// pin; nil otherwise. Reads the manifest: call it where the extension
-    /// manifests are read (``AgentExtensionAccess/fromDisk``), never from a
-    /// static initializer on whichever thread asks first (p02-threads-122).
+    /// pin; nil otherwise. Reads the manifest: the extension access owner
+    /// preloads it once on the files lane
+    /// (``AgentExtensionAccess/readTrustedBuiltInFolder(resources:)``), never
+    /// from a static initializer on whichever thread asks first (p02-threads-122).
     static func trustedAdBlockerFolder(resources: URL?) -> String? {
         guard let resources else { return nil }
         let folder = resources.appendingPathComponent(adBlockerFolder).resolvingSymlinksInPath().standardizedFileURL

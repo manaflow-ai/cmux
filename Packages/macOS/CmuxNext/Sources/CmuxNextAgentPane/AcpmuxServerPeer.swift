@@ -210,8 +210,9 @@ nonisolated enum AcpmuxServerPeer {
     }
 
     /// A strict on-disk check before a Team-signed app launches its acpmux.
-    /// DEV is ad-hoc and has no team to require.
-    static func executableSignedByAppTeam(_ executable: URL, team: String? = ownTeam()) -> Bool {
+    /// DEV is ad-hoc and has no team to require. `team` is this app's (``SigningTeamInstall/team``, read
+    /// on the system lane at launch).
+    static func executableSignedByAppTeam(_ executable: URL, team: String?) -> Bool {
         guard let team else { return true }
         guard let requirement = requirement(team: team) else { return false }
         var code: SecStaticCode?
@@ -247,20 +248,6 @@ nonisolated enum AcpmuxServerPeer {
         let parts = URL(fileURLWithPath: path).pathComponents
         guard let app = parts.last(where: { $0.hasSuffix(".app") }) else { return path }
         return String(app.dropLast(".app".count))
-    }
-
-    /// This app's team when it is Team-signed; nil for an ad-hoc DEV build. Read through the checked
-    /// Security seams by the acpmux launch check, never in a static initializer (p02-threads-122).
-    static func ownTeam() -> String? {
-        var code: SecCode?
-        guard blockingSecCodeCopySelf([], &code) == errSecSuccess, let code else { return nil }
-        var staticCode: SecStaticCode?
-        guard blockingSecCodeCopyStaticCode(code, [], &staticCode) == errSecSuccess, let staticCode else { return nil }
-        var info: CFDictionary?
-        guard blockingSecCodeCopySigningInformation(staticCode, SecCSFlags(rawValue: kSecCSSigningInformation), &info)
-                == errSecSuccess, let info = info as? [String: Any] else { return nil }
-        let team = info[kSecCodeInfoTeamIdentifier as String] as? String
-        return team?.isEmpty == false ? team : nil
     }
 
     @discardableResult

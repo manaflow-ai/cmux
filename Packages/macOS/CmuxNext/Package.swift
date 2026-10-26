@@ -68,7 +68,7 @@ import PackageDescription
 //     Chromium framework load later from another thread; plans/cmux-next/browser-isolation.md)
 //   CmuxNextRemoteLayer -> QuartzCore only (ObjC header: CALayerHost, the remote layer a layer-hosted
 //     Chromium page draws through; plans/cmux-next/cef-layer-hosting-DESIGN.md)
-//   CmuxNextBrowserImport -> Compat, Wakeups, swift-atomics (browser detection, parsers, importer; no UI)
+//   CmuxNextBrowserImport -> system frameworks only (browser detection, parsers, importer; no UI)
 //   CmuxNextBrowserHistory -> Browser, Daemon, Compat (a browser tab's saved history across relaunches; no UI)
 //   CmuxNextOnboarding -> Design, Icons, BrowserImport (first-run window; the App supplies OnboardingServices)
 //   CmuxNextHome -> Compat, Design, Dictation, Wakeups, MessagesLabHome (the Home transcript: MessagesLabAppKitNative's
@@ -499,8 +499,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .target(
             name: "CmuxNextBrowserImport",
-            // swift-atomics: the registry's write-once install (BrowserSourceRegistryInstall).
-            dependencies: ["CmuxNextCompat", "CmuxNextWakeups", .product(name: "Atomics", package: "swift-atomics")],
+            dependencies: ["CmuxNextCompat", "CmuxNextWakeups"],
             // browser-sources.json: the one browser source registry (decision
             // BOOKMARKS-IMPORT-EVERY-BROWSER I1).
             resources: [

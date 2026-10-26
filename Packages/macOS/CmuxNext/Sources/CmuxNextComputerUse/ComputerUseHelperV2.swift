@@ -56,22 +56,9 @@ public final class ComputerUseHelperV2 {
     /// Logs the helper's control lines after `ready` (``logControlLines(_:pid:)``).
     private var controlLog: Task<Void, Never>?
     private var generation = 0
-
-    /// This app's signing team. Ad-hoc development builds have no team and
-    /// retain the same-executable-path peer rule. Read through the checked
-    /// Security seams by the admission check that needs it (it reads the
-    /// bridge's signature anyway), never in a static initializer.
-    nonisolated static func ownTeam() -> String? {
-        var code: SecCode?
-        guard blockingSecCodeCopySelf([], &code) == errSecSuccess, let code else { return nil }
-        var staticCode: SecStaticCode?
-        guard blockingSecCodeCopyStaticCode(code, [], &staticCode) == errSecSuccess, let staticCode else { return nil }
-        var info: CFDictionary?
-        guard blockingSecCodeCopySigningInformation(staticCode, SecCSFlags(rawValue: kSecCSSigningInformation), &info)
-                == errSecSuccess, let info = info as? [String: Any] else { return nil }
-        let team = info[kSecCodeInfoTeamIdentifier as String] as? String
-        return team?.isEmpty == false ? team : nil
-    }
+    /// This app's signing team, read on the system lane at launch. Ad-hoc development builds have no
+    /// team and retain the same-executable-path peer rule.
+    private let signingTeam: SigningTeamInstall
 
     /// The code-signing identifier read from an executable. A raced path can
     /// at worst produce a requirement the real helper does not satisfy: the
@@ -88,7 +75,7 @@ public final class ComputerUseHelperV2 {
     /// Release helpers check every bridge's live audit token against its exact
     /// identifier and this app's team. Only ad-hoc development uses a
     /// mutable-path cdhash.
-    nonisolated static func acpmuxAdmission(executable: URL, teamIdentifier: String? = ownTeam(),
+    nonisolated static func acpmuxAdmission(executable: URL, teamIdentifier: String?,
                                             identifier: (URL) -> String? = codeIdentifier,
                                             hash: (URL) -> Data? = cdhash)
         -> (hashes: [String], requirement: String?) {
@@ -108,7 +95,8 @@ public final class ComputerUseHelperV2 {
          spawner: any ComputerUseHelperV2Spawning = DisclaimedHelperSpawner(),
          clock: any Clock<Duration> = ContinuousClock(),
          readyTimeout: Duration = .seconds(10),
-         exitGrace: Duration = .seconds(2)) {
+         exitGrace: Duration = .seconds(2),
+         signingTeam: SigningTeamInstall = .process) {
         self.directory = directory
         self.helperApp = helperApp
         self.acpmux = acpmux
@@ -116,6 +104,7 @@ public final class ComputerUseHelperV2 {
         self.clock = clock
         self.readyTimeout = readyTimeout
         self.exitGrace = exitGrace
+        self.signingTeam = signingTeam
     }
 
     var socketPath: String { directory + "/" + Self.socketFileName }
@@ -193,7 +182,7 @@ public final class ComputerUseHelperV2 {
         let secret = Self.makeSecret()
         let acpmux = self.acpmux()
         let admission: (hashes: [String], requirement: String?) = acpmux.map {
-            Self.acpmuxAdmission(executable: $0.executable)
+            Self.acpmuxAdmission(executable: $0.executable, teamIdentifier: signingTeam.team)
         } ?? (hashes: [], requirement: nil)
         await spawned.send(Self.line(["type": "configure", "socket": socketPath, "secret": Self.hex(secret),
                                 "acpmux_cdhashes": admission.hashes,

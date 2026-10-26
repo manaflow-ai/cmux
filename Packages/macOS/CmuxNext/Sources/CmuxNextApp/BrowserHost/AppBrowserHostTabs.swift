@@ -105,7 +105,8 @@ final class AppBrowserHostTabs: ProviderTabSource, ProviderAccessSource, Automat
         if let memo = accessMemo[targetID], memo.extensions == extensions, memo.url == url {
             names = memo.names
         } else {
-            names = AgentExtensionAccess.fromDisk.blockers(extensions, url: url).map(\.name)
+            let access = AgentExtensionAccess.fromDisk(trustedBuiltInFolder: services.builtInAdBlockerFolder.value)
+            names = access.blockers(extensions, url: url).map(\.name)
             accessMemo[targetID] = (extensions, url, names)
         }
         return ProviderTabAccess(extensionHostAccess: !names.isEmpty, userOverride: override, extensions: names)

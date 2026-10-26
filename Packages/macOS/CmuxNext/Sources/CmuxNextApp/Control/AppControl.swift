@@ -98,7 +98,7 @@ final class AppControl {
         self.service = service
         actionBudget = ActionBudgetReporter(monitor: services.actionBudget, naming: ActionReportNaming(catalog: Set(registry.descriptors.map(\.id.rawValue))),
                                             overBudget: watchdog.overBudget, sampling: recordsTaskBudgets,
-                                            logsRuns: ControlService.isDebugBuild)
+                                            logsRuns: ControlService.isDebugBuild, work: services.work)
         services.restartControlListener = { [weak service] in try service?.restartListener() }
         registerSyncBarrier(service.router, daemon: services.daemon)
         registerOracleSettle(service.router, services: services)

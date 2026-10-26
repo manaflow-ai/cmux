@@ -1,7 +1,9 @@
+@testable import CmuxNextAgentPane
 @testable import CmuxNextApp
 @testable import CmuxNextBrowser
 @testable import CmuxNextBrowserImport
 @testable import CmuxNextCompat
+@testable import CmuxNextComputerUse
 @testable import CmuxNextServer
 import CmuxNextTrace
 @testable import CmuxNextUpdater
@@ -74,6 +76,52 @@ struct OnceInitializerMainAccessTests {
         }
         #expect(sites.isEmpty, "the export steps were read on the main thread: \(sites)")
         #expect(!rows.isEmpty)
+    }
+
+    @Test("The signing team read on the system lane is in memory for each acpmux resolve and admission on main")
+    func signingTeam() async throws {
+        // Control: a team nobody loaded asks securityd on the thread that reads it, and the detector sees it.
+        let cold = SigningTeamInstall()
+        let coldSites = await mainSites { _ = cold.team }
+        #expect(!coldSites.isEmpty, "the Security seams recorded nothing on main: the check below proves nothing")
+
+        let install = SigningTeamInstall()
+        try await Self.work.run(.userVisible, mayBlock: .system) { install.load() }
+        #expect(install.isLoaded)
+        let sites = await mainSites {
+            _ = AcpmuxEnvironment.resolve(build: nil, bundledBinDirectory: URL(fileURLWithPath: "/App/bin", isDirectory: true),
+                                          environment: [:], userHome: URL(fileURLWithPath: "/Users/test", isDirectory: true),
+                                          uid: 501, isExecutable: { _ in true }, signingTeam: install)
+            _ = ComputerUseHelperV2.acpmuxAdmission(executable: URL(fileURLWithPath: "/App/bin/acpmux"), teamIdentifier: install.team,
+                                                    identifier: { _ in "cmux-cli" }, hash: { _ in Data([1]) })
+        }
+        #expect(sites.isEmpty, "an acpmux resolve asked securityd on the main thread: \(sites)")
+        #expect(install.team == cold.team)
+    }
+
+    @Test("The built-in ad blocker's folder read on the files lane is in memory for each tab's extension access")
+    func builtInAdBlockerFolder() async throws {
+        // Control: the pinned manifest read on main goes through the checked seam.
+        let resources = FileManager.default.temporaryDirectory.appending(path: "once-ublock-\(UUID().uuidString)", directoryHint: .isDirectory)
+        let folder = resources.appending(path: CEFBuiltInExtensions.adBlockerFolder, directoryHint: .isDirectory)
+        try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+        try Data("{}".utf8).write(to: folder.appending(path: "manifest.json"))
+        defer { try? FileManager.default.removeItem(at: resources) }
+        let coldSites = await mainSites { _ = AgentExtensionAccess.readTrustedBuiltInFolder(resources: resources) }
+        #expect(!coldSites.isEmpty, "the manifest read recorded nothing on main: the check below proves nothing")
+
+        let preloaded = AppServices.preloadBuiltInAdBlockerFolder(on: Self.work)
+        try await Self.work.run(.userVisible, mayBlock: .files) { preloaded.load() }
+        #expect(preloaded.isLoaded)
+        let builtIn = BrowserExtensionInfo(id: CEFBuiltInExtensions.adBlockerID, name: "uBlock Origin", isEnabled: false,
+                                           path: folder.path)
+        let sites = await mainSites {
+            for _ in 0..<3 {  // each tab's access, each prompt
+                let access = AgentExtensionAccess.fromDisk(trustedBuiltInFolder: preloaded.value)
+                #expect(access.blockers([builtIn], url: URL(string: "https://example.com")).isEmpty)
+            }
+        }
+        #expect(sites.isEmpty, "the built-in manifest was read again on the main thread: \(sites)")
     }
     #endif
 

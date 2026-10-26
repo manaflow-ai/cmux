@@ -29,13 +29,21 @@ public nonisolated struct AgentExtensionAccess {
         self.trustedBuiltInFolder = trustedBuiltInFolder
     }
 
-    /// Reads `<extension path>/manifest.json` from disk, and the built-in folder's pinned manifest
-    /// with them.
-    public static var fromDisk: AgentExtensionAccess {
+    /// Reads `<extension path>/manifest.json` from disk. `trustedBuiltInFolder` is the owner's preloaded
+    /// ``readTrustedBuiltInFolder(resources:)``: the pinned manifest is read and hashed once, on the files
+    /// lane, never again per tab or per prompt.
+    public static func fromDisk(trustedBuiltInFolder: String?) -> AgentExtensionAccess {
         AgentExtensionAccess(manifest: { path in
             guard let data = FileManager.default.contents(atPath: (path as NSString).appendingPathComponent("manifest.json")) else { return nil }
             return (try? JSONSerialization.blockingJSONObject(with: data)) as? [String: Any]
-        }, trustedBuiltInFolder: CEFBuiltInExtensions.trustedAdBlockerFolder(resources: Bundle.main.resourceURL))
+        }, trustedBuiltInFolder: trustedBuiltInFolder)
+    }
+
+    /// The running app's built-in uBlock Origin folder when its manifest matches the pin, else nil
+    /// (``CEFBuiltInExtensions/trustedAdBlockerFolder(resources:)``). A file read and a hash: the owner
+    /// reads it once on the files lane (a `PreloadedValue`) and hands it to ``fromDisk(trustedBuiltInFolder:)``.
+    public static func readTrustedBuiltInFolder(resources: URL? = Bundle.main.resourceURL) -> String? {
+        CEFBuiltInExtensions.trustedAdBlockerFolder(resources: resources)
     }
 
     /// The enabled extensions that can reach `url`. A page that is not a web

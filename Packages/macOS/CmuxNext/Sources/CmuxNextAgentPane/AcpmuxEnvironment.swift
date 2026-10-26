@@ -83,7 +83,8 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
     /// Resolves the environment of `build` (nil: no build, the shared home),
     /// or nil when no `acpmux` executable exists. `bundledBinDirectory` is the
     /// app's `Contents/Resources/bin`. A Debug or bench compile takes a test root for
-    /// `~/.acpmux` from `CMUX_NEXT_ACPMUX_ROOT` (tests and bench stories only).
+    /// `~/.acpmux` from `CMUX_NEXT_ACPMUX_ROOT` (tests and bench stories only). `signingTeam` holds this
+    /// app's team, read on the system lane at launch, so a main-thread resolve asks securityd nothing.
     public static func resolve(
         build: BuildIdentity?,
         bundledBinDirectory: URL?,
@@ -91,7 +92,8 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
         userHome: URL = FileManager.default.homeDirectoryForCurrentUser,
         uid: UInt32 = getuid(),
         isExecutable: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) },
-        launchEnvironment: [String: String] = [:]
+        launchEnvironment: [String: String] = [:],
+        signingTeam: SigningTeamInstall = .process
     ) -> AcpmuxEnvironment? {
         // DEBUG only: `CMUX_NEXT_ACPMUX_BIN` wins (AcpmuxEnvironment+DebugOverride.swift).
         // Release passes nil, so it compiles no read of it.
@@ -102,7 +104,7 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
         #endif
         return resolve(build: build, bundledBinDirectory: bundledBinDirectory, environment: environment, userHome: userHome,
                        uid: uid, isExecutable: isExecutable, launchEnvironment: launchEnvironment,
-                       executableOverride: executableOverride, teamIdentifier: AcpmuxServerPeer.ownTeam(),
+                       executableOverride: executableOverride, teamIdentifier: signingTeam.team,
                        isTrustedExecutable: AcpmuxServerPeer.executableSignedByAppTeam)
     }
 
@@ -118,7 +120,7 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
         isExecutable: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) },
         launchEnvironment: [String: String] = [:],
         executableOverride: URL?,
-        teamIdentifier: String? = AcpmuxServerPeer.ownTeam(),
+        teamIdentifier: String? = SigningTeamInstall.process.team,
         isTrustedExecutable: (URL, String) -> Bool = { AcpmuxServerPeer.executableSignedByAppTeam($0, team: $1) }
     ) -> AcpmuxEnvironment? {
         guard let executable = executableOverride

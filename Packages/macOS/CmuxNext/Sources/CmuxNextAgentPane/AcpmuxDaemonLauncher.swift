@@ -86,7 +86,7 @@ nonisolated enum AcpmuxDaemonLauncher {
                                    onSpawn: @Sendable (pid_t) -> Void) async throws -> AcpmuxWebEndpoint {
         // cmux NEXT's one-time adoption of its old acpmux home ends before any daemon starts (cx-is1kf.9).
         await AcpmuxEnvironment.adoptBuildHomes()
-        guard AcpmuxServerPeer.executableSignedByAppTeam(environment.executable) else {
+        guard AcpmuxServerPeer.executableSignedByAppTeam(environment.executable, team: SigningTeamInstall.process.team) else {
             throw Failure.untrustedExecutable(environment.executable.path)
         }
         logger.info("acpmux launch requested executable=\(environment.executable.path, privacy: .public) home=\(environment.home.path, privacy: .public) socket=\(environment.socketPath, privacy: .public) args=\(environment.daemonArguments.joined(separator: " "), privacy: .public)")
