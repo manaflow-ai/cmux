@@ -1183,7 +1183,12 @@ dependencies = [
 name = "cmux-ipc"
 version = "0.1.0"
 dependencies = [
+ "bytes",
  "libc",
+ "memchr",
+ "phf",
+ "phf_codegen",
+ "serde_json",
 ]
 
 [[package]]

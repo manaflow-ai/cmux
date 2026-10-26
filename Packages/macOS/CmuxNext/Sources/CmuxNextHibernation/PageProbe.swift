@@ -33,13 +33,18 @@ package struct PageProbe: Hashable, Sendable {
     /// The person moved into a child frame whose fields cannot be read (Chromium's cross-origin
     /// frames have no recorder): its edits are unknown, so they count as the person's input.
     package var unreadableFrame = false
+    /// The page makes sound the person hears: unmuted media that plays, or a running Web Audio
+    /// context. Not media the tab's mute silences, and not a video in Picture in Picture alone.
+    /// Only an answer says so. It stamps the page's last sound for ``DiscardRule/recentlyAudible``
+    /// (Chrome's `PageNode::IsAudible`, which counts what the page outputs).
+    package var audible = false
     /// False when the page did not answer (a script error, or no reply within the deadline):
     /// only what the tab reported on its own (`BrowserTabState.media`) is known.
     package var answered = true
 
     package init(playingMedia: Bool = false, editedForm: Bool = false, capturing: Bool = false, webAudio: Bool = false,
                  beforeUnload: Bool = false, unloadHandler: Bool = false, webRTC: Bool = false, connectedDevice: Bool = false, unreadableFrame: Bool = false,
-                 answered: Bool = true) {
+                 audible: Bool = false, answered: Bool = true) {
         self.playingMedia = playingMedia
         self.editedForm = editedForm
         self.capturing = capturing
@@ -49,6 +54,7 @@ package struct PageProbe: Hashable, Sendable {
         self.webRTC = webRTC
         self.connectedDevice = connectedDevice
         self.unreadableFrame = unreadableFrame
+        self.audible = audible
         self.answered = answered
     }
 

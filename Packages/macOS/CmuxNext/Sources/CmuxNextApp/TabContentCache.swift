@@ -412,6 +412,7 @@ final class TabContentCache {
         if agentDrivenTabs.contains(key) { page.markAgentDriven() } else if page.isAgentDriven { agentDrivenTabs.insert(key) }
         pageRequests.proxiedTabs.adopt(store: (page as? CEFTab)?.machineStore, key: key)
         browsers[key] = entry
+        hibernation?.pageDidMount(key, page)
         pageInstalls.bump()
         // Pages are kept by hibernation, never by the terminal warm set.
         ledger.setRetained(key, false)

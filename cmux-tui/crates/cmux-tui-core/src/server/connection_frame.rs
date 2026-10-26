@@ -91,6 +91,10 @@ pub(super) fn handle_connection_frame(
         }
         return keep_open;
     }
+    #[cfg(any(debug_assertions, feature = "oracle"))]
+    if let Some(keep_open) = oracle_state_command::try_handle(mux, client, message, writer) {
+        return keep_open;
+    }
     stage(FrameStage::LoopbackForward);
     if let Some(keep_open) = loopback_forward::try_handle(mux, client, message, writer) {
         return keep_open;

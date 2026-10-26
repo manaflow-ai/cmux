@@ -15,7 +15,8 @@ extension AppServices {
     /// It registers with the app's one memory coordinator (`memoryCoordinator`) as a lossy consumer,
     /// which hands it each level.
     func startHibernation(settings: SettingsController) {
-        let hibernation = BrowserHibernation(cache: cache, memory: memoryCoordinator, lowPower: energyMonitor.lowPowerMode)
+        let audible = features.isEnabled(.recentlyAudibleProtection) ? AudibleHistory() : nil
+        let hibernation = BrowserHibernation(cache: cache, memory: memoryCoordinator, lowPower: energyMonitor.lowPowerMode, audible: audible)
         cache.hibernation = hibernation
         hibernation.isPinned = { [weak self] key in self?.locateTab(key)?.0.pinned ?? false }
         hibernation.onPressureChange = { [weak self] level in self?.memoryPressureDidChange(level) }
