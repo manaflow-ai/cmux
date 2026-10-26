@@ -1,0 +1,5518 @@
+{
+  "generator": "scripts/cmux-next/oracle/gen_actions.py",
+  "suite": "actions",
+  "catalog": "plans/cmux-next/action-surfaces.json",
+  "catalog_sha256": "df9bcc6e5ed188716e64e590057afea18c4a5f05351a12effe1e3b23cd9de578",
+  "catalog_kind": "action-surfaces",
+  "contexts": "not set up: action-surfaces.json has no registry contexts or arguments; check in a fleet run's action.list as tests/oracle/fixtures/actions/action-list.json and regenerate",
+  "gaps": "scripts/cmux-next/every-action-gaps.json",
+  "gaps_sha256": "38d2068eede32942cac8c2ea055f31b1d7974f412f78e31b102f26c1d79c4d80",
+  "total": 985,
+  "covered": 886,
+  "verdicts": "not run",
+  "excluded": {
+    "agentPane.archiveChat": "blocked: unavailable here: Needs agentPaneFocused in the focused window, or pass --target agent-chat:<id>. (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "agentPane.createCheckpoint": "blocked: needs context the sweep does not set up: checkpointCaptureAvailable (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "agentPane.git.commit": "blocked: unavailable here: Needs agentPaneFocused in the focused window. (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "agentPane.permission.allowChat": "blocked: unavailable here: Needs agentPaneFocused in the focused window. (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "agentPane.permission.refresh": "blocked: unavailable here: Needs agentPaneFocused in the focused window. (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "agentPane.previousTurn": "blocked: unavailable here: Needs agentPaneFocused in the focused window. (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "agentPane.revealCwdInFinder": "blocked: the sweep's plan skips it (excluded): opens another app, a web site or changes system defaults",
+    "browserProfile.duplicateTab": "blocked: needs a browser-profile argument (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "browserProfile.manageExtensions": "blocked: needs a browser-profile argument (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "browserProfile.moveTab": "blocked: needs a browser-profile argument (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "browserProfile.newTab": "blocked: needs a browser-profile argument (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "browserProfile.newWindow": "blocked: needs a browser-profile argument (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "browserProfile.newWorkspace": "blocked: needs a browser-profile argument (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "browserProfile.openLink": "blocked: needs a browser-profile argument (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "browserProfile.setSpaceDefault": "blocked: needs a browser-profile argument (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "browserProfile.setWorkspaceDefault": "blocked: needs a browser-profile argument (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "canvasAlignBottom": "blocked: needs context the sweep does not set up: canvasLayout (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "canvasAlignLeft": "blocked: needs context the sweep does not set up: canvasLayout (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "canvasAlignRight": "blocked: needs context the sweep does not set up: canvasLayout (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "canvasAlignTop": "blocked: needs context the sweep does not set up: canvasLayout (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "canvasDistributeHorizontally": "blocked: needs context the sweep does not set up: canvasLayout (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "canvasDistributeVertically": "blocked: needs context the sweep does not set up: canvasLayout (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "canvasEqualizeHeights": "blocked: needs context the sweep does not set up: canvasLayout (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "canvasEqualizeWidths": "blocked: needs context the sweep does not set up: canvasLayout (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "canvasOverview": "blocked: needs context the sweep does not set up: canvasLayout (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "canvasTidy": "blocked: needs context the sweep does not set up: canvasLayout (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "canvasZoomIn": "blocked: needs context the sweep does not set up: canvasLayout (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "canvasZoomOut": "blocked: needs context the sweep does not set up: canvasLayout (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "canvasZoomReset": "blocked: needs context the sweep does not set up: canvasLayout (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "commandPaletteNext": "blocked: needs context the sweep does not set up: paletteOpen (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "commandPalettePrevious": "blocked: needs context the sweep does not set up: paletteOpen (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "cycleTextBoxSubmitAction": "blocked: unavailable here: Needs textBoxFocused in the focused window. (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "devtools.resumeScript": "blocked: unavailable here: Needs webViewFocused in the focused window. (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "diffViewerGoToBottom": "blocked: needs context the sweep does not set up: diffViewerFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "diffViewerGoToTop": "blocked: needs context the sweep does not set up: diffViewerFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "diffViewerHalfPageDown": "blocked: needs context the sweep does not set up: diffViewerFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "diffViewerHalfPageUp": "blocked: needs context the sweep does not set up: diffViewerFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "diffViewerNextFile": "blocked: needs context the sweep does not set up: diffViewerFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "diffViewerNextHunk": "blocked: needs context the sweep does not set up: diffViewerFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "diffViewerNextLine": "blocked: needs context the sweep does not set up: diffViewerFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "diffViewerPreviousFile": "blocked: needs context the sweep does not set up: diffViewerFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "diffViewerPreviousHunk": "blocked: needs context the sweep does not set up: diffViewerFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "diffViewerPreviousLine": "blocked: needs context the sweep does not set up: diffViewerFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "diffViewerSearch": "blocked: needs context the sweep does not set up: diffViewerFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "fileEditorAction": "blocked: needs context the sweep does not set up: codeEditorFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "fileEditorGotoLine": "blocked: needs context the sweep does not set up: codeEditorFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "fileEditorReplace": "blocked: needs context the sweep does not set up: codeEditorFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "fileEditorZoomIn": "blocked: needs context the sweep does not set up: codeEditorFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "fileEditorZoomOut": "blocked: needs context the sweep does not set up: codeEditorFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "fileEditorZoomReset": "blocked: needs context the sweep does not set up: codeEditorFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "fileExplorerCopyPath": "blocked: needs context the sweep does not set up: fileExplorerFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "fileExplorerCopyRelativePath": "blocked: needs context the sweep does not set up: fileExplorerFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "fileExplorerMoveToTrash": "blocked: needs context the sweep does not set up: fileExplorerFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "fileExplorerNewFile": "blocked: needs context the sweep does not set up: fileExplorerFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "fileExplorerNewFolder": "blocked: needs context the sweep does not set up: fileExplorerFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "fileExplorerOpenAsText": "blocked: needs context the sweep does not set up: fileExplorerFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "fileExplorerOpenSelection": "blocked: needs context the sweep does not set up: fileExplorerFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "fileExplorerRename": "blocked: needs context the sweep does not set up: fileExplorerFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "home.channels": "blocked: needs context the sweep does not set up: homeChannelsEnabled (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "markdownBack": "blocked: needs context the sweep does not set up: markdownFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "markdownForward": "blocked: needs context the sweep does not set up: markdownFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "markdownGoToTop": "blocked: needs context the sweep does not set up: markdownReadOnlyFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "markdownLink": "blocked: needs context the sweep does not set up: markdownFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "markdownReload": "blocked: needs context the sweep does not set up: markdownFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "markdownResetTableWidths": "blocked: needs context the sweep does not set up: markdownFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "markdownSave": "blocked: needs context the sweep does not set up: markdownFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "markdownZoomIn": "blocked: needs context the sweep does not set up: markdownFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "markdownZoomOut": "blocked: needs context the sweep does not set up: markdownFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "markdownZoomReset": "blocked: needs context the sweep does not set up: markdownFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "omnibar.openInBackgroundTab": "blocked: unavailable here: Needs omnibarFocused in the focused window. (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "omnibar.openInForegroundTab": "blocked: unavailable here: Needs omnibarFocused in the focused window. (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "paletteKey.back": "blocked: the sweep's plan skips it (excluded): palette-internal (runs inside the open palette)",
+    "paletteKey.closeActions": "blocked: the sweep's plan skips it (excluded): palette-internal (runs inside the open palette)",
+    "paletteKey.closeItem": "blocked: the sweep's plan skips it (excluded): palette-internal (runs inside the open palette)",
+    "paletteKey.enterRow": "blocked: the sweep's plan skips it (excluded): palette-internal (runs inside the open palette)",
+    "paletteKey.escape": "blocked: the sweep's plan skips it (excluded): palette-internal (runs inside the open palette)",
+    "paletteKey.firstItem": "blocked: the sweep's plan skips it (excluded): palette-internal (runs inside the open palette)",
+    "paletteKey.lastItem": "blocked: the sweep's plan skips it (excluded): palette-internal (runs inside the open palette)",
+    "paletteKey.leaveLevel": "blocked: the sweep's plan skips it (excluded): palette-internal (runs inside the open palette)",
+    "paletteKey.openActions": "blocked: the sweep's plan skips it (excluded): palette-internal (runs inside the open palette)",
+    "paletteKey.pageDown": "blocked: the sweep's plan skips it (excluded): palette-internal (runs inside the open palette)",
+    "paletteKey.pageUp": "blocked: the sweep's plan skips it (excluded): palette-internal (runs inside the open palette)",
+    "paletteKey.submit": "blocked: the sweep's plan skips it (excluded): palette-internal (runs inside the open palette)",
+    "paletteKey.submitAlternate": "blocked: the sweep's plan skips it (excluded): palette-internal (runs inside the open palette)",
+    "paletteKey.toggleActions": "blocked: the sweep's plan skips it (excluded): palette-internal (runs inside the open palette)",
+    "reconnectPane": "blocked: unavailable here: Needs terminalFocused in the focused window. (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "saveFilePreview": "blocked: needs context the sweep does not set up: codeEditorFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "screenGroup.addScreen": "blocked: needs a screen-group argument (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "sidebar.priority.markRead": "blocked: needs a agent-chat argument (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "sidebar.priority.snooze": "blocked: needs a agent-chat argument (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "sidebar.priority.togglePin": "blocked: needs a agent-chat argument (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "space.newWindow": "blocked: needs a room argument (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "space.newWorkspace": "blocked: needs a room argument (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "space.switch": "blocked: needs a room argument (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "toggleFileEditorWordWrap": "blocked: needs context the sweep does not set up: codeEditorFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "workspace.duplicateToSpace": "blocked: needs a room argument (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "workspace.moveToSpace": "blocked: needs a room argument (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "workspaceGroup.addToSection": "blocked: needs a sidebar-section argument (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+    "workspaceGroup.moveToSpace": "blocked: needs a room argument (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))"
+  },
+  "blocked_by": {
+    "gap": 84,
+    "plan": 15,
+    "live-value": 0
+  },
+  "missing": [],
+  "not_in_suite": 216,
+  "stale_gap_ids": [],
+  "families": {
+    "browser": {
+      "runnable": 113,
+      "blocked": 10
+    },
+    "palette": {
+      "runnable": 67,
+      "blocked": 14
+    },
+    "appearance": {
+      "runnable": 65,
+      "blocked": 1
+    },
+    "sidebar": {
+      "runnable": 88,
+      "blocked": 5
+    },
+    "workspace": {
+      "runnable": 92,
+      "blocked": 6
+    },
+    "layout": {
+      "runnable": 113,
+      "blocked": 1
+    },
+    "tabs": {
+      "runnable": 79,
+      "blocked": 0
+    },
+    "agents": {
+      "runnable": 53,
+      "blocked": 7
+    },
+    "focus": {
+      "runnable": 47,
+      "blocked": 0
+    },
+    "misc": {
+      "runnable": 169,
+      "blocked": 55
+    }
+  },
+  "entries": {
+    "key": 148,
+    "action": 738
+  },
+  "actions": {
+    "about": {
+      "family": "misc",
+      "case": "actions/about",
+      "entry": "action"
+    },
+    "agent.harness.add": {
+      "family": "agents",
+      "case": "actions/agent-harness-add",
+      "entry": "action"
+    },
+    "agent.harness.addFromRegistry": {
+      "family": "agents",
+      "case": "actions/agent-harness-add-from-registry",
+      "entry": "action"
+    },
+    "agent.harness.doctor": {
+      "family": "agents",
+      "case": "actions/agent-harness-doctor",
+      "entry": "action"
+    },
+    "agent.harness.remove": {
+      "family": "agents",
+      "case": "actions/agent-harness-remove",
+      "entry": "action"
+    },
+    "agent.harness.restore": {
+      "family": "agents",
+      "case": "actions/agent-harness-restore",
+      "entry": "action"
+    },
+    "agent.openSessionTab": {
+      "family": "agents",
+      "case": "actions/agent-open-session-tab",
+      "entry": "action"
+    },
+    "agent.openSessionWorkspace": {
+      "family": "agents",
+      "case": "actions/agent-open-session-workspace",
+      "entry": "action"
+    },
+    "agentActivity.open": {
+      "family": "misc",
+      "case": "actions/agent-activity-open",
+      "entry": "action"
+    },
+    "agentChat.copyConversation": {
+      "family": "agents",
+      "case": "actions/agent-chat-copy-conversation",
+      "entry": "action"
+    },
+    "agentChat.copyHarnessSessionID": {
+      "family": "agents",
+      "case": "actions/agent-chat-copy-harness-session-id",
+      "entry": "action"
+    },
+    "agentChat.copyHost": {
+      "family": "agents",
+      "case": "actions/agent-chat-copy-host",
+      "entry": "action"
+    },
+    "agentChat.copyIdentifier": {
+      "family": "agents",
+      "case": "actions/agent-chat-copy-identifier",
+      "entry": "action"
+    },
+    "agentChat.copyName": {
+      "family": "agents",
+      "case": "actions/agent-chat-copy-name",
+      "entry": "action"
+    },
+    "agentChat.copySessionDetails": {
+      "family": "agents",
+      "case": "actions/agent-chat-copy-session-details",
+      "entry": "action"
+    },
+    "agentChat.copyWorkingDirectory": {
+      "family": "agents",
+      "case": "actions/agent-chat-copy-working-directory",
+      "entry": "action"
+    },
+    "agentChat.toggleNotificationMute": {
+      "family": "agents",
+      "case": "actions/agent-chat-toggle-notification-mute",
+      "entry": "action"
+    },
+    "agentChat.view": {
+      "family": "agents",
+      "case": "actions/agent-chat-view",
+      "entry": "action"
+    },
+    "agentHistory.show": {
+      "family": "misc",
+      "case": "actions/agent-history-show",
+      "entry": "action"
+    },
+    "agentPane.addProjectFiles": {
+      "family": "agents",
+      "case": "actions/agent-pane-add-project-files",
+      "entry": "action"
+    },
+    "agentPane.archiveChat": {
+      "family": "agents",
+      "case": "actions/agent-pane-archive-chat",
+      "entry": "key",
+      "key": "cmd+ctrl+a",
+      "blocked": "unavailable here: Needs agentPaneFocused in the focused window, or pass --target agent-chat:<id>. (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+      "blocked_by": "gap"
+    },
+    "agentPane.continueIn": {
+      "family": "agents",
+      "case": "actions/agent-pane-continue-in",
+      "entry": "action"
+    },
+    "agentPane.copyLastCodeBlock": {
+      "family": "agents",
+      "case": "actions/agent-pane-copy-last-code-block",
+      "entry": "key",
+      "key": "cmd+opt+;"
+    },
+    "agentPane.createCheckpoint": {
+      "family": "agents",
+      "case": "actions/agent-pane-create-checkpoint",
+      "entry": "action",
+      "blocked": "needs context the sweep does not set up: checkpointCaptureAvailable (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+      "blocked_by": "gap"
+    },
+    "agentPane.editInstructions": {
+      "family": "agents",
+      "case": "actions/agent-pane-edit-instructions",
+      "entry": "action"
+    },
+    "agentPane.git.commit": {
+      "family": "agents",
+      "case": "actions/agent-pane-git-commit",
+      "entry": "action",
+      "blocked": "unavailable here: Needs agentPaneFocused in the focused window. (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+      "blocked_by": "gap"
+    },
+    "agentPane.git.push": {
+      "family": "agents",
+      "case": "actions/agent-pane-git-push",
+      "entry": "action"
+    },
+    "agentPane.markUnread": {
+      "family": "agents",
+      "case": "actions/agent-pane-mark-unread",
+      "entry": "action"
+    },
+    "agentPane.moveToFloatingChat": {
+      "family": "agents",
+      "case": "actions/agent-pane-move-to-floating-chat",
+      "entry": "action"
+    },
+    "agentPane.nextBookmarkedPrompt": {
+      "family": "agents",
+      "case": "actions/agent-pane-next-bookmarked-prompt",
+      "entry": "action"
+    },
+    "agentPane.nextTurn": {
+      "family": "agents",
+      "case": "actions/agent-pane-next-turn",
+      "entry": "key",
+      "key": "opt+ctrl+down"
+    },
+    "agentPane.openCwdInTerminal": {
+      "family": "agents",
+      "case": "actions/agent-pane-open-cwd-in-terminal",
+      "entry": "action"
+    },
+    "agentPane.permission.allowChat": {
+      "family": "agents",
+      "case": "actions/agent-pane-permission-allow-chat",
+      "entry": "key",
+      "key": "cmd+opt+2",
+      "blocked": "unavailable here: Needs agentPaneFocused in the focused window. (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+      "blocked_by": "gap"
+    },
+    "agentPane.permission.allowOnce": {
+      "family": "agents",
+      "case": "actions/agent-pane-permission-allow-once",
+      "entry": "key",
+      "key": "cmd+opt+1"
+    },
+    "agentPane.permission.deny": {
+      "family": "agents",
+      "case": "actions/agent-pane-permission-deny",
+      "entry": "key",
+      "key": "cmd+opt+3"
+    },
+    "agentPane.permission.expand": {
+      "family": "agents",
+      "case": "actions/agent-pane-permission-expand",
+      "entry": "key",
+      "key": "cmd+opt+4"
+    },
+    "agentPane.permission.refresh": {
+      "family": "agents",
+      "case": "actions/agent-pane-permission-refresh",
+      "entry": "action",
+      "blocked": "unavailable here: Needs agentPaneFocused in the focused window. (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+      "blocked_by": "gap"
+    },
+    "agentPane.permission.retry": {
+      "family": "agents",
+      "case": "actions/agent-pane-permission-retry",
+      "entry": "action"
+    },
+    "agentPane.permission.revoke": {
+      "family": "agents",
+      "case": "actions/agent-pane-permission-revoke",
+      "entry": "action"
+    },
+    "agentPane.previousBookmarkedPrompt": {
+      "family": "agents",
+      "case": "actions/agent-pane-previous-bookmarked-prompt",
+      "entry": "action"
+    },
+    "agentPane.previousTurn": {
+      "family": "agents",
+      "case": "actions/agent-pane-previous-turn",
+      "entry": "key",
+      "key": "opt+ctrl+up",
+      "blocked": "unavailable here: Needs agentPaneFocused in the focused window. (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+      "blocked_by": "gap"
+    },
+    "agentPane.replayConversation": {
+      "family": "agents",
+      "case": "actions/agent-pane-replay-conversation",
+      "entry": "action"
+    },
+    "agentPane.revealCwdInFinder": {
+      "family": "agents",
+      "case": "actions/agent-pane-reveal-cwd-in-finder",
+      "entry": "action",
+      "blocked": "the sweep's plan skips it (excluded): opens another app, a web site or changes system defaults",
+      "blocked_by": "plan"
+    },
+    "agentPane.searchChats": {
+      "family": "agents",
+      "case": "actions/agent-pane-search-chats",
+      "entry": "action"
+    },
+    "agentPane.searchFiles": {
+      "family": "agents",
+      "case": "actions/agent-pane-search-files",
+      "entry": "action"
+    },
+    "agentPane.setEffort": {
+      "family": "agents",
+      "case": "actions/agent-pane-set-effort",
+      "entry": "action"
+    },
+    "agentPane.setMode": {
+      "family": "agents",
+      "case": "actions/agent-pane-set-mode",
+      "entry": "action"
+    },
+    "agentPane.setModel": {
+      "family": "agents",
+      "case": "actions/agent-pane-set-model",
+      "entry": "action"
+    },
+    "agentPane.stopTurn": {
+      "family": "agents",
+      "case": "actions/agent-pane-stop-turn",
+      "entry": "action"
+    },
+    "agentPane.switchModel": {
+      "family": "agents",
+      "case": "actions/agent-pane-switch-model",
+      "entry": "key",
+      "key": "cmd+ctrl+m"
+    },
+    "agentPane.toggleDisplaySettings": {
+      "family": "agents",
+      "case": "actions/agent-pane-toggle-display-settings",
+      "entry": "action"
+    },
+    "agentPane.toggleInspector": {
+      "family": "agents",
+      "case": "actions/agent-pane-toggle-inspector",
+      "entry": "action"
+    },
+    "agentPane.toggleMinimap": {
+      "family": "agents",
+      "case": "actions/agent-pane-toggle-minimap",
+      "entry": "action"
+    },
+    "agentPane.togglePointerInspector": {
+      "family": "agents",
+      "case": "actions/agent-pane-toggle-pointer-inspector",
+      "entry": "action"
+    },
+    "agentPaneZoomIn": {
+      "family": "agents",
+      "case": "actions/agent-pane-zoom-in",
+      "entry": "key",
+      "key": "cmd+="
+    },
+    "agentPaneZoomOut": {
+      "family": "agents",
+      "case": "actions/agent-pane-zoom-out",
+      "entry": "key",
+      "key": "cmd+-"
+    },
+    "agentPaneZoomReset": {
+      "family": "agents",
+      "case": "actions/agent-pane-zoom-reset",
+      "entry": "key",
+      "key": "cmd+0"
+    },
+    "announcements.hide": {
+      "family": "misc",
+      "case": "actions/announcements-hide",
+      "entry": "action"
+    },
+    "announcements.show": {
+      "family": "misc",
+      "case": "actions/announcements-show",
+      "entry": "action"
+    },
+    "app.command.run": {
+      "family": "misc",
+      "case": "actions/app-command-run",
+      "entry": "action"
+    },
+    "app.hide": {
+      "family": "misc",
+      "case": "actions/app-hide",
+      "entry": "action"
+    },
+    "app.open": {
+      "family": "misc",
+      "case": "actions/app-open",
+      "entry": "action"
+    },
+    "app.unhide": {
+      "family": "misc",
+      "case": "actions/app-unhide",
+      "entry": "action"
+    },
+    "appearance.animationSpeed.fast": {
+      "family": "appearance",
+      "case": "actions/appearance-animation-speed-fast",
+      "entry": "action"
+    },
+    "appearance.animationSpeed.normal": {
+      "family": "appearance",
+      "case": "actions/appearance-animation-speed-normal",
+      "entry": "action"
+    },
+    "appearance.animationSpeed.off": {
+      "family": "appearance",
+      "case": "actions/appearance-animation-speed-off",
+      "entry": "action"
+    },
+    "appearance.animations.bounce.none": {
+      "family": "appearance",
+      "case": "actions/appearance-animations-bounce-none",
+      "entry": "action"
+    },
+    "appearance.animations.bounce.subtle": {
+      "family": "appearance",
+      "case": "actions/appearance-animations-bounce-subtle",
+      "entry": "action"
+    },
+    "appearance.animations.cursor.toggle": {
+      "family": "appearance",
+      "case": "actions/appearance-animations-cursor-toggle",
+      "entry": "action"
+    },
+    "appearance.animations.home.toggle": {
+      "family": "appearance",
+      "case": "actions/appearance-animations-home-toggle",
+      "entry": "action"
+    },
+    "appearance.animations.hoverCards.toggle": {
+      "family": "appearance",
+      "case": "actions/appearance-animations-hover-cards-toggle",
+      "entry": "action"
+    },
+    "appearance.animations.indicators.toggle": {
+      "family": "appearance",
+      "case": "actions/appearance-animations-indicators-toggle",
+      "entry": "action"
+    },
+    "appearance.animations.newTab.toggle": {
+      "family": "appearance",
+      "case": "actions/appearance-animations-new-tab-toggle",
+      "entry": "action"
+    },
+    "appearance.animations.newWorkspace.toggle": {
+      "family": "appearance",
+      "case": "actions/appearance-animations-new-workspace-toggle",
+      "entry": "action"
+    },
+    "appearance.animations.overlays.toggle": {
+      "family": "appearance",
+      "case": "actions/appearance-animations-overlays-toggle",
+      "entry": "action"
+    },
+    "appearance.animations.panes.toggle": {
+      "family": "appearance",
+      "case": "actions/appearance-animations-panes-toggle",
+      "entry": "action"
+    },
+    "appearance.animations.sidebar.toggle": {
+      "family": "appearance",
+      "case": "actions/appearance-animations-sidebar-toggle",
+      "entry": "action"
+    },
+    "appearance.animations.tabs.toggle": {
+      "family": "appearance",
+      "case": "actions/appearance-animations-tabs-toggle",
+      "entry": "action"
+    },
+    "appearance.animations.toggle": {
+      "family": "appearance",
+      "case": "actions/appearance-animations-toggle",
+      "entry": "action"
+    },
+    "appearance.animations.web.toggle": {
+      "family": "appearance",
+      "case": "actions/appearance-animations-web-toggle",
+      "entry": "action"
+    },
+    "appearance.changeBackground": {
+      "family": "appearance",
+      "case": "actions/appearance-change-background",
+      "entry": "action"
+    },
+    "appearance.chromeStyle.bare": {
+      "family": "appearance",
+      "case": "actions/appearance-chrome-style-bare",
+      "entry": "action"
+    },
+    "appearance.chromeStyle.card": {
+      "family": "appearance",
+      "case": "actions/appearance-chrome-style-card",
+      "entry": "action"
+    },
+    "appearance.chromeStyle.cardOutlined": {
+      "family": "appearance",
+      "case": "actions/appearance-chrome-style-card-outlined",
+      "entry": "action"
+    },
+    "appearance.chromeStyle.default": {
+      "family": "appearance",
+      "case": "actions/appearance-chrome-style-default",
+      "entry": "action"
+    },
+    "appearance.chromeStyle.flat": {
+      "family": "appearance",
+      "case": "actions/appearance-chrome-style-flat",
+      "entry": "action"
+    },
+    "appearance.chromeStyle.flatSidebarLine": {
+      "family": "appearance",
+      "case": "actions/appearance-chrome-style-flat-sidebar-line",
+      "entry": "action"
+    },
+    "appearance.chromeStyle.floating": {
+      "family": "appearance",
+      "case": "actions/appearance-chrome-style-floating",
+      "entry": "action"
+    },
+    "appearance.chromeStyle.panes": {
+      "family": "appearance",
+      "case": "actions/appearance-chrome-style-panes",
+      "entry": "action"
+    },
+    "appearance.chromeStyle.twoTone": {
+      "family": "appearance",
+      "case": "actions/appearance-chrome-style-two-tone",
+      "entry": "action"
+    },
+    "appearance.customize": {
+      "family": "appearance",
+      "case": "actions/appearance-customize",
+      "entry": "action"
+    },
+    "appearance.density.comfortable": {
+      "family": "appearance",
+      "case": "actions/appearance-density-comfortable",
+      "entry": "action"
+    },
+    "appearance.density.compact": {
+      "family": "appearance",
+      "case": "actions/appearance-density-compact",
+      "entry": "action"
+    },
+    "appearance.density.cozy": {
+      "family": "appearance",
+      "case": "actions/appearance-density-cozy",
+      "entry": "action"
+    },
+    "appearance.density.create": {
+      "family": "appearance",
+      "case": "actions/appearance-density-create",
+      "entry": "action"
+    },
+    "appearance.density.set": {
+      "family": "appearance",
+      "case": "actions/appearance-density-set",
+      "entry": "action"
+    },
+    "appearance.density.spacious": {
+      "family": "appearance",
+      "case": "actions/appearance-density-spacious",
+      "entry": "action"
+    },
+    "appearance.density.ultraCompact": {
+      "family": "appearance",
+      "case": "actions/appearance-density-ultra-compact",
+      "entry": "action"
+    },
+    "appearance.glass.lens.toggle": {
+      "family": "appearance",
+      "case": "actions/appearance-glass-lens-toggle",
+      "entry": "action"
+    },
+    "appearance.interfaceSize.decrease": {
+      "family": "appearance",
+      "case": "actions/appearance-interface-size-decrease",
+      "entry": "action"
+    },
+    "appearance.interfaceSize.increase": {
+      "family": "appearance",
+      "case": "actions/appearance-interface-size-increase",
+      "entry": "action"
+    },
+    "appearance.interfaceSize.reset": {
+      "family": "appearance",
+      "case": "actions/appearance-interface-size-reset",
+      "entry": "action"
+    },
+    "appearance.paneBorder.toggle": {
+      "family": "appearance",
+      "case": "actions/appearance-pane-border-toggle",
+      "entry": "action"
+    },
+    "appearance.paneBorderColor.reset": {
+      "family": "appearance",
+      "case": "actions/appearance-pane-border-color-reset",
+      "entry": "action"
+    },
+    "appearance.paneBorderWidth.toggle": {
+      "family": "appearance",
+      "case": "actions/appearance-pane-border-width-toggle",
+      "entry": "action"
+    },
+    "appearance.paneCorners.toggle": {
+      "family": "appearance",
+      "case": "actions/appearance-pane-corners-toggle",
+      "entry": "action"
+    },
+    "appearance.panePadding.toggle": {
+      "family": "appearance",
+      "case": "actions/appearance-pane-padding-toggle",
+      "entry": "action"
+    },
+    "appearance.reset": {
+      "family": "appearance",
+      "case": "actions/appearance-reset",
+      "entry": "action"
+    },
+    "appearance.set": {
+      "family": "appearance",
+      "case": "actions/appearance-set",
+      "entry": "action"
+    },
+    "appearance.titlebar.minimal": {
+      "family": "appearance",
+      "case": "actions/appearance-titlebar-minimal",
+      "entry": "action"
+    },
+    "appearance.titlebar.standard": {
+      "family": "appearance",
+      "case": "actions/appearance-titlebar-standard",
+      "entry": "action"
+    },
+    "appearance.uiScale.decrease": {
+      "family": "appearance",
+      "case": "actions/appearance-ui-scale-decrease",
+      "entry": "key",
+      "key": "cmd+shift+ctrl+-"
+    },
+    "appearance.uiScale.increase": {
+      "family": "appearance",
+      "case": "actions/appearance-ui-scale-increase",
+      "entry": "key",
+      "key": "cmd+shift+ctrl+="
+    },
+    "appearance.uiScale.reset": {
+      "family": "appearance",
+      "case": "actions/appearance-ui-scale-reset",
+      "entry": "key",
+      "key": "cmd+shift+ctrl+0"
+    },
+    "bookmark.add": {
+      "family": "misc",
+      "case": "actions/bookmark-add",
+      "entry": "action"
+    },
+    "bookmark.addAllTabs": {
+      "family": "misc",
+      "case": "actions/bookmark-add-all-tabs",
+      "entry": "action"
+    },
+    "bookmark.addPage": {
+      "family": "misc",
+      "case": "actions/bookmark-add-page",
+      "entry": "action"
+    },
+    "bookmark.clearIcon": {
+      "family": "misc",
+      "case": "actions/bookmark-clear-icon",
+      "entry": "action"
+    },
+    "bookmark.copyLink": {
+      "family": "misc",
+      "case": "actions/bookmark-copy-link",
+      "entry": "action"
+    },
+    "bookmark.edit": {
+      "family": "misc",
+      "case": "actions/bookmark-edit",
+      "entry": "action"
+    },
+    "bookmark.manager": {
+      "family": "misc",
+      "case": "actions/bookmark-manager",
+      "entry": "action"
+    },
+    "bookmark.move": {
+      "family": "misc",
+      "case": "actions/bookmark-move",
+      "entry": "action"
+    },
+    "bookmark.newFolder": {
+      "family": "misc",
+      "case": "actions/bookmark-new-folder",
+      "entry": "action"
+    },
+    "bookmark.open": {
+      "family": "misc",
+      "case": "actions/bookmark-open",
+      "entry": "action"
+    },
+    "bookmark.openAll": {
+      "family": "misc",
+      "case": "actions/bookmark-open-all",
+      "entry": "action"
+    },
+    "bookmark.openInBackgroundTab": {
+      "family": "misc",
+      "case": "actions/bookmark-open-in-background-tab",
+      "entry": "action"
+    },
+    "bookmark.openInNewTab": {
+      "family": "misc",
+      "case": "actions/bookmark-open-in-new-tab",
+      "entry": "action"
+    },
+    "bookmark.remove": {
+      "family": "misc",
+      "case": "actions/bookmark-remove",
+      "entry": "action"
+    },
+    "bookmark.setIcon": {
+      "family": "misc",
+      "case": "actions/bookmark-set-icon",
+      "entry": "action"
+    },
+    "bookmark.toggleBar": {
+      "family": "misc",
+      "case": "actions/bookmark-toggle-bar",
+      "entry": "key",
+      "key": "cmd+shift+b"
+    },
+    "browser.allowAgentWithExtensions": {
+      "family": "browser",
+      "case": "actions/browser-allow-agent-with-extensions",
+      "entry": "action"
+    },
+    "browser.certificateWarning.goBack": {
+      "family": "browser",
+      "case": "actions/browser-certificate-warning-go-back",
+      "entry": "action"
+    },
+    "browser.certificateWarning.proceed": {
+      "family": "browser",
+      "case": "actions/browser-certificate-warning-proceed",
+      "entry": "action"
+    },
+    "browser.copyURL": {
+      "family": "browser",
+      "case": "actions/browser-copy-url",
+      "entry": "key",
+      "key": "cmd+shift+c"
+    },
+    "browser.defaultEngine.chromium": {
+      "family": "browser",
+      "case": "actions/browser-default-engine-chromium",
+      "entry": "action"
+    },
+    "browser.defaultEngine.webkit": {
+      "family": "browser",
+      "case": "actions/browser-default-engine-webkit",
+      "entry": "action"
+    },
+    "browser.extension.command": {
+      "family": "browser",
+      "case": "actions/browser-extension-command",
+      "entry": "action"
+    },
+    "browser.extension.disable": {
+      "family": "browser",
+      "case": "actions/browser-extension-disable",
+      "entry": "action"
+    },
+    "browser.extension.enable": {
+      "family": "browser",
+      "case": "actions/browser-extension-enable",
+      "entry": "action"
+    },
+    "browser.extension.move": {
+      "family": "browser",
+      "case": "actions/browser-extension-move",
+      "entry": "action"
+    },
+    "browser.extension.options": {
+      "family": "browser",
+      "case": "actions/browser-extension-options",
+      "entry": "action"
+    },
+    "browser.extension.pin": {
+      "family": "browser",
+      "case": "actions/browser-extension-pin",
+      "entry": "action"
+    },
+    "browser.extension.reload": {
+      "family": "browser",
+      "case": "actions/browser-extension-reload",
+      "entry": "action"
+    },
+    "browser.extension.remove": {
+      "family": "browser",
+      "case": "actions/browser-extension-remove",
+      "entry": "action"
+    },
+    "browser.extension.run": {
+      "family": "browser",
+      "case": "actions/browser-extension-run",
+      "entry": "action"
+    },
+    "browser.extension.unpin": {
+      "family": "browser",
+      "case": "actions/browser-extension-unpin",
+      "entry": "action"
+    },
+    "browser.extensions.loadUnpacked": {
+      "family": "browser",
+      "case": "actions/browser-extensions-load-unpacked",
+      "entry": "action"
+    },
+    "browser.extensions.manage": {
+      "family": "browser",
+      "case": "actions/browser-extensions-manage",
+      "entry": "action"
+    },
+    "browser.extensions.menu": {
+      "family": "browser",
+      "case": "actions/browser-extensions-menu",
+      "entry": "action"
+    },
+    "browser.extensions.webStore": {
+      "family": "browser",
+      "case": "actions/browser-extensions-web-store",
+      "entry": "action"
+    },
+    "browser.findPrevious": {
+      "family": "browser",
+      "case": "actions/browser-find-previous",
+      "entry": "key",
+      "key": "cmd+shift+g"
+    },
+    "browser.focusSearch": {
+      "family": "browser",
+      "case": "actions/browser-focus-search",
+      "entry": "action"
+    },
+    "browser.hibernation.aggressive": {
+      "family": "browser",
+      "case": "actions/browser-hibernation-aggressive",
+      "entry": "action"
+    },
+    "browser.hibernation.moderate": {
+      "family": "browser",
+      "case": "actions/browser-hibernation-moderate",
+      "entry": "action"
+    },
+    "browser.hibernation.off": {
+      "family": "browser",
+      "case": "actions/browser-hibernation-off",
+      "entry": "action"
+    },
+    "browser.image.copy": {
+      "family": "browser",
+      "case": "actions/browser-image-copy",
+      "entry": "action"
+    },
+    "browser.image.copyAddress": {
+      "family": "browser",
+      "case": "actions/browser-image-copy-address",
+      "entry": "action"
+    },
+    "browser.image.openInNewTab": {
+      "family": "browser",
+      "case": "actions/browser-image-open-in-new-tab",
+      "entry": "action"
+    },
+    "browser.keepNeighborTabsAwake.0": {
+      "family": "browser",
+      "case": "actions/browser-keep-neighbor-tabs-awake-0",
+      "entry": "action"
+    },
+    "browser.keepNeighborTabsAwake.1": {
+      "family": "browser",
+      "case": "actions/browser-keep-neighbor-tabs-awake-1",
+      "entry": "action"
+    },
+    "browser.keepNeighborTabsAwake.2": {
+      "family": "browser",
+      "case": "actions/browser-keep-neighbor-tabs-awake-2",
+      "entry": "action"
+    },
+    "browser.keepNeighborTabsAwake.3": {
+      "family": "browser",
+      "case": "actions/browser-keep-neighbor-tabs-awake-3",
+      "entry": "action"
+    },
+    "browser.link.copy": {
+      "family": "browser",
+      "case": "actions/browser-link-copy",
+      "entry": "action"
+    },
+    "browser.link.copyText": {
+      "family": "browser",
+      "case": "actions/browser-link-copy-text",
+      "entry": "action"
+    },
+    "browser.link.openInNewTab": {
+      "family": "browser",
+      "case": "actions/browser-link-open-in-new-tab",
+      "entry": "action"
+    },
+    "browser.link.openInSplit": {
+      "family": "browser",
+      "case": "actions/browser-link-open-in-split",
+      "entry": "action"
+    },
+    "browser.media.show": {
+      "family": "browser",
+      "case": "actions/browser-media-show",
+      "entry": "action"
+    },
+    "browser.openLocally": {
+      "family": "browser",
+      "case": "actions/browser-open-locally",
+      "entry": "action"
+    },
+    "browser.overflow.menu": {
+      "family": "browser",
+      "case": "actions/browser-overflow-menu",
+      "entry": "action"
+    },
+    "browser.pageInfo": {
+      "family": "browser",
+      "case": "actions/browser-page-info",
+      "entry": "key",
+      "key": "cmd+ctrl+i"
+    },
+    "browser.pageInfo.aboutThisPage": {
+      "family": "browser",
+      "case": "actions/browser-page-info-about-this-page",
+      "entry": "action"
+    },
+    "browser.pageInfo.certificate": {
+      "family": "browser",
+      "case": "actions/browser-page-info-certificate",
+      "entry": "action"
+    },
+    "browser.pageInfo.connection": {
+      "family": "browser",
+      "case": "actions/browser-page-info-connection",
+      "entry": "action"
+    },
+    "browser.pageInfo.cookies": {
+      "family": "browser",
+      "case": "actions/browser-page-info-cookies",
+      "entry": "action"
+    },
+    "browser.pageInfo.manageSiteData": {
+      "family": "browser",
+      "case": "actions/browser-page-info-manage-site-data",
+      "entry": "action"
+    },
+    "browser.pageInfo.reenableCertificateWarnings": {
+      "family": "browser",
+      "case": "actions/browser-page-info-reenable-certificate-warnings",
+      "entry": "action"
+    },
+    "browser.pageInfo.resetPermissions": {
+      "family": "browser",
+      "case": "actions/browser-page-info-reset-permissions",
+      "entry": "action"
+    },
+    "browser.pageInfo.setPermission": {
+      "family": "browser",
+      "case": "actions/browser-page-info-set-permission",
+      "entry": "action"
+    },
+    "browser.pageInfo.siteSettings": {
+      "family": "browser",
+      "case": "actions/browser-page-info-site-settings",
+      "entry": "action"
+    },
+    "browser.prompt.allow": {
+      "family": "browser",
+      "case": "actions/browser-prompt-allow",
+      "entry": "action"
+    },
+    "browser.prompt.block": {
+      "family": "browser",
+      "case": "actions/browser-prompt-block",
+      "entry": "action"
+    },
+    "browser.resetPinnedTab": {
+      "family": "browser",
+      "case": "actions/browser-reset-pinned-tab",
+      "entry": "action"
+    },
+    "browser.selection.copy": {
+      "family": "browser",
+      "case": "actions/browser-selection-copy",
+      "entry": "action"
+    },
+    "browser.selection.lookUp": {
+      "family": "browser",
+      "case": "actions/browser-selection-look-up",
+      "entry": "action"
+    },
+    "browser.selection.search": {
+      "family": "browser",
+      "case": "actions/browser-selection-search",
+      "entry": "action"
+    },
+    "browserBack": {
+      "family": "browser",
+      "case": "actions/browser-back",
+      "entry": "key",
+      "key": "cmd+["
+    },
+    "browserDevice": {
+      "family": "browser",
+      "case": "actions/browser-device",
+      "entry": "action"
+    },
+    "browserFit": {
+      "family": "browser",
+      "case": "actions/browser-fit",
+      "entry": "action"
+    },
+    "browserFitDesktop": {
+      "family": "browser",
+      "case": "actions/browser-fit-desktop",
+      "entry": "action"
+    },
+    "browserFitDesktop1280": {
+      "family": "browser",
+      "case": "actions/browser-fit-desktop1280",
+      "entry": "action"
+    },
+    "browserForward": {
+      "family": "browser",
+      "case": "actions/browser-forward",
+      "entry": "key",
+      "key": "cmd+]"
+    },
+    "browserHardReload": {
+      "family": "browser",
+      "case": "actions/browser-hard-reload",
+      "entry": "key",
+      "key": "cmd+shift+r"
+    },
+    "browserLinkHints": {
+      "family": "browser",
+      "case": "actions/browser-link-hints",
+      "entry": "key",
+      "key": "f"
+    },
+    "browserLinkHintsNewSplit": {
+      "family": "browser",
+      "case": "actions/browser-link-hints-new-split",
+      "entry": "key",
+      "key": "shift+f"
+    },
+    "browserProfile.clearColor": {
+      "family": "browser",
+      "case": "actions/browser-profile-clear-color",
+      "entry": "action"
+    },
+    "browserProfile.clearIcon": {
+      "family": "browser",
+      "case": "actions/browser-profile-clear-icon",
+      "entry": "action"
+    },
+    "browserProfile.clearSpaceDefault": {
+      "family": "browser",
+      "case": "actions/browser-profile-clear-space-default",
+      "entry": "action"
+    },
+    "browserProfile.clearWorkspaceDefault": {
+      "family": "browser",
+      "case": "actions/browser-profile-clear-workspace-default",
+      "entry": "action"
+    },
+    "browserProfile.duplicateTab": {
+      "family": "browser",
+      "case": "actions/browser-profile-duplicate-tab",
+      "entry": "action",
+      "blocked": "needs a browser-profile argument (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+      "blocked_by": "gap"
+    },
+    "browserProfile.manageExtensions": {
+      "family": "browser",
+      "case": "actions/browser-profile-manage-extensions",
+      "entry": "action",
+      "blocked": "needs a browser-profile argument (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+      "blocked_by": "gap"
+    },
+    "browserProfile.moveTab": {
+      "family": "browser",
+      "case": "actions/browser-profile-move-tab",
+      "entry": "action",
+      "blocked": "needs a browser-profile argument (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+      "blocked_by": "gap"
+    },
+    "browserProfile.new": {
+      "family": "browser",
+      "case": "actions/browser-profile-new",
+      "entry": "action"
+    },
+    "browserProfile.newTab": {
+      "family": "browser",
+      "case": "actions/browser-profile-new-tab",
+      "entry": "action",
+      "blocked": "needs a browser-profile argument (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+      "blocked_by": "gap"
+    },
+    "browserProfile.newWindow": {
+      "family": "browser",
+      "case": "actions/browser-profile-new-window",
+      "entry": "action",
+      "blocked": "needs a browser-profile argument (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+      "blocked_by": "gap"
+    },
+    "browserProfile.newWorkspace": {
+      "family": "browser",
+      "case": "actions/browser-profile-new-workspace",
+      "entry": "action",
+      "blocked": "needs a browser-profile argument (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+      "blocked_by": "gap"
+    },
+    "browserProfile.openLink": {
+      "family": "browser",
+      "case": "actions/browser-profile-open-link",
+      "entry": "action",
+      "blocked": "needs a browser-profile argument (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+      "blocked_by": "gap"
+    },
+    "browserProfile.rename": {
+      "family": "browser",
+      "case": "actions/browser-profile-rename",
+      "entry": "action"
+    },
+    "browserProfile.setColor": {
+      "family": "browser",
+      "case": "actions/browser-profile-set-color",
+      "entry": "action"
+    },
+    "browserProfile.setIcon": {
+      "family": "browser",
+      "case": "actions/browser-profile-set-icon",
+      "entry": "action"
+    },
+    "browserProfile.setSpaceDefault": {
+      "family": "browser",
+      "case": "actions/browser-profile-set-space-default",
+      "entry": "action",
+      "blocked": "needs a browser-profile argument (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+      "blocked_by": "gap"
+    },
+    "browserProfile.setWorkspaceDefault": {
+      "family": "browser",
+      "case": "actions/browser-profile-set-workspace-default",
+      "entry": "action",
+      "blocked": "needs a browser-profile argument (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+      "blocked_by": "gap"
+    },
+    "browserReload": {
+      "family": "browser",
+      "case": "actions/browser-reload",
+      "entry": "key",
+      "key": "cmd+r"
+    },
+    "browserShowHistory": {
+      "family": "browser",
+      "case": "actions/browser-show-history",
+      "entry": "key",
+      "key": "cmd+y"
+    },
+    "browserStop": {
+      "family": "browser",
+      "case": "actions/browser-stop",
+      "entry": "key",
+      "key": "cmd+."
+    },
+    "browserTheme": {
+      "family": "browser",
+      "case": "actions/browser-theme",
+      "entry": "action"
+    },
+    "browserZoomIn": {
+      "family": "browser",
+      "case": "actions/browser-zoom-in",
+      "entry": "key",
+      "key": "cmd+="
+    },
+    "browserZoomOut": {
+      "family": "browser",
+      "case": "actions/browser-zoom-out",
+      "entry": "key",
+      "key": "cmd+-"
+    },
+    "browserZoomReset": {
+      "family": "browser",
+      "case": "actions/browser-zoom-reset",
+      "entry": "key",
+      "key": "cmd+0"
+    },
+    "canvasAlignBottom": {
+      "family": "misc",
+      "case": "actions/canvas-align-bottom",
+      "entry": "action",
+      "blocked": "needs context the sweep does not set up: canvasLayout (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+      "blocked_by": "gap"
+    },
+    "canvasAlignLeft": {
+      "family": "misc",
+      "case": "actions/canvas-align-left",
+      "entry": "action",
+      "blocked": "needs context the sweep does not set up: canvasLayout (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+      "blocked_by": "gap"
+    },
+    "canvasAlignRight": {
+      "family": "misc",
+      "case": "actions/canvas-align-right",
+      "entry": "action",
+      "blocked": "needs context the sweep does not set up: canvasLayout (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+      "blocked_by": "gap"
+    },
+    "canvasAlignTop": {
+      "family": "misc",
+      "case": "actions/canvas-align-top",
+      "entry": "action",
+      "blocked": "needs context the sweep does not set up: canvasLayout (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+      "blocked_by": "gap"
+    },
+    "canvasDistributeHorizontally": {
+      "family": "misc",
+      "case": "actions/canvas-distribute-horizontally",
+      "entry": "action",
+      "blocked": "needs context the sweep does not set up: canvasLayout (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+      "blocked_by": "gap"
+    },
+    "canvasDistributeVertically": {
+      "family": "misc",
+      "case": "actions/canvas-distribute-vertically",
+      "entry": "action",
+      "blocked": "needs context the sweep does not set up: canvasLayout (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+      "blocked_by": "gap"
+    },
+    "canvasEqualizeHeights": {
+      "family": "misc",
+      "case": "actions/canvas-equalize-heights",
+      "entry": "action",
+      "blocked": "needs context the sweep does not set up: canvasLayout (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+      "blocked_by": "gap"
+    },
+    "canvasEqualizeWidths": {
+      "family": "misc",
+      "case": "actions/canvas-equalize-widths",
+      "entry": "action",
+      "blocked": "needs context the sweep does not set up: canvasLayout (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+      "blocked_by": "gap"
+    },
+    "canvasOverview": {
+      "family": "misc",
+      "case": "actions/canvas-overview",
+      "entry": "key",
+      "key": "cmd+ctrl+o",
+      "blocked": "needs context the sweep does not set up: canvasLayout (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+      "blocked_by": "gap"
+    },
+    "canvasTidy": {
+      "family": "misc",
+      "case": "actions/canvas-tidy",
+      "entry": "key",
+      "key": "cmd+ctrl+t",
+      "blocked": "needs context the sweep does not set up: canvasLayout (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+      "blocked_by": "gap"
+    },
+    "canvasZoomIn": {
+      "family": "misc",
+      "case": "actions/canvas-zoom-in",
+      "entry": "key",
+      "key": "cmd+opt+=",
+      "blocked": "needs context the sweep does not set up: canvasLayout (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+      "blocked_by": "gap"
+    },
+    "canvasZoomOut": {
+      "family": "misc",
+      "case": "actions/canvas-zoom-out",
+      "entry": "key",
+      "key": "cmd+opt+-",
+      "blocked": "needs context the sweep does not set up: canvasLayout (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+      "blocked_by": "gap"
+    },
+    "canvasZoomReset": {
+      "family": "misc",
+      "case": "actions/canvas-zoom-reset",
+      "entry": "key",
+      "key": "cmd+0",
+      "blocked": "needs context the sweep does not set up: canvasLayout (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+      "blocked_by": "gap"
+    },
+    "checklistCompleteItem": {
+      "family": "misc",
+      "case": "actions/checklist-complete-item",
+      "entry": "action"
+    },
+    "checklistEditItem": {
+      "family": "misc",
+      "case": "actions/checklist-edit-item",
+      "entry": "action"
+    },
+    "checklistMarkInProgress": {
+      "family": "misc",
+      "case": "actions/checklist-mark-in-progress",
+      "entry": "action"
+    },
+    "checklistOpenAsPane": {
+      "family": "misc",
+      "case": "actions/checklist-open-as-pane",
+      "entry": "action"
+    },
+    "checklistRemoveItem": {
+      "family": "misc",
+      "case": "actions/checklist-remove-item",
+      "entry": "action"
+    },
+    "chief.moveTo": {
+      "family": "agents",
+      "case": "actions/chief-move-to",
+      "entry": "action"
+    },
+    "chief.openMemoryInspector": {
+      "family": "agents",
+      "case": "actions/chief-open-memory-inspector",
+      "entry": "action"
+    },
+    "chief.openSubagent": {
+      "family": "agents",
+      "case": "actions/chief-open-subagent",
+      "entry": "action"
+    },
+    "chief.openUsage": {
+      "family": "agents",
+      "case": "actions/chief-open-usage",
+      "entry": "action"
+    },
+    "chief.openViews": {
+      "family": "agents",
+      "case": "actions/chief-open-views",
+      "entry": "action"
+    },
+    "chief.toggleMemoryInspector": {
+      "family": "agents",
+      "case": "actions/chief-toggle-memory-inspector",
+      "entry": "action"
+    },
+    "clearAllNotifications": {
+      "family": "misc",
+      "case": "actions/clear-all-notifications",
+      "entry": "action"
+    },
+    "clearScreenKeepScrollback": {
+      "family": "misc",
+      "case": "actions/clear-screen-keep-scrollback",
+      "entry": "key",
+      "key": "cmd+shift+k"
+    },
+    "clearWorkspaceNotifications": {
+      "family": "misc",
+      "case": "actions/clear-workspace-notifications",
+      "entry": "action"
+    },
+    "closeAllWindows": {
+      "family": "tabs",
+      "case": "actions/close-all-windows",
+      "entry": "action"
+    },
+    "closeOtherTabsInPane": {
+      "family": "tabs",
+      "case": "actions/close-other-tabs-in-pane",
+      "entry": "key",
+      "key": "cmd+opt+t"
+    },
+    "closePane": {
+      "family": "tabs",
+      "case": "actions/close-pane",
+      "entry": "action"
+    },
+    "closeTab": {
+      "family": "tabs",
+      "case": "actions/close-tab",
+      "entry": "key",
+      "key": "cmd+w"
+    },
+    "closeTabsToLeft": {
+      "family": "tabs",
+      "case": "actions/close-tabs-to-left",
+      "entry": "action"
+    },
+    "closeTabsToRight": {
+      "family": "tabs",
+      "case": "actions/close-tabs-to-right",
+      "entry": "action"
+    },
+    "closeWindow": {
+      "family": "tabs",
+      "case": "actions/close-window",
+      "entry": "key",
+      "key": "cmd+ctrl+w"
+    },
+    "closeWorkspace": {
+      "family": "tabs",
+      "case": "actions/close-workspace",
+      "entry": "key",
+      "key": "cmd+shift+w"
+    },
+    "column.center": {
+      "family": "layout",
+      "case": "actions/column-center",
+      "entry": "action"
+    },
+    "column.cycleWidth": {
+      "family": "layout",
+      "case": "actions/column-cycle-width",
+      "entry": "action"
+    },
+    "column.cycleWidthBack": {
+      "family": "layout",
+      "case": "actions/column-cycle-width-back",
+      "entry": "action"
+    },
+    "column.dock": {
+      "family": "layout",
+      "case": "actions/column-dock",
+      "entry": "key",
+      "key": "cmd+ctrl+p"
+    },
+    "column.dockBottom": {
+      "family": "layout",
+      "case": "actions/column-dock-bottom",
+      "entry": "action"
+    },
+    "column.dockLeft": {
+      "family": "layout",
+      "case": "actions/column-dock-left",
+      "entry": "action"
+    },
+    "column.dockRight": {
+      "family": "layout",
+      "case": "actions/column-dock-right",
+      "entry": "action"
+    },
+    "column.dockTop": {
+      "family": "layout",
+      "case": "actions/column-dock-top",
+      "entry": "action"
+    },
+    "column.float": {
+      "family": "layout",
+      "case": "actions/column-float",
+      "entry": "action"
+    },
+    "column.focusLeft": {
+      "family": "layout",
+      "case": "actions/column-focus-left",
+      "entry": "action"
+    },
+    "column.focusRight": {
+      "family": "layout",
+      "case": "actions/column-focus-right",
+      "entry": "action"
+    },
+    "column.moveLeft": {
+      "family": "layout",
+      "case": "actions/column-move-left",
+      "entry": "action",
+      "setup": [
+        "prepare-1 newColumn"
+      ]
+    },
+    "column.moveRight": {
+      "family": "layout",
+      "case": "actions/column-move-right",
+      "entry": "action",
+      "setup": [
+        "prepare-1 newColumn",
+        "prepare-2 column.focusLeft"
+      ]
+    },
+    "column.undock": {
+      "family": "layout",
+      "case": "actions/column-undock",
+      "entry": "action"
+    },
+    "column.widthFull": {
+      "family": "layout",
+      "case": "actions/column-width-full",
+      "entry": "action"
+    },
+    "column.widthHalf": {
+      "family": "layout",
+      "case": "actions/column-width-half",
+      "entry": "action"
+    },
+    "column.widthOneThird": {
+      "family": "layout",
+      "case": "actions/column-width-one-third",
+      "entry": "action"
+    },
+    "column.widthTwoThirds": {
+      "family": "layout",
+      "case": "actions/column-width-two-thirds",
+      "entry": "action"
+    },
+    "commandPalette": {
+      "family": "misc",
+      "case": "actions/command-palette",
+      "entry": "key",
+      "key": "cmd+shift+p"
+    },
+    "commandPaletteNext": {
+      "family": "misc",
+      "case": "actions/command-palette-next",
+      "entry": "key",
+      "key": "ctrl+n",
+      "blocked": "needs context the sweep does not set up: paletteOpen (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+      "blocked_by": "gap"
+    },
+    "commandPalettePrevious": {
+      "family": "misc",
+      "case": "actions/command-palette-previous",
+      "entry": "key",
+      "key": "ctrl+p",
+      "blocked": "needs context the sweep does not set up: paletteOpen (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+      "blocked_by": "gap"
+    },
+    "cycleTextBoxSubmitAction": {
+      "family": "misc",
+      "case": "actions/cycle-text-box-submit-action",
+      "entry": "key",
+      "key": "shift+tab",
+      "blocked": "unavailable here: Needs textBoxFocused in the focused window. (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+      "blocked_by": "gap"
+    },
+    "cycleWorkspaceStatus": {
+      "family": "misc",
+      "case": "actions/cycle-workspace-status",
+      "entry": "key",
+      "key": "cmd+shift+;"
+    },
+    "debug.actionLatencyHUD": {
+      "family": "misc",
+      "case": "actions/debug-action-latency-hud",
+      "entry": "action"
+    },
+    "debug.blockingCalls.reset": {
+      "family": "misc",
+      "case": "actions/debug-blocking-calls-reset",
+      "entry": "action"
+    },
+    "decreaseWorkspaceTerminalFontSize": {
+      "family": "misc",
+      "case": "actions/decrease-workspace-terminal-font-size",
+      "entry": "key",
+      "key": "cmd+-"
+    },
+    "devtools.clearConsole": {
+      "family": "browser",
+      "case": "actions/devtools-clear-console",
+      "entry": "action"
+    },
+    "devtools.close": {
+      "family": "browser",
+      "case": "actions/devtools-close",
+      "entry": "action"
+    },
+    "devtools.copyConsoleLog": {
+      "family": "browser",
+      "case": "actions/devtools-copy-console-log",
+      "entry": "action"
+    },
+    "devtools.emptyCacheAndHardReload": {
+      "family": "browser",
+      "case": "actions/devtools-empty-cache-and-hard-reload",
+      "entry": "action"
+    },
+    "devtools.openDocked": {
+      "family": "browser",
+      "case": "actions/devtools-open-docked",
+      "entry": "action"
+    },
+    "devtools.openDockedRight": {
+      "family": "browser",
+      "case": "actions/devtools-open-docked-right",
+      "entry": "action"
+    },
+    "devtools.pauseScript": {
+      "family": "browser",
+      "case": "actions/devtools-pause-script",
+      "entry": "action"
+    },
+    "devtools.resumeScript": {
+      "family": "browser",
+      "case": "actions/devtools-resume-script",
+      "entry": "action",
+      "blocked": "unavailable here: Needs webViewFocused in the focused window. (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+      "blocked_by": "gap"
+    },
+    "devtools.showAnimations": {
+      "family": "browser",
+      "case": "actions/devtools-show-animations",
+      "entry": "action"
+    },
+    "devtools.showApplication": {
+      "family": "browser",
+      "case": "actions/devtools-show-application",
+      "entry": "action"
+    },
+    "devtools.showElements": {
+      "family": "browser",
+      "case": "actions/devtools-show-elements",
+      "entry": "action"
+    },
+    "devtools.showLayers": {
+      "family": "browser",
+      "case": "actions/devtools-show-layers",
+      "entry": "action"
+    },
+    "devtools.showLighthouse": {
+      "family": "browser",
+      "case": "actions/devtools-show-lighthouse",
+      "entry": "action"
+    },
+    "devtools.showMemory": {
+      "family": "browser",
+      "case": "actions/devtools-show-memory",
+      "entry": "action"
+    },
+    "devtools.showNetwork": {
+      "family": "browser",
+      "case": "actions/devtools-show-network",
+      "entry": "action"
+    },
+    "devtools.showPerformance": {
+      "family": "browser",
+      "case": "actions/devtools-show-performance",
+      "entry": "action"
+    },
+    "devtools.showRendering": {
+      "family": "browser",
+      "case": "actions/devtools-show-rendering",
+      "entry": "action"
+    },
+    "devtools.showSecurity": {
+      "family": "browser",
+      "case": "actions/devtools-show-security",
+      "entry": "action"
+    },
+    "devtools.showSensors": {
+      "family": "browser",
+      "case": "actions/devtools-show-sensors",
+      "entry": "action"
+    },
+    "devtools.showSources": {
+      "family": "browser",
+      "case": "actions/devtools-show-sources",
+      "entry": "action"
+    },
+    "devtools.takeHeapSnapshot": {
+      "family": "browser",
+      "case": "actions/devtools-take-heap-snapshot",
+      "entry": "action"
+    },
+    "devtools.throttleFast3G": {
+      "family": "browser",
+      "case": "actions/devtools-throttle-fast3-g",
+      "entry": "action"
+    },
+    "devtools.throttleOff": {
+      "family": "browser",
+      "case": "actions/devtools-throttle-off",
+      "entry": "action"
+    },
+    "devtools.throttleOffline": {
+      "family": "browser",
+      "case": "actions/devtools-throttle-offline",
+      "entry": "action"
+    },
+    "devtools.throttleSlow3G": {
+      "family": "browser",
+      "case": "actions/devtools-throttle-slow3-g",
+      "entry": "action"
+    },
+    "devtools.toggleCSS": {
+      "family": "browser",
+      "case": "actions/devtools-toggle-css",
+      "entry": "action"
+    },
+    "devtools.toggleCache": {
+      "family": "browser",
+      "case": "actions/devtools-toggle-cache",
+      "entry": "action"
+    },
+    "devtools.toggleFPSMeter": {
+      "family": "browser",
+      "case": "actions/devtools-toggle-fps-meter",
+      "entry": "action"
+    },
+    "devtools.toggleFocusEmulation": {
+      "family": "browser",
+      "case": "actions/devtools-toggle-focus-emulation",
+      "entry": "action"
+    },
+    "devtools.toggleJavaScript": {
+      "family": "browser",
+      "case": "actions/devtools-toggle-java-script",
+      "entry": "action"
+    },
+    "devtools.toggleLayerBorders": {
+      "family": "browser",
+      "case": "actions/devtools-toggle-layer-borders",
+      "entry": "action"
+    },
+    "devtools.toggleLayoutShiftRegions": {
+      "family": "browser",
+      "case": "actions/devtools-toggle-layout-shift-regions",
+      "entry": "action"
+    },
+    "devtools.togglePaintFlashing": {
+      "family": "browser",
+      "case": "actions/devtools-toggle-paint-flashing",
+      "entry": "action"
+    },
+    "devtools.toggleReducedMotion": {
+      "family": "browser",
+      "case": "actions/devtools-toggle-reduced-motion",
+      "entry": "action"
+    },
+    "devtools.viewPageSource": {
+      "family": "browser",
+      "case": "actions/devtools-view-page-source",
+      "entry": "action"
+    },
+    "diagnostics.viewHangReport": {
+      "family": "misc",
+      "case": "actions/diagnostics-view-hang-report",
+      "entry": "action"
+    },
+    "diffViewerGoToBottom": {
+      "family": "misc",
+      "case": "actions/diff-viewer-go-to-bottom",
+      "entry": "key",
+      "key": "shift+g",
+      "blocked": "needs context the sweep does not set up: diffViewerFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+      "blocked_by": "gap"
+    },
+    "diffViewerGoToTop": {
+      "family": "misc",
+      "case": "actions/diff-viewer-go-to-top",
+      "entry": "action",
+      "blocked": "needs context the sweep does not set up: diffViewerFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+      "blocked_by": "gap"
+    },
+    "diffViewerHalfPageDown": {
+      "family": "misc",
+      "case": "actions/diff-viewer-half-page-down",
+      "entry": "key",
+      "key": "ctrl+d",
+      "blocked": "needs context the sweep does not set up: diffViewerFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+      "blocked_by": "gap"
+    },
+    "diffViewerHalfPageUp": {
+      "family": "misc",
+      "case": "actions/diff-viewer-half-page-up",
+      "entry": "key",
+      "key": "ctrl+u",
+      "blocked": "needs context the sweep does not set up: diffViewerFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+      "blocked_by": "gap"
+    },
+    "diffViewerNextFile": {
+      "family": "misc",
+      "case": "actions/diff-viewer-next-file",
+      "entry": "action",
+      "blocked": "needs context the sweep does not set up: diffViewerFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+      "blocked_by": "gap"
+    },
+    "diffViewerNextHunk": {
+      "family": "misc",
+      "case": "actions/diff-viewer-next-hunk",
+      "entry": "key",
+      "key": "ctrl+n",
+      "blocked": "needs context the sweep does not set up: diffViewerFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+      "blocked_by": "gap"
+    },
+    "diffViewerNextLine": {
+      "family": "misc",
+      "case": "actions/diff-viewer-next-line",
+      "entry": "key",
+      "key": "j",
+      "blocked": "needs context the sweep does not set up: diffViewerFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+      "blocked_by": "gap"
+    },
+    "diffViewerPreviousFile": {
+      "family": "misc",
+      "case": "actions/diff-viewer-previous-file",
+      "entry": "action",
+      "blocked": "needs context the sweep does not set up: diffViewerFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+      "blocked_by": "gap"
+    },
+    "diffViewerPreviousHunk": {
+      "family": "misc",
+      "case": "actions/diff-viewer-previous-hunk",
+      "entry": "key",
+      "key": "ctrl+p",
+      "blocked": "needs context the sweep does not set up: diffViewerFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+      "blocked_by": "gap"
+    },
+    "diffViewerPreviousLine": {
+      "family": "misc",
+      "case": "actions/diff-viewer-previous-line",
+      "entry": "key",
+      "key": "k",
+      "blocked": "needs context the sweep does not set up: diffViewerFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+      "blocked_by": "gap"
+    },
+    "diffViewerSearch": {
+      "family": "misc",
+      "case": "actions/diff-viewer-search",
+      "entry": "key",
+      "key": "/",
+      "blocked": "needs context the sweep does not set up: diffViewerFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+      "blocked_by": "gap"
+    },
+    "disconnectWorkspace": {
+      "family": "misc",
+      "case": "actions/disconnect-workspace",
+      "entry": "action"
+    },
+    "duplicateTab": {
+      "family": "misc",
+      "case": "actions/duplicate-tab",
+      "entry": "action"
+    },
+    "editWorkspaceDescription": {
+      "family": "misc",
+      "case": "actions/edit-workspace-description",
+      "entry": "key",
+      "key": "cmd+opt+e"
+    },
+    "equalizeSplits": {
+      "family": "misc",
+      "case": "actions/equalize-splits",
+      "entry": "key",
+      "key": "cmd+ctrl+="
+    },
+    "feed.show": {
+      "family": "misc",
+      "case": "actions/feed-show",
+      "entry": "key",
+      "key": "cmd+shift+i"
+    },
+    "file.open": {
+      "family": "misc",
+      "case": "actions/file-open",
+      "entry": "action"
+    },
+    "fileEditorAction": {
+      "family": "misc",
+      "case": "actions/file-editor-action",
+      "entry": "action",
+      "blocked": "needs context the sweep does not set up: codeEditorFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+      "blocked_by": "gap"
+    },
+    "fileEditorGotoLine": {
+      "family": "misc",
+      "case": "actions/file-editor-goto-line",
+      "entry": "key",
+      "key": "ctrl+g",
+      "blocked": "needs context the sweep does not set up: codeEditorFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+      "blocked_by": "gap"
+    },
+    "fileEditorReplace": {
+      "family": "misc",
+      "case": "actions/file-editor-replace",
+      "entry": "action",
+      "blocked": "needs context the sweep does not set up: codeEditorFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+      "blocked_by": "gap"
+    },
+    "fileEditorZoomIn": {
+      "family": "misc",
+      "case": "actions/file-editor-zoom-in",
+      "entry": "key",
+      "key": "cmd+=",
+      "blocked": "needs context the sweep does not set up: codeEditorFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+      "blocked_by": "gap"
+    },
+    "fileEditorZoomOut": {
+      "family": "misc",
+      "case": "actions/file-editor-zoom-out",
+      "entry": "key",
+      "key": "cmd+-",
+      "blocked": "needs context the sweep does not set up: codeEditorFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+      "blocked_by": "gap"
+    },
+    "fileEditorZoomReset": {
+      "family": "misc",
+      "case": "actions/file-editor-zoom-reset",
+      "entry": "key",
+      "key": "cmd+0",
+      "blocked": "needs context the sweep does not set up: codeEditorFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+      "blocked_by": "gap"
+    },
+    "fileExplorerCopyPath": {
+      "family": "misc",
+      "case": "actions/file-explorer-copy-path",
+      "entry": "action",
+      "blocked": "needs context the sweep does not set up: fileExplorerFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+      "blocked_by": "gap"
+    },
+    "fileExplorerCopyRelativePath": {
+      "family": "misc",
+      "case": "actions/file-explorer-copy-relative-path",
+      "entry": "action",
+      "blocked": "needs context the sweep does not set up: fileExplorerFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+      "blocked_by": "gap"
+    },
+    "fileExplorerMoveToTrash": {
+      "family": "misc",
+      "case": "actions/file-explorer-move-to-trash",
+      "entry": "action",
+      "blocked": "needs context the sweep does not set up: fileExplorerFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+      "blocked_by": "gap"
+    },
+    "fileExplorerNewFile": {
+      "family": "misc",
+      "case": "actions/file-explorer-new-file",
+      "entry": "action",
+      "blocked": "needs context the sweep does not set up: fileExplorerFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+      "blocked_by": "gap"
+    },
+    "fileExplorerNewFolder": {
+      "family": "misc",
+      "case": "actions/file-explorer-new-folder",
+      "entry": "action",
+      "blocked": "needs context the sweep does not set up: fileExplorerFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+      "blocked_by": "gap"
+    },
+    "fileExplorerOpenAsText": {
+      "family": "misc",
+      "case": "actions/file-explorer-open-as-text",
+      "entry": "action",
+      "blocked": "needs context the sweep does not set up: fileExplorerFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+      "blocked_by": "gap"
+    },
+    "fileExplorerOpenSelection": {
+      "family": "misc",
+      "case": "actions/file-explorer-open-selection",
+      "entry": "key",
+      "key": "return",
+      "blocked": "needs context the sweep does not set up: fileExplorerFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+      "blocked_by": "gap"
+    },
+    "fileExplorerRename": {
+      "family": "misc",
+      "case": "actions/file-explorer-rename",
+      "entry": "action",
+      "blocked": "needs context the sweep does not set up: fileExplorerFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+      "blocked_by": "gap"
+    },
+    "files.open": {
+      "family": "misc",
+      "case": "actions/files-open",
+      "entry": "action"
+    },
+    "find": {
+      "family": "focus",
+      "case": "actions/find",
+      "entry": "key",
+      "key": "cmd+f"
+    },
+    "findInDirectory": {
+      "family": "focus",
+      "case": "actions/find-in-directory",
+      "entry": "key",
+      "key": "cmd+shift+f"
+    },
+    "findNext": {
+      "family": "focus",
+      "case": "actions/find-next",
+      "entry": "key",
+      "key": "cmd+g"
+    },
+    "findPrevious": {
+      "family": "focus",
+      "case": "actions/find-previous",
+      "entry": "key",
+      "key": "cmd+opt+g"
+    },
+    "focusBrowserAddressBar": {
+      "family": "focus",
+      "case": "actions/focus-browser-address-bar",
+      "entry": "action"
+    },
+    "focusDown": {
+      "family": "focus",
+      "case": "actions/focus-down",
+      "entry": "key",
+      "key": "cmd+opt+down",
+      "setup": [
+        "neighbor-1 splitDown",
+        "neighbor-2 focusUp"
+      ]
+    },
+    "focusHistoryBack": {
+      "family": "focus",
+      "case": "actions/focus-history-back",
+      "entry": "key",
+      "key": "ctrl+-"
+    },
+    "focusHistoryForward": {
+      "family": "focus",
+      "case": "actions/focus-history-forward",
+      "entry": "key",
+      "key": "shift+ctrl+-"
+    },
+    "focusHistoryLast": {
+      "family": "focus",
+      "case": "actions/focus-history-last",
+      "entry": "action"
+    },
+    "focusLeft": {
+      "family": "focus",
+      "case": "actions/focus-left",
+      "entry": "key",
+      "key": "cmd+opt+left",
+      "setup": [
+        "neighbor-1 splitRight"
+      ]
+    },
+    "focusLocation": {
+      "family": "focus",
+      "case": "actions/focus-location",
+      "entry": "key",
+      "key": "cmd+l"
+    },
+    "focusNextPane": {
+      "family": "focus",
+      "case": "actions/focus-next-pane",
+      "entry": "action"
+    },
+    "focusPaneByNumber": {
+      "family": "focus",
+      "case": "actions/focus-pane-by-number",
+      "entry": "key",
+      "key": "cmd+ctrl+1"
+    },
+    "focusPreviousPane": {
+      "family": "focus",
+      "case": "actions/focus-previous-pane",
+      "entry": "action"
+    },
+    "focusRight": {
+      "family": "focus",
+      "case": "actions/focus-right",
+      "entry": "key",
+      "key": "cmd+opt+right",
+      "setup": [
+        "neighbor-1 splitRight",
+        "neighbor-2 focusLeft"
+      ]
+    },
+    "focusRightSidebar": {
+      "family": "focus",
+      "case": "actions/focus-right-sidebar",
+      "entry": "key",
+      "key": "cmd+shift+e"
+    },
+    "focusRing.singlePane.toggle": {
+      "family": "focus",
+      "case": "actions/focus-ring-single-pane-toggle",
+      "entry": "action"
+    },
+    "focusRing.style.glow": {
+      "family": "focus",
+      "case": "actions/focus-ring-style-glow",
+      "entry": "action"
+    },
+    "focusRing.style.ring": {
+      "family": "focus",
+      "case": "actions/focus-ring-style-ring",
+      "entry": "action"
+    },
+    "focusRing.toggle": {
+      "family": "focus",
+      "case": "actions/focus-ring-toggle",
+      "entry": "action"
+    },
+    "focusSidebar": {
+      "family": "focus",
+      "case": "actions/focus-sidebar",
+      "entry": "key",
+      "key": "cmd+ctrl+e"
+    },
+    "focusTextBoxInput": {
+      "family": "focus",
+      "case": "actions/focus-text-box-input",
+      "entry": "key",
+      "key": "cmd+opt+a"
+    },
+    "focusUp": {
+      "family": "focus",
+      "case": "actions/focus-up",
+      "entry": "key",
+      "key": "cmd+opt+up",
+      "setup": [
+        "neighbor-1 splitDown"
+      ]
+    },
+    "ghostty.showDiagnostics": {
+      "family": "misc",
+      "case": "actions/ghostty-show-diagnostics",
+      "entry": "action"
+    },
+    "globalSearch": {
+      "family": "misc",
+      "case": "actions/global-search",
+      "entry": "key",
+      "key": "cmd+opt+f"
+    },
+    "goToWorkspace": {
+      "family": "misc",
+      "case": "actions/go-to-workspace",
+      "entry": "key",
+      "key": "cmd+p"
+    },
+    "groupSelectedWorkspaces": {
+      "family": "misc",
+      "case": "actions/group-selected-workspaces",
+      "entry": "key",
+      "key": "cmd+shift+g"
+    },
+    "hibernateTab": {
+      "family": "misc",
+      "case": "actions/hibernate-tab",
+      "entry": "action"
+    },
+    "hideFind": {
+      "family": "misc",
+      "case": "actions/hide-find",
+      "entry": "key",
+      "key": "cmd+shift+opt+f"
+    },
+    "hints.show": {
+      "family": "misc",
+      "case": "actions/hints-show",
+      "entry": "action"
+    },
+    "history.clear": {
+      "family": "misc",
+      "case": "actions/history-clear",
+      "entry": "action"
+    },
+    "history.commands": {
+      "family": "misc",
+      "case": "actions/history-commands",
+      "entry": "action"
+    },
+    "history.goTo": {
+      "family": "misc",
+      "case": "actions/history-go-to",
+      "entry": "action"
+    },
+    "history.open": {
+      "family": "misc",
+      "case": "actions/history-open",
+      "entry": "action"
+    },
+    "history.reopen": {
+      "family": "misc",
+      "case": "actions/history-reopen",
+      "entry": "action"
+    },
+    "history.resumeAgentSession": {
+      "family": "misc",
+      "case": "actions/history-resume-agent-session",
+      "entry": "action"
+    },
+    "history.search": {
+      "family": "misc",
+      "case": "actions/history-search",
+      "entry": "action"
+    },
+    "history.show": {
+      "family": "misc",
+      "case": "actions/history-show",
+      "entry": "action"
+    },
+    "home.addMembers": {
+      "family": "workspace",
+      "case": "actions/home-add-members",
+      "entry": "action"
+    },
+    "home.archiveChief": {
+      "family": "workspace",
+      "case": "actions/home-archive-chief",
+      "entry": "action"
+    },
+    "home.channels": {
+      "family": "workspace",
+      "case": "actions/home-channels",
+      "entry": "action",
+      "blocked": "needs context the sweep does not set up: homeChannelsEnabled (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+      "blocked_by": "gap"
+    },
+    "home.conversationInfo": {
+      "family": "workspace",
+      "case": "actions/home-conversation-info",
+      "entry": "action"
+    },
+    "home.createGroup": {
+      "family": "workspace",
+      "case": "actions/home-create-group",
+      "entry": "action"
+    },
+    "home.disableChannels": {
+      "family": "workspace",
+      "case": "actions/home-disable-channels",
+      "entry": "action"
+    },
+    "home.enableChannels": {
+      "family": "workspace",
+      "case": "actions/home-enable-channels",
+      "entry": "action"
+    },
+    "home.invite": {
+      "family": "workspace",
+      "case": "actions/home-invite",
+      "entry": "action"
+    },
+    "home.leaveConversation": {
+      "family": "workspace",
+      "case": "actions/home-leave-conversation",
+      "entry": "action"
+    },
+    "home.messageAbout": {
+      "family": "workspace",
+      "case": "actions/home-message-about",
+      "entry": "action"
+    },
+    "home.messageChiefFromAnyApp": {
+      "family": "workspace",
+      "case": "actions/home-message-chief-from-any-app",
+      "entry": "key",
+      "key": "cmd+opt+ctrl+c"
+    },
+    "home.messageChiefPet": {
+      "family": "workspace",
+      "case": "actions/home-message-chief-pet",
+      "entry": "action"
+    },
+    "home.messageTo": {
+      "family": "workspace",
+      "case": "actions/home-message-to",
+      "entry": "action"
+    },
+    "home.muteConversation": {
+      "family": "workspace",
+      "case": "actions/home-mute-conversation",
+      "entry": "action"
+    },
+    "home.newChief": {
+      "family": "workspace",
+      "case": "actions/home-new-chief",
+      "entry": "action"
+    },
+    "home.newMessage": {
+      "family": "workspace",
+      "case": "actions/home-new-message",
+      "entry": "action"
+    },
+    "home.nextConversation": {
+      "family": "workspace",
+      "case": "actions/home-next-conversation",
+      "entry": "key",
+      "key": "ctrl+tab"
+    },
+    "home.openChief": {
+      "family": "workspace",
+      "case": "actions/home-open-chief",
+      "entry": "action"
+    },
+    "home.openConversation": {
+      "family": "workspace",
+      "case": "actions/home-open-conversation",
+      "entry": "action"
+    },
+    "home.previousConversation": {
+      "family": "workspace",
+      "case": "actions/home-previous-conversation",
+      "entry": "key",
+      "key": "shift+ctrl+tab"
+    },
+    "home.removeMember": {
+      "family": "workspace",
+      "case": "actions/home-remove-member",
+      "entry": "action"
+    },
+    "home.renameConversation": {
+      "family": "workspace",
+      "case": "actions/home-rename-conversation",
+      "entry": "action"
+    },
+    "home.replyToSelection": {
+      "family": "workspace",
+      "case": "actions/home-reply-to-selection",
+      "entry": "action"
+    },
+    "home.selectConversationByNumber": {
+      "family": "workspace",
+      "case": "actions/home-select-conversation-by-number",
+      "entry": "key",
+      "key": "ctrl+1"
+    },
+    "home.sendMessage": {
+      "family": "workspace",
+      "case": "actions/home-send-message",
+      "entry": "action"
+    },
+    "home.sendSelectionTo": {
+      "family": "workspace",
+      "case": "actions/home-send-selection-to",
+      "entry": "action"
+    },
+    "home.sendSelectionToChief": {
+      "family": "workspace",
+      "case": "actions/home-send-selection-to-chief",
+      "entry": "action"
+    },
+    "home.setChiefReplies": {
+      "family": "workspace",
+      "case": "actions/home-set-chief-replies",
+      "entry": "action"
+    },
+    "home.show": {
+      "family": "workspace",
+      "case": "actions/home-show",
+      "entry": "action"
+    },
+    "home.stopAllAgents": {
+      "family": "workspace",
+      "case": "actions/home-stop-all-agents",
+      "entry": "action"
+    },
+    "home.stopChief": {
+      "family": "workspace",
+      "case": "actions/home-stop-chief",
+      "entry": "action"
+    },
+    "home.switchView": {
+      "family": "workspace",
+      "case": "actions/home-switch-view",
+      "entry": "action"
+    },
+    "home.tab": {
+      "family": "workspace",
+      "case": "actions/home-tab",
+      "entry": "action"
+    },
+    "home.toggleChiefPet": {
+      "family": "workspace",
+      "case": "actions/home-toggle-chief-pet",
+      "entry": "action"
+    },
+    "home.toggleChiefSettings": {
+      "family": "workspace",
+      "case": "actions/home-toggle-chief-settings",
+      "entry": "action"
+    },
+    "home.togglePin": {
+      "family": "workspace",
+      "case": "actions/home-toggle-pin",
+      "entry": "action"
+    },
+    "home.unmuteConversation": {
+      "family": "workspace",
+      "case": "actions/home-unmute-conversation",
+      "entry": "action"
+    },
+    "increaseWorkspaceTerminalFontSize": {
+      "family": "misc",
+      "case": "actions/increase-workspace-terminal-font-size",
+      "entry": "key",
+      "key": "cmd+="
+    },
+    "inspectBrowserElement": {
+      "family": "misc",
+      "case": "actions/inspect-browser-element",
+      "entry": "key",
+      "key": "cmd+opt+c"
+    },
+    "jumpToLastPrompt": {
+      "family": "misc",
+      "case": "actions/jump-to-last-prompt",
+      "entry": "key",
+      "key": "cmd+ctrl+b"
+    },
+    "jumpToUnread": {
+      "family": "misc",
+      "case": "actions/jump-to-unread",
+      "entry": "key",
+      "key": "cmd+shift+u"
+    },
+    "keepMacAwake": {
+      "family": "misc",
+      "case": "actions/keep-mac-awake",
+      "entry": "action"
+    },
+    "keybindings.open": {
+      "family": "misc",
+      "case": "actions/keybindings-open",
+      "entry": "action"
+    },
+    "layout.centerFocusedColumn.always": {
+      "family": "layout",
+      "case": "actions/layout-center-focused-column-always",
+      "entry": "action"
+    },
+    "layout.centerFocusedColumn.never": {
+      "family": "layout",
+      "case": "actions/layout-center-focused-column-never",
+      "entry": "action"
+    },
+    "layout.centerFocusedColumn.onOverflow": {
+      "family": "layout",
+      "case": "actions/layout-center-focused-column-on-overflow",
+      "entry": "action"
+    },
+    "layout.toggleStripScrollbar": {
+      "family": "layout",
+      "case": "actions/layout-toggle-strip-scrollbar",
+      "entry": "action"
+    },
+    "layout.undo": {
+      "family": "layout",
+      "case": "actions/layout-undo",
+      "entry": "action"
+    },
+    "link.open": {
+      "family": "misc",
+      "case": "actions/link-open",
+      "entry": "action"
+    },
+    "list.next": {
+      "family": "misc",
+      "case": "actions/list-next",
+      "entry": "action"
+    },
+    "list.previous": {
+      "family": "misc",
+      "case": "actions/list-previous",
+      "entry": "action"
+    },
+    "macScreen.open": {
+      "family": "misc",
+      "case": "actions/mac-screen-open",
+      "entry": "action"
+    },
+    "macScreen.revokeViewer": {
+      "family": "misc",
+      "case": "actions/mac-screen-revoke-viewer",
+      "entry": "action"
+    },
+    "macScreen.stopSharing": {
+      "family": "misc",
+      "case": "actions/mac-screen-stop-sharing",
+      "entry": "action"
+    },
+    "manageLayouts": {
+      "family": "misc",
+      "case": "actions/manage-layouts",
+      "entry": "action"
+    },
+    "markAllNotificationsRead": {
+      "family": "misc",
+      "case": "actions/mark-all-notifications-read",
+      "entry": "action"
+    },
+    "markOldestUnreadAndJumpNext": {
+      "family": "misc",
+      "case": "actions/mark-oldest-unread-and-jump-next",
+      "entry": "key",
+      "key": "cmd+ctrl+u"
+    },
+    "markWorkspaceDone": {
+      "family": "misc",
+      "case": "actions/mark-workspace-done",
+      "entry": "key",
+      "key": "cmd+;"
+    },
+    "markdownBack": {
+      "family": "misc",
+      "case": "actions/markdown-back",
+      "entry": "key",
+      "key": "cmd+[",
+      "blocked": "needs context the sweep does not set up: markdownFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+      "blocked_by": "gap"
+    },
+    "markdownForward": {
+      "family": "misc",
+      "case": "actions/markdown-forward",
+      "entry": "key",
+      "key": "cmd+]",
+      "blocked": "needs context the sweep does not set up: markdownFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+      "blocked_by": "gap"
+    },
+    "markdownGoToTop": {
+      "family": "misc",
+      "case": "actions/markdown-go-to-top",
+      "entry": "action",
+      "blocked": "needs context the sweep does not set up: markdownReadOnlyFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+      "blocked_by": "gap"
+    },
+    "markdownLink": {
+      "family": "misc",
+      "case": "actions/markdown-link",
+      "entry": "key",
+      "key": "cmd+shift+k",
+      "blocked": "needs context the sweep does not set up: markdownFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+      "blocked_by": "gap"
+    },
+    "markdownReload": {
+      "family": "misc",
+      "case": "actions/markdown-reload",
+      "entry": "key",
+      "key": "cmd+r",
+      "blocked": "needs context the sweep does not set up: markdownFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+      "blocked_by": "gap"
+    },
+    "markdownResetTableWidths": {
+      "family": "misc",
+      "case": "actions/markdown-reset-table-widths",
+      "entry": "action",
+      "blocked": "needs context the sweep does not set up: markdownFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+      "blocked_by": "gap"
+    },
+    "markdownSave": {
+      "family": "misc",
+      "case": "actions/markdown-save",
+      "entry": "key",
+      "key": "cmd+s",
+      "blocked": "needs context the sweep does not set up: markdownFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+      "blocked_by": "gap"
+    },
+    "markdownZoomIn": {
+      "family": "misc",
+      "case": "actions/markdown-zoom-in",
+      "entry": "key",
+      "key": "cmd+=",
+      "blocked": "needs context the sweep does not set up: markdownFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+      "blocked_by": "gap"
+    },
+    "markdownZoomOut": {
+      "family": "misc",
+      "case": "actions/markdown-zoom-out",
+      "entry": "key",
+      "key": "cmd+-",
+      "blocked": "needs context the sweep does not set up: markdownFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+      "blocked_by": "gap"
+    },
+    "markdownZoomReset": {
+      "family": "misc",
+      "case": "actions/markdown-zoom-reset",
+      "entry": "key",
+      "key": "cmd+0",
+      "blocked": "needs context the sweep does not set up: markdownFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+      "blocked_by": "gap"
+    },
+    "minimizeWindow": {
+      "family": "misc",
+      "case": "actions/minimize-window",
+      "entry": "action"
+    },
+    "moveSurfaceLeft": {
+      "family": "layout",
+      "case": "actions/move-surface-left",
+      "entry": "key",
+      "key": "cmd+shift+opt+["
+    },
+    "moveSurfaceRight": {
+      "family": "layout",
+      "case": "actions/move-surface-right",
+      "entry": "key",
+      "key": "cmd+shift+opt+]"
+    },
+    "moveSurfaceToNextPane": {
+      "family": "layout",
+      "case": "actions/move-surface-to-next-pane",
+      "entry": "key",
+      "key": "cmd+shift+ctrl+]"
+    },
+    "moveSurfaceToPaneDown": {
+      "family": "layout",
+      "case": "actions/move-surface-to-pane-down",
+      "entry": "key",
+      "key": "cmd+shift+opt+down"
+    },
+    "moveSurfaceToPaneLeft": {
+      "family": "layout",
+      "case": "actions/move-surface-to-pane-left",
+      "entry": "key",
+      "key": "cmd+shift+opt+left"
+    },
+    "moveSurfaceToPaneRight": {
+      "family": "layout",
+      "case": "actions/move-surface-to-pane-right",
+      "entry": "key",
+      "key": "cmd+shift+opt+right"
+    },
+    "moveSurfaceToPaneUp": {
+      "family": "layout",
+      "case": "actions/move-surface-to-pane-up",
+      "entry": "key",
+      "key": "cmd+shift+opt+up"
+    },
+    "moveSurfaceToPreviousPane": {
+      "family": "layout",
+      "case": "actions/move-surface-to-previous-pane",
+      "entry": "key",
+      "key": "cmd+shift+ctrl+["
+    },
+    "moveWorkspaceDown": {
+      "family": "layout",
+      "case": "actions/move-workspace-down",
+      "entry": "key",
+      "key": "cmd+opt+ctrl+]"
+    },
+    "moveWorkspaceToGroup": {
+      "family": "layout",
+      "case": "actions/move-workspace-to-group",
+      "entry": "action"
+    },
+    "moveWorkspaceToNewWindow": {
+      "family": "layout",
+      "case": "actions/move-workspace-to-new-window",
+      "entry": "action"
+    },
+    "moveWorkspaceToWindow": {
+      "family": "layout",
+      "case": "actions/move-workspace-to-window",
+      "entry": "action"
+    },
+    "moveWorkspaceUp": {
+      "family": "layout",
+      "case": "actions/move-workspace-up",
+      "entry": "key",
+      "key": "cmd+opt+ctrl+["
+    },
+    "music.open": {
+      "family": "misc",
+      "case": "actions/music-open",
+      "entry": "action"
+    },
+    "music.stop": {
+      "family": "misc",
+      "case": "actions/music-stop",
+      "entry": "action"
+    },
+    "navigate.next": {
+      "family": "misc",
+      "case": "actions/navigate-next",
+      "entry": "action"
+    },
+    "navigate.previous": {
+      "family": "misc",
+      "case": "actions/navigate-previous",
+      "entry": "action"
+    },
+    "neverHibernateSite": {
+      "family": "misc",
+      "case": "actions/never-hibernate-site",
+      "entry": "action"
+    },
+    "newBrowserWorkspace": {
+      "family": "tabs",
+      "case": "actions/new-browser-workspace",
+      "entry": "key",
+      "key": "cmd+opt+n"
+    },
+    "newColumn": {
+      "family": "tabs",
+      "case": "actions/new-column",
+      "entry": "key",
+      "key": "cmd+ctrl+d"
+    },
+    "newIncognitoWindow": {
+      "family": "tabs",
+      "case": "actions/new-incognito-window",
+      "entry": "key",
+      "key": "cmd+shift+opt+n"
+    },
+    "newPaneAutoLayout": {
+      "family": "tabs",
+      "case": "actions/new-pane-auto-layout",
+      "entry": "key",
+      "key": "cmd+ctrl+n"
+    },
+    "newRow": {
+      "family": "tabs",
+      "case": "actions/new-row",
+      "entry": "key",
+      "key": "cmd+shift+ctrl+d"
+    },
+    "newSurface": {
+      "family": "tabs",
+      "case": "actions/new-surface",
+      "entry": "key",
+      "key": "ctrl+`"
+    },
+    "newTab": {
+      "family": "tabs",
+      "case": "actions/new-tab",
+      "entry": "key",
+      "key": "cmd+n"
+    },
+    "newTab.afterCurrent": {
+      "family": "tabs",
+      "case": "actions/new-tab-after-current",
+      "entry": "action"
+    },
+    "newTab.atEnd": {
+      "family": "tabs",
+      "case": "actions/new-tab-at-end",
+      "entry": "action"
+    },
+    "newTab.atStart": {
+      "family": "tabs",
+      "case": "actions/new-tab-at-start",
+      "entry": "action"
+    },
+    "newTab.default": {
+      "family": "tabs",
+      "case": "actions/new-tab-default",
+      "entry": "key",
+      "key": "cmd+t"
+    },
+    "newTab.horizontal": {
+      "family": "tabs",
+      "case": "actions/new-tab-horizontal",
+      "entry": "action"
+    },
+    "newTab.ofKind": {
+      "family": "tabs",
+      "case": "actions/new-tab-of-kind",
+      "entry": "action"
+    },
+    "newTab.page": {
+      "family": "tabs",
+      "case": "actions/new-tab-page",
+      "entry": "action"
+    },
+    "newTab.submit": {
+      "family": "tabs",
+      "case": "actions/new-tab-submit",
+      "entry": "action"
+    },
+    "newTab.toRight": {
+      "family": "tabs",
+      "case": "actions/new-tab-to-right",
+      "entry": "action"
+    },
+    "newWindow": {
+      "family": "tabs",
+      "case": "actions/new-window",
+      "entry": "key",
+      "key": "cmd+shift+n"
+    },
+    "newWorkspaceGroup": {
+      "family": "tabs",
+      "case": "actions/new-workspace-group",
+      "entry": "key",
+      "key": "cmd+ctrl+g"
+    },
+    "nextSidebarTab": {
+      "family": "misc",
+      "case": "actions/next-sidebar-tab",
+      "entry": "key",
+      "key": "cmd+ctrl+]"
+    },
+    "nextSidebarTabInGroup": {
+      "family": "misc",
+      "case": "actions/next-sidebar-tab-in-group",
+      "entry": "action"
+    },
+    "nextSurface": {
+      "family": "misc",
+      "case": "actions/next-surface",
+      "entry": "key",
+      "key": "ctrl+tab"
+    },
+    "nextWorkspaceGroup": {
+      "family": "misc",
+      "case": "actions/next-workspace-group",
+      "entry": "key",
+      "key": "cmd+shift+opt+ctrl+]"
+    },
+    "notificationCopy": {
+      "family": "misc",
+      "case": "actions/notification-copy",
+      "entry": "action"
+    },
+    "notificationDismiss": {
+      "family": "misc",
+      "case": "actions/notification-dismiss",
+      "entry": "action"
+    },
+    "notificationOpen": {
+      "family": "misc",
+      "case": "actions/notification-open",
+      "entry": "action"
+    },
+    "notificationToggleRead": {
+      "family": "misc",
+      "case": "actions/notification-toggle-read",
+      "entry": "action"
+    },
+    "notifications.dismissal.click": {
+      "family": "misc",
+      "case": "actions/notifications-dismissal-click",
+      "entry": "action"
+    },
+    "notifications.dismissal.explicit": {
+      "family": "misc",
+      "case": "actions/notifications-dismissal-explicit",
+      "entry": "action"
+    },
+    "notifications.dismissal.focus": {
+      "family": "misc",
+      "case": "actions/notifications-dismissal-focus",
+      "entry": "action"
+    },
+    "notifications.dismissal.keystroke": {
+      "family": "misc",
+      "case": "actions/notifications-dismissal-keystroke",
+      "entry": "action"
+    },
+    "notifications.dismissal.never": {
+      "family": "misc",
+      "case": "actions/notifications-dismissal-never",
+      "entry": "action"
+    },
+    "notifications.dismissal.timeout": {
+      "family": "misc",
+      "case": "actions/notifications-dismissal-timeout",
+      "entry": "action"
+    },
+    "notifications.toggleBanners": {
+      "family": "misc",
+      "case": "actions/notifications-toggle-banners",
+      "entry": "action"
+    },
+    "notifications.toggleWorkspaceMute": {
+      "family": "misc",
+      "case": "actions/notifications-toggle-workspace-mute",
+      "entry": "action"
+    },
+    "nowPlaying.disableCard": {
+      "family": "misc",
+      "case": "actions/now-playing-disable-card",
+      "entry": "action"
+    },
+    "nowPlaying.hideCard": {
+      "family": "misc",
+      "case": "actions/now-playing-hide-card",
+      "entry": "action"
+    },
+    "nowPlaying.hideCardUntilRelaunch": {
+      "family": "misc",
+      "case": "actions/now-playing-hide-card-until-relaunch",
+      "entry": "action"
+    },
+    "nowPlaying.playPause": {
+      "family": "misc",
+      "case": "actions/now-playing-play-pause",
+      "entry": "action"
+    },
+    "nowPlaying.showCard": {
+      "family": "misc",
+      "case": "actions/now-playing-show-card",
+      "entry": "action"
+    },
+    "omnibar.openInBackgroundTab": {
+      "family": "misc",
+      "case": "actions/omnibar-open-in-background-tab",
+      "entry": "key",
+      "key": "cmd+return",
+      "blocked": "unavailable here: Needs omnibarFocused in the focused window. (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+      "blocked_by": "gap"
+    },
+    "omnibar.openInForegroundTab": {
+      "family": "misc",
+      "case": "actions/omnibar-open-in-foreground-tab",
+      "entry": "key",
+      "key": "cmd+shift+return",
+      "blocked": "unavailable here: Needs omnibarFocused in the focused window. (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+      "blocked_by": "gap"
+    },
+    "openBrowser": {
+      "family": "misc",
+      "case": "actions/open-browser",
+      "entry": "key",
+      "key": "cmd+shift+l"
+    },
+    "openBrowser.chromium": {
+      "family": "misc",
+      "case": "actions/open-browser-chromium",
+      "entry": "action"
+    },
+    "openBrowser.webkit": {
+      "family": "misc",
+      "case": "actions/open-browser-webkit",
+      "entry": "action"
+    },
+    "openDebugSettings": {
+      "family": "misc",
+      "case": "actions/open-debug-settings",
+      "entry": "action"
+    },
+    "openDiffViewer": {
+      "family": "misc",
+      "case": "actions/open-diff-viewer",
+      "entry": "key",
+      "key": "cmd+shift+ctrl+g"
+    },
+    "openMarkdownFile": {
+      "family": "misc",
+      "case": "actions/open-markdown-file",
+      "entry": "action"
+    },
+    "openSettings": {
+      "family": "misc",
+      "case": "actions/open-settings",
+      "entry": "key",
+      "key": "cmd+,"
+    },
+    "palette.addHarness": {
+      "family": "palette",
+      "case": "actions/palette-add-harness",
+      "entry": "action"
+    },
+    "palette.addWorkspaceChecklistItem": {
+      "family": "palette",
+      "case": "actions/palette-add-workspace-checklist-item",
+      "entry": "action"
+    },
+    "palette.browserOpenDefault": {
+      "family": "palette",
+      "case": "actions/palette-browser-open-default",
+      "entry": "action"
+    },
+    "palette.browserToggleOmnibar": {
+      "family": "palette",
+      "case": "actions/palette-browser-toggle-omnibar",
+      "entry": "action"
+    },
+    "palette.clearTabName": {
+      "family": "palette",
+      "case": "actions/palette-clear-tab-name",
+      "entry": "action"
+    },
+    "palette.clearWorkspaceDescription": {
+      "family": "palette",
+      "case": "actions/palette-clear-workspace-description",
+      "entry": "action"
+    },
+    "palette.clearWorkspaceName": {
+      "family": "palette",
+      "case": "actions/palette-clear-workspace-name",
+      "entry": "action"
+    },
+    "palette.closeOtherWorkspaces": {
+      "family": "palette",
+      "case": "actions/palette-close-other-workspaces",
+      "entry": "action"
+    },
+    "palette.closeWorkspacesAbove": {
+      "family": "palette",
+      "case": "actions/palette-close-workspaces-above",
+      "entry": "action"
+    },
+    "palette.closeWorkspacesBelow": {
+      "family": "palette",
+      "case": "actions/palette-close-workspaces-below",
+      "entry": "action"
+    },
+    "palette.copyIdentifiers": {
+      "family": "palette",
+      "case": "actions/palette-copy-identifiers",
+      "entry": "action"
+    },
+    "palette.copyPaneID": {
+      "family": "palette",
+      "case": "actions/palette-copy-pane-id",
+      "entry": "action"
+    },
+    "palette.copyPaneLink": {
+      "family": "palette",
+      "case": "actions/palette-copy-pane-link",
+      "entry": "action"
+    },
+    "palette.copySurfaceID": {
+      "family": "palette",
+      "case": "actions/palette-copy-surface-id",
+      "entry": "action"
+    },
+    "palette.copySurfaceLink": {
+      "family": "palette",
+      "case": "actions/palette-copy-surface-link",
+      "entry": "action"
+    },
+    "palette.copyWorkspaceID": {
+      "family": "palette",
+      "case": "actions/palette-copy-workspace-id",
+      "entry": "action"
+    },
+    "palette.copyWorkspaceIDAndRef": {
+      "family": "palette",
+      "case": "actions/palette-copy-workspace-id-and-ref",
+      "entry": "action"
+    },
+    "palette.copyWorkspaceLink": {
+      "family": "palette",
+      "case": "actions/palette-copy-workspace-link",
+      "entry": "action"
+    },
+    "palette.disableBrowser": {
+      "family": "palette",
+      "case": "actions/palette-disable-browser",
+      "entry": "action"
+    },
+    "palette.disableMinimalMode": {
+      "family": "palette",
+      "case": "actions/palette-disable-minimal-mode",
+      "entry": "action"
+    },
+    "palette.enableBrowser": {
+      "family": "palette",
+      "case": "actions/palette-enable-browser",
+      "entry": "action"
+    },
+    "palette.enableMinimalMode": {
+      "family": "palette",
+      "case": "actions/palette-enable-minimal-mode",
+      "entry": "action"
+    },
+    "palette.findWork": {
+      "family": "palette",
+      "case": "actions/palette-find-work",
+      "entry": "action"
+    },
+    "palette.forkAgentConversationBottom": {
+      "family": "palette",
+      "case": "actions/palette-fork-agent-conversation-bottom",
+      "entry": "action"
+    },
+    "palette.forkAgentConversationLeft": {
+      "family": "palette",
+      "case": "actions/palette-fork-agent-conversation-left",
+      "entry": "action"
+    },
+    "palette.forkAgentConversationNewTab": {
+      "family": "palette",
+      "case": "actions/palette-fork-agent-conversation-new-tab",
+      "entry": "action"
+    },
+    "palette.forkAgentConversationNewWindow": {
+      "family": "palette",
+      "case": "actions/palette-fork-agent-conversation-new-window",
+      "entry": "action"
+    },
+    "palette.forkAgentConversationNewWorkspace": {
+      "family": "palette",
+      "case": "actions/palette-fork-agent-conversation-new-workspace",
+      "entry": "action"
+    },
+    "palette.forkAgentConversationRight": {
+      "family": "palette",
+      "case": "actions/palette-fork-agent-conversation-right",
+      "entry": "key",
+      "key": "cmd+opt+y"
+    },
+    "palette.forkAgentConversationTop": {
+      "family": "palette",
+      "case": "actions/palette-fork-agent-conversation-top",
+      "entry": "action"
+    },
+    "palette.launchClaudeTeams": {
+      "family": "palette",
+      "case": "actions/palette-launch-claude-teams",
+      "entry": "action"
+    },
+    "palette.launchCodexTeams": {
+      "family": "palette",
+      "case": "actions/palette-launch-codex-teams",
+      "entry": "action"
+    },
+    "palette.layout.open": {
+      "family": "palette",
+      "case": "actions/palette-layout-open",
+      "entry": "action"
+    },
+    "palette.markWorkspaceRead": {
+      "family": "palette",
+      "case": "actions/palette-mark-workspace-read",
+      "entry": "action"
+    },
+    "palette.markWorkspaceUnread": {
+      "family": "palette",
+      "case": "actions/palette-mark-workspace-unread",
+      "entry": "action"
+    },
+    "palette.moveTabToNewWorkspace": {
+      "family": "palette",
+      "case": "actions/palette-move-tab-to-new-workspace",
+      "entry": "action"
+    },
+    "palette.moveWorkspaceToTop": {
+      "family": "palette",
+      "case": "actions/palette-move-workspace-to-top",
+      "entry": "action"
+    },
+    "palette.newAgentChat": {
+      "family": "palette",
+      "case": "actions/palette-new-agent-chat",
+      "entry": "key",
+      "key": "cmd+i"
+    },
+    "palette.open": {
+      "family": "palette",
+      "case": "actions/palette-open",
+      "entry": "action"
+    },
+    "palette.openCmuxSettingsFile": {
+      "family": "palette",
+      "case": "actions/palette-open-cmux-settings-file",
+      "entry": "action"
+    },
+    "palette.openDirectoryDiffViewer": {
+      "family": "palette",
+      "case": "actions/palette-open-directory-diff-viewer",
+      "entry": "action"
+    },
+    "palette.openFindPane": {
+      "family": "palette",
+      "case": "actions/palette-open-find-pane",
+      "entry": "action"
+    },
+    "palette.openGhosttySettings": {
+      "family": "palette",
+      "case": "actions/palette-open-ghostty-settings",
+      "entry": "action"
+    },
+    "palette.openTaskManager": {
+      "family": "palette",
+      "case": "actions/palette-open-task-manager",
+      "entry": "action"
+    },
+    "palette.openTerminalChatView": {
+      "family": "palette",
+      "case": "actions/palette-open-terminal-chat-view",
+      "entry": "action"
+    },
+    "palette.openVaultPane": {
+      "family": "palette",
+      "case": "actions/palette-open-vault-pane",
+      "entry": "action"
+    },
+    "palette.openWorkspacePullRequests": {
+      "family": "palette",
+      "case": "actions/palette-open-workspace-pull-requests",
+      "entry": "action"
+    },
+    "palette.openWorkspaceTodoPane": {
+      "family": "palette",
+      "case": "actions/palette-open-workspace-todo-pane",
+      "entry": "action"
+    },
+    "palette.quickAgentChat": {
+      "family": "palette",
+      "case": "actions/palette-quick-agent-chat",
+      "entry": "key",
+      "key": "cmd+ctrl+return"
+    },
+    "palette.resetWorkspaceColor": {
+      "family": "palette",
+      "case": "actions/palette-reset-workspace-color",
+      "entry": "action"
+    },
+    "palette.searchShortcuts": {
+      "family": "palette",
+      "case": "actions/palette-search-shortcuts",
+      "entry": "action"
+    },
+    "palette.shortcutKeymap": {
+      "family": "palette",
+      "case": "actions/palette-shortcut-keymap",
+      "entry": "action"
+    },
+    "palette.sleepyMode": {
+      "family": "palette",
+      "case": "actions/palette-sleepy-mode",
+      "entry": "action"
+    },
+    "palette.startAgentFromAnyApp": {
+      "family": "palette",
+      "case": "actions/palette-start-agent-from-any-app",
+      "entry": "key",
+      "key": "cmd+opt+ctrl+space"
+    },
+    "palette.swapWithSession": {
+      "family": "palette",
+      "case": "actions/palette-swap-with-session",
+      "entry": "action"
+    },
+    "palette.switchAppChannel": {
+      "family": "palette",
+      "case": "actions/palette-switch-app-channel",
+      "entry": "action"
+    },
+    "palette.terminalOpenDirectory": {
+      "family": "palette",
+      "case": "actions/palette-terminal-open-directory",
+      "entry": "action"
+    },
+    "palette.terminalToggleTextBoxInput": {
+      "family": "palette",
+      "case": "actions/palette-terminal-toggle-text-box-input",
+      "entry": "action"
+    },
+    "palette.toggleDictation": {
+      "family": "palette",
+      "case": "actions/palette-toggle-dictation",
+      "entry": "key",
+      "key": "cmd+ctrl+v"
+    },
+    "palette.toggleFullWidthTab": {
+      "family": "palette",
+      "case": "actions/palette-toggle-full-width-tab",
+      "entry": "action"
+    },
+    "palette.toggleMatchTerminalBackground": {
+      "family": "palette",
+      "case": "actions/palette-toggle-match-terminal-background",
+      "entry": "action"
+    },
+    "palette.toggleSetting": {
+      "family": "palette",
+      "case": "actions/palette-toggle-setting",
+      "entry": "action"
+    },
+    "palette.toggleTabPin": {
+      "family": "palette",
+      "case": "actions/palette-toggle-tab-pin",
+      "entry": "key",
+      "key": "cmd+opt+p"
+    },
+    "palette.toggleTabUnread": {
+      "family": "palette",
+      "case": "actions/palette-toggle-tab-unread",
+      "entry": "action"
+    },
+    "palette.toggleWorkspacePin": {
+      "family": "palette",
+      "case": "actions/palette-toggle-workspace-pin",
+      "entry": "action"
+    },
+    "palette.workspaceColor": {
+      "family": "palette",
+      "case": "actions/palette-workspace-color",
+      "entry": "action"
+    },
+    "palette.workspaceStatus": {
+      "family": "palette",
+      "case": "actions/palette-workspace-status",
+      "entry": "action"
+    },
+    "paletteKey.back": {
+      "family": "palette",
+      "case": "actions/palette-key-back",
+      "entry": "action",
+      "blocked": "the sweep's plan skips it (excluded): palette-internal (runs inside the open palette)",
+      "blocked_by": "plan"
+    },
+    "paletteKey.closeActions": {
+      "family": "palette",
+      "case": "actions/palette-key-close-actions",
+      "entry": "action",
+      "blocked": "the sweep's plan skips it (excluded): palette-internal (runs inside the open palette)",
+      "blocked_by": "plan"
+    },
+    "paletteKey.closeItem": {
+      "family": "palette",
+      "case": "actions/palette-key-close-item",
+      "entry": "action",
+      "blocked": "the sweep's plan skips it (excluded): palette-internal (runs inside the open palette)",
+      "blocked_by": "plan"
+    },
+    "paletteKey.enterRow": {
+      "family": "palette",
+      "case": "actions/palette-key-enter-row",
+      "entry": "action",
+      "blocked": "the sweep's plan skips it (excluded): palette-internal (runs inside the open palette)",
+      "blocked_by": "plan"
+    },
+    "paletteKey.escape": {
+      "family": "palette",
+      "case": "actions/palette-key-escape",
+      "entry": "action",
+      "blocked": "the sweep's plan skips it (excluded): palette-internal (runs inside the open palette)",
+      "blocked_by": "plan"
+    },
+    "paletteKey.firstItem": {
+      "family": "palette",
+      "case": "actions/palette-key-first-item",
+      "entry": "action",
+      "blocked": "the sweep's plan skips it (excluded): palette-internal (runs inside the open palette)",
+      "blocked_by": "plan"
+    },
+    "paletteKey.lastItem": {
+      "family": "palette",
+      "case": "actions/palette-key-last-item",
+      "entry": "action",
+      "blocked": "the sweep's plan skips it (excluded): palette-internal (runs inside the open palette)",
+      "blocked_by": "plan"
+    },
+    "paletteKey.leaveLevel": {
+      "family": "palette",
+      "case": "actions/palette-key-leave-level",
+      "entry": "action",
+      "blocked": "the sweep's plan skips it (excluded): palette-internal (runs inside the open palette)",
+      "blocked_by": "plan"
+    },
+    "paletteKey.openActions": {
+      "family": "palette",
+      "case": "actions/palette-key-open-actions",
+      "entry": "action",
+      "blocked": "the sweep's plan skips it (excluded): palette-internal (runs inside the open palette)",
+      "blocked_by": "plan"
+    },
+    "paletteKey.pageDown": {
+      "family": "palette",
+      "case": "actions/palette-key-page-down",
+      "entry": "action",
+      "blocked": "the sweep's plan skips it (excluded): palette-internal (runs inside the open palette)",
+      "blocked_by": "plan"
+    },
+    "paletteKey.pageUp": {
+      "family": "palette",
+      "case": "actions/palette-key-page-up",
+      "entry": "action",
+      "blocked": "the sweep's plan skips it (excluded): palette-internal (runs inside the open palette)",
+      "blocked_by": "plan"
+    },
+    "paletteKey.submit": {
+      "family": "palette",
+      "case": "actions/palette-key-submit",
+      "entry": "action",
+      "blocked": "the sweep's plan skips it (excluded): palette-internal (runs inside the open palette)",
+      "blocked_by": "plan"
+    },
+    "paletteKey.submitAlternate": {
+      "family": "palette",
+      "case": "actions/palette-key-submit-alternate",
+      "entry": "action",
+      "blocked": "the sweep's plan skips it (excluded): palette-internal (runs inside the open palette)",
+      "blocked_by": "plan"
+    },
+    "paletteKey.toggleActions": {
+      "family": "palette",
+      "case": "actions/palette-key-toggle-actions",
+      "entry": "action",
+      "blocked": "the sweep's plan skips it (excluded): palette-internal (runs inside the open palette)",
+      "blocked_by": "plan"
+    },
+    "pane.clearBackground": {
+      "family": "focus",
+      "case": "actions/pane-clear-background",
+      "entry": "action"
+    },
+    "pane.closeOthers": {
+      "family": "focus",
+      "case": "actions/pane-close-others",
+      "entry": "action"
+    },
+    "pane.focus": {
+      "family": "focus",
+      "case": "actions/pane-focus",
+      "entry": "action"
+    },
+    "pane.moveToNewWindow": {
+      "family": "focus",
+      "case": "actions/pane-move-to-new-window",
+      "entry": "action"
+    },
+    "pane.moveToNewWorkspace": {
+      "family": "focus",
+      "case": "actions/pane-move-to-new-workspace",
+      "entry": "action"
+    },
+    "pane.setBackground": {
+      "family": "focus",
+      "case": "actions/pane-set-background",
+      "entry": "action"
+    },
+    "pane.setTint": {
+      "family": "focus",
+      "case": "actions/pane-set-tint",
+      "entry": "action"
+    },
+    "pane.toggleTabBar": {
+      "family": "focus",
+      "case": "actions/pane-toggle-tab-bar",
+      "entry": "action"
+    },
+    "prevSidebarTab": {
+      "family": "misc",
+      "case": "actions/prev-sidebar-tab",
+      "entry": "key",
+      "key": "cmd+ctrl+["
+    },
+    "prevSidebarTabInGroup": {
+      "family": "misc",
+      "case": "actions/prev-sidebar-tab-in-group",
+      "entry": "action"
+    },
+    "prevSurface": {
+      "family": "misc",
+      "case": "actions/prev-surface",
+      "entry": "key",
+      "key": "shift+ctrl+tab"
+    },
+    "prevWorkspaceGroup": {
+      "family": "misc",
+      "case": "actions/prev-workspace-group",
+      "entry": "key",
+      "key": "cmd+shift+opt+ctrl+["
+    },
+    "recentlyClosed": {
+      "family": "misc",
+      "case": "actions/recently-closed",
+      "entry": "action"
+    },
+    "recentlyFocused": {
+      "family": "misc",
+      "case": "actions/recently-focused",
+      "entry": "action"
+    },
+    "reconnectPane": {
+      "family": "misc",
+      "case": "actions/reconnect-pane",
+      "entry": "action",
+      "blocked": "unavailable here: Needs terminalFocused in the focused window. (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+      "blocked_by": "gap"
+    },
+    "reconnectWorkspace": {
+      "family": "misc",
+      "case": "actions/reconnect-workspace",
+      "entry": "action"
+    },
+    "reloadConfiguration": {
+      "family": "misc",
+      "case": "actions/reload-configuration",
+      "entry": "key",
+      "key": "cmd+shift+,"
+    },
+    "reloadTab": {
+      "family": "misc",
+      "case": "actions/reload-tab",
+      "entry": "action"
+    },
+    "removeWorkspaceFromGroup": {
+      "family": "misc",
+      "case": "actions/remove-workspace-from-group",
+      "entry": "action"
+    },
+    "renamePane": {
+      "family": "misc",
+      "case": "actions/rename-pane",
+      "entry": "action"
+    },
+    "renameTab": {
+      "family": "misc",
+      "case": "actions/rename-tab",
+      "entry": "key",
+      "key": "cmd+r"
+    },
+    "renameWorkspace": {
+      "family": "misc",
+      "case": "actions/rename-workspace",
+      "entry": "key",
+      "key": "cmd+shift+r"
+    },
+    "reopenClosedBrowserPanel": {
+      "family": "tabs",
+      "case": "actions/reopen-closed-browser-panel",
+      "entry": "key",
+      "key": "cmd+shift+t"
+    },
+    "reopenClosedWorkspace": {
+      "family": "tabs",
+      "case": "actions/reopen-closed-workspace",
+      "entry": "action"
+    },
+    "reopenPreviousSession": {
+      "family": "tabs",
+      "case": "actions/reopen-previous-session",
+      "entry": "key",
+      "key": "cmd+shift+o"
+    },
+    "resetTerminal": {
+      "family": "misc",
+      "case": "actions/reset-terminal",
+      "entry": "action"
+    },
+    "resetWorkspaceTerminalFontSize": {
+      "family": "misc",
+      "case": "actions/reset-workspace-terminal-font-size",
+      "entry": "key",
+      "key": "cmd+0"
+    },
+    "resizePaneDown": {
+      "family": "layout",
+      "case": "actions/resize-pane-down",
+      "entry": "key",
+      "key": "shift+ctrl+j"
+    },
+    "resizePaneLeft": {
+      "family": "layout",
+      "case": "actions/resize-pane-left",
+      "entry": "key",
+      "key": "shift+ctrl+h"
+    },
+    "resizePaneRight": {
+      "family": "layout",
+      "case": "actions/resize-pane-right",
+      "entry": "key",
+      "key": "shift+ctrl+l"
+    },
+    "resizePaneUp": {
+      "family": "layout",
+      "case": "actions/resize-pane-up",
+      "entry": "key",
+      "key": "shift+ctrl+k"
+    },
+    "resumeCommandClear": {
+      "family": "misc",
+      "case": "actions/resume-command-clear",
+      "entry": "action"
+    },
+    "resumeCommandEdit": {
+      "family": "misc",
+      "case": "actions/resume-command-edit",
+      "entry": "action"
+    },
+    "resumeCommandSet": {
+      "family": "misc",
+      "case": "actions/resume-command-set",
+      "entry": "action"
+    },
+    "saveFilePreview": {
+      "family": "misc",
+      "case": "actions/save-file-preview",
+      "entry": "key",
+      "key": "cmd+s",
+      "blocked": "needs context the sweep does not set up: codeEditorFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+      "blocked_by": "gap"
+    },
+    "saveLayoutTemplate": {
+      "family": "misc",
+      "case": "actions/save-layout-template",
+      "entry": "key",
+      "key": "cmd+ctrl+s"
+    },
+    "screen.clearColor": {
+      "family": "layout",
+      "case": "actions/screen-clear-color",
+      "entry": "action"
+    },
+    "screen.clearIcon": {
+      "family": "layout",
+      "case": "actions/screen-clear-icon",
+      "entry": "action"
+    },
+    "screen.clearName": {
+      "family": "layout",
+      "case": "actions/screen-clear-name",
+      "entry": "action"
+    },
+    "screen.close": {
+      "family": "layout",
+      "case": "actions/screen-close",
+      "entry": "action"
+    },
+    "screen.closeOthers": {
+      "family": "layout",
+      "case": "actions/screen-close-others",
+      "entry": "action"
+    },
+    "screen.closeToLeft": {
+      "family": "layout",
+      "case": "actions/screen-close-to-left",
+      "entry": "action"
+    },
+    "screen.closeToRight": {
+      "family": "layout",
+      "case": "actions/screen-close-to-right",
+      "entry": "action"
+    },
+    "screen.color.blue": {
+      "family": "layout",
+      "case": "actions/screen-color-blue",
+      "entry": "action"
+    },
+    "screen.color.cyan": {
+      "family": "layout",
+      "case": "actions/screen-color-cyan",
+      "entry": "action"
+    },
+    "screen.color.green": {
+      "family": "layout",
+      "case": "actions/screen-color-green",
+      "entry": "action"
+    },
+    "screen.color.grey": {
+      "family": "layout",
+      "case": "actions/screen-color-grey",
+      "entry": "action"
+    },
+    "screen.color.orange": {
+      "family": "layout",
+      "case": "actions/screen-color-orange",
+      "entry": "action"
+    },
+    "screen.color.pink": {
+      "family": "layout",
+      "case": "actions/screen-color-pink",
+      "entry": "action"
+    },
+    "screen.color.purple": {
+      "family": "layout",
+      "case": "actions/screen-color-purple",
+      "entry": "action"
+    },
+    "screen.color.red": {
+      "family": "layout",
+      "case": "actions/screen-color-red",
+      "entry": "action"
+    },
+    "screen.color.yellow": {
+      "family": "layout",
+      "case": "actions/screen-color-yellow",
+      "entry": "action"
+    },
+    "screen.duplicate": {
+      "family": "layout",
+      "case": "actions/screen-duplicate",
+      "entry": "action"
+    },
+    "screen.focus": {
+      "family": "layout",
+      "case": "actions/screen-focus",
+      "entry": "action"
+    },
+    "screen.moveLeft": {
+      "family": "layout",
+      "case": "actions/screen-move-left",
+      "entry": "action"
+    },
+    "screen.moveRight": {
+      "family": "layout",
+      "case": "actions/screen-move-right",
+      "entry": "action"
+    },
+    "screen.moveToNewWindow": {
+      "family": "layout",
+      "case": "actions/screen-move-to-new-window",
+      "entry": "action"
+    },
+    "screen.moveToNewWorkspace": {
+      "family": "layout",
+      "case": "actions/screen-move-to-new-workspace",
+      "entry": "action"
+    },
+    "screen.moveToWorkspace": {
+      "family": "layout",
+      "case": "actions/screen-move-to-workspace",
+      "entry": "action",
+      "setup": [
+        "prepare-1 screen.new"
+      ]
+    },
+    "screen.new": {
+      "family": "layout",
+      "case": "actions/screen-new",
+      "entry": "action"
+    },
+    "screen.newWith": {
+      "family": "layout",
+      "case": "actions/screen-new-with",
+      "entry": "action"
+    },
+    "screen.next": {
+      "family": "layout",
+      "case": "actions/screen-next",
+      "entry": "action"
+    },
+    "screen.previous": {
+      "family": "layout",
+      "case": "actions/screen-previous",
+      "entry": "action"
+    },
+    "screen.rename": {
+      "family": "layout",
+      "case": "actions/screen-rename",
+      "entry": "action"
+    },
+    "screen.reopenClosed": {
+      "family": "layout",
+      "case": "actions/screen-reopen-closed",
+      "entry": "action"
+    },
+    "screen.select": {
+      "family": "layout",
+      "case": "actions/screen-select",
+      "entry": "action"
+    },
+    "screen.selectLast": {
+      "family": "layout",
+      "case": "actions/screen-select-last",
+      "entry": "action"
+    },
+    "screen.setColor": {
+      "family": "layout",
+      "case": "actions/screen-set-color",
+      "entry": "action"
+    },
+    "screen.setIcon": {
+      "family": "layout",
+      "case": "actions/screen-set-icon",
+      "entry": "action"
+    },
+    "screen.togglePin": {
+      "family": "layout",
+      "case": "actions/screen-toggle-pin",
+      "entry": "action"
+    },
+    "screenGroup.addScreen": {
+      "family": "layout",
+      "case": "actions/screen-group-add-screen",
+      "entry": "action",
+      "blocked": "needs a screen-group argument (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+      "blocked_by": "gap"
+    },
+    "screenGroup.clearIcon": {
+      "family": "layout",
+      "case": "actions/screen-group-clear-icon",
+      "entry": "action"
+    },
+    "screenGroup.close": {
+      "family": "layout",
+      "case": "actions/screen-group-close",
+      "entry": "action"
+    },
+    "screenGroup.collapse": {
+      "family": "layout",
+      "case": "actions/screen-group-collapse",
+      "entry": "action"
+    },
+    "screenGroup.color.blue": {
+      "family": "layout",
+      "case": "actions/screen-group-color-blue",
+      "entry": "action"
+    },
+    "screenGroup.color.cyan": {
+      "family": "layout",
+      "case": "actions/screen-group-color-cyan",
+      "entry": "action"
+    },
+    "screenGroup.color.green": {
+      "family": "layout",
+      "case": "actions/screen-group-color-green",
+      "entry": "action"
+    },
+    "screenGroup.color.grey": {
+      "family": "layout",
+      "case": "actions/screen-group-color-grey",
+      "entry": "action"
+    },
+    "screenGroup.color.orange": {
+      "family": "layout",
+      "case": "actions/screen-group-color-orange",
+      "entry": "action"
+    },
+    "screenGroup.color.pink": {
+      "family": "layout",
+      "case": "actions/screen-group-color-pink",
+      "entry": "action"
+    },
+    "screenGroup.color.purple": {
+      "family": "layout",
+      "case": "actions/screen-group-color-purple",
+      "entry": "action"
+    },
+    "screenGroup.color.red": {
+      "family": "layout",
+      "case": "actions/screen-group-color-red",
+      "entry": "action"
+    },
+    "screenGroup.color.yellow": {
+      "family": "layout",
+      "case": "actions/screen-group-color-yellow",
+      "entry": "action"
+    },
+    "screenGroup.create": {
+      "family": "layout",
+      "case": "actions/screen-group-create",
+      "entry": "action"
+    },
+    "screenGroup.expand": {
+      "family": "layout",
+      "case": "actions/screen-group-expand",
+      "entry": "action"
+    },
+    "screenGroup.moveLeft": {
+      "family": "layout",
+      "case": "actions/screen-group-move-left",
+      "entry": "action"
+    },
+    "screenGroup.moveRight": {
+      "family": "layout",
+      "case": "actions/screen-group-move-right",
+      "entry": "action"
+    },
+    "screenGroup.moveToNewWindow": {
+      "family": "layout",
+      "case": "actions/screen-group-move-to-new-window",
+      "entry": "action"
+    },
+    "screenGroup.moveToNewWorkspace": {
+      "family": "layout",
+      "case": "actions/screen-group-move-to-new-workspace",
+      "entry": "action"
+    },
+    "screenGroup.moveToWorkspace": {
+      "family": "layout",
+      "case": "actions/screen-group-move-to-workspace",
+      "entry": "action"
+    },
+    "screenGroup.newScreen": {
+      "family": "layout",
+      "case": "actions/screen-group-new-screen",
+      "entry": "action"
+    },
+    "screenGroup.removeScreen": {
+      "family": "layout",
+      "case": "actions/screen-group-remove-screen",
+      "entry": "action"
+    },
+    "screenGroup.rename": {
+      "family": "layout",
+      "case": "actions/screen-group-rename",
+      "entry": "action"
+    },
+    "screenGroup.reopenSaved": {
+      "family": "layout",
+      "case": "actions/screen-group-reopen-saved",
+      "entry": "action"
+    },
+    "screenGroup.save": {
+      "family": "layout",
+      "case": "actions/screen-group-save",
+      "entry": "action"
+    },
+    "screenGroup.setColor": {
+      "family": "layout",
+      "case": "actions/screen-group-set-color",
+      "entry": "action"
+    },
+    "screenGroup.setIcon": {
+      "family": "layout",
+      "case": "actions/screen-group-set-icon",
+      "entry": "action"
+    },
+    "screenGroup.toggleCollapsed": {
+      "family": "layout",
+      "case": "actions/screen-group-toggle-collapsed",
+      "entry": "action"
+    },
+    "screenGroup.ungroup": {
+      "family": "layout",
+      "case": "actions/screen-group-ungroup",
+      "entry": "action"
+    },
+    "screenGroup.unsave": {
+      "family": "layout",
+      "case": "actions/screen-group-unsave",
+      "entry": "action"
+    },
+    "search.chats": {
+      "family": "misc",
+      "case": "actions/search-chats",
+      "entry": "key",
+      "key": "cmd+shift+a"
+    },
+    "selectNextWindow": {
+      "family": "misc",
+      "case": "actions/select-next-window",
+      "entry": "action"
+    },
+    "selectPreviousWindow": {
+      "family": "misc",
+      "case": "actions/select-previous-window",
+      "entry": "action"
+    },
+    "selectSurfaceByNumber": {
+      "family": "misc",
+      "case": "actions/select-surface-by-number",
+      "entry": "key",
+      "key": "ctrl+1"
+    },
+    "selectWorkspaceByNumber": {
+      "family": "misc",
+      "case": "actions/select-workspace-by-number",
+      "entry": "key",
+      "key": "cmd+1"
+    },
+    "sendCtrlFToTerminal": {
+      "family": "misc",
+      "case": "actions/send-ctrl-f-to-terminal",
+      "entry": "action"
+    },
+    "server.addServer": {
+      "family": "misc",
+      "case": "actions/server-add-server",
+      "entry": "action"
+    },
+    "server.makeThisMacAServer": {
+      "family": "misc",
+      "case": "actions/server-make-this-mac-a-server",
+      "entry": "action"
+    },
+    "server.showHealth": {
+      "family": "misc",
+      "case": "actions/server-show-health",
+      "entry": "action"
+    },
+    "server.showPanel": {
+      "family": "misc",
+      "case": "actions/server-show-panel",
+      "entry": "action"
+    },
+    "server.stopServing": {
+      "family": "misc",
+      "case": "actions/server-stop-serving",
+      "entry": "action"
+    },
+    "showBrowserJavaScriptConsole": {
+      "family": "misc",
+      "case": "actions/show-browser-java-script-console",
+      "entry": "key",
+      "key": "cmd+opt+j"
+    },
+    "showHideAllWindows": {
+      "family": "misc",
+      "case": "actions/show-hide-all-windows",
+      "entry": "key",
+      "key": "cmd+opt+ctrl+."
+    },
+    "showMainWindow": {
+      "family": "misc",
+      "case": "actions/show-main-window",
+      "entry": "action"
+    },
+    "showNotifications": {
+      "family": "misc",
+      "case": "actions/show-notifications",
+      "entry": "action"
+    },
+    "sidebar.chat.togglePin": {
+      "family": "sidebar",
+      "case": "actions/sidebar-chat-toggle-pin",
+      "entry": "action"
+    },
+    "sidebar.chief.toggleIdleSubagents": {
+      "family": "sidebar",
+      "case": "actions/sidebar-chief-toggle-idle-subagents",
+      "entry": "action"
+    },
+    "sidebar.density.comfortable": {
+      "family": "sidebar",
+      "case": "actions/sidebar-density-comfortable",
+      "entry": "action"
+    },
+    "sidebar.density.compact": {
+      "family": "sidebar",
+      "case": "actions/sidebar-density-compact",
+      "entry": "action"
+    },
+    "sidebar.density.expanded": {
+      "family": "sidebar",
+      "case": "actions/sidebar-density-expanded",
+      "entry": "action"
+    },
+    "sidebar.edit": {
+      "family": "sidebar",
+      "case": "actions/sidebar-edit",
+      "entry": "action"
+    },
+    "sidebar.groupBy.folder": {
+      "family": "sidebar",
+      "case": "actions/sidebar-group-by-folder",
+      "entry": "action"
+    },
+    "sidebar.groupBy.none": {
+      "family": "sidebar",
+      "case": "actions/sidebar-group-by-none",
+      "entry": "action"
+    },
+    "sidebar.home.add": {
+      "family": "sidebar",
+      "case": "actions/sidebar-home-add",
+      "entry": "action"
+    },
+    "sidebar.home.remove": {
+      "family": "sidebar",
+      "case": "actions/sidebar-home-remove",
+      "entry": "action"
+    },
+    "sidebar.item.add": {
+      "family": "sidebar",
+      "case": "actions/sidebar-item-add",
+      "entry": "action"
+    },
+    "sidebar.item.hideApp": {
+      "family": "sidebar",
+      "case": "actions/sidebar-item-hide-app",
+      "entry": "action"
+    },
+    "sidebar.item.remove": {
+      "family": "sidebar",
+      "case": "actions/sidebar-item-remove",
+      "entry": "action"
+    },
+    "sidebar.item.removeEverywhere": {
+      "family": "sidebar",
+      "case": "actions/sidebar-item-remove-everywhere",
+      "entry": "action"
+    },
+    "sidebar.item.toggleArchive": {
+      "family": "sidebar",
+      "case": "actions/sidebar-item-toggle-archive",
+      "entry": "action"
+    },
+    "sidebar.item.toggleLabel": {
+      "family": "sidebar",
+      "case": "actions/sidebar-item-toggle-label",
+      "entry": "action"
+    },
+    "sidebar.layout.reset": {
+      "family": "sidebar",
+      "case": "actions/sidebar-layout-reset",
+      "entry": "action"
+    },
+    "sidebar.priority.markRead": {
+      "family": "sidebar",
+      "case": "actions/sidebar-priority-mark-read",
+      "entry": "action",
+      "blocked": "needs a agent-chat argument (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+      "blocked_by": "gap"
+    },
+    "sidebar.priority.snooze": {
+      "family": "sidebar",
+      "case": "actions/sidebar-priority-snooze",
+      "entry": "action",
+      "blocked": "needs a agent-chat argument (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+      "blocked_by": "gap"
+    },
+    "sidebar.priority.togglePin": {
+      "family": "sidebar",
+      "case": "actions/sidebar-priority-toggle-pin",
+      "entry": "action",
+      "blocked": "needs a agent-chat argument (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+      "blocked_by": "gap"
+    },
+    "sidebar.priorityView.toggle": {
+      "family": "sidebar",
+      "case": "actions/sidebar-priority-view-toggle",
+      "entry": "key",
+      "key": "cmd+opt+k"
+    },
+    "sidebar.profileControl.hide": {
+      "family": "sidebar",
+      "case": "actions/sidebar-profile-control-hide",
+      "entry": "action"
+    },
+    "sidebar.profileControl.show": {
+      "family": "sidebar",
+      "case": "actions/sidebar-profile-control-show",
+      "entry": "action"
+    },
+    "sidebar.profileMenu": {
+      "family": "sidebar",
+      "case": "actions/sidebar-profile-menu",
+      "entry": "action"
+    },
+    "sidebar.projects.hide": {
+      "family": "sidebar",
+      "case": "actions/sidebar-projects-hide",
+      "entry": "action"
+    },
+    "sidebar.section.add": {
+      "family": "sidebar",
+      "case": "actions/sidebar-section-add",
+      "entry": "action"
+    },
+    "sidebar.section.closeWorkspaces": {
+      "family": "sidebar",
+      "case": "actions/sidebar-section-close-workspaces",
+      "entry": "action"
+    },
+    "sidebar.section.hide": {
+      "family": "sidebar",
+      "case": "actions/sidebar-section-hide",
+      "entry": "action"
+    },
+    "sidebar.section.layoutGrid": {
+      "family": "sidebar",
+      "case": "actions/sidebar-section-layout-grid",
+      "entry": "action"
+    },
+    "sidebar.section.layoutInline": {
+      "family": "sidebar",
+      "case": "actions/sidebar-section-layout-inline",
+      "entry": "action"
+    },
+    "sidebar.section.layoutList": {
+      "family": "sidebar",
+      "case": "actions/sidebar-section-layout-list",
+      "entry": "action"
+    },
+    "sidebar.section.moveToScrolling": {
+      "family": "sidebar",
+      "case": "actions/sidebar-section-move-to-scrolling",
+      "entry": "action"
+    },
+    "sidebar.section.moveToTop": {
+      "family": "sidebar",
+      "case": "actions/sidebar-section-move-to-top",
+      "entry": "action"
+    },
+    "sidebar.section.newWorkspace": {
+      "family": "sidebar",
+      "case": "actions/sidebar-section-new-workspace",
+      "entry": "action"
+    },
+    "sidebar.section.remove": {
+      "family": "sidebar",
+      "case": "actions/sidebar-section-remove",
+      "entry": "action"
+    },
+    "sidebar.section.rename": {
+      "family": "sidebar",
+      "case": "actions/sidebar-section-rename",
+      "entry": "action"
+    },
+    "sidebar.section.setAlignment": {
+      "family": "sidebar",
+      "case": "actions/sidebar-section-set-alignment",
+      "entry": "action"
+    },
+    "sidebar.section.setColumns": {
+      "family": "sidebar",
+      "case": "actions/sidebar-section-set-columns",
+      "entry": "action"
+    },
+    "sidebar.section.setGap": {
+      "family": "sidebar",
+      "case": "actions/sidebar-section-set-gap",
+      "entry": "action"
+    },
+    "sidebar.section.setMaxRows": {
+      "family": "sidebar",
+      "case": "actions/sidebar-section-set-max-rows",
+      "entry": "action"
+    },
+    "sidebar.section.toggleCollapsed": {
+      "family": "sidebar",
+      "case": "actions/sidebar-section-toggle-collapsed",
+      "entry": "action"
+    },
+    "sidebar.section.toggleSpaceScope": {
+      "family": "sidebar",
+      "case": "actions/sidebar-section-toggle-space-scope",
+      "entry": "action"
+    },
+    "sidebar.section.toggleTitle": {
+      "family": "sidebar",
+      "case": "actions/sidebar-section-toggle-title",
+      "entry": "action"
+    },
+    "sidebar.section.useBuiltInLook": {
+      "family": "sidebar",
+      "case": "actions/sidebar-section-use-built-in-look",
+      "entry": "action"
+    },
+    "sidebar.section.useListLook": {
+      "family": "sidebar",
+      "case": "actions/sidebar-section-use-list-look",
+      "entry": "action"
+    },
+    "sidebar.sections.showHidden": {
+      "family": "sidebar",
+      "case": "actions/sidebar-sections-show-hidden",
+      "entry": "action"
+    },
+    "sidebar.spaces.hide": {
+      "family": "sidebar",
+      "case": "actions/sidebar-spaces-hide",
+      "entry": "action"
+    },
+    "sidebar.spaces.show": {
+      "family": "sidebar",
+      "case": "actions/sidebar-spaces-show",
+      "entry": "action"
+    },
+    "sidebar.workspaceTabs.toggle": {
+      "family": "sidebar",
+      "case": "actions/sidebar-workspace-tabs-toggle",
+      "entry": "action"
+    },
+    "space.clearColor": {
+      "family": "workspace",
+      "case": "actions/space-clear-color",
+      "entry": "action"
+    },
+    "space.clearIcon": {
+      "family": "workspace",
+      "case": "actions/space-clear-icon",
+      "entry": "action"
+    },
+    "space.clearTheme": {
+      "family": "workspace",
+      "case": "actions/space-clear-theme",
+      "entry": "action"
+    },
+    "space.color.blue": {
+      "family": "workspace",
+      "case": "actions/space-color-blue",
+      "entry": "action"
+    },
+    "space.color.cyan": {
+      "family": "workspace",
+      "case": "actions/space-color-cyan",
+      "entry": "action"
+    },
+    "space.color.green": {
+      "family": "workspace",
+      "case": "actions/space-color-green",
+      "entry": "action"
+    },
+    "space.color.grey": {
+      "family": "workspace",
+      "case": "actions/space-color-grey",
+      "entry": "action"
+    },
+    "space.color.orange": {
+      "family": "workspace",
+      "case": "actions/space-color-orange",
+      "entry": "action"
+    },
+    "space.color.pink": {
+      "family": "workspace",
+      "case": "actions/space-color-pink",
+      "entry": "action"
+    },
+    "space.color.purple": {
+      "family": "workspace",
+      "case": "actions/space-color-purple",
+      "entry": "action"
+    },
+    "space.color.red": {
+      "family": "workspace",
+      "case": "actions/space-color-red",
+      "entry": "action"
+    },
+    "space.color.yellow": {
+      "family": "workspace",
+      "case": "actions/space-color-yellow",
+      "entry": "action"
+    },
+    "space.move": {
+      "family": "workspace",
+      "case": "actions/space-move",
+      "entry": "action"
+    },
+    "space.moveLeft": {
+      "family": "workspace",
+      "case": "actions/space-move-left",
+      "entry": "action"
+    },
+    "space.moveRight": {
+      "family": "workspace",
+      "case": "actions/space-move-right",
+      "entry": "action"
+    },
+    "space.new": {
+      "family": "workspace",
+      "case": "actions/space-new",
+      "entry": "action"
+    },
+    "space.newGroup": {
+      "family": "workspace",
+      "case": "actions/space-new-group",
+      "entry": "action"
+    },
+    "space.newWindow": {
+      "family": "workspace",
+      "case": "actions/space-new-window",
+      "entry": "action",
+      "blocked": "needs a room argument (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+      "blocked_by": "gap"
+    },
+    "space.newWorkspace": {
+      "family": "workspace",
+      "case": "actions/space-new-workspace",
+      "entry": "action",
+      "blocked": "needs a room argument (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+      "blocked_by": "gap"
+    },
+    "space.next": {
+      "family": "workspace",
+      "case": "actions/space-next",
+      "entry": "key",
+      "key": "cmd+opt+]"
+    },
+    "space.previous": {
+      "family": "workspace",
+      "case": "actions/space-previous",
+      "entry": "key",
+      "key": "cmd+opt+["
+    },
+    "space.rename": {
+      "family": "workspace",
+      "case": "actions/space-rename",
+      "entry": "action"
+    },
+    "space.selectByNumber": {
+      "family": "workspace",
+      "case": "actions/space-select-by-number",
+      "entry": "key",
+      "key": "opt+ctrl+1"
+    },
+    "space.setColor": {
+      "family": "workspace",
+      "case": "actions/space-set-color",
+      "entry": "action"
+    },
+    "space.setIcon": {
+      "family": "workspace",
+      "case": "actions/space-set-icon",
+      "entry": "action"
+    },
+    "space.setTheme": {
+      "family": "workspace",
+      "case": "actions/space-set-theme",
+      "entry": "action"
+    },
+    "space.switch": {
+      "family": "workspace",
+      "case": "actions/space-switch",
+      "entry": "action",
+      "blocked": "needs a room argument (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+      "blocked_by": "gap"
+    },
+    "splitBrowserDown": {
+      "family": "layout",
+      "case": "actions/split-browser-down",
+      "entry": "key",
+      "key": "cmd+shift+opt+d"
+    },
+    "splitBrowserRight": {
+      "family": "layout",
+      "case": "actions/split-browser-right",
+      "entry": "key",
+      "key": "cmd+opt+d"
+    },
+    "splitDown": {
+      "family": "layout",
+      "case": "actions/split-down",
+      "entry": "key",
+      "key": "cmd+shift+d"
+    },
+    "splitLeft": {
+      "family": "layout",
+      "case": "actions/split-left",
+      "entry": "action"
+    },
+    "splitRight": {
+      "family": "layout",
+      "case": "actions/split-right",
+      "entry": "key",
+      "key": "cmd+d"
+    },
+    "splitUp": {
+      "family": "layout",
+      "case": "actions/split-up",
+      "entry": "action"
+    },
+    "stash.show": {
+      "family": "misc",
+      "case": "actions/stash-show",
+      "entry": "action"
+    },
+    "stats.show": {
+      "family": "misc",
+      "case": "actions/stats-show",
+      "entry": "action"
+    },
+    "swapPaneDown": {
+      "family": "layout",
+      "case": "actions/swap-pane-down",
+      "entry": "action",
+      "setup": [
+        "neighbor-1 splitDown",
+        "neighbor-2 focusUp"
+      ]
+    },
+    "swapPaneLeft": {
+      "family": "layout",
+      "case": "actions/swap-pane-left",
+      "entry": "action",
+      "setup": [
+        "neighbor-1 splitRight"
+      ]
+    },
+    "swapPaneRight": {
+      "family": "layout",
+      "case": "actions/swap-pane-right",
+      "entry": "action",
+      "setup": [
+        "neighbor-1 splitRight",
+        "neighbor-2 focusLeft"
+      ]
+    },
+    "swapPaneUp": {
+      "family": "layout",
+      "case": "actions/swap-pane-up",
+      "entry": "action",
+      "setup": [
+        "neighbor-1 splitDown"
+      ]
+    },
+    "switchRightSidebarToDock": {
+      "family": "misc",
+      "case": "actions/switch-right-sidebar-to-dock",
+      "entry": "action"
+    },
+    "switchRightSidebarToFeed": {
+      "family": "misc",
+      "case": "actions/switch-right-sidebar-to-feed",
+      "entry": "action"
+    },
+    "switchRightSidebarToFiles": {
+      "family": "misc",
+      "case": "actions/switch-right-sidebar-to-files",
+      "entry": "action"
+    },
+    "switchRightSidebarToFind": {
+      "family": "misc",
+      "case": "actions/switch-right-sidebar-to-find",
+      "entry": "action"
+    },
+    "switchRightSidebarToSessions": {
+      "family": "misc",
+      "case": "actions/switch-right-sidebar-to-sessions",
+      "entry": "action"
+    },
+    "tab.clearIcon": {
+      "family": "tabs",
+      "case": "actions/tab-clear-icon",
+      "entry": "action"
+    },
+    "tab.focus": {
+      "family": "tabs",
+      "case": "actions/tab-focus",
+      "entry": "action"
+    },
+    "tab.moveToNewColumn": {
+      "family": "tabs",
+      "case": "actions/tab-move-to-new-column",
+      "entry": "action",
+      "setup": [
+        "prepare-1 newSurface"
+      ]
+    },
+    "tab.moveToNewDockColumn": {
+      "family": "tabs",
+      "case": "actions/tab-move-to-new-dock-column",
+      "entry": "action"
+    },
+    "tab.moveToNewSplit": {
+      "family": "tabs",
+      "case": "actions/tab-move-to-new-split",
+      "entry": "action"
+    },
+    "tab.moveToNewWindow": {
+      "family": "tabs",
+      "case": "actions/tab-move-to-new-window",
+      "entry": "action"
+    },
+    "tab.moveToWorkspace": {
+      "family": "tabs",
+      "case": "actions/tab-move-to-workspace",
+      "entry": "action"
+    },
+    "tab.muteAudio": {
+      "family": "tabs",
+      "case": "actions/tab-mute-audio",
+      "entry": "action"
+    },
+    "tab.muteOtherAudio": {
+      "family": "tabs",
+      "case": "actions/tab-mute-other-audio",
+      "entry": "action"
+    },
+    "tab.pictureInPicture": {
+      "family": "tabs",
+      "case": "actions/tab-picture-in-picture",
+      "entry": "action"
+    },
+    "tab.search": {
+      "family": "tabs",
+      "case": "actions/tab-search",
+      "entry": "action"
+    },
+    "tab.setIcon": {
+      "family": "tabs",
+      "case": "actions/tab-set-icon",
+      "entry": "action"
+    },
+    "tab.setTint": {
+      "family": "tabs",
+      "case": "actions/tab-set-tint",
+      "entry": "action"
+    },
+    "tab.showResources": {
+      "family": "tabs",
+      "case": "actions/tab-show-resources",
+      "entry": "action"
+    },
+    "tab.stash": {
+      "family": "tabs",
+      "case": "actions/tab-stash",
+      "entry": "action"
+    },
+    "tab.stashOthers": {
+      "family": "tabs",
+      "case": "actions/tab-stash-others",
+      "entry": "action"
+    },
+    "tab.stashToRight": {
+      "family": "tabs",
+      "case": "actions/tab-stash-to-right",
+      "entry": "action"
+    },
+    "tab.unmuteAudio": {
+      "family": "tabs",
+      "case": "actions/tab-unmute-audio",
+      "entry": "action"
+    },
+    "tabGroup.addTab": {
+      "family": "tabs",
+      "case": "actions/tab-group-add-tab",
+      "entry": "action"
+    },
+    "tabGroup.clearIcon": {
+      "family": "tabs",
+      "case": "actions/tab-group-clear-icon",
+      "entry": "action"
+    },
+    "tabGroup.close": {
+      "family": "tabs",
+      "case": "actions/tab-group-close",
+      "entry": "action"
+    },
+    "tabGroup.collapse": {
+      "family": "tabs",
+      "case": "actions/tab-group-collapse",
+      "entry": "action"
+    },
+    "tabGroup.color.blue": {
+      "family": "tabs",
+      "case": "actions/tab-group-color-blue",
+      "entry": "action"
+    },
+    "tabGroup.color.cyan": {
+      "family": "tabs",
+      "case": "actions/tab-group-color-cyan",
+      "entry": "action"
+    },
+    "tabGroup.color.green": {
+      "family": "tabs",
+      "case": "actions/tab-group-color-green",
+      "entry": "action"
+    },
+    "tabGroup.color.grey": {
+      "family": "tabs",
+      "case": "actions/tab-group-color-grey",
+      "entry": "action"
+    },
+    "tabGroup.color.orange": {
+      "family": "tabs",
+      "case": "actions/tab-group-color-orange",
+      "entry": "action"
+    },
+    "tabGroup.color.pink": {
+      "family": "tabs",
+      "case": "actions/tab-group-color-pink",
+      "entry": "action"
+    },
+    "tabGroup.color.purple": {
+      "family": "tabs",
+      "case": "actions/tab-group-color-purple",
+      "entry": "action"
+    },
+    "tabGroup.color.red": {
+      "family": "tabs",
+      "case": "actions/tab-group-color-red",
+      "entry": "action"
+    },
+    "tabGroup.color.yellow": {
+      "family": "tabs",
+      "case": "actions/tab-group-color-yellow",
+      "entry": "action"
+    },
+    "tabGroup.create": {
+      "family": "tabs",
+      "case": "actions/tab-group-create",
+      "entry": "action"
+    },
+    "tabGroup.expand": {
+      "family": "tabs",
+      "case": "actions/tab-group-expand",
+      "entry": "action"
+    },
+    "tabGroup.moveLeft": {
+      "family": "tabs",
+      "case": "actions/tab-group-move-left",
+      "entry": "action"
+    },
+    "tabGroup.moveRight": {
+      "family": "tabs",
+      "case": "actions/tab-group-move-right",
+      "entry": "action"
+    },
+    "tabGroup.moveToNewColumn": {
+      "family": "tabs",
+      "case": "actions/tab-group-move-to-new-column",
+      "entry": "action"
+    },
+    "tabGroup.moveToNewSplit": {
+      "family": "tabs",
+      "case": "actions/tab-group-move-to-new-split",
+      "entry": "action"
+    },
+    "tabGroup.moveToNewWindow": {
+      "family": "tabs",
+      "case": "actions/tab-group-move-to-new-window",
+      "entry": "action"
+    },
+    "tabGroup.moveToNewWorkspace": {
+      "family": "tabs",
+      "case": "actions/tab-group-move-to-new-workspace",
+      "entry": "action"
+    },
+    "tabGroup.moveToWorkspace": {
+      "family": "tabs",
+      "case": "actions/tab-group-move-to-workspace",
+      "entry": "action"
+    },
+    "tabGroup.newTab": {
+      "family": "tabs",
+      "case": "actions/tab-group-new-tab",
+      "entry": "action"
+    },
+    "tabGroup.removeTab": {
+      "family": "tabs",
+      "case": "actions/tab-group-remove-tab",
+      "entry": "action"
+    },
+    "tabGroup.rename": {
+      "family": "tabs",
+      "case": "actions/tab-group-rename",
+      "entry": "action"
+    },
+    "tabGroup.reopenSaved": {
+      "family": "tabs",
+      "case": "actions/tab-group-reopen-saved",
+      "entry": "action"
+    },
+    "tabGroup.save": {
+      "family": "tabs",
+      "case": "actions/tab-group-save",
+      "entry": "action"
+    },
+    "tabGroup.setColor": {
+      "family": "tabs",
+      "case": "actions/tab-group-set-color",
+      "entry": "action"
+    },
+    "tabGroup.setIcon": {
+      "family": "tabs",
+      "case": "actions/tab-group-set-icon",
+      "entry": "action"
+    },
+    "tabGroup.toggleCollapsed": {
+      "family": "tabs",
+      "case": "actions/tab-group-toggle-collapsed",
+      "entry": "action"
+    },
+    "tabGroup.ungroup": {
+      "family": "tabs",
+      "case": "actions/tab-group-ungroup",
+      "entry": "action"
+    },
+    "tabGroup.unsave": {
+      "family": "tabs",
+      "case": "actions/tab-group-unsave",
+      "entry": "action"
+    },
+    "tabs.overflow.scroll": {
+      "family": "misc",
+      "case": "actions/tabs-overflow-scroll",
+      "entry": "action"
+    },
+    "tabs.overflow.shrink": {
+      "family": "misc",
+      "case": "actions/tabs-overflow-shrink",
+      "entry": "action"
+    },
+    "taskManager.killProcess": {
+      "family": "misc",
+      "case": "actions/task-manager-kill-process",
+      "entry": "action"
+    },
+    "tasks.new": {
+      "family": "misc",
+      "case": "actions/tasks-new",
+      "entry": "action"
+    },
+    "tasks.show": {
+      "family": "misc",
+      "case": "actions/tasks-show",
+      "entry": "action"
+    },
+    "tasks.showMine": {
+      "family": "misc",
+      "case": "actions/tasks-show-mine",
+      "entry": "action"
+    },
+    "terminal.clear": {
+      "family": "focus",
+      "case": "actions/terminal-clear",
+      "entry": "key",
+      "key": "cmd+k"
+    },
+    "terminal.clearTheme": {
+      "family": "focus",
+      "case": "actions/terminal-clear-theme",
+      "entry": "action"
+    },
+    "terminal.decreaseFontSize": {
+      "family": "focus",
+      "case": "actions/terminal-decrease-font-size",
+      "entry": "key",
+      "key": "cmd+-"
+    },
+    "terminal.increaseFontSize": {
+      "family": "focus",
+      "case": "actions/terminal-increase-font-size",
+      "entry": "key",
+      "key": "cmd+="
+    },
+    "terminal.keep": {
+      "family": "focus",
+      "case": "actions/terminal-keep",
+      "entry": "action"
+    },
+    "terminal.resetFontSize": {
+      "family": "focus",
+      "case": "actions/terminal-reset-font-size",
+      "entry": "key",
+      "key": "cmd+0"
+    },
+    "terminal.scrollPageDown": {
+      "family": "focus",
+      "case": "actions/terminal-scroll-page-down",
+      "entry": "action"
+    },
+    "terminal.scrollPageUp": {
+      "family": "focus",
+      "case": "actions/terminal-scroll-page-up",
+      "entry": "action"
+    },
+    "terminal.scrollToBottom": {
+      "family": "focus",
+      "case": "actions/terminal-scroll-to-bottom",
+      "entry": "action"
+    },
+    "terminal.scrollToSelection": {
+      "family": "focus",
+      "case": "actions/terminal-scroll-to-selection",
+      "entry": "action"
+    },
+    "terminal.scrollToTop": {
+      "family": "focus",
+      "case": "actions/terminal-scroll-to-top",
+      "entry": "action"
+    },
+    "terminal.selectAll": {
+      "family": "focus",
+      "case": "actions/terminal-select-all",
+      "entry": "action"
+    },
+    "terminal.sendText": {
+      "family": "focus",
+      "case": "actions/terminal-send-text",
+      "entry": "action"
+    },
+    "terminal.setTheme": {
+      "family": "focus",
+      "case": "actions/terminal-set-theme",
+      "entry": "action"
+    },
+    "terminalCopy": {
+      "family": "focus",
+      "case": "actions/terminal-copy",
+      "entry": "key",
+      "key": "cmd+c"
+    },
+    "terminalPaste": {
+      "family": "focus",
+      "case": "actions/terminal-paste",
+      "entry": "key",
+      "key": "cmd+v"
+    },
+    "toggleBrowserDesignMode": {
+      "family": "appearance",
+      "case": "actions/toggle-browser-design-mode",
+      "entry": "key",
+      "key": "cmd+opt+ctrl+d"
+    },
+    "toggleBrowserDeveloperTools": {
+      "family": "appearance",
+      "case": "actions/toggle-browser-developer-tools",
+      "entry": "key",
+      "key": "cmd+opt+i"
+    },
+    "toggleBrowserFocusMode": {
+      "family": "appearance",
+      "case": "actions/toggle-browser-focus-mode",
+      "entry": "key",
+      "key": "cmd+opt+return"
+    },
+    "toggleCanvasLayout": {
+      "family": "appearance",
+      "case": "actions/toggle-canvas-layout",
+      "entry": "key",
+      "key": "cmd+ctrl+c"
+    },
+    "toggleChecklistItemComplete": {
+      "family": "appearance",
+      "case": "actions/toggle-checklist-item-complete",
+      "entry": "key",
+      "key": "cmd+return"
+    },
+    "toggleFileEditorWordWrap": {
+      "family": "appearance",
+      "case": "actions/toggle-file-editor-word-wrap",
+      "entry": "key",
+      "key": "opt+z",
+      "blocked": "needs context the sweep does not set up: codeEditorFocused (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+      "blocked_by": "gap"
+    },
+    "toggleFocusedWorkspaceGroupCollapsed": {
+      "family": "appearance",
+      "case": "actions/toggle-focused-workspace-group-collapsed",
+      "entry": "key",
+      "key": "cmd+ctrl+."
+    },
+    "toggleFullScreen": {
+      "family": "appearance",
+      "case": "actions/toggle-full-screen",
+      "entry": "key",
+      "key": "cmd+ctrl+f"
+    },
+    "toggleReactGrab": {
+      "family": "appearance",
+      "case": "actions/toggle-react-grab",
+      "entry": "action"
+    },
+    "toggleRightSidebar": {
+      "family": "appearance",
+      "case": "actions/toggle-right-sidebar",
+      "entry": "key",
+      "key": "cmd+opt+b"
+    },
+    "toggleSidebar": {
+      "family": "appearance",
+      "case": "actions/toggle-sidebar",
+      "entry": "key",
+      "key": "cmd+b"
+    },
+    "toggleSplitZoom": {
+      "family": "appearance",
+      "case": "actions/toggle-split-zoom",
+      "entry": "key",
+      "key": "cmd+shift+return"
+    },
+    "toggleTabAudioMute": {
+      "family": "appearance",
+      "case": "actions/toggle-tab-audio-mute",
+      "entry": "action"
+    },
+    "toggleTerminalCopyMode": {
+      "family": "appearance",
+      "case": "actions/toggle-terminal-copy-mode",
+      "entry": "key",
+      "key": "cmd+shift+m"
+    },
+    "toggleUnread": {
+      "family": "appearance",
+      "case": "actions/toggle-unread",
+      "entry": "key",
+      "key": "cmd+opt+u"
+    },
+    "triggerFlash": {
+      "family": "misc",
+      "case": "actions/trigger-flash",
+      "entry": "key",
+      "key": "cmd+shift+h"
+    },
+    "useSelectionForFind": {
+      "family": "misc",
+      "case": "actions/use-selection-for-find",
+      "entry": "key",
+      "key": "cmd+e"
+    },
+    "vaultCopyResumeCommand": {
+      "family": "misc",
+      "case": "actions/vault-copy-resume-command",
+      "entry": "action"
+    },
+    "vaultFocusSession": {
+      "family": "misc",
+      "case": "actions/vault-focus-session",
+      "entry": "action"
+    },
+    "vaultOpenPullRequest": {
+      "family": "misc",
+      "case": "actions/vault-open-pull-request",
+      "entry": "action"
+    },
+    "vaultOpenSession": {
+      "family": "misc",
+      "case": "actions/vault-open-session",
+      "entry": "action"
+    },
+    "vaultResumeInNewWorkspace": {
+      "family": "misc",
+      "case": "actions/vault-resume-in-new-workspace",
+      "entry": "action"
+    },
+    "wakeTab": {
+      "family": "misc",
+      "case": "actions/wake-tab",
+      "entry": "action"
+    },
+    "window.closeOthers": {
+      "family": "misc",
+      "case": "actions/window-close-others",
+      "entry": "action"
+    },
+    "window.stash": {
+      "family": "misc",
+      "case": "actions/window-stash",
+      "entry": "action"
+    },
+    "workspace.clearIcon": {
+      "family": "workspace",
+      "case": "actions/workspace-clear-icon",
+      "entry": "action"
+    },
+    "workspace.clearTheme": {
+      "family": "workspace",
+      "case": "actions/workspace-clear-theme",
+      "entry": "action"
+    },
+    "workspace.closeAll": {
+      "family": "workspace",
+      "case": "actions/workspace-close-all",
+      "entry": "action"
+    },
+    "workspace.closeAllInAllWindows": {
+      "family": "workspace",
+      "case": "actions/workspace-close-all-in-all-windows",
+      "entry": "action"
+    },
+    "workspace.closeOthersInGroup": {
+      "family": "workspace",
+      "case": "actions/workspace-close-others-in-group",
+      "entry": "action"
+    },
+    "workspace.copyPath": {
+      "family": "workspace",
+      "case": "actions/workspace-copy-path",
+      "entry": "action"
+    },
+    "workspace.duplicate": {
+      "family": "workspace",
+      "case": "actions/workspace-duplicate",
+      "entry": "action"
+    },
+    "workspace.duplicateTerminalsOnly": {
+      "family": "workspace",
+      "case": "actions/workspace-duplicate-terminals-only",
+      "entry": "action"
+    },
+    "workspace.duplicateToSpace": {
+      "family": "workspace",
+      "case": "actions/workspace-duplicate-to-space",
+      "entry": "action",
+      "blocked": "needs a room argument (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+      "blocked_by": "gap"
+    },
+    "workspace.mergeInto": {
+      "family": "workspace",
+      "case": "actions/workspace-merge-into",
+      "entry": "action"
+    },
+    "workspace.moveToBottom": {
+      "family": "workspace",
+      "case": "actions/workspace-move-to-bottom",
+      "entry": "action"
+    },
+    "workspace.moveToNewGroup": {
+      "family": "workspace",
+      "case": "actions/workspace-move-to-new-group",
+      "entry": "action"
+    },
+    "workspace.moveToSpace": {
+      "family": "workspace",
+      "case": "actions/workspace-move-to-space",
+      "entry": "action",
+      "blocked": "needs a room argument (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+      "blocked_by": "gap"
+    },
+    "workspace.newAbove": {
+      "family": "workspace",
+      "case": "actions/workspace-new-above",
+      "entry": "action"
+    },
+    "workspace.newAtBottom": {
+      "family": "workspace",
+      "case": "actions/workspace-new-at-bottom",
+      "entry": "action"
+    },
+    "workspace.newAtTop": {
+      "family": "workspace",
+      "case": "actions/workspace-new-at-top",
+      "entry": "action"
+    },
+    "workspace.newBelow": {
+      "family": "workspace",
+      "case": "actions/workspace-new-below",
+      "entry": "action"
+    },
+    "workspace.newInNewGroup": {
+      "family": "workspace",
+      "case": "actions/workspace-new-in-new-group",
+      "entry": "action"
+    },
+    "workspace.newLikeThis": {
+      "family": "workspace",
+      "case": "actions/workspace-new-like-this",
+      "entry": "action"
+    },
+    "workspace.removeAllColors": {
+      "family": "workspace",
+      "case": "actions/workspace-remove-all-colors",
+      "entry": "action"
+    },
+    "workspace.selectFirst": {
+      "family": "workspace",
+      "case": "actions/workspace-select-first",
+      "entry": "action"
+    },
+    "workspace.selectLast": {
+      "family": "workspace",
+      "case": "actions/workspace-select-last",
+      "entry": "action"
+    },
+    "workspace.selectLastUsed": {
+      "family": "workspace",
+      "case": "actions/workspace-select-last-used",
+      "entry": "key",
+      "key": "cmd+ctrl+`"
+    },
+    "workspace.setIcon": {
+      "family": "workspace",
+      "case": "actions/workspace-set-icon",
+      "entry": "action"
+    },
+    "workspace.setTheme": {
+      "family": "workspace",
+      "case": "actions/workspace-set-theme",
+      "entry": "action"
+    },
+    "workspace.setTint": {
+      "family": "workspace",
+      "case": "actions/workspace-set-tint",
+      "entry": "action"
+    },
+    "workspace.showResources": {
+      "family": "workspace",
+      "case": "actions/workspace-show-resources",
+      "entry": "action"
+    },
+    "workspace.sortByDirectory": {
+      "family": "workspace",
+      "case": "actions/workspace-sort-by-directory",
+      "entry": "action"
+    },
+    "workspace.sortByLastUsed": {
+      "family": "workspace",
+      "case": "actions/workspace-sort-by-last-used",
+      "entry": "action"
+    },
+    "workspace.sortByName": {
+      "family": "workspace",
+      "case": "actions/workspace-sort-by-name",
+      "entry": "action"
+    },
+    "workspace.stash": {
+      "family": "workspace",
+      "case": "actions/workspace-stash",
+      "entry": "action"
+    },
+    "workspace.toggleArchive": {
+      "family": "workspace",
+      "case": "actions/workspace-toggle-archive",
+      "entry": "action"
+    },
+    "workspace.toggleAudioMute": {
+      "family": "workspace",
+      "case": "actions/workspace-toggle-audio-mute",
+      "entry": "action"
+    },
+    "workspace.toggleTop": {
+      "family": "workspace",
+      "case": "actions/workspace-toggle-top",
+      "entry": "action"
+    },
+    "workspaceGroup.addToSection": {
+      "family": "sidebar",
+      "case": "actions/workspace-group-add-to-section",
+      "entry": "action",
+      "blocked": "needs a sidebar-section argument (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+      "blocked_by": "gap"
+    },
+    "workspaceGroup.clearColor": {
+      "family": "sidebar",
+      "case": "actions/workspace-group-clear-color",
+      "entry": "action"
+    },
+    "workspaceGroup.clearIcon": {
+      "family": "sidebar",
+      "case": "actions/workspace-group-clear-icon",
+      "entry": "action"
+    },
+    "workspaceGroup.clearNotifications": {
+      "family": "sidebar",
+      "case": "actions/workspace-group-clear-notifications",
+      "entry": "action"
+    },
+    "workspaceGroup.closeOthers": {
+      "family": "sidebar",
+      "case": "actions/workspace-group-close-others",
+      "entry": "action"
+    },
+    "workspaceGroup.closeWorkspaces": {
+      "family": "sidebar",
+      "case": "actions/workspace-group-close-workspaces",
+      "entry": "action"
+    },
+    "workspaceGroup.collapse": {
+      "family": "sidebar",
+      "case": "actions/workspace-group-collapse",
+      "entry": "action"
+    },
+    "workspaceGroup.collapseAll": {
+      "family": "sidebar",
+      "case": "actions/workspace-group-collapse-all",
+      "entry": "action"
+    },
+    "workspaceGroup.collapseOthers": {
+      "family": "sidebar",
+      "case": "actions/workspace-group-collapse-others",
+      "entry": "action"
+    },
+    "workspaceGroup.color.blue": {
+      "family": "sidebar",
+      "case": "actions/workspace-group-color-blue",
+      "entry": "action"
+    },
+    "workspaceGroup.color.cyan": {
+      "family": "sidebar",
+      "case": "actions/workspace-group-color-cyan",
+      "entry": "action"
+    },
+    "workspaceGroup.color.green": {
+      "family": "sidebar",
+      "case": "actions/workspace-group-color-green",
+      "entry": "action"
+    },
+    "workspaceGroup.color.grey": {
+      "family": "sidebar",
+      "case": "actions/workspace-group-color-grey",
+      "entry": "action"
+    },
+    "workspaceGroup.color.orange": {
+      "family": "sidebar",
+      "case": "actions/workspace-group-color-orange",
+      "entry": "action"
+    },
+    "workspaceGroup.color.pink": {
+      "family": "sidebar",
+      "case": "actions/workspace-group-color-pink",
+      "entry": "action"
+    },
+    "workspaceGroup.color.purple": {
+      "family": "sidebar",
+      "case": "actions/workspace-group-color-purple",
+      "entry": "action"
+    },
+    "workspaceGroup.color.red": {
+      "family": "sidebar",
+      "case": "actions/workspace-group-color-red",
+      "entry": "action"
+    },
+    "workspaceGroup.color.yellow": {
+      "family": "sidebar",
+      "case": "actions/workspace-group-color-yellow",
+      "entry": "action"
+    },
+    "workspaceGroup.copyID": {
+      "family": "sidebar",
+      "case": "actions/workspace-group-copy-id",
+      "entry": "action"
+    },
+    "workspaceGroup.duplicate": {
+      "family": "sidebar",
+      "case": "actions/workspace-group-duplicate",
+      "entry": "action"
+    },
+    "workspaceGroup.editConfig": {
+      "family": "sidebar",
+      "case": "actions/workspace-group-edit-config",
+      "entry": "action"
+    },
+    "workspaceGroup.expand": {
+      "family": "sidebar",
+      "case": "actions/workspace-group-expand",
+      "entry": "action"
+    },
+    "workspaceGroup.expandAll": {
+      "family": "sidebar",
+      "case": "actions/workspace-group-expand-all",
+      "entry": "action"
+    },
+    "workspaceGroup.markRead": {
+      "family": "sidebar",
+      "case": "actions/workspace-group-mark-read",
+      "entry": "action"
+    },
+    "workspaceGroup.markUnread": {
+      "family": "sidebar",
+      "case": "actions/workspace-group-mark-unread",
+      "entry": "action"
+    },
+    "workspaceGroup.moveDown": {
+      "family": "sidebar",
+      "case": "actions/workspace-group-move-down",
+      "entry": "action"
+    },
+    "workspaceGroup.moveToBottom": {
+      "family": "sidebar",
+      "case": "actions/workspace-group-move-to-bottom",
+      "entry": "action"
+    },
+    "workspaceGroup.moveToNewWindow": {
+      "family": "sidebar",
+      "case": "actions/workspace-group-move-to-new-window",
+      "entry": "action"
+    },
+    "workspaceGroup.moveToSpace": {
+      "family": "sidebar",
+      "case": "actions/workspace-group-move-to-space",
+      "entry": "action",
+      "blocked": "needs a room argument (every-action-gaps.json; p15-oracle-082..087 (gap fixtures in oracle/action_fixtures/<family>.py))",
+      "blocked_by": "gap"
+    },
+    "workspaceGroup.moveToTop": {
+      "family": "sidebar",
+      "case": "actions/workspace-group-move-to-top",
+      "entry": "action"
+    },
+    "workspaceGroup.moveToWindow": {
+      "family": "sidebar",
+      "case": "actions/workspace-group-move-to-window",
+      "entry": "action"
+    },
+    "workspaceGroup.moveUp": {
+      "family": "sidebar",
+      "case": "actions/workspace-group-move-up",
+      "entry": "action"
+    },
+    "workspaceGroup.newSubgroup": {
+      "family": "sidebar",
+      "case": "actions/workspace-group-new-subgroup",
+      "entry": "action"
+    },
+    "workspaceGroup.newWorkspace": {
+      "family": "sidebar",
+      "case": "actions/workspace-group-new-workspace",
+      "entry": "action"
+    },
+    "workspaceGroup.rename": {
+      "family": "sidebar",
+      "case": "actions/workspace-group-rename",
+      "entry": "action"
+    },
+    "workspaceGroup.setColor": {
+      "family": "sidebar",
+      "case": "actions/workspace-group-set-color",
+      "entry": "action"
+    },
+    "workspaceGroup.setIcon": {
+      "family": "sidebar",
+      "case": "actions/workspace-group-set-icon",
+      "entry": "action"
+    },
+    "workspaceGroup.sortByDirectory": {
+      "family": "sidebar",
+      "case": "actions/workspace-group-sort-by-directory",
+      "entry": "action"
+    },
+    "workspaceGroup.sortByLastUsed": {
+      "family": "sidebar",
+      "case": "actions/workspace-group-sort-by-last-used",
+      "entry": "action"
+    },
+    "workspaceGroup.sortByName": {
+      "family": "sidebar",
+      "case": "actions/workspace-group-sort-by-name",
+      "entry": "action"
+    },
+    "workspaceGroup.stash": {
+      "family": "sidebar",
+      "case": "actions/workspace-group-stash",
+      "entry": "action"
+    },
+    "workspaceGroup.toggleArchive": {
+      "family": "sidebar",
+      "case": "actions/workspace-group-toggle-archive",
+      "entry": "action"
+    },
+    "workspaceGroup.togglePin": {
+      "family": "sidebar",
+      "case": "actions/workspace-group-toggle-pin",
+      "entry": "action"
+    },
+    "workspaceGroup.ungroup": {
+      "family": "sidebar",
+      "case": "actions/workspace-group-ungroup",
+      "entry": "action"
+    },
+    "zoomWindow": {
+      "family": "misc",
+      "case": "actions/zoom-window",
+      "entry": "action"
+    }
+  }
+}
