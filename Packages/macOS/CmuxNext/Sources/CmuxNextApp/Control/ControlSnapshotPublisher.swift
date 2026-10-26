@@ -2,25 +2,27 @@ import AppKit
 import CmuxNextControl
 import CmuxNextCompat
 import CmuxNextDaemon
-import Observation
+import CmuxNextSettings
+import CmuxNextWakeups
 import os
 
 /// Publishes the control snapshot (architecture.md 5a) after the model
-/// settles: at most once per display frame, on the frame after something the
-/// snapshot reads changed. A publish maps only the workspaces whose entries
-/// went stale (``ControlWorkspaceInfoCache``), so there is no interval between
-/// publishes to hide its cost.
+/// settles: at most once per dirty period, in the automation class, after
+/// something the snapshot reads changed. A publish maps only the workspaces
+/// whose entries went stale (``ControlWorkspaceInfoCache``), so there is no
+/// interval between publishes to hide its cost.
 ///
-/// The build runs inside Observation tracking, so any daemon record,
-/// window state, focus, or settings property it read schedules the next
-/// publish; key-window changes (not observable) and every main-actor work
-/// queue frame invalidate explicitly. Readers never touch main-actor state:
-/// they get the last published value.
+/// The build is a ``FrameObservation`` with `.automation` delivery: any daemon
+/// record, window state, focus, or settings property it read schedules one
+/// rebuild and publish, which needs no display link, so a CLI or an agent
+/// reads current state while no window is on screen. Key-window changes (not
+/// observable) and every main-actor work queue frame invalidate explicitly.
+/// Readers never touch main-actor state: they get the last published value.
 ///
-/// The daemon sequences (read-your-writes barriers) are tracked apart from the build: a daemon batch
-/// that changes nothing the topology shows (busy terminals' activity, a status tick elsewhere) only
-/// moves the published sequences, in O(sessions), instead of mapping the topology again (every batch
-/// rebuilt it: perf-lead.md issue 5, the main thread under load).
+/// The daemon sequences (read-your-writes barriers) are a second `.automation` observation, apart
+/// from the build: a daemon batch that changes nothing the topology shows (busy terminals'
+/// activity, a status tick elsewhere) only moves the published sequences, in O(sessions), instead of
+/// mapping the topology again (every batch rebuilt it: perf-lead.md issue 5, the main thread under load).
 @MainActor
 final class ControlSnapshotPublisher {
     private let router: ControlRouter
@@ -32,10 +34,13 @@ final class ControlSnapshotPublisher {
     /// Per-workspace control values kept between publishes (cx-9c8m).
     private let workspaceInfos = ControlWorkspaceInfoCache()
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "control.snapshot")
-    /// Something the last build read changed since it ran. Set in the observation callback, which runs
-    /// synchronously inside the mutation, so a sequence change that follows in the same batch sees it.
-    /// An atomic flag: the callback is not main-actor isolated.
-    nonisolated private let topologyDirty = Atomic<Bool>(false)
+    /// The topology build, observed: a change to what it read rebuilds and publishes it.
+    private var topologyWatch: FrameObservation<Build>?
+    /// The daemon sequences, observed apart from the build.
+    private var sequenceWatch: FrameObservation<ControlTopology>?
+    /// The topology watch's dirty periods as of the last build. The watch counts one in the will-set of
+    /// the change itself, so a sequence change later in the same batch sees the topology as dirty.
+    private var builtThroughChange = 0
     /// Topology builds and sequence-only publishes since start (tests, debug).
     private(set) var builds = 0
     private(set) var sequencePublishes = 0
@@ -60,12 +65,25 @@ final class ControlSnapshotPublisher {
                 self?.invalidate()
             })
         }
-        publishNow()
-        observeSequences()
+        let work = services.mainWork
+        let topology = FrameObservation(owner: "control.snapshot", delivery: .automation, on: work) { [weak self] in
+            self?.build() ?? Build()
+        } onChange: { [weak self] build in
+            self?.publish(build)
+        }
+        topologyWatch = topology
+        publish(topology.value)
+        sequenceWatch = FrameObservation(owner: "control.snapshot.sequences", delivery: .automation, on: work) { [weak self] in
+            self.map { Self.sequences($0.services) } ?? ControlTopology()
+        } onChange: { [weak self] sequences in
+            self?.sequencesChanged(sequences)
+        }
     }
 
     func stop() {
         isStopped = true
+        topologyWatch?.cancel()
+        sequenceWatch?.cancel()
         router.workQueue.setAfterFrame(nil)
         router.snapshots.setRefresher(nil)
         observers.removeAll()
@@ -95,7 +113,7 @@ final class ControlSnapshotPublisher {
     }
 
     /// A compat read waiting on the write barrier publishes on this turn
-    /// (the store just applied a batch); otherwise the next frame does.
+    /// (a cache entry just went stale); otherwise the next frame does.
     private func modelChanged() {
         if router.snapshots.hasWaiters { publishNow() } else { invalidate() }
     }
@@ -104,64 +122,76 @@ final class ControlSnapshotPublisher {
     /// CLI write sees it (the scheduled publish lands a frame later).
     func publishNow() {
         guard !isStopped else { return }
+        publish(build())
+    }
+
+    /// What one topology build read, published together, and the build's time.
+    private struct Build {
+        var topology = ControlTopology()
+        var settings: CmuxNextSettings.JSONValue?
+        var tabSearch = ControlTabSearchFacts()
+        var elapsed: Duration = .zero
+    }
+
+    /// Maps the topology, the settings and the tab search facts: the topology watch's read, and an
+    /// explicit publish's. It reads only what a change should rebuild for.
+    private func build() -> Build {
         let started = ContinuousClock.now
         builds += 1
-        topologyDirty.store(false, ordering: .releasing)
-        let (built, settings, tabSearch) = withObservationTracking {
-            (Self.topology(services, cache: workspaceInfos, sequences: false), services.settings?.snapshot.root,
-             TabSearchFactsBuilder.facts(services, cache: workspaceInfos))
-        } onChange: { [weak self] in
-            // Runs synchronously inside the mutation; publish after it lands.
-            self?.topologyDirty.store(true, ordering: .releasing)
-            Task { @MainActor in self?.modelChanged() }
-        }
-        // Outside the tracking: a sequence alone never rebuilds (observeSequences).
-        var topology = built
+        let topology = Self.topology(services, cache: workspaceInfos, sequences: false)
+        let settings = services.settings?.snapshot.root
+        let tabSearch = TabSearchFactsBuilder.facts(services, cache: workspaceInfos)
+        return Build(topology: topology, settings: settings, tabSearch: tabSearch, elapsed: ContinuousClock.now - started)
+    }
+
+    private func publish(_ build: Build) {
+        guard !isStopped else { return }
+        builtThroughChange = topologyWatch?.deliveriesScheduled ?? 0
+        // Read here, not in the build: a sequence alone never rebuilds (the sequence watch).
+        var topology = build.topology
         Self.applySequences(to: &topology, services)
         router.snapshots.publish(rebuilt: true) { snapshot in
             snapshot.topology = topology
-            snapshot.settings = settings
-            snapshot.tabSearch = tabSearch
+            snapshot.settings = build.settings
+            snapshot.tabSearch = build.tabSearch
         }
-        let elapsed = ContinuousClock.now - started
         // The cache keeps the tab count as entries change: no walk of every tab per publish.
-        DebugTimings.controlPublished(tabs: workspaceInfos.tabCount, elapsed)
-        if elapsed > .milliseconds(2) {
-            logger.debug("control snapshot took \(elapsed.components.attoseconds / 1_000_000_000_000_000) ms for \(self.workspaceInfos.tabCount) tabs")
+        DebugTimings.controlPublished(tabs: workspaceInfos.tabCount, build.elapsed)
+        if build.elapsed > .milliseconds(2) {
+            logger.debug("control snapshot took \(build.elapsed.components.attoseconds / 1_000_000_000_000_000) ms for \(self.workspaceInfos.tabCount) tabs")
         }
     }
 
-    /// Re-arms the daemon sequence observation: each applied batch either rides on the pending
-    /// topology publish or moves only the published sequences.
-    private func observeSequences() {
-        guard !isStopped else { return }
-        withObservationTracking {
-            var probe = ControlTopology()
-            Self.applySequences(to: &probe, services)
-        } onChange: { [weak self] in
-            Task { @MainActor in self?.sequencesChanged() }
-        }
+    /// Something the last build read changed and no build has run since.
+    private var topologyDirty: Bool {
+        (topologyWatch?.deliveriesScheduled ?? 0) != builtThroughChange
     }
 
-    private func sequencesChanged() {
+    /// The sequence watch's apply: each applied batch either rides on the pending topology publish or
+    /// moves only the published sequences.
+    private func sequencesChanged(_ sequences: ControlTopology) {
         guard !isStopped else { return }
-        observeSequences()
         // A pending topology change (observed, or a work-queue frame's) is not covered by a sequence-only publish:
         // it would show the new sequences beside the old topology.
-        if topologyDirty.load(ordering: .acquiring) || router.snapshots.isStale {
+        if topologyDirty || router.snapshots.isStale {
             // A topology change is pending: its publish reads the sequences as they are then. A read
-            // waiting on its write barrier gets it on this turn.
+            // waiting on its write barrier gets it now.
             if router.snapshots.hasWaiters { publishNow() }
             return
         }
         // Nothing the topology shows changed since the last build: only the sequences move.
         sequencePublishes += 1
-        var sequences = ControlTopology()
-        Self.applySequences(to: &sequences, services)
         router.snapshots.publish { snapshot in
             snapshot.topology.daemonSequence = sequences.daemonSequence
             snapshot.topology.sessionSequences = sequences.sessionSequences
         }
+    }
+
+    /// The applied sequences alone, as the sequence watch reads them.
+    private static func sequences(_ services: AppServices) -> ControlTopology {
+        var sequences = ControlTopology()
+        applySequences(to: &sequences, services)
+        return sequences
     }
 
     /// The home daemon's and each loaded remote session's applied sequence, into `topology`.

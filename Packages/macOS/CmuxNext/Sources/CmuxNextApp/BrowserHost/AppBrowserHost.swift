@@ -7,8 +7,8 @@ import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextInput
 import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
-import Observation
 import os
 
 /// The app as the browser host's engine provider (plans/cmux-next/browser-host.md,
@@ -35,6 +35,8 @@ final class AppBrowserHost {
     let pageInputCursor: AppPageInputCursor
     /// A person's key downs and scroll events from the input tap, before dispatch (``start()``).
     private var inputSubscription: InputSubscription?
+    /// The local daemon's connection state (``watchDaemonConnection()``).
+    private var connectionWatch: FrameObservation<Void>?
 
     /// The WebKit tabs' cookie backups (undo of an agent's `cookies.clear`):
     /// encrypted with the Keychain key (decision D4, issue 13742). DEBUG
@@ -160,17 +162,16 @@ final class AppBrowserHost {
 
     /// Each daemon connection (a launch, a reconnect, a new daemon) may bring a new browser
     /// host: the provider asks for fresh credentials and reconnects when they differ. Event
-    /// driven: it re-arms an observation of the store's connection state.
+    /// driven, in the automation class: agents and remote pages use the provider with no window
+    /// on screen, and the class needs no display link.
     private func watchDaemonConnection() {
-        guard let store = services?.daemon.store else { return }
-        withObservationTracking {
-            _ = store.connectionState
-        } onChange: { [weak self] in
-            // task-owner: one hop per observed change, re-arms itself; ends with the host
-            Task { @MainActor [weak self] in
-                self?.provider.credentialsChanged()
-                self?.watchDaemonConnection()
-            }
+        guard let services else { return }
+        let store = services.daemon.store
+        connectionWatch = FrameObservation<Void>(owner: "browser-host.daemon-connection", delivery: .automation,
+                                                 on: services.mainWork) { [weak store] in
+            _ = store?.connectionState
+        } onChange: { [weak self] _ in
+            self?.provider.credentialsChanged()
         }
     }
 
