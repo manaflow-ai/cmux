@@ -147,6 +147,12 @@ import Testing
     /// The paired list as the app reads it at its next launch (a new file object, the same seal),
     /// and what reaches acpmux (approvers) and hostd (pinned keys) from it.
     static func relaunched(_ directory: URL, seal: any MobileHostPairingSealStore) -> (approvers: [[String: String]], hostd: [[String: String]]) {
+        MobileHostPairedDevicesFile(directory: directory, seal: seal).forgetThisRun()
+        return reread(directory, seal: seal)
+    }
+
+    /// The paired list read again in this run (a sign-out and sign-in), and what reaches acpmux and hostd from it.
+    static func reread(_ directory: URL, seal: any MobileHostPairingSealStore) -> (approvers: [[String: String]], hostd: [[String: String]]) {
         let list = MobileHostPairedDevicesFile(directory: directory, seal: seal).load(userID: "u")
         let approvers = list.approversParams(macDevice: "mac-1")["approvers"] as? [[String: String]] ?? []
         let line = (try? JSONSerialization.jsonObject(with: MobileHostLaunch.devicesLine(list))) as? [String: Any]
@@ -328,9 +334,84 @@ import Testing
         seal.refuseRecords()
         #expect(await Self.removing(devices, in: file) == false, "a refused removal reported saved")
         try copy.write(to: file.file)
-        let reread = Self.relaunched(directory, seal: seal)
+        let reread = Self.reread(directory, seal: seal)
         #expect(reread.approvers.isEmpty, "the revoked phone is an approver again: \(reread.approvers)")
         #expect(reread.hostd.isEmpty, "hostd pins the revoked phone again: \(reread.hostd)")
+    }
+
+    /// Review 90 (1): a phone forgotten while the list is read takes the stored list's trust away on
+    /// the save queue at once, so a quit's flush covers it before the read is back on the main actor.
+    @Test func aPhoneForgottenDuringAReadLosesTrustBeforeTheQuitFlushReturns() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let seal = MobileHostMemoryPairingSeal()
+        let (file, _) = try Self.saved(directory, seal: seal)
+        file.withdrawTrust()
+        await withCheckedContinuation { (resume: CheckedContinuation<Void, Never>) in
+            DispatchQueue.global().async {
+                MobileHostPairedDevicesFile.flush(within: 5)
+                resume.resume()
+            }
+        }
+        let reread = Self.reread(directory, seal: seal)
+        #expect(reread.approvers.isEmpty, "the forgotten phone is still an approver after the flush: \(reread.approvers)")
+        let relaunched = Self.relaunched(directory, seal: seal)
+        #expect(relaunched.approvers.isEmpty, "the forgotten phone is an approver after a relaunch: \(relaunched.approvers)")
+        #expect(relaunched.hostd.isEmpty, "hostd pins the forgotten phone after a relaunch: \(relaunched.hostd)")
+    }
+
+    /// Review 90 (2): a new hostd gets the newest paired list the app set, at once: a restart that
+    /// runs before an update's hop reaches the supervisor never hands hostd an older list.
+    @Test func aNewHostdGetsTheNewestPairedListAtOnce() throws {
+        let supervisor = MobileHostSupervisor()
+        var devices = MobileHostPairedDevices(userID: "u")
+        devices.approve(Self.request, at: Date(timeIntervalSince1970: 5))
+        supervisor.setNewestDevices(devices)
+        devices.remove(Self.request.phoneDeviceID)
+        supervisor.setNewestDevices(devices)
+        let line = try #require(supervisor.devicesForNextHostd(), "no list for the next hostd")
+        let object = try #require(try JSONSerialization.jsonObject(with: line) as? [String: Any])
+        #expect((object["devices"] as? [[String: String]])?.isEmpty == true, "the next hostd gets an older list: \(object)")
+    }
+
+    /// Review 90 (3): this run's record of which list counts stays one digest per file, however many
+    /// removals and key changes a long run makes.
+    @Test func theRunsRecordOfReplacedListsStaysBounded() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let seal = MobileHostMemoryPairingSeal()
+        let (file, saved) = try Self.saved(directory, seal: seal)
+        var devices = saved
+        for round in 0..<40 {
+            devices.approve(Self.other, at: Date(timeIntervalSince1970: Double(10 + round)))
+            try file.save(devices)
+            devices.remove(Self.other.phoneDeviceID)
+            #expect(await Self.removing(devices, in: file))
+        }
+        #expect(file.rememberedDigests() <= 1, "this run remembers \(file.rememberedDigests()) digests for one file")
+        #expect(Self.reread(directory, seal: seal).approvers.map { $0["publicKey"] } == [Self.approval])
+    }
+
+    /// Review 90 (4): approving new keys for a paired phone replaces its old keys; when the Keychain
+    /// refuses both the clear and the new record, the list with the old keys put back is not
+    /// trusted again in this run.
+    @Test func aReplacedKeyPutBackIsNotTrustedAgainInThisRun() throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let seal = MobileHostMemoryPairingSeal()
+        let (file, saved) = try Self.saved(directory, seal: seal)
+        let copy = try Data(contentsOf: file.file)
+        var devices = saved
+        let rekeyed = MobileHostPairRequest(phoneDeviceID: Self.request.phoneDeviceID, name: Self.request.name,
+                                           identityKey: Self.other.identityKey, approvalKey: Self.other.approvalKey)
+        devices.approve(rekeyed, at: Date(timeIntervalSince1970: 7))
+        seal.refuseClears()
+        seal.refuseRecords()
+        #expect(throws: MobileHostPairingSealError.keychainRefused) { try file.save(devices) }
+        try copy.write(to: file.file)
+        let reread = Self.reread(directory, seal: seal)
+        #expect(!reread.approvers.contains { $0["publicKey"] == Self.approval }, "the replaced key is an approver again: \(reread.approvers)")
+        #expect(reread.hostd.isEmpty, "hostd pins the replaced key again: \(reread.hostd)")
     }
 
     /// Review 29: a sign-out while the list is read, then a sign-in of the same user: the read

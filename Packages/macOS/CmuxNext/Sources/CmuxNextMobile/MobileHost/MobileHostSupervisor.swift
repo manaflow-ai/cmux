@@ -1,4 +1,5 @@
 public import Foundation
+import CmuxNextCompat
 import CmuxNextWakeups
 import os
 
@@ -57,6 +58,8 @@ public actor MobileHostSupervisor {
     private let pairingContinuation: AsyncStream<MobileHostEvent>.Continuation
     /// The last `devices` line: sent to each new hostd and on every change.
     private var devicesLine: Data?
+    /// Red stub: what the actor holds for the next hostd, mirrored once a hop lands.
+    private nonisolated let newestDevicesMirror = Mutex<Data?>(nil)
     /// The last `phone_credentials` line (secrets, memory only): sent to each new hostd and on
     /// every change.
     private var phoneCredentialsLine: Data?
@@ -147,8 +150,18 @@ public actor MobileHostSupervisor {
     public func setDevices(_ devices: MobileHostPairedDevices) {
         let line = MobileHostLaunch.devicesLine(devices)
         devicesLine = line
+        newestDevicesMirror.withLock { $0 = line }
         process?.send(line)
     }
+
+    /// Red stub: as reviewed, the list reaches the actor after a hop.
+    public nonisolated func setNewestDevices(_ devices: MobileHostPairedDevices) {
+        // task-owner: red stub; one hop to the actor
+        Task { await self.setDevices(devices) }
+    }
+
+    /// The `devices` line a hostd started now gets.
+    nonisolated func devicesForNextHostd() -> Data? { newestDevicesMirror.withLock { $0 } }
 
     /// Each paired phone's own acpmux credential: kept for each new hostd and sent to the
     /// running one now (the phone's next acpmux channel presents it).

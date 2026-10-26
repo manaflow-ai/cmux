@@ -226,6 +226,19 @@ public struct MobileHostPairedDevicesFile: Sendable {
         }
     }
 
+    /// A phone was forgotten while the list is read (red stub: as reviewed, nothing happens until the read is back).
+    public func withdrawTrust() {}
+
+    /// Drops this run's record for this file, as a relaunch does (tests).
+    func forgetThisRun() {
+        Self.withdrawn.withLock { $0[file.path] = nil }
+    }
+
+    /// How many digests this run remembers for this file (tests).
+    func rememberedDigests() -> Int {
+        Self.withdrawn.withLock { $0[file.path]?.count ?? 0 }
+    }
+
     /// App quit only (`applicationWillTerminate`, under its reviewed blocking allowance): waits, up
     /// to `limit`, for the saves already queued, a removal's among them.
     public static func flush(within limit: TimeInterval = 2) {
