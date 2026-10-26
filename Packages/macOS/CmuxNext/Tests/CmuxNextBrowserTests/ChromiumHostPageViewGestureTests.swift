@@ -15,12 +15,12 @@ import Testing
     #if DEBUG || CMUX_BENCH_HOOKS
     @Test func appKitButtonsMapToWebButtons() {
         // AppKit: 0 left, 1 right, 2 middle, 3 back, 4 forward. The wire (Chrome's
-        // WebPointerProperties::Button): 0 left, 1 middle, 2 right, 3 back, 4 forward.
+        // WebPointerProperties::Button, as CEF clicks it): 0 left, 1 middle, 2 right.
         #expect(ChromiumHostPageView.wireButton(buttonNumber: 0) == 0)
         #expect(ChromiumHostPageView.wireButton(buttonNumber: 1) == 2)
         #expect(ChromiumHostPageView.wireButton(buttonNumber: 2) == 1)
-        #expect(ChromiumHostPageView.wireButton(buttonNumber: 3) == 3)
-        #expect(ChromiumHostPageView.wireButton(buttonNumber: 4) == 4)
+        #expect(ChromiumHostPageView.wireButton(buttonNumber: 3) == nil, "back waits for the host to send kBack (054b)")
+        #expect(ChromiumHostPageView.wireButton(buttonNumber: 4) == nil, "forward waits for the host to send kForward (054b)")
         #expect(ChromiumHostPageView.wireButton(buttonNumber: 5) == nil, "no web button past the fifth")
     }
 
@@ -39,19 +39,28 @@ import Testing
         return try #require(NSEvent(cgEvent: cg))
     }
 
-    @Test func backAndForwardReachThePageAsTheirOwnButtons() throws {
+    /// The back and forward buttons put no press or release on the wire until the host can send
+    /// them as kBack and kForward (054b): the host clicks with CEF's left, middle and right only, and
+    /// 042's dispatch once took any other button for a left click at the pointer.
+    @Test func backAndForwardClickNothingAndTheMiddleButtonIsMiddle() throws {
         let page = makePage()
         var frames: [ChromiumHostFrame] = []
         page.sink = { frames.append($0); return nil }
         page.otherMouseDown(with: try otherMouse(.otherMouseDown, number: 3))
         page.otherMouseUp(with: try otherMouse(.otherMouseUp, number: 3))
         page.otherMouseDown(with: try otherMouse(.otherMouseDown, number: 4))
-        page.otherMouseDragged(with: try otherMouse(.otherMouseDragged, number: 2))
+        page.otherMouseUp(with: try otherMouse(.otherMouseUp, number: 4))
         page.otherMouseDown(with: try otherMouse(.otherMouseDown, number: 7))
-        #expect(frames.map(\.kind) == [.mouse, .mouse, .mouse, .mouse], "a sixth or later button sends nothing")
-        // v2 phase (1 down, 2 up, 0 move), v3 the wire button.
-        #expect(frames.map { [$0.v[2], $0.v[3]] } == [[1, 3], [2, 3], [1, 4], [0, 1]])
-        #expect(frames.map { $0.v[4] } == [1, 1, 1, 0], "a click count on presses and releases, none on a drag")
+        #expect(frames.isEmpty, "a back, forward or sixth button press reached the wire")
+        page.otherMouseDragged(with: try otherMouse(.otherMouseDragged, number: 3))
+        page.otherMouseDown(with: try otherMouse(.otherMouseDown, number: 2))
+        page.otherMouseDragged(with: try otherMouse(.otherMouseDragged, number: 2))
+        page.otherMouseUp(with: try otherMouse(.otherMouseUp, number: 2))
+        #expect(frames.map(\.kind) == [.mouse, .mouse, .mouse, .mouse])
+        // v2 phase (1 down, 2 up, 0 move), v3 the wire button: a drag under the back button is a move.
+        #expect(frames.map { [$0.v[2], $0.v[3]] } == [[0, 0], [1, 1], [0, 1], [2, 1]])
+        #expect(frames.allSatisfy { $0.v[2] == 0 || $0.v[3] == 1 }, "a press or release that is not the middle one")
+        #expect(frames.map { $0.v[4] } == [0, 1, 0, 1], "a click count on presses and releases, none on a drag")
     }
 
     @Test func aPinchIsBeginUpdatesEnd() {
@@ -84,12 +93,12 @@ import Testing
     @Test func theTooltipShowsOnThePageView() {
         let page = makePage()
         page.pageTooltip = "Open the menu"
-        #expect(page.toolTip == "Open the menu")
+        #expect(page.pageTooltip == "Open the menu")
         page.pageTooltip = ""
-        #expect(page.toolTip == nil, "an empty tooltip hides it")
+        #expect(page.pageTooltip == nil, "an empty tooltip hides it")
         page.pageTooltip = "Again"
         page.pageTooltip = nil
-        #expect(page.toolTip == nil)
+        #expect(page.pageTooltip == nil)
     }
 
     @Test func aTooltipEventDecodes() {

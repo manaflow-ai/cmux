@@ -850,6 +850,24 @@ show_row '{"wire": "kFocus", "evnt": "CMUX_SHIM_ADDRESS"}'
 expect 1 "unknown field\\(s\\) evnt" "a misspelled field" -- --root "$parity" --check-view-parity
 show_row '{"wire": "kFocus", "event": "CMUX_SHIM_ADDRESS"}'
 expect 1 "needs exactly one of" "two targets" -- --root "$parity" --check-view-parity
+# A row names a method of the vendored mojom (task p01-process-054: Chromium 154 has PinchEvent, not GestureBegin).
+show_row '{"wire": "kFocus"}'
+stale_row() { # add|drop: the RenderWidgetHostNSViewHost.GestureBegin row
+  python3 - "$parity/plans/cmux-next/chromium-host-view-parity.json" "$1" <<'EOF'
+import json, sys
+d = json.load(open(sys.argv[1]))
+d["methods"] = [m for m in d["methods"] if m["method"] != "GestureBegin"]
+if sys.argv[2] == "add":
+    d["methods"].append({"mojom": "render_widget_host_ns_view.mojom", "interface": "RenderWidgetHostNSViewHost",
+                         "method": "GestureBegin", "wire": "kFocus"})
+json.dump(d, open(sys.argv[1], "w"))
+EOF
+}
+stale_row add
+expect 1 "RenderWidgetHostNSViewHost.GestureBegin: mapped, but the mojom has no such method" "a row for a method the mojom lacks" \
+  -- --root "$parity" --check-view-parity
+stale_row drop
+expect 0 "" "the stale row gone" -- --root "$parity" --check-view-parity
 rm "$parity/Packages/macOS/CmuxNext/ChromiumHost/src/chromium_host_wire.h"
 show_row '{"wire": "kFocus"}'
 expect 1 "chromium_host_wire.h is missing" "a wire row without the wire header" -- --root "$parity" --check-view-parity
