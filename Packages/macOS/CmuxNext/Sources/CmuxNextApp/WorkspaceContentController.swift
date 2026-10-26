@@ -49,6 +49,7 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
     /// plans/cmux-next/focus.md). Every focus change in this content goes
     /// through it.
     let focus: FocusCoordinator
+    // wall-clock: an id seed, not a time: Unix ms keeps ids from an earlier launch and the daemon's apart.
     var nextGestureTransaction: UInt64 = UInt64(Date().timeIntervalSince1970 * 1000) << 8
     /// The last key-turn pane create (New Column, New Row) still sending: the next one sends after
     /// it, so one pressed on its stand-in names the daemon's pane (`createInKeysTurn`).

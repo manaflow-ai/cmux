@@ -1,7 +1,9 @@
 import AppKit
 @testable import CmuxNextAgentPane
+import CmuxNextCompat
 @testable import CmuxNextNowPlaying
 import CmuxNextSidebar
+import CmuxNextTrace
 import Foundation
 import Observation
 import Testing
@@ -103,6 +105,33 @@ import Testing
         try await Self.until { kill(child, 0) != 0 && !process.isRunning }
         #expect(kill(child, 0) != 0, "the adapter outlived cmux's end of the pipe")
         #expect(!process.isRunning, "the watch shell outlived the adapter")
+    }
+
+    /// A stream that ends less than 10 s (trace clock) after its start is a quick exit: each one in a row
+    /// doubles the wait before the next start, the fifth gives up, and a run of 10 s or more clears the count.
+    @Test func quickExitsInARowBackOffAndThenGiveUp() {
+        let uptime = UptimeNanos(1_000_000_000_000)
+        var restarts = AdapterRestarts(clock: TraceClock(reader: .init(uptimeNanos: { uptime.nanos },
+                                                                       continuousNow: { ContinuousClock.now })))
+        let second: UInt64 = 1_000_000_000
+        func run(_ nanos: UInt64) -> Duration? {
+            restarts.started()
+            uptime.advance(nanos)
+            return restarts.exited(atNanos: uptime.nanos)
+        }
+
+        #expect(run(AdapterRestarts.quickExitNanos - 1) == .seconds(2))
+        #expect(restarts.quickExits == 1)
+        #expect(run(AdapterRestarts.quickExitNanos) == .seconds(1), "a 10 s run is not quick")
+        #expect(restarts.quickExits == 0)
+
+        #expect(run(2 * second) == .seconds(2))
+        #expect(run(0) == .seconds(4))
+        #expect(run(9 * second) == .seconds(8))
+        #expect(run(1) == .seconds(16))
+        #expect(run(second) == nil, "the fifth quick exit in a row gives up")
+        restarts.reset()
+        #expect(run(second) == .seconds(2), "a new start counts from zero")
     }
 
     @Test func commandsAreTheAdaptersArguments() {
@@ -262,5 +291,20 @@ import Testing
         otherApps.on = false
         try await Self.until { adapter.stops == 1 && model.nowPlaying == nil }
         #expect(adapter.stops == 1 && model.nowPlaying == nil, "turning other apps off kept the stream or the card")
+    }
+}
+
+/// The trace clock's uptime that a test moves.
+private final class UptimeNanos: Sendable {
+    private let value: Mutex<UInt64>
+
+    init(_ nanos: UInt64) {
+        value = Mutex(nanos)
+    }
+
+    var nanos: UInt64 { value.withLock { $0 } }
+
+    func advance(_ nanos: UInt64) {
+        value.withLock { $0 += nanos }
     }
 }

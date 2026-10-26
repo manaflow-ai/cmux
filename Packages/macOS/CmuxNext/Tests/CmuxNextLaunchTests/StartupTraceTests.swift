@@ -1,4 +1,6 @@
 @testable import CmuxNextLaunch
+import CmuxNextCompat
+import CmuxNextTrace
 import CmuxNextWakeups
 import CmuxNextWakeupsTestSupport
 import Dispatch
@@ -65,20 +67,45 @@ import Testing
 
     /// Each launch mark once; with a trace attached, a process_start mark and every later first mark reach it.
     @Test func launchMarksRecordEachNameOnceAndForwardToTheTrace() {
-        let processStart = Date(timeIntervalSinceNow: -1)
+        let start = LaunchClock.Instant(wallNanos: UInt64((Date().timeIntervalSince1970 - 1) * 1e9), uptimeNanos: 5_000_000_000)
+        let processStart = Date(timeIntervalSince1970: Double(start.wallNanos) / 1e9)
         var marks = LaunchMarks()
         let early = marks.record("early", at: Date(), processStart: processStart)
         #expect(early.map { $0 >= 1_000 } == true)
         let trace = StartupTrace(configuration: StartupTraceConfiguration(file: Self.temporaryFile()), processStartNanos: 0,
                                  clock: ManualClock())
-        marks.attach(trace, processStart: processStart)
+        marks.attach(trace, processStart: start)
         #expect(marks.trace === trace)
         let now = Date()
         #expect(marks.record("main_start", at: now, processStart: processStart) != nil)
-        LaunchMarks.forward("main_start", at: now, to: marks.trace)
+        LaunchMarks.forward("main_start", at: now, to: marks.trace, pairedWith: start)
         #expect(marks.record("main_start", at: Date(), processStart: processStart) == nil)
         #expect(marks.all.map { $0.name } == ["early", "main_start"])
         #expect(trace.status.pending == 2)
+    }
+
+    /// Every mark reaches the trace clock through the launch's one pairing (the process start, read once, as
+    /// Chrome's `StartupTimeToTimeTicks` keeps one `time_base` and `trace_ticks_base`): a wall-clock step
+    /// between two marks moves neither, while a pairing read again after the step would.
+    @Test func aWallClockStepBetweenMarksMovesNoMark() throws {
+        let second: UInt64 = 1_000_000_000
+        let wall = WallClock(1_002 * second)
+        let clock = LaunchClock(reader: LaunchClock.Reader(
+            processStartWallNanos: { 1_000 * second }, wallNanos: { wall.nanos }, uptimeNanos: { 50 * second },
+            pageins: { nil }))
+        let pairing = try #require(clock.processStart())
+        #expect(pairing == LaunchClock.Instant(wallNanos: 1_000 * second, uptimeNanos: 48 * second))
+
+        let first = Date(timeIntervalSince1970: 1_001)
+        #expect(LaunchMarks.uptimeNanos(of: first, pairedWith: pairing) == 49 * second)
+        wall.set(2_000 * second) // the wall clock is set 998 s forward
+        #expect(LaunchMarks.uptimeNanos(of: first, pairedWith: pairing) == 49 * second)
+        #expect(LaunchMarks.uptimeNanos(of: Date(timeIntervalSince1970: 1_003), pairedWith: pairing) == 51 * second)
+        #expect(LaunchMarks.uptimeNanos(of: first, pairedWith: clock.now()) != 49 * second,
+                "a pairing read after the step moves the mark")
+
+        #expect(LaunchMarks.uptimeNanos(of: Date(timeIntervalSince1970: 999), pairedWith: pairing) == 47 * second)
+        #expect(LaunchMarks.uptimeNanos(of: Date(timeIntervalSince1970: 900), pairedWith: pairing) == 0)
     }
 
     // MARK: file
@@ -285,6 +312,21 @@ import Testing
             status = await trace.flush()
         }
         return status
+    }
+}
+
+/// The wall clock a test sets while the clock reader reads it.
+private final class WallClock: Sendable {
+    private let value: Mutex<UInt64>
+
+    init(_ nanos: UInt64) {
+        value = Mutex(nanos)
+    }
+
+    var nanos: UInt64 { value.withLock { $0 } }
+
+    func set(_ nanos: UInt64) {
+        value.withLock { $0 = nanos }
     }
 }
 

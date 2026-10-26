@@ -201,6 +201,7 @@ public struct CloudAPIClient: Sendable {
                                       timeout: .seconds(100), as: CloudSCPEndpoint.self)
         guard endpoint.port == 22, endpoint.username == "cmux",
               endpoint.hostPublicKey.hasPrefix("ssh-ed25519 "),
+              // wall-clock: the endpoint's expiry is Unix seconds from the server.
               endpoint.expiresAtUnix > Int64(Date().timeIntervalSince1970) else {
             throw CloudAPIError.decoding("/api/vm/\(id)/scp-endpoint returned an unsafe endpoint")
         }
