@@ -46,6 +46,11 @@
       "bench": "scripts/cmux-next/anim-perf-terminal.py, then bench_idle.py (wakes)",
       "owner": "Performance Lead"
     },
+    "pointer-coalesce": {
+      "what": "one move, drag or scroll a view posts to its window's FrameInputCoalescer consumer (PointerFrameConsumer.post): the leading delivery or one merge into the queue, no lock, no allocation, no system call",
+      "bench": "scripts/cmux-next/drag-lag-live.py, then swift test --filter 'PointerFrameCoalescerTests|FrameInputCoalescerTests' (deliveries per frame, pooled drag samples)",
+      "owner": "Performance Lead"
+    },
     "drag-frame": {
       "what": "one tab, pane or column drag frame (ghost, autoscroll, hit test)",
       "bench": "scripts/cmux-next/drag-lag-live.py",
