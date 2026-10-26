@@ -268,11 +268,12 @@ extension AppControl {
     }
 
     #if DEBUG || CMUX_BENCH_HOOKS
-    /// The Chromium host app prototype (browserHost.helper; cef-helper-app-DESIGN.md).
+    /// The Chromium host app prototype (feature cefHelperHost; cef-helper-app-DESIGN.md).
     /// Socket focus policy: `open` makes the page first responder only with focus: true.
     private static func registerChromiumHostDebug(_ services: AppServices, on router: ControlRouter) {
+        let hostSwitch = chromiumHostSwitch(in: services.features, tunables: TunableStore.shared)
         let chromiumHost = ChromiumHostPrototype(makeConfiguration: { ChromiumHostPrototype.bundledConfiguration() },
-                                                 tunables: TunableStore.shared, mainWork: services.mainWork,
+                                                 isOn: { hostSwitch.isEnabled }, mainWork: services.mainWork,
                                                  deadlines: services.mainDeadlines,
                                                  idleExitAfter: chromiumHostIdleExit(in: services.features))
         router.register([
@@ -300,6 +301,16 @@ extension AppControl {
             if case .duration(let seconds, _, _) = param.value { return .seconds(seconds) }
         }
         return nil
+    }
+
+    /// The Chromium host's switch: the launch's `cefHelperHost`, which Debug Settings
+    /// `browserHost.helper` overrides in FeatureList's order: below policy and the
+    /// environment, above remote, trial and the channel default, never in Release.
+    static func chromiumHostSwitch(in features: FeatureList, tunables: TunableStore) -> BrowserHostSwitch {
+        let launch = features.resolution(of: .cefHelperHost)
+        let decidedAboveLocal = launch.source == .policy || launch.source == .environment
+        return BrowserHostSwitch(launchValue: launch.isEnabled,
+                                 takesLocalOverride: features.channel.allowsLocalOverrides && !decidedAboveLocal, tunables: tunables)
     }
     #endif
 }
