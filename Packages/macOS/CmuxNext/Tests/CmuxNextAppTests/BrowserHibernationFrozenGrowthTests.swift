@@ -2,6 +2,7 @@ import AppKit
 @testable import CmuxNextApp
 @testable import CmuxNextBrowser
 import CmuxNextDesign
+import CmuxNextEnergy
 import CmuxNextHibernation
 @testable import CmuxNextSettings
 import Foundation
