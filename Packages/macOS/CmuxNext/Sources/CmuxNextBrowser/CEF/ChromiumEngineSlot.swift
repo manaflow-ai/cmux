@@ -17,6 +17,9 @@ public final class ChromiumEngineSlot {
     public let waitDeadlines: MainWakeUpQueue
     /// Where the engine's runtime comes from; the engine is built over it.
     public let source: CEFRuntimeSource
+    /// A restored page's launch order (p08-startup-040), over the launch's scheduler while feature `cefLaunchOrigin`
+    /// is on, else over none (every page `.user`, at once). The engine orders its starts over the same scheduler.
+    public let launchOrder: CEFLaunchDeferral
     private let make: (BrowserSharedStores, MainWakeUpQueue, CEFRuntimeSource) -> CEFEngine
     private let engineDidCreate: (CEFEngine) -> Void
     private let stop: @MainActor (CEFEngine) async -> Void
@@ -26,15 +29,17 @@ public final class ChromiumEngineSlot {
     public private(set) var built: CEFEngine?
 
     /// - Parameters:
+    ///   - launch: The launch's scheduler with feature `cefLaunchOrigin` on, else nil (``launchOrder``); `make` gives it to the engine.
     ///   - make: Builds the engine over `stores`, `waitDeadlines` and `source`; runs once, at the first read of ``engine``.
     ///   - engineDidCreate: Runs once with the built engine, before ``whenBuilt(_:)`` work and before the reader
     ///     that built it gets it.
     ///   - stop: Stops a built engine at quit (``shutdown()``): the App passes `CEFEngine.shutdown`, tests a recorder.
-    public init(stores: BrowserSharedStores, waitDeadlines: MainWakeUpQueue, source: CEFRuntimeSource,
+    public init(stores: BrowserSharedStores, waitDeadlines: MainWakeUpQueue, source: CEFRuntimeSource, launch: StartupScheduler? = nil,
                 make: @escaping (BrowserSharedStores, MainWakeUpQueue, CEFRuntimeSource) -> CEFEngine,
                 engineDidCreate: @escaping (CEFEngine) -> Void = { _ in },
                 stop: @escaping @MainActor (CEFEngine) async -> Void) {
         (self.stores, self.waitDeadlines, self.source) = (stores, waitDeadlines, source)
+        launchOrder = CEFLaunchDeferral(startup: launch)
         self.make = make
         self.engineDidCreate = engineDidCreate
         self.stop = stop
@@ -42,8 +47,8 @@ public final class ChromiumEngineSlot {
 
     /// A slot over an engine built already (tests and fixtures): ``built`` from the start.
     public convenience init(_ engine: CEFEngine) {
-        self.init(stores: engine.stores, waitDeadlines: engine.waitDeadlines, source: engine.runtimeSource, make: { _, _, _ in engine },
-                  stop: { await $0.shutdown() })
+        self.init(stores: engine.stores, waitDeadlines: engine.waitDeadlines, source: engine.runtimeSource,
+                  launch: engine.launchDeferral.startup, make: { _, _, _ in engine }, stop: { await $0.shutdown() })
         built = engine
     }
 

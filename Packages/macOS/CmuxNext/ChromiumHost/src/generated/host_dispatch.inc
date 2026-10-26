@@ -175,27 +175,28 @@ enum Op : uint16_t {
   kOpPageSchemeAddFirstParty = 165,
   kOpPageSchemeAddFirstPartyDynamic = 166,
   kOpPageResourceRespond = 167,
-  kOpAddDocumentScript = 168,  // optional
-  kOpAddPageChannel = 169,  // optional
-  kOpTabEvaluate = 170,  // optional
-  kOpTabSetFrozen = 171,  // optional
-  kOpTabSendClick = 172,  // optional
-  kOpTabSetColorScheme = 173,  // optional
-  kOpPageSchemeSetGroup = 174,  // optional
-  kOpTabDiscard = 175,  // optional
-  kOpWidgetSetGeometry = 176,  // optional
-  kOpWidgetDismiss = 177,  // optional
-  kOpWidgetSendInput = 178,  // optional
+  kOpMemoryPressureVote = 168,
+  kOpAddDocumentScript = 169,  // optional
+  kOpAddPageChannel = 170,  // optional
+  kOpTabEvaluate = 171,  // optional
+  kOpTabSetFrozen = 172,  // optional
+  kOpTabSendClick = 173,  // optional
+  kOpTabSetColorScheme = 174,  // optional
+  kOpPageSchemeSetGroup = 175,  // optional
+  kOpTabDiscard = 176,  // optional
+  kOpWidgetSetGeometry = 177,  // optional
+  kOpWidgetDismiss = 178,  // optional
+  kOpWidgetSendInput = 179,  // optional
 };
-inline constexpr uint16_t kOpCount = 178;
+inline constexpr uint16_t kOpCount = 179;
 inline constexpr uint16_t kOpEvent = 0x8001;  // host -> cmux: one shim event
 inline constexpr uint16_t kOpReply = 0x8002;  // host -> cmux: an async op's result
 inline constexpr uint16_t kOpMirror = 0x8003;  // host -> cmux: a mirror value
 inline constexpr uint16_t kOpAck = 0x8004;  // host -> cmux: a token's op ran
 inline constexpr int kEventKindCount = 53;
-inline constexpr char kShimAbiID[] = "f3c96f8ce9da96c940dbbeaee840760105fb817e325e7450a4b9cdb4e0abca38";
+inline constexpr char kShimAbiID[] = "240ddda47495e16aa6024d178a64c4d3c94c0e5b95e22b3fec6a6cdd4c1a6020";
 // Both sides' HELLO carries it: the op ids, classes and wire types of this generation.
-inline constexpr char kWireID[] = "b471feee19f3d5cdecf60518058aa62c4bd659f86969f2b64cda28dc7b53cbe1";
+inline constexpr char kWireID[] = "daff2a1ce7fde9cd084a2c11b7c97c171b793f42989e082ffa247eab07d456a4";
 inline constexpr int32_t kMaxRecords = 65536;
 inline constexpr int32_t kMaxOutCapacity = 65536;
 
@@ -1590,6 +1591,14 @@ inline bool DispatchOp(HostContext& ctx, uint16_t op, uint32_t wire_token, TlvRe
       const std::string arg_body = r.Bytes();
       if (!r.ok() || !r.AtEnd()) return false;
       const auto call_result = cmux_shim_page_resource_respond(arg_token, arg_status, arg_mime ? arg_mime->c_str() : nullptr, reinterpret_cast<const void*>(arg_body.data()), static_cast<size_t>(arg_body.size()));
+      (void)call_result;
+      ctx.Ack(wire_token);
+      return true;
+    }
+    case kOpMemoryPressureVote: {
+      const auto arg_level = r.I32();
+      if (!r.ok() || !r.AtEnd()) return false;
+      const auto call_result = cmux_shim_memory_pressure_vote(arg_level);
       (void)call_result;
       ctx.Ack(wire_token);
       return true;

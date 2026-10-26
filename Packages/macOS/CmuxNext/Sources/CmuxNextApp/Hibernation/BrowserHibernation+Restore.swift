@@ -40,7 +40,7 @@ extension BrowserHibernation {
         if case .appPage(let saved) = placeholder.restoreState {
             return restoreAppPage(key, saved, token: token)
         }
-        var configuration = BrowserTabConfiguration(id: placeholder.id, profile: profile, zoom: placeholder.state.zoom)
+        var configuration = BrowserTabConfiguration(id: placeholder.id, profile: profile, zoom: placeholder.state.zoom, origin: .user)
         switch placeholder.engineKind {
         case .webkit:
             let tab = cache.webKit.makeWebKitTab(id: configuration.id, profile: configuration.profile, zoom: configuration.zoom)

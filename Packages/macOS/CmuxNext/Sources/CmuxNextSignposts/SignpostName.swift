@@ -17,7 +17,8 @@
 /// ``launchStartupTask``, ``launchStartupComplete``, ``launchReadDone``, ``stallPaletteOpen``, ``stallIconPickerOpen``,
 /// ``webuiOpen``, ``webuiScheme``, ``stallCreateSurface``, ``daemonStep``, ``webuiAgentPaneStep``, ``createTab``,
 /// ``createWorkspace``, ``stallGhosttyRuntimePhase``, ``switchWorkspace``, ``switchTab``, ``switchPaneFocus``,
-/// ``burstEvent``, ``motionLateCommits`` and ``actionPresentedEstimate`` have an emitter today. The
+/// ``burstEvent``, ``motionLateCommits``, ``actionPresentedEstimate`` and ``cefMemoryPressureVote`` have an emitter
+/// today. The
 /// other cases are **reserved**: the task and owner named on each add the emitter. Until then no build records them,
 /// and no bench or report may quote them. "Ring" on a reserved case gives its record phases and the
 /// meaning of `arg0` and `arg1` (the ring v1 record, plans/cmux-next/trace.md).
@@ -217,7 +218,7 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     // MARK: stall (emitter: the main-thread scheduler, CmuxNextWakeups `MainFrameBudget`)
 
     /// One task the main-thread scheduler runs, from its start to its return: a frame batch
-    /// (`FrameBatcher` work) or a queued control request. Message: `class=<input|frame|visible|automation|background>
+    /// (`FrameBatcher` work) or a queued control request. Message: `class=<input|frame|userBlocking|visible|automation|background>
     /// owner=<batch owner or control method>`. Per task, so several per frame: never mirrored to MetricKit.
     case stallMainTask = 16
     /// A point event: a scheduled main-thread task ran past its class's per-frame budget. Message:
@@ -458,6 +459,16 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// arg1 the presented time (uptime ns).
     case actionPresented = 84
 
+    // MARK: cef memory pressure (emitter: CmuxNextBrowser `CEFMemoryPressureVote`, task p07-memory-051)
+
+    /// cmux's memory pressure vote into Chromium's aggregator (`cmux_shim_memory_pressure_vote`), the synchronous
+    /// part of the call on the main thread: in process, the vote and the sync listeners Chromium runs when the
+    /// aggregate changes; in host library mode, one post to the Chromium Host. Async listeners are not in it: in
+    /// process they run in later `cef.pump` slices, in host mode in the host process. The memory coordinator's
+    /// release slices run on later frames. Message: `level=<0 none|1 moderate|2 critical>`. Ring: B/E; begin arg0
+    /// the level. Once per change of the coordinator's vote.
+    case cefMemoryPressureVote = 86
+
     /// The name `os_signpost` records (a compile-time string, as the API requires).
     public var staticName: StaticString {
         switch self {
@@ -546,6 +557,7 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
         case .motionLateCommits: "motion.late_commits"
         case .actionPresentedEstimate: "action.presented_estimate"
         case .actionPresented: "action.presented"
+        case .cefMemoryPressureVote: "cef.memory_pressure_vote"
         }
     }
 }
