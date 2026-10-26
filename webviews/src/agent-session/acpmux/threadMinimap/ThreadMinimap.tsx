@@ -489,7 +489,14 @@ export function ThreadMinimap({
   }, []);
   useLayoutEffect(() => {
     const node = list.current;
-    if (!node) return;
+    // A hidden rail (too little room, too few prompts) unmounts its list, and the next one mounts at
+    // its top: the cached offset goes with it, so the new list is placed from 0 like any other.
+    if (!node) {
+      if (listOffset.current === 0) return;
+      listOffset.current = 0;
+      setListTop(0);
+      return;
+    }
     // A list that no longer overflows (another chat, fewer prompts) starts at its top again.
     if (!overflow) {
       if (listOffset.current === 0) return;
@@ -508,7 +515,7 @@ export function ThreadMinimap({
     listOffset.current = next;
     setListTop(next);
     followPointer(node);
-  }, [onScreen.first, onScreen.last, turns.length, overflow, height, scrubbing, followPointer]);
+  }, [shown, onScreen.first, onScreen.last, turns.length, overflow, height, scrubbing, followPointer]);
 
   // A key moved focus to a row that was not drawn: it is now, so it takes focus (and the browser
   // scrolls the list to it, whose scroll moves the drawn rows along).

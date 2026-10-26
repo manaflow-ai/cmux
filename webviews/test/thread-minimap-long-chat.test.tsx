@@ -14,6 +14,7 @@ const dom = new JSDOM("<!doctype html><div id=root></div>", {
   pretendToBeVisual: true,
   virtualConsole: new VirtualConsole(),
 });
+const resizeObservers = new Set<{ fire(): void }>();
 const scope = globalThis as Record<string, unknown>;
 const replacements: Record<string, unknown> = {
   window: dom.window,
@@ -29,10 +30,19 @@ const replacements: Record<string, unknown> = {
     unobserve() {}
     disconnect() {}
   },
+  // Kept, so a test that changes the transcript's height can tell the pane it resized.
   ResizeObserver: class {
+    constructor(private readonly callback: () => void) {
+      resizeObservers.add(this);
+    }
     observe() {}
     unobserve() {}
-    disconnect() {}
+    disconnect() {
+      resizeObservers.delete(this);
+    }
+    fire() {
+      this.callback();
+    }
   },
   requestAnimationFrame: dom.window.requestAnimationFrame.bind(dom.window),
   cancelAnimationFrame: dom.window.cancelAnimationFrame.bind(dom.window),
@@ -47,8 +57,8 @@ Object.assign(scope, replacements);
 
 // jsdom has no layout: a 600 px viewport (the transcript's first height) over a long conversation,
 // and a scroll offset the test moves as the reader would.
-const VIEWPORT = 600;
-Object.defineProperty(dom.window.HTMLElement.prototype, "clientHeight", { configurable: true, get: () => VIEWPORT });
+let viewport = 600;
+Object.defineProperty(dom.window.HTMLElement.prototype, "clientHeight", { configurable: true, get: () => viewport });
 // Wide enough for the minimap's gutter (ThreadMinimap MIN_GUTTER).
 Object.defineProperty(dom.window.HTMLElement.prototype, "clientWidth", { configurable: true, get: () => 1040 });
 const offsets = new WeakMap<object, number>();
@@ -449,6 +459,49 @@ test("a focused tick whose rail hides and comes back in the same chat is not hel
     expect(document.querySelector(`[data-tick="1999"]`)).not.toBeNull();
     expect(document.querySelector(`[data-tick="0"]`)).toBeNull();
   } finally {
+    await act(async () => root.unmount());
+  }
+}, 120_000);
+
+test("a scrolled rail hidden for lack of room comes back at its place, its rows drawn", async () => {
+  const document = dom.window.document;
+  const root = createRoot(document.getElementById("root")!);
+  /// The pane at `height` px: the transcript measures it as a resize tells it to.
+  const resize = async (height: number) => {
+    viewport = height;
+    await act(async () => {
+      // A copy: a measure that re-renders can add or drop observers while this runs.
+      for (const observer of Array.from(resizeObservers)) observer.fire();
+    });
+  };
+  try {
+    await act(async () =>
+      root.render(
+        <VirtualTranscript
+          rows={turnView(span(0, 2000), new Set())}
+          sessionId="long-room"
+          onToggleActivity={() => {}}
+          expanded={new Set()}
+        />,
+      ),
+    );
+    // It opens at the latest message, the rail's list scrolled to its end.
+    const before = document.querySelector<HTMLElement>(".acpmux-minimap__list")!;
+    expect(before.scrollTop).toBeGreaterThan(1000);
+    // Too short for a single row: the rail goes.
+    await resize(5);
+    expect(document.querySelector(".acpmux-minimap__rail")).toBeNull();
+    // Back to its height: the rail comes back with a new list, scrolled to where its rows are.
+    await resize(600);
+    const list = document.querySelector<HTMLElement>(".acpmux-minimap__list")!;
+    expect(list).not.toBe(before);
+    expect(list.scrollTop).toBeGreaterThan(1000);
+    const height = Number.parseFloat(list.parentElement!.style.height);
+    for (const row of [Math.floor(list.scrollTop / 10), Math.floor((list.scrollTop + height) / 10) - 1])
+      expect(document.querySelector(`[data-tick="${row}"]`)).not.toBeNull();
+    expect(document.querySelector(`[data-tick="1999"]`)).not.toBeNull();
+  } finally {
+    viewport = 600;
     await act(async () => root.unmount());
   }
 }, 120_000);
