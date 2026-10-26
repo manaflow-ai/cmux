@@ -1,8 +1,8 @@
 {
   "id": "idle-tabs-webkit",
   "tier": "T1",
-  "description": "Idle wakeups with 10 static WebKit tabs (browser.defaultEngine webkit: no Chromium runs) over 3 workspaces, 1 shown (bench_idle.py tabs-10, WebKit arm): app main run loop wakes/s, app, daemon and helper interrupt wakeups/s over 60 s, read only at the window's ends. The Chromium arm is idle-tabs.",
-  "command": ["scripts/cmux-next/bench_idle.py", "--scenarios", "tabs-10", "--engine", "webkit"],
+  "description": "Idle wakeups with 10 static WebKit tabs (browser.defaultEngine webkit; each page reports WebKit as its engine, and the run is refused when Chromium started or any Chromium process runs) over 3 workspaces, 1 shown (bench_idle.py tabs-10, WebKit arm): app main run loop wakes/s, app, daemon and helper interrupt wakeups/s over 60 s, read only at the window's ends. The Chromium arm is idle-tabs.",
+  "command": ["scripts/cmux-next/bench_idle.py", "--fresh", "--scenarios", "tabs-10", "--engine", "webkit"],
   "session": "light",
   "engine": "webkit",
   "config": "bench",
@@ -24,7 +24,7 @@
   ],
   "repeats": 1,
   "seconds": 180,
-  "needs": ["debug:debug.hangs"],
+  "needs": ["debug:debug.hangs", "debug:debug.cef"],
   "hot_paths": [],
   "owner": "Performance Lead",
   "component": "Energy>Idle"

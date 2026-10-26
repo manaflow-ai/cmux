@@ -12,16 +12,19 @@ terminal hosts, and each Chromium helper over --measure seconds after
   chromium-hidden  that Chromium tab's workspace is not shown (a new
                    workspace is selected)
   minimized        the window is minimized (action minimizeWindow)
-  tabs-10          runs alone (--scenarios tabs-10 --engine chromium|webkit): 10 static
-                   tab_pages pages over 3 workspaces (4, 3, 3; a new workspace is action
+  tabs-10          runs alone (--fresh --scenarios tabs-10 --engine chromium|webkit): 10
+                   static tab_pages `engine` pages over 3 workspaces (4, 3, 3; a new workspace is action
                    newTab), each opened with openBrowser.<engine> and selected, so the
                    last one is the only page shown; settled past browser.freezeHiddenTabs
                    (set to 30 s). The program target idle-wakeups and its stories
                    (scripts/perf-lab/stories.d/idle-tabs.json, idle-tabs-webkit.json).
 
-CPU and wakeups come from proc_pid_rusage (user+system time, package idle
-exits plus interrupt wakeups), sampled at the start and end of each window,
-so the bench itself adds no wakeups to the app. When the build has
+CPU and wakeups come from proc_pid_rusage through scripts/perf-bench/procs.py,
+as idle-budget.py reads them (user+system time; interrupt wakeups only, Chrome's
+ProcessMetrics::GetIdleWakeupsPerSecond, base/process/process_metrics_apple.mm;
+package-idle wakeups, a subset of them, are reported apart), sampled at the
+start and end of each window, so the bench itself adds no wakeups to the app.
+`usage()` is that read for the benches that import it here. When the build has
 `debug.wakeups`, the ledger owners, active frame clients and live display
 links are recorded too. Pass criteria (defaults, per process; tune with
 flags): no display link at idle; app and
@@ -31,35 +34,36 @@ browser process (cef-host, the Debug-only host prototype) is reported, not
 judged: it does the app's in-process Chromium work, so the helper limit does
 not fit it and it has no limit of its own yet.
 
-tabs-10 reads wakeups as idle-budget.py does (scripts/perf-bench/procs.py): interrupt wakeups only, Chrome's
-ProcessMetrics::GetIdleWakeupsPerSecond (base/process/process_metrics_apple.mm), with the app's WebKit XPC
-processes in its set; the other scenarios keep their package-idle + interrupt sum. It reads the app only at the
-window's two ends: debug.hangs (the main run loop's `main_wakes`), a quiet second, the counters; the counters, then
-debug.hangs and debug.cef. The pages must be real pages of the engine: every page POSTed its load to the bench's
-page server, exactly the last one reports `visible`, and for Chromium debug.cef is ready with no fallback and a
-Chromium renderer runs; for WebKit (browser.defaultEngine webkit) a WebContent process runs and no Chromium
-renderer does. Otherwise no result is written. Each measured metric is one cmux-perf-result/v1 file
+tabs-10's process set adds every Chromium process of the app's process tree and the WebKit XPC processes macOS
+counts the app responsible for (procs.Instance). It needs an empty session (--fresh): each newTab must add exactly
+one workspace, and the session ends with 3. It reads the app only at the window's two ends: debug.hangs (the main
+run loop's `main_wakes`, timed by its own replies), a quiet second, the counters; the counters, then debug.hangs
+and debug.cef. The pages must be real pages of the engine: every page POSTed its load and its navigator.vendor to
+the bench's page server (tab_pages.py `engine` pages), exactly the last one reports `visible`, and for Chromium
+every vendor is Chromium's, debug.cef is ready with no fallback and a Chromium renderer runs; for WebKit every
+vendor is WebKit's, debug.cef has default_engine webkit and Chromium not started, and no Chromium process runs.
+Otherwise no result is written. Each measured metric is one cmux-perf-result/v1 file
 (BenchApp.record, story idle-tabs or idle-tabs-webkit, engine chromium or webkit):
 idle.tabs-10.app_daemon_wakeups_per_s and .main_wakes_per_s claim the targets.json row idle-wakeups.<engine>;
 .app_wakeups_per_s and .daemon_wakeups_per_s name their idle-budget.json kind (/kinds/<kind>/wakeups_per_s);
-.helper_wakeups_per_s (every Chromium and WebKit process) is reported, with no limit yet.
+.helper_wakeups_per_s (every Chromium and WebKit process) is reported, with no limit yet: when a helper came or
+went in the window it is a note, not a missing result.
 
 Usage:
   scripts/cmux-next/bench-idle.sh <tag> [--app PATH] [--measure 60]
       [--settle 20] [--scenarios terminals,chromium-static,chromium-hidden,minimized]
       [--url URL] [--out DIR] [--label NAME] [--no-fail] [--keep-running]
-  scripts/cmux-next/bench-idle.sh <tag> --scenarios tabs-10 --engine chromium|webkit
+  scripts/cmux-next/bench-idle.sh <tag> --fresh --scenarios tabs-10 --engine chromium|webkit
 
 Writes artifacts/cmux-next-bench/<sha>-idle-<label>.json; exits 1 when a
 criterion fails (unless --no-fail), and 2 when tabs-10 wrote no valid result
-(INVALID lines: not built, not real engine pages, a metric not measured). Quits the app it launched and ends its
+(INVALID lines: not built, the app gone, a socket or file error, not real engine pages, a judged metric not
+measured). Quits the app it launched and ends its
 daemon's terminals on exit (unless --keep-running).
 """
 from __future__ import annotations
 
 import argparse
-import ctypes
-import functools
 import json
 import os
 import shutil
@@ -72,38 +76,19 @@ import time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bench_launch import PERF_LAB, BenchApp, load_by_path  # noqa: E402
 from daemon_teardown import end_terminals  # noqa: E402
-from tab_pages import TabPages, chromium_children, process_table  # noqa: E402  (re-exported: other benches import them here)
+from tab_pages import TabPages, chromium_children, chromium_kind, process_table  # noqa: E402  (re-exported: other benches import them here)
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "perf-bench"))
-import procs  # noqa: E402  (interrupt wakeups and the app's WebKit XPC processes, as idle-budget.py reads them)
+import procs  # noqa: E402  (the one rusage reader: interrupt wakeups, and the app's WebKit XPC processes)
 
 # ---------------------------------------------------------------------------
-# Process usage (proc_pid_rusage, RUSAGE_INFO_V4)
-
-
-class _Timebase(ctypes.Structure):
-    _fields_ = [("numer", ctypes.c_uint32), ("denom", ctypes.c_uint32)]
-
-
-@functools.cache
-def _darwin():
-    """libproc and the mach timebase, loaded on first use so the pure parts import on any OS (the Linux tests)."""
-    libproc = ctypes.CDLL("/usr/lib/libproc.dylib")
-    timebase = _Timebase()
-    ctypes.CDLL("/usr/lib/libSystem.B.dylib").mach_timebase_info(ctypes.byref(timebase))
-    return libproc, timebase.numer, timebase.denom
+# Process usage (procs.usage, proc_pid_rusage RUSAGE_INFO_V6)
 
 
 def usage(pid: int):
-    """(cpu_ns, wakeups, footprint_bytes) or None when the process is gone."""
-    libproc, numer, denom = _darwin()
-    buf = (ctypes.c_uint64 * 64)()
-    if libproc.proc_pid_rusage(ctypes.c_int(pid), ctypes.c_int(4), ctypes.byref(buf)) != 0:
-        return None
-    # uuid (2 x u64), user, system, pkg_idle_wkups, interrupt_wkups, pageins,
-    # wired, resident, phys_footprint
-    ticks = buf[2] + buf[3]
-    return ticks * numer // denom, buf[4] + buf[5], buf[9]
+    """(cpu_ns, interrupt wakeups, footprint_bytes) or None when the process is gone (procs.usage)."""
+    got = procs.usage(pid)
+    return None if got is None else (got.cpu_ns, got.interrupt_wakeups, got.footprint)
 
 
 def classify(app_pid: int, bundle: str):
@@ -172,25 +157,13 @@ def wait_for_socket(path, limit_s=60):
 
 def measure(app_pid, bundle, seconds, control):
     kinds = classify(app_pid, bundle)
-    start = {pid: usage(pid) for pid in kinds}
+    start = {pid: procs.usage(pid) for pid in kinds}
     t0 = time.monotonic()
     time.sleep(seconds)  # test script: the measurement window itself
     wall = time.monotonic() - t0
     kinds.update({pid: kind for pid, kind in classify(app_pid, bundle).items() if pid not in kinds})
-    rows = []
-    for pid, kind in sorted(kinds.items(), key=lambda item: item[1]):
-        before, after = start.get(pid), usage(pid)
-        if before is None or after is None:
-            # Started or ended inside the window (a daemon restart shows here).
-            rows.append({"pid": pid, "kind": kind, "partial": True,
-                         "note": "appeared during the window" if before is None else "exited during the window"})
-            continue
-        rows.append({
-            "pid": pid, "kind": kind,
-            "cpu_percent": round(100.0 * (after[0] - before[0]) / (wall * 1e9), 3),
-            "wakeups_per_s": round((after[1] - before[1]) / wall, 2),
-            "footprint_mb": round(after[2] / 1048576, 1),
-        })
+    # Started or ended inside the window (a daemon restart shows here): a partial row.
+    rows = window_rows(kinds, start, {pid: procs.usage(pid) for pid in kinds}, wall)
     diag = {}
     try:
         report = control.call("debug.wakeups", timeout=30).get("result")
@@ -261,8 +234,8 @@ def tabs10_plan(layout=TABS10_LAYOUT):
 
 def tabs10_config(engine, config):
     """The scratch cmux.json keys tabs-10 needs, under any --setting: hidden tabs freeze after TABS10_FREEZE_S,
-    and the WebKit arm's default engine is WebKit, so nothing starts Chromium and a Chromium renderer in its
-    process set means a page that is not WebKit."""
+    and the WebKit arm's default engine is WebKit, so nothing starts Chromium (engine_problems refuses a WebKit
+    run in which it did)."""
     browser = config.setdefault("browser", {})
     browser.setdefault("freezeHiddenTabs", TABS10_FREEZE_S)
     if engine == "webkit":
@@ -275,18 +248,12 @@ def error_code(response):
     return error.get("code") if isinstance(error, dict) else None
 
 
-def run_script_action(control, name, action_args=None, attempts=3, backoff_s=5):
-    """action.run as a script, the new item selected. A reply that misses the app's 2 s control deadline is
-    retried, except for openBrowser: that tab may still open (a cold CefInitialize), and its page load is the proof."""
+def run_script_action(control, name, action_args=None):
+    """action.run as a script, the new item selected, sent once. A reply that misses the app's 2 s control deadline
+    does not mean the action did not run (a cold CefInitialize, a busy main turn), so a retry could make a second
+    tab or workspace: the page loads and the workspace count after the build are the proof."""
     params = {"action": name, "args": action_args or {}, "focus": True, "origin": "script"}
-    response = {}
-    for attempt in range(attempts):
-        response = control.call("action.run", params, timeout=90)
-        if error_code(response) != "timeout" or name.startswith("openBrowser."):
-            return response
-        if attempt + 1 < attempts:
-            time.sleep(backoff_s)  # test script: back off before retrying the action
-    return response
+    return control.call("action.run", params, timeout=90)
 
 
 def wait_loaded(pages, key, limit_s=PAGE_LOAD_S):
@@ -299,30 +266,49 @@ def wait_loaded(pages, key, limit_s=PAGE_LOAD_S):
     return True
 
 
+def workspace_count(control):
+    """The number of workspaces in the app's topology (snapshot.get), or None when it cannot be read."""
+    topology = (reply_result(control.call("snapshot.get", timeout=30)) or {}).get("topology")
+    workspaces = topology.get("workspaces") if isinstance(topology, dict) else None
+    return len(workspaces) if isinstance(workspaces, list) else None
+
+
 def build_tabs10(control, pages, engine, plan=None, loaded=wait_loaded):
     """Opens the plan's pages: a new workspace (action newTab) before each workspace after the launch one, then
-    openBrowser.<engine> for each of its pages. Returns a skip reason or None."""
+    openBrowser.<engine> for each of its pages (tab_pages `engine` pages), then checks the session has exactly the
+    plan's workspaces. Returns a skip reason or None."""
+    plan = plan or tabs10_plan()
     current = 0
-    for workspace, key in plan or tabs10_plan():
+    for workspace, key in plan:
         if workspace != current:
             response = run_script_action(control, "newTab")
-            if response.get("error"):
+            if response.get("error") and error_code(response) != "timeout":
                 return f"newTab refused: {str(response['error'])[:200]}"
             current = workspace
-        response = run_script_action(control, f"openBrowser.{engine}", {"url": pages.url("static", key)})
+        response = run_script_action(control, f"openBrowser.{engine}", {"url": pages.url("engine", key)})
         if response.get("error") and error_code(response) != "timeout":
             return f"openBrowser.{engine} refused: {str(response['error'])[:200]}"
         if not loaded(pages, key):
             return f"{engine} page {key} did not load in {PAGE_LOAD_S} s"
+    expected = plan[-1][0] + 1
+    count = workspace_count(control)
+    if count != expected:
+        return f"{count} workspaces after the build, expected {expected} (a newTab that timed out, or a restored session: --fresh)"
     return None
 
 
 def tab_kinds(app_pid, bundle):
-    """classify's kinds plus the WebKit XPC processes macOS counts the app responsible for (procs.Instance):
-    they are not the app's children, so the ps parent walk misses them."""
+    """classify's kinds plus the rest of the app's process set (procs.Instance: its whole process tree, processes
+    run from its bundle, and the processes macOS counts it responsible for): every Chromium process, not only the
+    app's direct children, and the WebKit XPC processes, which the ps parent walk misses."""
     kinds = classify(app_pid, bundle)
     for pid, cmd in procs.Instance(bundle, app_pid).pids().items():
-        if pid not in kinds and "com.apple.WebKit." in cmd:
+        if pid in kinds:
+            continue
+        chromium = chromium_kind(cmd)
+        if chromium is not None:
+            kinds[pid] = chromium
+        elif "com.apple.WebKit." in cmd:
             kinds[pid] = procs.kind_of(cmd)
     return kinds
 
@@ -332,17 +318,28 @@ def is_helper(kind):
     return kind.startswith(("cef-", "webkit-"))
 
 
-def engine_problems(engine, cef, kinds, loaded, keys):
-    """Why the pages may not be real `engine` pages: a page that never loaded; for Chromium a `debug.cef` error,
-    unavailable reason, WebKit fallback or state other than ready, or no Chromium renderer; for WebKit no
-    WebContent process, or a Chromium renderer (the arm runs with browser.defaultEngine webkit)."""
+# navigator.vendor of each engine (tab_pages.py `engine` pages): Blink's NavigatorID::vendor
+# (third_party/blink/renderer/core/frame/navigator_id.cc) and WebKit's NavigatorBase::vendor.
+ENGINE_VENDORS = {"chromium": "Google Inc.", "webkit": "Apple Computer, Inc."}
+# debug.cef states (CEFStartReport.state) in which Chromium is starting or running in the app.
+CEF_STARTED = ("loading", "loaded", "ready")
+
+
+def engine_problems(engine, cef, kinds, loaded, keys, vendors):
+    """Why the pages may not be real `engine` pages: a page that never loaded, or that reported another engine's
+    navigator.vendor (each page names the engine that drew it); a `debug.cef` that did not answer. For Chromium a
+    debug.cef unavailable reason, WebKit fallback or state other than ready, or no Chromium renderer; for WebKit a
+    default engine other than webkit, Chromium started, or any Chromium process."""
     problems = [f"page {key} never loaded" for key in keys if key not in loaded]
+    wrong = [f"{key}={vendors.get(key)!r}" for key in keys if vendors.get(key) != ENGINE_VENDORS[engine]]
+    if wrong:
+        problems.append(f"pages not drawn by {engine} (navigator.vendor): {', '.join(wrong)[:200]}")
+    if not isinstance(cef, dict) or cef.get("error"):
+        return problems + [f"debug.cef answered {str(cef)[:80]}"]
     names = set(kinds.values())
     if engine == "chromium":
-        if not isinstance(cef, dict):
-            return problems + [f"debug.cef answered {str(cef)[:80]}"]
-        if cef.get("error") or cef.get("unavailable"):
-            problems.append(f"Chromium unavailable: {str(cef.get('error') or cef.get('unavailable'))[:160]}")
+        if cef.get("unavailable"):
+            problems.append(f"Chromium unavailable: {str(cef.get('unavailable'))[:160]}")
         if cef.get("fallback"):
             problems.append(f"WebKit fallbacks: {str(cef.get('fallback'))[:160]}")
         if cef.get("state") != "ready":
@@ -350,10 +347,13 @@ def engine_problems(engine, cef, kinds, loaded, keys):
         if "cef-renderer" not in names:
             problems.append("no Chromium renderer process")
     else:
-        if "webkit-webcontent" not in names:
-            problems.append("no WebKit WebContent process")
-        if "cef-renderer" in names:
-            problems.append("a Chromium renderer runs: a page may not be WebKit")
+        if cef.get("default_engine") != "webkit":
+            problems.append(f"default engine {cef.get('default_engine')}, not webkit")
+        if cef.get("state") in CEF_STARTED:
+            problems.append(f"Chromium state {cef.get('state')}: Chromium started in a WebKit run")
+        chromium = sorted(name for name in names if name.startswith("cef-"))
+        if chromium:
+            problems.append(f"Chromium processes run in a WebKit run: {', '.join(chromium)}")
     return problems
 
 
@@ -365,9 +365,10 @@ def shown_problems(visibility, keys):
     return []
 
 
-def tabs10_rows(kinds, start, end, wall):
+def window_rows(kinds, start, end, wall):
     """Per-process rows of a window from two procs.usage reads per pid. wakeups_per_s counts interrupt wakeups
-    (idle-budget.json's definition, Chrome's GetIdleWakeupsPerSecond); package-idle wakeups are apart."""
+    (idle-budget.json's definition, Chrome's GetIdleWakeupsPerSecond); package-idle wakeups are apart. A process
+    that came or went in the window is a partial row with no rates."""
     rows = []
     for pid, kind in sorted(kinds.items(), key=lambda item: (item[1], item[0])):
         before, after = start.get(pid), end.get(pid)
@@ -383,26 +384,35 @@ def tabs10_rows(kinds, start, end, wall):
     return rows
 
 
-def tabs10_metrics(rows, main_wakes, wall):
-    """{result-v1 metric: value or None}. A kind with a partial row (a process came or went) has no value, and
-    no sum over it has; main wakes need debug.hangs `main_wakes` at both ends of the window."""
-    def kind_sum(match):
+def tabs10_metrics(rows, main_wakes, wakes_span):
+    """{result-v1 metric: value or None}. A judged kind (app, daemon) with a partial row has no value, and no sum
+    over it has. Helpers sum their complete rows (a helper that came or went is a note: helper_notes). Main wakes
+    need debug.hangs `main_wakes` at both ends and are divided by `wakes_span`, the time between those two replies."""
+    def kind_sum(match, complete_only=False):
         picked = [row for row in rows if match(row["kind"])]
+        if complete_only:
+            picked = [row for row in picked if not row.get("partial")]
         if not picked or any(row.get("partial") for row in picked):
             return None
         return round(sum(row["wakeups_per_s"] for row in picked), 3)
 
     app, daemon = kind_sum(lambda kind: kind == "app"), kind_sum(lambda kind: kind == "daemon")
     wakes = None
-    if main_wakes is not None and wall > 0:
-        wakes = round((main_wakes[1] - main_wakes[0]) / wall, 3)
+    if main_wakes is not None and wakes_span > 0:
+        wakes = round((main_wakes[1] - main_wakes[0]) / wakes_span, 3)
     return {
         "idle.tabs-10.app_daemon_wakeups_per_s": None if app is None or daemon is None else round(app + daemon, 3),
         "idle.tabs-10.main_wakes_per_s": wakes,
         "idle.tabs-10.app_wakeups_per_s": app,
         "idle.tabs-10.daemon_wakeups_per_s": daemon,
-        "idle.tabs-10.helper_wakeups_per_s": kind_sum(is_helper),
+        "idle.tabs-10.helper_wakeups_per_s": kind_sum(is_helper, complete_only=True),
     }
+
+
+def helper_notes(rows):
+    """One note per helper that came or went in the window: left out of helper_wakeups_per_s, not a failure."""
+    return [f"{row['kind']} {row['pid']} {row['note']}: not in helper_wakeups_per_s"
+            for row in rows if row.get("partial") and is_helper(row["kind"])]
 
 
 def reply_result(reply):
@@ -418,8 +428,10 @@ def main_wakes_of(reply):
 
 def measure_tabs10(app_pid, bundle, seconds, control, engine, pages, keys):
     """One window with no app read inside it: debug.hangs, a quiet gap, the counters; the counters, then
-    debug.hangs, debug.cef and the engine and shown-page checks."""
+    debug.hangs, debug.cef and the engine and shown-page checks. Main wakes are timed by the debug.hangs replies,
+    the process counters by their own reads."""
     wakes0 = main_wakes_of(control.call("debug.hangs", {"limit": 0}, timeout=30))
+    hangs0 = time.monotonic()
     time.sleep(QUIET_GAP_S)  # test script: keeps the read's own wake out of the counters
     kinds = tab_kinds(app_pid, bundle)
     start = {pid: procs.usage(pid) for pid in kinds}
@@ -430,23 +442,29 @@ def measure_tabs10(app_pid, bundle, seconds, control, engine, pages, keys):
     for pid, kind in tab_kinds(app_pid, bundle).items():
         kinds.setdefault(pid, kind)  # started inside the window: a partial row
     wakes1 = main_wakes_of(control.call("debug.hangs", {"limit": 0}, timeout=30))
-    rows = tabs10_rows(kinds, start, end, wall)
+    wakes_span = time.monotonic() - hangs0
+    rows = window_rows(kinds, start, end, wall)
     main_wakes = None if wakes0 is None or wakes1 is None else (wakes0, wakes1)
     cef = reply_result(control.call("debug.cef", timeout=30))
-    problems = engine_problems(engine, cef, kinds, pages.loaded, keys) + shown_problems(pages.visibility, keys)
-    return {"wall_s": round(wall, 1), "engine": engine, "processes": rows,
-            "metrics": tabs10_metrics(rows, main_wakes, wall), "engine_problems": problems,
-            "visibility": {key: pages.visibility.get(key) for key in keys}}
+    problems = (engine_problems(engine, cef, kinds, pages.loaded, keys, pages.vendors)
+                + shown_problems(pages.visibility, keys))
+    return {"wall_s": round(wall, 1), "main_wakes_span_s": round(wakes_span, 1), "engine": engine,
+            "processes": rows, "metrics": tabs10_metrics(rows, main_wakes, wakes_span), "notes": helper_notes(rows),
+            "engine_problems": problems, "visibility": {key: pages.visibility.get(key) for key in keys},
+            "vendors": {key: pages.vendors.get(key) for key in keys}}
 
 
 def record_tabs10(bench, engine, metrics, target_ref_type):
     """Writes each measured metric as one result-v1 file through BenchApp.record; returns (paths, failures).
-    `target_ref_type` is perf_result.TargetRef (a path + key reference)."""
+    `target_ref_type` is perf_result.TargetRef (a path + key reference). A judged metric (one with a limit) that has
+    no value or no written result is a failure; a reported one with no value is left out (the window's notes say
+    why)."""
     paths, failures = [], []
     for metric, ref in TABS10_METRICS.items():
         value = metrics.get(metric)
         if value is None:
-            failures.append(f"{TABS10}: {metric} not measured (no result written)")
+            if ref:
+                failures.append(f"{TABS10}: {metric} not measured (no result written)")
             continue
         target_ref = None
         if ref and "target" in ref:
@@ -455,18 +473,39 @@ def record_tabs10(bench, engine, metrics, target_ref_type):
             target_ref = target_ref_type(path=ref["path"], key=ref["key"])
         try:
             paths.append(bench.record(TABS10_STORIES[engine], metric, "per_s", [value], "lower", engine, target_ref))
-        except (RuntimeError, ValueError) as error:  # bench_launch.RecordError, perf_result.ResultError
+        except (OSError, RuntimeError, ValueError) as error:  # the ndjson write, bench_launch.RecordError, perf_result.ResultError
             failures.append(f"{TABS10}: {metric} result not written: {error}")
     return paths, failures
 
 
 def judge_tabs10(result, bench, engine, target_ref_type):
     """Writes a measured window's results when its pages were real `engine` pages; returns why nothing (or not
-    everything) was written: the engine problems, or a metric that had no value or no valid result."""
+    everything) was written: the engine problems, or a judged metric that had no value or no valid result."""
     if result["engine_problems"]:
         return result["engine_problems"] + [f"{TABS10}: not real {engine} pages, no result written"]
     result["results"], unwritten = record_tabs10(bench, engine, result["metrics"], target_ref_type)
     return unwritten
+
+
+def run_tabs10(control, args, app_pid, bundle, pages, bench, target_ref_type):
+    """Settles the built session, measures one window and writes its results. Returns (the scenario's report
+    entry, invalid reasons): a socket error (the app gone or timed out), a reply that is not JSON or a file error
+    is an invalid entry, never a traceback, so the report is still written and the exit is 2."""
+    try:
+        time.sleep(max(args.settle, TABS10_SETTLE_MIN_S))  # test script: past the hidden tabs' freeze
+        keys = [key for _workspace, key in tabs10_plan()]
+        result = measure_tabs10(app_pid, bundle, args.measure, control, args.engine, pages, keys)
+        return result, judge_tabs10(result, bench, args.engine, target_ref_type)
+    except (OSError, ValueError) as error:
+        reason = f"measure failed: {error}"
+        return {"skipped": reason}, [f"{TABS10}: {reason}, no result written"]
+
+
+def exit_code(failures, invalid, no_fail):
+    """2 when tabs-10 wrote no valid result (whatever --no-fail says), 1 when a criterion failed, else 0."""
+    if invalid:
+        return 2
+    return 1 if failures and not no_fail else 0
 
 
 def prepare(scenario, control, args, app_pid, bundle, pages=None):
@@ -506,7 +545,11 @@ def prepare(scenario, control, args, app_pid, bundle, pages=None):
 
 
 def criteria(scenario, result, args):
+    """The --max-* limits of the legacy scenarios. tabs-10 is judged by its result-v1 references (targets.json,
+    idle-budget.json) and judge_tabs10, not by these flags."""
     failures = []
+    if scenario == TABS10 or "processes" not in result:
+        return failures
     for row in result["processes"]:
         if row.get("partial"):
             if row["kind"] in ("app", "daemon"):
@@ -531,6 +574,64 @@ def criteria(scenario, result, args):
     if result.get("display_links", 0) > 0:
         failures.append(f"{scenario}: {result['display_links']} display links at idle > 0")
     return failures
+
+
+def print_result(scenario, result):
+    print(f"== {scenario}")
+    for row in result["processes"]:
+        if row.get("partial"):
+            print(f"   {row['kind']:<14} pid {row['pid']:<6} {row['note']}")
+        else:
+            print(f"   {row['kind']:<14} pid {row['pid']:<6} {row['cpu_percent']:>7.3f}% CPU {row['wakeups_per_s']:>8.2f} wakeups/s")
+    if result.get("ledger"):
+        top = ", ".join(f"{e['owner']}:{e['reason']}={e['per_second']}/s" for e in result["ledger"][:6])
+        print(f"   ledger: {top}")
+    if result.get("active_frame_clients"):
+        print(f"   active frame clients: {result['active_frame_clients']}")
+    for metric, value in result.get("metrics", {}).items():
+        print(f"   {metric} = {value}")
+    for note in result.get("notes", []):
+        print(f"   note: {note}")
+
+
+def run_scenarios(scenarios, app, control, args, app_pid, bundle, pages, bench, report):
+    """Prepares, settles and measures each scenario into report["scenarios"]; returns (failures, invalid). invalid
+    lists why tabs-10 wrote no result: the app gone before it, not built, or run_tabs10's reasons."""
+    failures, invalid = [], []
+    for scenario in scenarios:
+        if app.poll() is not None:
+            # Negative: killed by that signal (a crash, or someone else's cleanup).
+            report["app_exit"] = app.returncode
+            failures.append(f"{scenario}: the app exited ({app.returncode}) before this scenario")
+            if TABS10 in scenarios:
+                invalid.append(f"{TABS10}: the app exited ({app.returncode}), no result written")
+            print(f"bench-idle: the app exited with {app.returncode}", file=sys.stderr)
+            break
+        try:
+            skipped = prepare(scenario, control, args, app_pid, bundle, pages)
+        except (OSError, ValueError) as error:
+            skipped = f"setup failed: {error}"
+        if skipped is not None:
+            report["scenarios"][scenario] = {"skipped": skipped}
+            print(f"== {scenario}: skipped ({skipped})")
+            if scenario == TABS10:
+                invalid.append(f"{scenario}: not built ({skipped}), no result written")
+            continue
+        if scenario == TABS10:
+            writer = load_by_path("perf_result", os.path.join(PERF_LAB, "perf_result.py"))
+            result, unwritten = run_tabs10(control, args, app_pid, bundle, pages, bench, writer.TargetRef)
+            invalid += unwritten
+            report["scenarios"][scenario] = result
+            if "skipped" in result:
+                print(f"== {scenario}: skipped ({result['skipped']})")
+                continue
+        else:
+            time.sleep(args.settle)  # test script: let the scenario settle
+            result = measure(app_pid, bundle, args.measure, control)
+            report["scenarios"][scenario] = result
+        failures += criteria(scenario, result, args)
+        print_result(scenario, result)
+    return failures, invalid
 
 
 def main():
@@ -607,50 +708,17 @@ def main():
     invalid = []  # tabs-10 measurements that wrote no result (exit 2, whatever --no-fail says)
     try:
         control = wait_for_socket(bench.socket)
-        identity = control.call("system.identify").get("result", {})
-        app_pid = identity.get("pid", app.pid)
-        report["has_debug_wakeups"] = "error" not in control.call("debug.wakeups", timeout=30)
-        for scenario in scenarios:
-            if app.poll() is not None:
-                # Negative: killed by that signal (a crash, or someone else's cleanup).
-                report["app_exit"] = app.returncode
-                failures.append(f"{scenario}: the app exited ({app.returncode}) before this scenario")
-                print(f"bench-idle: the app exited with {app.returncode}", file=sys.stderr)
-                break
-            try:
-                skipped = prepare(scenario, control, args, app_pid, bundle, pages)
-            except (OSError, ValueError) as error:
-                skipped = f"setup failed: {error}"
-            if skipped is not None:
-                report["scenarios"][scenario] = {"skipped": skipped}
-                print(f"== {scenario}: skipped ({skipped})")
-                if scenario == TABS10:
-                    invalid.append(f"{scenario}: not built ({skipped}), no result written")
-                continue
-            if scenario == TABS10:
-                time.sleep(max(args.settle, TABS10_SETTLE_MIN_S))  # test script: past the hidden tabs' freeze
-                keys = [key for _workspace, key in tabs10_plan()]
-                result = measure_tabs10(app_pid, bundle, args.measure, control, args.engine, pages, keys)
-                writer = load_by_path("perf_result", os.path.join(PERF_LAB, "perf_result.py"))
-                invalid += judge_tabs10(result, bench, args.engine, writer.TargetRef)
-            else:
-                time.sleep(args.settle)  # test script: let the scenario settle
-                result = measure(app_pid, bundle, args.measure, control)
-            report["scenarios"][scenario] = result
-            failures += criteria(scenario, result, args)
-            print(f"== {scenario}")
-            for row in result["processes"]:
-                if row.get("partial"):
-                    print(f"   {row['kind']:<14} pid {row['pid']:<6} {row['note']}")
-                else:
-                    print(f"   {row['kind']:<14} pid {row['pid']:<6} {row['cpu_percent']:>7.3f}% CPU {row['wakeups_per_s']:>8.2f} wakeups/s")
-            if result.get("ledger"):
-                top = ", ".join(f"{e['owner']}:{e['reason']}={e['per_second']}/s" for e in result["ledger"][:6])
-                print(f"   ledger: {top}")
-            if result.get("active_frame_clients"):
-                print(f"   active frame clients: {result['active_frame_clients']}")
-            for metric, value in result.get("metrics", {}).items():
-                print(f"   {metric} = {value}")
+        try:
+            identity = control.call("system.identify").get("result", {})
+            report["has_debug_wakeups"] = "error" not in control.call("debug.wakeups", timeout=30)
+        except (OSError, ValueError) as error:
+            control = None
+            failures.append(f"the app's socket failed before the first scenario: {error}")
+            if TABS10 in scenarios:
+                invalid.append(f"{TABS10}: the app's socket failed ({error}), no result written")
+        if control is not None:
+            app_pid = identity.get("pid", app.pid)
+            failures, invalid = run_scenarios(scenarios, app, control, args, app_pid, bundle, pages, bench, report)
     finally:
         if not args.keep_running:
             # The app's quit, then TERM and KILL of its own PID, then the tag's daemons (tag_teardown.py).
@@ -671,10 +739,9 @@ def main():
         print(f"FAIL {failure}")
     for reason in invalid:
         print(f"INVALID {reason}")
-    if invalid:
-        sys.exit(2)
-    if failures and not args.no_fail:
-        sys.exit(1)
+    code = exit_code(failures, invalid, args.no_fail)
+    if code:
+        sys.exit(code)
 
 
 if __name__ == "__main__":
