@@ -237,6 +237,14 @@ describe("sandbox run lifecycle", () => {
     expect(calls.outcomes[0]).toMatchObject({ timedOut: true });
   });
 
+  test("runtime bookkeeping that runs into the deadline creates no VM", async () => {
+    const { calls, ports: p } = ports();
+    const recordRuntime = () => new Promise<void>((resolve) => setTimeout(resolve, 400));
+    await runSandboxAttempt({ ...input, timeoutMs: 1_000, requestedAt: Date.now() - 800, teardownStepMs: 5_000 }, { ...p, recordRuntime });
+    expect(calls.steps).not.toContain("createVm");
+    expect(calls.outcomes[0]).toMatchObject({ timedOut: true });
+  });
+
   test("a create the deadline abandoned is still handed to the reaper when it finishes", async () => {
     const { calls, ports: p } = ports({ createVmAfterMs: 200 });
     await runSandboxAttempt({ ...input, timeoutMs: 50 }, p);
@@ -284,6 +292,15 @@ describe("sandbox run lifecycle", () => {
     expect(tail(["log\n", escaped, "done\n"])).toBe("log\n[redacted private key]\ndone\n");
     // Cut off mid-line by a timeout: the unfinished line is redacted too.
     expect(tail(['echo PASSWORD="example-pass-123!'])).not.toContain("example-pass-123!");
+ 
+    // A key straight after a line too long to keep: the dropped line's BEGIN marker still starts
+    // the block, also when the marker itself is split across chunks.
+    const pad = "A".repeat(35_000);
+    expect(tail([pad, pad, pem, "done\n"])).toBe("[redacted private key]\ndone\n");
+    const cut = pem.indexOf("PRIVATE");
+    const splitMarker = tail([pad, pad, pem.slice(0, cut), pem.slice(cut), "done\n"]);
+    expect(splitMarker).not.toContain(body);
+    expect(splitMarker).toBe("[redacted private key]\ndone\n");
   });
 
   test("a failure is redacted whole before it is cut to 500 characters", async () => {

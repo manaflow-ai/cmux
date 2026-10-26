@@ -20,10 +20,23 @@ const SANDBOX_LATE_CREATE_MS = 60_000;
  * can never separate a secret from the prefix or header that redaction recognizes it by. A line
  * longer than the window is dropped, with the rest of it as it arrives.
  */
+const KEY_BEGIN = /-----BEGIN [A-Z0-9 ]*PRIVATE KEY/g;
+const KEY_END = /-----END [A-Z0-9 ]*PRIVATE KEY/g;
+/** How much of a dropped line is kept to find a key marker split across chunks (escapes included). */
+const KEY_MARKER_WINDOW = 256;
+
+function lastIndexOf(pattern: RegExp, text: string): number {
+  let last = -1;
+  for (const match of text.matchAll(pattern)) last = match.index;
+  return last;
+}
+
 export class OutputTail {
   private kept = "";
   private pending = "";
   private skippingLine = false;
+  /** The end of the text dropped so far on the line being skipped. */
+  private skippedTail = "";
   private inKeyBlock = false;
 
   constructor(private readonly handles: () => readonly (string | null | undefined)[] = () => []) {}
@@ -32,9 +45,11 @@ export class OutputTail {
     let next = chunk;
     if (this.skippingLine) {
       const end = next.indexOf("\n");
+      this.skip(end < 0 ? next : next.slice(0, end));
       if (end < 0) return;
       next = next.slice(end + 1);
       this.skippingLine = false;
+      this.skippedTail = "";
     }
     this.pending += next;
     let newline = this.pending.indexOf("\n");
@@ -44,18 +59,36 @@ export class OutputTail {
       newline = this.pending.indexOf("\n");
     }
     if (this.pending.length > SANDBOX_OUTPUT_TAIL_CHARS) {
+      this.skip(this.pending);
       this.pending = "";
       this.skippingLine = true;
     }
+  }
+
+  /**
+   * A line too long to keep is dropped, but a key marker in it still moves the key block: a key
+   * whose BEGIN line was dropped must not have its body kept.
+   */
+  private skip(text: string): void {
+    const seen = this.skippedTail + text;
+    const scan = stripTerminalEscapes(seen);
+    const begin = lastIndexOf(KEY_BEGIN, scan);
+    const end = lastIndexOf(KEY_END, scan);
+    if (begin > end) this.inKeyBlock = true;
+    else if (end > begin && this.inKeyBlock) {
+      this.inKeyBlock = false;
+      this.keep("[redacted private key]\n");
+    }
+    this.skippedTail = seen.slice(-KEY_MARKER_WINDOW);
   }
 
   private complete(raw: string): void {
     // A private key's lines are dropped from its BEGIN line through its END line, read with
     // terminal escapes and control characters removed so neither can hide the markers.
     const line = stripTerminalEscapes(raw);
-    if (/-----BEGIN [A-Z0-9 ]*PRIVATE KEY/.test(line)) this.inKeyBlock = true;
+    if (lastIndexOf(KEY_BEGIN, line) >= 0) this.inKeyBlock = true;
     if (this.inKeyBlock) {
-      if (/-----END [A-Z0-9 ]*PRIVATE KEY/.test(line)) {
+      if (lastIndexOf(KEY_END, line) >= 0) {
         this.inKeyBlock = false;
         this.keep("[redacted private key]\n");
       }
@@ -233,9 +266,12 @@ class SandboxRun {
     const { input, ports, lease } = this;
     // A launch that starts with its budget already spent pays for no VM.
     if (ports.now() >= this.deadline) throw new SandboxDeadlineError(input.timeoutMs);
-    // Inside the teardown's try, so a hang or failure here still ends in teardown.
+    // Inside the teardown's try, so a hang or failure here still ends in teardown; bounded by
+    // the step bound and the request's remaining budget.
     if (ports.recordRuntime) {
-      await this.bounded(ports.recordRuntime()).catch((error: unknown) => ports.log("[runs] sandbox runtime bookkeeping failed", error));
+      const ms = Math.min(input.teardownStepMs ?? SANDBOX_TEARDOWN_STEP_MS, this.deadline - ports.now());
+      await bounded(ports.recordRuntime(), ms).catch((error: unknown) => ports.log("[runs] sandbox runtime bookkeeping failed", error));
+      if (ports.now() >= this.deadline) throw new SandboxDeadlineError(input.timeoutMs);
     }
     const creating = ports.createVm();
     this.lateCreate = creating;
