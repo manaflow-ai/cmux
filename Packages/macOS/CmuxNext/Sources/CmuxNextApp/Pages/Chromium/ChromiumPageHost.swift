@@ -68,4 +68,11 @@ final class ChromiumPageHost: PageChromiumHosting {
         }
         return chromiumPage
     }
+
+    /// In cmux's own process a browser that ended cannot start again: the answer is ``PageChromiumSupervisorOutcome/gaveUp``,
+    /// in the call. In the Chromium Host it comes once the host's supervisor started a new host, or refused to.
+    func supervisorOutcome(then answer: @escaping @MainActor @Sendable (PageChromiumSupervisorOutcome) -> Void) {
+        guard let engine = chromium.built else { return answer(.gaveUp) }
+        engine.restartPagesAfterHostEnd { answer($0 ? .restarted : .gaveUp) }
+    }
 }

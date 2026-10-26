@@ -18,6 +18,12 @@ public final class FakeChromiumHosting: PageChromiumHosting {
     /// The lanes the pages decode their large replies on (a test's own).
     public let work: BackgroundWork
 
+    /// How many times a page asked for the supervisor's outcome (``supervisorOutcome(then:)``).
+    public private(set) var supervisorAsks = 0
+    /// The answers the pages wait for, until ``finishSupervision(_:)``: like the Chromium Host's
+    /// supervisor, the fake answers no page in the turn of its browser's end.
+    private var supervisorWaiters: [@MainActor @Sendable (PageChromiumSupervisorOutcome) -> Void] = []
+
     /// The error ``makePage(_:chatOpen:)`` throws while ``fails`` is set.
     public struct Refused: Error {}
 
@@ -46,5 +52,22 @@ public final class FakeChromiumHosting: PageChromiumHosting {
         made.append(fake)
         onMade?(fake)
         return fake
+    }
+
+    /// Counts the ask and keeps `answer` for ``finishSupervision(_:)``.
+    ///
+    /// - Parameter answer: Gets the outcome ``finishSupervision(_:)`` gives.
+    public func supervisorOutcome(then answer: @escaping @MainActor @Sendable (PageChromiumSupervisorOutcome) -> Void) {
+        supervisorAsks += 1
+        supervisorWaiters.append(answer)
+    }
+
+    /// Answers every page waiting in ``supervisorOutcome(then:)`` with `outcome`, in this turn.
+    ///
+    /// - Parameter outcome: What the supervisor did.
+    public func finishSupervision(_ outcome: PageChromiumSupervisorOutcome) {
+        let waiters = supervisorWaiters
+        supervisorWaiters = []
+        for waiter in waiters { waiter(outcome) }
     }
 }

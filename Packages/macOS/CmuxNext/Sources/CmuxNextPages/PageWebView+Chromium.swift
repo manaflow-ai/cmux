@@ -8,7 +8,7 @@ import Foundation
 // Chromium mode (`browser.defaultEngine` is `chromium`, ``PageEnginePolicy``): the page shows in a
 // Chromium page from ``PageWebView/chromiumHosting``, over the same router, theme and scripts. It
 // has no WebKit view: a page that fails in Chromium builds its WebKit engine and reopens there in
-// the same turn (``fallBackToWebKit(_:detail:)``, PageWebKitEngine.swift).
+// the same turn (``fallBackToWebKit(_:detail:)``); one whose browser ended waits (PageChromiumRecovery.swift).
 extension PageWebView {
     /// The handlers the page scripts post to without a reply, in Chromium mode.
     static let chromiumFireAndForget = [
@@ -78,6 +78,7 @@ extension PageWebView {
         #if DEBUG || CMUX_BENCH_HOOKS
         noteCensusVisibility(visible)
         #endif
+        if visible { chromiumRecovery?.pageShown() }
     }
 
     /// Loads `url` (a document of this page) in whichever engine shows it; a Chromium page on its way
@@ -122,10 +123,7 @@ extension PageWebView {
                 self?.fallBackToWebKit(.chromiumFailed, detail: "\(error)")
                 return
             }
-            guard let self, self.chromiumStart?.isCancelled == false else {
-                page.close()
-                return
-            }
+            guard let self, self.chromiumStart?.isCancelled == false else { return page.close() }
             traceMark(.browserCreated)
             await self.attachChromium(page, scripts: scripts, work: hosting.work)
         }
@@ -147,10 +145,7 @@ extension PageWebView {
             fallBackToWebKit(.chromiumFailed, detail: "setup: \(error)")
             return
         }
-        guard chromiumStart?.isCancelled == false else {
-            session.end()
-            return
-        }
+        guard chromiumStart?.isCancelled == false else { return session.end() }
         traceMark(.setupDone)
         bridge.install { [weak self] message in await self?.receive(message) }
         bridge.onMessage = { [weak self] name, body in self?.chromiumMessage(name, body: body) }
@@ -207,12 +202,13 @@ extension PageWebView {
         carryFreezeToWebKit()
     }
 
-    /// Ends Chromium mode for good (the page closed).
+    /// Ends the Chromium page and any wait for its supervisor (the page closed, was discarded or its browser ended).
     func endChromium() {
         chromiumStart?.cancel()
         chromiumStart = nil
         chromiumSession?.end()
         chromiumSession = nil
+        chromiumRecovery = nil
         inputReadiness.editor = nil
         if case .chromium? = frozenEngine { frozenEngine = nil }
     }
@@ -242,7 +238,7 @@ extension PageWebView {
         case .crashed:
             contentProcessTerminated()
         case .ended:
-            fallBackToWebKit(.chromiumFailed, detail: "the Chromium browser ended")
+            PageChromiumRecovery.browserEnded(self)
         case .openRequested(let url):
             openOutside(url, modifiers: [])
         case .filesDragged(let urls):

@@ -38,6 +38,31 @@ extension CEFEngine {
         tab.pageThemeSurface = .internalPage
         return tab
     }
+
+    /// Starts Chromium again for the page tabs whose browsers the Chromium Host took with it
+    /// (``CEFRuntime/hostEnded(_:)``): the supervisor starts a new host, or refuses one that ended
+    /// again soon after its start, as a sad tab's Reload asks it (``CEFRuntime/reloadAfterHostRestart(_:)``).
+    /// Every page of that end asks in the end's turn; the shared attach (`CEFHostStart`) makes one
+    /// start for all of them.
+    ///
+    /// - Parameter done: Gets true once a new host is attached; false, in the call, in process (a
+    ///   browser that ended there cannot start again) and when only the page's browser ended; false
+    ///   when no new host starts.
+    public func restartPagesAfterHostEnd(_ done: @escaping @MainActor @Sendable (Bool) -> Void) {
+        guard CEFRuntime.shared.awaitsHostRestart else { return done(false) }
+        Self.restartHost(self, then: done)
+    }
+
+    /// The start waits off the main actor, as a sad tab's Reload does: it runs on main as the engine's
+    /// own call, and the main thread holds nothing while the supervisor starts the host.
+    private nonisolated static func restartHost(_ engine: CEFEngine, then done: @escaping @MainActor @Sendable (Bool) -> Void) {
+        // task-owner: one per page whose browser the host took; the shared attach (CEFHostStart) owns the restart, and quit fails it
+        Task { [weak engine] in
+            guard let engine else { return await done(false) }
+            do { try await engine.startRuntime(trigger: "hostRestart") } catch { return await done(false) }
+            await done(true)
+        }
+    }
 }
 
 extension CEFRuntime {

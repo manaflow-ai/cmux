@@ -33,6 +33,14 @@ public protocol PageChromiumHosting: AnyObject {
     /// - Returns: The live page.
     /// - Throws: When Chromium cannot start or the browser is not created.
     func makePage(_ page: PageDescriptor, chatOpen: ChatOpenStages?) async throws -> any PageChromiumPage
+    /// What follows the end of a page's Chromium browser (``PageChromiumEvent/ended``): `answer` runs
+    /// once Chromium runs again or its supervisor gave up (plans/cmux-next/cef-helper-app-DESIGN.md: a
+    /// Chromium Host that ends again within 60 s of its start stays ended). Every page whose browser
+    /// ended asks, and all of them get the one outcome of that end. A Chromium that runs in cmux's
+    /// own process cannot start again: it answers ``PageChromiumSupervisorOutcome/gaveUp`` in the call.
+    ///
+    /// - Parameter answer: Gets whether Chromium came back, on the main actor.
+    func supervisorOutcome(then answer: @escaping @MainActor @Sendable (PageChromiumSupervisorOutcome) -> Void)
 }
 
 /// One Chromium page the page host shows. The page host drives it only through this protocol
