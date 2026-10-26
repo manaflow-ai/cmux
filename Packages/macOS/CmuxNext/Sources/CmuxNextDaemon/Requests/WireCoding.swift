@@ -8,8 +8,9 @@ enum WireCoding {
         return encoder
     }
 
-    static func decoder() -> JSONDecoder {
-        JSONDecoder()
+    /// A wire line decoder that counts into `recorder` (``WireDecoder``); with none it counts nothing.
+    static func decoder(_ recorder: DaemonWireStats.Recorder? = nil) -> WireDecoder {
+        WireDecoder(recorder: recorder)
     }
 
     /// Encodes `{id, cmd, ...fields}` as one line (no newline). The field
@@ -27,12 +28,17 @@ enum WireCoding {
     }
 
     /// Decodes the `data` of an `ok:true` response line.
-    static func decodeResponse<R: Decodable>(_ type: R.Type, from line: Data) throws -> R {
+    static func decodeResponse<R: Decodable>(_ type: R.Type, from line: Data, decoder: WireDecoder = WireCoding.decoder()) throws -> R {
         do {
-            return try decoder().decode(ResponseEnvelope<R>.self, from: line).data
+            return try decoder.decode(ResponseEnvelope<R>.self, from: line).data
         } catch {
             throw DaemonError.malformedResponse("\(R.self): \(error)")
         }
+    }
+
+    /// Decodes the `data` of an `ok:true` response, counted on its connection.
+    static func decodeResponse<R: Decodable>(_ type: R.Type, from response: LineTransport.Response) throws -> R {
+        try decodeResponse(type, from: response.line, decoder: WireCoding.decoder(response.recorder))
     }
 }
 
