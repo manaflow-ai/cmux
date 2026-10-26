@@ -726,6 +726,11 @@ instants `daemon.request.parsed`, `daemon.request.dispatched`,
 its own reply, has no `handled`. A worker's reply is the async slice
 `daemon.request.async` (arg0 the method id), with the instants
 `daemon.request.async.handled` and `daemon.request.async.reply.queued`.
+After each local line, the instant `daemon.frame.json_parses` has as arg0
+how many times the line was parsed as JSON on its way to its handler: its
+head once, then the one decode of the handler its head names: 2 for every
+request its handler accepts, at most 4 for a v2 envelope it refuses. An
+older client's revision upgrade is not counted.
 
 `stack` is the stack of the thread that ran the request, captured when the
 watchdog first saw it running past the threshold (macOS suspends the thread,

@@ -207,6 +207,14 @@ enum RuntimeCommand {
     Stop { runtime: u64 },
 }
 
+/// The `cmd` names this module answers (server/routes.rs).
+pub(in crate::server) const ROUTES: &[crate::server::routes::Route] =
+    &[crate::server::routes::Route {
+        names: &[crate::server::routes::RouteName::Prefix("browser-runtime-")],
+        stage: crate::server::FrameStage::BrowserRuntime,
+        entry: try_handle,
+    }];
+
 /// Handles a `browser-runtime-*` message on the connection's reader thread.
 /// A start runs on its own thread and answers when the host listens.
 pub(super) fn try_handle(

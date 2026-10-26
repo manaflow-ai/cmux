@@ -436,6 +436,14 @@ impl Refusal {
     }
 }
 
+/// The `cmd` names this module answers (server/routes.rs).
+pub(in crate::server) const ROUTES: &[crate::server::routes::Route] =
+    &[crate::server::routes::Route {
+        names: &[crate::server::routes::RouteName::Prefix("agent-session-")],
+        stage: crate::server::FrameStage::AgentSession,
+        entry: try_handle,
+    }];
+
 /// Handles an `agent-session-*` frame of a local connection; `None` for any
 /// other frame. Remote-relay connections never get here (they take
 /// `remote_relay::handle_frame` first).

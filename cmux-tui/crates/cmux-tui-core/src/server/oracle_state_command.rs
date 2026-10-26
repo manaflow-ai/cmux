@@ -17,6 +17,14 @@ use crate::Mux;
 /// The request's `cmd`.
 pub(super) const COMMAND: &str = "oracle-state";
 
+/// The `cmd` names this module answers (server/routes.rs).
+pub(in crate::server) const ROUTES: &[crate::server::routes::Route] =
+    &[crate::server::routes::Route {
+        names: &[crate::server::routes::RouteName::Exact(COMMAND)],
+        stage: crate::server::FrameStage::Route,
+        entry: try_handle,
+    }];
+
 /// Answer an `oracle-state` line; `None` for any other line.
 pub(super) fn try_handle(
     mux: &Arc<Mux>,

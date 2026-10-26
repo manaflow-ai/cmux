@@ -172,6 +172,14 @@ fn answer_later(
     }
 }
 
+/// The `cmd` names this module answers (server/routes.rs).
+pub(in crate::server) const ROUTES: &[crate::server::routes::Route] =
+    &[crate::server::routes::Route {
+        names: &[crate::server::routes::RouteName::Prefix("script-")],
+        stage: crate::server::FrameStage::Scripts,
+        entry: try_handle,
+    }];
+
 /// Handles a `script-*` command; `None` when the message is not one.
 pub(super) fn try_handle(
     mux: &Arc<Mux>,

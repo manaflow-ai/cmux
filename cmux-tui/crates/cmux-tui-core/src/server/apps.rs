@@ -236,6 +236,17 @@ fn cancel_request(mux: &Arc<Mux>, client: u64, value: Value, writer: &MessageWri
     reply(writer, request.id, Ok(json!({})))
 }
 
+/// The `cmd` names this module answers (server/routes.rs).
+pub(in crate::server) const ROUTES: &[crate::server::routes::Route] =
+    &[crate::server::routes::Route {
+        names: &[
+            crate::server::routes::RouteName::Prefix("apps-"),
+            crate::server::routes::RouteName::Exact("cancel-request"),
+        ],
+        stage: crate::server::FrameStage::Apps,
+        entry: try_handle,
+    }];
+
 /// Handles an `apps-*` command or `cancel-request`; `None` when the message
 /// is neither.
 pub(super) fn try_handle(

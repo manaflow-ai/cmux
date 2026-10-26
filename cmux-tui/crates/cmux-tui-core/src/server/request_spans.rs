@@ -21,13 +21,12 @@
 //! The writer thread's socket write is not stamped: a reply's time in the
 //! outbound queue is outside the latency.
 
-use std::borrow::Cow;
 use std::io;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use cmux_trace::{trace_async_begin, trace_async_end, trace_instant, trace_scope};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use serde_json::Value;
 
 use super::Command;
@@ -80,7 +79,7 @@ impl RequestMethod {
     }
 
     /// A line no `Command` names (its `cmd` is a feature route's, or absent).
-    fn routed(cmd: Option<&str>) -> Self {
+    pub(super) fn routed(cmd: Option<&str>) -> Self {
         let class = match cmd {
             Some(cmd) if cmd.starts_with("agent-") || cmd.starts_with("access-request") => {
                 MethodClass::Agent
@@ -120,49 +119,6 @@ fn resource_class(operation: ResourceOperation) -> MethodClass {
         "workspace" | "workspace_group" | "screen" | "screen_group" | "pane" | "column" | "tab"
         | "tab_group" | "layout" | "sidebar" | "room" => MethodClass::Topology,
         _ => MethodClass::Other,
-    }
-}
-
-/// A request line's `id` and `cmd`, read before any route parses it.
-pub(super) struct RequestHead {
-    id: Option<Value>,
-    method: RequestMethod,
-    /// Whether `cmd` names a `Command`, or the head did not parse (the
-    /// `Command` parse then answers the line).
-    command: bool,
-}
-
-impl RequestHead {
-    pub(super) fn parse(message: &str) -> Self {
-        #[derive(Deserialize)]
-        struct Head<'a> {
-            #[serde(default)]
-            id: Option<Value>,
-            #[serde(default, borrow)]
-            cmd: Option<Cow<'a, str>>,
-        }
-        let Ok(Head { id, cmd }) = serde_json::from_str::<Head>(message) else {
-            return Self { id: None, method: RequestMethod::routed(None), command: true };
-        };
-        match cmd.as_deref().and_then(Command::method_of_wire) {
-            Some((method, class)) => {
-                Self { id, method: RequestMethod { id: method, class }, command: true }
-            }
-            None => Self { id, method: RequestMethod::routed(cmd.as_deref()), command: false },
-        }
-    }
-
-    /// Whether the `Command` path answers this line (and opens its span).
-    pub(super) fn is_command(&self) -> bool {
-        self.command
-    }
-
-    pub(super) fn open<'a>(
-        &self,
-        stats: &'a Arc<RequestStats>,
-        arrival: RequestArrival,
-    ) -> RequestSpan<'a> {
-        RequestSpan::open_method(stats, self.method, request_id_hash(self.id.as_ref()), arrival)
     }
 }
 

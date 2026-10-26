@@ -45,6 +45,22 @@ impl RemoteGate for FsGate {
     }
 }
 
+/// The `cmd` names this module answers (server/routes.rs).
+pub(in crate::server) const ROUTES: &[crate::server::routes::Route] =
+    &[crate::server::routes::Route {
+        names: &[
+            crate::server::routes::RouteName::Exact(crate::fs_ops::FS_COMMANDS[0]),
+            crate::server::routes::RouteName::Exact(crate::fs_ops::FS_COMMANDS[1]),
+            crate::server::routes::RouteName::Exact(crate::fs_ops::FS_COMMANDS[2]),
+            crate::server::routes::RouteName::Exact(crate::fs_ops::FS_COMMANDS[3]),
+            crate::server::routes::RouteName::Exact(crate::fs_ops::FS_COMMANDS[4]),
+            crate::server::routes::RouteName::Exact(crate::fs_ops::FS_COMMANDS[5]),
+            crate::server::routes::RouteName::Exact(crate::fs_ops::FS_COMMANDS[6]),
+        ],
+        stage: crate::server::FrameStage::Fs,
+        entry: try_handle,
+    }];
+
 /// Handles an `fs.*` line; `None` when the message is not one.
 pub(super) fn try_handle(
     mux: &Arc<Mux>,

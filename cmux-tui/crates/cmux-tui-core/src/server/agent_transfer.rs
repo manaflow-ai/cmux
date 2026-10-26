@@ -548,6 +548,19 @@ impl From<LinkError> for Failure {
     }
 }
 
+/// The `cmd` names this module answers (server/routes.rs).
+pub(in crate::server) const ROUTES: &[crate::server::routes::Route] =
+    &[crate::server::routes::Route {
+        names: &[
+            crate::server::routes::RouteName::Prefix("agent-transfer-"),
+            crate::server::routes::RouteName::Exact("access-request"),
+            crate::server::routes::RouteName::Prefix("access-request-"),
+            crate::server::routes::RouteName::Prefix("agent-update-"),
+        ],
+        stage: crate::server::FrameStage::AgentTransfer,
+        entry: try_handle,
+    }];
+
 /// Handles an `agent-transfer-*` frame of a local connection; `None` for any
 /// other frame. Remote-relay connections never get here.
 pub(super) fn try_handle(

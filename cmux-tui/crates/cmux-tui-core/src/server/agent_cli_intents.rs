@@ -52,6 +52,19 @@ impl Command {
     }
 }
 
+/// The `cmd` names this module answers (server/routes.rs).
+pub(in crate::server) const ROUTES: &[crate::server::routes::Route] =
+    &[crate::server::routes::Route {
+        names: &[
+            crate::server::routes::RouteName::Exact(COMMANDS[0]),
+            crate::server::routes::RouteName::Exact(COMMANDS[1]),
+            crate::server::routes::RouteName::Exact(COMMANDS[2]),
+            crate::server::routes::RouteName::Exact(COMMANDS[3]),
+        ],
+        stage: crate::server::FrameStage::AgentCliIntents,
+        entry: try_handle,
+    }];
+
 pub(super) fn try_handle(
     mux: &Arc<Mux>,
     client: u64,

@@ -729,6 +729,14 @@ enum LoopbackCommand {
     Status,
 }
 
+/// The `cmd` names this module answers (server/routes.rs).
+pub(in crate::server) const ROUTES: &[crate::server::routes::Route] =
+    &[crate::server::routes::Route {
+        names: &[crate::server::routes::RouteName::Prefix("loopback-")],
+        stage: crate::server::FrameStage::LoopbackForward,
+        entry: try_handle,
+    }];
+
 /// Handles a `loopback-*` message on the connection's reader thread, apart
 /// from the per-connection surface queue, so forwarded bytes never use the
 /// daemon's surface-operation budget. Returns `None` for other messages.

@@ -3,10 +3,11 @@
 //! server.rs unchanged (cx-6so.3).
 
 #[cfg(unix)]
-mod machine_catalog;
+pub(super) mod machine_catalog;
 
 use super::*;
 use crate::event_cause::{EventCause, EventCauseScope};
+use crate::request_origin::page_router_table;
 
 /// [`handle_connection_frame_at`] for a line that arrives now (tests).
 #[cfg(test)]
@@ -43,12 +44,6 @@ pub(super) fn handle_connection_frame_at(
     // named by the handler it is in. A `Command` handed to the scheduler is
     // watched again where it runs.
     let watched = mux.request_watchdog.begin(client, WatchedMethod::frame(FrameStage::Route));
-    let watch = |method: WatchedMethod| {
-        if let Some(scope) = &watched {
-            scope.set_method(method);
-        }
-    };
-    let stage = |stage: FrameStage| watch(WatchedMethod::frame(stage));
     // Keep an idle shutdown requester connected until owner cleanup closes
     // the transport, so lifecycle clients receive authoritative completion.
     // A pipelined message after the acknowledgement must not reach parsing or
@@ -82,72 +77,77 @@ pub(super) fn handle_connection_frame_at(
     // An older client's line, upgraded to this daemon's API revision before
     // any parse (server/api_revision_wire.rs); borrowed unchanged otherwise.
     let upgraded = writer.api_revision.upgrade_request(message);
-    let message: &str = &upgraded;
-    let stats = mux.request_stats();
-    if let Some(request) = crate::resource_router::parse_resource_line(message) {
-        match &request {
-            Ok(envelope) => watch(WatchedMethod::resource(envelope.operation)),
-            Err(_) => stage(FrameStage::PageRouter),
+    let line = LineFrame {
+        mux,
+        client,
+        message: &upgraded,
+        writer,
+        scheduler,
+        arrived,
+        watched: watched.as_ref(),
+    };
+    let mut parses = JsonParses::default();
+    let keep_open = dispatch_line(&line, &mut parses);
+    cmux_trace::trace_instant!(daemon, "daemon.frame.json_parses", u64::from(parses.get()));
+    keep_open
+}
+
+/// A local connection's request line on its way to its one handler.
+#[derive(Clone, Copy)]
+pub(super) struct LineFrame<'f> {
+    pub(super) mux: &'f Arc<Mux>,
+    pub(super) client: u64,
+    pub(super) message: &'f str,
+    pub(super) writer: &'f MessageWriter,
+    pub(super) scheduler: &'f Arc<ConnectionSurfaceScheduler>,
+    pub(super) arrived: Instant,
+    pub(super) watched: Option<&'f RequestScope<'f>>,
+}
+
+impl LineFrame<'_> {
+    fn watch(&self, method: WatchedMethod) {
+        if let Some(scope) = self.watched {
+            scope.set_method(method);
         }
-        // An envelope's `origin` claim may only narrow the cause, as it
-        // only narrows the origin; the origin gate still checks the claim.
-        let _claimed =
-            request.as_ref().ok().and_then(|envelope| envelope.origin.as_ref()).map(|claim| {
-                EventCauseScope::enter(EventCause::current().narrowed_by(claim.claim.event_cause()))
-            });
-        let arrival = RequestArrival::parsed_now(arrived);
-        let mut span = match &request {
-            Ok(envelope) => RequestSpan::open_method(
-                stats,
-                RequestMethod::of_resource(envelope.operation),
-                request_id_hash(Some(&envelope.id)),
-                arrival,
-            ),
-            Err(_) => RequestHead::parse(message).open(stats, arrival),
-        };
-        // A v2 line the catalog parse refuses may name a routed namespace
-        // operation (page-router-v1): the same JSON parse decides, so every
-        // spelling of the line gets one answer.
-        if request.is_err()
-            && let Some(keep_open) = page_router::try_handle(mux, client, message, writer)
-        {
-            return span.answered(keep_open);
-        }
-        // Debug timing marks of a resource create, from the arrival of its
-        // line to its reply (`CMUX_TUI_DEBUG_SPANS`; cx-b4sjc).
-        let trace_label = request.as_ref().ok().and_then(|envelope| match envelope.operation {
-            ResourceOperation::WorkspaceCreate => Some("resource:workspace.create"),
-            ResourceOperation::TabCreateTerminal => Some("resource:tab.create_terminal"),
-            ResourceOperation::PaneSplit => Some("resource:pane.split"),
-            ResourceOperation::PaneCreate => Some("resource:pane.create"),
-            ResourceOperation::WorkspaceEnsureHome => Some("resource:workspace.ensure_home"),
-            _ => None,
-        });
-        let traced = trace_label
-            .and_then(|label| crate::debug_spans::Trace::start(label, arrived))
-            .is_some_and(|trace| {
-                crate::debug_spans::install(Some(trace));
-                true
-            });
-        let keep_open = origin_gate::handle_resource_line(mux, client, message, request, writer);
-        if traced {
-            crate::debug_spans::mark("reply.sent");
-            crate::debug_spans::finish(crate::debug_spans::take());
-        }
-        return span.answered(keep_open);
     }
+
+    fn stage(&self, stage: FrameStage) {
+        self.watch(WatchedMethod::frame(stage));
+    }
+}
+
+/// Reads the line's head once, then hands the line to the one handler the
+/// head names: a v2 line to the page router or the resource router, a
+/// feature route's `cmd` to its route (server/routes.rs), anything else to
+/// the `Command` parse. Each handler parses the line once more.
+pub(super) fn dispatch_line(line: &LineFrame<'_>, parses: &mut JsonParses) -> bool {
+    let LineFrame { mux, client, message, writer, scheduler, arrived, watched } = *line;
+    let head = RequestHead::parse(message);
+    parses.count(1);
+    if head.is_resource()
+        && let Some(keep_open) = resource_line(line, &head, parses)
+    {
+        return keep_open;
+    }
+    let stats = mux.request_stats();
     // A line whose `cmd` names no `Command` belongs to a feature route: its
     // span covers the route. A `Command` line opens its span at its handler.
-    let head = RequestHead::parse(message);
     let mut routed =
         (!head.is_command()).then(|| head.open(stats, RequestArrival::parsed_now(arrived)));
-    if let Some(keep_open) = route_line(mux, client, message, writer, &stage) {
-        return match routed.as_mut() {
-            Some(span) => span.answered(keep_open),
-            None => keep_open,
-        };
+    if let Some(route) = head.cmd().and_then(routes::find) {
+        line.stage(route.stage);
+        // An entry that has not moved to a typed handler parses the line
+        // itself, once (p05-ipc-063..070).
+        parses.count(1);
+        if let Some(keep_open) = (route.entry)(mux, client, message, writer) {
+            return match routed.as_mut() {
+                Some(span) => span.answered(keep_open),
+                None => keep_open,
+            };
+        }
     }
-    stage(FrameStage::Route);
+    line.stage(FrameStage::Route);
+    parses.count(1);
     let request = match serde_json::from_str::<Request>(message) {
         Ok(request) => request,
         Err(error) => {
@@ -156,7 +156,7 @@ pub(super) fn handle_connection_frame_at(
             return span.reply(|| send_bad_request(writer, message, &error));
         }
     };
-    watch(WatchedMethod::command(&request.cmd));
+    line.watch(WatchedMethod::command(&request.cmd));
     // Only a `cmd` the table names parses as a `Command`
     // (command_names_tests), so no route span is open here.
     drop(routed);
@@ -173,7 +173,7 @@ pub(super) fn handle_connection_frame_at(
         Some(keep_open) => keep_open,
         None => match pending.take() {
             Some(request) => {
-                if let Some(scope) = &watched {
+                if let Some(scope) = watched {
                     scope.command(&request.cmd);
                 }
                 handle_request_with_cancellation(mux, client, request, arrival, writer, None)
@@ -183,70 +183,74 @@ pub(super) fn handle_connection_frame_at(
     }
 }
 
-/// The feature routes that answer a line before the `Command` parse.
-/// `stage` names each route on the frame's request watch as it is tried.
-fn route_line(
-    mux: &Arc<Mux>,
-    client: u64,
-    message: &str,
-    writer: &MessageWriter,
-    stage: &dyn Fn(FrameStage),
+/// A `cmux.protocol/2` line (its head has `protocol`). A routed namespace
+/// operation (page-router-v1) is not in the operation catalog, so its line
+/// goes to the page router without the catalog parse; a line the page
+/// router refuses gets the catalog parse's answer, as every other v2 line.
+/// `None` only when the resource router does not take the line.
+fn resource_line(
+    line: &LineFrame<'_>,
+    head: &RequestHead<'_>,
+    parses: &mut JsonParses,
 ) -> Option<bool> {
-    #[cfg(any(debug_assertions, feature = "oracle"))]
-    if let Some(keep_open) = oracle_state_command::try_handle(mux, client, message, writer) {
-        return Some(keep_open);
+    let LineFrame { mux, client, message, writer, arrived, .. } = *line;
+    let stats = mux.request_stats();
+    let mut page_span = None;
+    if head.operation().is_some_and(|operation| page_router_table::routed(operation).is_some()) {
+        line.stage(FrameStage::PageRouter);
+        parses.count(1);
+        let mut span = head.open(stats, RequestArrival::parsed_now(arrived));
+        if let Some(keep_open) = page_router::try_handle(mux, client, message, writer) {
+            return Some(span.answered(keep_open));
+        }
+        page_span = Some(span);
     }
-    stage(FrameStage::LoopbackForward);
-    if let Some(keep_open) = loopback_forward::try_handle(mux, client, message, writer) {
-        return Some(keep_open);
+    let request = crate::resource_router::parse_resource_line(message)?;
+    // A refused envelope is probed once more for `protocol`.
+    parses.count(if request.is_ok() { 1 } else { 2 });
+    match &request {
+        Ok(envelope) => line.watch(WatchedMethod::resource(envelope.operation)),
+        Err(_) => line.stage(FrameStage::PageRouter),
     }
-    #[cfg(unix)]
-    {
-        stage(FrameStage::BrowserRuntime);
-        browser_runtime::try_handle(mux, client, message, writer)
-            .or_else(|| {
-                stage(FrameStage::AgentSession);
-                agent_session_attach::try_handle(mux, client, message, writer)
-            })
-            .or_else(|| {
-                stage(FrameStage::AgentTransfer);
-                agent_transfer::try_handle(mux, client, message, writer)
-            })
-            .or_else(|| {
-                stage(FrameStage::AgentInventory);
-                agent_inventory::try_handle(mux, client, message, writer)
-            })
-            .or_else(|| {
-                stage(FrameStage::AgentCliJob);
-                agent_cli_job::try_handle(mux, client, message, writer)
-            })
-            .or_else(|| {
-                stage(FrameStage::AgentCliIntents);
-                agent_cli_intents::try_handle(mux, client, message, writer)
-            })
-            .or_else(|| {
-                stage(FrameStage::AgentInventoryWatch);
-                agent_inventory::watch::try_handle(mux, client, message, writer)
-            })
-            .or_else(|| {
-                stage(FrameStage::MachineCatalog);
-                machine_catalog::try_handle(mux, client, message, writer)
-            })
-            .or_else(|| {
-                stage(FrameStage::Apps);
-                apps::try_handle(mux, client, message, writer)
-            })
-            .or_else(|| {
-                stage(FrameStage::Scripts);
-                scripts::try_handle(mux, client, message, writer)
-            })
-            .or_else(|| {
-                stage(FrameStage::Fs);
-                fs_wire::try_handle(mux, client, message, writer)
-            })
+    // An envelope's `origin` claim may only narrow the cause, as it
+    // only narrows the origin; the origin gate still checks the claim.
+    let _claimed =
+        request.as_ref().ok().and_then(|envelope| envelope.origin.as_ref()).map(|claim| {
+            EventCauseScope::enter(EventCause::current().narrowed_by(claim.claim.event_cause()))
+        });
+    let arrival = RequestArrival::parsed_now(arrived);
+    let mut span = match (page_span, &request) {
+        (Some(span), _) => span,
+        (None, Ok(envelope)) => RequestSpan::open_method(
+            stats,
+            RequestMethod::of_resource(envelope.operation),
+            request_id_hash(Some(&envelope.id)),
+            arrival,
+        ),
+        (None, Err(_)) => head.open(stats, arrival),
+    };
+    // Debug timing marks of a resource create, from the arrival of its
+    // line to its reply (`CMUX_TUI_DEBUG_SPANS`; cx-b4sjc).
+    let trace_label = request.as_ref().ok().and_then(|envelope| match envelope.operation {
+        ResourceOperation::WorkspaceCreate => Some("resource:workspace.create"),
+        ResourceOperation::TabCreateTerminal => Some("resource:tab.create_terminal"),
+        ResourceOperation::PaneSplit => Some("resource:pane.split"),
+        ResourceOperation::PaneCreate => Some("resource:pane.create"),
+        ResourceOperation::WorkspaceEnsureHome => Some("resource:workspace.ensure_home"),
+        _ => None,
+    });
+    let traced = trace_label
+        .and_then(|label| crate::debug_spans::Trace::start(label, arrived))
+        .is_some_and(|trace| {
+            crate::debug_spans::install(Some(trace));
+            true
+        });
+    let keep_open = origin_gate::handle_resource_line(mux, client, message, request, writer);
+    if traced {
+        crate::debug_spans::mark("reply.sent");
+        crate::debug_spans::finish(crate::debug_spans::take());
     }
-    #[cfg(not(unix))]
-    None
+    Some(span.answered(keep_open))
 }
 
 /// A request made in process (tests): it arrives as its handler starts.
@@ -471,3 +475,6 @@ pub(super) fn zeroize_string(value: &mut str) {
 #[cfg(test)]
 #[path = "event_cause_tests.rs"]
 mod event_cause_tests;
+
+#[cfg(all(test, unix))]
+mod dispatch_tests;

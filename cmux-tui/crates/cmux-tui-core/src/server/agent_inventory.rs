@@ -101,6 +101,17 @@ impl Failure {
     }
 }
 
+/// The `cmd` names this module answers (server/routes.rs).
+pub(in crate::server) const ROUTES: &[crate::server::routes::Route] =
+    &[crate::server::routes::Route {
+        names: &[
+            crate::server::routes::RouteName::Exact("agent-inventory"),
+            crate::server::routes::RouteName::Exact("agent-inventory-refresh"),
+        ],
+        stage: crate::server::FrameStage::AgentInventory,
+        entry: try_handle,
+    }];
+
 /// The owner fence (required for refresh) only verifies this daemon; it never selects or
 /// connects to another machine. Trust precedes params and no client fields
 /// reach the owner's acpmux.

@@ -78,6 +78,17 @@ impl std::fmt::Display for Failure {
 }
 impl std::error::Error for Failure {}
 
+/// The `cmd` names this module answers (server/routes.rs).
+pub(in crate::server) const ROUTES: &[crate::server::routes::Route] =
+    &[crate::server::routes::Route {
+        names: &[
+            crate::server::routes::RouteName::Exact(COMMAND),
+            crate::server::routes::RouteName::Exact(RESOLVE_COMMAND),
+        ],
+        stage: crate::server::FrameStage::AgentCliJob,
+        entry: try_handle,
+    }];
+
 pub(super) fn try_handle(
     mux: &Arc<Mux>,
     client: u64,
