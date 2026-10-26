@@ -32,6 +32,17 @@ import CmuxNextCompat
         #expect(sent.map { $0["cmd"] as? String } == ["identify", "set-client-info"])
         #expect((sent[1]["capabilities"] as? [String] ?? []).isEmpty)
     }
+
+    /// The bundled daemon serves it, and only the attach client echoes it: every other connection's
+    /// `set-client-info` leaves it out, so presence never streams to a connection that draws none.
+    @Test func onlyTheAttachClientEchoesPresence() {
+        let name = DaemonCapability.agentSessionPresence.rawValue
+        #expect(DaemonCapability.isServedByBundledDaemon(name))
+        #expect(DaemonCapability.optional.contains(name))
+        #expect(!DaemonCapability.advertised.contains(name))
+        #expect(!DaemonCapability.handshakeCapabilities(DaemonCapability.advertised, resolvesShellIntegration: true,
+                                                        echoesPlacementShift: true).contains(name))
+    }
 }
 
 /// A unix socket that answers `identify` with `capabilities` and every other command `ok`, and

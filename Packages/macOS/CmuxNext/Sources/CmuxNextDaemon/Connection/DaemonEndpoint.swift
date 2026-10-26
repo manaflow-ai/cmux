@@ -505,7 +505,8 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .chiefLive, .cloudChiefLive, .conversationRuns, .cloudConversationRuns, .cloudConversationTyping,
              .workspaceKind, .workspaceAgentFolder, .workspaceAgentStart, .conversationTabs, .agentSessionTabs,
              .agentSessionAttach, .agentSessionObserve, .agentSessionStart, .agentSessionTrust,
-             .agentSessionStartKeyedReason, .agentSessionChildren, .pageTabs, .pageTabRoute, .appScreens,
+             .agentSessionStartKeyedReason, .agentSessionChildren, .agentSessionPresence, .pageTabs,
+             .pageTabRoute, .appScreens,
              .conversationSearch, .conversationThreads, .conversationThread, .conversationInboxState, .homeInbox,
              .chiefEvents, .cloudConversations, .cloudHostReplica, .cloudAttachments, .cloudSelfHost,
              .pageCredential, .scopedPageCredential, .wsListen, .wsListenOrigins, .personalMixedOrder,
@@ -564,8 +565,10 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     public static let advertised: [String] = (required + optional + unservedByBundledDaemon).filter {
         !notAdvertised.contains($0)
     }
+    /// `agentSessionPresence` only from the connection that draws an attached chat's presence
+    /// (`AgentSessionAttachClient`), never from every connection.
     private static let notAdvertised: Set<String> = Set(names([.terminalFrontendShellIntegration, .placementShift,
-                                                               .sharedSizing]))
+                                                               .sharedSizing, .agentSessionPresence]))
 
     /// What a connection echoes in `set-client-info`.
     ///
