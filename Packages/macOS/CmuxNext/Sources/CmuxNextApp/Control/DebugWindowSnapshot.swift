@@ -221,6 +221,7 @@ enum DebugWindowSnapshot {
                 webView.layer?.isHidden = layerHidden
             }
         }
+        // sync-layout: the snapshot below reads the window drawn with its web views hidden, in this turn.
         window.contentView?.displayIfNeeded()
         return try appKitBaseImage(for: window)
     }
