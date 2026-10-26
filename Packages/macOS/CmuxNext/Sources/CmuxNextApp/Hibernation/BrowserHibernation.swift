@@ -4,6 +4,7 @@ import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDesign
+import CmuxNextEnergy
 import CmuxNextHibernation
 import CmuxNextInput
 import CmuxNextMemory
