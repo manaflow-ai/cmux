@@ -269,6 +269,10 @@ extension GhosttyTraceHook {
                                phase: .end, arg0: surface.key.traceID)
             case .contentsHandoff:
                 if gate.isOpen { surface.echoStage?.contentsSet() }
+                #if (DEBUG || CMUX_BENCH_HOOKS) && GHOSTTY_RENDERER_FRAMES
+                // No layer gets the frame (TypingFrameProbe): the trace watches this surface's frames.
+                if NewTerminalTrace.shared.isArmed { NewTerminalTrace.shared.contents(layer: ObjectIdentifier(surface)) }
+                #endif
                 guard probe.isRecording else { return }
                 let awaitsGPU = deliversGPU && surface.gpuDoneBelow.load(ordering: .acquiring) <= seq
                 let flows = probe.mark(.contents, surface: surface.key, awaitsGPU: awaitsGPU)

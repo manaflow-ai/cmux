@@ -227,11 +227,20 @@ let daemonSwiftSettings: [SwiftSetting] = [
 ///   723c4ab93): `GhosttyGPUResidency`, so `terminalGPURelease` and the larger warm set.
 /// - GHOSTTY_ENERGY_SAVER: `ghostty_app_set_energy_saver` (ghostty-next cp/p14-energy-114, not in
 ///   723c4ab93): `GhosttyRuntime.followEnergySaver(on:)` sends the saver's edges to libghostty.
+/// - GHOSTTY_RENDERER_FRAMES: renderer-owned frames (ghostty-next p03-rendering-080, not in 723c4ab93;
+///   the pin also needs `ghostty_set_trace_hook`, whose handoff is then the only contents mark):
+///   `IOSurfaceRef ghostty_surface_presented_frame(ghostty_surface_t)` (+1, NULL before the first draw;
+///   no CF annotation, so Swift sees `Unmanaged<IOSurfaceRef>?`) and
+///   `void ghostty_surface_set_presentation(ghostty_surface_t, ghostty_surface_presentation_e)` with
+///   `GHOSTTY_SURFACE_PRESENTATION_HIDDEN`, `_SHOWN`, `_PURGE`. CmuxNextTerminal reads, hides and purges
+///   frames through them (`TerminalFrameSource`) and reads no layer contents (p03-rendering-081).
 let ghosttyNextKitHasGPUResident = false
 let ghosttyNextKitHasEnergySaver = false
+let ghosttyNextKitHasRendererFrames = false
 let ghosttyNextKitCapabilities: [SwiftSetting] =
     (ghosttyNextKitHasGPUResident ? [.define("GHOSTTY_GPU_RESIDENT")] : [])
     + (ghosttyNextKitHasEnergySaver ? [.define("GHOSTTY_ENERGY_SAVER")] : [])
+    + (ghosttyNextKitHasRendererFrames ? [.define("GHOSTTY_RENDERER_FRAMES")] : [])
 
 /// The app's ONE Rust static library, CCmuxAppFFI (cmux-tui/crates/cmux-app-ffi):
 /// the remote desktop core C ABI (module CCmuxRdFFI), the sidebar layout
