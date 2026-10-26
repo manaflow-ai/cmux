@@ -371,6 +371,12 @@ pub fn note_at(kind: BlockingKind, site: &'static Location<'static>) -> Noted {
     if let Some(threads_kind) = kind.threads_kind() {
         cmux_threads::blocking::assert_blocking_allowed_at(threads_kind, site);
     }
+    note_request_path(kind, site)
+}
+
+/// The request-path half of [`note_at`], for a primitive whose checked form
+/// in `cmux_threads::checked` makes the thread check itself.
+fn note_request_path(kind: BlockingKind, site: &'static Location<'static>) -> Noted {
     let (noted, refused) = ACTIVE
         .try_with(|active| match active.borrow().as_ref() {
             Some(stats) => stats.noted(kind, site),
@@ -388,13 +394,13 @@ pub fn note_at(kind: BlockingKind, site: &'static Location<'static>) -> Noted {
     noted
 }
 
-/// `std::thread::sleep`, noted as `sleep` at the caller. Daemon code sleeps
-/// through this, so a sleep that reaches a request thread is counted where
-/// it was asked for.
+/// `cmux_threads::checked::sync::sleep`, noted as `sleep` at the caller.
+/// Daemon code sleeps through this, so a sleep that reaches a request thread
+/// is counted where it was asked for, and the thread check runs once.
 #[track_caller]
 pub fn sleep(duration: Duration) {
-    note(BlockingKind::Sleep);
-    std::thread::sleep(duration);
+    note_request_path(BlockingKind::Sleep, Location::caller());
+    cmux_threads::checked::sync::sleep(duration);
 }
 
 #[cfg(test)]
