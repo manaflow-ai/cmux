@@ -147,8 +147,10 @@ public struct TerminalTabCard: View {
                     if let image = model.snapshot {
                     let scale = geo.size.width / max(1, image.size.width)
                     // A still holds the rows only (qa11): the card ends just under the
-                    // last row, which rests on the composer card's top at rest.
-                    let composer = ComposerMetrics().restingCardHeight(lineHeight: UIFont.preferredFont(forTextStyle: .body).lineHeight)
+                    // last row, which rests on the dock's top (the key row) at rest.
+                    let composer = TerminalDockMetrics().restingStackHeight(
+                        lineHeight: UIFont.preferredFont(forTextStyle: .body).lineHeight,
+                        visibility: TerminalDockVisibility(chromeHidden: model.chromeHidden, composerPresented: model.composerPresented))
                     let crop = TerminalCardCrop(width: geo.size.width, imageHeight: image.size.height * scale,
                                                 bottomTrim: max(0, insets.bottom + composer - 6) * scale)
                     // The newest rows and the prompt at the card's bottom edge (V5-6).

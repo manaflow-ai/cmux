@@ -12,8 +12,9 @@ private let sizingLog = Logger(subsystem: "dev.cmux.mobile", category: "terminal
 
 /// Lays out the terminal screen in UIKit, where keyboard tracking is exact:
 ///
-/// - The bottom stack (key bar + composer) is pinned to `keyboardLayoutGuide`,
-///   so it rides the keyboard's own animation and interactive dismissal.
+/// - The bottom stack (key row over the composer, classic cmux iOS's dock) is
+///   pinned to `keyboardLayoutGuide`, so it rides the keyboard's own
+///   animation and interactive dismissal.
 /// - Non-TUI: the Ghostty surface lives inside a `UIScrollView` whose content
 ///   height is the session's rows times the cell height. The surface is placed
 ///   at a row boundary in content coordinates and Ghostty's viewport is moved to
@@ -74,8 +75,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     /// M-SIZELOG (G-07): when the last reset came and the bytes of its replay.
     private var replayStartedAt: CFTimeInterval?
     private var replayBytes = 0
-    /// Clips the key bar while its height follows the keyboard; the bar
-    /// itself keeps its 44 pt layout pinned to the clip's top.
+    /// Clips the key row while Hide Toolbar folds it to 0; the row itself
+    /// keeps its 28 pt layout pinned to the clip's top.
     private let keyBarClip = UIView()
     private let scrollToBottomButton = UIButton(configuration: .glass())
     private var scrollButtonVisibility = JumpToBottomVisibility()
@@ -168,8 +169,8 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private var refreshAfterTUI = false
     private(set) var started = false
     private var fling: FlingAnimator?
-    /// When the key bar shows (SPEC M4) and the constraints that apply it.
-    private var keyBarRule = KeyBarVisibility()
+    /// What the dock shows (key row, composer) and the soft keyboard's state.
+    private var dock = TerminalDockVisibility()
     private var tuiSizing = TerminalTUISizing()
     #if DEBUG
     /// DEBUG frame pacing while the page is dragged or decelerates: the gap
@@ -267,8 +268,12 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     private var settingOffset = false
     private var resizeSettle = TerminalResizeSettle()
     private var settleTask: Task<Void, Never>?
-    private var keyBarHidden: NSLayoutConstraint!
-    private var keyBarPinned: NSLayoutConstraint!
+    /// Hide Toolbar: the key row's height is 0.
+    private var keyRowCollapsed: NSLayoutConstraint!
+    /// The composer is closed or hidden: its height is 0.
+    private var composerCollapsed: NSLayoutConstraint!
+    /// The 8 pt gap between the key row and the composer, while both show.
+    private var keyRowGap: NSLayoutConstraint!
     /// A drag that began while following the prompt with the keyboard up:
     /// a downward drag dismisses the keyboard and the content stays pinned
     /// to the composer, row for row (SPEC M6).
@@ -401,15 +406,14 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         view.addSubview(scrollToBottomButton)
 
         // Everything below derives from the keyboard layout guide alone, so
-        // the keyboard's own animated layout pass moves and resizes the whole
-        // stack on the keyboard's curve and timing. No constraint is changed
-        // from a keyboard notification (that would commit on another timeline).
+        // the keyboard's own animated layout pass moves the whole stack on the
+        // keyboard's curve and timing. No constraint is changed from a
+        // keyboard notification (that would commit on another timeline).
         //
         // guide.top is the keyboard's top, or the view's bottom when hidden.
-        // Stack bottom = min(guide.top, safe area bottom) - 8.
-        // Key bar height = min(44, keyboard height); gap above it = min(8, key bar height).
-        let spacer = UILayoutGuide()
-        bottomStack.addLayoutGuide(spacer)
+        // Stack bottom = min(guide.top, safe area bottom) - 8. Inside the
+        // stack, top to bottom (classic cmux iOS): the 28 pt key row, 8 pt,
+        // the composer; Hide Toolbar folds both, closing the composer folds it.
         func prioritized(_ constraint: NSLayoutConstraint, _ priority: UILayoutPriority) -> NSLayoutConstraint {
             constraint.priority = priority
             return constraint
@@ -452,15 +456,12 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         // chrome's line instead and the key bar folds away.
         guide.followsUndockedKeyboard = true
         guide.usesBottomSafeArea = false
-        // The key bar's height: 0 without focus; with focus, 44 pt clipped to
-        // the soft keyboard's height (so it folds with the keyboard), or 44 pt
-        // pinned when a hardware keyboard leaves no soft keyboard (SPEC M4).
-        keyBarHidden = keyBarClip.heightAnchor.constraint(equalToConstant: 0)
-        keyBarPinned = prioritized(keyBarClip.heightAnchor.constraint(equalToConstant: 44), UILayoutPriority(950))
+        keyRowCollapsed = keyBarClip.heightAnchor.constraint(equalToConstant: 0)
+        composerCollapsed = composer.view.heightAnchor.constraint(equalToConstant: 0)
+        keyRowGap = composer.view.topAnchor.constraint(equalTo: keyBarClip.bottomAnchor, constant: TerminalDockMetrics.keyRowGap)
         guide.setConstraints([
             bottomStack.bottomAnchor.constraint(lessThanOrEqualTo: guide.topAnchor),
             prioritized(bottomStack.bottomAnchor.constraint(equalTo: guide.topAnchor), .defaultHigh),
-            prioritized(keyBarClip.heightAnchor.constraint(lessThanOrEqualTo: guide.heightAnchor), UILayoutPriority(900)),
         ], activeWhenNearEdge: .bottom)
         NSLayoutConstraint.activate([
             scrollView.topAnchor.constraint(equalTo: view.topAnchor),
@@ -481,25 +482,19 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             stackRestingLimit,
             // Rest on the chrome's line when nothing pins the stack higher.
             prioritized(bottomStack.bottomAnchor.constraint(equalTo: view.bottomAnchor), .defaultLow),
-            composer.view.topAnchor.constraint(equalTo: bottomStack.topAnchor),
-            composer.view.leadingAnchor.constraint(equalTo: bottomStack.leadingAnchor),
-            composer.view.trailingAnchor.constraint(equalTo: bottomStack.trailingAnchor),
-            composer.view.bottomAnchor.constraint(equalTo: spacer.topAnchor),
-            spacer.bottomAnchor.constraint(equalTo: keyBarClip.topAnchor),
-            spacer.heightAnchor.constraint(lessThanOrEqualToConstant: 8),
-            spacer.heightAnchor.constraint(lessThanOrEqualTo: keyBarClip.heightAnchor),
-            prioritized(spacer.heightAnchor.constraint(equalToConstant: 8), .defaultHigh - 2),
+            keyBarClip.topAnchor.constraint(equalTo: bottomStack.topAnchor),
             keyBarClip.leadingAnchor.constraint(equalTo: bottomStack.leadingAnchor),
             keyBarClip.trailingAnchor.constraint(equalTo: bottomStack.trailingAnchor),
-            keyBarClip.bottomAnchor.constraint(equalTo: bottomStack.bottomAnchor, constant: -8),
+            prioritized(keyBarClip.heightAnchor.constraint(equalToConstant: TerminalDockMetrics.keyRowHeight), .defaultHigh),
             keyBar.view.topAnchor.constraint(equalTo: keyBarClip.topAnchor),
             keyBar.view.leadingAnchor.constraint(equalTo: keyBarClip.leadingAnchor),
             keyBar.view.trailingAnchor.constraint(equalTo: keyBarClip.trailingAnchor),
-            keyBar.view.heightAnchor.constraint(equalToConstant: 44),
-            keyBarClip.heightAnchor.constraint(lessThanOrEqualToConstant: 44),
-            keyBarClip.heightAnchor.constraint(greaterThanOrEqualToConstant: 0),
-            prioritized(keyBarClip.heightAnchor.constraint(equalToConstant: 44), .defaultHigh - 1),
-            keyBarHidden,
+            keyBar.view.heightAnchor.constraint(equalToConstant: TerminalDockMetrics.keyRowHeight),
+            keyRowGap,
+            composer.view.topAnchor.constraint(greaterThanOrEqualTo: keyBarClip.bottomAnchor),
+            composer.view.leadingAnchor.constraint(equalTo: bottomStack.leadingAnchor),
+            composer.view.trailingAnchor.constraint(equalTo: bottomStack.trailingAnchor),
+            composer.view.bottomAnchor.constraint(equalTo: bottomStack.bottomAnchor, constant: -8),
 
             tuiTop,
             tuiClip.bottomAnchor.constraint(equalTo: bottomStack.topAnchor),
@@ -732,16 +727,18 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
         model.session.resize(columns: size.columns, rows: size.rows)
     }
 
-    /// The composer stack's top with the keyboard down (the key bar folded)
-    /// and the composer at its one-line height: the rows never follow the
-    /// card's transient rows (Jump to bottom, attachments, a long draft).
+    /// The stack's top with the keyboard down and the composer at its one-line
+    /// height: the rows never follow the composer's transient rows (Jump to
+    /// bottom, attachments, a long draft).
     private var restingStackTop: CGFloat {
-        restingComposerBottom - restingComposerHeight
+        restingComposerBottom - TerminalDockMetrics().restingStackHeight(lineHeight: bodyLineHeight, visibility: dock)
     }
 
     private var restingComposerHeight: CGFloat {
-        ComposerMetrics().restingCardHeight(lineHeight: UIFont.preferredFont(forTextStyle: .body).lineHeight)
+        dock.showsComposer ? TerminalDockMetrics().restingComposerHeight(lineHeight: bodyLineHeight) : 0
     }
+
+    private var bodyLineHeight: CGFloat { UIFont.preferredFont(forTextStyle: .body).lineHeight }
 
     /// How much taller the composer card is now than at rest.
     /// The composer card's SwiftUI height changed (V6-1): the hosting view's
@@ -756,10 +753,11 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     }
 
     private var composerGrowth: CGFloat {
-        max(0, composerHost.view.bounds.height - restingComposerHeight)
+        dock.showsComposer ? max(0, composerHost.view.bounds.height - restingComposerHeight) : 0
     }
 
-    /// The composer's bottom with the keyboard down.
+    /// The stack's last row's bottom (the composer's, or the key row's while
+    /// it is closed) with the keyboard down.
     private var restingComposerBottom: CGFloat {
         switch chrome {
         case .standalone: view.bounds.height - view.safeAreaInsets.bottom - 8
@@ -861,16 +859,34 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
 
     /// The terminal or the composer gained or lost focus.
     func inputFocusChanged() {
-        keyBarRule.inputFocused = model.inputFocused
-        applyKeyBarMode()
+        // The key row shows with or without focus (classic); nothing to fold.
     }
 
-    private func applyKeyBarMode() {
-        guard keyBarHidden != nil else { return }
-        let mode = keyBarRule.mode
-        keyBarHidden.isActive = mode == .hidden
-        keyBarPinned.isActive = mode == .pinned
+    /// The model's composer or Hide Toolbar state changed: fold or unfold the
+    /// key row and the composer, reflowed over 0.25 s (classic's dock).
+    func dockChanged() {
+        dock.chromeHidden = model.chromeHidden
+        dock.composerPresented = model.composerPresented
+        guard keyRowCollapsed != nil else { return }
+        keyRowCollapsed.isActive = !dock.showsKeyRow
+        composerCollapsed.isActive = !dock.showsComposer
+        keyRowGap.isActive = dock.showsKeyRow && dock.showsComposer
+        keyBarClip.isHidden = !dock.showsKeyRow
+        composerHost.view.isHidden = !dock.showsComposer
+        bottomBacking.isHidden = !dock.showsKeyRow && !dock.showsComposer
         view.setNeedsLayout()
+        // motion: allow UIKit dock reflow, one bounded 0.25 s pass like classic's band; Reduce Motion applies it at once.
+        let animate = view.window != nil && !UIAccessibility.isReduceMotionEnabled
+        if animate {
+            UIView.animate(withDuration: 0.25, delay: 0, options: [.curveEaseInOut, .beginFromCurrentState, .allowUserInteraction]) {
+                self.view.layoutIfNeeded()
+            } completion: { _ in
+                self.keyboardDidChange()
+            }
+        } else {
+            view.layoutIfNeeded()
+            keyboardDidChange()
+        }
     }
 
     override func viewDidLayoutSubviews() {
@@ -2205,6 +2221,16 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
             tuiSelection.clear()
             return
         }
+        // A tap brings back what Hide Toolbar took away (classic). An open
+        // composer gets the focus back, so the next compose key tap reads it
+        // as focused and its draft is never closed by surprise.
+        if model.chromeHidden {
+            model.setChromeHidden(false)
+            if model.composerPresented {
+                model.focusComposer()
+                return
+            }
+        }
         focusTerminal()
     }
 
@@ -2358,19 +2384,17 @@ final class TerminalViewController: UIViewController, UIScrollViewDelegate {
     @objc private func keyboardWillShow(_ note: Notification) {
         let frame = (note.userInfo?[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect) ?? .zero
         let screen = view.window?.screen.bounds ?? UIScreen.main.bounds
-        keyBarRule.keyboardWillShow(visibleHeight: max(0, screen.intersection(frame).height))
-        applyKeyBarMode()
-        setKeyBar(visible: keyBarRule.softKeyboard == .shown, note: note)
+        dock.keyboardWillShow(visibleHeight: max(0, screen.intersection(frame).height))
+        setKeyBar(visible: dock.softKeyboard == .shown, note: note)
     }
 
     @objc private func keyboardWillHide(_ note: Notification) {
-        keyBarRule.keyboardWillHide()
+        dock.keyboardWillHide()
         setKeyBar(visible: false, note: note)
     }
 
     @objc private func keyboardDidHide() {
-        keyBarRule.keyboardDidHide()
-        applyKeyBarMode()
+        dock.keyboardDidHide()
         keyboardDidChange()
     }
 

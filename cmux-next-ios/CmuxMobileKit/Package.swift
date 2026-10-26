@@ -38,6 +38,8 @@ let package = Package(
         .package(path: "../../vendor/stack-auth-swift-sdk-prerelease"),
         // Safari-style tabs (workspaces) and the Messages-style conversation (Chief).
         .package(path: "../../Packages/iOS/CmuxTabsKit"),
+        // The classic app's composer dictation, shared as-is (terminal composer mic).
+        .package(path: "../../Packages/iOS/CmuxMobileSupport"),
         .package(path: "../../Packages/iOS/CmuxConversation"),
         // The agents' brand marks (Claude, Codex), shared with the Mac app.
         .package(path: "../../Packages/Shared/CmuxAgentBrands"),
@@ -122,7 +124,11 @@ let package = Package(
             name: "CmuxMobileTerminal",
             // libghostty ships for iOS only here; macOS `swift test` builds the
             // portable parts (session, detector, extractor, input) without it.
-            dependencies: ["CmuxMobileDesign", "CmuxMobileArtifacts", "CmuxMobileTransport", .product(name: "CmuxGhosttyKit", package: "CmuxGhosttyKit", condition: .when(platforms: [.iOS]))]
+            dependencies: [
+                "CmuxMobileDesign", "CmuxMobileArtifacts", "CmuxMobileTransport",
+                .product(name: "CmuxGhosttyKit", package: "CmuxGhosttyKit", condition: .when(platforms: [.iOS])),
+                .product(name: "CmuxMobileSupport", package: "CmuxMobileSupport", condition: .when(platforms: [.iOS])),
+            ]
         ),
         // Live Chief calls, portable part: the Realtime API's events and session config, the call's
         // state machine and tools, the OpenAI key in the Keychain (Foundation and Security only).
