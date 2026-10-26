@@ -16,14 +16,17 @@ Launches the tagged app itself on a GUI host (bench_launch.BenchApp: a scratch c
   scrolls  with --scrolls N, N trackpad-like gestures (began, changed, ended, momentum) at display rate over each
            surface's content
   drags    with --drag, a press, --rate Hz drag events out and back, and the release, --drags times per target:
-           divider (a vertical pane divider), tab (the first tab pill along its strip), pane-swap (a pane's tab
-           pill onto the next pane), canvas-pane (a pane's tab strip in the canvas layout) and strip-scrollbar (the
-           columns strip's scrollbar thumb)
+           divider (a vertical pane divider), tab (the first tab pill along its strip), pane-swap (an Option-press
+           on a pane's empty tab strip space past its tabs and +, dropped on the next pane: PaneSwapDrag, then
+           swapped back; the layout must still have its two panes), canvas-pane (a pane's tab strip in the canvas
+           layout) and strip-scrollbar (the columns strip's scrollbar thumb)
 
 under each condition: idle; --storm (automation running while the person types: `cli=HZ[:VERB]` runs the app's
-CLI, `read-screen` by default, at HZ; `sidebar-churn=N[@HZ]` grows the sidebar to N workspaces and rearranges it at
-HZ, 10 by default, as agents do); and --stall MS/PERIOD (a `debug.stall` of MS on the main thread every PERIOD),
-one condition per value (`none` is no stall).
+CLI, `terminal current screen read` by default (words joined with `+`), at HZ; `sidebar-churn=N[@HZ]` grows the
+sidebar to N workspaces (STRESS's background workspaces first, then empty ones) and rearranges it at HZ, 10 by
+default, as agents do); and --stall MS/PERIOD (a `debug.stall` of MS on the main thread every PERIOD), one condition
+per value (`none` is no stall). A phase whose load failed on every call is `load_failed` and has no rows: its numbers
+would claim a load that did not run.
 
 Each phase resets `debug.input` and `debug.hangs`, records the app's `input.latency` signposts (`log stream`, one
 event per closed slot: every stage from the OS timestamp to the presented frame), then reads `debug.input`
@@ -81,6 +84,15 @@ PAGE = ("<!doctype html><title>input latency</title><body style='margin:0'>"
 ENGINE_CHECK = ("(typeof window.chrome === 'object' && navigator.userAgent.indexOf('Chrome/') >= 0) ? 'chromium' : "
                 "(navigator.userAgent.indexOf('AppleWebKit') >= 0 ? 'webkit' : navigator.userAgent)")
 CHURN_STATUSES = ("todo", "working", "needs-attention", "review", "done")
+# The storm's default CLI call: the focused terminal's screen, read through the daemon (docs/cli-contract.md maps
+# classic `read-screen` to `cmux terminal <sel> screen read`). Words joined with `+` in --storm cli=HZ:VERB.
+DEFAULT_STORM_VERB = ("terminal", "current", "screen", "read")
+CLI_CONTRACT = os.path.join(HERE, "..", "..", "docs", "cli-contract.md")
+# A pane-swap press: room after the last tab for the + button, and the least empty strip space on each side of it.
+NEW_TAB_BUTTON_ROOM = 40.0
+EMPTY_STRIP_MARGIN = 8.0
+# PaneSwapDrag: in the window's top row a plain press on empty strip space moves the window; Option drags the pane.
+PANE_SWAP_MODIFIERS = ("option",)
 ABSENT_LOCK_WAIT = "ghostty.lock_wait: no producer in this build"
 ABSENT_CURSOR_RECTS = "cursor-rect rebuilds per drag frame: no counter in this build (task 090)"
 
@@ -96,7 +108,7 @@ def parse_storm(spec):
             match = re.fullmatch(r"([\d.]+)\s*hz", rate.lower())
             if not match or float(match.group(1)) <= 0:
                 raise ValueError(f"--storm {part}: cli=HZ[:VERB], for example cli=10hz")
-            storm["cli"] = {"hz": float(match.group(1)), "verb": (verb or "read-screen").split("+")}
+            storm["cli"] = {"hz": float(match.group(1)), "verb": verb.split("+") if verb else list(DEFAULT_STORM_VERB)}
         elif name == "sidebar-churn":
             count, _, rate = value.partition("@")
             match = re.fullmatch(r"([\d.]+)\s*(hz)?", (rate or "10hz").lower())
@@ -306,6 +318,11 @@ def dc_fields(runs):
                 passes = pump.get("passes_while_input_pending") or {}
                 pump_passes = (pump_passes or 0) + sum(v for k, v in passes.items() if k != "chromiumPage")
                 pump_p99 = max(pump_p99 or 0.0, pump.get("pass_ms_p99") or 0.0)
+        absent += [f"{run['surface']} {run['phase']}: {run.get('reason')}" for run in group if run.get("status") == "load_failed"]
+        churn = next((run["churn_workspaces"] for run in group if "churn_workspaces" in run), None)
+        requested = next((run["churn_requested"] for run in group if "churn_requested" in run), None)
+        if churn is not None and churn < requested:
+            absent.append(f"sidebar-churn: {churn} of the {requested} workspaces asked for")
         terminal_rows = [r for run in group if run.get("surface") == "terminal" and run.get("phase") == "keys" for r in run.get("rows") or []]
         home_rows = [r for run in group if run.get("surface") == "home" and run.get("phase") == "keys" for r in run.get("rows") or []]
         storm, stall = group[0].get("storm"), group[0].get("stall")
@@ -317,11 +334,12 @@ def dc_fields(runs):
                     "home_key_p99_ms": p99_of(home_rows, ("textView",)),
                     "max_input_wait_behind_jobs_ms": gate_wait, "nonswift_blocks_while_input_pending": nonswift,
                     "pump_passes_while_input_pending_non_chromium": pump_passes, "cef_pass_ms_p99": pump_p99,
+                    "sidebar_churn_workspaces": churn,
                     "absent": sorted({a for a in absent if a != ABSENT_LOCK_WAIT})})
     for run in runs:
         if run.get("phase") != "drag":
             continue
-        absent = [ABSENT_CURSOR_RECTS]
+        absent = [ABSENT_CURSOR_RECTS] + ([run["reason"]] if run.get("status") in ("load_failed", "layout_changed") else [])
         coalescer = section(run.get("debug_input"), "coalescer", absent)
         per_consumer = coalescer_max(coalescer) if coalescer is not None else {}
         rows = run.get("rows") or []
@@ -334,6 +352,31 @@ def dc_fields(runs):
                                                and r["presentation_source"] == "*" and r["n"]), None),
                     "cursor_rect_rebuilds_per_frame": None, "absent": absent})
     return {"dc1": dc1, "dc2": dc2, "dc5": dc5}
+
+
+# ---------------------------------------------------------------- geometry
+def empty_strip_point(pane):
+    """A point of `pane`'s empty tab strip space (debug.pane_chrome, top-left window coordinates): past the run of
+    tabs and its + button, before the pane's toolbar, where PaneSwapDrag starts (TabStripView.mouseRects: a press
+    on a tab, chip or + is the strip's own). A reason string when the strip has no such space."""
+    strip = pane.get("strip")
+    if not strip or pane.get("strip_hidden"):
+        return "the pane shows no tab strip in debug.pane_chrome"
+    x, y, w, h = (float(v) for v in strip)
+    pill, slots = pane.get("pill"), pane.get("tab_slots") or []
+    if pill and slots:  # tab_slots are strip content points: the first pill places them in the window
+        origin = float(pill[0]) - float(slots[0][0])
+        run_end = origin + max(float(s[0]) + float(s[1]) for s in slots)
+    elif pill:
+        run_end = float(pill[0]) + float(pill[2])
+    else:
+        run_end = x
+    run_end += NEW_TAB_BUTTON_ROOM
+    toolbar = (pane.get("toolbar") or {}).get("frame")
+    right = min(x + w, float(toolbar[0])) if toolbar else x + w
+    if right - run_end < 2 * EMPTY_STRIP_MARGIN:
+        return f"the pane's tab strip has no empty space past its tabs and + ({right - run_end:.0f} pt)"
+    return (run_end + right) / 2, y + h / 2
 
 
 # ---------------------------------------------------------------- the bench
@@ -365,14 +408,30 @@ class Bench:
         churn = condition["storm"].get("sidebar-churn")
         if not churn:
             return
-        if self.stress is not None:
-            self.state["churn_ids"] = list(getattr(self.stress, "background", []) or [])[:churn["workspaces"]]
-            return
         made = self.state.setdefault("churn_ids", [])
+        if self.stress is not None and not made:
+            made.extend(list(getattr(self.stress, "background", []) or [])[:churn["workspaces"]])
         for index in range(len(made), churn["workspaces"]):
             ref = self.control.cli("workspace", "create", "--empty", "--name", f"churn {index:04d}").stdout.strip()
             if ref:
                 made.append(ref)
+        if len(made) < churn["workspaces"]:
+            self.note(f"{self.session} storm sidebar-churn: {len(made)} of {churn['workspaces']} workspaces")
+
+    def load_facts(self, condition):
+        """What the condition's load really had: the sidebar churn's workspace count (its label says the asked one)."""
+        churn = condition["storm"].get("sidebar-churn")
+        if not churn:
+            return {}
+        return {"churn_workspaces": min(len(self.state.get("churn_ids", [])), churn["workspaces"]),
+                "churn_requested": churn["workspaces"]}
+
+    @staticmethod
+    def load_failure(load):
+        """Why the phase's load did not run (a load thread whose every call failed), or None."""
+        failed = [f"{t['name']}: {t['errors']} of {t['calls']} calls failed" for t in load or []
+                  if t.get("calls") and t.get("errors", 0) >= t["calls"]]
+        return "; ".join(failed) or None
 
     def start_load(self, condition):
         threads = []
@@ -568,13 +627,18 @@ class Bench:
                 "input": self.poster.input}
 
     def record_run(self, entry):
+        """Keeps a phase's result; a phase whose load failed on every call keeps no rows (they would claim the load)."""
+        failure = self.load_failure(entry.get("load"))
+        if failure:
+            self.note(f"{self.session} {entry.get('surface')} {entry.get('condition')}: not measured: the load did not run ({failure})")
+            entry = dict(entry, status="load_failed", reason=f"the load did not run: {failure}", rows=[])
         self.runs.append(entry)
         return entry
 
     def measure_keys(self, surface, condition):
         ctx = self.context(surface, condition)
         base = dict(session=self.session, condition=condition["name"], storm=ctx["storm"], stall=ctx["stall"],
-                    surface=surface, phase="keys", input=self.poster.input)
+                    surface=surface, phase="keys", input=self.poster.input, **self.load_facts(condition))
         try:
             ready = self.setup(surface)
         except hid_input.InputRefused as error:
@@ -619,7 +683,7 @@ class Bench:
     def measure_scrolls(self, surface, condition):
         ctx = self.context(surface, condition)
         base = dict(session=self.session, condition=condition["name"], storm=ctx["storm"], stall=ctx["stall"],
-                    surface=surface, phase="scrolls", input=self.poster.input)
+                    surface=surface, phase="scrolls", input=self.poster.input, **self.load_facts(condition))
         point = self.content_point()
         if point is None:
             return self.record_run(dict(base, status="unlocated", reason="no window frame or main pane", rows=[]))
@@ -684,9 +748,12 @@ class Bench:
             start = hid_input.window_point(frame, hid_input.rect_center(pill), height, top_left=True)
             return start, (start[0] + 150, start[1]), True, None
         if target == "pane-swap":
-            if len(panes) < 2 or not panes[0].get("pill") or not panes[1].get("cell"):
-                return "two panes with a tab pill are not in debug.pane_chrome"
-            start = hid_input.window_point(frame, hid_input.rect_center(panes[0]["pill"]), height, top_left=True)
+            if len(panes) != 2 or not panes[1].get("cell"):
+                return f"the pane-swap workspace has {len(panes)} panes in debug.pane_chrome, not 2"
+            press = empty_strip_point(panes[0])
+            if isinstance(press, str):
+                return press
+            start = hid_input.window_point(frame, press, height, top_left=True)
             end = hid_input.window_point(frame, hid_input.rect_center(panes[1]["cell"]), height, top_left=True)
             return start, end, False, None
         if target == "canvas-pane":
@@ -710,7 +777,8 @@ class Bench:
     def measure_drag(self, target, condition):
         ctx = self.context(f"drag:{target}", condition)
         base = dict(session=self.session, condition=condition["name"], storm=ctx["storm"], stall=ctx["stall"],
-                    surface=f"drag:{target}", target=target, phase="drag", input=self.poster.input)
+                    surface=f"drag:{target}", target=target, phase="drag", input=self.poster.input,
+                    **self.load_facts(condition))
         try:
             located = self.locate_drag(target)
         except hid_input.InputRefused as error:
@@ -719,18 +787,34 @@ class Bench:
             self.note(f"{self.session} drag {target}: not measured: {located}")
             return self.record_run(dict(base, status="unlocated", reason=located, rows=[]))
         start, end, back, cleanup = located
+        modifiers = PANE_SWAP_MODIFIERS if target == "pane-swap" else ()
+        panes_before = self.pane_ids() if target == "pane-swap" else None
+        swapped = None
         recording = self.phase_start(f"drag:{target}")
         threads = self.start_load(condition)
         posted = []
-        for _ in range(self.opts.drags):
-            posted.append(self.poster.drag(start, end, rate_hz=self.opts.rate, seconds=self.opts.drag_seconds, back=back))
+
+        def drag(out_and_back):
+            posted.append(self.poster.drag(start, end, rate_hz=self.opts.rate, seconds=self.opts.drag_seconds,
+                                           back=out_and_back, modifiers=modifiers))
             self.sleep(0.3)  # the drop settles before the next press
+
+        for index in range(self.opts.drags):
+            drag(back)
             if not back:  # a pane swap drops on the other pane: swap back for the next drag
-                posted.append(self.poster.drag(start, end, rate_hz=self.opts.rate, seconds=self.opts.drag_seconds, back=False))
-                self.sleep(0.3)  # the drop settles
+                if index == 0:
+                    swapped = self.pane_ids()[:1] != panes_before[:1]
+                drag(False)
         events, lost, debug_input, hangs, load = self.phase_end(recording, threads)
         if cleanup:
             cleanup()
+        status, reason = None, None
+        if panes_before is not None:
+            panes_after = self.pane_ids()
+            if len(panes_after) != len(panes_before):
+                status = "layout_changed"
+                reason = f"the pane swaps left {len(panes_after)} panes, not {len(panes_before)}: {panes_before} -> {panes_after}"
+                self.note(f"{self.session} drag {target} {condition['name']}: not measured: {reason}")
         kinds = ("drag", "mousePress", "mouseRelease")
         mine = [e for e in events if e["kind"] in kinds and e["entrypoint"] == self.entrypoint]
         rows = stage_rows(mine, ctx, kinds) + ledger_rows(section(debug_input, "latency", []), ctx, kinds, self.entrypoint)
@@ -739,9 +823,16 @@ class Bench:
                    "rate_hz": round(sum(rates) / len(rates), 1) if rates else None}
         frame_main = next((r for r in rows if r["stage"] == "frame_main" and r["presentation_source"] == "*" and r["n"]), {})
         self.note(f"{self.session} drag {target} {condition['name']}: {summary['events']} events at {summary['rate_hz']} Hz; "
-                  f"frame main p99 {frame_main.get('p99')} ms (n={frame_main.get('n', 0)})")
-        return self.record_run(dict(base, status="ok" if mine else "no_input", start=start, end=end, posted=summary,
-                                    signposts_lost=lost, hangs=hangs, load=load, debug_input=debug_input, rows=rows))
+                  f"frame main p99 {frame_main.get('p99')} ms (n={frame_main.get('n', 0)})"
+                  + ("; the first drop did not swap the panes" if swapped is False else ""))
+        return self.record_run(dict(base, status=status or ("ok" if mine else "no_input"), reason=reason, start=start, end=end,
+                                    modifiers=list(modifiers), swapped=swapped, posted=summary, signposts_lost=lost,
+                                    hangs=hangs, load=load, debug_input=debug_input, rows=[] if status else rows))
+
+    def pane_ids(self):
+        """The shown workspace's pane ids, left to right (debug.pane_chrome)."""
+        panes = sorted(self.chrome_window().get("panes") or [], key=lambda p: (p.get("cell") or [0])[0])
+        return [p.get("pane") for p in panes]
 
     # ------------------------------------------------------------ session
     def run_session(self, session):
@@ -825,50 +916,49 @@ def load_stress_module():
     return module
 
 
-def run_launched(opts):
-    """Launches the app once per session and measures it; returns the report."""
+def launch_env(opts):
+    """The app's environment for a bench launch. Real input needs the app frontmost (no CMUX_NEXT_NO_ACTIVATE); the
+    launch stays isolated all the same (bench_launch.shipping_env's pair; LaunchIsolation: the fixed test window
+    frame, no `cmux` shim pointer, no global hot keys, no relaunch at login, no browser import offer)."""
+    from bench_launch import ISOLATED_LAUNCH_KEY
+    env = {"CMUX_NEXT_HANG_THRESHOLD_MS": "8"}
+    if opts.input == "real":
+        env["CMUX_NEXT_NO_ACTIVATE"] = None
+        env[ISOLATED_LAUNCH_KEY] = "1"
+    return env
+
+
+def run_launched(opts, make_app=None):
+    """Launches the app once per session and measures it; returns the report. Every app this starts is stopped,
+    whether its launch, its STRESS build or its phases failed; a signal (bench_launch's teardown turns TERM and HUP
+    into SystemExit) stops the app and ends the bench. `make_app` replaces BenchApp (the self-test)."""
     from bench_launch import BenchApp, LaunchError
+    make_app = make_app or BenchApp
     out = os.path.abspath(opts.out or tempfile.mkdtemp(prefix="input-latency-"))
     os.makedirs(out, exist_ok=True)
     head = header(opts)
     runs, notes = [], []
     for session in opts.sessions.split(","):
-        env = {"CMUX_NEXT_HANG_THRESHOLD_MS": "8"}
-        if opts.input == "real":
-            env["CMUX_NEXT_NO_ACTIVATE"] = None  # a real key goes to the frontmost app's key window
         try:
-            app = BenchApp(os.path.abspath(opts.app.rstrip("/")), out=out, config={"browser": {"defaultEngine": "chromium"}},
-                           window=WINDOW, log_name=f"app-{session}.log", perf_session=session, env=env)
-            app.launch(timeout=180)
-        except (LaunchError, SystemExit) as error:  # a wrong bundle exits from BenchApp; the bench reports it instead
-            reason = getattr(error, "reason", None) or str(error)
-            notes.append(f"{session}: the app did not come up: {reason}")
-            runs.append({"session": session, "phase": "launch", "status": "failed", "reason": reason})
-            continue
+            app = make_app(os.path.abspath(opts.app.rstrip("/")), out=out, config={"browser": {"defaultEngine": "chromium"}},
+                           window=WINDOW, log_name=f"app-{session}.log", perf_session=session, env=launch_env(opts))
+        except SystemExit as error:
+            if not isinstance(error.code, str):  # a signal's exit, not BenchApp's wrong-bundle message
+                raise
+            notes.append(f"{session}: the app did not come up: {error.code}")
+            runs.append({"session": session, "phase": "launch", "status": "failed", "reason": error.code})
+            break  # the bundle is wrong for every session
         bench = None
         try:
-            cli = os.path.join(os.path.abspath(opts.app.rstrip("/")), "Contents/Resources/bin/cmux")
-            control = hid_input.Control(app.socket, cli, os.path.join(app.scratch, "cmux.json"))
-            poster = hid_input.poster_for(opts.input, control=control)
-            bench = Bench(opts, control, poster, hid_input.SignpostRecording, pid=app.process.pid, out=out)
-            if session == "stress":
-                stress = load_stress_module().Stress(control.rpc, log=bench.note)
-                head.setdefault("stress", {})[session] = stress.build()
-                bench.stress = stress
-                panes = stress.panes(stress.workspace(stress.measured))
-                if panes:
-                    last = panes[-1]
-                    stress.focus_pane(last["id"])
-                    tab = next((t for t in reversed(last.get("tabs") or []) if t.get("kind") == "terminal"), None)
-                    if tab:
-                        stress.action("tab.focus", target=f"tab:{tab['id']}")
-                        control.action("terminal.sendText", {"text": "exec /bin/zsh -f\r"})
-                    bench.state["stress_terminal"] = last["id"]
-                time.sleep(5)  # the STRESS grid settles before the first measured input
-            if opts.input == "real":
-                hid_input.bring_front(app.process.pid)
-                time.sleep(1)  # activation settles
-            bench.run_session(session)
+            try:
+                app.launch(timeout=180)
+            except LaunchError as error:
+                notes.append(f"{session}: the app did not come up: {error.reason}")
+                runs.append({"session": session, "phase": "launch", "status": "failed", "reason": error.reason,
+                             "detail": (error.report or {}).get("detail")})
+            else:
+                bench = new_bench(opts, app, out)
+                measure_session(opts, bench, app, session, head)
         except Exception as error:  # STRESS did not build, or the app went away: report what was measured
             notes.append(f"{session}: stopped: {error!r}")
             runs.append({"session": session, "phase": "error", "label": "session", "error": repr(error)})
@@ -876,9 +966,40 @@ def run_launched(opts):
             if bench is not None:
                 runs += bench.runs
                 notes += bench.notes
-            app.stop()
+            app.stop()  # a no-op when no process started; a launch that timed out leaves one running
         write(opts.json, report(head, runs, notes))
     return report(head, runs, notes)
+
+
+def new_bench(opts, app, out):
+    """The bench of a launched app: its socket, its CLI and scratch config, the poster of --input."""
+    cli = os.path.join(os.path.abspath(opts.app.rstrip("/")), "Contents/Resources/bin/cmux")
+    control = hid_input.Control(app.socket, cli, os.path.join(app.scratch, "cmux.json"))
+    poster = hid_input.poster_for(opts.input, control=control)
+    return Bench(opts, control, poster, hid_input.SignpostRecording, pid=app.process.pid, out=out)
+
+
+def measure_session(opts, bench, app, session, head):
+    """One launched session: STRESS built first, the app frontmost for real input, then every condition's phases."""
+    control = bench.control
+    if session == "stress":
+        stress = load_stress_module().Stress(control.rpc, log=bench.note)
+        head.setdefault("stress", {})[session] = stress.build()
+        bench.stress = stress
+        panes = stress.panes(stress.workspace(stress.measured))
+        if panes:
+            last = panes[-1]
+            stress.focus_pane(last["id"])
+            tab = next((t for t in reversed(last.get("tabs") or []) if t.get("kind") == "terminal"), None)
+            if tab:
+                stress.action("tab.focus", target=f"tab:{tab['id']}")
+                control.action("terminal.sendText", {"text": "exec /bin/zsh -f\r"})
+            bench.state["stress_terminal"] = last["id"]
+        time.sleep(5)  # the STRESS grid settles before the first measured input
+    if opts.input == "real":
+        hid_input.bring_front(app.process.pid)
+        time.sleep(1)  # activation settles
+    bench.run_session(session)
 
 
 # ---------------------------------------------------------------- self-test
@@ -934,8 +1055,10 @@ class FixtureControl:
             return {"windows": [{"frame": [40, 40, 1400, 900], "divider_areas_in_window": [[700, 20, 6, 840]]}]}
         if method == "debug.pane_chrome":
             return {"windows": [{"main_pane": [0, 40, 1400, 860], "panes": [
-                {"pane": "a", "cell": [0, 40, 700, 860], "pill": [10, 40, 120, 28], "strip": [0, 40, 700, 28]},
-                {"pane": "b", "cell": [706, 40, 694, 860], "pill": [716, 40, 120, 28], "strip": [706, 40, 694, 28]}]}]}
+                {"pane": "a", "cell": [0, 40, 700, 860], "pill": [10, 40, 120, 28], "strip": [0, 40, 700, 28],
+                 "tab_slots": [[0, 124]], "toolbar": {"frame": [640, 40, 60, 28]}},
+                {"pane": "b", "cell": [706, 40, 694, 860], "pill": [716, 40, 120, 28], "strip": [706, 40, 694, 28],
+                 "tab_slots": [[0, 124]]}]}]}
         if method == "debug.dock":
             return {"windows": [{"scrollbar": {"thumb_in_window": {"x": 100, "y": 10, "width": 200, "height": 6}}}]}
         if method == "debug.focus":
@@ -947,6 +1070,8 @@ class FixtureControl:
 
     def cli(self, *args, timeout=60):
         self.calls.append("cli " + " ".join(args[:2]))
+        if args[0] not in FIXTURE_CLI_SCOPES:
+            return subprocess.CompletedProcess(args, 2, "", f"cmux: unknown scope `{args[0]}`")
         if args[:2] == ("workspace", "create"):
             ref = "workspace:" + args[args.index("--name") + 1]
             self.shown = ref if "--focus" in args else self.shown
@@ -954,6 +1079,35 @@ class FixtureControl:
         if args[0] == "workspace" and args[-1] == "focus":
             self.shown = args[1]
         return subprocess.CompletedProcess(args, 0, "", "")
+
+
+# The fixture CLI's scopes (cmux-tui's cli/command.rs has these among others; `read-screen` is not one).
+FIXTURE_CLI_SCOPES = ("app", "pane", "tab", "terminal", "workspace")
+# In the fixture's pane chrome, the run of pane a's tabs and its + button ends here (window x): TabStripView.mouseRects.
+FIXTURE_RUN_END = 160
+FIXTURE_DISPLAY_HEIGHT = 1080.0
+
+
+def fixture_pane_swap_refusal(control, posted, display_height=FIXTURE_DISPLAY_HEIGHT):
+    """Why the fixture's PaneSwapDrag would not start for the presses in `posted`, or None: each press must hold
+    Option (the panes are in the window's top row) and land on a strip's empty space, past its tabs and +."""
+    frame = control.rpc("debug.layers")["windows"][0]["frame"]
+    panes = control.rpc("debug.pane_chrome")["windows"][0]["panes"]
+    presses = [e for e in posted if e["type"] == "mouse" and e["kind"] == hid_input.LEFT_MOUSE_DOWN]
+    if not presses:
+        return "no press"
+    for press in presses:
+        if not press.get("flags", 0) & hid_input.FLAGS["option"]:
+            return f"a press without Option at {press['x']}, {press['y']}: in the top row it moves the window"
+        fx, fy, _, fh = frame
+        x, y = press["x"] - fx, press["y"] - display_height + fy + fh  # global display -> top-left window points
+        strip = next((p["strip"] for p in panes if p["strip"][0] <= x < p["strip"][0] + p["strip"][2]
+                      and p["strip"][1] <= y < p["strip"][1] + p["strip"][3]), None)
+        if strip is None:
+            return f"a press off every tab strip at {x}, {y}"
+        if x < strip[0] + FIXTURE_RUN_END:
+            return f"a press on the tabs or + at {x}, {y}: the tab strip's own press (TabDragSession), not a pane swap"
+    return None
 
 
 def fixture_lines(surface, keys, drags, entrypoint):
@@ -989,8 +1143,11 @@ class FixtureRecording:
 
     def stop(self):
         posted = self.backend.events[self.start:]
-        keys = sum(1 for e in posted if e["type"] == "key" and e["down"] and e["code"] != hid_input.KEYCODES["delete"])
+        keys = sum(1 for e in posted if e["type"] == "key" and e["down"] and e["code"] != hid_input.KEYCODES["delete"]
+                   and e["code"] not in hid_input.MODIFIER_KEYCODES.values())
         drags = sum(1 for e in posted if e["type"] == "mouse" and e["kind"] == hid_input.LEFT_MOUSE_DRAGGED)
+        if self.bench.subject == "drag:pane-swap" and fixture_pane_swap_refusal(self.bench.control, posted):
+            drags = 0  # the strip's own press, or the window's: no pane drag ran
         return hid_input.latency_events(fixture_lines(self.bench.subject, keys, drags, "person"))
 
 
@@ -1002,9 +1159,15 @@ def self_test():
             failures.append(f"{name}: {str(detail)[:400]}")
 
     # Options.
-    check("storm", parse_storm("cli=10hz,sidebar-churn=400") == {"cli": {"hz": 10.0, "verb": ["read-screen"]},
+    check("storm", parse_storm("cli=10hz,sidebar-churn=400") == {"cli": {"hz": 10.0, "verb": list(DEFAULT_STORM_VERB)},
                                                                   "sidebar-churn": {"workspaces": 400, "hz": 10.0}},
           parse_storm("cli=10hz,sidebar-churn=400"))
+    # The default verb is a CLI command: the contract's form of it, with `current` for the selector.
+    with open(CLI_CONTRACT) as handle:
+        contract = handle.read()
+    documented = "`cmux " + " ".join(w if i != 1 else "<sel>" for i, w in enumerate(DEFAULT_STORM_VERB)) + "`"
+    check("default storm verb in the CLI contract", documented in contract, documented)
+    check("default storm verb's scope", DEFAULT_STORM_VERB[0] in FIXTURE_CLI_SCOPES, DEFAULT_STORM_VERB)
     check("storm verb", parse_storm("cli=5hz:tab+list")["cli"]["verb"] == ["tab", "list"])
     for bad in ("cli=fast", "sidebar-churn=x", "storm=1"):
         try:
@@ -1091,6 +1254,93 @@ def self_test():
     check("storm ran", any("cli workspace" in c for c in control.calls) and any(
         (load.get("name") == "storm.cli") for r in keys for load in r.get("load") or []), [r.get("load") for r in keys][:2])
     check("header", document["header"]["input"] == "real" and document["header"]["quotable"] and document["header"]["input_reached"])
+    swap = next((r for r in bench.runs if r.get("phase") == "drag" and r["target"] == "pane-swap"), {})
+    check("pane swap: an Option-press on empty strip space, dropped on the other pane",
+          swap.get("status") == "ok" and swap.get("modifiers") == ["option"] and swap.get("start", (0,))[0] > 40 + FIXTURE_RUN_END
+          and swap.get("start", (0,))[0] < 40 + 640 and swap.get("end", (0,))[0] > 40 + 706,
+          {k: swap.get(k) for k in ("status", "reason", "start", "end", "modifiers")})
+    pill_press = [{"type": "mouse", "kind": hid_input.LEFT_MOUSE_DOWN, "x": 40 + 70, "y": 1080 - (40 + 900 - 54),
+                   "flags": hid_input.FLAGS["option"]}]
+    check("the fixture refuses a pane-swap press on a pill", fixture_pane_swap_refusal(control, pill_press))
+    check("the fixture refuses a pane-swap press without Option",
+          fixture_pane_swap_refusal(control, [dict(pill_press[0], x=40 + 400, flags=0)]))
+    check("the fixture takes an Option-press on empty strip space",
+          fixture_pane_swap_refusal(control, [dict(pill_press[0], x=40 + 400)]) is None)
+    check("no empty strip space is a reason", isinstance(empty_strip_point(
+        {"strip": [0, 0, 180, 28], "pill": [10, 0, 120, 28], "tab_slots": [[0, 124]]}), str))
+    check("dc2 churn count", all(e["sidebar_churn_workspaces"] in (None, 4) for e in dc["dc2"]), dc["dc2"])
+
+    # A storm whose every call fails measures nothing: its rows would claim a load that did not run.
+    control = FixtureControl()
+    opts = parser.parse_args(["--app", "fixture", "--keys", "3", "--interval", "0", "--surfaces", "terminal",
+                              "--storm", "cli=50hz:read-screen"])
+    backend = hid_input.RecordingBackend(clock=clock)
+    bench = Bench(opts, control, hid_input.HidPoster(backend, clock=clock, sleep=sleep), None, sleep=sleep, log=lambda _: None)
+    bench.recorder = lambda pid: FixtureRecording(bench, backend)
+    bench.run_session("light")
+    failed = [r for r in bench.runs if r.get("phase") == "keys"]
+    check("a failed storm is not measured", failed and failed[0]["status"] == "load_failed" and not failed[0]["rows"]
+          and "storm.cli" in failed[0]["reason"], [(r.get("status"), r.get("reason")) for r in failed])
+    dc = report(header(opts), bench.runs, bench.notes)["dc"]
+    check("a failed storm is absent in dc2", dc["dc2"] and dc["dc2"][0]["terminal_key_p99_ms"] is None
+          and any("storm.cli" in a for a in dc["dc2"][0]["absent"]), dc["dc2"])
+
+    # STRESS's background workspaces come first; the churn makes the rest up to N.
+    control = FixtureControl()
+    bench = Bench(opts, control, hid_input.HidPoster(hid_input.RecordingBackend()), None, sleep=sleep, log=lambda _: None)
+    bench.stress = type("FakeStress", (), {"background": ["ws_bg1", "ws_bg2"]})()
+    churn = {"name": "storm:sidebar-churn=5", "storm": parse_storm("sidebar-churn=5"), "stall": None}
+    bench.prepare_load(churn)
+    check("STRESS churn grows to N", bench.state["churn_ids"][:2] == ["ws_bg1", "ws_bg2"] and len(bench.state["churn_ids"]) == 5
+          and bench.load_facts(churn) == {"churn_workspaces": 5, "churn_requested": 5}, bench.state["churn_ids"])
+
+    # The launch: real input stays isolated; every started app stops, a failed launch goes on to the next session,
+    # a signal ends the bench, and a wrong bundle stops the sessions.
+    from bench_launch import ISOLATED_LAUNCH_KEY, LaunchError
+    env = launch_env(parser.parse_args(["--app", "x"]))
+    check("real input launch is isolated", env.get(ISOLATED_LAUNCH_KEY) == "1" and "CMUX_NEXT_NO_ACTIVATE" in env
+          and env["CMUX_NEXT_NO_ACTIVATE"] is None, env)
+    check("debug input launch", ISOLATED_LAUNCH_KEY not in launch_env(parser.parse_args(["--app", "x", "--input", "debug"])))
+
+    class FakeApp:
+        made = []
+
+        def __init__(self, path, failure=None, **kwargs):
+            self.failure, self.stopped = failure, False
+            FakeApp.made.append(self)
+
+        def launch(self, timeout=180):
+            if self.failure:
+                raise self.failure
+
+        def stop(self):
+            self.stopped = True
+
+    def launched(failures, sessions="light,stress"):
+        FakeApp.made = []
+        queue = list(failures)
+        run_opts = parser.parse_args(["--app", "fixture", "--out", tempfile.mkdtemp(prefix="input-latency-test-"),
+                                      "--sessions", sessions])
+        return run_launched(run_opts, make_app=lambda path, **kw: FakeApp(path, failure=queue.pop(0), **kw))
+
+    timeout = LaunchError("timeout", {"detail": "debug.windows did not answer"})
+    launch_report = launched([timeout, timeout])
+    check("a failed launch stops its app and goes on", len(FakeApp.made) == 2 and all(a.stopped for a in FakeApp.made)
+          and [r.get("reason") for r in launch_report["runs"]] == ["timeout", "timeout"], [vars(a) for a in FakeApp.made])
+    try:
+        launched([SystemExit(143), None])
+        failures.append("a signal during the launch did not end the bench")
+    except SystemExit as error:
+        check("a signal during the launch ends the bench and stops the app", error.code == 143 and len(FakeApp.made) == 1
+              and FakeApp.made[0].stopped, [vars(a) for a in FakeApp.made])
+
+    def wrong_bundle(path, **kwargs):
+        raise SystemExit("bench-launch: expected a `cmux DEV <tag>.app` bundle, got x.app")
+
+    launch_report = run_launched(parser.parse_args(["--app", "x.app", "--out", tempfile.mkdtemp(prefix="input-latency-test-"),
+                                               "--sessions", "light,stress"]), make_app=wrong_bundle)
+    check("a wrong bundle is reported once", [r["status"] for r in launch_report["runs"]] == ["failed"]
+          and "bundle" in launch_report["runs"][0]["reason"], launch_report["runs"])
 
     # A build without the gate, pump and coalescer: the DC fields stay, null, with the reason.
     control = FixtureControl(sections=("latency",))

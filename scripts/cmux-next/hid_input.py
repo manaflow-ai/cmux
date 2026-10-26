@@ -48,6 +48,8 @@ KEYCODES = {
 }
 # CGEventFlags (CGEventTypes.h).
 FLAGS = {"shift": 0x20000, "control": 0x40000, "option": 0x80000, "command": 0x100000}
+# The modifier keys' kVK_* codes: a held modifier is its key down (a flagsChanged event) before the input it modifies.
+MODIFIER_KEYCODES = {"shift": 56, "control": 59, "option": 58, "command": 55}
 # CGEventType (CGEventTypes.h).
 LEFT_MOUSE_DOWN, LEFT_MOUSE_UP, MOUSE_MOVED, LEFT_MOUSE_DRAGGED = 1, 2, 5, 6
 # CGScrollPhase and CGMomentumScrollPhase (CGEventTypes.h), and the scroll fields they go in.
@@ -212,11 +214,13 @@ class CoreGraphicsBackend:
             cg.CGEventSetFlags(event, flags)
         self._post(event)
 
-    def mouse(self, kind, x, y, click_state=1):
+    def mouse(self, kind, x, y, click_state=1, flags=0):
         cg = self._lib()
         event = cg.CGEventCreateMouseEvent(None, kind, self.CGPoint(x, y), 0)  # kCGMouseButtonLeft
         if event and kind in (LEFT_MOUSE_DOWN, LEFT_MOUSE_UP, LEFT_MOUSE_DRAGGED):
             cg.CGEventSetIntegerValueField(event, FIELD_MOUSE_CLICK_STATE, click_state)
+        if event and flags:
+            cg.CGEventSetFlags(event, flags)
         self._post(event)
 
     def scroll(self, x, y, dx, dy, phase, momentum):
@@ -249,8 +253,8 @@ class RecordingBackend:
     def key(self, code, down, flags=0):
         self._add({"type": "key", "code": code, "down": down, "flags": flags})
 
-    def mouse(self, kind, x, y, click_state=1):
-        self._add({"type": "mouse", "kind": kind, "x": x, "y": y})
+    def mouse(self, kind, x, y, click_state=1, flags=0):
+        self._add({"type": "mouse", "kind": kind, "x": x, "y": y, "flags": flags})
 
     def scroll(self, x, y, dx, dy, phase, momentum):
         self._add({"type": "scroll", "x": x, "y": y, "dx": dx, "dy": dy, "phase": phase, "momentum": momentum})
@@ -308,24 +312,32 @@ class HidPoster:
         self.backend.mouse(LEFT_MOUSE_DOWN, x, y)
         self.backend.mouse(LEFT_MOUSE_UP, x, y)
 
-    def drag(self, start, end, rate_hz=1000.0, seconds=1.0, back=True, hold=0.05):
+    def drag(self, start, end, rate_hz=1000.0, seconds=1.0, back=True, hold=0.05, modifiers=()):
         """A press at `start`, drag events at `rate_hz` to `end` (and back to `start` with `back`) over `seconds`,
-        then the release. Returns {events, rate_hz (achieved), late}."""
+        then the release; `modifiers` are held from before the press to after the release, as a person's (their
+        keys down, and their flags on every mouse event). Returns {events, rate_hz (achieved), late}."""
         (x0, y0), (x1, y1) = start, end
+        flags = 0
+        for modifier in modifiers:
+            flags |= FLAGS[modifier]
+            self.backend.key(MODIFIER_KEYCODES[modifier], True, flags)
         steps = max(2, int(rate_hz * seconds))
         path = [(x0 + (x1 - x0) * i / (steps - 1), y0 + (y1 - y0) * i / (steps - 1)) for i in range(steps)]
         if back:
             path += list(reversed(path[:-1]))
-        self.backend.mouse(MOUSE_MOVED, x0, y0)
-        self.backend.mouse(LEFT_MOUSE_DOWN, x0, y0)
+        self.backend.mouse(MOUSE_MOVED, x0, y0, flags=flags)
+        self.backend.mouse(LEFT_MOUSE_DOWN, x0, y0, flags=flags)
         if hold:
             self.sleep(hold)  # a press held still before the drag starts, as a person's
         pacer = Pacer(rate_hz, self.clock, self.sleep)
         for x, y in path:
             pacer.tick()
-            self.backend.mouse(LEFT_MOUSE_DRAGGED, x, y)
+            self.backend.mouse(LEFT_MOUSE_DRAGGED, x, y, flags=flags)
         x, y = path[-1]
-        self.backend.mouse(LEFT_MOUSE_UP, x, y)
+        self.backend.mouse(LEFT_MOUSE_UP, x, y, flags=flags)
+        for modifier in reversed(modifiers):
+            flags &= ~FLAGS[modifier]
+            self.backend.key(MODIFIER_KEYCODES[modifier], False, flags)
         return {"events": len(path), "rate_hz": pacer.achieved_hz(), "late": pacer.late}
 
     def scroll_gesture(self, point, dy=-12.0, dx=0.0, rate_hz=120.0, changes=30, momentum=20):
@@ -590,6 +602,19 @@ def self_test():
     check("drag ends where it began", drags[-1]["x"] == 100 and max(e["x"] for e in drags) == 200, drags[-1])
     times = [e["t"] for e in drags]
     check("drag spacing", all(abs((b - a) - 0.001) < 1e-9 for a, b in zip(times, times[1:])), times[:4])
+    check("plain drag has no modifier", all(e.get("flags", 0) == 0 for e in backend.events), backend.events[:2])
+
+    # An Option-drag: Option down before the press, its flag on every mouse event, Option up after the release.
+    backend = RecordingBackend(clock=clock)
+    HidPoster(backend, clock=clock, sleep=sleep).drag((100, 100), (120, 100), rate_hz=1000, seconds=0.01, hold=0,
+                                                      back=False, modifiers=("option",))
+    first, last = backend.events[0], backend.events[-1]
+    check("option down first", first["type"] == "key" and first["code"] == MODIFIER_KEYCODES["option"] and first["down"]
+          and first["flags"] == FLAGS["option"], first)
+    check("option up last", last["type"] == "key" and last["code"] == MODIFIER_KEYCODES["option"] and not last["down"]
+          and last["flags"] == 0, last)
+    check("option on every mouse event", all(e["flags"] == FLAGS["option"] for e in backend.events if e["type"] == "mouse"),
+          [e for e in backend.events if e["type"] == "mouse"][:2])
 
     # Scrolls: began, changed, ended, then momentum begin/continue/end.
     backend = RecordingBackend(clock=clock)

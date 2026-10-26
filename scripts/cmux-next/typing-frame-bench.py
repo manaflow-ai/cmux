@@ -55,7 +55,7 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 import bench_tagged  # noqa: E402
 import hid_input  # noqa: E402
 import typing_report  # noqa: E402
-from bench_launch import BenchApp, LaunchError  # noqa: E402
+from bench_launch import ISOLATED_LAUNCH_KEY, BenchApp, LaunchError  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--app", required=True)
@@ -528,7 +528,10 @@ def run_session(session):
     LOAD.update({"made": False, "workspaces": [], "chat_panes": []})
     env = {"CMUX_NEXT_TYPING_PROBE": PROBE, "CMUX_NEXT_HANG_THRESHOLD_MS": "8"}
     if POSTER.input == "real":
-        env["CMUX_NEXT_NO_ACTIVATE"] = None  # a real key goes to the frontmost app's key window
+        # A real key goes to the frontmost app's key window; the launch stays isolated (LaunchIsolation: the
+        # fixed test window frame, no shim pointer, hot keys, login item or browser import offer).
+        env["CMUX_NEXT_NO_ACTIVATE"] = None
+        env[ISOLATED_LAUNCH_KEY] = "1"
     bench = BenchApp(APP, out=OUT, config={"browser": {"defaultEngine": "chromium"}}, window=WINDOW,
                      log_name=f"app-{session}.log", perf_session=session, env=env)
     try:
