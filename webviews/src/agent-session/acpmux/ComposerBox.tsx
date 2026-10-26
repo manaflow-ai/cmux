@@ -195,7 +195,13 @@ export function ComposerBox({
               // Backspace at the prompt's start takes back the last chip, a loading one too (backspacedChip).
               const backspaced = composing
                 ? undefined
-                : backspacedChip(event, prompt.current?.atStart() ?? false, attachments, pending);
+                : backspacedChip(
+                    event,
+                    prompt.current?.atStart() ?? false,
+                    attachments,
+                    // Without a cancel, Backspace keeps taking back staged chips past a loading tile.
+                    onCancelAttachment ? pending : [],
+                  );
               if (backspaced && "staged" in backspaced) {
                 event.preventDefault();
                 setAttachments((current) => current.filter((item) => item.id !== backspaced.staged));
