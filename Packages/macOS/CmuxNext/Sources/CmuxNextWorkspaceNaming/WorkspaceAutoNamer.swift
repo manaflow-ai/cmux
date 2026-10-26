@@ -59,9 +59,12 @@ public final class WorkspaceAutoNamer {
     /// Sends `rename-workspace` with source and revision guards. The App owns
     /// the connection and must reject missing capabilities without writing.
     private let rename: @MainActor (Target, String, @escaping @MainActor @Sendable () -> Bool) -> Bool
-    /// Targets already submitted in this run. The revision remains part of the
-    /// identity so a later generated title can retry after a stale response.
-    private var submitted: Set<Submission> = []
+    /// Only live targets' current revisions remain here. Bookkeeping never wakes
+    /// the observer: an immediate queue refusal waits for real input to change.
+    @ObservationIgnored private var submitted: Set<Submission> = []
+    /// A deferred cancellation must retry even when its candidate becomes current
+    /// again before observation runs. Only that cancellation advances this value.
+    private var retryRevision: UInt64 = 0
 
     private struct Submission: Hashable, Sendable {
         var machineID: String
@@ -87,7 +90,7 @@ public final class WorkspaceAutoNamer {
 
     /// Follows the stores until the task is cancelled; the app runs it for its lifetime.
     public func run() async {
-        for await renames in ObservationStream({ self.pending() }) { apply(renames) }
+        for await trigger in ObservationStream({ ObservationTrigger(self.pending()) }) { apply(trigger.value) }
     }
 
     /// The renames the rule asks for now, across local and remote daemon
@@ -95,10 +98,17 @@ public final class WorkspaceAutoNamer {
     /// is never a target. Only an automatically named workspace whose front tab is an
     /// agent chat is read further, so terminal/page title changes do not write.
     func pending() -> [Rename] {
+        _ = retryRevision
+        let targets = workspaces()
+        let live = Set(targets.map {
+            Submission(machineID: $0.machineID, workspaceID: $0.workspace.id,
+                       daemonGeneration: $0.daemonGeneration, nameRevision: $0.nameRevision)
+        })
+        submitted.formIntersection(live)
         let rule = names.rule
         guard rule.enabled, rule.variant == .persist else { return [] }
         var renames: [Rename] = []
-        for target in workspaces() {
+        for target in targets {
             let workspace = target.workspace
             let submission = Submission(machineID: target.machineID, workspaceID: workspace.id,
                                         daemonGeneration: target.daemonGeneration, nameRevision: target.nameRevision)
@@ -157,7 +167,7 @@ public final class WorkspaceAutoNamer {
             let queued = rename(target, candidate.name) { [weak self] in
                 guard let self else { return false }
                 guard currentTarget(for: candidate) != nil else {
-                    submitted.remove(submission)
+                    if submitted.remove(submission) != nil { retryRevision &+= 1 }
                     return false
                 }
                 return true
