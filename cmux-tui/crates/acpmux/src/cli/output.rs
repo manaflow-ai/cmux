@@ -431,7 +431,7 @@ pub(crate) async fn stream_prompt(
         _ => None,
     });
     let logged = match (steered.turn(), &result) {
-        (Some(turn), Ok(_)) => Some(turn_reply(&client, id, turn).await?),
+        (Some(turn), Ok(_)) => turn_reply(&client, id, turn).await?,
         _ => None,
     };
     match result {
@@ -785,15 +785,18 @@ async fn collect_once(
         })
         .unwrap_or_default();
     // A steer's reply is the reply of the turn it went into, from the log: the send attached
-    // after that turn started, and may have missed its end.
-    if let Some(turn) = steered.turn() {
-        reply = turn_reply(&client, id, turn).await?;
+    // after that turn started, and may have missed its end. A log that no longer reaches that
+    // turn's start keeps the reply heard.
+    if let Some(turn) = steered.turn()
+        && let Some(logged) = turn_reply(&client, id, turn).await?
+    {
+        reply = logged;
     }
     // A resent prompt id streams nothing: its turn already ran, so read the
     // reply of that turn (not necessarily the newest) from the log.
     if reply.is_empty() && result.pointer("/_meta/acpmux/duplicate") == Some(&json!(true)) {
         reply = match result.pointer("/_meta/acpmux/turnId").and_then(Value::as_str) {
-            Some(turn) => turn_reply(&client, id, turn).await?,
+            Some(turn) => turn_reply(&client, id, turn).await?.unwrap_or_default(),
             None => last_replies(&client, id, 1).await?.pop().unwrap_or_default(),
         };
     }
@@ -807,14 +810,41 @@ async fn collect_once(
 /// raw harness lines are left out so they cannot crowd the turn out of it.
 const TRANSCRIPT_PAGE_BYTES: usize = 4 << 20;
 
-/// The assistant reply of one turn, read from the session's log: the last
-/// assistant item between that turn's start and its result.
-async fn turn_reply(client: &Arc<Client>, id: &str, turn: &str) -> Result<String> {
+/// The most transcript records `turn_reply` reads back for a turn's start.
+const TURN_REPLY_RECORDS: usize = 200_000;
+
+/// The assistant reply of one turn, read from the session's log: the last assistant item
+/// between that turn's start and its result. It pages back from the newest record until that
+/// turn's start, and is `None` when the log (its newest `TURN_REPLY_RECORDS`) holds no start of
+/// it: a history that does not reach the turn is not an empty reply.
+async fn turn_reply(client: &Arc<Client>, id: &str, turn: &str) -> Result<Option<String>> {
+    let started = |events: &[Value]| {
+        events.iter().any(|e| {
+            e.get("kind").and_then(Value::as_str) == Some("turn_started")
+                && e.pointer("/msg/turnId").and_then(Value::as_str) == Some(turn)
+        })
+    };
     // Transcript records only, in the largest page the daemon gives (`TRANSCRIPT_PAGE_BYTES`).
-    let page = json!({
+    let mut query = json!({
         "sessionId": id, "limit": 5000, "kinds": ["transcript"], "maxBytes": TRANSCRIPT_PAGE_BYTES
     });
-    let events = with_older(client, page).await?;
+    let (mut events, mut more) =
+        page_events(&client.request(method::MUX_ATTACH, query.clone()).await?);
+    let mut found = started(&events);
+    while more && !found && events.len() < TURN_REPLY_RECORDS {
+        let Some(first) = events.first().and_then(|e| e.get("seq")).and_then(Value::as_u64) else {
+            break;
+        };
+        query["beforeSeq"] = json!(first);
+        let (older, has_more) =
+            page_events(&client.request(method::MUX_EVENTS, query.clone()).await?);
+        if older.is_empty() {
+            break;
+        }
+        more = has_more;
+        found = started(&older);
+        events.splice(0..0, older);
+    }
     Ok(reply_of_turn(&events, turn))
 }
 
@@ -876,7 +906,9 @@ pub(crate) async fn events_after(
     Ok(events)
 }
 
-fn reply_of_turn(events: &[Value], turn: &str) -> String {
+/// The last assistant reply between turn `turn`'s start and its result; `None` when `events`
+/// hold no start of it.
+fn reply_of_turn(events: &[Value], turn: &str) -> Option<String> {
     let of_turn = |e: &Value| e.pointer("/msg/turnId").and_then(Value::as_str) == Some(turn);
     let kind = |e: &Value| e.get("kind").and_then(Value::as_str).unwrap_or("").to_owned();
     let mut t = Transcript::default();
@@ -891,14 +923,16 @@ fn reply_of_turn(events: &[Value], turn: &str) -> String {
         }
         t.apply_event(e);
     }
-    t.items
-        .iter()
-        .rev()
-        .find_map(|i| match i {
-            Item::Assistant { text } => Some(text.clone()),
-            _ => None,
-        })
-        .unwrap_or_default()
+    inside.then(|| {
+        t.items
+            .iter()
+            .rev()
+            .find_map(|i| match i {
+                Item::Assistant { text } => Some(text.clone()),
+                _ => None,
+            })
+            .unwrap_or_default()
+    })
 }
 
 /// The last `count` assistant replies of a session, oldest first.
@@ -1139,5 +1173,15 @@ mod prompt_tests {
         }
         let _ = std::fs::remove_file(&gate);
         drop(dir);
+    }
+
+    #[test]
+    fn a_turns_reply_is_none_when_the_log_holds_no_start_of_it() {
+        let ev = |seq: u64, kind: &str| {
+            json!({"seq": seq, "dir": "mux", "kind": kind, "msg": {"turnId": "t1"}})
+        };
+        assert_eq!(reply_of_turn(&[ev(1, "turn_result")], "t1"), None, "cut off");
+        let whole = [ev(1, "turn_started"), ev(2, "turn_result")];
+        assert_eq!(reply_of_turn(&whole, "t1"), Some(String::new()), "it said nothing");
     }
 }

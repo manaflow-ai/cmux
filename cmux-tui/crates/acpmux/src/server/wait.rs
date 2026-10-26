@@ -54,10 +54,12 @@ impl Until {
 
 /// `turnEnded {turnId, startedAt}`: the turn a steered `acpmux send` went into
 /// (`cli/steer_reply.rs`) is over. Its end is recorded (`lastTurn`, set with
-/// its `turn_result`) once a turn ended at or after `startedAt` (the turn's own
-/// start, from the same daemon's clock: turns run one at a time, so that is it
-/// or a later one), or another turn runs. A session that is closed, gone, or on
-/// a peer that is unreachable (`stale`) resolves too: its end may never come.
+/// its `turn_result`) once it is `lastTurn`, a turn ended after `startedAt`
+/// (the turn's own start, from the same daemon's clock: turns run one at a time,
+/// so that is a later one; the one before may end in the very millisecond it
+/// starts), or another turn runs. While it runs it has not ended. A session that
+/// is closed, gone, or on a peer that is unreachable (`stale`) resolves too: its
+/// end may never come.
 /// A status of `waiting` after the turn (a background ask) does not hold it.
 struct TurnEnded {
     turn_id: String,
@@ -73,16 +75,22 @@ impl TurnEnded {
     }
 
     fn matches(&self, s: &Value) -> bool {
+        if s.get("status").and_then(Value::as_str) == Some("closed")
+            || s.get("missing").and_then(Value::as_bool) == Some(true)
+            || s.get("stale").and_then(Value::as_bool) == Some(true)
+        {
+            return true;
+        }
+        let running = s.pointer("/turn/turnId").and_then(Value::as_str);
+        if running == Some(self.turn_id.as_str()) {
+            return false;
+        }
         let last = s.get("lastTurn").filter(|t| !t.is_null());
         let last_is = last.and_then(|t| t.get("turnId")).and_then(Value::as_str);
         let ended_at = last.and_then(|t| t.get("endedAt")).and_then(Value::as_u64);
-        let running = s.pointer("/turn/turnId").and_then(Value::as_str);
         last_is == Some(self.turn_id.as_str())
-            || ended_at.is_some_and(|at| at >= self.started_at)
-            || running.is_some_and(|t| t != self.turn_id)
-            || s.get("status").and_then(Value::as_str) == Some("closed")
-            || s.get("missing").and_then(Value::as_bool) == Some(true)
-            || s.get("stale").and_then(Value::as_bool) == Some(true)
+            || ended_at.is_some_and(|at| at > self.started_at)
+            || running.is_some()
     }
 }
 
@@ -238,6 +246,12 @@ mod turn_ended_tests {
         let between =
             json!({"status": "running", "turn": null, "lastTurn": {"turnId": "t0", "endedAt": 90}});
         assert!(!ended(between), "its end is not recorded yet");
+        // The turn before it ended in the millisecond it started.
+        let last = json!({"turnId": "t0", "endedAt": 100});
+        let tie = json!({"status": "running", "turn": {"turnId": "t1"}, "lastTurn": last.clone()});
+        assert!(!ended(tie), "it runs");
+        let tie = json!({"status": "running", "turn": null, "lastTurn": last});
+        assert!(!ended(tie), "its end is not recorded yet, in the same millisecond");
         let recorded = json!({"status": "waiting", "turn": null, "lastTurn": {"turnId": "t1", "endedAt": 120}});
         assert!(ended(recorded), "recorded, while a background ask waits");
         let later = json!({"status": "ready", "turn": null, "lastTurn": {"turnId": "t2", "endedAt": 150}});

@@ -49,16 +49,15 @@ impl SteerReply {
     }
 
     /// The prompt's answer: what the send answers, or `None` while the turn it steered into
-    /// runs on.
+    /// runs on. A steer keeps that turn (`turn`) either way, even when its end came first: the
+    /// send's reply is that turn's.
     pub(crate) fn answered(&mut self, answer: Result<Value>) -> Option<Result<Value>> {
         let Some(turn) = answer.as_ref().ok().and_then(steered_into) else {
             return Some(answer);
         };
-        if let Some(end) = self.ended.remove(&turn) {
-            return Some(end);
-        }
+        let end = self.ended.remove(&turn);
         self.into = Some(turn);
-        None
+        end
     }
 
     /// A notification of the session: what the send answers when it ends the turn the steer
@@ -246,6 +245,7 @@ mod tests {
         assert!(s.heard(method::MUX_EVENT, &end).is_none());
         let r = s.answered(steered("t1")).unwrap().unwrap();
         assert_eq!(r["stopReason"], "cancelled");
+        assert_eq!(s.turn(), Some("t1"), "its reply is that turn's, read from the log");
     }
 
     #[test]
