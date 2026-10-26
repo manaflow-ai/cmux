@@ -122,18 +122,51 @@ static void TestWheel() {
     Check(got.phase == expected[i][0] && got.momentum_phase == expected[i][1], "a scroll's phases round-trip");
   }
 
-  // The fallback's pixels (SendMouseWheelEvent): precise deltas are pixels, a line is 40.
-  Wheel line;
-  line.dy = -1;
-  line.dx = 0.5;
-  WheelPixels px = PixelsOf(line);
-  Check(px.dy == -40 && px.dx == 20, "a line of a mouse wheel is 40 pixels");
-  Wheel fine;
-  fine.precise = true;
-  fine.dx = -1.5;
-  fine.dy = 12.34;
-  px = PixelsOf(fine);
-  Check(px.dx == -2 && px.dy == 12, "precise deltas round to whole pixels");
+  // A notched mouse wheel (not precise, deltas in lines): the fork's wheel
+  // call gets pixels, a line is 40, the same as the fallback.
+  Header notch;
+  notch.kind = kWheel;
+  notch.v[2] = 50;    // half a line
+  notch.v[3] = -100;  // one line
+  w = WheelOf(notch);
+  Check(!w.precise && Near(w.dx, 20) && Near(w.dy, -40), "the fork call gets a line of a mouse wheel as 40 pixels");
+  WheelPixelCarry carry;
+  WheelPixels px = carry.Take(1, notch);
+  Check(px.dx == 20 && px.dy == -40, "the fallback gets a line of a mouse wheel as 40 pixels");
+
+  // The fallback's whole pixels carry each frame's fraction to the next.
+  Header slow;
+  slow.kind = kWheel;
+  slow.flags = kWheelPrecise;
+  slow.v[3] = 30;  // 0.3 px
+  slow.v[4] = kNSPhaseChanged;
+  WheelPixelCarry slow_carry;
+  int total = 0;
+  for (int i = 0; i < 10; ++i) total += slow_carry.Take(1, slow).dy;
+  Check(total == 3, "ten 0.3 px frames of a slow trackpad scroll scroll 3 px");
+  Header fine = slow;
+  fine.v[2] = -150;  // -1.5 px
+  fine.v[3] = 1234;  // 12.34 px
+  WheelPixelCarry fine_carry;
+  px = fine_carry.Take(1, fine);
+  Check(px.dx == -1 && px.dy == 12, "a frame sends its whole pixels");
+  px = fine_carry.Take(1, fine);
+  Check(px.dx == -2 && px.dy == 12, "and the next one its own plus the carried fraction");
+  px = fine_carry.Take(2, slow);
+  Check(px.dx == 0 && px.dy == 0, "another browser does not get the carry");
+  Header begin = slow;
+  begin.v[4] = kNSPhaseBegan;
+  WheelPixelCarry edge_carry;
+  for (int i = 0; i < 3; ++i) edge_carry.Take(1, slow);  // 0.9 px carried
+  Check(edge_carry.Take(1, begin).dy == 0, "a new gesture starts with no carry");
+  Header end = slow;
+  end.v[4] = kNSPhaseEnded;
+  edge_carry.Take(1, slow);
+  edge_carry.Take(1, end);  // 0.9 px, then the gesture ends
+  Header momentum_start = slow;
+  momentum_start.v[4] = 0;
+  momentum_start.v[5] = kNSPhaseChanged;
+  Check(edge_carry.Take(1, momentum_start).dy == 0, "an ended gesture leaves no carry for the momentum");
   Check(CefModifiersOf(kNSFlagCapsLock | kNSFlagControl | kNSFlagOption | kNSFlagCommand | kWheelPrecise) ==
             (kCefCapsLockOn | kCefControlDown | kCefAltDown | kCefCommandDown),
         "modifier flags map to CEF's; the precise bit is not a modifier");

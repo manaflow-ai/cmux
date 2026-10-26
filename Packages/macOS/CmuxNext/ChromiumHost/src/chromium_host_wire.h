@@ -12,7 +12,6 @@
 #pragma once
 
 #include <algorithm>
-#include <cmath>
 #include <cstddef>
 #include <cstdint>
 #include <cstring>
@@ -117,8 +116,9 @@ struct Header {
 // renderer host latches a gesture and hands the fling to the page from them
 // (components/input/mouse_wheel_phase_handler.cc), so the frame carries them:
 // v2 v3 NSEvent scrollingDeltaX/Y times kWheelDeltaScale, rounded (pixels when
-// precise, lines when not); v4 NSEvent.phase and v5 NSEvent.momentumPhase as
-// NSEventPhase bits; kWheelPrecise in flags for hasPreciseScrollingDeltas.
+// precise, lines when not; WheelOf gives pixels); v4 NSEvent.phase and v5
+// NSEvent.momentumPhase as NSEventPhase bits; kWheelPrecise in flags for
+// hasPreciseScrollingDeltas.
 inline constexpr int32_t kWheelDeltaScale = 100;
 inline constexpr uint64_t kWheelPrecise = uint64_t{1} << 63;
 // NSEventPhase.
@@ -145,7 +145,7 @@ inline constexpr int kCefPrecisionScrollingDelta = 1 << 14;
 // A line of a wheel with no precise deltas, in pixels: Chrome's
 // kScrollbarPixelsPerCocoaTick, which WebMouseWheelEventBuilder multiplies
 // [NSEvent deltaX/Y] by.
-inline constexpr double kPixelsPerCocoaTick = 40;
+inline constexpr int32_t kPixelsPerCocoaTick = 40;
 
 // The phases of cmux_shim_browser_send_wheel (the fork's wheel call).
 enum WheelPhase : int {
@@ -157,22 +157,17 @@ enum WheelPhase : int {
   kWheelPhaseCancelled = 5,
 };
 
-// A wheel frame's fields as the fork's wheel call takes them.
+// A wheel frame's fields as the fork's wheel call takes them (pixel deltas,
+// cmux_shim_browser_send_wheel in cmux_cef_shim.h).
 struct Wheel {
   double x = 0;   // page view points, top left
   double y = 0;
-  double dx = 0;  // scrollingDeltaX/Y: pixels when precise, lines when not
+  double dx = 0;  // pixels: scrollingDeltaX/Y when precise, lines x kPixelsPerCocoaTick when not
   double dy = 0;
   bool precise = false;
   int phase = kWheelPhaseNone;
   int momentum_phase = kWheelPhaseNone;
   int modifiers = 0;  // cef_event_flags_t
-};
-
-// SendMouseWheelEvent's integer pixel deltas.
-struct WheelPixels {
-  int dx = 0;
-  int dy = 0;
 };
 
 namespace detail {
@@ -244,25 +239,61 @@ inline Wheel WheelOf(const Header& h) {
   Wheel wheel;
   wheel.x = h.v[0];
   wheel.y = h.v[1];
-  wheel.dx = static_cast<double>(h.v[2]) / kWheelDeltaScale;
-  wheel.dy = static_cast<double>(h.v[3]) / kWheelDeltaScale;
   wheel.precise = (h.flags & kWheelPrecise) != 0;
+  const double scale = wheel.precise ? 1 : kPixelsPerCocoaTick;
+  wheel.dx = h.v[2] * scale / kWheelDeltaScale;
+  wheel.dy = h.v[3] * scale / kWheelDeltaScale;
   wheel.phase = WheelPhaseOf(h.v[4]);
   wheel.momentum_phase = WheelPhaseOf(h.v[5]);
   wheel.modifiers = CefModifiersOf(h.flags);
   return wheel;
 }
 
+// SendMouseWheelEvent's whole pixel deltas.
+struct WheelPixels {
+  int dx = 0;
+  int dy = 0;
+};
+
 // The deltas for CefBrowserHost::SendMouseWheelEvent, on a fork with no wheel
-// call: as WebMouseWheelEventBuilder, precise deltas are pixels and a line is
-// kPixelsPerCocoaTick pixels.
-inline WheelPixels PixelsOf(const Wheel& wheel) {
-  const double scale = wheel.precise ? 1 : kPixelsPerCocoaTick;
-  auto pixels = [scale](double delta) {
-    return static_cast<int>(std::clamp<double>(std::round(delta * scale), INT32_MIN, INT32_MAX));
-  };
-  return WheelPixels{pixels(wheel.dx), pixels(wheel.dy)};
-}
+// call, which takes whole pixels (as WheelOf: a line is kPixelsPerCocoaTick).
+// Each frame's fraction carries to the next frame of the same browser and
+// gesture, as the OS carries it in the CG integer point deltas, so a slow
+// trackpad scroll of under half a pixel a frame still moves the page. A
+// gesture's or momentum's start or end, a change of browser or of precise
+// clears the carry. UI thread.
+class WheelPixelCarry {
+ public:
+  WheelPixels Take(int32_t browser, const Header& frame) {
+    const bool precise = (frame.flags & kWheelPrecise) != 0;
+    const int phase = WheelPhaseOf(frame.v[4]);
+    const int momentum_phase = WheelPhaseOf(frame.v[5]);
+    if (browser != browser_ || precise != precise_ || IsStart(phase) || IsStart(momentum_phase)) Clear();
+    browser_ = browser;
+    precise_ = precise;
+    const int64_t scale = precise ? 1 : kPixelsPerCocoaTick;
+    const WheelPixels pixels{Whole(&dx_, frame.v[2] * scale), Whole(&dy_, frame.v[3] * scale)};
+    if (IsEnd(phase) || IsEnd(momentum_phase)) Clear();
+    return pixels;
+  }
+
+ private:
+  static bool IsStart(int phase) { return phase == kWheelPhaseMayBegin || phase == kWheelPhaseBegan; }
+  static bool IsEnd(int phase) { return phase == kWheelPhaseEnded || phase == kWheelPhaseCancelled; }
+  // Adds hundredths of a pixel to `carry` and takes its whole pixels out.
+  static int Whole(int64_t* carry, int64_t hundredths) {
+    *carry += hundredths;
+    const int64_t whole = std::clamp<int64_t>(*carry / kWheelDeltaScale, INT32_MIN, INT32_MAX);
+    *carry -= whole * kWheelDeltaScale;
+    return static_cast<int>(whole);
+  }
+  void Clear() { dx_ = dy_ = 0; }
+
+  int32_t browser_ = 0;
+  bool precise_ = false;
+  int64_t dx_ = 0;  // hundredths of a pixel not sent yet
+  int64_t dy_ = 0;
+};
 
 // One ordered input stream (task p01-process-092). Chrome sends input and the
 // view's state (focus, IME, edit commands, geometry) to the renderer host on
