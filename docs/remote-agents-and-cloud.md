@@ -8,14 +8,16 @@ remote agent.
 This guide describes the cmux NEXT command surface checked on 2026-10-25.
 Use the CLI bundled with the app you are running. Available commands can differ
 between builds. See the [acpmux README](../cmux-tui/crates/acpmux/README.md) for
-harness profiles, protocol details and source-build prerequisites.
+harness profiles and protocol details, and the [cmux-tui build prerequisites](../cmux-tui/README.md#build)
+before building from source.
 
 ## Connect your own machine
 
 You need SSH access to your own Mac or Linux host, persistent storage, a
 compatible acpmux executable, and the agent harness you want to run. Authenticate
-that harness as yourself on the execution host. SSH does not forward your model
-login or GitHub credentials automatically.
+that harness as yourself on the execution host: after installing Claude Code or
+Codex, run `claude auth login` or `codex login` there. SSH does not forward your
+model login or GitHub credentials automatically.
 
 For example, a NIGHTLY installation exposes the bundled CLI in this shell with:
 
@@ -30,19 +32,28 @@ daemon over SSH and adds the peer. It copies the invoking executable: do not
 use a Mac executable to bootstrap a Linux machine.
 
 On your own Linux host, install a build for its architecture. To build from
-source with the Rust toolchain and cmux-tui prerequisites installed:
+source, install the Rust toolchain and Zig version required by the
+[cmux-tui README](../cmux-tui/README.md#build), then initialize the submodules
+before building. Install the resulting binary at `~/.local/bin/acpmux`, which
+`host doctor` checks by default:
 
 ```sh
 git clone --branch feat-cmux-next https://github.com/manaflow-ai/cmux.git
-cd cmux/cmux-tui
+cd cmux
+git submodule update --init ghostty ghostty-next
+cd cmux-tui
 cargo build --release -p acpmux
-export PATH="$PWD/target/release:$PATH"
+mkdir -p "$HOME/.local/bin"
+install -m 755 target/release/acpmux "$HOME/.local/bin/acpmux"
+export PATH="$HOME/.local/bin:$PATH"
 acpmux daemon run --listen 127.0.0.1:47811
 ```
 
 The daemon runs in the foreground. For unattended use, configure your own
 service supervisor with that executable, persistent home and harness PATH;
-verify it remains available after SSH logout. Keep the WebSocket listener on
+verify it remains available after SSH logout. Add `~/.local/bin` and the harness
+installation directory to that service's PATH as well; the shell export above
+affects only the current shell. Keep the WebSocket listener on
 loopback. The peer connection below tunnels it through SSH.
 
 Back on your Mac, use an SSH alias that reaches your own remote account:
@@ -64,6 +75,15 @@ SSH route. The peer reads credentials from the remote default `~/.acpmux` home.
 acpmux reads the peer's authentication through SSH; you do not need to paste
 its daemon token. Peering grants access to session contents and tools, so add
 only hosts and accounts you trust.
+
+`host doctor` without `--harness` skips harness checks; a healthy peer does not
+prove that an agent can run. Its `--harness ID` option checks a named harness
+profile, not the PATH-discovered harness alone. Verify the remote harness with
+`acpmux daemon harnesses` on that host and a real session prompt.
+
+`host enroll` installs the invoking binary too. Use it only for a compatible
+remote OS and architecture. For a Linux host reached from a Mac, use the Linux
+installation and `host add` steps above instead.
 
 ## Work with a remote session
 
@@ -158,7 +178,11 @@ the current app actions; old `cmux vm` examples are not interchangeable with the
 The execution host owns the acpmux journal and the harness's native resume
 files. In the default local store, acpmux keeps session metadata and numbered
 event segments under `~/.acpmux/sessions`; an app or `ACPMUX_HOME` can select a
-different home. The checkout, harness login and native state must also remain
+different home. If you deliberately run an isolated standalone daemon from
+inside an agent session, unset the inherited `ACPMUX_SOCKET` before setting
+`ACPMUX_HOME`; otherwise commands can still target the enclosing session's
+daemon. Check `acpmux daemon status` for the actual socket and home before
+starting or stopping it. The checkout, harness login and native state must also remain
 available to resume execution.
 
 An SSH drop or app restart normally leaves remote work running. A daemon

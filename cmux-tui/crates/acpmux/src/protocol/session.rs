@@ -107,6 +107,9 @@ pub struct SessionSummary {
     pub unread: bool,
     #[schemars(with = "Option<LastTurn>")]
     pub last_turn: Option<Value>,
+    /// The automatic retry of its failed last turn that waits (`hub/auto_resume.rs`); null
+    /// when none waits.
+    pub retry: Option<RetrySummary>,
     /// Attached clients.
     pub attached: u64,
     /// Some attached client shows the chat.
@@ -351,6 +354,52 @@ pub struct LastTurn {
     /// Why a turn ended without an answer, e.g. `outcome_unknown`.
     pub detail: Option<String>,
     pub ended_at: u64,
+}
+
+/// An automatic retry of a failed turn that waits (`hub/auto_resume.rs`): attempt `attempt`
+/// of `of`, at `nextAt` (epoch ms). It sends the prompt `promptId~resume-<attempt>` in the same
+/// session, for the cut turn `turnId`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "camelCase")]
+#[schemars(transform = require_all)]
+pub struct RetrySummary {
+    pub attempt: u64,
+    pub of: u64,
+    pub reason: RetryReason,
+    pub next_at: u64,
+    pub prompt_id: String,
+    pub turn_id: String,
+}
+
+/// Why a turn is retried (`hub::turn_errors::resume_cause`): the provider or the gateway had no
+/// capacity (HTTP 503 or 529, overloaded, no account free), the connection dropped, or the
+/// agent process died mid-turn.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
+#[serde(rename_all = "snake_case")]
+pub enum RetryReason {
+    Capacity,
+    Transport,
+    AgentExited,
+}
+
+impl RetryReason {
+    /// The reason `resume_cause` names, if it is one.
+    pub fn from_cause(cause: &str) -> Option<Self> {
+        match cause {
+            "capacity" => Some(Self::Capacity),
+            "transport" => Some(Self::Transport),
+            "agent_exited" => Some(Self::AgentExited),
+            _ => None,
+        }
+    }
+
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Capacity => "capacity",
+            Self::Transport => "transport",
+            Self::AgentExited => "agent_exited",
+        }
+    }
 }
 
 /// Also the page fields of `_acpmux/watch` (`hub::session_pages`).
