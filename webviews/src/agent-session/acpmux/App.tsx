@@ -6883,7 +6883,7 @@ function AcpmuxPane() {
             counted = false;
           };
           try {
-            return await sendThrough(text, attachments, accepted, steer, promptId, handedOn);
+            return await sendThrough(text, attachments, accepted, steer, promptId, handedOn, seeded);
           } finally {
             handedOn();
           }
@@ -6895,6 +6895,7 @@ function AcpmuxPane() {
           steer: boolean,
           promptId: string | undefined,
           handedOn: () => void,
+          seeded: boolean,
         ) => {
           // acpmux holds the prompt while the folder's trust question is open (on session/new
           // or session/prompt): the question shows for the folder acpmux named, and Trust sends
