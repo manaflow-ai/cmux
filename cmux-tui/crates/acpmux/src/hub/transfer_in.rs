@@ -281,11 +281,42 @@ impl Hub {
             old.replaced.store(true, Ordering::SeqCst);
             self.kill(old, false).await?;
         }
+        let source_store = if replacing_durable { self.store.session_dir(id) } else { None };
+        let source_store_backup = if let Some(source_store) = source_store.as_ref() {
+            let backup = dir.join("source-store");
+            if std::fs::symlink_metadata(source_store).is_ok() {
+                if std::fs::symlink_metadata(&backup).is_ok() {
+                    return Err(transfer_error("store", "source-store backup path is occupied"));
+                }
+                std::fs::rename(source_store, &backup)
+                    .map_err(|e| transfer_error("store", format!("stage source store: {e}")))?;
+                Some((source_store.clone(), backup))
+            } else {
+                None
+            }
+        } else {
+            None
+        };
         let name = text("name").map(str::to_owned);
         let guarded = guard
             .as_ref()
             .map(|guard| super::transfer_guard::GuardedImport { guard, replace_native });
-        let session = self.import_into(&bundle, name, true, guarded, replacing_durable).await?;
+        let session = match self.import_into(&bundle, name, true, guarded, replacing_durable).await
+        {
+            Ok(session) => {
+                if let Some((_, backup)) = source_store_backup.as_ref() {
+                    let _ = std::fs::remove_dir_all(backup);
+                }
+                session
+            }
+            Err(error) => {
+                if let Some((source_store, backup)) = source_store_backup.as_ref() {
+                    let _ = std::fs::remove_dir_all(source_store);
+                    let _ = std::fs::rename(backup, source_store);
+                }
+                return Err(error);
+            }
+        };
         if let Some(g) = &guard {
             self.append(&session, "mux", "transfer_guarded", g.to_value());
         }

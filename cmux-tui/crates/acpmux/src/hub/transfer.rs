@@ -299,16 +299,21 @@ impl Hub {
         let legacy_root = dirs::home_dir()
             .map(|home| home.join(".cmux-harness").join("sessions"))
             .filter(|legacy| legacy != root);
-        let (state_root, pi_session_path, session_bytes) =
+        let (pi_root, journal_root, pi_session_path, session_bytes) =
             match Self::harness_pi_session(root, agent_id) {
-                Ok((path, bytes)) => (root.to_path_buf(), path, bytes),
+                Ok((path, bytes)) => (root.to_path_buf(), root.to_path_buf(), path, bytes),
                 Err(error) => {
                     let legacy = legacy_root.ok_or(error)?;
+                    let durable = legacy
+                        .parent()
+                        .map(|parent| parent.join("durable"))
+                        .ok_or_else(|| anyhow::anyhow!("invalid legacy harness root"))?;
                     let (path, bytes) = Self::harness_pi_session(&legacy, agent_id)?;
-                    (legacy, path, bytes)
+                    (legacy, durable, path, bytes)
                 }
             };
-        let journal = state_root.join(agent_id).join("journal.ndjson");
+        let _ = pi_root;
+        let journal = journal_root.join(agent_id).join("journal.ndjson");
         let pi_filename = pi_session_path
             .file_name()
             .and_then(|name| name.to_str())
@@ -450,6 +455,10 @@ impl Hub {
                 return Err(anyhow::anyhow!("durable transfer temporary path is occupied"));
             }
         }
+        let mut installed_journal = false;
+        let mut installed_pi = false;
+        let mut backed_journal = false;
+        let mut backed_pi = false;
         let install = (|| -> Result<()> {
             use std::io::Write;
             let mut file =
@@ -463,16 +472,21 @@ impl Hub {
             if replace_durable {
                 if std::fs::symlink_metadata(&journal).is_ok() {
                     std::fs::rename(&journal, &journal_backup)?;
+                    backed_journal = true;
                 }
                 if std::fs::symlink_metadata(&pi_target).is_ok() {
                     if let Err(e) = std::fs::rename(&pi_target, &session_backup) {
                         let _ = std::fs::rename(&journal_backup, &journal);
+                        backed_journal = false;
                         return Err(e.into());
                     }
+                    backed_pi = true;
                 }
             }
             std::fs::rename(&journal_tmp, &journal)?;
+            installed_journal = true;
             std::fs::rename(&session_tmp, &pi_target)?;
+            installed_pi = true;
             std::fs::File::open(&journal_dir)?.sync_all()?;
             std::fs::File::open(root)?.sync_all()?;
             let _ = std::fs::remove_file(&journal_backup);
@@ -482,10 +496,18 @@ impl Hub {
         if let Err(e) = install {
             let _ = std::fs::remove_file(&journal_tmp);
             let _ = std::fs::remove_file(&session_tmp);
-            let _ = std::fs::remove_file(&journal);
-            let _ = std::fs::remove_file(&pi_target);
-            let _ = std::fs::rename(&journal_backup, &journal);
-            let _ = std::fs::rename(&session_backup, &pi_target);
+            if installed_journal {
+                let _ = std::fs::remove_file(&journal);
+            }
+            if installed_pi {
+                let _ = std::fs::remove_file(&pi_target);
+            }
+            if backed_journal {
+                let _ = std::fs::rename(&journal_backup, &journal);
+            }
+            if backed_pi {
+                let _ = std::fs::rename(&session_backup, &pi_target);
+            }
             return Err(e);
         }
         Ok(())
