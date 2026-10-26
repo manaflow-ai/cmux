@@ -8,10 +8,12 @@ reload: rows empty and refill, entrances replay. Views read a shared projection 
 their source only when it pushed a change. In the agent page (every .ts/.tsx file under
 webviews/src/agent-session/acpmux, galleries and tests excluded) this refuses:
 
-  listener  a `visibilitychange` or `pageshow` listener, or a `focus` listener on the window or
-            document (`window`, `document`, `globalThis`, `doc`, `view`, `defaultView`), in a file
-            and for an event that `ALLOWED_LISTENERS` does not list with its reason. An element's
-            own `focus` listener is not a switch.
+  listener  a `visibilitychange`, `resume` or `pageshow` listener, or a `focus` listener on the
+            window or document (`window`, `document`, `globalThis`, `doc`, `view`, `defaultView`),
+            in a file and for an event that `ALLOWED_LISTENERS` does not list with its reason. An
+            element's own `focus` listener is not a switch. `onPageLifecycleChange(` (the page
+            lifecycle, webviews/src/pages/shared/pageLifecycle.ts) counts as a `visibilitychange`
+            listener.
   mount     a `useEffect` / `useLayoutEffect` whose dependencies are `[]`, or only stable read
             functions (`callNative`, `fetchPage`, `load...`, `reload`, `refresh...`), whose body
             reads data (`callNative(`, `.request(`, `fetch(`, `fetchPage(`, a `load...(` call) or
@@ -73,8 +75,10 @@ ALLOWED_MOUNT_READS = {
 }
 
 LISTENER = re.compile(
-    r"(?:([\w$]+)\s*\??\.\s*)?addEventListener\s*\??\.?\(\s*[\"'](visibilitychange|focus|pageshow)[\"']"
+    r"(?:([\w$]+)\s*\??\.\s*)?addEventListener\s*\??\.?\(\s*[\"'](visibilitychange|focus|pageshow|resume)[\"']"
 )
+# The page lifecycle's observer fires on hide, freeze, resume and show: a `visibilitychange` listener.
+LIFECYCLE_LISTENER = re.compile(r"(?<![\w$.])onPageLifecycleChange\s*\(")
 PAGE_RECEIVERS = {"window", "document", "globalThis", "doc", "view", "defaultView", "self"}
 EFFECT = re.compile(r"\buse(?:Layout)?Effect\(")
 READ = re.compile(
@@ -180,6 +184,14 @@ def deps_of(call: str) -> list[str] | None:
     return None
 
 
+def listener_hit(path: str, line: int, event: str) -> str:
+    return (
+        f"{path}:{line}: `{event}` listener in the agent page: a switch away and back must not "
+        "re-read (shared-projections.md); read the shared projection, or add the file and event "
+        "to ALLOWED_LISTENERS in scripts/cmux-next/check-switch-fetches.py with its reason"
+    )
+
+
 def check_text(path: str, text: str) -> list[str]:
     hits: list[str] = []
     lines = text.splitlines()
@@ -196,11 +208,12 @@ def check_text(path: str, text: str) -> list[str]:
         if (path, event) in ALLOWED_LISTENERS:
             continue
         line = text.count("\n", 0, match.start()) + 1
-        hits.append(
-            f"{path}:{line}: `{event}` listener in the agent page: a switch away and back must not "
-            "re-read (shared-projections.md); read the shared projection, or add the file and event "
-            "to ALLOWED_LISTENERS in scripts/cmux-next/check-switch-fetches.py with its reason"
-        )
+        hits.append(listener_hit(path, line, event))
+    for match in LIFECYCLE_LISTENER.finditer(code):
+        if (path, "visibilitychange") in ALLOWED_LISTENERS:
+            continue
+        line = code.count("\n", 0, match.start()) + 1
+        hits.append(listener_hit(path, line, "visibilitychange"))
     for match in EFFECT.finditer(code):
         open_paren = match.end() - 1
         call = code[match.start() : call_end(code, open_paren)]
@@ -238,6 +251,10 @@ def self_test() -> None:
     assert check_text(view, "document.addEventListener('visibilitychange', x, { passive: true });")
     assert not check_text(view, 'input.addEventListener("focus", onFocus);'), "an element's focus"
     assert not check_text(f"{ACPMUX}/direct.ts", 'document.addEventListener("visibilitychange", x);')
+    assert check_text(view, "const stop = onPageLifecycleChange(() => void callNative('x'));"), "lifecycle"
+    assert check_text(view, 'document.addEventListener("resume", reread);'), "a resume listener"
+    assert not check_text(f"{ACPMUX}/direct.ts", "this.stop = onPageLifecycleChange(this.showChanged);")
+    assert not check_text(view, "// onPageLifecycleChange(reread) is refused here\nconst a = 1;"), "lifecycle prose"
     assert not check_text(view, '/// unlike window.addEventListener("focus", ...)\nconst a = 1;'), "doc comment"
     mount = "useEffect(() => {\n  void callNative('chats.page');\n}, []);"
     assert check_text(view, mount), "a mount read"
