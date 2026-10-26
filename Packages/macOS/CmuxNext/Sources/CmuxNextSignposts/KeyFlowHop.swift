@@ -48,6 +48,24 @@ public nonisolated enum KeyFlowHop: String, Sendable, CaseIterable {
         }
     }
 
+    /// ``rawValue`` as a literal in the binary: the `key.flow` emit passes its NUL-terminated bytes, where a small
+    /// `String` would be copied to the heap for them.
+    var staticName: StaticString {
+        switch self {
+        case .appKeyDispatch: "app.key.dispatch"
+        case .appKeyDispatched: "app.key.dispatched"
+        case .appKeyTerminal: "app.key.terminal"
+        case .appIOWrite: "app.io_write"
+        case .appSend: "app.send"
+        case .appOutputDecoded: "app.output.decoded"
+        case .appOutputReceived: "app.output.received"
+        case .appOutputParsed: "app.output.parsed"
+        case .appFrameContents: "app.frame.contents"
+        case .appKeyCommit: "app.key.commit"
+        case .appFrameCommit: "app.frame.commit"
+        }
+    }
+
     /// Whether the press's flow starts at this hop: its ring record is a flow out (`s`); every later hop is a
     /// flow in (`f`) with the same id, as Chrome binds a flow's steps (`TRACE_EVENT_WITH_FLOW*`,
     /// base/trace_event/common/trace_event_common.h).

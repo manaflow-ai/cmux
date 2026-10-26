@@ -202,10 +202,15 @@ public final class DisplayClock {
                          targetTimestamp: CFTimeInterval? = nil, hiddenUntil: CFTimeInterval?) {
         // Schedulers that subscribe during this tick tick next frame; one that leaves during it
         // (its window closed) gets nothing more.
-        let ticking = display.subscribers
-            .filter { mayTick($0, hiddenUntil: hiddenUntil, timestamp: timestamp, refreshInterval: refreshInterval,
-                              targetTimestamp: targetTimestamp) }
-            .map { ($0, $0.beginFrame(timestamp: timestamp, refreshInterval: refreshInterval, targetTimestamp: targetTimestamp)) }
+        // A scheduler that just came from another display skips a frame shown no later than its last
+        // one (``FrameScheduler/takesTick(timestamp:refreshInterval:targetTimestamp:)``).
+        let ticking = display.subscribers.compactMap { scheduler -> (FrameScheduler, FrameTick)? in
+            guard let pace = pace(scheduler, hiddenUntil: hiddenUntil),
+                  scheduler.takesTick(timestamp: timestamp, refreshInterval: refreshInterval, targetTimestamp: targetTimestamp)
+            else { return nil }
+            return (scheduler, scheduler.beginFrame(timestamp: timestamp, refreshInterval: refreshInterval,
+                                                    targetTimestamp: targetTimestamp, offLink: pace == .stallRate))
+        }
         func subscribed(_ scheduler: FrameScheduler) -> Bool { display.subscribers.contains { $0 === scheduler } }
         for (scheduler, tick) in ticking where scheduler.holdsBudget && subscribed(scheduler) {
             scheduler.deliverFrameLocked(tick)
@@ -221,16 +226,22 @@ public final class DisplayClock {
         }
     }
 
-    /// A window nobody can see ticks at the stall rate, not the display's (R6: hidden and occluded
-    /// cost nothing), and a scheduler that just came from another display skips a frame shown no later
-    /// than its last one (``FrameScheduler/takesTick(timestamp:refreshInterval:targetTimestamp:)``).
-    private func mayTick(_ scheduler: FrameScheduler, hiddenUntil: CFTimeInterval?, timestamp: CFTimeInterval?,
-                         refreshInterval: Double?, targetTimestamp: CFTimeInterval?) -> Bool {
-        if let hiddenUntil, let window = scheduler.hostWindow, !isVisible(window),
-           let last = scheduler.lastTickTimestamp, last > hiddenUntil + Self.stallSlack {
-            return false
-        }
-        return scheduler.takesTick(timestamp: timestamp, refreshInterval: refreshInterval, targetTimestamp: targetTimestamp)
+    /// What paces a scheduler's ticks.
+    private enum Pace {
+        /// Every frame of the display's link.
+        case link
+        /// The stall deadline: the link stopped, or nobody can see the scheduler's window.
+        case stallRate
+    }
+
+    /// Whether `scheduler` ticks in this frame, and at what pace (nil: not this frame). A window nobody
+    /// can see ticks at the stall rate, not the display's (R6: hidden and occluded cost nothing); the
+    /// app and budgeted schedulers always tick.
+    private func pace(_ scheduler: FrameScheduler, hiddenUntil: CFTimeInterval?) -> Pace? {
+        guard let hiddenUntil else { return .stallRate }
+        guard let window = scheduler.hostWindow, !isVisible(window) else { return .link }
+        let due = scheduler.lastTickTimestamp.map { $0 <= hiddenUntil + Self.stallSlack } ?? true
+        return due ? .stallRate : nil
     }
 
     /// Every subscriber of `display` is a window nobody can see.

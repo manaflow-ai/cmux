@@ -20,6 +20,8 @@ public import CmuxNextCompat
 /// - A repeated level makes no call at all.
 /// - A consumer that registers gets the current limit before its registration's init returns, and
 ///   joins the release when that limit is under 100 %.
+/// - A ``MemoryLevelConsumer`` (a lossy planner with its own pace) also gets the level: at
+///   registration and after the limits of each level change.
 ///
 /// The level is the debug override when set (`debug.hibernation.pressure`), else the kernel's level
 /// from ``MemoryPressureEvents`` (read at init, then each change). Nothing here waits or reads on a
@@ -114,7 +116,7 @@ public final class MemoryCoordinator: MemoryConsumerRegistry {
     /// `memoryUsage` is the last value it sent, so the report never waits for an actor. Released
     /// registrations are left out; a consumer that cannot tell its size shows as unknown, never 0.
     ///
-    /// - Parameter budget: The app's budgets at normal pressure (`AppServices.memoryBudget`).
+    /// - Parameter budget: The app's budgets at normal pressure (the app's `DebugMemoryControl.budget`).
     /// - Returns: The snapshot `debug.memory` serves.
     public func report(budget: SubsystemBudget) -> MemoryReport {
         let records = consumers.liveRecords()
@@ -136,6 +138,7 @@ public final class MemoryCoordinator: MemoryConsumerRegistry {
         let record = Record(entry: entry, limit: current)
         consumers.add(record)
         entry.liveConsumer?.updateMemoryLimit(current)
+        (entry.liveConsumer as? any MemoryLevelConsumer)?.memoryLevelDidChange(level)
         if record.needsRelease { scheduleSlice() }
     }
 
@@ -149,6 +152,9 @@ public final class MemoryCoordinator: MemoryConsumerRegistry {
         guard newLevel != level else { return }
         level = newLevel
         applyLimits()
+        for entry in consumers.liveEntries() {
+            (entry.liveConsumer as? any MemoryLevelConsumer)?.memoryLevelDidChange(newLevel)
+        }
     }
 
     /// Hands each consumer whose limit changed its new limit, and asks for a slice when one fell.

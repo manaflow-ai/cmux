@@ -1,3 +1,5 @@
+import Foundation
+
 extension MainFrameBudget {
     /// Counters for `debug.main_budget` and the benches.
     public struct Stats: Sendable, Equatable {
@@ -37,5 +39,21 @@ extension MainFrameBudget {
         public var inputResponseCapHits = 0
         /// The longest input response, in nanoseconds (from the input to what closed it).
         public var maxInputResponseNanos: UInt64 = 0
+    }
+
+    /// `workClass`'s slot in the per-class counters (``MainWorkClass/budgeted`` order); nil for the
+    /// unbudgeted classes.
+    static func index(_ workClass: MainWorkClass) -> Int? {
+        switch workClass {
+        case .input, .frame: nil
+        case .visible: 0
+        case .automation: 1
+        case .background: 2
+        }
+    }
+
+    /// `nanos` as milliseconds with two decimals (signpost messages).
+    static func milliseconds(_ nanos: UInt64) -> String {
+        String(format: "%.2f", Double(nanos) / 1_000_000)
     }
 }

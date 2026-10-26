@@ -24,9 +24,11 @@ import PackageDescription
 //   CmuxNextDesign -> CmuxTheme, CCmuxAppFFI (cmux-motion curves and color mix), Icons (OverflowButton's glyph),
 //     Wakeups, Trace, Metrics, Signposts; CmuxNextActions -> Signposts, Wakeups, Trace, Metrics;
 //     CmuxNextDaemon -> Compat, Wakeups, Trace, Metrics, Signposts (the p09-observability trace points and histograms)
-//   CmuxNextSignposts -> Compat, Trace, Metrics, system frameworks (always-on os_signpost intervals, the one name catalog,
-//     CommitBoundary, the opt-in MetricKit mirror for hang reports, the typed ring trace points; Metrics for the
-//     key.frame and input.frame histograms, p09-observability tasks 054 and 111)
+//   CmuxNextSignposts -> Compat, Trace, Metrics, SignpostsC, system frameworks (always-on os_signpost intervals, the one
+//     name catalog, CommitBoundary, the opt-in MetricKit mirror for hang reports, the typed ring trace points; Metrics for
+//     the key.frame and input.frame histograms, p09-observability tasks 054 and 111)
+//   CmuxNextSignpostsC -> libSystem only (C: os_signpost macros for the key and stall signposts, no heap allocation;
+//     p09-observability task 007)
 //   CmuxNextLaunch -> Compat, Signposts, Wakeups, Design (launch-only types: the launch image hold, and the
 //     startup trace, temperature and saved window picture to come; the App only wires them;
 //     plans/cmux-next/chrome-parity/p08-startup.md, task 073)
@@ -232,6 +234,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextChiefMemory",
                 "CmuxNextCompat",
                 "CmuxNextFavicons",
+                "CmuxNextFeatures",
                 "CmuxNextFiles",
                 "CmuxNextFilesUI",
                 "CmuxNextVSCodeServer",
@@ -1286,12 +1289,16 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             // Compat's Atomic: the MetricKit mirror's switch (SignpostMetricKitMirror.swift). Trace: the
             // typed ring trace points (Signposter+Trace.swift). Metrics: the key.frame and input.frame
             // histogram records of KeyFrameSignpost and InputFrameSignpost (p09-observability 054, 111).
-            dependencies: ["CmuxNextCompat", "CmuxNextTrace", "CmuxNextMetrics"],
+            // SignpostsC: the key and stall signposts with no heap allocation (p09-observability 007).
+            dependencies: ["CmuxNextCompat", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextSignpostsC"],
             swiftSettings: daemonSwiftSettings
         ),
+        // os_signpost's C macros for the key and stall signposts: a stack buffer per emit, no heap allocation.
+        .target(name: "CmuxNextSignpostsC"),
         .testTarget(
             name: "CmuxNextSignpostsTests",
-            dependencies: ["CmuxNextSignposts", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextCompat"],
+            // Compat's Atomic: the allocation tests' per-thread malloc counter. SignpostsC: its names match the catalog.
+            dependencies: ["CmuxNextSignposts", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextCompat", "CmuxNextSignpostsC"],
             swiftSettings: uiSwiftSettings
         ),
         // Launch-only types (plans/cmux-next/chrome-parity/p08-startup.md, task 073): CmuxNextApp's size
@@ -1555,6 +1562,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: [
                 "CmuxNextCompat",
                 "CmuxNextWakeups",
+                "CmuxNextInputCore",
                 "CmuxNextProcessEnvironment",
                 "CmuxNextDesign",
                 "CmuxNextIcons",
@@ -1575,7 +1583,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // whole App build. libghostty needs libc++, as in CmuxNextAppTests.
         .testTarget(
             name: "CmuxNextTerminalTests",
-            dependencies: ["CmuxNextTerminal", "CmuxNextTrace", "CmuxNextMetrics"],
+            dependencies: ["CmuxNextTerminal", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextCompat", "CmuxNextInputCore"],
             swiftSettings: uiSwiftSettings,
             linkerSettings: [.linkedLibrary("c++")]
         ),
@@ -1651,6 +1659,11 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextHibernation",
             dependencies: ["CmuxNextCompat", "CmuxNextSettings"],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextHibernationTests",
+            dependencies: ["CmuxNextHibernation", "CmuxNextCompat", "CmuxNextSettings"],
             swiftSettings: uiSwiftSettings
         ),
         // The browser's engine-neutral half: tab and engine values, intents, capability protocols, omnibox
@@ -1792,6 +1805,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextDaemonService",
                 "CmuxNextDesign",
                 "CmuxNextDiff",
+                "CmuxNextFeatures",
                 "CmuxNextFeed",
                 "CmuxNextFileGrid",
                 "CmuxNextFiles",
