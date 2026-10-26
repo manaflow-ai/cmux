@@ -10,7 +10,8 @@ real key waits in the event queue) into:
   home       the native Home composer (the Home fixture: the same MessagesLab view and field over the mock
              owner): send to the end of the run-loop turn that committed the edit (`commit_ms`)
   dock       the docked Home the app opens at launch (the real Home owner), when it shows a conversation
-  omnibar    the omnibar of a Chromium tab: send to the commit of the edit (`commit_ms`)
+  omnibar    the omnibar of a browser tab of --engine (Chromium unless webkit): send to the commit of the edit
+             (`commit_ms`)
 
 each in two phases:
 
@@ -25,6 +26,7 @@ load phase's keys (the main thread's heaviest frames). The display's refresh rat
 frames). Exit 1 with --gate-p95-ms when any measured surface's p95 is over it.
 
   typing-frame-bench.py --app APP --tag TAG --out DIR [--json FILE] [--surfaces terminal,home,dock,omnibar]
+      [--engine chromium|webkit]
       [--phases idle,load] [--samples 80] [--busy 20] [--chats 2] [--sample] [--gate-p95-ms 8]
 
 Fleet (an owned mini with a console; the step builds the app):
@@ -42,6 +44,8 @@ parser.add_argument("--tag", required=True)
 parser.add_argument("--out", required=True)
 parser.add_argument("--json")
 parser.add_argument("--surfaces", default="dock,terminal,home,omnibar")
+parser.add_argument("--engine", choices=("chromium", "webkit"), default="chromium",
+                    help="the engine of the tab whose omnibar the omnibar surface types into")
 parser.add_argument("--phases", default="idle,load")
 parser.add_argument("--samples", type=int, default=80)
 parser.add_argument("--interval", type=float, default=0.1, help="seconds between keys (one key in flight)")
@@ -497,8 +501,8 @@ def surface_omnibar(phase, pid):
     if phase == "load":
         make_load(None)
     if not LOAD.get("omnibar_open"):
-        reply = action("openBrowser.chromium", {"url": "about:blank"}, settle=4.0, timeout=120)
-        note(f"omnibar: chromium tab {json.dumps(reply)[:120]}")
+        reply = action(f"openBrowser.{opts.engine}", {"url": "about:blank"}, settle=4.0, timeout=120)
+        note(f"omnibar: {opts.engine} tab {json.dumps(reply)[:120]}")
         LOAD["omnibar_open"] = True
     action("focusBrowserAddressBar", settle=0.5)
     bar = rpc("debug.omnibar") or {}

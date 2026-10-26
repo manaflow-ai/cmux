@@ -589,7 +589,8 @@ Paths: `S/` = `Packages/macOS/CmuxNext/Sources/`, `T/` = `Packages/macOS/CmuxNex
 - Files: `Packages/macOS/CmuxNext/Package.swift`, `S/CmuxNextInputCore/InputEventKind.swift`, `InputStage.swift`,
   `InputLatencySlot.swift`, `InputLatencySlotTable.swift`, `InputLatencyRing.swift`, `InputLatencyBuckets.swift`,
   `T/CmuxNextInputCoreTests/InputLatencyRingTests.swift`, `plans/cmux-next/architecture-layers.json`.
-- Change: new core target (depends only on CmuxNextCompat). Kinds: keyPress, keyRelease, flags, mousePress,
+- Change: new core target (depends on CmuxNextCompat for its `Atomic` counters, and on swift-atomics for the table's
+  packed `UnsafeAtomic` storage, which Compat's `Atomic` cannot lay out). Kinds: keyPress, keyRelease, flags, mousePress,
   mouseRelease, pointerMove, drag, scrollBegin, scrollFirstUpdate, scrollUpdate, scrollMomentum, scrollEnd,
   magnify. Targets: terminal, textView, chromiumPage, webkitPage, agentPane, layout, sidebar, palette, other.
   Stages: generated, lastGenerated, arrivedMain, dispatchStart, textInputStart, textInputEnd, dispatchEnd,

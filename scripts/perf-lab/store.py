@@ -165,6 +165,11 @@ MIGRATIONS: tuple[Migration, ...] = (
             bytes INTEGER NOT NULL,
             created_at TEXT NOT NULL)""",
     )),
+    # A sheriff's claim on a group is not a state change, so it lives on the group, not in sheriff_history.
+    (2, "sheriff claims", (
+        "ALTER TABLE alert_groups ADD COLUMN holder TEXT",
+        "ALTER TABLE alert_groups ADD COLUMN held_at TEXT",
+    )),
 )
 
 
