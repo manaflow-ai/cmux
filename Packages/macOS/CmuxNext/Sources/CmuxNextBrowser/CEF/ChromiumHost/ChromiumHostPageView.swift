@@ -47,6 +47,11 @@ public final class ChromiumHostPageView: NSView {
     }
     /// The view left its window (its pane closed, or it moved out of every window).
     var onLeftWindow: (() -> Void)?
+    /// The view became (`true`) or stopped being its window's first responder: in host mode the
+    /// page's focus follows it (``CEFTab/applyFocus(_:browser:)``), as Chrome's page focus follows
+    /// `RenderWidgetHostViewCocoa`'s (`OnFirstResponderChanged`,
+    /// content/app_shim_remote_cocoa/render_widget_host_view_cocoa.mm).
+    var onFocusChange: ((Bool) -> Void)?
     /// The shown context, 0 while none.
     var contextID: UInt32 { surface.contextID }
     /// The page's background, shown wherever the page's own pixels are not
@@ -106,6 +111,23 @@ public final class ChromiumHostPageView: NSView {
     public override var acceptsFirstResponder: Bool { inputTarget == .view }
     public override func acceptsFirstMouse(for event: NSEvent?) -> Bool { inputTarget == .view }
     public override func isAccessibilityElement() -> Bool { false }
+
+    public override func becomeFirstResponder() -> Bool {
+        firstResponderChanged(true)
+        return true
+    }
+
+    public override func resignFirstResponder() -> Bool {
+        firstResponderChanged(false)
+        return true
+    }
+
+    private func firstResponderChanged(_ focused: Bool) {
+        onFocusChange?(focused)
+        #if DEBUG || CMUX_BENCH_HOOKS
+        sink?(ChromiumHostFrame(.focus, v: [focused ? 1 : 0]))
+        #endif
+    }
 
     /// With ``InputTarget/pageWindow`` nothing here takes the mouse: the
     /// WindowServer gives every click in the page's rect to the page window above.
@@ -277,18 +299,6 @@ public final class ChromiumHostPageView: NSView {
 #if DEBUG || CMUX_BENCH_HOOKS
 // The Chromium host app ships in Debug builds only (embed-cef.sh), and so does its wire.
 extension ChromiumHostPageView {
-    // MARK: Focus
-
-    public override func becomeFirstResponder() -> Bool {
-        sink?(ChromiumHostFrame(.focus, v: [1]))
-        return true
-    }
-
-    public override func resignFirstResponder() -> Bool {
-        sink?(ChromiumHostFrame(.focus, v: [0]))
-        return true
-    }
-
     // MARK: Mouse
 
     public override func updateTrackingAreas() {
