@@ -225,8 +225,8 @@
         "Install the feed order check": {"plumbing": true},
         "Publish the rolling DMG name and the feed copy": {"nightly_only": "replaces the rolling DMG and feed assets on the GitHub release"},
         "Mint release tag app token": {"nightly_only": "mints release tag App token"},
-        "Record verified nightly publication": {"nightly_only": "edits published GitHub release body"},
-        "Move channel release tag to built commit": {"nightly_only": "moves channel release tag (update-release-tag.py tested by tests/test_update_release_tag.py)"}},
+        "Record the published build in the release body": {"nightly_only": "edits published GitHub release body"},
+        "Move the nightly-next tag to the published build": {"nightly_only": "moves channel release tag (update-release-tag.py tested by tests/test_update_release_tag.py)"}},
       "keep-published-dsyms": {
         "Wait through GitHub API rate limits in this job's gh calls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly publish-path gh calls wait through a rate limit"},
         "Find the attempt that compiled the published build": {"nightly_only": "looks up the published binary's producing run and artifact; a pull request has no published nightly build"},

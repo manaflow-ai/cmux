@@ -5573,7 +5573,7 @@ jobs:
           fi
 
       - name: Prune old nightly release assets
-        if: needs.decide.outputs.track != 'nightly-next' && needs.decide.outputs.should_publish == 'true' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true'
+        if: needs.decide.outputs.should_publish == 'true' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true' && needs.decide.outputs.track != 'nightly-next'
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
@@ -5589,7 +5589,7 @@ jobs:
 
       - name: Publish nightly release assets
         id: publish_assets
-        if: needs.decide.outputs.track != 'nightly-next' && needs.decide.outputs.should_publish == 'true' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true'
+        if: needs.decide.outputs.should_publish == 'true' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true' && needs.decide.outputs.track != 'nightly-next'
         env:
           GH_TOKEN: ${{ github.token }}
           # A refused upload backs off within 30 minutes (publish-release-assets.py), not 10:
@@ -5630,7 +5630,7 @@ jobs:
 
       - name: Mint release tag app token
         id: release-tag-token
-        if: needs.decide.outputs.track != 'nightly-next' && needs.decide.outputs.should_publish == 'true' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true'
+        if: needs.decide.outputs.should_publish == 'true' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true' && needs.decide.outputs.track != 'nightly-next'
         continue-on-error: true
         timeout-minutes: 2
         uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
@@ -5650,7 +5650,7 @@ jobs:
       # with the release App token; other channels keep the Actions token.
       - name: Publish verified nightly release metadata
         id: publish_metadata
-        if: needs.decide.outputs.track != 'nightly-next' && needs.decide.outputs.should_publish == 'true' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true'
+        if: needs.decide.outputs.should_publish == 'true' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true' && needs.decide.outputs.track != 'nightly-next'
         env:
           GH_TOKEN: ${{ needs.decide.outputs.track == 'nightly-next' && steps.release-tag-token.outputs.token || github.token }}
           RELEASE_ID: ${{ steps.publish_assets.outputs.release_id }}
@@ -5800,7 +5800,7 @@ jobs:
       # it as an idempotency record without mistaking a partial publication for
       # a complete one.
       - name: Record verified nightly publication
-        if: needs.decide.outputs.track != 'nightly-next' && needs.decide.outputs.should_publish == 'true' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true'
+        if: needs.decide.outputs.should_publish == 'true' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true' && needs.decide.outputs.track != 'nightly-next'
         env:
           GH_TOKEN: ${{ needs.decide.outputs.track == 'nightly-next' && steps.release-tag-token.outputs.token || github.token }}
           RELEASE_ID: ${{ steps.publish_assets.outputs.release_id }}
@@ -5848,7 +5848,7 @@ jobs:
       # remain the publication record if this marker is stale.
       - name: Move channel release tag to built commit
         id: move-channel-release-tag
-        if: needs.decide.outputs.track != 'nightly-next' && needs.decide.outputs.should_publish == 'true' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true'
+        if: needs.decide.outputs.should_publish == 'true' && steps.recheck.outputs.already_published != 'true' && steps.gate.outputs.refused != 'true' && needs.decide.outputs.track != 'nightly-next'
         continue-on-error: true
         env:
           GH_TOKEN: ${{ steps.release-tag-token.outputs.token }}
@@ -5938,7 +5938,7 @@ jobs:
   # so no run's uploads are ever replaced, and they may wait out GitHub's rate limits as long as
   # they need. publish-nightly-next-github-names then writes the mutable state.
   publish-nightly-next-github:
-    needs: [decide, publish-nightly]
+    needs: [decide, resolve-nightly-cmux-tui-client, publish-nightly]
     if: "!cancelled() && needs.decide.outputs.track == 'nightly-next' && needs.publish-nightly.result == 'success' && needs.publish-nightly.outputs.already_published != 'true' && needs.publish-nightly.outputs.refused != 'true' && needs.publish-nightly.outputs.tag_status == 'updated'"
     # Nothing on the feed's path needs this job, so a failure shows red and holds nothing.
     environment: ${{ needs.decide.outputs.environment }}
@@ -6218,7 +6218,7 @@ jobs:
 
       # The release body with the cmux-published-sha marker decide reads, as publish-nightly's
       # Record step writes it on the other channels.
-      - name: Record verified nightly publication
+      - name: Record the published build in the release body
         if: steps.publish_names.outputs.newest == 'true'
         env:
           GH_TOKEN: ${{ steps.release-tag-token.outputs.token }}
@@ -6255,7 +6255,7 @@ jobs:
             --body-file "$RUNNER_TEMP/nightly-release-body.md" \
             --prerelease true --make-latest false "${expect[@]}"
 
-      - name: Move channel release tag to built commit
+      - name: Move the nightly-next tag to the published build
         if: steps.publish_names.outputs.newest == 'true'
         env:
           GH_TOKEN: ${{ steps.release-tag-token.outputs.token }}
