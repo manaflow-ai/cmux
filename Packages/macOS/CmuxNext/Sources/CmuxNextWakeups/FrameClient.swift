@@ -45,6 +45,7 @@ public struct FrameTick: Sendable {
 /// tick returns false to go idle, and the link stops with the last client.
 @MainActor
 public final class FrameClient {
+    /// The client's name in the wakeup ledger, the board and the watchdog's records.
     public let owner: String
     /// Visible motion (springs, autoscroll); false for batch work such as
     /// the daemon store drain, which the busy watchdog must not excuse.
@@ -63,6 +64,7 @@ public final class FrameClient {
     private let startup: StartupPhase?
     /// True while an active client waits for the phase that opens its class.
     private var waitingForStartup = false
+    /// Whether the client wants frames (between ``activate()`` and the tick that returns false).
     public private(set) var isActive = false
 
     /// `onFrame` returns true to keep ticking. The client ticks on the

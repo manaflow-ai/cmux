@@ -13,6 +13,7 @@ import CmuxNextCompat
 /// the OS can coalesce the wakeup with others: ``WakeLeeway``'s leeway for the
 /// delay unless the caller asks for `.zero`.
 public final class DemandTimer: Sendable {
+    /// Who the deadline is for: each fire is one ledger record under it.
     public let owner: String
     private let clock: any Clock<Duration>
     private let ledger: WakeupLedger
@@ -23,6 +24,10 @@ public final class DemandTimer: Sendable {
         var task: Task<Void, Never>?
     }
 
+    /// - Parameters:
+    ///   - owner: Who the deadline is for, in the wakeup ledger.
+    ///   - clock: The clock the sleep runs on (tests inject their own).
+    ///   - ledger: Where each fire is counted (`debug.wakeups`).
     public init(owner: String, clock: any Clock<Duration> = ContinuousClock(), ledger: WakeupLedger = .shared) {
         self.owner = owner
         self.clock = clock
@@ -68,6 +73,7 @@ public final class DemandTimer: Sendable {
         schedule(after: delay, tolerance: tolerance, action)
     }
 
+    /// Drops the pending deadline, if any; its action never runs.
     public func cancel() {
         state.withLock { state in
             state.task?.cancel()

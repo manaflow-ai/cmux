@@ -326,8 +326,10 @@ final class AppServices {
     /// System-wide hot keys for catalog actions marked `isGlobalHotKey`.
     private(set) lazy var globalHotKeys = GlobalHotKeyService.app(self)
     let terminalDelegate = TerminalHostDelegate()
-    /// Attention rings, banners, sounds and dismissal (plans/cmux-next/notifications.md).
-    let notifications = NotificationCenterService()
+    /// The app's one main-thread deadline scheduler on ``mainWork``, and the attention rings,
+    /// banners, sounds and dismissal on both (plans/cmux-next/notifications.md).
+    private(set) lazy var deadlines = MainDeadlineScheduler(work: mainWork)
+    private(set) lazy var notifications = NotificationCenterService(work: mainWork, deadlines: deadlines)
     /// Email verification AutoFill (`browser.verificationAutofill.enabled`, off by default): a code
     /// or link from Mail.app offered in the prompt bar of a page of the sender's own site
     /// (plans/cmux-next/email-verification-autofill/DESIGN.md). Built on the first page that waits,
@@ -691,9 +693,7 @@ final class AppServices {
         return daemon.store.tab(surface: surface)
     }
 
-    func workspace(id: String) -> WorkspaceModel? {
-        machines.workspace(id: id)?.0
-    }
+    func workspace(id: String) -> WorkspaceModel? { machines.workspace(id: id)?.0 }
     /// The daemon that owns `pane`.
     func daemon(for pane: PaneModel) -> DaemonService {
         machines.daemon(forPane: pane)

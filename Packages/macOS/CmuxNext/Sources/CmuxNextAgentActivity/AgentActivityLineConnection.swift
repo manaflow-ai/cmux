@@ -190,6 +190,7 @@ public nonisolated final class AgentActivityLineConnection: @unchecked Sendable 
         let connection = AgentActivityLineConnection(path: path, acceptsServer: acceptsServer)
         let once = OnceBox()
         let cancelled = CancelBox()
+        // timer-class-allow: an off-main request deadline (nonisolated oneShot); MainDeadline is for main-actor deadlines
         let timeout = DemandTimer(owner: "agent-activity.request-deadline")
         defer { timeout.cancel() }
         return try await withTaskCancellationHandler {

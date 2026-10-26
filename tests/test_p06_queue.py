@@ -183,6 +183,16 @@ class SettledTests(unittest.TestCase):
         self.assertEqual(self.states('let d = MainDelivery(owner: "x")\n'), [("Q1c", "R-delivery", False)])
         self.assertEqual(self.states("CFRunLoopPerformBlock(loop, mode) { }\n"), [("Q1c", "R-delivery", False)])
 
+    def test_a_name_or_center_handed_to_window_or_app_events_is_the_notif_recipe_target(self):
+        self.assertEqual(self.states("let s = events.subscribe(NSWindow.didResizeNotification, owner: o, changed)\n"),
+                         [("Q4", "R-notif", True)])
+        self.assertEqual(self.states("let s = AppEvents.of(NSWorkspace.shared.notificationCenter).subscribe(\n"),
+                         [("Q4", "R-notif", True)])
+        self.assertEqual(self.states("center.addObserver(forName: NSWindow.didResizeNotification, object: nil, queue: .main) { _ in }\n"),
+                         [("Q4", "R-notif", False)])
+        self.assertEqual(self.states("let names = [NSWindow.didResizeNotification]\n"), [("Q4", "R-notif", False)])
+        self.assertEqual(self.states("let c = NSWorkspace.shared.notificationCenter\n"), [("Q4", "R-notif", False)])
+
     def test_hide_and_unhide_that_forward_to_the_node_are_settled(self):
         forward = self.view("    override func viewDidHide() {", "        super.viewDidHide()",
                             "        visibilityNode.setHidden(true)", "    }",

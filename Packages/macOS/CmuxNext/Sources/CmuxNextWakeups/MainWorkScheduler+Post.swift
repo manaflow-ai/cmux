@@ -9,6 +9,7 @@ public struct MainPostSite: Sendable {
     /// The posting line.
     public let line: UInt
 
+    /// The site `file` (a `#fileID`) and `line`; the posting functions pass their defaults.
     public init(file: StaticString, line: UInt) {
         self.file = file
         self.line = line

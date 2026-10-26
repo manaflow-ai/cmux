@@ -26,6 +26,9 @@ public final class AgentCursorOverlayModel: AgentCursorRendering {
 
     private struct Cursor {
         var point: CGPoint?
+        /// Nothing of this cursor is drawn in this window (never placed, or hidden since): an input
+        /// to a target this window does not show applies nothing (a hidden overlay draws nothing).
+        var hidden = true
         var paused = false
         /// The session's last input: re-placed when its target's visibility changes.
         var lastEvent: AutomationInputEvent?
@@ -127,15 +130,18 @@ public final class AgentCursorOverlayModel: AgentCursorRendering {
                 }
             }
             cursor.point = drop ?? target
+            cursor.hidden = false
             if pulse {
                 host.apply(.pulse(session: session))
             }
         case let .hidden(anchor):
             host.apply(.indicate(session: session, anchor: CGPoint(x: anchor.midX, y: anchor.midY)))
             cursor.point = nil
+            cursor.hidden = false
         case .elsewhere:
-            host.apply(.hide(session: session))
+            if !cursor.hidden { host.apply(.hide(session: session)) }
             cursor.point = nil
+            cursor.hidden = true
         }
     }
 

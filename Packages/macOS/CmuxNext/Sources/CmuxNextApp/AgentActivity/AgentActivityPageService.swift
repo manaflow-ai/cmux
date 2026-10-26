@@ -4,6 +4,7 @@ import CmuxNextAgentActivity
 import CmuxNextBridge
 import CmuxNextBrowser
 import CmuxNextCompat
+import CmuxNextWakeups
 import Foundation
 
 /// Opens `cmux://agent-activity` (plans/cmux-next/computer-use.md section 7)
@@ -14,7 +15,9 @@ import Foundation
 final class AgentActivityPageService {
     private unowned let services: AppServices
     /// A jump waiting for its workspace's first pane (`open(_:in:)`); the next jump cancels it.
-    private var paneWait: Task<Void, Never>?
+    private var paneWait: ServiceObservation<AgentChatJump.PaneWait>?
+    /// The current wait decided (opened or gave up); its later reads do nothing.
+    private var paneWaitEnded = false
     /// Counts jumps, so a workspace that mounts after a newer jump opens nothing.
     private var jumps = 0
 
@@ -85,20 +88,25 @@ final class AgentActivityPageService {
         // the next pick replaces it. The registry and the window's state are observable, so
         // closing the window or showing another workspace (even one already mounted, which
         // mounts nothing) ends the wait at once.
+        // The person's jump waits on the model, not a view: a service observation in the visible class.
         let windows = services.windows, mounts = services.paneMounts, state = window.state, windowID = window.state.id
-        paneWait = Task { [weak self] in
-            for await next in ObservationStream({ () -> AgentChatJump.PaneWait in
-                _ = mounts.generation
-                let open = windows.registry.value.window(windowID)?.isOpen == true
-                let window = windows.controller(for: windowID)
-                let mounted = window?.content?.workspace.id == workspaceID && window?.focusedPane != nil
-                return .decide(showing: open ? state.workspaceID : nil, workspaceID: workspaceID, hasPane: mounted)
-            }) where next != .wait {
-                if next == .open, !Task.isCancelled { windows.controller(for: windowID)?.focusedPane?.openAgentSession(session) }
-                break
-            }
-            if !Task.isCancelled { self?.paneWait = nil }
+        let jump = jumps
+        paneWaitEnded = false
+        let wait = ServiceObservation(.visible, owner: "agent-activity.pane-wait", on: services.mainWork) { () -> AgentChatJump.PaneWait in
+            _ = mounts.generation
+            let open = windows.registry.value.window(windowID)?.isOpen == true
+            let window = windows.controller(for: windowID)
+            let mounted = window?.content?.workspace.id == workspaceID && window?.focusedPane != nil
+            return .decide(showing: open ? state.workspaceID : nil, workspaceID: workspaceID, hasPane: mounted)
+        } apply: { [weak self] next in
+            guard next != .wait, let self, self.jumps == jump, !self.paneWaitEnded else { return }
+            self.paneWaitEnded = true
+            self.paneWait?.cancel()
+            self.paneWait = nil
+            if next == .open { windows.controller(for: windowID)?.focusedPane?.openAgentSession(session) }
         }
+        // The first read may have ended it already (the pane mounted in this turn).
+        if !paneWaitEnded { paneWait = wait }
     }
 
     /// The `cmux://session/<id>` path every session link takes: the focused pane

@@ -44,6 +44,7 @@ extension NotificationCenterService {
     func answerApproval(banner: String, surface: SurfaceID?, allow: Bool) {
         if banner.hasPrefix("hand-approval."), let hands = services?.cloud.hands {
             // task-owner: NotificationCenterService.answerApproval: one hand answer per banner button.
+            // main-hop-allow: HandsService.answer is main-actor async; a nonisolated task would add a hop per await, not remove one
             Task { @MainActor [weak self] in
                 do { try await hands.answer(banner, allow: allow) } catch { self?.note("hand approval \(banner) failed: \(error)") }
             }
@@ -53,6 +54,7 @@ extension NotificationCenterService {
             return note("approval refused: \(banner) is not an approval banner of this launch")
         }
         // task-owner: NotificationCenterService.answerApproval: one answer per banner button.
+        // main-hop-allow: AgentApprovalAnswering is a main-actor async protocol; its awaits resume on main either way
         Task { @MainActor [weak self] in
             let answered = await answerer.answer(entry.approval, allow: allow)
             self?.note("approval \(allow ? "allow" : "deny") \(entry.tab) \(answered ? "answered" : "not answered")")

@@ -7,7 +7,9 @@ section 6, task p06-scheduler-216).
    else section 6's heuristic: a plain `Task {` in a file that names a main-actor isolation; `Task { @concurrent
    in` and `Task.detached` are off main). The queue regexes are section 6's `git grep -E` commands; a line with
    `///` is dropped, as `| grep -v '///'` does.
-2. Judges each hit in its state after the migration: a `MainDelivery(class:` is the R-delivery target, and an
+2. Judges each hit in its state after the migration: a `MainDelivery(class:` is the R-delivery target, a
+   notification name or center handed to the app's one observer (`WindowEvents`/`AppEvents`: `.of(center)`, or
+   a name as `.subscribe(`'s first argument) is the R-notif target, and an
    override that the recipe keeps (R-hide `viewDidHide`/`viewDidUnhide`, R-input `mouseMoved`/`scrollWheel`/
    `mouseDragged`, R-appear `viewDidChangeEffectiveAppearance`) is settled when its body does only what the
    recipe allows. A settled hit is listed by --group and not counted by --check.
@@ -250,9 +252,25 @@ def _delivery_settled(lines: list[str], index: int) -> bool:
     return bool(calls) and all(re.match(r"class\s*:", rest) for rest in calls)
 
 
+_NOTIF_TARGET = re.compile(r"\b(?:WindowEvents|AppEvents)\.of\(\s*|\.subscribe\(\s*")
+
+
+def _notif_settled(lines: list[str], index: int) -> bool:
+    """R-notif's target: every Q4 match on the line is what a `WindowEvents`/`AppEvents` subscription takes, the
+    center of `AppEvents.of(` / `WindowEvents.of(` or the name that opens a `.subscribe(` call."""
+    code = _load("swift_scope").code_of(lines[index])
+    matches = list(QUEUE_BY_ID["Q4"].pattern.finditer(code))
+    if not matches or "addObserver(" in code or "notifications(named:" in code:
+        return False
+    targets = {m.end() for m in _NOTIF_TARGET.finditer(code)}
+    return all(m.start() in targets for m in matches)
+
+
 def _settled(recipe: str, lines: list[str], index: int, bodies: Callable[[], _Bodies]) -> bool:
     if recipe == "R-delivery":
         return _delivery_settled(lines, index)
+    if recipe == "R-notif":
+        return _notif_settled(lines, index)
     allowed = _KEPT_OVERRIDES.get(recipe)
     if allowed is None:
         return False

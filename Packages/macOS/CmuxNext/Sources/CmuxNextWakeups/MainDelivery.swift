@@ -14,6 +14,7 @@ import Foundation
 /// }
 /// ```
 public struct MainDelivery: Sendable {
+    /// A delivery; it holds nothing, so make one where it is used.
     public init() {}
 
     /// Runs `work` now on the main thread, or on the main queue's next turn
