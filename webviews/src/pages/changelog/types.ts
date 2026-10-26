@@ -98,3 +98,7 @@ export interface ReelResult {
 /** The page design (Debug Settings `whatsNew.design`, route `design=`): the Ledger is the default
     (u5099, design/changelog-variations-gallery #01). */
 export type ChangelogDesign = "ledger" | "journal" | "rail" | "digest";
+/** How the update's news shows its clips (SpanNews.tsx; the route's `news=`, for the gallery): each
+    clip beside its words, alternating sides (default); one under another; two-up cards; or the
+    lead row the clips replaced. */
+export type NewsLayout = "alternate" | "stack" | "grid" | "lead";

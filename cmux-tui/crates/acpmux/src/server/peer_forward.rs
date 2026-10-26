@@ -134,6 +134,15 @@ async fn forward_inner(
                 return Err(crate::hub::file_uploads::peer_unsupported(&peer));
             }
         }
+        // So do a message's attachments, under their caps (`attach.rs`).
+        if m == method::SESSION_PROMPT
+            && let Some(blocks) = params.get("prompt").and_then(Value::as_array)
+        {
+            crate::attach::check_wire(params)?;
+            if crate::attach::any(blocks) && !peer.supports_send_attach() {
+                return Err(crate::attach::peer_unsupported(&peer));
+            }
+        }
         if m == method::MUX_FILE_PUT_CHUNK {
             crate::hub::file_uploads::check_chunk(params)?;
             if !peer.supports_file_put() {
@@ -159,6 +168,12 @@ async fn forward_inner(
         }
         super::remote_guard::mark_forwarded(conn.origin, conn.auth, params, &mut p);
         bound_page(m, params, &mut p);
+        // A peer's handles are this connection's own here (`media_forward.rs`).
+        if matches!(m, method::MUX_MEDIA_OPEN | method::MUX_MEDIA_RANGE) {
+            return super::media_forward::forward(&conn.remote_media, &peer, &id, m, p)
+                .await
+                .map(Some);
+        }
         // The peer cannot see the session this connection runs in: it gets that session's name.
         if m == method::SESSION_PROMPT {
             name_sender(hub, conn, &mut p);

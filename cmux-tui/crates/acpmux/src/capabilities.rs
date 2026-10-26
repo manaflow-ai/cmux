@@ -135,6 +135,8 @@ pub const CAPABILITIES: &[Capability] = &[
     Capability { id: "workflows-index-v1", wire: &[method::MUX_WORKFLOWS] },
     // Answer an agent's offer to start a session (`offer_mcp.rs`).
     Capability { id: "session-offers-v1", wire: &[method::MUX_OFFER_RESPOND] },
+    // Reconnect a Claude Code chat's MCP server (`hub/tools.rs`).
+    Capability { id: "mcp-reconnect-v1", wire: &[method::MUX_MCP_RECONNECT] },
 ];
 
 /// The ids of [`CAPABILITIES`], in its order.
