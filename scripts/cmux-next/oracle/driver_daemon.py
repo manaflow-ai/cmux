@@ -18,6 +18,10 @@ but `subscriptions`) are one cut. A release daemon, or a push-base daemon from b
 holds the hash of the wire value it names), which check_snapshot_schema.py owns; this driver imports them.
 Nothing here normalizes: volatile fields, path rewrites and id labels are normalize.py's (task 013).
 
+Switch arms (task 049): a daemon gets its arms as CMUX_TUI_SWITCHES (switches.arm_plan's
+`daemon_environment()`), and `daemon_readback` reads them back from `identify` and `oracle-state`; a
+mismatch is arm-not-applied. Task 023's case driver applies the same two calls to each case daemon.
+
 Task 023 adds the rest of the driver (hermetic daemon per case, steps, teardown proof) to this file.
 
 Usage:
@@ -25,6 +29,9 @@ Usage:
   driver_daemon.py live-check --cmux BIN [--write]
                                            capture_wire_fixtures.py's op script on a hermetic daemon; its
                                            oracle-state part must equal daemon-oracle-state.expected.json
+  driver_daemon.py arms --cmux BIN [--switch NAME=ARM]... [--registry DIR] [--receipt FILE]
+                                           a hermetic daemon on those arms, read back (exit 0 applied,
+                                           1 arm-not-applied, 2 unknown switch: nothing starts)
   driver_daemon.py --selftest              offline tests against the recorded wire fixtures
 """
 
@@ -32,6 +39,7 @@ from __future__ import annotations
 
 import argparse
 import json
+import os
 import sys
 import unittest
 from pathlib import Path
@@ -140,6 +148,86 @@ class SdkReads:
         self.close()
 
 
+# ---------------------------------------------------------------------------------------------- switch arms
+
+
+IDENTIFY = "identify"
+
+
+def daemon_arm_sources(reads: DaemonReads) -> Dict[str, Optional[Any]]:
+    """The daemon's switch readers (p15-oracle-049): `identify`'s `switches` (task 020; None on a daemon
+    whose identify has none) and `oracle-state`'s `switches` (task 021; None on a daemon without it)."""
+    identify = reads.command(IDENTIFY)
+    data = identify.get("data")
+    if identify.get("ok") is not True or not isinstance(data, dict):
+        raise DriverError(f"{IDENTIFY} failed: {identify.get('error')!r}")
+    sources: Dict[str, Optional[Any]] = {IDENTIFY: data.get("switches")}
+    state = reads.command(ORACLE_STATE)
+    if state.get("ok") is True and isinstance(state.get("data"), dict) and "switches" in state["data"]:
+        sources[ORACLE_STATE] = state["data"]["switches"]
+    elif is_unknown_command(state):
+        sources[ORACLE_STATE] = None
+    else:
+        raise DriverError(f"{ORACLE_STATE} gave no switches: {state.get('error') or state.get('data')!r:.300}")
+    return sources
+
+
+def daemon_readback(plan: Any, reads: DaemonReads) -> Any:
+    """switches.read_back of the daemon behind `reads`; `.check()` raises ArmNotApplied on a mismatch."""
+    switches = _sibling("switches")
+    try:
+        return switches.read_back(plan, switches.DAEMON, daemon_arm_sources(reads))
+    except switches.UsageError as error:
+        raise DriverError(str(error)) from None
+
+
+def arms_check(binary: Path, requested: Mapping[str, str], registry: Optional[Path], receipt: Optional[Path]) -> int:
+    """`arms`: one hermetic daemon started with the plan's CMUX_TUI_SWITCHES, its arms read back. Exit 0 when
+    they are the plan's, 1 on arm-not-applied (the daemon refused the value at start, or read back others),
+    2 when the request names an unknown switch (nothing starts)."""
+    import shutil
+    import subprocess
+    import tempfile
+
+    switches = _sibling("switches")
+    roots = switches.Roots() if registry is None else switches.Roots(registry=registry.resolve())
+    try:
+        plan = switches.arm_plan(requested, roots)
+    except switches.UnknownSwitch as error:
+        print(f"arms: {error}", file=sys.stderr)
+        return 2
+    if not os.access(binary, os.X_OK):
+        print(f"arms: {binary} is not an executable cmux-tui", file=sys.stderr)
+        return 2
+    environment = plan.daemon_environment()
+    record: Dict[str, Any] = {"switches": dict(sorted(requested.items())), "environment": environment}
+    wire = _sibling("capture_wire_fixtures")
+    root = Path(tempfile.mkdtemp(prefix="oracle-049-", dir="/tmp"))
+    daemon = wire.Daemon(binary.resolve(), root)
+    daemon.env.update(environment)
+    try:
+        try:
+            daemon.start()
+        except subprocess.CalledProcessError as error:
+            detail = (error.stderr or error.stdout or "").strip()[-400:]
+            record.update(verdict=switches.ARM_NOT_APPLIED,
+                          problems=[f"the daemon refused {switches.DAEMON_SWITCHES_ENV}={environment.get(switches.DAEMON_SWITCHES_ENV, '')!r} "
+                                    f"at start (exit {error.returncode}): {detail}"])
+        else:
+            with SdkReads(daemon.socket) as reads:
+                readback = daemon_readback(plan, reads)
+            record.update(verdict="applied" if not readback.problems else switches.ARM_NOT_APPLIED,
+                          readback=readback.arms, sources=readback.sources, problems=list(readback.problems))
+    finally:
+        daemon.stop()
+        shutil.rmtree(root, ignore_errors=True)
+    text = json.dumps(record, indent=1, sort_keys=True) + "\n"
+    if receipt is not None:
+        receipt.write_text(text, encoding="utf-8")
+    print(text, end="")
+    return 0 if record["verdict"] == "applied" else 1
+
+
 # ---------------------------------------------------------------------------------------------- self test
 
 
@@ -225,6 +313,83 @@ class DriverDaemonSelfTest(unittest.TestCase):
         self.assertNotEqual(self.facet_errors(facet), [])
 
 
+class _ArmReads:
+    """`identify` and `oracle-state` replies by command."""
+
+    def __init__(self, identify: Mapping[str, Any], state: Mapping[str, Any]):
+        self.replies = {IDENTIFY: identify, ORACLE_STATE: state}
+
+    def command(self, cmd: str) -> Mapping[str, Any]:
+        return self.replies[cmd]
+
+    def operation(self, operation: str, params: Mapping[str, Any]) -> Any:
+        raise AssertionError(f"no resource read is needed for the arms ({operation})")
+
+
+def _identify(**extra: Any) -> Dict[str, Any]:
+    return {"ok": True, "data": {"app": "cmux-tui", "protocol": 5, **extra}}
+
+
+def _state(arms: Mapping[str, str]) -> Dict[str, Any]:
+    return {"ok": True, "data": {**EXTRAS_REPLY, "switches": dict(arms)}}
+
+
+UNKNOWN_STATE = {"ok": False, "error": "bad request: unknown variant `oracle-state`, expected one of `identify`"}
+
+
+class DaemonArmsSelfTest(unittest.TestCase):
+    """The daemon half of p15-oracle-049 on a temporary registry with one daemon switch, `holder`."""
+
+    def setUp(self) -> None:
+        import tempfile
+
+        self.switches = _sibling("switches")
+        tmp = tempfile.TemporaryDirectory(prefix="oracle-049-")
+        self.addCleanup(tmp.cleanup)
+        self.roots = self.switches.selftest_tree(Path(tmp.name), {"holder": self.switches.daemon_entry()}, None)
+
+    def plan(self, arm: str) -> Any:
+        return self.switches.arm_plan({"holder": arm}, self.roots)
+
+    def test_both_arms_read_back(self) -> None:
+        for arm in ("old", "new"):
+            plan = self.plan(arm)
+            self.assertEqual(plan.daemon_environment(), {"CMUX_TUI_SWITCHES": f"holder={arm}"})
+            reads = _ArmReads(_identify(switches={"holder": arm}), _state({"holder": arm, "terminal-holder": "old"}))
+            self.assertEqual(daemon_readback(plan, reads).check(), {"holder": arm})
+
+    def test_a_daemon_that_ignores_the_value_is_arm_not_applied(self) -> None:
+        reads = _ArmReads(_identify(), _state({"holder": "old"}))
+        readback = daemon_readback(self.plan("new"), reads)
+        self.assertEqual(readback.sources, {IDENTIFY: None, ORACLE_STATE: {"holder": "old"}})
+        with self.assertRaisesRegex(self.switches.ArmNotApplied, "arm-not-applied: holder=new: oracle-state read back holder=old"):
+            readback.check()
+
+    def test_identify_alone_reads_back_on_a_daemon_without_oracle_state(self) -> None:
+        reads = _ArmReads(_identify(switches={"holder": "new"}), UNKNOWN_STATE)
+        self.assertEqual(daemon_readback(self.plan("new"), reads).check(), {"holder": "new"})
+        with self.assertRaisesRegex(self.switches.ArmNotApplied, "no daemon reader in this build"):
+            daemon_readback(self.plan("new"), _ArmReads(_identify(), UNKNOWN_STATE)).check()
+
+    def test_refused_reads_are_driver_errors(self) -> None:
+        with self.assertRaisesRegex(DriverError, "identify failed"):
+            daemon_arm_sources(_ArmReads({"ok": False, "error": "nope"}, _state({})))
+        with self.assertRaisesRegex(DriverError, "oracle-state gave no switches"):
+            daemon_arm_sources(_ArmReads(_identify(), {"ok": False, "error": "oracle state requires a trusted local connection"}))
+        with self.assertRaisesRegex(DriverError, "object of strings"):
+            daemon_readback(self.plan("new"), _ArmReads(_identify(switches={"holder": 1}), UNKNOWN_STATE))
+
+    def test_an_unknown_switch_aborts_before_any_daemon_starts(self) -> None:
+        import io
+        from contextlib import redirect_stderr
+
+        err = io.StringIO()
+        with redirect_stderr(err):
+            code = arms_check(Path("/nonexistent/cmux-tui"), {"ghost": "new"}, self.roots.registry, None)
+        self.assertEqual(code, 2)
+        self.assertIn("unknown switch: ghost", err.getvalue())
+
+
 def main(argv: Optional[list] = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--selftest", action="store_true", help="run the offline self tests")
@@ -234,10 +399,24 @@ def main(argv: Optional[list] = None) -> int:
     live = sub.add_parser("live-check", help="the fixed op script on a hermetic daemon vs the checked-in JSON")
     live.add_argument("--cmux", type=Path, required=True, help="a debug or --features oracle cmux-tui binary")
     live.add_argument("--write", action="store_true", help="rewrite the expected JSON instead of comparing")
+    arms = sub.add_parser("arms", help="start a hermetic daemon on switch arms and read them back")
+    arms.add_argument("--cmux", type=Path, required=True, help="a debug or --features oracle cmux-tui binary")
+    arms.add_argument("--switch", action="append", default=[], metavar="NAME=ARM", help="a registry switch and its arm")
+    arms.add_argument("--registry", type=Path, help="refactor switch registry (default plans/cmux-next/refactor-switches)")
+    arms.add_argument("--receipt", type=Path, help="also write the readback receipt here")
     args = parser.parse_args(argv)
     if args.selftest:
-        suite = unittest.defaultTestLoader.loadTestsFromTestCase(DriverDaemonSelfTest)
+        loader = unittest.defaultTestLoader
+        suite = unittest.TestSuite([loader.loadTestsFromTestCase(DriverDaemonSelfTest),
+                                    loader.loadTestsFromTestCase(DaemonArmsSelfTest)])
         return 0 if unittest.TextTestRunner(verbosity=2).run(suite).wasSuccessful() else 1
+    if args.command == "arms":
+        switches = _sibling("switches")
+        try:
+            requested = switches.parse_requests(args.switch)
+        except switches.UsageError as error:
+            parser.error(str(error))
+        return arms_check(args.cmux, requested, args.registry, args.receipt)
     if args.command == "facet":
         with SdkReads(args.socket) as reads:
             value = capture_daemon_facet(reads)

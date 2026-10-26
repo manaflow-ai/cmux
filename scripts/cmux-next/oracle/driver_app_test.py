@@ -48,6 +48,11 @@ class FakeApp:
         self.settle_pending: List[str] = []
         self.fail_launch = False
         self.stops = 0
+        # The switches facet's `arms` (None: no provider in this build) and the per-key hit counts (None: no
+        # debug.oracle.switch_hits in this build); each turn counts one hit on the arm the key runs.
+        self.switch_arms: Optional[Dict[str, str]] = None
+        self.hits: Optional[Dict[str, Dict[str, int]]] = None
+        self.daemon_sock: Optional[str] = None
 
     # -- the port
 
@@ -71,7 +76,7 @@ class FakeApp:
         return {"HOME": self.env["HOME"], "CMUX_NEXT_CONFIG_FILE": "/tmp/scratch/cmux.json"}
 
     def daemon_socket(self) -> Optional[str]:
-        return None
+        return self.daemon_sock
 
     def request(self, method: str, params: Mapping[str, Any], timeout: float) -> Dict[str, Any]:
         self.calls.append((method, json.loads(json.dumps(params))))
@@ -87,6 +92,8 @@ class FakeApp:
         for name in names:
             if name == "topology":
                 out[name] = {"workspaces": self.workspaces}
+            elif name == "switches" and self.switch_arms is not None:
+                out[name] = {"arms": dict(self.switch_arms), "hits": []}
             elif name in PROVIDED:
                 out[name] = {"value": name}
             else:
@@ -103,6 +110,8 @@ class FakeApp:
     def turn(self, action: str) -> None:
         self.workspaces += 1
         self.sequence += 1
+        for key, counts in (self.hits or {}).items():
+            counts[(self.switch_arms or {}).get(key, "old")] += 1
         if self.armed is not None:
             self.checkpoint("turn", action, origin="cli", ran=True, facets=self.facets(self.armed))
 
@@ -158,6 +167,14 @@ class FakeApp:
                                        "target": params.get("target"), "created": ["ws_x"],
                                        "sequence": self.sequence}}
 
+    def m_debug_oracle_switch_hits(self, params):
+        if self.hits is None:
+            return {"ok": False, "error": {"code": "method_not_found", "message": "debug.oracle.switch_hits"}}
+        report = {"switches": {key: {**counts, "sites": {"Site.run": dict(counts)}} for key, counts in self.hits.items()}}
+        if params.get("reset"):
+            self.hits = {key: {"old": 0, "new": 0} for key in self.hits}
+        return {"ok": True, "result": report}
+
     def m_debug_key(self, params):
         if params["key"] == "n" and params["modifiers"] == ["cmd"]:
             self.turn("workspace.new")
@@ -201,25 +218,36 @@ NEW_WORKSPACE = step("new", "action.run", target={"workspace": "current"}, args=
                      expect={"outcome": "ok", "receipt": "action.done"}, checkpoint=["before", "turn", "settled"])
 
 
-class AppSessionTest(unittest.TestCase):
+class SessionTestBase(unittest.TestCase):
+    """A session on a FakeApp, with an empty switch registry unless a test gives one."""
+
     def setUp(self) -> None:
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.apps: List[FakeApp] = []
         self.run_proc = Recorder()
 
-    def session(self, **ctx) -> driver_app.AppSession:
+    def session(self, *, switch_roots=None, read_daemon_arms=None, read_daemon=None, **ctx) -> driver_app.AppSession:
         def make(app, out, env):
             fake = FakeApp(app, out, env)
             self.apps.append(fake)
             return fake
 
         base = {"run_id": "r", "product": "app", "build": "bench", "binary": APP, "out_dir": self.tmp.name}
+        extra = {"read_daemon_arms": read_daemon_arms} if read_daemon_arms else {}
+        if read_daemon:
+            extra["read_daemon"] = read_daemon
         return driver_app.AppSession({**base, **ctx}, make_app=make, identity=identity,
                                      canonicalizer=identity_canonicalizer(), run=self.run_proc,
                                      host=lambda: {"os": "macOS 26.1", "arch": "arm64", "model": "Mac16,10"},
-                                     root_base=Path(self.tmp.name) / "o")
+                                     root_base=Path(self.tmp.name) / "o",
+                                     switch_roots=switch_roots or self.empty_registry(), **extra)
 
+    def empty_registry(self) -> "driver_app.switches.Roots":
+        return driver_app.switches.selftest_tree(Path(self.tmp.name) / "registry-empty", {}, None)
+
+
+class AppSessionTest(SessionTestBase):
     def test_action_run_records_before_turn_and_settled(self) -> None:
         session = self.session()
         result = session.run_case(case(NEW_WORKSPACE), {"case_id": "actions/c"})
@@ -284,8 +312,9 @@ class AppSessionTest(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "--config bench"):
             driver_app.run_build("debug", "bench")
         self.assertEqual(driver_app.run_build("debug", "debug"), "debug")
-        with self.assertRaisesRegex(ValueError, "p15-oracle-049"):
-            self.session(switches={"terminal-holder": "new"})
+        with self.assertRaisesRegex(ValueError, "unknown switch: ghost"):
+            self.session(switches={"ghost": "new"})
+        self.assertEqual(self.apps, [], "nothing launches on a switch the run cannot apply")
         with self.assertRaisesRegex(ValueError, "tag"):
             self.session(tag="other")
 
@@ -398,6 +427,101 @@ class AppSessionTest(unittest.TestCase):
         result = oracle.coerce_result(session.run_case(case(NEW_WORKSPACE), {"case_id": "actions/c"}))
         self.assertEqual(result["status"], "Pass")
         self.assertEqual(len(result["checkpoints"]), 3)
+
+
+class SwitchArmsTest(SessionTestBase):
+    """p15-oracle-049: the app driver applies the run's arms and reads them back before any step."""
+
+    def registry(self) -> "driver_app.switches.Roots":
+        sw = driver_app.switches
+        return sw.selftest_tree(Path(self.tmp.name) / "registry", {"layer-hosting": sw.selftest_entry(),
+                                                                   "holder": sw.daemon_entry()}, None)
+
+    def arms_session(self, arms: Dict[str, str], *, app_arms: Optional[Dict[str, str]],
+                     daemon: Optional[Dict[str, Any]] = None, hits: bool = True) -> driver_app.AppSession:
+        session = self.session(switch_roots=self.registry(), switches=arms,
+                               read_daemon_arms=(lambda path: daemon) if daemon is not None else None,
+                               read_daemon=lambda path, doc: {"session": {}, "settings": {}})
+        fake = self.apps[-1]
+        fake.switch_arms = app_arms
+        fake.hits = {"browser.layer-hosting": {"old": 0, "new": 0}} if hits else None
+        fake.daemon_sock = "/tmp/oracle-t/daemon.sock" if daemon is not None else None
+        return session
+
+    def test_both_app_arms_are_applied_and_read_back(self) -> None:
+        for arm in ("old", "new"):
+            session = self.arms_session({"layer-hosting": arm}, app_arms={"browser.layer-hosting": arm})
+            fake = self.apps[-1]
+            self.assertEqual(fake.env["CMUX_NEXT_SWITCHES"], f"browser.layer-hosting={arm}")
+            self.assertNotIn("CMUX_TUI_SWITCHES", fake.env, "no daemon switch was requested")
+            fake.hits["browser.layer-hosting"][arm] = 7  # a launch's hits before the case are not the case's
+            result = session.run_case(case(NEW_WORKSPACE), {"case_id": "actions/c"})
+            self.assertEqual(result["status"], "Pass", result["message"])
+            self.assertEqual(result["switch_readback"], {"layer-hosting": arm})
+            other = "new" if arm == "old" else "old"
+            self.assertEqual(result["switch_hits"], {"layer-hosting": {arm: 1, other: 0}})
+            coerced = oracle.coerce_result(result)
+            self.assertEqual(coerced["switch_hits"], {"layer-hosting": {arm: 1, other: 0}})
+
+    def test_the_other_arm_read_back_is_arm_not_applied_before_any_step(self) -> None:
+        session = self.arms_session({"layer-hosting": "new"}, app_arms={"browser.layer-hosting": "old"})
+        result = session.run_case(case(NEW_WORKSPACE), {"case_id": "actions/c"})
+        self.assertEqual(result["status"], "Crash")
+        self.assertEqual(result["step"], "setup")
+        self.assertIn("arm-not-applied: layer-hosting=new: snapshot.switches read back browser.layer-hosting=old",
+                      result["message"])
+        self.assertEqual(result["switch_readback"], {"layer-hosting": "old"})
+        self.assertFalse([m for m, _ in self.apps[-1].calls if m == "action.run"], "no step ran")
+
+    def test_a_build_without_the_switches_facet_is_arm_not_applied(self) -> None:
+        session = self.arms_session({"layer-hosting": "new"}, app_arms=None)
+        result = session.run_case(case(NEW_WORKSPACE), {"case_id": "actions/c"})
+        self.assertEqual(result["status"], "Crash")
+        self.assertIn("no app reader in this build reports its arms", result["message"])
+
+    def test_a_default_arm_that_leaked_in_is_arm_not_applied(self) -> None:
+        session = self.arms_session({"holder": "old"}, app_arms={"browser.layer-hosting": "new"},
+                                    daemon={"identify": {"holder": "old"}, "oracle-state": None})
+        result = session.run_case(case(NEW_WORKSPACE), {"case_id": "actions/c"})
+        self.assertEqual(result["status"], "Crash")
+        self.assertIn("layer-hosting=old (default): snapshot.switches read back browser.layer-hosting=new",
+                      result["message"])
+
+    def test_daemon_arms_reach_the_app_daemon_and_read_back(self) -> None:
+        for arm in ("old", "new"):
+            session = self.arms_session({"holder": arm}, app_arms={},
+                                        daemon={"identify": {"holder": arm}, "oracle-state": {"holder": arm}})
+            fake = self.apps[-1]
+            self.assertEqual(fake.env["CMUX_TUI_SWITCHES"], f"holder={arm}")
+            self.assertNotIn("CMUX_NEXT_SWITCHES", fake.env)
+            result = session.run_case(case(NEW_WORKSPACE), {"case_id": "actions/c"})
+            self.assertEqual(result["status"], "Pass", result["message"])
+            self.assertEqual(result["switch_readback"], {"holder": arm})
+
+    def test_a_daemon_on_the_other_arm_or_missing_is_arm_not_applied(self) -> None:
+        session = self.arms_session({"holder": "new"}, app_arms={},
+                                    daemon={"identify": None, "oracle-state": {"holder": "old"}})
+        result = session.run_case(case(NEW_WORKSPACE), {"case_id": "actions/c"})
+        self.assertEqual(result["status"], "Crash")
+        self.assertIn("holder=new: oracle-state read back holder=old", result["message"])
+        self.assertEqual(result["switch_readback"], {"holder": "old"})
+        session = self.arms_session({"holder": "new"}, app_arms={})
+        result = session.run_case(case(NEW_WORKSPACE), {"case_id": "actions/c"})
+        self.assertEqual(result["status"], "Crash")
+        self.assertIn("holder: no cmux-tui of this tag is running", result["message"])
+
+    def test_a_build_without_hit_counters_reports_no_hits(self) -> None:
+        session = self.arms_session({"layer-hosting": "new"}, app_arms={"browser.layer-hosting": "new"}, hits=False)
+        result = session.run_case(case(NEW_WORKSPACE), {"case_id": "actions/c"})
+        self.assertEqual(result["status"], "Pass", result["message"])
+        self.assertNotIn("switch_hits", result, "oracle.py then reports arm-not-exercised")
+
+    def test_a_default_run_reads_no_arms(self) -> None:
+        session = self.session(switch_roots=self.registry())
+        result = session.run_case(case(NEW_WORKSPACE), {"case_id": "actions/c"})
+        self.assertEqual(result["status"], "Pass", result["message"])
+        self.assertNotIn("switch_readback", result)
+        self.assertFalse([m for m, _ in self.apps[-1].calls if m == driver_app.SWITCH_HITS])
 
 
 if __name__ == "__main__":
