@@ -641,7 +641,18 @@
       "agent-session-children",
       "agent-session-media",
       "agent-session-start",
-      "agent-session-trust"
+      "agent-session-trust",
+      "browser-runtime-status",
+      "browser-runtime-start",
+      "browser-runtime-stop",
+      "loopback-open",
+      "loopback-data",
+      "loopback-credit",
+      "loopback-shutdown",
+      "loopback-close",
+      "loopback-status",
+      "client-hello",
+      "machine-catalog-publish"
     ],
     "provider-authority": [
       "mark-workspaces-provider-managed",
@@ -1181,6 +1192,30 @@
     },
     {
       "name": "agent-inventory-watch-ended",
+      "streams": [
+        "control"
+      ]
+    },
+    {
+      "name": "loopback-data",
+      "streams": [
+        "control"
+      ]
+    },
+    {
+      "name": "loopback-credit",
+      "streams": [
+        "control"
+      ]
+    },
+    {
+      "name": "loopback-eof",
+      "streams": [
+        "control"
+      ]
+    },
+    {
+      "name": "loopback-closed",
       "streams": [
         "control"
       ]

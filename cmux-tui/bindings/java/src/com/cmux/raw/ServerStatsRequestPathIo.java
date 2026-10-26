@@ -16,6 +16,7 @@ public final class ServerStatsRequestPathIo implements WireValue {
     private final UInt64 hostWait;
     private final UInt64 journalWait;
     private final Field<UInt64> lockHoldOver1ms;
+    private final Field<ServerStatsLockWaits> lockWaits;
     private final UInt64 network;
     private final UInt64 procScan;
     private final UInt64 processSpawn;
@@ -35,6 +36,7 @@ public final class ServerStatsRequestPathIo implements WireValue {
         if (!builder.journalWaitSet) throw new IllegalArgumentException("journal_wait is required");
         this.journalWait = Wire.nonNull(builder.journalWait, "journal_wait");
         this.lockHoldOver1ms = builder.lockHoldOver1ms;
+        this.lockWaits = builder.lockWaits;
         if (!builder.networkSet) throw new IllegalArgumentException("network is required");
         this.network = Wire.nonNull(builder.network, "network");
         if (!builder.procScanSet) throw new IllegalArgumentException("proc_scan is required");
@@ -60,6 +62,7 @@ public final class ServerStatsRequestPathIo implements WireValue {
     public UInt64 hostWait() { return hostWait; }
     public UInt64 journalWait() { return journalWait; }
     public Field<UInt64> lockHoldOver1ms() { return lockHoldOver1ms; }
+    public Field<ServerStatsLockWaits> lockWaits() { return lockWaits; }
     public UInt64 network() { return network; }
     public UInt64 procScan() { return procScan; }
     public UInt64 processSpawn() { return processSpawn; }
@@ -83,6 +86,10 @@ public final class ServerStatsRequestPathIo implements WireValue {
         Object rawLockHoldOver1ms = Wire.optional(object, "lock_hold_over_1ms");
         if (!Wire.isMissing(rawLockHoldOver1ms)) {
             builder.lockHoldOver1ms(Wire.uint64(rawLockHoldOver1ms, "ServerStatsRequestPathIo.lock_hold_over_1ms"));
+        }
+        Object rawLockWaits = Wire.optional(object, "lock_waits");
+        if (!Wire.isMissing(rawLockWaits)) {
+            builder.lockWaits(ServerStatsLockWaits.fromWire(rawLockWaits));
         }
         Object rawNetwork = Wire.required(object, "network");
         builder.network(Wire.uint64(rawNetwork, "ServerStatsRequestPathIo.network"));
@@ -111,6 +118,7 @@ public final class ServerStatsRequestPathIo implements WireValue {
         Wire.put(object, "host_wait", hostWait);
         Wire.put(object, "journal_wait", journalWait);
         Wire.put(object, "lock_hold_over_1ms", lockHoldOver1ms);
+        Wire.put(object, "lock_waits", lockWaits);
         Wire.put(object, "network", network);
         Wire.put(object, "proc_scan", procScan);
         Wire.put(object, "process_spawn", processSpawn);
@@ -125,11 +133,11 @@ public final class ServerStatsRequestPathIo implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof ServerStatsRequestPathIo that)) return false;
-        return Objects.equals(childProcess, that.childProcess) && Objects.equals(fsWrite, that.fsWrite) && Objects.equals(hostWait, that.hostWait) && Objects.equals(journalWait, that.journalWait) && Objects.equals(lockHoldOver1ms, that.lockHoldOver1ms) && Objects.equals(network, that.network) && Objects.equals(procScan, that.procScan) && Objects.equals(processSpawn, that.processSpawn) && Objects.equals(recording, that.recording) && Objects.equals(scopes, that.scopes) && Objects.equals(sites, that.sites) && Objects.equals(sleep, that.sleep) && Objects.equals(sqlite, that.sqlite);
+        return Objects.equals(childProcess, that.childProcess) && Objects.equals(fsWrite, that.fsWrite) && Objects.equals(hostWait, that.hostWait) && Objects.equals(journalWait, that.journalWait) && Objects.equals(lockHoldOver1ms, that.lockHoldOver1ms) && Objects.equals(lockWaits, that.lockWaits) && Objects.equals(network, that.network) && Objects.equals(procScan, that.procScan) && Objects.equals(processSpawn, that.processSpawn) && Objects.equals(recording, that.recording) && Objects.equals(scopes, that.scopes) && Objects.equals(sites, that.sites) && Objects.equals(sleep, that.sleep) && Objects.equals(sqlite, that.sqlite);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(childProcess, fsWrite, hostWait, journalWait, lockHoldOver1ms, network, procScan, processSpawn, recording, scopes, sites, sleep, sqlite); }
+    public int hashCode() { return Objects.hash(childProcess, fsWrite, hostWait, journalWait, lockHoldOver1ms, lockWaits, network, procScan, processSpawn, recording, scopes, sites, sleep, sqlite); }
 
     @Override
     public String toString() { return "ServerStatsRequestPathIo" + toWire(); }
@@ -144,6 +152,7 @@ public final class ServerStatsRequestPathIo implements WireValue {
         private UInt64 journalWait;
         private boolean journalWaitSet;
         private Field<UInt64> lockHoldOver1ms = Field.omitted();
+        private Field<ServerStatsLockWaits> lockWaits = Field.omitted();
         private UInt64 network;
         private boolean networkSet;
         private UInt64 procScan;
@@ -183,6 +192,10 @@ public final class ServerStatsRequestPathIo implements WireValue {
         }
         public Builder lockHoldOver1ms(UInt64 value) {
             this.lockHoldOver1ms = Field.of(value);
+            return this;
+        }
+        public Builder lockWaits(ServerStatsLockWaits value) {
+            this.lockWaits = Field.of(value);
             return this;
         }
         public Builder network(UInt64 value) {

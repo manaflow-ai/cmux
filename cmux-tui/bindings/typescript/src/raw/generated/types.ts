@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 07f25cd97f355ba0c33e4e9958a84c274851a8c72048a29a69edad5286828785. */
+/* cmux-tui mux protocol 12, IR 70760e20832505feed3b37cccc0a0439e8a693f12cc37771bb7948681485a692. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -314,6 +314,28 @@ export type BrowserProviderUnregisterResult = {
   "removed": boolean;
 };
 
+export type BrowserRuntimeRow = {
+  "port": number;
+  "runtime": bigint;
+};
+
+export type BrowserRuntimeStartResult = {
+  "installed": string;
+  "port": number;
+  "runtime": bigint;
+  "secret": string;
+};
+
+export type BrowserRuntimeStatusResult = {
+  "installed": (string) | null;
+  "platform": string;
+  "runtimes": Array<BrowserRuntimeRow>;
+};
+
+export type BrowserRuntimeStopResult = {
+  "stopped": true;
+};
+
 export type CellPixelFailure = {
   "error": string;
   "surface": Id;
@@ -330,6 +352,23 @@ export type CellPixelSurface = {
   "height_px": number;
   "surface": Id;
   "width_px": number;
+};
+
+export type ClientHelloPageOperations = {
+  "confirm": Array<string>;
+  "gesture": Array<string>;
+  "read": Array<string>;
+};
+
+export type ClientHelloResult = {
+  "connection_id": string;
+  "install_id"?: string;
+  "nonce"?: string;
+  "page"?: string;
+  "page_events"?: Array<string>;
+  "page_operations"?: ClientHelloPageOperations;
+  "user_origin_allowed": boolean;
+  "verified"?: true;
 };
 
 export type ClientInfo = {
@@ -835,6 +874,64 @@ export type LivePane = {
   "tabs": Array<Tab>;
 };
 
+export type LoopbackAuditRecord = {
+  "at_ms": bigint;
+  "bytes_from_target": bigint;
+  "bytes_to_target": bigint;
+  "client": bigint;
+  "duration_ms": bigint;
+  "host": string;
+  "outcome": string;
+  "port": number;
+  "stream": bigint;
+};
+
+export type LoopbackLimits = {
+  "daemon_window": bigint;
+  "frame_bytes": bigint;
+  "per_client": bigint;
+  "total": bigint;
+};
+
+export type LoopbackOpenResult = {
+  "address": string;
+  "stream": bigint;
+  "window": bigint;
+};
+
+export type LoopbackStatusResult = {
+  "audit": Array<LoopbackAuditRecord>;
+  "client_streams": bigint;
+  "enabled": boolean;
+  "limits": LoopbackLimits;
+  "open_streams": bigint;
+  "opened": bigint;
+  "refused": bigint;
+};
+
+export type MachineCatalogEntry = {
+  "capabilities"?: Array<string>;
+  "id": string;
+  "name": string;
+  "origin": MachineCatalogOrigin;
+  "platform"?: (MachineCatalogPlatform) | null;
+  "status": MachineCatalogStatus;
+};
+
+export type MachineCatalogOrigin = "cloud" | "ssh" | "server";
+
+export type MachineCatalogPlatform = {
+  "arch"?: (string) | null;
+  "os"?: (string) | null;
+};
+
+export type MachineCatalogPublishResult = {
+  "replayed": boolean;
+  "sequence": bigint;
+};
+
+export type MachineCatalogStatus = "running" | "connecting" | "unavailable" | "sleeping" | "stopped";
+
 export type MachineListeningTcpResult = {
   "stdout": string;
 };
@@ -1215,6 +1312,20 @@ export type ServerStatsLockStall = {
   "waiter": string;
 };
 
+export type ServerStatsLockWait = {
+  "holder"?: string;
+  "lock": string;
+  "site": string;
+  "waited_us": bigint;
+  "waiter": string;
+};
+
+export type ServerStatsLockWaits = {
+  "dropped": bigint;
+  "long_waits": bigint;
+  "recent": Array<ServerStatsLockWait>;
+};
+
 export type ServerStatsRegistryLock = {
   "contended_acquisitions": bigint;
   "hold_us": ServerStatsHistogram;
@@ -1242,6 +1353,7 @@ export type ServerStatsRequestPathIo = {
   "host_wait": bigint;
   "journal_wait": bigint;
   "lock_hold_over_1ms"?: bigint;
+  "lock_waits"?: ServerStatsLockWaits;
   "network": bigint;
   "proc_scan": bigint;
   "process_spawn": bigint;

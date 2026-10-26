@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 07f25cd97f355ba0c33e4e9958a84c274851a8c72048a29a69edad5286828785. */
+/* cmux-tui mux protocol 12, IR 70760e20832505feed3b37cccc0a0439e8a693f12cc37771bb7948681485a692. */
 
 
 import type * as T from "./types.js";
@@ -546,6 +546,23 @@ export interface BrowserReloadRequest extends CmuxRequestBase {
 }
 export type BrowserReloadResult = T.EmptyResult;
 
+/** Protocol v12; authority: local-admin. */
+export interface BrowserRuntimeStartRequest extends CmuxRequestBase {
+  cmd: "browser-runtime-start";
+  "url"?: (string) | null;
+}
+
+/** Protocol v12; authority: local-admin. */
+export interface BrowserRuntimeStatusRequest extends CmuxRequestBase {
+  cmd: "browser-runtime-status";
+}
+
+/** Protocol v12; authority: local-admin. */
+export interface BrowserRuntimeStopRequest extends CmuxRequestBase {
+  cmd: "browser-runtime-stop";
+  "runtime": bigint;
+}
+
 /** Protocol v6; authority: frontend. */
 export interface BrowserWheelRequest extends CmuxRequestBase {
   cmd: "browser-wheel";
@@ -610,6 +627,15 @@ export type ClientFocusResult = {
   "pane": (T.Id) | null;
   "tab": (bigint) | null;
 };
+
+/** Protocol v12; authority: local-admin. */
+export interface ClientHelloRequest extends CmuxRequestBase {
+  cmd: "client-hello";
+  "install_id"?: string;
+  "page"?: (string) | null;
+  "proof"?: string;
+  "role"?: string;
+}
 
 /** Protocol v5; authority: control. */
 export interface ClosePaneRequest extends CmuxRequestBase {
@@ -1798,6 +1824,58 @@ export interface ListWorkspacesRequest extends CmuxRequestBase {
   cmd: "list-workspaces";
 }
 export type ListWorkspacesResult = T.Tree;
+
+/** Protocol v12; authority: local-admin. */
+export interface LoopbackCloseRequest extends CmuxRequestBase {
+  cmd: "loopback-close";
+  "stream": bigint;
+}
+export type LoopbackCloseResult = T.EmptyResult;
+
+/** Protocol v12; authority: local-admin. */
+export interface LoopbackCreditRequest extends CmuxRequestBase {
+  cmd: "loopback-credit";
+  "bytes": bigint;
+  "stream": bigint;
+}
+export type LoopbackCreditResult = T.EmptyResult;
+
+/** Protocol v12; authority: local-admin. */
+export interface LoopbackDataRequest extends CmuxRequestBase {
+  cmd: "loopback-data";
+  "data": string;
+  "stream": bigint;
+}
+export type LoopbackDataResult = T.EmptyResult;
+
+/** Protocol v12; authority: local-admin. */
+export interface LoopbackOpenRequest extends CmuxRequestBase {
+  cmd: "loopback-open";
+  "host": string;
+  "port": number;
+  "stream": bigint;
+  "window"?: (bigint) | null;
+}
+
+/** Protocol v12; authority: local-admin. */
+export interface LoopbackShutdownRequest extends CmuxRequestBase {
+  cmd: "loopback-shutdown";
+  "stream": bigint;
+}
+export type LoopbackShutdownResult = T.EmptyResult;
+
+/** Protocol v12; authority: local-admin. */
+export interface LoopbackStatusRequest extends CmuxRequestBase {
+  cmd: "loopback-status";
+}
+
+/** Protocol v12; authority: local-admin. */
+export interface MachineCatalogPublishRequest extends CmuxRequestBase {
+  cmd: "machine-catalog-publish";
+  "expected_machine_id": string;
+  "machines": Array<T.MachineCatalogEntry>;
+  "sequence": bigint;
+}
 
 /** Protocol v12; authority: control. */
 export interface MachineListeningTcpRequest extends CmuxRequestBase {
@@ -3301,6 +3379,9 @@ export type CmuxRequest =
   | BrowserMouseGuardedRequest
   | BrowserNavigateRequest
   | BrowserReloadRequest
+  | BrowserRuntimeStartRequest
+  | BrowserRuntimeStatusRequest
+  | BrowserRuntimeStopRequest
   | BrowserWheelRequest
   | BrowserWheelGuardedRequest
   | CancelRequestRequest
@@ -3308,6 +3389,7 @@ export type CmuxRequest =
   | ClearHistoryRequest
   | ClearWindowTitleRequest
   | ClientFocusRequest
+  | ClientHelloRequest
   | ClosePaneRequest
   | CloseProviderManagedWorkspaceRequest
   | CloseScreenRequest
@@ -3424,6 +3506,13 @@ export type CmuxRequest =
   | ListTerminalsRequest
   | ListWorkspaceGroupsRequest
   | ListWorkspacesRequest
+  | LoopbackCloseRequest
+  | LoopbackCreditRequest
+  | LoopbackDataRequest
+  | LoopbackOpenRequest
+  | LoopbackShutdownRequest
+  | LoopbackStatusRequest
+  | MachineCatalogPublishRequest
   | MachineListeningTcpRequest
   | MachineUsageRequest
   | MarkWorkspacesProviderManagedRequest
@@ -3959,6 +4048,30 @@ export interface CmuxCommandDefinitionMap {
     capability: null;
     stream: null;
   };
+  "browser-runtime-start": {
+    request: BrowserRuntimeStartRequest;
+    result: T.BrowserRuntimeStartResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "browser-runtime-v1";
+    stream: null;
+  };
+  "browser-runtime-status": {
+    request: BrowserRuntimeStatusRequest;
+    result: T.BrowserRuntimeStatusResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "browser-runtime-v1";
+    stream: null;
+  };
+  "browser-runtime-stop": {
+    request: BrowserRuntimeStopRequest;
+    result: T.BrowserRuntimeStopResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "browser-runtime-v1";
+    stream: null;
+  };
   "browser-wheel": {
     request: BrowserWheelRequest;
     result: BrowserWheelResult;
@@ -4013,6 +4126,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 12;
     capability: "client-focus-v1";
+    stream: null;
+  };
+  "client-hello": {
+    request: ClientHelloRequest;
+    result: T.ClientHelloResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "origin-claim-v1";
     stream: null;
   };
   "close-pane": {
@@ -4941,6 +5062,62 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 5;
     capability: null;
+    stream: null;
+  };
+  "loopback-close": {
+    request: LoopbackCloseRequest;
+    result: LoopbackCloseResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "loopback-forward-v1";
+    stream: null;
+  };
+  "loopback-credit": {
+    request: LoopbackCreditRequest;
+    result: LoopbackCreditResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "loopback-forward-v1";
+    stream: null;
+  };
+  "loopback-data": {
+    request: LoopbackDataRequest;
+    result: LoopbackDataResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "loopback-forward-v1";
+    stream: null;
+  };
+  "loopback-open": {
+    request: LoopbackOpenRequest;
+    result: T.LoopbackOpenResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "loopback-forward-v1";
+    stream: null;
+  };
+  "loopback-shutdown": {
+    request: LoopbackShutdownRequest;
+    result: LoopbackShutdownResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "loopback-forward-v1";
+    stream: null;
+  };
+  "loopback-status": {
+    request: LoopbackStatusRequest;
+    result: T.LoopbackStatusResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "loopback-forward-v1";
+    stream: null;
+  };
+  "machine-catalog-publish": {
+    request: MachineCatalogPublishRequest;
+    result: T.MachineCatalogPublishResult;
+    authority: "local-admin";
+    since: 12;
+    capability: "machine-catalog-publish-v1";
     stream: null;
   };
   "machine-listening-tcp": {

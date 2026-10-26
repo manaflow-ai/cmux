@@ -31,6 +31,9 @@ pub type Responder = Box<dyn FnOnce(Result<Value, ApiError>) + Send>;
 const LOG_LINES: usize = 500;
 pub(super) const MAX_CRASHES: u32 = 5;
 
+/// The app storage lock's name in `cmux_threads::lock_waits`.
+const STORAGE_LOCK_NAME: &str = "apps.storage";
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ApiError {
     pub code: String,
@@ -229,7 +232,10 @@ pub struct Supervisor {
     pub(super) inner: Mutex<Inner>,
     pub(super) router: Box<dyn OpRouter>,
     pub(super) fetcher: Box<dyn Fetcher>,
-    pub(super) storage: Mutex<Option<Storage>>,
+    /// Taken only through [`Self::storage`], so every holder names itself.
+    storage: Mutex<Option<Storage>>,
+    /// The thread that last took `storage` (lock waits name it).
+    storage_holder: cmux_threads::LockHolder,
     pub(super) timers: Timers,
     pub(super) me: Weak<Supervisor>,
     /// Connector links of the terminal interfaces (`terminal_ops.rs`).
@@ -312,6 +318,7 @@ impl Supervisor {
             router,
             fetcher,
             storage: Mutex::new(None),
+            storage_holder: cmux_threads::LockHolder::default(),
             timers: Timers::default(),
             me: me.clone(),
             terminals: Default::default(),
@@ -528,14 +535,27 @@ impl Supervisor {
     }
 
     /// The storage database, opened on first use. Lock order: `inner`, then
-    /// `storage`.
+    /// `storage`. The lock is timed for the caller: a failed try on a thread
+    /// that disallows blocking is a `lock-wait` violation there, and a wait
+    /// of 2 ms or more is recorded with the holder's thread name
+    /// (`cmux_threads::lock_waits`). The open and every `Storage` op note
+    /// `sqlite` at their own callers, this function's caller for the open.
+    #[track_caller]
     pub(super) fn storage(&self) -> std::sync::MutexGuard<'_, Option<Storage>> {
-        let mut guard = self.storage.lock().unwrap();
+        let site = std::panic::Location::caller();
+        let mut guard =
+            self.storage_holder.lock_mutex(STORAGE_LOCK_NAME, site, &self.storage).unwrap();
         if guard.is_none() {
             let path = self.config.state_dir.as_ref().map(|d| d.join("apps-storage.sqlite"));
             *guard = Storage::open(path.as_deref()).ok();
         }
         guard
+    }
+
+    /// The threads waiting for the storage lock now.
+    #[cfg(test)]
+    pub(super) fn storage_waiting(&self) -> u32 {
+        self.storage_holder.waiting()
     }
 
     /// Writes `apps.json` durably: temp file, fsync, rename.

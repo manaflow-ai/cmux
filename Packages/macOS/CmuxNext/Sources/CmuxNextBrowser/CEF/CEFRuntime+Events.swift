@@ -382,6 +382,7 @@ extension CEFRuntime {
         var sequence = CEFShutdownSequence(liveBrowsers: tabsByBrowser.count + pendingWindows.count, windows: Int(shim.windowCount()))
         sequence.begin()
         shutdownSequence = sequence
+        noteCrashKeyShuttingDown()
         shim.closeAll()
         pump?.pumpNow()
         shutdownProgressed()

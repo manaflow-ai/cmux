@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '07f25cd97f355ba0c33e4e9958a84c274851a8c72048a29a69edad5286828785'
+IR_SHA256 = '70760e20832505feed3b37cccc0a0439e8a693f12cc37771bb7948681485a692'
 
 
 @dataclass(frozen=True)
@@ -685,6 +685,38 @@ COMMANDS = {
             'surface': CommandFieldMetadata(None, None),
         },
     ),
+    'browser-runtime-start': CommandMetadata(
+        'browser-runtime-start',
+        'local-admin',
+        12,
+        'browser-runtime-v1',
+        ('local-admin',),
+        None,
+        {
+            'url': CommandFieldMetadata(None, None),
+        },
+    ),
+    'browser-runtime-status': CommandMetadata(
+        'browser-runtime-status',
+        'local-admin',
+        12,
+        'browser-runtime-v1',
+        ('local-admin',),
+        None,
+        {
+        },
+    ),
+    'browser-runtime-stop': CommandMetadata(
+        'browser-runtime-stop',
+        'local-admin',
+        12,
+        'browser-runtime-v1',
+        ('local-admin',),
+        None,
+        {
+            'runtime': CommandFieldMetadata(None, None),
+        },
+    ),
     'browser-wheel': CommandMetadata(
         'browser-wheel',
         'frontend',
@@ -769,6 +801,20 @@ COMMANDS = {
         None,
         {
             'client_id': CommandFieldMetadata(None, None),
+        },
+    ),
+    'client-hello': CommandMetadata(
+        'client-hello',
+        'local-admin',
+        12,
+        'origin-claim-v1',
+        ('local-admin',),
+        None,
+        {
+            'install_id': CommandFieldMetadata(None, None),
+            'page': CommandFieldMetadata(None, None),
+            'proof': CommandFieldMetadata(None, None),
+            'role': CommandFieldMetadata(None, None),
         },
     ),
     'close-pane': CommandMetadata(
@@ -2265,6 +2311,89 @@ COMMANDS = {
         ('control', 'frontend', 'local-admin', 'provider-authority'),
         None,
         {
+        },
+    ),
+    'loopback-close': CommandMetadata(
+        'loopback-close',
+        'local-admin',
+        12,
+        'loopback-forward-v1',
+        ('local-admin',),
+        None,
+        {
+            'stream': CommandFieldMetadata(None, None),
+        },
+    ),
+    'loopback-credit': CommandMetadata(
+        'loopback-credit',
+        'local-admin',
+        12,
+        'loopback-forward-v1',
+        ('local-admin',),
+        None,
+        {
+            'bytes': CommandFieldMetadata(None, None),
+            'stream': CommandFieldMetadata(None, None),
+        },
+    ),
+    'loopback-data': CommandMetadata(
+        'loopback-data',
+        'local-admin',
+        12,
+        'loopback-forward-v1',
+        ('local-admin',),
+        None,
+        {
+            'data': CommandFieldMetadata(None, None),
+            'stream': CommandFieldMetadata(None, None),
+        },
+    ),
+    'loopback-open': CommandMetadata(
+        'loopback-open',
+        'local-admin',
+        12,
+        'loopback-forward-v1',
+        ('local-admin',),
+        None,
+        {
+            'host': CommandFieldMetadata(None, None),
+            'port': CommandFieldMetadata(None, None),
+            'stream': CommandFieldMetadata(None, None),
+            'window': CommandFieldMetadata(None, None),
+        },
+    ),
+    'loopback-shutdown': CommandMetadata(
+        'loopback-shutdown',
+        'local-admin',
+        12,
+        'loopback-forward-v1',
+        ('local-admin',),
+        None,
+        {
+            'stream': CommandFieldMetadata(None, None),
+        },
+    ),
+    'loopback-status': CommandMetadata(
+        'loopback-status',
+        'local-admin',
+        12,
+        'loopback-forward-v1',
+        ('local-admin',),
+        None,
+        {
+        },
+    ),
+    'machine-catalog-publish': CommandMetadata(
+        'machine-catalog-publish',
+        'local-admin',
+        12,
+        'machine-catalog-publish-v1',
+        ('local-admin',),
+        None,
+        {
+            'expected_machine_id': CommandFieldMetadata(None, None),
+            'machines': CommandFieldMetadata(None, None),
+            'sequence': CommandFieldMetadata(None, None),
         },
     ),
     'machine-listening-tcp': CommandMetadata(
@@ -4349,6 +4478,10 @@ EVENTS = {
     'history-changed': EventMetadata('history-changed', 12, 'history-v1', ('subscribe',), 'emitted'),
     'keybindings-changed': EventMetadata('keybindings-changed', 12, 'keybindings-v1', ('subscribe',), 'emitted'),
     'layout-changed': EventMetadata('layout-changed', 6, None, ('subscribe',), 'emitted'),
+    'loopback-closed': EventMetadata('loopback-closed', 12, 'loopback-forward-v1', ('control',), 'emitted'),
+    'loopback-credit': EventMetadata('loopback-credit', 12, 'loopback-forward-v1', ('control',), 'emitted'),
+    'loopback-data': EventMetadata('loopback-data', 12, 'loopback-forward-v1', ('control',), 'emitted'),
+    'loopback-eof': EventMetadata('loopback-eof', 12, 'loopback-forward-v1', ('control',), 'emitted'),
     'machine-usage-changed': EventMetadata('machine-usage-changed', 12, 'machine-usage-v1', ('subscribe',), 'emitted'),
     'notification': EventMetadata('notification', 6, None, ('subscribe', 'attach-byte', 'attach-browser'), 'emitted'),
     'output': EventMetadata('output', 5, None, ('attach-byte',), 'emitted'),

@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 07f25cd97f355ba0c33e4e9958a84c274851a8c72048a29a69edad5286828785. */
+/* cmux-tui mux protocol 12, IR 70760e20832505feed3b37cccc0a0439e8a693f12cc37771bb7948681485a692. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "07f25cd97f355ba0c33e4e9958a84c274851a8c72048a29a69edad5286828785" as const;
+export const SDK_IR_SHA256 = "70760e20832505feed3b37cccc0a0439e8a693f12cc37771bb7948681485a692" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -704,6 +704,41 @@ export const COMMAND_METADATA = {
       "Browser surfaces only; queue acknowledgement is not page-load success."
     ]
   },
+  "browser-runtime-start": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "browser-runtime-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Starts cmux-remote-browser-host from the install directory; the reply comes when it listens (browser-runtime.start-failed after 45 s or when it exits).",
+      "4 runtimes per connection and 16 per daemon (browser-runtime.limit); browser-runtime.not-installed without an installed host.",
+      "The runtime belongs to the connection: closing it stops its runtimes.",
+      "Local (Unix) connections that declared browser-runtime-v1 with set-client-info only (browser-runtime.not-enabled otherwise); the remote relay refuses it."
+    ]
+  },
+  "browser-runtime-status": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "browser-runtime-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "The installed browser host version, the daemon platform and this connection's runtimes.",
+      "Local (Unix) connections that declared browser-runtime-v1 with set-client-info only (browser-runtime.not-enabled otherwise); the remote relay refuses it."
+    ]
+  },
+  "browser-runtime-stop": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "browser-runtime-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "browser-runtime.unknown for a runtime this connection does not own.",
+      "Local (Unix) connections that declared browser-runtime-v1 with set-client-info only (browser-runtime.not-enabled otherwise); the remote relay refuses it."
+    ]
+  },
   "browser-wheel": {
     "authority": "frontend",
     "since": 6,
@@ -780,6 +815,18 @@ export const COMMAND_METADATA = {
     "fields": {},
     "stream": null,
     "constraints": []
+  },
+  "client-hello": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "origin-claim-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Fixes the connection's role. Only the first line, or the second right after exactly one identify (client_hello.window_closed otherwise); every error closes the hello window.",
+      "Step 2 is the very next line after a step 1 reply with a nonce.",
+      "Local (Unix) connections only (client_hello.local_only)."
+    ]
   },
   "close-pane": {
     "authority": "control",
@@ -2025,6 +2072,87 @@ export const COMMAND_METADATA = {
     "fields": {},
     "stream": null,
     "constraints": []
+  },
+  "loopback-close": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "loopback-forward-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Aborts the stream (loopback-closed with error closed-by-client).",
+      "Usually sent without id (no reply). An unknown stream changes nothing.",
+      "Local (Unix) connections that declared loopback-forward-v1 with set-client-info only; the remote relay refuses it."
+    ]
+  },
+  "loopback-credit": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "loopback-forward-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Usually sent without id (no reply). An unknown stream changes nothing.",
+      "Local (Unix) connections that declared loopback-forward-v1 with set-client-info only; the remote relay refuses it."
+    ]
+  },
+  "loopback-data": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "loopback-forward-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Usually sent without id (no reply). The daemon returns credit with loopback-credit events; more than the daemon window in flight ends the stream (window-exceeded).",
+      "An unknown stream answers loopback.unknown-stream, or a loopback-closed event without id.",
+      "Local (Unix) connections that declared loopback-forward-v1 with set-client-info only; the remote relay refuses it."
+    ]
+  },
+  "loopback-open": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "loopback-forward-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Connects to a service on the daemon machine's loopback interface; data, EOF and close of the stream follow as loopback-* events.",
+      "128 streams per connection and 512 per daemon (loopback.limit); 3 s connect timeout.",
+      "Local (Unix) connections that declared loopback-forward-v1 with set-client-info only; the remote relay refuses it. Otherwise loopback.not-enabled."
+    ]
+  },
+  "loopback-shutdown": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "loopback-forward-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Half close: after the queued bytes the daemon shuts down the target socket's write side.",
+      "Usually sent without id (no reply). An unknown stream changes nothing.",
+      "Local (Unix) connections that declared loopback-forward-v1 with set-client-info only; the remote relay refuses it."
+    ]
+  },
+  "loopback-status": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "loopback-forward-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "The policy switch, stream counts, limits and audit ring.",
+      "Local (Unix) connections that declared loopback-forward-v1 with set-client-info only; the remote relay refuses it. Otherwise loopback.not-enabled."
+    ]
+  },
+  "machine-catalog-publish": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "machine-catalog-publish-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "The verified app's projection of its admitted remote routes; readers keep machine.list/get. The connection is its lease.",
+      "Only a verified-app local (Unix) connection not bound to an agent (machine_catalog.not_trusted); one publisher at a time (machine_catalog.taken); at most 128 KiB."
+    ]
   },
   "machine-listening-tcp": {
     "authority": "control",
@@ -4383,6 +4511,38 @@ export const EVENT_METADATA = {
     ],
     "emission": "emitted"
   },
+  "loopback-closed": {
+    "since": 12,
+    "capability": "loopback-forward-v1",
+    "streams": [
+      "control"
+    ],
+    "emission": "emitted"
+  },
+  "loopback-credit": {
+    "since": 12,
+    "capability": "loopback-forward-v1",
+    "streams": [
+      "control"
+    ],
+    "emission": "emitted"
+  },
+  "loopback-data": {
+    "since": 12,
+    "capability": "loopback-forward-v1",
+    "streams": [
+      "control"
+    ],
+    "emission": "emitted"
+  },
+  "loopback-eof": {
+    "since": 12,
+    "capability": "loopback-forward-v1",
+    "streams": [
+      "control"
+    ],
+    "emission": "emitted"
+  },
   "machine-usage-changed": {
     "since": 12,
     "capability": "machine-usage-v1",
@@ -6384,6 +6544,134 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "BrowserRuntimeRow": {
+    "additional_properties": false,
+    "fields": {
+      "port": {
+        "constraints": [
+          "The host's loopback port on the daemon machine."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint16"
+        }
+      },
+      "runtime": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "BrowserRuntimeStartResult": {
+    "additional_properties": false,
+    "fields": {
+      "installed": {
+        "constraints": [
+          "The version that was started."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "port": {
+        "constraints": [
+          "Reach it with loopback-open on the same connection."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint16"
+        }
+      },
+      "runtime": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "secret": {
+        "constraints": [
+          "64 hex characters: the host's cmux.rd/1 hello token. Keep it in memory only."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "BrowserRuntimeStatusResult": {
+    "additional_properties": false,
+    "fields": {
+      "installed": {
+        "constraints": [
+          "The installed version (the directory `current` names), null when none is installed."
+        ],
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "platform": {
+        "constraints": [
+          "<os>-<arch> of the daemon machine, for example macos-aarch64."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "runtimes": {
+        "constraints": [
+          "This connection's runtimes."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "BrowserRuntimeRow"
+          },
+          "kind": "array"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "BrowserRuntimeStopResult": {
+    "additional_properties": false,
+    "fields": {
+      "stopped": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": true
+        }
+      }
+    },
+    "kind": "object"
+  },
   "CellPixelFailure": {
     "additional_properties": false,
     "fields": {
@@ -6469,6 +6757,142 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "uint16"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ClientHelloPageOperations": {
+    "additional_properties": false,
+    "fields": {
+      "confirm": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "scalar",
+            "name": "string"
+          },
+          "kind": "array"
+        }
+      },
+      "gesture": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "scalar",
+            "name": "string"
+          },
+          "kind": "array"
+        }
+      },
+      "read": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "scalar",
+            "name": "string"
+          },
+          "kind": "array"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ClientHelloResult": {
+    "additional_properties": false,
+    "fields": {
+      "connection_id": {
+        "constraints": [
+          "The daemon's id for this connection (the relay_connection_id of origin.confirmation.issue)."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "install_id": {
+        "constraints": [
+          "Step 2 only: the proved install id."
+        ],
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "nonce": {
+        "constraints": [
+          "Step 1, role main with an install_id: 64 hex digits; the very next line must be step 2."
+        ],
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "page": {
+        "constraints": [
+          "Step 1 of a page relay that named its page."
+        ],
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "page_events": {
+        "constraints": [
+          "Step 1 of a page relay that named its page: the subscribe events it hears (page-events-v1)."
+        ],
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "items": {
+            "kind": "scalar",
+            "name": "string"
+          },
+          "kind": "array"
+        }
+      },
+      "page_operations": {
+        "constraints": [
+          "Step 1 of a page relay that named its page: its allow list (page-router-v1)."
+        ],
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "ClientHelloPageOperations"
+        }
+      },
+      "user_origin_allowed": {
+        "constraints": [
+          "Whether a request with origin user is accepted on this connection now."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "verified": {
+        "constraints": [
+          "Step 2 only."
+        ],
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "literal",
+          "value": true
         }
       }
     },
@@ -9436,6 +9860,375 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "LoopbackAuditRecord": {
+    "additional_properties": false,
+    "fields": {
+      "at_ms": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "bytes_from_target": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "bytes_to_target": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "client": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "duration_ms": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "host": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "outcome": {
+        "constraints": [
+          "ok, or the error code of a refused or failed open."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "port": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint16"
+        }
+      },
+      "stream": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "LoopbackLimits": {
+    "additional_properties": false,
+    "fields": {
+      "daemon_window": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "frame_bytes": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "per_client": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "total": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "LoopbackOpenResult": {
+    "additional_properties": false,
+    "fields": {
+      "address": {
+        "constraints": [
+          "The loopback socket address the daemon connected to."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "stream": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "window": {
+        "constraints": [
+          "The daemon's receive window in bytes (256 KiB)."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "LoopbackStatusResult": {
+    "additional_properties": false,
+    "fields": {
+      "audit": {
+        "constraints": [
+          "The last 256 finished or refused connections."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "LoopbackAuditRecord"
+          },
+          "kind": "array"
+        }
+      },
+      "client_streams": {
+        "constraints": [
+          "Open and opening streams of this connection."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "enabled": {
+        "constraints": [
+          "server.loopback_forward allows forwarding."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "limits": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "LoopbackLimits"
+        }
+      },
+      "open_streams": {
+        "constraints": [
+          "Open streams of every connection."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "opened": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "refused": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "MachineCatalogEntry": {
+    "additional_properties": false,
+    "fields": {
+      "capabilities": {
+        "constraints": [
+          "Up to 16 tokens: 1-64 of a-z 0-9 . _ -, starting with a letter."
+        ],
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "items": {
+            "kind": "scalar",
+            "name": "string"
+          },
+          "kind": "array"
+        }
+      },
+      "id": {
+        "constraints": [
+          "A canonical machine public id, not this daemon's own and unique in the snapshot."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "name": {
+        "constraints": [
+          "1-64 characters, no control characters."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "origin": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "MachineCatalogOrigin"
+        }
+      },
+      "platform": {
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "MachineCatalogPlatform"
+        }
+      },
+      "status": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "MachineCatalogStatus"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "MachineCatalogOrigin": {
+    "kind": "enum",
+    "values": [
+      "cloud",
+      "ssh",
+      "server"
+    ]
+  },
+  "MachineCatalogPlatform": {
+    "additional_properties": false,
+    "fields": {
+      "arch": {
+        "constraints": [
+          "1-64 of A-Z a-z 0-9 . _ -."
+        ],
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "os": {
+        "constraints": [
+          "1-64 of A-Z a-z 0-9 . _ -."
+        ],
+        "nullable": true,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "MachineCatalogPublishResult": {
+    "additional_properties": false,
+    "fields": {
+      "replayed": {
+        "constraints": [
+          "True for an exact replay of the current snapshot."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "sequence": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "MachineCatalogStatus": {
+    "kind": "enum",
+    "values": [
+      "running",
+      "connecting",
+      "unavailable",
+      "sleeping",
+      "stopped"
+    ]
+  },
   "MachineListeningTcpResult": {
     "additional_properties": false,
     "constraints": [
@@ -11669,6 +12462,94 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "ServerStatsLockWait": {
+    "additional_properties": false,
+    "constraints": [
+      "lock is registry.connection, chief.store, conversation.store or apps.storage.",
+      "holder is the thread that took the lock last before the waiter got it or gave up; it is absent when holders are not tracked (a release daemon that does not record).",
+      "waiter is the thread that waited; site is the file:line of the code that asked for the lock."
+    ],
+    "fields": {
+      "holder": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "lock": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "site": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "waited_us": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "waiter": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ServerStatsLockWaits": {
+    "additional_properties": false,
+    "constraints": [
+      "long_waits counts lock waits of 2 ms or more since daemon start, on the registry connection, the Chief and conversation stores and app storage.",
+      "recent holds the newest waits first, at most 64; dropped counts records lost to a concurrent write of the same ring slot."
+    ],
+    "fields": {
+      "dropped": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "long_waits": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "recent": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "ServerStatsLockWait"
+          },
+          "kind": "array"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "ServerStatsRegistryLock": {
     "additional_properties": false,
     "constraints": [
@@ -11818,7 +12699,8 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       "Counters accumulate since daemon start: notes of blocking work made on request threads (inside a frame or a queued request).",
       "scopes counts outermost request scopes entered: frames read plus queued requests run.",
       "lock_hold_over_1ms is present only while recording is true: registry connection holds are timed only then.",
-      "sites holds the newest notes first, at most 128, and is empty unless recording is true."
+      "sites holds the newest notes first, at most 128, and is empty unless recording is true.",
+      "lock_waits is the daemon process's lock waits of 2 ms or more (every thread, not only request threads); a server before it omits the field."
     ],
     "fields": {
       "child_process": {
@@ -11859,6 +12741,14 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "scalar",
           "name": "uint64"
+        }
+      },
+      "lock_waits": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsLockWaits"
         }
       },
       "network": {
@@ -17811,6 +18701,63 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "name": "EmptyResult"
     }
   },
+  "browser-runtime-start": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "url": {
+          "constraints": [
+            "The first page: an http or https URL of at most 8 KiB (browser-runtime.bad-url otherwise)."
+          ],
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "BrowserRuntimeStartResult"
+    }
+  },
+  "browser-runtime-status": {
+    "request": {
+      "additional_properties": false,
+      "fields": {},
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "BrowserRuntimeStatusResult"
+    }
+  },
+  "browser-runtime-stop": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "runtime": {
+          "constraints": [
+            "A runtime this connection started."
+          ],
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "BrowserRuntimeStopResult"
+    }
+  },
   "browser-wheel": {
     "request": {
       "additional_properties": false,
@@ -18077,6 +19024,62 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
         }
       },
       "kind": "object"
+    }
+  },
+  "client-hello": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "install_id": {
+          "constraints": [
+            "1-128 of A-Z a-z 0-9 _ -. Step 1 with role main: asks for a nonce. Step 2, required: the install id it proves."
+          ],
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "page": {
+          "constraints": [
+            "Step 1 with role page_relay only (page-router-v1): the page the relay serves."
+          ],
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "proof": {
+          "constraints": [
+            "Step 2, required: the install-key proof over the step 1 nonce (client_hello.refused otherwise)."
+          ],
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "role": {
+          "constraints": [
+            "Step 1, required: main or page_relay (client_hello.bad_request {field: role} otherwise)."
+          ],
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "ClientHelloResult"
     }
   },
   "close-pane": {
@@ -23569,6 +24572,232 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "Tree"
+    }
+  },
+  "loopback-close": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "stream": {
+          "constraints": [
+            "The client-chosen stream id of a loopback-open on this connection."
+          ],
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "EmptyResult"
+    }
+  },
+  "loopback-credit": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "bytes": {
+          "constraints": [
+            "More send window for the daemon, after the client consumed target bytes."
+          ],
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "stream": {
+          "constraints": [
+            "The client-chosen stream id of a loopback-open on this connection."
+          ],
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "EmptyResult"
+    }
+  },
+  "loopback-data": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "data": {
+          "constraints": [
+            "Base64 of at most 64 KiB."
+          ],
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "stream": {
+          "constraints": [
+            "The client-chosen stream id of a loopback-open on this connection."
+          ],
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "EmptyResult"
+    }
+  },
+  "loopback-open": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "host": {
+          "constraints": [
+            "localhost, a name under .localhost, or a loopback IP literal; never resolved through DNS."
+          ],
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "port": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint16"
+          }
+        },
+        "stream": {
+          "constraints": [
+            "Client-chosen, unique among the connection's open streams (loopback.duplicate-stream)."
+          ],
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "window": {
+          "constraints": [
+            "The client's receive window: at least 16 KiB (loopback.bad-request), at most 4 MiB, default 256 KiB."
+          ],
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "LoopbackOpenResult"
+    }
+  },
+  "loopback-shutdown": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "stream": {
+          "constraints": [
+            "The client-chosen stream id of a loopback-open on this connection."
+          ],
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "EmptyResult"
+    }
+  },
+  "loopback-status": {
+    "request": {
+      "additional_properties": false,
+      "fields": {},
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "LoopbackStatusResult"
+    }
+  },
+  "machine-catalog-publish": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "expected_machine_id": {
+          "constraints": [
+            "This daemon's machine public id (machine_catalog.owner_mismatch otherwise)."
+          ],
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "machines": {
+          "constraints": [
+            "At most 256 remote records."
+          ],
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "items": {
+              "kind": "ref",
+              "name": "MachineCatalogEntry"
+            },
+            "kind": "array"
+          }
+        },
+        "sequence": {
+          "constraints": [
+            "Positive and increasing on the connection; an older or conflicting one is machine_catalog.stale."
+          ],
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "MachineCatalogPublishResult"
     }
   },
   "machine-listening-tcp": {
@@ -33328,6 +34557,128 @@ export const EVENT_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "Id"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "loopback-closed": {
+    "additional_properties": false,
+    "fields": {
+      "error": {
+        "constraints": [
+          "Absent after a clean close; else closed-by-client, read-failed, write-failed, window-exceeded, bad-frame, data-after-shutdown, overflow, unknown-stream, client-gone or internal.",
+          "With an error the close aborts the stream: the daemon sends it on the control lane, so it may arrive before loopback-data it had already queued for the stream. A clean close follows the stream's last loopback-data and loopback-eof."
+        ],
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "loopback-closed"
+        }
+      },
+      "stream": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "loopback-credit": {
+    "additional_properties": false,
+    "fields": {
+      "bytes": {
+        "constraints": [
+          "Client bytes the daemon wrote to the target."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "loopback-credit"
+        }
+      },
+      "stream": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "loopback-data": {
+    "additional_properties": false,
+    "fields": {
+      "data": {
+        "constraints": [
+          "Base64 target bytes, within the client's credit."
+        ],
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "loopback-data"
+        }
+      },
+      "stream": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "loopback-eof": {
+    "additional_properties": false,
+    "fields": {
+      "event": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "literal",
+          "value": "loopback-eof"
+        }
+      },
+      "stream": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
         }
       }
     },

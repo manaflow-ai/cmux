@@ -42,6 +42,8 @@ public final class DaemonStore: StateResourceQueries {
     /// reader can tell facts seen on an earlier connection from this one
     /// even when it missed the states in between.
     @ObservationIgnored public internal(set) var connectionEpoch = 0
+    /// Names ``connectionEpoch`` in a crash record (``CrashKeySlots/Key/daemonEpoch``); nil names none.
+    @ObservationIgnored let crashKeys: CrashKeySlots?
     /// The identity of the last daemon that completed a handshake. Kept
     /// through a disconnect; replaced on every (re)connect, whose daemon may
     /// be a different generation or build with different capabilities.
@@ -148,10 +150,10 @@ public final class DaemonStore: StateResourceQueries {
         get { causes.sidebar != nil }
         set { causes.noteSidebar(newValue) }
     }
-    /// Called once per intent when it leaves the log (main actor), after the visible state is complete again.
-    @ObservationIgnored public var onIntentSettled: ((ClientTransactionID, IntentSettlement) -> Void)?
-    /// Settlements of the current lift, reported when it ends.
-    @ObservationIgnored var intentSettlements: [(ClientTransactionID, IntentSettlement, ObservationCause)] = []
+    /// How the intents left the log since this store was made (``IntentTotals``), counted once the visible state is complete again; observed.
+    public internal(set) var intentTotals = IntentTotals()
+    /// Settlements of the current lift with their intents and causes, counted in `intentTotals` when it ends.
+    @ObservationIgnored var intentSettlements: [(settlement: IntentSettlement, intent: Intent, cause: ObservationCause)] = []
     /// Mirror single-writer violations found by the debug-build check (DaemonStore+MirrorCheck.swift), newest last (bounded).
     @ObservationIgnored public internal(set) var mirrorViolations: [String] = []
     /// Called on the main actor for each new mirror violation.
@@ -212,8 +214,10 @@ public final class DaemonStore: StateResourceQueries {
     ///     nil (tests, fixtures): a queue of the store's own.
     ///   - causes: The app's ``ObservationCauses`` (`MainWorkScheduler.causes`): the drain applies each
     ///     event with its cause, and an action run's intent with its origin's. nil (tests, fixtures): none.
-    public init(waitDeadlines: MainWakeUpQueue? = nil, causes: ObservationCauses? = nil) {
+    ///   - crashKeys: The app's crash keys; ``CrashKeySlots/Key/daemonEpoch`` follows ``connectionEpoch``.
+    public init(waitDeadlines: MainWakeUpQueue? = nil, causes: ObservationCauses? = nil, crashKeys: CrashKeySlots? = nil) {
         self.causes = StoreCauses(causes)
+        self.crashKeys = crashKeys
         let queue = waitDeadlines ?? MainWakeUpQueue(energy: EnergyPolicySource())
         index = StoreIndex(waiters: StoreWaiters(deadlines: AlignedWakeups(queue: queue)), unread: UnreadLedger())
         index.unread.onChange = { [weak self] totals in self?.publish(unread: totals) }

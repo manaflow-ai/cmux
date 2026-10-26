@@ -3,6 +3,11 @@
 //! in-memory revision, the presentation cache, and the notifications every
 //! client follows (`session.events` wakeups, `personal-changed`,
 //! `tree-changed`).
+//!
+//! Every entry point is `#[track_caller]` down to the registry connection,
+//! whose first acquisition is the checked `sqlite` scope: a commit on a
+//! thread that disallows blocking is recorded at its caller
+//! (state/router_blocking_tests.rs).
 
 use rusqlite::Transaction;
 

@@ -1,4 +1,5 @@
 public import CmuxNextBrowser
+public import CmuxNextWakeups
 public import Foundation
 public import WebKit
 
@@ -21,15 +22,19 @@ public final class WebKitDriver: DriverCallHandler {
     /// Where `cookies.clear` keeps what it deletes (undo); nil: no clear runs.
     public var cookieBackups: CookieBackups?
     var sessions: [BrowserTabID: TabSession] = [:]
-    lazy var dialogs = DialogBroker { [weak self] name, payload in self?.emit(name, payload) }
+    lazy var dialogs = DialogBroker(work: mainWork) { [weak self] name, payload in self?.emit(name, payload) }
+    /// The app's main-thread scheduler: the tab watchers and the dialog broker observe in its automation class.
+    let mainWork: MainWorkScheduler
 
     /// The clock of the driver's bounded waits.
     let clock: any Clock<Duration>
     /// WebKit private calls, on this driver's clock.
     let privateCalls: WebKitPrivateCalls
 
-    public init(provider: any AutomationTabProvider, agentBundle: String? = nil, clock: any Clock<Duration> = ContinuousClock()) {
+    public init(provider: any AutomationTabProvider, mainWork: MainWorkScheduler, agentBundle: String? = nil,
+                clock: any Clock<Duration> = ContinuousClock()) {
         self.provider = provider
+        self.mainWork = mainWork
         self.clock = clock
         privateCalls = WebKitPrivateCalls(clock: clock)
         self.agentBundle = agentBundle
@@ -120,7 +125,7 @@ public final class WebKitDriver: DriverCallHandler {
         let session = TabSession(tabID: tab.id, driver: self)
         AgentWorld.install(into: tab.webView.configuration.userContentController, agentBundle: agentBundle,
                            handler: session.messages)
-        session.watcher = TabWatcher(tab: tab, session: session) { [weak self] name, payload in self?.emit(name, payload) }
+        session.watcher = TabWatcher(tab: tab, session: session, work: mainWork) { [weak self] name, payload in self?.emit(name, payload) }
         sessions[tab.id] = session
         dialogs.watch(tab)
         return session

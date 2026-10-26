@@ -12,7 +12,8 @@ public import CmuxNextInputCore
 /// render_widget_host_impl.cc` keeps typed `InputEventObserver` lists and `KeyPressEventCallback`s on
 /// the widget the event goes to, not process-wide monitors.
 ///
-/// The application object calls the three delivery points inside one dispatch scope:
+/// The application object calls the three delivery points inside one dispatch scope, and the end of
+/// the dispatch after it, on every path:
 ///
 /// ```swift
 /// tap.dispatching {
@@ -20,6 +21,7 @@ public import CmuxNextInputCore
 ///     if tap.deliverIntercepts(event) == .pass { super.sendEvent(event) }
 ///     tap.deliverAfterDispatch(event)
 /// }
+/// tap.deliverDispatchEnd(event, outcome: delivered ? .delivered : .consumed)
 /// ```
 ///
 /// Subscribing, cancelling or releasing a subscription inside a handler is safe: a list is never
@@ -34,6 +36,7 @@ public final class InputEventTap: InputObserving {
         case event(@MainActor (NSEvent) -> Void)
         case record(@MainActor (InputEventRecord) -> Void)
         case intercept(@MainActor (NSEvent) -> InterceptResult)
+        case ended(@MainActor (NSEvent, DispatchOutcome) -> Void)
     }
 
     /// One subscription in one class list (a subscription to several classes has one entry in each).
@@ -48,10 +51,11 @@ public final class InputEventTap: InputObserving {
         let handler: Handler
     }
 
-    /// The three phases' lists, one per event class (indexed by `InputEventClass.rawValue`).
+    /// The stages' lists, one per event class (indexed by `InputEventClass.rawValue`).
     private var observers = Array(repeating: ContiguousArray<Entry>(), count: InputEventClass.allCases.count)
     private var intercepts = Array(repeating: ContiguousArray<Entry>(), count: InputEventClass.allCases.count)
     private var afterDispatch = Array(repeating: ContiguousArray<Entry>(), count: InputEventClass.allCases.count)
+    private var dispatchEnds = Array(repeating: ContiguousArray<Entry>(), count: InputEventClass.allCases.count)
     /// Dispatch scopes and deliveries running now (nested ones add one each). Lists change only at 0.
     private var delivering = 0
     /// Subscriptions made during a delivery: added when it ends.
@@ -113,6 +117,20 @@ public final class InputEventTap: InputObserving {
         }
     }
 
+    /// Calls `handler` with each event of `classes` once its whole dispatch has ended, on every path: AppKit
+    /// dispatched it, or the key router, the find pill, the cross-window key guard or an intercept
+    /// consumed it (``DispatchOutcome``). It runs outside the event's dispatch scope, until the returned
+    /// subscription is cancelled or released.
+    ///
+    /// - Parameters:
+    ///   - classes: The event classes to receive.
+    ///   - handler: Main-thread work for one event, with how its dispatch ended. It must be O(1).
+    /// - Returns: The subscription; keep it in a stored property.
+    public func observeDispatchEnd(_ classes: InputEventClasses,
+                                   _ handler: @escaping @MainActor (NSEvent, DispatchOutcome) -> Void) -> InputSubscription {
+        subscribe(classes, stage: .dispatchEnd, order: .standard, window: .anyWindow, active: nil, handler: .ended(handler))
+    }
+
     /// ``InputObserving``: an observer that gets ``InputEventRecord`` values, for core and service owners.
     public func observe(_ classes: InputEventClasses, windowNumber: Int?,
                         _ handler: @escaping @MainActor (InputEventRecord) -> Void) -> InputSubscription {
@@ -146,6 +164,7 @@ public final class InputEventTap: InputObserving {
         case .observe: observers[Int(eventClass.rawValue)]
         case .intercept: intercepts[Int(eventClass.rawValue)]
         case .afterDispatch: afterDispatch[Int(eventClass.rawValue)]
+        case .dispatchEnd: dispatchEnds[Int(eventClass.rawValue)]
         }
         return list.count(where: { !$0.flag.isCancelled }) + pending.count(where: {
             $0.classes.contains(eventClass) && $0.stage == stage && !$0.entry.flag.isCancelled
@@ -210,7 +229,7 @@ public final class InputEventTap: InputObserving {
             switch entry.handler {
             case .event(let handler): handler(event)
             case .record(let handler): handler(record)
-            case .intercept: break
+            case .intercept, .ended: break
             }
         }
     }
@@ -252,6 +271,24 @@ public final class InputEventTap: InputObserving {
         }
     }
 
+    /// Calls `event`'s class's dispatch-end observers with `outcome`. The application object calls it
+    /// once per event, after the event's dispatch scope (``dispatching(_:)``) ended, on every path.
+    public func deliverDispatchEnd(_ event: NSEvent, outcome: DispatchOutcome) {
+        guard let type = InputEventType(event.type) else { return }
+        let index = Int(type.eventClass.rawValue)
+        guard !dispatchEnds[index].isEmpty else { return }
+        delivering += 1
+        defer { endDelivery() }
+        var windows = EventWindows(event)
+        var position = 0
+        while position < dispatchEnds[index].count {
+            let entry = dispatchEnds[index][position]
+            position += 1
+            guard matches(entry, &windows), case .ended(let handler) = entry.handler else { continue }
+            handler(event, outcome)
+        }
+    }
+
     // MARK: Internals
 
     private func subscribe(_ classes: InputEventClasses, stage: Stage, order: InterceptOrder, window: WindowScope,
@@ -287,6 +324,9 @@ public final class InputEventTap: InputObserving {
             case .afterDispatch:
                 afterDispatch[index].removeAll { $0.flag.isCancelled }
                 afterDispatch[index].append(entry)
+            case .dispatchEnd:
+                dispatchEnds[index].removeAll { $0.flag.isCancelled }
+                dispatchEnds[index].append(entry)
             case .intercept:
                 intercepts[index].removeAll { $0.flag.isCancelled }
                 // Stable: after every intercept of the same or a lower order.
@@ -305,6 +345,7 @@ public final class InputEventTap: InputObserving {
                 observers[index].removeAll { $0.flag.isCancelled }
                 intercepts[index].removeAll { $0.flag.isCancelled }
                 afterDispatch[index].removeAll { $0.flag.isCancelled }
+                dispatchEnds[index].removeAll { $0.flag.isCancelled }
             }
         }
         guard !pending.isEmpty else { return }
