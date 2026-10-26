@@ -609,6 +609,12 @@
       "row": "stateful_singletons",
       "allow": 1,
       "why": "p04-input-013: WindowOverlayHost.appInputTap, the app's one InputEventTap for the design kit's overlay owners, set once in CmuxNextApp.main right after the tap is made (before the delegate and services exist) and never changed. The per-window overlay hosts come from the existing static registry WindowOverlayHost.host(for:) at about a dozen sites in nine packages, and NativePopupHost is made by seven owners in five packages, none of which holds the tap; each reads it once when made (NativePopupHost also takes one by init, and an owner with no tap logs a fault). It replaces the NSApp lookup (InputEventTap.application) that review refused. HoverCardCoordinator takes the tap by init from AppServices, and TooltipPresenter.shared gets it as an instance property. Chrome keeps one process-wide source of platform events that UI owners add observers to: ui::PlatformEventSource::GetInstance() (ui/events/platform/platform_event_source.h). It goes when host(for:) becomes an instance registry the composition root passes."
+    },
+    {
+      "date": "2026-10-26",
+      "row": "layer-gate",
+      "allow": 13,
+      "why": "p08-startup-018 (fixer) merges origin/perf/chrome-parity, which brings the Linux-only manifest block of Packages/macOS/CmuxNext/Package.swift (inside `if ProcessInfo.processInfo.environment[\"CMUX_SWIFTPM_TARGET_LINUX\"] == \"1\" {`, the p15-oracle Linux tier). No Apple build runs that block, and the in-tree layer gate already blanks it (3213f6a7a8e, p15-oracle-002: arch_counts.parse_manifest skips the block); scripts/cmux-next/prepush-gate.py run from this tree reports no layer-gate refusal. Only this clone's installed hook copy (2026-10-25, before 3213f6a7a8e) reads these 13 lines. This push adds none of them: its own Package.swift change is the two dependency lists of the CmuxNextChromiumWarmup targets."
     }
   ],
   "observer_wrappers": [
