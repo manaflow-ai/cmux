@@ -419,6 +419,29 @@ def handle_prompt(rid, params):
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "worked"}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    # "meta-gate: PATH" is "work-gate:" with no plan, its own tool call "Own build" marked as a
+    # subagent's in its params' _meta.acpmux (the hub, not the agent, says whose an update is).
+    if text.startswith("meta-gate:"):
+        send({"jsonrpc": "2.0", "method": "session/update", "params": {
+            "sessionId": sid, "_meta": {"acpmux": {"subagent": "child-1"}},
+            "update": {"sessionUpdate": "tool_call", "toolCallId": "mg-1", "title": "Own build", "kind": "execute",
+                       "status": "in_progress"}}})
+        with open(text[len("meta-gate:"):].strip()) as gate:
+            gate.read()
+        update(sid, {"sessionUpdate": "tool_call_update", "toolCallId": "mg-1", "status": "completed"})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "child-gate: PATH" starts subagent child-1, whose tool call "Child build" runs while
+    # the turn blocks on the FIFO at PATH; then the child's call and the turn end.
+    if text.startswith("child-gate:"):
+        update(sid, {"sessionUpdate": "subagent_spawned", "subagentSessionId": "child-1", "name": "Child", "task": "Child build", "capabilities": {}})
+        update("child-1", {"sessionUpdate": "tool_call", "toolCallId": "cg-1", "title": "Child build", "kind": "execute", "status": "in_progress"})
+        with open(text[len("child-gate:"):].strip()) as gate:
+            gate.read()
+        update("child-1", {"sessionUpdate": "tool_call_update", "toolCallId": "cg-1", "status": "completed"})
+        update(sid, {"sessionUpdate": "subagent_state_update", "subagentSessionId": "child-1", "state": "completed"})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     # "gate: PATH" streams "before-gate", blocks until the test writes to
     # the FIFO at PATH (no timers), then streams "after-gate" and ends.
     if text.startswith("gate:"):
@@ -569,6 +592,29 @@ def handle_prompt(rid, params):
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": f"chose {chosen}"}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    # "guard: CMD" asks to run Bash CMD as Claude Code's own guard does in bypassPermissions
+    # (a can_use_tool its classifier may not approve), here with the lasting allow listed first.
+    if text.startswith("guard:"):
+        cmd = text[6:].strip()
+        res = request(
+            "session/request_permission",
+            {
+                "sessionId": sid,
+                "toolCall": {"toolCallId": "g1", "title": cmd, "kind": "execute", "status": "pending",
+                             "rawInput": {"command": cmd},
+                             "_meta": {"claude": {"tool": "Bash", "interactive": False,
+                                                  "description": "Dangerous rm operation on statically-unresolvable target"}}},
+                "options": [
+                    {"optionId": "always", "name": "Allow for this session", "kind": "allow_always"},
+                    {"optionId": "once", "name": "Allow", "kind": "allow_once"},
+                    {"optionId": "no", "name": "Reject", "kind": "reject_once"},
+                ],
+            },
+        )
+        chosen = (res or {}).get("outcome", {}).get("optionId", (res or {}).get("outcome", {}).get("outcome"))
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": f"chose {chosen}"}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     if text.startswith("ask:"):
         res = request(
             "session/request_permission",
@@ -602,6 +648,21 @@ def handle_prompt(rid, params):
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "echo: " + text[10:].strip()}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    # "set-mode-option: X" (FAKE_MODE_OPTION=1): the harness moves its own mode option to X.
+    if text.startswith("set-mode-option:"):
+        MODE_OPTION[sid] = text[16:].strip()
+        update(sid, {"sessionUpdate": "config_option_update", "configOptions": mode_options(sid)})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "bounce-guard: X" (FAKE_MODE_OPTION=1): the harness moves its mode option to X and straight
+    # back to what it was, then asks as "guard:" does.
+    if text.startswith("bounce-guard:"):
+        was = MODE_OPTION.get(sid, "normal")
+        MODE_OPTION[sid] = text[13:].strip()
+        update(sid, {"sessionUpdate": "config_option_update", "configOptions": mode_options(sid)})
+        MODE_OPTION[sid] = was
+        update(sid, {"sessionUpdate": "config_option_update", "configOptions": mode_options(sid)})
+        return handle_prompt(rid, dict(params, prompt=[{"type": "text", "text": "guard: rm -rf \"$TARGET\""}]))
     # "set-mode: X": the harness changes its own mode, as a real one may.
     if text.startswith("set-mode:"):
         update(sid, {"sessionUpdate": "current_mode_update", "currentModeId": text[9:].strip()})
@@ -662,6 +723,14 @@ def handle_prompt(rid, params):
     # launcher that fails before the harness starts.
     if text.startswith("die:"):
         sys.stderr.write(text[4:].strip() + "\n")
+        sys.stderr.flush()
+        os._exit(3)
+    # "die-later: X" streams a moment, then dies as "die: X" does mid-turn. The wait leaves a
+    # test time to queue a prompt behind it on a loaded machine.
+    if text.startswith("die-later:") or os.environ.get("FAKE_DIE_EVERY_PROMPT") == "1":
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "dying "}})
+        time.sleep(3.0)
+        sys.stderr.write(text[10:].strip() + "\n")
         sys.stderr.flush()
         os._exit(3)
     if text.startswith("limit:"):
@@ -867,6 +936,40 @@ def handle_prompt(rid, params):
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "thought through"}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    # "tool-hang" starts a tool call that never ends and says nothing more: a long command that
+    # prints nothing, or a hung one (`hub/stalled_turn.rs`).
+    if text == "tool-hang":
+        update(sid, {"sessionUpdate": "tool_call", "toolCallId": "th-1", "title": "Run a long build",
+                     "kind": "execute", "status": "in_progress"})
+        time.sleep(3600)
+        return
+    # "tool-done-hang": a tool call that ends 1.5 s later, then nothing more: the turn's
+    # deadline comes back to one period once no tool call is open (`hub/stalled_turn.rs`).
+    if text == "tool-done-hang":
+        update(sid, {"sessionUpdate": "tool_call", "toolCallId": "tdh-1", "title": "Run a check",
+                     "kind": "execute", "status": "in_progress"})
+        time.sleep(1.5)
+        update(sid, {"sessionUpdate": "tool_call_update", "toolCallId": "tdh-1", "status": "completed"})
+        time.sleep(3600)
+        return
+    # "limit-then-hang": a usage limit, then on the fallback profile (FAKE_FALLBACK=1) one word
+    # and nothing more (`hub/stalled_turn.rs`, a stalled turn after a failover).
+    if text == "limit-then-hang":
+        if os.environ.get("FAKE_FALLBACK") != "1":
+            send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "You've reached your usage limit for this account"}})
+            return
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "working"}})
+        time.sleep(3600)
+        return
+    # "ticking:N:MS" streams a word every MS ms, N times, then ends: a model that keeps working,
+    # each sign well inside the stall limit (`hub/stalled_turn.rs`).
+    if text.startswith("ticking:"):
+        n, ms = (int(v) for v in text[len("ticking:"):].split(":"))
+        for i in range(n):
+            update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": f"tick{i} "}})
+            time.sleep(ms / 1000)
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     if text == "slow":
         for i in range(3):
             if sid in cancelled:
@@ -892,6 +995,19 @@ def handle_prompt(rid, params):
         text = text.strip().splitlines()[-1]
     update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "echo: " + text}})
     send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+
+
+# FAKE_MODE_OPTION=1: a harness whose mode is its "mode" config option (with FAKE_NO_MODES=1, its
+# only mode): normal, strict or full-access, per session.
+MODE_OPTION = {}
+
+
+def mode_options(sid):
+    return [{"id": "model", "name": "Model", "type": "select", "currentValue": "m1",
+             "options": [{"value": "m1", "name": "m1"}, {"value": "m2", "name": "m2"}]},
+            {"id": "mode", "name": "Mode", "type": "select", "category": "mode",
+             "currentValue": MODE_OPTION.get(sid, "normal"),
+             "options": [{"value": v, "name": v} for v in ("normal", "strict", "full-access")]}]
 
 
 # FAKE_PICKER_MODES=claude: each session's model (session/set_model), and the models it offers.
@@ -1077,6 +1193,8 @@ def main():
                 "modes": {"currentModeId": "normal", "availableModes": [{"id": "normal", "name": "Normal"}, {"id": "strict", "name": "Strict"}]},
                 "configOptions": [{"id": "model", "name": "Model", "type": "select", "currentValue": "m1", "options": [{"value": "m1", "name": "m1"}, {"value": "m2", "name": "m2"}]}],
             }
+            if os.environ.get("FAKE_MODE_OPTION") == "1":
+                result["configOptions"] = mode_options(new_sid)
             # FAKE_NO_MODES=1: an adapter that reports no session modes.
             if os.environ.get("FAKE_NO_MODES") == "1":
                 del result["modes"]
@@ -1125,6 +1243,11 @@ def main():
                 threading.Thread(target=finish_load, daemon=True).start()
                 continue
             update(params["sessionId"], {"sessionUpdate": "user_message_chunk", "content": {"type": "text", "text": "replayed"}})
+            # FAKE_LOAD_REPLAY_TOOL=1: the history replayed on load holds a tool call that never
+            # ended (a turn cut off mid-tool), as a real adapter replays it.
+            if os.environ.get("FAKE_LOAD_REPLAY_TOOL") == "1":
+                update(params["sessionId"], {"sessionUpdate": "tool_call", "toolCallId": "old-1", "title": "Run an old build",
+                                             "kind": "execute", "status": "in_progress"})
             # FAKE_LOAD_MODE=<id>: the load restores the chat's own mode, as an adapter that keeps
             # it with the conversation does (with FAKE_FULL_ACCESS=1, a full-access one too).
             load_mode = os.environ.get("FAKE_LOAD_MODE")
@@ -1159,9 +1282,18 @@ def main():
             if os.environ.get("FAKE_SET_MODE_FAIL") == "1":
                 send({"jsonrpc": "2.0", "id": rid, "error": {"code": -32603, "message": "mode change refused"}})
                 continue
+            # FAKE_SET_MODE_DELAY_MS: each mode change takes that long to answer.
+            if os.environ.get("FAKE_SET_MODE_DELAY_MS"):
+                import time as pause  # main() binds `time` locally
+                pause.sleep(int(os.environ["FAKE_SET_MODE_DELAY_MS"]) / 1000)
             send({"jsonrpc": "2.0", "id": rid, "result": {}})
         elif m == "session/set_config_option":
             v = params.get("value")
+            if os.environ.get("FAKE_MODE_OPTION") == "1":
+                if params.get("configId") == "mode":
+                    MODE_OPTION[params.get("sessionId")] = v
+                send({"jsonrpc": "2.0", "id": rid, "result": {"configOptions": mode_options(params.get("sessionId"))}})
+                continue
             send({"jsonrpc": "2.0", "id": rid, "result": {"configOptions": [{"id": "model", "name": "Model", "type": "select", "currentValue": v, "options": []}]}})
         elif m == "session/prompt":
             if os.environ.get("FAKE_LOAD_GATE") and params.get("sessionId") not in known:

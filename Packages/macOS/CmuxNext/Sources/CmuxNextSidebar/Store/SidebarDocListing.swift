@@ -62,7 +62,39 @@ extension SidebarDocProjection {
         let at = arranged.firstIndex { $0.machine != nil } ?? arranged.count
         arranged.insert(contentsOf: before, at: at)
         arranged += after
-        return Self.withMemberItems(arranged, projection, drag: drag)
+        return Self.markingArchived(Self.withMemberItems(arranged, projection, drag: drag), projection, drag: drag)
+    }
+
+    /// `sections` with each archived row marked (`isArchived`): it draws dimmed (archiving-DESIGN.md).
+    @MainActor private static func markingArchived(_ sections: [SidebarSection], _ projection: SidebarDocProjection,
+                                                   drag: SidebarDocDrag) -> [SidebarSection] {
+        // Every row, also with none archived: a list arranged before (a fold) may carry an old mark.
+        let archived = projection.archived
+        func mark(_ workspace: SidebarWorkspace) -> SidebarWorkspace {
+            var workspace = workspace
+            workspace.isArchived = drag.item(.workspace(workspace.id)).map { archived.contains($0) } ?? false
+            return workspace
+        }
+        func mark(_ item: SidebarListItem) -> SidebarListItem {
+            var item = item
+            item.isArchived = archived.contains(item.id)
+            return item
+        }
+        return sections.map { section in
+            var section = section
+            section.nodes = section.nodes.map { node in
+                switch node {
+                case .workspace(let workspace): return .workspace(mark(workspace))
+                case .item(let item): return .item(mark(item))
+                case .group(var group):
+                    group.isArchived = archived.contains(group.id.rawValue)
+                    group.workspaces = group.workspaces.map(mark)
+                    group.items = group.items.map { SidebarGroupItem(item: mark($0.item), after: $0.after) }
+                    return .group(group)
+                }
+            }
+            return section
+        }
     }
 
     /// `sections` with each group's url, tab and app members (`SidebarGroup.items`): a member follows the

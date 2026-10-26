@@ -194,7 +194,7 @@ final class RemoteTerminalService {
     }
 
     private func loadSnapshot(into view: RemoteTerminalPlaceholderView, surface: SurfaceID, home: DaemonService) {
-        guard let connection = home.connection, home.supports(DaemonCapabilities.shared.remoteTerminalTabs) else { return }
+        guard let connection = home.connection, home.supports(DaemonCapability.remoteTerminalTabs.rawValue) else { return }
         // task-owner: one bounded read into a weak view; a closed tab drops the result
         Task { [weak view] in
             guard let text = try? await connection.remoteTerminalSnapshot(surface) else { return }
@@ -269,6 +269,22 @@ final class RemoteTerminalService {
     /// terminal's only view.
     func workspaceClosing(_ workspace: WorkspaceModel) {
         for tab in workspace.screens.flatMap(\.panes).flatMap(\.tabs) where tab.kind == .remoteTerminal { viewClosed(tab) }
+    }
+
+    /// Workspaces went into a stash (Save and Close): their remote-terminal
+    /// tabs `tabIDs` stop being followed and drop their surfaces, as a close
+    /// does, but their terminals stay kept on their own sessions, because
+    /// Restore reopens each tab on the same terminal from the stash's record.
+    func stashed(_ tabIDs: [String]) {
+        for tabID in tabIDs {
+            forget(tabID: tabID)
+            services.cache.discardTerminal(tabID)
+        }
+    }
+
+    /// The remote-terminal tabs of `workspace`, every screen.
+    static func remoteTabIDs(in workspace: WorkspaceModel) -> [String] {
+        workspace.screens.flatMap(\.panes).flatMap(\.tabs).filter { $0.kind == .remoteTerminal }.map(\.id)
     }
 
     /// The tab closed or moved away: stop following it.
