@@ -1,0 +1,25 @@
+{
+  "id": "vs-browsers",
+  "tier": "T2",
+  "description": "xbench vs-browsers: the bench build's Chromium tab against Chrome (the reference arm, metrics *_ref) on the rows of the nightly comparison (launch, new tab, tab switch, power, idle CPU and wakeups, memory), one series per row and browser.",
+  "command": ["scripts/perf-bench/xbench.py", "story", "--app", "{app}", "--out", "{out}", "--story", "{story}",
+              "--engine", "{engine}", "--config", "{config}", "--session", "{session}",
+              "--browsers", "cmux-chromium,chrome"],
+  "session": "light",
+  "engine": "chromium",
+  "config": "bench",
+  "metrics": [
+    {"name": "(launch-window|launch-link|newtab-paint|tab-switch)\\.(cmux-chromium|chrome_ref)", "unit": "ms",
+     "better": "lower"},
+    {"name": "power-(idle-hidden|idle-visible|idle-visible-1|scroll|video|switch)\\.(cmux-chromium|chrome_ref)",
+     "unit": "mW", "better": "lower"},
+    {"name": "idle-cpu-(1|20)\\.(cmux-chromium|chrome_ref)", "unit": "percent", "better": "lower"},
+    {"name": "idle-wakeups-(1|20)\\.(cmux-chromium|chrome_ref)", "unit": "per_s", "better": "lower"},
+    {"name": "memory-(1|10|20|closed)\\.(cmux-chromium|chrome_ref)", "unit": "bytes", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 3600,
+  "needs": [],
+  "owner": "Performance Lead",
+  "component": "Browser>Comparison"
+}

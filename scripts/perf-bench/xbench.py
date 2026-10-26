@@ -48,6 +48,14 @@ Usage (on a fleet mini; scripts/measure/perf-bench.sh is the fleet entry):
 
 Browser names: cmux-chromium, cmux-webkit, cmux-terminal, cmux-budget (all --app cmux=BUNDLE),
 chrome, helium, dia, ardia, safari (default /Applications/Safari.app).
+
+The perf lab's T2 story (scripts/perf-lab/stories.d/vs-browsers.json; the story runner fills the {...} values):
+  xbench.py story --app BUNDLE --out RESULTS --story ID --engine ENGINE --config CONFIG [--session light]
+      [--browsers cmux-chromium,chrome] [--browser-app NAME=BUNDLE ...] [--rounds 3 ...]
+measures the prebuilt bench app BUNDLE against the other browsers (fetch_browsers.py copies) and writes one
+cmux-perf-result/v1 result per row and browser into RESULTS (names: lab_series.py). Every browser must be of
+ENGINE, and exactly one must be a cmux arm: the run describes the build at BUNDLE. The perf lab's
+OWNS_MEASUREMENT sentinel stops run, report and gate, never the story.
 """
 from __future__ import annotations
 
@@ -73,7 +81,9 @@ import urllib.request
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(HERE, "..", "cmux-next"))
+import bench_launch  # noqa: E402
 import budget  # noqa: E402
+import lab_series  # noqa: E402
 import pages  # noqa: E402
 import procs  # noqa: E402
 
@@ -123,6 +133,15 @@ LABELS = {"cmux-chromium": "cmux NEXT (Chromium tab)", "cmux-webkit": "cmux NEXT
           "cmux-terminal": "cmux NEXT (terminals)", budget.NAME: budget.LABEL, "chrome": "Chrome", "helium": "Helium", "dia": "Dia",
           "ardia": "Ardia", "safari": "Safari"}
 DEFAULT_BROWSERS = "cmux-chromium,cmux-webkit,cmux-terminal,cmux-budget,chrome,helium,ardia,dia,safari"
+
+# The lab story (`xbench.py story`, p12-perf-process-208).
+REPO_ROOT = os.path.dirname(os.path.dirname(HERE))
+FETCH_BROWSERS = os.path.join(HERE, "fetch_browsers.py")
+perf_result = bench_launch.load_by_path("perf_result", os.path.join(REPO_ROOT, "scripts/perf-lab/perf_result.py"))
+# result-v1's build.measure_version of the story: bump it when what xbench measures, or how, changes.
+XBENCH_MEASURE_VERSION = 1
+STORY_BROWSERS = "cmux-chromium,chrome"
+ROWS_BY_ID = {row: unit for row, _label, unit, _main in ROWS}  # the story's rows: every row but cmux-budget's
 
 
 def log(message: str):
@@ -380,6 +399,10 @@ class CmuxBrowser(Browser):
         self.tab_kind = "terminal" if self.engine == "terminal" else "page"
         self.can_switch = self.engine != "terminal"
         self.socket = None
+        # None for the nightly comparison. The lab story sets the bench env (scripts/perf-lab/bench_env.py) here:
+        # every launch adds it, and ready() reads the build's features.list snapshot once for its results.
+        self.lab_env: dict[str, str] | None = None
+        self.features = None
 
     def launch(self, profile: str, url: str | None):
         import bench_memory as bm  # the cmux-next scripts' socket client and process helpers
@@ -391,14 +414,19 @@ class CmuxBrowser(Browser):
         os.makedirs(tmp, exist_ok=True)
         config = os.path.join(profile, "cmux.json")
         if not os.path.exists(config):
+            settings = {"updates": {"checkAutomatically": False, "downloadAutomatically": False}}
+            if self.lab_env is not None:
+                settings = bench_launch.bench_env.with_config_defaults(settings)
             with open(config, "w") as handle:
-                json.dump({"updates": {"checkAutomatically": False, "downloadAutomatically": False}}, handle)
+                json.dump(settings, handle)
         env = {"HOME": home, "CFFIXED_USER_HOME": home, "USER": os.environ.get("USER", ""), "TMPDIR": tmp + "/",
                "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1",
                "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_CONFIG_FILE": config,
                # As the Chromium browsers' --use-mock-keychain: a locked login keychain on a bench
                # host otherwise holds CEF at a keychain prompt and no Chromium tab loads.
                "CMUX_MOCK_KEYCHAIN": "1"}
+        if self.lab_env is not None:
+            env = {**self.lab_env, **env}  # xbench's isolated HOME, TMPDIR and config win
         argv = ["open", "-n", "-g"] + [x for k, v in env.items() for x in ("--env", f"{k}={v}")] + ["-a", self.bundle]
         subprocess.run(argv, check=True, timeout=60)
         self.instance = procs.Instance(self.bundle, self.wait_main())
@@ -416,6 +444,9 @@ class CmuxBrowser(Browser):
             if path:
                 self.socket = path
                 self.app = bm.App(self.bundle, path)
+                if self.lab_env is not None and self.features is None:
+                    self.features = bench_launch.features_snapshot(
+                        bench_launch.rpc_at(path, "features.list", timeout=10))
                 return
             time.sleep(0.5)  # bench: waiting for the app's control socket
         raise RuntimeError("cmux: no control socket within 90 s")
@@ -534,6 +565,8 @@ class Run:
         self.helper = Helper(args.cache)
         self.server = pages.BeaconServer()
         self.counter = 0
+        self.lab_env: dict[str, str] | None = None  # the lab story's bench env for every cmux arm (CmuxBrowser)
+        self.browsers: list[Browser] = []
 
     def record(self, browser: str, round_no: int, row: str, value, **extra):
         sample = {"browser": browser, "round": round_no, "row": row,
@@ -744,6 +777,9 @@ class Run:
                 log(f"{name}: no bundle (--app {'cmux' if name in CMUX else name}=PATH), skipped")
                 continue
             browsers.append(make_browser(name, bundle, self.helper, self.server))
+            if isinstance(browsers[-1], CmuxBrowser):
+                browsers[-1].lab_env = self.lab_env
+        self.browsers = browsers
         meta_path = os.path.join(self.out, "meta.json")
         meta = json.load(open(meta_path)) if os.path.exists(meta_path) else {}
         meta.update({"machine": self.machine(), "cmux_ref": a.cmux_ref, "args": vars(a),
@@ -967,6 +1003,186 @@ def report(out: str, md_path: str | None, json_path: str | None, tabswitch: str 
     return result
 
 
+# ---------------------------------------------------------------- lab story
+
+# The runner's variables a cmux arm gets on top of the bench switches: `open` passes the app only what --env names.
+LAB_PASSTHROUGH = ("CMUX_FEATURES_SAFE_MODE",)
+
+
+class StoryError(Exception):
+    """The story cannot name a valid run or describe its results truthfully; it writes nothing."""
+
+
+def add_session_arguments(parser: argparse.ArgumentParser):
+    """The session's sizes and the run's folders, the same for `run` and `story`."""
+    parser.add_argument("--rounds", type=int, default=3)
+    parser.add_argument("--launches", type=int, default=2, help="cold launches per browser per round")
+    parser.add_argument("--newtabs", type=int, default=5)
+    parser.add_argument("--idle", type=float, default=60)
+    parser.add_argument("--active", type=float, default=30)
+    parser.add_argument("--settle", type=float, default=30)
+    parser.add_argument("--template-settle", type=float, default=45)
+    parser.add_argument("--max-load", type=float, default=4)
+    parser.add_argument("--quiet-wait", type=float, default=120)
+    parser.add_argument("--work", default="/private/tmp/xbench")
+    parser.add_argument("--cache", default=os.path.expanduser("~/Library/Caches/cmux-perf-bench"))
+
+
+def name_bundle(text: str) -> tuple[str, str]:
+    name, sep, bundle = text.partition("=")
+    if not (sep and name and bundle):
+        raise argparse.ArgumentTypeError(f"{text!r} is not NAME=BUNDLE")
+    return name, bundle
+
+
+def story_browsers(names: str, engine: str) -> list[str]:
+    """The story's browsers: each with a lab engine, all of `engine` (one result-v1 run has one engine), and
+    exactly one cmux arm (the build the results describe)."""
+    browsers = [name for name in names.split(",") if name]
+    if len(set(browsers)) != len(browsers):
+        raise StoryError(f"--browsers {names}: a browser is listed twice")
+    unknown = [name for name in browsers if name not in lab_series.BROWSER_ENGINES]
+    if unknown:
+        raise StoryError(f"--browsers: {', '.join(unknown)} has no lab engine (lab_series.BROWSER_ENGINES)")
+    other = [name for name in browsers if lab_series.BROWSER_ENGINES[name] != engine]
+    if other:
+        raise StoryError(f"--browsers: {', '.join(other)} is not a {engine} browser; a story run has one engine")
+    arms = [name for name in browsers if name in CMUX]
+    if len(arms) != 1:
+        raise StoryError(f"--browsers {names}: a story run measures exactly one cmux arm, got {len(arms)}")
+    return browsers
+
+
+def main_executable(app: str) -> str:
+    name = bench_launch.info_plist(app).get("CFBundleExecutable")
+    path = os.path.join(app, "Contents/MacOS", str(name or ""))
+    if not name or not os.path.isfile(path):
+        raise StoryError(f"{app}: its Info.plist names no main executable")
+    return path
+
+
+def story_build(app: str, config: str, environ):
+    """result-v1's build of the prebuilt app: its commit (CMUXCommit or the runner's CMUX_CI_SHA) and `config`,
+    which must be one the bundle can be (bench_launch.build_config)."""
+    try:
+        return perf_result.Build(sha=bench_launch.build_sha(app, environ),
+                                 config=bench_launch.build_config(app, main_executable(app), config),
+                                 measure_version=XBENCH_MEASURE_VERSION)
+    except bench_launch.RecordError as error:
+        raise StoryError(str(error)) from None
+
+
+def story_host(read_host):
+    try:
+        return perf_result.Host.from_dict(read_host())
+    except bench_launch.RecordError as error:
+        raise StoryError(str(error)) from None
+
+
+def lab_env(environ) -> dict[str, str]:
+    """The bench switches every cmux arm launches with (bench_env.py) and the runner's passthrough variables."""
+    return {**bench_launch.bench_env.fixed_env(), **{name: environ[name] for name in LAB_PASSTHROUGH if name in environ}}
+
+
+def fetch_vendor_browsers(names: list[str]) -> dict[str, str]:
+    """NAME -> BUNDLE from fetch_browsers.py (vendor-signed, read-only copies); a browser it cannot get is absent."""
+    if not names:
+        return {}
+    done = subprocess.run([sys.executable, "-I", FETCH_BROWSERS, *names], capture_output=True, text=True, timeout=3600)
+    sys.stderr.write(done.stderr)
+    return dict(line.split("=", 1) for line in done.stdout.splitlines() if "=" in line)
+
+
+def measure_story(run_args: argparse.Namespace, env: dict[str, str]) -> tuple[list[dict], tuple | None]:
+    """Runs the xbench session; returns its samples and the cmux arm's features.list snapshot (None: unknown)."""
+    bench = Run(run_args)
+    bench.lab_env = env
+    signal.signal(signal.SIGTERM, lambda *_: (_ for _ in ()).throw(KeyboardInterrupt()))
+    random.seed(0)
+    bench.main()
+    with open(bench.samples_path) as handle:
+        samples = [json.loads(line) for line in handle if line.strip()]
+    snapshot = next((b.features for b in bench.browsers if isinstance(b, CmuxBrowser)), None)
+    return samples, snapshot
+
+
+def story_results(samples: list[dict], *, browsers: list[str], story: str, engine: str, session: str, build, host,
+                  run, features: tuple) -> list:
+    """One result-v1 result per (row, browser) with a measured value: every round's value is one raw sample."""
+    feature_states, features_hash, safe_mode = features
+    values: dict[tuple[str, str], list[float]] = {}
+    for sample in samples:
+        if sample.get("value") is None or sample.get("browser") not in browsers or sample.get("row") not in ROWS_BY_ID:
+            continue
+        values.setdefault((sample["row"], sample["browser"]), []).append(sample["value"])
+    results = []
+    for (row, browser), raw in sorted(values.items()):
+        converted = [lab_series.result_value(ROWS_BY_ID[row], value) for value in raw]
+        results.append(perf_result.Result(
+            story=story, metric=lab_series.metric_name(row, browser), unit=converted[0][0], better="lower",
+            samples=[value for _, value in converted], build=build, host=host, engine=engine, session=session, run=run,
+            features={name: perf_result.Feature(**state) for name, state in feature_states.items()},
+            features_hash=features_hash, safe_mode=safe_mode))
+    return results
+
+
+def story_main(argv=None, *, read_host=bench_launch.read_host, fetch=fetch_vendor_browsers, measure=measure_story,
+               environ=None) -> int:
+    """`xbench.py story` (see the module docstring); 0 once the results are written, 1 when nothing is."""
+    parser = argparse.ArgumentParser(prog="xbench.py story", description="The perf lab's vs-browsers story.")
+    parser.add_argument("--app", required=True, help="the prebuilt cmux bench app (the story runner's {app})")
+    parser.add_argument("--out", required=True, help="folder for the result-v1 file")
+    parser.add_argument("--story", required=True)
+    parser.add_argument("--engine", required=True, choices=sorted(set(lab_series.BROWSER_ENGINES.values())))
+    parser.add_argument("--config", required=True, choices=[c for c in perf_result.CONFIGS if c != "debug"])
+    parser.add_argument("--session", default="light")
+    parser.add_argument("--browsers", default=STORY_BROWSERS)
+    parser.add_argument("--browser-app", action="append", default=[], metavar="NAME=BUNDLE", type=name_bundle,
+                        help="a vendor browser already on the host (default: fetch_browsers.py)")
+    add_session_arguments(parser)
+    args = parser.parse_args(argv)
+    environ = os.environ if environ is None else environ
+    try:
+        browsers = story_browsers(args.browsers, args.engine)
+        app = os.path.abspath(args.app)
+        if not os.path.isdir(app):
+            raise StoryError(f"--app {args.app}: no app bundle")
+        build, host = story_build(app, args.config, environ), story_host(read_host)
+    except StoryError as error:
+        print(f"xbench story: {error}", file=sys.stderr, flush=True)
+        return 1
+    apps = {**dict(args.browser_app), "cmux": app}
+    apps.update(fetch([name for name in browsers if name not in CMUX and name != "safari" and name not in apps]))
+    for name in browsers:
+        if name not in CMUX and name != "safari" and name not in apps:
+            log(f"{name}: no bundle; its rows are not measured")
+    run_args = argparse.Namespace(**{**vars(args), "out": os.path.join(args.work, "story"),
+                                     "app": [f"{name}={bundle}" for name, bundle in apps.items()],
+                                     "browsers": ",".join(browsers), "cmux_ref": build.sha,
+                                     "budgets": budget.DEFAULT_BUDGETS})
+    shutil.rmtree(run_args.out, ignore_errors=True)
+    samples, features = measure(run_args, lab_env(environ))
+    if features is None:
+        print("xbench story: the cmux arm gave no features.list snapshot; results without the build's features "
+              "are not written", file=sys.stderr, flush=True)
+        return 1
+    results = story_results(samples, browsers=browsers, story=args.story, engine=args.engine, session=args.session,
+                            build=build, host=host, run=perf_result.Run.start(), features=features)
+    unmeasured = sorted({f"{s.get('browser')} {s.get('row')}" for s in samples if s.get("value") is None})
+    if unmeasured:
+        log(f"not measured: {', '.join(unmeasured)}")
+    if not results:
+        print("xbench story: no row was measured", file=sys.stderr, flush=True)
+        return 1
+    try:
+        path = perf_result.write_ndjson(args.out, results, repo_root=REPO_ROOT)
+    except perf_result.ResultError as error:  # for example a features.list entry with no state
+        print(f"xbench story: {error}", file=sys.stderr, flush=True)
+        return 1
+    log(f"{len(results)} results of {', '.join(browsers)} -> {path}")
+    return 0
+
+
 # ---------------------------------------------------------------- gate
 
 FLOORS = {"ms": 5.0, "MB": 15.0, "mW": 2.0, "%": 0.1, "/s": 2.0}
@@ -1051,18 +1267,8 @@ def main():
     run.add_argument("--out", required=True)
     run.add_argument("--app", action="append", default=[], metavar="NAME=BUNDLE")
     run.add_argument("--browsers", default=DEFAULT_BROWSERS)
-    run.add_argument("--rounds", type=int, default=3)
-    run.add_argument("--launches", type=int, default=2, help="cold launches per browser per round")
-    run.add_argument("--newtabs", type=int, default=5)
-    run.add_argument("--idle", type=float, default=60)
-    run.add_argument("--active", type=float, default=30)
-    run.add_argument("--settle", type=float, default=30)
-    run.add_argument("--template-settle", type=float, default=45)
-    run.add_argument("--max-load", type=float, default=4)
-    run.add_argument("--quiet-wait", type=float, default=120)
+    add_session_arguments(run)
     run.add_argument("--cmux-ref", default="")
-    run.add_argument("--work", default="/private/tmp/xbench")
-    run.add_argument("--cache", default=os.path.expanduser("~/Library/Caches/cmux-perf-bench"))
     run.add_argument("--budgets", default=budget.DEFAULT_BUDGETS, type=os.path.abspath,
                      help="cmux-budget's scenario and budgets (kept in meta.json for report)")
     rep = sub.add_parser("report")
@@ -1090,4 +1296,6 @@ def main():
 
 
 if __name__ == "__main__":
+    if sys.argv[1:2] == ["story"]:  # the lab's own entry: the lab's sentinel in main() stops only the nightly run
+        sys.exit(story_main(sys.argv[2:]))
     main()
