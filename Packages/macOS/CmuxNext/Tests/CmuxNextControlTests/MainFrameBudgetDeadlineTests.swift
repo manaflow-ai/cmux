@@ -119,6 +119,30 @@ import Testing
         batch.deactivate()
     }
 
+    /// The tick's own `targetTimestamp` (task 012's `FrameTick`) places the deadline, not the refresh
+    /// period: a 60 Hz tick due 1/120 s later with 3 ms commits stops at 5.33 ms (eleven requests),
+    /// not at the 8 ms pass target a 60 Hz period gives (sixteen).
+    @Test func theTicksTargetTimestampPlacesTheDeadline() {
+        let clock = DeadlineClock()
+        let budget = MainFrameBudget(uptimeNanos: clock.read, mediaTime: clock.seconds)
+        let work = MainWorkScheduler.testing(budget: budget) { _ in DeadlineFrameLink() }
+        let request = budget.board.owner("workspace.move")
+        var ran = 0
+        let batch = FrameClient(owner: "Control.frames", budgeted: .automation, on: work) { _, budget in
+            while budget.mayRun(.automation) {
+                budget.run(.automation, owner: request) { clock.advance(ms: 0.5) }
+                ran += 1
+            }
+            return true
+        }
+        Self.measure(passes: Array(repeating: 3_000_000, count: 32), budget: budget, clock: clock)
+        batch.activate()
+        let now = clock.seconds()
+        work.frameDidFire(timestamp: now, refreshInterval: 1.0 / 60, targetTimestamp: now + 1.0 / 120)
+        #expect(ran == 11, "\(ran) requests ran: the budget ignored the tick's target time")
+        batch.deactivate()
+    }
+
     /// Runs one 120 Hz frame per pass, each followed by its render pass, so the next frame records it.
     private static func measure(passes: [UInt64], budget: MainFrameBudget, clock: DeadlineClock) {
         for pass in passes {
