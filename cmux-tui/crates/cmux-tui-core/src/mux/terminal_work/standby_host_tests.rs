@@ -8,8 +8,16 @@ use std::time::{Duration, Instant};
 use super::*;
 use crate::mux::terminal_work::TerminalWorkPool;
 
+fn memory() -> Arc<DaemonMemory> {
+    Arc::new(DaemonMemory::without_system_source())
+}
+
+fn slot_in(memory: &Arc<DaemonMemory>) -> Arc<StandbyHostSlot> {
+    StandbyHostSlot::with_spawner(memory.clone(), StandbyTerminalHost::spawn_stand_in)
+}
+
 fn slot() -> Arc<StandbyHostSlot> {
-    Arc::new(StandbyHostSlot::with_spawner(StandbyTerminalHost::spawn_stand_in))
+    slot_in(&memory())
 }
 
 /// Waits for the background refill (test harness polling, not product code).
@@ -100,7 +108,8 @@ fn a_spare_killed_before_adoption_falls_back_with_no_error() {
 
 #[test]
 fn memory_pressure_drops_the_spare_kills_it_and_stops_refills_until_normal() {
-    let (slot, pool) = (slot(), TerminalWorkPool::default());
+    let memory = memory();
+    let (slot, pool) = (slot_in(&memory), TerminalWorkPool::default());
     let _ = slot.take();
     slot.refill(&pool);
     assert!(wait_for_spare(&slot));
@@ -110,13 +119,43 @@ fn memory_pressure_drops_the_spare_kills_it_and_stops_refills_until_normal() {
         slot.finish_refill_for_test(spare);
         pid
     };
-    slot.set_memory_pressure(true);
+    memory.registry().set_level(PressureLevel::Warning);
     assert!(!slot.has_spare());
     assert!(wait_gone(pid), "a dropped spare process is killed");
     slot.refill(&pool);
     std::thread::sleep(Duration::from_millis(50));
     assert!(!slot.has_spare(), "no refill under pressure");
-    slot.set_memory_pressure(false);
+    memory.registry().set_level(PressureLevel::Critical);
+    slot.refill(&pool);
+    std::thread::sleep(Duration::from_millis(50));
+    assert!(!slot.has_spare(), "no refill under critical pressure");
+    memory.registry().set_level(PressureLevel::Normal);
     slot.refill(&pool);
     assert!(wait_for_spare(&slot), "back to normal, the next new tab refills");
+}
+
+#[test]
+fn a_slot_made_under_pressure_starts_no_spare_until_normal() {
+    let memory = memory();
+    memory.registry().set_level(PressureLevel::Warning);
+    let (slot, pool) = (slot_in(&memory), TerminalWorkPool::default());
+    let _ = slot.take();
+    slot.refill(&pool);
+    std::thread::sleep(Duration::from_millis(50));
+    assert!(!slot.has_spare(), "the slot hears the current level when it registers");
+    memory.registry().set_level(PressureLevel::Normal);
+    slot.refill(&pool);
+    assert!(wait_for_spare(&slot));
+}
+
+#[test]
+fn the_slot_is_one_lossless_consumer_and_leaves_the_registry_when_dropped() {
+    let memory = memory();
+    let slot = slot_in(&memory);
+    let report = memory.registry().report();
+    assert_eq!(report.len(), 1);
+    assert_eq!(report[0].name, "terminal.standby-host");
+    assert_eq!(report[0].retention, Retention::Lossless);
+    drop(slot);
+    assert!(memory.registry().report().is_empty());
 }
