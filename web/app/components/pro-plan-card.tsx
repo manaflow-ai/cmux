@@ -104,7 +104,7 @@ export function ProPlanCard({
     interval: action ? "month" : interval,
     currentPrice,
   });
-  const billingDetails = billingDetailLines({
+  const billing = billingDetails({
     shown,
     currentPrice,
     labels,
@@ -162,9 +162,7 @@ export function ProPlanCard({
         </span>
         <span className="flex min-w-0 flex-col pb-0.5 text-sm leading-[1.15] text-muted">
           <span>{labels.perMonth}</span>
-          {billingDetails.map((line, index) => (
-            <span key={index} className="truncate">{line}</span>
-          ))}
+          <span className="truncate">{billing.detail}</span>
         </span>
       </div>
       <div className="mt-3">
@@ -180,6 +178,9 @@ export function ProPlanCard({
           </ProCtaLink>
         )}
       </div>
+      {billing.yearlyBill ? (
+        <p className="mt-2 text-sm text-muted">{billing.yearlyBill}</p>
+      ) : null}
       {children}
     </div>
   );
@@ -195,15 +196,15 @@ type CardPrice = {
 };
 
 /**
- * The lines under "/mo". Founder's Edition is always named; any other own
+ * The line under "/mo". Founder's Edition is always named; any other own
  * price only when it is below today's list price. Otherwise the line says how
- * it is billed, so the label keeps two lines in either period and the card
- * never jumps. A yearly subscriber with such a note still sees the yearly
- * charge, as a third line on their own card only. A subscriber whose own
- * price is unknown (App Store, granted, a failed lookup) gets a blank line:
- * their card does not know their period.
+ * it is billed, so the label keeps two lines in either period and the buttons
+ * line up. A yearly subscriber with such a note still sees the yearly charge,
+ * under the button of their own card only. A subscriber whose own price is
+ * unknown (App Store, granted, a failed lookup) gets a blank line: their card
+ * does not know their period.
  */
-function billingDetailLines({
+function billingDetails({
   shown,
   currentPrice,
   labels,
@@ -213,7 +214,7 @@ function billingDetailLines({
   currentPrice?: PlanCardSubscriptionPrice;
   labels: ProAnnualLabels;
   periodKnown: boolean;
-}): string[] {
+}): { detail: string; yearlyBill: string | null } {
   const billedYearly = shown.yearlyTotal === null
     ? null
     : labels.billedYearlyTemplate.replace("{amount}", formatUsd(shown.yearlyTotal));
@@ -222,9 +223,9 @@ function billingDetailLines({
     : shown.listMonthly !== null
       ? labels.earlySupporterPrice
       : null;
-  if (priceNote) return billedYearly ? [priceNote, billedYearly] : [priceNote];
-  if (!periodKnown) return ["\u00a0"];
-  return [billedYearly ?? labels.billedMonthly];
+  if (priceNote) return { detail: priceNote, yearlyBill: billedYearly };
+  if (!periodKnown) return { detail: "\u00a0", yearlyBill: null };
+  return { detail: billedYearly ?? labels.billedMonthly, yearlyBill: null };
 }
 
 function cardPrice({
