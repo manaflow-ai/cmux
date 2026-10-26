@@ -50,24 +50,29 @@ public struct BrowserPagePrint {
         let ended = PrintEnded(done)
         // The sheet form returns once the sheet shows (AppKit: runModalForWindow:delegate:didRunSelector:
         // contextInfo: is document-modal); `ended` runs when the panel ends, so no nested modal loop.
-        operation.runModal(for: window, delegate: ended, didRun: #selector(PrintEnded.printOperationDidRun(_:success:contextInfo:)),
-                           contextInfo: Unmanaged.passRetained(ended).toOpaque())
+        // SAFETY: contextInfo is nil, so AppKit hands nil back to the didRun method, which never
+        // reads it; the selector names that method with the signature AppKit calls.
+        unsafe operation.runModal(for: window, delegate: ended, didRun: #selector(PrintEnded.printOperationDidRun(_:success:contextInfo:)),
+                                  contextInfo: nil)
         return true
     }
 }
 
-/// The print panel's end, for the page's window.print(); kept alive by the
-/// operation's context until it runs.
+/// The print panel's end, for the page's window.print(). The operation does not
+/// retain its delegate, so this keeps itself alive until the panel ends.
 private final class PrintEnded: NSObject {
     let done: @MainActor () -> Void
+    private var keptUntilEnd: PrintEnded?
 
     init(_ done: @escaping @MainActor () -> Void) {
         self.done = done
+        super.init()
+        keptUntilEnd = self
     }
 
     @objc(printOperationDidRun:success:contextInfo:)
-    func printOperationDidRun(_ operation: NSPrintOperation, success: Bool, contextInfo: UnsafeMutableRawPointer?) {
+    func printOperationDidRun(_ operation: NSPrintOperation, success: Bool, contextInfo _: UnsafeMutableRawPointer?) {
         done()
-        if let contextInfo { Unmanaged<PrintEnded>.fromOpaque(contextInfo).release() }
+        keptUntilEnd = nil
     }
 }

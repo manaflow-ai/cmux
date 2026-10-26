@@ -90,17 +90,27 @@ final class HeldProgramAlert {
 enum StatusNotificationImage {
     static let side: CGFloat = 64
 
-    /// PNG data per reason, icon set and theme.
-    private static var cache: [String: Data] = [:]
+    // memory: fixed at most one badge PNG (128 px, a few KB) per `ProgramStatusNotification.Reason` case, all of one icon set and theme (`look`); a new set or theme empties it first
+    /// The icon set and theme the cached badges were drawn with, and their PNG data per reason.
+    private static var cache: (look: String, badges: [ProgramStatusNotification.Reason: Data]) = ("", [:])
+
+    /// How many badges are cached now.
+    static var cachedCount: Int { cache.badges.count }
 
     /// The badge PNG for `reason` in the chosen status icon set
-    /// (`StatusIconSet`), cached per reason, set and theme.
+    /// (`StatusIconSet`) and the app's theme.
     static func data(_ reason: ProgramStatusNotification.Reason) -> Data? {
         let set = StatusIndicatorAppearance.shared.config.iconSet
-        let key = "\(reason.rawValue)-\(set.rawValue)-\(ThemeScope.app.tokens.surfaceBackground)"
-        if let cached = cache[key] { return cached }
-        let drawn = png(reason, set: set)
-        cache[key] = drawn
+        return data(reason, look: "\(set.rawValue)-\(ThemeScope.app.tokens.surfaceBackground)") { png(reason, set: set) }
+    }
+
+    /// The cached badge for `reason` in `look` (an icon set and theme), else `draw`'s, kept. A look
+    /// other than the cached badges' empties the cache first, so it keeps one badge per reason.
+    static func data(_ reason: ProgramStatusNotification.Reason, look: String, draw: () -> Data?) -> Data? {
+        if look != cache.look { cache = (look, [:]) }
+        if let cached = cache.badges[reason] { return cached }
+        let drawn = draw()
+        cache.badges[reason] = drawn
         return drawn
     }
 

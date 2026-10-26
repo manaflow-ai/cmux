@@ -117,6 +117,7 @@ extension BlockingKind {
         case .sqlite: 14
         case .processReap: 15
         case .systemQuery: 16
+        case .priorityInversion: 17
         }
     }
 }

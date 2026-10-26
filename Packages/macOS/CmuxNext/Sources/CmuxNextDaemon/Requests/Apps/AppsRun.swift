@@ -30,10 +30,9 @@ public struct AppsRunRequest: DaemonRequest {
         self.origin = origin
     }
 
-    /// `args` is the app's own JSON: sent verbatim (`verbatimFields`), not
-    /// through the snake case key strategy.
+    /// `args` is the app's own JSON: sent verbatim (`verbatimFields`).
     enum CodingKeys: String, CodingKey {
-        case app, op, idempotencyKey, origin
+        case app, op, idempotencyKey = "idempotency_key", origin
     }
 }
 
