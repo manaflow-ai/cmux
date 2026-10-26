@@ -6,7 +6,7 @@
           "index": 0,
           "seconds": {
             "T1": 19300,
-            "T2": 31440
+            "T2": 31830
           },
           "stories": {
             "T1": [
@@ -85,13 +85,16 @@
               "cef-resize-sync-stress",
               "cli-storm",
               "cli-storm-stress",
+              "cmd-n-paint",
               "column-resize-live",
               "command-pan-stress",
               "daemon-spawn",
               "devtools-resize-live",
+              "home-typing-still",
               "launch-after-reboot",
               "layout-loop-stress",
               "new-surfaces-stress",
+              "new-workspace-typing",
               "pane-scale",
               "perceived-speed",
               "script-storm",
@@ -115,7 +118,7 @@
         {
           "index": 0,
           "seconds": {
-            "T2": 31440
+            "T2": 31830
           },
           "stories": {
             "T2": [
@@ -142,13 +145,16 @@
               "cef-resize-sync-stress",
               "cli-storm",
               "cli-storm-stress",
+              "cmd-n-paint",
               "column-resize-live",
               "command-pan-stress",
               "daemon-spawn",
               "devtools-resize-live",
+              "home-typing-still",
               "launch-after-reboot",
               "layout-loop-stress",
               "new-surfaces-stress",
+              "new-workspace-typing",
               "pane-scale",
               "perceived-speed",
               "script-storm",
