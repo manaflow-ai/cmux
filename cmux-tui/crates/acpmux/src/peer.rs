@@ -513,7 +513,11 @@ impl Peer {
             tokio::time::timeout(self.timings.request, rx).await
         };
         match answer {
-            Ok(Ok(r)) => r,
+            // A full disk the peer reports is the peer's, not this machine's (`recovery.rs`).
+            Ok(Ok(r)) => r.map_err(|mut e| {
+                crate::recovery::annotate_peer(&mut e, &self.name);
+                e
+            }),
             Ok(Err(_)) => {
                 Err(RpcError::internal(format!("peer {} dropped the request", self.name)))
             }
