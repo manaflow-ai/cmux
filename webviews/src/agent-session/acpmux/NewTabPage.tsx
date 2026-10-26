@@ -45,7 +45,7 @@ import { newTabStart, useNewTabChipModel } from "./newtab/chipDefaults";
 import type { ComposerAttachment } from "./attachments";
 import {
   AttachmentStrip,
-  backspacedAttachment,
+  backspacedChip,
   useAttachmentIntake,
   useSendWhenAttached,
 } from "./composer/attachmentIntake";
@@ -595,15 +595,17 @@ export function NewTabPage({
       changeKind(beforePrefix);
       setBeforePrefix(undefined);
     } else {
-      // Backspace at the field's start takes back the last chip (backspacedAttachment).
-      const backspaced = backspacedAttachment(
+      // Backspace at the field's start takes back the last chip, a loading one too (backspacedChip).
+      const backspaced = backspacedChip(
         event,
         input.selectionStart === 0 && input.selectionEnd === 0,
         attachments,
+        pending,
       );
       if (!backspaced) return;
       event.preventDefault();
-      setAttachments((current) => current.filter((item) => item.id !== backspaced.id));
+      if ("pending" in backspaced) cancel(backspaced.pending);
+      else setAttachments((current) => current.filter((item) => item.id !== backspaced.staged));
     }
   };
   const edit = (next: string) => {
