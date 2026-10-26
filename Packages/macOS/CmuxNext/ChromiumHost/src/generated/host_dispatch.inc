@@ -178,27 +178,29 @@ enum Op : uint16_t {
   kOpPageResourceRespond = 168,
   kOpMemoryPressureVote = 169,
   kOpSetCursorEvents = 170,
-  kOpAddDocumentScript = 171,  // optional
-  kOpAddPageChannel = 172,  // optional
-  kOpTabEvaluate = 173,  // optional
-  kOpTabSetFrozen = 174,  // optional
-  kOpTabSendClick = 175,  // optional
-  kOpTabSetColorScheme = 176,  // optional
-  kOpPageSchemeSetGroup = 177,  // optional
-  kOpTabDiscard = 178,  // optional
-  kOpWidgetSetGeometry = 179,  // optional
-  kOpWidgetDismiss = 180,  // optional
-  kOpWidgetSendInput = 181,  // optional
+  kOpExtLoadLaterSupported = 171,
+  kOpExtLoadCommandLine = 172,
+  kOpAddDocumentScript = 173,  // optional
+  kOpAddPageChannel = 174,  // optional
+  kOpTabEvaluate = 175,  // optional
+  kOpTabSetFrozen = 176,  // optional
+  kOpTabSendClick = 177,  // optional
+  kOpTabSetColorScheme = 178,  // optional
+  kOpPageSchemeSetGroup = 179,  // optional
+  kOpTabDiscard = 180,  // optional
+  kOpWidgetSetGeometry = 181,  // optional
+  kOpWidgetDismiss = 182,  // optional
+  kOpWidgetSendInput = 183,  // optional
 };
-inline constexpr uint16_t kOpCount = 181;
+inline constexpr uint16_t kOpCount = 183;
 inline constexpr uint16_t kOpEvent = 0x8001;  // host -> cmux: one shim event
 inline constexpr uint16_t kOpReply = 0x8002;  // host -> cmux: an async op's result
 inline constexpr uint16_t kOpMirror = 0x8003;  // host -> cmux: a mirror value
 inline constexpr uint16_t kOpAck = 0x8004;  // host -> cmux: a token's op ran
 inline constexpr int kEventKindCount = 54;
-inline constexpr char kShimAbiID[] = "98dff5fbdc4745862beb88e6cb2914ff6caf516e44f91bb4311138e3b7c6e0ef";
+inline constexpr char kShimAbiID[] = "a5f91475264c1274d7f890759ec39884f3f950d96944aae5e85478d576eaf616";
 // Both sides' HELLO carries it: the op ids, classes and wire types of this generation.
-inline constexpr char kWireID[] = "d9c6f4e2b2f005ae59a2b89d1f7c565d2853b53a70de4187396e89c455316cc7";
+inline constexpr char kWireID[] = "8ad624add73c68f0e3587b34db2572ab435e05880ebb6318af97ca4297b55df3";
 inline constexpr int32_t kMaxRecords = 65536;
 inline constexpr int32_t kMaxOutCapacity = 65536;
 
@@ -1605,6 +1607,15 @@ inline bool DispatchOp(HostContext& ctx, uint16_t op, uint32_t wire_token, TlvRe
       ctx.Ack(wire_token);
       return true;
     }
+    case kOpExtLoadCommandLine: {
+      const std::optional<std::string> arg_profile_cache_path = r.Str();
+      const std::optional<std::string> arg_path = r.Str();
+      if (!r.ok() || !r.AtEnd()) return false;
+      const auto call_result = cmux_shim_ext_load_command_line(arg_profile_cache_path ? arg_profile_cache_path->c_str() : nullptr, arg_path ? arg_path->c_str() : nullptr);
+      (void)call_result;
+      ctx.Ack(wire_token);
+      return true;
+    }
     case kOpAddDocumentScript: {
       const std::optional<std::string> arg_world = r.Str();
       const std::optional<std::string> arg_source = r.Str();
@@ -1983,6 +1994,15 @@ inline bool ProduceMirror(HostContext& ctx, uint16_t op, TlvReader& r) {
       ctx.PushMirror(kOpPasswordCoreAvailable, key_w, value_w);
       return true;
     }
+    case kOpExtLoadLaterSupported: {
+      if (!r.ok() || !r.AtEnd()) return false;
+      const auto call_result = cmux_shim_ext_load_later_supported();
+      TlvWriter key_w;
+      TlvWriter value_w;
+      value_w.I32(call_result);
+      ctx.PushMirror(kOpExtLoadLaterSupported, key_w, value_w);
+      return true;
+    }
     default:
       return false;
   }
@@ -2059,6 +2079,7 @@ inline constexpr MirrorRefresh kMirrorRefreshes[] = {
     {-1, -1, kOpPasswordReplaceAvailable},  // attach
     {-1, -1, kOpPasskeysAvailable},  // attach
     {-1, -1, kOpPasswordCoreAvailable},  // attach
+    {-1, -1, kOpExtLoadLaterSupported},  // attach
 };
 
 // Calls f(op) for each mirror the event refreshes, in table order.

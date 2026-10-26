@@ -309,6 +309,20 @@ int cmux_shim_ext_load_unpacked(int browser_id, const char* path) {
   return fork_api().ext_load_unpacked && path ? fork_api().ext_load_unpacked(browser_id, path) : 0;
 }
 
+int cmux_shim_ext_load_later_supported(void) {
+  return fork_api().ext_load_command_line ? 1 : 0;
+}
+
+int cmux_shim_ext_load_command_line(const char* profile_cache_path, const char* path) {
+  if (!fork_api().ext_load_command_line || !profile_cache_path || !*profile_cache_path ||
+      IsOffTheRecordKey(profile_cache_path) || !path || !*path) {
+    return 0;
+  }
+  // The fork finds the profile by its context's cache path: make the context first.
+  if (!RequestContextFor(profile_cache_path)) return 0;
+  return fork_api().ext_load_command_line(profile_cache_path, path);
+}
+
 char* cmux_shim_ext_commands(int browser_id) {
   return fork_api().ext_commands ? fork_api().ext_commands(browser_id) : nullptr;
 }

@@ -4135,6 +4135,43 @@
       "pending_keys": [],
       "reply_event": null,
       "reason": "The Chromium Host turns cursor events on itself before initialize (its page windows never show; CURSOR events reach ChromiumHostPageView, task 045), so the remote export does nothing."
+    },
+    {
+      "name": "cmux_shim_ext_load_later_supported",
+      "class": "mirror",
+      "args": [],
+      "returns": "int",
+      "result_used_by": [
+        "CmuxNextBrowser/CEF/CEFRuntime.swift"
+      ],
+      "mirror_key": "host.ext_load_later_supported",
+      "refresh_events": [
+        "attach"
+      ],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "A fork capability, fixed for the host's life (p13-webui-055): CEFRuntime.initialize reads it after the attach await to decide whether the built-in extensions go on --load-extension or load at each profile's first tab. Feature detection is mirror, never post (task 017)."
+    },
+    {
+      "name": "cmux_shim_ext_load_command_line",
+      "class": "post",
+      "args": [
+        {
+          "name": "profile_cache_path",
+          "type": "const char*"
+        },
+        {
+          "name": "path",
+          "type": "const char*"
+        }
+      ],
+      "returns": "int",
+      "result_used_by": [],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "Sent in call order before the profile's first create_window or tab_add (p13-webui-055), so the host queues the load on the profile's init callbacks ahead of the browser's create. No caller reads the answer: the extension list refreshes when the window comes up."
     }
   ],
   "events": [
@@ -4862,6 +4899,15 @@
       "needs": "after_attach",
       "change": "Runs after the attach await of CEFRuntime.start, so the version-gated preinit decisions (setPopupWindowsEnabled, installInRenderer, switches) use the host's fork version.",
       "task": "p01-process-015"
+    },
+    {
+      "site": "CmuxNextBrowser/CEF/CEFRuntime.swift: CEFRuntime.initialize(_:environment:), the built-in extensions' builtInExtensionsAtFirstTab read",
+      "exports": [
+        "cmux_shim_ext_load_later_supported"
+      ],
+      "needs": "after_attach",
+      "change": "Runs after the attach await of CEFRuntime.start, so whether the built-in extensions stay off --load-extension and load at each profile's first tab follows the host's fork (its hello carries the capability).",
+      "task": "p13-webui-055"
     },
     {
       "site": "CmuxNextBrowser/CEF/CEFForkFeatures.swift: CEFForkFeatures.init(_:)",

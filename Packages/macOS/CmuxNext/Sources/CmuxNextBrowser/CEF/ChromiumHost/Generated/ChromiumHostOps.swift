@@ -46,14 +46,15 @@ nonisolated enum ChromiumHostOp: UInt16, CaseIterable, Sendable {
     case releaseContext = 158, setNavigationGuard = 159, setAuthCallback = 160, prefGet = 161, prefSetBool = 162
     case prefWatch = 163, bookmarksSync = 164, pageSchemeAdd = 165, pageSchemeAddFirstParty = 166
     case pageSchemeAddFirstPartyDynamic = 167, pageResourceRespond = 168, memoryPressureVote = 169
-    case setCursorEvents = 170, addDocumentScript = 171, addPageChannel = 172, tabEvaluate = 173, tabSetFrozen = 174
-    case tabSendClick = 175, tabSetColorScheme = 176, pageSchemeSetGroup = 177, tabDiscard = 178
-    case widgetSetGeometry = 179, widgetDismiss = 180, widgetSendInput = 181
+    case setCursorEvents = 170, extLoadLaterSupported = 171, extLoadCommandLine = 172, addDocumentScript = 173
+    case addPageChannel = 174, tabEvaluate = 175, tabSetFrozen = 176, tabSendClick = 177, tabSetColorScheme = 178
+    case pageSchemeSetGroup = 179, tabDiscard = 180, widgetSetGeometry = 181, widgetDismiss = 182
+    case widgetSendInput = 183
 
     /// The SHA-256 of the cmux_cef_shim.h this table was generated from (`CEFShimABI`).
-    static let abiIdentity = "98dff5fbdc4745862beb88e6cb2914ff6caf516e44f91bb4311138e3b7c6e0ef"
+    static let abiIdentity = "a5f91475264c1274d7f890759ec39884f3f950d96944aae5e85478d576eaf616"
     /// This generation's op ids, classes and wire types; both HELLOs carry it.
-    static let wireIdentity = "d9c6f4e2b2f005ae59a2b89d1f7c565d2853b53a70de4187396e89c455316cc7"
+    static let wireIdentity = "8ad624add73c68f0e3587b34db2572ab435e05880ebb6318af97ca4297b55df3"
     /// Ops of fork API symbols the header does not declare yet (`r.optional` in CEFShimLibrary).
     static let optionalOps: Set<ChromiumHostOp> = [
         .addDocumentScript, .addPageChannel, .tabEvaluate, .tabSetFrozen, .tabSendClick, .tabSetColorScheme,
@@ -362,6 +363,8 @@ nonisolated enum ChromiumHostOp: UInt16, CaseIterable, Sendable {
         Row(.post, [.int32, .int32, .string, .bytes], [.int32]),
         Row(.post, [.int32], [.int32]),
         Row(.local, [], []),
+        Row(.mirror, [], [.int32]),
+        Row(.post, [.string, .string], [.int32]),
         Row(.preinit, [.string, .string, .int32, .int32], [.int32]),
         Row(.preinit, [.string, .string], [.int32]),
         Row(.async, [.int32, .int32, .string, .string, .int32], [.int32]),
@@ -474,6 +477,7 @@ nonisolated enum ChromiumHostOp: UInt16, CaseIterable, Sendable {
         Refresh(-1, -1, .passwordReplaceAvailable),  // attach
         Refresh(-1, -1, .passkeysAvailable),  // attach
         Refresh(-1, -1, .passwordCoreAvailable),  // attach
+        Refresh(-1, -1, .extLoadLaterSupported),  // attach
     ]
 
     /// The mirrors an event of `kind` with `request` refreshes, in table order.

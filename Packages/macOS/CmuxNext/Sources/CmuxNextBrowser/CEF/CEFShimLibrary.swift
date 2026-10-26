@@ -152,6 +152,10 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let extSetPinned: @convention(c) (Int32, UnsafePointer<CChar>?, Int32) -> Int32
     let extOpenOptions: @convention(c) (Int32, UnsafePointer<CChar>?) -> Int32
     let extLoadUnpacked: @convention(c) (Int32, UnsafePointer<CChar>?) -> Int32
+    /// 1 when the fork has `cmux_ext_load_command_line` (p13-webui-055); a mirror read in host mode.
+    let extLoadLaterSupported: @convention(c) () -> Int32
+    /// `--load-extension`'s load into a persistent context key's profile (context key, folder), ahead of its next browser.
+    let extLoadCommandLine: @convention(c) (UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32
     let extCommands: @convention(c) (Int32) -> UnsafeMutablePointer<CChar>?
     let extCommandRun: @convention(c) (Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32
     let tabMoveToWindow: @convention(c) (Int32, Int32, Int32) -> Int32
@@ -396,6 +400,8 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         extSetPinned = try r("cmux_shim_ext_set_pinned")
         extOpenOptions = try r("cmux_shim_ext_open_options")
         extLoadUnpacked = try r("cmux_shim_ext_load_unpacked")
+        extLoadLaterSupported = try r("cmux_shim_ext_load_later_supported")
+        extLoadCommandLine = try r("cmux_shim_ext_load_command_line")
         extCommands = try r("cmux_shim_ext_commands")
         extCommandRun = try r("cmux_shim_ext_command_run")
         tabMoveToWindow = try r("cmux_shim_tab_move_to_window")
