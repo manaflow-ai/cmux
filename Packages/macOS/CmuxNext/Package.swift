@@ -436,7 +436,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .testTarget(
             name: "CmuxNextAgentPaneTests",
             dependencies: ["CmuxNextAgentPane", "CmuxNextDaemon", "CmuxNextActions", "CmuxNextCompat", "CmuxNextDesign", "CmuxNextDictation", "CmuxNextInput", "CmuxNextPages", "CmuxNextPagesTestSupport", "CmuxNextRemoteFetch", "CmuxNextSettings", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport", "CmuxNextTrace", "CmuxNextMetrics",
-                           .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport")],
+                           "CmuxNextSignposts", .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport")],
             swiftSettings: uiSwiftSettings
         ),
         // Dictation (the composer's mic): the on-device speech engines and
@@ -1696,7 +1696,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             // CmuxNextWakeups: StoreWaitersTests drive the store's deadline queue on a timer of their own.
             // CmuxNextWakeupsTestSupport: ManualClock, the one test clock (the keyed browser-tab create's waits).
             dependencies: ["CmuxNextCompat", "CmuxNextDaemon", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextWakeups",
-                           "CmuxNextWakeupsTestSupport", .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport")],
+                           "CmuxNextWakeupsTestSupport", "CmuxNextSignposts",
+                           .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport")],
             swiftSettings: daemonSwiftSettings
         ),
         // Links libghostty (GhosttyNextKit, whose macOS archive has the lib
@@ -1733,6 +1734,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             // the typing probe a lane marks (TerminalOutputLaneKeyFlowTests); CmuxFuzzSupport for the link and
             // Ghostty action fuzz suites (p10-stability-030).
             dependencies: ["CmuxNextCompat", "CmuxNextTerminal", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextInputCore", "CmuxNextWakeups", "CmuxNextInput",
+                           "CmuxNextSignposts",
                            .product(name: "CmuxGhosttyKit", package: "CmuxGhosttyKit"), .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport")],
             swiftSettings: uiSwiftSettings,
             linkerSettings: [.linkedLibrary("c++")]
