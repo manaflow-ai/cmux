@@ -618,8 +618,8 @@
    "path": "Packages/macOS/CmuxNext/Sources/CmuxNextCompat/Threading/BlockingViolationTable.swift",
    "class": "swift.fatal_error",
    "count": 1,
-   "reason": "Debug-only trap of the main-thread blocking detector (CMUX_BLOCKING_TRAP=1 and its tests); compiled out of bench, Nightly and Release builds, and never for a contended Mutex wait",
-   "reviewer": "independent review 4 (cmux-1c), 2026-10-24"
+   "reason": "Opt-in crash mode of the main-thread blocking detector (p02-threads-009): reachable in Debug and Nightly (-DCMUX_BLOCKING_CHECKS) builds only when the launch set CMUX_BLOCKING_TRAP=1, and in its tests; a bench build (CMUX_BENCH_HOOKS) never traps, Release compiles it out, and a contended Mutex wait never traps. It runs after a flush of at most 50 ms to the sink and one os_log fault.",
+   "reviewer": "PENDING crash-lead review of the Nightly scope (p02-threads-009 fixer, 2026-10-26); the earlier Debug-only scope was reviewed by independent review 4 (cmux-1c), 2026-10-24"
   }
  ]
 }

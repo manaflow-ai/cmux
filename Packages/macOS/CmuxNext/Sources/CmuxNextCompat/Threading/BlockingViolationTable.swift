@@ -6,7 +6,8 @@ internal import Dispatch
 internal import Foundation
 internal import os
 
-/// The main-thread blocking detector's state (Debug, bench and Nightly builds; Release compiles it out).
+/// The main-thread blocking detector's state (Debug and bench builds, and Nightly once its flag lands;
+/// Release compiles it out).
 ///
 /// One table per process (``shared``; arch-ratchet exception approved by the Performance Lead with PL-arch,
 /// 2026-10-24): a violation can happen in any module, inside any lock, before the composition root exists,
@@ -22,11 +23,12 @@ internal import os
 /// offset frames, publishes the site, writes the Debug log line and calls the sink, so the sink never runs on
 /// the thread that blocked or inside that thread's locks.
 ///
-/// Trap mode (`CMUX_BLOCKING_TRAP=1`, read once at init, in any checked build). Chrome's configurable DCHECK
-/// (base/check.h `DCHECK_IS_CONFIGURABLE`): a Nightly records and continues, and a launch that opts in stops at
-/// the call. Before it stops, the main thread hands the site to the sink through the drain queue and waits for
-/// it at most ``defaultTrapFlushMilliseconds`` (so the hang report keeps the call that ended the process),
-/// then logs one fault.
+/// Trap mode (`CMUX_BLOCKING_TRAP=1`, read once at init, in a Debug or Nightly build; a bench build ignores it,
+/// ``BlockingMode/init(environment:)``). Chrome's configurable DCHECK (base/check.h `DCHECK_IS_CONFIGURABLE`):
+/// a checked build records and continues, and a launch that opts in stops at the call. Before it stops, the
+/// main thread hands the site to the sink through the drain queue and waits for it at most
+/// ``defaultTrapFlushMilliseconds`` (so the hang report keeps the call that ended the process), then logs one
+/// fault (``trapFault``).
 @usableFromInline
 final class BlockingViolationTable: Sendable {
     /// The process's table.
@@ -52,6 +54,8 @@ final class BlockingViolationTable: Sendable {
     let trapFlushMilliseconds: Int
     let lockWaitLimitNanos: UInt64
     let uptimeNanos: @Sendable () -> UInt64
+    /// Writes a trap's one fault, after the flush and before the stop (``logFault(_:)`` outside tests).
+    let trapFault: @Sendable (_ message: String) -> Void
 
     // Main thread only: written and read after `pthread_main_np()` (the checks, allowBlocking, the observer).
     nonisolated(unsafe) private var index = BlockingSiteIndex(capacity: BlockingViolationTable.siteLimit) // crash-allow: main thread only (every caller checks pthread_main_np() first)
@@ -67,7 +71,14 @@ final class BlockingViolationTable: Sendable {
     // Drain queue writes, any thread reads.
     private let published = Mutex<[PublishedSite]>([])
     private let sink = Mutex<(any BlockingViolationSink)?>(nil)
-    private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "blocking")
+    private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "blocking")
+
+    /// Writes `message` as one unified-log fault (`category == "blocking"`): a trap's default ``trapFault``.
+    ///
+    /// - Parameter message: The violation and its call site.
+    static func logFault(_ message: String) {
+        logger.fault("\(message, privacy: .public)")
+    }
 
     private struct PublishedSite {
         var id: Int
@@ -83,14 +94,17 @@ final class BlockingViolationTable: Sendable {
     ///   - lockWaitLimitNanos: The longest main-thread ``Mutex`` wait that is not a violation.
     ///   - uptimeNanos: The clock a contended ``Mutex`` wait is measured with.
     ///   - trapFlushMilliseconds: The longest a trap waits for the sink (``flushBeforeTrap()``).
+    ///   - trapFault: Writes a trap's fault (a test checks it comes after the flush and before the stop).
     ///   - startsDrain: False holds the drain until ``startDrain()`` (tests fill the ring).
     init(environment: [String: String] = ProcessInfo.processInfo.environment, mode: BlockingMode? = nil,
          lockWaitLimitNanos: UInt64 = BlockingKind.lockWaitLimitNanos,
          uptimeNanos: @escaping @Sendable () -> UInt64 = { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) },
          trapFlushMilliseconds: Int = BlockingViolationTable.defaultTrapFlushMilliseconds,
+         trapFault: @escaping @Sendable (_ message: String) -> Void = { BlockingViolationTable.logFault($0) },
          startsDrain: Bool = true) {
         self.mode = mode ?? BlockingMode(environment: environment)
         self.trapFlushMilliseconds = trapFlushMilliseconds
+        self.trapFault = trapFault
         self.lockWaitLimitNanos = lockWaitLimitNanos
         self.uptimeNanos = uptimeNanos
         counts = .allocate(capacity: Self.siteLimit)
@@ -157,13 +171,13 @@ final class BlockingViolationTable: Sendable {
         wake.add(data: 1)
     }
 
-    /// Trap mode's end: the sink gets the site (``flushBeforeTrap()``), one fault goes to the unified log,
-    /// then the process stops at the call.
+    /// Trap mode's end: the sink gets the site (``flushBeforeTrap()``), one fault goes to the unified log
+    /// (``trapFault``), then the process stops at the call.
     @inline(never)
     private func trap(_ kind: BlockingKind, fileID: StaticString, line: UInt) -> Never {
         let location = "\(fileID):\(line)"
         _ = flushBeforeTrap()
-        logger.fault("blocking \(kind.rawValue, privacy: .public) on the main thread at \(location, privacy: .public): stopping (CMUX_BLOCKING_TRAP=1)")
+        trapFault("blocking \(kind.rawValue) on the main thread at \(location): stopping (CMUX_BLOCKING_TRAP=1)")
         fatalError("blocking \(kind.rawValue) on the main thread at \(location): move it off the main thread, or "
             + "wrap it in allowBlocking(<reviewed reason>) (plans/cmux-next/threading-model.md)")
     }
@@ -219,7 +233,7 @@ final class BlockingViolationTable: Sendable {
             let location = "\(pending.fileID):\(pending.line)"
             published.withLock { $0.append(PublishedSite(id: pending.site, kind: pending.kind, location: location)) }
             #if DEBUG
-            logger.error("blocking \(pending.kind.rawValue, privacy: .public) on the main thread at \(location, privacy: .public): move it off the main thread, or wrap it in allowBlocking(<reviewed reason>) (plans/cmux-next/threading-model.md)")
+            Self.logger.error("blocking \(pending.kind.rawValue, privacy: .public) on the main thread at \(location, privacy: .public): move it off the main thread, or wrap it in allowBlocking(<reviewed reason>) (plans/cmux-next/threading-model.md)")
             #endif
             guard let sink = sink.withLock({ $0 }) else { continue }
             sink.record(BlockingViolation(kind: pending.kind, frames: resolver.frames(pending.stack)))

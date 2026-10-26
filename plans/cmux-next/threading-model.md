@@ -17,16 +17,18 @@ How it is enforced:
   per call site (`#fileID:#line`; two seam calls on one line share a site). Debug: one unified-log line per call site
   (`log stream --predicate 'category == "blocking"'`), the Debug menu's "Main-Thread Blocking (N)" and the
   `debug.blocking` socket command. Bench builds (`reload.sh --config bench`, `-DCMUX_BLOCKING_CHECKS`): recorded
-  for `debug.blocking`. Nightly (`-DCMUX_BLOCKING_CHECKS` from the `nightly.yml` flag): recorded and sent to
-  PL-telemetry's hang-report sink (kind + image UUID + offset frames only, no paths or names), no log line or
-  menu. Release: compiled out.
-- **Opt-in crash mode (every checked build: Debug, bench, Nightly).** Chrome's configurable DCHECK
-  (base/check.h `DCHECK_IS_CONFIGURABLE`: a Canary ships DCHECKs on but non-fatal, and a launch can make them
-  fatal). The default is record. Launch with `CMUX_BLOCKING_TRAP=1` (read once, when the table is made) and a
-  violation records its site, hands it to the sink through the drain queue and waits at most 50 ms for it (so
-  the hang report keeps the call that stopped the process, and a sink stuck on a lock the main thread holds
-  cannot turn the trap into a hang), logs one `os_log` fault (`category == "blocking"`), then stops the process
-  at the call. A contended `Mutex` wait is always recorded only: it is measured on the wall clock.
+  for `debug.blocking`, never a trap. Nightly: to come with the `nightly.yml` flag and PL-telemetry's
+  hang-report sink (kind + image UUID + offset frames only, no paths or names); it will record by default and
+  has no log or menu. Release: compiled out.
+- **Opt-in crash mode (Debug, and Nightly once its flag lands; never a bench build).** Chrome's configurable
+  DCHECK (base/check.h `DCHECK_IS_CONFIGURABLE`: a Canary ships DCHECKs on but non-fatal, and a launch can make
+  them fatal). The default is record. Launch with `CMUX_BLOCKING_TRAP=1` (read once, when the table is made)
+  and a violation records its site, hands it to the sink through the drain queue and waits at most 50 ms for
+  it (so the hang report keeps the call that stopped the process, and a sink stuck on a lock the main thread
+  holds cannot turn the trap into a hang), logs one `os_log` fault (`category == "blocking"`), then stops the
+  process at the call. A bench build (`CMUX_BENCH_HOOKS`) ignores the variable: a bench run measures the app,
+  and a shell that exports the variable for Debug work passes it on. A contended `Mutex` wait is always
+  recorded only: it is measured on the wall clock.
 - **What the detector does not see yet** (slice (c): migrate to a seam, or the probe below finds it): every
   raw call that does not go through a seam (today almost all of them: `FileManager.default`, `Data(contentsOf:)`
   and so on), `NSXPCConnection.synchronousRemoteObjectProxy`, `DispatchQueue.asyncAndWait`, semaphore and group

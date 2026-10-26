@@ -1696,8 +1696,10 @@ if [[ "$BENCH_HOOKS" -eq 1 ]]; then
   # and the counters it reads (`#if DEBUG || CMUX_BENCH_HOOKS`); every other DEBUG-only block (logging,
   # fixtures, debug-only features) stays out. It also marks the binary so it can never ship
   # (check-no-bench-hooks.sh).
-  # CMUX_BLOCKING_CHECKS: the main-thread blocking detector records (never traps) so a bench sees the
-  # blocking it hits (`debug.blocking`, plans/cmux-next/threading-model.md), as a Nightly would.
+  # CMUX_BLOCKING_CHECKS: the main-thread blocking detector records so a bench sees the blocking it hits
+  # (`debug.blocking`, plans/cmux-next/threading-model.md). It never traps here: with CMUX_BENCH_HOOKS,
+  # BlockingMode ignores CMUX_BLOCKING_TRAP=1 (the Debug/Nightly opt-in crash mode), so an inherited export
+  # cannot stop a bench run.
   SWIFT_OTHER_FLAGS+=" -DCMUX_BENCH_HOOKS -DCMUX_BLOCKING_CHECKS"
   echo "==> bench configuration: Release optimization with -DCMUX_BENCH_HOOKS -DCMUX_BLOCKING_CHECKS (no DEBUG)"
 fi

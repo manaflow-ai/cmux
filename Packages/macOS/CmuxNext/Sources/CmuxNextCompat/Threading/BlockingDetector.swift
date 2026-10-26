@@ -2,8 +2,9 @@
 /// it once with ``forProcess()`` and passes it to what installs the sink (the opt-in hang reports, once
 /// they are wired), the `debug.blocking` control method and the Debug menu.
 ///
-/// In Debug and bench builds (Nightly to come) it refers to the detector's process-wide table (see
-/// ``assertBlockingAllowed(_:fileID:line:)``); in Release it reads as empty and its calls do nothing.
+/// In builds with `DEBUG` or `CMUX_BLOCKING_CHECKS` (Debug, bench, and Nightly once its flag lands) it refers
+/// to the detector's process-wide table (see ``assertBlockingAllowed(_:fileID:line:)``); in Release it reads as
+/// empty and its calls do nothing.
 ///
 /// ```swift
 /// let blocking = BlockingDetector.forProcess()      // AppServices (the composition root) only
@@ -33,7 +34,8 @@ public struct BlockingDetector: Sendable {
         #endif
     }
 
-    /// Whether this build has the detector (Debug and bench builds; Nightly to come).
+    /// Whether this build has the detector (`DEBUG` or `CMUX_BLOCKING_CHECKS`: Debug, bench, and Nightly once
+    /// its flag lands).
     public var isCompiledIn: Bool {
         #if DEBUG || CMUX_BLOCKING_CHECKS
         true
@@ -42,8 +44,10 @@ public struct BlockingDetector: Sendable {
         #endif
     }
 
-    /// What a violation does (``BlockingMode/record`` in every build but a Debug build started with
-    /// `CMUX_BLOCKING_TRAP=1`).
+    /// What a violation does: ``BlockingMode/record`` by default in every checked build (Debug, bench,
+    /// Nightly); ``BlockingMode/trap`` when a Debug or Nightly launch set `CMUX_BLOCKING_TRAP=1`
+    /// (``BlockingMode/init(environment:)``: it hands the site to the sink, waiting at most 50 ms, then stops);
+    /// a bench build never traps; always ``BlockingMode/record`` in Release.
     public var mode: BlockingMode {
         #if DEBUG || CMUX_BLOCKING_CHECKS
         table.mode
