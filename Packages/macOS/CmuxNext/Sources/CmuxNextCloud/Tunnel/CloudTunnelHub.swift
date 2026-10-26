@@ -35,6 +35,11 @@ public actor CloudTunnelHub {
     /// Bumped by `stop()` and `revoke()`; a start from an older one abandons.
     private var generation: UInt64 = 0
     private var child: ChildProcess?
+    /// When the hub restarted itself after its process ended (ssh routes, below); at most
+    /// ``maxRestarts`` in ``restartWindow``.
+    private var restarts: [ContinuousClock.Instant] = []
+    static let maxRestarts = 3
+    static let restartWindow: Duration = .seconds(600)
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cloud.hub")
 
     public init(api: CloudAPIClient, paths: CloudPaths, binary: URL, deviceName: String) {
@@ -94,17 +99,44 @@ public actor CloudTunnelHub {
     }
 
     /// Moves ``CloudPaths/hubLink`` to the running hub's socket (a new link, then a rename over
-    /// the old one, so a dialer never sees it missing). Best effort: no link costs only the
-    /// callers outside the app their route.
-    private func pointHubLink(at socket: String) {
+    /// the old one, so a dialer never sees it missing). A failure fails the start: an ssh route
+    /// through a stale link would look enrolled and never connect.
+    private func pointHubLink(at socket: String) throws {
         let link = paths.hubLink, staged = link + ".new"
         try? FileManager.checked.removeItem(atPath: staged)
-        do {
-            try FileManager.checked.createSymbolicLink(atPath: staged, withDestinationPath: socket)
-            guard rename(staged, link) == 0 else { throw POSIXError(.init(rawValue: errno) ?? .EIO) }
-        } catch {
-            logger.error("wireguard hub link not moved: \(String(describing: error), privacy: .public)")
+        try FileManager.checked.createSymbolicLink(atPath: staged, withDestinationPath: socket)
+        guard rename(staged, link) == 0 else { throw POSIXError(.init(rawValue: errno) ?? .EIO) }
+    }
+
+    /// The hub's socket through ``CloudPaths/hubLink``, starting the hub when it is not running,
+    /// and re-pointing the link when something moved it.
+    public func linkedSocketPath() async throws -> String {
+        let socket = try await socketPath()
+        if (try? FileManager.checked.destinationOfSymbolicLink(atPath: paths.hubLink)) != socket { try pointHubLink(at: socket) }
+        return paths.hubLink
+    }
+
+    /// When the hub's process ends by itself (not `stop()` or `revoke()`, which bump the
+    /// generation) and an ssh route depends on it, the hub starts again, at most ``maxRestarts``
+    /// times in ``restartWindow``. Stop condition: the process ended under another generation, or
+    /// the budget is spent; the task ends with the process.
+    private func watch(_ child: ChildProcess, generation: UInt64) {
+        // task-owner: ends when the hub process ends; restarts only under the same generation.
+        Task { [weak self] in
+            _ = await child.waitForExit()
+            await self?.ended(child, generation: generation)
         }
+    }
+
+    private func ended(_ ended: ChildProcess, generation: UInt64) async {
+        guard generation == self.generation, child === ended else { return }
+        child = nil
+        phase = .idle
+        let now = ContinuousClock.now
+        restarts.removeAll { $0.duration(to: now) > Self.restartWindow }
+        guard paths.hasSSHRoutes(), restarts.count < Self.maxRestarts else { return }
+        restarts.append(now)
+        do { _ = try await socketPath() } catch { logger.error("wireguard hub restart: \(String(describing: error), privacy: .public)") }
     }
 
     private func terminateChild() {
@@ -153,7 +185,8 @@ public actor CloudTunnelHub {
             throw CancellationError()
         }
         phase = .running(socket: ready)
-        pointHubLink(at: ready)
+        try pointHubLink(at: ready)
+        watch(child, generation: generation)
         logger.info("wireguard hub ready (tunnel \(enrollment.tunnelId, privacy: .public))")
         return ready
     }

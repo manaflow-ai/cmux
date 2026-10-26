@@ -91,19 +91,24 @@ public struct CloudMachineEnrollment: Equatable, Sendable {
             "  UserKnownHostsFile \(Self.configQuoted(knownHosts))",
             "  StrictHostKeyChecking yes",
         ]
-        if let identityFile { lines.append("  IdentityFile \(Self.configQuoted(identityFile))") }
+        if let identityFile { lines += ["  IdentityFile \(Self.configQuoted(identityFile))", "  IdentitiesOnly yes"] }
         lines.append(Self.end(name))
         return lines.joined(separator: "\n") + "\n"
     }
 
-    /// `config` with this machine's block replaced (or appended), every other line kept.
+    /// `config` with this machine's block replaced (or appended), every other line kept. A begin
+    /// marker with no end marker after it (a hand edit) removes nothing.
     public func upserting(_ block: String, into config: String) -> String {
-        var kept: [Substring] = [], inside = false
+        var kept: [Substring] = [], held: [Substring]?
         for line in config.split(separator: "\n", omittingEmptySubsequences: false) {
-            if line.hasPrefix(Self.begin(name) + " ") || line == Self.begin(name) { inside = true; continue }
-            if inside { if line == Self.end(name) { inside = false }; continue }
+            if held == nil, line.hasPrefix(Self.begin(name) + " ") || line == Self.begin(name) { held = [line]; continue }
+            if held != nil {
+                if line == Self.end(name) { held = nil } else { held?.append(line) }
+                continue
+            }
             kept.append(line)
         }
+        kept += held ?? []
         var text = kept.joined(separator: "\n")
         while text.hasSuffix("\n\n") { text.removeLast() }
         if !text.isEmpty, !text.hasSuffix("\n") { text += "\n" }
@@ -119,7 +124,7 @@ public struct CloudMachineEnrollment: Equatable, Sendable {
     /// `~/.ssh/config` with the include of the cmux file first (an `Include` after a `Host` or
     /// `Match` applies only inside that block); unchanged when it already comes first.
     public static func including(_ include: String, in config: String) -> String {
-        let line = "Include \(include)"
+        let line = "Include \(configQuoted(include))"
         for raw in config.split(separator: "\n") {
             let text = raw.trimmingCharacters(in: .whitespaces), word = text.split(separator: " ").first?.lowercased()
             if text == line { return config }
@@ -136,7 +141,13 @@ public struct CloudMachineEnrollment: Equatable, Sendable {
     public func installOnThisMac(hostKey: String, cli: String, hubLink: String, identityFile: String?, home: URL) throws -> (done: [String], pending: [String]) {
         let ssh = home.appendingPathComponent(".ssh", isDirectory: true)
         let folder = ssh.appendingPathComponent("cmux-cloud", isDirectory: true)
+        // Ours alone: never through a symlink to somewhere else.
+        if (try? FileManager.checked.destinationOfSymbolicLink(atPath: folder.path)) != nil { throw PathNotPlain(path: folder.path) }
         try FileManager.checked.createDirectory(at: folder, withIntermediateDirectories: true, attributes: [.posixPermissions: 0o700])
+        // One enrollment at a time edits these files (two at once would lose one's block or key).
+        let lock = open(folder.appendingPathComponent(".lock").path, O_CREAT | O_RDWR | O_NOFOLLOW | O_CLOEXEC, 0o600)
+        guard lock >= 0, flock(lock, LOCK_EX) == 0 else { throw CocoaError(.fileLocking, userInfo: [NSFilePathErrorKey: folder.path]) }
+        defer { close(lock) }
         let config = folder.appendingPathComponent("config"), known = folder.appendingPathComponent("known_hosts")
         for path in [cli, hubLink, known.path, config.path] + (identityFile.map { [$0] } ?? []) where !Self.isPlainPath(path) {
             throw PathNotPlain(path: path)
@@ -150,7 +161,7 @@ public struct CloudMachineEnrollment: Equatable, Sendable {
         if after != before {
             let isLink = { (try? FileManager.checked.destinationOfSymbolicLink(atPath: main.path)) != nil }
             if isLink() {
-                pending.append("ssh-config-include: add `Include \(config.path)` at the top of \(main.path)")
+                pending.append("ssh-config-include: add `Include \(Self.configQuoted(config.path))` at the top of \(main.path)")
             } else {
                 // Changed or made a symlink since the read (a dotfiles tool, an editor): never written over.
                 try Self.write(after, to: main, unless: { try !isLink() && read(main) == before })

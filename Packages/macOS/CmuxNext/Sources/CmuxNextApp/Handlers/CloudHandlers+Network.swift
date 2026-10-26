@@ -82,7 +82,8 @@ extension CloudHandlers {
         guard CloudMachineEnrollment.isPlainPath(binary.path) else { throw ActionFailure(message: CloudStrings.noClient) }
         let machineID = session.machineID, home = FileManager.default.homeDirectoryForCurrentUser
         let registry = "tools/lane-vm-enroll \(name) \(machineID) --address \(address) --apply"
-        let rerun = "cmux cloud enroll-machine --target machine:\(machineID) --name \(name)"
+        let keyFlag = invocation["sshKey"]?.stringValue == nil ? "" : " --ssh-key '\(keyPath)'"
+        let rerun = "cmux cloud enroll-machine --target machine:\(machineID) --name \(name)\(keyFlag)"
         // A slow run (acpmux's install can take minutes) answers this and goes on; the rerun answers what is done.
         let pending: [String: ActionResultValue] = [
             "machine_id": .string(machineID), "name": .string(name), "ssh_host": .string(name), "address": .string(address),
@@ -97,7 +98,7 @@ extension CloudHandlers {
             guard ran.exitCode == 0, let hostKey else {
                 throw ActionFailure(message: CloudStrings.enrollAuthorizeFailed(String((ran.stderr.isEmpty ? ran.stdout : ran.stderr).suffix(300))))
             }
-            _ = try await hub.socketPath() // the hub runs, and its link points at it
+            _ = try await hub.linkedSocketPath() // the hub runs, and its link points at it
             let marker = cloud.paths.sshRoutesMarker
             let local = try await work.run(.userBlocking, mayBlock: .files) {
                 let installed = try enrollment.installOnThisMac(hostKey: hostKey, cli: binary.path, hubLink: hubLink, identityFile: identity, home: home)
@@ -131,8 +132,12 @@ extension CloudHandlers {
             return []
         } catch {
             let why = String((error.localizedDescription.isEmpty ? last : error.localizedDescription).suffix(300))
-            guard await cli.json(["acp", "host", "add", name], deadline: .seconds(60), label: "acp host add") != nil else {
-                return ["acpmux-peer: \(why)"]
+            // `host add` answers once the first connect settled; the peer list says whether it is up.
+            let added = await cli.json(["acp", "host", "add", name, "--json"], deadline: .seconds(60), label: "acp host add")
+            let peers = added.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] }?["peers"] as? [[String: Any]]
+            let peer = peers?.first { $0["name"] as? String == name }
+            guard peer?["connected"] as? Bool == true else {
+                return ["acpmux-peer: \((peer?["error"] as? String).map { "added but not connected: \($0)" } ?? why)"]
             }
             done.append(.string("acpmux-peer"))
             return ["harness-profiles: \(why)"]

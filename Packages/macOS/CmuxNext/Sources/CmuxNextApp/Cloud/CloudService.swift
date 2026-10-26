@@ -274,6 +274,7 @@ final class CloudService {
                 await hub?.resume()
                 await installSignedIn()
                 await refresh()
+                await startHubForSSHRoutes()
             }
         }
     }

@@ -48,7 +48,7 @@ struct CloudEnrollMachineTests {
         #expect(block.contains("Host lane-vm-1\n  HostName 10.0.0.7\n  User cmux\n"))
         #expect(block.contains("  ProxyCommand '/Applications/cmux NEXT.app/Contents/Resources/bin/cmux-tui' wg dial --hub '/tmp/cmux-wg-ab.sock' %h %p"))
         #expect(block.contains("  StrictHostKeyChecking yes\n"))
-        #expect(block.contains("  IdentityFile /Users/me/.ssh/id_ed25519\n"))
+        #expect(block.contains("  IdentityFile /Users/me/.ssh/id_ed25519\n  IdentitiesOnly yes\n"))
     }
 
     @Test func aRerunReplacesOnlyThisMachinesBlockAndHostKey() {
@@ -85,6 +85,30 @@ struct CloudEnrollMachineTests {
             _ = try Self.enrollment.installOnThisMac(hostKey: Self.hostKey, cli: "/bin/cmux-tui", hubLink: "/tmp/hub.sock", identityFile: nil, home: home)
         }
         #expect(try Data(contentsOf: ssh.appendingPathComponent("config")) == bytes)
+    }
+
+    @Test func aBeginMarkerWithNoEndRemovesNothing() {
+        let damaged = "# >>> cmux machine lane-vm-1 vm-1\nHost lane-vm-1\nHost precious\n  HostName 1.2.3.4\n"
+        let fixed = Self.enrollment.upserting("# >>> cmux machine lane-vm-1 vm-1\nNEW\n# <<< cmux machine lane-vm-1\n", into: damaged)
+        #expect(fixed.contains("Host precious\n  HostName 1.2.3.4\n"))
+    }
+
+    @Test func anIncludeWithASpaceIsQuoted() {
+        let included = CloudMachineEnrollment.including("/Users/first last/.ssh/cmux-cloud/config", in: "")
+        #expect(included.contains(#"Include "/Users/first last/.ssh/cmux-cloud/config""#))
+    }
+
+    @Test func aSymlinkedCmuxFolderIsRefused() throws {
+        let home = FileManager.default.temporaryDirectory.appendingPathComponent("enroll-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: home) }
+        let ssh = home.appendingPathComponent(".ssh", isDirectory: true), elsewhere = home.appendingPathComponent("elsewhere", isDirectory: true)
+        try FileManager.default.createDirectory(at: ssh, withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: elsewhere, withIntermediateDirectories: true)
+        try FileManager.default.createSymbolicLink(at: ssh.appendingPathComponent("cmux-cloud"), withDestinationURL: elsewhere)
+        #expect(throws: CloudMachineEnrollment.PathNotPlain.self) {
+            _ = try Self.enrollment.installOnThisMac(hostKey: Self.hostKey, cli: "/bin/cmux-tui", hubLink: "/tmp/hub.sock", identityFile: nil, home: home)
+        }
+        #expect(try FileManager.default.contentsOfDirectory(atPath: elsewhere.path).isEmpty)
     }
 
     @Test func theIncludeGoesFirstOnce() throws {
