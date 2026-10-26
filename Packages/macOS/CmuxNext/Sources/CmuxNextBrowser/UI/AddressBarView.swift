@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextDesign
+import CmuxNextInput
 public import CmuxNextWakeups
 
 /// The omnibar, drawn by `OmnibarStyle`: a gray
@@ -425,7 +426,8 @@ public final class AddressBarView: NSView {
     // MARK: Events in
 
     private func fieldDidFocus() {
-        controller.send(.focusGained(pendingFocusSource ?? (isMouseDownInField(NSApp.currentEvent) ? .mouse : .programmatic)))
+        let pressed = isMouseDownInField((window as? InputTapHosting)?.inputTap?.lastDispatched)
+        controller.send(.focusGained(pendingFocusSource ?? (pressed ? .mouse : .programmatic)))
         if pendingSearch {
             pendingSearch = false
             controller.send(.key(.searchWithDefaultEngine))
@@ -435,9 +437,11 @@ public final class AddressBarView: NSView {
     /// A press in the bar focused it (not a click elsewhere, such as a
     /// new-tab button, that moved focus here). The bar around the text
     /// forwards its presses to the field (`mouseDown(with:)`).
-    private func isMouseDownInField(_ event: NSEvent?) -> Bool {
-        guard let event, [.leftMouseDown, .rightMouseDown].contains(event.type), event.window === window else { return false }
-        return bounds.contains(convert(event.locationInWindow, from: nil))
+    /// `event`: the tap's last dispatched event, the press whose dispatch moves the focus here.
+    private func isMouseDownInField(_ event: InputEventRecord?) -> Bool {
+        guard let event, event.type == .leftMouseDown || event.type == .rightMouseDown,
+              let window, event.windowNumber == window.windowNumber else { return false }
+        return bounds.contains(convert(NSPoint(x: event.location.x, y: event.location.y), from: nil))
     }
 
     /// Reports what the field editor holds now. The applier's own writes
