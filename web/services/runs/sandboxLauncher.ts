@@ -131,6 +131,8 @@ type Lease = { readonly leaseToken: string; readonly leaseGeneration: number };
 /** Everything the launcher touches, so each exit path can be tested without a provider or DB. */
 export type SandboxLauncherPorts = {
   readonly claimLease: () => Promise<Lease>;
+  /** Bookkeeping after the claim (the runtime row): bounded, and a failure is only logged. */
+  readonly recordRuntime?: () => Promise<void>;
   readonly createVm: () => Promise<{ readonly providerVmId: string }>;
   readonly recordStarted: (lease: Lease, providerVmId: string) => Promise<void>;
   readonly prepare: (spec: CloudVmRunAttemptSpec) => Promise<CloudVmPreparedAttempt>;
@@ -231,6 +233,10 @@ class SandboxRun {
     const { input, ports, lease } = this;
     // A launch that starts with its budget already spent pays for no VM.
     if (ports.now() >= this.deadline) throw new SandboxDeadlineError(input.timeoutMs);
+    // Inside the teardown's try, so a hang or failure here still ends in teardown.
+    if (ports.recordRuntime) {
+      await this.bounded(ports.recordRuntime()).catch((error: unknown) => ports.log("[runs] sandbox runtime bookkeeping failed", error));
+    }
     const creating = ports.createVm();
     this.lateCreate = creating;
     const providerVmId = (await this.step(creating)).providerVmId;

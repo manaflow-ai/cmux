@@ -142,6 +142,18 @@ describe("sandbox run lifecycle", () => {
     expect(calls.outcomes).toHaveLength(1);
   });
 
+  test("runtime bookkeeping that hangs or fails is bounded and logged, and the run goes on", async () => {
+    for (const recordRuntime of [() => new Promise<never>(() => undefined), async () => { throw new Error("runtime insert failed"); }]) {
+      const { calls, ports: p } = ports();
+      const logged: string[] = [];
+      await runSandboxAttempt(input, { ...p, recordRuntime, log: (message) => logged.push(message) });
+      expect(logged).toContain("[runs] sandbox runtime bookkeeping failed");
+      expect(calls.steps).toContain("createVm");
+      expect(calls.steps.slice(-2)).toEqual(["scheduleCleanup:vm-1", "destroy"]);
+      expect(calls.outcomes[0]?.exitCode).toBe(0);
+    }
+  });
+
   test("failure before a VM exists: nothing to hand off, the destroy pass still runs", async () => {
     const { calls, ports: p } = ports({ createVmFails: true });
     await runSandboxAttempt(input, p);
