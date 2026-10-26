@@ -125,10 +125,12 @@ class OneRunWaitTests(unittest.TestCase):
     def test_milestones_flag_waits_for_every_milestone(self):
         bench.WAIT_MILESTONES = True
         bench.one_run("t", "warm", 5)
-        self.assertEqual(len(FakeLaunch.waits), 2)
-        marks, any_of, timeout = FakeLaunch.waits[-1]
+        self.assertEqual(len(FakeLaunch.waits), 3)
+        marks, any_of, timeout = FakeLaunch.waits[1]
         self.assertEqual((marks, any_of), (bench.MILESTONES, False))
         self.assertLessEqual(timeout, 5, "the milestone wait shares the run's one timeout")
+        self.assertEqual(FakeLaunch.waits[2], (list(bench.THREAD_MARKS), False, bench.THREAD_MARKS_WAIT_S),
+                         "then p08-startup-068's thread census, sent after the first frame")
 
     def test_a_run_that_missed_its_first_frames_does_not_wait_again(self):
         bench.WAIT_MILESTONES = True
@@ -139,8 +141,9 @@ class OneRunWaitTests(unittest.TestCase):
     def test_without_the_flag_a_run_ends_at_its_first_frames(self):
         bench.WAIT_MILESTONES = False
         bench.one_run("t", "warm", 5)
-        self.assertEqual(len(FakeLaunch.waits), 1)
+        self.assertEqual(len(FakeLaunch.waits), 2, "the first frames, then the thread census (p08-startup-068)")
         self.assertNotIn("startup_complete", FakeLaunch.waits[0][0])
+        self.assertEqual(FakeLaunch.waits[1][0], list(bench.THREAD_MARKS))
 
 
 if __name__ == "__main__":
