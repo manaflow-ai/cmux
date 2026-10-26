@@ -18,15 +18,21 @@ const keys = [
   "Node",
   "customElements",
   "MutationObserver",
+  "ResizeObserver",
+  "getComputedStyle",
+  "requestAnimationFrame",
+  "cancelAnimationFrame",
   "IS_REACT_ACT_ENVIRONMENT",
 ] as const;
 const saved = keys.map((key) => [key, key in scope, scope[key]] as const);
 const added: string[] = [];
 let root: Root | undefined;
 let host: HTMLElement;
+let dom: JSDOM;
 
 beforeAll(() => {
-  const { window } = new JSDOM("<!doctype html><div id=root></div>", { pretendToBeVisual: true });
+  dom = new JSDOM("<!doctype html><div id=root></div>", { pretendToBeVisual: true });
+  const { window } = dom;
   Object.assign(scope, {
     window,
     document: window.document,
@@ -36,6 +42,15 @@ beforeAll(() => {
     Node: window.Node,
     customElements: window.customElements,
     MutationObserver: window.MutationObserver,
+    // jsdom has no layout observer; Pierre still needs its subscription API to render the hunks.
+    ResizeObserver: class {
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    },
+    getComputedStyle: window.getComputedStyle.bind(window),
+    requestAnimationFrame: window.requestAnimationFrame.bind(window),
+    cancelAnimationFrame: window.cancelAnimationFrame.bind(window),
     IS_REACT_ACT_ENVIRONMENT: true,
   });
   // Pierre's registered elements (the diff card) read their own DOM constructors at import time.
@@ -49,6 +64,7 @@ beforeAll(() => {
 
 afterAll(() => {
   act(() => root?.unmount());
+  dom.window.close();
   for (const key of added) delete scope[key];
   for (const [key, had, value] of saved) {
     if (had) scope[key] = value;
