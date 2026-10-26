@@ -173,6 +173,11 @@ extension CMUXCLI {
         if record.forkArguments == nil,
            record.launchCommand == nil,
            let legacyCommand {
+            // Validate the saved directory before retiring the parent binding.
+            // If the directory disappeared, the fork must be retryable after it
+            // is recreated. `execLegacyForkRecord` repeats the chdir immediately
+            // before exec, so this check does not change the launch path.
+            _ = try applyForkWorkingDirectory(requestedRestoreWorkingDirectory(for: record))
             try clearCodexForkParentBinding()
             try execLegacyForkRecord(
                 legacyCommand,
