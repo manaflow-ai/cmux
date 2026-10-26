@@ -185,6 +185,7 @@ test("on: one canvas, no node per row; frozen while a reply streams; a scroll mo
       await scrollTo(scroller, page.height - VIEWPORT);
       await act(async () => flushFrames());
     }
+    // fixed-wait: the assertion is that no draw comes once the redraw window has passed; an absent draw has no event.
     await act(async () => new Promise((resolve) => setTimeout(resolve, REDRAW_MS + 20)));
     await act(async () => flushFrames());
     expect(pane.draws()).toBe(atStart);
@@ -259,6 +260,7 @@ test("a streaming reply with many rows after it (queued prompts, notes) still fr
       await pane.render(reply, true);
       await act(async () => flushFrames());
     }
+    // fixed-wait: the assertion is that no draw comes once the redraw window has passed; an absent draw has no event.
     await act(async () => new Promise((resolve) => setTimeout(resolve, REDRAW_MS + 20)));
     await act(async () => flushFrames());
     expect(pane.draws()).toBe(atStart);

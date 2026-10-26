@@ -5,7 +5,7 @@
 .acpmux-chat-minimap {
   position: sticky;
   top: 0;
-  z-index: 3;
+  z-index: var(--layer-sticky);
   height: 0;
 }
 /* Sized inline, so it contains its own layout and style. */
