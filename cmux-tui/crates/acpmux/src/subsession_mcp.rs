@@ -64,7 +64,7 @@ fn tools() -> Value {
                     "harness": {"type": "string", "description": "The agent to run it, e.g. claude or codex. Default: the same agent as yours."},
                     "model": {"type": "string", "description": "The model. Default: the agent's default."},
                     "cwd": {"type": "string", "description": "The folder it works in, as an absolute path. Default: yours. A folder the user has not trusted makes the call wait on a Trust / Not now card in your chat; Not now refuses it (do not ask again)."},
-                    "host": {"type": "string", "description": "Where it runs. A sub-session runs on this machine only. \"auto\" first checks that this machine has room for another agent, with acpmux's placement engine (the one `acpmux new --host auto` uses): free RAM, busy cores, free disk and this machine's lane limit, weighed by its own size and role. With no room the start is refused and says why; with room the result's placed line says why, e.g. \"placed on huge-blue: 31 GB RAM free, 15.7/32 cores busy, 400 GB disk free, room for 5\". \"auto-build\" checks the same for a build or a test run, which only a build machine takes. Default: this machine, unchecked."},
+                    "host": {"type": "string", "description": "Where it runs. A sub-session runs on this machine only. \"auto\" first checks that this machine has room for another agent, with acpmux's placement engine (the one `acpmux new --host auto` uses): free RAM, busy cores, free disk and this machine's lane limit, weighed by its own size and role. The result's placed line says why, e.g. \"placed on huge-blue: 31 GB RAM free, 15.7/32 cores busy, 400 GB disk free, room for 5\"; with no room it starts all the same and the placed line says it is past its room (load and lane limits only warn). \"auto-build\" checks the same for a build or a test run, which only a build machine takes: on a machine that takes no builds the start is refused and says why. Default: this machine, unchecked."},
                     "worktree": {"type": "boolean", "description": "Work in a new git worktree of that folder's repository (~/.cmux/worktrees/<project>/<name>, branch cmux/<name>), so its edits stay apart from yours until the user applies them. It starts in the same subfolder of the worktree as that folder. Its files are checked out as committed, without running the repository's hooks or filters (a Git LFS file stays its pointer)."}
                 },
                 "required": ["prompt"]
@@ -125,6 +125,18 @@ fn tools() -> Value {
                     "close": {"type": "boolean"}
                 },
                 "required": ["sessionId"]
+            }
+        },
+        {
+            "name": "retry_session",
+            "description": "Retry a sub-session's failed last turn now, in the same session, taking over a retry that waits after a transient error (a 503, an overload, a dropped connection): its failed prompt is sent again, or a continuation when the turn had already done some work. With subagent, resume that failed subagent of the sub-session instead: a waiting automatic retry fires now, or its agent is told to resume it with SendMessage. Refused while a turn runs or is about to start (retry.busy, never queued for a subagent), when nothing failed or the subagent can no longer be retried (retry.nothing_failed, data.why says why: resumed, replaced, ended, skipped, ...), for a subagent it does not have (retry.unknown_subagent), or when it asks less than you (subsessions.receiver_asks_less). Returns the retry's promptId and kind (turn or subagent); use wait_for_sessions to read the result.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "session": {"type": "string", "description": "The sub-session's sessionId."},
+                    "subagent": {"type": "string", "description": "One of its failed subagents (an Agent-tool subagent that failed on a transient error), by id or agent id: its agent is told to resume it now with SendMessage, instead of retrying the turn. Refused with retry.nothing_failed when it is not failed or cannot be retried, retry.unknown_subagent when there is no such subagent."}
+                },
+                "required": ["session"]
             }
         },
         {
@@ -244,6 +256,23 @@ async fn with_attachments(mut args: Value) -> Result<Value> {
     Ok(args)
 }
 
+/// `retry_session`'s `{session, subagent?}` (`sessionId` taken too) as the daemon's params.
+fn retry_params(args: &Value) -> Value {
+    let session = args.get("session").or_else(|| args.get("sessionId"));
+    let mut params = json!({"sessionId": session.cloned().unwrap_or(Value::Null)});
+    if let Some(subagent) = args.get("subagent").filter(|v| !v.is_null()) {
+        params["subagentId"] = subagent.clone();
+    }
+    params
+}
+
+/// `retry_session`'s one line.
+fn retried_text(r: &Value) -> String {
+    let prompt = r["promptId"].as_str().unwrap_or_default();
+    let turn = r["turnId"].as_str().map(|t| format!(" started turn {t}")).unwrap_or_default();
+    format!("Retrying: prompt {prompt}{turn}. Use wait_for_sessions to get its result.")
+}
+
 /// A daemon refusal as the agent reads it: the daemon's message is the advice.
 fn refusal(e: anyhow::Error) -> Value {
     error_result(format!("{e:#}"))
@@ -277,6 +306,10 @@ async fn call(daemon: &Client, params: &Value) -> Value {
         },
         "stop_session" => match request(method::MUX_SUBSESSION_STOP, args).await {
             Ok(r) => ok(serde_json::to_string_pretty(&r).unwrap_or_default(), r),
+            Err(e) => refusal(e),
+        },
+        "retry_session" => match request(method::MUX_SUBSESSION_RETRY, retry_params(&args)).await {
+            Ok(r) => ok(retried_text(&r), r),
             Err(e) => refusal(e),
         },
         "answer_question" => match request(method::MUX_SUBSESSION_ANSWER, args).await {
@@ -382,6 +415,27 @@ mod tests {
         assert!(rules.contains(&format!("cmux.{CMUX_APP_TOOL}(")), "{rules}");
         assert!(rules.contains(&format!("cmux.{CMUX_APP_TAB_TOOL}(")), "{rules}");
         assert!(!rules.contains("agent_report"), "agent.report needs a terminal: {rules}");
+    }
+
+    /// `retry_session` takes the contract's `{session, subagent?}` and sends `_acpmux/subsession/retry`'s
+    /// `{sessionId, subagentId?}`.
+    #[test]
+    fn retry_session_names_the_session_and_maps_its_arguments() {
+        let tools = tools();
+        let retry = tools
+            .as_array()
+            .and_then(|t| t.iter().find(|t| t["name"] == "retry_session"))
+            .expect("retry_session")
+            .clone();
+        assert_eq!(retry["inputSchema"]["required"], json!(["session"]), "{retry}");
+        assert!(retry["inputSchema"]["properties"]["subagent"].is_object(), "{retry}");
+        assert_eq!(
+            retry_params(&json!({"session": "s1", "subagent": "a1"})),
+            json!({"sessionId": "s1", "subagentId": "a1"})
+        );
+        assert_eq!(retry_params(&json!({"sessionId": "s2"})), json!({"sessionId": "s2"}));
+        let text = retried_text(&json!({"promptId": "p~resume-1", "turnId": "t2", "kind": "turn"}));
+        assert!(text.starts_with("Retrying: prompt p~resume-1 started turn t2."), "{text}");
     }
 
     /// `host` documents `auto` and `auto-build`, and a placed start says why

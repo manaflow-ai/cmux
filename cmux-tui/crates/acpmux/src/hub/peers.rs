@@ -355,6 +355,7 @@ impl Hub {
             self.apply_peer_notice(&peer, generation, notice);
             if settles {
                 current.mark_settled();
+                self.watches.peer_settled();
             }
         }
     }
@@ -389,6 +390,7 @@ impl Hub {
                         if !self.is_current(&peer, generation) {
                             return;
                         }
+                        self.with_tombstones(&peer, generation, |t| t.link_ended());
                         map.values_mut()
                             .filter(|r| r.peer == peer)
                             .filter_map(|r| {
@@ -412,6 +414,9 @@ impl Hub {
                         if !self.is_current(&peer, generation) {
                             return;
                         }
+                        // Read before a purge this link already brought (`purge_tombstones.rs`).
+                        let purged = self.with_tombstones(&peer, generation, |t| t.take());
+                        let purged = purged.unwrap_or_default();
                         let mut old: HashMap<String, Value> = map
                             .iter()
                             .filter(|(_, r)| r.peer == peer)
@@ -422,6 +427,9 @@ impl Hub {
                         for s in list {
                             let summary = Self::remote_summary(&peer, s);
                             let Some(receipt) = session_receipt(&summary) else { continue };
+                            if purged.contains(&receipt.mux_session_id) {
+                                continue;
+                            }
                             let id = receipt.qualified_id();
                             if old.remove(&id).as_ref() != Some(&summary) {
                                 changed.push(summary.clone());
@@ -450,6 +458,8 @@ impl Hub {
                             if !self.is_current(&peer, generation) {
                                 return;
                             }
+                            // An older list of this link must not bring it back.
+                            self.with_tombstones(&peer, generation, |t| t.purged(&mux_id));
                             let key = map
                                 .iter()
                                 .find(|(_, r)| r.peer == peer && r.receipt.mux_session_id == mux_id)
@@ -482,6 +492,7 @@ impl Hub {
                         if !self.is_current(&peer, generation) {
                             return;
                         }
+                        self.with_tombstones(&peer, generation, |t| t.changed(&mux_id));
                         let old_id = map
                             .iter()
                             .find(|(_, r)| r.peer == peer && r.receipt.mux_session_id == mux_id)

@@ -9,16 +9,24 @@ public import CmuxNextSettings
 public final class ChannelsPageProvider: PageProvider {
     public static let prefix = "cmux.settings.channels."
     private let updater: UpdaterService
+    /// The card's acpmux daemon line, its title and value (the app's local daemon); nil without one.
+    private let daemon: (@Sendable () async -> (title: String, value: String)?)?
 
-    public init(updater: UpdaterService) {
+    public init(updater: UpdaterService, daemon: (@Sendable () async -> (title: String, value: String)?)? = nil) {
         self.updater = updater
+        self.daemon = daemon
     }
 
     public func call(_ op: String, params: JSONValue, context: PageCallContext) async throws -> JSONValue {
         switch op {
         case "cmux.settings.channels.state":
             let ring = params["ring"]?.stringValue.flatMap(UpdateRing.init(rawValue:))
-            guard let state = JSONValue(foundation: await updater.channelsPageState(ring: ring)) else {
+            // The daemon line is read beside the feed: one status call, never polled.
+            let daemon = self.daemon
+            async let line: (title: String, value: String)? = daemon?()
+            var page = await updater.channelsPageState(ring: ring)
+            if let line = await line { page["daemon"] = ["title": line.title, "value": line.value] }
+            guard let state = JSONValue(foundation: page) else {
                 throw PageError(code: "cmux.page.unavailable", message: "no channels")
             }
             return state

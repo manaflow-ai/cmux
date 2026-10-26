@@ -303,6 +303,9 @@
 .acpmux-project-search{display:flex;align-items:center;gap:8px;height:30px;margin:0 0 4px;padding:0 8px;border-bottom:.5px solid var(--acpmux-composer-edge);color:var(--acpmux-composer-dim)}
 .acpmux-project-search input{flex:1;min-width:0;height:100%;padding:0;border:0;background:none;color:var(--agent-text);font:inherit;outline:none}
 .acpmux-project-search input::placeholder{color:var(--acpmux-composer-dim)}
+/* The shared Combobox has the same project field as the old inline chooser, without a wrapper. */
+.acpmux-project-menu .acpmux-project-search-field{display:block;box-sizing:border-box;appearance:none;width:100%;min-width:0;height:32px;margin:0 0 4px;padding:0 var(--acpmux-project-menu-edge);border:0;border-bottom:.5px solid var(--acpmux-composer-edge);border-radius:0;background:none;color:var(--agent-text);font:inherit;outline:none}
+.acpmux-project-menu .acpmux-project-search-field::placeholder{color:var(--acpmux-composer-dim)}
 .acpmux-project-empty{padding:6px 8px;color:var(--acpmux-composer-dim)}
 .acpmux-project-browse{display:block;width:100%;margin-top:4px;padding:7px 8px;border:0;border-top:.5px solid var(--acpmux-composer-edge);background:none;color:var(--agent-text);font:inherit;text-align:left;cursor:pointer}
 .acpmux-project-browse:hover{background:color-mix(in srgb,var(--agent-text) 8%,transparent)}
@@ -352,6 +355,35 @@
 .acpmux-home-detail{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--agent-muted)}
 .acpmux-home-meta{flex:none;color:var(--agent-muted);font-size:13px}
 .acpmux-home-title+.acpmux-home-meta{margin-left:auto}
+/* The inbox (HomeInbox.tsx): each ask, the chat it is in under it, and its answers in place. */
+.acpmux-home-inbox .acpmux-home-label{display:flex;align-items:baseline;gap:4px}
+.acpmux-home-inbox-count{color:var(--agent-muted);font-variant-numeric:tabular-nums}
+.acpmux-home-inbox-row{display:flex;flex-direction:column;gap:4px;padding:0 0 4px;border-radius:10px}
+.acpmux-home-inbox-row[data-sending]{opacity:.6}
+.acpmux-home-inbox-open{display:flex;align-items:center;gap:8px;width:100%;padding:4px 8px;border:0;border-radius:10px;background:none;color:var(--agent-text);font:inherit;font-size:var(--text-body);text-align:left;cursor:pointer}
+.acpmux-home-inbox-open:hover{background:var(--acpmux-menu-hover)}
+.acpmux-home-inbox-open:focus-visible{background:var(--acpmux-menu-hover);outline:1.5px solid var(--agent-text);outline-offset:-1.5px}
+.acpmux-home-inbox-mark{flex:none;display:inline-flex;width:16px;justify-content:center;color:var(--agent-muted)}
+.acpmux-home-inbox-text{flex:1;min-width:0;display:flex;flex-direction:column;gap:0}
+.acpmux-home-inbox-ask{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.acpmux-home-inbox-detail{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--agent-muted);font-size:var(--text-caption);line-height:var(--text-caption--line-height)}
+.acpmux-home-inbox-detail[data-code]{font-family:var(--font-mono)}
+.acpmux-home-inbox-where{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--agent-muted);font-size:var(--text-caption);line-height:var(--text-caption--line-height)}
+.acpmux-home-inbox-kind{color:var(--acpmux-needs-you-mark)}
+.acpmux-home-inbox-answers{display:flex;flex-wrap:wrap;gap:8px;min-width:0;margin:0;padding:0 8px 0 32px;border:0}
+.acpmux-home-inbox-answers button{display:inline-flex;align-items:baseline;min-height:24px;padding:4px 12px;border:0;border-radius:6px;background:color-mix(in srgb,var(--agent-text) 8%,transparent);color:var(--agent-text);font:inherit;font-size:var(--text-control);line-height:1.25;white-space:nowrap;cursor:pointer}
+.acpmux-home-inbox-answers button[data-tone=allow]{background:var(--agent-accent);color:var(--agent-on-accent,var(--acpmux-base));font-weight:500}
+.acpmux-home-inbox-answers button:hover:not(:disabled){background:color-mix(in srgb,var(--agent-text) 14%,transparent)}.acpmux-home-inbox-answers button[data-tone=allow]:hover:not(:disabled){background:color-mix(in srgb,var(--agent-accent) 88%,var(--agent-text))}
+.acpmux-home-inbox-answers button:focus-visible{outline:1.5px solid var(--agent-text);outline-offset:1px}
+.acpmux-home-inbox-answers button:disabled{cursor:default}
+.acpmux-home-inbox .acpmux-permission-action-shortcut{align-self:baseline;margin:0 0 0 6px;padding:0;opacity:1;color:color-mix(in srgb,currentColor 62%,transparent);font:var(--text-caption)/1 -apple-system,BlinkMacSystemFont,sans-serif}
+.acpmux-home-inbox .acpmux-permission-action-modifiers{opacity:.7}
+.acpmux-home-inbox-error{margin:0;padding:0 8px 0 32px;color:var(--agent-danger,var(--agent-text));font-size:var(--text-caption);line-height:1.3}
+.acpmux-home-inbox[data-look=compact] .acpmux-home-inbox-row{flex-direction:row;align-items:center;flex-wrap:wrap;padding:0}
+.acpmux-home-inbox[data-look=compact] .acpmux-home-inbox-open{flex:1;min-width:0;width:auto}
+.acpmux-home-inbox[data-look=compact] .acpmux-home-inbox-answers{padding:0 8px 0 0}
+.acpmux-home-inbox[data-look=compact] .acpmux-home-inbox-error{flex-basis:100%}
+.acpmux-home-inbox-folder{margin:4px 0 0;padding:4px 8px;color:var(--agent-muted);font-size:var(--text-caption);font-weight:500}
 
 /* Added and removed lines: the theme's ANSI green and red, as the syntax colors use them. */
 :root{--acpmux-add:var(--agent-ansi-2,#90b345);--acpmux-del:var(--agent-ansi-1,#b4365e)}

@@ -404,13 +404,17 @@ public final class AgentPaneView: NSView {
         transportPacer?.stop()
         removeContextMenu()
         if let page {
+            webView.stopLoading()
+            webView.loadHTMLString("", baseURL: nil)
+            // The page host retires its web view (WebViewRetirement).
             page.close()
         } else {
             webView.configuration.userContentController.removeScriptMessageHandler(forName: AgentPaneRequest.handlerName, contentWorld: .page)
             webView.navigationDelegate = nil
+            webView.stopLoading()
+            webView.loadHTMLString("", baseURL: nil)
+            WebViewRetirement.retire(webView)
         }
-        webView.stopLoading()
-        webView.loadHTMLString("", baseURL: nil)
         removeFromSuperview()
     }
 
@@ -451,8 +455,10 @@ public final class AgentPaneView: NSView {
     }
 
     /// Focus Location Bar on a new tab page: the field takes the keyboard and
-    /// selects its text, wherever focus was on the page.
+    /// selects its text, wherever focus was on the page. The page takes the window's keyboard first:
+    /// a Chromium page whose window lost the keys had the field focused and typed nowhere.
     public func focusLocation() {
+        focusChat()
         deliver([.focusLocation], scripts: ["window.dispatchEvent(new Event('acpmux-focus-location'))"])
     }
 
