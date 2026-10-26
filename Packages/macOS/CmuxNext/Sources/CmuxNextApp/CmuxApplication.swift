@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBrowser
+import CmuxNextControl
 import CmuxNextCrashReporting
 import CmuxNextDesign
 import CmuxNextWakeups
@@ -98,8 +99,13 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
         meter.observe()
     }
 
+    /// Set once by `AppDelegate` when the watchdog starts: each key, click and wheel event's queueing (its OS
+    /// time to this dispatch) goes to the watchdog's input-queueing histogram (`debug.hangs` `turn_histogram`).
+    var inputQueueing: MainThreadWatchdog?
+
     // perf-hot: 100ns main-turn (every event's dispatch: the turn meter's input span)
     override func sendEvent(_ event: NSEvent) {
+        if let inputQueueing, Self.measuresQueueing(event.type) { inputQueueing.noteInputDispatch(eventTimestamp: event.timestamp) }
         guard let turnMeter else { return tapped(event) }
         turnMeter.inputDispatch { tapped(event) }
     }
@@ -136,6 +142,11 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
         if event.type == .keyDown, let crossWindowKeyGuard, crossWindowKeyGuard(event, keyWindow) { return }
         guard let dispatchScope, Self.scopesDispatch(event.type) else { return dispatch(event) }
         dispatchScope(event) { dispatch(event) }
+    }
+
+    /// The input events whose queueing is measured: Chromium's EventLatency kinds (keys, clicks, wheel).
+    static func measuresQueueing(_ type: NSEvent.EventType) -> Bool {
+        scopesDispatch(type) || type == .keyUp || type == .scrollWheel
     }
 
     /// The input events whose dispatch acts in the window they came from (`dispatchScope`).
