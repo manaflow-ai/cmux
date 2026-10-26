@@ -198,16 +198,22 @@ enum DebugLayers {
         let contextIdGetter = #selector(getter: QuartzLayerHostingSPI.contextId)
         let rootLayerGetter = #selector(getter: QuartzLayerHostingSPI.layer)
         guard let host = firstLayerHost(layer), host.responds(to: contextIdGetter) else { return nil }
-        let id = unsafeBitCast(host, to: QuartzLayerHostingSPI.self).contextId
+        // SAFETY: an @objc protocol existential is the object pointer alone, so the cast changes no layout;
+        // only `contextId`, which `responds(to:)` proved the layer implements, is sent through it.
+        let id = unsafe unsafeBitCast(host, to: QuartzLayerHostingSPI.self).contextId
+        // SAFETY: `+allContexts` is answered (checked first) and returns an autoreleased NSArray at +0, so
+        // taking it unretained is its ownership; the cast to [NSObject] copies it into a Swift array.
         guard id != 0, let contextClass: AnyClass = NSClassFromString("CAContext"),
               (contextClass as AnyObject).responds(to: #selector(QuartzLayerHostingSPI.allContexts)),
-              let contexts = (contextClass as AnyObject).perform(#selector(QuartzLayerHostingSPI.allContexts))?
+              let contexts = unsafe (contextClass as AnyObject).perform(#selector(QuartzLayerHostingSPI.allContexts))?
                   .takeUnretainedValue() as? [NSObject] else { return nil }
         for context in contexts {
             // Two checks, not one `&&`: its autoclosure would capture the non-Sendable context.
             guard context.responds(to: contextIdGetter) else { continue }
             guard context.responds(to: rootLayerGetter) else { continue }
-            let spi = unsafeBitCast(context, to: QuartzLayerHostingSPI.self)
+            // SAFETY: as for the host: the existential is the object pointer, and only `contextId` and `layer`,
+            // both proved answered just above, are sent through it.
+            let spi = unsafe unsafeBitCast(context, to: QuartzLayerHostingSPI.self)
             guard spi.contextId == id else { continue }
             return layerHostCount(spi.layer)
         }

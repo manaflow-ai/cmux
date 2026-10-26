@@ -100,6 +100,13 @@ code_of, escaped, enclosing_openers = swift_scope.code_of, swift_scope.escaped, 
 COMMENT_LINE, ATTRIBUTE, ATTRIBUTE_LINE = swift_scope.COMMENT_LINE, swift_scope.ATTRIBUTE, swift_scope.ATTRIBUTE_LINE
 
 SOURCES = "Packages/macOS/CmuxNext/Sources/"
+# The linked packages (p02-threads-130): CmuxNext's Package.swift links Shared, macOS and iOS packages by path, and
+# their code runs in the app, so the blocking rules and task-priority read their Sources too (LINKED_RULE_SCOPE).
+# LINKED_SOURCES is a rule scope entry that matches no path prefix: in_rule_scope() matches it to a file under the
+# Sources of a package in the closure load_linked_packages() read. Chrome's blocking rules hold in every component
+# the browser links, not only //chrome (base/threading/thread_restrictions.h).
+LINKED_SOURCES = "<linked package Sources>"
+LINKED_RULE_SCOPE = (SOURCES, LINKED_SOURCES)
 # The rules read Swift only: the string catalogs under Sources are MBs of JSON per localization push.
 SWIFT_SOURCES = f":(glob){SOURCES}**/*.swift"
 TESTS = "Packages/macOS/CmuxNext/Tests/"
@@ -1892,7 +1899,8 @@ RULES = (
          "OperationQueue: `let queue = OperationQueue()`, set `queue.name` and `queue.qualityOfService`, and pass "
          "`queue` as a URLSession's `delegateQueue:`",
          "// qos-allow: <why: a frame waits for it (userInteractive), it inherits on purpose, or nothing ever waits for it (background)>",
-         matcher_rule(Matcher(TASK_CALL, re.compile(r"//\s*" + re.escape(QOS_ALLOW) + r"\s*\S"), unstated_priority))),
+         matcher_rule(Matcher(TASK_CALL, re.compile(r"//\s*" + re.escape(QOS_ALLOW) + r"\s*\S"), unstated_priority)),
+         scope=LINKED_RULE_SCOPE),
     Rule("appkit-index", "A raw AppKit row or column index read (`.clickedRow`, `.clickedColumn`, `.selectedColumn`, "
          "`item(atRow:`, `selectedRow(inColumn:`)",
          "they are -1 when a click lands off the rows or nothing is selected, and past the end after a reload; "
@@ -3023,8 +3031,10 @@ RULES += (
 THREADING_DOC = "plans/cmux-next/threading-model.md"
 THREADING_DOC_SECTION = "## Registered threads and queues"
 PACKAGE_MANIFEST = "Packages/macOS/CmuxNext/Package.swift"
-# The seams themselves (and Mutex, which reports contended waits) wrap the raw primitives on purpose.
-BLOCKING_SEAMS = (SOURCES + "CmuxNextCompat/Threading/", SOURCES + "CmuxNextCompat/Mutex.swift")
+# The seams themselves (and Mutex, which reports contended waits) wrap the raw primitives on purpose, as does
+# CmuxThreading, the leaf that gives the linked Shared/iOS packages their `blockingCall` seam and Mutex.
+THREADING_LEAF = "Packages/Shared/CmuxThreading/"
+BLOCKING_SEAMS = (SOURCES + "CmuxNextCompat/Threading/", SOURCES + "CmuxNextCompat/Mutex.swift", THREADING_LEAF)
 BLOCKING_ALLOW = re.compile(r"//\s*blocking-allow:\s*\S")
 FILE_OPS = (r"fileExists|isReadableFile|isWritableFile|isExecutableFile|createDirectory|removeItem|contentsOfDirectory|"
             r"subpathsOfDirectory|enumerator|createFile|contents|contentsEqual|attributesOfItem|attributesOfFileSystem|"
@@ -3652,8 +3662,18 @@ def raw_blocking(changes: list[FileChange], moved: collections.Counter) -> list[
     """Added raw blocking primitives that main-blocking does not report (off the main thread, or in a closure)."""
     def judge(version: Version, index: int, code: str) -> bool:
         return (blocking_match(RAW_SCAN, code) and not ALWAYS_SCAN.search(code)
-                and not (index < len(version.lines) and runs_on_main(version, index)))
+                and not (index < len(version.lines) and runs_on_main(version, index))
+                and not linked_seam_marked(version, index, code))
     return changed_debt(outside_seams(changes), judge)
+
+
+def linked_seam_marked(version: Version, index: int, code: str) -> bool:
+    """Whether every raw primitive in CODE, line INDEX of a linked package's file, runs in a CmuxThreading
+    `blockingCall(.kind) { ... }` closure: below the app that seam marks it (CmuxNextCompat's named seams are out of
+    reach there). The app's own files keep their named seams."""
+    if index >= len(version.lines) or linked_package(version.path) is None:
+        return False
+    return all(in_seam_scope(version, index, match.start()) for match in RAW_SCAN.pattern.finditer(code))
 
 
 # raw-blocking-ext: the blocking primitives RAW_BLOCKING does not name (Chromium marks the same classes with a
@@ -4156,10 +4176,120 @@ def blocking_once(changes: list[FileChange], moved: collections.Counter) -> list
     return changed_debt(outside_seams(changes), judge)
 
 
+class LinkedPackage(NamedTuple):
+    """A package CmuxNext's app code links: its Package.swift TEXT and the TARGETS of it that code reaches."""
+    text: str
+    targets: frozenset[str]
+
+
+def linked_closure(manifest: str, read: Callable[[list[str]], dict[str, str]]) -> dict[str, LinkedPackage]:
+    """{package folder: LinkedPackage} of every package under Packages/ whose code runs in the app: the library
+    targets that CmuxNext's MANIFEST's `.target`s reach through `.product(name:package:)` (a `.package(path:)`
+    resolved against the folder of the manifest that names it), transitively, with each reached target's own
+    `.target` dependencies. A `.testTarget`'s products (CmuxFuzzSupport), an `.executableTarget` or `.macro` (a
+    separate process: cmux-vnc-host) and a package no reached target uses are not in it; nor is CmuxNext itself.
+    READ maps Package.swift paths to their texts (a path it leaves out has no manifest: not a package)."""
+    root = PACKAGE_ROOT.rstrip("/")
+    graphs = {root: swift_scope.package_graph(manifest)}
+    texts: dict[str, str] = {}
+    absent: set[str] = set()
+    reached: dict[str, set[str]] = {}
+    # (folder, product or None, target or product name): a product resolves once its package's manifest is read.
+    pending: list[tuple[str, bool, str]] = [(root, False, name) for name in graphs[root].kinds]
+    while pending:
+        wanted = sorted({folder for folder, _, _ in pending if folder not in graphs and folder not in absent})
+        found = read([folder + "/Package.swift" for folder in wanted]) if wanted else {}
+        for folder in wanted:
+            if folder + "/Package.swift" in found:
+                texts[folder] = found[folder + "/Package.swift"]
+                graphs[folder] = swift_scope.package_graph(texts[folder])
+            else:
+                absent.add(folder)
+        following: list[tuple[str, bool, str]] = []
+        for folder, product, name in pending:
+            graph = graphs.get(folder)
+            if graph is None:
+                continue
+            targets = (graph.libraries.get(name, [name] if name in graph.kinds else [])) if product else [name]
+            for target in targets:
+                if graph.kinds.get(target) != "target" or target in reached.setdefault(folder, set()):
+                    continue
+                reached[folder].add(target)
+                for dependency in graph.dependencies.get(target, []):
+                    if dependency.kind == "target" or (dependency.kind == "byName" and dependency.name in graph.kinds):
+                        following.append((folder, False, dependency.name))
+                        continue
+                    path = graph.paths.get((dependency.package or dependency.name).lower())
+                    linked = posixpath.normpath(posixpath.join(folder, path)) if path is not None else ""
+                    if linked.startswith("Packages/") and linked != root:
+                        following.append((linked, True, dependency.name))
+        pending = following
+    return {folder: LinkedPackage(texts[folder], frozenset(names))
+            for folder, names in sorted(reached.items()) if folder != root and names}
+
+
+def linked_targets(packages: dict[str, LinkedPackage]) -> dict[str, list]:
+    """{package folder: its reached targets (swift_scope.Target: name, folder, isolation)} of linked_closure()'s
+    PACKAGES."""
+    return {folder: [t for t in swift_scope.package_targets(package.text) if t.name in package.targets]
+            for folder, package in packages.items()}
+
+
+def load_linked_packages(manifest: str | None, read: Callable[[list[str]], dict[str, str]]) -> None:
+    """Keeps the linked packages of MANIFEST (HEAD's CmuxNext Package.swift; None: none) and their reached targets
+    for in_rule_scope() and linked_main_default(). READ is linked_closure()'s."""
+    BLOCKING_CONTEXT["linked"] = linked_targets(linked_closure(manifest or "", read))
+
+
+def linked_package(path: str) -> str | None:
+    """The folder of the linked package one of whose reached targets holds PATH (a Swift file), None for any other
+    path (and before load_linked_packages())."""
+    if not path.endswith(".swift"):
+        return None
+    for folder, targets in (BLOCKING_CONTEXT.get("linked") or {}).items():
+        if path.startswith(folder + "/") and swift_scope.default_isolation(path[len(folder) + 1:], targets) is not None:
+            return folder
+    return None
+
+
+def linked_main_default(path: str) -> bool:
+    """Whether PATH, a linked package's source file, is main actor by default: its target says
+    `.defaultIsolation(MainActor.self)` (no linked package does today)."""
+    folder = linked_package(path)
+    if folder is None:
+        return False
+    return bool(swift_scope.default_isolation(path[len(folder) + 1:], BLOCKING_CONTEXT["linked"][folder]))
+
+
+def load_push_linked_packages(repo: Path, head: str, manifest: str | None, files: list[FileChange]) -> None:
+    """Reads HEAD's linked packages when the push changes a Swift source file of a package outside CmuxNext (any
+    other push reads no more manifests) and gives each changed file of a linked package its target's default
+    isolation, which is not the main actor's."""
+    if not any(is_package_swift(f.path) and "/Sources/" in f.path and not f.path.startswith(PACKAGE_ROOT)
+               for f in files):
+        return
+
+    def read(paths: list[str]) -> dict[str, str]:
+        found = blobs(repo, [(head, path) for path in paths])
+        return {path: found[(head, path)] for path in paths if (head, path) in found}
+
+    load_linked_packages(manifest, read)
+    for change in files:
+        if linked_package(change.path) is not None:
+            change.head_main = change.base_main = linked_main_default(change.path)
+
+
+def in_rule_scope(path: str, scope: tuple[str, ...]) -> bool:
+    """Whether a rule with SCOPE reads PATH: a path prefix or suffix of SCOPE, or, with LINKED_SOURCES in SCOPE, a
+    linked package's source file."""
+    return (path.startswith(scope) or path.endswith(scope)
+            or (LINKED_SOURCES in scope and linked_package(path) is not None))
+
+
 def load_blocking_context(texts: dict[tuple[str, str], str], head: str, repo: Path | None = None) -> None:
     """Keeps HEAD's threading doc and package manifest for the rules above (a missing doc fails thread-doc open),
     and, given REPO, names HEAD's tree for pool-blocking's actor index (repo_actor_index reads it on demand)."""
-    for key in ("threading_doc", "manifest", "ui_targets", "actor_tree", "actor_index"):
+    for key in ("threading_doc", "manifest", "ui_targets", "actor_tree", "actor_index", "linked"):
         BLOCKING_CONTEXT.pop(key, None)
     for key, path in (("threading_doc", THREADING_DOC), ("manifest", PACKAGE_MANIFEST)):
         if (head, path) in texts:
@@ -4176,7 +4306,7 @@ BLOCKING_RULES = (
          "and apply its result on main; a wait becomes an `await` or a callback. The checked seams "
          "(`FileManager.checked`, `Data(blockingContentsOf:)`, `.blockingWait()`) are for code that runs off main",
          "// blocking-allow: <why this cannot leave the main thread, and its reviewed allowBlocking reason>",
-         blocking_on_main),
+         blocking_on_main, scope=LINKED_RULE_SCOPE),
     Rule("raw-blocking", "A raw blocking primitive (file read/write, `.write(to:)`, `FileManager.default.<disk op>`, "
          "`.wait()`, `.sync {`, `asyncAndWait`, `waitUntilExit()`, `readToEnd()`, `try process.run()`, sync XPC, "
          "`posix_spawn`, `fork()`, pthread and condition-lock waits, Security, AX, `getaddrinfo`, CGWindowList, "
@@ -4190,9 +4320,10 @@ BLOCKING_RULES = (
          "`blockingRead/Recv/Write/Send`, `blockingSecItem*`, `blockingAX*`, `blockingGetaddrinfo`, "
          "`blockingWindowList*`, `workspace.blockingURLForApplication/blockingIcon`, `blockingSMAppService*`, "
          "`blockingAuthorizationCopyRights`; with no seam (sync XPC proxy, AppleScript, condition locks, "
-         "`asyncAndWait`, LSCopy) use the async API",
+         "`asyncAndWait`, LSCopy) use the async API. In a linked Shared/iOS package, wrap it in CmuxThreading's "
+         "`blockingCall(.fileIO | .systemCall | ...) { ... }` and run it through the package's MayBlockRunner",
          "// blocking-allow: <why the seam does not fit>",
-         raw_blocking),
+         raw_blocking, scope=LINKED_RULE_SCOPE),
     Rule("pool-blocking", "A blocking call (raw or seam) on a shared pool thread: in a `Task.detached` or child task "
          "body or an `async let` initializer, a `Task {` in a nonisolated function, an @concurrent function, or a method of an actor that has no "
          "custom executor",
@@ -4200,10 +4331,11 @@ BLOCKING_RULES = (
          "thread stalls every async job queued behind it (Chrome's ThreadPool runs a task without MayBlock() under "
          "ScopedDisallowBlocking, base/task/thread_pool/task_tracker.cc)",
          "run it on a BackgroundWork lane (`work.run(priority, mayBlock: .files|.system) { ... }`, or a "
-         "MayBlockRunner below CmuxNextWakeups); an actor whose methods block gets a serial executor on a named "
+         "MayBlockRunner below CmuxNextWakeups or in a linked Shared/iOS package, CmuxThreading's); an actor whose "
+         "methods block gets a serial executor on a named "
          "queue at its QoS (`nonisolated var unownedExecutor`, the HomeCache pattern; a comment is no executor)",
          "// blocking-allow: <why this blocking call may hold a pool thread>",
-         blocking_on_pool),
+         blocking_on_pool, scope=LINKED_RULE_SCOPE),
     Rule("raw-blocking-ext", "A blocking primitive raw-blocking does not name: a FileManager disk op through a "
          "variable or `FileManager()`, POSIX file calls (`open(..., O_*)`, `stat(path, &st)`, `rename`, `unlink`, "
          "`fsync`, `flock`, `realpath`, ...), `waitpid` without WNOHANG, FileHandle open/write/read/seek/synchronize, "
@@ -4212,15 +4344,16 @@ BLOCKING_RULES = (
          "unseen, and off it nobody knows the thread blocks",
          "from code that runs off the main thread, use `FileManager.checked.<op>` instead of a FileManager variable, "
          "`handle.blockingRead(upToCount:)` / `handle.blockingWrite(contentsOf:)` for a FileHandle, and wrap any "
-         "other call in `blockingCall(.fileIO | .systemCall | .processWait) { ... }` (CmuxNextCompat/Threading)",
+         "other call in `blockingCall(.fileIO | .systemCall | .processWait) { ... }` (CmuxNextCompat/Threading; in a "
+         "linked Shared/iOS package, CmuxThreading's `blockingCall`)",
          "// blocking-allow: <why the seam does not fit>",
-         raw_blocking_ext),
+         raw_blocking_ext, scope=LINKED_RULE_SCOPE),
     Rule("maybe-main-blocking", "A blocking call in a caller-isolated async function (warning only)",
          "under NonisolatedNonsendingByDefault a non-@concurrent async function outside an actor runs on its caller's "
          "executor, so a main-actor caller runs the blocking call on main (AsyncProcess.run: 807 ms, 2026-10-24)",
          "mark the function `@concurrent` (or move the work into an actor) so it never runs on the caller's main thread",
          "// blocking-allow: <why every caller is off the main thread>",
-         maybe_blocking_on_main),
+         maybe_blocking_on_main, scope=LINKED_RULE_SCOPE),
     Rule("once-blocking", "A blocking call (raw, seam or raw-blocking-ext) in a static, lazy or global initializer",
          "Swift runs the initializer once, on whichever thread reads the value first, and every other first reader "
          "waits for it: its disk, kernel or process wait lands on an unknown thread, often the main thread "
@@ -4228,14 +4361,14 @@ BLOCKING_RULES = (
          "load the value on a lane at warm-up (`work.run(.userVisible, mayBlock: .files) { ... }`) and inject it "
          "where it is read, or make its accessor `async`; a literal value needs no load",
          "// blocking-allow: <why no reader can be the main thread or wait on it>",
-         blocking_once),
+         blocking_once, scope=LINKED_RULE_SCOPE),
     Rule("thread-doc", "A new thread, queue or blocking allowance that plans/cmux-next/threading-model.md does not list",
          "every thread and queue has an owner, a QoS, a bound and a back-pressure rule written down, and every "
          "main-thread blocking allowance is reviewed (Chrome's ScopedAllowBlocking friend list)",
          "name the thread or queue and add its label to the doc's \"Registered threads and queues\" (and a table row "
          "for a new kind); add a new BlockingAllowance to \"Reviewed blocking allowances\" in the same push",
          "// blocking-allow: <why this thread needs no entry>",
-         undocumented_threads),
+         undocumented_threads, scope=LINKED_RULE_SCOPE),
 )
 RULES += BLOCKING_RULES
 # ---------------------------------------------------------------- end of main-blocking / thread-doc (PL-blocking)
@@ -4735,10 +4868,15 @@ def measure(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Add
     for change in files:
         change.memo["wakeup"] = wakeup
     moved = collections.Counter(r.text.strip() for c in swift.values() for r in c.removed if r.text.strip())
+    try:
+        load_push_linked_packages(repo, head, texts.get((head, PACKAGE_MANIFEST)), files)
+    except Exception as error:  # fail open for the linked packages only: the rules still judge CmuxNext's files
+        BLOCKING_CONTEXT.pop("linked", None)
+        warnings.append(("guardrails", check_failure("linked packages", error)))
     found = []
     for rule in RULES:
         # The unchanged context files hold no added or removed line: only their touched context can add debt.
-        scoped = [f for f in files + context_files if f.path.startswith(rule.scope) or f.path.endswith(rule.scope)]
+        scoped = [f for f in files + context_files if in_rule_scope(f.path, rule.scope)]
         try:
             hits = rule.find(scoped, moved)
         except Exception as error:  # fail open for this rule only: a bug in one rule must not switch off the rest

@@ -19,7 +19,7 @@ import Foundation
 //   CmuxNextBrowser -> Input, InputCore (page link clicks, swipes and mouse side buttons hear the app's input tap)
 //   Feature UI modules never import CmuxNextDaemon; the App maps daemon state into their view models.
 //   CmuxNextTerminal -> CmuxNextTerminalGeometry, CmuxNextCopyMode (pure), CmuxGhosttyKit (binary)
-//   CmuxNextCompat -> swift-atomics, CmuxSafeConcurrency, system frameworks (back-ports of newer system APIs for the
+//   CmuxNextCompat -> swift-atomics, CmuxSafeConcurrency, CmuxThreading, system frameworks (back-ports of newer system APIs for the
 //     macOS 14 floor: Mutex, Atomic; any module may import it; plans/cmux-next/macos-floor.md)
 //   CmuxNextWakeups -> Compat, Signposts, Trace, Metrics, system frameworks (the only sanctioned wakeup
 //     primitives: FrameScheduler, DemandTimer, Backoff, WakeupLedger, the one main-thread scheduler's
@@ -1356,12 +1356,14 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 .product(name: "Atomics", package: "swift-atomics"),
                 // Mutex wraps the portable one (p10-stability-172), with the blocking detector as its wait observer.
                 .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency"),
+                // SharedThreadingBridge: the detector as the shared packages' blockingCall hook (p02-threads-130).
+                .product(name: "CmuxThreading", package: "CmuxThreading"),
             ],
             swiftSettings: daemonSwiftSettings
         ),
         .testTarget(
             name: "CmuxNextCompatTests",
-            dependencies: ["CmuxNextCompat"],
+            dependencies: [.target(name: "CmuxNextCompat"), .product(name: "CmuxThreading", package: "CmuxThreading")],
             swiftSettings: uiSwiftSettings
         ),
         // The error journal (`cmux errors`): one bounded, deduplicated NDJSON log of the
@@ -1406,8 +1408,9 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextLaunch",
             // Trace: LaunchMarks moves each mark's Date onto the trace clock through the launch's one LaunchClock pairing.
+            // CmuxTheme: a window picture's theme fingerprint (WindowPictureMeta+Theme).
             dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextInputCore", "CmuxNextProfileRuntimeC",
-                           "CmuxNextSignposts", "CmuxNextTrace", "CmuxNextWakeups"],
+                           "CmuxNextSignposts", "CmuxNextTrace", "CmuxNextWakeups", .product(name: "CmuxTheme", package: "CmuxTheme")],
             swiftSettings: daemonSwiftSettings
         ),
         // The compiler-rt profile runtime's C entry points for ProfileFlush (p08-startup task 103); only the
@@ -1419,7 +1422,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             // Compat, Signposts and Trace: LaunchReadEventTests reads the `launch.read_done` record of a test trace runtime.
             // Design: LaunchViewQueueTests gates a tab on a LaunchReveal pane region; BrowserLaunchPicturesTests holds the launch read with its own LaunchFileReader.
             dependencies: ["CmuxNextLaunch", "CmuxNextDesign", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport", "CmuxNextCompat",
-                           "CmuxNextSignposts", "CmuxNextTrace"],
+                           "CmuxNextSignposts", "CmuxNextTrace", .product(name: "CmuxTheme", package: "CmuxTheme")],
             swiftSettings: uiSwiftSettings
         ),
         // Release tracing, hang watch and crash keys (plans/cmux-next/chrome-parity/p09-observability.md):
@@ -2264,6 +2267,8 @@ let package = Package(
         .package(path: "../../Shared/CmuxFuzzSupport"),
         // The portable Mutex (os_unfair_lock) every package of the closure shares: p10-stability-172.
         .package(path: "../../Shared/CmuxSafeConcurrency"),
+        // The threading leaf of the Shared/iOS packages; Compat installs its blockingCall hook: p02-threads-130.
+        .package(path: "../../Shared/CmuxThreading"),
         // RFB (VNC) client for compatibility hosts in the remote view pane (remote-desktop.md 12).
         .package(path: "../../Shared/CmuxVNC"),
         .package(path: "../../Shared/CmuxScreenKit"),
@@ -2478,6 +2483,7 @@ if ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1" {
                 "Packages/Shared/CmuxIrxTransport",
                 "Packages/Shared/CmuxSafeConcurrency",
                 "Packages/Shared/CmuxTheme",
+                "Packages/Shared/CmuxThreading",
                 "Packages/iOS/CmuxMobileRPC",
                 "Packages/iOS/CmuxMobileSSH",
             ],

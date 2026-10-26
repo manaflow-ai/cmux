@@ -170,6 +170,13 @@ pub(crate) fn with_current<R>(f: impl FnOnce(&Row) -> R) -> Option<R> {
         .flatten()
 }
 
+/// The QoS the calling thread runs at: the class it last applied, else the
+/// one it declared. `None` when the thread is not registered.
+#[cfg(debug_assertions)]
+pub(crate) fn current_qos() -> Option<ThreadQos> {
+    with_current(|row| row.effective().unwrap_or(row.declared))
+}
+
 /// Registers the calling thread as `name` and sets its QoS to `qos`. For
 /// threads cmux does not start itself (a tokio worker's `on_thread_start`);
 /// [`crate::spawn`] registers its threads already. The row is removed by

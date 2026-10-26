@@ -711,6 +711,12 @@
       "row": "observer_sites",
       "allow": 2,
       "why": "p09-observability-059 (fixer): IdleWakeupSampler opens and closes its idle periods at NSApplication didResignActive and didBecomeActive, subscribed once per app through the app's one AppEvents fan-out (AppServices.startIdleWakeups), the two sites counted. They replace the two NSApplicationDelegate methods (applicationDidResignActive, applicationDidBecomeActive), each of which AppKit registers as its own NotificationCenter observer; the fan-out already observes both names for FocusEffectApplier, KeyRouter and the others, so the app gains no NotificationCenter observer and loses two. Chrome's AppController observes the NSApp notices once and fans out (chrome/browser/app_controller_mac.mm). Made once after startup, held for the app's life."
+    },
+    {
+      "date": "2026-10-26",
+      "row": "stateful_singletons",
+      "allow": 1,
+      "why": "p02-threads-130: CmuxThreading BlockingCallHookSlot.process, the one slot holding the hook that checks the linked Shared/iOS packages' blockingCall and times their Mutex waits (empty, so a call is its body, until the app installs its detector, and always on iOS). CmuxThreading's blockingCall is a free function those packages call on any thread, inside locks and before any composition root exists, so it has no instance to take the hook through; the slot takes one install (BlockingDetector.forProcess(), in the composition root) and refuses a second. Chrome: ScopedBlockingCall reaches the process's blocking observer from every component (base/threading/scoped_blocking_call_internal.cc)."
     }
   ],
   "observer_wrappers": [
