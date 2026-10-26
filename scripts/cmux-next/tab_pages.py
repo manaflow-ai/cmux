@@ -1,9 +1,9 @@
 """Local tab pages and the Chromium process classifier, shared by the idle benches.
 
-idle-budget.py (stress-static, and the tabs-static and minimized sessions), browser-idle-cost-live.py (the
-perf100 browser lane) and bench_idle.py open Chromium tabs on pages from this server and sort the app's
-processes with `chromium_kind`. One copy of each, so every bench measures the same pages and calls a
-process by the same kind.
+idle-budget.py (its stress-static session), browser-idle-cost-live.py (the perf100 browser lane) and
+bench_idle.py open Chromium tabs on pages from this server, read the process table with `process_table`
+and sort the app's processes with `chromium_kind`. One copy of each, so every bench measures the same
+pages and calls a process by the same kind. scripts/perf-bench/procs.py reads its table here too.
 
 Pages (`TabPages.url(kind, n)` is `<origin>/<kind>-<n>`):
   static   a heading and a script that runs only at load and on visibilitychange: it POSTs /loaded/<n> and
@@ -23,6 +23,7 @@ import itertools
 import re
 import subprocess
 import threading
+from typing import Callable
 
 # ---------------------------------------------------------------------------------------------------------
 # Chromium process classifier
@@ -32,26 +33,33 @@ _TYPE_KINDS = {"renderer": "cef-renderer", "gpu-process": "cef-gpu", "utility": 
 # The executable of a CEF helper app ("<App> Helper (Renderer).app", "<App> Helper.app") or of the Chromium Host app.
 _BUNDLE = re.compile(r"/[^/]* (Helper|Chromium Host)[^/]*\.app/")
 
-# browser-idle-cost-live.py's class names (its report and budget file key on them).
+# browser-idle-cost-live.py's class names of the `process_type_kind` kinds (its report and budget file key on them).
 PERF100_CLASSES = {"cef-gpu": "gpu", "cef-renderer": "renderer", "cef-extension": "extension-renderer",
                    "cef-utility": "utility", "cef-helper": "other-helper"}
 
 
+def process_type_kind(cmd: str) -> str | None:
+    """The kind of a process from its --type switch alone (any executable), or None without one:
+    cef-renderer, cef-extension (a renderer with --extension-process), cef-gpu, cef-utility, cef-helper
+    (any other --type). browser-idle-cost-live.py's classes are these (PERF100_CLASSES)."""
+    match = _TYPE.search(cmd)
+    if match is None:
+        return None
+    if match.group(1) == "renderer" and "--extension-process" in cmd:
+        return "cef-extension"
+    return _TYPE_KINDS.get(match.group(1), "cef-helper")
+
+
 def chromium_kind(cmd: str) -> str | None:
-    """The kind of a Chromium process from its command line, or None when it is not one: cef-host (the
-    Chromium Host app's browser process), cef-renderer, cef-extension (a renderer with --extension-process),
-    cef-gpu, cef-utility, cef-helper (any other --type, or a Helper app started without one)."""
+    """The kind of a Chromium process from its command line, or None when its executable is not in a Helper
+    or Chromium Host app: cef-host (the Chromium Host app's browser process), the `process_type_kind`
+    kinds, or cef-helper for a Helper app started without --type."""
     bundle = _BUNDLE.search(cmd.split(" --", 1)[0])
     if bundle is None:
         return None
     if bundle.group(1) == "Chromium Host":
         return "cef-host"
-    match = _TYPE.search(cmd)
-    if match is None:
-        return "cef-helper"
-    if match.group(1) == "renderer" and "--extension-process" in cmd:
-        return "cef-extension"
-    return _TYPE_KINDS.get(match.group(1), "cef-helper")
+    return process_type_kind(cmd) or "cef-helper"
 
 
 def process_table() -> list[tuple[int, int, str]]:
@@ -65,14 +73,15 @@ def process_table() -> list[tuple[int, int, str]]:
     return rows
 
 
-def chromium_children(app_pid: int, table, names: dict[str, str] | None = None) -> dict[int, str]:
-    """{pid: kind} of the Chromium processes `app_pid` started, from a `process_table()`. With `names`, each
-    kind is reported under its name there and kinds missing from it are left out."""
+def chromium_children(app_pid: int, table, names: dict[str, str] | None = None,
+                      kind_of: Callable[[str], str | None] = chromium_kind) -> dict[int, str]:
+    """{pid: kind} of the Chromium processes `app_pid` started, from a `process_table()`, sorted by `kind_of`.
+    With `names`, each kind is reported under its name there and kinds missing from it are left out."""
     out = {}
     for pid, ppid, cmd in table:
         if ppid != app_pid:
             continue
-        found = chromium_kind(cmd)
+        found = kind_of(cmd)
         if found is None or (names is not None and found not in names):
             continue
         out[pid] = names[found] if names is not None else found

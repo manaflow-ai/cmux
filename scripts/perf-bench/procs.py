@@ -22,7 +22,11 @@ import ctypes
 import os
 import re
 import subprocess
+import sys
 import time
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "cmux-next"))
+from tab_pages import process_table, process_type_kind  # noqa: E402,F401  (the one `ps` reader and --type classifier)
 
 _libproc = ctypes.CDLL("/usr/lib/libproc.dylib")
 _libsystem = ctypes.CDLL("/usr/lib/libSystem.B.dylib")
@@ -86,16 +90,6 @@ def _delta32(last: int, first: int) -> int:
     return (last - first) & 0xFFFFFFFF
 
 
-def process_table():
-    out = subprocess.run(["ps", "-axo", "pid=,ppid=,command="], capture_output=True, text=True).stdout
-    rows = []
-    for line in out.splitlines():
-        parts = line.strip().split(None, 2)
-        if len(parts) == 3 and parts[0].isdigit() and parts[1].isdigit():
-            rows.append((int(parts[0]), int(parts[1]), parts[2]))
-    return rows
-
-
 def resident_mb() -> dict[int, float]:
     """RSS in MB per pid, from one `ps` call (phys_footprint is the budgeted number; RSS is context)."""
     out = subprocess.run(["ps", "-axo", "pid=,rss="], capture_output=True, text=True).stdout
@@ -120,12 +114,13 @@ def main_pid(bundle: str) -> int | None:
 
 
 def kind_of(cmd: str) -> str:
-    """A short process kind for the per-kind breakdown."""
-    if "--type=renderer" in cmd:
+    """A short process kind for the per-kind breakdown (xbench's names for the tab_pages.process_type_kind kinds)."""
+    chromium = process_type_kind(cmd)
+    if chromium in ("cef-renderer", "cef-extension"):
         return "renderer"
-    if "--type=gpu-process" in cmd:
+    if chromium == "cef-gpu":
         return "gpu"
-    if "--type=utility" in cmd:
+    if chromium == "cef-utility":
         match = re.search(r"--utility-sub-type=(\S+)", cmd)
         return "utility:" + (match.group(1).rsplit(".", 1)[-1] if match else "?")
     if "com.apple.WebKit." in cmd:

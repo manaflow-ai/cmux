@@ -27,7 +27,7 @@ import argparse, importlib.util, json, os, plistlib, subprocess, sys, tempfile, 
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-from tab_pages import PERF100_CLASSES, TabPages, chromium_children, process_table  # noqa: E402
+from tab_pages import PERF100_CLASSES, TabPages, chromium_children, process_table, process_type_kind  # noqa: E402
 from tag_teardown import TagTeardown  # noqa: E402
 
 _spec = importlib.util.spec_from_file_location("browser_engine_bench", os.path.join(HERE, "..", "perf", "browser_engine_bench.py"))
@@ -109,8 +109,9 @@ def wait_for(predicate, what, seconds=20):
 
 
 def processes(app_pid):
-    """{pid: class} for the app and every Chromium helper it started (by --type, tab_pages.chromium_kind)."""
-    return {**chromium_children(app_pid, process_table(), PERF100_CLASSES), app_pid: "app"}
+    """{pid: class} for the app and every child of it with a --type (tab_pages.process_type_kind); its other
+    children (daemons, the Chromium Host) are not this lane's."""
+    return {**chromium_children(app_pid, process_table(), PERF100_CLASSES, process_type_kind), app_pid: "app"}
 
 
 def snapshot(pids):

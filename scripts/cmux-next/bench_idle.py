@@ -19,7 +19,10 @@ so the bench itself adds no wakeups to the app. When the build has
 `debug.wakeups`, the ledger owners and active frame clients are recorded
 too. Pass criteria (defaults, per process; tune with flags): app and
 daemon < 0.5% CPU and < 5 wakeups/s, each terminal host < 0.2% and < 2/s,
-Chromium helpers < 1% on the static and hidden pages.
+Chromium helpers < 1% on the static and hidden pages. The Chromium Host app's
+browser process (cef-host, the Debug-only host prototype) is reported, not
+judged: it does the app's in-process Chromium work, so the helper limit does
+not fit it and it has no limit of its own yet.
 
 Usage:
   scripts/cmux-next/bench-idle.sh <tag> [--app PATH] [--measure 60]
@@ -230,6 +233,8 @@ def criteria(scenario, result, args):
             limit_cpu, limit_wake = args.max_cpu, args.max_wakeups
         elif kind == "terminal-host":
             limit_cpu, limit_wake = args.max_host_cpu, args.max_host_wakeups
+        elif kind == "cef-host":
+            continue  # reported, not judged (module docstring)
         elif scenario != "terminals":
             limit_cpu, limit_wake = args.max_helper_cpu, None
         else:

@@ -20,14 +20,37 @@ CRASHPAD = f"{FW}/cmux DEV t Helper.app/Contents/MacOS/cmux DEV t Helper --type=
 PLUGIN = f"{FW}/cmux DEV t Helper (Plugin).app/Contents/MacOS/cmux DEV t Helper (Plugin) --type=ppapi"
 HOST = f"{FW}/cmux DEV t Chromium Host.app/Contents/MacOS/cmux DEV t Chromium Host --cmux-socket=/tmp/h.sock"
 BARE_HELPER = f"{FW}/cmux DEV t Helper.app/Contents/MacOS/cmux DEV t Helper"
+# A --type process whose executable is not in a Helper app (the app's own binary run as a subprocess).
+OUTSIDE = f"{APP}/Contents/MacOS/cmux DEV --type=utility --utility-sub-type=x.mojom.X"
 
 # (pid, ppid, command): the app (100), its helpers, its daemon and a shell, and a renderer of another parent.
 TABLE = [
     (100, 1, f"{APP}/Contents/MacOS/cmux DEV"),
     (101, 100, GPU), (102, 100, RENDERER), (103, 100, EXTENSION), (104, 100, NETWORK), (105, 100, CRASHPAD),
     (106, 100, f"{APP}/Contents/Resources/bin/cmux-tui server --socket s"), (107, 100, "/bin/zsh -f"),
-    (108, 1, RENDERER), (109, 100, PLUGIN), (110, 100, HOST),
+    (108, 1, RENDERER), (109, 100, PLUGIN), (110, 100, HOST), (111, 100, BARE_HELPER), (112, 100, OUTSIDE),
 ]
+
+
+def base_perf100_processes(app_pid, table):
+    """browser-idle-cost-live.py's processes() at the base of p14-energy-130 (before tab_pages.py), word for word
+    but for reading `table` instead of its own `ps -axww` call: the golden its classes are checked against."""
+    rows = {}
+    for pid, ppid, command in table:
+        if ppid == app_pid:
+            if "--type=gpu-process" in command:
+                kind = "gpu"
+            elif "--type=renderer" in command:
+                kind = "extension-renderer" if "--extension-process" in command else "renderer"
+            elif "--type=utility" in command:
+                kind = "utility"
+            elif "--type=" in command:
+                kind = "other-helper"
+            else:
+                continue  # daemons and other children are not this lane's
+            rows[pid] = kind
+    rows[app_pid] = "app"
+    return rows
 
 
 def get(url):
@@ -51,6 +74,15 @@ class ClassifierTests(unittest.TestCase):
         self.assertEqual(tp.chromium_kind(PLUGIN), "cef-helper")
         self.assertEqual(tp.chromium_kind(BARE_HELPER), "cef-helper")
         self.assertEqual(tp.chromium_kind(HOST), "cef-host")
+        self.assertIsNone(tp.chromium_kind(OUTSIDE), "a --type outside a Helper app is not a Chromium helper")
+
+    def test_process_type_kind_reads_the_type_alone(self):
+        self.assertEqual(tp.process_type_kind(RENDERER), "cef-renderer")
+        self.assertEqual(tp.process_type_kind(EXTENSION), "cef-extension")
+        self.assertEqual(tp.process_type_kind(CRASHPAD), "cef-helper")
+        self.assertEqual(tp.process_type_kind(OUTSIDE), "cef-utility")
+        self.assertIsNone(tp.process_type_kind(BARE_HELPER))
+        self.assertIsNone(tp.process_type_kind(HOST))
 
     def test_non_chromium_processes_have_no_kind(self):
         self.assertIsNone(tp.chromium_kind(f"{APP}/Contents/MacOS/cmux DEV"))
@@ -62,14 +94,19 @@ class ClassifierTests(unittest.TestCase):
     def test_children_are_the_app_s_own_chromium_processes(self):
         self.assertEqual(tp.chromium_children(100, TABLE), {101: "cef-gpu", 102: "cef-renderer", 103: "cef-extension",
                                                             104: "cef-utility", 105: "cef-helper", 109: "cef-helper",
-                                                            110: "cef-host"})
+                                                            110: "cef-host", 111: "cef-helper"})
 
     def test_perf100_classes_are_what_browser_idle_cost_live_reported(self):
-        # browser-idle-cost-live.py's report keys before the shared classifier (its budget file and history read them):
-        # the Chromium Host has no --type and was not counted.
-        self.assertEqual(tp.chromium_children(100, TABLE, tp.PERF100_CLASSES),
-                         {101: "gpu", 102: "renderer", 103: "extension-renderer", 104: "utility", 105: "other-helper",
-                          109: "other-helper"})
+        # The lane's classes as its base code gave them (its budget file and history key on them): a child of the app
+        # with a --type, whatever its executable, and no child without one (the Chromium Host, a bare Helper).
+        with open(os.path.join(HERE, "..", "browser-idle-cost-live.py")) as handle:
+            self.assertIn("chromium_children(app_pid, process_table(), PERF100_CLASSES, process_type_kind)", handle.read(),
+                          "browser-idle-cost-live.py's processes() sorts by --type alone")
+        got = {**tp.chromium_children(100, TABLE, tp.PERF100_CLASSES, tp.process_type_kind), 100: "app"}
+        self.assertEqual(got, base_perf100_processes(100, TABLE))
+        self.assertIn(112, got)
+        self.assertNotIn(111, got)
+        self.assertNotIn(110, got)
 
 
 # browser-idle-cost-live.py's pages as its own server served them before tab_pages.py (marker cmux-idle-cost-0a1b2c3d).
