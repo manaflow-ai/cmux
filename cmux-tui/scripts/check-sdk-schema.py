@@ -49,20 +49,6 @@ RUNTIME_NAMED_REQUEST_STRUCTS = {
     "AgentCLIIntent": "workspace_registry/agent_cli_intents.rs",
 }
 
-# Commands a handler module serves before the `Command` enum
-# (server/connection_frame.rs gives the line to each module's `try_handle`).
-# Each names its module under server/ and the request structs whose fields
-# make up the request. The module must spell the wire name as a string
-# literal, so a renamed or removed command fails here.
-SNIFFED_COMMAND_REQUESTS: dict[str, tuple[str, tuple[str, ...]]] = {
-    "agent-cli-intents-record": ("agent_cli_intents", ("Owner", "Record")),
-    "agent-cli-intents-list": ("agent_cli_intents", ("Owner",)),
-    "agent-cli-intents-settle": ("agent_cli_intents", ("Owner", "Settle")),
-    "agent-cli-intents-attach": ("agent_cli_intents", ("Owner", "Attach")),
-    "agent-cli-update-job": ("agent_cli_job", ("Params",)),
-    "agent-cli-update-job-resolve": ("agent_cli_job", ("Params",)),
-}
-
 # Request fields the server takes as raw JSON and then decodes element by
 # element into a named type, so a bad element gets the command's own error
 # code. The SDK types the field as that named type; the server struct named
@@ -77,8 +63,10 @@ RUNTIME_DECODED_REQUEST_FIELDS = {
 }
 
 sys.path.insert(0, str(BINDINGS))
+sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from codegen.ir import SdkIR, load_ir, load_ir_document  # noqa: E402
+from handler_commands import HandlerCommandError, handler_commands  # noqa: E402
 
 
 class SdkSchemaError(ValueError):
@@ -275,35 +263,32 @@ def runtime_command_fields() -> dict[str, dict[str, RuntimeField]]:
             source, parsed, f"Command::{variant}"
         )
         index += 1
-    for name, fields in sniffed_command_fields().items():
-        if name in commands:
-            fail(f"sniffed command {name} is also a Command variant")
-        commands[name] = fields
     return commands
 
 
-def sniffed_command_fields() -> dict[str, dict[str, RuntimeField]]:
-    """Request fields of the commands in SNIFFED_COMMAND_REQUESTS."""
+def handler_command_fields(names: set[str]) -> dict[str, dict[str, RuntimeField]]:
+    """Request fields of the `names` a handler module decodes before the
+    Command enum (handler_commands.py); names no handler decodes are left out."""
 
+    try:
+        decoded = handler_commands(TUI)
+    except (HandlerCommandError, OSError, UnicodeError) as error:
+        fail(f"cannot read the handler modules: {error}")
     commands: dict[str, dict[str, RuntimeField]] = {}
-    for name, (module, request_types) in SNIFFED_COMMAND_REQUESTS.items():
-        module_path = SERVER.with_suffix("") / f"{module}.rs"
-        try:
-            source = module_path.read_text(encoding="utf-8")
-        except (OSError, UnicodeError) as error:
-            fail(f"cannot read {module_path.relative_to(ROOT)}: {error}")
-        production = source.split("\n#[cfg(test)]\nmod tests", 1)[0]
-        if f'"{name}"' not in production or "fn try_handle(" not in production:
-            fail(f"sniffed command {name} is not served by {module_path.relative_to(ROOT)}")
-        fields: dict[str, RuntimeField] = {}
-        for request_type in request_types:
-            for field_name, field in _expand_flattened(
-                source, _rust_struct_fields(source, request_type), f"{module}::{request_type}"
-            ).items():
-                if field_name in fields:
-                    fail(f"duplicate request field {field_name!r} in sniffed command {name}")
-                fields[field_name] = field
-        commands[name] = fields
+    for name in sorted(names & set(decoded)):
+        command = decoded[name]
+        label = f"{command.module.name} {command.enum}::{command.variant}"
+        if command.kind == "unit":
+            fields: dict[str, RuntimeField] = {}
+        elif command.kind == "tuple":
+            fields = _rust_struct_fields(command.source, command.payload)
+        else:
+            fields = _parse_rust_fields(command.payload, label)
+        envelope = _parse_rust_fields(command.envelope, f"{label} envelope")
+        overlap = set(envelope) & set(fields)
+        if overlap:
+            fail(f"{label} repeats envelope fields {sorted(overlap)}")
+        commands[name] = _expand_flattened(command.source, {**envelope, **fields}, label)
     return commands
 
 
@@ -479,6 +464,10 @@ def validate_runtime_request_fields(ir: SdkIR) -> None:
     """Reject request-field drift against the server's Deserialize contract."""
 
     runtime_commands = runtime_command_fields()
+    for name, fields in handler_command_fields(set(ir.commands)).items():
+        if name in runtime_commands:
+            fail(f"{name} is both a Command variant and a handler module command")
+        runtime_commands[name] = fields
     for command_name, refused in REFUSED_LEGACY_REQUEST_FIELDS.items():
         fields = runtime_commands.get(command_name, {})
         missing = refused - set(fields)

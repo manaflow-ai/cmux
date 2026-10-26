@@ -1,7 +1,7 @@
 //! Verified native UI intent persistence. Stored identities are not execution grants.
 
 use serde::Deserialize;
-use serde_json::{Map, Value, json};
+use serde_json::{Value, json};
 use std::sync::Arc;
 
 use super::{MessageWriter, Response, apps, origin_gate, responses::send_response};
@@ -11,32 +11,45 @@ use crate::workspace_registry::agent_cli_intents::AgentCLIIntent;
 
 pub(super) const CAPABILITY: &str = "agent-cli-intents-v1";
 
-/// The owner every agent-cli-intents-* request names, checked before its body.
-/// spec/sdk-schema.json gives each command these fields plus its body's.
+/// The wire names of [`Command`], matched before admission so other
+/// commands pass through untouched.
+const COMMANDS: [&str; 4] = [
+    "agent-cli-intents-record",
+    "agent-cli-intents-list",
+    "agent-cli-intents-settle",
+    "agent-cli-intents-attach",
+];
+
+/// Every request names this daemon's machine and session; the owner is
+/// checked before the command runs. spec/sdk-schema.json types each variant.
 #[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Owner {
-    expected_machine_id: String,
-    expected_session_id: String,
+#[serde(tag = "cmd", deny_unknown_fields)]
+enum Command {
+    #[serde(rename = "agent-cli-intents-record")]
+    Record {
+        expected_machine_id: String,
+        expected_session_id: String,
+        intents: Vec<AgentCLIIntent>,
+    },
+    #[serde(rename = "agent-cli-intents-list")]
+    List { expected_machine_id: String, expected_session_id: String },
+    #[serde(rename = "agent-cli-intents-settle")]
+    Settle { expected_machine_id: String, expected_session_id: String, keys: Vec<String> },
+    #[serde(rename = "agent-cli-intents-attach")]
+    Attach { expected_machine_id: String, expected_session_id: String, key: String, receipt: Value },
 }
 
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Record {
-    intents: Vec<AgentCLIIntent>,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Settle {
-    keys: Vec<String>,
-}
-
-#[derive(Deserialize)]
-#[serde(deny_unknown_fields)]
-struct Attach {
-    key: String,
-    receipt: Value,
+impl Command {
+    fn owner(&self) -> (&str, &str) {
+        match self {
+            Self::Record { expected_machine_id, expected_session_id, .. }
+            | Self::List { expected_machine_id, expected_session_id }
+            | Self::Settle { expected_machine_id, expected_session_id, .. }
+            | Self::Attach { expected_machine_id, expected_session_id, .. } => {
+                (expected_machine_id, expected_session_id)
+            }
+        }
+    }
 }
 
 pub(super) fn try_handle(
@@ -51,15 +64,7 @@ pub(super) fn try_handle(
     let Ok(Value::Object(mut fields)) = serde_json::from_str::<Value>(message) else {
         return None;
     };
-    let command = fields.remove("cmd")?;
-    let command = command.as_str()?;
-    if !matches!(
-        command,
-        "agent-cli-intents-record"
-            | "agent-cli-intents-list"
-            | "agent-cli-intents-attach"
-            | "agent-cli-intents-settle"
-    ) {
+    if !fields.get("cmd").and_then(Value::as_str).is_some_and(|cmd| COMMANDS.contains(&cmd)) {
         return None;
     }
     let id = fields.remove("id");
@@ -70,17 +75,12 @@ pub(super) fn try_handle(
     {
         return Some(reply(writer, id, Err("agent_cli_intents.not_trusted")));
     }
-    let owner: Map<String, Value> = ["expected_machine_id", "expected_session_id"]
-        .into_iter()
-        .filter_map(|key| fields.remove_entry(key))
-        .collect();
-    let Ok(Owner { expected_machine_id, expected_session_id }) =
-        serde_json::from_value(Value::Object(owner))
-    else {
+    let Ok(command) = serde_json::from_value::<Command>(Value::Object(fields)) else {
         return Some(reply(writer, id, Err("agent_cli_intents.bad_request")));
     };
+    let (machine, session) = command.owner();
     let (Ok(machine), Ok(session)) =
-        (MachinePublicId::parse(expected_machine_id), SessionPublicId::parse(expected_session_id))
+        (MachinePublicId::parse(machine.to_owned()), SessionPublicId::parse(session.to_owned()))
     else {
         return Some(reply(writer, id, Err("agent_cli_intents.bad_request")));
     };
@@ -88,41 +88,24 @@ pub(super) fn try_handle(
         return Some(reply(writer, id, Err("agent_cli_intents.owner_mismatch")));
     }
     let actor = origin_gate::connection_actor(mux, client);
-    let input = Value::Object(fields);
     let result: anyhow::Result<Value> = match command {
-        "agent-cli-intents-record" => {
-            let Ok(Record { intents }) = serde_json::from_value(input) else {
-                return Some(reply(writer, id, Err("agent_cli_intents.bad_request")));
-            };
-            mux.personal_mutation(|registry| registry.record_agent_cli_intents(&actor, &intents))
-                .map(|(intents, changed)| json!({"intents":intents,"changed":changed}))
-        }
-        "agent-cli-intents-settle" => {
-            let Ok(Settle { keys }) = serde_json::from_value(input) else {
-                return Some(reply(writer, id, Err("agent_cli_intents.bad_request")));
-            };
-            mux.personal_mutation(|registry| registry.settle_agent_cli_intents(&actor, &keys))
-                .map(|(intents, changed)| json!({"intents":intents,"changed":changed}))
-        }
-        "agent-cli-intents-attach" => {
-            let Ok(Attach { key, receipt }) = serde_json::from_value(input) else {
-                return Some(reply(writer, id, Err("agent_cli_intents.bad_request")));
-            };
-            mux.personal_mutation(|registry| {
+        Command::Record { intents, .. } => mux
+            .personal_mutation(|registry| registry.record_agent_cli_intents(&actor, &intents))
+            .map(|(intents, changed)| json!({"intents":intents,"changed":changed})),
+        Command::Settle { keys, .. } => mux
+            .personal_mutation(|registry| registry.settle_agent_cli_intents(&actor, &keys))
+            .map(|(intents, changed)| json!({"intents":intents,"changed":changed})),
+        Command::Attach { key, receipt, .. } => mux
+            .personal_mutation(|registry| {
                 registry.attach_agent_cli_intent_receipt(&actor, &key, &receipt)
             })
-            .map(|(intent, changed)| json!({"intent":intent,"changed":changed}))
-        }
-        _ => {
-            if input.as_object().is_none_or(|o| !o.is_empty()) {
-                return Some(reply(writer, id, Err("agent_cli_intents.bad_request")));
-            }
-            mux.workspace_registry
-                .lock()
-                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                .list_agent_cli_intents(&actor)
-                .map(|intents| json!({"intents":intents}))
-        }
+            .map(|(intent, changed)| json!({"intent":intent,"changed":changed})),
+        Command::List { .. } => mux
+            .workspace_registry
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .list_agent_cli_intents(&actor)
+            .map(|intents| json!({"intents":intents})),
     };
     Some(reply(writer, id, result.map_err(|_| "agent_cli_intents.refused")))
 }

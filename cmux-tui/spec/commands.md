@@ -9799,8 +9799,11 @@ request names this daemon's `expected_machine_id` and `expected_session_id`
 answer `{intents, changed}`; list answers `{intents}`; attach answers
 `{intent, changed}` and refuses a receipt that differs from one already
 attached. A malformed request is `agent_cli_intents.bad_request` and a
-refused change `agent_cli_intents.refused`. spec/sdk-schema.json types the
-params and results of all six agent CLI commands.
+refused change `agent_cli_intents.refused`. Record, settle, attach and
+`agent-cli-update-job` answer only after their SQLite commit
+(`reply_after_journal`), so an app that crashes after a reply finds the row
+it was told about. spec/sdk-schema.json types the params and results of all
+six agent CLI commands.
 
 `agent-update-v1` (advertised with `agent-session-attach-v1`) lets a trusted
 local (Unix) client, the app's Update Everything on this Mac or through the

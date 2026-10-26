@@ -28268,7 +28268,7 @@
    ],
    "method_id": 3591,
    "priority": "control",
-   "durability": "reply_before_journal",
+   "durability": "reply_after_journal",
    "clients": [
     "macos",
     "sdk"
@@ -28402,7 +28402,7 @@
    ],
    "method_id": 3593,
    "priority": "control",
-   "durability": "reply_before_journal",
+   "durability": "reply_after_journal",
    "clients": [
     "macos",
     "sdk"
@@ -28481,7 +28481,7 @@
    ],
    "method_id": 3594,
    "priority": "control",
-   "durability": "reply_before_journal",
+   "durability": "reply_after_journal",
    "clients": [
     "macos",
     "sdk"
@@ -28543,7 +28543,8 @@
    ],
    "method_id": 3595,
    "priority": "control",
-   "durability": "reply_before_journal",
+   "durability": "reply_after_journal",
+   "spawns_terminal": true,
    "clients": [
     "macos",
     "sdk"

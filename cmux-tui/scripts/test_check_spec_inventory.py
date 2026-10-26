@@ -50,20 +50,26 @@ enum Command {
             tui = Path(temporary) / "cmux-tui"
             server = tui / "crates/cmux-tui-core/src/server"
             server.mkdir(parents=True)
-            (server / "handler.rs").write_text(
-                'pub(super) fn try_handle() { let _ = "served-cmd"; }\n'
-                '// "commented-cmd"\n'
-                '#[cfg(test)]\nmod tests { const T: &str = "test-cmd"; }\n'
+            tagged = (
+                '#[derive(Deserialize)]\n#[serde(tag = "cmd")]\nenum Command {{\n'
+                '    #[serde(rename = "{0}")]\n    Served,\n}}\n'
             )
-            (server / "helper.rs").write_text('const NAME: &str = "helper-cmd";\n')
+            (server / "handler.rs").write_text(
+                tagged.format("served-cmd")
+                + "pub(super) fn try_handle() {\n"
+                '    let _ = "literal-cmd";\n'
+                "}\n"
+                "#[cfg(test)]\nmod tests {\n" + tagged.format("test-cmd") + "}\n"
+            )
+            (server / "helper.rs").write_text(tagged.format("helper-cmd"))
             (server / "handler_tests.rs").write_text(
-                'fn try_handle() { let _ = "tests-file-cmd"; }\n'
+                tagged.format("tests-file-cmd") + "fn try_handle() {}\n"
             )
 
             with patch.object(CHECKER, "TUI", tui):
                 self.assertEqual(
                     CHECKER.sniffed_command_names(
-                        {"served-cmd", "commented-cmd", "test-cmd", "helper-cmd", "tests-file-cmd"}
+                        {"served-cmd", "literal-cmd", "test-cmd", "helper-cmd", "tests-file-cmd"}
                     ),
                     {"served-cmd"},
                 )

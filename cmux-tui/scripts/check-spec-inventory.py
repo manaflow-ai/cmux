@@ -8,6 +8,10 @@ import re
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+
+from handler_commands import HandlerCommandError, handler_commands  # noqa: E402
+
 
 ROOT = Path(__file__).resolve().parents[2]
 TUI = ROOT / "cmux-tui"
@@ -160,25 +164,13 @@ def command_names() -> set[str]:
 
 
 def sniffed_command_names(candidates: set[str]) -> set[str]:
-    """The candidates a server handler module serves before the Command enum
-    (server/connection_frame.rs): a production module with a `try_handle`
-    spells the name as a string literal. check-sdk-schema.py checks their
-    request fields."""
-    root = TUI / "crates/cmux-tui-core/src/server"
-    if not root.is_dir():
-        return set()
-    literals: set[str] = set()
-    for path in sorted(root.rglob("*.rs")):
-        if path.name.endswith("_tests.rs") or "tests" in path.relative_to(root).parts[:-1]:
-            continue
-        production = strip_rust_comments(path.read_text().split("\n#[cfg(test)]\nmod tests", 1)[0])
-        if "fn try_handle(" not in production:
-            continue
-        for token in rust_tokens(production):
-            value = rust_string_value(token)
-            if value is not None:
-                literals.add(value)
-    return candidates & literals
+    """The candidates a handler module decodes before the Command enum
+    (handler_commands.py, the rule check-sdk-schema.py also uses)."""
+    try:
+        decoded = handler_commands(TUI)
+    except (HandlerCommandError, OSError, UnicodeError) as error:
+        fail(f"cannot read the handler modules: {error}")
+    return candidates & set(decoded)
 
 
 def served_command_names(sdk_commands: set[str]) -> set[str]:

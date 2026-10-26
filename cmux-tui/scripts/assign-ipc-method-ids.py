@@ -241,7 +241,14 @@ MEMORY = (
     # Admits a snapshot on the stream's gate (collapse and 500 ms throttle).
     "snapshot-request",
 )
-REPLY_AFTER_JOURNAL = ("journal-frontend-event",)
+# The agent CLI update ledger and job reply after their SQLite commit: the app
+# records an intent before it contacts an owner so a restarted app resumes the
+# same update, and a job's receipt names a durable creation record
+# (commands.md "Update intent ledger").
+REPLY_AFTER_JOURNAL = (
+    "journal-frontend-event", "agent-cli-intents-record", "agent-cli-intents-settle",
+    "agent-cli-intents-attach", "agent-cli-update-job",
+)
 
 # Stream barrier (p05-ipc design 3.4) -------------------------------------------
 # A command naming a surface, terminal or view runs in that surface's stream
@@ -274,12 +281,13 @@ CROSSES_STREAM_OK: dict[str, str] = {
 # `spawns_terminal`): their reply can carry `starting:true` and the client gives
 # them the spawn timeout. move-tab-to-split and move-tab-to-column start one
 # only with `respawn`, but an attribute cannot depend on a field, so both are
-# listed. Every Swift TerminalSpawningRequest command must be here.
+# listed. agent-cli-update-job opens a workspace whose terminal runs the
+# prepared update. Every Swift TerminalSpawningRequest command must be here.
 SPAWNS_TERMINAL = (
     "new-tab", "create-terminal", "new-screen", "new-pane", "new-pane-right", "split", "new-row",
     "new-workspace", "run", "restart-tab", "create-surface-with-receipt", "apply-layout",
     "sidebar-plugin", "reopen-saved-screen-group", "reopen-saved-tab-group", "move-tab-to-split",
-    "move-tab-to-column",
+    "move-tab-to-column", "agent-cli-update-job",
 )
 
 COMMAND_KEY_ORDER = (

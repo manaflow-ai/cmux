@@ -23,8 +23,16 @@ const COMMAND: &str = "agent-cli-update-job";
 const RESOLVE_COMMAND: &str = "agent-cli-update-job-resolve";
 const TIMEOUT: Duration = Duration::from_secs(5);
 
-/// The request of both agent-cli-update-job and agent-cli-update-job-resolve
-/// (spec/sdk-schema.json).
+/// Both commands take the same [`Params`]; spec/sdk-schema.json types them.
+#[derive(Deserialize)]
+#[serde(tag = "cmd")]
+enum Command {
+    #[serde(rename = "agent-cli-update-job")]
+    Create(Params),
+    #[serde(rename = "agent-cli-update-job-resolve")]
+    Resolve(Params),
+}
+
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Params {
@@ -82,11 +90,9 @@ pub(super) fn try_handle(
     let Ok(Value::Object(mut fields)) = serde_json::from_str::<Value>(message) else {
         return None;
     };
-    let resolve = match fields.remove("cmd").as_ref().and_then(Value::as_str) {
-        Some(COMMAND) => false,
-        Some(RESOLVE_COMMAND) => true,
-        _ => return None,
-    };
+    if !matches!(fields.get("cmd").and_then(Value::as_str), Some(COMMAND | RESOLVE_COMMAND)) {
+        return None;
+    }
     let id = fields.remove("id");
     // Same-uid Unix alone is insufficient. Require the proved main app and
     // no terminal/agent binding, before parsing owner/CLI/key or any work.
@@ -97,8 +103,10 @@ pub(super) fn try_handle(
     {
         return Some(reply(writer, id, Err(Failure::NotTrusted.into())));
     }
-    let Ok(params) = serde_json::from_value::<Params>(Value::Object(fields)) else {
-        return Some(reply(writer, id, Err(Failure::BadRequest.into())));
+    let (resolve, params) = match serde_json::from_value::<Command>(Value::Object(fields)) {
+        Ok(Command::Create(params)) => (false, params),
+        Ok(Command::Resolve(params)) => (true, params),
+        Err(_) => return Some(reply(writer, id, Err(Failure::BadRequest.into()))),
     };
     let Ok(expected) = MachinePublicId::parse(params.expected_machine_id) else {
         return Some(reply(writer, id, Err(Failure::BadRequest.into())));
