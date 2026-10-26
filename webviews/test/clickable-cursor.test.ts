@@ -327,6 +327,10 @@ test("only a disabled selector is exempt", () => {
   ).toEqual([false, false, false]);
 });
 
+/// A clickable class's variant that takes no click: a file on the machine an agent's message came
+/// from is a <span> chip (LinkChips.tsx ElsewhereChip), so it keeps the arrow.
+const NOT_CLICKABLE = new Set([".cv-chip.is-elsewhere"]);
+
 test("no stylesheet sets the arrow or auto on a clickable element", () => {
   const classes = clickableClasses();
   // Sanity: the classes of the bars and buttons Leo pointed at are known clickable.
@@ -342,7 +346,7 @@ test("no stylesheet sets the arrow or auto on a clickable element", () => {
   for (const rule of styleRules().filter((rule) => inScope(rule.file))) {
     if (!/(^|[;\s{])cursor\s*:\s*(default|auto)\b/.test(rule.body)) continue;
     for (const selector of rule.selectors)
-      if (!DISABLED.test(selector) && targetsClickable(selector, classes))
+      if (!DISABLED.test(selector) && !NOT_CLICKABLE.has(selector) && targetsClickable(selector, classes))
         offenders.push(`${rule.file}:${rule.line} ${selector}`);
   }
   expect(offenders).toEqual([]);
