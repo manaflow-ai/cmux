@@ -687,7 +687,7 @@ class OpenTests(unittest.TestCase):
 
 class PageCodeCacheTests(unittest.TestCase):
     """Task 052's A/B arm: the switches reach the app only with --page-code-cache, and a run whose renderers do not
-    carry them is refused before it measures."""
+    carry them is refused: before the mode, at the first Settings open and at the end."""
 
     RENDERER = "Chromium Helper (Renderer) --type=renderer --lang=en"
     SWITCHED = RENDERER + " " + webui.CODE_CACHE_MARK + " --enable-features=WebUICodeCache"
@@ -718,9 +718,32 @@ class PageCodeCacheTests(unittest.TestCase):
         with self.assertRaisesRegex(webui.ShapeError, "1 of 2 Chromium renderers lack"):
             self.run_open([self.SWITCHED, self.RENDERER], page_code_cache=True)
 
-    def test_no_renderer_before_the_mode_is_left_to_the_row(self):
-        got = rows(self.run_open([], page_code_cache=True))
-        self.assertEqual(got["page_code_cache.renderers_with_switch"]["status"], "unscored")
+    def run_late(self, commands_after):
+        """No renderer before the mode; `commands_after(opens)` lists the command lines once Cmd-, opened Settings
+        `opens` times."""
+        clock = FakeClock()
+        app = FakeApp(clock)
+        instance = FakeInstance(clock)
+        opens = lambda: sum(entry["id"] == "openSettings" for entry in app.budget)
+        instance.pids = lambda: dict(enumerate(commands_after(opens()), start=900)) if opens() else {}
+        return bench(app, clock, instance=instance, cold_runs=0, page_code_cache=True).run("open")
+
+    def test_a_late_renderer_without_the_switch_refuses_the_run(self):
+        with self.assertRaisesRegex(webui.ShapeError, "1 of 1 Chromium renderers lack .* while Settings shows"):
+            self.run_late(lambda opens: [self.RENDERER])
+
+    def test_a_late_switched_renderer_measures(self):
+        got = rows(self.run_late(lambda opens: [self.SWITCHED]))
+        self.assertEqual(got["page_code_cache.renderers_with_switch"]["status"], "met")
+        self.assertIn("settings.cold_open_ms", got)
+
+    def test_a_renderer_without_the_switch_after_the_first_open_refuses_the_run(self):
+        with self.assertRaisesRegex(webui.ShapeError, "1 of 2 Chromium renderers lack .* at the end of the run"):
+            self.run_late(lambda opens: [self.SWITCHED] + ([self.RENDERER] if opens > 1 else []))
+
+    def test_no_renderer_while_settings_shows_refuses_the_run(self):
+        with self.assertRaisesRegex(webui.ShapeError, "no Chromium renderer while Settings shows"):
+            self.run_open([], page_code_cache=True)
 
     def test_the_off_arm_adds_no_row(self):
         report = self.run_open([self.RENDERER])

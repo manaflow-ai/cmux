@@ -414,38 +414,57 @@ renderer compiles every script again. Build-time bytecode (`WebUIBundledCodeCach
 embedder's scheme handler, so it is not available for them, and `webviews/scripts/pages/build-pages.mjs` does not
 change.
 
-The spike: manaflow-ai/cef `cp/p13-webui-052` at `c6af944a` (on the pinned `c8953bc6`, `cmux/8037-helper-items`; patch
-`cmux_page_code_cache`; 267 added lines with the libcef part and the doc rows). `--cmux-code-cache-schemes=cmux-page` with
-`--enable-features=WebUICodeCache` gives cmux-page scripts the WebUI rules above: accepted only from a renderer locked
-to cmux-page (an http(s) renderer that writes one is a bad-message kill), keyed by the lock, kept in the WebUI cache;
-a renderer locked to cmux-page does not cache open-web scripts. The renderer registers the listed scheme with hashing
-(`CefRenderManager::WebKitInitialized`; the switch is copied to renderers). An off-the-record partition gets the WebUI
+The spike: manaflow-ai/cef `cp/p13-webui-052` at `a65b72d6` (code at `c6af944a`, on the pinned `c8953bc6`,
+`cmux/8037-helper-items`; patch `cmux_page_code_cache`; 267 added lines with the libcef part and the doc rows).
+`--cmux-code-cache-schemes=cmux-page` with `--enable-features=WebUICodeCache` gives cmux-page scripts the WebUI
+rules above: accepted only from a renderer locked to cmux-page (an http(s) renderer that writes one is a bad-message
+kill), keyed by the lock, kept in the WebUI cache; a renderer locked to cmux-page does not cache open-web scripts.
+The renderer registers the listed scheme with hashing (`CefRenderManager::WebKitInitialized`; the switch is copied
+to renderers). An off-the-record partition gets the WebUI
 cache alone, in memory (`GeneratedCodeCacheContext::InitializeInMemory`: a `MEMORY_CACHE` backend of
 `kMaxWebUICodeCacheSize`, 5 MB). Web, file, chrome and extension schemes are never listed. No export, no API number.
 Chrome's own hot-script rule still applies: Blink stores only a timestamp on a script's first load, the code cache on
 its second load within 72 h (`v8_code_cache.cc` `kHotHours`, `ProduceCacheOptions::kSetTimeStamp`), and uses it from
 the third. The cache keys a script file by its URL: inline scripts get none (Chrome's `InlineScriptCache` is http(s)
-only). The split build (049, on perf/chrome-parity) has no inline script: each page loads its entry and the chunks
-under its own `_shared/` copy as files, so each page's scripts are cached under its own URLs. Until the shared origin
-`cmux-page://cmux.shared/` (050, not on perf/chrome-parity yet) serves one copy, two pages that run the same chunk
-compile it once each. The expected gain is a renderer that loads page scripts another renderer of the same lock
-already ran twice: a cold Settings open after its renderer ended.
+only). The split build (049) has no inline script, and since 050 every page names every shared chunk by the shared
+origin (`webviews/scripts/pages/build-pages.mjs`: `SHARED_ORIGIN`, `cmux-page://cmux.shared/<chunk>.js`), so a chunk
+has one URL whichever page loads it. That one URL does not give one cache entry: the browser keys an entry by the
+script's URL and by the lock of the renderer that ran it (`GetSecondaryKeyForCodeCache` returns
+`process_lock.GetProcessLockURL()`, and the fork adds cmux-page to that rule). On this fork ref each page origin is its
+own lock (`cmux-page://cmux.settings`, `cmux-page://cmux.history`), so a Settings renderer and a History renderer store
+the same chunk under two keys, and each compiles it once. Two pages share a chunk's entry only under one lock: the
+group lock of option B (section 5.1, `--cmux-page-process-lock=webui-scheme` on the 091 ref, the mechanism of 011),
+where the pages of one group lock to `cmux-page://<group>`. This fork ref is on the pinned base, which has neither
+mechanism, so this measurement shows no sharing across pages and claims none. The gain it can show is a renderer that
+loads page scripts that another renderer of the same lock already ran twice: a cold Settings open after the Settings
+renderer ended.
 
-The measurement (`bench-webui.py open --page-code-cache`, task 052's arm; refused when a Chromium renderer lacks the
-switch):
+Cold open replaces the warm open of the task's acceptance (p13-webui.md 052: "warm open p95"; D4: "Warm open (group
+renderer live)"). In a warm open the page runs in a live renderer that already compiled its scripts, so V8's
+per-isolate cache serves them and the code cache is not read. A second page of the same group in that live renderer
+does not help either: on this ref it gets a renderer of its own (a cold open), and under the group lock the live
+renderer has already compiled the shared chunks at the same URLs, while the page's own entry has no code cache before
+its second load. So no warm open can show this cache. The rule that lands code is therefore the cold row alone, and
+the warm row is the control. The fork's `CMUX.md` row says the same since `a65b72d6`.
 
-0. A build that has 049 (`page-bundle-report.mjs`, task 051, shows the page's .js files). With 050 too, the
-   chunks of two pages share one cache entry.
-1. `cmux-ci build cef --arch arm64 --ref c6af944a --tag cef-stage-c6af944a-arm64`, staged with
-   `scripts/cmux-next/cef-pin-staging.sh pin` on a test-only branch (never landed), then a Debug tagged build of that
-   branch.
+The measurement (`bench-webui.py open --page-code-cache`, task 052's arm; refused, exit 2, when a Chromium renderer
+lacks the switch before the mode, while the first Settings open shows, or at the end, and when no renderer runs while
+Settings shows):
+
+0. A build that has 049 and 050 (`page-bundle-report.mjs`, task 051, shows the page's .js files and its
+   `cmux-page://cmux.shared/` chunks). Settings is one page under one lock, so its entries are the same in both arms
+   whether or not other pages run the chunks.
+1. `cmux-ci build cef --arch arm64 --ref a65b72d6 --tag cef-stage-a65b72d6-arm64` (the fork branch head: `c6af944a`'s
+   code and the `CMUX.md` row), staged with `scripts/cmux-next/cef-pin-staging.sh pin` on a test-only branch (never
+   landed), then a Debug tagged build of that branch.
 2. On one mini, the same build, alternating arms, 3 runs each:
    `bench-webui.py open --app APP --runs 20 --cold-runs 20 --chat-turns 0` and the same with `--page-code-cache`.
    The first open of each run sets only timestamps, so its cold sample is the same in both arms.
-3. Rows compared: `settings.cold_open_ms` (expected to move) and `settings.open_ms` (warm, expected flat), p50 and p95.
-   Noise is the spread of the off arm's three p95 values. A gain is a p95 that is lower than every off-arm p95 by more
-   than that spread.
+3. The deciding row is `settings.cold_open_ms`, p95 (p50 reported). `settings.open_ms` (warm) is the control: it must
+   not get worse beyond the same noise. Noise is the spread of the off arm's three p95 values. A gain is an on-arm
+   p95 that is lower than every off-arm p95 by more than that spread.
 
-Result: not run. If neither row gains beyond noise, the fork branch is not pinned and perf-lead.md's row says so. If
-the cold row gains, the next step is a default-off feature that adds the two switches, and the fork patch joins the
-train (178).
+Result: not run. If the cold row does not gain beyond noise, or the warm row gets worse beyond it, the fork branch is
+not pinned and perf-lead.md's row says so. If the cold row gains, the next step is a default-off feature that adds the
+two switches, and the fork patch joins the train (178). Sharing across the pages of a group is measured only after
+011's group lock is on the fork pin, with a cold open of a second page of the group in this arm.

@@ -55,10 +55,11 @@ verbs count only when their reply confirms them; else their rows are `unscored`,
 
 --page-code-cache (task 052's A/B, Debug development bundles): the app starts Chromium with the code cache spike's
 switches (manaflow-ai/cef cp/p13-webui-052: cmux-page scripts get V8's code cache, in memory for the pages profile,
-as Chrome's WebUICodeCache gives chrome: scripts). Run `open` with and without it on one host, one build: the warm
-and cold Settings rows are the comparison (webui-DESIGN.md 5.4). Every Chromium renderer must carry the switch; a
+as Chrome's WebUICodeCache gives chrome: scripts). Run `open` with and without it on one host, one build: the cold
+Settings row decides and the warm row is the control (webui-DESIGN.md 5.4). Every Chromium renderer must carry the switch; a
 run whose renderers do not (a bench or Release build drops CMUX_NEXT_CEF_EXTRA_SWITCHES, or the fork lacks the spike)
-is refused before it measures, and `page_code_cache.renderers_with_switch` counts them after it.
+is refused (exit 2): before the mode, once the first Settings open has its renderer (none then is refused too) and
+at the end, where `page_code_cache.renderers_with_switch` counts them.
 
 Session shapes (refused, exit 2, never measured as the shape asked): light is one window, no browser tab and no
 chat before the mode starts, every page the mode opens live, one page shown when the mode shows one; STRESS is
@@ -415,20 +416,24 @@ class Bench:
         commands = [cmd for cmd in self.instance.pids().values() if self.type_kind(cmd) == "cef-renderer"]
         return len(commands), sum(CODE_CACHE_MARK in cmd for cmd in commands)
 
-    def check_code_cache_arm(self):
+    def check_code_cache_arm(self, when, need_renderer=False):
         """--page-code-cache: refused when a renderer runs without the switch (the A/B would measure the off arm
-        twice). No renderer yet is checked by the row after the mode."""
+        twice), and with `need_renderer` when no renderer runs (the switch was never seen)."""
         renderers, switched = self.code_cache_renderers()
-        if renderers and switched < renderers:
+        if need_renderer and not renderers:
+            raise ShapeError(f"--page-code-cache: no Chromium renderer {when}, so no renderer shows the switch")
+        if switched < renderers:
             raise ShapeError(f"--page-code-cache: {renderers - switched} of {renderers} Chromium renderers lack "
-                             f"{CODE_CACHE_MARK} (a Debug development bundle reads CMUX_NEXT_CEF_EXTRA_SWITCHES; the "
-                             "fork needs manaflow-ai/cef cp/p13-webui-052)")
+                             f"{CODE_CACHE_MARK} {when} (a Debug development bundle reads CMUX_NEXT_CEF_EXTRA_SWITCHES; "
+                             "the fork needs manaflow-ai/cef cp/p13-webui-052)")
 
     def code_cache_row(self):
+        """The end of an on-arm run: a renderer that started without the switch during the mode refuses the run."""
         renderers, switched = self.code_cache_renderers()
         self.add(row("page_code_cache.renderers_with_switch", switched if renderers else None, ("==", renderers),
                      note=f"{renderers} Chromium renderers at the end of the run" if renderers
                      else "no Chromium renderer at the end of the run"))
+        self.check_code_cache_arm("at the end of the run")
 
     def check_engine(self, mode):
         problems = engine_problems(self.rpc("debug.cef"), self.opts.engine, mode)
@@ -800,9 +805,11 @@ class Bench:
         warm, cold, open_turns, close_turns = [], [], [], []
         preloaded = polled = skipped = 0
 
-        def sample(into):
+        def sample(into, first=False):
             nonlocal preloaded, polled
             result = self.settings_open(view)
+            if first and self.opts.page_code_cache:  # Settings' renderer runs now: no sample is taken without the switch
+                self.check_code_cache_arm("while Settings shows", need_renderer=True)
             open_turns.append(result["commit_ms"])
             preloaded += int(result["preloaded"])
             polled += int(result["polled"])
@@ -812,7 +819,7 @@ class Bench:
             close_turns.append(turn)
             return pid
 
-        pid = sample(cold)
+        pid = sample(cold, first=True)
         for _ in range(self.opts.runs):
             pid = sample(warm)
         for _ in range(self.opts.cold_runs):
@@ -1032,7 +1039,7 @@ class Bench:
                 raise ShapeError("not the light session: " + "; ".join(problems))
         self.facts["page_code_cache"] = bool(self.opts.page_code_cache)
         if self.facts["page_code_cache"]:
-            self.check_code_cache_arm()
+            self.check_code_cache_arm("before the mode")
         getattr(self, mode)()
         if self.facts["page_code_cache"]:
             self.code_cache_row()
