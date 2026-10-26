@@ -21,6 +21,10 @@ Each case gets:
   daemon-control commands (`identify`, `shutdown-daemon`, `oracle-state`, `oracle-advance-clock`) on
   `cmux.raw.CmuxClient`.
 
+With `facets: v0` in the session context (facets_v0.py capture, p15-oracle-006) a case reads only push-base
+methods (no `oracle-state`), runs on the wall clock and refuses advance_clock, so the push base and any later SHA
+give comparable snapshots; the snapshot schema is then the v0 one (facets_v0.write_schema).
+
 Steps: resource.call, snapshot, settle (one ping round trip: the daemon acknowledges a mutation after
 it committed it, so the next read on the connection sees it), kill and restart of the daemon process,
 advance_clock (`oracle-advance-clock {ms}` of task p15-oracle-185), and waitFor on session.events (each
@@ -599,6 +603,9 @@ class Daemon:
                                      f"{log_tail(self.paths.log)}", step)
         try:
             self.conn = ProtocolConnection(str(self.paths.socket), REQUEST_S * self.scale)
+            # The daemon numbers clients as it registers them (public_client_id), so the resource connection
+            # answers once before the control client connects: every start gives each connection the same id.
+            self.conn.request("session.ping", SELECTORS, timeout=REQUEST_S * self.scale)
             self.raw = CmuxClient(str(self.paths.socket), timeout=REQUEST_S * self.scale)
             self.identity = self.command("identify", step)
         except CmuxError as error:
@@ -890,6 +897,9 @@ class CaseRun:
         self.env = case_environment(self.paths, str(fixture.get("seed") or case.get("id") or "oracle"))
         self.daemon = Daemon(binary, self.paths, self.env, self.scale)
         self.sha = sha
+        # v0 facets (facets_v0.py, p15-oracle-006): only the push-base methods and a wall clock, so a capture
+        # of the push base and one of a later SHA compare.
+        self.v0 = session_ctx.get("facets") == "v0"
         self.state = CaseState()
         self.host = host_meta()
         self.dirty = False
@@ -1071,6 +1081,9 @@ class CaseRun:
     def op_advance_clock(self, index: int, step: Mapping[str, Any]) -> Tuple[str, Any]:
         step_id = step["id"]
         ms = int(step["args"]["ms"])
+        if self.v0:
+            raise CaseError("Crash", "advance_clock: v0 facets run on the wall clock (the push base has no "
+                                     "oracle-advance-clock; the virtual clock is p15-oracle-185)", step_id)
         if not self.daemon.running:
             raise CaseError("Failure", "advance_clock: the daemon is not running", step_id)
         try:
@@ -1117,14 +1130,14 @@ class CaseRun:
         if not self.daemon.running:
             return not_comparable(f"the daemon is not running (killed at step {self.state.killed_by})")
         timeout = REQUEST_S * self.scale
+        doc = self.schema.doc
+        node = doc["properties"]["facets"]["properties"]["daemon"]["oneOf"][0]["properties"]
         try:
             session = self.daemon.request("session.snapshot", SELECTORS, None, timeout)
             settings = self.daemon.request("settings.snapshot", SELECTORS, None, timeout)
-            extras = self.daemon.oracle_state(step)
+            extras = None if self.v0 else self.daemon.oracle_state(step)
         except CmuxError as error:
             raise self.sdk_failure(error, step, "daemon facet") from None
-        doc = self.schema.doc
-        node = doc["properties"]["facets"]["properties"]["daemon"]["oneOf"][0]["properties"]
         facet: Dict[str, Any] = {
             "session": check_snapshot_schema.capture(doc, node["session"], session),
             "settings": check_snapshot_schema.capture(doc, node["settings"], settings),
@@ -1156,7 +1169,7 @@ class CaseRun:
                 "product": "daemon",
                 "sha": self.sha,
                 "host": self.host,
-                "clock": "virtual" if self.daemon.virtual_clock else "wall",
+                "clock": "virtual" if self.daemon.virtual_clock and not self.v0 else "wall",
                 "capturedAtMs": int(time.time() * 1000),
                 "facets": list(facets),
             },
@@ -1363,7 +1376,14 @@ class DaemonSession:
             raise ValueError(f"--binary {binary} is not an executable")
         if session_ctx.get("switches"):
             raise ValueError("switch arms reach the daemon in p15-oracle-049; this driver runs the default arms")
-        self.schema_path = str(session_ctx.get("snapshot_schema") or normalize.DEFAULT_SCHEMA)
+        if session_ctx.get("facets") not in (None, "v0", "v1"):
+            raise ValueError(f"facets {session_ctx.get('facets')!r} is v0 or v1")
+        default_schema = normalize.DEFAULT_SCHEMA
+        if session_ctx.get("facets") == "v0" and not session_ctx.get("snapshot_schema"):
+            import facets_v0  # sibling (p15-oracle-006): the v1 schema cut to the push-base methods
+
+            default_schema = facets_v0.write_schema(Path(str(session_ctx.get("out_dir") or "/tmp/oracle")))
+        self.schema_path = str(session_ctx.get("snapshot_schema") or default_schema)
         schema, refusal = load_snapshot_schema(self.schema_path)
         if schema is None:
             raise ValueError(f"normalize.py refuses the snapshot schema, so no snapshot can be canonical: {refusal}")
