@@ -209,3 +209,231 @@ async fn a_queued_prompt_sent_again_after_a_failed_log_load_runs_once() {
     let runs: Vec<&Value> = events.iter().filter(|e| run_of(e)).collect();
     assert_eq!(runs.len(), 1, "q-once did not run exactly once: {runs:#?}");
 }
+
+/// A prompt dequeued for a turn that never started (`lost_start.rs`) waits through a daemon whose
+/// log load failed (`ACPMUX_TEST_PANIC_IN_LOAD_LOGS`: it restored no queue) and ran another
+/// prompt there. That turn's `turn_started` names another prompt and turn, so it did not start
+/// this one; the next restore settled every lost prompt at any `turn_started`, dropped this one
+/// and it never ran (#23125 review). The third daemon's startup waits (`hold_startup`), so the
+/// restored prompt waits in the queue for the test to see.
+#[tokio::test]
+async fn a_lost_prompt_runs_once_after_another_turn_started_first() {
+    let seam = [("ACPMUX_TEST_EXIT_AFTER_DEQUEUE", "1")];
+    let mut daemon = Daemon::with_env("qlost", "approve-all", &seam);
+    let (session, gate, mut client) = gated_turn_without_host(&daemon).await;
+    client
+        .send(
+            "session/prompt",
+            json!({"sessionId": session, "prompt": [{"type": "text", "text": "lost text"}], "_meta": {"acpmux": {"promptId": "q-lost"}}}),
+        )
+        .await;
+    daemon.wait_event(&session, "queued record", |e| {
+        e["kind"] == "queued" && e["msg"]["promptId"] == "q-lost"
+    });
+    // The gated turn ends, q-lost leaves the queue for its turn, and the daemon stops there.
+    std::fs::write(&gate, b"go").unwrap();
+    daemon.wait_exit();
+    drop(client);
+    let of = |events: &[Value], kind: &str, id: &str| {
+        events.iter().filter(|e| e["kind"] == kind && e["msg"]["promptId"] == id).count()
+    };
+    let events = daemon.events(&session);
+    assert_eq!(of(&events, "dequeued", "q-lost"), 1, "q-lost never left the queue: {events:#?}");
+    assert_eq!(of(&events, "turn_started", "q-lost"), 0, "q-lost's turn started before the stop");
+
+    // The second daemon's log load fails: it knows no queue, and another prompt runs at once.
+    daemon.env = vec![("ACPMUX_TEST_PANIC_IN_LOAD_LOGS".into(), "1".into())];
+    daemon.start();
+    let mut rpc = daemon.rpc().await;
+    let other = json!({"sessionId": session, "prompt": [{"type": "text", "text": "another prompt"}],
+                       "_meta": {"acpmux": {"promptId": "q-other"}}});
+    let answered = rpc.call("session/prompt", other).await;
+    assert_eq!(answered["stopReason"], "end_turn", "the other prompt did not run: {answered:#}");
+    daemon.sigterm();
+    drop(rpc);
+    let events = daemon.events(&session);
+    assert_eq!(of(&events, "turn_started", "q-other"), 1, "q-other's turn never started");
+    assert_eq!(of(&events, "turn_started", "q-lost"), 0, "q-lost ran on the second daemon");
+
+    // The third daemon reads the logs: q-lost is still waiting, and runs once.
+    daemon.env.clear();
+    hold_startup(&daemon);
+    daemon.start();
+    let mut rpc = daemon.rpc().await;
+    let attached = rpc.call("_acpmux/attach", json!({"sessionId": session, "limit": 0})).await;
+    let queue = attached["session"]["queue"].as_array().expect("queue in the attach reply");
+    let ids: Vec<&str> = queue.iter().filter_map(|q| q["promptId"].as_str()).collect();
+    assert_eq!(ids, ["q-lost"], "the restore dropped the lost prompt: {attached:#}");
+    std::fs::write(daemon.home.join("go"), b"").unwrap();
+    daemon.wait_event(&session, "q-lost's turn result", |e| {
+        e["kind"] == "turn_result" && e["msg"]["promptId"] == "q-lost"
+    });
+    let events = daemon.events(&session);
+    let answers = events
+        .iter()
+        .filter(|e| {
+            e["msg"]["params"]["update"]["sessionUpdate"] == "agent_message_chunk"
+                && e["msg"]["params"]["update"]["content"]["text"]
+                    .as_str()
+                    .is_some_and(|t| t.starts_with("echo: lost text"))
+        })
+        .count();
+    assert_eq!(of(&events, "turn_started", "q-lost"), 1, "q-lost did not run exactly once");
+    assert_eq!(answers, 1, "q-lost's answer came {answers} times");
+}
+
+/// How many prompts each long log below holds.
+const LONG_LOG_PROMPTS: usize = 20_000;
+/// How long its restore may take: the per-record scans of the waiting list, the reorder list
+/// that grew by every prompt run and the prompts that left the queue for a turn that never
+/// started (`queue.rs` `restore_queue`, `lost_start.rs`) made it quadratic.
+const LONG_LOG_RESTORE_BOUND: Duration = Duration::from_secs(12);
+
+/// A `queued` record of prompt `p-{i}` for turn `t-{i}`.
+fn queued(i: usize, text: &str) -> Value {
+    json!({"text": text, "client": "test", "position": i + 1, "promptId": format!("p-{i}"), "turnId": format!("t-{i}"),
+           "prompt": [{"type": "text", "text": text}], "control": "local", "trustGate": false})
+}
+
+/// Appends the records `write` makes to a new session's log, as the daemons that ran them
+/// would have, restarts the daemon and returns the prompt ids its restored queue holds and how
+/// long the logs took to read and the queues to restore.
+async fn restore_long_log(
+    name: &str,
+    write: impl FnOnce(&mut dyn FnMut(&str, Value)),
+) -> (Vec<String>, Duration) {
+    let mut daemon = Daemon::new(name, "approve-all");
+    let session = new_session(&daemon).await;
+    daemon.sigterm();
+    let dir = daemon.home.join("sessions").join(&session).join("events");
+    let mut segments: Vec<PathBuf> =
+        std::fs::read_dir(&dir).unwrap().filter_map(|e| e.ok().map(|e| e.path())).collect();
+    segments.sort();
+    let segment = segments.last().expect("the new session's log segment").clone();
+    let mut seq = daemon.events(&session).iter().filter_map(|e| e["seq"].as_u64()).max().unwrap();
+    let at = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_millis()
+        as u64;
+    let mut lines = String::new();
+    write(&mut |kind: &str, msg: Value| {
+        seq += 1;
+        lines.push_str(
+            &json!({"seq": seq, "at": at, "dir": "mux", "kind": kind, "msg": msg}).to_string(),
+        );
+        lines.push('\n');
+    });
+    let mut file = std::fs::OpenOptions::new().append(true).open(&segment).unwrap();
+    std::io::Write::write_all(&mut file, lines.as_bytes()).unwrap();
+    drop(file);
+
+    // The restored prompts wait for the test (`hold_startup`).
+    hold_startup(&daemon);
+    let started = Instant::now();
+    daemon.start();
+    let mut rpc = daemon.rpc().await;
+    // `_acpmux/info` answers once the logs are read and the queues restored (`wait_logs`). Its
+    // own deadline, not `Rpc::reply`'s 30 s a line: a slow restore fails on the bound, with its
+    // time.
+    let id = rpc.send("_acpmux/info", json!({"sessionId": session})).await;
+    let info = tokio::time::timeout(Duration::from_secs(900), async {
+        loop {
+            let line = rpc.lines.next_line().await.unwrap().expect("daemon closed the socket");
+            let v: Value = serde_json::from_str(&line).unwrap();
+            if v.get("id") == Some(&json!(id)) {
+                return v["result"].clone();
+            }
+        }
+    })
+    .await
+    .expect("the logs were read within 900 s");
+    let took = started.elapsed();
+    eprintln!("{name}: restored in {took:?}");
+    assert_eq!(info["logsLoading"], false, "{info:#}");
+    let attached = rpc.call("_acpmux/attach", json!({"sessionId": session, "limit": 0})).await;
+    let queue = attached["session"]["queue"].as_array().expect("queue in the attach reply");
+    let ids = queue.iter().filter_map(|q| q["promptId"].as_str().map(str::to_owned)).collect();
+    (ids, took)
+}
+
+/// A session log that queued 20,000 prompts behind a turn and then ran each (`queued`, then
+/// `dequeued`, `user_message`, `turn_started` and `turn_result` for each: 100,000 queue records)
+/// and left one more queued is read and its queue restored in time, with that one prompt in it.
+#[tokio::test]
+async fn a_long_queue_log_restores_in_time() {
+    let (ids, took) = restore_long_log("qlong", |record| {
+        for i in 0..LONG_LOG_PROMPTS {
+            record("queued", queued(i, &format!("prompt {i}")));
+        }
+        for i in 0..LONG_LOG_PROMPTS {
+            let (p, t) = (format!("p-{i}"), format!("t-{i}"));
+            let left = LONG_LOG_PROMPTS - i - 1;
+            record("dequeued", json!({"promptId": p, "turnId": t, "queued": left}));
+            record(
+                "user_message",
+                json!({"text": format!("prompt {i}"), "client": "test", "promptId": p, "turnId": t}),
+            );
+            record(
+                "turn_started",
+                json!({"prompt": format!("prompt {i}"), "client": "test", "promptId": p, "turnId": t, "control": "local"}),
+            );
+            record("turn_result", json!({"promptId": p, "turnId": t, "stopReason": "end_turn"}));
+        }
+        record("queued", queued(LONG_LOG_PROMPTS, "the last one"));
+    })
+    .await;
+    assert_eq!(
+        ids,
+        [format!("p-{LONG_LOG_PROMPTS}")],
+        "the restore did not put back only the last prompt"
+    );
+    assert!(
+        took < LONG_LOG_RESTORE_BOUND,
+        "restoring the queue of a log of {} queued prompts took {took:?} (bound {LONG_LOG_RESTORE_BOUND:?})",
+        LONG_LOG_PROMPTS + 1
+    );
+}
+
+/// A session log in which 20,000 queued prompts each left the queue for a turn that never
+/// started (`dequeued` with no `turn_started`: daemons that stopped first, `lost_start.rs`) is
+/// read and its queue restored in time, with every one of them back at the head in the order
+/// they left it.
+#[tokio::test]
+async fn a_long_log_of_unstarted_prompts_restores_in_time() {
+    let (ids, took) = restore_long_log("qlost", |record| {
+        for i in 0..LONG_LOG_PROMPTS {
+            record("queued", queued(i, &format!("prompt {i}")));
+        }
+        for i in 0..LONG_LOG_PROMPTS {
+            let left = LONG_LOG_PROMPTS - i - 1;
+            record(
+                "dequeued",
+                json!({"promptId": format!("p-{i}"), "turnId": format!("t-{i}"), "queued": left}),
+            );
+        }
+    })
+    .await;
+    let want: Vec<String> = (0..LONG_LOG_PROMPTS).map(|i| format!("p-{i}")).collect();
+    assert!(ids == want, "the restore did not put back every unstarted prompt in order");
+    assert!(
+        took < LONG_LOG_RESTORE_BOUND,
+        "restoring the queue of a log of {LONG_LOG_PROMPTS} unstarted prompts took {took:?} (bound {LONG_LOG_RESTORE_BOUND:?})"
+    );
+}
+
+/// Prompts that left the queue for turns that never started go back in the order the last
+/// daemon's queue had them. Each went to the head as it left; one a daemon then held keeps the
+/// place it had there, and a prompt that left after that goes ahead of it.
+#[tokio::test]
+async fn unstarted_prompts_a_daemon_held_keep_their_place_in_the_restored_queue() {
+    let (ids, _) = restore_long_log("qheld", |record| {
+        for i in 0..4 {
+            record("queued", queued(i, &format!("prompt {i}")));
+        }
+        let dequeued = |i: usize| json!({"promptId": format!("p-{i}"), "turnId": format!("t-{i}")});
+        record("dequeued", dequeued(0));
+        record("dequeued", dequeued(1));
+        record("queue_paused", json!({"held": ["p-0"]}));
+        record("dequeued", dequeued(3));
+    })
+    .await;
+    assert_eq!(ids, ["p-1", "p-3", "p-0", "p-2"], "the restored queue is out of order");
+}
