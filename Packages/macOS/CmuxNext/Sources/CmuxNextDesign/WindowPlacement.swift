@@ -65,14 +65,18 @@ public struct WindowPlacement {
     /// main screen. With no screen the frame is kept.
     public nonisolated static func restoredFrame(_ frame: CGRect, display: String?,
                                                  screens: [(id: String?, visible: CGRect)]) -> CGRect {
-        // Visible enough to grab: a 40 pt square of the frame on some screen.
-        if screens.contains(where: { $0.visible.intersection(frame).width >= 40 && $0.visible.intersection(frame).height >= 40 }) {
-            return frame
+        guard !screens.isEmpty else { return frame }
+        let saved = display.flatMap { id in screens.first { $0.id == id } }
+        let displayGone = display != nil && saved == nil
+        if !displayGone, screens.contains(where: { canGrabTitleBar(of: frame, on: $0.visible) }) { return frame }
+        let area = { (rect: CGRect) in rect.isNull ? 0 : rect.width * rect.height }
+        if let shown = screens.max(by: { area($0.visible.intersection(frame)) < area($1.visible.intersection(frame)) }),
+           area(shown.visible.intersection(frame)) > 0 {
+            return contain(frame, in: shown.visible)
         }
-        guard let target = screens.first(where: { display != nil && $0.id == display }) ?? screens.first else { return frame }
-        let size = CGSize(width: min(frame.width, target.visible.width), height: min(frame.height, target.visible.height))
-        return CGRect(x: target.visible.midX - size.width / 2, y: target.visible.midY - size.height / 2,
-                      width: size.width, height: size.height)
+        let target = (saved ?? screens[0]).visible
+        let size = CGSize(width: min(frame.width, target.width), height: min(frame.height, target.height))
+        return CGRect(x: target.midX - size.width / 2, y: target.midY - size.height / 2, width: size.width, height: size.height)
     }
 
     /// The top 28 points of `frame` (its title bar) show at least 40 x 10 points on `visible`:
