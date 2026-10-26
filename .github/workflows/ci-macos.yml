@@ -1710,7 +1710,7 @@ jobs:
         if: ${{ !cancelled() }}
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: "1.4.2"
+          bun-version: "1.4.4"
 
       - name: Install pinned nushell (shell-integration tests)
         if: ${{ !cancelled() }}
@@ -2216,7 +2216,7 @@ jobs:
           name: swift-package-tests-crash-reports-${{ github.run_id }}-${{ github.run_attempt }}
           path: ${{ runner.temp }}/package-test-crash-reports
           if-no-files-found: ignore
-          retention-days: 7
+          retention-days: 3
 
   release-admission:
     needs:

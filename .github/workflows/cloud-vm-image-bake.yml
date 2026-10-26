@@ -87,7 +87,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: "1.4.2"
+          bun-version: "1.4.4"
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -224,7 +224,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: "1.4.2"
+          bun-version: "1.4.4"
 
       - name: Install dependencies
         run: bun install --frozen-lockfile
@@ -273,7 +273,7 @@ jobs:
       - name: Setup Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
-          bun-version: "1.4.2"
+          bun-version: "1.4.4"
 
       - name: Download the measurements
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0

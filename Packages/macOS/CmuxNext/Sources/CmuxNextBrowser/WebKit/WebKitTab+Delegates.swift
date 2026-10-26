@@ -294,6 +294,12 @@ extension WebKitTab: WKUIDelegate {
         initiatedByFrame frame: WKFrameInfo,
         completionHandler: @escaping @MainActor ([URL]?) -> Void
     ) {
+        // Files an agent offered (`browser.page.upload`) answer first; `[]` (a chooser they cannot fill) cancels.
+        if let offered = agentFiles.answer(multiple: parameters.allowsMultipleSelection,
+                                           folder: parameters.allowsDirectories, save: false) {
+            completionHandler(offered.isEmpty ? nil : offered)
+            return
+        }
         // The one file-input path (WebFileInputAnswering) every WebKit view shares: in the app the made-ahead panel.
         // A tab whose engine is gone ends the input as a cancel.
         guard let engine else {

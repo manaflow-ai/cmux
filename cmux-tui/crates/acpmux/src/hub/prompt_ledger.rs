@@ -27,6 +27,19 @@ pub(super) fn prune(ledger: &mut VecDeque<(String, PromptOutcome)>) {
 }
 
 impl Hub {
+    /// Whether session `session`'s log records a turn that ran `prompt_id` (its `user_message`,
+    /// alone or joined with other agent messages, `digest.rs`). Blocking: it reads the log.
+    pub(crate) fn ran_prompt(&self, session: &str, prompt_id: &str) -> bool {
+        let names = |m: &Value| m.get("promptId").and_then(Value::as_str) == Some(prompt_id);
+        let mut ran = false;
+        let _ = self.store.scan_kinds(session, &["user_message"], &mut |rec| {
+            let joined = rec.msg.pointer("/_meta/provenance/messages").and_then(Value::as_array);
+            ran = names(&rec.msg) || joined.is_some_and(|m| m.iter().any(names));
+            !ran
+        });
+        ran
+    }
+
     /// A prompt id the session's log already holds (`user_message` or
     /// `queued`), answered from the log: its turn's result when it ended,
     /// else `interrupted` (the daemon stopped during the turn).

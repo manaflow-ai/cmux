@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useId, useRef, useState } from "react";
+import React, { useCallback, useContext, useEffect, useId, useRef, useState } from "react";
 import type { SignIn } from "./signIn";
 import { useChatAccounts } from "./chatAccounts";
 import type { QuickMenuExtras } from "./QuickModelMenu";
@@ -18,6 +18,7 @@ import { pendingSpeed } from "./pendingSpeed";
 import { type StringKey, useT } from "./i18n";
 import { ModelPicker, pickerFaceHarness } from "./ModelPicker";
 import { AgentOptionsMenu } from "./AgentOptionsMenu";
+import { OnNewTab } from "./newTabComposer";
 import { extraConfigOptions } from "./agentOptions";
 import type { CatalogRefreshState, ModelCombo, ModelPickerProps } from "./modelPickerLayout";
 import { topModelsFor } from "./topModels";
@@ -229,7 +230,7 @@ export function ComposerPickers({
   // effort ("Opus 5.5  Medium") and opens the compact menu, which carries Effort, More models,
   // Account and, when the model advertises a free inline toggle, Fast mode. Paid or otherwise
   // non-toggleable Fast remains in the model menu.
-  const { showContextUsage, harnessSwitch } = useComposerSettings();
+  const { showContextUsage, harnessSwitch, reasoningSlider, reasoningSliderStyle } = useComposerSettings();
   const chatAccounts = useChatAccounts();
   const summary = snapshot.summary;
   // The rail lists the harnesses set up here (Leo 2026-10-11): one whose launcher check failed (not
@@ -402,7 +403,7 @@ export function ComposerPickers({
           onPick: (value) => onEffort(effort?.id ?? "effort", value === "on" ? "ultracode" : "xhigh"),
         }
       : undefined;
-  const fastOption = snapshot.summary?.configOptions?.find(isFastModeOption) ?? pendingSpeed(snapshot);
+  const fastOption = snapshot.summary?.configOptions?.find(isFastModeOption) ?? pendingSpeed(snapshot, catalogModel);
   const fastOn =
     fastOption?.options.find((option) => /^(on|true|enabled)$/i.test(option.value)) ?? fastOption?.options[1];
   const fastOff =
@@ -853,6 +854,7 @@ export function ComposerPickers({
             pending.current = undefined;
             onEffort(effort.id, value);
           },
+          ...(reasoningSlider ? { slider: true, sliderStyle: reasoningSliderStyle } : {}),
         }
       : heldLevels.length > 1 && chipHarness && !profileDeclaresNoEffort
         ? {
@@ -863,6 +865,7 @@ export function ComposerPickers({
               setHeldPick({ harness: chipHarness, value });
               onEffort(heldOption?.id ?? "effort", value);
             },
+            ...(reasoningSlider ? { slider: true, sliderStyle: reasoningSliderStyle } : {}),
           }
         : undefined;
   // Accounts are this Mac's acpmux routes: a chat on another machine has none here.
@@ -1079,12 +1082,14 @@ function AccessMenu({
   refusedReason: string;
   permissionAccess?: ComposerPermissionAccess;
   onMode(modeId: string): void | Promise<unknown>;
-  /// The menu's heading, as the harness's own menu titles it ("Mode", "How should actions be approved?").
+  /// The harness menu's mode supplies the icon layout even though its explanatory heading is not drawn.
   heading?: string;
   /// Rows show their number keys, as Claude Code's mode menu does (the keys pick either way).
   numbered?: boolean;
 }) {
   const t = useT();
+  // On New Tab the menu opens down, with no key hints (newTabComposer.ts).
+  const newTab = useContext(OnNewTab);
   const [open, setOpen] = useState(false);
   // Right-click and automation open it by its label (pickerOpeners.ts).
   useEffect(() => registerPicker(label, () => setOpen(true)), [label]);
@@ -1165,7 +1170,7 @@ function AccessMenu({
           <ChevronIcon />
         </MenuButton>
         <MenuPopup
-          side="top"
+          side={newTab ? "bottom" : "top"}
           align="start"
           className="acpmux-access-menu"
           // ui-allow: 1 to 9 pick the mode in that place while the menu is open, as in Claude's mode menu.
@@ -1178,11 +1183,6 @@ function AccessMenu({
             else pick(choice.id);
           }}
         >
-          {heading && modes.length > 0 && (
-            <div className="acpmux-access-heading" aria-hidden="true">
-              {heading}
-            </div>
-          )}
           {modes.length > 0 && (
             <MenuRadioGroup value={value} onValueChange={pick}>
               {modes.map((choice, index) => (
@@ -1190,7 +1190,7 @@ function AccessMenu({
                   key={choice.id}
                   value={choice.id}
                   disabled={refusedIds.includes(choice.id)}
-                  shortcut={numbered && index < 9 ? String(index + 1) : undefined}
+                  shortcut={numbered && !newTab && index < 9 ? String(index + 1) : undefined}
                   className={`acpmux-access-item${unrestricted(choice.id) ? " acpmux-unrestricted" : ""}${iconless ? " acpmux-access-item-iconless" : ""}`}
                 >
                   {!iconless && (
