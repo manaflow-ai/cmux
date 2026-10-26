@@ -172,7 +172,8 @@
         "CmuxNextPagesTestSupport",
         "CmuxNextRemoteFetch",
         "CmuxNextSettings",
-        "CmuxNextWakeups"
+        "CmuxNextWakeups",
+        "CmuxNextWakeupsTestSupport"
       ],
       "packages": [],
       "reads": [

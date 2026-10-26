@@ -427,7 +427,7 @@ impl Hub {
                 session,
                 "mux",
                 "turn_started",
-                json!({"prompt": short_text(&text, 200), "client": client, "promptId": prompt_id, "turnId": turn_id, "control": control.as_str()}),
+                json!({"prompt": short_text(&text, 200), "client": client, "promptId": prompt_id, "turnId": turn_id, "control": control.as_str(), "trustGate": trust_gate}),
             )
             .seq;
         let control = {

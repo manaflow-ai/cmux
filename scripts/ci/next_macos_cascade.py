@@ -283,7 +283,16 @@ def place(env: Mapping[str, str], owned: Sequence[str], live: Mapping[str, int] 
     running = [job for job in (env.get("JOBS") or "").split() if job in CASCADE_JOBS and job in runs]
     promoted = [job for job in running if job in PROMOTE_JOBS] if (env.get("PROMOTE_LABEL") or "").strip() else []
     side = [job for job in running if job not in promoted]
-    candidates = (promoted if promote_busy else []) + side[len(owned):]
+    # FIRST_JOBS (a feat-cmux-next push's Release compile, which gates the nightly-next request) take the
+    # run's slots first: with MAX_PER_RUN slots a run it was last and found none (2026-10-26 09:21Z, run
+    # 40298786351: fast-tier and the scheme compile took 6 vCPU's two). Every side job takes the same
+    # label and races for its idle minis, so the count of jobs those minis take is all that is known:
+    # it is spent on the run's other jobs first, and a FIRST_JOBS job has a slot whenever one is free.
+    first = set((env.get("FIRST_JOBS") or "").split())
+    rest = [job for job in side if job not in first]
+    leading = [job for job in side if job in first]
+    candidates = ((promoted if promote_busy else []) + leading[max(0, len(owned) - len(rest)):]
+                  + rest[len(owned):])
     hosted_free = HOSTED_CAPACITY - seen.hosted if seen is not None else 0
     placed = cascade(candidates, live, waiting, stall=stall, hosted_free=hosted_free)
     # The overflow label counts the slots this run's own jobs just took.

@@ -18,8 +18,8 @@ public nonisolated protocol DaemonUpdateTarget: Sendable {
     /// Brings the target to `build`. Without `whileBusy`, only while it is idle: it does not
     /// interrupt a turn, a waiting permission or a sub-session's turn; it answers
     /// ``DaemonUpdateOutcome/busy`` and changes nothing. With `whileBusy` it updates mid-turn too:
-    /// the restarted daemon resumes what it interrupted. The policy asks so once the target stayed
-    /// busy for ``DaemonUpdatePolicy/Dependencies/updateBusyAfter`` (10 minutes). It also answers
+    /// the restarted daemon resumes what it interrupted. The policy asks so from the first ask
+    /// (``DaemonUpdatePolicy/Dependencies/updateBusyAfter`` is zero by default). It also answers
     /// `busy` when it cannot update now, such as an unreachable machine or another update running.
     func update(to build: DaemonBuildCommit, whileBusy: Bool) async -> DaemonUpdateOutcome
     /// Whether the target updates as soon as the policy reaches it: the policy queues it also when
