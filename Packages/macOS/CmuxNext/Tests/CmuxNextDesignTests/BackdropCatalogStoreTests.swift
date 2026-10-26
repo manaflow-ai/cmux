@@ -13,7 +13,11 @@ import Testing
         let images = root.appendingPathComponent("Backgrounds", isDirectory: true)
         try FileManager.default.createDirectory(at: pictures, withIntermediateDirectories: true)
         try FileManager.default.createDirectory(at: images, withIntermediateDirectories: true)
-        return (pictures, images, root)
+        // macOS directory listings may use /private/var while temporaryDirectory uses /var.
+        let path = try #require(realpath(root.path, nil))
+        defer { free(path) }
+        let realRoot = URL(fileURLWithPath: String(cString: path), isDirectory: true)
+        return (realRoot.appendingPathComponent("Desktop Pictures"), realRoot.appendingPathComponent("Backgrounds"), realRoot)
     }
 
     private func waitForBuilds(_ store: BackdropCatalogStore, atLeast count: Int) async {
