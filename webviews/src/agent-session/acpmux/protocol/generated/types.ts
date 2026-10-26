@@ -479,6 +479,13 @@ export type PurgedSession = {
   sessionId: string;
 } & Record<string, unknown>;
 
+/** The person who queued a prompt in a shared chat. */
+export type QueuedAuthor = {
+  /** `tailnet:<login>` or `user_…`. */
+  id: string;
+  name: string;
+} & Record<string, unknown>;
+
 /** An image a queued prompt sends. */
 export type QueuedImage = {
   /**
@@ -493,6 +500,13 @@ export type QueuedImage = {
 
 /** A prompt waiting for the running turn to end. */
 export type QueuedPromptSummary = {
+  /**
+   * The teammate who queued it in a shared chat (`_meta.provenance` `person_message`,
+   * `author.rs`), null for the owner's and for an agent's message: an app shows it under their
+   * name and offers none of its own actions on it (only they change it, `queue.not_author`).
+   * Kept across a restart and by their own edit.
+   */
+  author: (QueuedAuthor | null);
   client: string;
   /**
    * The sending agent's name when it is another agent's message, null for the person's: an
@@ -529,8 +543,8 @@ export interface RetryParams {
   /** The chat's id, name or unique prefix. */
   sessionId: string;
   /**
-   * One of the chat's failed subagents to resume instead. Refused for now
-   * (`retry.subagent_unsupported`), never taken as the chat's own turn.
+   * One of the chat's failed subagents to resume instead, by its id or agent id
+   * (`hub/subagent_retry_manual.rs`), never taken as the chat's own turn.
    */
   subagentId?: (string | null);
 }
@@ -543,8 +557,9 @@ export interface RetryParams {
 export type RetryReason = "capacity" | "transport" | "agent_exited";
 
 /**
- * What `_acpmux/retry` sent: the prompt `promptId` (`P~resume-n`, the next attempt of the
- * failed prompt) and the turn it started.
+ * What `_acpmux/retry` sent: the prompt `promptId` (for the chat's turn `P~resume-n`, the next
+ * attempt of the failed prompt; for a subagent `subagent-retry-<tool>-<attempt>-<ms>`) and the turn
+ * it started.
  */
 export type RetryResult = {
   kind: RetryKind;

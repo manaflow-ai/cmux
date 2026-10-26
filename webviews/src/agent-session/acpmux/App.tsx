@@ -12,6 +12,7 @@ import React, {
   useState,
   useSyncExternalStore,
 } from "react";
+import { AnsweredBy, AuthorChip, PresenceStack, TypingLine } from "./multiplayer/Faces";
 import { flushSync } from "react-dom";
 import { CONNECT_ACTIONS, savedEnvironmentHost, type ConnectKind, type OffloadKind } from "./environments";
 import { chiefEnvelope } from "./conversation/chiefEnvelope";
@@ -955,6 +956,7 @@ const MessageRow = memo(
             // 2026-10-24). A prompt of images alone gets the same row under the images.
             // `steerControls` keeps it mounted once the agent read it, so it folds away.
             <>
+              {row.author && <AuthorChip author={row.author} />}
               <UserBubble
                 row={row}
                 text={row.text ?? ""}
@@ -1230,6 +1232,7 @@ const PermissionRecordRow = memo(
           action: row.permission?.title?.trim() || t("permission.required"),
           option: decision.kind === "answered" ? decision.option : "",
         })}
+        {row.answeredBy && <AnsweredBy person={row.answeredBy} />}
       </div>
     );
   },
@@ -9491,6 +9494,7 @@ function AcpmuxPane() {
                     {!inTabRow && environmentSurface.header && environmentLine(environmentSurface.compact)}
                   </ChatHeaderStatus>
                   <div className="acpmux-handoff-header-tools" ref={tabRowTools}>
+                    {snapshot.presence && <PresenceStack viewing={snapshot.presence.viewing} />}
                     {inTabRow && (
                       <ChatHeaderInlineStatus status={header.status} detail={header.detail}>
                         {environmentSurface.header && environmentLine(environmentSurface.compact)}
@@ -9703,6 +9707,7 @@ function AcpmuxPane() {
                   </div>
                 )}
                 {hostErrorCard}
+                {snapshot.presence && <TypingLine typing={snapshot.presence.typing} />}
                 {composer}
               </div>
             </>

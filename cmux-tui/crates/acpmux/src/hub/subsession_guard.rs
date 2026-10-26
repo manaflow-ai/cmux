@@ -119,6 +119,12 @@ pub(super) fn is_family_prompt(provenance: Option<&Value>) -> bool {
         == Some(super::subsessions::PROVENANCE_KIND)
 }
 
+/// A retry a sub-session asked for (`retry_session`, `manual` and `from` it): checked at dispatch
+/// and counted against its parent's run slots as a family prompt is.
+pub(super) fn is_family_retry(provenance: Option<&Value>) -> bool {
+    provenance.is_some_and(|p| p.get("manual").is_some() && p.get("from").is_some())
+}
+
 /// The refusal of a child that would ask less than its caller.
 pub(super) fn asks_less(why: &str) -> RpcError {
     refusal(
@@ -540,8 +546,8 @@ impl Hub {
         session: &Session,
         provenance: Option<&Value>,
     ) -> Result<(), RpcError> {
-        let retry = |p: &Value| p.get("manual").is_some() && p.get("from").is_some();
-        let Some(p) = provenance.filter(|p| is_family_prompt(Some(p)) || retry(p)) else {
+        let family = |p: &&Value| is_family_prompt(Some(p)) || is_family_retry(Some(p));
+        let Some(p) = provenance.filter(family) else {
             return Ok(());
         };
         let from = p.get("from").and_then(Value::as_str).unwrap_or_default();

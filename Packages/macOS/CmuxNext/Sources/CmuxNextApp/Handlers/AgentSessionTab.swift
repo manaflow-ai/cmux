@@ -27,7 +27,7 @@ enum AgentSessionTab {
         var host = invocation["host"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 }
         let services = context.services
         // A peer's chat opens as the session this Mac's acpmux mirrors (the tab binds here, never there).
-        if let peer = host, peer != services.agentTabs.chiefHost, peer != services.agentTabs.localHost {
+        if let peer = host, !peer.hasPrefix(ChiefHomeAcpmux.hostPrefix), peer != services.agentTabs.localHost {
             switch AgentLaneStore.shared.lanes.values.peerSession(session, on: peer) {
             case .session(let mirrored): (session, host) = (mirrored, nil)
             case .unknownSession: throw ActionFailure(message: MiscHandlerStrings.noPeerSession(session, peer))
