@@ -21,9 +21,11 @@ extension HangReportService {
                                   mainThreadHistograms: @escaping @Sendable () -> MainThreadReportLedger.Histograms?) -> HangReportService {
         let builder = HangReportBuilder(classifier: ImageClassifier(appBundlePath: Bundle.main.bundlePath, forbiddenTerms: personalTerms()),
                                         resolver: DyldImageResolver())
-        // Blocking sites are kept only when the schema the server accepts carries them.
-        let resolveBlocking: HangReportCollector.ResolveBlocking? =
-            builder.wireSchema.carriesBlocking ? { (stack: [BlockingFrame]) in builder.frames(blocking: stack) } : nil
+        // Blocking sites are kept only when the schema the server accepts carries them. A ternary gives its
+        // closure branch no contextual type, so the closure says `@Sendable` itself.
+        let resolveBlocking: HangReportCollector.ResolveBlocking? = builder.wireSchema.carriesBlocking
+            ? { @Sendable (stack: [BlockingFrame]) -> [HangReportFrame] in builder.frames(blocking: stack) }
+            : nil
         let collector = HangReportCollector(resolve: { builder.frames(addresses: $0) }, resolveBlocking: resolveBlocking)
         let mainThread = builder.wireSchema.carriesMainThread ? MainThreadReportLedger(histograms: mainThreadHistograms) : nil
         let info = Bundle.main.infoDictionary ?? [:]
