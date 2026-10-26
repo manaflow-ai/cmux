@@ -114,6 +114,60 @@ struct PageSharedOriginTests {
         #expect(PageSharedChunks.allowedOrigin(for: pageFile, origin: PageDescriptor.settings.origin, mainDocument: nil) == nil)
     }
 
+    /// A page from a web-dev.json overlay (web-overlay.sh install) imports the chunks of its own build,
+    /// which only the overlay's `pages/_shared` holds: the shared origin serves them from there, as the
+    /// page's own files come from the overlay. A chunk only the bundle holds still comes from the bundle,
+    /// and an overlay file never escapes its folder.
+    @Test func anOverlayPageGetsTheChunksOfItsOwnBuild() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let overlay = fixture.base.appendingPathComponent("overlay", isDirectory: true)
+        let overlayShared = overlay.appendingPathComponent(PageSharedChunks.overlayFolder, isDirectory: true)
+        try FileManager.default.createDirectory(at: overlayShared, withIntermediateDirectories: true)
+        try Data("export const pane = 2".utf8).write(to: overlayShared.appendingPathComponent("pane-9z8y.js"))
+        try FileManager.default.createSymbolicLink(at: overlayShared.appendingPathComponent("escape.js"),
+                                                   withDestinationURL: fixture.pageRoot.appendingPathComponent("index.html"))
+        let origin = PageDescriptor.settings.origin
+        let paneChunk = try #require(URL(string: "cmux-page://cmux.shared/pane-9z8y.js"))
+        let escape = try #require(URL(string: "cmux-page://cmux.shared/escape.js"))
+        let handler = fixture.handler()
+
+        handler.liveOverride = { WebDevOverride() }
+        #expect(await handler.sharedReply(to: paneChunk, origin: origin) == nil)
+
+        handler.liveOverride = { WebDevOverride(overlay: overlay) }
+        let reply = try #require(await handler.sharedReply(to: paneChunk, origin: origin))
+        #expect(reply.body == Data("export const pane = 2".utf8))
+        #expect(reply.response.value(forHTTPHeaderField: "Access-Control-Allow-Origin") == origin)
+        let reactURL = try Self.react()
+        let react = try #require(await handler.sharedReply(to: reactURL, origin: origin))
+        #expect(react.body == Data("export const React = 1".utf8))
+        #expect(await handler.sharedReply(to: escape, origin: origin) == nil)
+    }
+
+    /// A Debug page root override (`CMUX_NEXT_PAGE_ROOT_cmux_agent`, agent-stream-e2e.py's variants) loads
+    /// a page of another build; `CMUX_NEXT_PAGE_ROOT_cmux_shared` names that build's shared folder, read
+    /// before the bundled one.
+    @Test func theDebugSharedRootServesAVariantBuildsChunks() async throws {
+        let fixture = try Fixture()
+        defer { fixture.remove() }
+        let variant = fixture.base.appendingPathComponent("variant-shared", isDirectory: true)
+        try FileManager.default.createDirectory(at: variant, withIntermediateDirectories: true)
+        try Data("export const variant = 3".utf8).write(to: variant.appendingPathComponent("pane-7x6w.js"))
+        let handler = PageSchemeHandler(page: .settings, root: fixture.pageRoot, devServer: nil, sharedRoot: fixture.shared,
+                                        debugSharedRoot: variant)
+        handler.liveOverride = { WebDevOverride() }
+        let origin = PageDescriptor.settings.origin
+        let chunk = try #require(URL(string: "cmux-page://cmux.shared/pane-7x6w.js"))
+        let variantReply = try #require(await handler.sharedReply(to: chunk, origin: origin))
+        #expect(variantReply.body == Data("export const variant = 3".utf8))
+        let reactURL = try Self.react()
+        let bundledReply = try #require(await handler.sharedReply(to: reactURL, origin: origin))
+        #expect(bundledReply.body == Data("export const React = 1".utf8))
+        #expect(PageSharedChunks.roots(overlay: nil, debug: variant, update: fixture.shared, bundled: fixture.shared)
+                == [variant, fixture.shared])
+    }
+
     /// One React URL: every page asks for the same `cmux-page://cmux.shared/...` URL and gets the
     /// same bytes, each readable by that page only, and every shipped page's policy names that one
     /// origin for script and style. An app page's never does.

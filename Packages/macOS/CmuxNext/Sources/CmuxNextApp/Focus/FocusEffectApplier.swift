@@ -328,7 +328,7 @@ final class FocusEffectApplier: FocusEffectApplying {
     private func childWindowDidBecomeKey(_ child: NSWindow) {
         guard let window = controller.window, child !== window else { return }
         let devTools = paneShowingDevTools(window: child)
-        let clicked = [.leftMouseDown, .rightMouseDown, .otherMouseDown].contains(NSApp.currentEvent?.type)
+        let clicked = [.leftMouseDown, .rightMouseDown, .otherMouseDown].contains(controller.services.inputDispatch.event?.type)
         let pane = paneShowingChildWindowPage(at: child.frame)
         let decision = ChildWindowKeyRule.decide(facts(of: child, in: window, clicked: clicked, overPane: pane != nil,
                                                        isDevTools: devTools != nil))

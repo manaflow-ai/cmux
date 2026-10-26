@@ -165,7 +165,7 @@ import Foundation
 //     the session state machine; no UI)
 //   CmuxNextErrorJournal -> system frameworks only (the bounded, deduplicated error journal
 //     `cmux errors` reads: app log, page consoles, acpmux and Chief logs, crash reports)
-//   CmuxNextFiles -> system frameworks only (Files pane core: listing, FSEvents, file operations,
+//   CmuxNextFiles -> Compat, Wakeups (Files pane core: listing, FSEvents, file operations,
 //     Undo, the pane model; no AppKit; plans/finder-parity/PARITY.md)
 //   CmuxNextFilesUI -> Files, Design, Compat (the Files pane's AppKit views: list, icons, columns,
 //     path bar, Quick Look, drag in and out)
@@ -781,7 +781,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // protocol's own tests (a private copy in CmuxNextAgentPaneTests broke the test build).
         .target(
             name: "CmuxNextPagesTestSupport",
-            dependencies: ["CmuxNextCompat", "CmuxNextPages", "CmuxNextSettings", "CmuxNextWakeups"],
+            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextPages", "CmuxNextSettings", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(
@@ -807,7 +807,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // edit bubble.
         .target(
             name: "CmuxNextBookmarks",
-            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextWakeups"],
+            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextIcons", "CmuxNextInput", "CmuxNextWakeups"],
             resources: [
                 .process("Resources"),
             ],
@@ -865,7 +865,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // Screenshots pane and the Files pane both read folders through it.
         .target(
             name: "CmuxNextFiles",
-            dependencies: ["CmuxNextWakeups"],
+            // Compat: the FSEvents callback's CallbackRegistry (p10-stability-081).
+            dependencies: ["CmuxNextCompat", "CmuxNextWakeups"],
             swiftSettings: daemonSwiftSettings
         ),
         .testTarget(
@@ -1008,7 +1009,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // extension popup windows over their opener's window. The App routes page intents.
         .target(
             name: "CmuxNextPopups",
-            dependencies: ["CmuxNextBrowser", "CmuxNextCompat", "CmuxNextDesign", "CmuxNextWakeups"],
+            dependencies: ["CmuxNextBrowser", "CmuxNextCompat", "CmuxNextDesign", "CmuxNextInput", "CmuxNextWakeups"],
             resources: [
                 .process("Resources"),
             ],
@@ -1016,7 +1017,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextPopupsTests",
-            dependencies: ["CmuxNextBrowser", "CmuxNextDesign", "CmuxNextPopups", "CmuxNextWakeups"],
+            dependencies: ["CmuxNextBrowser", "CmuxNextDesign", "CmuxNextInput", "CmuxNextPopups", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         // The one owner of what happens to a workspace with no pane: a last-tab

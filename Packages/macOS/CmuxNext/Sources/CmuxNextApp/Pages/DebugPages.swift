@@ -37,6 +37,8 @@ import Foundation
 // - `call` (`op`, `params`): one call message through the page's router, exactly as the page's
 //   bridge sends it (the host sets the calling page's id). With `page: "cmux.cloud"` and no live
 //   Cloud page, a hidden one is made first (so a probe needs no open Cloud tab).
+// - `hangOnClick`: the page's next mousedown never returns, so its renderer hangs on input Chromium
+//   waits for and the "Page unresponsive" card shows (scripts/cmux-next/page-hang-live.py --page).
 // The control router's deadline bounds every action.
 extension AppControl {
     func registerPageDebugMethods(_ services: AppServices) {
@@ -159,6 +161,9 @@ enum DebugPages {
         case "call":
             guard let op = params["op"]?.stringValue else { return ["error": "op is required"] }
             return await page.router.handle(["t": "call", "id": 1, "op": .string(op), "params": params["params"] ?? .object([:])])
+        case "hangOnClick":
+            let armed = await page.callPageFunction("addEventListener('mousedown', () => { for (;;) {} }); return true;")
+            return ["armed": .bool(armed as? Bool == true)]
         case "connected":
             page.setConnected(params["value"]?.boolValue ?? true)
             return ["connected": .bool(page.router.connected)]

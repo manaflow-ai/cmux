@@ -83,7 +83,7 @@ final class AppBrowserHost {
             })
         provider = BrowserHostProvider(
             identity: ProviderIdentity(providerID: "cmux-app:\(services.environment.launch.bundleID)", installID: installID),
-            credentials: credentials, tabs: tabs, access: tabs, driver: driver, relay: relay, marking: tabs, mainWork: services.mainWork, opener: tabs)
+            credentials: credentials, tabs: tabs, access: tabs, driver: driver, relay: relay, marking: tabs, mainWork: services.mainWork, opener: tabs, capture: tabs)
         provider.onAgentBundle = { [driver] bundle, _ in
             // A new bundle: driven tabs install it again on their next call.
             guard driver.agentBundle != bundle else { return }

@@ -33,9 +33,15 @@ nonisolated final class CDPRelayTable: Sendable {
     /// ``CDPRawIDMap/inbound(_:)``: the scan for the message's id and the rewrite run outside the
     /// lock; only the pending lookup holds it.
     func inbound(_ message: String) -> String? {
-        guard let id = CDPRawIDMap.topLevelID(in: message) else { return message }
-        guard let hostID = map.withLock({ $0.claim(rawID: id) }) else { return nil }
-        return CDPRawIDMap.replacingID(in: message, with: hostID)
+        inboundReply(message).message
+    }
+
+    /// ``inbound(_:)`` and the raw id the message answers: nil for an event (the provider's capture
+    /// votes end on their command's reply).
+    func inboundReply(_ message: String) -> (message: String?, rawID: Int?) {
+        guard let id = CDPRawIDMap.topLevelID(in: message) else { return (message, nil) }
+        guard let hostID = map.withLock({ $0.claim(rawID: id) }) else { return (nil, id) }
+        return (CDPRawIDMap.replacingID(in: message, with: hostID), id)
     }
 
     /// ``CDPRawIDMap/drainPending()`` under the lock.

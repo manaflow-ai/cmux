@@ -59,12 +59,12 @@ enum WorkspaceBulkClose {
             closing = try otherGroups(invocation, context).1.flatMap(\.workspaces).map(\.id.rawValue)
         case "workspace.closeOthersInGroup":
             let workspace = try context.workspace(invocation).model
-            guard let group = try WorkspaceVerbHandlers.group(of: workspace, context) else { throw ActionFailure.invalidTarget(RefusalStrings.workspaceNotInGroup) }
+            guard let group = try WorkspaceVerbHandlers.group(of: workspace, context, builds: true) else { throw ActionFailure.invalidTarget(RefusalStrings.workspaceNotInGroup) }
             closing = group.workspaces.map(\.id.rawValue).filter { $0 != workspace.id }
         default:
             // Sidebar order of the window that lists the target, every machine's rows.
             let target = try context.workspace(invocation).model
-            let owner = windows.registry.value.owner(of: target.id).flatMap(windows.controller(for:)) ?? context.activeWindow
+            let owner = windows.registry.value.owner(of: target.id).flatMap(windows.controllerBuildingIfWaiting(for:)) ?? context.activeWindow
             let order = owner?.sidebar.model.selectableWorkspaces.map(\.id.rawValue) ?? context.sidebarOrder.map(\.id)
             guard order.contains(target.id) else { throw ActionFailure.invalidTarget(RefusalStrings.workspaceNotInSidebar) }
             // A person's run on one of several selected rows keeps the whole selection, as Chrome's
@@ -152,7 +152,7 @@ enum WorkspaceBulkClose {
         guard let first = try WorkspaceGroupHandlers.members(invocation, context).first else {
             throw ActionFailure.invalidTarget(RefusalStrings.noWorkspaceToActOn)
         }
-        let sidebar = try WorkspaceVerbHandlers.sidebar(showing: first, context)
+        let sidebar = try WorkspaceVerbHandlers.sidebar(showing: first, context, builds: true)
         let groups = sidebar.model.sections.flatMap(\.nodes).compactMap { node -> SidebarGroup? in
             if case .group(let listed) = node { return listed }
             return nil

@@ -43,6 +43,12 @@ extension CEFPaneHost {
         #if DEBUG || CMUX_BENCH_HOOKS
         page.textInputSink = { [weak self] op in self?.sendTextInput(op) }
         #endif
+        // The host's page window takes the view's size in the same commit as the pane (task 052).
+        page.onGeometry = { [weak self, weak page] geometry in
+            guard let self, let page else { return }
+            runtime.hostPageResizes()?.resize(view: page.wireToken, browser: visibleTab?.browserID ?? 0, geometry: geometry,
+                                              in: page.window)
+        }
         hostView.addSubview(page, positioned: .below, relativeTo: nil)
         hostView.showOcclusion(in: page)
         hostedPageView = page
@@ -57,6 +63,14 @@ extension CEFPaneHost {
     func showHostedContext(of browser: Int32) {
         guard let page = hostedPageView, runtime.forkAPIVersion >= CEFLayerHosting.forkAPI else { return }
         let shown = window
+        // A page window the host opened since the last size went (a new host, a new browser on this
+        // view's token) takes the view's size before it shows: sent again even when it did not change.
+        if let pageWindow = page.window, page.bounds.width >= 1, page.bounds.height >= 1 {
+            let geometry = ChromiumHostGeometry(screenRect: pageWindow.convertToScreen(page.convert(page.bounds, to: nil)),
+                                                scale: pageWindow.backingScaleFactor)
+            runtime.hostPageResizes()?.resize(view: page.wireToken, browser: browser, geometry: geometry, in: pageWindow,
+                                              resend: true)
+        }
         let sent = runtime.sendAsync { $0.browserSetLayerHosting(browser, 1) }
         runtime.whenAnswered(sent, label: "page context") { [weak self, weak page] id in
             guard let self, let page, hostedPageView === page, window == shown else { return }

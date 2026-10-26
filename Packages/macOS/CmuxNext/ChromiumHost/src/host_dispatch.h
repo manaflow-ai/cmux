@@ -29,7 +29,10 @@
 //                                              pushes for the browser start or stop;
 //                                              answered with the fork's result
 //                                              (host_text_input.h)
-//   kOpTextInputStats                           no fields: answered with the text
+//   kOpPageResize                               a page view's size and its fence seq
+//                                              (host_resize.h); a fenced one is
+//                                              answered with i32 joined
+//   kOpTextInputStats                          no fields: answered with the text
 //                                              input push counters (host_text_input.h)
 //   kOpGeometryStats                            no fields: answered with GeometryStats as
 //                                              i64 frames, applied, unchanged, unplaced
@@ -66,6 +69,7 @@
 #include <cstdint>
 #include <deque>
 #include <functional>
+#include <list>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -77,6 +81,7 @@
 #include "chromium_host_tlv.h"
 #include "chromium_host_wire.h"
 #include "host_mirror.h"
+#include "host_resize.h"
 #include "host_text_input.h"
 
 namespace cmux_host {
@@ -148,6 +153,12 @@ class PageViews {
   // `token`'s view takes `geometry`. HostContext calls it only for an open
   // view and only when the geometry differs from the last one it placed.
   virtual void Place(uint64_t token, const PageGeometry& geometry) = 0;
+  // An open view's size in points (kOpPageResize); nothing when it is that size.
+  virtual void Resize(uint64_t token, int32_t width, int32_t height) {
+    (void)token;
+    (void)width;
+    (void)height;
+  }
 };
 
 // Each view fills a click-through window of the host that is never ordered
@@ -163,6 +174,7 @@ class HostPageViews final : public PageViews {
   void* Open(uint64_t token) override;
   void Close(uint64_t token) override;
   void Place(uint64_t token, const PageGeometry& geometry) override;
+  void Resize(uint64_t token, int32_t width, int32_t height) override;
 
  private:
   std::unordered_map<uint64_t, void*> windows_;  // NSWindow*, retained
@@ -255,6 +267,10 @@ class HostContext {
 
   const TextInputPushes& text_input() const { return text_input_; }
 
+  // Where kOpPageResize's fences go (browser_host_main.mm, before Attach);
+  // nullptr resizes with no fence.
+  void SetPageResizes(PageResizes* resizes) { resizes_ = resizes; }
+
  private:
   enum class State { kPreinit, kInitializing, kRunning, kEnded };
   struct HeldEvent {
@@ -286,6 +302,9 @@ class HostContext {
   void HoldGeometry(int32_t client_id, const PageGeometry& geometry);
   // `chromium_id`'s page view takes `geometry` when it changed.
   void PlaceBrowser(int chromium_id, const PageGeometry& geometry);
+  bool HandlePageResize(const control::Message& message);
+  // Keeps `token`'s size for the next op that opens its view (view_sizes_).
+  void RememberViewSize(uint64_t token, int32_t width, int32_t height);
   // Watches `chromium_id`'s text input in the fork: its result (0 refused).
   int ArmTextInputWatch(int chromium_id);
   // True while `client_id` is a minted id whose creation event has not come.
@@ -360,9 +379,23 @@ class HostContext {
   std::unordered_set<uint64_t> open_views_;
   std::unordered_map<int, uint64_t> view_of_browser_;
   std::unordered_map<int, uint64_t> devtools_view_of_browser_;
+  // The last kOpPageResize size of each page view token, open, not open yet
+  // or closed: an op that opens the view, again too, gives it this size. cmux
+  // keeps a token for its pane while the pane's browsers come and go, and
+  // sends a size only when it changes, so a closed view's size stays. At most
+  // kMaxSizedViews: a new token's size takes the place of the least recently
+  // resized view that is not open (kMaxPageViews at most are).
+  struct ViewSize {
+    int32_t width = 0;
+    int32_t height = 0;
+    std::list<uint64_t>::iterator order;
+  };
+  std::unordered_map<uint64_t, ViewSize> view_sizes_;
+  std::list<uint64_t> view_size_order_;  // least recently resized first
 
   // Browsers cmux watches the text input of, by Chromium id.
   TextInputPushes text_input_;
+  PageResizes* resizes_ = nullptr;
   // Text input watches of minted ids whose creation has not come, by the
   // minted id: the watch tokens Bind arms and answers. Bounded with
   // pending_binds_ (AwaitsCreation).
