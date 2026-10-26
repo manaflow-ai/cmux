@@ -230,9 +230,11 @@ public final class ChromiumHostSession {
         case .running: phaseText = "running"
         case .ended(let reason): phaseText = "ended: \(reason)"
         }
+        let backlog = connection?.backlog
         return ["phase": phaseText, "pid": Int(pid), "fork_api": Int(forkAPI), "context_id": Int(contextID),
                 "shown_context_id": Int(view.contextID), "url": url, "title": title, "restarts": restarts,
-                "exits": exits, "error": lastError ?? "", "log_file": configuration.logFile ?? ""]
+                "exits": exits, "error": lastError ?? "", "log_file": configuration.logFile ?? "",
+                "wire_waiting": backlog?.waiting ?? 0, "wire_coalesced": Int(clamping: backlog?.coalesced ?? 0)]
     }
 
     // MARK: Lifecycle
@@ -383,8 +385,9 @@ public final class ChromiumHostSession {
         }
     }
 
-    /// Sends a frame to the running host; a host that stopped reading is
-    /// ended (its exit restarts it by the policy). Its pid is not reused before
+    /// Sends a frame to the running host at once (a full socket queues it in
+    /// the connection's outbox); a host whose wire broke (the outbox is full,
+    /// the socket failed) is ended (its exit restarts it by the policy). Its pid is not reused before
     /// hostEnded reaps it, so the kill reaches only this host.
     @discardableResult
     private func send(_ frame: ChromiumHostFrame) -> Bool {

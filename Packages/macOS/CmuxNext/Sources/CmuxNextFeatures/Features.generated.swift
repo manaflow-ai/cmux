@@ -495,6 +495,23 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// A trackpad pan of the column strip on its motion container shows once per display frame, at the offset resampled at the frame's time as Chromium resamples scroll updates (5 ms behind the frame, at most 8 ms of prediction); the snap and the fling read the real events.
+    public static let stripPanResampling = Feature(
+        index: 28,
+        name: "stripPanResampling",
+        owner: "PL-motion-core",
+        description: "A trackpad pan of the column strip on its motion container shows once per display frame, at the offset resampled at the frame's time as Chromium resamples scroll updates (5 ms behind the frame, at most 8 ms of prediction); the snap and the fling read the real events.",
+        kind: .perfPath,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: "2026-12-20",
+        params: [],
+        stories: ["motion"],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// The Task Manager lists the items Memory Saver discarded, each with the memory it saved, and the total Memory Saver freed.
     public static let taskManagerMemorySaved = Feature(
         index: 29,
@@ -631,6 +648,7 @@ nonisolated extension Feature {
         .renderStarvationGuard,
         .rendererlessSpareWindow,
         .sidebarRowsNearViewport,
+        .stripPanResampling,
         .taskManagerMemorySaved,
         .terminalPointerFrames,
         .topPageDiscard,
@@ -670,6 +688,7 @@ nonisolated extension Feature {
         .renderStarvationGuard,
         .rendererlessSpareWindow,
         .sidebarRowsNearViewport,
+        .stripPanResampling,
         .taskManagerMemorySaved,
         .terminalPointerFrames,
         .topPageDiscard,
