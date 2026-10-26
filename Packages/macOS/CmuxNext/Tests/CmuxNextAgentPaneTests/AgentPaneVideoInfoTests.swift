@@ -165,6 +165,74 @@ struct AgentPaneVideoInfoTests {
         #expect((try? await gone.image(at: CMTime(seconds: 0.5, preferredTimescale: 600))) == nil)
     }
 
+    @Test func quickLookNeverPlaysAReferenceMovie() async throws {
+        // Quick Look opens a movie with no reference restrictions: a pointer would play the secret's media.
+        let folder = try Self.folder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let home = folder.appendingPathComponent("home", isDirectory: true)
+        let desktop = home.appendingPathComponent("Desktop", isDirectory: true)
+        try FileManager.default.createDirectory(at: desktop, withIntermediateDirectories: true)
+        let secret = folder.appendingPathComponent("secret.mov")
+        try await Self.movie(at: secret, width: 320, height: 180, seconds: 1)
+        let clip = desktop.appendingPathComponent("clip.mov")
+        try await Self.movie(at: clip, width: 320, height: 180, seconds: 1)
+        let pointer = desktop.appendingPathComponent("pointer.mov")
+        try await Self.referenceMovie(at: pointer, to: secret)
+        #expect(await AgentPaneVideoInfo.isSelfContained(clip))
+        #expect(await !AgentPaneVideoInfo.isSelfContained(pointer))
+
+        let model = AgentPaneModel(host: NoHost())
+        model.replyLinks.home = home.path
+        var looked: [URL] = []
+        model.replyLinks.quickLookFile = { looked.append($0) }
+        model.transport.gestures.record(click: true)
+        #expect(Self.errorCode(await Self.ask(model, "video.quickLook", ["src": pointer.path])) == AgentPaneReplyError.mediaRefused.rawValue)
+        #expect(looked.isEmpty)
+        model.transport.gestures.record(click: true)
+        #expect(Self.errorCode(await Self.ask(model, "video.quickLook", ["src": clip.path])) == nil)
+        #expect(looked.count == 1)
+    }
+
+    @Test func aPathSwappedForAnotherFileOrALinkAfterItsCheckGivesNothing() async throws {
+        // The path is checked again after the read: a file replaced, or a folder on the way turned
+        // into a link to a denied folder, between the check and the read is caught.
+        let folder = try Self.folder()
+        defer { try? FileManager.default.removeItem(at: folder) }
+        let home = folder.appendingPathComponent("home", isDirectory: true)
+        let stage = home.appendingPathComponent("stage", isDirectory: true)
+        let ssh = home.appendingPathComponent(".ssh", isDirectory: true)
+        for dir in [stage, ssh] { try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true) }
+        let clip = stage.appendingPathComponent("clip.mov")
+        try await Self.movie(at: clip, width: 320, height: 180, seconds: 1)
+        let model = AgentPaneModel(host: NoHost())
+        model.replyLinks.home = home.path
+
+        let checked = try #require(await model.videoFile(clip.path))
+        #expect(await model.videoFileIsStill(checked, clip.path))
+        // Another file at the same path: a different inode.
+        let copy = folder.appendingPathComponent("copy.mov")
+        try FileManager.default.copyItem(at: clip, to: copy)
+        try FileManager.default.removeItem(at: clip)
+        try FileManager.default.moveItem(at: copy, to: clip)
+        #expect(await !model.videoFileIsStill(checked, clip.path))
+
+        // The folder becomes a link to `.ssh`, which holds a movie of the same name: refused.
+        let again = try #require(await model.videoFile(clip.path))
+        try FileManager.default.moveItem(at: clip, to: ssh.appendingPathComponent("clip.mov"))
+        try FileManager.default.removeItem(at: stage)
+        try FileManager.default.createSymbolicLink(at: stage, withDestinationURL: ssh)
+        #expect(await !model.videoFileIsStill(again, clip.path))
+        #expect(Self.errorCode(await Self.ask(model, "video.info", ["src": clip.path])) == AgentPaneReplyError.mediaRefused.rawValue)
+
+        // A chat that turned remote after the check gets nothing either.
+        try FileManager.default.removeItem(at: stage)
+        try FileManager.default.createDirectory(at: stage, withIntermediateDirectories: true)
+        try await Self.movie(at: clip, width: 320, height: 180, seconds: 1)
+        let local = try #require(await model.videoFile(clip.path))
+        model.remoteChat = true
+        #expect(await !model.videoFileIsStill(local, clip.path))
+    }
+
     @Test func aFileThatIsNotAVideoGivesNothing() async throws {
         let folder = try Self.folder()
         defer { try? FileManager.default.removeItem(at: folder) }

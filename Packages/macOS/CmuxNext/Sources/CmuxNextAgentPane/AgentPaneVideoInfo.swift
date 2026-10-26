@@ -94,12 +94,38 @@ nonisolated enum AgentPaneVideoInfo {
         (try? file.blockingResourceValues(forKeys: [.isRegularFileKey]))?.isRegularFile == true
     }
 
+    /// A video file checked against its scope, and which file it was then (its device and inode):
+    /// the path is checked again after the read, so one swapped for another file or a link while it
+    /// was read (a folder on the way turned into a link to `~/.ssh`) gives nothing.
+    struct Checked: Equatable, Sendable {
+        var url: URL
+        var device: UInt64
+        var inode: UInt64
+    }
+
     /// The video file `src` names in `scope` (``AgentPaneReplyPaths/resolveVideo(_:)``), when it is
     /// a regular file inside it: made canonical and checked here, off the main actor.
-    @concurrent static func file(_ src: String, in scope: AgentPaneReplyPaths.Scope) async -> URL? {
+    @concurrent static func file(_ src: String, in scope: AgentPaneReplyPaths.Scope) async -> Checked? {
         guard let resolved = AgentPaneReplyPaths(scope).resolveVideo(src), resolved.place == .root, !resolved.isFolder else { return nil }
         let file = URL(fileURLWithPath: resolved.path, isDirectory: false)
-        return isRegularFile(file) ? file : nil
+        // `attributesOfItem` reads a link itself, not its target: the canonical path has none.
+        guard isRegularFile(file), let item = try? FileManager.default.attributesOfItem(atPath: file.path),
+              item[.type] as? FileAttributeType == .typeRegular,
+              let device = (item[.systemNumber] as? NSNumber)?.uint64Value,
+              let inode = (item[.systemFileNumber] as? NSNumber)?.uint64Value else { return nil }
+        return Checked(url: file, device: device, inode: inode)
+    }
+
+    /// Whether every track of the video at `file` holds its media in the file itself: a reference
+    /// movie's media in other files (outside the roots, or on the deny list) never plays in Quick
+    /// Look, which opens a movie with no reference restrictions.
+    @concurrent static func isSelfContained(_ file: URL) async -> Bool {
+        let asset = AVURLAsset(url: file, options: [AVURLAssetReferenceRestrictionsKey: AVAssetReferenceRestrictions.forbidAll.rawValue])
+        guard let tracks = try? await asset.load(.tracks), !tracks.isEmpty else { return false }
+        for track in tracks {
+            guard (try? await track.load(.isSelfContained)) == true else { return false }
+        }
+        return true
     }
 
     /// `image` as JPEG at ``quality``.
@@ -131,23 +157,34 @@ extension AgentPaneModel {
     /// or home (where a screen recording lands, as for a reply's image), and not on the deny list.
     /// A chat on another machine names its own files: this Mac's are never read for it. The disk is
     /// read off the main actor.
-    func videoFile(_ src: String) async -> URL? {
+    func videoFile(_ src: String) async -> AgentPaneVideoInfo.Checked? {
         guard !chatIsElsewhere else { return nil }
-        return await AgentPaneVideoInfo.file(src, in: replyPathScope())
+        let checked = await AgentPaneVideoInfo.file(src, in: replyPathScope())
+        // A chat that turned remote while the disk was read gets nothing (cx-k21v).
+        return chatIsElsewhere ? nil : checked
+    }
+
+    /// Whether `src` still names the file `checked` was, in a chat still on this Mac: after a read
+    /// or before Quick Look opens it.
+    func videoFileIsStill(_ checked: AgentPaneVideoInfo.Checked, _ src: String) async -> Bool {
+        await videoFile(src) == checked
     }
 
     /// `video.info {src}`: the video's length, size, poster and key frames (``AgentPaneVideoInfo``).
     func videoInfo(_ src: String) async -> [String: Any] {
-        guard let file = await videoFile(src), let info = await AgentPaneVideoInfo.read(file) else { return Self.replyFailure(.mediaRefused) }
+        guard let checked = await videoFile(src), let info = await AgentPaneVideoInfo.read(checked.url),
+              await videoFileIsStill(checked, src) else { return Self.replyFailure(.mediaRefused) }
         return AgentPaneReply.success(info.reply)
     }
 
     /// `video.quickLook {src}`: plays the video in Quick Look, on the person's click. The click is
     /// spent before the file is checked, so a request that waits on the disk never takes a later one.
+    /// A reference movie is refused: Quick Look would play the media it points at.
     func quickLookVideo(_ src: String) async -> [String: Any] {
         guard transport.gestures.consume() else { return Self.replyFailure(.gestureRequired) }
-        guard let file = await videoFile(src) else { return Self.replyFailure(.mediaRefused) }
-        replyLinks.quickLookFile(file)
+        guard let checked = await videoFile(src), await AgentPaneVideoInfo.isSelfContained(checked.url),
+              await videoFileIsStill(checked, src) else { return Self.replyFailure(.mediaRefused) }
+        replyLinks.quickLookFile(checked.url)
         return AgentPaneReply.success()
     }
 }
