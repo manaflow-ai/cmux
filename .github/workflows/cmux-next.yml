@@ -1023,9 +1023,9 @@ jobs:
       fast_runner: ${{ steps.place.outputs.fast_runner }}
       # vars.CI_COMPILE_CHECK_GATEWAY, or a wider class of it, while it has an idle runner for
       # each gateway job, else empty (side_lane_placement.gateway_route()); gateway_attempt is
-      # the run attempt that judged it. The gateway jobs trust the reading only in that attempt;
-      # with no reading at all (an older base script, a skipped placement) attempt 1 keeps the
-      # variable and a re-run takes the Mac fallback, never a queue nobody judged.
+      # the run attempt that judged it. A gateway job runs only on a reading from its own
+      # attempt; with none (a re-run, a skipped or older placement) it skips and its Mac
+      # fallback runs, never a queue nobody saw free.
       gateway_runner: ${{ steps.place.outputs.gateway_runner }}
       gateway_attempt: ${{ steps.place.outputs.gateway_attempt }}
       fallback_jobs: ${{ steps.place.outputs.fallback_jobs }}
@@ -1117,9 +1117,10 @@ jobs:
           GATEWAY_LABEL: ${{ vars.CI_COMPILE_CHECK_GATEWAY }}
           # The gateway jobs this run starts (their own `if`s), each needing an idle runner.
           GATEWAY_JOBS: >-
-            ${{ format('{0} {1}',
+            ${{ format('{0} {1} {2}',
             github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.event.pull_request.labels.*.name, 'full-ci') && needs.path_route.outputs.native == 'true' && 'app-compile-fleet' || '',
-            needs.path_route.outputs.swift_canary == 'true' && 'swift-canary-fleet' || '') }}
+            needs.path_route.outputs.swift_canary == 'true' && 'swift-canary-fleet' || '',
+            github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.path_route.outputs.native == 'true' && 'release-compile-fast' || '') }}
           GATEWAY_CASCADE: ${{ github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.event.pull_request.labels.*.name, 'full-ci') && needs.path_route.outputs.native == 'true' && 'release-compile' || '' }}
           JOBS: fast-tier swift-canary cmux-scheme-compile release-compile swift-test daemon-test generated-files
         run: |
@@ -2134,12 +2135,12 @@ jobs:
     needs: [path_route, push-head-preflight, macos-placement]
     # With macos-placement's gateway judgement in this attempt (gateway_attempt) it runs only on an
     # idle gateway runner (gateway_runner); with none idle the Mac canary takes the cascade instead.
-    if: ${{ !cancelled() && github.repository_owner == 'manaflow-ai' && vars.CI_COMPILE_CHECK_GATEWAY != '' && needs.path_route.outputs.swift_canary == 'true' && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && (needs.macos-placement.outputs.gateway_attempt == '' && github.run_attempt == 1 || needs.macos-placement.outputs.gateway_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.gateway_runner != '') }}
+    if: ${{ !cancelled() && github.repository_owner == 'manaflow-ai' && vars.CI_COMPILE_CHECK_GATEWAY != '' && needs.path_route.outputs.swift_canary == 'true' && needs.push-head-preflight.outputs.current == 'true' && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && needs.macos-placement.outputs.gateway_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.gateway_runner != '' }}
     name: cmux-next Swift canary (build fleet)
     concurrency:
       group: ${{ github.event_name == 'pull_request' && format('cmux-next-pr-{0}-swift-canary-fleet', github.event.pull_request.number) || github.event_name == 'push' && format('cmux-next-push-{0}-swift-canary-fleet', github.ref) || format('cmux-next-run-{0}-swift-canary-fleet', github.run_id) }}
       cancel-in-progress: ${{ github.event_name == 'pull_request' }}
-    runs-on: ${{ needs.macos-placement.outputs.gateway_runner || vars.CI_COMPILE_CHECK_GATEWAY }}
+    runs-on: ${{ needs.macos-placement.outputs.gateway_runner }}
     permissions: {}
     timeout-minutes: 30
     outputs:
@@ -2199,12 +2200,12 @@ jobs:
     # (gateway_runner). With none idle it does not run: release-compile then runs, and
     # macos-placement already put it in the cascade (GATEWAY_CASCADE), so it takes a free Blacksmith
     # slot rather than the queue PR #24155's compile sat in three times on 2026-10-26.
-    if: ${{ !cancelled() && github.event_name == 'pull_request' && github.repository_owner == 'manaflow-ai' && vars.CI_COMPILE_CHECK_GATEWAY != '' && needs.path_route.outputs.native == 'true' && needs.push-head-preflight.outputs.current == 'true' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.event.pull_request.labels.*.name, 'full-ci') && (needs.macos-placement.outputs.gateway_attempt == '' && github.run_attempt == 1 || needs.macos-placement.outputs.gateway_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.gateway_runner != '') }}
+    if: ${{ !cancelled() && github.event_name == 'pull_request' && github.repository_owner == 'manaflow-ai' && vars.CI_COMPILE_CHECK_GATEWAY != '' && needs.path_route.outputs.native == 'true' && needs.push-head-preflight.outputs.current == 'true' && github.event.pull_request.head.repo.full_name == github.repository && !contains(github.event.pull_request.labels.*.name, 'full-ci') && needs.macos-placement.outputs.gateway_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.gateway_runner != '' }}
     name: cmux-next app compile (build fleet)
     concurrency:
       group: cmux-next-pr-${{ github.event.pull_request.number }}-app-compile-fleet
       cancel-in-progress: true
-    runs-on: ${{ needs.macos-placement.outputs.gateway_runner || vars.CI_COMPILE_CHECK_GATEWAY }}
+    runs-on: ${{ needs.macos-placement.outputs.gateway_runner }}
     permissions: {}
     timeout-minutes: 30
     outputs:
@@ -3743,13 +3744,16 @@ jobs:
   # Keep the fast-check wrapper's name distinct from the admission gate below:
   # an unavailable wrapper is a successful job but is not a Release compile.
   release-compile-fast:
-    needs: [path_route, push-head-preflight]
-    if: ${{ !cancelled() && needs.path_route.outputs.native == 'true' && needs.push-head-preflight.outputs.current == 'true' && github.repository_owner == 'manaflow-ai' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
+    needs: [path_route, push-head-preflight, macos-placement]
+    # Like the other build-fleet gateway jobs, it runs only on a gateway runner macos-placement saw
+    # idle in this attempt (gateway_runner); otherwise it skips and release-compile runs on the
+    # push's Mac route at once instead of behind the gateway's queue.
+    if: ${{ !cancelled() && needs.path_route.outputs.native == 'true' && needs.push-head-preflight.outputs.current == 'true' && github.repository_owner == 'manaflow-ai' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' && needs.macos-placement.outputs.gateway_attempt == format('{0}', github.run_attempt) && needs.macos-placement.outputs.gateway_runner != '' }}
     name: cmux-next Release compile (fleet fast check)
     concurrency:
       group: ${{ format('cmux-next-release-compile-fast-{0}', github.run_id) }}
       cancel-in-progress: false
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.CI_COMPILE_CHECK_GATEWAY || 'ubuntu-24.04' }}
+    runs-on: ${{ needs.macos-placement.outputs.gateway_runner }}
     permissions:
       contents: read
     timeout-minutes: 30

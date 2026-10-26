@@ -64,10 +64,10 @@ contains(' <key> ') matches whole keys only:
   or the same label on a wider class, while it has an idle online runner for
   each of GATEWAY_JOBS beyond the ones this run's own jobs take, else empty
   (gateway_route());
-  `gateway_attempt` is the run attempt GATEWAY_LABEL was judged in, so a
-  workflow trusts `gateway_runner` (or its absence) only from a script that
-  writes it, and only in that attempt: a re-run that reuses an earlier
-  attempt's placement is not given its idle reading. With no idle gateway, the
+  `gateway_attempt` is the run attempt GATEWAY_LABEL was judged in. A gateway
+  job runs only on a `gateway_runner` judged in its own attempt: a re-run that
+  reuses an earlier attempt's placement, a placement that did not run, and a
+  base script that predates the outputs all skip it. With no idle gateway, the
   build-fleet compiles are skipped and
   their Mac fallbacks run, and GATEWAY_CASCADE (the Mac fallback of the PR's
   app compile, release-compile) joins CASCADE_RUNS, so it takes a free
@@ -300,7 +300,8 @@ def nightly_runner_ready(env: Mapping[str, str], runners: Sequence[Mapping[str, 
 FAST_JOB = "fast-tier"
 # The Mac job each build-fleet gateway job stands in for: it needs a Mac only when the fleet gives no
 # pass, so it takes no idle runner from the gateway job.
-GATEWAY_FALLBACKS = {"app-compile-fleet": "release-compile", "swift-canary-fleet": "swift-canary"}
+GATEWAY_FALLBACKS = {"app-compile-fleet": "release-compile", "swift-canary-fleet": "swift-canary",
+                     "release-compile-fast": "release-compile"}
 
 
 def fast_route(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] | None) -> str:
@@ -336,12 +337,13 @@ def gateway_route(env: Mapping[str, str], runners: Sequence[Mapping[str, Any]] |
     GATEWAY_JOBS (at least one) beyond those `taken` (this run's own jobs
     already placed on it), first the label itself, then the compatible wider
     labels (compatible_labels(): the std side minis). With none, the gateway
-    jobs do not run and their Mac fallbacks take the cascade. Unreadable
-    runners keep GATEWAY_LABEL, today's route.
+    jobs do not run and their Mac fallbacks take the cascade. Runners that
+    could not be read show no idle runner either: a gateway job never queues
+    on a label nobody saw free.
     """
     label = (env.get("GATEWAY_LABEL") or "").strip()
     if not label or runners is None:
-        return label
+        return ""
     want = max(1, len((env.get("GATEWAY_JOBS") or "").split()))
     for candidate in compatible_labels(label):
         if pool.live_owned_free(runners, [candidate])[candidate] - (taken or {}).get(candidate, 0) >= want:

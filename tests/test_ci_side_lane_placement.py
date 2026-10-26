@@ -321,8 +321,9 @@ class GatewayRoute(unittest.TestCase):
         self.assertEqual(placement.gateway_route({"GATEWAY_LABEL": LIGHT_SIDE}, busy), "")
         self.assertEqual(placement.gateway_route({"GATEWAY_LABEL": LIGHT_SIDE}, []), "")
 
-    def test_unread_runners_keep_the_variable_and_an_unset_one_routes_nothing(self):
-        self.assertEqual(placement.gateway_route({"GATEWAY_LABEL": LIGHT_SIDE}, None), LIGHT_SIDE)
+    def test_unread_runners_and_an_unset_variable_route_nothing(self):
+        # Nobody saw a runner free, so the gateway jobs skip and their Mac fallbacks run.
+        self.assertEqual(placement.gateway_route({"GATEWAY_LABEL": LIGHT_SIDE}, None), "")
         self.assertEqual(placement.gateway_route({}, self.light(False)), "")
 
     def test_each_gateway_job_needs_its_own_idle_runner_beyond_the_runs_own_jobs(self):
