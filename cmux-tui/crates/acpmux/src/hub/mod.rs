@@ -12,6 +12,7 @@ mod aside;
 pub(crate) mod auto_resume;
 mod btw;
 mod exit_reason;
+pub(crate) mod subagent_retry;
 mod turn_errors;
 pub(crate) use btw::SIDE_TAG;
 pub(crate) use policy_mode::SetRequest;
@@ -437,6 +438,8 @@ pub struct Hub {
     pub(super) subsession_runs: Arc<subsession_runs::Runs>,
     /// Automatic continuations waiting to fire, by chat (`auto_resume.rs`).
     pub(super) auto_resumes: auto_resume::Pending,
+    /// Failed subagents waiting to be resumed, by chat (`subagent_retry.rs`).
+    pub(super) subagent_retries: subagent_retry::Retries,
     /// Fired by `set_transfer_lease`: each move's watch reads the new lease now.
     pub(super) transfer_lease_changed: Notify,
     /// Secrets agents asked the person for, and their one-use refs (`secrets.rs`).
@@ -538,6 +541,7 @@ impl Hub {
             subsessions: Default::default(),
             subsession_runs: Default::default(),
             auto_resumes: Default::default(),
+            subagent_retries: Default::default(),
             transfer_lease_changed: Notify::new(),
             secrets: Default::default(),
             trust_waits: Default::default(),
@@ -808,6 +812,7 @@ impl Hub {
             web_control_ended: AtomicBool::new(false),
             floor: Default::default(),
             subagents: StdMutex::new(Default::default()),
+            harness_turn: AtomicBool::new(false),
             processes: StdMutex::new(Default::default()),
             pr_creates: StdMutex::new(Default::default()),
             composers: StdMutex::new(Default::default()),
