@@ -52,7 +52,12 @@ final class WorkspaceHelperLauncher: ComputerUseHelperLaunching {
 /// children). The acpmux daemon this app spawns gets the socket and the
 /// agent token as CMUX_NEXT_CUA_SOCKET and CMUX_NEXT_CUA_SOCKET_AUTH_TOKEN
 /// in its spawn environment (`childEnvironment`); the host token stays in
-/// this app. This process's own environment is never written: libghostty
+/// this app. The agent token lives for this app launch, not for one helper
+/// start, and the endpoint is published while Computer Use is off too: an
+/// agent's computer use server gets them once, when its chat starts, so a
+/// chat started before the person turned Computer Use on (or before a helper
+/// restart) still reaches the helper afterwards. With no helper running the
+/// token opens nothing. This process's own environment is never written: libghostty
 /// keeps a slice of `environ` from launch, so a setenv or unsetenv after
 /// launch left it reading a NULL or freed entry (SIGSEGV in
 /// ghostty_config_finalize). Off (the default, or DisabledFeatures) nothing
@@ -80,6 +85,8 @@ public final class ComputerUseHelperDaemon {
     @ObservationIgnored private let manifestReader: CuaHelperManifestReader
     @ObservationIgnored private let ownerPID: pid_t
     @ObservationIgnored private let published = Mutex<[String: String]>([:])
+    /// The agent token of this app launch: every helper start serves it.
+    @ObservationIgnored private let launchAgentToken = ComputerUseHelperDaemon.makeToken()
     @ObservationIgnored private var agentToken: String?
     @ObservationIgnored private var hostToken: String?
     @ObservationIgnored private var generation = 0
@@ -106,9 +113,10 @@ public final class ComputerUseHelperDaemon {
     }
 
     /// What a child this app spawns for agents (acpmux) gets in its spawn
-    /// environment while the helper runs: the socket and the agent token,
-    /// never the host token. Empty while off. Any thread may read it
-    /// (spawn paths run off the main actor); only this daemon writes it.
+    /// environment: the socket and the agent token, never the host token.
+    /// Set while the legacy driver is chosen, on or off; empty under the
+    /// helper v2 or DisabledFeatures. Any thread may read it (spawn paths
+    /// run off the main actor); only this daemon writes it.
     public nonisolated var childEnvironment: [String: String] {
         published.withLock { $0 }
     }
@@ -152,6 +160,7 @@ public final class ComputerUseHelperDaemon {
     /// starts the one that is on.
     func apply(_ settings: ComputerUseSettings, disabledByPolicy: Bool) async {
         let route = Self.route(settings, disabledByPolicy: disabledByPolicy)
+        publish(!disabledByPolicy && settings.driver == .legacy)
         if route.legacy {
             await upstream.apply(enabled: false)
             await apply(enabled: true)
@@ -184,7 +193,7 @@ public final class ComputerUseHelperDaemon {
             state = .unavailable
             return
         }
-        let agent = Self.makeToken()
+        let agent = launchAgentToken
         let host = Self.makeToken()
         let pid = await launcher.launch(helper, arguments: Self.arguments(socketPath: socketPath, ownerPID: owner),
                                         environment: Self.environment(stateDirectory: stateDirectory, agentToken: agent, hostToken: host))
@@ -200,17 +209,21 @@ public final class ComputerUseHelperDaemon {
         hostToken = host
         state = .running(pid)
         helperLogger.notice("cmux Computer Use helper started from \(helper.path, privacy: .public)")
-        let exported = Self.childEnvironment(socketPath: socketPath, agentToken: agent)
-        published.withLock { $0 = exported }
     }
 
-    /// Stops the helper this app started (exact pid) and withdraws the child environment.
+    /// Stops the helper this app started (exact pid). The endpoint stays
+    /// published: a later start serves the same socket and agent token.
     func stop() {
         if case .running(let pid) = state { launcher.terminate(pid) }
         state = .off
         agentToken = nil
         hostToken = nil
-        published.withLock { $0 = [:] }
+    }
+
+    /// Publishes this launch's endpoint to the children this app spawns, or withdraws it.
+    private func publish(_ endpoint: Bool) {
+        let exported = endpoint ? Self.childEnvironment(socketPath: socketPath, agentToken: launchAgentToken) : [:]
+        published.withLock { $0 = exported }
     }
 
     /// App quit: no further starts, and the helper stops.
@@ -219,6 +232,7 @@ public final class ComputerUseHelperDaemon {
         observation = nil
         generation &+= 1
         stop()
+        publish(false)
         upstream.terminateForQuit()
     }
 
