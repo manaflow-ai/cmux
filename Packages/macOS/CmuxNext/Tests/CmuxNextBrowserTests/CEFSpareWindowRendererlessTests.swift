@@ -2,11 +2,12 @@
 import Foundation
 import Testing
 
-/// p13-webui-019: where the fork makes renderer-less placeholders (p13-webui-017,
-/// `cmux_shim_placeholder_supported`), a spare window's first tab is made with no renderer and no
-/// navigation (Chrome's `kNoRendererProcess`, `chrome/browser/ui/browser_tabrestore.cc`), so the spare
-/// sends no DevTools call: no page setup and no `freezeNeverShownPage`. Take, give back and drop work
-/// as before. On a fork without it the spare keeps the about:blank page frozen through DevTools.
+/// p13-webui-019: with the `rendererlessSpareWindow` feature (`CEFSpareWindow.rendererlessPlaceholders`),
+/// where the fork makes renderer-less placeholders (p13-webui-017, `cmux_shim_placeholder_supported`),
+/// a spare window's first tab is made with no renderer and no navigation (Chrome's `kNoRendererProcess`,
+/// `chrome/browser/ui/browser_tabrestore.cc`), so the spare sends no DevTools call: no page setup and
+/// no `freezeNeverShownPage`. Take, give back and drop work as before. With the feature off, or on a
+/// fork without the placeholder, the spare keeps the about:blank page frozen through DevTools.
 /// Against a spy shim; each test has its own runtime.
 @MainActor @Suite(.serialized) struct CEFSpareWindowRendererlessTests {
     /// Every DevTools call is counted: on fork API 24 a page's attach opens a DevTools session, on 29
@@ -90,6 +91,20 @@ import Testing
         #expect(RendererlessSpy.devToolsCalls.filter { $0 == "Page.setWebLifecycleState" }.count == 1, "\(RendererlessSpy.devToolsCalls)")
     }
 
+    /// The feature off (its default) on a fork that has the placeholder: the about:blank window, frozen
+    /// through DevTools when its browser exists, as before p13-webui-019.
+    @Test func theFeatureOffKeepsTheFrozenAboutBlankPage() throws {
+        #expect(!CEFSpareWindow().rendererlessPlaceholders, "the feature's default is off")
+        let (runtime, root) = try Self.spyRuntime(forkAPI: 29, feature: false)
+        defer { try? FileManager.default.removeItem(at: root) }
+        #expect(runtime.spareWindow.prepare(.browser, runtime: runtime))
+        #expect(RendererlessSpy.windowCreates == 1 && RendererlessSpy.placeholderCreates == 0)
+        let spare = try #require(runtime.spareWindow.host(of: .browser))
+        try Self.comeUp(runtime, browser: 10)
+        #expect(spare.placeholder?.isRendererlessPlaceholder == false)
+        #expect(RendererlessSpy.devToolsCalls.filter { $0 == "Page.setWebLifecycleState" }.count == 1, "\(RendererlessSpy.devToolsCalls)")
+    }
+
     /// Only a spare's own placeholder is made renderer-less: a pane's window, or a popup host's
     /// placeholder, is built as before.
     @Test func aWindowThatIsNoSpareIsBuiltAsBefore() throws {
@@ -114,10 +129,12 @@ import Testing
 
     /// A runtime that outlives the test: a window that came up shows itself at the end of the turn
     /// (`CEFPaneHost.windowCreated`), after the test returned.
-    private static func spyRuntime(forkAPI: Int32, supported: Bool = true) throws -> (CEFRuntime, URL) {
+    /// `feature` is the `rendererlessSpareWindow` feature (`CEFEngine.setRendererlessSpareWindows`).
+    private static func spyRuntime(forkAPI: Int32, supported: Bool = true, feature: Bool = true) throws -> (CEFRuntime, URL) {
         RendererlessSpy.reset(forkAPI: forkAPI, supported: supported)
         let root = FileManager.default.temporaryDirectory.appending(path: "cef-spare-rendererless-\(UUID().uuidString)", directoryHint: .isDirectory)
         let runtime = CEFRuntime(shim: try RendererlessSpy.library(), storage: CEFProfileStorage(root: root))
+        runtime.spareWindow.rendererlessPlaceholders = feature
         _ = Unmanaged.passRetained(runtime)
         return (runtime, root)
     }

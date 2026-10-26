@@ -17,6 +17,8 @@ extension AppServices {
         // cmux pages follow `browser.defaultEngine` (ChromiumPageHost): with the feature, their profile
         // keeps a spare window too, so a page's key joins a live window (p13-webui-016).
         let pagesSpare = features.isEnabled(.pagesSpareWindow)
+        // Before the first spare: its placeholder has no renderer where the fork can (p13-webui-019).
+        cache.cef.setRendererlessSpareWindows(features.isEnabled(.rendererlessSpareWindow))
         chromiumWarmup.start(defaultIsChromium: { preference.defaultEngine == .chromium },
                              pagesPending: { [weak cache] in cache?.pendingBrowsers.isEmpty == false },
                              pagesSpare: { pagesSpare && preference.defaultEngine == .chromium })

@@ -18,7 +18,8 @@ import Foundation
 /// another context replaces it, because a spare of one store cannot serve
 /// another (`content/browser/renderer_host/spare_render_process_host_manager_impl.h`).
 /// Each spare holds a placeholder tab, in no pane (its window starts at the
-/// hidden-tab viewport). Where the fork can, the placeholder has no renderer
+/// hidden-tab viewport). With the `rendererlessSpareWindow` feature, where the
+/// fork can, the placeholder has no renderer
 /// and never navigates (`cmux_shim_create_placeholder_window`, p13-webui-019),
 /// so a spare costs a window and no renderer process; on an older fork it is
 /// an about:blank page frozen through DevTools (`CEFTab.freezeNeverShownPage`).
@@ -64,6 +65,10 @@ final class CEFSpareWindow {
     /// Whether the warmup keeps a `pages` spare (cmux pages use Chromium and the
     /// `pagesSpareWindow` feature is on). Turning it off closes an untaken one.
     private(set) var wantsPages = false
+    /// Whether a spare's placeholder is made with no renderer where the fork can (the
+    /// `rendererlessSpareWindow` feature, `CEFEngine.setRendererlessSpareWindows`); off, every spare
+    /// holds the frozen about:blank page. Read when a spare's window is built.
+    var rendererlessPlaceholders = false
     /// No spare of a wanted kind is ready (a pane took it, or a window came up first): the next
     /// idle moment may make one (`ChromiumWarmup`).
     var onNeeded: (@MainActor () -> Void)?

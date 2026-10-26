@@ -106,7 +106,7 @@ nonisolated extension Feature {
 
     /// While cmux pages use Chromium, the warm start keeps a spare Chromium window of the pages profile, so a page opens in a live window instead of building one on the key's turn.
     public static let pagesSpareWindow = Feature(
-        index: 5,
+        index: 6,
         name: "pagesSpareWindow",
         owner: "PL-webui",
         description: "While cmux pages use Chromium, the warm start keeps a spare Chromium window of the pages profile, so a page opens in a live window instead of building one on the key's turn.",
@@ -123,7 +123,7 @@ nonisolated extension Feature {
 
     /// Memory Saver keeps a hidden page awake for one minute after its sound ends, and keeps a page whose tab reports sound with no probe, as Chrome does (kTabAudioProtectionTime).
     public static let recentlyAudibleProtection = Feature(
-        index: 6,
+        index: 7,
         name: "recentlyAudibleProtection",
         owner: "PL-memory",
         description: "Memory Saver keeps a hidden page awake for one minute after its sound ends, and keeps a page whose tab reports sound with no probe, as Chrome does (kTabAudioProtectionTime).",
@@ -140,7 +140,7 @@ nonisolated extension Feature {
 
     /// Hold budgeted main-thread work while a shown window's display link is over 100 ms late, until its next tick.
     public static let renderStarvationGuard = Feature(
-        index: 7,
+        index: 8,
         name: "renderStarvationGuard",
         owner: "Performance Lead",
         description: "Hold budgeted main-thread work while a shown window's display link is over 100 ms late, until its next tick.",
@@ -155,9 +155,26 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// Where the Chromium fork makes renderer-less placeholders, a spare Chromium window's placeholder tab has no renderer process and never navigates, instead of a frozen about:blank page.
+    public static let rendererlessSpareWindow = Feature(
+        index: 9,
+        name: "rendererlessSpareWindow",
+        owner: "PL-webui",
+        description: "Where the Chromium fork makes renderer-less placeholders, a spare Chromium window's placeholder tab has no renderer process and never navigates, instead of a frozen about:blank page.",
+        kind: .perfPath,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: "2026-12-20",
+        params: [],
+        stories: ["home-idle"],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// The Task Manager lists the items Memory Saver discarded, each with the memory it saved, and the total Memory Saver freed.
     public static let taskManagerMemorySaved = Feature(
-        index: 8,
+        index: 10,
         name: "taskManagerMemorySaved",
         owner: "PL-memory",
         description: "The Task Manager lists the items Memory Saver discarded, each with the memory it saved, and the total Memory Saver freed.",
@@ -174,7 +191,7 @@ nonisolated extension Feature {
 
     /// Each display's link runs on a vsync thread of its own, and the main frame clock gets one coalesced tick from it per vsync.
     public static let vsyncHub = Feature(
-        index: 9,
+        index: 11,
         name: "vsyncHub",
         owner: "Performance Lead",
         description: "Each display's link runs on a vsync thread of its own, and the main frame clock gets one coalesced tick from it per vsync.",
@@ -192,7 +209,7 @@ nonisolated extension Feature {
     #if DEBUG || CMUX_BENCH_HOOKS
     /// Bench builds only: every key-down spins for exactly 2 ms before key dispatch, the known regression the perf lab canary must alert on, bisect to and verify.
     public static let perfLabCanary = Feature(
-        index: 10,
+        index: 12,
         name: "perfLabCanary",
         owner: "Performance Lead",
         description: "Bench builds only: every key-down spins for exactly 2 ms before key dispatch, the known regression the perf lab canary must alert on, bisect to and verify.",
@@ -209,7 +226,7 @@ nonisolated extension Feature {
 
     /// Bench builds only: changes nothing and reports its value at launch, so a signed flags document that turns it off proves the kill switch path end to end.
     public static let perfLabKillProbe = Feature(
-        index: 11,
+        index: 13,
         name: "perfLabKillProbe",
         owner: "Performance Lead",
         description: "Bench builds only: changes nothing and reports its value at launch, so a signed flags document that turns it off proves the kill switch path end to end.",
@@ -234,8 +251,10 @@ nonisolated extension Feature {
         .memorySaverBackgroundActivity,
         .occludedWindowDiscard,
         .pageProcessGroups,
+        .pagesSpareWindow,
         .recentlyAudibleProtection,
         .renderStarvationGuard,
+        .rendererlessSpareWindow,
         .taskManagerMemorySaved,
         .vsyncHub,
         .perfLabCanary,
@@ -253,6 +272,7 @@ nonisolated extension Feature {
         .pagesSpareWindow,
         .recentlyAudibleProtection,
         .renderStarvationGuard,
+        .rendererlessSpareWindow,
         .taskManagerMemorySaved,
         .vsyncHub,
     ]

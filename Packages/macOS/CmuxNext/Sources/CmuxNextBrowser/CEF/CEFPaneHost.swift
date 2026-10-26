@@ -36,7 +36,8 @@ final class CEFPaneHost {
     /// it closes once the popup moved in (`CEFPaneHost+Popups`).
     var placeholder: CEFTab?
     /// The placeholder is a spare window's (`CEFSpareWindow`): never shown, so Chromium never learns it is
-    /// hidden. It is made with no renderer where the fork can, else its page is frozen once its browser exists.
+    /// hidden. With `CEFSpareWindow.rendererlessPlaceholders` it is made with no renderer where the fork can,
+    /// else its page is frozen once its browser exists.
     var quietsPlaceholder = false
     /// This window's placeholder has no renderer (`cmux_shim_create_placeholder_window`): no page to set up or freeze.
     private(set) var placeholderHasNoRenderer = false
@@ -251,8 +252,9 @@ final class CEFPaneHost {
             ChatOpenTrace.shared.mark(.cefWindowCreate, chromiumPane: key.pane.rawValue)
             #endif
             let initialURL = tab.takeInitialURLString()
-            // Set before the create: in process, AFTER_CREATED (and the placeholder's attach) runs inside it.
-            placeholderHasNoRenderer = quietsPlaceholder && placeholder === tab && shim.placeholderSupported() == 1
+            // Set before AFTER_CREATED can reach the placeholder's attach.
+            placeholderHasNoRenderer = quietsPlaceholder && placeholder === tab && runtime.spareWindow.rendererlessPlaceholders
+                && shim.placeholderSupported() == 1
             let rendererless = placeholderHasNoRenderer
             let create = {
                 CEFStartSteps.shared.createWindow {
