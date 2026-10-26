@@ -387,6 +387,9 @@ const BOUND: &[Case] = &[
 /// Runs `cases` one at a time and names every one that fails.
 async fn run(cases: &[Case]) {
     use futures_util::FutureExt;
+    // Every case sets CMUX_NEXT_CONFIG_FILE for its daemon: one table runs at a time.
+    static ONE_AT_A_TIME: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+    let _one = ONE_AT_A_TIME.lock().await;
     let mut failed = Vec::new();
     for (name, case) in cases {
         if std::panic::AssertUnwindSafe(case(name)).catch_unwind().await.is_err() {
