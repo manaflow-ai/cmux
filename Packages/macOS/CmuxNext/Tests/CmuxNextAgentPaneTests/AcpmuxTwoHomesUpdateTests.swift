@@ -42,9 +42,10 @@ struct AcpmuxTwoHomesUpdateTests {
             var before: [Int32?] = []
             for index in homes.indices {
                 try await AcpmuxHost(environment: try environment(index)).prewarm()
-                before.append(try await pid(index))
+                let now = try await pid(index)
+                before.append(now)
+                if let now { started.insert(now) }
             }
-            started.formUnion(before.compactMap { $0 })
             // The update: the bundle goes aside and away, the new one takes its place.
             step = "the bundle swap"
             let aside = root.appendingPathComponent("T.old.app", isDirectory: true)
