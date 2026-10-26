@@ -1,0 +1,130 @@
+# cargo-fuzz targets for cmux-tui's wire and parser entry points
+# (plans/cmux-next/chrome-parity/p10-stability.md, task 017).
+#
+# Its own workspace, lock and nightly toolchain, so the main workspace's
+# Cargo.toml, Cargo.lock and pinned stable toolchain never change for it.
+# Run the targets through scripts/cmux-next/rust-fuzz.sh: it applies the
+# resource limits, under which an OOM or a timeout is a finding (Chromium's
+# ClusterFuzz libFuzzer engine, clusterfuzz/src/clusterfuzz/_internal/bot/
+# fuzzers/libFuzzer/constants.py, does the same).
+
+[package]
+name = "cmux-tui-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+license = "GPL-3.0-or-later"
+
+[package.metadata]
+cargo-fuzz = true
+
+[workspace]
+members = ["."]
+
+[dependencies]
+libfuzzer-sys = "0.4"
+anyhow = "1"
+arbitrary = { version = "1", features = ["derive"] }
+base64 = "0.22"
+flate2 = "1"
+serde_json = "1"
+sha2 = "0.10"
+# Task 020: the host codec, journal, output store and page listener decoders,
+# reached through `cmux_tui_core::fuzz_entry`.
+cmux-tui-core = { path = "../crates/cmux-tui-core", features = ["fuzz"] }
+
+# `cargo fuzz build` uses the release profile. A wire decoder must return an
+# error for any input, so an arithmetic overflow or a debug assertion is a
+# finding here too.
+[profile.release]
+debug = 1
+debug-assertions = true
+overflow-checks = true
+
+# Task 020 targets. Byte-format targets take seeds from seeds/<target>/
+# (seeds/generate_020.py writes them); the journal targets build their rows
+# with `arbitrary`.
+
+[[bin]]
+name = "host_snapshot"
+path = "fuzz_targets/host_snapshot.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "host_resize"
+path = "fuzz_targets/host_resize.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "host_launch"
+path = "fuzz_targets/host_launch.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "host_default_colors"
+path = "fuzz_targets/host_default_colors.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "host_resync_kitty_limits"
+path = "fuzz_targets/host_resync_kitty_limits.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "host_identity_hex"
+path = "fuzz_targets/host_identity_hex.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "host_colors_wire"
+path = "fuzz_targets/host_colors_wire.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "journal_record"
+path = "fuzz_targets/journal_record.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "journal_segment"
+path = "fuzz_targets/journal_segment.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "output_snapshot"
+path = "fuzz_targets/output_snapshot.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "output_segment_frames"
+path = "fuzz_targets/output_segment_frames.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "page_request_head"
+path = "fuzz_targets/page_request_head.rs"
+test = false
+doc = false
+bench = false

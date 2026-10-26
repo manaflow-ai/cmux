@@ -1,0 +1,8 @@
+# cargo-fuzz needs nightly (-Zsanitizer, SanitizerCoverage). The pin applies
+# to this folder only: the main workspace stays on its pinned stable
+# (cmux-tui/rust-toolchain.toml). Bump the date in its own commit and rebuild
+# every target (`scripts/cmux-next/rust-fuzz.sh --all --build-only`).
+[toolchain]
+channel = "nightly-2026-10-01"
+profile = "minimal"
+components = ["rust-src", "llvm-tools-preview"]
