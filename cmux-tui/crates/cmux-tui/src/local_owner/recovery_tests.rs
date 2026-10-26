@@ -63,5 +63,8 @@ fn connection_limit_after_starting_has_its_own_busy_deadline() {
     stop.send(()).unwrap();
     let _ = UnixStream::connect(&spec.socket);
     server.join().unwrap();
-    assert!(matches!(result, Err(EnsureError::Busy)), "continuous refusals must report busy even after a starting response");
+    assert!(
+        matches!(result, Err(EnsureError::Busy)),
+        "continuous refusals must report busy even after a starting response"
+    );
 }
