@@ -9,37 +9,49 @@ Chrome reference (chromium/src): chrome/browser/ui/views/accelerator_table_unitt
 accelerator table instead of one hand-written test per shortcut, and chrome/test/interaction/
 interactive_browser_test.h gives every interactive UI test one shared setup and verb set. Here the table is the
 catalog and the shared setup is the sweep's: every-action-sweep.py's plan of the action (Sweep.plan and plan_row,
-loaded through action_fixtures.load_sweep where it is) gives its entrypoint, registry context, arguments and
-PREPARE steps. The catalog is a live `action.list` reply checked in as tests/oracle/fixtures/actions/
-action-list.json when a fleet run has captured one, else plans/cmux-next/action-surfaces.json, which has no
-registry contexts or arguments (coverage.json `contexts` says which).
+loaded through action_fixtures.load_sweep where it is) gives its entrypoint, registry context, arguments, flag
+exclusions and PREPARE steps. That plan needs a live `action.list` reply (each action's registry contexts,
+arguments and its destructive, debug_only and waits_for_person flags), checked in as tests/oracle/fixtures/
+actions/action-list.json from a fleet sweep's OUT/action-list.json. plans/cmux-next/action-surfaces.json has none
+of those, so from it the generator writes no runnable case: every action is blocked `no-live-catalog` (or `gap`)
+in coverage.json until the live list is checked in.
 
-Per action that every-action-gaps.json does not exclude, one case `<slug>.json`:
+Per action that every-action-gaps.json does not exclude, from a live catalog, one case `<slug>.json`:
 
-  context-N   the tab kind the action's registry context needs (CONTEXT_STEPS), when the catalog says it
+  context-N   the tab kind the action's registry context needs (CONTEXT_STEPS)
   neighbor-N  a pane beside the focused one, for a directional move (NEIGHBOR_STEPS)
   prepare-N   the sweep's PREPARE steps (and a family fixture's), as action.run
   ...         a family's tuned `before` steps
   action      the real entrypoint: its default single-stroke shortcut as a key step through debug.key, else
               action.run (the CLI and palette path), as the sweep plans it; checkpoints before, turn, settled
-              (the settled checkpoint is debug.oracle.settle then the snapshot)
+              (the settled checkpoint is debug.oracle.settle then the snapshot). The turn checkpoint fails the
+              case when no perform turn ran (a key the terminal or no handler took). The sweep's checked
+              expectation (pane+, tab+, focus...) is the step's waitFor (EXPECT_WAITS): a no-op is a Timeout.
   restore-N   the sweep's restore of what no reset sees: a toggle runs again, a fit is undone (UNDO)
 
-An action is blocked, not runnable (BLOCK_KINDS), when every-action-gaps.json lists it as a gap (no fixture yet:
-tasks 082-087 close them), when the sweep's plan skips it with this catalog, or when an argument has only a live
-value (the sweep's `<base.*>` or `<fixture ...>` placeholders). A blocked case is written whole into `_blocked.json`
-(oracle.py skips `_` files), with its reason in `untested`; when its gap closes, regeneration moves it to its own
-file. coverage.json counts the runnable cases as covered and each blocked action as excluded with its reason.
+Every case requires `gui` (it acts on the launch's window), and `chromium` when its context is a Chromium page.
 
-The families of tasks 072-081 tune their actions in `<family>/_tuning.json` (FAMILIES), which this generator
-reads, so regeneration keeps the tuning and stays byte-stable: {"actions": {id: {entry, params, receipt, error,
-before, waitFor, settleMaxMs, invariants, untested, requires, note}}}. Every case, tuned or not, is checked
-against schemas/oracle/case-v1.schema.json before anything is written.
+An action is blocked, not runnable (BLOCK_KINDS): `gap` when every-action-gaps.json lists it (no fixture yet:
+tasks 082-087 close them); `no-live-catalog` when the catalog is the export; `flag` when the sweep's plan excludes
+it by a catalog flag (destructive, debug-only, waits for a person, palette-internal); `state` when the plan skips
+it for the session's state; `expected-refusal` when the sweep's EXPECTED_REFUSALS refuses a script caller and no
+family tuning names the typed error yet; `live-value` when an argument has only a live value (the sweep's
+`<base.*>` or `<fixture ...>` placeholders). What fails a whole-catalog sweep (exit 4) stops generation
+(GenError): an id a SKIPS pattern excludes that the reviewed `excluded` list does not name, and a plan gap the
+`gaps` list does not name. A blocked case of a live catalog is written whole into `_blocked.json` (oracle.py skips
+`_` files), with its reason in `untested`; when its reason goes, regeneration moves it to its own file.
+coverage.json counts the runnable cases as covered and each blocked action as excluded with its reason.
+
+Cases are flat (`actions/<slug>.json`): oracle.py load_case takes a case's id from its path after the suite, and
+a case-v1 id is a slug with no `/`. The families of tasks 072-081 tune their actions in `<family>/_tuning.json`
+(FAMILIES), which this generator reads, so regeneration keeps the tuning and stays byte-stable: {"actions": {id:
+{entry, params, receipt, error, before, waitFor, settleMaxMs, invariants, untested, requires, note}}}. Every
+case, tuned or not, is checked against schemas/oracle/case-v1.schema.json before anything is written.
 
 Usage:
   gen_actions.py --out DIR [--catalog PATH]          write the cases, _blocked.json and coverage.json into DIR
   gen_actions.py --out DIR [--catalog PATH] --check  exit 1 when DIR differs from a fresh generation
-  gen_actions.py --selftest                          offline tests against the checked-in catalog
+  gen_actions.py --selftest                          offline tests (the export, and live catalogs made from it)
 """
 
 from __future__ import annotations
@@ -119,7 +131,21 @@ NEIGHBOR_STEPS: Dict[str, Tuple[Tuple[str, Dict[str, Any]], ...]] = {
     "up": (("splitDown", {}),),
     "down": (("splitDown", {}), ("focusUp", {})),
 }
-# The sweep's checked expectations, in words for the case's reviewer.
+# The sweep's checked expectations as the action step's waitFor: the snapshot value that changes when the action did
+# its work (driver_app reads it before the step, then debug.oracle.wait_for waits for a different value). A count
+# where the snapshot has one (tab_count, windows.count), else the list the change lands in (a pane, a dock and a
+# workspace are in topology.workspaces), else the focused pane.
+WORKSPACES = "/topology/topology/workspaces"
+EXPECT_WAITS = {
+    "pane+": WORKSPACES, "pane-": WORKSPACES,
+    "tab+": "/topology/tab_count", "tab-": "/topology/tab_count",
+    "workspace+": WORKSPACES, "workspace-": WORKSPACES,
+    "window+": "/windows/count",
+    "focus": "/topology/topology/focus/pane",
+    "chat_dock+": WORKSPACES,
+}
+EXPECT_WAIT_MS = 5000
+# The same expectations in words, beside the check, for the case's reviewer.
 EXPECT_WORDS = {
     "pane+": "the settled layout has one pane more than before the input",
     "pane-": "the settled layout has one pane fewer than before the input",
@@ -148,10 +174,18 @@ STEP_ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
 SLUG = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
 ERROR_CODE = re.compile(r"^[a-z][a-z_]*(\.[a-z][a-z_]*)+$")
 PLACEHOLDER = re.compile(r"<(base\.[a-z_]+|fixture [^>]+)>")
-# Why a case is blocked: a gap of every-action-gaps.json (no fixture yet); the sweep's plan skips the action with this
-# catalog (an exclusion the reviewed list does not name, or a context the sweep does not set up); or an argument has
-# only a live value.
-BLOCK_KINDS = ("gap", "plan", "live-value")
+# Why a case is blocked (the module doc says when each applies).
+BLOCK_KINDS = ("gap", "no-live-catalog", "flag", "state", "expected-refusal", "live-value")
+# What an action.list entry has that the export lacks, and the sweep's plan reads: without them the plan cannot see a
+# registry context, an argument, or a flag that keeps the action out of the sweep.
+LIVE_KEYS = ("requires", "arguments", "destructive", "debug_only", "waits_for_person", "surfaces")
+NO_LIVE_CATALOG = (f"the catalog is plans/cmux-next/action-surfaces.json, which has no registry contexts, arguments "
+                   f"or destructive/debug_only/waits_for_person flags, so the sweep's plan of the action is unknown; "
+                   f"check in a fleet sweep's OUT/action-list.json as tests/oracle/fixtures/actions/action-list.json "
+                   f"and regenerate")
+# The capabilities every case needs: it runs actions on the launch's window (oracle.py PRODUCTS: the app product).
+BASE_REQUIRES = ("actions", "gui")
+CHROMIUM_CONTEXTS = frozenset({"chromium", "omnibar"})
 TUNING_KEYS = frozenset({"entry", "params", "receipt", "error", "before", "waitFor", "settleMaxMs", "invariants",
                          "untested", "requires", "note"})
 TUNING_CAPABILITIES = frozenset({"keys", "gui", "chromium", "mcp"})
@@ -190,18 +224,17 @@ def default_catalog() -> Path:
 
 
 def listed(entry: Mapping[str, Any]) -> Dict[str, Any]:
-    """An action-surfaces.json entry in the action.list shape the sweep's plan reads. The export has no registry
-    contexts, arguments or flags: those plans have no context and no arguments (a live --catalog has them)."""
+    """An action-surfaces.json entry with the fields the export has: id, title, its shortcut as action.list's
+    `shortcut_config`. Not a plan's input: the export has no registry contexts, arguments or flags."""
     stroke = entry.get("default_shortcut")
     return {"id": entry["id"], "title": entry.get("title") or entry["id"],
             "shortcut_config": config_string(stroke) if stroke else None,
-            "surfaces": {k: entry.get(k) for k in ("palette", "cli", "context_menu", "mcp")},
-            "requires": [], "arguments": [], "targets": []}
+            "surfaces": {k: entry.get(k) for k in ("palette", "cli", "context_menu", "mcp")}}
 
 
 class Catalog:
-    """The actions, in the action.list shape, sorted by id: action-surfaces.json converted, or an action.list
-    reply (a sweep run's OUT/action-list.json) as it is."""
+    """The actions sorted by id: an action.list reply (a sweep run's OUT/action-list.json) as it is (`live`), or
+    action-surfaces.json, which the generator only lists (no plan, no runnable case)."""
 
     def __init__(self, path: Path, text: str):
         self.path = path
@@ -213,7 +246,13 @@ class Catalog:
             raise GenError(f"{path}: not action-surfaces.json or an action.list reply: {error!r}") from None
         if not isinstance(entries, list) or not all(isinstance(e, dict) and isinstance(e.get("id"), str) for e in entries):
             raise GenError(f"{path}: `actions` is a list of objects with an id")
-        self.live = bool(entries) and "default_shortcut" not in entries[0]
+        self.live = not any("default_shortcut" in e for e in entries)
+        if self.live:
+            for entry in entries:
+                lacking = [key for key in LIVE_KEYS if key not in entry]
+                if lacking:
+                    raise GenError(f"{path}: {entry['id']} has no {', '.join(lacking)}: not a whole action.list reply "
+                                   f"(the sweep's plan reads them)")
         actions = [dict(e) if self.live else listed(e) for e in entries]
         self.actions = sorted(actions, key=lambda a: a["id"])
         ids = [a["id"] for a in self.actions]
@@ -423,6 +462,11 @@ def build_case(action: Mapping[str, Any], row: Mapping[str, Any], planner: Plann
     else:
         main["expect"] = {"outcome": "ok", "noReceiptReason": NO_RECEIPT}
     main["checkpoint"] = ["before", "turn", "settled"]
+    expected = (row.get("expect") or {}).get("key" if entry == "key" else "action")
+    if expected and expected not in EXPECT_WAITS:
+        raise GenError(f"{ident}: the sweep's expectation {expected!r} has no EXPECT_WAITS check")
+    if expected and "error" not in spec:
+        main["waitFor"] = {"pointer": EXPECT_WAITS[expected], "predicate": "changed", "maxMs": EXPECT_WAIT_MS}
     for key in ("waitFor", "settleMaxMs", "note"):
         if key in spec:
             main[key] = copy.deepcopy(spec[key])
@@ -444,9 +488,11 @@ def build_case(action: Mapping[str, Any], row: Mapping[str, Any], planner: Plann
     if twice:
         raise GenError(f"{ident}: step ids {twice} are used twice (a tuned before step takes a generated id)")
 
-    requires = ["actions"]
+    requires = list(BASE_REQUIRES)
     if any(step["op"] == "key" for step in steps):
         requires.append("keys")
+    if context in CHROMIUM_CONTEXTS:
+        requires.append("chromium")
     for capability in spec.get("requires") or ():
         if capability not in requires:
             requires.append(capability)
@@ -460,16 +506,20 @@ def build_case(action: Mapping[str, Any], row: Mapping[str, Any], planner: Plann
         fixture["setup"] = owners[0]
     invariants = [f"generated by {GENERATOR} from {catalog.label} entry {ident} (family {family}, {task}) with "
                   f"every-action-sweep.py's plan"]
-    expected = (row.get("expect") or {}).get("key" if entry == "key" else "action")
-    if expected in EXPECT_WORDS:
-        invariants.append(EXPECT_WORDS[expected])
+    if expected and "error" not in spec:
+        check = "" if "waitFor" in spec else f" (the action step's waitFor checks that {EXPECT_WAITS[expected]} changed)"
+        invariants.append(EXPECT_WORDS[expected] + check)
     invariants.extend(spec.get("invariants") or ())
     untested = list(spec.get("untested") or ())
-    if row.get("expected_refusal") and "error" not in spec:
-        untested.append(f"the sweep expects the app to refuse it for a script caller ({row['expected_refusal']}); "
-                        f"{task} names the typed error")
+    if entry == "key":
+        untested.append("which action the key ran: the turn checkpoint fails a key no action took, but driver_app.py "
+                        "does not compare the debug.key reply's `action` with this action (p15-oracle-047)")
     if blocked:
         untested.insert(0, f"blocked: {blocked}")
+    teardown = ["the restore steps put back what the action toggled or fit"] if restore else []
+    if row.get("last"):
+        teardown.append("it closes the launch's window: the reset cannot put it back (NeedsRelaunch), so the next "
+                        "case gets a fresh launch, as the sweep runs it last and relaunches")
     case: Dict[str, Any] = {
         "$schema": SCHEMA_REF,
         "corpusVersion": 1,
@@ -486,8 +536,7 @@ def build_case(action: Mapping[str, Any], row: Mapping[str, Any], planner: Plann
         "platforms": ["mac"],
         "steps": steps,
         "invariants": invariants,
-        "teardown": (["the restore steps put back what the action toggled or fit"] if restore else [])
-        + ["the driver resets the session before the next case (app_reset.py)"],
+        "teardown": teardown + ["the driver resets the session before the next case (app_reset.py)"],
     }
     if untested:
         case["untested"] = untested
@@ -496,6 +545,10 @@ def build_case(action: Mapping[str, Any], row: Mapping[str, Any], planner: Plann
         entry_doc["key"] = stroke
     if setup:
         entry_doc["setup"] = setup
+    if "waitFor" in main:
+        entry_doc["checks"] = main["waitFor"]["pointer"]
+    if row.get("last"):
+        entry_doc["last"] = True
     if spec:
         entry_doc["tuned"] = sorted(spec)
     if blocked:
@@ -586,8 +639,9 @@ class CaseCheck:
 
 def generate(catalog: Catalog, gaps: Gaps, tuning: Mapping[str, Mapping[str, Any]],
              planner: Optional[Planner] = None) -> Dict[str, Any]:
-    """{file name: JSON value} for the whole suite: the runnable cases, _blocked.json and coverage.json."""
-    planner = planner or Planner(sweep_module())
+    """{file name: JSON value} for the whole suite: the runnable cases, _blocked.json and coverage.json. From the
+    export (no live catalog) only _blocked.json, with no case, and coverage.json: every action blocked."""
+    planner = planner or (Planner(sweep_module()) if catalog.live else None)
     check = CaseCheck()
     files: Dict[str, Any] = {}
     blocked_cases: Dict[str, Any] = {}
@@ -607,15 +661,35 @@ def generate(catalog: Catalog, gaps: Gaps, tuning: Mapping[str, Mapping[str, Any
         if case_id in seen:
             raise GenError(f"{ident} and {seen[case_id]} make one case id {case_id!r}")
         seen[case_id] = ident
-        row = planner.plan(action)
+        family = family_of(ident)
         blocked, kind = None, None
         if ident in gaps.gaps:
             blocked, kind = f"{gaps.gaps[ident]} (every-action-gaps.json; {GAP_TASKS})", "gap"
-        if "skipped" in row:
-            if not blocked:
-                blocked, kind = f"the sweep's plan skips it ({row.get('skip_kind')}): {row['skipped']}", "plan"
-            row = planner.unplanned(action)
+        if planner is None:
+            blocked, kind = blocked or NO_LIVE_CATALOG, kind or "no-live-catalog"
+            excluded[ident] = f"blocked: {blocked}"
+            families[family]["blocked"] += 1
+            blocked_by[kind] += 1
+            actions[ident] = {"family": family, "case": f"{SUITE}/{case_id}", "blocked": blocked, "blocked_by": kind}
+            continue
         spec = tuning.get(ident) or {}
+        row = planner.plan(action)
+        if "skipped" in row:
+            if row.get("excluded_by") == "pattern":
+                raise GenError(f"{ident}: a SKIPS pattern excludes it ({row['skipped']}), and every-action-gaps.json "
+                               f"`excluded` does not name it; a whole-catalog sweep fails on it (exit 4): review it "
+                               f"into that list")
+            if not blocked:
+                if row.get("skip_kind") == "gap":
+                    raise GenError(f"{ident}: the sweep's plan has a gap every-action-gaps.json does not list "
+                                   f"({row['skipped']}); a whole-catalog sweep fails on it (exit 4)")
+                blocked = f"the sweep's plan skips it: {row['skipped']}"
+                kind = "flag" if row.get("excluded_by") else "state"
+            row = planner.unplanned(action)
+        elif row.get("expected_refusal") and "error" not in spec and not blocked:
+            blocked, kind = (f"the sweep's EXPECTED_REFUSALS: a script caller is refused ({row['expected_refusal']}), "
+                             f"and no typed error is known; {FAMILY_TASK[family]} names it as `error` in "
+                             f"{family}/{TUNING}"), "expected-refusal"
         case, entry = build_case(action, row, planner, catalog, spec, blocked)
         live = [p for step in case["steps"] for p in placeholders(step.get("args", {}), f"{step['id']}.args")]
         if live and not blocked:
@@ -644,7 +718,8 @@ def generate(catalog: Catalog, gaps: Gaps, tuning: Mapping[str, Mapping[str, Any
     files[BLOCKED] = {
         "$comment": f"Blocked action cases of the actions suite, written whole by {GENERATOR}; oracle.py does not run "
                     f"`_` files. Each moves to its own case file when its reason goes (a gap fixture lands and "
-                    f"every-action-gaps.json drops the gap). Do not edit: regenerate.",
+                    f"every-action-gaps.json drops the gap). From the export catalog there is no case to write: "
+                    f"coverage.json lists every action blocked. Do not edit: regenerate.",
         "generator": GENERATOR,
         "cases": blocked_cases,
     }
@@ -654,9 +729,7 @@ def generate(catalog: Catalog, gaps: Gaps, tuning: Mapping[str, Mapping[str, Any
         "catalog": catalog.label,
         "catalog_sha256": catalog.sha256,
         "catalog_kind": "action.list" if catalog.live else "action-surfaces",
-        "contexts": "from the catalog" if catalog.live else
-                    f"not set up: action-surfaces.json has no registry contexts or arguments; check in a fleet run's "
-                    f"action.list as {LIVE_CATALOG.relative_to(REPO).as_posix()} and regenerate",
+        "contexts": "from the catalog" if catalog.live else f"unknown: no case is runnable ({NO_LIVE_CATALOG})",
         "gaps": "scripts/cmux-next/every-action-gaps.json",
         "gaps_sha256": gaps.sha256,
         "total": len(actions),
@@ -730,43 +803,109 @@ def write(out: Path, files: Mapping[str, Any]) -> Tuple[int, int]:
 # --------------------------------------------------------------------------------------------- self test
 
 
+def live_catalog(overrides: Optional[Mapping[str, Mapping[str, Any]]] = None) -> Catalog:
+    """A live action.list made from action-surfaces.json for the self tests: every action with no context, no
+    argument and no flag, except what `overrides` sets per id."""
+    surfaces = json.loads(SURFACES.read_text(encoding="utf-8"))["actions"]
+    entries = []
+    for item in surfaces:
+        entry = {**listed(item), "requires": [], "arguments": [], "targets": [], "destructive": False,
+                 "debug_only": False, "waits_for_person": False}
+        entry.update((overrides or {}).get(item["id"], {}))
+        entries.append(entry)
+    return Catalog(Path("action-list.json"), json.dumps({"actions": entries}))
+
+
+# The flags and contexts the self tests' live catalog gives a few actions, as action.list reports them.
+LIVE_OVERRIDES: Dict[str, Dict[str, Any]] = {
+    "tabGroup.close": {"destructive": True},
+    "taskManager.killProcess": {"destructive": True},
+    "server.makeThisMacAServer": {"debug_only": True},
+    "closeTab": {"destructive": True, "shortcut_config": None},
+    "browserReload": {"requires": ["browserFocused"]},
+}
+
+
 class GenActionsSelfTest(unittest.TestCase):
     @classmethod
     def setUpClass(cls) -> None:
-        cls.catalog = Catalog.load(SURFACES)
         cls.gaps = Gaps.load()
+        cls.export = Catalog.load(SURFACES)
+        cls.export_files = generate(cls.export, cls.gaps, {})
+        cls.catalog = live_catalog(LIVE_OVERRIDES)
         cls.files = generate(cls.catalog, cls.gaps, {})
         cls.coverage = cls.files[COVERAGE]
 
     def cases(self) -> Dict[str, Dict[str, Any]]:
         return {name: case for name, case in self.files.items() if name not in (COVERAGE, BLOCKED)}
 
-    def test_every_non_excluded_action_is_runnable_or_blocked(self) -> None:
-        """Task 071's acceptance at the checked-in catalog: of 985 actions (1,201 - 216 excluded), the 84 gaps are
-        blocked, and so are 15 the sweep's own plan never runs: 14 paletteKey actions (palette-internal: they run
-        inside the open palette) and agentPane.revealCwdInFinder (a SKIPS pattern: it opens Finder; the reviewed
-        excluded list does not name it yet). The task's 901 counted those 15 as runnable. A catalog or gap-list
-        change moves these numbers: update them with it."""
-        ids = [a["id"] for a in self.catalog.actions if a["id"] not in self.gaps.excluded]
-        self.assertEqual(self.coverage["total"], len(ids))
+    def case_of(self, ident: str) -> Dict[str, Any]:
+        name = slug(ident)
+        return self.files.get(f"{name}.json") or self.files[BLOCKED]["cases"][name]["case"]
+
+    def test_the_export_catalog_writes_no_runnable_case(self) -> None:
+        """Task 071 at the checked-in catalog (no live action.list yet): of 984 actions (1,201 - 217 excluded), the 84
+        gaps and the 900 others are blocked, none runnable: action-surfaces.json has no contexts, arguments or flags,
+        so a case made from it would run destructive and debug-only actions and context actions with no context.
+        A catalog or gap-list change moves these numbers: update them with it."""
+        coverage = self.export_files[COVERAGE]
+        ids = [a["id"] for a in self.export.actions if a["id"] not in self.gaps.excluded]
+        self.assertEqual(set(self.export_files), {BLOCKED, COVERAGE})
+        self.assertEqual(self.export_files[BLOCKED]["cases"], {})
+        self.assertEqual((coverage["total"], coverage["covered"], len(coverage["excluded"])), (len(ids), 0, len(ids)))
+        self.assertEqual((coverage["total"], coverage["not_in_suite"]), (984, 217))
+        self.assertEqual(coverage["blocked_by"], {"gap": 84, "no-live-catalog": 900, "flag": 0, "state": 0,
+                                                  "expected-refusal": 0, "live-value": 0})
+        self.assertEqual(sorted(i for i, e in coverage["actions"].items() if e["blocked_by"] == "gap"),
+                         sorted(set(ids) & set(self.gaps.gaps)))
+        self.assertEqual(coverage["catalog_kind"], "action-surfaces")
+        self.assertEqual(coverage["stale_gap_ids"], [])
+
+    def test_a_live_catalog_needs_every_planned_field(self) -> None:
+        entry = {"id": "openSettings", "title": "Settings", "shortcut_config": "cmd+,", "requires": [], "arguments": [],
+                 "surfaces": {}, "debug_only": False, "waits_for_person": False}
+        with self.assertRaises(GenError) as raised:
+            Catalog(Path("action-list.json"), json.dumps({"actions": [entry]}))
+        self.assertIn("has no destructive", str(raised.exception))
+
+    def test_flags_block_what_the_sweep_does_not_run(self) -> None:
+        """destructive (other than closeTab/Pane/Workspace/Window), debug-only and palette-internal actions are
+        `flag` blocks; the policy refusals are `expected-refusal` blocks; the rest of the live catalog runs."""
+        by = {}
+        for ident, entry in self.coverage["actions"].items():
+            by.setdefault(entry.get("blocked_by"), []).append(ident)
+        self.assertEqual(sorted(by["flag"]), sorted(["tabGroup.close", "taskManager.killProcess",
+                                                     "server.makeThisMacAServer"]
+                                                    + [i for i in by["flag"] if i.startswith("paletteKey.")]))
+        self.assertEqual(len([i for i in by["flag"] if i.startswith("paletteKey.")]), 14)
+        self.assertEqual(sorted(by["expected-refusal"]), ["palette.disableBrowser", "palette.enableBrowser"])
+        self.assertEqual(sorted(by["gap"]), sorted(set(self.coverage["actions"]) & set(self.gaps.gaps)))
         self.assertEqual(len(self.cases()), self.coverage["covered"])
-        self.assertEqual(len(self.files[BLOCKED]["cases"]), len(self.coverage["excluded"]))
-        gap_ids = sorted(i for i, e in self.coverage["actions"].items() if e.get("blocked_by") == "gap")
-        self.assertEqual(gap_ids, sorted(set(ids) & set(self.gaps.gaps)))
-        plan_ids = sorted(i for i, e in self.coverage["actions"].items() if e.get("blocked_by") == "plan")
-        self.assertEqual(plan_ids, ["agentPane.revealCwdInFinder"]
-                         + sorted(i for i in ids if i.startswith("paletteKey.")))
-        self.assertEqual((self.coverage["total"], self.coverage["covered"], len(self.coverage["excluded"])),
-                         (985, 886, 99))
-        self.assertEqual(self.coverage["blocked_by"], {"gap": 84, "plan": 15, "live-value": 0})
-        self.assertEqual(self.coverage["not_in_suite"], 216)
-        self.assertEqual(self.coverage["stale_gap_ids"], [])
+        self.assertEqual(self.coverage["covered"], 984 - 84 - 17 - 2)
+        self.assertEqual(self.files["close-tab.json"]["steps"][-1]["args"],
+                         {"action": "closeTab", "params": {"confirm": True}})
+
+    def test_an_unreviewed_pattern_exclusion_or_unlisted_gap_stops_generation(self) -> None:
+        gaps = copy.deepcopy(self.gaps)
+        del gaps.excluded["agentPane.revealCwdInFinder"]
+        with self.assertRaises(GenError) as raised:
+            generate(self.catalog, gaps, {})
+        self.assertIn("agentPane.revealCwdInFinder: a SKIPS pattern excludes it", str(raised.exception))
+        catalog = live_catalog({**LIVE_OVERRIDES, "openSettings": {"requires": ["noSuchContext"]}})
+        with self.assertRaises(GenError) as raised:
+            generate(catalog, self.gaps, {})
+        self.assertIn("openSettings: the sweep's plan has a gap", str(raised.exception))
+
+    def test_an_expected_refusal_runs_once_its_typed_error_is_tuned(self) -> None:
+        files = generate(self.catalog, self.gaps, {"palette.disableBrowser": {"error": "control.refused"}})
+        main = next(s for s in files["palette-disable-browser.json"]["steps"] if s["id"] == "action")
+        self.assertEqual(main["expect"], {"outcome": "error", "error": "control.refused"})
+        self.assertNotIn("waitFor", main)
 
     def test_each_case_runs_its_action_through_its_real_entrypoint(self) -> None:
         module = sweep_module()
         for ident, entry in self.coverage["actions"].items():
-            case = self.files[f"{entry['case'].split('/')[1]}.json"] if "blocked" not in entry else \
-                self.files[BLOCKED]["cases"][entry["case"].split("/")[1]]["case"]
+            case = self.case_of(ident)
             main = next(step for step in case["steps"] if step["id"] == "action")
             self.assertEqual(main["checkpoint"], ["before", "turn", "settled"], ident)
             key = module.key_of(self.catalog.by_id[ident])
@@ -775,6 +914,32 @@ class GenActionsSelfTest(unittest.TestCase):
                 self.assertIn("keys", case["requires"], ident)
             else:
                 self.assertEqual((main["op"], main["args"]["action"]), ("action.run", ident), ident)
+
+    def test_requires_name_the_window_and_the_chromium_page(self) -> None:
+        """oracle.py schedules a case on every product with its requirements: none of them runs without the app's
+        window (headless, mcp), and a Chromium context needs chromium."""
+        for name, case in self.cases().items():
+            self.assertTrue({"actions", "gui"} <= set(case["requires"]), name)
+        reload = self.files["browser-reload.json"]
+        self.assertEqual(reload["steps"][0]["args"]["action"], "openBrowser.chromium")
+        self.assertIn("chromium", reload["requires"])
+        self.assertNotIn("chromium", self.files["open-settings.json"]["requires"])
+
+    def test_the_sweeps_expectations_are_checked_by_wait_for(self) -> None:
+        waits = {"splitRight": WORKSPACES, "newSurface": "/topology/tab_count", "newWindow": "/windows/count",
+                 "focusRight": "/topology/topology/focus/pane"}
+        for ident, pointer in waits.items():
+            main = next(s for s in self.case_of(ident)["steps"] if s["id"] == "action")
+            self.assertEqual(main["waitFor"], {"pointer": pointer, "predicate": "changed", "maxMs": EXPECT_WAIT_MS},
+                             ident)
+        main = next(s for s in self.files["open-settings.json"]["steps"] if s["id"] == "action")
+        self.assertNotIn("waitFor", main)
+
+    def test_a_window_closer_is_marked_last(self) -> None:
+        for ident in ("closeWindow", "closeAllWindows"):
+            self.assertTrue(self.coverage["actions"][ident].get("last"), ident)
+            self.assertIn("fresh launch", " ".join(self.case_of(ident)["teardown"]), ident)
+        self.assertNotIn("last", self.coverage["actions"]["closeTab"])
 
     def test_cases_pass_the_case_schema(self) -> None:
         check = CaseCheck()
@@ -826,8 +991,9 @@ class GenActionsSelfTest(unittest.TestCase):
         self.assertEqual(family_of("newTab"), "tabs")
         self.assertEqual(family_of("screenGroup.close"), "layout")
         self.assertEqual(family_of("bookmark.add"), "misc")
-        counts = self.coverage["families"]
-        self.assertEqual(sum(c["runnable"] + c["blocked"] for c in counts.values()), self.coverage["total"])
+        for files in (self.files, self.export_files):
+            counts = files[COVERAGE]["families"]
+            self.assertEqual(sum(c["runnable"] + c["blocked"] for c in counts.values()), files[COVERAGE]["total"])
 
     def test_regeneration_is_byte_stable_and_check_finds_drift(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
@@ -842,6 +1008,14 @@ class GenActionsSelfTest(unittest.TestCase):
             (out / "hand-written.json").write_text("{}\n", encoding="utf-8")
             with self.assertRaises(GenError):
                 write(out, {**again, "hand-written.json": {}})
+
+    def test_the_export_removes_the_cases_a_live_catalog_wrote(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            out = Path(tmp)
+            write(out, self.files)
+            self.assertEqual(write(out, self.export_files)[1], len(self.cases()))
+            self.assertEqual(sorted(p.name for p in out.iterdir()), sorted([BLOCKED, COVERAGE]))
+            self.assertEqual(drift(out, self.export_files), [])
 
     def test_a_new_gap_moves_a_case_to_blocked_and_removes_its_file(self) -> None:
         gaps = copy.deepcopy(self.gaps)
@@ -862,7 +1036,7 @@ class GenActionsSelfTest(unittest.TestCase):
             out = Path(tmp)
             (out / "appearance").mkdir()
             spec = {"receipt": "action.done", "invariants": ["the settings facet shows the new value"],
-                    "before": [{"id": "wait-ready", "op": "settle"}], "requires": ["gui"]}
+                    "before": [{"id": "wait-ready", "op": "settle"}], "requires": ["mcp"]}
             ident = next(a for a in self.coverage["actions"] if family_of(a) == "appearance"
                          and "blocked" not in self.coverage["actions"][a])
             (out / "appearance" / TUNING).write_text(json.dumps({"actions": {ident: spec}}), encoding="utf-8")
@@ -872,7 +1046,7 @@ class GenActionsSelfTest(unittest.TestCase):
             self.assertEqual(main["expect"], {"outcome": "ok", "receipt": "action.done"})
             self.assertIn("wait-ready", [s["id"] for s in case["steps"]])
             self.assertIn("the settings facet shows the new value", case["invariants"])
-            self.assertIn("gui", case["requires"])
+            self.assertIn("mcp", case["requires"])
             self.assertEqual(files[COVERAGE]["actions"][ident]["tuned"], sorted(spec))
 
     def test_tuning_refusals(self) -> None:
@@ -903,24 +1077,17 @@ class GenActionsSelfTest(unittest.TestCase):
             generate(self.catalog, self.gaps, {ident: {"before": [{"id": "x", "op": "action.run"}]}})
         self.assertIn("not case-v1", str(raised.exception))
 
-    def test_a_live_catalog_sets_up_contexts_and_blocks_live_arguments(self) -> None:
+    def test_a_live_argument_is_blocked(self) -> None:
         live = {"actions": [
-            {"id": "browserReload", "title": "Reload", "shortcut_config": None, "requires": ["browserFocused"],
-             "arguments": [], "targets": [], "surfaces": {"palette": "offered"}},
             {"id": "tab.focus", "title": "Focus Tab", "shortcut_config": None, "requires": [], "targets": [],
              "arguments": [{"name": "tab", "kind": "target", "target_kind": "tab", "required": True}],
-             "surfaces": {"palette": "offered"}},
-            {"id": "closeTab", "title": "Close Tab", "shortcut_config": "cmd+w", "requires": [], "arguments": [],
-             "targets": [], "destructive": True, "surfaces": {"palette": "offered"}},
+             "destructive": False, "debug_only": False, "waits_for_person": False, "surfaces": {"palette": "offered"}},
         ]}
         catalog = Catalog(Path("action-list.json"), json.dumps(live))
         gaps = Gaps(Path("gaps.json"), json.dumps({"excluded": {}, "gaps": {}}))
         files = generate(catalog, gaps, {})
-        reload = files["browser-reload.json"]["steps"]
-        self.assertEqual([s["args"].get("action") for s in reload], ["openBrowser.chromium", "browserReload"])
-        self.assertIn("tab-focus", files[BLOCKED]["cases"])
         self.assertIn("args.params.tab = <base.tab>", files[BLOCKED]["cases"]["tab-focus"]["reason"])
-        self.assertEqual(files["close-tab.json"]["steps"][-1]["args"], {"keys": ["cmd+w"]})
+        self.assertEqual(files[COVERAGE]["actions"]["tab.focus"]["blocked_by"], "live-value")
         self.assertEqual(files[COVERAGE]["catalog_kind"], "action.list")
 
 
