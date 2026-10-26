@@ -32,6 +32,14 @@ public final class WebUIHost {
     /// content lifecycle; a page it holds leaves it on ``close(_:)``. Nil while `pageLifecycle` is off:
     /// the composition root sets it.
     package var lifecycle: PageLifecycle?
+    /// The app's one preloaded page (p13-webui.md 3.D); this host's pressure subscription drops it
+    /// at any level but normal. Nil until the composition root installs it with the app's deadline
+    /// scheduler (p13-webui-044, 045); installing it hands it the current level.
+    package var preload: PagePreloadSlot? {
+        didSet { preload?.memoryPressureDidChange(memoryPressure.currentLevel) }
+    }
+    /// The host's one memory pressure subscription (p13-webui-047 moves the page lifecycle onto it).
+    private var pressureObservation: MainActorHandlerRegistration<MemoryPressureLevel>?
     /// The clock of each opened page's Chromium deadline (tests pass one that never fires).
     private let clock: any Clock<Duration>
     /// A page starts its document, and its renderer, at its first show, not when it opens
@@ -66,6 +74,9 @@ public final class WebUIHost {
         self.registry = registry
         self.clock = clock
         self.processGroups = processGroups
+        pressureObservation = memoryPressure.observe { [weak self] level in
+            self?.preload?.memoryPressureDidChange(level)
+        }
     }
 
     /// Makes the page `request` asks for, in the engine ``PageEnginePolicy`` picks with this host's
