@@ -269,9 +269,14 @@ test("another agent's message is its 26px line in 2px margins, its card cut to e
   // The card: 4px above, 8px padding each side and 6px below its text.
   const [short] = heightsOf([row("Draft is up.")]);
   expect(short).toBe(2 + 26 + 2 + 4 + 8 + lineHeight + 8 + 6 + 8);
-  // A long message's card shows RECEIVED_LINES lines, however long the message.
-  const [long] = heightsOf([row(Array.from({ length: 40 }, (_, i) => `Line ${i} of the report.`).join("\n"))]);
-  expect(long).toBe(2 + 26 + 2 + 4 + 8 + RECEIVED_LINES * lineHeight + 8 + 6 + 8);
+  // Rendered geometry: eight text lines, plus the Show more control (20px + 4px margin).
+  const rows = [row("Line of the report.\n".repeat(40)), reply("after", "Ready.")];
+  const estimated = layoutConversation(rows as never, 720);
+  const renderedHeight = 2 + 26 + 2 + 4 + 8 + RECEIVED_LINES * lineHeight + 24 + 8 + 6 + 8;
+  const rendered = placeRows(estimated, (index) => (index === 0 ? renderedHeight : undefined));
+  expect(estimated.heights[0]).toBe(renderedHeight);
+  expect(rendered.tops[1]).toBe(estimated.tops[1]);
+  expect(rendered.totalHeight).toBe(estimated.totalHeight);
 });
 
 test("a task notice is a tool row's line, 2px under the row's top, and the 8px message gap", () => {

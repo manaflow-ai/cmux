@@ -451,8 +451,10 @@ public final class AgentPaneView: NSView {
     }
 
     /// Focus Location Bar on a new tab page: the field takes the keyboard and
-    /// selects its text, wherever focus was on the page.
+    /// selects its text, wherever focus was on the page. The page takes the window's keyboard first:
+    /// a Chromium page whose window lost the keys had the field focused and typed nowhere.
     public func focusLocation() {
+        focusChat()
         deliver([.focusLocation], scripts: ["window.dispatchEvent(new Event('acpmux-focus-location'))"])
     }
 
