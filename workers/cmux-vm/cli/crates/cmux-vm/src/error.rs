@@ -63,6 +63,17 @@ impl CliError {
         }
     }
 
+    /// A child process (ssh) that exited with `code`; its exit code is ours.
+    pub fn child_exit(code: i32, message: impl Into<String>) -> Self {
+        Self {
+            code,
+            status: None,
+            tag: Some("ChildExit".to_owned()),
+            budget: None,
+            message: message.into(),
+        }
+    }
+
     pub fn exit_code(&self) -> i32 {
         self.code
     }

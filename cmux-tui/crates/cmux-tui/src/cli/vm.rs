@@ -1,9 +1,10 @@
-//! `cmux vm new|ls|get|pause|resume|rm|exec`: the cmux VM API (vm.cmux.dev)
-//! from the cmux-next CLI. It adds no second client: each verb runs the
-//! `cmux-vm` CLI (workers/cmux-vm/cli), which owns the API key, base URL,
-//! team and typed refusals (exit 12 is a 402, 16 a quota). `--json` is
-//! passed through. Opening a VM as a workspace is an app action
-//! (`cmux cloud new-workspace`), not a CLI verb.
+//! `cmux vm …`: the cmux VM API (vm.cmux.dev) from the cmux-next CLI. It
+//! adds no second client: each verb runs the `cmux-vm` CLI
+//! (workers/cmux-vm/cli), which owns the API key, base URL, team and typed
+//! refusals (exit 12 is a 402, 16 a quota). Every `cmux-vm` verb is forwarded
+//! with the friendly aliases `new`, `ls` and `rm`; `--json` is passed through.
+//! Opening a VM as a workspace is an app action (`cmux cloud new-workspace`),
+//! not a CLI verb.
 
 #[cfg(test)]
 mod tests;
@@ -15,6 +16,22 @@ use super::{OutputMode, UsageError};
 /// Override for the `cmux-vm` binary (tests, unusual installs).
 const BIN_ENV: &str = "CMUX_VM_BIN";
 
+/// Every `cmux-vm` verb, forwarded unchanged. `fs`, `mesh` and `tunnels` are
+/// its own aliases of `file`, `vpc` and `tunnel`.
+const FORWARDED: &[&str] = &[
+    "create", "list", "get", "delete", "start", "stop", "pause", "resume", "resize", "retire",
+    "fork", "identity", "exec", "ssh", "scp", "push", "pull", "file", "fs", "session", "terminal",
+    "snapshot", "image", "vpc", "mesh", "tunnel", "tunnels", "firewall", "https-proxy",
+    "api-key", "creation", "device",
+];
+
+/// The verbs named in usage errors: the friendly aliases first.
+const VERBS: &[&str] = &[
+    "new", "ls", "get", "rm", "start", "stop", "pause", "resume", "resize", "exec", "ssh", "scp",
+    "push", "pull", "file", "session", "terminal", "snapshot", "vpc", "tunnel", "firewall",
+    "https-proxy", "...",
+];
+
 /// `Some(args after "vm")` when `command_args` start with `vm`.
 pub(super) fn split(command_args: &[String]) -> Option<&[String]> {
     let (first, rest) = command_args.split_first()?;
@@ -24,28 +41,35 @@ pub(super) fn split(command_args: &[String]) -> Option<&[String]> {
 /// The `cmux-vm` argument list for `cmux vm <rest>`.
 pub(super) fn plan(rest: &[String], output: OutputMode) -> Result<Vec<String>, UsageError> {
     let Some((verb, tail)) = rest.split_first() else {
-        return Err(UsageError::new(
-            "cmux vm needs a verb: new, ls, get, pause, resume, rm, exec (see `cmux vm --help`)",
-        ));
+        return Err(UsageError::new(format!(
+            "cmux vm needs a verb: {} (see `cmux vm --help`)",
+            VERBS.join(", ")
+        )));
     };
     let mapped = match verb.as_str() {
         "-h" | "--help" | "help" => {
-            let mut help = vec!["--help".to_owned()];
+            // `cmux vm help ssh` is `cmux-vm help ssh`: the verb's own help.
+            let first = if tail.is_empty() { "--help" } else { "help" };
+            let mut help = vec![first.to_owned()];
             help.extend(tail.iter().cloned());
             return Ok(help);
         }
-        "new" | "create" => "create",
-        "ls" | "list" => "list",
-        "rm" | "delete" => "delete",
-        "get" | "pause" | "resume" | "start" | "stop" | "exec" | "fork" | "snapshot" => {
-            verb.as_str()
-        }
+        "-V" | "--version" => return Ok(vec!["--version".to_owned()]),
+        "new" => "create",
+        "ls" => "list",
+        "rm" => "delete",
         "workspace" => {
             return Err(UsageError::new(
                 "a VM opens as a workspace through the app: run `cmux cloud new-workspace`",
             ));
         }
-        other => return Err(UsageError::new(format!("unknown vm verb \"{other}\""))),
+        known if FORWARDED.contains(&known) => known,
+        other => {
+            return Err(UsageError::new(format!(
+                "unknown vm verb \"{other}\"; verbs: {}",
+                VERBS.join(", ")
+            )));
+        }
     };
     let mut plan = Vec::new();
     if output == OutputMode::Json {

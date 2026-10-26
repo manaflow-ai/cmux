@@ -9,12 +9,16 @@
 
 pub mod exit;
 
+mod access;
 mod config;
 mod creation_history;
 mod error;
+mod files;
+mod network;
 mod output;
 mod prompt;
 
+pub use access::askpass;
 pub use prompt::{NoPrompt, Prompt, StdinPrompt};
 
 use std::ffi::OsString;
@@ -120,9 +124,35 @@ enum Command {
     /// Create, list and revoke API keys
     #[command(subcommand, name = "api-key")]
     ApiKey(ApiKeyCommand),
-    /// Read guest file metadata without starting the VM
+    /// List, read, write and stat guest files
+    #[command(subcommand, visible_alias = "fs")]
+    File(files::FileCommand),
+    /// Copy a local file into a VM: push LOCAL VM_ID:/path
+    Push(files::PushArgs),
+    /// Copy a guest file out of a VM: pull VM_ID:/path LOCAL
+    Pull(files::PullArgs),
+    /// Copy one file either way: scp SOURCE DESTINATION, one side VM_ID:/path
+    Scp(files::ScpArgs),
+    /// Open an SSH session (or run a command) in a VM through a short-lived client session
+    Ssh(access::SshArgs),
+    /// Create, list and revoke a VM's client sessions (SSH logins)
     #[command(subcommand)]
-    File(FileCommand),
+    Session(access::SessionCommand),
+    /// List and close a VM's terminal sessions
+    #[command(subcommand)]
+    Terminal(access::TerminalCommand),
+    /// Create, list, show and delete private networks; attach and detach VMs
+    #[command(subcommand, visible_alias = "mesh")]
+    Vpc(network::VpcCommand),
+    /// Enroll, show, rotate and remove WireGuard devices and their tunnels
+    #[command(subcommand, visible_alias = "tunnels")]
+    Tunnel(network::TunnelCommand),
+    /// Show and replace a private network's firewall rules
+    #[command(subcommand)]
+    Firewall(network::FirewallCommand),
+    /// Replace a VM's HTTPS proxy
+    #[command(subcommand, name = "https-proxy")]
+    HttpsProxy(network::HttpsProxyCommand),
 }
 
 #[derive(Subcommand, Debug)]
@@ -167,12 +197,6 @@ struct CreationListArgs {
     /// Continue from a previous page's opaque cursor
     #[arg(long)]
     cursor: Option<String>,
-}
-
-#[derive(Subcommand, Debug)]
-enum FileCommand {
-    /// Show file metadata on a running, paused, stopped or retired VM
-    Stat(FileStatArgs),
 }
 
 #[derive(Subcommand, Debug)]
@@ -221,14 +245,6 @@ struct ServerRevokeArgs {
 struct DeviceArg {
     /// Device id (dev_...)
     device_id: String,
-}
-
-#[derive(Args, Debug)]
-struct FileStatArgs {
-    /// VM id (vm_...)
-    vm_id: String,
-    /// Absolute guest path, without parent segments
-    path: String,
 }
 
 #[derive(Subcommand, Debug)]
@@ -563,8 +579,13 @@ async fn execute(
         concat!("cmux-vm/", env!("CARGO_PKG_VERSION")),
     )
     .map_err(|e| CliError::usage(e.to_string()))?;
-    let out = output::Printer::new(cli.json, stdout);
-    dispatch(&client, cli.command, prompt, out).await
+    match cli.command {
+        Command::Ssh(args) => access::ssh(&client, args, cli.json, stderr).await,
+        command => {
+            let out = output::Printer::new(cli.json, stdout);
+            dispatch(&client, command, prompt, out).await
+        }
+    }
 }
 
 async fn dispatch(
@@ -917,27 +938,23 @@ async fn dispatch(
             out.revoked(id.as_str())
         }
         Command::ApiKey(command) => api_key(client, command, prompt, out).await,
-        Command::File(FileCommand::Stat(args)) => {
-            let id = args
-                .vm_id
-                .parse::<types::VmId>()
-                .map_err(|_| CliError::usage("invalid VM id"))?;
-            if !args.path.starts_with('/')
-                || args.path.contains('\0')
-                || args.path.split('/').any(|part| part == "..")
-                || args.path.encode_utf16().count() > 4096
-            {
-                return Err(CliError::usage(
-                    "guest path must be absolute, at most 4096 characters, without parent segments or NUL",
-                ));
-            }
-            let path = args
-                .path
-                .parse::<types::GuestPath>()
-                .map_err(|_| CliError::usage("invalid guest path"))?;
-            let body = fetch_body(client.files_stat_file(id.as_str(), &path, None)).await?;
-            out.file_stat(&body)
+        Command::File(command) => files::file(client, command, out).await,
+        Command::Push(args) => {
+            let copy = files::Copy::push(args)?;
+            files::copy(client, copy.0, copy.1, out).await
         }
+        Command::Pull(args) => files::copy(client, files::Copy::pull(args)?, None, out).await,
+        Command::Scp(args) => {
+            let (copy, mode) = files::Copy::scp(args)?;
+            files::copy(client, copy, mode, out).await
+        }
+        Command::Ssh(_) => Err(CliError::usage("ssh needs account configuration")),
+        Command::Session(command) => access::session(client, command, prompt, out).await,
+        Command::Terminal(command) => access::terminal(client, command, prompt, out).await,
+        Command::Vpc(command) => network::vpc(client, command, prompt, out).await,
+        Command::Tunnel(command) => network::tunnel(client, command, prompt, out).await,
+        Command::Firewall(command) => network::firewall(client, command, out).await,
+        Command::HttpsProxy(command) => network::https_proxy(client, command, out).await,
     }
 }
 
@@ -1035,6 +1052,10 @@ enum Destroy {
     DeleteSnapshot,
     RevokeApiKey,
     RevokeOverlayServer,
+    RevokeSession,
+    CloseTerminal,
+    DeleteMesh,
+    DeleteDevice,
 }
 
 impl Destroy {
@@ -1046,6 +1067,10 @@ impl Destroy {
             Destroy::DeleteSnapshot => ("delete", "Delete", "snapshot id"),
             Destroy::RevokeApiKey => ("revoke", "Revoke", "API key id"),
             Destroy::RevokeOverlayServer => ("revoke", "Revoke", "device id"),
+            Destroy::RevokeSession => ("revoke", "Revoke", "session id"),
+            Destroy::CloseTerminal => ("close", "Close", "terminal id"),
+            Destroy::DeleteMesh => ("delete", "Delete", "mesh id"),
+            Destroy::DeleteDevice => ("delete", "Delete", "device id"),
         }
     }
 }
@@ -1064,8 +1089,11 @@ fn confirm(prompt: &mut dyn Prompt, action: Destroy, id: &str) -> Result<(), Cli
         Destroy::RetireVm => format!(
             "Retire {id} permanently? It cannot run again; files remain readable until deletion. Type the VM id to confirm: "
         ),
-        Destroy::RevokeApiKey => format!(
+        Destroy::RevokeApiKey | Destroy::RevokeSession => format!(
             "{question_verb} {id}? Requests that use it will fail. Type the {id_name} to confirm: "
+        ),
+        Destroy::CloseTerminal => format!(
+            "{question_verb} terminal {id}? Its processes are killed. Type the {id_name} to confirm: "
         ),
         _ => format!(
             "{question_verb} {id} permanently? This cannot be undone. Type the {id_name} to confirm: "
@@ -1079,7 +1107,10 @@ fn confirm(prompt: &mut dyn Prompt, action: Destroy, id: &str) -> Result<(), Cli
     } else {
         let past = match action {
             Destroy::RetireVm => "retired",
-            Destroy::RevokeApiKey | Destroy::RevokeOverlayServer => "revoked",
+            Destroy::RevokeApiKey | Destroy::RevokeOverlayServer | Destroy::RevokeSession => {
+                "revoked"
+            }
+            Destroy::CloseTerminal => "closed",
             _ => "deleted",
         };
         Err(CliError::cancelled(format!(
