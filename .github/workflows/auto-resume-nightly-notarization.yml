@@ -1049,6 +1049,8 @@ jobs:
       cancel-in-progress: false
     env:
       GH_TOKEN: ${{ github.token }}
+      # publish-release-assets.py waits through rate limits up to this long (default 600 s).
+      CMUX_RELEASE_RATE_LIMIT_SECONDS: "1800"
       SOURCE_RUN_ID: ${{ needs.preflight.outputs.source_run_id }}
       SOURCE_HEAD_SHA: ${{ needs.preflight.outputs.source_head_sha }}
       SOURCE_BRANCH: ${{ needs.preflight.outputs.source_branch }}
@@ -1065,6 +1067,12 @@ jobs:
           # The stale-continuation guard compares the published SHA with the
           # source SHA. A shallow checkout cannot prove ancestry after fetch.
           fetch-depth: 0
+
+      # scripts/ci/gh_budget_wait.sh puts a gh first on PATH that waits through a GitHub API
+      # rate limit (until the reset, else 60, 120, 240, then 300 s; at most an hour per job,
+      # shared with the publisher's waits) instead of failing a finished, signed nightly.
+      - name: Wait through GitHub API rate limits in this job's gh calls
+        run: bash scripts/ci/gh_budget_wait.sh --install
 
       - name: Download all accepted variants
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v6.0.0
@@ -1435,7 +1443,13 @@ jobs:
           else
             SPARKLE_PRIVATE_KEY="$(./scripts/ci/nightly-sparkle-key.sh)"
             export SPARKLE_PRIVATE_KEY
-            SPARKLE_PUBLIC_KEY="$(swift scripts/derive_sparkle_public_key.swift "$SPARKLE_PRIVATE_KEY")"
+            SPARKLE_PUBLIC_KEY="$(
+              printf '%s' "$SPARKLE_PRIVATE_KEY" |
+                env -u SPARKLE_PRIVATE_KEY \
+                  -u SHARED_SPARKLE_PRIVATE_KEY \
+                  -u NIGHTLY_SPARKLE_PRIVATE_KEY \
+                  swift scripts/derive_sparkle_public_key.swift --stdin
+            )"
             export SPARKLE_PUBLIC_KEY
             ./scripts/ci/drop-previous-nightlies-with-other-sparkle-key.sh \
               nightly-delta/previous "$SPARKLE_PUBLIC_KEY"
@@ -1470,6 +1484,7 @@ jobs:
     environment: release
     env:
       GH_TOKEN: ${{ github.token }}
+      CMUX_RELEASE_RATE_LIMIT_SECONDS: "1800"
       CHANNEL: ${{ needs.preflight.outputs.channel }}
       RELEASE_TAG: ${{ needs.preflight.outputs.release_tag }}
       DMG_PREFIX: ${{ needs.preflight.outputs.dmg_prefix }}
@@ -1481,6 +1496,12 @@ jobs:
         with:
           persist-credentials: false
           ref: refs/heads/main
+
+      # scripts/ci/gh_budget_wait.sh puts a gh first on PATH that waits through a GitHub API
+      # rate limit (until the reset, else 60, 120, 240, then 300 s; at most an hour per job,
+      # shared with the publisher's waits) instead of failing a finished, signed nightly.
+      - name: Wait through GitHub API rate limits in this job's gh calls
+        run: bash scripts/ci/gh_budget_wait.sh --install
 
       - name: Download delta results
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v6.0.0
