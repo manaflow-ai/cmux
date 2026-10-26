@@ -570,6 +570,8 @@ final class WorkspaceContentViewVisibilityTests {
         )
         window.isReleasedWhenClosed = false
         window.contentView = MainWindowHostingView(rootView: root)
+        window.makeKeyAndOrderFront(nil)
+        window.displayIfNeeded()
         defer {
             window.contentView = nil
             tabManager.finalizeAllWorkspacesForWindowClose()
@@ -590,7 +592,7 @@ final class WorkspaceContentViewVisibilityTests {
             workspace.objectWillChange.sink { _ in workspacePublishes += 1 }
         }
         defer { publishes.forEach { $0.cancel() } }
-        // The post a full reload makes (SharedLiveAgentIndex.startReload). Each
+        // The post below makes a full reload (SharedLiveAgentIndex.startReload). Each
         // workspace's observer handles it before post returns; the drain lets
         // any SwiftUI update it scheduled run before the counts are read.
         try #require(tabManager.tabs.allSatisfy { $0.sharedLiveAgentIndexObserver != nil })
