@@ -110,6 +110,7 @@ public final class MobileSSHComputers {
     @ObservationIgnored weak var sink: (any MobileSSHComputersSink)?
     @ObservationIgnored private var connections: [UUID: SSHConnection] = [:]
     @ObservationIgnored private var connectTasks: [UUID: Task<SSHConnection, any Error>] = [:]
+    @ObservationIgnored private var connectionAttempts = MobileSSHConnectionAttemptRegistry()
     @ObservationIgnored private var providers: [UUID: MobileSSHHostProviders] = [:]
     @ObservationIgnored private var workspacesByHost: [UUID: [MobileSSHWorkspace]] = [:]
     /// Bumped per listing started, so only the newest listing publishes.
@@ -549,6 +550,7 @@ public final class MobileSSHComputers {
             await stopBrowser(panelID: panelID)
         }
         providers[hostID] = nil
+        connectionAttempts.invalidate(for: hostID)
         connectTasks[hostID]?.cancel()
         connectTasks[hostID] = nil
         stopAllPortForwards(hostID: hostID)
@@ -878,8 +880,13 @@ public final class MobileSSHComputers {
                 via: jump
             )
         }
+        let generation = connectionAttempts.begin(for: hostID)
         connectTasks[hostID] = task
-        defer { connectTasks[hostID] = nil }
+        defer {
+            if connectionAttempts.clearIfCurrent(generation, for: hostID) {
+                connectTasks[hostID] = nil
+            }
+        }
         let connection: SSHConnection
         do {
             connection = try await task.value
