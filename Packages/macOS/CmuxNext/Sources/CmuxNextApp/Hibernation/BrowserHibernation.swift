@@ -668,90 +668,29 @@ final class BrowserHibernation {
         if asks { askedBeforeUnload.insert(key) }
         return asks
     }
-
-    // MARK: Probe
-
-    /// Asks hidden page `tab` what it does (`PageProbe`). Runs no page code: whether a `beforeunload`
-    /// handler would ask is learned only right before a discard (`asksBeforeUnload`).
-    static func probe(_ tab: any BrowserTab) async -> PageProbe {
-        do {
-            let (value, busy) = try await ControlDeadline.shared.run(method: "hibernation.probe", deadline: .now + .seconds(2)) { @MainActor in
-                (try await tab.evaluate(BrowserPageBusy.fieldProbeScript, world: .isolated, gesture: .cmux), try await tab.pageBusy())
-            }
-            guard case .string(let json) = value, let data = json.data(using: .utf8),
-                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Bool] else { return unanswered(tab) }
-            // Media the tab's mute silences still plays (cx-d0d.24): hibernating would drop the mute.
-            let muted = tab.state.isAudioMuted && tab.state.media?.isPlaying == true
-            // A video in Picture in Picture plays on in its floating window, paused or muted alike.
-            let floating = tab.state.media?.isPictureInPicture == true
-            // The recorder knows the person's edits (`BrowserPageBusy`); a page loaded before it compares every field.
-            return PageProbe(playingMedia: muted || floating || (object["media"] ?? true), editedForm: busy.editedForm ?? object["form"] ?? true,
-                             capturing: busy.capturing, webAudio: busy.audio, beforeUnload: busy.beforeUnload,
-                             unloadHandler: busy.unloadHandler, webRTC: busy.webRTC,
-                             connectedDevice: busy.connectedDevice, unreadableFrame: busy.unreadableFrame)
-        } catch {
-            return unanswered(tab)
-        }
-    }
-
-    /// A page that did not answer. It used to count as playing, so a page too busy to answer
-    /// never froze and was asked again every `freezeSeconds` (the hottest renderer in the
-    /// 2026-10-21 audit: 25 % CPU, 586 MB). The media the tab last reported still keeps it: the
-    /// page's media script pushes that state (`BrowserMediaState+Scripts`), with no round trip.
-    /// WebKit's own camera and microphone state is the planner's `isCapturing`; Chromium reports none to the app.
-    static func unanswered(_ tab: any BrowserTab) -> PageProbe {
-        let media = tab.state.media
-        let playing = media.map { $0.isAudible || ($0.isPlaying && tab.state.isAudioMuted) || $0.isPictureInPicture } ?? false
-        return PageProbe(playingMedia: playing, answered: false)
-    }
 }
 
 private extension Duration {
     var seconds: Double { Double(components.seconds) + Double(components.attoseconds) / 1e18 }
 }
 
-// Browser hibernation as one lossy memory consumer of the app's memory coordinator
-// (plans/cmux-next/chrome-parity/p07-memory.md, task 017).
-//
-// Chrome's urgent page discarding policy is a memory consumer with the traits kLarge, kLossy,
-// kAsynchronous and IsStateful::kNo
-// (chrome/browser/performance_manager/policies/urgent_page_discarding_policy.cc). Browser
-// hibernation registers the same way instead of subscribing to the kernel's pressure source
-// itself, so the debug override and the kernel level reach it through the one coordinator. It
-// paces its own discards (`HibernationPlanner.Pace`), so it takes the level and frees nothing in
-// the coordinator's release slices.
+// One lossy memory consumer of the app's coordinator, as Chrome's urgent page discarding policy
+// (urgent_page_discarding_policy.cc: kLarge, kLossy, IsStateful::kNo). It takes the level and paces
+// its own discards (`HibernationPlanner.Pace`), so a release slice has nothing to free.
 extension BrowserHibernation: MemoryLevelConsumer {
-    /// The consumer's name in the memory report and `debug.memory`.
     static let memoryConsumerName = "browser-hibernation"
-
-    /// Large, lossy (a discarded page reloads), expensive to rebuild, released by its own planner
-    /// rather than to a share of a limit.
     static let memoryTraits = MemoryConsumerTraits(
         estimatedUsage: .large, dataAccess: .reads, retention: .lossy, recreateCost: .expensive,
         releaseCPUCost: .high, isStateful: false, supportsMemoryLimit: false)
 
-    func memoryLevelDidChange(_ level: MemoryPressureLevel) {
-        pressureDidChange(level)
-    }
-
-    /// The level carries everything the planner needs (`memoryLevelDidChange(_:)`).
+    func memoryLevelDidChange(_ level: MemoryPressureLevel) { pressureDidChange(level) }
     func updateMemoryLimit(_ limit: MemoryLimit) {}
-
-    /// The planner discards at its own pace when the level changes; a slice has nothing to free.
-    func releaseMemory(within slice: MemoryReleaseSlice) -> MemoryReleaseProgress {
-        .done
-    }
+    func releaseMemory(within slice: MemoryReleaseSlice) -> MemoryReleaseProgress { .done }
 
     /// The last sampled memory of the hidden pages it could discard; nil before the first sample.
     var memoryUsage: MemoryUsage? {
         guard let cache, !memoryBytes.isEmpty else { return nil }
-        var bytes: UInt64 = 0
-        var pages = 0
-        for key in cache.lifecycle.keys(in: .mountedHidden) {
-            guard let sampled = memoryBytes[key] else { continue }
-            bytes += sampled
-            pages += 1
-        }
-        return MemoryUsage(footprintBytes: Int(clamping: bytes), entries: pages)
+        let sampled = cache.lifecycle.keys(in: .mountedHidden).compactMap { memoryBytes[$0] }
+        return MemoryUsage(footprintBytes: Int(clamping: sampled.reduce(0, +)), entries: sampled.count)
     }
 }
