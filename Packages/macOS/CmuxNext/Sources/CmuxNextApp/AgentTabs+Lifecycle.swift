@@ -328,7 +328,7 @@ extension AgentTabStore {
         pendingTurns[key] = nil
         wakeStates[key] = nil
         tabStores[key] = nil
-        unsentDrafts.set("", for: key)
+        unsentDrafts.forget(key)
         launchImages.drop(key)
         seenLive.remove(key)
         forgetUnusedStores()

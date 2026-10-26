@@ -10,6 +10,10 @@ public import AppKit
 ///   (Chromium pages are child `NSWindow`s ordered above the whole parent
 ///   content), when the root's window adopts it (``OverlayPlaneHosting``).
 ///
+/// On a render-server spring each pane's chrome is placed once, at rest, and rides its host's spring
+/// in the host's group (`PaneHostView.springToRest`); cross-pane overlays (the drop highlight) are not
+/// tied to one pane and stay placed in the plane.
+///
 /// The plane never takes hits; overlays that need the mouse are reported as
 /// ``LayoutRootView/interactiveOverlayRects`` instead.
 public final class OverlayPlane: NSView {

@@ -174,7 +174,7 @@ public final class LayoutRootView: NSView {
         layer?.masksToBounds = true
         context.requestFrames = { [weak self] in self?.driver.start() }
         driver.onFrame = { [weak self] dt in self?.advanceFrame(dt) ?? false }
-        context.overlayNeedsSync = { [weak self] in self?.setNeedsOverlaySync() }
+        context.wireOverlaySync(to: self)
         context.userMotionStepped = { [weak self] in self?.setLayoutInMotion(true) }
         context.userMotionEnded = { [weak self] in
             guard let self, !self.screenViews.values.contains(where: \.hasMotion), !self.driver.isRunning else { return }
