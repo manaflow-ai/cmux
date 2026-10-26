@@ -18,12 +18,25 @@
 //!
 //! The hang log beside it ([`hang`]) gets one JSON line per watched scope
 //! that runs past its hang deadline, with the hung thread's stack.
+//!
+//! [`Supervisor`] runs long-lived threads and tasks under a declared failure
+//! policy ([`Fatal`] by default, [`Restart`] for state-private workers) and a
+//! [`ShutdownBehavior`]; a fatal failure adds a `"kind": "supervised_exit"`
+//! line and ends the process.
 
 pub mod crash_keys;
 pub mod hang;
 
 use std::io::Write;
 use std::path::{Path, PathBuf};
+
+mod supervise;
+
+pub use supervise::{
+    ExitProcess, Failure, FailureSink, Fatal, FatalReason, FatalReport, PoisonProbe, Restart,
+    SUPERVISED_FATAL_EXIT_CODE, ShutdownBehavior, ShutdownReport, StopToken, SuperviseError,
+    Supervisor, WorkerHandle, WorkerOutcome,
+};
 
 /// Largest backtrace kept per line.
 pub const MAX_BACKTRACE_BYTES: usize = 16 * 1024;
@@ -50,12 +63,7 @@ pub fn install_with_opener(
     let previous = std::panic::take_hook();
     std::panic::set_hook(Box::new(move |info| {
         let thread = std::thread::current().name().unwrap_or("unnamed").to_string();
-        let message = info
-            .payload()
-            .downcast_ref::<&str>()
-            .map(|text| (*text).to_string())
-            .or_else(|| info.payload().downcast_ref::<String>().cloned())
-            .unwrap_or_else(|| "non-text panic payload".to_string());
+        let message = supervise::payload_text(info.payload());
         let location = info.location().map(ToString::to_string).unwrap_or_default();
         let backtrace = std::backtrace::Backtrace::force_capture().to_string();
         let test = is_test_thread(&thread);
