@@ -3056,7 +3056,7 @@ def test_react_apps_check_keeps_a_stable_aggregate_gate() -> None:
     assert "react-doctor" in block
     assert "if: ${{ always() && inputs.web == 'true' &&" in block
     assert "github.ref == 'refs/heads/feat-cmux-next'" in block
-    assert "github.base_ref == 'feat-cmux-next'" in block
+    assert "github.base_ref" not in block
 
 
 def test_react_doctor_runs_as_an_independent_required_lane() -> None:

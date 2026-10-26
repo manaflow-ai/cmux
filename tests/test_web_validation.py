@@ -59,8 +59,8 @@ class WebValidationTests(unittest.TestCase):
         package = json.loads((ROOT / "webviews/package.json").read_text())
         parts = [part.strip() for part in package["scripts"]["check"].split("&&")]
 
-        # The runner must derive the command list from the package script. A stale
-        # hand-written list was how check:layers disappeared from CI.
+        # The runner must derive the command list from the package script. The warn
+        # branch previously accepted check:layers failures as success.
         self.assertIn('require("./package.json").scripts.check.split("&&")', step)
         self.assertIn("while IFS= read -r piece", step)
         self.assertIn('PATH="$PWD/node_modules/.bin:$PATH" sh -c "$piece"', step)
@@ -71,16 +71,78 @@ class WebValidationTests(unittest.TestCase):
         self.assertNotIn("CMUX_NEXT_STYLE_GUARDS", step)
         self.assertGreaterEqual(len(parts), 10)
 
-    def test_react_apps_checks_are_required_on_feat_base_and_feat_prs(self):
+    def test_react_apps_checks_are_required_on_feat_base_and_prs_stay_path_routed(self):
         workflow = (ROOT / ".github/workflows/ci-web.yml").read_text()
-        for job in ("react-apps-check-shard", "react-apps-base-check", "react-doctor", "react-apps-check"):
+        for job in ("react-apps-check-shard", "react-doctor", "react-apps-check"):
             with self.subTest(job=job):
                 block = self._ci_web_job_block(workflow, job)
-                self.assertRegex(block, r"react_apps == 'true'.*github\.(?:ref|base_ref) == '.*feat-cmux-next'")
+                condition = re.search(r"^    if: (.+)$", block, re.MULTILINE).group(1)
+                self.assertIn("github.ref == 'refs/heads/feat-cmux-next'", condition)
+                self.assertNotIn("github.base_ref", condition)
         aggregate = self._ci_web_job_block(workflow, "react-apps-check")
         self.assertIn("GITHUB_REF", aggregate)
-        self.assertIn("GITHUB_BASE_REF", aggregate)
+        self.assertNotIn("GITHUB_BASE_REF", aggregate)
         self.assertIn("base_line", aggregate)
+
+    def run_package_check_step(self, failed_command=""):
+        workflow = (ROOT / ".github/workflows/ci-web.yml").read_text()
+        block = self._ci_web_job_block(workflow, "react-apps-check-shard")
+        step = block[block.index("      - name: Check webviews (Oxlint, Oxfmt, type check)"):]
+        run = re.search(r"        run: \|\n((?:          [^\n]*\n|\n)+)", step).group(1)
+        run = "\n".join(line[10:] for line in run.splitlines())
+        package = json.loads((ROOT / "webviews/package.json").read_text())
+        # A newly added package command must run without editing a CI list.
+        package["scripts"]["check"] += " && bun run check:future-fixture"
+        parts = [part.strip() for part in package["scripts"]["check"].split("&&")]
+        with tempfile.TemporaryDirectory() as directory:
+            repo = Path(directory)
+            root = repo / "webviews"
+            root.mkdir()
+            # The old warn branch invokes this helper. Keep it runnable when
+            # replaying that branch so its false green is behavioral evidence.
+            helper = repo / "scripts/ci/fast_gate_webviews_checks.py"
+            helper.parent.mkdir(parents=True)
+            helper.write_text((ROOT / "scripts/ci/fast_gate_webviews_checks.py").read_text())
+            (root / "package.json").write_text(json.dumps(package))
+            binaries = root / "node_modules/.bin"
+            binaries.mkdir(parents=True)
+            log = root / "commands.jsonl"
+            shim = f"""#!{sys.executable}
+import json, os, pathlib, sys
+if pathlib.Path(sys.argv[0]).name == 'bun' and sys.argv[1] == '-e':
+    package = json.loads(pathlib.Path('package.json').read_text())
+    print('\\n'.join(part.strip() for part in package['scripts']['check'].split('&&')))
+    sys.exit(0)
+command = pathlib.Path(sys.argv[0]).name + ' ' + ' '.join(sys.argv[1:])
+with open(os.environ['COMMAND_LOG'], 'a') as handle:
+    handle.write(json.dumps(command) + '\\n')
+sys.exit(1 if command == os.environ.get('FAILED_COMMAND') else 0)
+"""
+            for name in ("bun", "vp"):
+                target = binaries / name
+                target.write_text(shim)
+                target.chmod(0o755)
+            result = subprocess.run(
+                ["bash", "-e", "-c", run], cwd=root, capture_output=True, text=True, timeout=10,
+                env={**os.environ, "PATH": f"{binaries}:{os.environ['PATH']}",
+                     "CMUX_NEXT_STYLE_GUARDS": "warn", "COMMAND_LOG": str(log),
+                     "FAILED_COMMAND": failed_command},
+            )
+            commands = [json.loads(line) for line in log.read_text().splitlines()]
+        return result, commands, parts
+
+    def test_ci_command_list_matches_package_check_chain_including_future_commands(self):
+        result, commands, parts = self.run_package_check_step()
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(commands, parts)
+
+    def test_layers_red_fails_ci_and_later_type_and_motion_checks_still_report(self):
+        result, commands, parts = self.run_package_check_step("bun run check:layers")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertEqual(commands, parts)
+        self.assertIn("::error title=webviews check::bun run check:layers", result.stdout)
+        self.assertIn("bun run check:type-scale", commands)
+        self.assertIn("bun run check:motion-scale", commands)
 
     def test_web_inputs_and_mixed_changes_are_selected(self):
         for path in (

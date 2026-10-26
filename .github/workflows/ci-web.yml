@@ -261,7 +261,7 @@ jobs:
     # Keep the feat-cmux-next base verdict alive even when the path classifier
     # has no changed-file route for the push. A base red must be visible before
     # a PR can inherit it.
-    if: ${{ inputs.web == 'true' && (needs.web-subarea-scope.outputs.react_apps == 'true' || github.ref == 'refs/heads/feat-cmux-next' || github.base_ref == 'feat-cmux-next') }}
+    if: ${{ inputs.web == 'true' && (needs.web-subarea-scope.outputs.react_apps == 'true' || github.ref == 'refs/heads/feat-cmux-next') }}
     # `bun test` grows memory across the suite and was SIGKILLed (exit 137) on the
     # 4 vCPU runner (run 37666132324). The 32 vCPU size has the memory and runs
     # 32 files and 8 dev-server files at once (run-webviews-tests.sh). Fork pull
@@ -507,7 +507,7 @@ jobs:
   # the timeout before it could publish a verdict.
   react-apps-base-check:
     needs: [web-subarea-scope, react-apps-check-shard]
-    if: ${{ github.event_name == 'pull_request' && inputs.web == 'true' && (needs.web-subarea-scope.outputs.react_apps == 'true' || github.base_ref == 'feat-cmux-next') }}
+    if: ${{ github.event_name == 'pull_request' && inputs.web == 'true' && needs.web-subarea-scope.outputs.react_apps == 'true' }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-32vcpu-ubuntu-2404' }}
     timeout-minutes: 40
     name: react-apps-base-check (${{ matrix.shard }})
@@ -613,7 +613,7 @@ jobs:
   # diagnostic after the test suite.
   react-doctor:
     needs: [web-subarea-scope, runners]
-    if: ${{ inputs.web == 'true' && (needs.web-subarea-scope.outputs.react_apps == 'true' || github.ref == 'refs/heads/feat-cmux-next' || github.base_ref == 'feat-cmux-next') }}
+    if: ${{ inputs.web == 'true' && (needs.web-subarea-scope.outputs.react_apps == 'true' || github.ref == 'refs/heads/feat-cmux-next') }}
     # React Doctor took 7.4-9.9 min on 4 vCPU and hit the 10 min timeout on
     # 2026-10-20 (runs 39505208959, 39506071754), which failed
     # react-apps-check. It takes the 16 vCPU size from the capability map.
@@ -649,7 +649,7 @@ jobs:
   # itself runs in independent file shards above.
   react-apps-check:
     needs: [web-subarea-scope, react-apps-check-shard, react-apps-base-check, react-doctor]
-    if: ${{ always() && inputs.web == 'true' && (needs.web-subarea-scope.outputs.react_apps == 'true' || github.ref == 'refs/heads/feat-cmux-next' || github.base_ref == 'feat-cmux-next') }}
+    if: ${{ always() && inputs.web == 'true' && (needs.web-subarea-scope.outputs.react_apps == 'true' || github.ref == 'refs/heads/feat-cmux-next') }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     steps:
@@ -657,8 +657,6 @@ jobs:
         env:
           WEB_INPUTS: ${{ toJSON(inputs) }}
           WEB_NEEDS: ${{ toJSON(needs) }}
-          GITHUB_REF: ${{ github.ref }}
-          GITHUB_BASE_REF: ${{ github.base_ref }}
         run: |
           python3 - <<'PY'
           import json
@@ -667,7 +665,7 @@ jobs:
 
           inputs = json.loads(os.environ["WEB_INPUTS"])
           needs = json.loads(os.environ["WEB_NEEDS"])
-          base_line = os.environ.get("GITHUB_REF") == "refs/heads/feat-cmux-next" or os.environ.get("GITHUB_BASE_REF") == "feat-cmux-next"
+          base_line = os.environ.get("GITHUB_REF") == "refs/heads/feat-cmux-next"
           required = inputs["web"] == "true" and (needs["web-subarea-scope"]["outputs"].get("react_apps") == "true" or base_line)
           required_jobs = ["react-apps-check-shard", "react-doctor"]
           if os.environ.get("GITHUB_EVENT_NAME") == "pull_request":
@@ -874,10 +872,7 @@ jobs:
               "web-production-build": inputs["web"] == "true" and subareas["production_build"] == "true",
               "web-tests": inputs["web"] == "true" and subareas["unit_tests"] == "true",
               "web-instant-navigation": inputs["web"] == "true" and subareas["instant"] == "true",
-              "react-apps-check": inputs["web"] == "true" and (subareas["react_apps"] == "true" or (
-                  os.environ.get("GITHUB_REF") == "refs/heads/feat-cmux-next"
-                  or os.environ.get("GITHUB_BASE_REF") == "feat-cmux-next"
-              )),
+              "react-apps-check": inputs["web"] == "true" and (subareas["react_apps"] == "true" or os.environ.get("GITHUB_REF") == "refs/heads/feat-cmux-next"),
               "diff-sidecar-check": scope_required and subareas["diff_sidecar"] == "true",
               "web-db-migrations": inputs["web"] == "true" and subareas["db"] == "true",
           }

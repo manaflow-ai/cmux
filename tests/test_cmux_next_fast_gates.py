@@ -214,18 +214,21 @@ class WorkflowShape(unittest.TestCase):
             self.assertTrue(restore["uses"].startswith("actions/cache/restore@"), name)
             self.assertIn("github.event_name == 'workflow_dispatch'", restore["if"], name)
 
-    def test_the_webviews_checks_are_ci_webs_fail_mode_checks(self):
+    def test_the_fast_webviews_checks_are_covered_by_ci_webs_package_chain(self):
         # The gate reruns what a pull request's ci-web fails on, so a check that landed after the PR's CI
         # (2026-10-21: check:fixed-waits, past which #22967, #22975 and #23094 merged) runs before the merge.
-        # ci-web runs the same script, with the merge parent as the base, so both compare per error.
+        # ci-web now gates the whole package chain. The dispatch's targeted
+        # correctness checks remain a subset of that chain, with typecheck as
+        # the alias for its direct vp command.
         doc = yaml.safe_load(CI_WEB.read_text(encoding="utf-8"))
         steps = [s for j in doc["jobs"].values() for s in j.get("steps", []) if s.get("id") == "webviews-check"]
         self.assertEqual(len(steps), 1)
-        self.assertIn("scripts/ci/fast_gate_webviews_checks.py", steps[0]["run"])
-        self.assertIn('--base "$BASE_REF"', steps[0]["run"])
-        self.assertEqual(steps[0]["env"]["BASE_REF"], "${{ github.event_name == 'pull_request' && 'HEAD^1' || '' }}")
-        self.assertNotRegex(steps[0]["run"], r"bun run \S+ \|\| status=1")
+        self.assertIn('require("./package.json").scripts.check.split("&&")', steps[0]["run"])
+        package = json.loads((ROOT / "webviews/package.json").read_text())
+        parts = {part.strip() for part in package["scripts"]["check"].split("&&")}
         module = load(WEBVIEWS_CHECKS)
+        for check in module.CHECKS:
+            self.assertTrue(f"bun run {check}" in parts or package["scripts"][check] in parts, check)
         self.assertIn("check:fixed-waits", module.CHECKS)
         self.assertIn("typecheck", module.CHECKS)  # #23763's TS2339 hid behind a red base
 
