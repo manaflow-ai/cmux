@@ -134,9 +134,7 @@ Durable one-shot wake subscriptions use the local socket methods `_acpmux/watch_
 local or `HOST/name` sessions, `until`, optional `match`, and `once: true`; it delivers batched
 messages with excerpts and inspection commands. State and undelivered messages survive restart;
 offline peers notify once, failed deliveries retry, and a one-shot watch is removed after delivery.
-Unreadable state is quarantined as `watches.json.bad-<timestamp>`; older cursors default safely;
-peer replay uses eight workers. The CLI and MCP tools are follow-ups; `acpmux wait` remains the
-script interface.
+Unreadable state is quarantined as `watches.json.bad-<timestamp>`; older cursors default safely; peer replay uses eight workers. The CLI and MCP tools are follow-ups; `acpmux wait` remains the script interface.
 
 ## Use cmux Cloud
 
