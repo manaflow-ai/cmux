@@ -85,6 +85,8 @@ final class CEFMessagePump {
     }
 
     private let work: () -> Void
+    /// The fork's longest pass (``CEFPumpSchedule/timeSlice(forkAPI:)``): a pass this long may have left work.
+    private let timeSlice: TimeInterval
     private let timer: any CEFPumpTimer
     private let clock: () -> TimeInterval
     private let ledger: WakeupLedger
@@ -134,11 +136,13 @@ final class CEFMessagePump {
     /// category's (tests pass one on their own trace runtime). `absoluteRunTimes`: CEF sends delayed work
     /// as the fork's absolute run times (``request(runTimeNanos:leewayNanos:precise:fromChromiumThread:)``),
     /// which decides how ``CEFPumpStats/earlyPasses`` tells an early pass.
+    /// `timeSlice`: the loaded fork's (``CEFPumpSchedule/timeSlice(forkAPI:)``).
     /// `crashKeys`: the app's (`CEFRuntime` passes the composition root's), a test's own, or nil.
     /// `board`: the main-thread budget each pass runs on as owner `cef.pump` (nil: none).
     init(
         work: @escaping () -> Void,
         timer: any CEFPumpTimer,
+        timeSlice: TimeInterval = CEFPumpSchedule.timeSlice,
         clock: @escaping () -> TimeInterval = CEFMessagePump.uptime,
         ledger: WakeupLedger = .shared,
         gate: CEFPumpCrossThreadGate = CEFPumpCrossThreadGate(),
@@ -151,6 +155,7 @@ final class CEFMessagePump {
         earlyPassWatch = CEFPumpStats.EarlyPassWatch(absoluteRunTimes: absoluteRunTimes)
         self.work = work
         self.signposter = signposter
+        self.timeSlice = timeSlice
         self.crashKeys = crashKeys
         self.board = board
         self.starvation = starvation
@@ -387,7 +392,7 @@ final class CEFMessagePump {
             runPass()
         }
         let elapsed = clock() - started
-        let longRun = counters.recordWorkRun(elapsed: elapsed)
+        let longRun = counters.recordWorkRun(elapsed: elapsed, timeSlice: timeSlice)
         signposter.endCEFPump(interval, longRun: longRun, elapsedMicros: UInt64(max(0, elapsed) * 1e6))
         if earlyPassWatch.passEnded(usedWholeSlice: longRun) { counters.earlyPasses += 1 }
         if input != nil { counters.passTimes.record(nanos: UInt64(max(0, elapsed) * 1e9)) }

@@ -38,7 +38,7 @@
       "args": {
         "method": "agent.report",
         "params": {
-          "terminal_id": "oracle",
+          "terminal_id": "term_00000000000000000000000000000000",
           "state": "working",
           "source": "hook"
         },
@@ -46,13 +46,13 @@
       },
       "expect": {
         "outcome": "error",
-        "error": "validation.invalid"
+        "error": "operation.failed"
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "terminal_id breaks its catalog type (resource id has the wrong type prefix); the daemon's catalog check refuses it"
+      "note": "a hook report for a well-formed terminal id that names no terminal; the code only: the daemon gives no typed key yet (operation resource.runtime, a prose reason), p15-oracle-241 makes it resource.not_found"
     }
   ],
   "invariants": [
