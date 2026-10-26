@@ -76,7 +76,7 @@ extension ScreenContentView {
     /// Returns false, changing nothing, when the spring would not animate here; the CPU steps it then.
     func startPanFling() -> Bool {
         let spring = Motion.panes.renderSpring(.scroll)
-        guard spring.animates(StripClipContainerView.translationKeyPath, in: stripContainer) else { return false }
+        guard spring.animates(StripClipContainerView.translationKey.path, in: stripContainer) else { return false }
         let camera = scrollState.spring
         let displacement = geometry.viewShift(offset: camera.value) - geometry.viewShift(offset: camera.target)
         scrollState.spring.snap()

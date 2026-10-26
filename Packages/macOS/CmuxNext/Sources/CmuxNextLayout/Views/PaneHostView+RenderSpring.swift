@@ -53,7 +53,7 @@ extension PaneHostView {
             return
         }
         var moves = renderSpringMoves(from: move.from, velocity: move.velocity)
-        if move.fromAlpha != move.toAlpha { moves.append(RenderSpring.Move(layer, "opacity", from: move.fromAlpha, to: move.toAlpha)) }
+        if move.fromAlpha != move.toAlpha { moves.append(RenderSpring.Move(layer, .opacity, from: move.fromAlpha, to: move.toAlpha)) }
         // The chrome is off this rest only when the plane placed nothing (a root that is not live, a hidden host).
         if let superview, let rest = inPlane(bounds, self), Self.gap(rest, chrome.frame) < 0.01,
            let start = Self.converted(move.from, velocity: move.velocity, from: superview, by: inPlane) {
