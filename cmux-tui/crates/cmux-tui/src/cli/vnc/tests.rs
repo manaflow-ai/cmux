@@ -26,6 +26,7 @@ fn vnc_parses_addresses_machines_and_proxies() {
     assert_eq!(config.resize, ResizeMode::Auto);
     assert!(config.reconnect);
     assert_eq!(config.fps, 30);
+    assert!(!config.remote_clipboard);
 
     let config = parsed(&["machine:m_123"]);
     assert_eq!(config.target, Target::Machine { id: "m_123".into(), port: 5901 });
@@ -49,6 +50,7 @@ fn vnc_parses_addresses_machines_and_proxies() {
     assert!(!config.reconnect);
     assert_eq!(config.pixel_mouse, Some(false));
     assert_eq!(config.credentials.username.as_deref(), Some("leo"));
+    assert!(parsed(&["h", "--remote-clipboard"]).remote_clipboard);
 
     assert!(parse(&strings(&["--help"]), &no_env).unwrap().is_none());
 }
@@ -274,11 +276,16 @@ fn vnc_ctrl_bracket_runs_viewer_commands() {
             keyboard.handle(&press(KeyCode::Char('q'), KeyModifiers::NONE), None),
             KeyAction::Command(Command::Quit)
         );
-        // Legacy terminals report Ctrl-] as Ctrl-5.
-        assert_eq!(
-            keyboard.handle(&press(KeyCode::Char('5'), KeyModifiers::CONTROL), None),
-            KeyAction::AwaitCommand
-        );
+        // Legacy terminals report Ctrl-] as Ctrl-5; with the Kitty
+        // protocol Ctrl-5 is its own key and reaches the server.
+        let ctrl_5 = keyboard.handle(&press(KeyCode::Char('5'), KeyModifiers::CONTROL), None);
+        if enhanced {
+            assert_eq!(ctrl_5, KeyAction::Send(vec![(0xFFE3, true), (0x35, true)]));
+            keyboard.release_all();
+            keyboard.handle(&press(KeyCode::Char(']'), KeyModifiers::CONTROL), None);
+        } else {
+            assert_eq!(ctrl_5, KeyAction::AwaitCommand);
+        }
         assert_eq!(
             keyboard.handle(&press(KeyCode::Char(']'), KeyModifiers::CONTROL), None),
             KeyAction::Command(Command::SendEscape)
@@ -294,4 +301,38 @@ fn vnc_ctrl_bracket_runs_viewer_commands() {
             KeyAction::Send(_)
         ));
     }
+}
+
+#[test]
+fn vnc_kitty_release_matches_the_key_pressed_even_after_shift_changes() {
+    let mut keyboard = Keyboard::new(true);
+    let shift = KeyCode::Modifier(ModifierKeyCode::LeftShift);
+    assert_eq!(
+        keyboard.handle(&press(KeyCode::Char('1'), KeyModifiers::NONE), None),
+        KeyAction::Send(vec![(0x31, true)])
+    );
+    keyboard.handle(&press(shift, KeyModifiers::SHIFT), None);
+    // The release now reports the shifted `!`; the key that went down was `1`.
+    assert_eq!(
+        keyboard.handle(
+            &key(KeyCode::Char('1'), KeyModifiers::SHIFT, KeyEventKind::Release),
+            Some('!')
+        ),
+        KeyAction::Send(vec![(0x31, false)])
+    );
+    // A repeat with a new meaning lets go of the old keysym first.
+    keyboard.handle(&press(KeyCode::Char('2'), KeyModifiers::SHIFT), Some('@'));
+    keyboard.handle(&key(shift, KeyModifiers::NONE, KeyEventKind::Release), None);
+    assert_eq!(
+        keyboard.handle(&key(KeyCode::Char('2'), KeyModifiers::NONE, KeyEventKind::Repeat), None),
+        KeyAction::Send(vec![(0x40, false), (0x32, true)])
+    );
+    assert_eq!(keyboard.release_all(), vec![(0x32, false)]);
+}
+
+#[test]
+fn vnc_server_text_cannot_carry_terminal_escapes() {
+    assert_eq!(printable("Office \u{1b}]52;c;aGk=\u{7}Mac"), "Office ?]52;c;aGk=?Mac");
+    assert_eq!(printable("a\u{9b}31mb\u{7f}"), "a?31mb?");
+    assert_eq!(printable("Léo’s Mac"), "Léo’s Mac");
 }

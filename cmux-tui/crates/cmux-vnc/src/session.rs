@@ -1,8 +1,12 @@
 //! A running RFB session: the reading half ([`Session`], one thread) and
-//! the writing half ([`Input`], cloneable, any thread).
+//! the writing half ([`Input`], cloneable, any thread). Input never blocks
+//! its caller: messages go through a bounded queue to a writer thread, and a
+//! server that stops reading until the queue fills ends the session.
 
-use std::io::{BufReader, Read, Write};
-use std::sync::{Arc, Mutex};
+use std::io::{self, BufReader, Read, Write};
+use std::sync::Arc;
+use std::sync::mpsc::{self, SyncSender, TrySendError};
+use std::thread;
 
 use crate::auth::Credentials;
 use crate::decode::{self, Cursor, Decoders, encoding};
@@ -13,6 +17,10 @@ use crate::message::{self, Screen};
 use crate::pixel::PixelFormat;
 use crate::transport::{Closer, Transport};
 use crate::wire::{MAX_TEXT_BYTES, WireReader, latin1, to_latin1};
+
+/// Client messages waiting for the writer thread before the session counts
+/// as stalled (a paste is one message, pointer motion one each).
+const WRITE_QUEUE: usize = 1024;
 
 /// How to open a session.
 #[derive(Debug, Clone)]
@@ -80,8 +88,14 @@ impl Session {
                 return Err(error);
             }
         };
-        let framebuffer = Framebuffer::new(init.width, init.height)?;
-        let input = Input { inner: Arc::new(InputInner { writer: Mutex::new(writer), closer }) };
+        let framebuffer = match Framebuffer::new(init.width, init.height) {
+            Ok(framebuffer) => framebuffer,
+            Err(error) => {
+                closer.close();
+                return Err(error);
+            }
+        };
+        let input = Input::spawn(writer, closer)?;
         let format = PixelFormat::RGBX;
         input.send(&message::set_pixel_format(&format))?;
         input.send(&message::set_encodings(&encoding::advertised(options.local_cursor)))?;
@@ -246,22 +260,61 @@ pub struct Input {
 }
 
 struct InputInner {
-    writer: Mutex<Box<dyn Write + Send>>,
+    queue: SyncSender<Vec<u8>>,
     closer: Closer,
 }
 
 impl Input {
+    /// Starts the writer thread. It ends when every `Input` is dropped or a
+    /// write fails; a failed write closes the transport, so the reader sees it.
+    fn spawn(mut writer: Box<dyn Write + Send>, closer: Closer) -> Result<Self> {
+        let (queue, pending) = mpsc::sync_channel::<Vec<u8>>(WRITE_QUEUE);
+        let writer_closer = closer.clone();
+        let spawned = thread::Builder::new().name("vnc-writer".into()).spawn(move || {
+            for bytes in pending {
+                if writer.write_all(&bytes).and_then(|()| writer.flush()).is_err() {
+                    writer_closer.close();
+                    return;
+                }
+            }
+        });
+        if let Err(error) = spawned {
+            closer.close();
+            return Err(error.into());
+        }
+        Ok(Self { inner: Arc::new(InputInner { queue, closer }) })
+    }
+
+    /// Queues one message without waiting for the network.
     fn send(&self, bytes: &[u8]) -> Result<()> {
-        let mut writer =
-            self.inner.writer.lock().map_err(|_| VncError::protocol("input lock poisoned"))?;
-        writer.write_all(bytes)?;
-        writer.flush()?;
-        Ok(())
+        match self.inner.queue.try_send(bytes.to_vec()) {
+            Ok(()) => Ok(()),
+            Err(TrySendError::Full(_)) => {
+                self.inner.closer.close();
+                Err(VncError::Io(io::Error::new(
+                    io::ErrorKind::TimedOut,
+                    "the server stopped reading input",
+                )))
+            }
+            Err(TrySendError::Disconnected(_)) => {
+                Err(VncError::Io(io::Error::from(io::ErrorKind::BrokenPipe)))
+            }
+        }
     }
 
     /// A key press or release (`keysym` from [`crate::keysym`]).
     pub fn key(&self, keysym: u32, down: bool) -> Result<()> {
         self.send(&message::key_event(keysym, down))
+    }
+
+    /// Key events in order, sent as one write: (keysym, down).
+    pub fn keys(&self, keys: &[(u32, bool)]) -> Result<()> {
+        if keys.is_empty() {
+            return Ok(());
+        }
+        let bytes: Vec<u8> =
+            keys.iter().flat_map(|&(keysym, down)| message::key_event(keysym, down)).collect();
+        self.send(&bytes)
     }
 
     /// Pointer position and the buttons held ([`message::button`] bits).

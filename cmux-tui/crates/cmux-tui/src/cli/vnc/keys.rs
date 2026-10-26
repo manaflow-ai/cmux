@@ -6,7 +6,7 @@
 //! goes down and up at once, inside the modifiers the event names.
 //! Ctrl-] starts a viewer command (the next key) and never reaches the server.
 
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap};
 
 use cmux_vnc::keysym::{Key, keysym};
 use crossterm::event::{KeyCode, KeyEvent, KeyEventKind, KeyModifiers, ModifierKeyCode};
@@ -48,6 +48,10 @@ pub(super) struct Keyboard {
     awaiting_command: bool,
     /// Keysyms this viewer holds down on the server.
     down: BTreeSet<u32>,
+    /// The keysym each held non-modifier key went down as, by its physical
+    /// key, so the release matches even when Shift changed in between
+    /// (press 1, press Shift, release: the release reports `!`).
+    pressed: HashMap<KeyCode, u32>,
     /// Modifiers this viewer pressed on its own (the terminal never reported
     /// them), released after the key that needed them.
     synthetic: BTreeSet<u32>,
@@ -67,7 +71,7 @@ impl Keyboard {
                 return KeyAction::None;
             }
             self.awaiting_command = false;
-            return KeyAction::Command(if is_escape(event) {
+            return KeyAction::Command(if self.is_escape(event) {
                 Command::SendEscape
             } else {
                 match event.code {
@@ -79,7 +83,7 @@ impl Keyboard {
                 }
             });
         }
-        if event.kind == KeyEventKind::Press && is_escape(event) {
+        if event.kind == KeyEventKind::Press && self.is_escape(event) {
             self.awaiting_command = true;
             return KeyAction::AwaitCommand;
         }
@@ -103,28 +107,48 @@ impl Keyboard {
         } else {
             event.modifiers
         };
-        let Some(sym) = key(event.code, modifiers, shifted).and_then(keysym) else {
-            return KeyAction::None;
-        };
+        let physical = physical_key(event.code);
         let mut out = Vec::new();
-        if press {
-            self.sync_modifiers(event.code, modifiers, &mut out);
-            self.down.insert(sym);
-            out.push((sym, true));
-            if !self.enhanced {
+        if !press {
+            if let Some(sym) = self.pressed.remove(&physical) {
                 self.down.remove(&sym);
-                out.push((sym, false));
-                self.release_synthetic(&mut out);
-            }
-        } else {
-            if self.down.remove(&sym) {
                 out.push((sym, false));
             }
             if self.down.iter().all(|held| is_modifier_sym(*held)) {
                 self.release_synthetic(&mut out);
             }
+            return KeyAction::Send(out);
         }
+        let Some(sym) = key(event.code, modifiers, shifted).and_then(keysym) else {
+            return KeyAction::None;
+        };
+        self.sync_modifiers(event.code, modifiers, &mut out);
+        if !self.enhanced {
+            out.extend([(sym, true), (sym, false)]);
+            self.release_synthetic(&mut out);
+            return KeyAction::Send(out);
+        }
+        // A repeat that now means another keysym (Shift changed) lets go of the old one.
+        if let Some(old) = self.pressed.insert(physical, sym)
+            && old != sym
+            && self.down.remove(&old)
+        {
+            out.push((old, false));
+        }
+        self.down.insert(sym);
+        out.push((sym, true));
         KeyAction::Send(out)
+    }
+
+    /// Ctrl-] (0x1D). Legacy terminals report it as Ctrl-5; with the Kitty
+    /// protocol Ctrl-5 is its own key and goes to the server.
+    fn is_escape(&self, event: &KeyEvent) -> bool {
+        event.modifiers.contains(KeyModifiers::CONTROL)
+            && match event.code {
+                KeyCode::Char(']') => true,
+                KeyCode::Char('5') => !self.enhanced,
+                _ => false,
+            }
     }
 
     /// Presses the modifiers `modifiers` names that are not down, and lets
@@ -165,15 +189,20 @@ impl Keyboard {
     /// Releases every key this viewer holds (focus lost, reconnect, exit).
     pub fn release_all(&mut self) -> Vec<(u32, bool)> {
         self.synthetic.clear();
+        self.pressed.clear();
         self.awaiting_command = false;
         std::mem::take(&mut self.down).into_iter().rev().map(|sym| (sym, false)).collect()
     }
 }
 
-fn is_escape(event: &KeyEvent) -> bool {
-    // Ctrl-] is 0x1D; legacy terminals report it as Ctrl-5.
-    event.modifiers.contains(KeyModifiers::CONTROL)
-        && matches!(event.code, KeyCode::Char(']' | '5'))
+/// The physical key behind a code: letters fold to lowercase (Shift may
+/// or may not be applied to the reported code), Shift-Tab is Tab.
+fn physical_key(code: KeyCode) -> KeyCode {
+    match code {
+        KeyCode::Char(c) => KeyCode::Char(c.to_ascii_lowercase()),
+        KeyCode::BackTab => KeyCode::Tab,
+        other => other,
+    }
 }
 
 fn is_modifier_sym(sym: u32) -> bool {

@@ -62,6 +62,9 @@ OPTIONS
   --mouse cells|pixels       how the terminal reports the pointer (default:
                              pixels in Ghostty, kitty and WezTerm)
   --no-reconnect             end instead of reconnecting when the connection drops
+  --remote-clipboard         copy the remote clipboard to this computer's
+                             clipboard (off by default: the server could
+                             otherwise set your clipboard at any time)
 
 When the server needs a password and none is given, the viewer asks for one.
 In the viewer, Ctrl-] then q quits, r reconnects, v toggles view only,
@@ -99,6 +102,8 @@ pub(super) struct Config {
     pub reconnect: bool,
     /// `None`: decide from the terminal.
     pub pixel_mouse: Option<bool>,
+    /// Copy ServerCutText to the local clipboard (OSC 52).
+    pub remote_clipboard: bool,
 }
 
 /// `Some(args after "vnc")` when `command_args` start with `vnc`.
@@ -119,6 +124,7 @@ pub(super) fn parse(
     let mut password_file = None;
     let mut proxy = None;
     let mut port = None;
+    let mut remote_clipboard = false;
     let mut config_flags = (false, ResizeMode::Auto, 30u32, true, None);
     let mut args = rest.iter();
     while let Some(arg) = args.next() {
@@ -165,6 +171,7 @@ pub(super) fn parse(
                     )?;
             }
             "--no-reconnect" => config_flags.3 = false,
+            "--remote-clipboard" => remote_clipboard = true,
             "--mouse" => {
                 config_flags.4 = Some(match value("--mouse")?.as_str() {
                     "cells" => false,
@@ -233,6 +240,7 @@ pub(super) fn parse(
         fps,
         reconnect,
         pixel_mouse,
+        remote_clipboard,
     }))
 }
 
@@ -334,7 +342,7 @@ fn first_session(config: &mut Config) -> Result<Session, VncError> {
                 let username = match &error {
                     VncError::CredentialsRequired { username } => *username,
                     _ => {
-                        eprintln!("cmux: {error}");
+                        eprintln!("cmux: {}", printable(&error.to_string()));
                         config.credentials.username.is_some()
                     }
                 };
@@ -420,7 +428,7 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
             let code = if error.is_auth() { "vnc.auth" } else { "vnc.connect" };
             return Some(super::app::failure(
                 code,
-                &format!("cmux: {}: {error}", config.label),
+                &format!("cmux: {}: {}", config.label, printable(&error.to_string())),
                 global.output,
                 1,
             ));
@@ -432,4 +440,11 @@ pub(super) fn run_if_requested(args: &[String]) -> Option<i32> {
             Some(super::app::failure("vnc.terminal", &format!("cmux: {error}"), global.output, 1))
         }
     }
+}
+
+/// Server-supplied text (a desktop name, a refusal reason) made safe to
+/// print: control characters (C0, DEL, C1) become `?`, so a server cannot
+/// send terminal escape sequences (titles, OSC 52, links) through it.
+pub(super) fn printable(text: &str) -> String {
+    text.chars().map(|c| if c.is_control() { '?' } else { c }).collect()
 }

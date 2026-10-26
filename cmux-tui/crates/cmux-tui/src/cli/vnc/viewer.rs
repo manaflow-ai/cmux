@@ -10,6 +10,7 @@
 //! replaced, never queued.
 
 use std::io::{self, Write};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -27,7 +28,7 @@ use crossterm::{cursor, execute, queue, terminal};
 
 use super::keys::{Command, KeyAction, Keyboard};
 use super::layout::{Pane, Placement, scale_rgb};
-use super::{Config, ResizeMode, kitty};
+use super::{Config, ResizeMode, kitty, printable};
 
 /// Image id of the cursor overlay.
 const CURSOR_ID: u32 = 0x5643_0003;
@@ -78,22 +79,26 @@ enum State {
 
 pub(super) fn run(config: Config, first: Session) -> io::Result<()> {
     let (tx, rx) = crossbeam_channel::unbounded();
-    let _terminal = TerminalGuard::enter()?;
+    let mut terminal_guard = TerminalGuard::enter()?;
     let enhanced = terminal::supports_keyboard_enhancement().unwrap_or(false);
     if enhanced {
+        // Alternate keys: Shift-1 reports its shifted `!`, which is the keysym.
         execute!(
             io::stdout(),
             PushKeyboardEnhancementFlags(
                 KeyboardEnhancementFlags::DISAMBIGUATE_ESCAPE_CODES
                     | KeyboardEnhancementFlags::REPORT_EVENT_TYPES
+                    | KeyboardEnhancementFlags::REPORT_ALTERNATE_KEYS
                     | KeyboardEnhancementFlags::REPORT_ALL_KEYS_AS_ESCAPE_CODES
             )
         )?;
+        terminal_guard.keyboard_flags = true;
     }
     let pixel_mouse = config.pixel_mouse.unwrap_or_else(terminal_reports_pixels);
     if pixel_mouse {
         // SGR-Pixels (1016): mouse reports in pixels, so a pointer lands on
         // the remote pixel, not a whole cell.
+        terminal_guard.pixel_mouse = true;
         io::stdout().write_all(b"\x1b[?1016h")?;
     }
     let input_tx = tx.clone();
@@ -109,7 +114,7 @@ pub(super) fn run(config: Config, first: Session) -> io::Result<()> {
         canvas: Arc::new(Mutex::new(Canvas { pane: current_pane(), frame: None })),
         config,
         tx,
-        generation: 0,
+        generation: Arc::new(AtomicU64::new(0)),
         state: State::Connecting,
         backoff: Backoff::default(),
         keyboard: Keyboard::new(enhanced),
@@ -134,13 +139,9 @@ pub(super) fn run(config: Config, first: Session) -> io::Result<()> {
     if let State::Connected { input, .. } = &viewer.state {
         input.close();
     }
-    viewer.clear_images()?;
-    if enhanced {
-        execute!(io::stdout(), PopKeyboardEnhancementFlags)?;
-    }
-    if pixel_mouse {
-        io::stdout().write_all(b"\x1b[?1016l")?;
-    }
+    // The guard deletes the images and restores every terminal mode,
+    // here and on any error or panic.
+    drop(terminal_guard);
     result
 }
 
@@ -148,7 +149,9 @@ struct Viewer {
     config: Config,
     canvas: Arc<Mutex<Canvas>>,
     tx: Sender<Msg>,
-    generation: u64,
+    /// The live connection's number, shared with the reader threads: a
+    /// thread whose number is no longer current closes its connection.
+    generation: Arc<AtomicU64>,
     state: State,
     backoff: Backoff,
     keyboard: Keyboard,
@@ -241,10 +244,10 @@ impl Viewer {
     fn handle(&mut self, msg: Msg) -> io::Result<bool> {
         match msg {
             Msg::Term(event) => return self.terminal_event(event),
-            Msg::Net(generation, _) if generation != self.generation => {}
+            Msg::Net(generation, _) if generation != self.current_generation() => {}
             Msg::Net(_, net) => match net {
                 Net::Connected(input, name) => {
-                    self.backoff.reset();
+                    // The backoff resets only when this session lives long enough.
                     self.name = name;
                     self.state = State::Connected { input };
                     self.info = None;
@@ -254,8 +257,9 @@ impl Viewer {
                 Net::Frame => self.frame_waiting = true,
                 Net::Info(info) => self.update_info(info)?,
                 Net::Bell => self.out.write_all(b"\x07")?,
+                Net::Clipboard(_) if !self.config.remote_clipboard => {}
                 Net::Clipboard(text) => {
-                    // OSC 52: the remote clipboard becomes the local one.
+                    // OSC 52: the remote clipboard becomes the local one (opted in).
                     let encoded = base64::engine::general_purpose::STANDARD.encode(text);
                     write!(self.out, "\x1b]52;c;{encoded}\x07")?;
                     self.out.flush()?;
@@ -316,10 +320,14 @@ impl Viewer {
 
     /// Starts a new connection on its own thread; it becomes that
     /// connection's reader.
+    fn current_generation(&self) -> u64 {
+        self.generation.load(Ordering::SeqCst)
+    }
+
     fn connect(&mut self) {
-        self.generation += 1;
+        let generation = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
         self.state = State::Connecting;
-        let generation = self.generation;
+        let current = self.generation.clone();
         let config = self.config.clone();
         let tx = self.tx.clone();
         let canvas = self.canvas.clone();
@@ -330,7 +338,7 @@ impl Viewer {
                 ..SessionOptions::default()
             };
             match super::open(&config.target, &options) {
-                Ok(session) => read_loop(session, generation, &tx, &canvas, started),
+                Ok(session) => read_loop(session, generation, &current, &tx, &canvas, started),
                 Err(error) => {
                     let _ = tx.send(Msg::Net(generation, Net::Ended(error, started.elapsed())));
                 }
@@ -343,8 +351,8 @@ impl Viewer {
 
     /// Runs the first, already connected session.
     fn adopt(&mut self, session: Session) {
-        self.generation += 1;
-        let generation = self.generation;
+        let generation = self.generation.fetch_add(1, Ordering::SeqCst) + 1;
+        let current = self.generation.clone();
         self.name = session.name().to_owned();
         self.state = State::Connected { input: session.input() };
         let tx = self.tx.clone();
@@ -352,7 +360,7 @@ impl Viewer {
         let started = Instant::now();
         let spawned = thread::Builder::new()
             .name("vnc-session".into())
-            .spawn(move || read_loop(session, generation, &tx, &canvas, started));
+            .spawn(move || read_loop(session, generation, &current, &tx, &canvas, started));
         if let Err(error) = spawned {
             self.state = State::Stopped(format!("cannot start the connection thread: {error}"));
         }
@@ -371,11 +379,7 @@ impl Viewer {
             return;
         }
         if let Some(input) = self.input() {
-            for &(sym, down) in keys {
-                if input.key(sym, down).is_err() {
-                    return;
-                }
-            }
+            let _ = input.keys(keys);
         }
     }
 
@@ -501,12 +505,15 @@ impl Viewer {
         }
         let Some(input) = self.input() else { return };
         let _ = input.clipboard(text);
-        for c in text.chars().filter(|&c| c != '\r').take(MAX_PASTE_CHARS) {
-            let sym = cmux_vnc::keysym::char_keysym(c);
-            if input.key(sym, true).and_then(|()| input.key(sym, false)).is_err() {
-                return;
-            }
-        }
+        let keys: Vec<(u32, bool)> = text
+            .chars()
+            .filter(|&c| c != '\r')
+            .take(MAX_PASTE_CHARS)
+            .map(cmux_vnc::keysym::char_keysym)
+            .flat_map(|sym| [(sym, true), (sym, false)])
+            .collect();
+        // One write: a slow server holds the writer thread, not this one.
+        let _ = input.keys(&keys);
     }
 
     fn pane(&self) -> Pane {
@@ -704,7 +711,7 @@ impl Viewer {
 
     fn draw_status_text(&mut self, text: &str) -> io::Result<()> {
         let pane = self.pane();
-        let text: String = text.chars().take(usize::from(pane.cols)).collect();
+        let text: String = printable(text).chars().take(usize::from(pane.cols)).collect();
         write!(self.out, "\x1b7\x1b[{};1H\x1b[2K\x1b[7m{text}\x1b[0m\x1b8", pane.rows)?;
         self.out.flush()
     }
@@ -715,11 +722,15 @@ impl Viewer {
 fn read_loop(
     mut session: Session,
     generation: u64,
+    current: &AtomicU64,
     tx: &Sender<Msg>,
     canvas: &Mutex<Canvas>,
     started: Instant,
 ) {
-    let send = |net: Net| tx.send(Msg::Net(generation, net)).is_ok();
+    // A connection the viewer replaced (Ctrl-] r while it was opening) closes
+    // itself instead of decoding into the shared canvas.
+    let live = || current.load(Ordering::SeqCst) == generation;
+    let send = |net: Net| live() && tx.send(Msg::Net(generation, net)).is_ok();
     if !send(Net::Connected(session.input(), session.name().to_owned())) {
         session.input().close();
         return;
@@ -764,7 +775,7 @@ fn read_loop(
                             .lock()
                             .map(|mut c| {
                                 let waiting = c.frame.is_some();
-                                if c.pane == pane {
+                                if c.pane == pane && live() {
                                     c.frame = Some((rgb, placement));
                                 }
                                 waiting
@@ -801,13 +812,18 @@ fn terminal_reports_pixels() -> bool {
         || std::env::var_os("KITTY_WINDOW_ID").is_some()
 }
 
-/// Raw mode, the alternate screen, mouse, focus and paste reporting, undone on drop.
-struct TerminalGuard;
+/// Raw mode, the alternate screen, mouse, focus and paste reporting, and
+/// (once set) the keyboard flags and pixel mouse, all undone on drop, with
+/// the images deleted: on a normal exit, an error and a panic alike.
+struct TerminalGuard {
+    keyboard_flags: bool,
+    pixel_mouse: bool,
+}
 
 impl TerminalGuard {
     fn enter() -> io::Result<Self> {
         terminal::enable_raw_mode()?;
-        let guard = Self;
+        let guard = Self { keyboard_flags: false, pixel_mouse: false };
         execute!(
             io::stdout(),
             terminal::EnterAlternateScreen,
@@ -823,6 +839,16 @@ impl TerminalGuard {
 
 impl Drop for TerminalGuard {
     fn drop(&mut self) {
+        let mut out = io::stdout();
+        for id in kitty::IMAGE_IDS.into_iter().chain([CURSOR_ID]) {
+            let _ = kitty::delete(&mut out, id);
+        }
+        if self.keyboard_flags {
+            let _ = execute!(out, PopKeyboardEnhancementFlags);
+        }
+        if self.pixel_mouse {
+            let _ = out.write_all(b"\x1b[?1016l");
+        }
         let _ = execute!(
             io::stdout(),
             DisableBracketedPaste,
