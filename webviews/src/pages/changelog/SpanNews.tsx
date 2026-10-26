@@ -2,6 +2,12 @@
 // news"): the top two or three changes lead, each with its picture or clip playing in place; the
 // rest of New and Improved follow as cards in a grid; Fixed folds into one line. Security keeps
 // its list, open: it is the one group a person must not miss.
+//
+// Every change with a clip shows it at the clip's own shape, uncut, with its caption: what you can
+// now do (Leo 2026-10-24: "it's like you're not even showing anything properly off"). A clip is the
+// feature in use, cropped to where it happens (scripts/cmux-next/media/whats-new-clips.py), so it is
+// never boxed and cropped again here. `ctx.news` picks how they sit (NewsLayout); "lead" is the row
+// of three the clips replaced.
 import type { ReleaseItem, ReleaseView } from "./model";
 import { categoryLabel, Groups, ItemActions, Media, RowActions, type PartsContext } from "./ReleaseParts";
 
@@ -25,19 +31,61 @@ function newsItems(view: ReleaseView): ReleaseItem[] {
   return view.groups.filter((g) => g.category === "new" || g.category === "improved").flatMap((g) => g.items);
 }
 
+/** What the clip shows you can now do: its caption (the clip's alt, release-notes.py), else the
+    change's first paragraph. */
+function clipCaption(item: ReleaseItem): string {
+  const alt = item.media?.alt?.trim();
+  return alt && alt !== item.title ? alt : firstParagraph(item.summary);
+}
+
 function firstParagraph(text: string): string {
   return text.split(/\n{2,}/)[0] ?? "";
 }
 
+/** A recorded clip (whats-new-clips.py makes only animated WebP) or a video, not a pull
+    request's screenshot (PNG, JPEG or GIF). The app inlines both as data: URLs and calls both
+    "image", so the format is what tells them apart. */
+export function isClip(item: ReleaseItem): boolean {
+  const src = item.media?.light ?? "";
+  return !!item.media?.video || /^data:image\/webp[;,]/.test(src) || /\.webp$/i.test(src);
+}
+
+/** The changes that show a clip: the hero first, then New, Improved and Fixed in order (a fix
+    with a clip shows it working; Security keeps its own list). */
+export function clipItems(view: ReleaseView): ReleaseItem[] {
+  const fixes = view.groups.find((g) => g.category === "fixed")?.items ?? [];
+  const items = [...(view.hero ? [view.hero] : []), ...newsItems(view), ...fixes];
+  return items.filter((item, index) => isClip(item) && items.indexOf(item) === index);
+}
+
 export function SpanNews({ view, ctx }: { view: ReleaseView; ctx: PartsContext }) {
-  const lead = leadItems(view);
-  const cards = newsItems(view).filter((item) => !lead.includes(item));
+  const layout = ctx.news ?? "grid";
+  const clips = layout === "lead" ? [] : clipItems(view);
+  // Without clips (or in the old layout) the lead row stays as it was; beside clips, only a hero
+  // with none leads, in words.
+  const lead = clips.length === 0 ? leadItems(view) : view.hero && !clips.includes(view.hero) ? [view.hero] : [];
+  const cards = newsItems(view).filter((item) => !lead.includes(item) && !clips.includes(item));
   const security = view.groups.filter((g) => g.category === "security");
-  const fixed = view.groups.find((g) => g.category === "fixed")?.items ?? [];
+  const fixed = (view.groups.find((g) => g.category === "fixed")?.items ?? []).filter((item) => !clips.includes(item));
   // When fixes are all the update's news, their list is open: one closed line would hide all of it.
-  const onlyFixes = lead.length === 0 && cards.length === 0 && security.length === 0;
+  const onlyFixes = clips.length === 0 && lead.length === 0 && cards.length === 0 && security.length === 0;
   return (
     <>
+      {clips.length > 0 && (
+        <div className={`cln-clips cln-clips-${layout}`}>
+          {clips.map((item, index) => (
+            <article key={`${item.id}-${index}`} className="cln-clip">
+              <Media media={item.media!} className="cln-clip-media" strings={ctx.strings} />
+              <div className="cln-clip-text">
+                <span className="cln-card-kind">{categoryLabel(ctx.strings, item.category)}</span>
+                <h2 className="cln-clip-title">{item.title}</h2>
+                <p className="cln-clip-caption">{clipCaption(item)}</p>
+                <ItemActions item={item} ctx={ctx} />
+              </div>
+            </article>
+          ))}
+        </div>
+      )}
       {lead.length > 0 && (
         <div className="cln-lead-row" data-count={lead.length}>
           {lead.map((item, index) => (
