@@ -18,6 +18,8 @@
 //! name, `aliases` or origin `hostnames` match the host name, as `reach`
 //! finds it. With no registry, or no `lanes` entry for this machine, a create
 //! is admitted (a log line says why): acpmux outside the fleet is unchanged.
+//! A registry that cannot be read keeps its last good copy, and with none
+//! refuses; a `FLEET_REGISTRY` that is missing counts as one that cannot be read.
 //! `_meta.acpmux.forceAdmit` (`acpmux new --force-admit`) admits past both,
 //! and the daemon logs who asked and what it overrode; the person's own new
 //! chat on this host (its app pane, or the person key) is admitted and logged
@@ -182,23 +184,27 @@ fn user_home() -> Option<PathBuf> {
 }
 
 /// Where this host's fleet registry is (module docs): `FLEET_REGISTRY`, else
-/// the first of the two usual copies that exists.
-fn registry_path() -> Option<PathBuf> {
+/// the first of the two usual copies that exists. True when `FLEET_REGISTRY`
+/// names it: that file is meant to be there.
+fn registry_path() -> Option<(PathBuf, bool)> {
     if let Some(path) = std::env::var_os("FLEET_REGISTRY").filter(|p| !p.is_empty()) {
-        return Some(path.into());
+        return Some((path.into(), true));
     }
     let home = user_home()?;
     [".ssh/config.d/fleet-registry.json", "Projects/leo-workspace/machines/fleet-registry.json"]
         .iter()
         .map(|rel| home.join(rel))
         .find(|p| p.exists())
+        .map(|p| (p, false))
 }
 
 /// The registry at `source`, and whether it is there but unreadable. One that
 /// cannot be read or parsed (a partial write, a permission error) answers with
 /// the last copy read from the same path; with none it is unreadable, which
 /// refuses (`Refusal::RegistryUnreadable`): a bad read never lifts the cap.
-fn read_registry(source: &Path) -> (Option<Value>, bool) {
+/// A `set` path (`FLEET_REGISTRY`) that is missing is unreadable too: a rename,
+/// a failed mount or a typo never lifts the cap either.
+fn read_registry(source: &Path, set: bool) -> (Option<Value>, bool) {
     static LAST: StdMutex<Option<(PathBuf, Value)>> = StdMutex::new(None);
     let mut last = LAST.lock().unwrap_or_else(|e| e.into_inner());
     let read = std::fs::read(source)
@@ -211,7 +217,8 @@ fn read_registry(source: &Path) -> (Option<Value>, bool) {
         }
         Err(e) => {
             let kept = last.as_ref().filter(|(p, _)| p == source).map(|(_, r)| r.clone());
-            let there = !source.as_os_str().is_empty() && source.try_exists().unwrap_or(true);
+            let there =
+                set || (!source.as_os_str().is_empty() && source.try_exists().unwrap_or(true));
             if there {
                 tracing::warn!(
                     path = %source.display(),
@@ -334,8 +341,8 @@ impl Hub {
     pub(crate) async fn admit_new(&self, ask: Ask<'_>) -> Result<Admitted<'_>, RpcError> {
         let flag = user_home().map(|h| h.join(".cache/worktree-reclaim/under-floor"));
         let read = tokio::task::spawn_blocking(move || {
-            let source = registry_path().unwrap_or_default();
-            let (registry, unreadable) = read_registry(&source);
+            let (source, set) = registry_path().unwrap_or_default();
+            let (registry, unreadable) = read_registry(&source, set);
             let origin = std::env::var("FLEET_ORIGIN").ok();
             let machine = registry
                 .as_ref()
@@ -471,11 +478,19 @@ mod tests {
         std::fs::write(&path, br#"{"machines":{"m":{"max_lanes":1}}}"#).unwrap();
         let fresh = dir.join("first-read-truncated.json");
         std::fs::write(&fresh, br#"{"machines":"#).unwrap();
-        assert_eq!(read_registry(&fresh), (None, true), "no good copy yet: unreadable refuses");
-        let good = read_registry(&path).0.unwrap();
+        assert_eq!(
+            read_registry(&fresh, false),
+            (None, true),
+            "no good copy yet: unreadable refuses"
+        );
+        let good = read_registry(&path, false).0.unwrap();
         std::fs::write(&path, br#"{"machines":{"m":"#).unwrap();
-        assert_eq!(read_registry(&path), (Some(good), false));
-        assert_eq!(read_registry(&dir.join("never-there.json")), (None, false));
+        assert_eq!(read_registry(&path, false), (Some(good.clone()), false));
+        assert_eq!(read_registry(&dir.join("never-there.json"), false), (None, false));
+        // FLEET_REGISTRY names a file that is missing: unreadable, or its last good copy.
+        assert_eq!(read_registry(&dir.join("never-there.json"), true), (None, true));
+        std::fs::remove_file(&path).unwrap();
+        assert_eq!(read_registry(&path, true), (Some(good), false));
         let _ = std::fs::remove_dir_all(&dir);
         let unreadable = check(&Inputs {
             flag: None,
