@@ -151,6 +151,11 @@ describe("subagent tray motion", () => {
     await act(async () => ended(out));
     expect(element.querySelector(".acpmux-tick__out")).toBeNull();
     expect(element.textContent).toBe("3 subagents running");
+    // The shorter exit never cuts the entrance short: the new words keep rising until their own end.
+    const rising = element.querySelector<HTMLElement>(".acpmux-tick__in")!;
+    expect(rising).not.toBeNull();
+    await act(async () => ended(rising));
+    expect(element.querySelector(".acpmux-tick__in")).toBeNull();
     motion(false);
     await act(async () => root.render(createElement(Tick, { text: "4 subagents running" })));
     expect(element.querySelector(".acpmux-tick__out")).toBeNull();
