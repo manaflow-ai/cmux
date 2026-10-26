@@ -9,7 +9,11 @@
 //! written before a control event enqueued ahead of it (spec/transports.md
 //! "Reply and event order"). Like Mojo's associated interfaces
 //! (mojo/public/cpp/bindings/associated_receiver.h), events and replies that
-//! must stay ordered share one pipe; unrelated streams do not.
+//! must stay ordered share one pipe; unrelated streams do not. The control
+//! FIFO's priority is bounded: after `CONTROL_STREAM_BURST` control-sequence
+//! items in a row, a waiting regular item goes first, so an event flood never
+//! starves attach output (the starvation bound of Chromium's
+//! base/task/sequence_manager/task_queue_selector.cc).
 
 use super::BACKPRESSURE_RECHECK;
 use super::BudgetedText;
@@ -38,6 +42,10 @@ use std::sync::Mutex;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
 
+/// Control-sequence stream items the writer pops in a row while a regular
+/// item waits; then it writes that regular item (`pop_locked`).
+pub(super) const CONTROL_STREAM_BURST: usize = 8;
+
 #[derive(Default)]
 pub(super) struct BoundedOutbound {
     pub(super) state: Mutex<BoundedOutboundState>,
@@ -56,6 +64,8 @@ pub(super) struct BoundedOutboundState {
     /// Control-sequence stream items in `control`; counted, like the
     /// `initial` and `regular` items, in their stream and connection budgets.
     pub(super) control_stream_items: usize,
+    /// Control-sequence items popped since the last regular item.
+    control_stream_run: usize,
     pub(super) regular_bytes: usize,
     pub(super) closed: bool,
 }
@@ -444,37 +454,6 @@ impl BoundedOutbound {
         }
     }
 
-    /// Waits until a queued, unwritten line satisfies `matches`.
-    #[cfg(test)]
-    pub(super) fn wait_until_queued(
-        &self,
-        matches: impl Fn(&str) -> bool,
-        timeout: Duration,
-    ) -> bool {
-        let deadline = std::time::Instant::now() + timeout;
-        let mut state = self.state.lock().recover_poison();
-        loop {
-            let queued = state.initial.iter().map(|message| &message.text).chain(
-                state.control.iter().filter_map(|item| match item {
-                    ControlOutbound::Text(text) => Some(text),
-                    ControlOutbound::Stream(message) => Some(&message.text),
-                    ControlOutbound::Flush(_) => None,
-                }),
-            );
-            if queued
-                .chain(state.regular.iter().map(|message| &message.text))
-                .any(|text| matches(text))
-            {
-                return true;
-            }
-            let remaining = deadline.saturating_duration_since(std::time::Instant::now());
-            if remaining.is_zero() {
-                return false;
-            }
-            state = self.changed.wait_timeout(state, remaining).recover_poison().0;
-        }
-    }
-
     pub(super) fn recv(&self) -> Option<OutboundItem> {
         let mut state = self.state.lock().recover_poison();
         loop {
@@ -495,7 +474,13 @@ impl BoundedOutbound {
             Self::record_stream_pop(state, &message);
             return Some(OutboundItem::Text(message.text));
         }
-        if let Some(control) = state.control.pop_front() {
+        // A control-sequence item yields to one waiting regular item after a
+        // burst; a reply or terminal never does, and nothing in the control
+        // FIFO changes its order.
+        let yields = state.control_stream_run >= CONTROL_STREAM_BURST
+            && !state.regular.is_empty()
+            && matches!(state.control.front(), Some(ControlOutbound::Stream(_)));
+        if !yields && let Some(control) = state.control.pop_front() {
             return Some(match control {
                 ControlOutbound::Text(text) => {
                     state.control_messages = state.control_messages.saturating_sub(1);
@@ -504,6 +489,7 @@ impl BoundedOutbound {
                 }
                 ControlOutbound::Stream(message) => {
                     state.control_stream_items = state.control_stream_items.saturating_sub(1);
+                    state.control_stream_run += 1;
                     Self::record_stream_pop(state, &message);
                     OutboundItem::Text(message.text)
                 }
@@ -511,6 +497,7 @@ impl BoundedOutbound {
             });
         }
         let message = state.regular.pop_front()?;
+        state.control_stream_run = 0;
         Self::record_stream_pop(state, &message);
         Some(OutboundItem::Text(message.text))
     }

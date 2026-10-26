@@ -118,18 +118,21 @@ import Testing
         let before = Self.streamItems(rounds: 3, from: 0)
         let between = Self.streamItems(rounds: 2, from: 3)
         let after = Self.streamItems(rounds: 2, from: 5)
-        daemon.write(before + [#"{"event":"tree-changed"}"#] + between + [#"{"id":\#(id),"ok":true,"data":{}}"#] + after)
+        // The sentinel, a raw event after everything, tells the test the reader is done.
+        daemon.write(before + [#"{"event":"tree-changed"}"#] + between + [#"{"id":\#(id),"ok":true,"data":{}}"#]
+                     + after + [#"{"event":"sentinel"}"#])
         let response = try await reply.value
-        await routed.waitFor(before.count + 1 + between.count + after.count)
+        await routed.waitFor(2)
 
         let lines = routed.lines.withLock { $0 }
         let echo = try #require(lines.first { $0.name == "tree-changed" })
         #expect(response.eventBarrier >= echo.index, "the reply's barrier misses its echo")
-        #expect(DaemonEventEnvelope.sequence(serial: 1, index: transport.routedEventCount)
+        #expect(DaemonEventEnvelope.sequence(serial: 1, index: response.eventBarrier)
                     >= DaemonEventEnvelope.sequence(serial: 1, index: echo.index))
         #expect(echo.index == 1, "stream items before the echo moved its index")
         #expect(response.eventBarrier == 1, "stream items moved the reply's barrier")
-        #expect(transport.routedEventCount == 1, "stream items changed routedEventCount")
+        #expect(transport.routedEventCount == 2, "stream items changed routedEventCount")
+        #expect(lines.map(\.name) == ["tree-changed", "sentinel"], "an unregistered stream's line reached onEvent")
     }
 
     @Test func aControlSequenceStreamCountsUntilItsEnd() async throws {
@@ -149,14 +152,15 @@ import Testing
         let item = #"{"type":"stream_item","stream_id":"\#(session)","sequence":1,"item":{}}"#
         let end = #"{"type":"stream_end","stream_id":"\#(session)","reason":"gap"}"#
         let others = Self.streamItems(rounds: 1, from: 0)
-        daemon.write([item] + others + [#"{"id":\#(id),"ok":true,"data":{}}"#, end, item])
+        daemon.write([item] + others + [#"{"id":\#(id),"ok":true,"data":{}}"#, end, item, #"{"event":"sentinel"}"#])
         let response = try await reply.value
-        await routed.waitFor(1 + others.count + 2)
+        await routed.waitFor(3)
 
         #expect(response.eventBarrier == 1, "the control stream's item is in the barrier")
-        #expect(transport.routedEventCount == 2, "its end counts; a line after the end does not")
-        let indices = routed.lines.withLock { $0 }.map(\.index)
-        #expect(indices.first == 1)
-        #expect(indices.last == 2)
+        #expect(transport.routedEventCount == 3, "its end counts; a line after the end is dropped")
+        let lines = routed.lines.withLock { $0 }
+        // Every delivered line has its own index: none reaches the store under another's sequence.
+        #expect(lines.map(\.index) == [1, 2, 3])
+        #expect(lines.map(\.name) == [LineTransport.streamEvent, LineTransport.streamEvent, "sentinel"])
     }
 }

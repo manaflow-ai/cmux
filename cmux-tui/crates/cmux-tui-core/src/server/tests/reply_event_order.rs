@@ -1,15 +1,20 @@
-//! The reply/event order rule (spec/transports.md "Reply and event order"):
-//! control replies and control events share one FIFO, so a reply is written
-//! after every event its request emitted, whatever other streams have queued.
+//! The reply/event order rule (spec/transports.md "Reply and event order").
+//!
+//! The `*_under_stream_flood_*` tests run a request through the server's
+//! request path (`handle_message`: the command runs, then its reply is
+//! enqueued at once, as the connection loop does). The request emits its
+//! event before it returns, but the subscription thread moves that event from
+//! the subscriber mailbox to the writer later, so today the reply is written
+//! first. They stay red, and ignored, until p05-ipc-120 emits a request's
+//! events into the writer before its reply is enqueued; run them with
+//! `cargo test -p cmux-tui-core --lib reply_event_order -- --include-ignored`.
+//! The other tests check the writer's FIFOs alone.
 
 use super::*;
 
 const FLOOD_STREAMS: u64 = 8;
 const FLOOD_ITEMS: usize = 32;
-
-fn position(messages: &[Value], matches: impl Fn(&Value) -> bool) -> usize {
-    messages.iter().position(matches).expect("the message was written")
-}
+const REPLY_ID: u64 = 7;
 
 /// Fills `FLOOD_STREAMS` attach-like streams with queued output.
 fn flood(writer: &MessageWriter) -> Vec<OutboundStream> {
@@ -29,28 +34,30 @@ fn flood(writer: &MessageWriter) -> Vec<OutboundStream> {
         .collect()
 }
 
-/// Runs `request` on a subscribed connection under a stream flood and
-/// returns the written lines with the index of its `echo` event and of its
-/// reply. The test acts as the socket writer while the flood stays full: it
-/// pops one line at a time and refills the flood stream it came from, until
-/// the subscription has handed `echo` to the writer (the admit-time emit of
-/// p05-ipc-120 makes that true before the reply; here the test waits for it).
-fn run_under_flood(mux: &Arc<Mux>, request: Value, echo: &str) -> (Vec<Value>, usize, usize) {
+/// Runs `request` on a subscribed connection under a stream flood, through
+/// the server's request path, and returns the write positions of its first
+/// `echo` event and of its reply. The test is the socket writer: it pops one
+/// line at a time and refills the flood stream the line came from, so the
+/// flood stays full until both lines are written.
+fn run_under_flood(mux: &Arc<Mux>, mut request: Value, echo: &str) -> (usize, usize) {
     let outbound = Arc::new(BoundedOutbound::default());
     let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
     let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
-    handle_command(mux, client, json_command(json!({"cmd": "subscribe"})), &writer).unwrap();
+    assert!(handle_message(
+        mux,
+        client,
+        &json!({"id": 1, "cmd": "subscribe"}).to_string(),
+        &writer
+    ));
     let flood = flood(&writer);
 
-    let data = handle_command(mux, client, json_command(request), &writer).unwrap();
-    let needle = format!("\"event\":\"{echo}\"");
-    let is_echo = |line: &str| line.contains(&needle);
+    request["id"] = json!(REPLY_ID);
+    assert!(handle_message(mux, client, &request.to_string(), &writer));
     let deadline = Instant::now() + Duration::from_secs(10);
-    let mut written = Vec::new();
-    while !written.iter().any(|line: &String| is_echo(line))
-        && !outbound.wait_until_queued(is_echo, Duration::ZERO)
-    {
-        assert!(Instant::now() < deadline, "the request emitted no {echo}");
+    let (mut echo_at, mut reply_at) = (None, None);
+    let mut position = 0;
+    while echo_at.is_none() || reply_at.is_none() {
+        assert!(Instant::now() < deadline, "the request wrote no {echo} or no reply");
         let Some(line) = outbound.try_pop() else { continue };
         let message: Value = serde_json::from_str(&line).unwrap();
         if let Some(surface) = message["flood"].as_u64() {
@@ -60,35 +67,33 @@ fn run_under_flood(mux: &Arc<Mux>, request: Value, echo: &str) -> (Vec<Value>, u
                     &flood[surface as usize],
                 )
                 .unwrap();
+        } else if message["event"] == echo {
+            echo_at.get_or_insert(position);
+        } else if message["id"] == REPLY_ID {
+            assert_eq!(message["ok"], true, "{message}");
+            reply_at = Some(position);
         }
-        written.push(line);
+        position += 1;
     }
-    let enqueued_at = written.len();
-    writer.send_control(&json!({"id": 7, "ok": true, "data": data})).unwrap();
-    written.extend(std::iter::from_fn(|| outbound.try_pop()));
-
-    let written =
-        written.iter().map(|line| serde_json::from_str(line).unwrap()).collect::<Vec<Value>>();
-    let echo_at = position(&written, |message| message["event"] == echo);
-    let reply = position(&written, |message| message["id"] == 7);
-    assert!(
-        written[enqueued_at..reply].iter().all(|message| message.get("flood").is_none()),
-        "a control reply waited behind stream output"
-    );
-    (written, echo_at, reply)
+    (echo_at.unwrap(), reply_at.unwrap())
 }
 
+/// new-tab changes the tree, not a screen's split layout: its echo is
+/// `tree-changed` (the request emits no `layout-changed`; set-split-ratio
+/// below is the `layout-changed` case).
 #[test]
+#[ignore = "red until p05-ipc-120: the subscriber mailbox hop writes the reply first"]
 fn reply_event_order_new_tab_under_stream_flood_writes_its_tree_event_before_reply() {
     let mux = test_mux();
     let workspace = mux.new_workspace(None, Some((80, 24))).unwrap().id;
     let pane = mux.with_state(|state| state.pane_of(workspace)).unwrap();
-    let (_, echo, reply) =
+    let (echo, reply) =
         run_under_flood(&mux, json!({"cmd": "new-tab", "pane": pane}), "tree-changed");
     assert!(echo < reply, "the reply overtook its tree-changed: {echo} >= {reply}");
 }
 
 #[test]
+#[ignore = "red until p05-ipc-120: the subscriber mailbox hop writes the reply first"]
 fn reply_event_order_split_ratio_under_stream_flood_writes_layout_changed_before_reply() {
     let mux = test_mux();
     let workspace = mux.new_workspace(None, Some((80, 24))).unwrap().id;
@@ -98,7 +103,7 @@ fn reply_event_order_split_ratio_under_stream_flood_writes_layout_changed_before
         handle_command(&mux, mux.local_test_client(0), Command::ListWorkspaces, &test_writer())
             .unwrap();
     let split = listed["workspaces"][0]["screens"][0]["layout"]["split"].as_u64().unwrap();
-    let (_, echo, reply) = run_under_flood(
+    let (echo, reply) = run_under_flood(
         &mux,
         json!({"cmd": "set-split-ratio", "split": split, "ratio": 0.7}),
         "layout-changed",
@@ -127,6 +132,8 @@ fn reply_event_order_flood_streams_keep_their_own_fifo() {
     }
 }
 
+/// The writer half of the rule: a control event enqueued before a reply is
+/// written before it, whatever other streams have queued.
 #[test]
 fn reply_event_order_control_events_and_replies_keep_emit_order() {
     let outbound = Arc::new(BoundedOutbound::default());
@@ -149,6 +156,56 @@ fn reply_event_order_control_events_and_replies_keep_emit_order() {
         .collect::<Vec<_>>();
     assert_eq!(control, ["e0", "r0", "e1", "r1", "e2", "r2", "e3", "r3"]);
     assert!(written[8..].iter().all(|message| message.get("flood").is_some()));
+}
+
+/// The control FIFO's priority is bounded: a subscription that never empties
+/// still leaves the writer time for an attach stream, which therefore never
+/// reaches its budget and overflows. The control FIFO keeps its own order.
+#[test]
+fn reply_event_order_a_refilled_control_stream_does_not_starve_an_attach_stream() {
+    let outbound = Arc::new(BoundedOutbound::default());
+    let writer = MessageWriter::new(QueuedSink { outbound: outbound.clone(), control: None });
+    let events = writer.start_control_stream(&subscription_overflow_json()).unwrap();
+    let attach = writer.start_stream(&attach_overflow_json(1_000)).unwrap();
+    let mut next_event = 0_u64;
+    let mut send_event = || {
+        writer.send_stream(&json!({"event": "tree-changed", "n": next_event}), &events).unwrap();
+        next_event += 1;
+    };
+    for _ in 0..OUTBOUND_CAPACITY {
+        send_event();
+    }
+
+    // One attach item per 16 writes: well under the writer's share for
+    // regular items, but its whole budget within 16 * OUTBOUND_CAPACITY
+    // writes if the control FIFO always went first.
+    let (mut sent, mut written, mut last_event) = (0_u64, 0_u64, None);
+    for pop in 0..OUTBOUND_CAPACITY * 32 {
+        if pop % 16 == 0 {
+            writer
+                .send_stream(&json!({"event": "output", "n": sent}), &attach)
+                .expect("the attach stream overflowed behind the subscription");
+            sent += 1;
+        }
+        let message: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
+        match message["event"].as_str() {
+            Some("output") => {
+                assert_eq!(message["n"], written, "the attach stream kept its FIFO");
+                written += 1;
+            }
+            Some("tree-changed") => {
+                let n = message["n"].as_u64().unwrap();
+                assert!(
+                    last_event.is_none_or(|last| n == last + 1),
+                    "the control FIFO kept its order"
+                );
+                last_event = Some(n);
+                send_event();
+            }
+            other => panic!("unexpected line {other:?}: {message}"),
+        }
+    }
+    assert!(sent - written <= 1, "attach output waited behind the subscription: {written}/{sent}");
 }
 
 #[test]

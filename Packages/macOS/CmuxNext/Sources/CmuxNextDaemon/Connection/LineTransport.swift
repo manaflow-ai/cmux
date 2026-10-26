@@ -339,10 +339,11 @@ final class LineTransport: Sendable {
         onClose(reason)
     }
 
-    /// Stream-0 events routed so far. Read after a command's reply, it bounds
-    /// every event the daemon emitted before that reply (a write barrier; the
-    /// daemon writes control events and replies in one FIFO,
-    /// cmux-tui/spec/transports.md "Reply and event order").
+    /// Stream-0 events routed so far; a reply captures it as its barrier.
+    /// After p05-ipc-120 it bounds every event the daemon emitted before that
+    /// reply (cmux-tui/spec/transports.md "Reply and event order", rule 2).
+    /// Until then the daemon's subscription hop can write the reply before
+    /// the request's own events, so the barrier can miss them.
     var routedEventCount: UInt64 { state.withLock { $0.eventCount } }
 
     private func route(_ line: Data, decoder: JSONDecoder, onEvent: EventHandler) {
@@ -355,12 +356,12 @@ final class LineTransport: Sendable {
                     return .control
                 }
                 if let handler = state.streamHandler { return .handler(handler) }
-                return .uncounted(state.eventCount)
+                return .unrouted
             }
             switch streamRoute {
             case .control: break
             case .handler(let handler): return handler(streamID, line)
-            case .uncounted(let index): return onEvent(Self.streamEvent, line, index)
+            case .unrouted: return
             }
         }
         if let name = streamed ? Self.streamEvent : envelope.event {

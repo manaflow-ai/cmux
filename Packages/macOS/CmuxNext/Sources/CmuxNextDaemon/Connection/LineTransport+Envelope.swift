@@ -7,8 +7,9 @@ extension LineTransport {
         case control
         /// The dedicated connection's stream handler (`SessionJournalRead`).
         case handler(@Sendable (_ streamID: String, _ line: Data) -> Void)
-        /// Another stream: delivered in socket order at the current index, never counted.
-        case uncounted(UInt64)
+        /// A stream nobody registered (one whose open failed): dropped, so it never
+        /// reaches the store under another event's sequence.
+        case unrouted
     }
 
     /// Routing fields of a raw protocol line or a `cmux.protocol/2`
