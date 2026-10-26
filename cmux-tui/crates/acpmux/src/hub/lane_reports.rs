@@ -675,10 +675,36 @@ mod tests {
             let from = below.len().saturating_sub(TAIL_RECORDS);
             Ok(EventPage { has_more: from > 0, events: below[from..].to_vec() })
         };
-        let got = last_turn_records(1010, page).unwrap();
+        let (got, whole) = last_turn_records(1010, page).unwrap();
+        assert!(whole);
         assert_eq!(got.first().map(|r| r.seq), Some(10));
         assert_eq!(got.len(), 1001);
         assert!(got.windows(2).all(|w| w[0].seq + 1 == w[1].seq));
+    }
+
+    #[test]
+    fn a_turn_longer_than_the_pages_read_says_its_reply_is_cut() {
+        let rec = |seq: u64, kind: &str| crate::store::EventRecord {
+            seq,
+            at: 0,
+            dir: "in".into(),
+            kind: kind.into(),
+            msg: json!({}),
+            host_seq: None,
+        };
+        // The turn's start lies further back than every page read.
+        let n = (TAIL_RECORDS * MAX_TAIL_PAGES) as u64 + 100;
+        let log: Vec<_> = (1..=n).map(|s| rec(s, if s == 1 { "turn_started" } else { "chunk" })).collect();
+        let page = |before: u64| -> Result<EventPage> {
+            let below: Vec<_> = log.iter().filter(|r| r.seq < before).cloned().collect();
+            let from = below.len().saturating_sub(TAIL_RECORDS);
+            Ok(EventPage { has_more: from > 0, events: below[from..].to_vec() })
+        };
+        let (got, whole) = last_turn_records(n, page).unwrap();
+        assert!(!whole, "a scan that stopped short of turn_started reads as the whole turn");
+        assert_eq!(got.len(), TAIL_RECORDS * MAX_TAIL_PAGES);
+        assert_eq!(cut_reply("its end".into(), whole), format!("{CUT_NOTE}its end"));
+        assert_eq!(cut_reply("all of it".into(), true), "all of it");
     }
 
     #[test]
@@ -717,7 +743,7 @@ mod tests {
                     log.iter().filter(|r| r.seq < before && filter.matches(r)).cloned().collect();
                 Ok(EventPage { has_more: false, events })
             };
-            let records = last_turn_records(last_seq, page).unwrap();
+            let (records, _) = last_turn_records(last_seq, page).unwrap();
             let events: Vec<Value> = records
                 .into_iter()
                 .map(|r| json!({"seq": r.seq, "dir": r.dir, "kind": r.kind, "msg": r.msg}))
