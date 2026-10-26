@@ -369,7 +369,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 DebugDownloads.register(on: control.service?.router, services: services)
                 DebugCEFDevToolsLayout.register(on: control.service?.router, services: services)
                 #if DEBUG
-                // The Chromium host app prototype (browserHost.helperPrototype; cef-helper-app-DESIGN.md).
+                // The Chromium host app prototype (browserHost.helper; cef-helper-app-DESIGN.md).
                 let chromiumHost = ChromiumHostPrototype { ChromiumHostPrototype.bundledConfiguration() }
                 control.service?.router.register([
                     .mainActor("debug.chromium_host") { [weak services] call in

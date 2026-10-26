@@ -1,7 +1,7 @@
 public import AppKit
 
 /// The Chromium host app prototype as `debug.chromium_host` drives it
-/// (DEBUG builds, `browserHost.helperPrototype` on): one
+/// (DEBUG builds, `browserHost.helper` on): one
 /// ``ChromiumHostSession`` shown over a pane's content view.
 /// plans/cmux-next/cef-helper-app-DESIGN.md.
 @MainActor
@@ -46,7 +46,7 @@ public final class ChromiumHostPrototype {
     /// Starts the host (or navigates it) and shows its page over `container`,
     /// first responder of `window` when `focus`.
     public func open(_ url: String, over container: NSView, focus: Bool) -> [String: Any] {
-        guard BrowserHostTunables.helperPrototype.value else { return ["error": "browserHost.helperPrototype is off"] }
+        guard BrowserHostTunables.helper.value else { return ["error": "browserHost.helper is off"] }
         guard !url.isEmpty else { return ["error": "pass url"] }
         let session: ChromiumHostSession
         if let existing = self.session {
@@ -82,7 +82,7 @@ public final class ChromiumHostPrototype {
 
     public var report: [String: Any] {
         var fields = session?.report ?? ["phase": "none"]
-        fields["tunable"] = BrowserHostTunables.helperPrototype.value
+        fields["tunable"] = BrowserHostTunables.helper.value
         fields["app_pid"] = Int(ProcessInfo.processInfo.processIdentifier)
         return fields
     }
