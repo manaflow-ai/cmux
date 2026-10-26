@@ -54,30 +54,37 @@ public final class ChromiumHostSession {
     private var pongs: [UInt32: CheckedContinuation<ChromiumHostFrame?, Never>] = [:]
     private var statsWaiters: [CheckedContinuation<ChromiumHostFrame?, Never>] = []
     private var tasks: [Task<Void, Never>] = []
+    /// Whether cmux is active and the page shows: the host's scheduling follows it.
+    private var appActivity: ChromiumHostAppActivityMonitor?
 
     public init(configuration: ChromiumHostConfiguration) {
         self.configuration = configuration
         launcher = ChromiumHostLauncher()
         policy = ChromiumHostRestartPolicy()
         now = { ContinuousClock.now }
-        wireView()
+        wireView(appActivity: ChromiumHostAppActivityMonitor(page: view))
     }
 
+    /// - Parameter appActivity: Builds the app-activity source for the page view (tests pass one they drive).
     init(configuration: ChromiumHostConfiguration, launcher: any ChromiumHostLaunching,
-         policy: ChromiumHostRestartPolicy = ChromiumHostRestartPolicy(), now: @escaping () -> ContinuousClock.Instant) {
+         policy: ChromiumHostRestartPolicy = ChromiumHostRestartPolicy(), now: @escaping () -> ContinuousClock.Instant,
+         appActivity: (@MainActor (ChromiumHostPageView) -> ChromiumHostAppActivityMonitor)? = nil) {
         self.configuration = configuration
         self.launcher = launcher
         self.policy = policy
         self.now = now
-        wireView()
+        wireView(appActivity: appActivity?(view) ?? ChromiumHostAppActivityMonitor(page: view))
     }
 
-    private func wireView() {
+    private func wireView(appActivity: ChromiumHostAppActivityMonitor) {
         view.sink = { [weak self] frame in self?.send(frame) }
         view.onGeometry = { [weak self] geometry in
             self?.geometry = geometry
             self?.send(geometry.frame)
+            self?.appActivity?.refresh()  // the view moved into or out of a window
         }
+        appActivity.onChange = { [weak self] activity in self?.send(activity.frame) }
+        self.appActivity = appActivity
     }
 
     /// Loads `url`, starting a host when none runs.
@@ -149,7 +156,8 @@ public final class ChromiumHostSession {
         }
         return ["phase": phaseText, "pid": Int(pid), "fork_api": Int(forkAPI), "context_id": Int(contextID),
                 "shown_context_id": Int(view.contextID), "url": url, "title": title, "restarts": restarts,
-                "exits": exits, "error": lastError ?? ""]
+                "exits": exits, "error": lastError ?? "",
+                "app_active": appActivity?.current.active ?? false, "page_visible": appActivity?.current.visible ?? false]
     }
 
     // MARK: Lifecycle
@@ -171,6 +179,7 @@ public final class ChromiumHostSession {
         connection.send(ChromiumHostFrame(.navigate, payload: Array(url.utf8)))
         if let geometry { connection.send(geometry.frame) }
         if view.window?.firstResponder === view { connection.send(ChromiumHostFrame(.focus, v: [1])) }
+        if let activity = appActivity?.current { connection.send(activity.frame) }
         let launcher = launcher
         tasks = [
             Task { [weak self] in

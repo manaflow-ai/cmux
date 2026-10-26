@@ -58,6 +58,12 @@ import Testing
         #expect(ChromiumHostFrame.decode(bytes[...]) == .invalid)
     }
 
+    /// The kind numbers chromium_host_wire_test.cpp checks too.
+    @Test func kindNumbersMatchTheHost() {
+        #expect(ChromiumHostFrame.Kind.edit.rawValue == 10)
+        #expect(ChromiumHostFrame.Kind.appActivity.rawValue == 11)
+    }
+
     @Test func keepsAnUnknownKind() {
         let frame = ChromiumHostFrame(rawKind: 999)
         guard case .frame(let decoded, _) = ChromiumHostFrame.decode(frame.encoded()[...]) else {

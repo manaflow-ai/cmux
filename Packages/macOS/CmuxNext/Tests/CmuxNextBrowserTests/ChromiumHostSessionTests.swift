@@ -1,3 +1,4 @@
+import AppKit
 @testable import CmuxNextBrowser
 import CmuxNextCompat
 import Darwin
@@ -207,6 +208,54 @@ import Testing
         launcher.end(host, ChromiumHostExit(signal: nil, status: 0))
         try await until("idle") { session.phase == .idle }
         #expect(launcher.count == 1)
+    }
+
+    /// Whether the test's cmux is active.
+    final class TestApp {
+        var active = true
+    }
+
+    /// The host hears whether cmux is active when it starts and on every
+    /// change (its App Nap activity follows it), and nothing when the value
+    /// stays the same.
+    @Test func theHostHearsWhetherCmuxIsActive() async throws {
+        let launcher = FakeLauncher()
+        let center = NotificationCenter()
+        let app = TestApp()
+        let session = ChromiumHostSession(configuration: Self.configuration, launcher: launcher, now: { ContinuousClock.now },
+                                          appActivity: { _ in
+                                              ChromiumHostAppActivityMonitor(center: center) {
+                                                  ChromiumHostAppActivity(active: app.active, visible: false)
+                                              }
+                                          })
+        session.open("https://a.example/")
+        let host = try await nextLaunch(launcher)
+        var frames = host.wire.frames.makeAsyncIterator()
+        let opened = try #require(await frames.next())
+        #expect(opened.kind == .navigate)
+        let started = try #require(await frames.next())
+        #expect(started.kind == .appActivity)
+        #expect(started.v[0] == 1 && started.v[1] == 0)
+
+        app.active = false
+        center.post(name: NSApplication.didResignActiveNotification, object: nil)
+        let resigned = try #require(await frames.next())
+        #expect(resigned.kind == .appActivity)
+        #expect(resigned.v[0] == 0)
+
+        // No change: no frame. The next frame the host reads is the activation after it.
+        center.post(name: NSWindow.didChangeOcclusionStateNotification, object: nil)
+        app.active = true
+        center.post(name: NSApplication.didBecomeActiveNotification, object: nil)
+        let activated = try #require(await frames.next())
+        #expect(activated.kind == .appActivity)
+        #expect(activated.v[0] == 1)
+        #expect(session.report["app_active"] as? Bool == true)
+    }
+
+    @Test func activityFrame() {
+        #expect(ChromiumHostAppActivity(active: true, visible: false).frame.v.prefix(2) == [1, 0])
+        #expect(ChromiumHostAppActivity(active: false, visible: true).frame.v.prefix(2) == [0, 1])
     }
 
     @Test func restartPolicy() {

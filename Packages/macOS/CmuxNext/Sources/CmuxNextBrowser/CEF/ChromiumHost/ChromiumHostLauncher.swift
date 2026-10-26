@@ -38,6 +38,11 @@ nonisolated protocol ChromiumHostLaunching: Sendable {
 /// (cmux to host on the host's fd 3, host to cmux on its fd 4), stdin from
 /// /dev/null, stdout and stderr as cmux's, and no other descriptor of cmux
 /// (`POSIX_SPAWN_CLOEXEC_DEFAULT`).
+///
+/// No QoS attribute: `posix_spawnattr_set_qos_class_np` is a QoS clamp
+/// (libpthread passes it to `posix_spawnattr_set_qos_clamp_np` and refuses
+/// user-interactive with EINVAL), which would cap every thread of the host.
+/// The host raises its own UI thread (`browser_host_main.mm`).
 nonisolated struct ChromiumHostLauncher: ChromiumHostLaunching {
     enum LaunchError: Error, Equatable {
         case socketPair(Int32)

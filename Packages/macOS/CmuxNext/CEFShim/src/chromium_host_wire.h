@@ -33,6 +33,7 @@ enum Kind : uint32_t {
   kStats = 8,      // the host answers kStatsReply
   kQuit = 9,
   kEdit = 10,      // v0 0 copy, 1 cut, 2 paste, 3 select all, 4 undo, 5 redo
+  kAppActivity = 11,  // v0 1 cmux is the active app, v1 1 a page of this host is on screen (sent on change)
   // host -> cmux
   kReady = 101,         // v0 fork API version, v1 host pid
   kContext = 102,       // v0 CAContext id (bits of a uint32)

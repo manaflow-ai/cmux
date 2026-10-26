@@ -17,10 +17,18 @@
 //   <host> --framework=<CEF framework dir> --subprocess=<base helper exe>
 //          --root-cache=<dir> [--log-file=<path>] [--cef-switch=<name[=value]>]...
 // EOF on fd 3 (cmux quit or crashed) closes the page and ends the host.
+//
+// Scheduling. Chrome's browser is the foreground app and raises its children
+// through their task ports (base/process/process_mac.cc, Process::SetPriority).
+// This host is an accessory app, which macOS naps like any background app, so
+// it raises itself: its main thread runs at QOS_CLASS_USER_INTERACTIVE, and
+// while cmux is active or shows one of its pages (kAppActivity) it holds a
+// user-initiated, latency-critical activity, ended when cmux hides.
 
 #import <AppKit/AppKit.h>
 #include <dlfcn.h>
 #include <fcntl.h>
+#include <pthread.h>
 #include <signal.h>
 #include <sys/socket.h>
 #include <time.h>
@@ -32,6 +40,7 @@
 #include <vector>
 
 #include "include/base/cef_callback.h"
+#include "include/base/cef_logging.h"
 #include "include/cef_app.h"
 #include "include/cef_application_mac.h"
 #include "include/cef_browser.h"
@@ -85,6 +94,8 @@ uint32_t g_context = 0;
 bool g_hosting_scheduled = false;
 std::vector<uint32_t> g_hop_us;
 int g_refused_frames = 0;
+// The NSProcessInfo activity held for cmux (retained), or null.
+CFTypeRef g_activity = nullptr;
 
 void Send(cmux_host::Header h, const std::string& payload = std::string()) {
   if (g_to_cmux < 0) return;
@@ -115,6 +126,24 @@ void CloseHost() {
   } else {
     CefQuitMessageLoop();
   }
+}
+
+// Holds the activity while cmux is active or shows a page of this host; ends
+// it when neither holds (cmux hid, or went to the back with no page on
+// screen). Idle system sleep stays allowed: the activity is about latency.
+void SetAppActivity(bool active, bool visible) {
+  const bool hold = active || visible;
+  NSProcessInfo* info = [NSProcessInfo processInfo];
+  if (hold && !g_activity) {
+    const NSActivityOptions options = NSActivityUserInitiatedAllowingIdleSystemSleep | NSActivityLatencyCritical;
+    g_activity = CFBridgingRetain([info beginActivityWithOptions:options reason:@"cmux shows this browser"]);
+  } else if (!hold && g_activity) {
+    [info endActivity:(__bridge id<NSObject>)g_activity];
+    CFRelease(g_activity);
+    g_activity = nullptr;
+  }
+  LOG(INFO) << "chromium-host app activity: cmux active " << active << ", page visible " << visible
+            << ", activity " << (g_activity ? "held" : "none");
 }
 
 void TryHosting();
@@ -407,6 +436,9 @@ void HandleFrame(cmux_host::Header h, std::string payload) {
     case cmux_host::kStats:
       SendStats();
       break;
+    case cmux_host::kAppActivity:
+      SetAppActivity(h.v[0] != 0, h.v[1] != 0);
+      break;
     case cmux_host::kQuit:
       CloseHost();
       break;
@@ -493,6 +525,8 @@ std::string Arg(const std::vector<std::string>& args, const std::string& name) {
 }  // namespace
 
 int main(int argc, char* argv[]) {
+  // The UI thread: every page's input and frames run here.
+  pthread_set_qos_class_self_np(QOS_CLASS_USER_INTERACTIVE, 0);
   signal(SIGPIPE, SIG_IGN);
   std::vector<std::string> args(argv + 1, argv + argc);
   if (fcntl(kFromCmux, F_SETFD, FD_CLOEXEC) != 0 || fcntl(4, F_SETFD, FD_CLOEXEC) != 0) return 64;  // launched without the wire
@@ -540,6 +574,7 @@ int main(int argc, char* argv[]) {
     return 67;
   }
   CefRunMessageLoop();
+  SetAppActivity(false, false);
   if (g_window) [g_window close];
   CefShutdown();
   return 0;

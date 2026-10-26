@@ -54,6 +54,9 @@ int main() {
   Check(d.flags == 0x100000 && d.t0 == 0x0102030405060708ULL && d.t1 == 1, "flags and times");
   Check(d.ch == 0x61 && d.unmod == 0x41 && d.seq == 0xdeadbeef, "characters and seq");
 
+  // Kind numbers ChromiumHostFrameTests.swift checks too.
+  Check(cmux_host::kEdit == 10 && cmux_host::kAppActivity == 11, "cmux -> host kind numbers");
+
   cmux_host::Header big;
   big.payload = cmux_host::kMaxPayload + 1;
   uint8_t too_long[cmux_host::kHeaderSize];

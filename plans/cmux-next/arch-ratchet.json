@@ -579,6 +579,12 @@
       "row": "stateful_singletons",
       "allow": 1,
       "why": "CmuxNextTrace TraceRuntime.shared: the one process-wide trace runtime (category flags, Release trace rings, name and thread tables, crash-key page, HangWatch slots, metrics store), Chrome's TraceLog / GlobalHistogramAllocator / HangWatcher model (base/trace_event/trace_log.h). Trace points, hang-watch scopes and histogram records run in every module and on every thread, including C hooks, renderer callbacks and deinits with no injection path; code that can inject takes a TraceRuntime(role:) instance (Metrics(runtime:), tests). The single reviewed exception of the p09-observability program (plans/cmux-next/chrome-parity/p09-observability.md section 3A, task 000); no other p09 task may add a global."
+    },
+    {
+      "date": "2026-10-26",
+      "row": "observer_sites",
+      "allow": 1,
+      "why": "ChromiumHostAppActivityMonitor (p01-process-222): the one adapter that tells the Chromium Host whether cmux is active or hidden and its page occluded, so the host holds or ends its App Nap activity. One call site (a loop over five app and window notifications) per host, one host per app (p01-process-080); it sends a wire frame only on a changed value. CmuxNextBrowser cannot reach the App's FocusEffectApplier observers (layering)."
     }
   ],
   "observer_wrappers": [
