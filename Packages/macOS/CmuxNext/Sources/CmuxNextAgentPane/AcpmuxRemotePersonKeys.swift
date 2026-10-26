@@ -9,28 +9,39 @@ import CmuxNextCompat
 /// with `memset_s` when the object is released: the store releases it when the key is replaced or
 /// dropped. HMACs run with CommonCrypto's `CCHmac` straight on this buffer: no other copy of the
 /// key is made.
+///
+/// Memory safety: `bytes` is the one allocation of `length` bytes that `init` made and filled; it is
+/// freed once, in deinit (a failed fill frees its buffer before `bytes` is set, so deinit never sees
+/// it). Every index below is under `length`, and a key line's buffer lives only for ``withLine(_:)``.
+@safe
 public nonisolated final class AcpmuxSecretKey: @unchecked Sendable { // crash-allow: the buffer is written once in init, then only read; zeroed in deinit
     static let length = 32
     private let bytes: UnsafeMutableRawBufferPointer
 
     /// A new random key; nil when the system has no randomness.
     public init?() {
-        bytes = UnsafeMutableRawBufferPointer.allocate(byteCount: Self.length, alignment: 1)
-        guard let base = bytes.baseAddress, SecRandomCopyBytes(kSecRandomDefault, Self.length, base) == errSecSuccess else {
-            Self.zero(bytes)
-            bytes.deallocate()
+        // SAFETY: a new allocation of `length` bytes, owned here: freed below when the fill fails, else in deinit.
+        let buffer = unsafe UnsafeMutableRawBufferPointer.allocate(byteCount: Self.length, alignment: 1)
+        // SAFETY: SecRandomCopyBytes writes exactly `length` bytes, the allocation's size, from its base.
+        guard let base = unsafe buffer.baseAddress, unsafe SecRandomCopyBytes(kSecRandomDefault, Self.length, base) == errSecSuccess else {
+            // SAFETY: the allocation above, zeroed and freed once; `bytes` was never set, so deinit does not run.
+            unsafe Self.zero(buffer)
+            unsafe buffer.deallocate()
             return nil
         }
+        unsafe bytes = buffer
     }
 
     deinit {
-        Self.zero(bytes)
-        bytes.deallocate()
+        // SAFETY: the allocation of init, zeroed and freed once; nothing else holds `self` any more.
+        unsafe Self.zero(bytes)
+        unsafe bytes.deallocate()
     }
 
     private static func zero(_ buffer: UnsafeMutableRawBufferPointer) {
-        guard let base = buffer.baseAddress else { return }
-        _ = memset_s(base, buffer.count, 0, buffer.count)
+        guard let base = unsafe buffer.baseAddress else { return }
+        // SAFETY: memset_s writes buffer.count zeros from the buffer's base: exactly its own bytes.
+        _ = unsafe memset_s(base, buffer.count, 0, buffer.count)
     }
 
     /// Lowercase hex HMAC-SHA256(key, domain 0 part 0 part ...), as acpmux builds its messages.
@@ -41,9 +52,10 @@ public nonisolated final class AcpmuxSecretKey: @unchecked Sendable { // crash-a
             message.append(contentsOf: part.utf8)
         }
         var out = [UInt8](repeating: 0, count: Int(CC_SHA256_DIGEST_LENGTH))
-        message.withUnsafeBytes { text in
-            CCHmac(CCHmacAlgorithm(kCCHmacAlgSHA256), bytes.baseAddress, bytes.count, text.baseAddress, text.count, &out)
-        }
+        // SAFETY: CCHmac reads bytes.count key bytes from the key buffer (allocated, see the type), message.count
+        // bytes from the message array and writes one SHA-256 digest (out.count bytes) into `out`; the arrays are
+        // lent for the call.
+        unsafe CCHmac(CCHmacAlgorithm(kCCHmacAlgSHA256), bytes.baseAddress, bytes.count, message, message.count, &out)
         return out.map { String(format: "%02x", $0) }.joined()
     }
 
@@ -61,10 +73,12 @@ public nonisolated final class AcpmuxSecretKey: @unchecked Sendable { // crash-a
     /// exec), from a buffer that is zeroed right after. False when the line did not go out whole.
     @discardableResult
     public func writeLine(to descriptor: Int32) -> Bool {
-        withLine { base, count in
+        unsafe withLine { base, count in
             var offset = 0
             while offset < count {
-                let written = Darwin.write(descriptor, base + offset, count - offset)
+                // SAFETY: base is the line's buffer of `count` bytes (withLine), live for this closure; 0 <= offset
+                // < count (the loop's condition), so the write covers the count - offset bytes left.
+                let written = unsafe Darwin.write(descriptor, base + offset, count - offset)
                 if written < 0, errno == EINTR { continue }
                 guard written > 0 else { return false }
                 offset += written
@@ -78,10 +92,12 @@ public nonisolated final class AcpmuxSecretKey: @unchecked Sendable { // crash-a
     /// did not go out whole.
     @discardableResult
     public func writeLine(to stream: OutputStream) -> Bool {
-        withLine { base, count in
+        unsafe withLine { base, count in
             var offset = 0
             while offset < count {
-                let written = stream.write(base.assumingMemoryBound(to: UInt8.self) + offset, maxLength: count - offset)
+                // SAFETY: base is the line's buffer of `count` bytes (withLine), live for this closure and written only
+                // as bytes, so reading it as UInt8 is its own type; 0 <= offset < count (the loop's condition).
+                let written = unsafe stream.write(base.assumingMemoryBound(to: UInt8.self) + offset, maxLength: count - offset)
                 guard written > 0 else { return false }
                 offset += written
             }
@@ -94,22 +110,24 @@ public nonisolated final class AcpmuxSecretKey: @unchecked Sendable { // crash-a
 
     /// The key line in one buffer of its own, zeroed after `body`.
     private func withLine(_ body: (UnsafeMutableRawPointer, Int) -> Bool) -> Bool {
-        let line = UnsafeMutableRawBufferPointer.allocate(byteCount: Self.lineLength, alignment: 1)
+        // SAFETY: a new allocation of lineLength bytes, owned by this call and zeroed and freed once by the defer;
+        // `body` gets it only for its own call.
+        let line = unsafe UnsafeMutableRawBufferPointer.allocate(byteCount: Self.lineLength, alignment: 1)
         defer {
-            Self.zero(line)
-            line.deallocate()
+            unsafe Self.zero(line)
+            unsafe line.deallocate()
         }
-        let digits: StaticString = "0123456789abcdef"
-        digits.withUTF8Buffer { hex in
-            for index in 0..<Self.length {
-                let byte = bytes[index]
-                line[2 * index] = hex[Int(byte >> 4)]
-                line[2 * index + 1] = hex[Int(byte & 0x0F)]
-            }
+        let hex = Array("0123456789abcdef".utf8)
+        for index in 0..<Self.length {
+            // SAFETY: index < length, the key buffer's size, and 2 * index + 1 < length * 2 < lineLength, the line's.
+            let byte = unsafe bytes[index]
+            unsafe line[2 * index] = hex[Int(byte >> 4)]
+            unsafe line[2 * index + 1] = hex[Int(byte & 0x0F)]
         }
-        line[Self.length * 2] = 0x0A
-        guard let base = line.baseAddress else { return false }
-        return body(base, line.count)
+        // SAFETY: length * 2 == lineLength - 1, the line's last byte.
+        unsafe line[Self.length * 2] = 0x0A
+        guard let base = unsafe line.baseAddress else { return false }
+        return unsafe body(base, line.count)
     }
 
     /// Whether `proof` is what a daemon run `instance` that holds this key answers to
@@ -121,7 +139,8 @@ public nonisolated final class AcpmuxSecretKey: @unchecked Sendable { // crash-a
     /// A fresh 32-byte nonce as lowercase hex, for `_acpmux/person_holds`.
     public static func newNonce() -> String? {
         var bytes = [UInt8](repeating: 0, count: 32)
-        guard SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else { return nil }
+        // SAFETY: SecRandomCopyBytes writes bytes.count bytes into the array's own storage, lent for the call.
+        guard unsafe SecRandomCopyBytes(kSecRandomDefault, bytes.count, &bytes) == errSecSuccess else { return nil }
         return bytes.map { String(format: "%02x", $0) }.joined()
     }
 

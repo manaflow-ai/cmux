@@ -13,6 +13,8 @@ nonisolated func agentPaneProcessIsRunning(_ pid: pid_t) -> Bool {
     var size = MemoryLayout<kinfo_proc>.stride
     var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, pid]
     // The process exists (kill said so); a table read that fails says nothing more.
-    guard sysctl(&mib, u_int(mib.count), &info, &size, nil, 0) == 0, size > 0 else { return true }
+    // SAFETY: sysctl reads the mib.count names of `mib` and writes at most `size` bytes (one kinfo_proc) into `info`
+    // and the size it wrote into `size`; all three are locals live for the call.
+    guard unsafe sysctl(&mib, u_int(mib.count), &info, &size, nil, 0) == 0, size > 0 else { return true }
     return info.kp_proc.p_stat != SZOMB
 }

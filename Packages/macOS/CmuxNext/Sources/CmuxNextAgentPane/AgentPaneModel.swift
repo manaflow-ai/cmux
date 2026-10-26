@@ -126,7 +126,7 @@ public final class AgentPaneModel {
     /// Whether the Changes view's git writes (cx-tcwj) may run here: only a chat on this Mac. Unset: never.
     @ObservationIgnored public var gitWritesHere: (@MainActor () -> Bool)?
     /// Moves a file the turn created to the Trash (`turn.undo`); tests replace it.
-    @ObservationIgnored public var trashFile: @Sendable (URL) throws -> Void = { try FileManager.default.trashItem(at: $0, resultingItemURL: nil) }
+    @ObservationIgnored public var trashFile: @Sendable (URL) throws -> Void = AgentPaneGitDiscard.systemTrash
 
     /// Whether this pane's tab may turn into a terminal or browser tab (`tab.open`, `tab.typeAhead`): a local tab's, also one that adopted the spare (cx-ckt2z).
     @ObservationIgnored public package(set) var allowsTabConversion: Bool
