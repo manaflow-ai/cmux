@@ -28,7 +28,10 @@
 //!   `retryReason`, `cached`, `isolation`, `remoteSessionId`, `action`,
 //!   `prompt`, `result` and `error` (`claude_stdio/workflows.rs`). A
 //!   subagent's end may say why (`reason`: `paused` for a Claude workflow a
-//!   resume can pick up by its `runId`).
+//!   resume can pick up by its `runId`). A failed one may say its `error`, and a Claude
+//!   agent its `agentId` (what SendMessage resumes it by; a resume reports it `running`
+//!   again). While acpmux waits to have it resumed (`hub/subagent_retry.rs`) it carries
+//!   `retry: {attempt, of, reason, nextAt}`, and `retryable: true` while it can be retried.
 //!   `background: true` marks one that outlives its parent's turn (every
 //!   Codex child, which runs in its own thread).
 
@@ -134,6 +137,12 @@ impl SubagentTree {
                 // whose run a resume can pick up again by its `runId`).
                 if let Some(reason) = s(update, "reason") {
                     event.insert("reason".into(), json!(reason));
+                }
+                // A failed Claude agent's error, and the agent id SendMessage resumes it by.
+                for key in ["agentId", "error"] {
+                    if let Some(v) = s(update, key) {
+                        event.insert(key.into(), json!(v));
+                    }
                 }
                 vec![Value::Object(event)]
             }

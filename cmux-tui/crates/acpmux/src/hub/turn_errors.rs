@@ -1,18 +1,26 @@
 //! What a failed turn's error says about its cause: the account (`is_limit_error`, solved by
 //! the fallback profile, `turns.rs`), or the connection or the agent's death (`resume_cause`,
-//! solved by an automatic continuation, `auto_resume.rs`).
+//! solved by an automatic continuation, `auto_resume.rs`). [`transient_cause`] tells a
+//! transient upstream error (capacity or transport) from everything else, for what retries in
+//! place: a failed subagent (`subagent_retry.rs`).
 
 /// Does an agent error mean the account cannot serve, not that the prompt
 /// was wrong? Usage and rate limits, and missing or rejected credentials:
 /// all of them are solved by another account, which the fallback provides.
 pub fn is_limit_error(message: &str) -> bool {
     let m = message.to_lowercase();
+    account_error(&m) || m.contains("overloaded") || m.contains("401") || m.contains("429")
+}
+
+/// The account cannot serve (lowercased `m`): sign-in or a usage or rate limit. Status codes
+/// count only as whole numbers ("retry after 2401s" is no 401).
+fn account_error(m: &str) -> bool {
     m.contains("not logged in")
         || m.contains("/login")
         || m.contains("unauthorized")
         || m.contains("authentication")
         || m.contains("invalid api key")
-        || m.contains("401")
+        || has_code(m, "401")
         || (m.contains("reached your") && m.contains("limit"))
         // Claude Code: "You've hit your limit · resets 3pm" (2026-10-20).
         || m.contains("hit your limit")
@@ -24,17 +32,52 @@ pub fn is_limit_error(message: &str) -> bool {
         || m.contains("out of credits")
         || m.contains("insufficient credits")
         || m.contains("quota")
+        || has_code(m, "429")
+}
+
+/// Whether `m` holds `code` as a whole number, not inside a longer one.
+fn has_code(m: &str, code: &str) -> bool {
+    let digit =
+        |at: Option<usize>| at.and_then(|i| m.as_bytes().get(i)).is_some_and(u8::is_ascii_digit);
+    m.match_indices(code).any(|(at, _)| !digit(at.checked_sub(1)) && !digit(Some(at + code.len())))
+}
+
+/// The model's provider has no room right now (lowercased `m`): HTTP 503 or 529, an overloaded
+/// model, or a gateway with no account left to route to (SR2's "API Error: 503 no
+/// non-exhausted claude accounts available", 2026-10-26). It passes in minutes.
+fn capacity_error(m: &str) -> bool {
+    has_code(m, "503")
+        || has_code(m, "529")
         || m.contains("overloaded")
-        || m.contains("429")
+        || m.contains("no non-exhausted")
+        || m.contains("at capacity")
+}
+
+/// Why an error is transient, if it is: `capacity` ([`capacity_error`]) or `transport` (the
+/// connection dropped, [`is_transport_error`]'s phrases). None for a usage limit or sign-in
+/// failure (another account solves those, never a wait) and for anything else (a bad request, a
+/// refused permission, a bug), which a retry would only repeat.
+pub fn transient_cause(error: &str) -> Option<&'static str> {
+    let m = error.to_lowercase();
+    if account_error(&m) || crate::claude_auth::is_sign_in_failure(error) {
+        None
+    } else if capacity_error(&m) {
+        Some("capacity")
+    } else if transport_phrase(&m) {
+        Some("transport")
+    } else {
+        None
+    }
 }
 
 /// Does an agent error mean the connection to the model dropped, not that the prompt or the
 /// account was at fault? Limit and sign-in errors are excluded: another account solves those.
 pub fn is_transport_error(message: &str) -> bool {
-    if is_limit_error(message) {
-        return false;
-    }
-    let m = message.to_lowercase();
+    !is_limit_error(message) && transport_phrase(&message.to_lowercase())
+}
+
+/// Whether lowercased `m` says the connection to the model dropped.
+fn transport_phrase(m: &str) -> bool {
     const PHRASES: &[&str] = &[
         "stream disconnected",
         "connection error",
@@ -154,5 +197,35 @@ mod tests {
             Some("transport")
         );
         assert_eq!(resume_cause("simulated internal error", "simulated internal error"), None);
+    }
+
+    /// Leo, 2026-10-26: "this needs to retry :(". Two subagents died on SR2's 503; a 529
+    /// overloaded and a model at capacity are the same kind of wait. A usage limit, a sign-in
+    /// failure and a bad request never are.
+    #[test]
+    fn capacity_and_transport_errors_are_transient_and_limits_are_not() {
+        for m in [
+            "Agent terminated early due to an API error: API Error: 503 no non-exhausted claude accounts available. This is a server-side issue, usually temporary \u{2014} try again in a moment. (error type server_error, HTTP 503, model sent to the API: claude-opus-5-5)",
+            "API Error: 529 {\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\",\"message\":\"Overloaded\"}}",
+            "Selected model is at capacity",
+        ] {
+            assert_eq!(transient_cause(m), Some("capacity"), "{m}");
+        }
+        for m in
+            ["API Error: Connection error.", "read ECONNRESET", "retry after 2401s: socket hang up"]
+        {
+            assert_eq!(transient_cause(m), Some("transport"), "{m}");
+        }
+        for m in [
+            "You've hit your limit \u{b7} resets 3pm (America/Los_Angeles)",
+            "API Error: 429 rate_limit_error",
+            "API Error: 401 authentication_error",
+            "Not logged in \u{b7} Please run /login",
+            "API Error: 400 invalid_request_error: prompt is too long",
+            "API Error: 5030 something else",
+            "simulated internal error",
+        ] {
+            assert_eq!(transient_cause(m), None, "{m}");
+        }
     }
 }

@@ -53,6 +53,8 @@ async fn a_subagent_a_503_failed_is_resumed_in_its_chat() {
     let (hub, _c, id) = chat("agent-503", vec![50]).await;
     let got = until(&hub, &id, |o| o.iter().any(|o| o == "fired")).await;
     assert_eq!(got[..2], ["scheduled", "fired"], "{got:?}");
+    // "fired" is logged just before its prompt.
+    messages_until(&hub, &id, 2).await;
     // The chat's agent is told, in the same chat, to resume that agent by its id.
     let messages = user_messages(&hub, &id);
     assert_eq!(messages.len(), 2, "{messages:?}");
@@ -95,6 +97,16 @@ async fn a_subagent_a_503_failed_is_resumed_in_its_chat() {
     assert_eq!(user_messages(&hub, &id).len(), 2);
 }
 
+/// Waits (up to 10 s) for the session's `n`th user message.
+async fn messages_until(hub: &Hub, id: &str, n: usize) {
+    for _ in 0..200 {
+        if user_messages(hub, id).len() >= n {
+            return;
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+}
+
 fn entries_of(hub: &Hub, id: &str, subagent: &str) -> Vec<Value> {
     records(hub, id)
         .into_iter()
@@ -117,13 +129,38 @@ async fn the_retry_waits_for_claudes_own_turn() {
     let got = until(&hub, &id, |o| o.iter().any(|o| o == "fired")).await;
     let _ = std::fs::remove_file(&gate);
     assert_eq!(got[..2], ["scheduled", "fired"], "{got:?}");
-    for _ in 0..200 {
-        if user_messages(&hub, &id).len() == 2 {
-            break;
-        }
-        tokio::time::sleep(Duration::from_millis(50)).await;
-    }
+    messages_until(&hub, &id, 2).await;
     assert_eq!(user_messages(&hub, &id)[1]["_meta"]["provenance"]["kind"], "subagent_retry");
+}
+
+/// Stop ends the wait; a retry asked for afterwards (`_acpmux/retry`) still resumes it.
+#[tokio::test]
+async fn stop_skips_the_wait_and_an_asked_retry_fires_at_once() {
+    let (hub, mut c, id) = chat("agent-503", vec![60_000]).await;
+    until(&hub, &id, |o| o.iter().any(|o| o == "scheduled")).await;
+    c.request(method::SESSION_CANCEL, json!({"sessionId": id})).await.unwrap();
+    let got = until(&hub, &id, |o| o.len() >= 2).await;
+    assert_eq!(got, ["scheduled", "skipped:stopped"]);
+    let session = hub.resolve(&id).unwrap();
+    let subagent = records(&hub, &id)
+        .into_iter()
+        .find(|e| e.kind == "subagent_retry")
+        .and_then(|e| e.msg["subagentId"].as_str().map(str::to_owned))
+        .unwrap();
+    let r = hub.retry_subagent(&session, &subagent).await.unwrap();
+    assert_eq!(r["kind"], "subagent");
+    let prompt_id = r["promptId"].as_str().unwrap().to_owned();
+    let got = until(&hub, &id, |o| o.iter().any(|o| o == "fired")).await;
+    assert_eq!(got[2..4], ["scheduled", "fired"], "{got:?}");
+    messages_until(&hub, &id, 2).await;
+    // The waiting retry Stop skipped never fires as well.
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(outcomes(&hub, &id).iter().filter(|o| *o == "fired").count(), 1);
+    assert_eq!(user_messages(&hub, &id).len(), 2);
+    assert_eq!(user_messages(&hub, &id)[1]["promptId"], prompt_id);
+    // A subagent that never failed has nothing to retry.
+    let refused = hub.retry_subagent(&session, "nope").await.unwrap_err();
+    assert_eq!(refused.data.unwrap()["reason"], "retry.nothing_failed");
 }
 
 /// A bad request would only fail again: it is never retried.

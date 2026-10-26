@@ -395,12 +395,20 @@ impl Translator {
                             continue;
                         }
                         if let Some(child) = self.subagents.lock().await.remove(tool) {
-                            self.subagent_tasks.lock().await.retain(|_, t| *t != tool);
-                            out.push(upd(json!({
+                            let mut tasks = self.subagent_tasks.lock().await;
+                            let agent =
+                                tasks.iter().find(|(_, t)| *t == tool).map(|(a, _)| a.clone());
+                            tasks.retain(|_, t| *t != tool);
+                            drop(tasks);
+                            let mut update = json!({
                                 "sessionUpdate": "subagent_state_update",
                                 "subagentSessionId": child,
                                 "state": if is_err { "failed" } else { "completed" },
-                            })));
+                            });
+                            if is_err {
+                                self.failed_with(&mut update, tool, &child, agent, &text).await;
+                            }
+                            out.push(upd(update));
                         }
                     }
                 }
@@ -871,10 +879,19 @@ impl Translator {
     /// `subagent_state_update` with its tool id when it ended.
     async fn subagent_task(&self, sub: &str, line: &Value) -> Option<(Value, Option<String>)> {
         let task = line.get("task_id").and_then(Value::as_str).unwrap_or("");
-        let tool = match line.get("tool_use_id").and_then(Value::as_str) {
-            Some(tool) => tool.to_owned(),
-            None => self.subagent_tasks.lock().await.get(task)?.clone(),
-        };
+        // SendMessage resumed an agent that failed: its task starts again under the SendMessage
+        // call, and it is that subagent running again (its lines still name its Agent call).
+        if sub == "task_started"
+            && let Some((tool, child)) = self.failed_agents.lock().await.remove(task)
+        {
+            self.subagents.lock().await.insert(tool.clone(), child.clone());
+            self.background_subagents.lock().await.insert(tool.clone());
+            self.subagent_tasks.lock().await.insert(task.to_owned(), tool);
+            let update = json!({"sessionUpdate": "subagent_state_update",
+                "subagentSessionId": child, "state": "running", "agentId": task});
+            return Some((update, None));
+        }
+        let tool = self.task_tool(line).await?;
         if !self.subagents.lock().await.contains_key(&tool) {
             return None;
         }
@@ -918,7 +935,7 @@ impl Translator {
             return None;
         }
         self.subagent_tasks.lock().await.retain(|_, t| *t != tool);
-        self.workflows.lock().await.remove(&tool);
+        let workflow = self.workflows.lock().await.remove(&tool).is_some();
         let child = self.subagents.lock().await.remove(&tool)?;
         let state = match status {
             "failed" => "failed",
@@ -933,7 +950,50 @@ impl Translator {
         if status == "paused" {
             update.set("reason", json!("paused"));
         }
+        if state == "failed" {
+            // A workflow resumes by its run id, never by SendMessage: it names no agent.
+            let agent = (!workflow && !task.is_empty()).then(|| task.to_owned());
+            let error = line.get("summary").and_then(Value::as_str).unwrap_or_default();
+            self.failed_with(&mut update, &tool, &child, agent, error).await;
+        }
         Some((update, Some(tool)))
+    }
+
+    /// The Agent call a task line is about: its `tool_use_id` when that is a subagent's, else
+    /// the call its task id ran under (a resumed agent's lines name the SendMessage call).
+    pub(super) async fn task_tool(&self, line: &Value) -> Option<String> {
+        let text = |key: &str| line.get(key).and_then(Value::as_str).filter(|v| !v.is_empty());
+        if let Some(tool) = text("tool_use_id")
+            && self.subagents.lock().await.contains_key(tool)
+        {
+            return Some(tool.to_owned());
+        }
+        self.subagent_tasks.lock().await.get(text("task_id")?).cloned()
+    }
+
+    /// A failed subagent's end says why (`error`) and, when Claude named its agent, the
+    /// `agentId` SendMessage resumes it by; a resume then reports it running again.
+    async fn failed_with(
+        &self,
+        update: &mut Value,
+        tool: &str,
+        child: &str,
+        agent: Option<String>,
+        error: &str,
+    ) {
+        if !error.is_empty() {
+            let error: String = error.chars().take(MAX_FAILURE_CHARS).collect();
+            update.set("error", json!(error));
+        }
+        if let Some(agent) = agent {
+            update.set("agentId", json!(agent));
+            let mut failed = self.failed_agents.lock().await;
+            // Only the newest few wait for a resume: an old failure is not resumed any more.
+            if failed.len() >= MAX_FAILED_AGENTS {
+                failed.clear();
+            }
+            failed.insert(agent, (tool.to_owned(), child.to_owned()));
+        }
     }
 
     /// Records a new Agent or Workflow tool call as a subagent session and

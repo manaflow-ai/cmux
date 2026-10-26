@@ -120,6 +120,7 @@ impl Hub {
                     let code = params.as_ref().and_then(|p| p.get("code")).cloned();
                     let intentional =
                         matches!(tap_session.status(), SessionStatus::Idle | SessionStatus::Closed);
+                    tap_session.harness_turn.store(false, Ordering::SeqCst);
                     // Its workflows ran in the agent's process: they end with it.
                     tap_hub.workflow_index.end_session(&tap_session.id, crate::store::now_ms());
                     return tap_hub
@@ -146,6 +147,12 @@ impl Hub {
                         return true;
                     }
                     if method.starts_with("claude.") {
+                        // Claude Code's turn, its own ones too (`Session::harness_turn`).
+                        if method == "claude.system.init" {
+                            tap_session.harness_turn.store(true, Ordering::SeqCst);
+                        } else if method.starts_with("claude.result") {
+                            tap_session.harness_turn.store(false, Ordering::SeqCst);
+                        }
                         // Raw stream-json line; translated messages follow.
                         return tap_hub
                             .append_logged(
@@ -241,6 +248,14 @@ impl Hub {
             // A background shell, a subagent's too (`processes.rs`).
             if d == "in" && kind == "background_task_update" {
                 tap_hub.note_process(&tap_session, &rec, output.as_deref());
+            }
+            // A failed subagent's retry, once its end is logged (`subagent_retry.rs`).
+            if d == "in"
+                && !kind.ends_with(".replay")
+                && let Some(events) =
+                    rec.msg.pointer("/params/_meta/acpmux/subagents").and_then(Value::as_array)
+            {
+                tap_hub.observe_subagents(&tap_session, events);
             }
             logged
         })

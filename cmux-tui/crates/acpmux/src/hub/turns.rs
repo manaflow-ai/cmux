@@ -1135,6 +1135,7 @@ impl Hub {
     pub async fn kill(&self, session: &Arc<Session>, purge: bool) -> Result<(), RpcError> {
         session.closing.store(true, Ordering::SeqCst);
         self.stop_auto_resume(session);
+        self.stop_subagent_retries(session, true);
         self.revoke_permission_chat(session);
         self.cancel_pending_permissions(session);
         if let Some(child) = session.child.lock().await.take() {
