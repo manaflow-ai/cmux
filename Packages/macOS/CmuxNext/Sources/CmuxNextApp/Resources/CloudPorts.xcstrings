@@ -1,0 +1,201 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "cloud.ports.classicLink": {
+      "comment": "cmux cloud port-list/port-forward/port-close on a machine of the classic Cloud link. %1$@ is the machine's name, %2$@ its id, %3$@ the port. Keep the commands in backticks as written.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Machine `%1$@` uses the classic Cloud link, which keeps no port forwards on this Mac. Run `cmux cloud open-browser --target machine:%2$@ --port %3$@` to open the port in a browser tab, or `cmux cloud machine-link --target machine:%2$@ --port %3$@` for its URL."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "マシン `%1$@` は従来の Cloud リンクを使っているため、この Mac にポート転送を保持しません。ポートをブラウザタブで開くには `cmux cloud open-browser --target machine:%2$@ --port %3$@` を、URL を得るには `cmux cloud machine-link --target machine:%2$@ --port %3$@` を実行してください。"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Die Maschine `%1$@` nutzt die klassische Cloud-Verbindung, die auf diesem Mac keine Portweiterleitungen hält. Führe `cmux cloud open-browser --target machine:%2$@ --port %3$@` aus, um den Port in einem Browser-Tab zu öffnen, oder `cmux cloud machine-link --target machine:%2$@ --port %3$@` für seine URL."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "La machine `%1$@` utilise la liaison Cloud classique, qui ne garde aucune redirection de port sur ce Mac. Lancez `cmux cloud open-browser --target machine:%2$@ --port %3$@` pour ouvrir le port dans un onglet, ou `cmux cloud machine-link --target machine:%2$@ --port %3$@` pour son URL."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "La máquina `%1$@` usa el enlace Cloud clásico, que no mantiene reenvíos de puertos en este Mac. Ejecuta `cmux cloud open-browser --target machine:%2$@ --port %3$@` para abrir el puerto en una pestaña, o `cmux cloud machine-link --target machine:%2$@ --port %3$@` para obtener su URL."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "يستخدم الجهاز `%1$@` رابط Cloud الكلاسيكي، الذي لا يحتفظ بإعادة توجيه للمنافذ على هذا الـ Mac. شغّل `cmux cloud open-browser --target machine:%2$@ --port %3$@` لفتح المنفذ في علامة تبويب، أو `cmux cloud machine-link --target machine:%2$@ --port %3$@` للحصول على عنوانه."}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "머신 `%1$@`은(는) 이 Mac에 포트 전달을 유지하지 않는 기존 Cloud 링크를 사용합니다. 포트를 브라우저 탭에서 열려면 `cmux cloud open-browser --target machine:%2$@ --port %3$@`, URL을 얻으려면 `cmux cloud machine-link --target machine:%2$@ --port %3$@`을(를) 실행하세요."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "机器 `%1$@` 使用经典 Cloud 链接，不会在这台 Mac 上保留端口转发。运行 `cmux cloud open-browser --target machine:%2$@ --port %3$@` 在浏览器标签页中打开该端口，或运行 `cmux cloud machine-link --target machine:%2$@ --port %3$@` 获取其 URL。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "機器 `%1$@` 使用經典 Cloud 連結，不會在這台 Mac 上保留連接埠轉送。執行 `cmux cloud open-browser --target machine:%2$@ --port %3$@` 在瀏覽器分頁中開啟該連接埠，或執行 `cmux cloud machine-link --target machine:%2$@ --port %3$@` 取得其 URL。"}}
+      }
+    },
+    "cloud.ports.noForward": {
+      "comment": "cmux cloud port-close of a port with no forward. %1$@ is the machine's name, %2$@ its id, %3$@ the port. Keep the commands in backticks as written.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Machine `%1$@` has no forward of port %3$@. `cmux cloud port-list --target machine:%2$@` lists its forwards."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "マシン `%1$@` にはポート %3$@ の転送がありません。転送の一覧は `cmux cloud port-list --target machine:%2$@` で確認できます。"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Die Maschine `%1$@` hat keine Weiterleitung für Port %3$@. `cmux cloud port-list --target machine:%2$@` listet ihre Weiterleitungen."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "La machine `%1$@` n'a aucune redirection du port %3$@. `cmux cloud port-list --target machine:%2$@` liste ses redirections."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "La máquina `%1$@` no tiene reenvío del puerto %3$@. `cmux cloud port-list --target machine:%2$@` muestra sus reenvíos."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "لا توجد إعادة توجيه للمنفذ %3$@ على الجهاز `%1$@`. يعرض `cmux cloud port-list --target machine:%2$@` عمليات إعادة التوجيه."}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "머신 `%1$@`에는 포트 %3$@의 전달이 없습니다. `cmux cloud port-list --target machine:%2$@`(으)로 전달 목록을 볼 수 있습니다."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "机器 `%1$@` 没有端口 %3$@ 的转发。`cmux cloud port-list --target machine:%2$@` 会列出它的转发。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "機器 `%1$@` 沒有連接埠 %3$@ 的轉送。`cmux cloud port-list --target machine:%2$@` 會列出它的轉送。"}}
+      }
+    },
+    "cloud.ports.limit": {
+      "comment": "A port forward or browser route was refused because this Mac has the most open. %1$@ is the machine's name, %2$@ its id, %3$@ the port. Keep the commands in backticks as written.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Couldn't forward port %3$@ of machine `%1$@`: this Mac already has the most port forwards and browser routes open. `cmux cloud port-list` lists them, and `cmux cloud port-close --target machine:%2$@ --port %3$@` closes one."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "マシン `%1$@` のポート %3$@ を転送できませんでした。この Mac で開けるポート転送とブラウザルートが上限に達しています。`cmux cloud port-list` で一覧を確認し、`cmux cloud port-close --target machine:%2$@ --port %3$@` で 1 つ閉じてください。"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Port %3$@ der Maschine `%1$@` konnte nicht weitergeleitet werden: Auf diesem Mac sind bereits die meisten Portweiterleitungen und Browser-Routen offen. `cmux cloud port-list` listet sie, `cmux cloud port-close --target machine:%2$@ --port %3$@` schließt eine."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Impossible de rediriger le port %3$@ de la machine `%1$@` : ce Mac a déjà le maximum de redirections et de routes de navigateur ouvertes. `cmux cloud port-list` les liste, et `cmux cloud port-close --target machine:%2$@ --port %3$@` en ferme une."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "No se pudo reenviar el puerto %3$@ de la máquina `%1$@`: este Mac ya tiene abiertos el máximo de reenvíos y rutas de navegador. `cmux cloud port-list` los muestra y `cmux cloud port-close --target machine:%2$@ --port %3$@` cierra uno."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "تعذّرت إعادة توجيه المنفذ %3$@ من الجهاز `%1$@`: بلغ هذا الـ Mac الحد الأقصى لعمليات إعادة التوجيه ومسارات المتصفح المفتوحة. يعرضها `cmux cloud port-list`، ويغلق `cmux cloud port-close --target machine:%2$@ --port %3$@` واحدًا منها."}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "머신 `%1$@`의 포트 %3$@을(를) 전달하지 못했습니다. 이 Mac에 열 수 있는 포트 전달과 브라우저 경로가 최대치입니다. `cmux cloud port-list`로 목록을 보고 `cmux cloud port-close --target machine:%2$@ --port %3$@`(으)로 하나를 닫으세요."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "无法转发机器 `%1$@` 的端口 %3$@：这台 Mac 打开的端口转发和浏览器路由已达上限。`cmux cloud port-list` 会列出它们，`cmux cloud port-close --target machine:%2$@ --port %3$@` 可关闭其中一个。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "無法轉送機器 `%1$@` 的連接埠 %3$@：這台 Mac 開啟的連接埠轉送與瀏覽器路由已達上限。`cmux cloud port-list` 會列出它們，`cmux cloud port-close --target machine:%2$@ --port %3$@` 可關閉其中一個。"}}
+      }
+    },
+    "cloud.ports.failed": {
+      "comment": "A port op of the Cloud app server failed. %4$@ is the server's reason. %1$@ is the machine's name, %2$@ its id, %3$@ the port. Keep the commands in backticks as written.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Couldn't reach port %3$@ on machine `%1$@`: %4$@. Check the machine with `cmux cloud machine-status --target machine:%2$@`, then run the command again."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "マシン `%1$@` のポート %3$@ に接続できませんでした: %4$@。`cmux cloud machine-status --target machine:%2$@` でマシンを確認してから、もう一度コマンドを実行してください。"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Port %3$@ auf der Maschine `%1$@` war nicht erreichbar: %4$@. Prüfe die Maschine mit `cmux cloud machine-status --target machine:%2$@` und führe den Befehl dann erneut aus."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Impossible d'atteindre le port %3$@ de la machine `%1$@` : %4$@. Vérifiez la machine avec `cmux cloud machine-status --target machine:%2$@`, puis relancez la commande."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "No se pudo llegar al puerto %3$@ de la máquina `%1$@`: %4$@. Revisa la máquina con `cmux cloud machine-status --target machine:%2$@` y vuelve a ejecutar el comando."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "تعذّر الوصول إلى المنفذ %3$@ على الجهاز `%1$@`: %4$@. افحص الجهاز باستخدام `cmux cloud machine-status --target machine:%2$@`، ثم شغّل الأمر مرة أخرى."}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "머신 `%1$@`의 포트 %3$@에 연결하지 못했습니다: %4$@. `cmux cloud machine-status --target machine:%2$@`(으)로 머신을 확인한 뒤 명령을 다시 실행하세요."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "无法访问机器 `%1$@` 上的端口 %3$@：%4$@。请用 `cmux cloud machine-status --target machine:%2$@` 检查该机器，然后再次运行命令。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "無法連到機器 `%1$@` 上的連接埠 %3$@：%4$@。請用 `cmux cloud machine-status --target machine:%2$@` 檢查該機器，然後再次執行命令。"}}
+      }
+    },
+    "cloud.ports.browserFailed": {
+      "comment": "The browser tab for a machine's port could not open. %4$@ says why. %1$@ is the machine's name, %2$@ its id, %3$@ the port. Keep the commands in backticks as written.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Couldn't open port %3$@ of machine `%1$@` in a browser tab: %4$@. Fix that, then run `cmux cloud open-browser --target machine:%2$@ --port %3$@` again."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "マシン `%1$@` のポート %3$@ をブラウザタブで開けませんでした: %4$@。問題を解決してから、もう一度 `cmux cloud open-browser --target machine:%2$@ --port %3$@` を実行してください。"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Port %3$@ der Maschine `%1$@` konnte nicht in einem Browser-Tab geöffnet werden: %4$@. Behebe das und führe `cmux cloud open-browser --target machine:%2$@ --port %3$@` erneut aus."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Impossible d'ouvrir le port %3$@ de la machine `%1$@` dans un onglet : %4$@. Corrigez cela, puis relancez `cmux cloud open-browser --target machine:%2$@ --port %3$@`."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "No se pudo abrir el puerto %3$@ de la máquina `%1$@` en una pestaña: %4$@. Corrígelo y vuelve a ejecutar `cmux cloud open-browser --target machine:%2$@ --port %3$@`."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "تعذّر فتح المنفذ %3$@ من الجهاز `%1$@` في علامة تبويب: %4$@. أصلح ذلك، ثم شغّل `cmux cloud open-browser --target machine:%2$@ --port %3$@` مرة أخرى."}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "머신 `%1$@`의 포트 %3$@을(를) 브라우저 탭에서 열지 못했습니다: %4$@. 문제를 해결한 뒤 `cmux cloud open-browser --target machine:%2$@ --port %3$@`을(를) 다시 실행하세요."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "无法在浏览器标签页中打开机器 `%1$@` 的端口 %3$@：%4$@。解决后再次运行 `cmux cloud open-browser --target machine:%2$@ --port %3$@`。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "無法在瀏覽器分頁中開啟機器 `%1$@` 的連接埠 %3$@：%4$@。解決後再次執行 `cmux cloud open-browser --target machine:%2$@ --port %3$@`。"}}
+      }
+    },
+    "cloud.ports.noWindow": {
+      "comment": "cmux cloud open-browser with no cmux window open. %1$@ is the machine's name, %2$@ its id, %3$@ the port. Keep the commands in backticks as written.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "No cmux window is open to show port %3$@ of machine `%1$@`. Run `cmux app new-window`, then `cmux cloud open-browser --target machine:%2$@ --port %3$@` again."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "マシン `%1$@` のポート %3$@ を表示する cmux ウインドウが開いていません。`cmux app new-window` を実行してから、もう一度 `cmux cloud open-browser --target machine:%2$@ --port %3$@` を実行してください。"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Es ist kein cmux-Fenster offen, um Port %3$@ der Maschine `%1$@` zu zeigen. Führe `cmux app new-window` und dann erneut `cmux cloud open-browser --target machine:%2$@ --port %3$@` aus."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Aucune fenêtre cmux n'est ouverte pour afficher le port %3$@ de la machine `%1$@`. Lancez `cmux app new-window`, puis relancez `cmux cloud open-browser --target machine:%2$@ --port %3$@`."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "No hay ninguna ventana de cmux abierta para mostrar el puerto %3$@ de la máquina `%1$@`. Ejecuta `cmux app new-window` y luego vuelve a ejecutar `cmux cloud open-browser --target machine:%2$@ --port %3$@`."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "لا توجد نافذة cmux مفتوحة لعرض المنفذ %3$@ من الجهاز `%1$@`. شغّل `cmux app new-window`، ثم شغّل `cmux cloud open-browser --target machine:%2$@ --port %3$@` مرة أخرى."}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "머신 `%1$@`의 포트 %3$@을(를) 표시할 cmux 창이 열려 있지 않습니다. `cmux app new-window`을(를) 실행한 뒤 `cmux cloud open-browser --target machine:%2$@ --port %3$@`을(를) 다시 실행하세요."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "没有打开的 cmux 窗口来显示机器 `%1$@` 的端口 %3$@。请运行 `cmux app new-window`，然后再次运行 `cmux cloud open-browser --target machine:%2$@ --port %3$@`。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "沒有開啟的 cmux 視窗來顯示機器 `%1$@` 的連接埠 %3$@。請執行 `cmux app new-window`，然後再次執行 `cmux cloud open-browser --target machine:%2$@ --port %3$@`。"}}
+      }
+    },
+    "cloud.ports.updateMachine": {
+      "comment": "The machine's cmux is too old for browser tabs on its localhost. %1$@ is the machine's name, %2$@ its id, %3$@ the port. Keep the commands in backticks as written.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Machine `%1$@` can't show its port %3$@ in a browser tab: its cmux is too old. Run `cmux cloud machine-link --target machine:%2$@ --port %3$@` for a link to the port, or start a newer machine with `cmux cloud new-machine`."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "マシン `%1$@` はポート %3$@ をブラウザタブで表示できません。マシンの cmux が古すぎます。ポートへのリンクを得るには `cmux cloud machine-link --target machine:%2$@ --port %3$@` を実行するか、`cmux cloud new-machine` で新しいマシンを起動してください。"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Die Maschine `%1$@` kann ihren Port %3$@ nicht in einem Browser-Tab zeigen: Ihr cmux ist zu alt. Führe `cmux cloud machine-link --target machine:%2$@ --port %3$@` für einen Link zum Port aus, oder starte mit `cmux cloud new-machine` eine neuere Maschine."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "La machine `%1$@` ne peut pas afficher son port %3$@ dans un onglet : son cmux est trop ancien. Lancez `cmux cloud machine-link --target machine:%2$@ --port %3$@` pour un lien vers le port, ou démarrez une machine plus récente avec `cmux cloud new-machine`."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "La máquina `%1$@` no puede mostrar su puerto %3$@ en una pestaña: su cmux es demasiado antiguo. Ejecuta `cmux cloud machine-link --target machine:%2$@ --port %3$@` para obtener un enlace al puerto, o inicia una máquina más reciente con `cmux cloud new-machine`."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "لا يمكن للجهاز `%1$@` عرض منفذه %3$@ في علامة تبويب: إصدار cmux عليه قديم جدًا. شغّل `cmux cloud machine-link --target machine:%2$@ --port %3$@` للحصول على رابط للمنفذ، أو ابدأ جهازًا أحدث باستخدام `cmux cloud new-machine`."}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "머신 `%1$@`은(는) 포트 %3$@을(를) 브라우저 탭에 표시할 수 없습니다. 머신의 cmux가 너무 오래되었습니다. 포트 링크를 얻으려면 `cmux cloud machine-link --target machine:%2$@ --port %3$@`을(를) 실행하거나 `cmux cloud new-machine`(으)로 새 머신을 시작하세요."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "机器 `%1$@` 无法在浏览器标签页中显示端口 %3$@：它的 cmux 太旧。运行 `cmux cloud machine-link --target machine:%2$@ --port %3$@` 获取该端口的链接，或用 `cmux cloud new-machine` 启动一台更新的机器。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "機器 `%1$@` 無法在瀏覽器分頁中顯示連接埠 %3$@：它的 cmux 太舊。執行 `cmux cloud machine-link --target machine:%2$@ --port %3$@` 取得該連接埠的連結，或用 `cmux cloud new-machine` 啟動一台較新的機器。"}}
+      }
+    },
+    "cloud.ports.localhostOff": {
+      "comment": "browser.remoteLocalhost (a cmux.json setting, keep as written) is off for the machine's workspace. %1$@ is the machine's name, %2$@ its id, %3$@ the port. Keep the commands in backticks as written.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Machine `%1$@` has browser.remoteLocalhost turned off for its workspace, so a browser tab would show this Mac's port %3$@ instead. Turn it on in cmux.json, then run `cmux cloud open-browser --target machine:%2$@ --port %3$@` again."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "マシン `%1$@` のワークスペースでは browser.remoteLocalhost がオフのため、ブラウザタブにはこの Mac のポート %3$@ が表示されてしまいます。cmux.json でオンにしてから、もう一度 `cmux cloud open-browser --target machine:%2$@ --port %3$@` を実行してください。"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Für den Arbeitsbereich der Maschine `%1$@` ist browser.remoteLocalhost aus, daher würde ein Browser-Tab stattdessen Port %3$@ dieses Macs zeigen. Schalte es in cmux.json ein und führe `cmux cloud open-browser --target machine:%2$@ --port %3$@` erneut aus."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "browser.remoteLocalhost est désactivé pour l'espace de travail de la machine `%1$@` : un onglet afficherait le port %3$@ de ce Mac. Activez-le dans cmux.json, puis relancez `cmux cloud open-browser --target machine:%2$@ --port %3$@`."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "La máquina `%1$@` tiene browser.remoteLocalhost desactivado en su espacio de trabajo, así que una pestaña mostraría el puerto %3$@ de este Mac. Actívalo en cmux.json y vuelve a ejecutar `cmux cloud open-browser --target machine:%2$@ --port %3$@`."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "الإعداد browser.remoteLocalhost مُعطّل لمساحة عمل الجهاز `%1$@`، لذا ستعرض علامة التبويب المنفذ %3$@ على هذا الـ Mac بدلًا منه. فعّله في cmux.json، ثم شغّل `cmux cloud open-browser --target machine:%2$@ --port %3$@` مرة أخرى."}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "머신 `%1$@`의 작업 공간에서 browser.remoteLocalhost가 꺼져 있어 브라우저 탭에 이 Mac의 포트 %3$@이(가) 표시됩니다. cmux.json에서 켠 뒤 `cmux cloud open-browser --target machine:%2$@ --port %3$@`을(를) 다시 실행하세요."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "机器 `%1$@` 的工作区关闭了 browser.remoteLocalhost，因此浏览器标签页会显示这台 Mac 的端口 %3$@。请在 cmux.json 中打开它，然后再次运行 `cmux cloud open-browser --target machine:%2$@ --port %3$@`。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "機器 `%1$@` 的工作區關閉了 browser.remoteLocalhost，因此瀏覽器分頁會顯示這台 Mac 的連接埠 %3$@。請在 cmux.json 中開啟它，然後再次執行 `cmux cloud open-browser --target machine:%2$@ --port %3$@`。"}}
+      }
+    },
+    "cloud.ports.noLink": {
+      "comment": "cmux cloud machine-link --port on a machine whose provider opens no port links. %1$@ is the machine's name, %2$@ its id, %3$@ the port. Keep the commands in backticks as written.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Machine `%1$@` can't make a link to port %3$@: its provider opens no port links. Run `cmux cloud open-browser --target machine:%2$@ --port %3$@` instead."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "マシン `%1$@` はポート %3$@ へのリンクを作れません。プロバイダがポートリンクに対応していません。代わりに `cmux cloud open-browser --target machine:%2$@ --port %3$@` を実行してください。"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Die Maschine `%1$@` kann keinen Link zu Port %3$@ erstellen: Ihr Anbieter öffnet keine Portlinks. Führe stattdessen `cmux cloud open-browser --target machine:%2$@ --port %3$@` aus."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "La machine `%1$@` ne peut pas créer de lien vers le port %3$@ : son fournisseur n'ouvre pas de liens de port. Lancez plutôt `cmux cloud open-browser --target machine:%2$@ --port %3$@`."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "La máquina `%1$@` no puede crear un enlace al puerto %3$@: su proveedor no abre enlaces de puertos. Ejecuta `cmux cloud open-browser --target machine:%2$@ --port %3$@` en su lugar."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "لا يمكن للجهاز `%1$@` إنشاء رابط للمنفذ %3$@: مزوّده لا يفتح روابط المنافذ. شغّل `cmux cloud open-browser --target machine:%2$@ --port %3$@` بدلًا من ذلك."}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "머신 `%1$@`은(는) 포트 %3$@의 링크를 만들 수 없습니다. 제공업체가 포트 링크를 지원하지 않습니다. 대신 `cmux cloud open-browser --target machine:%2$@ --port %3$@`을(를) 실행하세요."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "机器 `%1$@` 无法为端口 %3$@ 创建链接：它的提供方不支持端口链接。请改为运行 `cmux cloud open-browser --target machine:%2$@ --port %3$@`。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "機器 `%1$@` 無法為連接埠 %3$@ 建立連結：它的提供者不支援連接埠連結。請改為執行 `cmux cloud open-browser --target machine:%2$@ --port %3$@`。"}}
+      }
+    },
+    "cloud.ports.routeRefused": {
+      "comment": "The reason inside cloud.ports.browserFailed; %@ is an internal code shown as a trace.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "the machine's browser route could not be used (%@)"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "マシンのブラウザルートを使えませんでした (%@)"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "die Browser-Route der Maschine war nicht nutzbar (%@)"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "la route de navigateur de la machine est inutilisable (%@)"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "no se pudo usar la ruta de navegador de la máquina (%@)"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "تعذّر استخدام مسار المتصفح الخاص بالجهاز (%@)"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "머신의 브라우저 경로를 사용할 수 없습니다(%@)"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "无法使用该机器的浏览器路由（%@）"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "無法使用該機器的瀏覽器路由（%@）"}}
+      }
+    },
+    "cloud.ports.pathInvalid": {
+      "comment": "cmux cloud open-browser with a bad --path. Keep --path /docs as written.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Pass a path that starts with / and has no spaces, for example --path /docs."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "/ で始まり空白を含まないパスを指定してください (例: --path /docs)。"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Gib einen Pfad an, der mit / beginnt und keine Leerzeichen enthält, zum Beispiel --path /docs."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Indiquez un chemin qui commence par / et sans espaces, par exemple --path /docs."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Pasa una ruta que empiece por / y no tenga espacios, por ejemplo --path /docs."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "مرّر مسارًا يبدأ بـ / ولا يحتوي على مسافات، مثل ‎--path /docs."}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "/로 시작하고 공백이 없는 경로를 지정하세요(예: --path /docs)."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "请传入以 / 开头且不含空格的路径，例如 --path /docs。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "請傳入以 / 開頭且不含空白的路徑，例如 --path /docs。"}}
+      }
+    },
+    "cloud.ports.title": {
+      "comment": "Sheet title of a machine's port list, forward or link.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Machine Ports"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "マシンのポート"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Maschinenports"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Ports de la machine"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Puertos de la máquina"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "منافذ الجهاز"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "머신 포트"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "机器端口"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "機器連接埠"}}
+      }
+    },
+    "cloud.ports.none": {
+      "comment": "A machine's port list when no port is forwarded.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "No port of this machine is forwarded to this Mac."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "このマシンのポートはこの Mac に転送されていません。"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Kein Port dieser Maschine ist an diesen Mac weitergeleitet."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Aucun port de cette machine n'est redirigé vers ce Mac."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Ningún puerto de esta máquina se reenvía a este Mac."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "لا يُعاد توجيه أي منفذ من هذا الجهاز إلى هذا الـ Mac."}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "이 머신의 포트 중 이 Mac으로 전달된 것이 없습니다."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "这台机器没有端口转发到这台 Mac。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "這台機器沒有連接埠轉送到這台 Mac。"}}
+      }
+    }
+  },
+  "version": "1.0"
+}
