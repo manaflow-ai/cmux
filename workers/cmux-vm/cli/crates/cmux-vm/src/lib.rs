@@ -114,7 +114,7 @@ enum Command {
     /// Create, list, show and delete snapshots
     #[command(subcommand)]
     Snapshot(SnapshotCommand),
-    /// Mint and manage Freestyle SSH client sessions for a VM
+    /// Mint and manage SSH client sessions for a VM
     #[command(name = "client-session", subcommand)]
     ClientSession(ClientSessionCommand),
     /// List approved service boot images

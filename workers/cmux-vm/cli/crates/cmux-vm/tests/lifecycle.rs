@@ -2345,7 +2345,7 @@ async fn client_sessions_keep_tokens_private_and_confirm_revoke() {
     let server = MockServer::start().await;
     let session = "vcs_00000000000000000000000000";
     let response = json!({"id":session,"vmId":VM_ID,"providerVmId":"provider-vm",
-        "linuxUser":"dev","token":"one-time-secret","createdAt":"now"});
+        "linuxUser":"dev","token":"one-time-secret","createdAt":"now", "ssh":{"host":"ssh.example.test","user":"provider-vm+dev"}});
     Mock::given(method("POST"))
         .and(path(format!("/v1/vms/{VM_ID}/client-session")))
         .and(authorized())
@@ -2360,10 +2360,7 @@ async fn client_sessions_keep_tokens_private_and_confirm_revoke() {
     )
     .await;
     assert_eq!(out.code, exit::OK, "{}", out.stderr);
-    assert!(
-        out.stdout
-            .contains("ssh provider-vm+dev@beta-ssh.freestyle.sh")
-    );
+    assert!(out.stdout.contains("ssh provider-vm+dev@ssh.example.test"));
     assert!(out.stdout.contains("one-time-secret"));
     assert!(out.stdout.contains("shown once"));
     assert!(!out.stderr.contains("one-time-secret"));

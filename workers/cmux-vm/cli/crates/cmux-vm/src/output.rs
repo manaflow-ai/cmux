@@ -388,7 +388,17 @@ impl<'a> Printer<'a> {
         }
         let provider_vm = field("providerVmId")?;
         let user = field("linuxUser")?;
-        // Only these documented fields may reach output, including in file mode.
+        let host = value
+            .pointer("/ssh/host")
+            .and_then(serde_json::Value::as_str)
+            .filter(|host| !host.is_empty())
+            .ok_or_else(|| {
+                CliError::unexpected(format!(
+                    "client session {session_id} for VM {vm_id} omitted the SSH host; {recovery}"
+                ))
+            })?;
+        let ssh = format!("{provider_vm}+{user}@{host}");
+        // Only documented fields may reach output, including in file mode.
         if let Some(object) = value.as_object_mut() {
             object.retain(|key, _| {
                 matches!(
@@ -397,9 +407,6 @@ impl<'a> Printer<'a> {
                 )
             });
         }
-        let ssh = format!("{provider_vm}+{user}@beta-ssh.freestyle.sh");
-        let recovery =
-            format!("revoke it with `cmux-vm client-session revoke {vm_id} {session_id} --yes`");
         if let Some((path, mut file)) = token_file {
             if let Err(error) = file.write_all(token.as_bytes()) {
                 return Err(CliError::unexpected(format!(
