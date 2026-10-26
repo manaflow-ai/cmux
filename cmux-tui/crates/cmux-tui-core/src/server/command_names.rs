@@ -135,6 +135,19 @@ macro_rules! command_table {
             }
         }
 
+        impl Command {
+            /// The method id and class of the command whose `cmd` tag (or
+            /// alias) is `name`; None for a name no command has.
+            pub(super) fn method_of_wire(name: &str) -> Option<(u16, MethodClass)> {
+                match name {
+                    $($wire $(| $alias)* => {
+                        Some((MethodIndex::$variant as u16, MethodClass::$class))
+                    })*
+                    _ => None,
+                }
+            }
+        }
+
         /// Each variant's index in [`COMMANDS`], numbered by the compiler.
         enum MethodIndex {
             $($variant,)*

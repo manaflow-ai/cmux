@@ -219,14 +219,14 @@ pub(super) fn start(
 ) -> bool {
     // Refuse at once, on this thread, before any thread or socket.
     if let Err(error) = require_owner(mux, client) {
-        return respond(writer, id, Err(error));
+        return reply.reply(|| respond(writer, id, Err(error)));
     }
     let mux = mux.clone();
     let thread_writer = writer.clone();
     let reply_id = id.clone();
     let spawned = std::thread::Builder::new().name("mux-chief-inspect".into()).spawn(move || {
-        let _reply = reply;
-        respond(&thread_writer, reply_id, inspect_with(&mux, client, params, None));
+        let answer = inspect_with(&mux, client, params, None);
+        reply.reply(|| respond(&thread_writer, reply_id, answer));
     });
     spawned.is_ok()
         || respond(writer, id, Err(anyhow::anyhow!("cannot start the inspector request")))

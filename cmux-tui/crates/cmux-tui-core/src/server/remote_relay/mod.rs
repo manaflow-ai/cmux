@@ -27,10 +27,11 @@ mod revocation;
 
 use std::sync::Arc;
 use std::sync::PoisonError;
+use std::time::Instant;
 
 use serde_json::{Value, json};
 
-use super::{ClientTransport, Command, MessageWriter, Mux, Response};
+use super::{ClientTransport, Command, MessageWriter, Mux, RequestArrival, RequestHead, Response};
 use crate::remote_relay_state::{
     BindRefused, LinkPeer, RelayLock, StreamPolicy, lock_checked, remote_participant,
 };
@@ -260,22 +261,48 @@ pub(super) fn handle_frame(
     client: u64,
     message: &str,
     writer: &MessageWriter,
+    arrived: Instant,
 ) -> bool {
+    // A line whose `cmd` names no `Command` (an `fs-v1` op, or a line the
+    // gate refuses) is answered under its own span; a `Command` opens its
+    // span at its handler, and a refusal of one opens it here.
+    let head = RequestHead::parse(message);
+    let stats = mux.request_stats();
+    let routed =
+        (!head.is_command()).then(|| head.open(stats, RequestArrival::parsed_now(arrived)));
+    let refuse = |routed: Option<super::RequestSpan<'_>>, code: &str| {
+        let mut span =
+            routed.unwrap_or_else(|| head.open(stats, RequestArrival::parsed_now(arrived)));
+        span.reply(|| writer.send_control(&refusal(message, code)).is_ok())
+    };
     if mux.daemon_handoff_in_progress() {
-        return writer.send_control(&refusal(message, REMOTE_ERROR)).is_ok();
+        return refuse(routed, REMOTE_ERROR);
     }
     // The seven `fs-v1` ops (exactly; fs_wire.rs) have their own owner and
     // checks, outside the conversation allowlist.
     #[cfg(unix)]
-    if let Some(keep_open) = super::fs_wire::try_handle(mux, client, message, writer) {
-        return keep_open;
-    }
+    let routed = match routed {
+        Some(mut span) => match super::fs_wire::try_handle(mux, client, message, writer) {
+            Some(keep_open) => return span.answered(keep_open),
+            None => Some(span),
+        },
+        None => None,
+    };
     if gate::check_frame(message).is_err() {
-        return writer.send_control(&refusal(message, REMOTE_DENIED)).is_ok();
+        return refuse(routed, REMOTE_DENIED);
     }
     match serde_json::from_str::<super::Request>(message) {
-        Ok(request) => super::handle_request(mux, client, request, writer),
-        Err(_) => writer.send_control(&refusal(message, REMOTE_ERROR)).is_ok(),
+        // Only a `cmd` the table names parses as a `Command`, so no line
+        // span is open here.
+        Ok(request) => super::handle_request_with_cancellation(
+            mux,
+            client,
+            request,
+            RequestArrival::parsed_now(arrived),
+            writer,
+            None,
+        ),
+        Err(_) => refuse(routed, REMOTE_ERROR),
     }
 }
 

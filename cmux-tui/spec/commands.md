@@ -668,18 +668,31 @@ lock (and may hold state) while it waits for its writer receipt, so the
 writer never takes either.
 
 `requests` adds `request_latency_us` and `dispatch_queue_us`, over every
-control connection's requests (Chrome's per-task queue and run timing).
+control connection's request lines (Chrome's per-task queue and run timing):
+`cmd` commands, `cmux.protocol/2` resource requests, the feature routes
+(`agent-*`, `apps-*`, `script-*`, `fs.*`, loopback and browser-runtime
+lines) and lines answered with a refusal or a bad-request error.
 `request_latency_us.<class>` is the time from a request line's arrival at its
-connection's reader to its reply entering the connection's outbound queue, by
-the request's method class (the daemon's `MethodClass`). A request a worker
-answers later (`url-open`, `chief-inspect`, the cloud commands) counts when
-the worker's reply is queued. `dispatch_queue_us` is the time from a
-request's parse to its handler's start: the wait in the connection's request
-queue. In a trace, each request is the slice `daemon.request` (method id,
-request id hash) with the instants `daemon.request.parsed`,
-`daemon.request.dispatched`, `daemon.request.reply.queued` and
-`daemon.request.reply.sent`; a worker's reply is the async slice
-`daemon.request.async`.
+connection's reader (when its read returns) to its reply entering the
+connection's outbound queue, by the request's method class (the daemon's
+`MethodClass`; a resource operation's class follows its namespace, and its
+creates and splits are `create`). A request a worker answers later
+(`url-open`, `chief-inspect`, the cloud commands) counts when the worker's
+reply is queued. The time a reply then waits for the writer thread's socket
+write is not counted. `dispatch_queue_us` is the time from a request's parse
+to its handler's start: the wait in the connection's request queue (0 for a
+line answered inline).
+
+In a trace, each request is the slice `daemon.request`: arg0 is the method
+id (a command's row in the command table, `0x4000` plus a resource
+operation's index, or `0x8000` plus the class of a feature-route line) and
+arg1 the FNV-1a hash of the request id's compact JSON. The slice has the
+instants `daemon.request.parsed`, `daemon.request.dispatched`,
+`daemon.request.handled` (the reply is built) and
+`daemon.request.reply.queued`; a resource or feature-route line, which sends
+its own reply, has no `handled`. A worker's reply is the async slice
+`daemon.request.async` (arg0 the method id), with the instants
+`daemon.request.async.handled` and `daemon.request.async.reply.queued`.
 
 `schema` is `1`. Latency histograms are in microseconds; `batch_size` counts
 events. Percentiles are log-linear bucket upper bounds and overestimate by at

@@ -17,7 +17,7 @@ use super::super::connection_frame::handle_connection_frame;
 use super::super::connection_scheduler::ConnectionSurfaceScheduler;
 use super::super::tests::{captured_writer, test_mux};
 use super::super::{Command, Mux, handle_command};
-use super::{AsyncReply, RequestArrival, RequestSpan, request_id_hash};
+use super::{AsyncReply, RequestArrival, RequestMethod, RequestSpan, request_id_hash};
 use crate::diagnostics::{REQUEST_CLASSES, RequestStats};
 
 /// Sends each line through the connection's frame handler, as its reader
@@ -71,7 +71,7 @@ fn request_spans_method_id_is_the_commands_row() {
 
 #[test]
 fn request_spans_request_id_hash_is_fnv1a_of_the_id_text() {
-    assert_eq!(request_id_hash(None), 0);
+    assert_eq!(request_id_hash::<Value>(None), 0);
     // FNV-1a 64 of "1" and of "\"a\"".
     assert_eq!(request_id_hash(Some(&json!(1))), 0xaf63_ac4c_8601_9afc);
     assert_eq!(request_id_hash(Some(&json!("a"))), request_id_hash(Some(&json!("a"))));
@@ -133,6 +133,58 @@ fn request_spans_count_a_request_that_returns_early() {
     };
     assert_eq!(total(&stats.request_latency_us), 2, "{stats:?}");
     assert_eq!(stats.request_latency_us.browser.count, 1, "url-open is a browser request");
+}
+
+#[test]
+fn request_spans_count_resource_lines_and_feature_routes() {
+    let mux = test_mux();
+    let resource = |id: &str, operation: &str| {
+        json!({"protocol":"cmux.protocol/2","type":"request","id":id,"operation":operation,
+            "params":{"machine":"current","session":"current"}})
+        .to_string()
+    };
+    let (ping, list) = (resource("r-1", "session.ping"), resource("r-2", "workspace.list"));
+    let replies = run_lines(
+        &mux,
+        &[
+            &ping,
+            &list,
+            r#"{"id":1,"cmd":"agent-inventory","unknown_field":1}"#,
+            r#"{"id":2,"cmd":"no-such-command"}"#,
+        ],
+    );
+    assert_eq!(replies.len(), 4, "{replies:?}");
+    let stats = mux.request_stats().snapshot();
+    let latency = &stats.request_latency_us;
+    assert_eq!(latency.query.count, 2, "both v2 reads are queries: {stats:?}");
+    assert_eq!(latency.agent.count, 1, "the agent route: {stats:?}");
+    assert_eq!(latency.other.count, 1, "the bad request: {stats:?}");
+    assert_eq!(stats.dispatch_queue_us.count, 4, "{stats:?}");
+}
+
+#[test]
+fn request_spans_resource_operations_take_the_command_classes() {
+    use crate::resource::ResourceOperation as Op;
+    for (operation, class) in [
+        (Op::WorkspaceCreate, MethodClass::Create),
+        (Op::TabCreateTerminal, MethodClass::Create),
+        (Op::PaneSplit, MethodClass::Create),
+        (Op::PaneCreate, MethodClass::Create),
+        (Op::WorkspaceList, MethodClass::Query),
+        (Op::SessionPing, MethodClass::Query),
+        (Op::WorkspaceRename, MethodClass::Topology),
+        (Op::PaneClose, MethodClass::Topology),
+        (Op::TerminalInputWrite, MethodClass::TerminalIo),
+        (Op::BrowserNavigate, MethodClass::Browser),
+        (Op::ConversationSend, MethodClass::Agent),
+        (Op::SettingsSet, MethodClass::Other),
+    ] {
+        let method = RequestMethod::of_resource(operation);
+        assert_eq!(method.class, class, "{operation:?}");
+        assert!(
+            method.id >= RequestMethod::RESOURCE_BASE && method.id < RequestMethod::ROUTED_BASE
+        );
+    }
 }
 
 #[test]
@@ -199,73 +251,163 @@ fn text<'a>(decoded: &'a Decoded, record: &DecodedRecord) -> &'a str {
     decoded.name(record.name).unwrap_or("<no name>")
 }
 
-fn child_three_requests(dir: &Path) {
-    cmux_trace::init_blackbox(dir, Role::Daemon)
-        .expect("first init")
-        .wait()
-        .expect("the black box moved into its file");
-    let mux = test_mux();
-    let replies = run_lines(
-        &mux,
-        &[r#"{"id":1,"cmd":"ping"}"#, r#"{"id":2,"cmd":"ping"}"#, r#"{"id":3,"cmd":"ping"}"#],
-    );
-    assert_eq!(replies.len(), 3, "{replies:?}");
+/// One `daemon.request` slice: its begin and the records inside it.
+#[derive(Debug)]
+struct Slice {
+    begin: DecodedRecord,
+    inner: Vec<(Phase, String, DecodedRecord)>,
+}
 
-    let decoded = decode(&cmux_trace::snapshot_active().expect("initialised")).expect("decodes");
+impl Slice {
+    fn instants(&self) -> Vec<&str> {
+        self.inner
+            .iter()
+            .filter(|(phase, ..)| *phase == Phase::Instant)
+            .map(|(_, name, _)| name.as_str())
+            .collect()
+    }
+}
+
+/// Every `daemon.request` slice in the trace. Each begin has its end on
+/// its thread, and slices do not nest.
+fn request_slices(decoded: &Decoded) -> Vec<Slice> {
     let mut by_thread: HashMap<(u32, u32), Vec<DecodedRecord>> = HashMap::new();
     for record in &decoded.records {
-        if text(&decoded, record).starts_with("daemon.request") {
+        if text(decoded, record).starts_with("daemon.request") {
             by_thread
                 .entry((record.thread_index, record.thread_generation))
                 .or_default()
                 .push(*record);
         }
     }
-    let mut requests = Vec::new();
+    let mut slices = Vec::new();
     for records in by_thread.values_mut() {
         records.sort_by_key(|record| (record.position, record.slot));
-        let mut open: Option<(DecodedRecord, Vec<String>)> = None;
+        let mut open: Option<Slice> = None;
         for record in records.iter() {
-            let name = text(&decoded, record).to_owned();
+            let name = text(decoded, record).to_owned();
             match Phase::from_raw(record.phase) {
                 Some(Phase::Begin) => {
                     assert_eq!(name, "daemon.request");
                     assert!(open.is_none(), "a request slice opened inside another");
-                    open = Some((*record, Vec::new()));
+                    open = Some(Slice { begin: *record, inner: Vec::new() });
                 }
-                Some(Phase::Instant) => {
-                    open.as_mut().expect("an instant outside a request slice").1.push(name);
+                Some(phase @ (Phase::Instant | Phase::AsyncBegin | Phase::AsyncEnd)) => {
+                    let slice = open.as_mut().unwrap_or_else(|| {
+                        panic!("{name} outside a request slice: the reply left its span")
+                    });
+                    slice.inner.push((phase, name, *record));
                 }
                 Some(Phase::End) => {
-                    let (begin, instants) = open.take().expect("an end with no begin");
+                    let slice = open.take().expect("an end with no begin");
                     assert_eq!(name, "daemon.request");
-                    assert!(record.t_ns >= begin.t_ns, "a slice ended before it began");
-                    requests.push((begin, instants));
+                    assert!(record.t_ns >= slice.begin.t_ns, "a slice ended before it began");
+                    slices.push(slice);
                 }
                 other => panic!("unexpected {other:?} record {name}"),
             }
         }
         assert!(open.is_none(), "a request slice never ended");
     }
+    slices
+}
 
-    assert_eq!(requests.len(), 3, "three requests, three slices: {requests:?}");
-    let mut hashes: Vec<u64> = requests.iter().map(|(begin, _)| begin.arg1).collect();
-    hashes.sort_unstable();
-    let mut expected: Vec<u64> =
-        [1, 2, 3].iter().map(|id| request_id_hash(Some(&json!(id)))).collect();
-    expected.sort_unstable();
-    assert_eq!(hashes, expected, "each slice names its request id");
-    for (begin, instants) in &requests {
-        assert_eq!(begin.arg0, u64::from(Command::Ping.method_id()), "the slice names its method");
+fn child_three_requests(dir: &Path) {
+    cmux_trace::init_blackbox(dir, Role::Daemon)
+        .expect("first init")
+        .wait()
+        .expect("the black box moved into its file");
+    let mux = test_mux();
+    let resource = json!({"protocol":"cmux.protocol/2","type":"request","id":"r-1",
+        "operation":"session.ping","params":{"machine":"current","session":"current"}})
+    .to_string();
+    let replies = run_lines(
+        &mux,
+        &[
+            r#"{"id":1,"cmd":"ping"}"#,
+            r#"{"id":2,"cmd":"ping"}"#,
+            r#"{"id":3,"cmd":"ping"}"#,
+            r#"{"id":4,"cmd":"vt-state","surface":424242}"#,
+            r#"{"id":5,"cmd":"url-open","terminal_id":"t-none","url":"https://example.com"}"#,
+            &resource,
+            r#"{"id":6,"cmd":"agent-inventory","unknown_field":1}"#,
+        ],
+    );
+    assert_eq!(replies.len(), 7, "{replies:?}");
+
+    let decoded = decode(&cmux_trace::snapshot_active().expect("initialised")).expect("decodes");
+    let slices = request_slices(&decoded);
+    assert_eq!(slices.len(), 7, "seven requests, seven slices: {slices:?}");
+    let hash = |id: Value| request_id_hash(Some(&id));
+    let find = |id: Value| {
+        let hash = hash(id.clone());
+        slices.iter().find(|slice| slice.begin.arg1 == hash).unwrap_or_else(|| {
+            panic!("no slice names request {id}: {slices:?}");
+        })
+    };
+
+    for id in [1, 2, 3] {
+        let slice = find(json!(id));
         assert_eq!(
-            instants,
-            &[
+            slice.begin.arg0,
+            u64::from(Command::Ping.method_id()),
+            "the slice names its method"
+        );
+        assert_eq!(
+            slice.instants(),
+            [
                 "daemon.request.parsed",
                 "daemon.request.dispatched",
+                "daemon.request.handled",
                 "daemon.request.reply.queued",
-                "daemon.request.reply.sent",
             ],
             "a request slice holds its four instants in order"
         );
     }
+    // vt-state answers on its own path, under the same four instants.
+    assert_eq!(find(json!(4)).instants().len(), 4, "{:?}", find(json!(4)));
+
+    // url-open's reply is the async slice's: begin, its reply, end.
+    let url_open = find(json!(5));
+    let async_records: Vec<_> = url_open
+        .inner
+        .iter()
+        .filter(|(phase, ..)| matches!(phase, Phase::AsyncBegin | Phase::AsyncEnd))
+        .collect();
+    let [(Phase::AsyncBegin, begin_name, begin), (Phase::AsyncEnd, end_name, end)] =
+        async_records.as_slice()
+    else {
+        panic!("url-open has no async begin and end: {url_open:?}");
+    };
+    assert_eq!(
+        (begin_name.as_str(), end_name.as_str()),
+        ("daemon.request.async", "daemon.request.async")
+    );
+    assert_eq!(begin.arg1, end.arg1, "the async slice ends under its own id");
+    assert_ne!(begin.arg1, 0);
+    let url_open_method = Command::method_of_wire("url-open").expect("a command").0;
+    assert_eq!(begin.arg0, u64::from(url_open_method), "the async slice names its method");
+    assert!(
+        url_open
+            .instants()
+            .ends_with(&["daemon.request.async.handled", "daemon.request.async.reply.queued"]),
+        "{url_open:?}"
+    );
+
+    // A v2 resource line and a feature route each get their slice.
+    let resource = find(json!("r-1"));
+    let session_ping = RequestMethod::of_resource(crate::resource::ResourceOperation::SessionPing);
+    assert_eq!(resource.begin.arg0, u64::from(session_ping.id));
+    assert_eq!(
+        resource.instants(),
+        ["daemon.request.parsed", "daemon.request.dispatched", "daemon.request.reply.queued"],
+        "{resource:?}"
+    );
+    let routed = find(json!(6));
+    assert_eq!(
+        routed.begin.arg0,
+        u64::from(RequestMethod::ROUTED_BASE + MethodClass::Agent as u16),
+        "{routed:?}"
+    );
+    assert_eq!(routed.instants().last(), Some(&"daemon.request.reply.queued"), "{routed:?}");
 }
