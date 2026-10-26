@@ -536,3 +536,48 @@ test("a queued image acpmux has no bytes for reads as missing, one being read as
   await act(async () => finish(undefined));
   expect(queuedRowsState(container)[0]!.images).toEqual([{ id: SHOT_A, label: "shot.png", thumbnail: "missing" }]);
 });
+
+// A shared chat: a teammate's queued prompt names them, and only they may change it (acpmux
+// refuses another author's edit with `queue.not_author`), so its row has no actions and no keys.
+test("a teammate's queued prompt shows their name and offers no action", async () => {
+  const edits: [string, QueueEdit][] = [];
+  const removed: string[] = [];
+  const container = installDom();
+  const ana = { id: "tailnet:ana@example.com", name: "Ana" };
+  await act(async () => {
+    root = createRoot(container);
+    root.render(
+      <ComposerQueue
+        queue={[{ id: "p-ana", prompt: "from ana", author: ana }, ...queue]}
+        chat="c"
+        t={t}
+        onChange={async (id, edit) => {
+          edits.push([id, edit]);
+          return true;
+        }}
+        onRemove={async (id) => {
+          removed.push(id);
+          return true;
+        }}
+      />,
+    );
+  });
+  const row = container.querySelector<HTMLElement>('[data-prompt-id="p-ana"]')!;
+  expect(row.querySelector(".cv-author--inline .cv-author__name")?.textContent).toBe("Ana");
+  expect(actions(container, "p-ana")).toEqual([]);
+  expect(row.getAttribute("aria-keyshortcuts")).toBeNull();
+  row.focus();
+  for (const init of [{ key: "Enter" }, { key: "Backspace" }, { key: "ArrowDown", altKey: true }])
+    await act(async () => {
+      row.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { ...init, bubbles: true }));
+    });
+  expect(container.querySelector('[data-prompt-id="p-ana"] textarea')).toBeNull();
+  expect(edits).toEqual([]);
+  expect(removed).toEqual([]);
+  // The person's own rows keep their actions.
+  expect(actions(container, "p-1").map((b) => b.dataset.action ?? b.dataset.menu)).toEqual([
+    "steer",
+    "delete",
+    "queued-more",
+  ]);
+});

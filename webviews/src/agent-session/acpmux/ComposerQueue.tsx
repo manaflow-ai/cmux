@@ -48,6 +48,7 @@ import { Menu, MenuButton, MenuItem, MenuPopup } from "../../ui/Menu";
 import { rovingTabStopProps } from "../../ui/listRowKeyboard";
 import { ownQueue, queuedAttachments } from "./conversation/queuedMessages";
 import { setQueueing, useQueueing } from "./queueing";
+import { AuthorChip } from "./multiplayer/Faces";
 
 type QueuedEntry = AcpmuxSnapshot["queue"][number];
 
@@ -344,6 +345,8 @@ export function ComposerQueue({
     }, 1000);
   };
   const remove = onRemove && ((entry: QueuedEntry) => act(entry.id, () => onRemove(entry.id)));
+  // A teammate's prompt in a shared chat: shown with its author, never changed from here.
+  const theirs = (entry: QueuedEntry) => entry.author !== undefined;
   const cancelEdit =
     onCancelEdit &&
     (async (entry: QueuedEntry) => {
@@ -418,6 +421,8 @@ export function ComposerQueue({
   const rowKeyDown = (event: React.KeyboardEvent<HTMLElement>, entry: QueuedEntry, index: number) => {
     if (event.target !== event.currentTarget) return;
     const plain = !event.shiftKey && !event.altKey && !event.metaKey && !event.ctrlKey;
+    // A teammate's prompt is theirs to change (acpmux `queue.not_author`): its row only walks.
+    const mine = !theirs(entry);
     const done = () => {
       event.preventDefault();
       event.stopPropagation();
@@ -426,16 +431,16 @@ export function ComposerQueue({
       // ⌘↩ on a row does nothing: Send now is a click (above). It would send the prompt from the
       // composer otherwise.
       done();
-    } else if (event.key === "Enter" && plain && onChange) {
+    } else if (event.key === "Enter" && plain && onChange && mine) {
       done();
       setEditing(entry.id);
-    } else if ((event.key === "ArrowUp" || event.key === "ArrowDown") && event.altKey && move) {
+    } else if ((event.key === "ArrowUp" || event.key === "ArrowDown") && event.altKey && move && mine) {
       done();
       move(entry, index + (event.key === "ArrowUp" ? -1 : 1));
     } else if ((event.key === "ArrowUp" || event.key === "ArrowDown") && plain) {
       done();
       focusRow(index + (event.key === "ArrowUp" ? -1 : 1));
-    } else if ((event.key === "Delete" || event.key === "Backspace") && plain && remove) {
+    } else if ((event.key === "Delete" || event.key === "Backspace") && plain && remove && mine) {
       done();
       remove(entry);
       focusAfter(index);
@@ -466,7 +471,7 @@ export function ComposerQueue({
     ),
     onSelect,
   });
-  const menu = (entry: QueuedEntry, index: number): ContextMenuItem[] => [
+  const menu = (entry: QueuedEntry, index: number): ContextMenuItem[] => theirs(entry) ? [] : [
     ...(canSendNow(entry)
       ? [
           {
@@ -504,6 +509,7 @@ export function ComposerQueue({
   // The row's actions, as ChatGPT and Codex show them: Steer (a glyph and its word), the trash can
   // (an icon named by its tooltip), and the ⋯ menu. Plain glyphs: a soft pill on hover only.
   const actions = (entry: QueuedEntry) => {
+    if (theirs(entry)) return null;
     const side = sideChat?.(entry);
     return (
       <span className="acpmux-queued-actions">
@@ -600,6 +606,7 @@ export function ComposerQueue({
         >
           {/* WebKit does not clamp a button's own lines: the clamp is on its text. */}
           <span className="acpmux-queued-clamp">
+            {entry.author && <AuthorChip author={entry.author} inline />}
             {entry.next && (
               <span className="acpmux-queued-kind" data-kind="steer">
                 {t("composer.steering")}
@@ -691,7 +698,7 @@ export function ComposerQueue({
             className="acpmux-queued"
             key={entry.id}
             data-prompt-id={entry.id}
-            aria-keyshortcuts="Enter Alt+ArrowUp Alt+ArrowDown Delete"
+            aria-keyshortcuts={theirs(entry) ? undefined : "Enter Alt+ArrowUp Alt+ArrowDown Delete"}
             {...rovingTabStopProps(false, (event) => rowKeyDown(event, entry, index))}
           >
             {editing === entry.id ? (

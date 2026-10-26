@@ -1,5 +1,5 @@
 import type { SwitchPort } from "./harnessSwitch";
-import { answeredBy, promptAuthor } from "./multiplayer/participants";
+import { answeredBy, promptAuthor, type Participant } from "./multiplayer/participants";
 import type {
   AcpmuxActivity,
   AcpmuxFileDiff,
@@ -406,6 +406,7 @@ function queuedEntry(
   sending = false,
   images?: readonly QueuedPromptImage[],
   message?: IncomingMessage,
+  author?: Participant,
 ): QueuedPrompt {
   return {
     id,
@@ -414,6 +415,7 @@ function queuedEntry(
     ...(sending ? { sending } : {}),
     ...(images?.length ? { images: [...images] } : {}),
     ...(message ? { message } : {}),
+    ...(author ? { author } : {}),
   };
 }
 
@@ -525,7 +527,7 @@ export function mergeQueue(current: readonly QueuedPrompt[], listed: readonly an
     const listedMessage = queuedMessage({ text: preview, fromAgent: listed });
     const kept = whole ? had.message : undefined;
     const message = listed === undefined ? kept : listed === null ? undefined : (kept ?? listedMessage);
-    return queuedEntry(id, whole ? had.prompt : preview, had?.next === true, false, images, message);
+    return queuedEntry(id, whole ? had.prompt : preview, had?.next === true, false, images, message, had?.author);
   });
 }
 
@@ -2713,7 +2715,7 @@ export class AcpmuxDirectClient {
       if (entry.message || !msg || String(msg.text ?? "") !== entry.prompt) return entry;
       const message = queuedMessage(msg, this.incomingContext());
       return message
-        ? queuedEntry(entry.id, entry.prompt, entry.next === true, entry.sending === true, entry.images, message)
+        ? queuedEntry(entry.id, entry.prompt, entry.next === true, entry.sending === true, entry.images, message, entry.author)
         : entry;
     });
   }
@@ -2812,13 +2814,14 @@ export class AcpmuxDirectClient {
   private reduceLiveState(event: EventRecord): void {
     const msg = event.msg ?? {};
     if (event.kind === "queue_updated") {
-      // An edit keeps the prompt's place, and makes it the person's: acpmux drops its provenance
-      // and sender (hub/queue.rs), so its row loses the sender too.
+      // An edit keeps the prompt's place, and makes it the person's: acpmux drops an agent's
+      // provenance and sender (hub/queue.rs), so its row loses the sender too. A teammate's own
+      // edit keeps their `person_message` provenance, so the row keeps its author.
       const id = String(msg.promptId ?? "");
       // An edit's record names the images the prompt keeps.
       this.queue = this.queue.map((entry) =>
         entry.id === id
-          ? queuedEntry(id, String(msg.text ?? ""), entry.next === true, false, recordImages(msg))
+          ? queuedEntry(id, String(msg.text ?? ""), entry.next === true, false, recordImages(msg), undefined, promptAuthor(msg))
           : entry,
       );
     } else if (event.kind === "queue_order" && Array.isArray(msg.order)) {
@@ -2835,7 +2838,7 @@ export class AcpmuxDirectClient {
         .map((entry) =>
           next === undefined
             ? entry
-            : queuedEntry(entry.id, entry.prompt, entry.id === next, false, entry.images, entry.message),
+            : queuedEntry(entry.id, entry.prompt, entry.id === next, false, entry.images, entry.message, entry.author),
         );
     } else if (event.kind === "queued") {
       const id = String(msg.promptId ?? "");
@@ -2848,7 +2851,15 @@ export class AcpmuxDirectClient {
         const images = named.length ? named : this.queue.find((entry) => entry.id === id)?.images;
         this.queue = [
           ...this.queue.filter((entry) => entry.id !== id),
-          queuedEntry(id, String(msg.text ?? ""), false, false, images, queuedMessage(msg, this.incomingContext())),
+          queuedEntry(
+            id,
+            String(msg.text ?? ""),
+            false,
+            false,
+            images,
+            queuedMessage(msg, this.incomingContext()),
+            promptAuthor(msg),
+          ),
         ];
       }
       // acpmux took a prompt that waits behind the turn: its queue row shows it now, and the
@@ -4295,6 +4306,7 @@ export class AcpmuxDirectClient {
               next.state === "sending",
               queued.images,
               queued.message,
+              queued.author,
             )
           : queued,
       );
