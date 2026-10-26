@@ -213,7 +213,7 @@
     "recreateRequired": {
       "title": "Recreate this machine",
       "message": "This machine was created before a Cloud update and can't be attached.",
-      "action": "Create a new machine, copy your files over with cmux vm pull and cmux vm push, then delete this one."
+      "action": "Create a new machine. Prepare an SCP endpoint with `cmux cloud prepare-scp --target machine:<id> --public-key \"$(cat ~/.ssh/id_ed25519.pub)\"`, then copy your files using SCP before deleting this machine."
     },
     "guestUnresponsive": {
       "title": "Machine not responding",
@@ -223,7 +223,7 @@
     "inProgress": {
       "title": "Still in progress",
       "message": "The cloud provider has not finished this change yet. It may still complete.",
-      "action": "Check the machine's status with cmux vm ls or in the Machines list before you try again."
+      "action": "Check the machine's status with cmux cloud list-machines or in the Machines list before you try again."
     },
     "providerTimeout": {
       "title": "Cloud provider is slow",
@@ -238,7 +238,7 @@
     "stateConflict": {
       "title": "Machine is busy",
       "message": "This machine is starting, pausing, or not running, so it can't do this right now.",
-      "action": "Wait a moment and try again. Check the machine's status with cmux vm ls, and resume it first if it is paused."
+      "action": "Wait a moment and try again. Check the machine's status with cmux cloud list-machines, and resume it first if it is paused."
     },
     "networkRuleCapacity": {
       "title": "Network rules at capacity",
@@ -265,13 +265,13 @@
       "action": {
         "snapshot": "Do not retry. Work on this machine kind is kept on its persistent home volume.",
         "restore": "Do not retry. Work on this machine kind is kept on its persistent home volume.",
-        "fork": "Do not retry. Create a new VM with `cmux vm new`.",
-        "openPort": "Do not retry. Reach the service from inside the machine (`cmux vm exec`), or use a machine kind that can open ports.",
-        "default": "Do not retry. Run `cmux vm ls` to see your machines, or contact support if you believe this is wrong.",
+        "fork": "Do not retry. Create a new VM with `cmux cloud new-machine`.",
+        "openPort": "Do not retry. Reach the service from inside the machine (`cmux cloud exec --target machine:<id> --command <command>`), or use a machine kind that can open ports.",
+        "default": "Do not retry. Run `cmux cloud list-machines` to see your machines, or contact support if you believe this is wrong.",
         "sizing": "Omit `memoryMb` and retry.",
         "persistentHome": "Omit `persistentHome`/`perMachineHome` and retry.",
-        "pause": "Do not retry. Leave the machine running, or remove it with `cmux vm rm` when you are done with it.",
-        "resume": "Do not retry. Create a new VM with `cmux vm new`."
+        "pause": "Do not retry. Leave the machine running, or remove it with `cmux cloud kill-machine --target machine:<id> --confirm` when you are done with it.",
+        "resume": "Do not retry. Create a new VM with `cmux cloud new-machine`."
       }
     },
     "requiresPro": {
@@ -287,35 +287,35 @@
     "memoryPlan": {
       "title": "cmux {plan}",
       "message": "{memory} GiB machines need cmux {plan}. Your plan supports up to {max} GiB.",
-      "action": "cmux billing checkout --plan {planId}\ncmux vm new --size {max}g\n{upgradeUrl}"
+      "action": "{upgradeUrl}"
     },
     "memoryUnknown": {
       "message": "The source machine’s RAM size could not be verified.",
-      "action": "cmux vm new --size 4g"
+      "action": "cmux cloud new-machine"
     },
     "memoryUnavailable": {
       "message": "This machine size is currently unavailable. Choose a size up to {max} GiB.",
-      "action": "cmux vm new --size {max}g"
+      "action": "cmux cloud new-machine"
     },
     "goLimit": {
       "savedMessage": "Go includes two saved VMs, including the running VM.",
-      "savedAction": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan pro",
+      "savedAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm\nhttps://cmux.com/pricing",
       "activeMessage": "Go includes one running VM at a time.",
-      "activeAction": "cmux vm pause <id>\ncmux billing checkout --plan pro",
+      "activeAction": "cmux cloud pause-machine --target machine:<id>\nhttps://cmux.com/pricing",
       "hoursMessage": "Go has used its 40 VM-hours this month. Saved VMs remain available after the next billing period starts.",
-      "hoursAction": "cmux billing checkout --plan pro",
+      "hoursAction": "https://cmux.com/pricing",
       "shapeMessage": "Go supports 2 vCPU, 4 GiB RAM, and 16 GiB disk.",
-      "shapeAction": "cmux vm new --size 4g\ncmux billing checkout --plan pro"
+      "shapeAction": "cmux cloud new-machine\nhttps://cmux.com/pricing"
     },
     "planBudget": {
       "computeTitle": "{plan} compute allowance used",
       "computeMessage": "Your {plan} plan has used its {included} compute-hours for this billing period. A compute-hour is 1 vCPU with 2 GB of memory running for one hour. Your machines can start again on {resetDate}.",
       "computeAction": "Paused machines keep their files. Contact support if you need more compute before {resetDate}.",
-      "computeActionUpgrade": "cmux billing checkout --plan max",
+      "computeActionUpgrade": "https://cmux.com/pricing",
       "storageTitle": "{plan} disk allowance used",
       "storageMessage": "Your {plan} plan includes {included} GB of disk across all saved machines. Saved machines use {used} GB, and this request needs {requested} GB.",
-      "storageAction": "cmux vm ls\ncmux vm rm <id>",
-      "storageActionUpgrade": "cmux vm ls\ncmux vm rm <id>\ncmux billing checkout --plan max"
+      "storageAction": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm",
+      "storageActionUpgrade": "cmux cloud list-machines\ncmux cloud kill-machine --target machine:<id> --confirm\nhttps://cmux.com/pricing"
     },
     "resourcePool": {
       "title": "Not enough Cloud VM resources",

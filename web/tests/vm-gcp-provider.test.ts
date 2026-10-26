@@ -3,7 +3,8 @@ import * as Effect from "effect/Effect";
 
 import { vmCreateDisabledReason } from "../services/vms/config";
 import { GcpProvider } from "../services/vms/drivers/gcp";
-import { SecretBytes, type ProviderCredential } from "../services/vms/drivers/types";
+import { ProviderCreateCleanupError } from "../services/vms/drivers/providerCreateCleanup";
+import { SecretBytes, type CreateOptions, type ProviderCredential } from "../services/vms/drivers/types";
 import { gcpCredentialFromRequest, wipeProviderCredential } from "../services/vms/routeInput";
 import { releaseProviderCredential } from "../services/vms/workflows";
 
@@ -15,6 +16,34 @@ function credential(overrides: Partial<ProviderCredential> = {}): ProviderCreden
     provider: "gcp",
     accessToken: new SecretBytes(new TextEncoder().encode("gcp-test-token")),
     expiresAtUnix: Math.floor(now / 1000) + 300,
+    ...overrides,
+  };
+}
+
+/** A cleanup intent that records what the driver named and whether it released it. */
+function intent(record: (providerVmId: string) => Promise<void> = async () => {}) {
+  const recorded: string[] = [];
+  let released = 0;
+  const options: NonNullable<CreateOptions["createCleanupIntent"]> = {
+    record: async (providerVmId) => {
+      await record(providerVmId);
+      recorded.push(providerVmId);
+    },
+    released: () => { released += 1; },
+  };
+  return { options, recorded, released: () => released };
+}
+
+/** A create that passes every pre-insert check. */
+function createOptions(cleanup?: ReturnType<typeof intent>, overrides: Partial<CreateOptions> = {}): CreateOptions {
+  return {
+    image: "projects/manaflow-437420/global/images/cmux-linux",
+    network: { id: "projects/manaflow-437420/global/networks/cmux-vms" },
+    providerCredential: credential({
+      sshPublicKey: "ssh-ed25519 AAAA test",
+      sshPrivateKeyPem: new SecretBytes(new TextEncoder().encode("PRIVATE KEY")),
+    }),
+    ...(cleanup ? { createCleanupIntent: cleanup.options } : {}),
     ...overrides,
   };
 }
@@ -94,14 +123,6 @@ describe("GCP Labs provider", () => {
   });
 
   test("a create that fails after the insert deletes the named instance", async () => {
-    const createInput = () => ({
-      image: "projects/manaflow-437420/global/images/cmux-linux",
-      network: { id: "projects/manaflow-437420/global/networks/cmux-vms" },
-      providerCredential: credential({
-        sshPublicKey: "ssh-ed25519 AAAA test",
-        sshPrivateKeyPem: new SecretBytes(new TextEncoder().encode("PRIVATE KEY")),
-      }),
-    });
     const methods: string[] = [];
     const cleaned = new GcpProvider({
       fetch: async (_input, init) => {
@@ -113,15 +134,45 @@ describe("GCP Labs provider", () => {
       now: () => now,
       env: labsOn,
     });
-    await expect(cleaned.create(createInput())).rejects.toThrow(/returned 500/);
+    const confirmed = intent();
+    await expect(cleaned.create(createOptions(confirmed))).rejects.toThrow(/returned 500/);
     expect(methods).toEqual(["POST", "GET", "DELETE"]);
+    // A confirmed rollback releases the intent: the row owns nothing.
+    expect(confirmed.recorded).toHaveLength(1);
+    expect(confirmed.released()).toBe(1);
 
     const stuck = new GcpProvider({
       fetch: async () => json({}, 503),
       now: () => now,
       env: labsOn,
     });
-    await expect(stuck.create(createInput())).rejects.toThrow(/could not be confirmed deleted/);
+    const retained = intent();
+    const failure = await stuck.create(createOptions(retained)).catch((error: unknown) => error);
+    expect(failure).toBeInstanceOf(ProviderCreateCleanupError);
+    expect((failure as ProviderCreateCleanupError).providerVmId).toBe(retained.recorded[0]);
+    expect(retained.released()).toBe(0);
+  });
+
+  test("create names its instance durably before the insert and sends nothing when it cannot", async () => {
+    const requests: string[] = [];
+    const provider = new GcpProvider({
+      fetch: async (_input, init) => { requests.push(String(init?.method)); return json({ name: "op", status: "DONE" }); },
+      now: () => now,
+      env: labsOn,
+    });
+    await expect(provider.create(createOptions())).rejects.toThrow(/durable cleanup intent/);
+    const refused = intent(async () => { throw new Error("row is no longer an open create"); });
+    await expect(provider.create(createOptions(refused)))
+      .rejects.toThrow(/could not record its cleanup intent/);
+    expect(requests).toEqual([]);
+
+    let insertedAfter: string[] = [];
+    const ordered = intent(async () => { insertedAfter = [...requests]; });
+    await provider.create(createOptions(ordered));
+    expect(insertedAfter).toEqual([]);
+    expect(requests[0]).toBe("POST");
+    expect(ordered.recorded[0]).toMatch(/^manaflow-437420\/us-west1-b\/cmux-[0-9a-f]{12}$/);
+
   });
 
   test("wiping the credential aborts a request still carrying it", async () => {
@@ -192,6 +243,7 @@ describe("GCP Labs provider", () => {
       providerMetadata: { project: "manaflow-437420", zone: "us-west1-b" },
       network: { id: "projects/manaflow-437420/global/networks/cmux-vms" },
       providerCredential: local,
+      createCleanupIntent: intent().options,
     });
     expect(created.provider).toBe("gcp");
     expect(created.providerVmId).toMatch(/^manaflow-437420\/us-west1-b\//);

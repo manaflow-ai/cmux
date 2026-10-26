@@ -45,6 +45,9 @@ fn start_params(args: &NewArgs, parent: &str, prompt: &str) -> Result<Value> {
     if let Some(n) = &args.name {
         p["name"] = json!(n);
     }
+    if args.force_admit {
+        p["_meta"] = json!({"acpmux": {"forceAdmit": true}});
+    }
     // No --cwd: the parent's folder, not this shell's.
     if let Some(cwd) = &args.cwd {
         let abs = if cwd.is_absolute() { cwd.clone() } else { std::env::current_dir()?.join(cwd) };
@@ -164,6 +167,16 @@ mod tests {
             json!({"parent": "lead", "prompt": "fix it", "harness": "codex", "model": "gpt-5.5",
                    "effort": "high", "name": "t"})
         );
+    }
+
+    #[test]
+    fn force_admit_reaches_the_child_start() {
+        let args = new_args(&["--parent", "lead", "--force-admit", "go"]);
+        assert_eq!(refused_flags(&args), None);
+        let p = start_params(&args, "lead", "go").unwrap();
+        assert_eq!(p["_meta"]["acpmux"]["forceAdmit"], true, "{p}");
+        let p = start_params(&new_args(&["--parent", "lead", "go"]), "lead", "go").unwrap();
+        assert!(p.get("_meta").is_none(), "{p}");
     }
 
     #[test]

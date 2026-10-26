@@ -4844,8 +4844,9 @@ export class AcpmuxDirectClient {
   }
   /// Answers a permission: `optionId` picks an option (absent cancels the request), and
   /// `answers` carries a question's harness-shaped answers (question/model.ts `reply`). An option
-  /// pick first takes a gesture ticket for this prompt and option (`transport.gesture`): the host
-  /// signs an allow for another machine's agent daemon only for that exact pick (cx-0q7o).
+  /// pick, a question's answer too, first takes a gesture ticket for this prompt, option, answers
+  /// and annotations (`transport.gesture`): the host signs an allow or an answer for another
+  /// machine's agent daemon only for that exact pick (cx-0q7o).
   async permission(
     permissionId: string,
     optionId?: string,
@@ -4859,12 +4860,18 @@ export class AcpmuxDirectClient {
     // Nothing was sent, so the answer is refused: a card that waits on it lets the person answer again.
     if (!sessionId) throw new Error("no chat to answer in");
     const ticket =
-      optionId === undefined || answers !== undefined
+      optionId === undefined
         ? undefined
         : await postNative<{ ticket?: string }>("transport.gesture", {
             intent: {
               method: "_acpmux/permission_respond",
-              params: { sessionId, permissionId, optionId },
+              params: {
+                sessionId,
+                permissionId,
+                optionId,
+                ...(answers === undefined ? {} : { answers }),
+                ...(annotations === undefined ? {} : { annotations }),
+              },
             },
           }).then(
             (reply) => reply?.ticket,

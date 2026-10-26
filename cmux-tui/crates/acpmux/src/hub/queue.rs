@@ -179,6 +179,9 @@ impl Hub {
             None if session.meta().watching.is_some() => {
                 return Err(Err(super::watch::read_only()));
             }
+            // A lane's report to a parent whose close has begun: refused, never reopening it
+            // (`lane_reports.rs`). Nothing is awaited from this check to the commit below.
+            None if refuses_closing(&p) && closing(session) => return Err(Err(closing_error())),
             None => {
                 let turn_id = uuid::Uuid::now_v7().to_string();
                 // Another agent's message never overtakes the ones a failed turn held: they run
@@ -227,6 +230,10 @@ impl Hub {
                     session.turn_lock.lock().await
                 };
                 session.queued.fetch_sub(1, Ordering::SeqCst);
+                // Its close may have begun while it waited for the turn.
+                if refuses_closing(&p) && closing(session) {
+                    return Err(Err(closing_error()));
+                }
                 // A move began while it waited for the lock (`transfer_out.rs`): it runs nowhere.
                 if session.moving().is_some() {
                     return Err(Err(moving_error()));
@@ -303,6 +310,8 @@ impl Hub {
                 }
             }
         };
+        // A lane's report queued behind a turn its parent's close then ended is refused before
+        // its turn starts (`turns.rs`), so it never reopens the parent.
         let run = self.take_queued(session, p.prompt_id, &turn_id).map_err(Ok)?;
         Ok((turn_id, true, guard, run))
     }
@@ -1024,4 +1033,30 @@ impl Hub {
             }
         }
     }
+}
+
+/// Whether the prompt is one a closing session refuses: a lane's report.
+fn refuses_closing(p: &Slot<'_>) -> bool {
+    is_lane_report(p.provenance)
+}
+
+fn is_lane_report(provenance: Option<&Value>) -> bool {
+    provenance.and_then(|v| v.get("kind")).and_then(Value::as_str)
+        == Some(super::lane_reports::KIND)
+}
+
+/// Whether a dequeued prompt with `provenance` is a lane's report to `session`, closing now.
+pub(super) fn refuses_closing_run(session: &Session, provenance: Option<&Value>) -> bool {
+    is_lane_report(provenance) && closing(session)
+}
+
+/// Whether `session`'s close has begun (`kill` marks it before anything else) or it is closed.
+fn closing(session: &Session) -> bool {
+    session.closing.load(Ordering::SeqCst) || session.status() == SessionStatus::Closed
+}
+
+/// The refusal of a lane's report to a session whose close has begun.
+pub(super) fn closing_error() -> RpcError {
+    RpcError::invalid_params("the session is closing or closed: it takes no prompt")
+        .with_data(json!({"reason": "session.closing", "closing": true}))
 }

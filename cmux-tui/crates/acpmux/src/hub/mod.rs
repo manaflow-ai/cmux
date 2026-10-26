@@ -5,6 +5,7 @@
 //! `adoption` (resuming a harness's own session), `models_view` (the picker's model lists).
 
 mod activity;
+pub(crate) mod admission;
 mod adoption;
 mod agent_pairs;
 pub use agent_pairs::PairGuard;
@@ -111,6 +112,9 @@ pub mod approvers;
 mod own_host;
 mod peer_cache;
 mod peer_lease;
+// The store and the hub's taps come in the next PRs (cmuxterm-hq#4381); until then only tests use it.
+#[allow(dead_code)]
+pub(crate) mod peer_snapshot;
 pub use peer_lease::PeerLease;
 mod peers;
 pub(crate) use peers::{
@@ -449,10 +453,12 @@ pub struct Hub {
     pub(super) background_timeout: StdMutex<std::time::Duration>,
     /// Chats agents offered the person, still open (`offers.rs`).
     pub(super) offers: offers::Offers,
-    /// Which session each lane reports to (`lane_reports.rs`).
+    /// Which session each lane reports its turns to (`lane_reports.rs`).
     pub(super) lane_reports: lane_reports::LaneReports,
     /// Open sub-sessions per parent and starts in flight (`subsessions.rs`).
     pub(super) subsessions: subsessions::Index,
+    /// Creates admitted and still starting (`admission.rs`).
+    pub(super) admitting: admission::Admitting,
     /// Run slots of each session's sub-sessions (`subsession_runs.rs`).
     pub(super) subsession_runs: Arc<subsession_runs::Runs>,
     /// `_acpmux/wait` requests subscribed and not yet answered (`server/wait.rs`), shown
@@ -564,6 +570,7 @@ impl Hub {
             offers: Default::default(),
             lane_reports: Default::default(),
             subsessions: Default::default(),
+            admitting: Default::default(),
             subsession_runs: Default::default(),
             open_waits: Default::default(),
             auto_resumes: Default::default(),
@@ -826,6 +833,7 @@ impl Hub {
             purged: AtomicBool::new(false),
             replaced: AtomicBool::new(false),
             closing: AtomicBool::new(false),
+            stops: AtomicU64::new(0),
             state_seq: AtomicU64::new(0),
             attached: std::sync::atomic::AtomicUsize::new(0),
             hidden: std::sync::atomic::AtomicUsize::new(0),
@@ -1261,10 +1269,39 @@ impl Hub {
         std::thread::spawn(move || crate::agent::session_tmp::remove_all(&stale));
     }
 
+    /// Sets `session`'s status. A stopped (closed) session stays closed: only a close writes
+    /// Closed, and only [`Self::reopen`] leaves it. `acpmux session stop` cancels the turn and its
+    /// asks and closes the session while that turn's task, its asks and an agent start are still
+    /// ending; each of them read the session as open before it waited, and its write came after
+    /// the close: a stopped session listed as ready again (ergo-walk2, 2026-10-25: "session stop
+    /// says closed but acpmux ls still shows it ready"). The check and the write are one lock.
     pub(super) fn set_status(&self, session: &Session, status: SessionStatus) {
+        self.write_status(session, status, None);
+    }
+
+    /// A stopped session starts again, for a request that came after its last stop: `stops` is
+    /// [`Session::stops`] when the request came. Its status leaves Closed for Idle, logged
+    /// `reopened`. False when it was not closed, or was stopped again since: it stays closed.
+    pub(super) fn reopen(&self, session: &Session, stops: u64) -> bool {
+        let reopened = self.write_status(session, SessionStatus::Idle, Some(stops));
+        if reopened {
+            self.append(session, "mux", "reopened", json!({}));
+        }
+        reopened
+    }
+
+    /// `reopen` is the stop count a reopen is for ([`Self::reopen`]), checked under the meta lock,
+    /// which `kill`'s close takes after it counts the stop.
+    fn write_status(&self, session: &Session, status: SessionStatus, reopen: Option<u64>) -> bool {
         let (was, link) = {
             let mut m = session.meta.lock().unwrap();
             let was = m.status;
+            let reopens = reopen.is_some_and(|stops| session.stops.load(Ordering::SeqCst) == stops);
+            if (was == SessionStatus::Closed && status != SessionStatus::Closed && !reopens)
+                || (reopen.is_some() && was != SessionStatus::Closed)
+            {
+                return false;
+            }
             m.status = status;
             m.updated_at = now_ms();
             // The parent's slot follows the status under the same lock, so
@@ -1288,6 +1325,7 @@ impl Hub {
             self.save_meta(session);
             self.care_status(status);
         }
+        true
     }
 
     pub fn events(&self, id: &str, after: u64, limit: usize) -> Result<Vec<EventRecord>> {

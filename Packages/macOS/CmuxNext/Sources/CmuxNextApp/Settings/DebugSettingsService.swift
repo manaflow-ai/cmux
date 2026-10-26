@@ -38,7 +38,7 @@ enum TunableCatalog {
             + [AgentPaneTunables.inspector.descriptor]
             + AgentActivityTunables.all + TasksTunables.all + AppsTunables.all + PageTunables.all + AgentPaneTunables.all + PaletteTunables.all + ServerTunables.all + DaemonTunables.all + FeedTunables.all
             + SettingsPresentation.tunables + NewTabTunables.all + WhatsNewTunables.all + WorkspaceAutoNameTunables.all + QuickComposerTunables.all + HomeTunables.all + HomeTunables.headerPanels + [SidebarToggleIcon.tunable.descriptor] + BrowserImportTunables.all + NavigationTunables.all + BrowserResizeTunables.all + BrowserPageTunables.all + AccountTunables.all
-            + TitlebarHistoryTunables.all + HibernationTunables.all
+            + TitlebarHistoryTunables.all + HibernationTunables.all + CloudTunables.all
             + HangFileTunables.all + HostPressureTunables.all
             + BrowserHostTunables.all
     }
