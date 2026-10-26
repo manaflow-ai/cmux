@@ -702,7 +702,17 @@ export function updatePublicationAccess(input: {
       // A protected -> public transition commits policy before provider I/O. If
       // that I/O failed, a retry sees public policy with the old applied marker
       // and finishes detaching the edge gate without another revision bump.
+      // The interrupted switch may also have stopped before revoking the keys;
+      // revoke again (idempotent) before the edge stops withholding the cookie.
       if (wasPublic && willBePublic && publication.providerForwardAuthId !== null) {
+        yield* repository.revokePublicationSessions({
+          publicationId: publication.id,
+          now,
+        });
+        yield* repository.revokePublicationApiKeys({
+          publicationId: publication.id,
+          now,
+        });
         yield* provider.updateTlsRule(tlsRuleId, {
           hostname: target.publication.hostname,
           providerVmId,
