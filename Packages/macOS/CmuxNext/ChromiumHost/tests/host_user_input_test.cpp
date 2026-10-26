@@ -41,26 +41,27 @@ struct FakeForkQueue {
   }
 };
 
-// Records which queue took each task and runs nothing until asked.
+// Records which queue took each task and runs nothing until asked; while
+// `refuse` is set the UI thread queues refuse (and so free) what they get.
 struct Queues {
   std::vector<InputTasks::Task> user_input, fallback, main;
   bool refuse = false;
-  InputTasks::Queue UserInput() {
-    return [this](InputTasks::Task task) {
-      if (refuse) return false;
-      user_input.push_back(std::move(task));
-      return true;
-    };
-  }
-  InputTasks::Queue Fallback() {
-    return [this](InputTasks::Task task) {
-      if (refuse) return false;
-      fallback.push_back(std::move(task));
-      return true;
-    };
-  }
-  std::function<void(InputTasks::Task)> Main() {
+  int refused = 0;
+  InputTasks::Queue UserInput() { return Into(&user_input); }
+  InputTasks::Queue Fallback() { return Into(&fallback); }
+  InputTasks::Queue Main() {
     return [this](InputTasks::Task task) { main.push_back(std::move(task)); };
+  }
+
+ private:
+  InputTasks::Queue Into(std::vector<InputTasks::Task>* queue) {
+    return [this, queue](InputTasks::Task task) {
+      if (refuse) {
+        ++refused;
+        return;
+      }
+      queue->push_back(std::move(task));
+    };
   }
 };
 
@@ -77,15 +78,19 @@ static void TestQueueChoice() {
     Queues q;
     InputTasks tasks(q.UserInput(), q.Fallback(), q.Main());
     Check(tasks.chosen() == InputTasks::Chosen::kUserInput, "a fork with the call gets the user-input queue");
-    Check(tasks.Post([] {}) && q.main.size() == 1 && q.user_input.empty(),
+    tasks.Post([] {});
+    Check(q.main.size() == 1 && q.user_input.empty(),
           "before Chromium's UI thread exists a task goes to the main run loop");
     tasks.Start();
     for (int i = 0; i < 3; ++i) tasks.Post([] {});
     Check(q.user_input.size() == 3 && q.fallback.empty() && q.main.size() == 1,
           "after start every task goes to the user-input queue");
     q.refuse = true;
-    Check(!tasks.Post([] {}), "a refused task reports it");
-    Check(q.fallback.empty() && q.main.size() == 1,
+    int ran = 0;
+    auto alive = std::make_shared<int>(0);
+    tasks.Post([&ran, alive] { ++ran; });
+    Check(q.refused == 1 && ran == 0 && alive.use_count() == 1, "a refused task is dropped unrun and freed");
+    Check(q.user_input.size() == 3 && q.fallback.empty() && q.main.size() == 1,
           "a refused task is not posted again to another queue: the choice is made once, not per task");
   }
   {

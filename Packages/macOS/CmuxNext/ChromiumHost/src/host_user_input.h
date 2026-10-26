@@ -9,8 +9,13 @@
 // does not wait behind queued UI work. The fork's cmux_post_user_input_task
 // (API 30) posts there; with a fork without it the host uses
 // CefPostTask(TID_UI), the default queue. InputTasks chooses the queue once,
-// at start. A refused post means CEF is shutting down: the task is dropped,
-// not posted again to the other queue.
+// at start, and is the host's one input path: HostInput's Post
+// (chromium_host_input_ring.h, started by task p01-process-042) is
+// `[&input_tasks](std::function<void()> task) { input_tasks.Post(std::move(task)); }`.
+// Both queues refuse a task only once Chromium's UI thread is shut down. A
+// refused task is dropped, not posted again to the other queue: its batch
+// never runs, so HostInput's BatchGate stays shut, the reader takes no more
+// frames (they stay in the ring) and HostInput::Stop ends it.
 //
 // Time. A frame's t0 is its NSEvent's timestamp (EventTimeOf in
 // chromium_host_wire.h). CEF's Send*Event calls stamp an event with the time
@@ -58,15 +63,16 @@ inline bool PostThrough(PostTaskFn post, std::function<void()> task) {
 class InputTasks {
  public:
   using Task = std::function<void()>;
-  // Posts a task to one UI thread queue: true when it will run.
-  using Queue = std::function<bool(Task)>;
+  // Posts a task to one UI thread queue. A queue that refuses it (its thread
+  // is shut down) frees it unrun.
+  using Queue = std::function<void(Task)>;
   enum class Chosen { kUserInput, kDefault };
 
   // `user_input`: the fork's user-input queue, empty when the fork does not
   // have it. `default_queue`: CefPostTask(TID_UI). `before_start`: the main
   // run loop, where tasks run in post order before Chromium's UI thread
   // exists (PostToMain).
-  InputTasks(Queue user_input, Queue default_queue, std::function<void(Task)> before_start)
+  InputTasks(Queue user_input, Queue default_queue, Queue before_start)
       : chosen_(user_input ? Chosen::kUserInput : Chosen::kDefault),
         queue_(user_input ? std::move(user_input) : std::move(default_queue)),
         before_start_(std::move(before_start)) {}
@@ -79,22 +85,22 @@ class InputTasks {
   // queue.
   void Start() { started_.store(true, std::memory_order_release); }
 
-  // Any thread. Before Start, on the main run loop; after it, on the chosen
-  // queue. False when that queue refused the task (CEF is shutting down): the
-  // task does not run. Tasks keep their order across Start only for a caller
-  // with one task in flight (input_ring::BatchGate).
-  bool Post(Task task) const {
+  // Any thread; HostInput's Post. Before Start, on the main run loop; after
+  // it, on the chosen queue, or dropped unrun when that queue refuses it
+  // (Chromium's UI thread is shut down). Tasks keep their order across Start
+  // only for a caller with one task in flight (input_ring::BatchGate).
+  void Post(Task task) const {
     if (!started_.load(std::memory_order_acquire)) {
       before_start_(std::move(task));
-      return true;
+      return;
     }
-    return queue_(std::move(task));
+    queue_(std::move(task));
   }
 
  private:
   const Chosen chosen_;
   const Queue queue_;
-  const std::function<void(Task)> before_start_;
+  const Queue before_start_;
   std::atomic<bool> started_{false};
 };
 

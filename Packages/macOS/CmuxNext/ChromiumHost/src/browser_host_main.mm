@@ -187,12 +187,12 @@ class UITask : public CefTask {
 cmux_host::InputTasks::Queue UserInputQueue(cmux_host::PostTaskFn post_user_input_task) {
   if (!post_user_input_task) return cmux_host::InputTasks::Queue();
   return [post_user_input_task](std::function<void()> task) {
-    return cmux_host::PostThrough(post_user_input_task, std::move(task));
+    cmux_host::PostThrough(post_user_input_task, std::move(task));
   };
 }
 // CefPostTask(TID_UI), the default UI queue: InputTasks' fallback.
-bool PostDefaultUITask(std::function<void()> task) {
-  return CefPostTask(TID_UI, new UITask(std::move(task)));
+void PostDefaultUITask(std::function<void()> task) {
+  CefPostTask(TID_UI, new UITask(std::move(task)));
 }
 
 // The NSEvent clock of a frame's t0 (chromium_host_wire.h), now.
@@ -467,10 +467,11 @@ int main(int argc, char* argv[]) {
       [&host](std::vector<cmux_host::control::Message> messages) { host.OnMessages(std::move(messages)); });
   ordered.AttachInput([&host, &wheel_carry, set_event_time = fork_input.set_input_event_time](
                           const cmux_host::Header& frame) { DispatchInput(host, wheel_carry, set_event_time, frame); });
-  // The queue the ring's reader posts each input batch to (HostInput's Post,
-  // task p01-process-042): Chromium's user-input queue, or CefPostTask(TID_UI)
-  // on a fork without it, chosen here once; the main run loop until
-  // CefInitialize returned.
+  // The host's one input queue (host_user_input.h): Chromium's user-input
+  // queue, or CefPostTask(TID_UI) on a fork without it, chosen here once; the
+  // main run loop until CefInitialize returned. HostInput's Post when task
+  // p01-process-042 starts the ring's reader:
+  // `[&input_tasks](std::function<void()> task) { input_tasks.Post(std::move(task)); }`.
   cmux_host::InputTasks input_tasks(UserInputQueue(fork_input.post_user_input_task), &PostDefaultUITask,
                                     &PostToMain);
   auto check = [&host_main, &ordered](cmux_host::control::OrderedStream::Result result) {
