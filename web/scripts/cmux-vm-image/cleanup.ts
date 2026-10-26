@@ -38,7 +38,7 @@ export function referenceFiles(root: string): string[] {
 /** `token` as a whole word, any case: a slug never matches a longer slug it is a prefix of. */
 const wordPattern = (token: string) => new RegExp(`(?<![A-Za-z0-9_-])${token.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}(?![A-Za-z0-9_-])`, "i");
 
-/** JSON paths of every key or string value that mentions `pattern` (decoded, so an escaped id still matches). */
+/** JSON paths of every key or string value that mentions `pattern`. */
 function jsonPaths(value: unknown, pattern: RegExp, at: string, out: string[]): void {
   if (typeof value === "string") {
     if (pattern.test(value)) out.push(at || "(root)");
@@ -53,46 +53,64 @@ function jsonPaths(value: unknown, pattern: RegExp, at: string, out: string[]): 
   }
 }
 
-/** JSONC string escapes decoded (\uXXXX, \/), so a reference cannot hide behind one. */
-const decodeEscapes = (text: string) => text.replace(/\\u([0-9a-fA-F]{4})/g, (_, hex: string) => String.fromCharCode(parseInt(hex, 16))).replace(/\\\//g, "/");
+/**
+ * Every string literal in the text, fully decoded the way JSON decodes it (an undecodable one is
+ * kept raw), with its 1-based line and the key it is the value of, if any. Reads the text itself,
+ * so a member JSON.parse drops (a duplicate key) is still seen.
+ */
+function stringLiterals(text: string): Array<{ value: string; line: number; key?: string }> {
+  const out: Array<{ value: string; line: number; key?: string }> = [];
+  for (const m of text.matchAll(/"(?:[^"\\\n]|\\.)*"/g)) {
+    let value: string;
+    try {
+      value = JSON.parse(m[0]) as string;
+    } catch {
+      value = m[0];
+    }
+    const before = text.slice(0, m.index);
+    out.push({ value, line: before.split("\n").length, key: before.match(/"([A-Za-z0-9_]+)"\s*:\s*$/)?.[1] });
+  }
+  return out;
+}
 
 /**
  * Every place in the reference files that mentions one of `tokens` (a snapshot id or name), as
  * "<file>: <json path>" for channel files and "<file>:<line> <var>" for wrangler.jsonc.
- * Fails closed: a channel file that does not parse is a reference for every token.
+ * Fails closed: a channel file that does not parse is a reference for every token. Besides the
+ * parsed document it reads every decoded string literal and every raw line (comments included).
  */
 export function snapshotReferences(root: string, tokens: ReadonlyArray<string>, label = ""): string[] {
   const refs: string[] = [];
   for (const file of referenceFiles(root)) {
     const text = readFileSync(path.join(root, file), "utf8");
     const rel = `${label}${file}`;
+    let doc: unknown;
     if (file.endsWith(".json")) {
-      let doc: unknown;
       try {
         doc = JSON.parse(text);
       } catch (error) {
         refs.push(`${rel}: (file does not parse: ${String(error).slice(0, 80)}) so nothing in it can be ruled out`);
         continue;
       }
-      const raw = decodeEscapes(text);
-      for (const token of tokens) {
-        const pattern = wordPattern(token);
+    }
+    const literals = stringLiterals(text);
+    const lines = text.split("\n");
+    for (const token of tokens) {
+      const pattern = wordPattern(token);
+      const found = new Set<string>();
+      if (doc !== undefined) {
         const paths: string[] = [];
         jsonPaths(doc, pattern, "", paths);
-        // JSON.parse keeps only the last of duplicate keys: the decoded text catches a mention it dropped.
-        if (!paths.length && pattern.test(raw)) paths.push("(text outside the parsed values, e.g. a duplicate key)");
-        for (const p of paths) refs.push(`${rel}: ${p} mentions ${token}`);
+        for (const p of paths) found.add(`${rel}: ${p} mentions ${token}`);
       }
-    } else {
-      const lines = decodeEscapes(text).split("\n");
-      for (const token of tokens) {
-        const pattern = wordPattern(token);
+      // The text itself: what the parsed document dropped (a duplicate key), and wrangler.jsonc's lines.
+      if (!found.size) {
+        for (const l of literals) if (pattern.test(l.value)) found.add(`${rel}:${l.line} ${l.key ?? "(string)"} mentions ${token}`);
         lines.forEach((line, i) => {
-          if (!pattern.test(line)) return;
-          const keys = [...line.matchAll(/"([A-Za-z0-9_]+)":\s*"([^"]*)"/g)].filter((m) => pattern.test(m[2]!)).map((m) => m[1]);
-          refs.push(`${rel}:${i + 1} ${keys.length ? keys.join(", ") : "(text)"} mentions ${token}`);
+          if (pattern.test(line) && ![...found].some((f) => f.startsWith(`${rel}:${i + 1} `))) found.add(`${rel}:${i + 1} (text) mentions ${token}`);
         });
       }
+      refs.push(...found);
     }
   }
   return refs;

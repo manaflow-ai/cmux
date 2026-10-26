@@ -171,6 +171,8 @@ describe("key handling in the run scripts", () => {
       mkdirSync(path.join(seed, "backend/apps/api"), { recursive: true });
       writeFileSync(path.join(seed, "images/cmux-vm/channels/dev.json"), "{}\n");
       writeFileSync(path.join(seed, "images/cmux-vm/channels/staging.json"), '{ "snapshot_id": "x" }\n');
+      // git quotes this name in line output; the step must still copy it.
+      writeFileSync(path.join(seed, "images/cmux-vm/channels/é x.json"), '{ "snapshot_id": "y" }\n');
       writeFileSync(path.join(seed, "backend/apps/api/wrangler.jsonc"), "{}\n");
       await git(["init", "-q", "-b", "feat-cmux-next", seed]);
       await git(["add", "-A"], seed);
@@ -197,6 +199,7 @@ describe("key handling in the run scripts", () => {
         expect(argv).toBe(`argv ../images/cmux-vm/cleanup.ts --snapshot ${ID(2)} --also-root ${dir}/branch-tip`);
         expect(readFileSync(path.join(dir, "branch-tip/images/cmux-vm/channels/dev.json"), "utf8")).toBe("{}\n");
         expect(readFileSync(path.join(dir, "branch-tip/images/cmux-vm/channels/staging.json"), "utf8")).toBe('{ "snapshot_id": "x" }\n');
+        expect(readFileSync(path.join(dir, "branch-tip/images/cmux-vm/channels/é x.json"), "utf8")).toBe('{ "snapshot_id": "y" }\n');
         expect(existsSync(path.join(dir, "branch-tip/backend/apps/api/wrangler.jsonc"))).toBe(true);
       }
       expect(inEnv).toBe("0");
@@ -321,8 +324,19 @@ describe("delete_snapshot reference refusal (cleanup.ts --snapshot)", () => {
     writeFileSync(path.join(root, "images/cmux-vm/channels/dup.json"), `{ "history": [{ "snapshot_id": "${ID(27)}" }], "history": [] }\n`);
     const r = await tryDelete(root, ID(27), { [ID(27)]: { slug: "cmuxnp-dev-vmimg-free" } });
     expect(r.code).toBe(1);
-    expect(r.errors).toContain("images/cmux-vm/channels/dup.json: (text outside the parsed values");
+    expect(r.errors).toContain("images/cmux-vm/channels/dup.json:1 snapshot_id mentions");
     expect(r.calls).toEqual([]);
+  });
+
+  test("a dropped duplicate whose id follows an escape (\\n, \\t) still counts", async () => {
+    const root = fakeRoot();
+    writeFileSync(path.join(root, "images/cmux-vm/channels/esc.json"), `{ "note": "\\n${ID(29)}", "note": "", "x": "\\t${ID(30)}", "x": "" }\n`);
+    for (const n of [29, 30]) {
+      const r = await tryDelete(root, ID(n), { [ID(n)]: { slug: "cmuxnp-dev-vmimg-free" } });
+      expect(r.code).toBe(1);
+      expect(r.errors).toContain("images/cmux-vm/channels/esc.json:1 ");
+      expect(r.calls).toEqual([]);
+    }
   });
 
   test("a reference only on the branch tip (a channel PR that landed meanwhile) is refused", async () => {

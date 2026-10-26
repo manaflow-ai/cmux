@@ -231,13 +231,14 @@ jobs:
           git -C .. fetch --quiet --no-tags --depth=1 origin refs/heads/feat-cmux-next
           git -C .. show FETCH_HEAD:backend/apps/api/wrangler.jsonc > "$tip/backend/apps/api/wrangler.jsonc"
           # The entries of the channels tree itself (cleanup.ts reads its top-level *.json, as here).
-          git -C .. ls-tree --name-only FETCH_HEAD:images/cmux-vm/channels > "$RUNNER_TEMP/tip-channels.txt"
-          while IFS= read -r f; do
-            case "$f" in *.json) git -C .. show "FETCH_HEAD:images/cmux-vm/channels/$f" > "$tip/images/cmux-vm/channels/$f" ;; esac
+          # NUL-delimited: git quotes a name with unusual characters in line output, and that name would be skipped.
+          git -C .. ls-tree -z --name-only FETCH_HEAD:images/cmux-vm/channels > "$RUNNER_TEMP/tip-channels.txt"
+          while IFS= read -r -d '' f; do
+            case "$f" in */*) echo "::error title=delete_snapshot::unexpected channel entry name"; exit 1 ;; *.json) git -C .. show "FETCH_HEAD:images/cmux-vm/channels/$f" > "$tip/images/cmux-vm/channels/$f" ;; esac
           done < "$RUNNER_TEMP/tip-channels.txt"
           # Fail closed: without the tip's dev channel there is nothing to check against.
           [ -s "$tip/images/cmux-vm/channels/dev.json" ] || { echo "::error title=delete_snapshot::could not read the branch tip's channels/dev.json; refusing"; exit 1; }
-          echo "branch tip feat-cmux-next $(git -C .. rev-parse FETCH_HEAD): $(tr '\n' ' ' < "$RUNNER_TEMP/tip-channels.txt")"
+          echo "branch tip feat-cmux-next $(git -C .. rev-parse FETCH_HEAD): $(tr '\0' ' ' < "$RUNNER_TEMP/tip-channels.txt")"
           umask 077
           key_file="$(mktemp "$RUNNER_TEMP/freestyle-key.XXXXXX")"
           trap 'rm -f "$key_file"' EXIT
