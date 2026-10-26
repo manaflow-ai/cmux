@@ -622,7 +622,11 @@ object{
   },
   slow_requests?:object{
     threshold_ms:uint64, total:uint64, unwatched:uint64, watchdog_wakeups:uint64,
-    recent:array<object{method:string,client:uint64,started_ms:uint64,busy_ms:uint64}>
+    recent:array<object{
+      method:string, client:uint64, started_ms:uint64, busy_ms:uint64,
+      stack:array<object{image:string|null,offset:uint64,symbol:string|null}>,
+      stack_error:string|null
+    }>
   }
 }
 histogram = object{count:uint64,mean:uint64,max:uint64,p50:uint64,p90:uint64,p99:uint64}
@@ -676,6 +680,20 @@ newest 128, oldest first. `unwatched` counts requests that started while all
 still while the daemon is idle and grows by at most four a second under load.
 With `CMUX_TUI_DEBUG_SPANS` set, each recorded request also appends a
 `slow-request` line with the method as its mark.
+
+`stack` is the stack of the thread that ran the request, captured when it
+was recorded (macOS suspends the thread, Linux interrupts it with SIGURG;
+under a millisecond). Frames are innermost first: the interrupted pc, then
+return addresses along the frame pointers, at most 32. `image` is the file
+name of the image that holds the frame, `offset` the address minus the
+image's load address, for offline symbolication (`addr2line -f -e IMAGE
+OFFSET`; for a Mach-O image `atos -o IMAGE -l 0x100000000
+0x100000000+OFFSET`), and `symbol` the nearest exported symbol, mangled, or
+null. Code built without frame pointers ends the walk early. `stack` is
+empty when `stack_error` names why: `unsupported` (no capture on this OS),
+`suspend-failed`, `thread-state-failed`, `signal-failed`, `timeout` (the
+thread did not answer the signal in 50 ms) or `run-ended` (the request ended
+during the capture).
 
 `schema` is `1`. Latency histograms are in microseconds; `batch_size` counts
 events. Percentiles are log-linear bucket upper bounds and overestimate by at

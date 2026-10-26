@@ -23,6 +23,15 @@
 //!
 //! The thread starts with the first run, at QoS utility, as
 //! `mux-request-watchdog`.
+//!
+//! Each recorded request carries the stack of the thread that runs it,
+//! captured while it is still busy (Chrome's HangWatcher captures a hung
+//! thread's stack the same way, through base/profiler's stack sampler):
+//! a run also stores its thread's handle in its slot, and the watchdog stops
+//! that thread for a frame-pointer walk (cmux-tui-platform
+//! `thread_backtrace`) in well under a millisecond. The image and offset of
+//! each frame symbolicate offline (`atos`, `addr2line`). Nothing is captured
+//! for a run that ends under the threshold.
 
 use std::borrow::Cow;
 use std::collections::{HashMap, VecDeque};
@@ -32,7 +41,9 @@ use std::thread::Thread;
 use std::time::{Duration, Instant};
 
 use super::command_names::COMMANDS;
-use crate::diagnostics::{SlowRequest, SlowRequestsSnapshot};
+use cmux_tui_platform::thread_backtrace::{self, ThreadHandle};
+
+use crate::diagnostics::{SlowRequest, SlowRequestFrame, SlowRequestsSnapshot};
 use crate::panic_free::RecoverPoison;
 
 /// How long a request runs before the watchdog records it.
@@ -67,6 +78,9 @@ struct Slot {
     busy: AtomicU64,
     /// The client of the run in `busy`; written before `busy` is published.
     client: AtomicU64,
+    /// The [`ThreadHandle`] of the thread that runs it (0: none), written
+    /// with `client`.
+    thread: AtomicU64,
     /// The busy word last recorded; written only by the watchdog thread.
     recorded: AtomicU64,
     /// Start (µs since the epoch) of the newest run in this slot.
@@ -113,6 +127,8 @@ struct Shared {
     wakeups: AtomicU64,
     unwatched: AtomicU64,
     total: AtomicU64,
+    /// Stack captures attempted; only a recorded request is captured.
+    stack_captures: AtomicU64,
     /// Lock carve-out: a short copy, taken by the watchdog thread when it
     /// records and by `server-stats`; never by a watched run.
     recent: Mutex<VecDeque<SlowRequest>>,
@@ -207,19 +223,52 @@ impl Shared {
             // Seqlock read of the client: keep it only if the slot still
             // holds the same run after the read.
             let client = slot.client.load(Ordering::Relaxed);
+            let thread = slot.thread.load(Ordering::Relaxed);
             fence(Ordering::Acquire);
             if slot.busy.load(Ordering::Relaxed) != word {
                 continue;
             }
             slot.recorded.store(word, Ordering::Relaxed);
+            let (stack, stack_error) = match self.capture_stack(slot, word, thread) {
+                Ok(stack) => (stack, None),
+                Err(error) => (Vec::new(), Some(error)),
+            };
             self.record(SlowRequest {
                 method: word_method(word),
                 client,
                 started_ms: start / 1000,
                 busy_ms: now.saturating_sub(start) / 1000,
+                stack,
+                stack_error,
             });
         }
         scan
+    }
+
+    /// The stack of the thread running the busy `word` in `slot`, kept only
+    /// if the slot still holds that run once the thread runs again.
+    fn capture_stack(
+        &self,
+        slot: &Slot,
+        word: u64,
+        thread: u64,
+    ) -> Result<Vec<SlowRequestFrame>, &'static str> {
+        let thread = ThreadHandle::from_raw(thread)
+            .ok_or(thread_backtrace::BacktraceError::Unsupported.as_str())?;
+        self.stack_captures.fetch_add(1, Ordering::Relaxed);
+        let backtrace = thread_backtrace::capture(thread).map_err(|error| error.as_str())?;
+        if slot.busy.load(Ordering::SeqCst) != word {
+            return Err(RUN_ENDED);
+        }
+        Ok(backtrace
+            .symbolicate()
+            .into_iter()
+            .map(|frame| SlowRequestFrame {
+                image: frame.image,
+                offset: frame.offset as u64,
+                symbol: frame.symbol,
+            })
+            .collect())
     }
 
     fn record(&self, request: SlowRequest) {
@@ -237,6 +286,10 @@ impl Shared {
         recent.push_back(request);
     }
 }
+
+/// `stack_error` of a request that ended while its stack was captured: the
+/// frames may be another run's.
+const RUN_ENDED: &str = "run-ended";
 
 struct Scan {
     next_deadline_us: Option<u64>,
@@ -268,6 +321,7 @@ impl RequestWatchdog {
                 wakeups: AtomicU64::new(0),
                 unwatched: AtomicU64::new(0),
                 total: AtomicU64::new(0),
+                stack_captures: AtomicU64::new(0),
                 recent: Mutex::new(VecDeque::with_capacity(SLOW_REQUEST_RING)),
             }),
         }
@@ -292,6 +346,7 @@ impl RequestWatchdog {
         // Seqlock write: the client is published with the busy word below.
         fence(Ordering::Release);
         slot.client.store(client, Ordering::Relaxed);
+        slot.thread.store(ThreadHandle::current().map_or(0, ThreadHandle::raw), Ordering::Relaxed);
         let start = shared.now_us();
         slot.last_start_us.store(start.max(1), Ordering::Relaxed);
         slot.busy.store(busy_word(start, method_index(method)), Ordering::SeqCst);

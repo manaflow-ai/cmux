@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 3fe9d3350739bb6bb3f3a9ed13859e2c749f39ae0d698866533d6f2452e2c196. */
+/* cmux-tui mux protocol 12, IR f0c9ec1918e955caa2a30a99e114d080d35b3340e31fa30ed1b7c28ac3b54944. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "3fe9d3350739bb6bb3f3a9ed13859e2c749f39ae0d698866533d6f2452e2c196" as const;
+export const SDK_IR_SHA256 = "f0c9ec1918e955caa2a30a99e114d080d35b3340e31fa30ed1b7c28ac3b54944" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -10631,7 +10631,9 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     "additional_properties": false,
     "constraints": [
       "method is the request cmd tag, or unknown.",
-      "started_ms is milliseconds since daemon start; busy_ms is how long the request had run when it was recorded."
+      "started_ms is milliseconds since daemon start; busy_ms is how long the request had run when it was recorded.",
+      "stack is the busy thread's stack when the request was recorded, innermost first (the interrupted pc, then return addresses); it is empty when stack_error is non-null.",
+      "stack_error is null, or one of unsupported, current-thread, suspend-failed, thread-state-failed, signal-failed, timeout, run-ended."
     ],
     "fields": {
       "busy_ms": {
@@ -10658,12 +10660,66 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "string"
         }
       },
+      "stack": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "ServerStatsSlowRequestFrame"
+          },
+          "kind": "array"
+        }
+      },
+      "stack_error": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
       "started_ms": {
         "nullable": false,
         "presence": "required",
         "type": {
           "kind": "scalar",
           "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ServerStatsSlowRequestFrame": {
+    "additional_properties": false,
+    "constraints": [
+      "image is the file name of the image that holds the frame, or null when no loaded image does.",
+      "offset is the frame address minus the image load address (the address itself when image is null), for offline symbolication.",
+      "symbol is the nearest exported symbol, mangled, or null for a local function."
+    ],
+    "fields": {
+      "image": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "offset": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "symbol": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
         }
       }
     },

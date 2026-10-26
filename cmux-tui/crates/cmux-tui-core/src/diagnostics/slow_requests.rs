@@ -29,4 +29,25 @@ pub struct SlowRequest {
     pub started_ms: u64,
     /// How long it had run when the watchdog recorded it.
     pub busy_ms: u64,
+    /// The stack of the thread running it when it was recorded, innermost
+    /// first: the interrupted pc, then return addresses. Empty when
+    /// `stack_error` is set.
+    pub stack: Vec<SlowRequestFrame>,
+    /// Why `stack` is empty: `unsupported`, `suspend-failed`,
+    /// `thread-state-failed`, `signal-failed`, `timeout` or `run-ended`.
+    pub stack_error: Option<&'static str>,
+}
+
+/// One frame of a [`SlowRequest`] stack, for offline symbolication.
+#[derive(Clone, Debug, PartialEq, Eq, Serialize)]
+pub struct SlowRequestFrame {
+    /// The file name of the image that holds the address; null when no
+    /// loaded image does.
+    pub image: Option<String>,
+    /// The address minus the image's load address (the address itself
+    /// when `image` is null): `addr2line -e IMAGE OFFSET`, or for a Mach-O
+    /// image `atos -o IMAGE -l 0x100000000 0x100000000+OFFSET`.
+    pub offset: u64,
+    /// The nearest exported symbol, mangled; null for a local function.
+    pub symbol: Option<String>,
 }

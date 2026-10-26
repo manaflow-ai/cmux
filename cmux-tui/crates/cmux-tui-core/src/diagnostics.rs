@@ -23,7 +23,7 @@ pub use resource_projection::{
     CommitSpans, ProjectionSpans, ResourceProjectionSnapshot, ResourceProjectionStats,
 };
 mod slow_requests;
-pub use slow_requests::{SlowRequest, SlowRequestsSnapshot};
+pub use slow_requests::{SlowRequest, SlowRequestFrame, SlowRequestsSnapshot};
 mod write_path;
 pub(crate) use write_path::writer_took_registry_lock;
 pub use write_path::{WritePathSnapshot, WritePathStats};

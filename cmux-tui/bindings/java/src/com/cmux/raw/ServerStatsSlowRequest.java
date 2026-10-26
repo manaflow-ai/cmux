@@ -14,6 +14,8 @@ public final class ServerStatsSlowRequest implements WireValue {
     private final UInt64 busyMs;
     private final UInt64 client;
     private final String method;
+    private final List<ServerStatsSlowRequestFrame> stack;
+    private final String stackError;
     private final UInt64 startedMs;
 
     private ServerStatsSlowRequest(Builder builder) {
@@ -23,6 +25,10 @@ public final class ServerStatsSlowRequest implements WireValue {
         this.client = Wire.nonNull(builder.client, "client");
         if (!builder.methodSet) throw new IllegalArgumentException("method is required");
         this.method = Wire.nonNull(builder.method, "method");
+        if (!builder.stackSet) throw new IllegalArgumentException("stack is required");
+        this.stack = List.copyOf(Wire.nonNull(builder.stack, "stack"));
+        if (!builder.stackErrorSet) throw new IllegalArgumentException("stack_error is required");
+        this.stackError = builder.stackError;
         if (!builder.startedMsSet) throw new IllegalArgumentException("started_ms is required");
         this.startedMs = Wire.nonNull(builder.startedMs, "started_ms");
     }
@@ -32,6 +38,8 @@ public final class ServerStatsSlowRequest implements WireValue {
     public UInt64 busyMs() { return busyMs; }
     public UInt64 client() { return client; }
     public String method() { return method; }
+    public List<ServerStatsSlowRequestFrame> stack() { return stack; }
+    public String stackError() { return stackError; }
     public UInt64 startedMs() { return startedMs; }
 
     public static ServerStatsSlowRequest fromWire(Object value) {
@@ -43,6 +51,10 @@ public final class ServerStatsSlowRequest implements WireValue {
         builder.client(Wire.uint64(rawClient, "ServerStatsSlowRequest.client"));
         Object rawMethod = Wire.required(object, "method");
         builder.method(Wire.string(rawMethod, "ServerStatsSlowRequest.method"));
+        Object rawStack = Wire.required(object, "stack");
+        builder.stack(Wire.array(rawStack, "ServerStatsSlowRequest.stack", item -> ServerStatsSlowRequestFrame.fromWire(item)));
+        Object rawStackError = Wire.required(object, "stack_error");
+        builder.stackError(rawStackError == null ? null : Wire.string(rawStackError, "ServerStatsSlowRequest.stack_error"));
         Object rawStartedMs = Wire.required(object, "started_ms");
         builder.startedMs(Wire.uint64(rawStartedMs, "ServerStatsSlowRequest.started_ms"));
         return builder.build();
@@ -54,6 +66,8 @@ public final class ServerStatsSlowRequest implements WireValue {
         Wire.put(object, "busy_ms", busyMs);
         Wire.put(object, "client", client);
         Wire.put(object, "method", method);
+        Wire.put(object, "stack", stack);
+        Wire.put(object, "stack_error", stackError);
         Wire.put(object, "started_ms", startedMs);
         return Collections.unmodifiableMap(object);
     }
@@ -61,11 +75,11 @@ public final class ServerStatsSlowRequest implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof ServerStatsSlowRequest that)) return false;
-        return Objects.equals(busyMs, that.busyMs) && Objects.equals(client, that.client) && Objects.equals(method, that.method) && Objects.equals(startedMs, that.startedMs);
+        return Objects.equals(busyMs, that.busyMs) && Objects.equals(client, that.client) && Objects.equals(method, that.method) && Objects.equals(stack, that.stack) && Objects.equals(stackError, that.stackError) && Objects.equals(startedMs, that.startedMs);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(busyMs, client, method, startedMs); }
+    public int hashCode() { return Objects.hash(busyMs, client, method, stack, stackError, startedMs); }
 
     @Override
     public String toString() { return "ServerStatsSlowRequest" + toWire(); }
@@ -77,6 +91,10 @@ public final class ServerStatsSlowRequest implements WireValue {
         private boolean clientSet;
         private String method;
         private boolean methodSet;
+        private List<ServerStatsSlowRequestFrame> stack;
+        private boolean stackSet;
+        private String stackError;
+        private boolean stackErrorSet;
         private UInt64 startedMs;
         private boolean startedMsSet;
 
@@ -93,6 +111,16 @@ public final class ServerStatsSlowRequest implements WireValue {
         public Builder method(String value) {
             this.method = value;
             this.methodSet = true;
+            return this;
+        }
+        public Builder stack(List<ServerStatsSlowRequestFrame> value) {
+            this.stack = value;
+            this.stackSet = true;
+            return this;
+        }
+        public Builder stackError(String value) {
+            this.stackError = value;
+            this.stackErrorSet = true;
             return this;
         }
         public Builder startedMs(UInt64 value) {

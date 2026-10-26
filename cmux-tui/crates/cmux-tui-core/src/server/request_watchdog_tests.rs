@@ -1,5 +1,6 @@
 //! The request watchdog: one entry per overrun, no timer while idle, a
-//! bounded wake rate under many short requests, its thread row.
+//! bounded wake rate under many short requests, its thread row, and the
+//! busy thread's stack in each entry.
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -14,6 +15,10 @@ use super::*;
 
 fn wakeups(watchdog: &RequestWatchdog) -> u64 {
     watchdog.shared.wakeups.load(Ordering::Relaxed)
+}
+
+fn stack_captures(watchdog: &RequestWatchdog) -> u64 {
+    watchdog.shared.stack_captures.load(Ordering::Relaxed)
 }
 
 /// Waits (bounded) until the watchdog thread has disarmed and parked.
@@ -97,6 +102,7 @@ fn request_watchdog_wakes_at_most_four_times_a_second_under_1000_short_requests(
     assert!(woke <= allowed, "{woke} wakeups in {elapsed:?} (allowed {allowed})");
     assert_eq!(watchdog.snapshot().total, 0);
     wait_disarmed(&watchdog);
+    assert_eq!(stack_captures(&watchdog), 0, "a short request is never captured");
 }
 
 #[test]
@@ -150,6 +156,8 @@ fn request_watchdog_ring_keeps_the_newest_128() {
             client,
             started_ms: 0,
             busy_ms: 300,
+            stack: Vec::new(),
+            stack_error: None,
         });
     }
     let snapshot = watchdog.snapshot();
@@ -197,5 +205,102 @@ fn request_watchdog_records_a_300ms_wait_for_on_the_connection_sequence() {
     assert_eq!(snapshot.total, 1, "{snapshot:?}");
     assert_eq!(snapshot.recent[0].method, "wait-for");
     assert_eq!(snapshot.recent[0].client, client);
+    // The connection's thread was parked in the wait: still captured.
+    #[cfg(any(target_os = "macos", target_os = "linux"))]
+    {
+        assert_eq!(snapshot.recent[0].stack_error, None, "{snapshot:?}");
+        assert!(!snapshot.recent[0].stack.is_empty(), "{snapshot:?}");
+    }
     mux.close_surface(surface.id).unwrap();
+}
+
+/// The handler the stack test runs past the threshold: a loop with no call,
+/// so the captured pc lies inside it.
+#[inline(never)]
+fn request_watchdog_stack_test_handler(stop: &AtomicBool) {
+    while !stop.load(Ordering::Relaxed) {
+        std::hint::spin_loop();
+    }
+}
+
+/// A 300 ms handler's entry carries its thread's stack, whose top frame
+/// symbolicates to the handler (offline: `addr2line -f -e IMAGE OFFSET`).
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+#[test]
+fn request_watchdog_stack_symbolicates_to_the_busy_handler() {
+    let watchdog = Arc::new(RequestWatchdog::default());
+    let stop = Arc::new(AtomicBool::new(false));
+    let handler = std::thread::spawn({
+        let watchdog = watchdog.clone();
+        let stop = stop.clone();
+        move || {
+            let _scope = watchdog.begin(9, "wait-for").expect("a free slot");
+            request_watchdog_stack_test_handler(std::hint::black_box(&stop));
+        }
+    });
+    let started = Instant::now();
+    wait_total(&watchdog, 1);
+    // Run the handler to 300 ms, as in the acceptance test.
+    std::thread::sleep(Duration::from_millis(300).saturating_sub(started.elapsed()));
+    stop.store(true, Ordering::Relaxed);
+    handler.join().unwrap();
+    wait_disarmed(&watchdog);
+
+    let snapshot = watchdog.snapshot();
+    assert_eq!(snapshot.total, 1, "{snapshot:?}");
+    assert_eq!(stack_captures(&watchdog), 1);
+    let entry = &snapshot.recent[0];
+    assert_eq!(entry.stack_error, None, "{entry:?}");
+    let entry_address = request_watchdog_stack_test_handler as *const () as usize;
+    let handler_frame = thread_backtrace::symbolicate_address(entry_address);
+    let top = entry.stack.first().expect("the interrupted pc");
+    assert!(
+        top.image.is_some() && top.image == handler_frame.image,
+        "{top:?} vs {handler_frame:?}"
+    );
+    let start = handler_frame.offset as u64;
+    assert!(
+        (start..start + 4096).contains(&top.offset),
+        "top frame {top:?} is not in the handler at {handler_frame:?}"
+    );
+}
+
+/// A request recorded while its thread is unknown keeps its entry and says why
+/// it has no stack.
+#[test]
+fn request_watchdog_stack_error_names_a_missing_thread() {
+    let watchdog = RequestWatchdog::new(Duration::from_millis(20));
+    let scope = watchdog.begin(3, "wait-for").expect("a free slot");
+    // As on an OS without captures: the slot holds no thread.
+    scope.slot.thread.store(0, Ordering::Relaxed);
+    wait_total(&watchdog, 1);
+    drop(scope);
+    let snapshot = watchdog.snapshot();
+    assert_eq!(snapshot.recent[0].stack_error, Some("unsupported"), "{snapshot:?}");
+    assert!(snapshot.recent[0].stack.is_empty());
+}
+
+/// server-stats serializes the stack with each entry.
+#[test]
+fn request_watchdog_stack_serializes_frames() {
+    let request = SlowRequest {
+        method: "wait-for",
+        client: 1,
+        started_ms: 2,
+        busy_ms: 300,
+        stack: vec![SlowRequestFrame {
+            image: Some("cmux-tui".to_string()),
+            offset: 0x1234,
+            symbol: None,
+        }],
+        stack_error: None,
+    };
+    assert_eq!(
+        serde_json::to_value(&request).unwrap(),
+        json!({
+            "method": "wait-for", "client": 1, "started_ms": 2, "busy_ms": 300,
+            "stack": [{"image": "cmux-tui", "offset": 0x1234, "symbol": null}],
+            "stack_error": null,
+        })
+    );
 }

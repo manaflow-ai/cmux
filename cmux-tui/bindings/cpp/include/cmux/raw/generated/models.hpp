@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "3fe9d3350739bb6bb3f3a9ed13859e2c749f39ae0d698866533d6f2452e2c196";
+inline constexpr std::string_view kProtocolIrSha256 = "f0c9ec1918e955caa2a30a99e114d080d35b3340e31fa30ed1b7c28ac3b54944";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -165,6 +165,7 @@ struct ServerStatsRegistryLock;
 struct ServerStatsResourceProjection;
 struct ServerStatsResult;
 struct ServerStatsSlowRequest;
+struct ServerStatsSlowRequestFrame;
 struct ServerStatsSlowRequests;
 struct ServerStatsWritePath;
 enum class ServerStatsWriterPhase;
@@ -4902,10 +4903,19 @@ struct ServerStatsResourceProjection {
     friend bool operator==(const ServerStatsResourceProjection&, const ServerStatsResourceProjection&) = default;
 };
 
+struct ServerStatsSlowRequestFrame {
+    std::optional<std::string> image{};
+    std::uint64_t offset{};
+    std::optional<std::string> symbol{};
+    friend bool operator==(const ServerStatsSlowRequestFrame&, const ServerStatsSlowRequestFrame&) = default;
+};
+
 struct ServerStatsSlowRequest {
     std::uint64_t busy_ms{};
     std::uint64_t client{};
     std::string method{};
+    std::vector<ServerStatsSlowRequestFrame> stack{};
+    std::optional<std::string> stack_error{};
     std::uint64_t started_ms{};
     friend bool operator==(const ServerStatsSlowRequest&, const ServerStatsSlowRequest&) = default;
 };
@@ -6896,6 +6906,12 @@ template <>
 struct Codec<ServerStatsSlowRequest> {
     static Result<Json> encode(const ServerStatsSlowRequest& value);
     static Result<ServerStatsSlowRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsSlowRequestFrame> {
+    static Result<Json> encode(const ServerStatsSlowRequestFrame& value);
+    static Result<ServerStatsSlowRequestFrame> decode(const Json& value);
 };
 
 template <>

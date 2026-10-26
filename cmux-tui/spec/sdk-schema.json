@@ -6329,12 +6329,68 @@
      },
      "presence": "required",
      "nullable": false
+    },
+    "stack": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "ServerStatsSlowRequestFrame"
+      }
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "stack_error": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": true
     }
    },
    "additional_properties": false,
    "constraints": [
     "method is the request cmd tag, or unknown.",
-    "started_ms is milliseconds since daemon start; busy_ms is how long the request had run when it was recorded."
+    "started_ms is milliseconds since daemon start; busy_ms is how long the request had run when it was recorded.",
+    "stack is the busy thread's stack when the request was recorded, innermost first (the interrupted pc, then return addresses); it is empty when stack_error is non-null.",
+    "stack_error is null, or one of unsupported, current-thread, suspend-failed, thread-state-failed, signal-failed, timeout, run-ended."
+   ]
+  },
+  "ServerStatsSlowRequestFrame": {
+   "kind": "object",
+   "fields": {
+    "image": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": true
+    },
+    "offset": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "symbol": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": true
+    }
+   },
+   "additional_properties": false,
+   "constraints": [
+    "image is the file name of the image that holds the frame, or null when no loaded image does.",
+    "offset is the frame address minus the image load address (the address itself when image is null), for offline symbolication.",
+    "symbol is the nearest exported symbol, mangled, or null for a local function."
    ]
   },
   "GuestUrlOpenResult": {
