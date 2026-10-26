@@ -40,6 +40,10 @@ final class TopHomePageView: NSView {
     private var rowsObservation: Task<Void, Never>?
     private var selectionObservation: Task<Void, Never>?
     private var chiefObservation: Task<Void, Never>?
+    /// The conversation the page opened by itself, which a later Chief replaces (``followUp``).
+    /// What the person picked is never this, so it is never taken off them. Both observations set
+    /// it: the list's first fallback opens one too.
+    private var followedChief: String?
     private var accountObservation: Task<Void, Never>?
     private var requestsObservation: Task<Void, Never>?
     private var unreadColorObservation: Task<Void, Never>?
@@ -211,27 +215,32 @@ final class TopHomePageView: NSView {
                 // A conversation came or went (a lease arrived, a request was accepted): requests may have changed.
                 if Set(all.map(\.id)) != listed { listed = Set(all.map(\.id)); home.requests.refresh() }
                 list.update(sidebar.model())
-                if shown == nil, !isComposingNewMessage, let first = Self.defaultConversation(rows: rows, home: home) { show(first) }
+                if shown == nil, !isComposingNewMessage, let first = Self.defaultConversation(rows: rows, home: home) {
+                    show(first)
+                    // The page opened it, not the person, so a Chief that arrives later replaces it.
+                    followedChief = first.rawValue
+                }
                 // The cache's conversation of a Chief home made again (cx-ebm.55).
                 if shownIsGone(store), let chief = Self.chief(home) { replaceGone(with: ConversationID(chief), store: store) }
             }
         }
         // task-owner: lives as long as this view; event-driven (Observation). The chief placed
         // on a paired server (G6) replaces the local chief while the page shows the local one.
+        followedChief = Self.chief(home)
         chiefObservation = Task { [weak self] in
-            var last = Self.chief(home)
-            var followed = last
-            for await chief in ObservationStream({ Self.chief(home) }) {
-                guard let self, chief != last else { continue }
-                last = chief
+            var last = Self.chiefKey(home)
+            for await key in ObservationStream({ Self.chiefKey(home) }) {
+                guard let self, key != last else { continue }
+                last = key
+                let chief = key.chief
                 if let chief, shownIsGone(home.homeStore) {
                     replaceGone(with: ConversationID(chief), store: home.homeStore)
-                    followed = chief
+                    followedChief = chief
                     continue
                 }
-                let next = Self.followUp(chief: chief, shown: shown, followed: followed,
+                let next = Self.followUp(chief: chief, shown: shown, followed: followedChief,
                                          composing: isComposingNewMessage, rows: rows, home: home)
-                followed = next.followed
+                followedChief = next.followed
                 if let open = next.open { show(open) }
             }
         }
@@ -282,6 +291,19 @@ final class TopHomePageView: NSView {
         if let chief = Self.chief(home) { return ConversationID(chief) }
         let excluded = home.excludedChiefConversations
         return rows.homeLines.lazy.compactMap(\.conversation).first { !excluded.contains($0.rawValue) }
+    }
+
+    /// What the Chief observation watches: the preferred Chief and whether this Mac's Chief is the
+    /// choice. The Engine row changes the choice while the preferred Chief stays nil (the cloud
+    /// read has not landed and this Mac's Chief is not listed yet), and the page must reconcile
+    /// what it opened by itself then too, so the choice is part of what it watches.
+    struct ChiefKey: Equatable {
+        var chief: String?
+        var prefersLocal: Bool
+    }
+
+    static func chiefKey(_ home: HomeService) -> ChiefKey {
+        ChiefKey(chief: chief(home), prefersLocal: home.prefersLocalChief)
     }
 
     /// What the page does when the preferred Chief changes, and which Chief it follows afterwards.

@@ -191,6 +191,23 @@ struct HomeChiefDefaultTests {
             == .init(open: nil, followed: "conv_hosted"))
     }
 
+    /// The Engine row is watched, not only the preferred Chief's id: before the cloud read lands
+    /// and with this Mac's Chief not listed, there is no Chief to open either side of the change,
+    /// so a page that watched the id alone would never reconcile what it had opened by itself
+    /// (review of #23984, finding 1).
+    @Test func theEngineRowIsWatchedEvenWhileThereIsNoChiefToOpen() async throws {
+        let services = Self.services()
+        let home = services.home
+        // No cloud Chief read yet, and this Mac's Chief is not listed.
+        #expect(home.defaultChiefConversation == nil)
+        #expect(TopHomePageView.chiefKey(home) == .init(chief: nil, prefersLocal: false))
+
+        services.settings = try await Self.settings(#"{"home":{"chiefEngine":"local"}}"#).0
+        #expect(home.defaultChiefConversation == nil, "still no Chief to open: the id did not change")
+        #expect(TopHomePageView.chiefKey(home) == .init(chief: nil, prefersLocal: true),
+                "but what the page watches did, so it reconciles what it opened")
+    }
+
     /// The New Message page is never closed by the Engine row: `show(_:)` would leave it, dropping
     /// an empty compose page and hiding a written one (review of #23984, finding 2).
     @Test func pickingThisMacNeverClosesTheNewMessagePage() async throws {

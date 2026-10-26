@@ -59,7 +59,11 @@ public final class ChiefBrainKeeper {
             watch.watch(running)
             return true
         }
-        // A watch that gave up (a host that kept dying) is armed again by this ask.
+        // A watch that gave up (a host that kept dying) is armed again by this ask. It is stopped
+        // before it goes: a launch that printed no pid leaves its lock sources armed while
+        // ``ChiefBrainWatch/isWatching`` is false, and a watch that is only dropped runs no cancel
+        // handler, so those descriptors would live until the app quits, one pair per retry.
+        watch?.stop()
         watch = nil
         start()
         return starting
