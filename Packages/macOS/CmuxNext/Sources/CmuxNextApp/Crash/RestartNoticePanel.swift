@@ -17,6 +17,9 @@ final class RestartNoticePanel {
     /// sized from it.
     private let body = ThemeChangeView()
     private weak var parent: NSWindow?
+    /// The panel's size, measured once when it shows: its content (one line,
+    /// fixed buttons) never changes, so a window resize only moves it.
+    private var size: CGSize = .zero
     private var observers: [EventSubscription] = []
     private let onShowLog: (() -> Void)?
     private let onReport: (() -> Void)?
@@ -86,6 +89,8 @@ final class RestartNoticePanel {
         parent = window
         window.addChildWindow(panel, ordered: .above)
         window.themeScope.adopt(panel)
+        // The constraint engine's fitting size: a one-line label and fixed buttons need no layout to measure.
+        size = body.fittingSize
         place()
         // The window's one observer per notice (WindowEvents): the notice follows its frame and closes with it.
         let events = WindowEvents.of(window, center: center)
@@ -103,8 +108,6 @@ final class RestartNoticePanel {
 
     private func place() {
         guard let parent else { return }
-        body.layoutSubtreeIfNeeded()
-        let size = body.fittingSize
         let frame = parent.frame
         panel.setFrame(NSRect(x: frame.midX - size.width / 2, y: frame.minY + 16, width: size.width, height: size.height), display: true)
     }
