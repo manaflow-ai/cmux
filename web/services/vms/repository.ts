@@ -92,6 +92,7 @@ import {
   type VmResourcePoolPolicy,
   type VmResourceReservation,
 } from "./machineSpec";
+import { SANDBOX_VM_IDEMPOTENCY_PREFIX, SANDBOX_VM_MARKER_KEY } from "../runs/model";
 
 export type CloudVmRow = typeof cloudVms.$inferSelect;
 export type CloudVmBaseRow = typeof cloudVmBases.$inferSelect;
@@ -473,6 +474,8 @@ export type VmRepositoryShape = Partial<VmHealthRepositoryMethods> & {
     readonly resourcePool?: VmResourcePoolPolicy | null;
     /** How a pool refusal names this operation. Defaults to `create`. */
     readonly resourcePoolPhase?: "create" | "fork";
+    /** A sandboxed Run's create key, stored as its marker on the row from the first insert. */
+    readonly sandboxMarker?: string;
   }) => Effect.Effect<BeginCreateResult, VmDatabaseError | VmCreateDisabledError | VmAccountDeletionInProgressError | VmLimitExceededError | VmResourcePoolExceededError | VmMemoryPlanError>;
   /** Read an idempotent create row before validating a new request shape. */
   readonly findCreateByIdempotencyKey?: (input: {
@@ -1151,6 +1154,14 @@ async function restoreBaseAfterCreateFailure(
   });
 }
 
+/** A create under a taken key: true to hand back the row holding it, false to replace it. */
+function keepsExistingCreate(existing: CloudVmRow, sandboxKey: boolean, sandboxOwned: boolean): boolean {
+  if (!sandboxOwned) throw new SandboxKeyReservedError();
+  // A sandbox key allocates at most one machine, ever: its row is never replaced, so the reaper
+  // can always find that machine by the key.
+  return sandboxKey || !isRetryableFailedCreate(existing, new Date());
+}
+
 function isRetryableFailedCreate(vm: CloudVmRow, now: Date): boolean {
   if (vm.status === "destroyed") return true;
   if (vm.status !== "failed") return false;
@@ -1265,6 +1276,13 @@ function resourceReservationMarkerEqualsSql(expected: VmResourceReservation) {
 }
 
 /** Store each machine's shape independently, including an unfinished native fork. */
+/** A create under the sandbox key namespace without the launcher's marker, or meeting a row it doesn't own. */
+class SandboxKeyReservedError extends Error {
+  constructor() {
+    super("the sandbox-run idempotency key namespace is reserved for the sandbox launcher's own machines");
+  }
+}
+
 function reservationMetadataForInput(
   reservation: VmResourceReservation | undefined,
   forkPending = false,
@@ -2194,6 +2212,12 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
     Effect.tryPromise({
       try: async () => {
         const idempotencyKey = input.idempotencyKey?.trim() || undefined;
+        // The sandbox key namespace is the sandbox launcher's alone: its key must come with its
+        // marker, only a row it marked is ever returned for one, and that row is never replaced
+        // by a retry (checked in this transaction).
+        const sandboxKey = !!idempotencyKey && idempotencyKey.startsWith(SANDBOX_VM_IDEMPOTENCY_PREFIX);
+        if (sandboxKey && input.sandboxMarker !== idempotencyKey) throw new SandboxKeyReservedError();
+        const sandboxOwned = (row: CloudVmRow) => !sandboxKey || (row.providerMetadata?.[SANDBOX_VM_MARKER_KEY] === idempotencyKey && row.userId === input.userId);
         const db = cloudDb();
         try {
           return await db.transaction(async (tx) => {
@@ -2208,7 +2232,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
                 .where(idempotencyScopeWhere({ billingTeamId: input.billingTeamId, idempotencyKey }))
                 .limit(1);
               if (existing) {
-                if (!isRetryableFailedCreate(existing, new Date())) {
+                if (keepsExistingCreate(existing, sandboxKey, sandboxOwned(existing))) {
                   return { inserted: false as const, vm: existing };
                 }
               }
@@ -2222,7 +2246,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
                 .where(idempotencyScopeWhere({ billingTeamId: input.billingTeamId, idempotencyKey }))
                 .limit(1);
               if (existing) {
-                if (!isRetryableFailedCreate(existing, new Date())) {
+                if (keepsExistingCreate(existing, sandboxKey, sandboxOwned(existing))) {
                   return { inserted: false as const, vm: existing };
                 }
                 await tx
@@ -2281,11 +2305,14 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
                 displayName: input.displayName ?? null,
                 idempotencyKey,
                 agentUpdates: storedAgentUpdates(input.agentUpdates),
-                providerMetadata: reservationMetadataForInput(
-                  input.resourceReservation,
-                  input.forkPending,
-                  input.forkMinimumResourceReservation ?? input.resourceReservation,
-                ),
+                providerMetadata: {
+                  ...reservationMetadataForInput(
+                    input.resourceReservation,
+                    input.forkPending,
+                    input.forkMinimumResourceReservation ?? input.resourceReservation,
+                  ),
+                  ...(input.sandboxMarker ? { [SANDBOX_VM_MARKER_KEY]: input.sandboxMarker } : {}),
+                },
                 slug: await allocateSlugInTx(tx, input.billingTeamId),
               })
               .returning();
@@ -2296,6 +2323,7 @@ export const vmRepositoryLiveShape: VmRepositoryShape = {
         } catch (err) {
           if (idempotencyKey && pgErrorCode(err) === "23505") {
             const existing = await findByIdempotencyKey(input.billingTeamId, idempotencyKey);
+            if (existing && !sandboxOwned(existing)) throw new SandboxKeyReservedError();
             if (existing) return { inserted: false as const, vm: existing };
           }
           throw err;
