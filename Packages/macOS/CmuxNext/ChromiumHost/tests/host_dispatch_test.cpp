@@ -566,13 +566,41 @@ void WindowRequestPolicy() {
   HostContext::OnShimEvent(&f.host, CMUX_SHIM_WINDOW_REQUEST_RESULT, 4, 77, 4, CMUX_SHIM_WINDOW_INSERT,
                            "https://p/", ";/p/Profile-A");
   Check(f.sent.size() == 1, "one result event");
+  int32_t tab = 0;
   if (f.sent.size() == 1) {
     Reader r(f.sent[0].fields);
     const int kind = r.I32(), browser = r.I32(), request = r.I32();
-    const int64_t anchor = r.I64();
+    const int64_t anchor = r.I64(), b = r.I64();
+    tab = static_cast<int32_t>(static_cast<uint64_t>(b) >> 32);
     Check(kind == CMUX_SHIM_WINDOW_REQUEST_RESULT && browser == kMinted + 1 && request == 77 && anchor == kMinted + 1,
           "the result names the source and the anchor by cmux's ids and keeps Chromium's window id");
+    Check(tab == (1 << 30) && (b & 0xffffffff) == CMUX_SHIM_WINDOW_INSERT,
+          "an INSERT's result carries the id the host minted for its tab, from the host's range");
   }
+  f.Sent();
+
+  // The tab Chromium opens in the anchor's window (77), opened by Chromium's 4: cmux's ids both.
+  HostContext::OnShimEvent(&f.host, CMUX_SHIM_AFTER_CREATED, 12, 0, 77, (int64_t{4} << 32) | 3, "", "");
+  bool created = false;
+  for (const Message& message : f.sent) {
+    if (message.op != kOpEvent) continue;
+    Reader r(message.fields);
+    const int kind = r.I32(), browser = r.I32(), request = r.I32();
+    const int64_t window = r.I64(), b = r.I64();
+    if (kind != CMUX_SHIM_AFTER_CREATED) continue;
+    created = true;
+    Check(browser == tab && request == 0 && window == 77, "the tab's AFTER_CREATED names it by the minted id");
+    Check(static_cast<int32_t>(static_cast<uint64_t>(b) >> 32) == kMinted + 1 && (b & 0xffffffff) == 3,
+          "its opener by cmux's id");
+  }
+  Check(created, "the tab's AFTER_CREATED reaches cmux");
+  f.Sent();
+  shim.calls.clear();
+  Writer load;
+  load.I32(tab);
+  load.Str("https://q/");
+  f.host.OnMessages({Op(kOpLoadUrl, 33, load)});
+  Expect(shim.calls, {"load 12 https://q/", "nav_state 12"}, "an op on the minted id reaches Chromium's tab");
   f.Sent();
 
   Writer install;

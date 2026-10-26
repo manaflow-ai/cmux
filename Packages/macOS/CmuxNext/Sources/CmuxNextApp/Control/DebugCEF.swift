@@ -180,6 +180,8 @@ enum DebugCEF {
             "install": .string(service.state.name),
             "fraction": service.state.fraction.map { .number($0) } ?? .null,
             "frameworks": service.source.layout.map { .string($0.frameworksDirectory.path) } ?? .null,
+            // `host` when Chromium tabs run in the Chromium Host (chromium-popups-live.py --window-requests).
+            "backend": .string(service.source.backend.rawValue),
         ]
         if case .failed(let error, let attempt) = service.state {
             object["error"] = .object(["code": .string(error.code), "detail": .string(error.detail), "attempt": .number(Double(attempt))])

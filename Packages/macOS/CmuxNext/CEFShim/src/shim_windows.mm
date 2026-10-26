@@ -108,11 +108,12 @@ int DecidePushed(const ForkWindowRequest& request) {
   const WindowDecision decision = DecideWindowRequest(pushed_window_policy(), facts, UptimeMs(),
                                                       [](int browser) { return cmux_shim_tab_window_id(browser); });
   const int anchor = decision.outcome == window_policy::kInsert ? decision.anchor : 0;
+  // The low 32 bits; the Chromium Host puts the id it mints for an INSERT's tab in the high ones.
   const int64_t packed = static_cast<int64_t>(decision.outcome & 0xff) |
                          static_cast<int64_t>(decision.new_tab & 0xff) << 8 |
                          static_cast<int64_t>(request.kind & 0xff) << 16 |
-                         static_cast<int64_t>(request.disposition & 0xff) << 24 |
-                         static_cast<int64_t>(request.user_gesture ? 1 : 0) << 32;
+                         static_cast<int64_t>(request.disposition & 0x7f) << 24 |
+                         static_cast<int64_t>(request.user_gesture ? 1 : 0) << 31;
   std::string where;
   if (request.has_bounds) {
     where = std::to_string(request.x) + "," + std::to_string(request.y) + "," + std::to_string(request.width) + "," +

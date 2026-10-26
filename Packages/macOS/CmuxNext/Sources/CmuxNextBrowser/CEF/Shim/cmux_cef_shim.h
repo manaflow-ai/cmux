@@ -192,12 +192,15 @@ typedef enum {
   // (cmux_shim_set_window_request_policy), while no window_request_fn is
   // installed: the Chromium Host decides inside Chromium's navigation and
   // cmux applies the result. browser_id = the requesting tab, or 0;
-  // request = 0; a = the anchor whose window gets the new tab (INSERT),
-  // else 0; b = cmux_shim_window_outcome_t | cmux_shim_new_tab_t << 8 |
-  // the request's kind << 16 | its cef_window_open_disposition_t << 24 |
-  // user_gesture << 32; s1 = the URL; s2 = "x,y,width,height" (or nothing),
-  // ";", the request's store (the source pane's, else the normalized
-  // profile directory). An INSERT's tab comes in its own AFTER_CREATED.
+  // request = the Chromium window of the anchor (INSERT), else 0; a = the
+  // anchor whose window gets the new tab (INSERT), else 0; b's low 32 bits =
+  // cmux_shim_window_outcome_t | cmux_shim_new_tab_t << 8 | the request's
+  // kind << 16 | its cef_window_open_disposition_t (7 bits) << 24 |
+  // user_gesture << 31, and its high 32 bits the id the Chromium Host minted
+  // for an INSERT's tab (0: none; the shim leaves them 0); s1 = the URL;
+  // s2 = "x,y,width,height" (or nothing), ";", the request's store (the
+  // source pane's, else the normalized profile directory). An INSERT's tab
+  // comes in its own AFTER_CREATED, which names it by that minted id.
   CMUX_SHIM_WINDOW_REQUEST_RESULT = 52,
 } cmux_shim_event_kind_t;
 

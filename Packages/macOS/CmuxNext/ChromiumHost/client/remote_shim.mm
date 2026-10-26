@@ -304,7 +304,7 @@ class Runtime {
   int32_t MintID(uint16_t op) {
     CMUX_REMOTE_ASSERT_MAIN();
     if (op == kOpDevtoolsCall) return next_devtools_id_ < kEndMintedDevToolsID ? next_devtools_id_++ : 0;
-    return next_browser_id_ < std::numeric_limits<int32_t>::max() ? next_browser_id_++ : 0;
+    return next_browser_id_ < kEndMintedBrowserID ? next_browser_id_++ : 0;
   }
 
   void MarkPending(uint16_t mirror_op, uint32_t token, const TlvWriter& key, uint32_t wildcards) {

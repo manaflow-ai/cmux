@@ -317,12 +317,26 @@ void HostContext::ForwardEvent(int kind, int browser_id, int request, int64_t a,
     held_events_.push_back(HeldEvent{kind, browser_id, request, a, b, s1 ? s1 : "", s2 ? s2 : ""});
     return;
   }
+  // Chromium's counter reaching the minted range would make one id name two browsers.
+  const int64_t created = kind == CMUX_SHIM_AFTER_CREATED ? browser_id : kind == CMUX_SHIM_DEVTOOLS_OPENED ? a : 0;
+  if (mint::IsMintedBrowser(created)) return Bad("Chromium named a new browser by an id of the minted range");
   int32_t client = ClientOf(browser_id);
   int32_t out_request = request;
-  // WINDOW_REQUEST_RESULT's a is the anchor whose window gets the new tab (task 031).
-  const int64_t out_a = kind == CMUX_SHIM_WINDOW_REQUEST_RESULT && a > 0 && a <= INT32_MAX
-                            ? ClientOf(static_cast<int>(a))
-                            : a;
+  int64_t out_a = a;
+  int64_t out_b = b;
+  if (kind == CMUX_SHIM_WINDOW_REQUEST_RESULT) {
+    // a = the anchor whose window (request) gets the new tab; an INSERT's b carries the id minted for
+    // that tab, which its AFTER_CREATED binds below (task 031).
+    if (a > 0 && a <= INT32_MAX) out_a = ClientOf(static_cast<int>(a));
+    out_b = window_request_tabs_.Result(request, browser_id, b);
+  } else if (kind == CMUX_SHIM_AFTER_CREATED) {
+    // b = opener << 32 | flags: the opener in cmux's id.
+    const int opener = static_cast<int32_t>(static_cast<uint32_t>(static_cast<uint64_t>(b) >> 32));
+    if (opener > 0) {
+      out_b = static_cast<int64_t>(static_cast<uint64_t>(static_cast<uint32_t>(ClientOf(opener))) << 32 |
+                                   (static_cast<uint64_t>(b) & 0xffffffffu));
+    }
+  }
   MirrorEvent mirror_event{kind, request, client, a, b, std::nullopt};
   auto pending = request != 0 ? pending_binds_.find(BindKey(kind, request)) : pending_binds_.end();
   if (pending != pending_binds_.end()) {
@@ -332,6 +346,14 @@ void HostContext::ForwardEvent(int kind, int browser_id, int request, int64_t a,
     mirror_event.browser = client;
     mirror_event.profile = std::move(pending->second.profile);
     pending_binds_.erase(pending);
+  } else if (kind == CMUX_SHIM_AFTER_CREATED && request == 0 && browser_id > 0 && !client_of_.count(browser_id)) {
+    // A tab Chromium opened for a window request: the id its WINDOW_REQUEST_RESULT carried.
+    const int opener = static_cast<int32_t>(static_cast<uint32_t>(static_cast<uint64_t>(b) >> 32));
+    if (const int32_t minted = window_request_tabs_.Take(static_cast<int>(a), opener)) {
+      Bind(minted, browser_id);
+      client = minted;
+      mirror_event.browser = client;
+    }
   } else if (kind == CMUX_SHIM_DEVTOOLS_RESULT) {
     auto minted = devtools_ids_.find(DevToolsKey(browser_id, request));
     if (minted != devtools_ids_.end()) {
@@ -341,7 +363,7 @@ void HostContext::ForwardEvent(int kind, int browser_id, int request, int64_t a,
   }
   Refresh(mirror_event);
   TlvWriter event;
-  EncodeEvent(event, kind, client, out_request, out_a, b, s1, s2);
+  EncodeEvent(event, kind, client, out_request, out_a, out_b, s1, s2);
   Post(MessageOf(kOpEvent, false, 0, event.Take()));
   if (kind == CMUX_SHIM_BEFORE_CLOSE) {
     Forget(client, browser_id);

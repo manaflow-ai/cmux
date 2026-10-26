@@ -31,7 +31,7 @@ final class CEFOrphanTabs {
         guard !ledger.isClosed(browser), runtime.tabsByBrowser[browser] == nil else { return }
         guard let disposition = linkDisposition(browser: browser, created: created) else { return }
         if let host = runtime.hosts.values.first(where: { $0.owns(window: window) }) {
-            let placement = runtime.takePlacement(window: window, fallback: disposition, created: created)
+            let placement = runtime.takePlacement(browser: browser, window: window, fallback: disposition, created: created)
             host.adoptChromiumTab(browser: browser, disposition: placement.disposition, bounds: placement.bounds)
             return
         }
@@ -54,7 +54,7 @@ final class CEFOrphanTabs {
               let host = runtime.hosts.values.first(where: { $0.owns(window: window) }) else { return }
         unplaced[browser] = nil
         guard let disposition = linkDisposition(browser: browser, created: created) else { return }
-        let placement = runtime.takePlacement(window: window, fallback: disposition, created: created)
+        let placement = runtime.takePlacement(browser: browser, window: window, fallback: disposition, created: created)
         // The event arrives inside Chromium's tab strip notification, which
         // forbids tab strip changes (the host may select the new tab): adopt
         // on the next main-actor turn.
@@ -104,7 +104,7 @@ final class CEFOrphanTabs {
         let waiting = ledger.takeWaiting()
         for orphan in waiting {
             if host.owns(window: orphan.window) {
-                let placement = runtime.takePlacement(window: orphan.window, fallback: .foregroundTab)
+                let placement = runtime.takePlacement(browser: orphan.browser, window: orphan.window, fallback: .foregroundTab)
                 host.adoptChromiumTab(browser: orphan.browser, disposition: placement.disposition, bounds: placement.bounds)
             } else if runtime.hosts.values.contains(where: \.isCreatingWindow) {
                 ledger.enqueue(orphan)

@@ -140,24 +140,29 @@ nonisolated struct CEFWindowRequestResult: Equatable, Sendable {
     var decision: CEFWindowDecision
     /// The Chromium window of an insert's anchor (0 otherwise): the window the new tab arrives in.
     var window: Int32
+    /// The id the Chromium Host minted for an insert's tab (0: none, as from a host that mints none):
+    /// the tab's AFTER_CREATED names it by this id, and cmux adopts it under it.
+    var tab: Int32
 
     /// Decodes the event: `browser` the requesting tab, `window` the anchor's Chromium window,
-    /// `anchor` the anchor, `packed` outcome | new tab << 8 | kind << 16 | disposition << 24 |
-    /// user gesture << 32, `url`, and `placement` "x,y,width,height;store" (the bounds may be empty).
-    /// Nil for what the host may not send (an unknown outcome or new tab, an insert with no anchor):
-    /// its output is untrusted, and such a result opens nothing.
+    /// `anchor` the anchor, `packed` outcome | new tab << 8 | kind << 16 | disposition (7 bits) << 24 |
+    /// user gesture << 31 | the tab's minted id << 32, `url`, and `placement` "x,y,width,height;store"
+    /// (the bounds may be empty). Nil for what the host may not send (an unknown outcome or new tab, an
+    /// insert with no anchor, a minted id that is no browser id or that is not an insert's): its output
+    /// is untrusted, and such a result opens nothing.
     init?(browser: Int32, window: Int32, anchor: Int64, packed: Int64, url: String, placement: String) {
         guard let outcome = Outcome(rawValue: Int32(packed & 0xff)),
               let newTab = NewTab(rawValue: Int32((packed >> 8) & 0xff)),
+              let tab = Int32(exactly: packed >> 32), tab >= 0, tab == 0 || outcome == .insert,
               let separator = placement.firstIndex(of: ";") else { return nil }
         let parts = placement[..<separator].split(separator: ",").compactMap { Double($0) }
         request = CEFWindowRequest(
             kind: CEFWindowRequest.Kind(rawValue: Int32((packed >> 16) & 0xff)) ?? .window,
-            disposition: CEFDisposition(raw: Int((packed >> 24) & 0xff)),
+            disposition: CEFDisposition(raw: Int((packed >> 24) & 0x7f)),
             sourceBrowser: browser,
             bounds: parts.count == 4 ? CGRect(x: parts[0], y: parts[1], width: parts[2], height: parts[3]) : nil,
             url: url,
-            userGesture: (packed >> 32) & 1 != 0,
+            userGesture: (packed >> 31) & 1 != 0,
             profilePath: String(placement[placement.index(after: separator)...])
         )
         let disposition = newTab.disposition
@@ -172,6 +177,7 @@ nonisolated struct CEFWindowRequestResult: Equatable, Sendable {
         case .refuseNoWindow: decision = .refuse(.noWindow)
         }
         self.window = outcome == .insert ? window : 0
+        self.tab = tab
     }
 
     /// `cmux_shim_window_outcome_t`.

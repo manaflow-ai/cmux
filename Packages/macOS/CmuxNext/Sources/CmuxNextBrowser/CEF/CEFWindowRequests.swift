@@ -45,25 +45,32 @@ final class CEFWindowRequests {
         let decision = CEFWindowPolicy.decide(request, candidates: windowCandidates(for: request, in: runtime),
                                               links: linkClicks.context())
         let window = decision.anchor.flatMap { runtime.shim?.tabWindowID($0) } ?? 0
-        apply(request, decision, window: window, in: runtime)
+        apply(request, decision, window: window, tab: 0, in: runtime)
         return decision.anchor ?? 0
     }
 
     /// What the Chromium Host decided inside its navigation with the pushed policy, applied as
     /// ``handle(_:)`` applies cmux's own decision. An insert's tab arrives in its own AFTER_CREATED,
-    /// after this result, and opens with the placement recorded here.
+    /// after this result, named by the id the host minted for it (``CEFWindowRequestResult/tab``), and
+    /// cmux adopts it under that id with the placement recorded here.
     func hostDecided(_ result: CEFWindowRequestResult) {
         guard let runtime else { return }
-        apply(result.request, result.decision, window: result.window, in: runtime)
+        // A minted id that already names a tab is not a new tab's: the placement goes by window.
+        let tab = runtime.tabsByBrowser[result.tab] == nil ? result.tab : 0
+        apply(result.request, result.decision, window: result.window, tab: tab, in: runtime)
     }
 
-    private func apply(_ request: CEFWindowRequest, _ decision: CEFWindowDecision, window: Int32, in runtime: CEFRuntime) {
-        log.record(request, decision)
-        runtime.logger.notice("Chromium window request kind=\(request.kind.rawValue) disposition=\(request.disposition.rawValue) source=\(request.sourceBrowser) -> \(String(describing: decision), privacy: .public)")
+    private func apply(_ request: CEFWindowRequest, _ decision: CEFWindowDecision, window: Int32, tab: Int32,
+                       in runtime: CEFRuntime) {
+        log.record(request, decision, tab: tab)
+        runtime.logger.notice("Chromium window request kind=\(request.kind.rawValue) disposition=\(request.disposition.rawValue) source=\(request.sourceBrowser) -> \(String(describing: decision), privacy: .public) tab=\(tab)")
         switch decision {
         case .insert(_, let disposition):
-            if window != 0 {
-                runtime.placements.record(window: window, CEFPlacement(disposition: disposition, bounds: request.bounds))
+            let placement = CEFPlacement(disposition: disposition, bounds: request.bounds)
+            if tab != 0 {
+                runtime.placements.record(tab: tab, placement)
+            } else if window != 0 {
+                runtime.placements.record(window: window, placement)
             }
         case .openInNewTab(let url, let disposition):
             if let url = URL(string: url) {

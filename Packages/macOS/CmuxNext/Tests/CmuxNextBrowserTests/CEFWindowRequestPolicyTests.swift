@@ -66,12 +66,13 @@ import Testing
 
     // MARK: The host's result
 
-    @Test func anInsertNamesItsAnchorWindowAndPlacement() {
-        let packed: Int64 = 1 | 3 << 8 | 2 << 16 | 5 << 24 | 1 << 32
+    @Test func anInsertNamesItsAnchorWindowPlacementAndMintedTab() {
+        let packed: Int64 = 1 | 3 << 8 | 2 << 16 | 5 << 24 | 1 << 31 | Self.hostMinted << 32
         let result = CEFWindowRequestResult(browser: 7, window: 70, anchor: 3, packed: packed, url: "https://p/",
                                             placement: "10,20,300,200;/p/Profile-A")
         #expect(result?.decision == .insert(anchor: 3, disposition: .popup))
         #expect(result?.window == 70)
+        #expect(result?.tab == Int32(Self.hostMinted), "the id the host minted for the tab, from b's high 32 bits")
         #expect(result?.request == CEFWindowRequest(kind: .popup, disposition: .newPopup, sourceBrowser: 7,
                                                     bounds: CGRect(x: 10, y: 20, width: 300, height: 200),
                                                     url: "https://p/", userGesture: true, profilePath: "/p/Profile-A"))
@@ -88,7 +89,9 @@ import Testing
         #expect(decision(5) == .openOffTheRecord(url: "https://n/"))
         #expect(decision(6) == .refuse(.noWindow))
         let refused = CEFWindowRequestResult(browser: 0, window: 70, anchor: 0, packed: 6, url: "", placement: ";")
-        #expect(refused?.window == 0 && refused?.request.bounds == nil && refused?.request.profilePath == "")
+        #expect(refused?.window == 0 && refused?.tab == 0 && refused?.request.bounds == nil && refused?.request.profilePath == "")
+        let oldHost = CEFWindowRequestResult(browser: 7, window: 70, anchor: 3, packed: 1, url: "", placement: ";s")
+        #expect(oldHost?.tab == 0 && oldHost?.request.userGesture == false, "a host that mints no id: the placement goes by window")
     }
 
     /// The host's output is untrusted: what it may not send opens nothing.
@@ -101,6 +104,8 @@ import Testing
         #expect(result(anchor: Int64(Int32.max) + 1) == nil, "an anchor that is no browser id")
         #expect(result(packed: 7) == nil && result(packed: 0) == nil, "an unknown outcome")
         #expect(result(packed: 1 | 5 << 8) == nil, "an unknown new tab disposition")
+        #expect(result(packed: 2 | Self.hostMinted << 32) == nil, "a minted tab on a result that opens no tab")
+        #expect(result(packed: 1 | Int64(bitPattern: 0x8000_0000_0000_0000)) == nil, "a minted id that is no browser id")
         #expect(result(placement: "/p/Profile-A") == nil, "a placement with no store separator")
         #expect(CEFShimEvent(kind: 52, browser: 7, request: 70, a: 0, b: 1, s1: "", s2: ";s") == .unknown(kind: 52))
         let decoded = CEFShimEvent(kind: 52, browser: 7, request: 70, a: 3, b: 1, s1: "https://p/", s2: ";s")
@@ -144,22 +149,49 @@ import Testing
         #expect(turns == 0 && PolicySpy.pushes.isEmpty)
     }
 
-    /// The host's insert records the tab's placement for the window it arrives in, before its
-    /// AFTER_CREATED, as cmux's own insert does in process.
+    /// The host's insert records the placement of the tab it opens under the id the host minted for it,
+    /// before its AFTER_CREATED, which names the tab by that id: the tab takes it whatever window it
+    /// reports. A host that mints no id leaves the placement to the window, as cmux's own insert in process.
     @Test func aHostInsertRecordsThePlacementOfTheTabItOpens() throws {
         let runtime = CEFRuntime(shim: try PolicySpy.library(), storage: CEFProfileStorage(root: Self.root()))
-        let insert = try #require(CEFWindowRequestResult(browser: 7, window: 70, anchor: 3, packed: 1 | 1 << 8, url: "https://p/",
+        let minted = Int32(Self.hostMinted)
+        let insert = try #require(CEFWindowRequestResult(browser: 7, window: 70, anchor: 3,
+                                                          packed: 1 | 1 << 8 | Self.hostMinted << 32, url: "https://p/",
                                                           placement: "1,2,3,4;/p/Profile-A"))
         runtime.handle(.windowRequestResult(insert))
         #expect(runtime.windowRequests.log.count == 1)
-        let placement = runtime.takePlacement(window: 70, fallback: .foregroundTab)
+        #expect(runtime.windowRequests.log.recent.last?.tab == minted, "debug.cef names the minted tab")
+        #expect(runtime.takePlacement(browser: 9, window: 70, fallback: .foregroundTab).bounds == nil,
+                "another tab of the window does not take the minted tab's placement")
+        let placement = runtime.takePlacement(browser: minted, window: 0, fallback: .foregroundTab)
         #expect(placement.disposition == .backgroundTab && placement.bounds == CGRect(x: 1, y: 2, width: 3, height: 4))
+        #expect(runtime.takePlacement(browser: minted, window: 0, fallback: .foregroundTab).bounds == nil, "taken once")
+
+        let byWindow = try #require(CEFWindowRequestResult(browser: 7, window: 70, anchor: 3, packed: 1 | 1 << 8, url: "https://p/",
+                                                            placement: "5,6,7,8;/p/Profile-A"))
+        runtime.handle(.windowRequestResult(byWindow))
+        #expect(runtime.takePlacement(browser: 11, window: 70, fallback: .foregroundTab).bounds == CGRect(x: 5, y: 6, width: 7, height: 8))
 
         let refused = try #require(CEFWindowRequestResult(browser: 7, window: 70, anchor: 0, packed: 6, url: "", placement: ";otr"))
         runtime.handle(.windowRequestResult(refused))
         #expect(runtime.windowRequests.log.refused == 1)
-        #expect(runtime.takePlacement(window: 70, fallback: .foregroundTab).bounds == nil, "a refusal places nothing")
+        #expect(runtime.takePlacement(browser: 12, window: 70, fallback: .foregroundTab).bounds == nil, "a refusal places nothing")
     }
+
+    /// A placement whose tab Chromium never created stays only until newer ones push it out.
+    @Test func placementsByMintedTabAreBounded() {
+        var queue = CEFPlacementQueue()
+        let first = Int32(Self.hostMinted)
+        for offset in 0...Int32(CEFPlacementQueue.maxTabPlacements) {
+            queue.record(tab: first + offset, CEFPlacement(disposition: .popup, bounds: nil))
+        }
+        #expect(queue.take(tab: first) == nil, "the oldest left")
+        #expect(queue.take(tab: first + 1)?.disposition == .popup)
+        #expect(queue.take(tab: first + Int32(CEFPlacementQueue.maxTabPlacements))?.disposition == .popup)
+    }
+
+    /// chromium_host_mint.h's kFirstHostBrowserID: the first id the host mints for a window request's tab.
+    private static let hostMinted: Int64 = 1 << 30
 
     private static func root() -> URL {
         FileManager.default.temporaryDirectory.appending(path: "cef-window-policy-\(UUID().uuidString)", directoryHint: .isDirectory)

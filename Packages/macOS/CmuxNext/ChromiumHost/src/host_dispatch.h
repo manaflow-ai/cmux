@@ -55,6 +55,7 @@
 #include "chromium_host_control.h"
 #include "chromium_host_tlv.h"
 #include "host_mirror.h"
+#include "host_window_request_ids.h"
 
 namespace cmux_host {
 
@@ -237,6 +238,8 @@ class HostContext {
   std::unordered_map<uint64_t, PendingBind> pending_binds_;
   // DevTools message ids: (Chromium browser << 32 | the shim's id) -> the minted id.
   std::unordered_map<uint64_t, int32_t> devtools_ids_;
+  // The ids minted for the tabs of the window requests the shim decided (task 031).
+  WindowRequestTabIds window_request_tabs_;
 
   // The tab and host mirrors pushed for every open tab (tasks 016 and 017).
   HostMirrors mirrors_;
