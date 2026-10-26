@@ -30,6 +30,26 @@ pub(crate) struct Plan {
     pub reverse: bool,
 }
 
+impl Plan {
+    /// `host enroll HOST`: named after the host's first label unless `name`.
+    pub(crate) fn enroll(
+        host: String,
+        name: Option<String>,
+        harnesses: Vec<String>,
+        remote_binary: String,
+        reverse: bool,
+    ) -> Self {
+        Self {
+            name: name.unwrap_or_else(|| hosts::short_name(&host)),
+            host,
+            port: crate::peer::SSH_PEER_PORT,
+            harnesses,
+            remote_binary,
+            reverse,
+        }
+    }
+}
+
 /// This machine's side of the harness step.
 pub(crate) struct Local {
     pub harness_dir: Option<PathBuf>,

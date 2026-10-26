@@ -962,3 +962,105 @@ fn a_keyed_cmux_tui_daemon_on_an_ssh_host_names_remote_install() {
     );
     assert_read_only(&fake);
 }
+
+/// Two daemons on one Linux host, as one user sees it (ergo-walk, 2026-10-25):
+/// that user's own daemon (`~/.acpmux`, this build) listening on `ours`
+/// (None: no listener), and the host's shared daemon on 47811, which the
+/// user cannot see but whose port nobody else can bind. A restart binds the
+/// port the written config names, except 47811: the restarted daemon moves
+/// to the free 46673 and saves it (`daemon.rs`, a taken configured port).
+fn two_daemon_host(ours: Option<u16>) -> Fake<impl Fn(&str, Option<&[u8]>) -> RemoteOut> {
+    let build = crate::hub::BUILD;
+    let listen = RefCell::new(ours);
+    let written = RefCell::new(None::<u16>);
+    Fake::new(move |script, stdin| {
+        let config = |port: Option<u16>| match port {
+            Some(p) => format!(r#"{{"websocket":{{"listen":"127.0.0.1:{p}","token":"t"}}}}"#),
+            None => "{}".to_owned(),
+        };
+        if let Some(text) = stdin {
+            let cfg: Value = serde_json::from_slice(text).expect("a config");
+            let addr = cfg.pointer("/websocket/listen").and_then(Value::as_str).unwrap();
+            *written.borrow_mut() = addr.rsplit_once(':').and_then(|(_, p)| p.parse().ok());
+            out("")
+        } else if script == "true" {
+            out("")
+        } else if script == probe_script().as_str() {
+            let port = *listen.borrow();
+            let status = json!({
+                "pid": 7, "build": build, "personKey": false, "exe": LOCAL_BIN,
+                "runsAsCmuxTuiAcp": false,
+                "listen": port.map(|p| format!("127.0.0.1:{p}")),
+            });
+            out(format!(
+                "bin\t{LOCAL_BIN}\tacpmux 0.1.0 ({build})\nstatus\t{LOCAL_BIN}\t{status}\n\0{}",
+                config(port)
+            ))
+        } else if script.starts_with("printf 'bin=") {
+            out(version(build))
+        } else if script.starts_with("cat ~/.acpmux/config.json") {
+            out(config(*listen.borrow()))
+        } else if script == "uname -s" {
+            out("Linux")
+        } else if script.contains("acpmux.service") {
+            let want = written.borrow().expect("a restart after the config write");
+            *listen.borrow_mut() = Some(if want == 47811 { 46673 } else { want });
+            out("started")
+        } else {
+            panic!("unexpected script: {script}")
+        }
+    })
+}
+
+fn enroll_plan() -> Plan {
+    Plan::enroll("leo@box.tail".into(), Some("box".into()), vec![], DAEMON_BIN.into(), false)
+}
+
+#[test]
+fn enroll_keeps_the_listener_of_a_daemon_on_another_port() {
+    // The user's daemon runs healthy on 47921 beside the host's on 47811:
+    // enroll peers with it there, and never rewrites or restarts it.
+    let fake = two_daemon_host(Some(47921));
+    let local = Local { harness_dir: None, home: None };
+    let results = machine_steps(&fake, &enroll_plan(), &local, true, &mut |_| {});
+    assert_eq!(
+        states(&results)[..3],
+        [
+            (Step::Reach, StepState::Ok),
+            (Step::Install, StepState::Ok),
+            (Step::Daemon, StepState::Ok)
+        ],
+        "{results:?}"
+    );
+    assert_read_only(&fake);
+}
+
+#[test]
+fn enroll_never_takes_the_port_another_daemon_holds() {
+    // No listener yet, and the default 47811 is the host daemon's: the
+    // restarted daemon moves to a free port, and enroll peers there.
+    let fake = two_daemon_host(None);
+    let local = Local { harness_dir: None, home: None };
+    let results = machine_steps(&fake, &enroll_plan(), &local, true, &mut |_| {});
+    assert_eq!(results[2].state, StepState::Fixed, "{results:?}");
+    assert!(results[2].detail.contains("127.0.0.1:46673"), "{results:?}");
+}
+
+#[test]
+fn doctor_refuses_to_move_a_healthy_daemon_to_the_peers_port() {
+    // The peer names 47811 but the daemon runs healthy on 47921: no config
+    // change and no restart, even with --fix; the fix points the peer at it.
+    let fake = two_daemon_host(Some(47921));
+    let local = Local { harness_dir: None, home: None };
+    let results = machine_steps(&fake, &plan(&[]), &local, true, &mut |_| {});
+    assert_eq!(results[2].state, StepState::Fail, "{results:?}");
+    assert!(
+        results[2]
+            .fix
+            .as_deref()
+            .unwrap()
+            .contains("`acpmux host add box ssh://leo@box.tail:47921`"),
+        "{results:?}"
+    );
+    assert_read_only(&fake);
+}
