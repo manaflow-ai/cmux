@@ -67,9 +67,10 @@ package struct AgentPageLifecycleTarget: PageLifecycleTarget {
         owner?.pageDidShow(key)
     }
 
-    package func freeze() {
-        page.freeze()
+    package func freeze() -> Bool {
+        guard page.freeze() else { return false }
         owner?.pageDidFreeze(key)
+        return true
     }
 
     package func thaw() {
@@ -77,7 +78,11 @@ package struct AgentPageLifecycleTarget: PageLifecycleTarget {
         owner?.pageDidThaw(key)
     }
 
-    package func discard() {
-        if let pane { owner?.discard(key, pane: pane) }
+    package func discard() -> Bool {
+        guard let pane, let owner else { return false }
+        owner.discard(key, pane: pane)
+        return true
     }
+
+    package var holdsEnginePage: Bool { page.holdsEnginePage }
 }

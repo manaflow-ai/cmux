@@ -24,7 +24,7 @@ import Testing
     @Test func aCardWindowReleasedOffTheMainThreadLeavesTheCount() async {
         let count = WindowCount()
         // The pool drains any reference AppKit autoreleased during init: the box holds the only one.
-        let box = autoreleasepool { PanelBox(HoverCardPanel(countWindow: count.move)) }
+        let box = autoreleasepool { PanelBox(countWindow: count.move) }
         #expect(count.current == 1)
         let release = await Task.detached(priority: .userInitiated) {
             let onMain = pthread_main_np() != 0
@@ -55,7 +55,11 @@ private nonisolated final class PanelBox: Sendable {
 
     private let slot: Mutex<Slot>
 
-    init(_ panel: sending HoverCardPanel) { slot = Mutex(Slot(panel: panel, watched: panel)) }
+    /// Makes the panel here, so it starts in a region of its own that the box can take.
+    @MainActor init(countWindow: @escaping @Sendable (Int) -> Void) {
+        let panel = HoverCardPanel(countWindow: countWindow)
+        slot = Mutex(Slot(panel: panel, watched: panel))
+    }
 
     /// Drops the strong reference on the calling thread; true when that freed the window there.
     func release() -> Bool {
