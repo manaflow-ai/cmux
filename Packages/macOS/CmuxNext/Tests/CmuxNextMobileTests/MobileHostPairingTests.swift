@@ -253,10 +253,14 @@ import Testing
         #expect(relaunched.hostd.isEmpty, "hostd still pins the removed phone: \(relaunched.hostd)")
     }
 
-    /// Review 29: a removal (a revoked or unpaired phone, a sign-out) takes the old digest away
-    /// before it returns, after the saves queued before it, so a crash right after it trusts no
-    /// older list; the new list is recorded on the queue.
-    @Test func aRemovalTakesTheOldDigestAwayBeforeItReturns() async throws {
+    /// A removal's save, awaited: whether the new list was written and recorded.
+    static func removing(_ devices: MobileHostPairedDevices, in file: MobileHostPairedDevicesFile) async -> Bool {
+        await withCheckedContinuation { done in file.saveRemovingTrust(devices) { done.resume(returning: $0) } }
+    }
+
+    /// Review 29: a removal (a revoked or unpaired phone, a sign-out) runs after the saves queued
+    /// before it, takes the old digest away and records the new list.
+    @Test func aRemovalTakesTheOldDigestAwayAfterTheSavesBeforeIt() async throws {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         defer { try? FileManager.default.removeItem(at: directory) }
         let seal = MobileHostMemoryPairingSeal()
@@ -270,9 +274,63 @@ import Testing
         defer { try? FileManager.default.removeItem(at: elsewhere) }
         MobileHostPairedDevicesFile(directory: elsewhere, seal: gated).saveInBackground(MobileHostPairedDevices(userID: "x"))
         DispatchQueue.global().asyncAfter(deadline: .now() + 0.3) { gated.gate.signal() }
-        file.saveRemovingTrust(devices)
-        #expect(seal.digest() != MobileHostPairingSeal.digest(old), "the old list still counts after the removal returned")
+        #expect(await Self.removing(devices, in: file))
+        #expect(seal.digest() != MobileHostPairingSeal.digest(old), "the old list still counts after the removal")
         #expect(await file.loadInBackground(userID: "u") == devices)
+    }
+
+    /// Review 38: a removal never waits on the caller's thread (the main actor: the repo's threading
+    /// model), even while the save queue is held by a save queued before it.
+    @Test func aRemovalNeverWaitsOnTheCallersThread() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let seal = MobileHostMemoryPairingSeal()
+        let (file, saved) = try Self.saved(directory, seal: seal)
+        var devices = saved
+        devices.remove(Self.request.phoneDeviceID)
+        let gated = GatedSeal()
+        let elsewhere = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: elsewhere) }
+        MobileHostPairedDevicesFile(directory: elsewhere, seal: gated).saveInBackground(MobileHostPairedDevices(userID: "x"))
+        DispatchQueue.global().asyncAfter(deadline: .now() + 0.6) { gated.gate.signal() }
+        let clock = ContinuousClock()
+        let started = clock.now
+        let done = SavedBox()
+        let finished = DispatchSemaphore(value: 0)
+        file.saveRemovingTrust(devices) { saved in
+            done.saved = saved
+            finished.signal()
+        }
+        let waited = clock.now - started
+        #expect(waited < .milliseconds(300), "the removal waited \(waited) on the caller's thread")
+        await withCheckedContinuation { (resume: CheckedContinuation<Void, Never>) in
+            DispatchQueue.global().async {
+                finished.wait()
+                resume.resume()
+            }
+        }
+        #expect(done.saved == true)
+        #expect(await file.loadInBackground(userID: "u") == devices)
+    }
+
+    /// Review 38: the Keychain refuses both the clear and the new record of a removal, then the
+    /// list from before it is put back: in this run it trusts no phone (the app read it again, as
+    /// a sign-out and sign-in do). Across a relaunch only the Keychain could say so.
+    @Test func aRevokedListPutBackIsNotTrustedAgainInThisRun() async throws {
+        let directory = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let seal = MobileHostMemoryPairingSeal()
+        let (file, saved) = try Self.saved(directory, seal: seal)
+        let copy = try Data(contentsOf: file.file)
+        var devices = saved
+        devices.remove(Self.request.phoneDeviceID)
+        seal.refuseClears()
+        seal.refuseRecords()
+        #expect(await Self.removing(devices, in: file) == false, "a refused removal reported saved")
+        try copy.write(to: file.file)
+        let reread = Self.relaunched(directory, seal: seal)
+        #expect(reread.approvers.isEmpty, "the revoked phone is an approver again: \(reread.approvers)")
+        #expect(reread.hostd.isEmpty, "hostd pins the revoked phone again: \(reread.hostd)")
     }
 
     /// Review 29: a sign-out while the list is read, then a sign-in of the same user: the read
@@ -302,6 +360,17 @@ import Testing
         expected.remove(Self.request.phoneDeviceID)
         #expect(done?.list == expected, "the forgotten phone is still in the list")
         #expect(done?.forgot == true)
+    }
+
+    /// Review 38: a phone forgotten while the list is read counts as a removal even when the read
+    /// answered no list (empty, or one that is not trusted): the old digest must still go.
+    @Test func aPhoneForgottenWhileAnEmptyListIsReadStillTakesTrustAway() {
+        var load = MobileHostPairedLoad()
+        let read = load.begin(userID: "u")
+        load.forget(Self.request.phoneDeviceID)
+        let done = load.finish(read, userID: "u", list: MobileHostPairedDevices(userID: "u"))
+        #expect(done?.list == MobileHostPairedDevices(userID: "u"))
+        #expect(done?.forgot == true, "a removal during an empty read is not saved as one")
     }
 
     /// The iPhone host reads and writes off the main actor, in order: a read queued after a save
@@ -351,6 +420,11 @@ import Testing
         #expect(MobileHostMacIdentity.restore(Data([1, 2])) == nil)
         #expect(first.fingerprint.count == 16)
     }
+}
+
+/// A removal's answer, written before its semaphore is signalled and read after it is waited on.
+final class SavedBox: @unchecked Sendable {
+    var saved: Bool?
 }
 
 /// A seal whose clear waits for `gate`: it holds the shared save queue (tests only).

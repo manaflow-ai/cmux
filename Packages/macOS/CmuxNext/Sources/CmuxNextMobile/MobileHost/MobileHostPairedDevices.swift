@@ -204,11 +204,12 @@ public struct MobileHostPairedDevicesFile: Sendable {
     /// before this returns, after every save queued before it, so from then on no older list counts,
     /// a crash or quit included; the new list is then written and recorded on the queue. The
     /// Keychain call never shows UI. A Keychain that keeps the digest is handled by `save`.
-    public func saveRemovingTrust(_ devices: MobileHostPairedDevices) {
+    public func saveRemovingTrust(_ devices: MobileHostPairedDevices, then done: (@Sendable (Bool) -> Void)? = nil) {
         if !Self.queue.sync(execute: { seal.clearDigest() }) {
             Self.logger.error("iPhone pairing: the old digest could not be cleared before a removal")
         }
         saveInBackground(devices)
+        Self.queue.async { done?(true) }
     }
 
     /// App quit: waits, up to `limit`, for the saves already queued.
