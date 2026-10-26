@@ -45,6 +45,8 @@ _spec.loader.exec_module(bs)
 FIRST = "first_window_frame_committed"
 TERM = bs.FINAL_MARK
 NEVER = "launch-seed-072.never"
+RAW_ROWS = []
+PARSE_NOTES = []
 CMUX_IMAGE = re.compile(r"^(cmux|CmuxNext|libcmux)", re.I)
 
 
@@ -105,9 +107,17 @@ def seed(tag, scratch, timeout, workspaces):
     return info
 
 
+def start(tag, scratch, extra_env=None):
+    """bs.Launch, timed: Popen returns once the child has exec'd, so this is fork to exec (plus the limits)."""
+    began = time.monotonic()
+    launch = bs.Launch(tag, scratch, extra_env)
+    launch.popen_ms = (time.monotonic() - began) * 1000
+    return launch
+
+
 def one_launch(tag, scratch, timeout, settle, extra_env=None, hangs=True):
     clean(tag)
-    launch = bs.Launch(tag, scratch, extra_env)
+    launch = start(tag, scratch, extra_env)
     stalls = None
     try:
         reached = launch.wait_for([TERM], timeout)
@@ -128,8 +138,8 @@ def bench(tag, scratch, runs, timeout, settle):
     for index in range(runs):
         launch, reached, stalls = one_launch(tag, scratch, timeout, settle)
         marks = dict(launch.marks)
-        results.append({"marks": marks, "terminal": reached, "stalls": stalls or []})
-        log(f"  bench run {index + 1}: {FIRST} {marks.get(FIRST, 'missing')} ms, {TERM} {marks.get(TERM, 'missing')} ms, "
+        results.append({"marks": marks, "terminal": reached, "stalls": stalls or [], "popen_ms": launch.popen_ms})
+        log(f"  bench run {index + 1}: popen {launch.popen_ms:.0f} ms, {FIRST} {marks.get(FIRST, 'missing')} ms, {TERM} {marks.get(TERM, 'missing')} ms, "
             f"stalls {len(stalls or [])} ({sum(s['ms'] for s in stalls or []):.0f} ms)")
         for stall in (stalls or [])[:4]:
             log(f"    stall {stall['ms']:.0f} ms (cpu {stall['cpu_ms']:.0f}): " + " < ".join(stall["frames"][:5]))
@@ -195,6 +205,7 @@ def parse_samples(xml_path, pid, symbolicator):
     byid = {}
     rows = []
     first = None
+    first_any = None
     marker = f"pid: {pid})"
     unresolved = collections.defaultdict(set)
 
@@ -217,17 +228,25 @@ def parse_samples(xml_path, pid, symbolicator):
         t_ns = int(stamp.text) if stamp is not None and stamp.text and stamp.text.isdigit() else None
         if t_ns is None:
             continue
-        first = t_ns if first is None else min(first, t_ns)
-        if not fmt.startswith("Main Thread"):
+        first_any = t_ns if first_any is None else min(first_any, t_ns)
+        # Between fork and exec the pid is still the Python launcher: the app starts at its first own sample.
+        if "python" not in fmt.lower():
+            first = t_ns if first is None else min(first, t_ns)
+        if not fmt.startswith("Main Thread") or "python" in fmt.lower():
             continue
         weight = element.find("weight")
         weight = resolve(weight) if weight is not None else None
         w_ns = int(weight.text) if weight is not None and weight.text and weight.text.isdigit() else 1000000
-        backtrace = element.find("backtrace")
+        backtrace = next((child for child in element.iter() if child.tag.endswith("backtrace")), None)
         backtrace = resolve(backtrace) if backtrace is not None else None
+        if backtrace is not None and backtrace.tag == "tagged-backtrace":
+            inner = next((child for child in backtrace.iter() if child.tag == "backtrace"), None)
+            backtrace = resolve(inner) if inner is not None else backtrace
+        if len(RAW_ROWS) < 4:
+            RAW_ROWS.append(ET.tostring(element, encoding="unicode")[:3000])
         frames = []
         if backtrace is not None:
-            for frame in backtrace.findall("frame"):
+            for frame in backtrace.iter("frame"):
                 frame = resolve(frame)
                 binary = frame.find("binary")
                 binary = resolve(binary) if binary is not None else None
@@ -242,6 +261,8 @@ def parse_samples(xml_path, pid, symbolicator):
     fixed = []
     for t_ns, w_ns, frames in rows:
         fixed.append((t_ns, w_ns, [((names.get((n[1], n[2]), n[2]) if isinstance(n, tuple) else n), b) for n, b in frames]))
+    PARSE_NOTES.append({"first_any": first_any, "first_exec": first,
+                        "fork_to_exec_ms": round((first - first_any) / 1e6, 1) if first and first_any else None})
     return fixed, first
 
 
@@ -282,7 +303,7 @@ def profile(tag, scratch, timeout, out, index, app, symbolicator):
                                 stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     time.sleep(6)  # measurement script: the recorder starts sampling
     clean(tag)
-    launch = bs.Launch(tag, scratch)
+    launch = start(tag, scratch)
     try:
         launch.wait_for([TERM], timeout)
         launch.wait_for([NEVER], 3)
@@ -300,21 +321,27 @@ def profile(tag, scratch, timeout, out, index, app, symbolicator):
     export_samples(trace, xml_path)
     samples, first = parse_samples(xml_path, pid, symbolicator)
     marks = dict(launch.marks)
-    result = {"pid": pid, "marks": marks, "recorder": (recorder_out or "")[-600:], "main_samples": len(samples)}
+    result = {"pid": pid, "marks": marks, "recorder": (recorder_out or "")[-600:], "main_samples": len(samples),
+              "popen_ms": launch.popen_ms, "raw_rows": list(RAW_ROWS)}
+    RAW_ROWS.clear()
     if first is None or FIRST not in marks:
         log(f"  profile {index}: no samples of pid {pid} or no {FIRST} ({len(samples)} main samples); recorder: {(recorder_out or '')[-300:]}")
         return result
-    cut = first + int(marks[FIRST] * 1e6)
+    shift = launch.popen_ms  # marks count from fork; `first` is exec
+    result["parse"] = PARSE_NOTES[-1] if PARSE_NOTES else None
+
+    def at(mark_ms):
+        return first + int(max(0.0, mark_ms - shift) * 1e6)
+
+    cut = at(marks[FIRST])
     result["to_first_frame"] = aggregate(samples, first, cut)
     if "main_start" in marks:
-        result["pre_main"] = aggregate(samples, first, first + int(marks["main_start"] * 1e6))
+        result["pre_main"] = aggregate(samples, first, at(marks["main_start"]))
     if "did_finish_launching_start" in marks:
-        result["main_to_dfl"] = aggregate(samples, first + int(marks.get("main_start", 0) * 1e6),
-                                          first + int(marks["did_finish_launching_start"] * 1e6))
+        result["main_to_dfl"] = aggregate(samples, at(marks.get("main_start", 0)), at(marks["did_finish_launching_start"]))
     if "did_finish_launching_end" in marks:
-        result["dfl"] = aggregate(samples, first + int(marks.get("did_finish_launching_start", 0) * 1e6),
-                                  first + int(marks["did_finish_launching_end"] * 1e6))
-        result["dfl_end_to_first_frame"] = aggregate(samples, first + int(marks["did_finish_launching_end"] * 1e6), cut)
+        result["dfl"] = aggregate(samples, at(marks.get("did_finish_launching_start", 0)), at(marks["did_finish_launching_end"]))
+        result["dfl_end_to_first_frame"] = aggregate(samples, at(marks["did_finish_launching_end"]), cut)
     result["first_frame_to_3s"] = aggregate(samples, cut, cut + 3_000_000_000)
     # Main turns: runs of main-thread samples with gaps under 2 ms, 16 ms or longer, in the first 3 s after the frame.
     turns, run = [], []
@@ -341,6 +368,69 @@ def profile(tag, scratch, timeout, out, index, app, symbolicator):
     return result
 
 
+def row_text(element, byid):
+    """One exported row as `fmt` cells (refs resolved), for tables this script does not parse."""
+    cells = []
+    for child in element:
+        child = byid.get(child.get("ref"), child) if child.get("ref") else child
+        cells.append(f"{child.tag}={(child.get('fmt') or child.text or '').strip()[:160]}")
+    return " | ".join(cells)
+
+
+def app_launch(tag, scratch, out, index, symbolicator):
+    """xctrace's App Launch template (`--launch`): the toc, each table's first rows, and the main-thread profile."""
+    trace = os.path.join(out, f"applaunch-{index}.trace")
+    shutil.rmtree(trace, ignore_errors=True)
+    clean(tag)
+    env = {"CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation", "CMUX_NEXT_TEST_WINDOW_SCREEN": "last",
+           "CMUX_NEXT_CONFIG_FILE": os.path.join(scratch, "cmux.json")}
+    cmd = ["xcrun", "xctrace", "record", "--template", "App Launch", "--time-limit", "8s", "--output", trace, "--no-prompt"]
+    for key, value in env.items():
+        cmd += ["--env", f"{key}={value}"]
+    cmd += ["--launch", "--", bs.app_binary(tag)]
+    done = subprocess.run(cmd, capture_output=True, text=True, timeout=180)
+    clean(tag)
+    result = {"recorder": (done.stdout + done.stderr)[-800:], "tables": {}}
+    toc = subprocess.run(["xcrun", "xctrace", "export", "--input", trace, "--toc"], capture_output=True, text=True).stdout
+    result["toc"] = toc[:20000]
+    match = re.search(r'<process[^>]*pid="(\d+)"', toc)
+    pid = int(match.group(1)) if match else None
+    result["pid"] = pid
+    for schema in sorted(set(re.findall(r'<table [^>]*schema="([^"]+)"', toc))):
+        xml_path = os.path.join(out, f"applaunch-{index}-{schema}.xml")
+        with open(xml_path, "w") as f:
+            subprocess.run(["xcrun", "xctrace", "export", "--input", trace, "--xpath",
+                            f'/trace-toc/run[@number="1"]/data/table[@schema="{schema}"]'], stdout=f, check=False)
+        if schema == "time-profile" and pid:
+            samples, first = parse_samples(xml_path, pid, symbolicator)
+            result["main_samples"] = len(samples)
+            result["raw_rows"] = list(RAW_ROWS)
+            RAW_ROWS.clear()
+            if first is not None:
+                result["first_2s"] = aggregate(samples, first, first + 2_000_000_000)
+                result["first_600ms"] = aggregate(samples, first, first + 600_000_000)
+            continue
+        byid, rows, count = {}, [], 0
+        try:
+            for _event, element in ET.iterparse(xml_path, events=("end",)):
+                if element.get("id"):
+                    byid[element.get("id")] = element
+                if element.tag == "row":
+                    count += 1
+                    if len(rows) < 120:
+                        rows.append(row_text(element, byid))
+        except ET.ParseError as error:
+            rows.append(f"parse error: {error}")
+        result["tables"][schema] = {"rows": count, "first": rows}
+    names = ", ".join(f"{name}({table['rows']})" for name, table in result["tables"].items())
+    log(f"  app launch {index}: pid {pid}, main samples {result.get('main_samples')}, tables {names}")
+    for schema, table in result["tables"].items():
+        if any(word in schema for word in ("life-cycle", "dyld", "static", "launch", "initializer")):
+            for line in table["first"][:40]:
+                log(f"    {schema}: {line[:300]}")
+    return result
+
+
 def probe(tag, scratch, timeout, out, index, until_ms):
     lib = os.path.join(out, "blocking-probe.dylib")
     if not os.path.exists(lib):
@@ -351,7 +441,7 @@ def probe(tag, scratch, timeout, out, index, until_ms):
     env = {"DYLD_INSERT_LIBRARIES": lib, "CMUX_BLOCKING_PROBE_OUT": os.path.join(dumps, "probe-%p.tsv"),
            "CMUX_BLOCKING_PROBE_UNTIL_MS": str(int(until_ms))}
     clean(tag)
-    launch = bs.Launch(tag, scratch, env)
+    launch = start(tag, scratch, env)
     try:
         launch.wait_for([TERM], timeout)
         launch.wait_for([NEVER], 12)  # the probe's periodic dump (every 10 s) has the window
@@ -374,6 +464,7 @@ def main():
     parser.add_argument("--runs", type=int, default=10)
     parser.add_argument("--profiles", type=int, default=3)
     parser.add_argument("--probes", type=int, default=3)
+    parser.add_argument("--app-launches", type=int, default=3)
     parser.add_argument("--hangs", type=int, default=16)
     parser.add_argument("--timeout", type=float, default=30)
     parser.add_argument("--settle", type=float, default=3)
@@ -419,7 +510,17 @@ def main():
             except Exception as error:  # noqa: BLE001 measurement: keep the other parts
                 log(f"  profile {index} failed: {error!r}")
             save()
+        report["app_launch"] = []
+        for index in range(1, opts.app_launches + 1):
+            try:
+                report["app_launch"].append(app_launch(tag, scratch, out, index, symbolicator))
+            except Exception as error:  # noqa: BLE001 measurement: keep the other parts
+                log(f"  app launch {index} failed: {error!r}")
+            save()
         first = (report["bench"]["marks"].get(FIRST) or {}).get("p50")
+        popens = [run["popen_ms"] for run in runs if run.get("popen_ms") is not None]
+        if first and popens:
+            first = first - statistics.median(popens)
         if first and opts.probes:
             paths = [p for p in (probe(tag, scratch, opts.timeout, out, i, first) for i in range(1, opts.probes + 1)) if p]
             if paths:
