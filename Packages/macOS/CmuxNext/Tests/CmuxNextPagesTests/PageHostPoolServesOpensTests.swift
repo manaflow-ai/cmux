@@ -1,3 +1,4 @@
+import CmuxNextDesign
 @testable import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextWakeups
@@ -14,6 +15,7 @@ import Testing
         /// The ids of the pages Chromium's scheme does not serve.
         var unserved: Set<String> = []
         let work = BackgroundWork(cpuWidth: 1, label: "test.pool-serves-opens")
+        let dialogs = CmuxDialogCenter(host: CmuxDialogHeadlessHost())
 
         struct NoPages: Error {}
 
