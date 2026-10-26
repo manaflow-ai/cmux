@@ -87,16 +87,27 @@ jobs:
       # The labels are created on demand now, only when an add reports one missing, and the pull
       # request's current labels come from the event payload instead of a `gh pr view`.
       #
-      # What a run costs, measured with a recording `gh` (tests/test_risk_label_api_budget.py):
-      # nothing in the usual case, where the pull request already carries exactly this tier; three
-      # on a tier change (the live read, the add, the remove); two when there is no tier yet; two
-      # more when the label is missing from the repository (the create and the retry). It was five
-      # on every run, so about 1,450 requests an hour against a 1,000/hour installation budget.
+      # What a run costs, in `gh` invocations, measured with a recording `gh`
+      # (tests/test_risk_label_api_budget.py): none in the usual case, where the pull request
+      # already carries exactly this tier; one when the live read finds that state; three on a tier
+      # change (the read, the add, the remove), plus one per extra stale tier; two when there is no
+      # tier yet; two more when an add fails and the label has to be created and re-added. It was
+      # five on every run, about 1,450 requests an hour against a 1,000/hour installation budget.
+      # (`gh` invocations, not REST requests: a recording `gh` cannot see inside the real one. Each
+      # of these verbs is one request today.)
       #
-      # The payload can be a moment stale. `labeled` and `unlabeled` are in this workflow's
-      # triggers, so a person's or a PAT's relabel fires a fresh run that corrects it; only an
-      # edit made with GITHUB_TOKEN starts no run, and no other workflow edits risk labels. That
-      # window is the price of the zero-request path and is the one case this step can miss.
+      # Two races, neither closed by cancellation alone, since cancelling a run does not retract an
+      # API write already in flight:
+      #
+      #  - Two runs on different heads can grade different tiers, and both writing would leave two
+      #    tier labels. So the live read also reads the head, and a run whose graded head is no
+      #    longer the pull request's head writes nothing: it is stale and a newer run is grading.
+      #    That costs no extra request, since the read was already being made.
+      #  - Two runs on the SAME head grade the same tier, so what they race to write agrees.
+      #
+      # The payload can still be a moment stale. `labeled` and `unlabeled` are in this workflow's
+      # triggers, so a person's or a PAT's relabel fires a fresh run; only an edit made with
+      # GITHUB_TOKEN starts no run. That window is the price of the zero-request path.
       - name: Set the risk label
         continue-on-error: true
         env:
@@ -104,6 +115,7 @@ jobs:
           REPO: ${{ github.repository }}
           NUMBER: ${{ github.event.pull_request.number }}
           LABEL: ${{ steps.grade.outputs.label }}
+          GRADED_HEAD: ${{ github.event.pull_request.head.sha }}
           CURRENT_JSON: ${{ toJSON(github.event.pull_request.labels.*.name) }}
         run: |
           set -uo pipefail
@@ -114,40 +126,58 @@ jobs:
             echo "::warning::the grade step produced no label; leaving the pull request's labels alone"
             exit 0
           fi
-          # The tier labels in a JSON array of label names, one per line. jq matches whole values,
-          # so a label that itself contains a newline cannot synthesise a `risk:` line the way a
-          # line-based grep over every name could. risk:medium is risk:normal's old name.
-          tiers() { jq -r '.[] | select(test("^risk:(low|medium|normal|high)$"))' <<<"$1"; }
-          # Whether a set of labels is already what we want: this tier, and no other.
+          # The tier labels in a JSON array of label names, one per line. Exact equality, never a
+          # regex: jq's `$` matches before a trailing newline, so `^risk:high$` accepted a label
+          # literally named "risk:high\n" and the command substitution below then stripped that
+          # newline, leaving the step convinced a tier it does not have is already set. A label name
+          # may hold anything, including a newline, so only `==` tells a tier from a lookalike.
+          tiers() { jq -r '.[] | select(. == "risk:low" or . == "risk:medium" or . == "risk:normal" or . == "risk:high")' <<<"$1"; }
+          # Whether a set of labels is already what we want: this tier, and no other. Safe against
+          # the substitution stripping newlines, because a tier value can no longer contain one.
           settled() { [ "$(tiers "$1")" = "$LABEL" ]; }
+          add() { gh pr edit "$NUMBER" --repo "$REPO" --add-label "$LABEL"; }
 
           if settled "$CURRENT_JSON"; then
             echo "$LABEL is already the only risk label; no API request spent"
             exit 0
           fi
-          # Only once the payload says an edit is due: confirm against the live labels before making
-          # one. Two runs racing on one pull request (the concurrency group cancels the older, but
-          # not instantly) could otherwise each edit from a different view, and a GITHUB_TOKEN label
-          # edit starts no run to correct that. This narrows the race rather than closing it -- two
-          # runs that both read before either wrote still both write -- but they grade the same head
-          # to the same tier, so what they race to write agrees. It costs one request on the rare
-          # change path and none in the usual case above, which is the whole point of the step.
-          if ! live_json="$(gh pr view "$NUMBER" --repo "$REPO" --json labels --jq '[.labels[].name]')"; then
-            # Only a failed read falls back to the payload. A pull request with no labels reads as
-            # `[]`, which is an answer, not an error: treating it as the payload once removed the
-            # last tier while skipping the add, leaving no tier at all.
+          # Only once the payload says an edit is due: confirm against the live pull request before
+          # making one. One request on the rare change path, none in the usual case above.
+          read_ok=yes
+          if ! live="$(gh pr view "$NUMBER" --repo "$REPO" --json labels,headRefOid \
+            --jq '{labels: [.labels[].name], head: .headRefOid}')"; then
             echo "::warning::could not read the live labels; going by the event payload"
+            read_ok=no
             live_json="$CURRENT_JSON"
+          else
+            live_json="$(jq -c '.labels' <<<"$live")"
+            live_head="$(jq -r '.head' <<<"$live")"
+            # A run that graded an older head is stale: a newer run is grading the current one, and
+            # two runs writing different tiers would leave the pull request with both.
+            if [ -n "${GRADED_HEAD:-}" ] && [ "$live_head" != "$GRADED_HEAD" ]; then
+              echo "the head moved from $GRADED_HEAD to $live_head while this run graded; a newer run owns the label"
+              exit 0
+            fi
+            if settled "$live_json"; then
+              echo "$LABEL became the only risk label while this run graded; nothing to do"
+              exit 0
+            fi
           fi
-          if settled "$live_json"; then
-            echo "$LABEL became the only risk label while this run graded; nothing to do"
+
+          if [ "$read_ok" = no ]; then
+            # The payload may disagree with the pull request in either direction, so it may not
+            # authorise a removal: trusting it once skipped the add and removed the old tier,
+            # leaving no tier at all. Make sure the wanted label is on, remove nothing, and let a
+            # run with a real read do the cleanup. Adding a label a pull request already has is a
+            # no-op, so this costs one request and cannot be wrong.
+            add || echo "::warning::could not add $LABEL"
             exit 0
           fi
 
           have=no
           tiers "$live_json" | grep -qxF "$LABEL" && have=yes
           if [ "$have" = no ]; then
-            if gh pr edit "$NUMBER" --repo "$REPO" --add-label "$LABEL"; then
+            if add; then
               have=yes
             else
               # The only way this label can be missing from the repository is a fresh fork.
@@ -158,7 +188,7 @@ jobs:
               esac
               gh label create "$LABEL" --repo "$REPO" --color "$color" \
                 --description "Risk tier (docs/ci/risk-tiers.md)" || true
-              gh pr edit "$NUMBER" --repo "$REPO" --add-label "$LABEL" && have=yes
+              add && have=yes
             fi
           fi
           if [ "$have" = no ]; then

@@ -24,7 +24,9 @@ import unittest
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 WORKFLOW = ROOT / ".github" / "workflows" / "risk-tier.yml"
 STEP = "Set the risk label"
-VIEW_CALL = "pr view 25172 --repo manaflow-ai/cmux --json labels --jq [.labels[].name]"
+HEAD = "0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f0f"
+VIEW_CALL = ("pr view 25172 --repo manaflow-ai/cmux --json labels,headRefOid "
+             "--jq {labels: [.labels[].name], head: .headRefOid}")
 ADD = "pr edit 25172 --repo manaflow-ai/cmux --add-label "
 REMOVE = "pr edit 25172 --repo manaflow-ai/cmux --remove-label "
 
@@ -40,6 +42,16 @@ if [ "${1:-}" = pr ] && [ "${2:-}" = view ]; then
   exit 0
 fi
 if [ "${1:-}" = label ]; then exit "${GH_LABEL_EXIT:-0}"; fi
+# Each add may answer differently: a create-then-retry only means anything if the retry can work.
+case " $* " in *" --add-label "*) is_add=yes ;; *) is_add=no ;; esac
+if [ "$is_add" = yes ]; then
+  adds="$(( $(cat "$GH_ADDS" 2>/dev/null || echo 0) + 1 ))"
+  printf '%s' "$adds" > "$GH_ADDS"
+  case "$adds" in
+    1) exit "${GH_ADD1_EXIT:-${GH_EDIT_EXIT:-0}}" ;;
+    *) exit "${GH_ADD2_EXIT:-${GH_EDIT_EXIT:-0}}" ;;
+  esac
+fi
 exit "${GH_EDIT_EXIT:-0}"
 """
 
@@ -62,7 +74,9 @@ def step_script() -> str:
 class RiskLabelBudgetTest(unittest.TestCase):
     def run_step(self, label: str, current: list[str], gh_exit: int = 0,
                  live: list[str] | None = None, view_exit: int | None = None,
-                 edit_exit: int | None = None, label_exit: int | None = None):
+                 edit_exit: int | None = None, label_exit: int | None = None,
+                 add1_exit: int | None = None, add2_exit: int | None = None,
+                 graded_head: str = HEAD, live_head: str = HEAD):
         """(gh calls, stdout) of the step for a pull request carrying `current`.
 
         `live` is what `gh pr view` reports, when it differs from the event payload. `gh_exit` sets
@@ -83,13 +97,19 @@ class RiskLabelBudgetTest(unittest.TestCase):
                 "GH_VIEW_EXIT": str(gh_exit if view_exit is None else view_exit),
                 "GH_EDIT_EXIT": str(gh_exit if edit_exit is None else edit_exit),
                 "GH_LABEL_EXIT": str(gh_exit if label_exit is None else label_exit),
+                "GH_ADDS": str(pathlib.Path(tmp) / "adds"),
+                # An add is an edit, so it falls back through edit_exit before gh_exit.
+                "GH_ADD1_EXIT": str(next(e for e in (add1_exit, edit_exit, gh_exit) if e is not None)),
+                "GH_ADD2_EXIT": str(next(e for e in (add2_exit, edit_exit, gh_exit) if e is not None)),
+                "GRADED_HEAD": graded_head,
                 "GH_TOKEN": "x",
                 "REPO": "manaflow-ai/cmux",
                 "NUMBER": "25172",
                 "LABEL": label,
                 "CURRENT_JSON": json.dumps(current),
-                # What a live `gh pr view --jq '[.labels[].name]'` would print; the payload by default.
-                "GH_VIEW_JSON": json.dumps(current if live is None else live),
+                # What a live `gh pr view` would print: labels, and the head it still has.
+                "GH_VIEW_JSON": json.dumps(
+                    {"labels": current if live is None else live, "head": live_head}),
             }
             done = subprocess.run(
                 ["bash", "-c", step_script()], env=env, capture_output=True, text=True, timeout=60
@@ -121,8 +141,9 @@ class RiskLabelBudgetTest(unittest.TestCase):
         self.assertFalse([call for call in calls if call.startswith("label create")], calls)
 
     def test_a_missing_label_is_created_then_added(self):
-        """A fresh fork has no risk labels, so the add fails once and the step creates it."""
-        calls, _ = self.run_step("risk:low", [], edit_exit=1)
+        """A fresh fork has no risk labels, so the first add fails, the step creates the label, and
+        the retry succeeds. The retry must be able to succeed or this proves nothing."""
+        calls, out = self.run_step("risk:low", [], add1_exit=1, add2_exit=0)
         self.assertEqual(
             calls,
             [
@@ -133,6 +154,7 @@ class RiskLabelBudgetTest(unittest.TestCase):
                 ADD + "risk:low",
             ],
         )
+        self.assertNotIn("could not add", out)
 
     def test_the_step_cannot_spend_a_request_except_through_gh(self):
         """The budget claim rests on counting `gh`, so nothing else may reach the API."""
@@ -148,6 +170,7 @@ class RiskLabelBudgetTest(unittest.TestCase):
         """
         env = workflow_step()["env"]
         self.assertEqual(env["CURRENT_JSON"], "${{ toJSON(github.event.pull_request.labels.*.name) }}")
+        self.assertEqual(env["GRADED_HEAD"], "${{ github.event.pull_request.head.sha }}")
         self.assertEqual(env["LABEL"], "${{ steps.grade.outputs.label }}")
         self.assertEqual(env["NUMBER"], "${{ github.event.pull_request.number }}")
         self.assertEqual(env["REPO"], "${{ github.repository }}")
@@ -183,11 +206,40 @@ class RiskLabelBudgetTest(unittest.TestCase):
         calls, _ = self.run_step("risk:high", ["risk:high", "risk:low"], live=[])
         self.assertEqual(calls, [VIEW_CALL, ADD + "risk:high"])
 
-    def test_a_failed_live_read_falls_back_to_the_payload(self):
-        """A read error must not make the step treat the pull request as unlabelled."""
+    def test_a_failed_live_read_adds_but_never_removes(self):
+        """A read error must not make the step treat the pull request as unlabelled, and must not
+        authorise a removal either: the payload can be wrong in both directions."""
         calls, out = self.run_step("risk:high", ["risk:low"], view_exit=1)
-        self.assertEqual(calls, [VIEW_CALL, ADD + "risk:high", REMOVE + "risk:low"])
+        self.assertEqual(calls, [VIEW_CALL, ADD + "risk:high"])
         self.assertIn("could not read the live labels", out)
+
+    def test_a_failed_read_whose_payload_claims_the_tier_still_adds_it(self):
+        """The route that still left NO tier: payload [risk:high, risk:low], the pull request
+        really carrying only risk:low, the read failing. Trusting the payload skipped the add and
+        removed risk:low. Now the add happens and nothing is removed."""
+        calls, _ = self.run_step("risk:high", ["risk:high", "risk:low"], view_exit=1)
+        self.assertEqual(calls, [VIEW_CALL, ADD + "risk:high"])
+        self.assertFalse([call for call in calls if "--remove-label" in call], calls)
+
+    # --- a stale run writes nothing ---
+
+    def test_a_run_that_graded_an_older_head_writes_nothing(self):
+        """Two runs on different heads can grade different tiers, and both writing would leave two.
+        Cancelling the older run does not retract a write already in flight, so the read also reads
+        the head and a run whose head has moved on stands down."""
+        calls, out = self.run_step("risk:high", ["risk:normal"], live_head="a" * 40)
+        self.assertEqual(calls, [VIEW_CALL])
+        self.assertIn("the head moved", out)
+
+    def test_a_run_on_the_current_head_still_writes(self):
+        calls, _ = self.run_step("risk:high", ["risk:normal"])
+        self.assertEqual(calls, [VIEW_CALL, ADD + "risk:high", REMOVE + "risk:normal"])
+
+    def test_a_missing_graded_head_does_not_stop_the_step(self):
+        """The head comes from the event payload. If it is ever absent, the step does its job
+        rather than silently stopping: the stale-run check is an improvement, not a dependency."""
+        calls, _ = self.run_step("risk:high", ["risk:normal"], graded_head="", live_head="b" * 40)
+        self.assertEqual(calls, [VIEW_CALL, ADD + "risk:high", REMOVE + "risk:normal"])
 
     def test_the_old_tier_stays_when_the_new_one_cannot_be_added(self):
         """A stale tier is bad; no tier is worse, and a transient API error must not cause it."""
@@ -217,9 +269,23 @@ class RiskLabelBudgetTest(unittest.TestCase):
 
     def test_a_label_containing_a_newline_cannot_forge_a_tier(self):
         """A line-based grep over every name would read "x\\nrisk:high" as the tier risk:high and
-        skip the add, leaving the pull request untagged. jq matches whole values, so it does not."""
+        skip the add, leaving the pull request untagged. Exact equality does not."""
         calls, _ = self.run_step("risk:high", ["harmless\nrisk:high"])
         self.assertEqual(calls, [VIEW_CALL, ADD + "risk:high"])
+
+    def test_a_label_with_a_trailing_newline_is_not_that_tier(self):
+        """jq's `$` matches before a final newline, so `^risk:high$` accepted a label literally
+        named "risk:high\\n"; the command substitution then stripped that newline and the step
+        decided the tier was already set, on a pull request that does not have it. Exact equality
+        is the only thing that tells a tier from a lookalike."""
+        calls, _ = self.run_step("risk:high", ["risk:high\n"])
+        self.assertEqual(calls, [VIEW_CALL, ADD + "risk:high"])
+
+    def test_a_tier_with_a_trailing_newline_is_not_stale_either(self):
+        """The mirror: it is not a tier, so it is not removed. Removing it would need its exact
+        name on the command line, and a newline there is not something to send blind."""
+        calls, _ = self.run_step("risk:high", ["risk:high", "risk:low\n"])
+        self.assertEqual(calls, [])
 
     def test_a_label_containing_a_newline_is_never_removed(self):
         """The mirror of the case above: it is not a tier, so it is not stale either."""
@@ -238,6 +304,16 @@ class RiskLabelBudgetTest(unittest.TestCase):
         """The check's verdict is the gate; a label error is a warning."""
         _, out = self.run_step("risk:high", ["risk:low"], gh_exit=1)
         self.assertIn("could not", out)
+
+    def test_the_step_never_reports_a_count_it_cannot_see(self):
+        """These tests count `gh` invocations. A recording `gh` cannot see inside the real one, so
+        the workflow must not claim to have measured REST requests."""
+        body = workflow_step()["run"]
+        comment = "\n".join(line for line in WORKFLOW.read_text(encoding="utf-8").splitlines()
+                            if line.lstrip().startswith("#"))
+        self.assertIn("`gh` invocations, not REST requests", comment,
+                      "the cost comment must say what was actually measured")
+        self.assertNotIn("curl", body)
 
 
 if __name__ == "__main__":
