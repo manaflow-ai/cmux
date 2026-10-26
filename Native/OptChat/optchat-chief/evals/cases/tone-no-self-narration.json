@@ -12,7 +12,7 @@
       "checks": [
         {"type": "called", "cmd": "gh", "match": "25001"},
         {"type": "reply_matches", "re": "\\]\\(https://github\\.com/manaflow-ai/cmux/pull/25001\\)"},
-        {"type": "reply_matches", "re": "(?i)(swift tests|red|fail)"},
+        {"type": "reply_matches", "re": "(?i)\\b(swift tests|red|fail(s|ed|ing|ure)?)\\b"},
         {"type": "reply_not_matches", "re": "(?i)\\b(let me (check|look|see)|I('ll| will) (check|look)|I (ran|checked|looked( it)? up|queried|fetched)|checking now|looking (it|that) up)\\b"},
         {"type": "max_words", "n": 60},
         {"type": "no_raw_ids"}

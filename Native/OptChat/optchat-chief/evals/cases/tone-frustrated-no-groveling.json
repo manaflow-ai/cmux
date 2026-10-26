@@ -13,7 +13,8 @@
     {
       "text": "it's broken AGAIN on tonight's nightly. third time this week. why does this keep happening",
       "checks": [
-        {"type": "called", "re": "\"id\":\"a40\"|\"tasks\""},
+        {"type": "not_called", "cmd": "control", "re": "\"action\":\"(stop|kill)\""},
+        {"type": "judge", "rubric": "Passes when the tool calls include a spawn call, or a tell call to a40, that starts work on the regression. Fails when there is neither (a status lookup alone does not count)."},
         {"type": "reply_not_matches", "re": "(?i)(I('m| am) (so|really|truly|deeply|very) sorry|sincerely apologi|my (sincere |deepest )?apologies|I completely understand your frustration|I understand how frustrating)"},
         {"type": "max_words", "n": 70},
         {"type": "no_question"},

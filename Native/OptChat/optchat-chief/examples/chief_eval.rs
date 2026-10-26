@@ -1330,12 +1330,22 @@ fn summary_groups(s: &Value) -> BTreeMap<String, (u32, u32)> {
 }
 
 /// This run against a baseline summary: pass rate per group before and
-/// after, the total over the groups both runs have (so an `--only` run is
-/// compared like for like), and the cases whose pass rate went down or up.
+/// after, the total over the groups both runs have (over the cases both
+/// have when both carry `case_results`), and the cases whose pass rate went
+/// down or up.
 /// A group only the baseline ran is named in `groups_not_run`; a case only
 /// one side ran is `added` or, within a group this run has, `removed`.
 fn baseline_diff(now: &Value, base: &Value) -> Value {
-    let (gn, gb) = (summary_groups(now), summary_groups(base));
+    // With per-case results on both sides, the groups and the total compare
+    // only the cases both runs have (an `--only` run is like for like).
+    let mut common = base.clone();
+    if let (Some(n), Some(b)) = (
+        now["case_results"].as_object(),
+        common["case_results"].as_object_mut(),
+    ) {
+        b.retain(|id, _| n.contains_key(id));
+    }
+    let (gn, gb) = (summary_groups(now), summary_groups(&common));
     let side = |g: Option<&(u32, u32)>| {
         g.map_or(
             Value::Null,
@@ -1359,7 +1369,8 @@ fn baseline_diff(now: &Value, base: &Value) -> Value {
                    "delta": a.map_or(Value::Null, |a| json!(delta(a, b)))}),
         );
     }
-    let not_run: Vec<&String> = gb.keys().filter(|g| !gn.contains_key(*g)).collect();
+    let all_base = summary_groups(base);
+    let not_run: Vec<&String> = all_base.keys().filter(|g| !gn.contains_key(*g)).collect();
     let cases = |s: &Value| -> BTreeMap<String, (String, f64)> {
         s["case_results"]
             .as_object()
@@ -1431,7 +1442,7 @@ fn diff_markdown(d: &Value, baseline: &str) -> String {
     }
     let t = &d["total"];
     out.push_str(&format!(
-        "| **total** (groups in both) | {} | {} | {} |\n",
+        "| **total** (cases in both runs) | {} | {} | {} |\n",
         fmt_side(&t["baseline"]),
         fmt_side(&t["now"]),
         fmt_delta(&t["delta"])
@@ -1594,16 +1605,17 @@ mod tests {
         assert_eq!(d["groups_not_run"], json!(["memory"]));
         assert!(d["groups"]["memory"].is_null());
         assert!(d["groups"]["tone"]["baseline"].is_null());
-        assert_eq!(d["groups"]["links"]["delta"], -0.167);
+        // links-e is not in this run, so links compares links-a and links-b.
+        assert_eq!(d["groups"]["links"]["delta"], 0.0);
         let md = diff_markdown(&d, "base/summary.json");
         assert!(
-            md.contains("| links | 2/3 (67%) | 1/2 (50%) | -17 pts |"),
+            md.contains("| links | 1/2 (50%) | 1/2 (50%) | +0 pts |"),
             "{md}"
         );
         assert!(md.contains("| tone | - | 1/1 (100%) | new |"), "{md}");
-        // The total covers links only: the groups both runs have.
+        // The total covers the cases both runs have: links-a and links-b.
         assert!(
-            md.contains("| **total** (groups in both) | 2/3 (67%) | 1/2 (50%) | -17 pts |"),
+            md.contains("| **total** (cases in both runs) | 1/2 (50%) | 1/2 (50%) | +0 pts |"),
             "{md}"
         );
         assert!(md.contains("Regressed: links-a (100% -> 0%)"), "{md}");

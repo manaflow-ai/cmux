@@ -94,7 +94,8 @@ jobs:
           baseline=()
           if [ -f "$base/summary.json" ]; then
             baseline=(--baseline "$base/summary.json")
-            echo "Baseline: run [$BASELINE_RUN]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$BASELINE_RUN)" >> "$GITHUB_STEP_SUMMARY"
+          elif [ -n "$BASELINE_RUN" ]; then
+            echo "::warning::Chief evals: run $BASELINE_RUN has no summary.json; no baseline diff"
           fi
           if ! target/debug/examples/chief_eval preflight; then
             echo "::warning::Chief model evals skipped: the model route $OPTCHAT_ANTHROPIC_BASE_URL does not answer"
@@ -104,7 +105,11 @@ jobs:
           set +e
           target/debug/examples/chief_eval --repeat "$REPEAT" --jobs 32 --min-pass "${{ vars.CHIEF_EVAL_MIN_PASS || '0.8' }}" --out "$out" "${baseline[@]}" | tee "$out.md"
           status=${PIPESTATUS[0]}
-          { echo "## Chief fast evals"; echo; cat "$out.md"; } >> "$GITHUB_STEP_SUMMARY"
+          {
+            echo "## Chief fast evals"; echo
+            [ ${#baseline[@]} -gt 0 ] && echo "Baseline: run [$BASELINE_RUN]($GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$BASELINE_RUN)" && echo
+            cat "$out.md"
+          } >> "$GITHUB_STEP_SUMMARY"
           exit $status
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         if: always()

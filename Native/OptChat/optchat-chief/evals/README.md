@@ -125,17 +125,19 @@ runs, with `--repeat` folded into one id) and each group's pass rate
 (`group_pass_rate`). Every run prints the pass rate per group. With
 `--baseline` naming an earlier run's directory or `summary.json`, it also
 prints, and writes to `diff.md` and `diff.json`, the pass rate per group
-before and after, the total over the groups both runs have (an `--only` run
-compares like for like), the cases that regressed, improved, are new or are
-missing, and the groups this run left out. Summaries from before `case_results` diff by group only.
+before and after and in total, counted over the cases both runs have (an
+`--only` run compares like for like; an old baseline without per-case
+results compares the groups both runs have), the cases that regressed,
+improved, are new or are missing, and the groups this run left out. Summaries from before `case_results` diff by group only.
 The diff is a report; the exit code still follows `--min-pass`.
 
     evals/run.sh --out /tmp/before            # on the old commit
     evals/run.sh --baseline /tmp/before       # on the new one
 
-In CI, run the `chief-evals` workflow by hand (Actions, Run workflow); it
-diffs against the last feat-cmux-next run with a `chief-evals` artifact, or
-the run id given as `baseline_run`. The diff is in the job summary.
+In CI, every run that reaches the model cases diffs against the last
+feat-cmux-next run with a `chief-evals` artifact. To run it on demand, use
+Actions, chief-evals, Run workflow; `baseline_run` picks another run id as
+the baseline. The diff is in the job summary.
 
 ## Numbers (summary.json)
 

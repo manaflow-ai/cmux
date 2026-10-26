@@ -222,9 +222,10 @@ it ships.
   the tailnet (`tag:ci` may reach port 31415), gate at an 80% pass rate
   (`vars.CHIEF_EVAL_MIN_PASS`), and are skipped with a warning when
   `chief_eval preflight` finds the route down. The table goes to the job
-  summary, rows to the `chief-evals` artifact. Run by hand (workflow
-  dispatch), it diffs per group and case against the last run's artifact
-  (`--baseline`, evals/README.md "Baseline diff").
+  summary, rows to the `chief-evals` artifact. Each run diffs per group and
+  case against the last run's artifact (`--baseline`, evals/README.md
+  "Baseline diff"); workflow dispatch runs it on demand, with
+  `baseline_run` to pick the baseline.
 
 ### Groups and owners
 
