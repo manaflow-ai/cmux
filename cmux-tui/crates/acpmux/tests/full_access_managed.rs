@@ -60,17 +60,6 @@ fn home(name: &str) -> PathBuf {
     )
     .unwrap();
     std::fs::set_permissions(&codex, std::fs::Permissions::from_mode(0o755)).unwrap();
-    // A profile pinning full access whose every start leaves a line in `pinned-started`.
-    let marked = dir.join("bin").join("pinned-marked");
-    std::fs::write(
-        &marked,
-        format!(
-            "#!/bin/sh\necho started >> '{}'\nexec python3 '{FAKE_AGENT}' \"$@\"\n",
-            dir.join("pinned-started").display()
-        ),
-    )
-    .unwrap();
-    std::fs::set_permissions(&marked, std::fs::Permissions::from_mode(0o755)).unwrap();
     let config = json!({
         "harnesses": {
             "codex": {"argv": [codex, "app-server"]},
@@ -86,7 +75,6 @@ fn home(name: &str) -> PathBuf {
             // reports one anyway), one through a config option other than its mode.
             "self-moder": {"argv": ["python3", FAKE_AGENT], "env": {"FAKE_NO_MODES": "1"}},
             "self-optioner": {"argv": ["python3", FAKE_AGENT]},
-            "pinned-marked": {"argv": [marked, "--yolo"]},
             // A harness with a full-access mode whose mode changes take 1.5 s to answer.
             "slow-switcher": {"argv": ["python3", FAKE_AGENT], "env": {"FAKE_PLAN_MODE": "1",
                               "FAKE_FULL_ACCESS": "1", "FAKE_SET_MODE_DELAY_MS": "1500"}},
@@ -354,19 +342,6 @@ const BOUND: &[Case] = &[
             assert_eq!(mode, "agent");
             let r = app.switch(&chat, "agent-full-access").await;
             assert_eq!(r["error"]["data"]["reason"], "full_access_off", "{r}");
-        })
-    }),
-    ("round 9: a profile pinning full access is not probed under the off", |name| {
-        Box::pin(async move {
-            let (dir, _daemon, mut app) = daemon(name, true).await;
-            app.push(off()).await;
-            let marker = dir.join("pinned-started");
-            // A probe that started before the push has left its line by the time a refresh
-            // answers; only what starts after it counts.
-            app.call("_acpmux/models", json!({"refresh": true})).await;
-            let _ = std::fs::remove_file(&marker);
-            app.call("_acpmux/models", json!({"refresh": true})).await;
-            assert!(!marker.exists(), "a model probe started pinned-marked under the off");
         })
     }),
     ("round 9: a switch into full access that the push overtakes is refused", |name| {

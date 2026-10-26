@@ -1233,10 +1233,6 @@ impl Hub {
         name: &str,
         profile: &HarnessProfile,
     ) -> anyhow::Result<usize> {
-        // MDM forces full access off (#23322): a profile pinning it is never started to probe.
-        if self.refuse_pinned_full_access(profile).is_err() {
-            anyhow::bail!("{name} pins full access, which MDM forces off");
-        }
         let (tx, mut rx) = tokio::sync::mpsc::channel(64);
         let tap: crate::agent::Tap = Arc::new(|_, _, _| true);
         // Never the home folder: the agent scans its folder at start (LAUNCH-NO-TCC-PROMPTS).
