@@ -379,11 +379,16 @@ def type_builds_glass(path: str, name: str) -> bool:
     return bool(owners) and glass_in(lines, blocks, owners)
 
 
+def declaration(lines: list[str], index: int) -> str:
+    """Line `index` and the next two, so a class declaration that wraps after its `:` reads whole."""
+    return "\n".join(lines[index : index + 3])
+
+
 def host_type(lines: list[str], blocks: Blocks, index: int, column: int) -> str:
     """The popup host's type: the popup class declared at `column`, else the type the call sits in
     ("" outside every type)."""
     owner = blocks.owner(index, column)
-    declared = POPUP_CLASS.match(lines[index], column)
+    declared = POPUP_CLASS.match(declaration(lines, index), column)
     if declared:
         return declared.group("name") if owner is None else f"{blocks.names[owner]}.{declared.group('name')}"
     return "" if owner is None else str(blocks.names[owner])
@@ -398,7 +403,7 @@ def host_has_glass(lines: list[str], blocks: Blocks, index: int, column: int) ->
     host is not the host: its glass does not count.
     """
     line = lines[index]
-    declared = POPUP_CLASS.match(line, column)
+    declared = POPUP_CLASS.match(declaration(lines, index), column)
     if declared:
         return glass_in(lines, blocks, blocks.resolve(index, column, declared.group("name")))
     # The call's argument may wrap onto the next lines.

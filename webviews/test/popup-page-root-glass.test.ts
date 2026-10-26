@@ -17,6 +17,8 @@ const REPO = join(import.meta.dir, "../..");
 const POPUP_PAGES: Record<string, string[]> = {
   "Packages/macOS/CmuxNext/Sources/CmuxNextApp/IconPicker/IconPickerService.swift": ["pages/icon-picker/styles.css"],
   "Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages/UpdateSurfaceIsland.swift": [
+    // main.tsx is the bundle the popover opens (on #/surface/<kind>): its sheets are the document's.
+    "pages/changelog/styles.css",
     "pages/changelog/updateSurfaces.css",
     "pages/changelog/surface.css",
   ],
@@ -129,7 +131,8 @@ test("the scan flags an opaque popup root and a root that never clears html", ()
     put(
       "child/styles.css",
       "html { background: transparent; }\nhtml[data-surface]>body { background: #fff; }\nbody.popup { background: #fff; }\n" +
-        ":is(body, #root) { background: #fff; }\n",
+        ":is(body, #root) { background: #fff; }\n:is(body, #root).popup { background: #fff; }\n" +
+        ":where(body)[data-open] { background: #fff; }\n",
     );
     // One page's two stylesheets: the second clears html for both, the first paints body.
     put("split/base.css", "html[data-surface] body { background: #fff; }\n");
@@ -167,6 +170,8 @@ test("the scan flags an opaque popup root and a root that never clears html", ()
       "child/styles.css:2: html[data-surface]>body { background: #fff }",
       "child/styles.css:3: body.popup { background: #fff }",
       "child/styles.css:4: :is(body, #root) { background: #fff }",
+      "child/styles.css:5: :is(body, #root).popup { background: #fff }",
+      "child/styles.css:6: :where(body)[data-open] { background: #fff }",
       "split/base.css:1: html[data-surface] body { background: #fff }",
     ]);
   } finally {

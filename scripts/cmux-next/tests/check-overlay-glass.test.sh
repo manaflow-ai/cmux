@@ -88,6 +88,11 @@ expect_pass qualified-nested-panel 'enum Panels { final class RowsPanel: NSPanel
 final class DemoPicker {
     let popup = NativePopupHost(panel: Panels.RowsPanel())
 }'
+# A panel class whose declaration wraps after its `:` is that panel.
+expect_pass wrapped-class-decl 'final class DemoMenuPanel:
+    NSPanel {
+    let card = Glass.makeOverlayPanel(content: rows)
+}'
 expect_fail host-call-sibling-glass popup-host 'final class BadPicker {
     private let popup = NativePopupHost(panel: NativePopupPanel(identifier: "cmux.bad"))
     func show() { popup.panel.adoptPopupStyle(card: NSVisualEffectView()) }

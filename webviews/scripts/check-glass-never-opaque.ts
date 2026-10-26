@@ -307,7 +307,21 @@ export function findOpaqueGlass(srcDir: string = SRC): string[] {
 // behind the page, so the page's own root (html, body, :root, #root) must let it show. The shared
 // page base paints html with the host's `--cmux-surface-background`, which is the opaque theme
 // surface over an opaque window, so a popup document paints its html transparent itself.
-const ROOT_COMPOUND = /^(?:html|body|:root|#root)(?:\[[^\]]*\]|:[\w-]+(?:\([^)]*\))?|[.#][\w-]+)*$/;
+const ROOT_SUFFIX = /^(?:\[[^\]]*\]|:[\w-]+(?:\([^)]*\))?|[.#][\w-]+)*$/;
+const ROOT_COMPOUND = new RegExp(`^(?:html|body|:root|#root)${ROOT_SUFFIX.source.slice(1)}`);
+
+// `:is(a, b)`, `:where(...)` or `:matches(...)` opening a compound: its list and what follows it.
+function leadingList(compound: string): { list: string; rest: string } | null {
+  const open = /^:(?:is|where|matches)\(/.exec(compound);
+  if (!open) return null;
+  let depth = 1;
+  for (let i = open[0].length; i < compound.length; i++) {
+    if (compound[i] === "(") depth++;
+    else if (compound[i] === ")" && --depth === 0)
+      return { list: compound.slice(open[0].length, i), rest: compound.slice(i + 1) };
+  }
+  return null;
+}
 
 // Split at separators outside (...) and [...], so :is(a, b) and [x="a b"] stay whole.
 function splitTopLevel(text: string, separator: RegExp): string[] {
@@ -334,10 +348,11 @@ function rootTarget(selector: string): "html" | "root" | null {
   for (const part of splitTopLevel(selector, /,/)) {
     const compounds = splitTopLevel(part.trim(), /[\s>+~]/).filter(Boolean);
     const last = compounds.at(-1) ?? "";
-    // :is(body, #root) and :where(...) match what their own list matches.
-    const listed = /^:(?:is|where|matches)\((.*)\)$/.exec(last);
+    // :is(body, #root) and :where(...) match what their own list matches; classes, attributes and
+    // pseudo-classes after the list narrow the same element.
+    const listed = leadingList(last);
     if (listed) {
-      const inner = rootTarget(listed[1] ?? "");
+      const inner = ROOT_SUFFIX.test(listed.rest) ? rootTarget(listed.list) : null;
       if (inner === "html" && compounds.length === 1) return "html";
       if (inner) target = "root";
       continue;
