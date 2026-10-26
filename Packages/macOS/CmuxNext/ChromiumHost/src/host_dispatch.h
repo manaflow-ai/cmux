@@ -196,14 +196,12 @@ class HostContext {
   void ProduceAttach(bool only_attach);
   void Bad(const std::string& what);
   void Forget(int32_t client_id, int chromium_id);
-  // devtools_set_placement named `token` (0: its own window) for the next
-  // DevTools of `chromium_id`: that view stays open until the DevTools closes,
-  // the browser closes or another placement replaces it (task 024).
+  // devtools_set_placement named `token` (0: its own window) for every
+  // DevTools of `chromium_id`, Chromium's own opens too (context menu
+  // Inspect). The placement stands, as the shim's does in process: its view
+  // stays open across DevTools closes until the inspected browser closes
+  // (Forget) or a placement naming another view replaces it (task 024).
   void PlaceDevTools(int chromium_id, uint64_t token);
-  // The DevTools of `chromium_id` closed, or the browser did: its placement's
-  // view closes, and the shim forgets the placement, so a later open never
-  // gets a parent view that is gone.
-  void ReleaseDevToolsView(int chromium_id);
   // Closes `token`'s view unless a browser or a DevTools placement still has it.
   void ReleaseView(uint64_t token);
   void Bind(int32_t client_id, int chromium_id);

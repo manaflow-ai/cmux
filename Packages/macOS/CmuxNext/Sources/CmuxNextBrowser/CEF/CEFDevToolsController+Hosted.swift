@@ -9,10 +9,12 @@ import AppKit
 ///
 /// In process, cmux places a DevTools inside `DEVTOOLS_WILL_OPEN`, which Chromium sends before it
 /// makes the DevTools and reads the placement when the event returns. The host does not wait for
-/// cmux, so the placement goes first: cmux places before each command that may open DevTools, and
-/// the event only keeps room in the pane. Chrome decides the same way in its browser process,
-/// from state it already has (chrome/browser/devtools/devtools_window.cc,
-/// `DevToolsWindow::Create` reads the dock side from prefs; it never asks the window's process).
+/// cmux, so the placement goes first and stands: cmux places once per inspected browser, before
+/// the first command or page menu that may open DevTools, and the host keeps it across DevTools
+/// closes until the browser closes. Chromium's own opens (the page menu's Inspect) land placed and
+/// keep their target. Chrome decides the same way in its browser process, from state it already has
+/// (chrome/browser/devtools/devtools_window.cc, `DevToolsWindow::Create` reads the dock side from
+/// prefs; it never asks the window's process). The event only keeps room in the pane.
 extension CEFDevToolsController {
     /// Whether `command` can make Chromium create DevTools (so a placement goes first).
     nonisolated static func mayCreateDevTools(_ command: BrowserDevToolsCommand) -> Bool {
@@ -22,10 +24,29 @@ extension CEFDevToolsController {
         }
     }
 
-    /// Host mode: tells the host that the next DevTools of `browser` goes in ``hostedPage``, sized
-    /// for the current dock. Once per open: the host drops the placement when that DevTools closes.
-    func placeHosted(in tab: CEFTab, browser: Int32, shim: CEFShimLibrary) {
-        guard hostedPlacement != browser else { return }
+    /// Host mode: makes the host hold a placement for the tab's browser (once per browser).
+    func placeHosted(in tab: CEFTab) {
+        guard tab.host.isHostMode, let browser = tab.browserID, hostedPlacement != browser else { return }
+        sendHostedPlacement(in: tab, browser: browser)
+    }
+
+    /// Host mode: sends the standing placement again for a new dock or size.
+    func refreshHostedPlacement(in tab: CEFTab) {
+        guard tab.host.isHostMode, let browser = tab.browserID, hostedPlacement == browser else { return }
+        sendHostedPlacement(in: tab, browser: browser)
+    }
+
+    /// Chromium's page menu is about to show. Its rows that open DevTools (Inspect) run in the host
+    /// after this, so in host mode the placement goes first. The host keeps the placement's view
+    /// for the tab's life, so a tab gets it only once a menu or command may open DevTools.
+    func pageMenuWillShow() {
+        guard let tab else { return }
+        placeHosted(in: tab)
+    }
+
+    /// Tells the host that every DevTools of `browser` goes in ``hostedPage``, sized for the current dock.
+    private func sendHostedPlacement(in tab: CEFTab, browser: Int32) {
+        guard let shim = tab.runtime.shim else { return }
         let page = hostedPage(for: tab)
         let size = layout.dock.isDocked
             ? layout.frames(in: tab.container.bounds, devToolsDocked: true).devTools.size
@@ -54,9 +75,9 @@ extension CEFDevToolsController {
         host.addSubview(page, positioned: .below, relativeTo: nil)
     }
 
-    /// Host mode: `DEVTOOLS_WILL_OPEN` came after Chromium made the DevTools. A placed one is in
-    /// ``hostedPage``: the pane keeps room for it. One nothing placed (an open the host started)
-    /// went to a window of the host's own; ``opened(browser:docked:)`` moves it.
+    /// Host mode: `DEVTOOLS_WILL_OPEN` came after Chromium made the DevTools. With a placement standing
+    /// it is in ``hostedPage``: the pane keeps room for it. Without one it went to a window of the
+    /// host's own; ``opened(browser:docked:)`` closes it.
     func hostedWillOpen(in tab: CEFTab) {
         guard let browser = tab.browserID, hostedPlacement == browser else {
             opening = false
@@ -67,14 +88,15 @@ extension CEFDevToolsController {
         if views.host.bounds.isEmpty { views.host.frame = tab.container.bounds }
     }
 
-    /// Host mode: a DevTools that opened in a window of the host's own, which never shows. One that
-    /// nothing placed closes and opens again in ``hostedPage``; one the host was told to place and
-    /// did not stays closed (opening it again would loop).
-    func closeUnplaced(in tab: CEFTab, wasPlaced: Bool) {
-        if wasPlaced {
-            tab.runtime.logger.error("Chromium Host opened DevTools outside its placement; closing it")
-        } else {
-            afterClose = .show
+    /// Host mode: a DevTools the shim made with no placement view, in a top-level window of the host.
+    /// A fault path: with the placement standing, only an open Chromium started before cmux placed
+    /// gets here. It closes, and `reopen` (the command cmux asked for, or a show) runs once after,
+    /// placed. A reopen that is still unplaced was made after the placement and stays closed.
+    func closeUnplaced(in tab: CEFTab, reopen: BrowserDevToolsCommand?) {
+        tab.runtime.logger.error("Chromium Host opened DevTools with no placement; closing it")
+        if let reopen {
+            afterClose = reopen
+            reopeningUnplaced = true
         }
         if let browser = tab.browserID {
             _ = tab.runtime.shim?.devToolsCommand(browser, CEFShimLibrary.DevToolsCommand.close, 0, 0)

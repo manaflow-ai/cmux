@@ -4,11 +4,12 @@ import Foundation
 import Testing
 
 /// Task 024 of plans/cmux-next/chrome-parity/p01-process.md: in host mode a tab's DevTools is a
-/// hosted context. Its placement names the token of the tab's DevTools `ChromiumHostPageView` and
-/// goes before the command that may open DevTools (the host does not wait for DEVTOOLS_WILL_OPEN);
-/// the page view shows the context id of the host's REPLY, docked in the pane or in the DevTools
-/// panel; a DevTools nothing placed closes and opens again placed. In process the placement stays
-/// inside DEVTOOLS_WILL_OPEN with the docked host view's pointer.
+/// hosted context. Its placement names the token of the tab's DevTools `ChromiumHostPageView`, goes
+/// before the first command or page menu that may open DevTools (the host does not wait for
+/// DEVTOOLS_WILL_OPEN) and stands across DevTools closes, so Chromium's own Inspect lands placed; the
+/// page view shows the context id of the host's REPLY, docked in the pane or in the DevTools panel; a
+/// DevTools nothing placed closes and opens once more placed. In process the placement stays inside
+/// DEVTOOLS_WILL_OPEN with the docked host view's pointer.
 @MainActor @Suite(.serialized, .timeLimit(.minutes(1))) struct CEFDevToolsHostedPlacementTests {
     private static let page: Int32 = 1
     private static let devTools: Int32 = 2
@@ -68,6 +69,7 @@ import Testing
         window.contentView?.addSubview(tab.container)
         tab.container.frame = NSRect(x: 0, y: 0, width: 800, height: 600)
 
+        controller.pageMenuWillShow()
         controller.perform(.show)
         #expect(DevToolsSpy.placements.isEmpty, "in process the placement waits for DEVTOOLS_WILL_OPEN")
 
@@ -113,12 +115,12 @@ import Testing
 
         #expect(hosted.contextID == 0)
         #expect(!tab.devTools.isOpen)
-        #expect(controller.hostedPlacement == nil)
+        #expect(controller.hostedPlacement == Self.page, "the placement stands after its DevTools closed")
     }
 
-    /// The host drops a placement when its DevTools closes, so the next open places again, with the
-    /// same page view token (one host view per tab, never one per open).
-    @Test func hostModeTheNextOpenPlacesAgainWithTheSameToken() throws {
+    /// The placement stands across DevTools closes: a close only sends it again (a new size), with the
+    /// same page view token (one host view per tab, never one per open), and the next open needs none.
+    @Test func hostModeThePlacementStandsAcrossDevToolsCloses() throws {
         let (runtime, root) = try Self.runtime(hostMode: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let tab = Self.tab(runtime)
@@ -129,11 +131,15 @@ import Testing
         runtime.handle(.devToolsClosed(browser: Self.page, devTools: Self.devTools))
         #expect(hosted.contextID == 0, "a closed DevTools' context stayed shown")
 
+        #expect(DevToolsSpy.placements.map(\.parent) == [Self.token(hosted), Self.token(hosted)])
+        DevToolsSpy.log = []
+
         Self.open(runtime, controller)
 
+        #expect(DevToolsSpy.log == ["command \(CEFShimLibrary.DevToolsCommand.show)"], "the next open placed again")
         #expect(controller.hostedPage === hosted)
-        #expect(DevToolsSpy.placements.map(\.parent) == [Self.token(hosted), Self.token(hosted)])
         #expect(hosted.superview === controller.views?.host)
+        #expect(tab.devTools.isOpen)
     }
 
     @Test func hostModeAnUndockedDevToolsShowsInTheDevToolsPanel() throws {
@@ -154,43 +160,80 @@ import Testing
         #expect(controller.window == nil)
     }
 
-    // MARK: Unplaced
+    // MARK: Chromium's own opens
 
-    /// An open the host started (no placement yet) lands in a window of the host's own, which never
-    /// shows: cmux closes it and opens it again, placed.
-    @Test func hostModeAnUnplacedDevToolsClosesAndOpensAgainPlaced() throws {
+    /// Chromium runs the page menu's Inspect in the host: the menu places first, so that DevTools
+    /// opens docked in the hosted page view at once, with no close and no second open.
+    @Test func hostModeThePageMenuPlacesBeforeChromiumsInspect() throws {
         let (runtime, root) = try Self.runtime(hostMode: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let tab = Self.tab(runtime)
         let controller = tab.devToolsController
+
+        controller.pageMenuWillShow()
+        let hosted = try #require(controller.hostedPage)
+        #expect(DevToolsSpy.placements.map(\.parent) == [Self.token(hosted)], "the page menu showed unplaced")
+        controller.pageMenuWillShow()
+        #expect(DevToolsSpy.placements.count == 1, "a standing placement goes once per browser")
+
+        runtime.handle(.devToolsWillOpen(browser: Self.page))
+        #expect(controller.reservesRoom)
+        runtime.handle(.devToolsOpened(browser: Self.page, devTools: Self.devTools, docked: true))
+
+        #expect(tab.devTools.isOpen)
+        #expect(DevToolsSpy.log == ["place \(Self.page)"], "Chromium's Inspect was closed or opened again")
+        #expect(DevToolsSpy.layerHosting == [Self.devTools])
+    }
+
+    /// An open Chromium started before anything placed lands in a top-level window of the host: it
+    /// closes and a show runs once, placed. A reopen that is still unplaced was made after the
+    /// placement (the host's fault) and stays closed, so this cannot loop.
+    @Test func hostModeAnUnplacedOpenClosesAndShowsOncePlaced() throws {
+        let (runtime, root) = try Self.runtime(hostMode: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let tab = Self.tab(runtime)
+        let controller = tab.devToolsController
+        let close = "command \(CEFShimLibrary.DevToolsCommand.close)"
+        let show = "command \(CEFShimLibrary.DevToolsCommand.show)"
 
         runtime.handle(.devToolsWillOpen(browser: Self.page))
         #expect(!controller.reservesRoom, "an unplaced DevTools is not in the pane")
         runtime.handle(.devToolsOpened(browser: Self.page, devTools: Self.devTools, docked: false))
         #expect(!tab.devTools.isOpen)
-        #expect(DevToolsSpy.log == ["command \(CEFShimLibrary.DevToolsCommand.close)"])
-
+        #expect(DevToolsSpy.log == [close])
         runtime.handle(.devToolsClosed(browser: Self.page, devTools: Self.devTools))
+        #expect(DevToolsSpy.log == [close, "place \(Self.page)", show])
 
-        #expect(DevToolsSpy.log == ["command \(CEFShimLibrary.DevToolsCommand.close)", "place \(Self.page)",
-                                    "command \(CEFShimLibrary.DevToolsCommand.show)"])
-    }
-
-    /// A placed DevTools that still opened in a window of its own closes and stays closed: opening
-    /// it again would loop.
-    @Test func hostModeAPlacedDevToolsOutsideItsPlacementStaysClosed() throws {
-        let (runtime, root) = try Self.runtime(hostMode: true)
-        defer { try? FileManager.default.removeItem(at: root) }
-        let tab = Self.tab(runtime)
-        let controller = tab.devToolsController
-        controller.perform(.show)
         runtime.handle(.devToolsWillOpen(browser: Self.page))
         runtime.handle(.devToolsOpened(browser: Self.page, devTools: Self.devTools, docked: false))
         runtime.handle(.devToolsClosed(browser: Self.page, devTools: Self.devTools))
 
-        #expect(DevToolsSpy.log == ["place \(Self.page)", "command \(CEFShimLibrary.DevToolsCommand.show)",
-                                    "command \(CEFShimLibrary.DevToolsCommand.close)"])
+        #expect(DevToolsSpy.log == [close, "place \(Self.page)", show, close, "place \(Self.page)"],
+                "an unplaced reopen opened again")
         #expect(!tab.devTools.isOpen)
+    }
+
+    /// The placed/unplaced decision comes from the event, not from cmux's state: a command cmux sends
+    /// while an unplaced open is under way only focuses that DevTools, so when it opens unplaced
+    /// (after cmux placed) it closes and the command runs again, placed, keeping its target.
+    @Test func hostModeACommandDuringAnUnplacedOpenRunsAgainPlaced() throws {
+        let (runtime, root) = try Self.runtime(hostMode: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let tab = Self.tab(runtime)
+        let controller = tab.devToolsController
+        let console = "command \(CEFShimLibrary.DevToolsCommand.console)"
+        let close = "command \(CEFShimLibrary.DevToolsCommand.close)"
+
+        runtime.handle(.devToolsWillOpen(browser: Self.page))
+        controller.perform(.console)
+        runtime.handle(.devToolsOpened(browser: Self.page, devTools: Self.devTools, docked: false))
+        runtime.handle(.devToolsClosed(browser: Self.page, devTools: Self.devTools))
+
+        #expect(DevToolsSpy.log == ["place \(Self.page)", console, close, "place \(Self.page)", console],
+                "the console command was lost with the unplaced DevTools")
+        runtime.handle(.devToolsWillOpen(browser: Self.page))
+        runtime.handle(.devToolsOpened(browser: Self.page, devTools: Self.devTools, docked: true))
+        #expect(tab.devTools.isOpen)
     }
 
     // MARK: Fixtures

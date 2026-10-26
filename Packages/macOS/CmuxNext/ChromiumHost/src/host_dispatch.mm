@@ -338,7 +338,6 @@ void HostContext::ForwardEvent(int kind, int browser_id, int request, int64_t a,
   TlvWriter event;
   EncodeEvent(event, kind, client, out_request, a, b, s1, s2);
   Post(MessageOf(kOpEvent, false, 0, event.Take()));
-  if (kind == CMUX_SHIM_DEVTOOLS_CLOSED) ReleaseDevToolsView(browser_id);
   if (kind == CMUX_SHIM_BEFORE_CLOSE) {
     Forget(client, browser_id);
     delegate_.BrowserClosed();
@@ -392,16 +391,6 @@ void HostContext::PlaceDevTools(int chromium_id, uint64_t token) {
   }
   if (token) devtools_view_of_browser_[chromium_id] = token;
   if (replaced && replaced != token) ReleaseView(replaced);
-}
-
-void HostContext::ReleaseDevToolsView(int chromium_id) {
-  auto held = devtools_view_of_browser_.find(chromium_id);
-  if (held == devtools_view_of_browser_.end()) return;
-  const uint64_t token = held->second;
-  devtools_view_of_browser_.erase(held);
-  // cmux places again before it asks for the next DevTools (CEFDevToolsController.placeHosted).
-  cmux_shim_devtools_set_placement(chromium_id, nullptr, 0, 0, 0, 0);
-  ReleaseView(token);
 }
 
 void HostContext::ReleaseView(uint64_t token) {

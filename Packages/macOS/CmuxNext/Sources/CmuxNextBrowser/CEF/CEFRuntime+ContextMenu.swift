@@ -9,6 +9,8 @@ extension CEFRuntime {
     /// model.
     func showContextMenu(browser: Int32, token: Int32, x: Int, y: Int, itemsJSON: String, paramsJSON: String) {
         guard let tab = tabsByBrowser[browser] else { return finishContextMenu(token, command: nil) }
+        // Host mode: the menu's Inspect opens DevTools in the host, so its placement goes first.
+        tab.devToolsController.pageMenuWillShow()
         let all = extensionStores.withRowIcons(BrowserContextMenuItem.decodeList(itemsJSON), profile: tab.profileID)
         let target = BrowserContextMenuTarget.chromium(paramsJSON)
         let location = CGPoint(x: x, y: y)

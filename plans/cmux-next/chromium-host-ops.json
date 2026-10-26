@@ -4411,16 +4411,16 @@
         "cmux_shim_devtools_set_placement"
       ],
       "needs": "kept",
-      "change": "In process only: the placement inside DEVTOOLS_WILL_OPEN, which the shim reads when the event returns. In host mode willOpen returns first (hostedWillOpen): the host made the DevTools already, in the place placeHosted gave it (task 024).",
+      "change": "In process only: the placement inside DEVTOOLS_WILL_OPEN, which the shim reads when the event returns. In host mode willOpen returns first (hostedWillOpen): the host made the DevTools already, in the place the standing placement gave it (placeHosted, task 024).",
       "task": "p01-process-024"
     },
     {
-      "site": "CmuxNextBrowser/CEF/CEFDevToolsController+Hosted.swift: CEFDevToolsController.placeHosted(in:browser:shim:)",
+      "site": "CmuxNextBrowser/CEF/CEFDevToolsController+Hosted.swift: CEFDevToolsController.sendHostedPlacement(in:browser:)",
       "exports": [
         "cmux_shim_devtools_set_placement"
       ],
       "needs": "kept",
-      "change": "Host mode only: parent_view is the token of the DevTools ChromiumHostPageView, never a view pointer, sent before each command that may open DevTools. A DevTools nothing placed (an open the host started) opens undocked in the host and closes to open again placed (closeUnplaced, task 024).",
+      "change": "Host mode only: parent_view is the token of the DevTools ChromiumHostPageView, never a view pointer. The placement stands for the inspected browser: sent once before the first command or page menu that may open DevTools (placeHosted, pageMenuWillShow), again for a new dock or size, and kept by the host across DevTools closes until the browser closes, so Chromium's own Inspect lands placed. A DevTools still made unplaced closes and opens once more placed (closeUnplaced, task 024).",
       "task": "p01-process-024"
     },
     {

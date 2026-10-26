@@ -35,9 +35,13 @@ final class CEFDevToolsController {
     /// Host mode: the view the DevTools page shows in, at the bottom of `views.host`. Kept while
     /// the tab lives, so its wire token names the same view of the host at every open.
     var hostedPage: ChromiumHostPageView?
-    /// Host mode: the inspected browser whose next DevTools the host places in ``hostedPage``; nil
-    /// again once that DevTools closed, when the host drops the placement.
+    /// Host mode: the inspected browser the host holds a standing placement for. Every DevTools of
+    /// it goes in ``hostedPage``, Chromium's own opens too; only a new browser of the tab places again.
     var hostedPlacement: Int32?
+    /// Host mode: the command cmux sent that may open DevTools, until a DevTools opens.
+    var hostedRequest: BrowserDevToolsCommand?
+    /// Host mode: the open under way is the reopen of one that opened unplaced (``closeUnplaced``).
+    var reopeningUnplaced = false
 
     init(layout: CEFDevToolsLayout) {
         self.layout = layout
@@ -47,7 +51,10 @@ final class CEFDevToolsController {
 
     func perform(_ command: BrowserDevToolsCommand) {
         guard let tab, !tab.isClosed, let browserID = tab.browserID, let shim = tab.runtime.shim else { return }
-        if tab.host.isHostMode, Self.mayCreateDevTools(command) { placeHosted(in: tab, browser: browserID, shim: shim) }
+        if tab.host.isHostMode, Self.mayCreateDevTools(command) {
+            placeHosted(in: tab)
+            if !tab.devTools.isOpen { hostedRequest = command }
+        }
         switch command {
         case .toggle:
             perform(tab.devTools.isOpen ? .close : .show)
@@ -59,6 +66,7 @@ final class CEFDevToolsController {
             _ = shim.devToolsCommand(browserID, CEFShimLibrary.DevToolsCommand.inspect, 0, 0)
         case .close:
             afterClose = nil
+            reopeningUnplaced = false
             _ = shim.devToolsCommand(browserID, CEFShimLibrary.DevToolsCommand.close, 0, 0)
         case .dock(let dock):
             move(to: dock)
@@ -92,6 +100,7 @@ final class CEFDevToolsController {
         rememberLayout()
         guard tab.devTools.isOpen else {
             tab.devTools.dock = dock
+            refreshHostedPlacement(in: tab)
             return
         }
         if wasDocked == dock.isDocked {
@@ -196,8 +205,12 @@ final class CEFDevToolsController {
         guard let tab else { return }
         opening = false
         devToolsBrowserID = browser
-        // `docked` = a child of a view the placement named; in host mode nothing else ever shows.
-        if tab.host.isHostMode, !docked { return closeUnplaced(in: tab, wasPlaced: hostedPlacement == tab.browserID) }
+        if tab.host.isHostMode {
+            let (request, reopened) = (hostedRequest, reopeningUnplaced)
+            (hostedRequest, reopeningUnplaced) = (nil, false)
+            // `docked`: the shim had the placement's view when it made this DevTools (PrepareDevToolsPopup).
+            if !docked { return closeUnplaced(in: tab, reopen: reopened ? nil : request ?? .show) }
+        }
         // `docked` = a child of a cmux view (the pane's DevTools host).
         tab.devTools = BrowserDevToolsState(isOpen: true, dock: docked ? layout.dock : .window)
         if docked, !layout.dock.isDocked { undockViews() }
@@ -222,9 +235,9 @@ final class CEFDevToolsController {
             tab.devToolsDeviceModeEnded()
         }
         devToolsBrowserID = nil
-        // The host dropped this DevTools' placement and its view: the next open places again.
-        hostedPlacement = nil
+        // The placement stands for the next open (its size may have changed while this one was open).
         hostedPage?.show(contextID: 0)
+        refreshHostedPlacement(in: tab)
         tab.devTools = BrowserDevToolsState(isOpen: false, dock: layout.dock)
         removeViews()
         tab.container.layoutContent()
