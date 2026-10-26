@@ -50,8 +50,7 @@ pub(super) fn resolve_missing(path: &Path) -> Result<PathBuf, String> {
 }
 
 /// Both lexical and canonical HOME names stay denied. Existing paths outside
-/// HOME are returned for direct masks; absent paths under an unwritable
-/// ancestor are skipped because this uid cannot create them later.
+/// HOME use A's full ancestor validation before being returned for masking.
 pub(super) fn denied_paths(
     home: &Path,
     read_denies: &[PathBuf],
@@ -82,23 +81,10 @@ pub(super) fn denied_paths(
             inside.insert(resolved);
             continue;
         }
-        match fs::symlink_metadata(&path) {
-            Ok(_) => {
-                outside.insert(path);
-            }
-            Err(e) if e.kind() == io::ErrorKind::NotFound => {
-                let ancestor = first_existing_ancestor(&path);
-                if !is_writable_by_uid(&ancestor)? {
-                    continue;
-                }
-                return Err(format!(
-                    "denied path {} is absent under writable ancestor {}",
-                    path.display(),
-                    ancestor.display()
-                ));
-            }
-            Err(e) => return Err(format!("cannot inspect {}: {e}", path.display())),
-        }
+        // Share A's full ancestor check, including ownership (chmod) and
+        // writable grandparents. outside_view also checks before masking.
+        validate_outside(&path, outside_stat)?;
+        outside.insert(path);
     }
     Ok((inside, outside.into_iter().collect()))
 }
