@@ -11,6 +11,8 @@ use tungstenite::protocol::frame::coding::CloseCode;
 use tungstenite::{Message, WebSocket, accept_hdr_with_config};
 
 use super::attachment_http;
+use super::connection_scheduler::{REQUEST_THREAD_QOS, spawn_request_thread};
+use super::listen;
 use super::page_files;
 use super::*;
 use crate::net_keepalive::{WebSocketKeepalive, enable_tcp_keepalive};
@@ -141,7 +143,7 @@ pub fn serve_websocket_with_keepalive(
     let thread_shutdown = shutdown.clone();
     let thread_connections = connections.clone();
     let render_service = Arc::new(RenderService::new());
-    let thread = std::thread::Builder::new().name("mux-ws-server".into()).spawn(move || {
+    let thread = cmux_threads::spawn("mux-ws-server", listen::ACCEPT_THREAD_QOS, move || {
         let mut backoff = crate::backoff::Backoff::new(ACCEPT_RETRY_INITIAL, ACCEPT_RETRY_MAX);
         while !thread_shutdown.load(Ordering::Acquire) {
             let (stream, peer) = match listener.accept() {
@@ -178,21 +180,20 @@ pub fn serve_websocket_with_keepalive(
             let render_service = render_service.clone();
             let connections = thread_connections.clone();
             let cleanup_connections = thread_connections.clone();
-            if std::thread::Builder::new()
-                .name("mux-ws-conn".into())
-                .spawn(move || {
-                    handle_websocket_connection_with_permit(
-                        mux,
-                        stream,
-                        peer,
-                        token.as_deref(),
-                        &rules,
-                        render_service,
-                        Some(permit),
-                    );
-                    connections.lock().recover_poison().remove(&id);
-                })
-                .is_err()
+            // It reads frames and runs their requests itself: a request thread.
+            if spawn_request_thread("mux-ws-conn", move || {
+                handle_websocket_connection_with_permit(
+                    mux,
+                    stream,
+                    peer,
+                    token.as_deref(),
+                    &rules,
+                    render_service,
+                    Some(permit),
+                );
+                connections.lock().recover_poison().remove(&id);
+            })
+            .is_err()
             {
                 cleanup_connections.lock().recover_poison().remove(&id);
             }
@@ -359,26 +360,24 @@ fn handle_websocket_connection_with_permit(
     );
     let writer_outbound = outbound;
     let writer_close = writer.clone();
-    let Ok(writer_thread) =
-        std::thread::Builder::new().name("mux-ws-out".into()).spawn(move || {
-            let mut writer_stream = writer_stream;
-            while let Some(item) = writer_outbound.recv() {
-                let result = match item {
-                    OutboundItem::Text(text) => writer_stream.write_websocket_text(&text),
-                    OutboundItem::Flush(flushed) => writer_stream.flush().map(|()| {
-                        let _ = flushed.send(());
-                    }),
-                };
-                if result.is_err() {
-                    writer_outbound.close();
-                    break;
-                }
+    let Ok(writer_thread) = cmux_threads::spawn("mux-ws-out", REQUEST_THREAD_QOS, move || {
+        let mut writer_stream = writer_stream;
+        while let Some(item) = writer_outbound.recv() {
+            let result = match item {
+                OutboundItem::Text(text) => writer_stream.write_websocket_text(&text),
+                OutboundItem::Flush(flushed) => writer_stream.flush().map(|()| {
+                    let _ = flushed.send(());
+                }),
+            };
+            if result.is_err() {
+                writer_outbound.close();
+                break;
             }
-            writer_close.close();
-            let _ = writer_stream.write_websocket_close();
-            let _ = writer_shutdown.shutdown(Shutdown::Both);
-        })
-    else {
+        }
+        writer_close.close();
+        let _ = writer_stream.write_websocket_close();
+        let _ = writer_shutdown.shutdown(Shutdown::Both);
+    }) else {
         writer.close();
         return;
     };

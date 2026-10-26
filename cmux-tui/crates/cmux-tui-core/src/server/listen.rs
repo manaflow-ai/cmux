@@ -17,6 +17,7 @@ use super::{
 };
 use crate::mux::Mux;
 use crate::platform::{self, transport};
+use cmux_threads::ThreadQos;
 
 /// A bound local server whose lifecycle endpoint is not ready yet.
 pub struct PendingServer {
@@ -413,7 +414,9 @@ impl ServedSession {
         };
         let mux = self.mux.clone();
         let render_service = self.render_service.clone();
-        let _ = std::thread::Builder::new().name("mux-conn".into()).spawn(move || {
+        // Set, not inherited: a thread inherits its creator's QoS on macOS, and
+        // the accept loop runs at Utility. Task 210 adds its blocking rules.
+        let _ = cmux_threads::spawn("mux-conn", ThreadQos::UserInteractive, move || {
             handle_connection_with_permit(mux, stream, render_service, Some(permit));
         });
     }
@@ -437,6 +440,18 @@ fn refuse_busy(mut stream: Box<dyn transport::Stream>) {
     let _ = stream.flush();
 }
 
+/// The QoS of an accept loop: Utility, since an accept waits for a client and
+/// runs no request. A Linux thread starts at its creator's nice value and an
+/// unprivileged one cannot lower it, so there the loop keeps the request class
+/// of the connection threads it starts (`cmux_threads::work` has a launcher
+/// for the same reason).
+pub(super) const ACCEPT_THREAD_QOS: ThreadQos =
+    if cfg!(any(target_os = "linux", target_os = "android")) {
+        super::connection_scheduler::REQUEST_THREAD_QOS
+    } else {
+        ThreadQos::Utility
+    };
+
 /// Start the accept loop for `listener`. Every accepted connection goes to
 /// `slot`: served by the session once it is attached, parked until then.
 pub(super) fn spawn_accept_loop(
@@ -444,7 +459,7 @@ pub(super) fn spawn_accept_loop(
     slot: Arc<super::restoring::SessionSlot>,
     shutdown: Arc<AtomicBool>,
 ) -> std::io::Result<()> {
-    std::thread::Builder::new().name("mux-server".into()).spawn(move || {
+    cmux_threads::spawn("mux-server", ACCEPT_THREAD_QOS, move || {
         // Resource exhaustion (EMFILE, ENFILE, ENOBUFS) persists across
         // accepts, and an immediate retry ran this thread at 100% CPU until
         // descriptors freed up. Space those retries; per-connection errors
