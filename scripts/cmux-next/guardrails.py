@@ -65,7 +65,8 @@ one move pool per push with the new-file rule (move_pools).
   scripts/cmux-next/guardrails.py                    # what HEAD adds over origin/feat-cmux-next
   scripts/cmux-next/guardrails.py --base A --head B   # exactly what B adds over A
   scripts/cmux-next/guardrails.py --list
-  scripts/cmux-next/guardrails.py --self-test        # the input-monitor, target-settings and safety-todo cases
+  scripts/cmux-next/guardrails.py --self-test        # the input-monitor, target-settings, safety-todo and
+                                                     # raw-continuation cases
 """
 from __future__ import annotations
 
@@ -2688,6 +2689,41 @@ MAIN_CLASS_RULES = (
 )
 RULES += MAIN_CLASS_RULES
 # ---------------------------------------------------------------- end of main-thread classes (p06-scheduler)
+
+
+# ---------------------------------------------------------------- raw-continuation (p10-stability-083)
+# A raw `with(Checked|Unsafe)(Throwing)?Continuation` traps on a second resume and leaks its task when the producer
+# drops it; CmuxSafeConcurrency's OnceContinuation resumes exactly once (a second resume is a no-op and a fault, a
+# drop throws `.abandoned`, cancellation only with `.cancellable`), as Chromium's base::OnceCallback runs once and
+# is safe to destroy unrun. The class and its scope are crash_ratchet.py's report-only `raw_continuation` (one
+# definition; `--report raw_continuation` prints the queue Q06 that tasks 084-088 empty). Local only, like every
+# guardrail. The block owns its lines from here to `RULES += RAW_CONTINUATION_RULES`.
+RAW_CONTINUATION = Matcher(ratchet.REPORT_SWIFT["raw_continuation"], allow_marker("raw-continuation"),
+                           code=ratchet_code)
+
+
+def raw_continuation(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
+    """New raw continuations in a package's Sources, outside the package that implements OnceContinuation."""
+    judged = [c for c in changes if c.path.endswith(".swift") and "/Sources/" in c.path
+              and not ratchet.report_owned("raw_continuation", c.path)]
+    return matcher_rule(RAW_CONTINUATION)(judged, moved)
+
+
+RAW_CONTINUATION_RULES = (
+    Rule("raw-continuation", "A raw continuation (`withCheckedContinuation`, `withCheckedThrowingContinuation`, "
+         "`withUnsafeContinuation`, `withUnsafeThrowingContinuation`) in a package's Sources",
+         "a second resume stops the process and a dropped continuation hangs its task for ever; the twelve private "
+         "resume-once helpers each fixed one site (p10-stability.md, CONTINUATIONS)",
+         "CmuxSafeConcurrency's `withOnceContinuation { once in ... }` (or `withOnceThrowingContinuation`, or "
+         "`withOnceContinuation(failingWith:)` for a typed error): resume exactly once, a drop throws "
+         "`OnceContinuationError.abandoned`; pass `cancellation: .cancellable` only where the producer's work is "
+         "cancelled too",
+         "// raw-continuation-allow: <why OnceContinuation cannot serve this site>",
+         raw_continuation,
+         scope=("Packages/",)),
+)
+RULES += RAW_CONTINUATION_RULES
+# ---------------------------------------------------------------- end of raw-continuation (p10-stability-083)
 
 
 # ---------------------------------------------------------------- wakeup-ext (p14-energy, PL-energy)
@@ -5449,11 +5485,48 @@ SAFETY_TODO_CASES = (
 )
 
 
+SELF_TEST_WAIT = "Packages/Shared/Linked/Sources/Linked/Wait.swift"
+SELF_TEST_OLD_WAIT = ("func value() async -> Int {\n"
+                      "    await withCheckedContinuation { continuation in\n"
+                      "        continuation.resume(returning: 1)\n    }\n}\n")
+SELF_TEST_CONTINUATION_BASE = {SELF_TEST_WAIT: SELF_TEST_OLD_WAIT}
+SELF_TEST_NEW_WAIT = ("func next() async throws -> Int {{\n"
+                      "    try await {call} {{ continuation in\n"
+                      "        continuation.resume(returning: 2)\n    }}\n}}\n")
+RAW_CONTINUATION_CASES = (
+    *((f"a new {call} in a package's Sources",
+       {"Packages/macOS/CmuxNext/Sources/CmuxNextApp/Next.swift": SELF_TEST_NEW_WAIT.format(call=call)}, True)
+      for call in ("withCheckedContinuation", "withCheckedThrowingContinuation", "withUnsafeContinuation",
+                   "withUnsafeThrowingContinuation")),
+    ("a new raw continuation in a Shared package", {SELF_TEST_WAIT: SELF_TEST_OLD_WAIT
+                                                     + SELF_TEST_NEW_WAIT.format(call="withCheckedContinuation")},
+     True),
+    ("an old raw continuation moved to another file",
+     {SELF_TEST_WAIT: "", "Packages/Shared/Linked/Sources/Linked/Moved.swift": SELF_TEST_OLD_WAIT}, False),
+    ("an old raw continuation replaced by OnceContinuation",
+     {SELF_TEST_WAIT: SELF_TEST_OLD_WAIT.replace("await withCheckedContinuation",
+                                                 "try await withOnceContinuation")}, False),
+    ("a raw continuation inside CmuxSafeConcurrency, which implements OnceContinuation",
+     {"Packages/Shared/CmuxSafeConcurrency/Sources/CmuxSafeConcurrency/Wait.swift":
+      SELF_TEST_NEW_WAIT.format(call="withCheckedContinuation")}, False),
+    ("a raw continuation in a test",
+     {"Packages/Shared/Linked/Tests/LinkedTests/WaitTests.swift":
+      SELF_TEST_NEW_WAIT.format(call="withCheckedContinuation")}, False),
+    ("a raw continuation named only in a comment or a string",
+     {SELF_TEST_WAIT: SELF_TEST_OLD_WAIT + "// replaces withCheckedContinuation\n"
+                                           "let note = \"withCheckedContinuation\"\n"}, False),
+    ("a reviewed escape",
+     {SELF_TEST_WAIT: SELF_TEST_OLD_WAIT + SELF_TEST_NEW_WAIT.format(call="withUnsafeContinuation").replace(
+         "    try await", "    // raw-continuation-allow: fixture for the escape\n    try await")}, False),
+)
+
+
 # (rule, base files, cases): each case is one commit over its suite's base.
 SELF_TEST_SUITES = (
     ("input-monitor", SELF_TEST_BASE, SELF_TEST_CASES),
     ("target-settings", SELF_TEST_MANIFEST_BASE, TARGET_SETTINGS_CASES),
     ("safety-todo", SELF_TEST_SAFETY_BASE, SAFETY_TODO_CASES),
+    ("raw-continuation", SELF_TEST_CONTINUATION_BASE, RAW_CONTINUATION_CASES),
 )
 
 
@@ -5519,8 +5592,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--head", default="HEAD")
     parser.add_argument("--list", action="store_true", help="print the rules")
     parser.add_argument("--self-test", action="store_true",
-                        help="judge the input-monitor, target-settings and safety-todo rules' refuse and escape "
-                             "cases in a scratch repository")
+                        help="judge the input-monitor, target-settings, safety-todo and raw-continuation rules' "
+                             "refuse and escape cases in a scratch repository")
     args = parser.parse_args(argv)
     if args.self_test:
         return self_test()
