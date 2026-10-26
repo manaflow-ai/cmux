@@ -490,6 +490,8 @@ final class CloudService {
     func startHubForSSHRoutes() async {
         guard unavailableReason == nil, auth.isSignedIn else { return }
         guard let hub, (try? await work.run(.userVisible, mayBlock: .files) { [paths] in paths.hasSSHRoutes() }) == true else { return }
+        // Cloud may have been turned off while the check waited: then no hub starts.
+        guard unavailableReason == nil, auth.isSignedIn else { return }
         do { _ = try await hub.socketPath() } catch { logger.error("wireguard hub for ssh routes: \(String(describing: error), privacy: .public)") }
     }
 

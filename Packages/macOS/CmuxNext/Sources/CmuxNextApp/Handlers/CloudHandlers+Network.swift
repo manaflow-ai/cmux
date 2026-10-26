@@ -109,12 +109,17 @@ extension CloudHandlers {
                 return installed
             }
             var done: [ActionResultValue] = [.string("ssh-key")] + local.done.map(ActionResultValue.string)
-            var left = local.pending.map(ActionResultValue.string)
-            if local.pending.isEmpty {
+            var left: [ActionResultValue] = []
+            // OpenSSH's own reading of every config says whether `ssh NAME` is this route now.
+            let resolved = try? await SSHProcessRunner.run(["/usr/bin/ssh", "-G", "--", name], environment: await SSHService.environment(),
+                                                           deadline: .seconds(10), label: "ssh -G")
+            if let resolved, resolved.status == 0, enrollment.routeIsLive(resolved.stdout) {
+                done.append(.string("ssh-route"))
                 left += await acpmuxPeer(name, cli: HostCLI(binary: binary, environment: SSHService.environment), done: &done).map(ActionResultValue.string)
             } else {
-                // `ssh NAME` may still mean another machine here: no acpmux step goes to it.
-                left.append(.string("acpmux-peer: after the include, run \(rerun)"))
+                // `ssh NAME` reaches another machine here, or nothing: no acpmux step goes to it.
+                let include = "Include \(CloudMachineEnrollment.configQuoted(home.appendingPathComponent(".ssh/cmux-cloud/config").path))"
+                left.append(.string("ssh-route: add `\(include)` as the first line of ~/.ssh/config (before any Host or Match), then run \(rerun)"))
             }
             return ["machine_id": .string(machineID), "name": .string(name), "ssh_host": .string(name), "address": .string(address),
                     "steps_done": .array(done), "steps_pending": .array(left + [.string("fleet-registry")]), "registry_command": .string(registry),

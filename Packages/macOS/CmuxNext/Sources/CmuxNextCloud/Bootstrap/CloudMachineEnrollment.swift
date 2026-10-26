@@ -129,25 +129,15 @@ public struct CloudMachineEnrollment: Equatable, Sendable {
         return (kept.map(String.init) + ["\(address) \(hostKey)"]).joined(separator: "\n") + "\n"
     }
 
-    /// `~/.ssh/config` with the include of the cmux file first (an `Include` after a `Host` or
-    /// `Match` applies only inside that block); unchanged when it already comes first.
-    public static func including(_ include: String, in config: String) -> String {
-        let line = "Include \(configQuoted(include))"
-        for raw in config.split(separator: "\n") {
-            let text = raw.trimmingCharacters(in: .whitespaces)
-            if text == line { return config }
-            // ssh's keyword: up to the first blank, tab or `=` (`Host=x`, `Host\tx`), any case.
-            let word = text.prefix { $0 != " " && $0 != "\t" && $0 != "=" }.lowercased()
-            if word == "host" || word == "match" { break }
-        }
-        return "# cmux Cloud machines (cmux cloud enroll-machine)\n\(line)\n\n" + config
+    /// A new `~/.ssh/config` holding only the include of cmux's file.
+    static func newConfig(including include: String) -> String {
+        "# cmux Cloud machines (cmux cloud enroll-machine)\nInclude \(configQuoted(include))\n"
     }
 
     /// Writes this Mac's side (blocking file I/O: call it off the main thread): the `Host` block
-    /// in `<home>/.ssh/cmux-cloud/config`, the pinned `hostKey` in its `known_hosts`, and the
-    /// include at the top of `<home>/.ssh/config`. Answers the steps it took and the ones left: a
-    /// `~/.ssh/config` that is a symlink (a dotfiles checkout) is never replaced; the person adds
-    /// the include line there.
+    /// in `<home>/.ssh/cmux-cloud/config`, the pinned `hostKey` in its `known_hosts`, and a new
+    /// `<home>/.ssh/config` with the include when there is none. An existing `~/.ssh/config` is
+    /// never written; whether it reaches the route, `ssh -G` says (``routeIsLive(_:)``).
     public func installOnThisMac(hostKey: String, cli: String, hubLink: String, identityFile: String?, home: URL) throws -> (done: [String], pending: [String]) {
         let ssh = home.appendingPathComponent(".ssh", isDirectory: true)
         let folder = ssh.appendingPathComponent("cmux-cloud", isDirectory: true)
@@ -166,39 +156,39 @@ public struct CloudMachineEnrollment: Equatable, Sendable {
         try Self.write(pinning(hostKey, into: try read(known)), to: known)
         let block = hostBlock(cli: cli, hubLink: hubLink, knownHosts: known.path, identityFile: identityFile)
         do { try Self.write(try upserting(block, into: try read(config)), to: config) } catch is MarkersDamaged { throw MarkersDamaged(path: config.path) }
-        var done = ["ssh-config", "known-hosts"], pending: [String] = []
-        let main = ssh.appendingPathComponent("config")
-        if try Self.include(config.path, in: main) { done.append("ssh-config-include") } else {
-            pending.append("ssh-config-include: add `Include \(Self.configQuoted(config.path))` at the top of \(main.path)")
-        }
-        return (done, pending)
+        var done = ["ssh-config", "known-hosts"]
+        if try Self.createIncluding(config.path, at: ssh.appendingPathComponent("config")) { done.append("ssh-config-include") }
+        return (done, [])
     }
 
-    /// Puts the include first in the person's `~/.ssh/config`, editing the file in place through a
-    /// descriptor opened with `O_NOFOLLOW`: a symlink (a dotfiles checkout) is never followed or
-    /// replaced, and the file keeps its inode and mode. True when it is there (now or already);
-    /// false for a symlink, which the person edits. A file that changed between the read and the
-    /// write (same descriptor, read again) throws ``ConfigChanged``.
-    static func include(_ include: String, in main: URL) throws -> Bool {
-        let fd = open(main.path, O_RDWR | O_CREAT | O_NOFOLLOW | O_CLOEXEC, 0o600)
-        if fd < 0, errno == ELOOP { return false }
+    /// Creates the person's `~/.ssh/config` holding only the include, when there is none
+    /// (`O_CREAT | O_EXCL`: an existing file or symlink is never opened, so nothing of the
+    /// person's is ever rewritten). False when one exists: then `ssh -G` decides
+    /// (``routeIsLive(_:)``), and the person adds the include if it is missing.
+    static func createIncluding(_ include: String, at main: URL) throws -> Bool {
+        let fd = open(main.path, O_WRONLY | O_CREAT | O_EXCL | O_NOFOLLOW | O_CLOEXEC, 0o600)
+        if fd < 0, errno == EEXIST { return false }
         guard fd >= 0 else { throw POSIXError(.init(rawValue: errno) ?? .EIO) }
         let handle = FileHandle(fileDescriptor: fd, closeOnDealloc: true)
-        let readAll = { () throws -> String in
-            try handle.seek(toOffset: 0)
-            guard let text = String(data: try handle.blockingReadToEnd() ?? Data(), encoding: .utf8) else {
-                throw CocoaError(.fileReadInapplicableStringEncoding, userInfo: [NSFilePathErrorKey: main.path])
-            }
-            return text
-        }
-        let before = try readAll(), after = including(include, in: before)
-        guard after != before else { return true }
-        guard try readAll() == before else { throw ConfigChanged(path: main.path) }
-        try handle.seek(toOffset: 0)
-        try handle.blockingWrite(contentsOf: Data(after.utf8))
-        try handle.truncate(atOffset: UInt64(after.utf8.count))
+        try handle.blockingWrite(contentsOf: Data(newConfig(including: include).utf8))
         try handle.synchronize()
         return true
+    }
+
+    /// Whether `ssh -G NAME`'s answer (OpenSSH's own reading of every config and include) is this
+    /// machine's route: its address, the `wg dial` proxy and cmux's pinned known_hosts. Anything
+    /// else (no include, an earlier `Host NAME` elsewhere, a conditional include) is not.
+    public func routeIsLive(_ sshG: String) -> Bool {
+        var seen: [String: String] = [:]
+        for line in sshG.split(whereSeparator: \.isNewline) {
+            guard let space = line.firstIndex(of: " ") else { continue }
+            let key = String(line[..<space]), value = String(line[line.index(after: space)...])
+            if seen[key] == nil { seen[key] = value }
+        }
+        return seen["hostname"] == address && seen["user"] == "cmux"
+            && seen["proxycommand"]?.contains(" wg dial --hub ") == true
+            && seen["userknownhostsfile"]?.hasSuffix("/.ssh/cmux-cloud/known_hosts") == true
+            && seen["stricthostkeychecking"] == "true"
     }
 
     /// The file's text; "" when it does not exist. A file that exists but cannot be read as UTF-8
@@ -210,9 +200,6 @@ public struct CloudMachineEnrollment: Equatable, Sendable {
 
     /// A path ssh_config or the `ProxyCommand` shell would read as more than a path.
     public struct PathNotPlain: Error, Equatable { public var path: String }
-
-    /// The person's ssh config changed while enroll-machine was writing it.
-    public struct ConfigChanged: Error, Equatable { public var path: String }
 
     /// A file of cmux's own folder, owner-only, through a temporary file renamed over the old one.
     static func write(_ text: String, to url: URL) throws {
@@ -230,7 +217,7 @@ public struct CloudMachineEnrollment: Equatable, Sendable {
     static func end(_ name: String) -> String { "# <<< cmux machine \(name)" }
 
     /// A plain path in ssh_config: quoted when it has a space (the app bundle's `cmux NEXT.app`).
-    static func configQuoted(_ text: String) -> String { text.contains(" ") ? "\"\(text)\"" : text }
+    public static func configQuoted(_ text: String) -> String { text.contains(" ") ? "\"\(text)\"" : text }
 
     func shellQuoted(_ text: String) -> String { "'" + text.replacingOccurrences(of: "'", with: "'\\''") + "'" }
 }

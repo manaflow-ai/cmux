@@ -68,44 +68,12 @@ struct CloudEnrollMachineTests {
         }
     }
 
-    @Test func anIncludeUnderAHostIsNotFirst() {
-        let config = "Host a\n  Include /Users/me/.ssh/cmux-cloud/config\n"
-        let fixed = CloudMachineEnrollment.including("/Users/me/.ssh/cmux-cloud/config", in: config)
-        #expect(fixed.hasPrefix("# cmux Cloud machines"), "the Include under Host a applies only to a")
-        #expect(fixed.hasSuffix(config))
-    }
-
-    @Test func anUnreadableConfigIsNeverReplaced() throws {
-        let home = FileManager.default.temporaryDirectory.appendingPathComponent("enroll-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: home) }
-        let ssh = home.appendingPathComponent(".ssh", isDirectory: true)
-        try FileManager.default.createDirectory(at: ssh, withIntermediateDirectories: true)
-        let bytes = Data([0x48, 0x6f, 0x73, 0x74, 0x20, 0x78, 0x0a, 0x23, 0xff, 0xfe, 0x0a]) // "Host x\n#" then not UTF-8
-        try bytes.write(to: ssh.appendingPathComponent("config"))
-        #expect(throws: (any Error).self) {
-            _ = try Self.enrollment.installOnThisMac(hostKey: Self.hostKey, cli: "/bin/cmux-tui", hubLink: "/tmp/hub.sock", identityFile: nil, home: home)
-        }
-        #expect(try Data(contentsOf: ssh.appendingPathComponent("config")) == bytes)
-    }
-
     @Test func damagedMarkersAreRefusedNotGuessed() {
         let block = "# >>> cmux machine lane-vm-1 vm-1\nNEW\n# <<< cmux machine lane-vm-1\n"
         for damaged in ["# >>> cmux machine lane-vm-1 vm-1\nHost precious\n", "Host precious\n# <<< cmux machine lane-vm-1\n",
                         "# >>> cmux machine lane-vm-1 vm-1\n# >>> cmux machine lane-vm-1 vm-1\n# <<< cmux machine lane-vm-1\n"] {
             #expect(throws: CloudMachineEnrollment.MarkersDamaged.self) { try Self.enrollment.upserting(block, into: damaged) }
         }
-    }
-
-    @Test func aHostWrittenWithATabOrAnEqualsSignEndsTheTop() {
-        for host in ["Host\tother", "Host=other", "HOST other", "match all"] {
-            let config = "\(host)\n  Include /Users/me/.ssh/cmux-cloud/config\n"
-            #expect(CloudMachineEnrollment.including("/Users/me/.ssh/cmux-cloud/config", in: config).hasPrefix("# cmux Cloud machines"), "\(host)")
-        }
-    }
-
-    @Test func anIncludeWithASpaceIsQuoted() {
-        let included = CloudMachineEnrollment.including("/Users/first last/.ssh/cmux-cloud/config", in: "")
-        #expect(included.contains(#"Include "/Users/first last/.ssh/cmux-cloud/config""#))
     }
 
     @Test func aSymlinkedCmuxFolderIsRefused() throws {
@@ -121,61 +89,55 @@ struct CloudEnrollMachineTests {
         #expect(try FileManager.default.contentsOfDirectory(atPath: elsewhere.path).isEmpty)
     }
 
-    @Test func theIncludeGoesFirstOnce() throws {
-        let config = "Host a\n  User b\n"
-        let included = CloudMachineEnrollment.including("/Users/me/.ssh/cmux-cloud/config", in: config)
-        #expect(included.hasSuffix(config))
-        #expect(included.contains("Include /Users/me/.ssh/cmux-cloud/config\n"))
-        let include = try #require(included.range(of: "Include")), host = try #require(included.range(of: "Host a"))
-        #expect(include.lowerBound < host.lowerBound)
-        #expect(CloudMachineEnrollment.including("/Users/me/.ssh/cmux-cloud/config", in: included) == included)
-    }
-
-    @Test func installingWritesThisMacsFilesAndKeepsTheirOtherLines() throws {
+    static func home() throws -> (home: URL, ssh: URL) {
         let home = FileManager.default.temporaryDirectory.appendingPathComponent("enroll-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: home) }
         let ssh = home.appendingPathComponent(".ssh", isDirectory: true)
         try FileManager.default.createDirectory(at: ssh, withIntermediateDirectories: true)
-        try "Host mine\n  User me\n".write(to: ssh.appendingPathComponent("config"), atomically: true, encoding: .utf8)
-        let run = { try Self.enrollment.installOnThisMac(hostKey: Self.hostKey, cli: "/bin/cmux-tui", hubLink: "/tmp/hub.sock", identityFile: nil, home: home) }
-        let first = try run()
-        #expect(first.done == ["ssh-config", "known-hosts", "ssh-config-include"])
-        #expect(first.pending.isEmpty)
-        let second = try run()
-        #expect(second.done == ["ssh-config", "known-hosts"], "the include is there already")
+        return (home, ssh)
+    }
+
+    func install(_ home: URL) throws -> (done: [String], pending: [String]) {
+        try Self.enrollment.installOnThisMac(hostKey: Self.hostKey, cli: "/bin/cmux-tui", hubLink: "/tmp/hub.sock", identityFile: nil, home: home)
+    }
+
+    @Test func withNoSSHConfigOneIsCreatedHoldingTheInclude() throws {
+        let (home, ssh) = try Self.home()
+        defer { try? FileManager.default.removeItem(at: home) }
+        #expect(try install(home).done == ["ssh-config", "known-hosts", "ssh-config-include"])
         let main = try String(contentsOf: ssh.appendingPathComponent("config"), encoding: .utf8)
-        #expect(main.contains("Host mine\n  User me\n"))
+        #expect(main.contains("Include \(ssh.appendingPathComponent("cmux-cloud/config").path)\n"))
+        #expect(try install(home).done == ["ssh-config", "known-hosts"], "a rerun leaves it alone")
         let cmux = try String(contentsOf: ssh.appendingPathComponent("cmux-cloud/config"), encoding: .utf8)
         #expect(cmux.components(separatedBy: "Host lane-vm-1").count == 2, "one block after two runs")
         let mode = try FileManager.default.attributesOfItem(atPath: ssh.appendingPathComponent("cmux-cloud/known_hosts").path)[.posixPermissions] as? Int
         #expect(mode == 0o600)
     }
 
-    @Test func theIncludeEditKeepsTheFilesInodeAndMode() throws {
-        let home = FileManager.default.temporaryDirectory.appendingPathComponent("enroll-\(UUID().uuidString)", isDirectory: true)
+    @Test func anExistingSSHConfigOrSymlinkIsNeverWritten() throws {
+        let (home, ssh) = try Self.home()
         defer { try? FileManager.default.removeItem(at: home) }
-        let ssh = home.appendingPathComponent(".ssh", isDirectory: true), main = ssh.appendingPathComponent("config")
-        try FileManager.default.createDirectory(at: ssh, withIntermediateDirectories: true)
-        try "Host mine\n".write(to: main, atomically: true, encoding: .utf8)
-        try FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: main.path)
-        let inode = try FileManager.default.attributesOfItem(atPath: main.path)[.systemFileNumber] as? Int
-        _ = try Self.enrollment.installOnThisMac(hostKey: Self.hostKey, cli: "/bin/cmux-tui", hubLink: "/tmp/hub.sock", identityFile: nil, home: home)
-        let after = try FileManager.default.attributesOfItem(atPath: main.path)
-        #expect(after[.systemFileNumber] as? Int == inode, "edited in place, not replaced")
-        #expect(after[.posixPermissions] as? Int == 0o644)
-        #expect(try String(contentsOf: main, encoding: .utf8).hasSuffix("Host mine\n"))
-    }
-
-    @Test func aSymlinkedSSHConfigIsLeftForThePerson() throws {
-        let home = FileManager.default.temporaryDirectory.appendingPathComponent("enroll-\(UUID().uuidString)", isDirectory: true)
-        defer { try? FileManager.default.removeItem(at: home) }
-        let ssh = home.appendingPathComponent(".ssh", isDirectory: true)
-        try FileManager.default.createDirectory(at: ssh, withIntermediateDirectories: true)
+        let bytes = Data([0x48, 0x6f, 0x73, 0x74, 0x20, 0x78, 0x0a, 0x23, 0xff, 0xfe, 0x0a]) // "Host x\n#", then not UTF-8
+        try bytes.write(to: ssh.appendingPathComponent("config"))
+        #expect(try install(home).done == ["ssh-config", "known-hosts"])
+        #expect(try Data(contentsOf: ssh.appendingPathComponent("config")) == bytes)
         let dotfile = home.appendingPathComponent("dotfiles-ssh-config")
         try "Host mine\n".write(to: dotfile, atomically: true, encoding: .utf8)
+        try FileManager.default.removeItem(at: ssh.appendingPathComponent("config"))
         try FileManager.default.createSymbolicLink(at: ssh.appendingPathComponent("config"), withDestinationURL: dotfile)
-        let result = try Self.enrollment.installOnThisMac(hostKey: Self.hostKey, cli: "/bin/cmux-tui", hubLink: "/tmp/hub.sock", identityFile: nil, home: home)
-        #expect(result.pending.count == 1)
+        _ = try install(home)
         #expect(try String(contentsOf: dotfile, encoding: .utf8) == "Host mine\n", "the dotfile is untouched")
+    }
+
+    @Test func aNewConfigQuotesAnIncludeWithASpace() {
+        #expect(CloudMachineEnrollment.newConfig(including: "/Users/first last/.ssh/cmux-cloud/config").hasSuffix("Include \"/Users/first last/.ssh/cmux-cloud/config\"\n"))
+    }
+
+    @Test func theRouteIsLiveOnlyWhenSSHResolvesNameToIt() {
+        let ours = "user cmux\nhostname 10.0.0.7\nstricthostkeychecking true\nuserknownhostsfile /Users/me/.ssh/cmux-cloud/known_hosts\n"
+            + "proxycommand '/bin/cmux-tui' wg dial --hub '/tmp/hub.sock' %h %p\n"
+        #expect(Self.enrollment.routeIsLive(ours))
+        #expect(!Self.enrollment.routeIsLive("user leo\nhostname lane-vm-1\n"), "no include: ssh would dial the name itself")
+        #expect(!Self.enrollment.routeIsLive(ours.replacingOccurrences(of: "10.0.0.7", with: "10.9.9.9")), "an earlier Host lane-vm-1 elsewhere wins")
+        #expect(!Self.enrollment.routeIsLive(ours.replacingOccurrences(of: "true", with: "ask")))
     }
 }
