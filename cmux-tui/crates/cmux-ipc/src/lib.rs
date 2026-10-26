@@ -10,6 +10,11 @@
 //!
 //! The Swift reader (CmuxNextIPC) and this crate share the golden vectors in
 //! spec/fixtures/ipc-frames.
+//!
+//! Bindings come from the schema at build time (section 3.3): `build.rs`
+//! reads spec/sdk-schema.json and spec/resource-operations-v2.json and writes
+//! Rust into OUT_DIR, never into git. `schema::SCHEMA_IDENTITY` names the
+//! schema bytes a build compiled.
 
 #![forbid(unsafe_code)]
 #![deny(
@@ -36,12 +41,15 @@
 
 pub mod frame;
 pub mod reader;
+pub mod schema;
+mod schema_digest;
 
 pub use frame::{
     Aux, AuxClass, BadMessage, CallAux, CallFlags, Frame, FrameHeader, FrameKind, HEADER_LEN,
     MAGIC, MAX_FRAME_PAYLOAD, PriorityHint,
 };
 pub use reader::{FrameReader, MAX_JSON_LINE, Message, ReaderLimits};
+pub use schema::{SCHEMA_IDENTITY, SchemaIdentity};
 
 #[cfg(test)]
 mod cmux_ipc_tests;

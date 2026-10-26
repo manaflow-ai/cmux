@@ -5,11 +5,15 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "Binary frames of the cmux app-daemon connection: the 16-byte header, frame kinds and a zero-copy reader"
+description = "The cmux app-daemon connection: binary frames, a zero-copy reader, and bindings built from spec/sdk-schema.json and spec/resource-operations-v2.json at build time"
 
 [dependencies]
 bytes.workspace = true
 memchr.workspace = true
+
+# build.rs reads both schema files; it writes only to OUT_DIR.
+[build-dependencies]
+serde_json.workspace = true
 
 [dev-dependencies]
 serde_json.workspace = true

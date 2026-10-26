@@ -4,6 +4,7 @@
 mod frame_tests;
 mod golden_tests;
 mod reader_tests;
+mod schema_tests;
 
 use bytes::{Bytes, BytesMut};
 
