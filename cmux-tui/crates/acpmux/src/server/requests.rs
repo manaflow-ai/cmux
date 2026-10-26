@@ -1491,6 +1491,9 @@ async fn dispatch_request(
             // afterSeq alone pages forward (oldest first); otherwise the page
             // is the newest `limit` records before beforeSeq (or the end).
             let newest = after.is_none() || before.is_some();
+            // Read before the page, as `_acpmux/events` does: every record up to it is in the page
+            // (of the kinds asked), so a client may take the page as covering it.
+            let last = s.meta().last_seq;
             let page = hub
                 .events_page(&s.id, after.unwrap_or(0), before, limit, max_bytes, newest, &filter)
                 .map_err(|e| RpcError::internal(e.to_string()))?;
@@ -1498,7 +1501,7 @@ async fn dispatch_request(
             // Who has the chat open now (`hub/presence.rs`), this attachment included.
             let presence = hub.presence.snapshot(&s.id);
             Ok(
-                json!({"session": detail, "events": events, "hasMore": page.has_more, "lastSeq": s.meta().last_seq, "presence": presence}),
+                json!({"session": detail, "events": events, "hasMore": page.has_more, "lastSeq": last, "presence": presence}),
             )
         }
         method::MUX_DETACH => {

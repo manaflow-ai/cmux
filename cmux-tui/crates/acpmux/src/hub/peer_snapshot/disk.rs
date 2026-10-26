@@ -155,6 +155,8 @@ pub(super) fn write(write: Writer, root: &Path, key: &Key, bytes: &[u8]) -> Resu
 pub(super) struct Found {
     pub copies: Vec<(Key, PathBuf, u64)>,
     pub stray: Vec<(PathBuf, u64)>,
+    /// Peer directories with nothing in them, removed only while they stay empty.
+    pub empty: Vec<PathBuf>,
 }
 
 /// Every copy under `root`. An error when a directory cannot be read, or `root` is not a private
@@ -185,9 +187,8 @@ pub(super) fn scan(root: &Path) -> Result<Found> {
             }
             held = true;
         }
-        // An empty peer directory (its peer removed) goes.
         if !held {
-            found.stray.push((path, 0));
+            found.empty.push(path);
         }
     }
     Ok(found)

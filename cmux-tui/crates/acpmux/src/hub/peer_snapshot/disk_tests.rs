@@ -75,7 +75,8 @@ fn a_scan_finds_copies_and_reports_everything_else_as_stray() {
     let found = scan(&root).unwrap();
     assert_eq!(found.copies.len(), 1);
     assert_eq!(found.copies[0].0, key("m1"));
-    assert_eq!(found.stray.len(), 5, "{:?}", found.stray);
+    assert_eq!(found.stray.len(), 4, "{:?}", found.stray);
+    assert_eq!(found.empty, vec![peer_dir(&root, "gone").unwrap()]);
     for (path, _) in &found.stray {
         remove(path).unwrap();
     }

@@ -585,10 +585,15 @@ fn the_hub_keeps_a_down_peers_records_and_pages_and_purges_drop_them() {
         let params = json!({"sessionId": "m1", "seq": seq, "at": seq, "dir": "mux", "kind": "prompt", "msg": {}});
         PeerNotice::Notification { method: method::MUX_EVENT.into(), params, link }
     };
-    hub.capture_peer_page(on(0), "m1", &json!({"limit": 400, "kinds": ["transcript"]}), &page);
+    hub.capture_peer_page(
+        on(0),
+        ("m1", false),
+        &json!({"limit": 400, "kinds": ["transcript"]}),
+        &page,
+    );
     // Older history, and a page of some kinds that leaves the transcript out, are not kept.
-    hub.capture_peer_page(on(0), "m1", &json!({"beforeSeq": 1}), &page);
-    hub.capture_peer_page(on(0), "m1", &json!({"kinds": ["prompt"]}), &page);
+    hub.capture_peer_page(on(0), ("m1", false), &json!({"beforeSeq": 1}), &page);
+    hub.capture_peer_page(on(0), ("m1", false), &json!({"kinds": ["prompt"]}), &page);
     for seq in 3..=4 {
         hub.apply_peer_notice(PEER, peer.generation, notice(seq, 0));
     }
@@ -596,7 +601,7 @@ fn the_hub_keeps_a_down_peers_records_and_pages_and_purges_drop_them() {
     peer.link_ended();
     hub.apply_peer_notice(PEER, peer.generation, notice(5, 0));
     let late = json!({"events": recs(5..=6), "hasMore": false, "lastSeq": 6});
-    hub.capture_peer_page(on(0), "m1", &json!({"afterSeq": 4}), &late);
+    hub.capture_peer_page(on(0), ("m1", true), &json!({"afterSeq": 4}), &late);
     hub.apply_peer_notice(
         PEER,
         peer.generation,
@@ -617,7 +622,7 @@ fn the_hub_keeps_a_down_peers_records_and_pages_and_purges_drop_them() {
     hub.apply_peer_notice(PEER, peer.generation, purged);
     hub.capture_peer_page(
         (PEER, peer.generation, peer.link_epoch(), Some(42)),
-        "m1",
+        ("m1", false),
         &json!({}),
         &page,
     );
@@ -630,7 +635,12 @@ fn the_hub_keeps_a_down_peers_records_and_pages_and_purges_drop_them() {
     let events: Vec<Value> = recs(1..=2).into_iter().map(|r| of("m2", r)).collect();
     let page =
         json!({"session": {"createdAt": 42}, "events": events, "hasMore": false, "lastSeq": 2});
-    hub.capture_peer_page((PEER, peer.generation, link, Some(42)), "m2", &json!({}), &page);
+    hub.capture_peer_page(
+        (PEER, peer.generation, link, Some(42)),
+        ("m2", false),
+        &json!({}),
+        &page,
+    );
     hub.peer_snapshots.flush_now();
     assert!(path("m2").exists());
     let changed = PeerNotice::SessionChanged { session: m2(43), kind: "created".into(), seq: 6 };
@@ -656,4 +666,120 @@ fn captures_that_fall_behind_drop_the_copy_instead_of_leaving_a_hole() {
     snaps.flush_now();
     assert_eq!(on_disk(&disk::path(&disk::root(dir.path()), &key("m1")).unwrap(), "m1"), None);
     assert!(snaps.dropped().keys.is_empty());
+}
+
+#[test]
+fn an_empty_page_from_a_peer_gone_back_drops_the_copy() {
+    let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
+    let mut store = store_at(dir.path());
+    list(&mut store, &[("m1", 7)]);
+    put(&mut store, "m1", attach(7, 1, false, recs(1..=3)));
+    // A VM resumed from before its first record: an empty attach on a new link, `lastSeq` 0.
+    let mut empty = attach(7, 2, false, vec![]);
+    empty.host_last_seq = Some(0);
+    put(&mut store, "m1", empty);
+    assert!(seqs(&mut store, "m1").is_empty());
+    // Its new journal never joins the old one.
+    put(&mut store, "m1", attach(7, 2, true, recs(4..=5)));
+    assert_eq!(seqs(&mut store, "m1"), vec![4, 5]);
+}
+
+#[test]
+fn a_live_record_missed_before_a_page_is_never_covered_by_it() {
+    let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
+    let mut store = store_at(dir.path());
+    list(&mut store, &[("m1", 7)]);
+    // Seq 3 comes before the page that names `lastSeq` 3 but holds only 1 and 2 (a peer that
+    // read its `lastSeq` after its page): the copy covers 1 and 2, so 4 does not join past 3.
+    live(&mut store, "m1", 1, 3);
+    let mut page = attach(7, 1, false, recs(1..=2));
+    page.host_last_seq = Some(3);
+    put(&mut store, "m1", page);
+    live(&mut store, "m1", 1, 4);
+    assert_eq!(seqs(&mut store, "m1"), vec![1, 2]);
+    assert_eq!(store.copies[&key("m1")].head.last_seq, 2);
+    // A page that holds them continues it.
+    put(&mut store, "m1", events(7, 1, 2, recs(3..=4)));
+    live(&mut store, "m1", 1, 5);
+    assert_eq!(seqs(&mut store, "m1"), vec![1, 2, 3, 4, 5]);
+}
+
+#[test]
+fn a_head_past_its_bound_is_not_written() {
+    let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
+    let mut store = store_at(dir.path());
+    list(&mut store, &[("m1", 7)]);
+    let mut page = attach(7, 1, false, recs(1..=2));
+    page.row = Some(json!({"sessionId": "m1", "title": "x".repeat(HEAD_BYTES as usize)}));
+    put(&mut store, "m1", page);
+    store.write_due(None, true);
+    assert!(!file(dir.path(), "m1").exists());
+    assert!(store.copies.is_empty());
+}
+
+#[test]
+fn nothing_of_a_peer_is_queued_while_its_loss_waits() {
+    let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
+    let snaps = PeerSnapshots::open(Some(dir.path().to_owned()));
+    // The thread's end of the queue, held here: nothing is taken.
+    let (tx, rx) = mpsc::channel();
+    assert!(snaps.tx.set(StdMutex::new(tx)).is_ok());
+    snaps.queued.store(QUEUED_BYTES, Ordering::Release);
+    snaps.gone(PEER, "m1", Some(7));
+    snaps.queued.store(0, Ordering::Release);
+    // Room again, but the loss stands for these: a list from before the purge, a page, a purge.
+    snaps.listed(PEER, vec![("m1".into(), Some(7))], true);
+    snaps.page((PEER, "m1"), attach(7, 1, false, recs(1..=2)));
+    snaps.gone(PEER, "m1", Some(7));
+    snaps.listed("other", vec![], true);
+    let ops: Vec<Op> = rx.try_iter().map(|(_, op)| op).collect();
+    assert_eq!(ops.len(), 2);
+    assert!(matches!(&ops[0], Op::LostPeer(p) if p == PEER));
+    assert!(matches!(&ops[1], Op::Listed { peer, .. } if peer == "other"));
+}
+
+#[test]
+fn a_purge_through_this_daemon_drops_only_its_peers_generation() {
+    use crate::peer::PeerNotice;
+    let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
+    let hub = hub_at(dir.path());
+    let peers = hub.store.peer_cache_dir().unwrap();
+    let path = |peer: &str| disk::path(&disk::root(&peers), &(peer.into(), "m1".into())).unwrap();
+    let row = json!({"sessionId": "m1", "name": "lane", "status": "idle", "createdAt": 42, "updatedAt": 5});
+    for name in [PEER, "clone"] {
+        let peer = add_idle_peer(&hub, name);
+        hub.apply_peer_notice(name, peer.generation, PeerNotice::Sessions(vec![row.clone()]));
+        let page = json!({"session": {"createdAt": 42}, "events": recs(1..=2), "hasMore": false, "lastSeq": 2});
+        let on = (name, peer.generation, peer.link_epoch(), Some(42));
+        hub.capture_peer_page(on, ("m1", false), &json!({}), &page);
+    }
+    hub.peer_snapshots.flush_now();
+    assert!(path(PEER).exists() && path("clone").exists());
+    // A clone's purge leaves the other machine's chat of the same id.
+    hub.forget_remote("clone", "m1", Some(42));
+    // A purge asked of an older generation leaves the session recreated since.
+    hub.forget_remote(PEER, "m1", Some(41));
+    hub.peer_snapshots.flush_now();
+    assert!(path(PEER).exists() && !path("clone").exists());
+    assert!(hub.resolve_remote(&format!("{PEER}/m1")).is_some());
+}
+
+#[test]
+fn an_events_page_with_no_cursor_covers_only_what_it_holds() {
+    let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
+    let hub = hub_at(dir.path());
+    let peers = hub.store.peer_cache_dir().unwrap();
+    let peer = add_idle_peer(&hub, PEER);
+    let row = json!({"sessionId": "m1", "name": "lane", "status": "idle", "createdAt": 42, "updatedAt": 5});
+    hub.apply_peer_notice(PEER, peer.generation, crate::peer::PeerNotice::Sessions(vec![row]));
+    let on = (PEER, peer.generation, peer.link_epoch(), Some(42));
+    let first = json!({"session": {"createdAt": 42}, "events": recs(1..=2), "hasMore": false, "lastSeq": 2});
+    hub.capture_peer_page(on, ("m1", false), &json!({}), &first);
+    // `_acpmux/events` with no `afterSeq` pages forward from the first record: 1 to 3 of 10.
+    let page = json!({"events": recs(1..=3), "hasMore": true, "lastSeq": 10});
+    hub.capture_peer_page(on, ("m1", true), &json!({"limit": 3}), &page);
+    hub.peer_snapshots.flush_now();
+    let (head, seqs) =
+        on_disk(&disk::path(&disk::root(&peers), &key("m1")).unwrap(), "m1").unwrap();
+    assert_eq!((head.last_seq, seqs), (3, vec![1, 2, 3]));
 }

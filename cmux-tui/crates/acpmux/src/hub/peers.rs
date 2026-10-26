@@ -759,20 +759,20 @@ impl Hub {
         Some((peer, id, summary))
     }
 
-    /// A remote session was deleted through us: drop it now rather than at
-    /// the next reconnect.
-    pub fn forget_remote(&self, id: &str) {
+    /// Peer `peer`'s session `mux` was deleted through us: drop it now rather than at the next
+    /// reconnect. `generation` is the one the row named when the purge was asked: a session
+    /// recreated since keeps its row, and only that generation's event snapshot goes.
+    pub fn forget_remote(&self, peer: &str, mux: &str, generation: Option<u64>) {
         let mut map = self.remote_sessions.lock().unwrap();
-        let key = if map.contains_key(id) {
-            Some(id.to_owned())
-        } else {
-            map.iter().find(|(_, r)| r.receipt.mux_session_id == id).map(|(key, _)| key.clone())
-        };
+        let created = |r: &RemoteSession| r.summary.get("createdAt").and_then(Value::as_u64);
+        let key = map
+            .iter()
+            .find(|(_, r)| r.peer == peer && r.receipt.mux_session_id == mux)
+            .filter(|(_, r)| generation.is_none() || created(r) == generation)
+            .map(|(key, _)| key.clone());
+        let removed = key.and_then(|key| map.remove(&key));
         // Its event snapshot goes with it (`peer_snapshot.rs`), before the lock does.
-        if let Some(r) = key.and_then(|key| map.remove(&key)) {
-            let created = r.summary.get("createdAt").and_then(Value::as_u64);
-            self.peer_snapshots.gone(&r.peer, &r.receipt.mux_session_id, created);
-        }
+        self.peer_snapshots.gone(peer, mux, generation.or(removed.as_ref().and_then(created)));
     }
 
     /// Every peer's sessions, each with its peer's current `peerState` and
