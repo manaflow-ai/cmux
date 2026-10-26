@@ -11,7 +11,7 @@ model=1; args=()
 while [ $# -gt 0 ]; do
   case "$1" in
     --no-model) model=0 ;;
-    --out) out=$2; shift ;;
+    --out) out=${2:?--out needs a directory}; shift ;;
     *) args+=("$1") ;;
   esac
   shift

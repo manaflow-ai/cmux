@@ -1337,15 +1337,21 @@ fn summary_groups(s: &Value) -> BTreeMap<String, (u32, u32)> {
 /// one side ran is `added` or, within a group this run has, `removed`.
 fn baseline_diff(now: &Value, base: &Value) -> Value {
     // With per-case results on both sides, the groups and the total compare
-    // only the cases both runs have (an `--only` run is like for like).
-    let mut common = base.clone();
+    // only the cases both runs have (an `--only` run, or new cases, keep it
+    // like for like); `added`, `regressed` and the rest use every case.
+    let (mut now_common, mut common) = (now.clone(), base.clone());
     if let (Some(n), Some(b)) = (
         now["case_results"].as_object(),
-        common["case_results"].as_object_mut(),
+        base["case_results"].as_object(),
     ) {
-        b.retain(|id, _| n.contains_key(id));
+        if let Some(m) = now_common["case_results"].as_object_mut() {
+            m.retain(|id, _| b.contains_key(id));
+        }
+        if let Some(m) = common["case_results"].as_object_mut() {
+            m.retain(|id, _| n.contains_key(id));
+        }
     }
-    let (gn, gb) = (summary_groups(now), summary_groups(&common));
+    let (gn, gb) = (summary_groups(&now_common), summary_groups(&common));
     let side = |g: Option<&(u32, u32)>| {
         g.map_or(
             Value::Null,
@@ -1357,8 +1363,11 @@ fn baseline_diff(now: &Value, base: &Value) -> Value {
     };
     let mut groups = serde_json::Map::new();
     let (mut tb, mut tn) = ((0, 0), (0, 0));
-    for (name, b) in &gn {
+    let all_now = summary_groups(now);
+    for (name, all_b) in &all_now {
         let a = gb.get(name);
+        // A group with no shared case shows all its cases, as new.
+        let b = if a.is_some() { &gn[name] } else { all_b };
         if let Some(a) = a {
             tb = (tb.0 + a.0, tb.1 + a.1);
             tn = (tn.0 + b.0, tn.1 + b.1);
@@ -1370,7 +1379,10 @@ fn baseline_diff(now: &Value, base: &Value) -> Value {
         );
     }
     let all_base = summary_groups(base);
-    let not_run: Vec<&String> = all_base.keys().filter(|g| !gn.contains_key(*g)).collect();
+    let not_run: Vec<&String> = all_base
+        .keys()
+        .filter(|g| !all_now.contains_key(*g))
+        .collect();
     let cases = |s: &Value| -> BTreeMap<String, (String, f64)> {
         s["case_results"]
             .as_object()
@@ -1400,7 +1412,7 @@ fn baseline_diff(now: &Value, base: &Value) -> Value {
     }
     let removed: Vec<&String> = cb
         .iter()
-        .filter(|(id, (g, _))| !cn.contains_key(*id) && gn.contains_key(g))
+        .filter(|(id, (g, _))| !cn.contains_key(*id) && all_now.contains_key(g))
         .map(|(id, _)| id)
         .collect();
     json!({
@@ -1588,6 +1600,7 @@ mod tests {
         let now = summary(&[
             row("links-a", "links", false),
             row("links-b", "links", true),
+            row("links-f", "links", false),
             row("tone-d", "tone", true),
         ]);
         let d = baseline_diff(&now, &base);
@@ -1599,13 +1612,14 @@ mod tests {
             d["improved"],
             json!([{"id": "links-b", "baseline": 0.0, "now": 1.0}])
         );
-        assert_eq!(d["added"], json!(["tone-d"]));
+        assert_eq!(d["added"], json!(["links-f", "tone-d"]));
         // links-e left the links group; memory was not run at all.
         assert_eq!(d["removed"], json!(["links-e"]));
         assert_eq!(d["groups_not_run"], json!(["memory"]));
         assert!(d["groups"]["memory"].is_null());
         assert!(d["groups"]["tone"]["baseline"].is_null());
-        // links-e is not in this run, so links compares links-a and links-b.
+        // links-e is not in this run and links-f is new, so links compares
+        // links-a and links-b only.
         assert_eq!(d["groups"]["links"]["delta"], 0.0);
         let md = diff_markdown(&d, "base/summary.json");
         assert!(
@@ -1619,7 +1633,7 @@ mod tests {
             "{md}"
         );
         assert!(md.contains("Regressed: links-a (100% -> 0%)"), "{md}");
-        assert!(md.contains("New cases: tone-d"), "{md}");
+        assert!(md.contains("New cases: links-f, tone-d"), "{md}");
         assert!(md.contains("Groups not in this run: memory"), "{md}");
     }
 
