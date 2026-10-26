@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextChiefMemory
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
