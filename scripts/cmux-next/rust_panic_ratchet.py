@@ -29,11 +29,22 @@ Usage:
   rust_panic_ratchet.py --clippy-json clippy.jsonl [--update-baseline] [--report md|json]
 Exit 1 when a crate gained a DENY_LINTS hit (a new crate: any), or an allow lacks a reason.
 TRACKED_LINTS increases print a warning annotation and pass.
+
+Report-only lints (REPORT_LINTS, lab only; plans/cmux-next/chrome-parity/p10-stability.md
+task 114): CI uses --flags and never sees them. The lab run adds them with --report-flags and
+the lab clippy.toml (await-holding-invalid-types, future-size-threshold):
+  CLIPPY_CONF_DIR=lab/clippy cargo clippy --workspace --lib --bins --locked --message-format=json \
+    -- $(rust_panic_ratchet.py --report-flags) > lab.jsonl
+  rust_panic_ratchet.py --clippy-json lab.jsonl --tracked-report md [--update-report-baseline]
+--tracked-report prints REPORT_LINTS and the per-crate count of `reason = "INVARIANT: ..."`
+allowances against rust-panic-report-baseline.json and always exits 0 for a finished run. The
+CI compare mode never reads that baseline, and REPORT_LINTS hits never count in it.
 """
 import argparse
 import collections
 import json
 import os
+import platform
 import re
 import sys
 
@@ -62,6 +73,18 @@ TRACKED_LINTS = [
     "cast_possible_truncation",
 ]
 LINTS = DENY_LINTS + TRACKED_LINTS
+# Report-only (lab): never in --flags, never compared, never a CI failure. A lint moves to
+# TRACKED_LINTS or a workspace clippy.toml only in a commit that brings every hit of it to 0.
+REPORT_LINTS = [
+    "undocumented_unsafe_blocks",
+    "large_futures",
+    "await_holding_invalid_type",
+]
+# Per-crate count of reviewed internal-invariant allowances on a DENY_LINTS lint:
+# #[allow(clippy::expect_used, reason = "INVARIANT: <why it holds>")].
+INVARIANT_ROW = "invariant_allows"
+REPORT_ROWS = REPORT_LINTS + [INVARIANT_ROW]
+REPORT_BASELINE = os.path.join(HERE, "rust-panic-report-baseline.json")
 # Frozen test fixtures (a binary as it once shipped, never edited): the
 # ratchet neither counts their hits nor scans their allows, so no lint or
 # toolchain change can ask for an edit.
@@ -69,11 +92,12 @@ FROZEN_FIXTURES = {"cmux-holder-v3"}
 
 ALLOW_ATTR = re.compile(r"#!?\[(?:cfg_attr\([^\]]*?,\s*)?(allow|expect)\(([^\]]*)\)\]", re.S)
 REASON = re.compile(r"\breason\s*=")
+INVARIANT_REASON = re.compile(r'\breason\s*=\s*r?#*"\s*INVARIANT:')
 LINT_NAME = re.compile(r"clippy::(\w+)")
 
 
-def lint_flags():
-    return " ".join(f"-W clippy::{lint}" for lint in LINTS)
+def lint_flags(lints=None):
+    return " ".join(f"-W clippy::{lint}" for lint in (LINTS if lints is None else lints))
 
 
 def crate_of(path):
@@ -100,8 +124,13 @@ def package_name(package_id):
     return None
 
 
-def read_clippy(path):
-    """Return (checked crate set, {crate: {lint: count}}, {crate: {file: count}})."""
+def read_clippy(path, lints=None, skip_generated=False):
+    """Return (checked crate set, {crate: {lint: count}}, {crate: {file: count}}, finished, hits).
+
+    Only `lints` (default LINTS) are counted, so a lab run with --report-flags gives the CI
+    compare the same counts as a run with --flags. `skip_generated` drops hits in files clippy
+    names by an absolute path (build-script output such as bindgen's OUT_DIR/bindings.rs)."""
+    lints = set(LINTS if lints is None else lints)
     checked = set()
     finished = None
     seen = set()
@@ -136,12 +165,14 @@ def read_clippy(path):
             if not code.startswith("clippy::"):
                 continue
             lint = code[len("clippy::"):]
-            if lint not in LINTS:
+            if lint not in lints:
                 continue
             span = next((s for s in message.get("spans", []) if s.get("is_primary")), None)
             if span is None:
                 continue
             file_name = span.get("file_name", "")
+            if skip_generated and os.path.isabs(file_name):
+                continue
             crate = crate_of(file_name) or package_name(item.get("package_id", ""))
             if crate is None:
                 continue  # vendor/ or registry code: third-party
@@ -160,42 +191,55 @@ def read_clippy(path):
 def allow_without_reason(root):
     """Production-source allow/expect attributes on our lints that carry no reason."""
     bad = []
-    for top in ("crates", "bindings"):
-        bad.extend(_allow_scan(root, os.path.join(root, "cmux-tui", top)))
+    for _crate, path, text in production_sources(root):
+        for match in ALLOW_ATTR.finditer(text):
+            kind, body = match.group(1), match.group(2)
+            lints = [l for l in LINT_NAME.findall(body) if l in LINTS]
+            if lints and kind == "expect":
+                line = text.count("\n", 0, match.start()) + 1
+                bad.append(f"{os.path.relpath(path, root)}:{line}: use allow, not expect, for {', '.join(lints)} "
+                           "(the plain clippy run does not enable these lints, so expect is unfulfilled)")
+            elif lints and not REASON.search(body):
+                line = text.count("\n", 0, match.start()) + 1
+                bad.append(f"{os.path.relpath(path, root)}:{line}: allow({', '.join(lints)}) needs reason = \"...\"")
     return bad
 
 
-def _allow_scan(root, crates_dir):
-    bad = []
-    for dirpath, dirnames, filenames in os.walk(crates_dir):
-        rel = os.path.relpath(dirpath, crates_dir).replace("\\", "/")
-        parts = rel.split("/")
-        if parts[0] in FROZEN_FIXTURES:
-            dirnames[:] = []
-            continue
-        if len(parts) >= 2 and parts[1] in ("tests", "benches", "examples", "fuzz", "target"):
-            dirnames[:] = []
-            continue
-        dirnames[:] = [d for d in dirnames if d not in ("target", "tests", "benches", "examples", "fuzz")]
-        for name in filenames:
-            if not name.endswith(".rs") or name in ("build.rs",) or name.endswith("_tests.rs") or name == "tests.rs":
+def invariant_allows(root):
+    """{crate: count} of production allow attributes on a DENY_LINTS lint whose reason starts INVARIANT:."""
+    counts = collections.Counter()
+    for crate, _path, text in production_sources(root):
+        for match in ALLOW_ATTR.finditer(text):
+            body = match.group(2)
+            if INVARIANT_REASON.search(body) and any(l in DENY_LINTS for l in LINT_NAME.findall(body)):
+                counts[crate] += 1
+    return counts
+
+
+def production_sources(root):
+    """(crate, path, text) for each production .rs file of cmux-tui/crates and cmux-tui/bindings."""
+    for top, prefix in (("crates", ""), ("bindings", "bindings-")):
+        crates_dir = os.path.join(root, "cmux-tui", top)
+        for dirpath, dirnames, filenames in os.walk(crates_dir):
+            rel = os.path.relpath(dirpath, crates_dir).replace("\\", "/")
+            parts = rel.split("/")
+            if parts[0] in FROZEN_FIXTURES:
+                dirnames[:] = []
                 continue
-            path = os.path.join(dirpath, name)
-            try:
-                text = open(path, encoding="utf-8", errors="replace").read()
-            except OSError:
+            if len(parts) >= 2 and parts[1] in ("tests", "benches", "examples", "fuzz", "target"):
+                dirnames[:] = []
                 continue
-            for match in ALLOW_ATTR.finditer(text):
-                kind, body = match.group(1), match.group(2)
-                lints = [l for l in LINT_NAME.findall(body) if l in LINTS]
-                if lints and kind == "expect":
-                    line = text.count("\n", 0, match.start()) + 1
-                    bad.append(f"{os.path.relpath(path, root)}:{line}: use allow, not expect, for {', '.join(lints)} "
-                               "(the plain clippy run does not enable these lints, so expect is unfulfilled)")
-                elif lints and not REASON.search(body):
-                    line = text.count("\n", 0, match.start()) + 1
-                    bad.append(f"{os.path.relpath(path, root)}:{line}: allow({', '.join(lints)}) needs reason = \"...\"")
-    return bad
+            dirnames[:] = [d for d in dirnames if d not in ("target", "tests", "benches", "examples", "fuzz")]
+            for name in filenames:
+                if not name.endswith(".rs") or name in ("build.rs",) or name.endswith("_tests.rs") or name == "tests.rs":
+                    continue
+                path = os.path.join(dirpath, name)
+                try:
+                    with open(path, encoding="utf-8", errors="replace") as handle:
+                        text = handle.read()
+                except OSError:
+                    continue
+                yield prefix + parts[0], path, text
 
 
 def _changed_first(root, locations):
@@ -254,6 +298,71 @@ def report(checked, counts, files, fmt):
         print(f"| {crate} | " + " | ".join(str(c.get(l, 0)) for l in LINTS) + f" | {'yes' if deny else 'no'} | {top} |")
 
 
+def load_report_baseline():
+    if not os.path.exists(REPORT_BASELINE):
+        return {}
+    with open(REPORT_BASELINE, encoding="utf-8") as handle:
+        return json.load(handle).get("crates", {})
+
+
+def write_report_baseline(rows):
+    data = {
+        "_doc": "Report-only per-crate counts of the lab clippy run (rust_panic_ratchet.py --report-flags with "
+                "CLIPPY_CONF_DIR=cmux-tui/lab/clippy) and of INVARIANT: allowances. Read only by --tracked-report; "
+                "CI never reads it, so a count here is never a gate.",
+        "rows": REPORT_ROWS,
+        "platform": f"{platform.system().lower()}-{platform.machine()}",
+        "totals": {row: sum(rows[crate].get(row, 0) for crate in rows) for row in REPORT_ROWS},
+        "crates": {crate: {row: rows[crate].get(row, 0) for row in REPORT_ROWS} for crate in sorted(rows)},
+    }
+    with open(REPORT_BASELINE, "w", encoding="utf-8") as handle:
+        json.dump(data, handle, indent=1, sort_keys=False)
+        handle.write("\n")
+
+
+def tracked_report(args):
+    checked, counts, files, finished, hits = read_clippy(args.clippy_json, REPORT_LINTS, skip_generated=True)
+    if not checked or finished is not True:
+        print("rust-panic-ratchet: the clippy run did not finish successfully (no build-finished success line);"
+              " counts from a partial build prove nothing", file=sys.stderr)
+        return 2
+    invariants = invariant_allows(args.repo)
+    rows = {}
+    for crate in checked | set(counts):
+        row = {lint: counts.get(crate, {}).get(lint, 0) for lint in REPORT_LINTS}
+        row[INVARIANT_ROW] = invariants.get(crate, 0)
+        rows[crate] = row
+    baseline = load_report_baseline()
+    if args.tracked_report == "json":
+        print(json.dumps({crate: {"counts": rows[crate], "baseline": baseline.get(crate),
+                                  "top": [f"{f} {n}" for f, n in files.get(crate, collections.Counter()).most_common(3)],
+                                  "hits": {lint: hits.get((crate, lint), []) for lint in REPORT_LINTS
+                                           if hits.get((crate, lint))}}
+                          for crate in sorted(rows)}, indent=1))
+    else:
+        short = {"undocumented_unsafe_blocks": "unsafe_undoc", "large_futures": "large_fut",
+                 "await_holding_invalid_type": "await_held", INVARIANT_ROW: "INVARIANT"}
+        print("| crate | " + " | ".join(short[r] for r in REPORT_ROWS) + " | top files |")
+        print("|" + " --- |" * (len(REPORT_ROWS) + 2))
+
+        def cell(crate, row):
+            now = rows[crate][row]
+            base = (baseline.get(crate) or {}).get(row)
+            return str(now) if base is None or base == now else f"{now} ({now - base:+d})"
+
+        for crate in sorted(rows, key=lambda c: (-sum(rows[c].values()), c)):
+            if not any(rows[crate].values()):
+                continue
+            top = ", ".join(f"{f} {n}" for f, n in files.get(crate, collections.Counter()).most_common(3))
+            print(f"| {crate} | " + " | ".join(cell(crate, r) for r in REPORT_ROWS) + f" | {top} |")
+        print("| **total** | " + " | ".join(str(sum(rows[c][r] for c in rows)) for r in REPORT_ROWS) + " | |")
+    if args.update_report_baseline:
+        write_report_baseline(rows)
+        print(f"rust-panic-ratchet: wrote {os.path.relpath(REPORT_BASELINE, args.repo)} for {len(rows)} crates",
+              file=sys.stderr)
+    return 0
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--flags", action="store_true", help="print the clippy lint flags and exit")
@@ -262,12 +371,26 @@ def main():
     parser.add_argument("--update-baseline", action="store_true", help="lower the baseline to the counts seen")
     parser.add_argument("--init-baseline", action="store_true", help="write the baseline from scratch (first run only)")
     parser.add_argument("--report", choices=["md", "json"])
+    parser.add_argument("--report-flags", action="store_true",
+                        help="print the lab clippy flags (--flags plus the report-only lints) and exit")
+    parser.add_argument("--tracked-report", choices=["md", "json"],
+                        help="report-only: print REPORT_LINTS and INVARIANT allowances per crate against "
+                             "rust-panic-report-baseline.json; never compares the CI baseline, exits 0")
+    parser.add_argument("--update-report-baseline", action="store_true",
+                        help="with --tracked-report: write rust-panic-report-baseline.json from this run")
     args = parser.parse_args()
     if args.flags:
         print(lint_flags())
         return 0
+    if args.report_flags:
+        print(lint_flags(LINTS + REPORT_LINTS))
+        return 0
     if not args.clippy_json:
         parser.error("--clippy-json is required")
+    if args.update_report_baseline and not args.tracked_report:
+        parser.error("--update-report-baseline needs --tracked-report")
+    if args.tracked_report:
+        return tracked_report(args)
     checked, counts, files, finished, hits = read_clippy(args.clippy_json)
     if not checked or finished is not True:
         print("rust-panic-ratchet: the clippy run did not finish successfully (no build-finished success line);"
