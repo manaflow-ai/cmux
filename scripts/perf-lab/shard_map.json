@@ -5,8 +5,8 @@
         {
           "index": 0,
           "seconds": {
-            "T1": 21940,
-            "T2": 33570
+            "T1": 22360,
+            "T2": 37200
           },
           "stories": {
             "T1": [
@@ -20,6 +20,7 @@
               "blocking-hangs",
               "browser-hibernation",
               "browser-hibernation-webkit",
+              "burst",
               "chat-anim",
               "chromium-host",
               "command-pan",
@@ -94,6 +95,8 @@
               "automation-typing",
               "browser-engine-chromium",
               "browser-engine-webkit",
+              "browser-idle-cost",
+              "burst-stress",
               "cef-resize-sync",
               "cef-resize-sync-stress",
               "cli-storm",
@@ -104,7 +107,11 @@
               "daemon-spawn",
               "devtools-resize-live",
               "drag-daemon",
+              "fsync",
               "home-typing-still",
+              "idle-budget",
+              "idle-budget-stress",
+              "idle-budget-webkit",
               "launch-after-reboot",
               "layout-loop-stress",
               "new-surfaces-stress",
@@ -136,7 +143,7 @@
         {
           "index": 0,
           "seconds": {
-            "T2": 33570
+            "T2": 37200
           },
           "stories": {
             "T2": [
@@ -162,6 +169,8 @@
               "automation-typing",
               "browser-engine-chromium",
               "browser-engine-webkit",
+              "browser-idle-cost",
+              "burst-stress",
               "cef-resize-sync",
               "cef-resize-sync-stress",
               "cli-storm",
@@ -172,7 +181,11 @@
               "daemon-spawn",
               "devtools-resize-live",
               "drag-daemon",
+              "fsync",
               "home-typing-still",
+              "idle-budget",
+              "idle-budget-stress",
+              "idle-budget-webkit",
               "launch-after-reboot",
               "layout-loop-stress",
               "new-surfaces-stress",
@@ -204,7 +217,7 @@
           "index": 0,
           "seconds": {
             "T0": 330,
-            "T1": 10930
+            "T1": 11350
           },
           "stories": {
             "T0": [
@@ -217,6 +230,7 @@
               "blocking-hangs",
               "browser-hibernation",
               "browser-hibernation-webkit",
+              "burst",
               "command-pan",
               "daemon-ops",
               "home-perf",
