@@ -72,11 +72,11 @@ impl Hub {
         else {
             return;
         };
-        // The parent's close sets its status before `lane_retire` takes this lock: read under
-        // it, a parent that closed while the child started is never linked, and one that closes
-        // after has its link retired.
+        // A close sets the status before `lane_retire` takes this lock: read under it, a parent
+        // or child that closed meanwhile is never linked, and one that closes after has its link
+        // retired.
         let linked = self.lane_links(|links| {
-            if !self.lane_parent_open(parent) {
+            if !self.lane_open(parent) || !self.lane_open(child) {
                 return false;
             }
             let link = Link { parent: parent.to_owned() };
@@ -91,7 +91,7 @@ impl Hub {
     }
 
     /// Whether session `id` is here and not closed.
-    fn lane_parent_open(&self, id: &str) -> bool {
+    fn lane_open(&self, id: &str) -> bool {
         let s = self.sessions.lock().unwrap_or_else(|e| e.into_inner()).get(id).cloned();
         s.is_some_and(|s| s.status() != SessionStatus::Closed)
     }

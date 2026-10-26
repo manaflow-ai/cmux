@@ -13,5 +13,7 @@ pub(super) fn lane_parent(hub: &Arc<Hub>, conn: &Conn, params: &Value) -> Option
         return None;
     }
     let caller = conn.caller().filter(|_| !conn.is_person())?;
-    hub.resolve(caller).ok().map(|s| s.id.clone())
+    // Exactly the proven session: a lookup by name or id prefix could find another session once
+    // the caller is gone (one named the caller's former id).
+    hub.resolve(caller).ok().filter(|s| s.id == caller).map(|s| s.id.clone())
 }
