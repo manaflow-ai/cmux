@@ -16,7 +16,9 @@ import os
 /// sequence barrier its tree supersedes, so a store can drop older events
 /// exactly. A consumer that takes them with ``consumeEvents(_:)`` gets each
 /// on that thread, with no cooperative-pool job between the socket and it
-/// (``DaemonEventRoute``).
+/// (``DaemonEventRoute``). `events` has that one consumer; any other one
+/// takes ``subscribe(filter:limit:)``: the events its filter matches, in
+/// order, in a bounded inbox of its own that no other consumer waits for.
 ///
 /// On EOF it emits `.disconnected`, fails pending requests, and reconnects
 /// through `endpointProvider` (which re-runs `server ensure`, restarting a
@@ -40,12 +42,13 @@ public actor DaemonConnection {
         case closed
     }
 
-    public nonisolated let events: AsyncThrowingStream<DaemonEventEnvelope, any Error>
+    /// The events for this connection's one consumer (``DaemonEventStream``).
+    public nonisolated let events: DaemonEventStream
     /// Identifies this event source; pair it with an envelope's connection serial.
     public nonisolated let eventSourceID: UUID = UUID()
     /// The `mutation_id`s caused scopes sent on this connection, which name their echoes' cause.
     public nonisolated let mutationCauses = MutationCauseLedger()
-    /// Where events go: `events`, or the consumer of ``consumeEvents(_:)``.
+    /// Where events go: `events`, or the consumer of ``consumeEvents(_:)``; and each subscriber.
     nonisolated let route: DaemonEventRoute
 
     let configuration: Configuration
@@ -100,8 +103,9 @@ public actor DaemonConnection {
         healthy = DemandTimer(owner: "DaemonConnection.healthy", clock: clock)
         // concurrency-allow: holds only events no consumer took yet (DaemonEventRoute); the store drains them at once into the bounded EventInbox
         let (events, continuation) = AsyncThrowingStream.makeStream(of: DaemonEventEnvelope.self, bufferingPolicy: .unbounded)
-        self.events = events
-        route = DaemonEventRoute(continuation)
+        let route = DaemonEventRoute(continuation)
+        self.route = route
+        self.events = DaemonEventStream(base: events, route: route)
     }
 
     /// Connects to a fixed socket (tests, dev tools).
@@ -120,7 +124,7 @@ public actor DaemonConnection {
         return try await connectOnce()
     }
 
-    /// Stops reconnecting, closes the socket, and finishes `events`.
+    /// Stops reconnecting, closes the socket, and finishes `events` and every subscription.
     public func close() {
         healthy.cancel()
         heartbeat.stop()
