@@ -140,6 +140,26 @@ test("machine connect actions remain clickable while the search field owns focus
   expect(calls).toEqual([["connect", "ssh"]]);
 });
 
+test("project rows preserve press-to-pick behavior for composer mouse menus", async () => {
+  const { createRoot } = await import("react-dom/client");
+  const { ProjectChooser } = await import("../src/agent-session/acpmux/ProjectChooser");
+  const calls: string[] = [];
+  root = createRoot(host);
+  await act(async () =>
+    root!.render(
+      <ProjectChooser
+        projects={[{ cwd: "/demo/other", label: "other" }]}
+        icon={null}
+        onPick={(cwd) => calls.push(cwd)}
+      />,
+    ),
+  );
+  await click(host.querySelector<HTMLButtonElement>("button")!);
+  const row = document.querySelector('[role="option"][aria-label$="/demo/other"]')!;
+  await act(async () => row.dispatchEvent(new dom.window.MouseEvent("mousedown", { bubbles: true, button: 0 })));
+  expect(calls).toEqual(["/demo/other"]);
+});
+
 test("projects use the shared combobox's Tab completion and retain same-path remote identity", async () => {
   const { createRoot } = await import("react-dom/client");
   const { ProjectChooser } = await import("../src/agent-session/acpmux/ProjectChooser");
