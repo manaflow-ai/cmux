@@ -1,4 +1,5 @@
 import CmuxNextSettings
+import CmuxNextWakeups
 import Darwin
 import Foundation
 
@@ -75,7 +76,8 @@ final class FileChangeWatch {
         let clock = clock, debounce = debounce, url = url, inWorkspace = inWorkspace()
         pending = Task { [weak self] in
             do {
-                try await clock.sleep(for: debounce) // wakeup-allow: one debounce per disk event burst, cancelled by the next event
+                // wakeup-allow: deadline one debounce per disk event burst, cancelled by the next event
+                try await clock.sleep(for: debounce, tolerance: WakeLeeway.window(delay: debounce).tolerance)
             } catch {
                 return
             }

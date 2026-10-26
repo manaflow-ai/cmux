@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextAgentPane
+import CmuxNextWakeups
 
 /// Owns the short interval between Cmd-T (or Cmd-N's new workspace) and the New Tab field's
 /// readiness acknowledgement: every key typed from the shortcut on waits here, in order, and goes to
@@ -31,8 +32,9 @@ final class NewTabInputCoordinator {
     /// Runs `fire` once `limit` from now (a task by default; injected for tests).
     var scheduleDeadline: (_ limit: Duration, _ fire: @escaping @MainActor () -> Void) -> Task<Void, Never> = { limit, fire in
         Task { @MainActor in
-            // wakeup-allow: one-shot bound on a New Tab key hold; cancelled when the hold ends first
-            do { try await Task.sleep(for: limit) } catch { return }
+            // wakeup-allow: deadline the bound on one New Tab key hold, cancelled when the hold ends first. The person's
+            // keys wait on it, so it asks Chromium's flat 8 ms leeway (kDefaultLeeway), not 10% of the limit.
+            do { try await Task.sleep(for: limit, tolerance: WakeLeeway.defaultAlignment) } catch { return }
             fire()
         }
     }

@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextInput
+import CmuxNextWakeups
 
 /// Watches only the host window's intentional Command/Control/Option holds; a key or a click (Option-click) hides and suppresses. It never consumes input.
 ///
@@ -108,9 +109,10 @@ final class WindowScopedShortcutHintModifierMonitor {
         _ = policy.update(flags: flags, eligible: eligible, elapsed: .zero)
         hold.active = policy.held
         guard eligible, ShortcutHintModifierPolicy.armed(flags) != nil else { return }
+        let holdDelay = ShortcutHintModifierPolicy.intentionalHoldDelay
         pending = Task { [weak self, clock] in
-            // wakeup-allow: one cancellable, injected-clock 0.30s intentional hold deadline; never polling.
-            do { try await clock.sleep(for: ShortcutHintModifierPolicy.intentionalHoldDelay) } catch { return }
+            // wakeup-allow: deadline the 0.30 s intentional hold of one modifier press, cancelled by its release; injected clock
+            do { try await clock.sleep(for: holdDelay, tolerance: WakeLeeway.window(delay: holdDelay).tolerance) } catch { return }
             guard !Task.isCancelled, let self else { return }
             pending = nil
             let current = currentFlags

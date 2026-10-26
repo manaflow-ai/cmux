@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import CmuxNextFilesUI
+import CmuxNextWakeups
 
 /// The right sidebar's Find section and the Find pane (classic's project-wide
 /// find): ripgrep over a folder (``RipgrepSearch``, the flags classic ran),
@@ -55,8 +56,8 @@ final class FindSectionModel {
         pendingSearch = Task { [weak self] in
             do {
                 // concurrency-allow: a bounded, cancellable typing pause (injected clock); the next keystroke cancels it.
-                // wakeup-allow: runs only after a keystroke in the Find field, never while idle.
-                try await clock.sleep(for: Self.debounce, tolerance: nil)
+                // wakeup-allow: deadline the typing pause after a keystroke in the Find field, never while idle
+                try await clock.sleep(for: Self.debounce, tolerance: WakeLeeway.window(delay: Self.debounce).tolerance)
             } catch {
                 return
             }

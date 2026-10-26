@@ -415,7 +415,8 @@ final class FilePageService: InternalPageProvider {
             : { [weak self] in self?.settleDiscard(key, file: file) }
         let flush = Task { @MainActor in
             let deadline = Task { @MainActor in
-                do { try await clock.sleep(for: Self.flushTimeout) } catch { return } // wakeup-allow: bounded flush on tab close
+                // wakeup-allow: bounded one flush wait on tab close, cancelled when the page answers
+                do { try await clock.sleep(for: Self.flushTimeout, tolerance: WakeLeeway.window(delay: Self.flushTimeout).tolerance) } catch { return }
                 page.close()
             }
             _ = try? await page.router.callPage(op, params: .object([:]))

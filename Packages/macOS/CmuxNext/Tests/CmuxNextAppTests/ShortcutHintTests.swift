@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextApp
 import CmuxNextInput
+import CmuxNextWakeups
 import CmuxNextWakeupsTestSupport
 import Testing
 
@@ -113,6 +114,24 @@ struct ShortcutHintTests {
 
         try Self.dispatch(Self.key(in: window), through: tap)
         #expect(log.changes == [.command, nil], "a key-down with no hint up reports nothing")
+    }
+
+    /// The hold deadline asks the OS for WakeLeeway's slack (8 ms at 300 ms), so its wake can share one with
+    /// other timers (p14-energy-019a); the clock still fires it at the deadline.
+    @Test func theHoldDeadlineAsksForTheWakeLeewayTolerance() async throws {
+        let tap = InputEventTap()
+        let clock = ManualClock()
+        let window = Self.window()
+        defer { window.orderOut(nil) }
+        let log = Log()
+        let monitor = Self.monitor(window, tap: tap, clock: clock, log: log)
+        monitor.setEnabled(true)
+        defer { monitor.stop() }
+
+        try await Self.showHints(in: window, tap: tap, clock: clock, log: log)
+        let hold = ShortcutHintModifierPolicy.intentionalHoldDelay
+        #expect(clock.sleepRequests.last?.tolerance == WakeLeeway.window(delay: hold).tolerance)
+        #expect(clock.sleepRequests.last?.tolerance == .milliseconds(8))
     }
 
     @Test func aPaneNavigationKeyKeepsTheHintsAndTheFlag() async throws {

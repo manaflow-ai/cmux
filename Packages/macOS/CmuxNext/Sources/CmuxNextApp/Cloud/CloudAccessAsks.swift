@@ -1,5 +1,6 @@
 import CmuxNextAgentPane
 import CmuxNextDaemon
+import CmuxNextWakeups
 import Foundation
 
 /// A moved chat's file and secret requests for this Mac (cmuxterm-hq#1874 slice 6): while chats a move put on
@@ -25,7 +26,11 @@ final class CloudAccessAsks {
     /// The longest a machine whose triage fails waits, and how long one without access requests waits.
     private static let longestBackoff: Duration = .seconds(120), unavailableBackoff: Duration = .seconds(600)
 
-    private var loop: Task<Void, Never>?
+    /// The triage round in flight; nil between rounds.
+    private var round: Task<Void, Never>?
+    /// The next round, after the last one's pause (``CloudMoveSetup/accessPoll``, or a machine's backoff): a
+    /// deadline on the main thread's one wake-up queue, not a sleeping loop. Made on the first start.
+    private var nextRound: MainDeadline?
     /// The asks the last triages listed, by chat tab, and the answers that failed.
     private var asks: [String: [CloudAccessAsk]] = [:]
     private var failures: [String: [CloudAccessAsk]] = [:]
@@ -42,14 +47,21 @@ final class CloudAccessAsks {
     let revokes = CloudAccessRevokes()
 
     /// Starts polling unless it runs; it stops with no moved chat and nothing to revoke, and with this object or `services`.
+    /// The machine pushes no access request, so a round runs only while a moved chat or a revoke waits.
     func start(services: AppServices) {
-        guard loop == nil else { return }
-        loop = Task { @MainActor [weak self, weak services] in
-            // wakeup-allow: polls triage only while a moved chat or a revoke waits (the loop then ends); the machine pushes no access request
-            while !Task.isCancelled {
-                guard let pause = await self?.poll(services) else { return }
-                // wakeup-allow: the poll's pause (accessPoll, or a machine's backoff), only while the loop above runs
-                try? await Task.sleep(for: pause)
+        guard round == nil, nextRound?.isScheduled != true else { return }
+        nextRound = nextRound ?? MainDeadline(owner: "CloudAccessAsks.triage", workClass: .background, scheduler: services.mainDeadlines)
+        runRound(services)
+    }
+
+    /// One triage round; when it asks for another, ``nextRound`` starts it after the round's pause.
+    private func runRound(_ services: AppServices) {
+        round = Task { @MainActor [weak self, weak services] in
+            guard let pause = await self?.poll(services), let self else { return }
+            round = nil
+            nextRound?.schedule(after: pause) { [weak self, weak services] in
+                guard let self, let services else { return }
+                runRound(services)
             }
         }
     }
@@ -61,7 +73,7 @@ final class CloudAccessAsks {
         start(services: services)
         guard let binary = services.cloud.move.cli else { return }
         let revokes = revokes
-        // task-owner: one revoke round; CloudAccessRevokes keeps what is left for the poll loop
+        // task-owner: one revoke round; CloudAccessRevokes keeps what is left for the next triage round
         Task { @MainActor [weak services] in
             guard let services else { return }
             await revokes.run(CloudAccessCLI(binary: binary), services: services)
@@ -77,7 +89,7 @@ final class CloudAccessAsks {
             revokes.add(CloudAccessRevokes.Chat(machineID: entry.machineID, session: entry.session))
         }
         await revokes.run(cli, services: services)
-        // Read after the await, with no await before a stop: a move recorded meanwhile keeps the loop going.
+        // Read after the await, with no await before a stop: a move recorded meanwhile keeps the rounds going.
         let chats = services.cloud.movedChats.all().filter { $0.broughtBack == nil }
         // Turned off by the organization: no request goes out, and the cards go.
         guard !chats.isEmpty, !services.machines.isFeatureDisabled(.cloud) else {
@@ -140,7 +152,8 @@ final class CloudAccessAsks {
     }
 
     private func stop() -> Duration? {
-        loop = nil
+        round = nil
+        nextRound?.cancel()
         return nil
     }
 

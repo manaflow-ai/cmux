@@ -106,7 +106,7 @@ final class AppControl {
 
     /// The error journal (`cmux errors`): app log, page consoles, acpmux, Chief, crash reports.
     func startErrorJournal(_ services: AppServices, on router: ControlRouter) {
-        let errors = ErrorJournalService.make(environment: services.environment)
+        let errors = ErrorJournalService.make(environment: services.environment, deadlines: services.mainDeadlines)
         errors.start()
         errorJournal = errors
         router.register(ErrorJournalControl(journal: errors.journal, sources: errors.sources).methods)

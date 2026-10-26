@@ -5,6 +5,7 @@ import CmuxNextDaemon
 import CmuxNextDaemonService
 import CmuxNextRemoteLocalhostService
 import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 
 /// The daemon's engine tag (the browser module has an engine protocol of the same name).
@@ -86,8 +87,8 @@ final class BrowserTabService {
     /// a new TabModel in its destination pane), nil when it closed.
     var tabModel: @MainActor (_ id: String) -> TabModel?
     var writeBackDelay: Duration = .milliseconds(500)
-    // wakeup-allow: one-shot debounce of browser record write-back (injected for tests)
-    var sleep: BrowserRecordWriter.Sleep = { try await ContinuousClock().sleep(for: $0) }
+    // wakeup-allow: deadline one write-back debounce per burst of record changes (injected for tests)
+    var sleep: BrowserRecordWriter.Sleep = { try await ContinuousClock().sleep(for: $0, tolerance: WakeLeeway.window(delay: $0).tolerance) }
     private(set) var writers: [String: BrowserRecordWriter] = [:]
     private(set) var historyWriters: [String: BrowserHistoryWriter] = [:]
     /// Stored-history reads in flight, by tab id (cancelled with the page).

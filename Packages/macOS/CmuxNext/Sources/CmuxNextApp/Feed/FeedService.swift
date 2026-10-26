@@ -4,6 +4,7 @@ import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextFeed
+import CmuxNextWakeups
 import Foundation
 
 /// The app's feed (plans/cmux-next/feed.md): one `FeedModel` mirroring the
@@ -266,9 +267,10 @@ final class FeedService {
     func waitClosed(_ id: String, until deadline: ContinuousClock.Instant) async {
         if confirmed[id].map({ $0 != .open }) ?? false { return }
         // task-owner: FeedService.waitClosed, one-shot request deadline; resumes this waiter only.
+        let leeway = WakeLeeway.window(delay: ContinuousClock.now.duration(to: deadline)).tolerance
         let timer = Task { [weak self] in
-            // wakeup-allow: one-shot deadline of one feed request (at most 120 s), cancelled when the item closes.
-            try? await ContinuousClock().sleep(until: deadline)
+            // wakeup-allow: deadline of one feed request (at most 120 s), cancelled when the item closes
+            try? await ContinuousClock().sleep(until: deadline, tolerance: leeway)
             self?.expireWaiters(id)
         }
         await withCheckedContinuation { waiters[id, default: []].append($0) }
