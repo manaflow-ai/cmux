@@ -63,6 +63,14 @@ fn resize_points_at_the_cloud_action() {
 }
 
 #[test]
+fn snapshot_defaults_to_create() {
+    assert_eq!(
+        planned(&["vm", "snapshot", "vm_1"]).unwrap(),
+        args(&["snapshot", "create", "vm_1"])
+    );
+}
+
+#[test]
 fn workspace_new_points_at_the_app_action() {
     let error = planned(&["vm", "workspace", "new", "vm_1"]).unwrap_err();
     assert!(error.0.contains("cmux cloud new-workspace"), "{}", error.0);
