@@ -16,7 +16,9 @@ public nonisolated struct EnergyInputs: Sendable, Equatable {
     public var macOnBattery: Bool
     /// This Mac has an internal battery.
     public var hasBattery: Bool
-    /// The battery's charge in percent; reported only while on battery, else nil.
+    /// The battery's charge in percent; reported only while on battery, else nil. Above the low-battery
+    /// threshold it is the charge when the source last changed: the Mac's charge steps reach the main
+    /// thread only below it (``PowerSourceMonitor/Edge``).
     public var batteryPercent: Int?
     /// The Mac's thermal state.
     public var thermal: ProcessInfo.ThermalState
@@ -65,8 +67,9 @@ extension EnergyInputs {
 /// CmuxNextApp imports this module. Chrome keeps the same inputs in its battery saver's manager
 /// (components/performance_manager/user_tuning/battery_saver_mode_manager.cc).
 ///
-/// Nothing touches IOKit before ``start()``, and a Mac without a battery registers no
-/// power-source notification at all: it can never run on battery (a UPS counts as AC).
+/// Nothing touches IOKit before ``start()``, the power source is read off the main thread, and a Mac
+/// without a battery registers no power-source notification at all: it can never run on battery (a UPS
+/// counts as AC).
 @MainActor
 @Observable
 public final class EnergyMonitor {
@@ -108,19 +111,15 @@ public final class EnergyMonitor {
         thermal.onChange = { [weak self] _ in self?.refresh() }
     }
 
-    /// Reads the power source and follows its changes; a second call does nothing. A Mac without a
-    /// battery reads it once and registers nothing.
+    /// Follows the power source; a second call does nothing. A Mac without a battery registers nothing
+    /// and its inputs keep `hasBattery` false.
     public func start() {
         guard !started else { return }
         started = true
-        let first = power.read()
-        guard first.hasBattery else { return }
-        power.listen { [weak self] in self?.readPowerSource() }
-        apply(first)
+        power.start { [weak self] reading in self?.apply(reading) }
     }
 
-    /// Stops following the power source (its run-loop source goes); ``start()`` may run again.
-    /// A monitor released without it leaves an inert source that ends at the next change.
+    /// Stops following the power source (its notifications end); ``start()`` may run again.
     public func stop() {
         guard started else { return }
         started = false
@@ -177,10 +176,6 @@ public final class EnergyMonitor {
         return held
     }
     #endif
-
-    private func readPowerSource() {
-        apply(power.read())
-    }
 
     private func apply(_ next: PowerSourceReading) {
         reading = next

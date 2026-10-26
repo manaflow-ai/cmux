@@ -27,6 +27,7 @@ import CmuxNextKeepAwake
 import CmuxNextLayout
 import CmuxNextLaunch
 import CmuxNextMemory
+import CmuxNextMetrics
 import CmuxNextPalette
 import CmuxNextPages
 import CmuxNextPopups
@@ -107,7 +108,9 @@ final class AppServices {
     var cloudIfBuilt: CloudService?, feedIfBuilt: FeedService?
     /// The Cloud policy and the `feed.github` setting, applied when ``cloud`` and ``feed`` are built.
     var cloudPolicyDisabled = false, feedGitHub: (enabled: Bool, pollIntervalSeconds: Double)?
-    var cloudContext: Task<Void, Never>?  // the Cloud start's registry context follow; nil until Cloud starts
+    var cloudContext: ServiceObservation<CloudContextFacts>?  // the Cloud start's registry context follow; nil until Cloud starts
+    /// What ``cloudContext`` reads; each flush applies (a tuple: no dedupe, as the loop it replaced).
+    typealias CloudContextFacts = (signedIn: Bool, machines: Int, user: String?, team: String?)
     var cloudStart: CloudStartPost?  // the launch's Cloud start (`postCloudStart`); nil in tests
     var showcase = ShowcaseState()
     /// The wide Inbox page, backed by `feed.model`.
@@ -181,7 +184,7 @@ final class AppServices {
         features.isEnabled(.agentChromium, localOverride: AgentPaneTunables.chromium.override)
     }
     /// "Restart cmux-tui to use new features" (plans/cmux-next/server-updates-DESIGN.md).
-    private(set) lazy var serverUpdates = ServerUpdatePresenter(daemon: daemon, defaults: .standard,
+    private(set) lazy var serverUpdates = ServerUpdatePresenter(daemon: daemon, defaults: .standard, mainWork: mainWork, work: work,
                                                                  activeWindow: { [weak self] in self?.windows.active?.window })
     private(set) lazy var updateSheet: UpdateSheetController = UpdateSheetController(source: UpdateSheetModel(service: updater, openLink: { LinkRouter.shared.open($0) }))  // first read in init (no IUO)
     /// cmux.json controller; set by `AppDelegate` once it starts. Agent tabs made before it (by launch's action bindings) follow it from here.
@@ -568,6 +571,10 @@ final class AppServices {
     private(set) lazy var energy = EnergyServices(source: mainWork.energy, isEnabled: features.isEnabled(.energySaver))
     /// Follows `energy.saver` into ``energy``'s policy driver (`followEnergySaver`).
     private var energySaverObservation: ServiceObservation<EnergySaverMode?>?
+    /// `idle.wakeups.*` of the app and the local daemon (p09-observability-059); nil until `startIdleWakeups`.
+    private(set) var idleWakeups: IdleWakeupSampler?
+    /// ``idleWakeups``' resign and become-active subscriptions on ``appEvents``.
+    private var idleWakeupEvents: [EventSubscription] = []
     /// Posts this launch's installed-update Feed card once (`UpdateFeedPosting.follow`).
     var updateFeedObservation: Task<Void, Never>?
     /// Page menus and the open-menu diagnostic shared by browser hosts.
@@ -874,6 +881,25 @@ final class AppServices {
             videos.setEnergy(lowPowerMode: inputs.lowPowerMode, thermal: inputs.thermal)
             self?.energy.driver.update(inputs: inputs)
         }
+    }
+    /// Builds ``idleWakeups`` and feeds it the app's resign and become-active notices through ``appEvents`` (the
+    /// app's one observer per notice, no timer); an app that is inactive now opens its first period. `AppDelegate`
+    /// calls it after startup, with the watchdog that counts main run-loop wakes, and hands the sampler to the input
+    /// tap's subscription (`AppControl.idleWakeups`); a second call does nothing.
+    func startIdleWakeups(watchdog: MainThreadWatchdog) {
+        guard idleWakeups == nil else { return }
+        let sampler = IdleWakeupSampler(sources: .live(mainRunLoopWakes: { [weak watchdog] in watchdog?.mainRunLoopWakes },
+                                                       daemonPID: { [weak daemon = self.daemon] in daemon?.identity?.pid }))
+        idleWakeups = sampler
+        idleWakeupEvents = [
+            appEvents.subscribe(NSApplication.didResignActiveNotification, owner: "IdleWakeupSampler") { [weak sampler] in
+                sampler?.appResignedActive()
+            },
+            appEvents.subscribe(NSApplication.didBecomeActiveNotification, owner: "IdleWakeupSampler") { [weak sampler] in
+                sampler?.appBecameActive()
+            },
+        ]
+        if !NSApp.isActive { sampler.appResignedActive() }
     }
     /// Follows `energy.saver` into the policy driver once the settings have loaded, so the first policy it
     /// publishes already follows the setting. `AppDelegate` calls it at launch; a second call does nothing.

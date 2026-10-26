@@ -238,10 +238,10 @@ extension CEFDownloads {
                 // turn); the op's answer is not read, a stand-in in host mode.
                 start: { [weak runtime] browser, url in
                     guard let tab = runtime?.tabsByBrowser[browser], !tab.isClosed else { return false }
-                    _ = url.withCString { shim.downloadURL(browser, $0) }
+                    _ = shim.downloadURL(browser, url)
                     return true
                 },
-                answer: { id, path in _ = path.withCString { shim.downloadContinue(id, $0) } },
+                answer: { id, path in _ = shim.downloadContinue(id, path) },
                 control: { id, command in _ = shim.downloadControl(id, command) }
             )
         }

@@ -69,7 +69,7 @@ public final class CEFAgentRelay {
     public func send(_ message: String) -> CEFDevToolsRawSend {
         guard let tab, !tab.isClosed, let browser = tab.browserID, tab.runtime.shim != nil else { return .noBrowser }
         guard let id = CEFDevToolsRawMessage.topLevelID(in: message), CEFDevToolsRawMessage.isRawID(id) else { return .refused }
-        let sent = tab.runtime.sendAsync { shim in message.withCString { shim.devToolsSend(browser, $0) } }
+        let sent = tab.runtime.sendAsync { shim in shim.devToolsSend(browser, message) }
         tab.runtime.whenSettled(sent, label: "devtools send") { [weak self] settled in
             guard let text = Self.unansweredText(settled),
                   let reply = CEFDevToolsRawMessage.errorReply(id: id, sessionID: CEFDevToolsRawMessage.sessionID(in: message), text: text)

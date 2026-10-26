@@ -151,6 +151,6 @@ final class CEFAttachedPages {
         guard enabled, apiVersion >= CEFLayerHosting.attachViewForkAPI, let attachView = shim.browserAttachView else {
             return nil
         }
-        return { browser, parent in attachView(browser, Unmanaged.passUnretained(parent).toOpaque()) == 1 }
+        return { browser, parent in attachView(browser, CEFParentView(view: parent)) == 1 }
     }
 }

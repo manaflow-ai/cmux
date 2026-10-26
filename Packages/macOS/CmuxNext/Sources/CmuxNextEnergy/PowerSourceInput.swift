@@ -15,30 +15,41 @@ public nonisolated struct PowerSourceReading: Sendable, Equatable {
     }
 }
 
-/// Where ``EnergyMonitor`` reads the power source: IOKit's (``system()``), or a test's.
+/// Where ``EnergyMonitor`` gets the power source: IOKit's, followed off the main thread (``system()``), or a test's.
 public struct PowerSourceInput {
-    /// The power source now, one snapshot per call.
-    let read: @MainActor () -> PowerSourceReading
-    /// Starts calling the handler on the main actor after each power-source change.
-    let listen: @MainActor (@escaping @MainActor () -> Void) -> Void
-    /// Stops what `listen` started.
+    /// Starts sending readings to the handler on the main actor: the first one, then the changes
+    /// the source reports. A Mac without a battery sends none and registers nothing.
+    let start: @MainActor (@escaping @MainActor @Sendable (PowerSourceReading) -> Void) -> Void
+    /// Stops what `start` started.
     let stop: @MainActor () -> Void
 
-    /// A power source read by `read`, whose changes `listen` reports until `stop`.
+    /// A power source read by `read` on the main actor, whose changes `listen` reports until `stop`:
+    /// `read` once at start (no battery: nothing more, `listen` never called), then once per change.
     public init(read: @escaping @MainActor () -> PowerSourceReading,
                 listen: @escaping @MainActor (@escaping @MainActor () -> Void) -> Void,
                 stop: @escaping @MainActor () -> Void = {}) {
-        self.read = read
-        self.listen = listen
+        self.init(start: { deliver in
+            let first = read()
+            guard first.hasBattery else { return }
+            listen { deliver(read()) }
+            deliver(first)
+        }, stop: stop)
+    }
+
+    init(start: @escaping @MainActor (@escaping @MainActor @Sendable (PowerSourceReading) -> Void) -> Void,
+         stop: @escaping @MainActor () -> Void) {
+        self.start = start
         self.stop = stop
     }
 
-    /// IOKit: the app's one power-source run-loop source (``PowerSourceMonitor``).
+    /// IOKit: the app's one power-source monitor (``PowerSourceMonitor``), which reads on its utility
+    /// queue and hops to the main actor only when the source or the low-battery band changes.
     static func system() -> PowerSourceInput {
-        let monitor = PowerSourceMonitor()
-        return PowerSourceInput(read: { PowerSourceMonitor.read() }, listen: { handler in
-            monitor.onChange = handler
-            monitor.start()
-        }, stop: { monitor.stop() })
+        monitored(by: PowerSourceMonitor())
+    }
+
+    /// The input `monitor` feeds.
+    static func monitored(by monitor: PowerSourceMonitor) -> PowerSourceInput {
+        PowerSourceInput(start: { monitor.start($0) }, stop: { monitor.stop() })
     }
 }
