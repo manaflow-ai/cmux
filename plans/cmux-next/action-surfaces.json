@@ -21698,6 +21698,34 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "agent toggle-session-info",
+      "context_menu" : "guiOnly",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "agentPane.toggleSessionInfo",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Toggle Session Info",
+      "title_key" : "action.agentPane.toggleSessionInfo",
+      "title_table" : "Localizable"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "agent toggle-acp-inspector",
       "context_menu" : "offered",
       "context_menus" : [
@@ -21720,7 +21748,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "Toggle Session Info",
+      "title" : "Toggle Event Inspector",
       "title_key" : "action.agentPane.toggleInspector",
       "title_table" : "Localizable"
     },
@@ -23018,6 +23046,62 @@
       "title" : "Move Chief To…",
       "title_key" : "action.chief.moveTo",
       "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action chief-import-memories",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "chief.importMemories",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Import Memories…",
+      "title_key" : "action.chief.importMemories",
+      "title_table" : "Localizable"
+    },
+    {
+      "cli" : "guiOnly",
+      "cli_name" : "action chief-import-memories-undo",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "chief.importMemories.undo",
+      "main_menu" : null,
+      "mcp" : "guiOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.agents",
+        "order" : 109,
+        "title" : "Agents",
+        "title_key" : "category.agents",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Undo Last Memory Import",
+      "title_key" : "action.chief.importMemories.undo",
+      "title_table" : "Localizable"
     },
     {
       "cli" : "guiOnly",
@@ -24690,8 +24774,8 @@
       },
       "palette_suggested" : null,
       "title" : "Attach Cloud Tunnel Network",
-      "title_key" : null,
-      "title_table" : null
+      "title_key" : "action.cloudTunnelAttach",
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -24718,8 +24802,8 @@
       },
       "palette_suggested" : null,
       "title" : "Detach Cloud Tunnel Network",
-      "title_key" : null,
-      "title_table" : null
+      "title_key" : "action.cloudTunnelDetach",
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -24746,8 +24830,8 @@
       },
       "palette_suggested" : null,
       "title" : "Rotate Cloud Tunnel Key",
-      "title_key" : null,
-      "title_table" : null
+      "title_key" : "action.cloudTunnelRotateKey",
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -24774,8 +24858,8 @@
       },
       "palette_suggested" : null,
       "title" : "List Cloud Networks",
-      "title_key" : null,
-      "title_table" : null
+      "title_key" : "action.cloudNetworkList",
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -24802,8 +24886,8 @@
       },
       "palette_suggested" : null,
       "title" : "List Cloud Firewall Rules",
-      "title_key" : null,
-      "title_table" : null
+      "title_key" : "action.cloudFirewallList",
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -24830,8 +24914,8 @@
       },
       "palette_suggested" : null,
       "title" : "Get Cloud Firewall Rule",
-      "title_key" : null,
-      "title_table" : null
+      "title_key" : "action.cloudFirewallGet",
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -24858,8 +24942,8 @@
       },
       "palette_suggested" : null,
       "title" : "Create Cloud Firewall Rule",
-      "title_key" : null,
-      "title_table" : null
+      "title_key" : "action.cloudFirewallCreate",
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -24886,8 +24970,8 @@
       },
       "palette_suggested" : null,
       "title" : "Delete Cloud Firewall Rule",
-      "title_key" : null,
-      "title_table" : null
+      "title_key" : "action.cloudFirewallDelete",
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -24914,8 +24998,8 @@
       },
       "palette_suggested" : null,
       "title" : "List Cloud Domains",
-      "title_key" : null,
-      "title_table" : null
+      "title_key" : "action.cloudDomainList",
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -24942,8 +25026,8 @@
       },
       "palette_suggested" : null,
       "title" : "List Cloud Publications",
-      "title_key" : null,
-      "title_table" : null
+      "title_key" : "action.cloudPublicationList",
+      "title_table" : "ActionCatalog"
     },
     {
       "cli" : "offered",
@@ -24997,7 +25081,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "New Terminal on Machine",
+      "title" : "New Terminal Workspace on Machine",
       "title_key" : "action.cloudNewTerminal",
       "title_table" : "ActionCatalog"
     },
@@ -25455,6 +25539,146 @@
       "title" : "Open Mobile Pairing",
       "title_key" : "action.palette.mobileConnect",
       "title_table" : "ActionCatalog"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "cloud open-browser",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "cloudMachine"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "cloudOpenBrowser",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.cloud",
+        "order" : 110,
+        "title" : "Cloud and Account",
+        "title_key" : "category.cloud",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Open Machine Port in Browser…",
+      "title_key" : "action.cloudOpenBrowser",
+      "title_table" : "CloudPortActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "cloud port-list",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "cloudMachine"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "cloudPortList",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.cloud",
+        "order" : 110,
+        "title" : "Cloud and Account",
+        "title_key" : "category.cloud",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "List Forwarded Machine Ports",
+      "title_key" : "action.cloudPortList",
+      "title_table" : "CloudPortActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "cloud port-forward",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "cloudMachine"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "cloudPortForward",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.cloud",
+        "order" : 110,
+        "title" : "Cloud and Account",
+        "title_key" : "category.cloud",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Forward Machine Port…",
+      "title_key" : "action.cloudPortForward",
+      "title_table" : "CloudPortActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "cloud port-close",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "cloudMachine"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "cloudPortClose",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.cloud",
+        "order" : 110,
+        "title" : "Cloud and Account",
+        "title_key" : "category.cloud",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Close Forwarded Machine Port…",
+      "title_key" : "action.cloudPortClose",
+      "title_table" : "CloudPortActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "cloud machine-link",
+      "context_menu" : "duplicateOfDefault",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "cloudMachineLink",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.cloud",
+        "order" : 110,
+        "title" : "Cloud and Account",
+        "title_key" : "category.cloud",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Get Machine Link…",
+      "title_key" : "action.cloudMachineLink",
+      "title_table" : "CloudPortActions"
     },
     {
       "cli" : "offered",
@@ -29276,6 +29500,118 @@
       "title" : "Wake Tab",
       "title_key" : "action.wakeTab",
       "title_table" : "HibernationActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "workspace archive-idle",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "sidebarBackground"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "workspace.archiveIdle",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.workspace",
+        "order" : 101,
+        "title" : "Workspace",
+        "title_key" : "category.workspace",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Archive Idle Workspaces",
+      "title_key" : "action.autoArchive.archiveIdle",
+      "title_table" : "WorkspaceActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "workspace restore-archived",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "sidebarBackground"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "workspace.restoreArchived",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.workspace",
+        "order" : 101,
+        "title" : "Workspace",
+        "title_key" : "category.workspace",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Restore Archived Workspace…",
+      "title_key" : "action.autoArchive.restoreArchived",
+      "title_table" : "WorkspaceActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "workspace-group set-auto-archive",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "workspaceGroup"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "workspaceGroup.setAutoArchive",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.workspace",
+        "order" : 101,
+        "title" : "Workspace",
+        "title_key" : "category.workspace",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Auto-Archive Group Workspaces",
+      "title_key" : "action.autoArchive.setGroupRule",
+      "title_table" : "WorkspaceActions"
+    },
+    {
+      "cli" : "devOnly",
+      "cli_name" : "action debug-auto-archive-age",
+      "context_menu" : "noObject",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "debug.autoArchive.age",
+      "main_menu" : null,
+      "mcp" : "devOnly",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.workspace",
+        "order" : 101,
+        "title" : "Workspace",
+        "title_key" : "category.workspace",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Age Workspaces for Auto-Archive",
+      "title_key" : "action.autoArchive.debugAge",
+      "title_table" : "WorkspaceActions"
     },
     {
       "cli" : "offered",
@@ -37821,14 +38157,66 @@
               }
             },
             {
+              "enabled_when" : "can_perform",
+              "id" : "cloudOpenBrowser",
+              "kind" : "action",
+              "order" : 11,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : "cloud",
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "cloudPortList",
+              "kind" : "action",
+              "order" : 12,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : "cloud",
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "cloudPortForward",
+              "kind" : "action",
+              "order" : 13,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : "cloud",
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "cloudPortClose",
+              "kind" : "action",
+              "order" : 14,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : "cloud",
+                "requires" : [
+
+                ]
+              }
+            },
+            {
               "kind" : "separator",
-              "order" : 11
+              "order" : 15
             },
             {
               "enabled_when" : "can_perform",
               "id" : "palette.cloud.deleteSnapshot",
               "kind" : "action",
-              "order" : 12,
+              "order" : 16,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : "cloud",
@@ -40892,7 +41280,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "sidebar.groupBy.none",
+              "id" : "workspace.archiveIdle",
               "kind" : "action",
               "order" : 2,
               "visible_when" : {
@@ -40905,9 +41293,35 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "sidebar.groupBy.folder",
+              "id" : "workspace.restoreArchived",
               "kind" : "action",
               "order" : 3,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "sidebar.groupBy.none",
+              "kind" : "action",
+              "order" : 4,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "sidebar.groupBy.folder",
+              "kind" : "action",
+              "order" : 5,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -44385,9 +44799,51 @@
               }
             },
             {
+              "choices" : {
+                "argument" : "after",
+                "more_opens_palette" : false,
+                "values" : [
+                  {
+                    "title" : "Use the Default",
+                    "title_key" : null,
+                    "title_table" : null,
+                    "value" : "default"
+                  },
+                  {
+                    "title" : "Never",
+                    "title_key" : null,
+                    "title_table" : null,
+                    "value" : "never"
+                  },
+                  {
+                    "title" : "After 1 Idle Day",
+                    "title_key" : null,
+                    "title_table" : null,
+                    "value" : "24"
+                  },
+                  {
+                    "title" : "After 3 Idle Days",
+                    "title_key" : null,
+                    "title_table" : null,
+                    "value" : "72"
+                  },
+                  {
+                    "title" : "After 1 Idle Week",
+                    "title_key" : null,
+                    "title_table" : null,
+                    "value" : "168"
+                  },
+                  {
+                    "title" : "After 30 Idle Days",
+                    "title_key" : null,
+                    "title_table" : null,
+                    "value" : "720"
+                  }
+                ]
+              },
               "enabled_when" : "can_perform",
-              "id" : "workspaceGroup.markRead",
-              "kind" : "action",
+              "id" : "workspaceGroup.setAutoArchive",
+              "kind" : "choices",
               "order" : 5,
               "visible_when" : {
                 "debug_only" : false,
@@ -44399,7 +44855,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "workspaceGroup.markUnread",
+              "id" : "workspaceGroup.markRead",
               "kind" : "action",
               "order" : 6,
               "visible_when" : {
@@ -44412,7 +44868,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "workspaceGroup.clearNotifications",
+              "id" : "workspaceGroup.markUnread",
               "kind" : "action",
               "order" : 7,
               "visible_when" : {
@@ -44425,7 +44881,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "workspaceGroup.collapseAll",
+              "id" : "workspaceGroup.clearNotifications",
               "kind" : "action",
               "order" : 8,
               "visible_when" : {
@@ -44438,9 +44894,22 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "workspaceGroup.expandAll",
+              "id" : "workspaceGroup.collapseAll",
               "kind" : "action",
               "order" : 9,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : null,
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "workspaceGroup.expandAll",
+              "kind" : "action",
+              "order" : 10,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -44454,7 +44923,7 @@
               "id" : "workspaceGroup.collapseOthers",
               "kind" : "action",
               "label" : "Collapse Others",
-              "order" : 10,
+              "order" : 11,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -44467,7 +44936,7 @@
               "enabled_when" : "can_perform",
               "id" : "workspaceGroup.editConfig",
               "kind" : "action",
-              "order" : 11,
+              "order" : 12,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -44480,7 +44949,7 @@
               "enabled_when" : "can_perform",
               "id" : "workspaceGroup.duplicate",
               "kind" : "action",
-              "order" : 12,
+              "order" : 13,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -44493,7 +44962,7 @@
               "enabled_when" : "can_perform",
               "id" : "workspaceGroup.copyID",
               "kind" : "action",
-              "order" : 13,
+              "order" : 14,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,
@@ -44504,13 +44973,13 @@
             },
             {
               "kind" : "separator",
-              "order" : 14
+              "order" : 15
             },
             {
               "enabled_when" : "can_perform",
               "id" : "workspaceGroup.stash",
               "kind" : "action",
-              "order" : 15,
+              "order" : 16,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : null,

@@ -256,6 +256,133 @@ LIGHT = "glaeda-light-xcode-26.6"
 SNAPSHOT = ROOT / "tests/fixtures/side-lane-placement/fleet-2026-10-20T2222Z.json"
 
 
+FAST = "glaeda-fast-light-xcode-26.6"
+
+
+class FastRoute(unittest.TestCase):
+    """The fast tier takes its reserved label only while a runner carrying it is idle (2026-10-25:
+    15 runs' fast tiers queued an hour behind the two runners left on the light fast label)."""
+
+    def test_an_idle_fast_runner_takes_the_fast_tier(self):
+        runners = [runner("mini-a-glaeda-3", labels=(FAST,)), runner("mini-b-glaeda-3", busy=True, labels=(FAST,))]
+        self.assertEqual(placement.fast_route({"FAST_LABEL": FAST}, runners), FAST)
+
+    def test_a_busy_offline_or_unread_fast_pool_routes_nothing(self):
+        busy = [runner("mini-a-glaeda-3", busy=True, labels=(FAST,)),
+                runner("mini-b-glaeda-3", status="offline", labels=(FAST,))]
+        self.assertEqual(placement.fast_route({"FAST_LABEL": FAST}, busy), "")
+        self.assertEqual(placement.fast_route({"FAST_LABEL": FAST}, []), "")
+        self.assertEqual(placement.fast_route({"FAST_LABEL": FAST}, None), "")
+        self.assertEqual(placement.fast_route({}, [runner("mini-a-glaeda-3", labels=(FAST,))]), "")
+
+    def test_the_fast_tier_leaves_jobs_and_the_cascade_only_when_routed(self):
+        trimmed = placement.without_fast({"JOBS": "fast-tier swift-canary", "CASCADE_RUNS": " fast-tier swift-canary  "})
+        self.assertEqual(trimmed["JOBS"], "swift-canary")
+        self.assertEqual(trimmed["CASCADE_RUNS"], " swift-canary ")
+        self.assertEqual(placement.without_fast({"CASCADE_RUNS": " fast-tier "})["CASCADE_RUNS"], "")
+
+    def test_main_writes_fast_runner(self):
+        idle = [runner("mini-a-glaeda-3", labels=(FAST,)), runner("mini-b-glaeda-1", busy=True)]
+        for runners, expected in ((idle, FAST), (idle[1:], "")):
+            with self.subTest(expected=expected), tempfile.TemporaryDirectory() as tmp:
+                output = Path(tmp) / "out"
+                values = env(JOBS="fast-tier " + " ".join(JOBS), FAST_LABEL=FAST, CASCADE_RUNS=" fast-tier ",
+                             GITHUB_OUTPUT=str(output), ROUTE_TOKEN="t", GITHUB_REPOSITORY="manaflow-ai/cmux")
+                with mock.patch.object(placement.pool, "GitHub") as github, \
+                        mock.patch.object(placement.cascade, "read", return_value=(None, None, None)), \
+                        contextlib.redirect_stdout(io.StringIO()):
+                    github.return_value.runners.return_value = runners
+                    placement.main(values)
+                self.assertIn(f"fast_runner={expected}\n", output.read_text())
+
+
+class GatewayRoute(unittest.TestCase):
+    """The build-fleet compiles take vars.CI_COMPILE_CHECK_GATEWAY, or a wider class of it, only while a
+    runner is idle there. At 06:00Z on 2026-10-26 the light side label had 5 jobs running and 44 queued,
+    the oldest 58 minutes, and PR #24155's app compile (build fleet) queued there three times."""
+
+    def light(self, *busy: bool) -> list[dict]:
+        return [runner(f"light-{index}-glaeda-1", busy=flag, labels=(LIGHT, LIGHT_SIDE))
+                for index, flag in enumerate(busy)]
+
+    def std(self, *busy: bool) -> list[dict]:
+        return [runner(f"mini-{index}-glaeda-3", busy=flag) for index, flag in enumerate(busy)]
+
+    def test_an_idle_gateway_runner_takes_the_compiles(self):
+        self.assertEqual(placement.gateway_route({"GATEWAY_LABEL": LIGHT_SIDE}, self.light(True, False)), LIGHT_SIDE)
+
+    def test_a_busy_light_gateway_spills_to_an_idle_std_side_runner(self):
+        self.assertEqual(placement.compatible_labels(LIGHT_SIDE), (LIGHT_SIDE, SIDE))
+        self.assertEqual(placement.gateway_route({"GATEWAY_LABEL": LIGHT_SIDE},
+                                                 self.light(True, True) + self.std(True, False)), SIDE)
+
+    def test_no_idle_runner_anywhere_routes_nothing(self):
+        busy = self.light(True, True) + self.std(True) + [runner("mini-x-glaeda-3", status="offline")]
+        self.assertEqual(placement.gateway_route({"GATEWAY_LABEL": LIGHT_SIDE}, busy), "")
+        self.assertEqual(placement.gateway_route({"GATEWAY_LABEL": LIGHT_SIDE}, []), "")
+
+    def test_unread_runners_and_an_unset_variable_route_nothing(self):
+        # Nobody saw a runner free, so the gateway jobs skip and their Mac fallbacks run.
+        self.assertEqual(placement.gateway_route({"GATEWAY_LABEL": LIGHT_SIDE}, None), "")
+        self.assertEqual(placement.gateway_route({}, self.light(False)), "")
+
+    def test_each_gateway_job_needs_its_own_idle_runner_beyond_the_runs_own_jobs(self):
+        runners = self.light(False) + self.std(False, False)
+        both = {"GATEWAY_LABEL": LIGHT_SIDE, "GATEWAY_JOBS": " app-compile-fleet swift-canary-fleet"}
+        self.assertEqual(placement.gateway_route(both, runners), SIDE)
+        self.assertEqual(placement.gateway_route(both, runners, {SIDE: 1}), "")
+        self.assertEqual(placement.gateway_route({"GATEWAY_LABEL": LIGHT_SIDE}, runners, {LIGHT_SIDE: 1}), SIDE)
+
+    def test_the_cascade_gains_the_mac_fallback_only_once(self):
+        self.assertEqual(placement.with_gateway_cascade({"CASCADE_RUNS": " fast-tier ", "GATEWAY_CASCADE": "release-compile"})
+                         ["CASCADE_RUNS"], " fast-tier release-compile ")
+        self.assertEqual(placement.with_gateway_cascade({"CASCADE_RUNS": " release-compile ",
+                                                         "GATEWAY_CASCADE": "release-compile"})["CASCADE_RUNS"],
+                         " release-compile ")
+        self.assertEqual(placement.with_gateway_cascade({"CASCADE_RUNS": ""}), {"CASCADE_RUNS": ""})
+
+    def run_main(self, runners: list[dict], **overrides: str) -> dict[str, str]:
+        with tempfile.TemporaryDirectory() as tmp:
+            output = Path(tmp) / "out"
+            values = env(SIDE_LABEL=LIGHT_SIDE, GITHUB_OUTPUT=str(output), ROUTE_TOKEN="t",
+                         GITHUB_REPOSITORY="manaflow-ai/cmux", **overrides)
+            free = {placement.cascade.LARGE: 0, placement.cascade.SMALL: 0}
+            with mock.patch.object(placement.pool, "GitHub") as github, \
+                    mock.patch.object(placement.cascade, "read", return_value=(free, dict(free), None)), \
+                    contextlib.redirect_stdout(io.StringIO()):
+                github.return_value.runners.return_value = runners
+                placement.main(values)
+            return dict(line.split("=", 1) for line in output.read_text().splitlines())
+
+    def test_with_no_idle_gateway_the_compiles_skip_and_the_release_compile_takes_blacksmith(self):
+        gateway = {"GATEWAY_LABEL": LIGHT_SIDE, "GATEWAY_JOBS": "app-compile-fleet", "GATEWAY_CASCADE": "release-compile",
+                   "CASCADE_RUNS": " cmux-scheme-compile "}
+        lines = self.run_main(self.light(True, True) + self.std(True, True), **gateway)
+        self.assertEqual((lines["gateway_runner"], lines["gateway_attempt"]), ("", "1"))
+        self.assertIn(" release-compile ", lines["blacksmith_12_jobs"])
+        # The one idle std side runner is the run's scheme compile's, which races for it, not the gateway's.
+        lines = self.run_main(self.light(True, True) + self.std(True, False), **gateway)
+        self.assertEqual(lines["gateway_runner"], "")
+        # A second idle runner takes the compile; the Mac fallback stays out of the cascade.
+        lines = self.run_main(self.light(True, True) + self.std(True, False, False), **gateway)
+        self.assertEqual((lines["gateway_runner"], lines["gateway_attempt"]), (SIDE, "1"))
+        self.assertNotIn("release-compile", lines["blacksmith_12_jobs"])
+        self.assertEqual(self.run_main(self.light(False), GITHUB_RUN_ATTEMPT="2", **gateway)["gateway_attempt"], "2")
+
+    def test_only_the_side_jobs_that_run_count_against_the_gateway(self):
+        runners = self.light(True) + self.std(False, False)
+        values = env(SIDE_LABEL=LIGHT_SIDE, GATEWAY_JOBS="app-compile-fleet swift-canary-fleet",
+                     CASCADE_RUNS=" swift-canary release-compile cmux-scheme-compile ")
+        # GUI suites take another label; swift-canary and release-compile stand in for the gateway jobs.
+        self.assertEqual(placement.gateway_taken(values, runners), {SIDE: 1})
+        self.assertEqual(placement.gateway_taken({**values, "CASCADE_RUNS": " swift-canary "}, runners), {})
+        self.assertEqual(placement.gateway_taken({**values, "CASCADE_RUNS": ""}, runners, FAST), {FAST: 1})
+
+    def test_without_the_variable_nothing_is_judged(self):
+        lines = self.run_main(self.light(False))
+        self.assertEqual((lines["gateway_runner"], lines["gateway_attempt"]), ("", ""))
+
+
 class SpillToCompatiblePool(unittest.TestCase):
     def setUp(self):
         self.assertIsNotNone(placement, "scripts/ci/side_lane_placement.py is missing")
@@ -506,7 +633,7 @@ class CmuxNextWiring(unittest.TestCase):
                     free["needs"][self.PLACEMENT]["outputs"]["retry_runner"] = FALLBACK
                     self.assertEqual(evaluate(expression, free), FALLBACK)
                     # The fast tier's own fast-lane mini is left the same way.
-                    free["vars"]["CI_FAST_LANE_RUNNER"] = "glaeda-fast-std-xcode-26.6"
+                    free["needs"][self.PLACEMENT]["outputs"]["fast_runner"] = "glaeda-fast-std-xcode-26.6"
                     self.assertEqual(evaluate(expression, free), FALLBACK)
                     # With no free slot it waits behind the fleet, never in a Blacksmith queue, as attempt 3 does.
                     full = self.context("2", runner=STD, triggering_actor=bot)

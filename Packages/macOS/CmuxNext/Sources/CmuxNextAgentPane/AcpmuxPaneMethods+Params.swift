@@ -42,6 +42,8 @@ nonisolated extension AcpmuxPaneMethods {
         // The composer's Account menu (direct.ts routes, setChatRoute).
         "_acpmux/route/list": (["sessionId"], []),
         "_acpmux/chat/route.set": (["sessionId", "routeId", "when"], []),
+        // `server`: one of that chat's MCP servers by name; acpmux refuses a name the chat does not list.
+        "_acpmux/mcp/reconnect": (["sessionId", "server"], []),
         "_acpmux/prewarm": (["harness", "cwd"], []),
         "_acpmux/start_mode": (["harness", "cwd"], []),
         // `cwd`: the chat folder whose folder harness profiles to list (checked like every cwd).
@@ -59,7 +61,7 @@ nonisolated extension AcpmuxPaneMethods {
         // the prompt's own images, so it reaches nothing the chat does not already hold.
         "_acpmux/queue_edit": (["sessionId", "promptId", "op", "text", "images", "index"], []),
         // `_meta`: only the gesture ticket of the person's pick (cx-0q7o), never anything else.
-        "_acpmux/permission_respond": (["sessionId", "permissionId", "optionId", "answers", "_meta"], []),
+        "_acpmux/permission_respond": (["sessionId", "permissionId", "optionId", "answers", "annotations", "_meta"], []),
         "_acpmux/handoff_prepare": (["sessionId", "harness", "handoffKey"], []),
         "_acpmux/handoff_get": (["sessionId", "handoffId"], []),
         "_acpmux/handoff_draft": (["handoffId", "revision", "draftKey", "capsule", "checkpoint"], []),

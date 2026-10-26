@@ -4,7 +4,7 @@ import CmuxNextControl
 import CmuxNextSettings
 import Foundation
 
-// `debug.browser.external_opens`, `debug.browser.prompts` and `debug.browser.page_status`
+// `debug.external_open`, `debug.browser.external_opens`, `debug.browser.prompts` and `debug.browser.page_status`
 // (DEBUG builds), for the scripts/cmux-next live checks: the links a recording build sent
 // to other apps (`BrowserExternalApps`), a browser tab's pending prompts, and the cmux
 // pages over a tab's page (error page, certificate warning, sad tab, Page unresponsive;
@@ -14,6 +14,11 @@ enum DebugBrowserExternal {
         #if DEBUG
         router?.register([
             .mainActor("debug.browser.external_opens") { call in .value(opens(call.params)) },
+            // `{url}` as macOS hands it to cmux from another app (`ssh://host`): captures and live checks.
+            .mainActor("debug.external_open") { [weak services] call in
+                guard let services, let url = call.params["url"]?.stringValue.flatMap(URL.init(string:)) else { return .value(.bool(false)) }
+                return .value(.bool(services.externalOpen.open(url)))
+            },
             .mainActor("debug.browser.prompts") { [weak services] call in
                 guard let services else { return .value(.null) }
                 return .value(prompts(call.params, services: services))

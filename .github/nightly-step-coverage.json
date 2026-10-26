@@ -78,6 +78,9 @@
         "Assemble the Computer Use helper": {"nightly_only": "build-cmux-cua.sh --helper-app compiles cmux-cua on a Mac; the layout check it runs after is fixture-tested by tests/test_nightly_next_computer_use_helper.py"},
         "Build immutable SSH daemon assets once for every app variant": {"pr": "cmux-next-remote-daemon.yml:release-packaging:Build and exercise stable, nightly and rc daemon artifacts"},
         "Attest immutable SSH daemon assets": {"nightly_only": "build provenance attestation needs OIDC"},
+        "Wait for the API budget before retrying the daemon attestation": {"plumbing": true},
+        "Retry the daemon attestation": {"nightly_only": "build provenance attestation needs OIDC"},
+        "Report a missing daemon attestation": {"plumbing": true},
         "Strip unsigned nightly app before transfer": {"pr": "ci-guards.yml:workflow-guard-tests:Validate release bundle stripping"},
         "Report the embedded Chromium engine": {"pr": "cmux-next.yml:checks:Script tests (pin-cmux-tui, embed-cef, ensure-cef store)"},
         "Upload dSYMs to Sentry": {"nightly_only": "uploads dSYMs with Sentry token"},
@@ -89,7 +92,8 @@
         "Resolve cmux-tui client commit": {"pr": "cmux-next.yml:checks:Script tests (pin-cmux-tui, embed-cef, ensure-cef store)"},
         "Choose the build commit": {"plumbing": true},
         "Leave the build slot to a newer nightly-next push": {"plumbing": true}},
-      "prepare-nightly-variant": {
+      "prepare-nightly-variant-primary": {
+        "Reuse a successful primary preparation": {"plumbing": true, "note": "fallback leg only: skips a preparation the primary leg already uploaded (the primary's result or this run's artifacts)"},
         "Clear stale git locks (self-hosted reused workspace)": {"plumbing": true},
         "Initialize cmux-next notices submodule": {"plumbing": true}, "Select Xcode": {"plumbing": true},
         "Download signing inputs (parallel)": {"plumbing": true},
@@ -104,6 +108,24 @@
         "Verify nightly binary architectures": {"nightly_only": "lipo -archs and file on every bundled binary of the thinned Release app; needs the Release cmux.app that only the nightly builds (xcodebuild Release on a Mac)"},
         "Package prepared app for signing": {"plumbing": true}, "Record prepared app digest": {"plumbing": true},
         "Finish the browser-data import proof": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly API tag finalization"}},
+      "prepare-nightly-variant-fallback": {
+        "Reuse a successful primary preparation": {"plumbing": true, "note": "fallback leg only: skips a preparation the primary leg already uploaded (the primary's result or this run's artifacts)"},
+        "Clear stale git locks (self-hosted reused workspace)": {"plumbing": true},
+        "Initialize cmux-next notices submodule": {"plumbing": true}, "Select Xcode": {"plumbing": true},
+        "Download signing inputs (parallel)": {"plumbing": true},
+        "Restore unsigned nightly products": {"plumbing": true},
+        "Prove the browser-data import is compiled out (cx-f58x notary test)": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly API tag finalization"},
+        "Inject universal Ghostty CLI helper": {"plumbing": true},
+        "Inject the Ghostty dependency licenses (cmux-next)": {"pr": "cmux-next-guards.yml:vt-link-graph:The nightly's Ghostty license checks pass on fixtures", "note": "verify-ghostty-license-bundle.py on fixture trees (test_ghostty_licenses.py, test_check_bundle_notices.py); the real trees come from the source archive"},
+        "Bundle the cmux-tui client": {"pr": "ci-guards.yml:workflow-guard-tests:Validate cmux-tui client installation"},
+        "Run bundled Ghostty theme picker helper regression": {"nightly_only": "launches the bundled ghostty helper's theme picker; needs the Release cmux.app that only the nightly builds (xcodebuild Release on a Mac)"},
+        "Thin bundle to the variant architecture": {"nightly_only": "lipo-thins the Release app and drops CEF slices; needs the Release cmux.app that only the nightly builds (xcodebuild Release on a Mac). thin-app-bundle.sh alone is tested by ci-macos.yml release-build on pull requests into main"},
+        "Verify shipped libintl has its source": {"pr": "ci-guards.yml:workflow-guard-tests:Validate shipped libintl check"},
+        "Verify nightly binary architectures": {"nightly_only": "lipo -archs and file on every bundled binary of the thinned Release app; needs the Release cmux.app that only the nightly builds (xcodebuild Release on a Mac)"},
+        "Package prepared app for signing": {"plumbing": true}, "Record prepared app digest": {"plumbing": true},
+        "Finish the browser-data import proof": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly API tag finalization"}},
+      "prepare-nightly-variant": {
+        "Accept primary or fallback preparation": {"plumbing": true, "note": "aggregate job: succeeds when the primary or fallback preparation did, so downstream jobs keep one need"}},
       "build-sign-notarize-nightly": {
         "Clear stale git locks (self-hosted reused workspace)": {"plumbing": true},
         "Install the current signing keychain controls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate unsigned nightly resume provenance and routing"},
@@ -179,9 +201,13 @@
         "Record verified nightly publication": {"nightly_only": "edits published GitHub release body"},
         "Move channel release tag to built commit": {"nightly_only": "moves channel release tag (publication; update-release-tag.py tested by tests/test_update_release_tag.py)"},
         "Record nightly publication marker outcome": {"plumbing": true}},
+      "keep-published-dsyms": {
+        "Find the attempt that compiled the published build": {"nightly_only": "looks up the published binary's producing run and artifact; a pull request has no published nightly build"},
+        "Keep the published build's dSYMs on R2": {"nightly_only": "archives the published build's symbols to R2 with release credentials after publication"}},
       "legacy-identity-target": {
         "Compare the cmux NEXT feed with the old feed": {"pr": "ci-guards.yml:workflow-guard-tests:Validate universal nightly workflow"}},
       "sign-nightly-identity-legacy": {
+        "Prepare current NEXT DMG for the parallel identity": {"nightly_only": "rewrites the prepared Release cmux.app's Info.plist for the cmux NEXT identity before Developer ID signing; needs the Release app only the nightly builds"},
         "Skip a build the old feed already has": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly-next release-ring tags"},
         "Initialize cmux-next notices submodule": {"plumbing": true},
         "Parse signing and notarize scripts with /bin/bash 3.2": {"pr": "signing-keychain-macos.yml:bash32-syntax:Parse every scripts/ci shell script with bash 3.2"},
@@ -211,6 +237,8 @@
         "Find the failure issue": {"pr": "ci-guards.yml:workflow-guard-tests:Validate universal nightly workflow"},
         "Report a failed publication": {"nightly_only": "opens issue with write token"},
         "Fail a failed attempt": {"plumbing": true}},
+      "nightly-identity-legacy-published": {
+        "The old feed published, or had nothing to publish": {"pr": "ci-guards.yml:workflow-guard-tests:Validate the nightly-next release-ring tags"}},
       "generate-nightly-deltas": {
         "Select Xcode": {"plumbing": true},
         "Generate deltas and revised appcast": {"nightly_only": "Sparkle key signs deltas (job env; generate-nightly-deltas.sh tested by tests/test_generate_nightly_deltas.sh)"}},

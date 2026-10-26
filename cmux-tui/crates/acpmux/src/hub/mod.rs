@@ -12,6 +12,7 @@ mod aside;
 pub(crate) mod auto_resume;
 mod btw;
 mod exit_reason;
+pub(crate) mod subagent_retry;
 mod turn_errors;
 pub(crate) use btw::SIDE_TAG;
 pub(crate) use policy_mode::SetRequest;
@@ -72,6 +73,7 @@ pub use route_switch::HarnessRestarts;
 pub(crate) use route_switch::route_error;
 pub(crate) use turn_errors::is_limit_error;
 mod git_watch;
+mod lane_reports;
 mod offer_results;
 mod offers;
 mod secrets;
@@ -84,7 +86,9 @@ mod stalled_turn;
 pub(crate) mod tasks;
 pub use session::{Session, live_tags};
 pub(super) use session::{newest_first, prompt_text, short_text};
+mod shell_readonly;
 mod shutdown;
+pub use shutdown::SHUTTING_DOWN;
 mod spawn;
 mod start_defaults;
 pub(crate) mod start_mode;
@@ -115,11 +119,12 @@ pub(crate) use peers::{
 mod permission_groups;
 mod permissions;
 pub mod person;
+pub mod presence;
 mod processes;
 mod pull_requests;
 pub(crate) mod questions;
 mod remote_floor;
-mod remote_sandbox;
+pub(crate) mod remote_sandbox;
 pub use remote_sandbox::vm_host_peer_approves;
 mod start_gate;
 pub(crate) use start_gate::host_label;
@@ -146,6 +151,8 @@ mod turn_usage;
 mod turns;
 pub(crate) mod views;
 mod warm;
+mod watch_events;
+pub(crate) mod watches;
 mod web_control;
 mod web_token;
 pub(crate) mod worktree_care;
@@ -276,6 +283,17 @@ pub struct PromptOptions {
     /// A steer (`_meta.acpmux.interrupt`) that an agent which cannot steer takes as "stop the
     /// running turn and run this next" instead of waiting behind the queue.
     pub interrupt: bool,
+    /// A steer read now (`_meta.acpmux.steerNow`): steered into the running turn, it stops the
+    /// agent's current step at once, as Send now does for a waiting steer (`queue_edit.rs`
+    /// `step_now`); the turn runs on. The Chief's tell (Lawrence, 2026-10-26: "interrupt by
+    /// default"). A running subagent or background shell is never stopped for it
+    /// (claude_stdio `steer_now_tests.rs`).
+    pub steer_now: bool,
+    /// With `interrupt`, the turn it was aimed at: only that turn stops. A send-now whose turn
+    /// ended before the agent took it still goes next, but a turn that began meanwhile (another
+    /// agent's message) runs on (Leo, 2026-10-21: "that might have accidentally swallowed up a
+    /// queued message").
+    pub interrupt_turn: Option<String>,
     /// Who sent the prompt, when not the person (`prompt_provenance.rs`).
     pub provenance: Option<Value>,
     /// Another agent's name when it sent the prompt with no provenance: the session a
@@ -420,18 +438,27 @@ pub struct Hub {
     pub web_token: WebToken,
     /// This launch's person key (`person.rs`): who may allow and grant.
     pub person: person::PersonGate,
+    /// Who has each chat open and who types in it, in memory only (`presence.rs`).
+    pub presence: presence::Presence,
     /// How long a move may go without its client (`transfer_watch.rs`).
     pub(super) transfer_lease: StdMutex<std::time::Duration>,
     /// How long Ctrl-B waits for Claude Code's answer (`processes.rs`).
     pub(super) background_timeout: StdMutex<std::time::Duration>,
     /// Chats agents offered the person, still open (`offers.rs`).
     pub(super) offers: offers::Offers,
+    /// Which session each lane reports to (`lane_reports.rs`).
+    pub(super) lane_reports: lane_reports::LaneReports,
     /// Open sub-sessions per parent and starts in flight (`subsessions.rs`).
     pub(super) subsessions: subsessions::Index,
     /// Run slots of each session's sub-sessions (`subsession_runs.rs`).
     pub(super) subsession_runs: Arc<subsession_runs::Runs>,
+    /// `_acpmux/wait` requests subscribed and not yet answered (`server/wait.rs`), shown
+    /// as `_acpmux/status` `openWaits`.
+    pub(crate) open_waits: std::sync::atomic::AtomicUsize,
     /// Automatic continuations waiting to fire, by chat (`auto_resume.rs`).
     pub(super) auto_resumes: auto_resume::Pending,
+    /// Failed subagents waiting to be resumed, by chat (`subagent_retry.rs`).
+    pub(super) subagent_retries: subagent_retry::Retries,
     /// Fired by `set_transfer_lease`: each move's watch reads the new lease now.
     pub(super) transfer_lease_changed: Notify,
     /// Secrets agents asked the person for, and their one-use refs (`secrets.rs`).
@@ -441,6 +468,7 @@ pub struct Hub {
     /// Messages `send --no-wait` handed over, and forwarded prompts waiting for a peer's
     /// acceptance (`outbox.rs`).
     pub(crate) outbox: outbox::Outbox,
+    pub(crate) watches: watches::Watches,
     pub(crate) peer_accepts: outbox::PeerAccepts,
     /// Agent message pairs and their runaway guard (`agent_pairs.rs`).
     pub(super) agent_pairs: agent_pairs::AgentPairs,
@@ -526,17 +554,22 @@ impl Hub {
             health: Arc::new(crate::harness_health::HealthService::new()),
             web_token: WebToken::new(String::new()),
             person: Default::default(),
+            presence: Default::default(),
             workflow_index: Default::default(),
             transfer_lease: StdMutex::new(transfer_watch::TRANSFER_LEASE),
             background_timeout: StdMutex::new(processes::STOP_TIMEOUT),
             offers: Default::default(),
+            lane_reports: Default::default(),
             subsessions: Default::default(),
             subsession_runs: Default::default(),
+            open_waits: Default::default(),
             auto_resumes: Default::default(),
+            subagent_retries: Default::default(),
             transfer_lease_changed: Notify::new(),
             secrets: Default::default(),
             trust_waits: Default::default(),
             outbox: Default::default(),
+            watches: Default::default(),
             peer_accepts: Default::default(),
             agent_pairs: Default::default(),
             pairing: Default::default(),
@@ -772,6 +805,7 @@ impl Hub {
             forum_retold: std::sync::Mutex::default(),
             forum_telling: std::sync::Mutex::default(),
             launched_with_tools: std::sync::atomic::AtomicU8::new(0),
+            launch_env: StdMutex::new(None),
             route_switch: AtomicBool::new(false),
             inbound_tx,
             inbound_rx: Mutex::new(Some(inbound_rx)),
@@ -803,6 +837,7 @@ impl Hub {
             web_control_ended: AtomicBool::new(false),
             floor: Default::default(),
             subagents: StdMutex::new(Default::default()),
+            harness_turn: AtomicBool::new(false),
             processes: StdMutex::new(Default::default()),
             pr_creates: StdMutex::new(Default::default()),
             composers: StdMutex::new(Default::default()),

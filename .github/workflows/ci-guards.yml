@@ -987,6 +987,10 @@ jobs:
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_actions_artifact_prune.py
 
+      - name: Validate upload-artifact retention and large artifacts on R2
+        if: ${{ !cancelled() && matrix.group == 'ci' }}
+        run: python3 tests/test_ci_upload_artifact_retention.py
+
       - name: Validate the PR media pruner
         if: ${{ !cancelled() && matrix.group == 'ci' }}
         run: python3 tests/test_ci_prune_pr_media.py
@@ -1243,6 +1247,10 @@ jobs:
       - name: Validate lane-branch cmux-tui publishes without the daemon tests
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
         run: python3 tests/test_cmux_tui_lane_daemon_tests.py
+
+      - name: Validate the feat-cmux-next channel pointer only moves forward
+        if: ${{ !cancelled() && matrix.group == 'release-notary' }}
+        run: python3 tests/test_cmux_tui_point_channel.py
 
       - name: Validate superseded cmux-tui pushes skip their builds and daemon tests
         if: ${{ !cancelled() && matrix.group == 'release-notary' }}
