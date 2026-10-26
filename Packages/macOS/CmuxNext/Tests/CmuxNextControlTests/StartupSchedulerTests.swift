@@ -67,6 +67,58 @@ import Testing
         #expect(f.startup.completion?.reason == .noWindow, "not firstFrameCommitted: the launch drew no frame")
     }
 
+    @Test func afterFirstFrameReturnsOnceTheFirstFrameReleasedItsTasks() async {
+        let f = StartupFixture()
+        let waiter = Task { @MainActor [ran = f.ran] in
+            await f.startup.afterFirstFrame()
+            ran.names.append("Control.start")
+        }
+        for _ in 0..<10 { await Task.yield() }
+        #expect(f.ran.names.isEmpty, "the control socket waited for the first frame")
+        f.startup.firstFrameCommitted()
+        await waiter.value
+        #expect(f.ran.names == ["Control.start"])
+        await f.startup.afterFirstFrame()
+        f.startup.finishRegistration()
+        f.hand.drain()
+        #expect(f.startup.completion?.reason == .registrationFinished, "waiting took no ref")
+    }
+
+    @Test func afterFirstFrameReturnsWhenQuitBegins() async {
+        let f = StartupFixture()
+        let waiter = Task { @MainActor in await f.startup.afterFirstFrame() }
+        for _ in 0..<10 { await Task.yield() }
+        f.startup.beginQuit()
+        await waiter.value
+        await f.startup.afterFirstFrame()
+    }
+
+    @Test func completedReturnsAtCompletionNotAtTheFirstFrame() async {
+        let f = StartupFixture()
+        let restore = f.startup.hold("WindowManager.restore")
+        let waiter = Task { @MainActor [ran = f.ran] in
+            await f.startup.completed()
+            ran.names.append("Control.start")
+        }
+        f.complete()
+        for _ in 0..<10 { await Task.yield() }
+        #expect(f.ran.names.isEmpty, "the control socket waits for the visible panes, not only the first frame")
+        restore.release(.visiblePaneLoadedIdle)
+        f.hand.drain()
+        await waiter.value
+        #expect(f.ran.names == ["Control.start"])
+        await f.startup.completed()
+    }
+
+    @Test func completedReturnsWhenQuitBegins() async {
+        let f = StartupFixture()
+        let waiter = Task { @MainActor in await f.startup.completed() }
+        for _ in 0..<10 { await Task.yield() }
+        f.startup.beginQuit()
+        await waiter.value
+        #expect(f.startup.completion == nil)
+    }
+
     @Test func pendingInputDefersMainAfterStartupTasksOnePerFrame() {
         let f = StartupFixture()
         f.startup.post(.afterStartup, "Spares.prewarm", on: .main) { [ran = f.ran] in ran.names.append("Spares.prewarm") }

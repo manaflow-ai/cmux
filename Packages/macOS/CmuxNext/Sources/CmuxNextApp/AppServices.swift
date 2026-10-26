@@ -21,6 +21,7 @@ import CmuxNextHomeEngine
 import CmuxNextIcons
 import CmuxNextInput
 import CmuxNextKeepAwake
+import CmuxNextLaunch
 import CmuxNextMemory
 import CmuxNextPalette
 import CmuxNextPages
@@ -457,6 +458,8 @@ final class AppServices {
     let traceBlackBox: TraceBlackBoxFileSteps?
     /// The last quit's agent pages and chat composers, read off the main thread since the launch began.
     let launchImages: AgentPaneLaunchImages, relaunchWake: AgentPaneRelaunchWake
+    /// The agent panes' launch images as one startup ref (made at the root with the launch's scheduler).
+    let launchImageHold: LaunchImageHold
     /// The burst bench's record of refusals, designed no-op Cmd-W presses and terminal grids (`debug.burst`).
     let burstTrace = BurstTrace()
     /// The inline VS Code server (`serve-web`) behind VS Code (Inline); starts on first use.
@@ -486,7 +489,8 @@ final class AppServices {
          work: BackgroundWork? = nil, mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget()),
          launchImages: AgentPaneLaunchImages = AgentPaneLaunchImages(directory: nil), relaunchWake: AgentPaneRelaunchWake = AgentPaneRelaunchWake(file: nil),
          wireStats: DaemonWireStats? = nil, hangWatch: (any HangWatchScoping)? = TraceRuntime.shared.hangWatch,
-         energyMonitor: EnergyMonitor = EnergyMonitor(), inputTap: InputEventTap = InputEventTap()) {
+         energyMonitor: EnergyMonitor = EnergyMonitor(), inputTap: InputEventTap = InputEventTap(),
+         launchImageHold: LaunchImageHold = LaunchImageHold()) {
         let work = work ?? BackgroundWork(hangs: hangWatch)
         self.work = work
         self.energyMonitor = energyMonitor
@@ -494,7 +498,7 @@ final class AppServices {
         // on; the ring file opens on `.files`, never on main.
         traceBlackBox = environment.marksRun ? TraceBlackBoxFileSteps.startApp(bundleID: environment.launch.bundleID, work: work) : nil
         (self.wireStats, self.inputTap) = (wireStats, inputTap)
-        (self.launchImages, self.relaunchWake) = (launchImages, relaunchWake)
+        (self.launchImages, self.relaunchWake, self.launchImageHold) = (launchImages, relaunchWake, launchImageHold)
         actionBudget = ActionBudgetMonitor(board: mainWork.budget.board)
         updater = UpdaterService(work: work)
         registry = ActionRegistry.standard(runTiming: SignpostActionRunTiming(monitor: actionBudget))

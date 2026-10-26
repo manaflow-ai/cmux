@@ -3,6 +3,7 @@ import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextInput
+import CmuxNextLaunch
 import CmuxNextTabs
 import CmuxNextWakeups
 import Observation
@@ -84,6 +85,8 @@ final class PaneContentView: NSView, PaneContentChrome {
     var holdKeepsStrip = false
     /// An agent page's last image under the content at launch (`PaneContentView+LaunchImage`).
     var launchImageView: NSView?
+    /// The startup hold `launchImageView` counts in, ended when it goes.
+    var launchImageHold: LaunchImageHold?
     /// Runs once when the launch image goes (`clearLaunchImage`).
     var onLaunchImageCleared: (() -> Void)?
     let launchImageDeadline = DemandTimer(owner: "pane.launch-image")

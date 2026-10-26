@@ -2,7 +2,7 @@ import AppKit
 import CmuxNextAgentPane
 
 // Launch work no first frame needs: AppDelegate starts it once the first window's
-// frame is committed (FirstFrameGate), so it never delays that frame (perf-launch-memory).
+// frame is committed (afterFirstFrame posts of StartupScheduler), so it never delays that frame (perf-launch-memory).
 extension AppServices {
     /// The free-tier attest, SSH, server reach and the updater (Sparkle).
     func startNonPaintServices() {

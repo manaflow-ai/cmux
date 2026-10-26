@@ -3,85 +3,113 @@ import CmuxNextWakeups
 import CmuxNextWakeupsTestSupport
 import Testing
 
-/// Deferred launch work waits for the agent panes' launch images (cx-z9kz0).
+/// The agent panes' launch images are one startup ref (p08-startup-016): afterStartup work (the
+/// palette's warm-up steps) waits until the last image went (cx-z9kz0), with no timer of its own.
 @MainActor
 @Suite(.timeLimit(.minutes(1))) struct LaunchImageHoldTests {
-    @Test func workRunsAtOnceWhenNoImageIsShown() {
-        let hold = LaunchImageHold(backstop: DemandTimer(owner: "test", clock: ManualClock()))
-        var ran = 0
-        hold.whenClear { ran += 1 }
-        #expect(ran == 1)
-        #expect(!hold.isHolding)
+    @Test func anImageHoldsStartupUntilTheLastOneEnds() {
+        let f = HoldFixture()
+        f.hold.began()
+        f.hold.began()
+        f.completeImplicitRefs()
+        #expect(f.startup.heldRefs == ["LaunchImageHold.images"], "two images are one ref")
+        f.hold.ended()
+        f.hand.drain()
+        #expect(f.startup.completion == nil, "one image still shows")
+        #expect(f.hold.isHolding)
+        f.hold.ended(.visiblePaneTimedOut)
+        f.hand.drain()
+        #expect(f.startup.completion?.reason == .visiblePaneTimedOut, "the last image's reason ends startup")
+        #expect(!f.hold.isHolding)
     }
 
-    @Test func workWaitsForTheLastImageThenRunsOnceInOrder() {
-        let hold = LaunchImageHold(backstop: DemandTimer(owner: "test", clock: ManualClock()))
-        var ran: [String] = []
-        hold.began()
-        hold.began()
-        hold.whenClear { ran.append("palette") }
-        hold.whenClear { ran.append("keybinds") }
-        hold.ended()
-        #expect(ran.isEmpty)
-        #expect(hold.isHolding)
-        hold.ended()
-        #expect(ran == ["palette", "keybinds"])
-        hold.ended()
-        #expect(ran == ["palette", "keybinds"])
-        #expect(!hold.isHolding)
+    @Test func aReplacedImageNeverEndsTheHoldForATurn() {
+        let f = HoldFixture()
+        f.hold.began()
+        f.completeImplicitRefs()
+        // showLaunchImage: the new image begins before the old one ends.
+        f.hold.began()
+        f.hold.ended()
+        f.hand.drain()
+        #expect(f.startup.completion == nil)
+        #expect(f.startup.heldRefs == ["LaunchImageHold.images"])
     }
 
-    @Test func anImageThatNeverEndsReleasesTheWorkAtTheBackstop() async throws {
-        let clock = ManualClock()
-        let hold = LaunchImageHold(backstop: DemandTimer(owner: "test", clock: clock))
-        hold.began()
-        let released = Flag()
-        // One waiter only: each whenClear resets the backstop.
-        let waiter = Task { @MainActor in
-            await hold.clear()
-            released.isSet = true
-        }
-        try await clock.waitForSleeper()
-        clock.advance(by: LaunchImageHold.imageLimit)
-        #expect(clock.sleeperCount == 1)
-        #expect(!released.isSet)
-        clock.advance(by: .seconds(1))
-        await waiter.value
-        #expect(released.isSet)
-        #expect(clock.sleeperCount == 0)
+    @Test func extraEndsDoNothingAndALaterImageHoldsAgain() {
+        let f = HoldFixture()
+        f.hold.ended()
+        f.hold.began()
+        f.hold.ended()
+        f.hold.ended()
+        #expect(!f.hold.isHolding)
+        f.hold.began()
+        f.completeImplicitRefs()
+        #expect(f.startup.heldRefs == ["LaunchImageHold.images"], "a count never goes below zero")
     }
 
-    @Test func theLastImageEndingCancelsTheBackstop() {
-        let backstop = DemandTimer(owner: "test", clock: ManualClock())
-        let hold = LaunchImageHold(backstop: backstop)
-        var ran = 0
-        hold.began()
-        hold.whenClear { ran += 1 }
-        #expect(backstop.isScheduled)
-        hold.ended()
-        #expect(ran == 1)
-        #expect(!backstop.isScheduled)
+    @Test func afterCompletionAnImageHoldsNothing() {
+        let f = HoldFixture()
+        f.completeImplicitRefs()
+        #expect(f.startup.completion != nil)
+        f.hold.began()
+        #expect(f.hold.isHolding)
+        #expect(f.startup.heldRefs.isEmpty)
+        f.hold.ended()
     }
 
-    @Test func clearReturnsOnceTheImageEnds() async throws {
-        let clock = ManualClock()
-        let hold = LaunchImageHold(backstop: DemandTimer(owner: "test", clock: clock))
-        hold.began()
-        let cleared = Flag()
-        let waiter = Task { @MainActor in
+    @Test func clearReturnsAtOnceWhenNoImageShowsOrWithNoScheduler() async {
+        let f = HoldFixture()
+        await f.hold.clear()
+        let alone = LaunchImageHold()
+        alone.began()
+        await alone.clear()
+        #expect(alone.isHolding, "a hold with no scheduler holds nothing and waits for nothing")
+    }
+
+    @Test func clearReturnsOnceTheLastImageEnds() async {
+        let f = HoldFixture()
+        f.hold.began()
+        let cleared = HoldFlag()
+        let waiter = Task { @MainActor [hold = f.hold] in
             await hold.clear()
             cleared.isSet = true
         }
-        // clear() has registered once its backstop sleeps.
-        try await clock.waitForSleeper()
-        #expect(!cleared.isSet)
-        hold.ended()
+        for _ in 0..<10 { await Task.yield() }
+        #expect(!cleared.isSet, "the keybind probes wait for the agent page to paint")
+        f.hold.ended()
         await waiter.value
         #expect(cleared.isSet)
     }
+
+    @Test func clearReturnsAtTheFailsafeWhenAnImageNeverEnds() async throws {
+        let f = HoldFixture()
+        f.hold.began()
+        f.completeImplicitRefs()
+        let waiter = Task { @MainActor [hold = f.hold] in await hold.clear() }
+        try await f.clock.waitForSleeper()
+        f.clock.advance(by: StartupScheduler.failsafeTimeout)
+        await waiter.value
+        #expect(f.startup.completion?.reason == .failsafe, "a lost image shows as a failsafe completion")
+    }
+}
+
+/// A launch image hold on a test scheduler.
+@MainActor
+private final class HoldFixture {
+    let scheduler = LaunchTestScheduler()
+    let hold: LaunchImageHold
+    var clock: ManualClock { scheduler.clock }
+    var hand: LaunchTestHop { scheduler.hand }
+    var startup: StartupScheduler { scheduler.startup }
+
+    init() {
+        hold = LaunchImageHold(startup: scheduler.startup)
+    }
+
+    func completeImplicitRefs() { scheduler.completeImplicitRefs() }
 }
 
 @MainActor
-private final class Flag {
+private final class HoldFlag {
     var isSet = false
 }
