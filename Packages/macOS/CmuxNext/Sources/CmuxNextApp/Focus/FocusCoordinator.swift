@@ -182,6 +182,12 @@ final class FocusCoordinator {
         pendingTopologies.removeAll { $0.owner == id }
     }
 
+    /// Whether `owner` has a topology queued (`setNeedsTopology`) that was not built yet.
+    func hasPendingTopology(for owner: AnyObject) -> Bool {
+        let id = ObjectIdentifier(owner)
+        return pendingTopologies.contains { $0.owner == id }
+    }
+
     private func reducePendingTopologies() {
         guard !pendingTopologies.isEmpty else { return }
         let pending = pendingTopologies
