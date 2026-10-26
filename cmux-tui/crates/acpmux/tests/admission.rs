@@ -386,6 +386,19 @@ fn a_registry_folder_that_cannot_be_searched_never_lifts_the_cap() {
 }
 
 #[test]
+fn a_registry_read_once_keeps_the_cap_while_every_copy_is_gone() {
+    // A refresh (a rename, a delete and rewrite) can leave no copy for a moment:
+    // the last good copy keeps the cap, whichever path it came from.
+    let daemon = Daemon::start("gone", Some(1), false);
+    let out = daemon.create("a", &[]);
+    assert!(out.status.success(), "{}", text(&out));
+    daemon.wait_live("a");
+    let copy = daemon_env::home(&daemon.root).join(".ssh/config.d/fleet-registry.json");
+    std::fs::remove_file(copy).unwrap();
+    assert_refused(&daemon.create("b", &[]), "max_lanes", "at its cap of 1");
+}
+
+#[test]
 fn a_leo_workspace_checkouts_registry_caps_a_host_with_no_rendered_copy() {
     // cmux16 has ~/Projects/leo-workspace and no ~/.ssh/config.d copy.
     let daemon = Daemon::start("lws", None, false);
