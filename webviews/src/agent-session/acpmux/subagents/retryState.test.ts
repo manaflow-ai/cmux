@@ -69,7 +69,12 @@ describe("the adapter reads acpmux's retry", () => {
   });
 
   test("a sub-session acpmux refused to retry stays failed and says why", () => {
-    const failed = { sessionId: "s", startedBy: "chat", lane: { state: "failed", error: "folder is gone" }, retry: null };
+    const failed = {
+      sessionId: "s",
+      startedBy: "chat",
+      lane: { state: "failed", error: "folder is gone" },
+      retry: null,
+    };
     expect(subsessionInfo(sessionEntry(failed))).toMatchObject({ state: "failed", error: "folder is gone" });
     const waiting = { ...failed, retry: FIXTURE.sessionRetry };
     expect(subsessionInfo(sessionEntry(waiting)).error).toBeUndefined();
