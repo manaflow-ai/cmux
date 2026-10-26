@@ -20,6 +20,9 @@ Safari, on one Mac, the same way for every browser:
   memory-1/10/20       MB, physical footprint over every process of the instance
   memory-closed        MB, back to 1 tab after 20
   power-home-idle, idle-cpu-home, idle-wakeups-home  cmux-terminal only: cmux idle on Home
+  <power row>-billed   mW, the same window's billed energy (CPU + billed to the process - serviced for others)
+  <power row>-gpu      ms/s, the same window's GPU time (IORegistry accumulatedGPUTime)
+  <wakeups row>-pkg-idle  /s, the same window's package-idle wakeups (a subset of the interrupt wakeups)
   budget-*             cmux-budget only: the resource budget session (budget.py, budgets.json)
 
 Method (after Ardia's docs/perf/vs-browsers.md, so numbers compare):
@@ -34,8 +37,12 @@ Method (after Ardia's docs/perf/vs-browsers.md, so numbers compare):
     cmux NEXT is driven over its control socket (app actions);
     Safari through `open` (no switch/close rows: they need Automation);
   - counters are proc_pid_rusage V6 over the whole instance (procs.py):
-    ri_energy_nj (CPU energy, no root; GPU and display are not in it),
-    CPU time, idle + interrupt wakeups, phys_footprint;
+    ri_energy_nj (CPU energy, no root; GPU and display are not in it), ri_billed_energy and
+    ri_serviced_energy (the -billed rows), CPU time, interrupt wakeups (the wakeups rows: Chrome's
+    GetIdleWakeupsPerSecond, Activity Monitor) and package-idle wakeups apart (the -pkg-idle rows;
+    rows before 2026-10-25 summed the two), phys_footprint; GPU time from the IORegistry; each window
+    sample also keeps the app's resource coalition (`coalition`: energy, billed energy, GPU time,
+    wakeups of everything the app started; null when unreadable);
   - browsers interleave and rotate each round; every row is the median of
     all its runs with min, max and n; each item waits for a quiet machine
     (1-min load under --max-load) and the run holds `caffeinate -dimsu`.
@@ -101,6 +108,14 @@ ROWS = [
     ("idle-cpu-home", "CPU, cmux idle on Home", "%", False),
     ("idle-wakeups-home", "Wakeups, cmux idle on Home", "/s", False),
 ]
+# Each window row has companions from the same window (procs.Instance.window keys).
+COMPANIONS = {"mW": (("-billed", "energy_mw_billed", "billed energy", "mW"), ("-gpu", "gpu_ms_per_s", "GPU time", "ms/s")),
+              "/s": (("-pkg-idle", "pkg_idle_wakeups_per_s", "package-idle", "/s"),)}
+WINDOW_KEYS = {"mw": "mW", "wakeups_per_s": "/s"}
+ROWS += [(row + suffix, f"{label}, {what}", companion_unit, False)
+         for row, label, unit, _main in list(ROWS)
+         if unit == "mW" or row.startswith("idle-wakeups-")
+         for suffix, _key, what, companion_unit in COMPANIONS[unit]]
 ROW_INFO = {row: (label, unit, main) for row, label, unit, main in ROWS}
 ROW_INFO.update(budget.ROW_INFO)
 
@@ -531,6 +546,15 @@ class SafariBrowser(Browser):
         return
 
 
+def window_rows(rows: dict) -> dict:
+    """{row: Instance.window key} of the asked rows and their companions from the same window."""
+    out = dict(rows)
+    for row, key in rows.items():
+        for suffix, companion, _what, _unit in COMPANIONS.get(WINDOW_KEYS.get(key), ()):
+            out[row + suffix] = companion
+    return out
+
+
 def make_browser(name: str, bundle: str, helper: Helper, server: pages.BeaconServer) -> Browser:
     if name in CMUX:
         return CmuxBrowser(name, bundle, helper, server)
@@ -635,8 +659,9 @@ class Run:
     def window(self, browser: Browser, round_no: int, rows: dict, seconds: float, during=None, **extra):
         load = round(procs.load_average(), 2)
         got = browser.instance.window(seconds, during)
-        for row, key in rows.items():
-            self.record(browser.name, round_no, row, got[key], load=load, kinds=got["kinds"], **extra)
+        for row, key in window_rows(rows).items():
+            self.record(browser.name, round_no, row, got[key], load=load, kinds=got["kinds"],
+                        coalition=got["coalition"], **extra)
         return got
 
     def memory(self, browser: Browser, round_no: int, row: str):
@@ -844,6 +869,8 @@ def fmt(value, unit: str) -> str:
         return f"{value:.2f}%"
     if unit == "/s":
         return f"{value:.1f}/s"
+    if unit == "ms/s":
+        return f"{value:.1f} ms/s"
     return f"{value:,.0f} mW" if value >= 100 else f"{value:.1f} mW"
 
 
@@ -982,6 +1009,9 @@ def report(out: str, md_path: str | None, json_path: str | None, tabswitch: str 
                 fmt(PUBLISHED["ardia"].get(row), unit), fmt(PUBLISHED["helium"].get(row), unit)]) + " |")
         lines += ["", "\\* not in Ardia's tweet. \"cmux vs best other\" uses the best cmux variant of the row. "
                   "Power is CPU energy (ri_energy_nj) over every process of the browser; GPU and display are not in it. "
+                  "The -billed rows add the energy other processes (WindowServer, the render server) spent for it and "
+                  "take off what it spent for them. Wakeups are interrupt wakeups (Chrome's GetIdleWakeupsPerSecond); "
+                  "package-idle wakeups, a subset, are the -pkg-idle rows. "
                   "The 10x goal: every cmux cell at a tenth of the best other.", ""]
     lines += budget_lines
     lines += switch_lines
@@ -1005,7 +1035,7 @@ def report(out: str, md_path: str | None, json_path: str | None, tabswitch: str 
 
 # ---------------------------------------------------------------- gate
 
-FLOORS = {"ms": 5.0, "MB": 15.0, "mW": 2.0, "%": 0.1, "/s": 2.0}
+FLOORS = {"ms": 5.0, "MB": 15.0, "mW": 2.0, "%": 0.1, "/s": 2.0, "ms/s": 1.0}
 
 
 def gate(results_path: str, baseline_path: str, tolerance: float) -> int:
