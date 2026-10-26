@@ -267,8 +267,10 @@ function standIn(text: string): string {
   if (redactReceiptText(`${text}\n${VALUE_PROBE}`).includes(VALUE_PROBE)) return "";
   // Inside an open quote the redactor keeps going past a space; after a bare label it stops.
   if (redactReceiptText(`${text}\nZ ${VALUE_PROBE}`).includes(VALUE_PROBE)) return "secret=";
-  const quote = /["'](?=[^"']*$)/.exec(text.replace(/\\./g, ""))?.[0] ?? '"';
-  return `secret=${quote}`;
+  // The quote that opened the value: the last one right after a label's `:` or `=` (a quote
+  // character inside the value, an apostrophe in `it's`, is not it).
+  const opened = [...text.replace(/\\./g, "").matchAll(/[:=]\s*(["'])/g)].at(-1)?.[1] ?? '"';
+  return `secret=${opened}`;
 }
 
 /** `kept` without the key body that ends it: base64 lines back to (and with) a line holding BEGIN. */

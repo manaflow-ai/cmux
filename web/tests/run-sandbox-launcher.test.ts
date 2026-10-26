@@ -308,6 +308,8 @@ describe("sandbox run lifecycle", () => {
     expect(tail(['PASSWORD="\n', "x\n".repeat(70_000), 'hunter2\n"\n', "after\n"])).not.toContain("hunter2");
     // A label whose line scrolls out just before its value still covers it.
     expect(tail(["y\n".repeat(32_767), "PASSWORD:\n", "hunter2\n", "z\n".repeat(40_000)])).not.toContain("hunter2");
+    // The stand-in keeps the opening quote, not the last quote character inside the value.
+    expect(tail([`PASSWORD="it's ${"t".repeat(70_000)}`, "\nfoo'\n", "hunter2\n", '"\n'])).not.toContain("hunter2");
     // Only the opening quote's own character closes it: an apostrophe near the end does not.
     expect(tail([`PASSWORD="${"t".repeat(70_000)}it's`, "\nhunter2\n", '"\n'])).not.toContain("hunter2");
     // A long line that ends in a whole value stands in for nothing: the next line is kept.
