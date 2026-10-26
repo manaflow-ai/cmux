@@ -44,7 +44,7 @@ import Foundation
 /// used CEF's whole time slice and its time, like Chrome's `ThreadControllerWithMessagePumpImpl::DoWork` trace
 /// event (base/task/sequence_manager/thread_controller_with_message_pump_impl.cc). The ring takes it only during a
 /// recording (``SignpostName/cefPump``), never in the black box. Only the in-process pump
-/// emits it: with the Chromium host on there is no pump in the app, and the host emits its own (p09 task 104).
+/// emits it and its `cef.pump` histogram sample (task 060): in host mode the app has no pump, the host emits its own (104).
 ///
 /// Only the in-process backend makes one (``CEFInProcessPump``). In host mode the app has no
 /// pump, no ``CEFPumpTimer`` and no schedule callback; the Chromium Host runs `CefRunMessageLoop`.
@@ -392,7 +392,7 @@ final class CEFMessagePump {
             runPass()
         }
         let elapsed = clock() - started
-        let longRun = counters.recordWorkRun(elapsed: elapsed, timeSlice: timeSlice)
+        let longRun = counters.recordWorkRun(elapsed: elapsed, timeSlice: timeSlice, metrics: signposter.metrics)
         signposter.endCEFPump(interval, longRun: longRun, elapsedMicros: UInt64(max(0, elapsed) * 1e6))
         if earlyPassWatch.passEnded(usedWholeSlice: longRun) { counters.earlyPasses += 1 }
         if input != nil { counters.passTimes.record(nanos: UInt64(max(0, elapsed) * 1e9)) }
