@@ -71,17 +71,6 @@ final class AppServices {
     /// The app's one main-thread scheduler (from the composition root), passed by init to the
     /// local daemon and to the Cloud, SSH and server services for their machines.
     let mainWork: MainWorkScheduler
-    /// Energy Saver's one input owner (power source, Low Power Mode, battery, thermal, sleep) and the policy it
-    /// publishes; consumers get ``energy`` by init, never a shared instance (plans/cmux-next/chrome-parity/p14-energy.md D).
-    let energyMonitor: EnergyMonitor
-    let energy: EnergyPolicySource
-    /// The main thread's one wake timer, which main deadlines and CEF's delayed pump share
-    /// (Chromium base/message_loop/message_pump_apple.mm, `delayed_work_timer_`).
-    let wakeUps: MainWakeUpQueue
-    /// Pushes the policy to the consumers that take a value: the local daemon and KeepAwake (``EnergyHost``).
-    private var energyLink: EnergyHostLink?
-    /// KeepAwake's power-source input (``startEnergy(settings:onBattery:)``).
-    private(set) var keepAwakeOnBattery: (@MainActor (Bool) -> Void)?
     /// Agent panes' git reads, one link per machine (AgentPaneGitReads.swift).
     private(set) lazy var agentGit = AgentPaneGitLinks(machines: machines)
     let machines: MachineRegistry
@@ -150,7 +139,7 @@ final class AppServices {
     let signInCallbacks = CEFSignInCallbacks()
     /// Every terminal's grid sender: next frame, one in flight, a split's or close's final grid at once.
     let resizes = ResizeCoordinator()
-    private(set) lazy var cache: TabContentCache = TabContentCache(daemon: daemon, cef: CEFEngine(source: chromiumRuntime.source, stores: browserStores, signInCallbacks: signInCallbacks, lifecycleTrace: .shared, contextMenus: self.contextMenus, energy: energy, wakeUps: wakeUps), fileInput: openPanel, resizes: resizes)  // first read in init (no IUO)
+    private(set) lazy var cache: TabContentCache = TabContentCache(daemon: daemon, cef: CEFEngine(source: chromiumRuntime.source, stores: browserStores, signInCallbacks: signInCallbacks, lifecycleTrace: .shared, contextMenus: self.contextMenus), fileInput: openPanel, resizes: resizes)  // first read in init (no IUO)
     #if DEBUG || CMUX_BENCH_HOOKS
     /// `debug.terminal_final_grid`: a split's or close's terminal grids, sent, drawn and announced.
     private(set) lazy var finalGridTrace: TerminalFinalGridTrace = {
@@ -405,8 +394,13 @@ final class AppServices {
     /// Energy Saver's one owner of power inputs (Low Power Mode, power source, battery, thermal state);
     /// its Low Power Mode goes out by init and its inputs are pushed (end of `init`), never a shared instance.
     let energyMonitor = EnergyMonitor()
-    /// Pushes the monitor's inputs to WebKit's render rate and KeepAwake's battery rule.
+    /// Pushes the monitor's inputs to WebKit's render rate, KeepAwake's battery rule (its one writer) and
+    /// ``energyDriver``.
     private var energyLink: MainActorHandlerRegistration<EnergyInputs>?
+    /// Writes `mainWork.energy`, the policy every scheduler reads, from the inputs and `energy.saver`.
+    private(set) lazy var energyDriver = EnergyPolicyDriver(source: mainWork.energy, isEnabled: features.isEnabled(.energySaver))
+    /// Follows `energy.saver` into ``energyDriver`` (`followEnergySaver`).
+    var energySaverObservation: Task<Void, Never>?
     /// Posts this launch's installed-update Feed card once (`UpdateFeedPosting.follow`).
     var updateFeedObservation: Task<Void, Never>?
     /// Page menus and the open-menu diagnostic shared by browser hosts.
@@ -487,11 +481,6 @@ final class AppServices {
         traceBlackBox = environment.marksRun ? TraceBlackBoxFileSteps.startApp(bundleID: environment.launch.bundleID, work: work) : nil
         self.wireStats = wireStats
         (self.launchImages, self.relaunchWake) = (launchImages, relaunchWake)
-        let energy = EnergyPolicySource()
-        self.energy = energy
-        energyMonitor = EnergyMonitor(policy: energy)
-        wakeUps = MainWakeUpQueue(energy: energy)
-        mainWork.frames.follow(energy)
         actionBudget = ActionBudgetMonitor(board: mainWork.budget.board)
         updater = UpdaterService(work: work)
         registry = ActionRegistry.standard(runTiming: SignpostActionRunTiming(monitor: actionBudget))
@@ -681,6 +670,7 @@ final class AppServices {
         energyLink = energyMonitor.follow { [weak self] inputs in
             self?.cache.webKit.lowPowerMode = inputs.lowPowerMode
             KeepAwakeService.shared.setOnBattery(inputs.onBattery)
+            self?.energyDriver.update(inputs: inputs)
         }
     }
     // MARK: Lookup

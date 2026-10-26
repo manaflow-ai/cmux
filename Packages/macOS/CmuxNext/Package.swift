@@ -831,12 +831,12 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // by EnergyMonitor. Only CmuxNextApp (the composition root) depends on it.
         .target(
             name: "CmuxNextEnergy",
-            dependencies: ["CmuxNextCompat"],
+            dependencies: ["CmuxNextCompat", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(
             name: "CmuxNextEnergyTests",
-            dependencies: ["CmuxNextEnergy"],
+            dependencies: ["CmuxNextEnergy", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         // Host pressure (cmuxterm-hq#2995): the shared host budget's verdict (acpmux's
