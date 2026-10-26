@@ -25,42 +25,84 @@ mod remote_cli_docs {
     ];
 
     fn command_lines(text: &str, binary: &str) -> Vec<Vec<String>> {
-        text.lines()
-            .flat_map(|line| {
-                let needle = format!("{binary} ");
-                let mut rest = line;
-                let mut commands = Vec::new();
-                while let Some(offset) = rest.find(&needle) {
-                    let prefix = &rest[..offset];
-                    let in_command_context = prefix.trim().is_empty()
-                        || prefix.chars().last().is_some_and(|character| {
-                            matches!(character, '`' | '\'' | '"' | ';' | '|' | '&' | '(' | '$')
-                        });
-                    if in_command_context {
-                        let mut words = Vec::new();
-                        for raw in rest[offset..].split_whitespace() {
-                            if raw.starts_with('…') || raw.starts_with("...") {
-                                break;
-                            }
-                            let word = raw.trim_matches(|c: char| "`'\",);:<>".contains(c));
-                            if word.is_empty()
-                                || word.starts_with('#')
-                                || matches!(word, "&&" | "||" | ";" | "|")
-                            {
-                                break;
-                            }
-                            words.push(word.to_owned());
-                            if raw.contains('`') {
-                                break;
-                            }
-                        }
-                        if words.len() > 1 {
-                            commands.push(words);
+        fn shell_words(text: &str) -> Vec<String> {
+            let mut words = Vec::new();
+            let mut word = String::new();
+            let mut quote = None;
+            let mut escaped = false;
+            for character in text.chars() {
+                if escaped {
+                    word.push(character);
+                    escaped = false;
+                    continue;
+                }
+                if character == '\\' && quote != Some('\'') {
+                    escaped = true;
+                    continue;
+                }
+                if let Some(closing) = quote {
+                    if character == closing {
+                        quote = None;
+                    } else {
+                        word.push(character);
+                    }
+                    continue;
+                }
+                match character {
+                    '\'' | '"' => quote = Some(character),
+                    ';' | '#' => break,
+                    character if character.is_whitespace() => {
+                        if !word.is_empty() {
+                            words.push(std::mem::take(&mut word));
                         }
                     }
-                    rest = &rest[offset + needle.len()..];
+                    character => word.push(character),
                 }
-                commands
+            }
+            if !word.is_empty() {
+                words.push(word);
+            }
+            words
+                .into_iter()
+                .map(|word| word.trim_matches(|character| "`[]()<>.,:".contains(character)).to_owned())
+                .collect()
+        }
+
+        let mut snippets = Vec::new();
+        let mut in_fence = false;
+        for line in text.lines() {
+            let trimmed = line.trim_start();
+            if trimmed.starts_with("```") {
+                in_fence = !in_fence;
+                continue;
+            }
+            if in_fence && (trimmed == binary || trimmed.starts_with(&format!("{binary} "))) {
+                snippets.push(trimmed.to_owned());
+            }
+            let mut rest = line;
+            while let Some(open) = rest.find('`') {
+                let after_open = &rest[open + 1..];
+                let Some(close) = after_open.find('`') else { break };
+                let snippet = &after_open[..close];
+                if snippet.trim_start() == binary
+                    || snippet.trim_start().starts_with(&format!("{binary} "))
+                {
+                    snippets.push(snippet.trim().to_owned());
+                }
+                rest = &after_open[close + 1..];
+            }
+        }
+        snippets
+            .into_iter()
+            .flat_map(|snippet| {
+                snippet
+                    .split(';')
+                    .filter_map(|part| {
+                        let words = shell_words(part.trim_start_matches("$ "));
+                        (words.first().is_some_and(|word| word == binary) && words.len() > 1)
+                            .then_some(words)
+                    })
+                    .collect::<Vec<_>>()
             })
             .collect()
     }

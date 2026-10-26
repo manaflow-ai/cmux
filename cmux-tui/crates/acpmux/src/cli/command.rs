@@ -313,7 +313,7 @@ pub enum Command {
         rotate_token: bool,
     },
     /// Remote daemons: add, ls, rm.
-    #[command(subcommand, alias = "hosts", visible_alias = "peer")]
+    #[command(subcommand, alias = "hosts")]
     Host(PeerCmd),
     /// Bring your own harness: list, add, doctor and reload harness profile
     /// files (~/.config/cmux/harnesses/<id>.toml). Also `cmux harness …`.
@@ -1213,43 +1213,86 @@ mod help_contract_tests {
         ("acpmux skill", include_str!("../../skills/acpmux/SKILL.md")),
     ];
 
-    fn tokens(text: &str, binary: &str) -> Vec<Vec<String>> {
-        text.lines()
-            .flat_map(|line| {
-                let needle = format!("{binary} ");
-                let mut rest = line;
-                let mut commands = Vec::new();
-                while let Some(offset) = rest.find(&needle) {
-                    let prefix = &rest[..offset];
-                    let in_command_context = prefix.trim().is_empty()
-                        || prefix.chars().last().is_some_and(|character| {
-                            matches!(character, '`' | '\'' | '"' | ';' | '|' | '&' | '(' | '$')
-                        });
-                    if in_command_context {
-                        let mut command = Vec::new();
-                        for raw in rest[offset..].split_whitespace() {
-                            if raw.starts_with('…') || raw.starts_with("...") {
-                                break;
-                            }
-                            let token = raw.trim_matches(|c: char| "`'\",);:<>".contains(c));
-                            if token.is_empty()
-                                || token.starts_with('#')
-                                || matches!(token, "&&" | "||" | ";" | "|")
-                            {
-                                break;
-                            }
-                            command.push(token.to_owned());
-                            if raw.contains('`') {
-                                break;
-                            }
-                        }
-                        if command.len() > 1 {
-                            commands.push(command);
-                        }
-                    }
-                    rest = &rest[offset + needle.len()..];
+    fn shell_words(text: &str) -> Vec<String> {
+        let mut words = Vec::new();
+        let mut word = String::new();
+        let mut quote = None;
+        let mut escaped = false;
+        for character in text.chars() {
+            if escaped {
+                word.push(character);
+                escaped = false;
+                continue;
+            }
+            if character == '\\' && quote != Some('\'') {
+                escaped = true;
+                continue;
+            }
+            if let Some(closing) = quote {
+                if character == closing {
+                    quote = None;
+                } else {
+                    word.push(character);
                 }
-                commands
+                continue;
+            }
+            match character {
+                '\'' | '"' => quote = Some(character),
+                ';' | '#' => break,
+                character if character.is_whitespace() => {
+                    if !word.is_empty() {
+                        words.push(std::mem::take(&mut word));
+                    }
+                }
+                character => word.push(character),
+            }
+        }
+        if !word.is_empty() {
+            words.push(word);
+        }
+        words
+            .into_iter()
+            .map(|word| word.trim_matches(|character| "`[]()<>.,:".contains(character)).to_owned())
+            .collect()
+    }
+
+    fn tokens(text: &str, binary: &str) -> Vec<Vec<String>> {
+        let mut snippets = Vec::new();
+        let mut in_fence = false;
+        for line in text.lines() {
+            let trimmed = line.trim_start();
+            if trimmed.starts_with("```") {
+                in_fence = !in_fence;
+                continue;
+            }
+            if in_fence && (trimmed == binary || trimmed.starts_with(&format!("{binary} "))) {
+                snippets.push(trimmed.to_owned());
+            }
+            let mut rest = line;
+            while let Some(open) = rest.find('`') {
+                let after_open = &rest[open + 1..];
+                let Some(close) = after_open.find('`') else { break };
+                let snippet = &after_open[..close];
+                if snippet.trim_start() == binary
+                    || snippet.trim_start().starts_with(&format!("{binary} "))
+                {
+                    snippets.push(snippet.trim().to_owned());
+                }
+                rest = &after_open[close + 1..];
+            }
+        }
+
+        snippets
+            .into_iter()
+            .flat_map(|snippet| {
+                snippet
+                    .split(';')
+                    .filter_map(|part| {
+                        let words = shell_words(part.trim_start_matches("$ "));
+                        (words.first().is_some_and(|word| word == binary) && words.len() > 1)
+                            .then_some(words)
+                    })
+                    .collect::<Vec<_>>()
             })
             .collect()
     }
@@ -1283,6 +1326,14 @@ mod help_contract_tests {
 
         let mut shapes = HashMap::new();
         visit(&Cli::command(), &mut Vec::new(), &mut shapes);
+        for flags in shapes.values_mut() {
+            flags.insert("--help".to_owned());
+            flags.insert("-h".to_owned());
+        }
+        if let Some(flags) = shapes.get_mut(&Vec::new()) {
+            flags.insert("--version".to_owned());
+            flags.insert("-V".to_owned());
+        }
         shapes
     }
 
@@ -1291,10 +1342,9 @@ mod help_contract_tests {
         shapes: &HashMap<Vec<String>, HashSet<String>>,
     ) -> Option<Vec<String>> {
         let mut start = 1;
-        while words
-            .get(start)
-            .is_some_and(|word| matches!(word.as_str(), "--json" | "--suppress-reads"))
-        {
+        while words.get(start).is_some_and(|word| {
+            matches!(word.as_str(), "--json" | "--suppress-reads" | "--help" | "--version")
+        }) {
             start += 1;
         }
         if words.get(start).is_some_and(|word| !word.starts_with('-')) {
@@ -1302,19 +1352,29 @@ mod help_contract_tests {
             if candidate[0] == "peer" {
                 candidate[0] = "host".to_owned();
             }
-            if !shapes.keys().any(|known| known == &candidate) {
+            if !candidate[0].split('|').any(|name| {
+                let mut path = candidate.clone();
+                path[0] = name.to_owned();
+                shapes.keys().any(|known| known == &path)
+            }) {
                 return None;
             }
         }
         let mut command = words.iter().skip(start).take_while(|word| !word.starts_with('-'));
         let mut path = Vec::new();
         while let Some(word) = command.next() {
-            let candidate = if path.is_empty() && word == "peer" { "host" } else { word.as_str() };
+            let Some(candidate) = word.split('|').find(|candidate| {
+                let candidate =
+                    if path.is_empty() && *candidate == "peer" { "host" } else { candidate };
+                let mut next = path.clone();
+                next.push(candidate.to_owned());
+                shapes.keys().any(|known| known == &next)
+            }) else {
+                break;
+            };
+            let candidate = if path.is_empty() && candidate == "peer" { "host" } else { candidate };
             let mut next = path.clone();
             next.push(candidate.to_owned());
-            if !shapes.keys().any(|known| known == &next) {
-                break;
-            }
             path = next;
         }
         // A binary invocation containing only root flags (for example
@@ -1358,6 +1418,6 @@ mod help_contract_tests {
     #[test]
     fn peer_alias_still_parses_after_host_becomes_canonical() {
         let parsed = Cli::try_parse_from(["acpmux", "peer", "status"]);
-        assert!(parsed.is_ok(), "peer alias stopped working: {parsed:?}");
+        assert!(parsed.is_ok(), "peer alias stopped working");
     }
 }
