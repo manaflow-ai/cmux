@@ -10,12 +10,20 @@ import CmuxNextWakeups
 /// `didChangeScreenNotification` and `didChangeScreenProfileNotification`, and
 /// ``screenParametersChanged()`` from ``CEFRuntime``'s one display-change observer.
 extension ChromiumHostPageView {
-    /// Reports the window's display when it differs from the last one reported; nothing while
-    /// nobody takes it.
+    /// Re-reads the window's display and places the page there when it differs from the display
+    /// last placed; nothing while nobody takes it.
     func screenMayHaveChanged() {
-        guard let onScreenInfo, let window, let info = screenInfoSource(window), info != screenInfo else { return }
-        screenInfo = info
-        onScreenInfo(info)
+        guard onScreenInfo != nil, let window else { return }
+        screenInfo = screenInfoSource(window)
+        placeIfNeeded()
+    }
+
+    /// Places the page on the display last read when no placement for it went out yet: one
+    /// comparison when it did. A placement the taker could not send (no page shown in the view yet,
+    /// a view below 1 x 1 point) is not recorded, so the next chance sends it.
+    func placeIfNeeded() {
+        guard let onScreenInfo, let screenInfo, screenInfo != placedScreenInfo else { return }
+        if onScreenInfo(screenInfo) { placedScreenInfo = screenInfo }
     }
 
     /// A display was added, removed or changed its mode, scale or arrangement
@@ -53,9 +61,13 @@ extension CEFRuntime {
     /// Chrome's browser process moves its widget's display the same way when the app shim reports it
     /// (`NativeWidgetMacNSWindowHost::OnWindowDisplayChanged`,
     /// ui/views/cocoa/native_widget_mac_ns_window_host.mm). Nothing below fork API 31 or before
-    /// the page view reported a display; it places the page when it does.
-    func placeHostedPage(_ page: ChromiumHostPageView, browser: Int32) {
-        guard forkAPIVersion >= ChromiumHostScreenInfo.forkAPI, let display = page.pageDisplay else { return }
-        _ = shim?.browserSetPageDisplay(browser, display.displayID, display.screenX, display.screenY)
+    /// the page view read a display; it places the page when it does. True when the placement went
+    /// out, which the page view records (``ChromiumHostPageView/placedScreenInfo``).
+    @discardableResult
+    func placeHostedPage(_ page: ChromiumHostPageView, browser: Int32) -> Bool {
+        guard forkAPIVersion >= ChromiumHostScreenInfo.forkAPI, let display = page.pageDisplay, let shim else { return false }
+        _ = shim.browserSetPageDisplay(browser, display.displayID, display.screenX, display.screenY)
+        page.placedScreenInfo = page.screenInfo
+        return true
     }
 }

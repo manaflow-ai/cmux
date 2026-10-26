@@ -194,7 +194,10 @@ import Testing
                                              workArea: CGRect(x: 0, y: 0, width: 1512, height: 944))
         page.screenInfoSource = { _ in display }
         var reports: [ChromiumHostScreenInfo] = []
-        page.onScreenInfo = { reports.append($0) }
+        page.onScreenInfo = {
+            reports.append($0)
+            return true
+        }
         #expect(reports.isEmpty, "no window: no display")
         #expect(page.pageDisplay == nil)
         let (window, _, pane) = makeWindow(holding: page)
@@ -241,6 +244,45 @@ import Testing
         #expect(reports.count == 5, "out of the window: its notices are not the page's")
         pane.addSubview(page)
         #expect(reports.count == 6)
+    }
+
+    /// A placement that could not go out (no page shown in the view yet, a view below 1 x 1 point) is
+    /// not recorded: the next chance sends it, even on the same display, and only then does the
+    /// dedupe hold.
+    @Test func aPlacementThatDidNotGoOutIsSentAtTheNextChance() {
+        let page = makePage(.view)
+        page.setFrameSize(.zero)
+        let display = ChromiumHostScreenInfo(displayID: 3, scaleMilli: 1_000, colorSpaceHash: 7, maximumFramesPerSecond: 60,
+                                             workArea: CGRect(x: 0, y: 0, width: 1920, height: 1055))
+        page.screenInfoSource = { _ in display }
+        var placeable = false
+        var asked = 0
+        var placed = 0
+        page.onScreenInfo = { [weak page] _ in
+            asked += 1
+            guard placeable, page?.pageDisplay != nil else { return false }
+            placed += 1
+            return true
+        }
+        let (window, _, _) = makeWindow(holding: page)
+        defer { page.removeFromSuperview(); window.close() }
+        #expect(asked == 1)
+        #expect(placed == 0)
+        #expect(page.placedScreenInfo == nil)
+
+        // The same display again: asked again, as nothing went out.
+        placeable = true
+        page.screenParametersChanged()
+        #expect(asked == 2)
+        #expect(placed == 0, "below 1 x 1 point: no page display")
+
+        // The view takes a size: the placement goes out, once.
+        page.setFrameSize(NSSize(width: 300, height: 200))
+        #expect(placed == 1)
+        #expect(page.placedScreenInfo == display)
+        page.screenParametersChanged()
+        page.setFrameSize(NSSize(width: 320, height: 200))
+        #expect(asked == 3)
     }
 
     /// Nobody takes the display: the page view reads no screen and follows no notice.

@@ -36,9 +36,10 @@ extension CEFPaneHost {
         // The page's focus follows the view's first responder state (``CEFTab/applyFocus(_:browser:)``).
         page.onFocusChange = { [weak self] focused in self?.visibleTab?.hostedPageFocusChanged(focused) }
         // The page's display follows the view's (task 221): the host places the page window there.
+        // With no tab shown yet nothing goes out; ``showBrowser(of:activate:)`` places it then.
         page.onScreenInfo = { [weak self, weak page] _ in
-            guard let self, let page, let browser = visibleTab?.browserID else { return }
-            runtime.placeHostedPage(page, browser: browser)
+            guard let self, let page, let browser = visibleTab?.browserID else { return false }
+            return runtime.placeHostedPage(page, browser: browser)
         }
         // The page's accessibility element comes from the host (CEFPaneHost+Accessibility.swift).
         page.accessibilityTokenSource = { [weak self] request, answered in

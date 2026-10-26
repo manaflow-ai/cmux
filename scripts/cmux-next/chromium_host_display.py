@@ -9,16 +9,25 @@ The probe page records every animation frame's time and devicePixelRatio. The ro
 
   start     on the window's display: rAF/s against the display's refresh rate (pass: within RATE_TOLERANCE) and
             devicePixelRatio against its backing scale (pass: equal)
-  move      with a second display (cmux20-bench has an external one): the window moves there (`debug.window_frame`
-            {screen}); frames until the rAF interval is the new display's (pass: <= 2) and until devicePixelRatio is
-            its scale (pass: <= 1), counted from a mark taken just before the move request, so the request's own
-            round trip is inside the count; then the same rate and scale checks there. The window goes back after.
+  move      with a second display (cmux20-bench has an external one, at another scale): the window moves there
+            (`debug.window_frame` {screen}); frames until the rAF interval is the new display's (pass: <= 2) and until
+            devicePixelRatio is its scale (pass: <= 1); then the same rate and scale checks there
+  back      the window moves back to its first frame, judged the same way, so both directions of the move are
+            measured whichever display the window starts on
+  scale_up  the one of move and back that goes from the lower scale to the higher (1x to 2x): its frames until
+            devicePixelRatio is the new scale, as its own field (not_measurable when both displays share a scale)
+
+Frames after a move count from the move itself, not from a mark the page took before the request: the bench reads
+the wall clock when `debug.window_frame` returns (it calls `setFrame` before it answers) and maps that instant onto
+the page's `performance.now()` with a `Date.now()` read beside it, so neither the request's legs nor the eval's
+round trip fall inside the frame budgets.
 
 A display whose mode reports no refresh rate (0) is measured but not judged on rate. With one display the move row
 says not_measurable. Without the host backend the row says so and the mode fails: it could not run.
 """
 import ctypes
 import ctypes.util
+import time
 
 RATE_TOLERANCE = 0.1
 # The rAF interval is the display's once this many intervals in a row are within INTERVAL_TOLERANCE of its period.
@@ -138,8 +147,19 @@ def judge(frames, display):
     return row
 
 
-def run(rpc, wait, page_eval, url, sleep, displays=cg_displays):
-    """The row; returns (row, ok). `sleep` is the bench's harness wait (time.sleep); tests pass a fake clock's."""
+def page_time_at(page_eval, wall_s):
+    """The page's `performance.now()` at the wall clock instant `wall_s` (time.time()), or None when the page does not
+    answer: `Date.now()` read beside `performance.now()` gives the offset between the two clocks (1 ms resolution)."""
+    clocks = page_eval("[Date.now(), performance.now()]")
+    if not (isinstance(clocks, list) and len(clocks) == 2):
+        return None
+    wall_ms, page_ms = clocks
+    return wall_s * 1000 - (wall_ms - page_ms)
+
+
+def run(rpc, wait, page_eval, url, sleep, displays=cg_displays, clock=time.time):
+    """The row; returns (row, ok). `sleep` is the bench's harness wait (time.sleep) and `clock` its wall clock
+    (time.time); tests pass a fake clock's."""
     backend = (rpc("debug.cef") or {}).get("backend")
     if backend != "host":
         return {"not_run": f"the Chromium backend is {backend!r}, not the Chromium Host (a Release build, or "
@@ -160,25 +180,47 @@ def run(rpc, wait, page_eval, url, sleep, displays=cg_displays):
         sleep(SAMPLE_S)  # test harness: one sample window of animation frames
         return page_eval(f"__framesSince({mark})") or []
 
-    row = {"displays": known, "start": judge(sample(), here)}
-    other = next((d for d in known if d["id"] != here["id"]), None)
-    if other is None:
-        row["move"] = {"not_measurable": "one display: no move to measure (cmux20-bench has an external display)"}
-    else:
-        index = known.index(other)
-        mark = page_eval("performance.now()")
-        moved = rpc("debug.window_frame", {"screen": index}) or {}
+    def move_to(target, params):
+        """Moves the window with `debug.window_frame` `params` and judges the page's switch to `target`."""
+        moved = rpc("debug.window_frame", params) or {}
+        mark = page_time_at(page_eval, clock())
         landed = display_of(moved.get("screen_frame"), known)
         sleep(SETTLE_S)  # test harness: the page settles on the new display
-        frames = page_eval(f"__framesSince({mark})") or []
-        move = {"to": other["id"], "landed": landed and landed["id"],
-                "frames_to_rate": frames_to_rate(frames, other["hz"]),
-                "frames_to_scale": frames_to_scale(frames, other["scale"]), "there": judge(sample(), other)}
-        rate_ok = not other["hz"] or (move["frames_to_rate"] is not None and move["frames_to_rate"] <= MOVE_FRAMES)
+        frames = (page_eval(f"__framesSince({mark})") or []) if mark is not None else []
+        move = {"to": target["id"], "landed": landed and landed["id"],
+                "frames_to_rate": frames_to_rate(frames, target["hz"]),
+                "frames_to_scale": frames_to_scale(frames, target["scale"]), "there": judge(sample(), target)}
+        rate_ok = not target["hz"] or (move["frames_to_rate"] is not None and move["frames_to_rate"] <= MOVE_FRAMES)
         scale_ok = move["frames_to_scale"] is not None and move["frames_to_scale"] <= SCALE_FRAMES
-        move["pass"] = move["landed"] == other["id"] and rate_ok and scale_ok and move["there"]["pass"]
-        row["move"] = move
-        if isinstance(start.get("frame"), list):
-            rpc("debug.window_frame", {"frame": start["frame"]})
-    row["pass"] = row["start"]["pass"] and row["move"].get("pass", True)
+        move["pass"] = move["landed"] == target["id"] and rate_ok and scale_ok and move["there"]["pass"]
+        return move
+
+    row = {"displays": known, "start": judge(sample(), here)}
+    others = [d for d in known if d["id"] != here["id"]]
+    # A display at another scale first, so one of the two moves is a 1x to 2x one.
+    other = next((d for d in others if d["scale"] != here["scale"]), others[0] if others else None)
+    if other is None:
+        row["move"] = {"not_measurable": "one display: no move to measure (cmux20-bench has an external display)"}
+        row["pass"] = row["start"]["pass"]
+        return row, True
+    row["move"] = move_to(other, {"screen": known.index(other)})
+    if isinstance(start.get("frame"), list):
+        row["back"] = move_to(here, {"frame": start["frame"]})
+    else:
+        row["back"] = {"not_measurable": "debug.window_frame gave no frame to move the window back to"}
+    row["scale_up"] = scale_up(here, other, row["move"], row["back"])
+    row["pass"] = (row["start"]["pass"] and row["move"]["pass"] and row["back"].get("pass", False)
+                   and row["scale_up"].get("pass", True))
     return row, True
+
+
+def scale_up(here, other, move, back):
+    """The 1x to 2x result: the measured move from the lower scale to the higher."""
+    if here["scale"] is None or other["scale"] is None or here["scale"] == other["scale"]:
+        return {"not_measurable": "the two displays share a scale: no 1x to 2x move"}
+    low, high, judged = (here, other, move) if here["scale"] < other["scale"] else (other, here, back)
+    if "frames_to_scale" not in judged:
+        return {"not_measurable": judged.get("not_measurable", "the move was not measured"), "pass": False}
+    frames = judged["frames_to_scale"]
+    return {"move": "move" if judged is move else "back", "from_scale": low["scale"], "to_scale": high["scale"],
+            "frames_to_scale": frames, "pass": frames is not None and frames <= SCALE_FRAMES}

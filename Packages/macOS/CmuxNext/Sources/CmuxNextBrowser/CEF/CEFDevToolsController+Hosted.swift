@@ -65,8 +65,8 @@ extension CEFDevToolsController {
         page.wireToken = tab.runtime.mintPageViewToken()
         // DevTools' page window takes the view's display, as the pane's page does (task 221).
         page.onScreenInfo = { [weak self, weak page, weak runtime = tab.runtime] _ in
-            guard let self, let page, let runtime, let browser = devToolsBrowserID else { return }
-            runtime.placeHostedPage(page, browser: browser)
+            guard let self, let page, let runtime, let browser = devToolsBrowserID else { return false }
+            return runtime.placeHostedPage(page, browser: browser)
         }
         #if DEBUG || CMUX_BENCH_HOOKS
         page.textInputSink = { [weak self] op in self?.sendTextInput(op) }

@@ -91,7 +91,8 @@ Per mode:
   display  `--modes display` (task 221): a Chromium tab of the app's backend in the Chromium Host follows the cmux
            window's display: rAF/s against the display's refresh rate and devicePixelRatio against its scale, then,
            with a second display (cmux20-bench has an external one), frames until both are the new display's after
-           the window moves there (pass: rate within 2 frames, scale within 1) (chromium_host_display.py).
+           the window moves there and back, counted from the move (pass: rate within 2 frames, scale within 1, the
+           1x to 2x move reported as `scale_up`) (chromium_host_display.py).
 
 --native-ui runs instead the hosted widget rows (chromium_host_native_ui.py, p01-process-066): date, datalist,
 popup window, DevTools docked and in a window, an extension popup and a side panel, each shown by cmux from the

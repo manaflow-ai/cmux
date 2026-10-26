@@ -40,6 +40,45 @@ import Testing
         #expect(DisplaySpy.calls.last?.display == 6)
     }
 
+    /// The workspace was switched away, its window moved to another display, then switched back: the
+    /// page view enters the window before the pane shows the tab again (`present` adds the host view
+    /// first), so the display it reads then has no browser to go to. Showing the tab places the page.
+    @Test func aTabShownAgainOnAnotherDisplayPlacesThePageThere() throws {
+        let runtime = try Self.runtime(forkAPI: 31)
+        let (host, tab) = try Self.livePane(runtime)
+        let page = try #require(host.hostedPageView)
+        var display = Self.display(id: 5, hz: 120)
+        page.screenInfoSource = { _ in display }
+        let first = Self.window()
+        let shown = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
+        first.contentView?.addSubview(shown)
+        host.present(tab, in: shown)
+        #expect(DisplaySpy.calls.map(\.display) == [5])
+
+        // Switched away: the tab's content view leaves its window.
+        host.conceal(tab)
+        shown.removeFromSuperview()
+
+        // Back, in a window on a 60 Hz 1x display.
+        display = ChromiumHostScreenInfo(displayID: 6, scaleMilli: 1_000, colorSpaceHash: 2, maximumFramesPerSecond: 60,
+                                         workArea: CGRect(x: 1512, y: 0, width: 1920, height: 1055))
+        let second = Self.window()
+        let back = NSView(frame: NSRect(x: 0, y: 0, width: 200, height: 100))
+        second.contentView?.addSubview(back)
+        defer { back.removeFromSuperview(); first.close(); second.close() }
+        host.present(tab, in: back)
+
+        let origin = try #require(page.presentedScreenRect?.origin)
+        #expect(DisplaySpy.calls.last == DisplaySpy.Call(browser: Self.firstBrowser, display: 6, x: Double(origin.x), y: Double(origin.y)))
+        #expect(DisplaySpy.calls.count == 2)
+        #expect(page.placedScreenInfo == display)
+
+        // Shown again on the same display: nothing more goes.
+        page.screenParametersChanged()
+        host.present(tab, in: back)
+        #expect(DisplaySpy.calls.count == 2)
+    }
+
     /// Below fork API 31 the fork has no page display call: nothing goes to the host.
     @Test func anOlderForkGetsNoPageDisplay() throws {
         let runtime = try Self.runtime(forkAPI: 30)
