@@ -339,7 +339,7 @@ import Testing
         return shown
     }
 
-    static func subscribe(_ stream: String) -> JSONValue {
+    static func subscribe(_ stream: String) -> CmuxNextSettings.JSONValue {
         ["t": .string("sub"), "id": .number(1), "stream": .string(stream)]
     }
 
