@@ -49,16 +49,14 @@ public final class CEFEngine: BrowserEngine {
     ///   - input: The app's input tap, which page link clicks and swipes hear (a test's own tap).
     ///   - pumpInput: What the in-process pump's input policy reads (feature `cefPumpInputPolicy`); nil:
     ///     the pump never holds for input.
-    ///   - pumpBoard: The main-thread budget the in-process pump's passes run on (`cef.pump`); nil: none.
     public convenience init(layout: CEFRuntimeLayout? = CEFRuntimeLayout.locate(),
                             stores: BrowserSharedStores, signInCallbacks: CEFSignInCallbacks,
                             lifecycleTrace: BrowserLifecycleTrace = .shared,
                             contextMenus: BrowserContextMenuBuilder = .shared,
-                            waitDeadlines: MainWakeUpQueue? = nil, input: InputEventTap, pumpInput: CEFPumpInputSeams? = nil,
-                            pumpBoard: CEFPumpBoardSeams? = nil) {
+                            waitDeadlines: MainWakeUpQueue? = nil, input: InputEventTap, pumpInput: CEFPumpInputSeams? = nil) {
         self.init(source: CEFRuntimeSource(layout: layout), stores: stores, signInCallbacks: signInCallbacks,
                   lifecycleTrace: lifecycleTrace, contextMenus: contextMenus, waitDeadlines: waitDeadlines, input: input,
-                  pumpInput: pumpInput, pumpBoard: pumpBoard)
+                  pumpInput: pumpInput)
     }
 
     /// Creates an engine whose runtime may arrive later (Chromium on demand).
@@ -77,14 +75,12 @@ public final class CEFEngine: BrowserEngine {
     ///     (``CmuxNextWakeups/CrashKeySlots/Key/cefState``); nil (tests) leaves it as it is.
     ///   - pumpInput: What the in-process pump's input policy reads (feature `cefPumpInputPolicy`); nil:
     ///     the pump never holds for input. Read when Chromium starts, with `input`'s dispatch ends.
-    ///   - pumpBoard: The main-thread budget the in-process pump's passes run on as owner `cef.pump`
-    ///     (``CEFPumpBoard``); nil (tests, fixtures): the passes are not on the board. Read when Chromium starts.
     public init(source: CEFRuntimeSource,
                 stores: BrowserSharedStores, signInCallbacks: CEFSignInCallbacks,
                 lifecycleTrace: BrowserLifecycleTrace = .shared,
                 contextMenus: BrowserContextMenuBuilder = .shared,
                 waitDeadlines: MainWakeUpQueue? = nil, input: InputEventTap, crashKeys: CrashKeySlots? = nil,
-                pumpInput: CEFPumpInputSeams? = nil, pumpBoard: CEFPumpBoardSeams? = nil) {
+                pumpInput: CEFPumpInputSeams? = nil) {
         runtimeSource = source
         self.stores = stores
         self.signInCallbacks = signInCallbacks
@@ -94,7 +90,6 @@ public final class CEFEngine: BrowserEngine {
         CEFRuntime.shared.attachInput(input)
         if let crashKeys { CEFRuntime.shared.attachCrashKeys(crashKeys) }
         CEFRuntime.shared.pumpInput = pumpInput
-        CEFRuntime.shared.pumpBoard = pumpBoard
     }
 
     public var availability: BrowserEngineAvailability {

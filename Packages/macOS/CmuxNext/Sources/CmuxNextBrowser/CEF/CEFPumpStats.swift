@@ -88,9 +88,6 @@ public nonisolated struct CEFPumpStats: Equatable, Sendable {
         /// Passes the one-refresh bound released with input still pending: that input was not
         /// dispatched yet, so its target is unknown.
         public var boundExpired = 0
-        /// Passes that ran before pending keys because a Chromium page had the keyboard
-        /// (``CEFPumpInputPolicy/Admission/runForFocusedPage``).
-        public var pageFocused = 0
 
         public init() {}
 
@@ -100,10 +97,10 @@ public nonisolated struct CEFPumpStats: Equatable, Sendable {
             counts[Int(target.rawValue)]
         }
 
-        /// The counts by target name (`terminal`, `chromiumPage`, ...), `boundExpired` and `pageFocused`
+        /// The counts by target name (`terminal`, `chromiumPage`, ...) and `boundExpired`
         /// (`debug.cef`, `debug.input`).
         public var byName: [String: UInt64] {
-            var names = ["boundExpired": UInt64(clamping: boundExpired), "pageFocused": UInt64(clamping: pageFocused)]
+            var names = ["boundExpired": UInt64(clamping: boundExpired)]
             for target in InputTarget.allCases {
                 names[String(describing: target)] = UInt64(clamping: counts[Int(target.rawValue)])
             }

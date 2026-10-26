@@ -16,8 +16,11 @@ import CmuxNextWakeups
 /// 2 ms pump slice (`--cmux-pump-time-slice-us`) bounds each pass as before.
 ///
 /// ```swift
-/// // CEFRuntime, in process: the app's budget, the pump's one dispatch follower and window classifier.
-/// let board = CEFPumpBoard(seams: seams, dispatches: dispatches, pages: pages)
+/// // In process: the app's budget, the pump's one dispatch follower and the same window classifier.
+/// let pages = ChromiumPageWindowClassifier()
+/// let board = CEFPumpBoard(budget: mainWork.budget, dispatches: CEFPumpTapDispatches(tap: input, pages: pages),
+///                          pageHasFocus: CEFPumpBoard.keyWindowIsPage(pages: pages),
+///                          refreshInterval: { mainWork.frames.refreshPeriod })
 /// let pump = CEFMessagePump(work: work, timer: timer, board: board)
 /// ```
 final class CEFPumpBoard {
@@ -45,12 +48,6 @@ final class CEFPumpBoard {
         self.dispatches = dispatches
         focus = pageHasFocus
         self.refreshInterval = refreshInterval
-    }
-
-    /// The app's: focus from the key window, classed by `pages`.
-    convenience init(seams: CEFPumpBoardSeams, dispatches: (any CEFPumpInputDispatches)?, pages: ChromiumPageWindowClassifier) {
-        self.init(budget: seams.budget, dispatches: dispatches, pageHasFocus: Self.keyWindowIsPage(pages: pages),
-                  refreshInterval: seams.refreshInterval)
     }
 
     /// Whether a Chromium view has the keyboard.

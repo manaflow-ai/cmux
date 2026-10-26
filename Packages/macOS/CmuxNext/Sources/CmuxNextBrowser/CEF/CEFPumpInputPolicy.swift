@@ -37,7 +37,8 @@ final class CEFPumpInputPolicy {
         /// Input is still pending, and the pass has waited as long as it may.
         case runAtBound
         /// Only keys are pending and a Chromium page has the keyboard: they go to the page, whose
-        /// input Chromium acks inside the pump, so the pass runs before them.
+        /// input Chromium acks inside the pump, so the pass runs before them (counted under
+        /// `chromiumPage` in ``CEFPumpStats/passesWhileInputPending``).
         case runForFocusedPage
         /// Input is pending: hold the pass until its dispatch ends, or `deadline` at the latest.
         /// `began`: this hold starts the wait (a pass that waits across several inputs is one hold).

@@ -230,7 +230,7 @@ final class CEFMessagePump {
         switch admission {
         case .runAfterDispatch(let target): counters.passesWhileInputPending.add(target)
         case .runAtBound: counters.passesWhileInputPending.boundExpired += 1
-        case .runForFocusedPage: counters.passesWhileInputPending.pageFocused += 1
+        case .runForFocusedPage: counters.passesWhileInputPending.add(.chromiumPage)
         case .run, .hold: break
         }
         fire(for: reason, workClass: workClass)

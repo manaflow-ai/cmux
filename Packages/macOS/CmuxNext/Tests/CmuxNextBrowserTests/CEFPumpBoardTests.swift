@@ -57,7 +57,7 @@ import Testing
         for _ in 0..<5 { rig.pass() }
         #expect(rig.passes == 6)
         #expect(rig.pump.stats.deferredForInput == 0)
-        #expect(rig.pump.stats.passesWhileInputPending.pageFocused == 5, "debug.input sees every pass that ran ahead of a key")
+        #expect(rig.pump.stats.passesWhileInputPending[.chromiumPage] == 5, "debug.input sees every pass that ran ahead of a key")
         // Focus moves to cmux (the omnibar): the policy holds the next pass for the pending key.
         rig.focused = false
         rig.pass()
@@ -74,7 +74,7 @@ import Testing
         rig.pass()
         #expect(rig.passes == 1, "held for the pending scroll")
         #expect(rig.pump.stats.deferredForInput == 1)
-        #expect(rig.pump.stats.passesWhileInputPending.pageFocused == 0)
+        #expect(rig.pump.stats.passesWhileInputPending[.chromiumPage] == 0)
         // Its dispatch went to a plain window: the held pass runs at the next run loop pass.
         rig.pending.pointer = false
         rig.dispatches.end(.other)

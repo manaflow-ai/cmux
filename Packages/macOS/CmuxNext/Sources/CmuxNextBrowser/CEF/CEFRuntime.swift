@@ -141,9 +141,6 @@ final class CEFRuntime {
     /// What the pump's input policy reads, from the engine made last (feature `cefPumpInputPolicy`,
     /// ``CEFPumpInputPolicy``); read at start with ``input``. Nil: the pump never holds for input.
     var pumpInput: CEFPumpInputSeams?
-    /// The main-thread budget the in-process pump's passes run on as owner `cef.pump`
-    /// (``CEFPumpBoard``), from the engine made last; read at start with ``input``. Nil: unattributed.
-    var pumpBoard: CEFPumpBoardSeams?
     /// True when this Chromium started with the built-in uBlock Origin.
     private(set) var builtInAdBlockerLoaded = false
     private var terminationObserver: (any NSObjectProtocol)?
@@ -426,19 +423,14 @@ final class CEFRuntime {
             if forkAPI < CEFPumpSchedule.demandDrivenForkAPI {
                 logger.error("CEF fork API \(forkAPI) predates the demand-driven pump (\(CEFPumpSchedule.demandDrivenForkAPI)): work left after a time slice and delayed tasks posted during a pass wait for the next CEF request, so pages may stall")
             }
-            // One page-window classifier and one dispatch follower: the board and the input policy share them.
-            let pages = ChromiumPageWindowClassifier()
-            let dispatches = input.map { CEFPumpTapDispatches(tap: $0, pages: pages) }
-            let board = pumpBoard.map { CEFPumpBoard(seams: $0, dispatches: dispatches, pages: pages) }
             let pump = CEFMessagePump(
                 work: { [weak self] in CEFStartSteps.shared.pump(windowPending: self?.pendingWindows.isEmpty == false) { self?.pumpWork() } },
                 timer: CEFWakeUpQueuePumpTimer(queue: wakeUps),
-                gate: pumpGate,
-                board: board
+                gate: pumpGate
             )
             self.pump = pump
-            if let pumpInput, let dispatches {
-                pump.setInputPolicy(CEFPumpInputPolicy(pending: pumpInput.pending, dispatches: dispatches,
+            if let pumpInput, let input {
+                pump.setInputPolicy(CEFPumpInputPolicy(pending: pumpInput.pending, dispatches: CEFPumpTapDispatches(tap: input),
                                                        refreshInterval: pumpInput.refreshInterval, frameTarget: pumpInput.frameTarget))
             }
             pump.start()
