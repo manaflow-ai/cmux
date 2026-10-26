@@ -25081,7 +25081,7 @@
         "title_table" : "Localizable"
       },
       "palette_suggested" : null,
-      "title" : "New Terminal on Machine",
+      "title" : "New Terminal Workspace on Machine",
       "title_key" : "action.cloudNewTerminal",
       "title_table" : "ActionCatalog"
     },
