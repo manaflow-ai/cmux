@@ -485,12 +485,18 @@ impl Hub {
     }
 
     /// The policy session `m` runs: its own, else the daemon default; one
-    /// acpmux cannot parse counts as `ask`.
+    /// acpmux cannot parse counts as `ask`, and so does approve-all while MDM
+    /// forces full access off (`policy_for`), so comparisons and inheritance
+    /// rank it as it answers.
     pub(super) async fn effective_policy(&self, m: &SessionMeta) -> PermissionPolicy {
-        match m.permission_policy.as_deref() {
+        let policy = match m.permission_policy.as_deref() {
             Some(p) => p.parse().unwrap_or(PermissionPolicy::Ask),
             None => self.config.read().await.permission_policy,
+        };
+        if super::full_access_bound::policy_is_full_access(policy) && !self.approve_all_allowed() {
+            return PermissionPolicy::Ask;
         }
+        policy
     }
 
     /// Whether session `m` runs a laxer policy than `than`.

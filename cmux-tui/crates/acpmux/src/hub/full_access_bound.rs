@@ -165,9 +165,13 @@ impl Hub {
     /// policy before the push (`policy_for` reads the bound under the prompt's lock, where it
     /// decides) finishes first, so no approve-all decision made after the push returns uses the
     /// old bound.
-    pub(super) async fn full_access_turned_off(&self) {
+    /// `changed`: this push turned it off; the pool drains only then.
+    pub(super) async fn full_access_turned_off(&self, changed: bool) {
         for session in self.sessions() {
             drop(session.permissions.lock().unwrap_or_else(|e| e.into_inner()));
+        }
+        if !changed {
+            return;
         }
         // Pooled agents started under the old bound (a profile pinning full access among them)
         // end; the pool starts again under the new one.
