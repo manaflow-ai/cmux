@@ -26,6 +26,8 @@ cmux-stability = ["cmux-blocking/cmux-stability"]
 [dependencies]
 cmux-blocking.workspace = true
 cmux-lock-rank.workspace = true
+# The daemon's memory registry and kernel pressure source (memory.rs).
+cmux-memory.workspace = true
 cmux-agent-pane-policy.workspace = true
 ghostty-vt.workspace = true
 cmux-tui-cdp.workspace = true
@@ -35,6 +37,7 @@ cmux-pty.workspace = true
 # The panic log and the process's hang watcher: request, journal writer and holder-link scopes.
 cmux-panic-log.workspace = true
 cmux-holder.workspace = true
+cmux-ipc.workspace = true
 cmux-process.workspace = true
 cmux-features.workspace = true
 cmux-flow-trace.workspace = true

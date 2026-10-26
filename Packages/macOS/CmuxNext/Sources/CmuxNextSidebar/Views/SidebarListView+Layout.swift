@@ -61,6 +61,7 @@ extension SidebarListViewComponents {
         if let shown = groupEditor.shownGroup { (rowViews[.group(shown)] as? GroupHeaderRowView)?.isEditing = true }
         // The settle ended in this reload with its card already gone (no landing to finish): the held rows show now.
         releaseRowHold()
+        reportListedRows()
     }
     func options(includeGap: Bool) -> SidebarLayoutOptions {
         var o = model.listOptions()

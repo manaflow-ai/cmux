@@ -18,13 +18,19 @@ any Release bundle (it has no `debug.oracle.*`). The driver never starts, quits 
 or a `com.cmuxterm.app` bundle: bench_launch takes only `cmux DEV <tag>.app`, and the session checks again.
 
 Steps: action.run (`action.run`), key (`debug.key`, one request per keystroke, through the app's real key
-path), cli (the bundle's own `cmux --app-socket`), mcp (`cmux mcp serve --all-tools` over stdio), settle
-(`debug.oracle.settle`), snapshot. Any step may carry `waitFor` (`debug.oracle.wait_for`, resolved from facet
-change signals; `changed` compares with the value read before the step). Checkpoints: `before`; `turn` for
+path, to the focused pane of the step's window), cli (the bundle's own `cmux --app-socket`), mcp (`cmux mcp
+serve --all-tools` over stdio), settle (`debug.oracle.settle`), snapshot. Any step may carry `waitFor`
+(`debug.oracle.wait_for`, resolved from facet change signals; `changed` compares with the value read before the step). Checkpoints: `before`; `turn` for
 action.run and key (the turn recorder armed for that step, `debug.oracle.recorder` and `debug.oracle.turns`);
 `settled` after `debug.oracle.settle` (the action's reply sequence, else `sync`). No sleeps and no polls: every
 wait is one of the app's own barriers, each bounded by the case's ms times the Slow multiplier. resource.call,
 kill, restart, tui.key and advance_clock belong to other drivers and fail the case as a Crash that names them.
+So do the conditions a launch cannot apply yet: environment keys other than viewport, fixture.agent none,
+fixture.clock virtual, a named fixture handle (no seeding reaches the app) and a key aimed at a pane, tab or page.
+
+Expect: `result` is the action's own value (action.run's `result` member, never the run's sequence or ids).
+`receipt` needs the ActionEffect kind, which no app reply carries yet: the driver checks that an action ran,
+marks that step's checkpoints uncertain (never baselined) and says so in the result message.
 
 Switch arms (task 049). The session's `switches` (registry name -> arm, from oracle.py `--switch NAME --arm A` or
 `--arm launch-config`) become switches.arm_plan's launch values: CMUX_NEXT_SWITCHES (the env form of
@@ -51,7 +57,9 @@ Chrome reference (chromium/src):
 
 Usage:
   driver_app.py run-case --app "PATH/cmux DEV <tag>.app" CASE.json [--build bench] [--repeat N] [--out DIR]
-      runs one case N times in one launch; prints each result's checkpoint hashes; exit 1 when they differ
+                         [--switch NAME=ARM]...   (each result line carries its switch_readback and switch_hits)
+      runs one case N times, each in a fresh launch and session root; prints each result's checkpoint
+      hashes; exit 1 when they differ
   driver_app.py --selftest       the offline tests (driver_app_test.py)
 """
 
@@ -129,6 +137,11 @@ OTHER_DRIVERS = {
 STEP_REF = re.compile(r"^\$step:([a-z0-9][a-z0-9-]{0,63})#((?:/(?:[^~/]|~[01])*)*)$")
 ERROR_CODE = re.compile(r"^[a-z][a-z_]*(\.[a-z][a-z_]*)+$")
 SELECTORS = {"machine": "current", "session": "current"}
+CURRENT = "current"
+# The tasks that bring a case condition to the app launch.
+SEED_TASK = "p15-oracle-180 (CMUX_NEXT_ORACLE_SEED) and p15-oracle-185 (seeded ids)"
+AGENT_TASK = "p15-oracle-200 (hermetic per-case env)"
+CLOCK_TASK = "p15-oracle-185 (virtual clock)"
 ORACLE_STATE_KEYS = ("switches", "terminalAttach", "liveObjects", "panicLog")
 MISSING = object()
 
@@ -207,16 +220,42 @@ def run_build(kind: str, requested: str) -> str:
 
 
 def launch_spec(case: Mapping[str, Any]) -> LaunchSpec:
-    """The launch a case needs. The environment keys a launch cannot set yet fail the case, never pass it."""
+    """The launch a case needs. The conditions a launch cannot apply yet fail the case, never pass it."""
     env = case.get("environment") or {}
     unsupported = sorted(k for k in env if k != "viewport")
     if unsupported:
         raise CaseError("Crash", f"driver_app launches with no {', '.join(unsupported)} (environment); only "
                                  "viewport is applied")
+    check_conditions(case)
     width, height = DEFAULT_VIEWPORT
     if "viewport" in env:
         width, height = int(env["viewport"]["width"]), int(env["viewport"]["height"])
     return LaunchSpec(window=(*WINDOW_ORIGIN, width, height))
+
+
+def other_driver(op: str) -> str:
+    return f"op {op} is not an app-driver step; it runs in {OTHER_DRIVERS.get(op, 'no driver')}"
+
+
+def check_conditions(case: Mapping[str, Any]) -> None:
+    """Refuses, before any launch, the steps of other drivers and the fixture conditions the bench launch does
+    not apply: it always has the mock agent pane (bench_env CMUX_NEXT_AGENT_PANE_MOCK=1), the wall clock, and
+    no seeded fixture identities."""
+    fixture = case.get("fixture") or {}
+    if fixture.get("agent", "mock") != "mock":
+        raise CaseError("Crash", f"fixture.agent {fixture['agent']}: the bench launch always has the mock agent "
+                                 f"pane; a launch without it is {AGENT_TASK}")
+    if fixture.get("clock") == "virtual":
+        raise CaseError("Crash", f"fixture.clock virtual: the app runs on the wall clock; the virtual clock is "
+                                 f"{CLOCK_TASK}")
+    for step in case.get("steps") or ():
+        if step.get("op") in OTHER_DRIVERS:
+            raise CaseError("Crash", other_driver(step["op"]), step.get("id"))
+        for kind, value in (step.get("target") or {}).items():
+            if kind != "process" and isinstance(value, str) and value != CURRENT and not STEP_REF.match(value):
+                raise CaseError("Crash", f"target.{kind} {value!r} is a named fixture identity, and no seeding "
+                                         f"reaches the app yet ({SEED_TASK}); target `current` or a $step: value",
+                                step.get("id"))
 
 
 def decode_pointer(pointer: str) -> List[str]:
@@ -282,7 +321,7 @@ def action_target(target: Mapping[str, Any], step: str) -> Optional[str]:
     (kind, value), = named.items()
     if not isinstance(value, str):
         raise CaseError("Crash", f"target.{kind} is {value!r}, not a string", step)
-    return None if value == "current" else f"{kind}:{value}"
+    return None if value == CURRENT else f"{kind}:{value}"
 
 
 def typed_error(namespace: str, error: Any) -> str:
@@ -476,6 +515,11 @@ class CaseRun:
         self.state = CaseState()
         self.switch_readback: Dict[str, str] = {}
         self.hits_zeroed = False
+        # The step running now (a Crash from an unexpected error names it), the steps whose expected receipt
+        # kind the app could not report, and whether the app was left in a state the next case must not inherit.
+        self.at: Optional[str] = None
+        self.unchecked_receipts: Dict[str, str] = {}
+        self.dirty = False
         self.ops: Dict[str, Callable[[int, Mapping[str, Any]], Tuple[Tuple[str, Any], Any]]] = {
             "action.run": self.op_action_run,
             "key": self.op_key,
@@ -513,14 +557,18 @@ class CaseRun:
             fixture = self.case.get("fixture") or {}
             if fixture.get("web"):
                 raise CaseError("Crash", "driver_app has no loopback web fixture yet (fixture.web)")
+            self.at = "setup"
             self.settle("sync", DEFAULT_SETTLE_MS, "setup")
             self.check_arms()
             self.hits_zeroed = self.switch_hits("setup") is not None  # the result counts this case's hits only
             teardown = self.setup_fixture(fixture.get("setup"))
             for index, step in enumerate(self.case.get("steps") or ()):
+                self.at = step.get("id") if isinstance(step, Mapping) else None
                 self.run_step(index, step)
         except CaseError as error:
             status, message, at = error.status, error.message, error.step
+        except Exception as error:  # noqa: BLE001 - a malformed step or a driver bug is this case's Crash
+            status, message, at = "Crash", f"driver: {error!r}", self.at
         finally:
             if teardown is not None:
                 try:
@@ -541,13 +589,20 @@ class CaseRun:
             result["switch_readback"] = dict(self.switch_readback)
         if hits is not None:
             result["switch_hits"] = hits
-        if status in ("Crash", "Timeout") or not self.app.alive():
+        if status in ("Crash", "Timeout") or self.dirty or not self.app.alive():
             # A crash or a stuck barrier leaves state the next case must not inherit (task 189 adds the reset check).
             result["session_dirty"] = True
+        if self.unchecked_receipts:
+            notes = ", ".join(f"{step} {kind}" for step, kind in self.unchecked_receipts.items())
+            result["message"] = "; ".join(filter(None, [message, f"receipt kind not compared (the app reply has no "
+                                                                 f"ActionEffect kind): {notes}"]))
         try:
             result["checkpoints"] = self.session.canonical(self.case_id, self.state.captures)
         except Exception as error:  # noqa: BLE001 - a snapshot normalize refuses is this case's Crash
             result.update(status="Crash", message="; ".join(filter(None, [message, f"snapshot refused: {error}"])))
+        for checkpoint in result["checkpoints"]:
+            if checkpoint["step"] in self.unchecked_receipts:
+                checkpoint["uncertain"] = True
         return result
 
     def check_arms(self) -> None:
@@ -576,8 +631,8 @@ class CaseRun:
             return None
         if not (FIXTURES / f"{family}.py").is_file():
             raise CaseError("Crash", f"fixture.setup {family}: no oracle/action_fixtures/{family}.py (p15-oracle-046)")
-        module = importlib.import_module(f"action_fixtures.{family}")
         try:
+            module = importlib.import_module(f"action_fixtures.{family}")
             module.setup(self.rpc)
         except CaseError:
             raise
@@ -590,8 +645,7 @@ class CaseRun:
         op = step["op"]
         handler = self.ops.get(op)
         if handler is None:
-            raise CaseError("Crash", f"op {op} is not an app-driver step; it runs in "
-                                     f"{OTHER_DRIVERS.get(op, 'no driver')}", step_id)
+            raise CaseError("Crash", other_driver(op), step_id)
         self.check_alive(step_id)
         checkpoints = step.get("checkpoint") or ["settled"]
         facets = tuple((step.get("args") or {}).get("facets") or FACETS) if op == "snapshot" else FACETS
@@ -605,15 +659,29 @@ class CaseRun:
             self.check_expect(step, outcome)
             if armed is not None:
                 self.record_turns(index, step_id, facets, armed)
-        finally:
+        except Exception as error:
             if armed is not None:
-                self.result(RECORDER, {"arm": False, "clear": True}, step_id)
+                self.disarm_after(error, step_id)
+            raise
+        if armed is not None:
+            self.result(RECORDER, {"arm": False, "clear": True}, step_id)
         if wait:
             self.wait_for(wait, since, step_id)
         if "settled" in checkpoints:
             if op != "settle":
                 self.settle(sequence, step.get("settleMaxMs") or DEFAULT_SETTLE_MS, step_id)
             self.capture(index, step_id, "settled", facets)
+
+    def disarm_after(self, error: Exception, step: str) -> None:
+        """Disarms the recorder after a step failed, keeping that failure as the case's result. After a Crash,
+        Timeout or driver error the session is relaunched anyway, so a hung app gets no second wait."""
+        if not (isinstance(error, CaseError) and error.status == "Failure") or not self.app.alive():
+            self.dirty = True
+            return
+        try:
+            self.result(RECORDER, {"arm": False, "clear": True}, step)
+        except CaseError:
+            self.dirty = True
 
     def check_alive(self, step: str) -> None:
         if not self.app.alive():
@@ -723,7 +791,16 @@ class CaseRun:
     def op_key(self, index: int, step: Mapping[str, Any]) -> Tuple[Tuple[str, Any], Any]:
         step_id = step["id"]
         target = resolve_refs(step.get("target") or {}, self.state.replies)
-        where = {k: target[k] for k in ("window", "pane") if isinstance(target.get(k), str) and target[k] != "current"}
+        # debug.key sends to the focused pane of a window (DebugKey.send reads `pane` only for a page or DevTools
+        # window): a key aimed at another object would land on whatever has focus.
+        aimed = sorted(k for k, v in target.items() if k != "window" and v != CURRENT)
+        if aimed:
+            raise CaseError("Crash", f"a key goes to the focused pane of its window; debug.key cannot aim at target."
+                                     f"{', target.'.join(aimed)} (focus it in an earlier action.run step)", step_id)
+        window = target.get("window", CURRENT)
+        if not isinstance(window, str):
+            raise CaseError("Crash", f"target.window is {window!r}, not a string", step_id)
+        where = {} if window == CURRENT else {"window": window}
         replies = []
         for stroke in step["args"]["keys"]:
             reply = self.call("debug.key", {**debug_key(stroke, step_id), **where}, step_id)
@@ -740,8 +817,7 @@ class CaseRun:
     def op_cli(self, index: int, step: Mapping[str, Any]) -> Tuple[Tuple[str, Any], Any]:
         step_id = step["id"]
         args = resolve_refs(step["args"], self.state.replies)
-        done = self.session.run([self.app.cli_path, "--app-socket", self.app.socket_path, *args["argv"]],
-                                env=self.app.cli_env(), input=args.get("stdin"), timeout=CLI_S * self.scale)
+        done = self.run_cli(list(args["argv"]), args.get("stdin"), step_id)
         stdout = done.stdout
         try:
             parsed: Any = json.loads(stdout) if stdout.strip() else None
@@ -752,6 +828,19 @@ class CaseRun:
         if done.returncode != 0:
             return ("error", typed_error("cli", parsed.get("error") if isinstance(parsed, dict) else None)), "sync"
         return ("ok", reply), "sync"
+
+    def run_cli(self, argv: List[str], stdin: Optional[str], step: str) -> subprocess.CompletedProcess:
+        """The bundle's own cmux on the app's socket: its text output captured, `stdin` as its input (else no
+        input at all, never the runner's), bounded by CLI_S times the Slow multiplier."""
+        bound = CLI_S * self.scale
+        feed: Dict[str, Any] = {"input": stdin} if stdin is not None else {"stdin": subprocess.DEVNULL}
+        try:
+            return self.session.run([self.app.cli_path, "--app-socket", self.app.socket_path, *argv],
+                                    env=self.app.cli_env(), capture_output=True, text=True, timeout=bound, **feed)
+        except subprocess.TimeoutExpired:
+            raise CaseError("Timeout", f"cmux {' '.join(argv)[:200]} gave no answer in {bound:.0f} s", step) from None
+        except OSError as error:
+            raise CaseError("Crash", f"cmux {' '.join(argv)[:200]} did not start: {error}", step) from None
 
     def op_mcp(self, index: int, step: Mapping[str, Any]) -> Tuple[Tuple[str, Any], Any]:
         step_id = step["id"]
@@ -764,9 +853,7 @@ class CaseRun:
             {"jsonrpc": "2.0", "id": 2, "method": "tools/call",
              "params": {"name": args["tool"], "arguments": args.get("arguments") or {}}},
         ]
-        done = self.session.run([self.app.cli_path, "--app-socket", self.app.socket_path, "mcp", "serve", "--all-tools"],
-                                env=self.app.cli_env(), input="".join(json.dumps(r) + "\n" for r in requests),
-                                timeout=CLI_S * self.scale)
+        done = self.run_cli(["mcp", "serve", "--all-tools"], "".join(json.dumps(r) + "\n" for r in requests), step_id)
         answer = None
         for line in done.stdout.splitlines():
             try:
@@ -814,13 +901,19 @@ class CaseRun:
         if receipt is not None:
             if receipt not in ACTION_RECEIPTS or step["op"] not in ("action.run", "key"):
                 raise CaseError("Crash", f"receipt kind {receipt} has no {step['op']} reply in the app", step_id)
-            # The wire reply names that a handler ran, not its ActionEffect kind: I1 checks the one receipt.
             ran = detail.get("ran") is True if step["op"] == "action.run" else any(
                 isinstance(r, dict) and r.get("action") for r in detail)
             if not ran:
                 raise CaseError("Failure", f"expected an {receipt} receipt, but no action ran", step_id)
-        if "result" in expect and detail != expect["result"]:
-            raise CaseError("Failure", f"result differs: {json.dumps(detail, sort_keys=True)[:300]}", step_id)
+            # The reply names that a handler ran, not its ActionEffect kind: the kind itself is not compared.
+            self.unchecked_receipts[step_id] = receipt
+        if "result" in expect:
+            # action.run's own reply also holds the run's daemon sequence, idempotency key and created ids.
+            value = detail.get("result", MISSING) if step["op"] == "action.run" else detail
+            if value is MISSING:
+                raise CaseError("Failure", "expected a result, but the action returned none", step_id)
+            if value != expect["result"]:
+                raise CaseError("Failure", f"result differs: {json.dumps(value, sort_keys=True)[:300]}", step_id)
 
     # -- snapshots
 
@@ -939,7 +1032,8 @@ class AppSession:
         root_base.mkdir(parents=True, exist_ok=True)
         self.paths = OraclePaths(Path(tempfile.mkdtemp(prefix="a", dir=str(root_base))))
         self.paths.home.mkdir()
-        out = Path(session_ctx.get("out_dir") or self.paths.root) / "app" / self.paths.root.name
+        # The app log stays after close (the session root goes): a failed launch's report names it.
+        out = Path(session_ctx.get("out_dir") or root_base / "logs") / "app" / self.paths.root.name
         out.mkdir(parents=True, exist_ok=True)
         self.out = out
         self.app = (make_app or BenchAppPort)(app, out, self.environment())
@@ -1040,7 +1134,10 @@ class AppSession:
             spec = launch_spec(case)
             self.ensure_launched(spec)
         except CaseError as error:
-            return {"status": error.status, "message": error.message, "checkpoints": []}
+            refused = {"status": error.status, "message": error.message, "checkpoints": []}
+            if error.step:
+                refused["step"] = error.step
+            return refused
         except (AppLaunchFailed, AppGone, socket.timeout) as error:
             return {"status": "Crash", "message": f"app launch: {error}", "checkpoints": [], "session_dirty": True}
         if self.app_arms.problems:
@@ -1081,43 +1178,55 @@ def open_session(session_ctx: Dict[str, Any]) -> AppSession:
 # CLI
 
 
+def run_repeats(ctx: Mapping[str, Any], case: Dict[str, Any], repeat: int,
+                open_session: Callable[[Dict[str, Any]], AppSession] = AppSession,
+                emit: Callable[[str], None] = print) -> int:
+    """Runs `case` `repeat` times, each in its own session (a fresh launch, saved session and root), as
+    oracle.py --repeat does: a run never starts from the state an earlier one left. 0 when every run passes
+    with equal checkpoint hashes."""
+    import oracle
+
+    case_id = f"{case.get('suite')}/{case.get('id')}"
+    hashes = []
+    for attempt in range(repeat):
+        session = open_session(dict(ctx))
+        try:
+            result = session.run_case(case, {"case_id": case_id, "attempt": attempt})
+        finally:
+            session.close()
+        row = [oracle.snapshot_sha256(cp["snapshot"]) for cp in result["checkpoints"]]
+        hashes.append((result["status"], row))
+        emit(json.dumps({"attempt": attempt, "status": result["status"], "message": result["message"],
+                         "checkpoints": [f"{cp['step']}/{cp['checkpoint']} {h[:12]}"
+                                         for cp, h in zip(result["checkpoints"], row)],
+                         **{k: result[k] for k in ("switch_readback", "switch_hits") if k in result}}))
+    same = all(h == hashes[0] for h in hashes)
+    emit(f"driver_app: {len(hashes)} runs, {'equal' if same else 'DIFFERENT'} checkpoint hashes")
+    return 0 if same and hashes and hashes[0][0] == "Pass" else 1
+
+
 def cmd_run_case(args: argparse.Namespace) -> int:
     case = json.loads(Path(args.case).read_text(encoding="utf-8"))
     ctx = {"run_id": "run-case", "product": "app", "build": args.build, "binary": args.app, "ref": args.ref,
-           "out_dir": args.out}
-    import oracle
-
-    session = AppSession(ctx)
-    hashes = []
-    try:
-        for attempt in range(args.repeat):
-            result = session.run_case(case, {"case_id": f"{case.get('suite')}/{case.get('id')}", "attempt": attempt})
-            row = [oracle.snapshot_sha256(cp["snapshot"]) for cp in result["checkpoints"]]
-            hashes.append((result["status"], row))
-            print(json.dumps({"attempt": attempt, "status": result["status"], "message": result["message"],
-                              "checkpoints": [f"{cp['step']}/{cp['checkpoint']} {h[:12]}"
-                                              for cp, h in zip(result["checkpoints"], row)]}), flush=True)
-            if result.get("session_dirty"):
-                session.close()
-                session = AppSession(ctx)
-    finally:
-        session.close()
-    same = all(h == hashes[0] for h in hashes)
-    print(f"driver_app: {len(hashes)} runs, {'equal' if same else 'DIFFERENT'} checkpoint hashes")
-    return 0 if same and hashes[0][0] == "Pass" else 1
+           "out_dir": args.out, "switches": switches.parse_requests(args.switch),
+           "switch_registry": args.switch_registry}
+    return run_repeats(ctx, case, args.repeat, emit=lambda line: print(line, flush=True))
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--selftest", action="store_true", help="run the offline tests (driver_app_test.py)")
     sub = parser.add_subparsers(dest="command")
-    one = sub.add_parser("run-case", help="one case in one launch, --repeat times")
+    one = sub.add_parser("run-case", help="one case --repeat times, each in a fresh launch")
     one.add_argument("case")
     one.add_argument("--app", required=True, help='the tagged "cmux DEV <tag>.app"')
     one.add_argument("--build", default="bench", choices=("bench", "debug"))
     one.add_argument("--ref", help="the full SHA the app was built from (default: its CMUXCommit or CMUX_CI_SHA)")
     one.add_argument("--repeat", type=int, default=2)
-    one.add_argument("--out", help="log folder (default: under the session root)")
+    one.add_argument("--out", help="log folder (default: /tmp/o/logs, kept after the run)")
+    one.add_argument("--switch", action="append", default=[], metavar="NAME=ARM",
+                     help="run on this refactor switch arm (plans/cmux-next/refactor-switches/NAME.json); repeatable")
+    one.add_argument("--switch-registry", help="refactor switch registry (default plans/cmux-next/refactor-switches)")
     args = parser.parse_args(argv)
     if args.selftest:
         import unittest
@@ -1127,7 +1236,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         suite = unittest.defaultTestLoader.loadTestsFromModule(driver_app_test)
         return 0 if unittest.TextTestRunner(verbosity=2).run(suite).wasSuccessful() else 1
     if args.command == "run-case":
-        return cmd_run_case(args)
+        try:
+            return cmd_run_case(args)
+        except (switches.UsageError, ValueError) as error:  # a bad --switch or an unknown switch: nothing launched
+            print(f"driver_app: {error}", file=sys.stderr)
+            return 2
     parser.print_usage(sys.stderr)
     return 2
 

@@ -10,6 +10,8 @@ barriers, turn checkpoints, launch rules and the oracle.py protocol run on any h
 from __future__ import annotations
 
 import json
+import os
+import socket
 import subprocess
 import sys
 import tempfile
@@ -48,6 +50,7 @@ class FakeApp:
         self.settle_pending: List[str] = []
         self.fail_launch = False
         self.stops = 0
+        self.hang: set = set()
         # The switches facet's `arms` (None: no provider in this build) and the per-key hit counts (None: no
         # debug.oracle.switch_hits in this build); each turn counts one hit on the arm the key runs.
         self.switch_arms: Optional[Dict[str, str]] = None
@@ -80,6 +83,8 @@ class FakeApp:
 
     def request(self, method: str, params: Mapping[str, Any], timeout: float) -> Dict[str, Any]:
         self.calls.append((method, json.loads(json.dumps(params))))
+        if method in self.hang:
+            raise socket.timeout()
         handler = getattr(self, "m_" + method.replace(".", "_"), None)
         if handler is None:
             return {"ok": False, "error": {"code": "method_not_found", "message": method}}
@@ -163,9 +168,12 @@ class FakeApp:
         if params["action"] != "workspace.new":
             return {"ok": False, "error": {"code": "not_found", "message": "no such action"}}
         self.turn(params["action"])
-        return {"ok": True, "result": {"action": params["action"], "ran": True, "waited": True, "args": {},
-                                       "target": params.get("target"), "created": ["ws_x"],
-                                       "sequence": self.sequence}}
+        reply = {"action": params["action"], "ran": True, "waited": True, "args": {},
+                 "target": params.get("target"), "created": [f"ws_{self.sequence}"], "sequence": self.sequence,
+                 "idempotency_key": None}
+        if "name" in params["args"]:
+            reply["result"] = {"name": params["args"]["name"]}
+        return {"ok": True, "result": reply}
 
     def m_debug_oracle_switch_hits(self, params):
         if self.hits is None:
@@ -199,6 +207,9 @@ class Recorder:
         self.calls: List[Dict[str, Any]] = []
 
     def __call__(self, argv, **kwargs):
+        # As subprocess.run needs them for str stdout and a str input, and no inherited stdin.
+        assert kwargs.get("capture_output") is True and kwargs.get("text") is True, kwargs
+        assert ("input" in kwargs) != (kwargs.get("stdin") is subprocess.DEVNULL), kwargs
         self.calls.append({"argv": list(argv), **kwargs})
         return subprocess.CompletedProcess(argv, self.returncode, self.stdout, "")
 
@@ -227,7 +238,8 @@ class SessionTestBase(unittest.TestCase):
         self.apps: List[FakeApp] = []
         self.run_proc = Recorder()
 
-    def session(self, *, switch_roots=None, read_daemon_arms=None, read_daemon=None, **ctx) -> driver_app.AppSession:
+    def session(self, run=None, canonicalizer=None, *, switch_roots=None, read_daemon_arms=None, read_daemon=None,
+                **ctx) -> driver_app.AppSession:
         def make(app, out, env):
             fake = FakeApp(app, out, env)
             self.apps.append(fake)
@@ -238,7 +250,8 @@ class SessionTestBase(unittest.TestCase):
         if read_daemon:
             extra["read_daemon"] = read_daemon
         return driver_app.AppSession({**base, **ctx}, make_app=make, identity=identity,
-                                     canonicalizer=identity_canonicalizer(), run=self.run_proc,
+                                     canonicalizer=canonicalizer or identity_canonicalizer(),
+                                     run=run or self.run_proc,
                                      host=lambda: {"os": "macOS 26.1", "arch": "arm64", "model": "Mac16,10"},
                                      root_base=Path(self.tmp.name) / "o",
                                      switch_roots=switch_roots or self.empty_registry(), **extra)
@@ -277,18 +290,26 @@ class AppSessionTest(SessionTestBase):
         self.assertIn(str(session.paths.root), paths["root"])
 
     def test_the_same_case_twice_gives_equal_hashes(self) -> None:
-        session = self.session()
-        hashes = []
-        for _ in range(2):
-            app_before = len(self.apps)
-            result = session.run_case(case(NEW_WORKSPACE), {"case_id": "actions/c"})
-            self.assertEqual(len(self.apps), app_before)
-            snapshots = [c["snapshot"] for c in result["checkpoints"]]
-            for snap in snapshots:
-                snap["meta"].pop("capturedAtMs")  # volatile: normalize.py drops it
-                snap["facets"]["topology"]["workspaces"] -= len(hashes)  # the fake keeps its model between cases
-            hashes.append([oracle.snapshot_sha256(s) for s in snapshots])
-        self.assertEqual(hashes[0], hashes[1])
+        def without_time(snapshots, paths, labels):  # normalize.py drops the volatile capturedAtMs
+            out = [json.loads(json.dumps(s)) for s in snapshots]
+            for snap in out:
+                snap["meta"].pop("capturedAtMs")
+            return out
+
+        ctx = {"run_id": "r", "product": "app", "build": "bench", "binary": APP, "out_dir": self.tmp.name}
+        lines: List[str] = []
+        code = driver_app.run_repeats(ctx, case(NEW_WORKSPACE), 2,
+                                      open_session=lambda c: self.session(canonicalizer=(without_time, {})),
+                                      emit=lines.append)
+        self.assertEqual(code, 0, lines)
+        self.assertIn("equal", lines[-1])
+        self.assertEqual(len(self.apps), 2, "each repeat is its own launch")
+        self.assertEqual([a.stops for a in self.apps], [1, 1])
+        # The same two runs in one launch start from different state: that is why each repeat relaunches.
+        session = self.session(canonicalizer=(without_time, {}))
+        rows = [[oracle.snapshot_sha256(c["snapshot"]) for c in
+                 session.run_case(case(NEW_WORKSPACE), {"case_id": "actions/c"})["checkpoints"]] for _ in range(2)]
+        self.assertNotEqual(rows[0], rows[1])
 
     def test_launch_is_bench_config_with_animations_off(self) -> None:
         session = self.session()
@@ -422,6 +443,157 @@ class AppSessionTest(SessionTestBase):
         self.assertTrue(result["session_dirty"])
         self.assertIn("no-gui-session", result["message"])
 
+    def test_cli_and_mcp_through_the_real_subprocess_run(self) -> None:
+        stub = Path(self.tmp.name) / "cmux"
+        stub.write_text("#!/bin/sh\n"
+                        "case \"$3\" in\n"
+                        "  mcp) /bin/cat >/dev/null; echo '{\"jsonrpc\":\"2.0\",\"id\":2,\"result\":"
+                        "{\"structuredContent\":{\"ok\":1}}}' ;;\n"
+                        "  hang) exec /bin/sleep 30 ;;\n"
+                        "  *) /bin/cat ;;\n"
+                        "esac\n")
+        os.chmod(stub, 0o755)
+        session = self.session(run=subprocess.run)
+        self.apps[0].cli_path = str(stub)
+        ctx = {"case_id": "cli/c", "timeout_multiplier": 0.05}
+        piped = step("c", "cli", target={"workspace": "current"}, args={"argv": ["read"], "stdin": '{"piped": 1}'},
+                     expect={"outcome": "ok", "result": {"exit": 0, "stdout": {"piped": 1}},
+                             "noReceiptReason": "the stub echoes its input"})
+        result = session.run_case(case(piped), ctx)
+        self.assertEqual(result["status"], "Pass", result["message"])
+        quiet = dict(piped, args={"argv": ["read"]},
+                     expect={"outcome": "ok", "result": {"exit": 0, "stdout": None},
+                             "noReceiptReason": "no input: the runner's stdin stays out"})
+        result = session.run_case(case(quiet), ctx)
+        self.assertEqual(result["status"], "Pass", result["message"])
+        mcp = step("m", "mcp", target={"workspace": "current"}, args={"tool": "workspace_list"},
+                   expect={"outcome": "ok", "result": {"ok": 1}, "noReceiptReason": "a read through mcp has none"})
+        result = session.run_case(case(mcp), {"case_id": "mcp/m"})
+        self.assertEqual(result["status"], "Pass", result["message"])
+        hung = dict(piped, args={"argv": ["hang"]})
+        result = session.run_case(case(hung), {"case_id": "cli/c", "timeout_multiplier": 0.02})
+        self.assertEqual((result["status"], result.get("step")), ("Timeout", "c"), result["message"])
+        self.assertIn("cmux hang", result["message"])
+        self.apps[0].cli_path = str(Path(self.tmp.name) / "missing")
+        result = session.run_case(case(piped), ctx)
+        self.assertEqual((result["status"], result.get("step")), ("Crash", "c"), result["message"])
+
+    def test_a_key_aimed_past_its_window_fails_loudly(self) -> None:
+        session = self.session()
+        window = step("w", "key", target={"window": "$step:new#/created/0"}, args={"keys": ["x"]},
+                      expect={"outcome": "ok", "noReceiptReason": "a typed key runs no action here"})
+        result = session.run_case(case(NEW_WORKSPACE, window), {"case_id": "actions/c"})
+        self.assertEqual(result["status"], "Pass", result["message"])
+        sent = [p for m, p in self.apps[0].calls if m == "debug.key"][-1]
+        self.assertEqual(sent["window"], "ws_11")
+        for aimed in ({"window": "current", "pane": "$step:new#/created/0"}, {"browser": "$step:new#/created/0"}):
+            result = session.run_case(case(NEW_WORKSPACE, dict(window, target=aimed)), {"case_id": "actions/c"})
+            self.assertEqual((result["status"], result.get("step")), ("Crash", "w"), result["message"])
+            self.assertIn("focused pane", result["message"])
+
+    def test_expect_result_is_the_action_value_not_the_run_reply(self) -> None:
+        session = self.session()
+        named = dict(NEW_WORKSPACE, args={"action": "workspace.new", "params": {"name": "a"}},
+                     expect={"outcome": "ok", "result": {"name": "a"}, "noReceiptReason": "the result is checked"})
+        for _ in range(2):  # the reply's sequence and created ids change; the action's value does not
+            result = session.run_case(case(named), {"case_id": "actions/c"})
+            self.assertEqual(result["status"], "Pass", result["message"])
+        wrong = dict(named, expect={"outcome": "ok", "result": {"name": "b"}, "noReceiptReason": "it differs"})
+        self.assertEqual(session.run_case(case(wrong), {"case_id": "actions/c"})["status"], "Failure")
+        none = dict(NEW_WORKSPACE, expect={"outcome": "ok", "result": {}, "noReceiptReason": "no value at all"})
+        self.assertEqual(session.run_case(case(none), {"case_id": "actions/c"})["status"], "Failure")
+
+    def test_an_expected_receipt_kind_is_never_a_silent_pass(self) -> None:
+        session = self.session()
+        result = session.run_case(case(NEW_WORKSPACE, step("s", "snapshot")), {"case_id": "actions/c"})
+        self.assertEqual(result["status"], "Pass", result["message"])
+        self.assertIn("receipt kind not compared", result["message"])
+        self.assertIn("new action.done", result["message"])
+        flags = {(c["step"], c["checkpoint"]): c.get("uncertain") for c in result["checkpoints"]}
+        self.assertEqual(flags, {("new", "before"): True, ("new", "turn"): True, ("new", "settled"): True,
+                                 ("s", "settled"): None})
+        coerced = oracle.coerce_result(result)
+        self.assertTrue(all(row.get("uncertain") for row in coerced["rows"] if row["step"] == "new"))
+
+    def test_fixture_conditions_the_launch_cannot_apply_fail_loudly(self) -> None:
+        session = self.session()
+        base = {"seed": "s", "network": "offline", "clock": "fixed"}
+        for fixture, owner in (({**base, "agent": "none"}, "p15-oracle-200"),
+                               ({**base, "clock": "virtual"}, "p15-oracle-185")):
+            result = session.run_case(case(NEW_WORKSPACE, fixture=fixture), {"case_id": "actions/c"})
+            self.assertEqual(result["status"], "Crash")
+            self.assertIn(owner, result["message"])
+        named = dict(NEW_WORKSPACE, target={"window": "main"})
+        result = session.run_case(case(named), {"case_id": "actions/c"})
+        self.assertEqual((result["status"], result.get("step")), ("Crash", "new"))
+        self.assertIn("p15-oracle-180", result["message"])
+        self.assertEqual(self.apps[0].launches, [], "a case the launch cannot run starts no app")
+        mocked = case(NEW_WORKSPACE, fixture={**base, "agent": "mock"})
+        self.assertEqual(session.run_case(mocked, {"case_id": "actions/c"})["status"], "Pass")
+
+    def test_unexpected_errors_are_this_case_crash_with_its_step(self) -> None:
+        session = self.session()
+        result = session.run_case(case(NEW_WORKSPACE, {"id": "bad"}), {"case_id": "actions/c"})
+        self.assertEqual((result["status"], result.get("step")), ("Crash", "bad"), result["message"])
+        self.assertEqual(len(result["checkpoints"]), 3, "the checkpoints before the bad step are kept")
+        self.assertTrue(result["session_dirty"])
+        fixtures = Path(self.tmp.name) / "fx"
+        (fixtures / "action_fixtures").mkdir(parents=True)
+        (fixtures / "action_fixtures" / "__init__.py").write_text("")
+        (fixtures / "action_fixtures" / "broken.py").write_text("def setup(rpc:\n")
+        original = driver_app.FIXTURES
+        driver_app.FIXTURES = fixtures / "action_fixtures"
+        sys.path.insert(0, str(fixtures))
+        saved = {name: sys.modules.pop(name) for name in list(sys.modules) if name.startswith("action_fixtures")}
+
+        def restore() -> None:
+            driver_app.FIXTURES = original
+            sys.path.remove(str(fixtures))
+            for name in [n for n in sys.modules if n.startswith("action_fixtures")]:
+                del sys.modules[name]
+            sys.modules.update(saved)
+
+        self.addCleanup(restore)
+        broken = case(NEW_WORKSPACE, fixture={"seed": "s", "network": "offline", "clock": "fixed", "setup": "broken"})
+        result = session.run_case(broken, {"case_id": "actions/c"})
+        self.assertEqual((result["status"], result.get("step")), ("Crash", "setup"), result["message"])
+        self.assertIn("SyntaxError", result["message"])
+
+    def test_a_hung_turn_step_keeps_its_own_timeout(self) -> None:
+        session = self.session()
+        session.run_case(case(step("s", "snapshot")), {"case_id": "actions/c"})
+        app = self.apps[0]
+        app.hang = {"action.run"}
+        result = session.run_case(case(NEW_WORKSPACE), {"case_id": "actions/c"})
+        self.assertEqual((result["status"], result.get("step")), ("Timeout", "new"), result["message"])
+        self.assertIn("action.run gave no answer", result["message"])
+        self.assertTrue(result["session_dirty"])
+        after = app.calls[[m for m, _ in app.calls].index("action.run") + 1:]
+        self.assertEqual(after, [], "no disarm wait on a hung app")
+        # A Failure on a healthy app disarms; a disarm that fails then keeps the Failure and dirties the session.
+        app.hang = set()
+        typed = step("k", "key", target={"window": "current"}, args={"keys": ["x"]},
+                     expect={"outcome": "ok", "receipt": "action.done"}, checkpoint=["turn"])
+        result = session.run_case(case(typed), {"case_id": "actions/c"})
+        self.assertEqual(result["status"], "Failure")
+        self.assertIsNone(app.armed)
+        self.assertNotIn("session_dirty", result)
+        original = app.m_debug_oracle_recorder
+        app.m_debug_oracle_recorder = lambda p: original(p) if p.get("arm") is True else {"ok": False, "error": {}}
+        result = session.run_case(case(typed), {"case_id": "actions/c"})
+        self.assertEqual(result["status"], "Failure", result["message"])
+        self.assertIn("no action ran", result["message"])
+        self.assertTrue(result["session_dirty"])
+
+    def test_the_app_log_outlives_the_session_root(self) -> None:
+        session = self.session(out_dir=None)
+        out = session.out
+        self.assertFalse(str(out).startswith(str(session.paths.root)))
+        (out / "app.log").write_text("launch failed\n")
+        session.close()
+        self.assertFalse(session.paths.root.exists())
+        self.assertEqual((out / "app.log").read_text(), "launch failed\n")
+
     def test_results_pass_oracle_protocol_checks(self) -> None:
         session = self.session()
         result = oracle.coerce_result(session.run_case(case(NEW_WORKSPACE), {"case_id": "actions/c"}))
@@ -515,6 +687,21 @@ class SwitchArmsTest(SessionTestBase):
         result = session.run_case(case(NEW_WORKSPACE), {"case_id": "actions/c"})
         self.assertEqual(result["status"], "Pass", result["message"])
         self.assertNotIn("switch_hits", result, "oracle.py then reports arm-not-exercised")
+
+    def test_run_case_with_an_unknown_switch_exits_2_before_any_launch(self) -> None:
+        import io
+        from contextlib import redirect_stderr
+
+        path = Path(self.tmp.name) / "case.json"
+        path.write_text(json.dumps(case(NEW_WORKSPACE)), encoding="utf-8")
+        err = io.StringIO()
+        with redirect_stderr(err):
+            code = driver_app.main(["run-case", str(path), "--app", APP, "--switch", "ghost=new"])
+        self.assertEqual(code, 2)
+        self.assertIn("unknown switch: ghost", err.getvalue())
+        with redirect_stderr(err):
+            self.assertEqual(driver_app.main(["run-case", str(path), "--app", APP, "--switch", "ghost"]), 2)
+        self.assertIn("is not NAME=ARM", err.getvalue())
 
     def test_a_default_run_reads_no_arms(self) -> None:
         session = self.session(switch_roots=self.registry())

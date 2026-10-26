@@ -211,6 +211,38 @@ public func blockingImageThumbnail(
     }
 }
 
+/// Encodes `image` in memory as `type` (`UTType.png.identifier`, JPEG, HEIC...), like a `CGImageDestination` over
+/// `NSMutableData` and its `CGImageDestinationFinalize`, as a checked CPU call gated like
+/// ``blockingImageDecode(_:at:fileID:line:)``: on the main thread, an image of more than
+/// ``BlockingKind/cpuIntensiveImagePixelBytes`` (width by height, 4 bytes a pixel) is a site. It writes no file, so
+/// it is CPU work for the `.cpu` lane, where a file seam (``blockingImageDestinationFinalize(_:fileID:line:)``)
+/// records a wrong-lane site. Chrome encodes in memory on its thread pool the same way
+/// (chrome/browser/ui/thumbnails/thumbnail_image.cc, `ThumbnailImage::CompressBitmap`).
+///
+/// ```swift
+/// let png = blockingImageEncode(frame, type: UTType.png.identifier as CFString)
+/// ```
+///
+/// - Parameters:
+///   - image: The image.
+///   - type: The uniform type identifier of the encoding.
+///   - fileID: The calling code's `#fileID` (names the call site).
+///   - line: The calling code's `#line`.
+/// - Returns: The encoded bytes, or nil when ImageIO cannot encode `image` as `type`.
+@inlinable
+public func blockingImageEncode(
+    _ image: CGImage, type: CFString, fileID: StaticString = #fileID, line: UInt = #line
+) -> Data? {
+    let output = NSMutableData()
+    guard let destination = CGImageDestinationCreateWithData(output as CFMutableData, type, 1, nil) else { return nil }
+    return cpuIntensiveCall(
+        size: image.width * image.height * 4, limit: BlockingKind.cpuIntensiveImagePixelBytes, fileID: fileID, line: line
+    ) { () -> Data? in
+        CGImageDestinationAddImage(destination, image, nil)
+        return CGImageDestinationFinalize(destination) ? output as Data : nil
+    }
+}
+
 extension Data {
     /// Compresses the bytes, like `NSData.compressed(using:)`, as a checked CPU call: on the main thread, more than
     /// ``BlockingKind/cpuIntensiveCompressionBytes`` bytes is a site.

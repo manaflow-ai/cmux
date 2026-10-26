@@ -49,7 +49,7 @@ pub(super) fn on_request_thread_with<R: Send + 'static>(
 pub(super) fn next_reply(outbound: &BoundedOutbound) -> Value {
     loop {
         match outbound.recv() {
-            Some(OutboundItem::Text(text)) => {
+            Some(OutboundItem::Text(text) | OutboundItem::Frame(_, text)) => {
                 return serde_json::from_str(&text.to_string()).unwrap();
             }
             Some(OutboundItem::Flush(flushed)) => {
