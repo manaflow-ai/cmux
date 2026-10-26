@@ -16,7 +16,7 @@ nonisolated enum BrowserPageUpdates {
     /// Posted (object: the `NSWindow`) to make every page of that window re-apply its geometry, clip and
     /// occlusion. A page re-applies only when something it reads changed since the fork last read it,
     /// unless `userInfo[forceKey]` is true.
-    fileprivate static let name = Notification.Name("CmuxBrowserPagesNeedUpdate")
+    fileprivate static let name = Notification.Name("CmuxBrowserChildWindowPagesNeedUpdate")
     /// `userInfo` key of `name`: true makes every page re-apply even where nothing it reads changed (a
     /// page window that something other than the fork moved, such as an Accessibility client, goes back
     /// over its host).
