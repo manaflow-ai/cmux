@@ -14,7 +14,13 @@ public import CmuxNextWakeups
 /// (``init(owner:scheduler:)``: all of it every frame, for what a person's action caused) or a
 /// budgeted one on the app's ``MainWorkScheduler`` (``init(owner:budgeted:on:)``: one task at a time
 /// under the class's per-frame budget, yielding to a person's pending input, the rest on the next
-/// frame).
+/// frame). Every batcher names its scheduler: there is no default, so no batch runs outside the
+/// budget's frame window (p06-scheduler-010).
+///
+/// A budgeted batcher's person items (``scheduleFrame(byPerson:_:)``) run unbudgeted on the
+/// same scheduler's frame, ahead of its budgeted classes, as Blink runs the input-response frame's
+/// work at input priority (`third_party/blink/renderer/platform/scheduler/main_thread/main_thread_scheduler_impl.cc`,
+/// `UseCase::kDiscreteInputResponse`).
 @MainActor
 public final class FrameBatcher: FrameBatchScheduler, ControlFrameSource {
     /// The queue that runs the batches (``FrameBatchQueue``, the one batch primitive).
@@ -27,16 +33,22 @@ public final class FrameBatcher: FrameBatchScheduler, ControlFrameSource {
     /// The budget this batcher's work draws on (the control work queue charges its requests to it);
     /// nil for a frame batcher.
     public let mainFrameBudget: MainFrameBudget?
+    /// The scheduler a budgeted batcher's person items tick on (its ``MainWorkScheduler``'s frames);
+    /// nil for a frame batcher, whose items all run unbudgeted already.
+    private let personScheduler: FrameScheduler?
+    /// The person items' frame queue, built on the first one.
+    private var personQueue: FrameBatchQueue?
 
     /// A batcher of work a person's action caused: all of it every frame, unbudgeted.
     ///
     /// - Parameters:
     ///   - owner: Names the batcher in the wakeup ledger and debug.wakeups.
-    ///   - scheduler: The frame scheduler (default ``FrameScheduler/app``).
-    public init(owner: String, scheduler: FrameScheduler = .app) {
+    ///   - scheduler: The frame scheduler: the app's ``MainWorkScheduler/frames``, or a window's.
+    public init(owner: String, scheduler: FrameScheduler) {
         queue = FrameBatchQueue(owner: owner, scheduler: scheduler)
         mainTaskBoard = nil
         mainFrameBudget = nil
+        personScheduler = nil
     }
 
     /// A batcher of budgeted work on the app's one main-thread scheduler.
@@ -50,6 +62,28 @@ public final class FrameBatcher: FrameBatchScheduler, ControlFrameSource {
         queue = FrameBatchQueue(owner: owner, budgeted: budgeted, on: work)
         mainTaskBoard = work.budget.board
         mainFrameBudget = work.budget
+        personScheduler = work.frames
+    }
+
+    /// Person work queued and not run yet (a budgeted batcher's person queue).
+    public var personCount: Int { personQueue?.count ?? 0 }
+
+    /// Queues `work` from main-actor code for the next display frame, by its cause: a person's work
+    /// on a budgeted batcher runs unbudgeted in that frame (before the budgeted classes, never held
+    /// by pending input or a spent share), the rest in the batcher's own queue.
+    ///
+    /// - Parameters:
+    ///   - byPerson: A person's input caused `work` (the caller's ``MainFrameBudget`` input response
+    ///     or the discrete input being dispatched).
+    ///   - work: The batch.
+    public func scheduleFrame(byPerson: Bool, _ work: @escaping @MainActor @Sendable () -> Void) {
+        guard byPerson, let personScheduler else {
+            queue.enqueue(work)
+            return
+        }
+        let person = personQueue ?? FrameBatchQueue(owner: "\(queue.owner).person", scheduler: personScheduler)
+        personQueue = person
+        person.enqueue(work)
     }
 
     /// Hops through the main run loop in the common modes, not a main-actor

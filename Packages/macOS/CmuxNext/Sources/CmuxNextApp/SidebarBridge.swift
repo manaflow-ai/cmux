@@ -47,15 +47,16 @@ final class SidebarBridge {
     /// Rows of the spaces beside the current one, for swipe pages (R99).
     let spaceCache = SpaceSectionsCache()
     /// Each listed row's content, observed per row: a status change patches one row, not the sidebar (rows lane).
-    /// Its flushes run on the display frame, so a frame's row patches and its scroll update commit together.
-    let rowFeed: SidebarRowFeed = {
-        let frames = FrameBatcher(owner: "SidebarRows")
-        return SidebarRowFeed(schedule: { work in frames.scheduleFrame(work) })
-    }()
+    /// Its flushes run on the display frame, so a frame's row patches and its scroll update commit together:
+    /// budgeted visible work on `mainWork` (yields to pending input), a person's (Cmd-N's row) unbudgeted.
+    let rowFeed: SidebarRowFeed
 
     init(services: AppServices, state: WindowState) {
         self.services = services
         self.state = state
+        let rowFrames = FrameBatcher(owner: "SidebarRows", budgeted: .visible, on: services.mainWork), input = services.inputDispatch
+        rowFeed = SidebarRowFeed(schedule: { rowFrames.scheduleFrame(byPerson: false, $0) },
+                                 urgent: (isNow: { input.isDispatchingDiscreteInput }, schedule: { rowFrames.scheduleFrame(byPerson: true, $0) }))
         container = SidebarContainerView(model: model)
         model.onIntent = { [weak self] intent in self?.handle(intent) }
         // Loose rows come before every group unless the home session places

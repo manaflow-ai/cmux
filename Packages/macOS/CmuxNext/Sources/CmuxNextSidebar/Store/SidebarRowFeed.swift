@@ -77,11 +77,24 @@ public final class SidebarRowFeed {
     /// delayed the next frame's scroll update: scroll hitches with ticking rows, perf round 2).
     public typealias Schedule = (@escaping @MainActor @Sendable () -> Void) -> Void
     private let schedule: Schedule
+    /// Whether a row marked dirty now is urgent (the app: a person's key or click is being
+    /// dispatched), and how its flush runs; nil when every flush goes through `schedule`.
+    private let urgent: (isNow: @MainActor () -> Bool, schedule: Schedule)?
+    /// An urgent flush is on order: later urgent marks join it.
+    private var urgentFlushScheduled = false
 
     /// `schedule` defaults to the next main-actor turn.
-    public init(schedule: Schedule? = nil) {
+    ///
+    /// - Parameters:
+    ///   - schedule: Runs one flush later.
+    ///   - urgent: When `isNow` says a dirty mark is urgent and no urgent flush is on order, the
+    ///     feed puts one on order through its `schedule`, even while a flush through the other is
+    ///     pending (that one then finds the rows flushed): a person's row patch never waits behind
+    ///     a held flush.
+    public init(schedule: Schedule? = nil, urgent: (isNow: @MainActor () -> Bool, schedule: Schedule)? = nil) {
         // task-owner: the feed; one flush per main-actor turn after the store's batch applies
         self.schedule = schedule ?? { work in Task { @MainActor in work() } }
+        self.urgent = urgent
     }
 
     /// Starts a structural pass (call first in the pass's tracked closure).
@@ -189,6 +202,12 @@ public final class SidebarRowFeed {
         guard let entry = entries[id], entry.generation == generation else { return }
         entry.armed = false
         dirty.insert(id)
+        if let urgent, !urgentFlushScheduled, urgent.isNow() {
+            urgentFlushScheduled = true
+            flushScheduled = true
+            urgent.schedule { [weak self] in self?.flush() }
+            return
+        }
         guard !flushScheduled else { return }
         flushScheduled = true
         schedule { [weak self] in self?.flush() }
@@ -196,6 +215,7 @@ public final class SidebarRowFeed {
 
     private func flush() {
         flushScheduled = false
+        urgentFlushScheduled = false
         guard !dirty.isEmpty else { return }
         let ids = dirty
         dirty.removeAll(keepingCapacity: true)

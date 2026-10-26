@@ -115,6 +115,11 @@ public final class InputDispatchContext {
     /// Whether the innermost event being dispatched is a key-down.
     public var isKeyDown: Bool { stack.last?.event.type == .keyDown }
 
+    /// Whether a discrete input (a key, a click) is being dispatched: work queued now is the person's,
+    /// for the frame that answers the input (the frame batches route by it until their items carry
+    /// the store change's cause, p06-scheduler-207).
+    public var isDispatchingDiscreteInput: Bool { stack.last.map { Self.isDiscreteInput($0.event.type) } ?? false }
+
     /// Runs `body` with `event` as the event being dispatched. A scroll event is timed to the frame that shows
     /// it (`key.scroll_frame`): from its dispatch to the commit that ends the turn, with who took it. A discrete
     /// input reports whether its turn expects a frame when `body` returns, or at the first wait of a run loop nested

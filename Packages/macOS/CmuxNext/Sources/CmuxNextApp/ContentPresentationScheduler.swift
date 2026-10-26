@@ -1,4 +1,6 @@
-import CmuxNextControl
+import CmuxNextDaemonService
+import CmuxNextFocusUI
+import CmuxNextWakeups
 
 /// A pane whose selected content the scheduler shows.
 @MainActor
@@ -18,23 +20,47 @@ protocol PresentablePane: AnyObject {
 /// synchronously). Here only the selection a pane has at frame time is
 /// shown, content already alive is shown at once, and at most one new
 /// surface is created per frame; the rest wait for the next frame.
+///
+/// Its frames are the budgeted visible class of the app's `MainWorkScheduler`: a selection no
+/// input of the person's caused yields to pending input and draws on the visible share. One a
+/// person's key or click changed runs on that scheduler's frame unbudgeted
+/// (``FrameBatcher/scheduleFrame(byPerson:_:)``), and ``showNow(_:)`` stays synchronous.
 @MainActor
 final class ContentPresentationScheduler {
-    private let frames: any ControlFrameSource
+    private let frames: FrameBatcher
+    private let isPersonTurn: @MainActor () -> Bool
     private var pending: [ObjectIdentifier: any PresentablePane] = [:]
     private var order: [ObjectIdentifier] = []
-    private var isScheduled = false
+    /// Queued panes a person's input changed: while one waits, the drain is the person's (unbudgeted).
+    private var personPending: Set<ObjectIdentifier> = []
+    /// The drain on order: whether it is the person's, and its generation. A person's drain
+    /// supersedes a budgeted one on order, whose callback then does nothing.
+    private var scheduled: (byPerson: Bool, generation: UInt64)?
+    private var generation: UInt64 = 0
     /// A surface was created since the last frame; the frame's budget is spent.
     private var createdThisFrame = false
 
-    init(frames: any ControlFrameSource = FrameBatcher(owner: "ContentPresentation")) {
+    /// - Parameters:
+    ///   - frames: A budgeted visible batcher on the app's `MainWorkScheduler`.
+    ///   - isPersonTurn: Whether a person's discrete input is being dispatched now
+    ///     (`InputDispatchContext.isDispatchingDiscreteInput`).
+    init(frames: FrameBatcher, isPersonTurn: @escaping @MainActor () -> Bool) {
         self.frames = frames
+        self.isPersonTurn = isPersonTurn
+    }
+
+    /// The app's scheduler: a budgeted visible batcher on `mainWork`, the person's turn read from
+    /// `inputDispatch`.
+    convenience init(mainWork: MainWorkScheduler, inputDispatch: InputDispatchContext) {
+        self.init(frames: FrameBatcher(owner: "ContentPresentation", budgeted: .visible, on: mainWork),
+                  isPersonTurn: { [inputDispatch] in inputDispatch.isDispatchingDiscreteInput })
     }
 
     /// Queues `pane` to show its selection on the next frame (coalesced).
     func setNeedsShowSelected(_ pane: any PresentablePane) {
         let key = ObjectIdentifier(pane)
         if pending.updateValue(pane, forKey: key) == nil { order.append(key) }
+        if isPersonTurn() { personPending.insert(key) }
         schedule()
     }
 
@@ -60,16 +86,23 @@ final class ContentPresentationScheduler {
     /// Drops a pane that is going away.
     func cancel(_ pane: any PresentablePane) {
         let key = ObjectIdentifier(pane)
+        personPending.remove(key)
         guard pending.removeValue(forKey: key) != nil else { return }
         order.removeAll { $0 == key }
     }
 
+    /// Puts one drain on order. It is the person's while a pane their input queued waits, or when
+    /// it only ends the frame's surface creation (nothing queued, nothing to budget).
     private func schedule() {
-        guard !isScheduled, !pending.isEmpty || createdThisFrame else { return }
-        isScheduled = true
-        frames.scheduleFrame { [weak self] in
-            guard let self else { return }
-            self.isScheduled = false
+        guard !pending.isEmpty || createdThisFrame else { return }
+        let byPerson = !personPending.isEmpty || pending.isEmpty
+        if let scheduled, scheduled.byPerson || !byPerson { return }
+        generation &+= 1
+        let current = generation
+        scheduled = (byPerson, current)
+        frames.scheduleFrame(byPerson: byPerson) { [weak self] in
+            guard let self, self.scheduled?.generation == current else { return }
+            self.scheduled = nil
             self.drain()
         }
     }
@@ -82,6 +115,7 @@ final class ContentPresentationScheduler {
             if pane.selectedContentIsAlive || !created {
                 if !pane.selectedContentIsAlive { created = true }
                 pending[key] = nil
+                personPending.remove(key)
                 BenchSpans.measure("presentation.frame") { pane.showSelected() }
             } else {
                 remaining.append(key)
