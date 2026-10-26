@@ -21,22 +21,25 @@ extension WindowStateDocument {
     /// a workspace), and the records of one id make one window. Pure, so the launch picks the window it shows first
     /// by this one rule, off the main thread too (``frontWindow(of:mirrors:)``).
     public static func restoredWindows(_ records: [WindowRecord]) -> [RestoredWindow] {
-        var restored: [RestoredWindow] = [], index: [String: Int] = [:], owned = Set<String>()
+        var byID: [String: RestoredWindow] = [:]
+        var order: [String] = []
+        var owned = Set<String>()
         for record in records.sorted(by: { $0.order < $1.order }) {
             var ids = record.workspaceKeys.map(\.rawValue)
             if ids.isEmpty, let shown = record.workspaceKey?.rawValue { ids = [shown] }
             ids = ids.filter { owned.insert($0).inserted }
             guard !ids.isEmpty else { continue }
-            if let at = index[record.id] {
-                restored[at].workspaceIDs += ids
-                restored[at].isClosed = restored[at].isClosed || record.isClosed
+            if var window = byID[record.id] {
+                window.workspaceIDs += ids
+                window.isClosed = window.isClosed || record.isClosed
+                byID[record.id] = window
             } else {
-                index[record.id] = restored.count
-                restored.append(RestoredWindow(id: record.id, workspaceIDs: ids, frame: record.frame, display: record.display,
-                                               profile: record.profile, isClosed: record.isClosed))
+                order.append(record.id)
+                byID[record.id] = RestoredWindow(id: record.id, workspaceIDs: ids, frame: record.frame, display: record.display,
+                                                 profile: record.profile, isClosed: record.isClosed)
             }
         }
-        return restored
+        return order.compactMap { byID[$0] }
     }
 
     /// The window the launch shows first: the frontmost restored window that keeps a workspace `mirrors` holds
