@@ -339,6 +339,27 @@ mod codex_tests {
         assert!(!tree.owns(chat));
     }
 
+    /// A failed Claude agent's entry says why and which agent a resume names.
+    #[test]
+    fn a_failed_subagent_carries_its_error_and_agent_id() {
+        let mut tree = SubagentTree::default();
+        subagents(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_spawned", "subagentSessionId": "s1/t1", "name": "Push relay"}),
+        );
+        let end = subagents(
+            &mut tree,
+            json!({"sessionUpdate": "subagent_state_update", "subagentSessionId": "s1/t1", "state": "failed",
+                   "agentId": "a8e1", "error": "API Error: 503"}),
+        );
+        assert_eq!(
+            end,
+            [
+                json!({"id": "s1/t1", "parent": null, "state": "failed", "agentId": "a8e1", "error": "API Error: 503"})
+            ]
+        );
+    }
+
     /// Codex runs a `spawnAgent` child in its own thread: it outlives the turn
     /// that spawned it (the model may end its turn without a `wait`), so it is
     /// background work, and a client never ends it at the turn's end.
