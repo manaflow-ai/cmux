@@ -61,6 +61,11 @@ nonisolated extension ActionSurfaceCatalog {
         "workspaceGroup.rename": [p(.workspaceGroup, .identity, 1)],
         "workspaceGroup.togglePin": [p(.workspaceGroup, .identity, 3)],
         "workspaceGroup.toggleArchive": [p(.workspaceGroup, .identity, 108, folder: .options)],
+        // Auto-archive (auto-archive-DESIGN.md): the group's own rule beside Archive, the sweep and
+        // the Archived list on the sidebar's background menu.
+        "workspaceGroup.setAutoArchive": [p(.workspaceGroup, .identity, 109, .choices, folder: .options)],
+        "workspace.archiveIdle": [p(.sidebarBackground, .organize, 105)],
+        "workspace.showArchived": [p(.sidebarBackground, .organize, 106)],
         "workspaceGroup.markRead": [p(.workspaceGroup, .identity, 110, folder: .options)],
         "workspaceGroup.markUnread": [p(.workspaceGroup, .identity, 111, folder: .options)],
         "workspaceGroup.clearNotifications": [p(.workspaceGroup, .identity, 112, folder: .options)],

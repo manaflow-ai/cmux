@@ -333,6 +333,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             services?.registry.disabledFeatures.contains(.computerUse) ?? true
         })
         services.startHibernation(settings: settings)
+        services.autoArchive.start() // workspaces.autoArchive: first pass 30 s after launch
         services.terminalTheme.follow(settings)
         services.themes.start()
         services.themes.followChromeTheme(settings)

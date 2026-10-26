@@ -45,6 +45,8 @@ enum AppActions {
         WorkspaceChecklistHandlers.bind(into: registry, context: context)
         WorkspaceGroupHandlers.bind(into: registry, context: context)
         SidebarArchiveActions(host: services).bind(into: registry)
+        AutoArchiveActions(coordinator: services.autoArchive, groupItem: services.autoArchiveGroupItem,
+                           showArchived: { [weak services] _ in services?.showArchivedWorkspaces() }).bind(into: registry)
         RoomHandlers.bind(into: registry, context: context)
         RoomMenuHandlers.bind(into: registry, context: context)
         ThemeHandlers.bind(into: registry, context: context)
