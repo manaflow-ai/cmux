@@ -83,6 +83,17 @@ impl RequestOrigin {
             Self::User => "user",
         }
     }
+
+    /// The scheduling cause of what this request sets off: the verified
+    /// app's own requests are the person's (`user`); everything else is
+    /// automation. Scheduling only: authorization never reads it.
+    pub(crate) const fn event_cause(self) -> crate::event_cause::EventCause {
+        use crate::event_cause::EventCause;
+        match self {
+            Self::User => EventCause::Frontend,
+            Self::Page | Self::Agent | Self::App => EventCause::Automation,
+        }
+    }
 }
 
 /// The role a connection fixes with `client-hello`; `Legacy` without one.

@@ -374,6 +374,7 @@ pub(super) fn advertised_capabilities(
         crate::mux::FRONTEND_BROWSER_INSERT_AFTER_CAPABILITY,
         clipboard_read::CAPABILITY,
         chief_inspect::CAPABILITY,
+        crate::event_cause::CAPABILITY,
     ];
     if bounded_clear_history_fallback_writes {
         capabilities.push(CLEAR_HISTORY_KEY_CAPABILITY);

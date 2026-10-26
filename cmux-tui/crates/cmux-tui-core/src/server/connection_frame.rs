@@ -6,6 +6,8 @@
 mod machine_catalog;
 
 use super::*;
+use crate::event_cause::{EventCause, EventCauseScope};
+use crate::panic_free::RecoverPoison;
 
 /// [`handle_connection_frame_at`] for a line that arrives now (tests).
 #[cfg(test)]
@@ -55,6 +57,9 @@ pub(super) fn handle_connection_frame_at(
     if mux.daemon_shutdown_requested() || mux.daemon_handoff_committed() {
         return false;
     }
+    // Every event this frame sets off, here or on a thread it hands work
+    // to, carries the connection's cause (crate::event_cause).
+    let _cause = EventCauseScope::enter(connection_cause(mux, client));
     if matches!(transport, ClientTransport::Remote) || mux.is_remote_client(client) {
         return remote_relay::handle_watched_frame(
             mux,
@@ -84,6 +89,12 @@ pub(super) fn handle_connection_frame_at(
             Ok(envelope) => watch(WatchedMethod::resource(envelope.operation)),
             Err(_) => stage(FrameStage::PageRouter),
         }
+        // An envelope's `origin` claim may only narrow the cause, as it
+        // only narrows the origin; the origin gate still checks the claim.
+        let _claimed =
+            request.as_ref().ok().and_then(|envelope| envelope.origin.as_ref()).map(|claim| {
+                EventCauseScope::enter(EventCause::current().narrowed_by(claim.claim.event_cause()))
+            });
         let arrival = RequestArrival::parsed_now(arrived);
         let mut span = match &request {
             Ok(envelope) => RequestSpan::open_method(
@@ -170,6 +181,17 @@ pub(super) fn handle_connection_frame_at(
             None => true,
         },
     }
+}
+
+/// The scheduling cause of `client`'s requests, from the origin its
+/// connection derives (`RequestOrigin::event_cause`). A client with no
+/// record is an agent's, as the origin gate treats it.
+fn connection_cause(mux: &Mux, client: u64) -> EventCause {
+    let state = mux.control_clients.state.lock().recover_poison();
+    state
+        .clients
+        .get(&client)
+        .map_or(EventCause::Automation, |record| record.origin.derive().event_cause())
 }
 
 /// The feature routes that answer a line before the `Command` parse.
@@ -456,3 +478,7 @@ pub(super) fn zeroize_string(value: &mut str) {
     // place immediately after dispatch.
     value.zeroize();
 }
+
+#[cfg(test)]
+#[path = "event_cause_tests.rs"]
+mod event_cause_tests;

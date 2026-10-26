@@ -565,6 +565,7 @@ fn blocking_wait_cannot_overtake_input_queued_behind_a_clear_barrier() {
         state.requests.push_back(PendingSurfaceRequest {
             request: Request { id: Some(json!(id)), cmd },
             arrival: RequestArrival::now(),
+            cause: crate::event_cause::EventCause::Program,
             retained_bytes: 0,
             _bytes_permit: admission.try_reserve_bytes(0).unwrap(),
         });
@@ -604,6 +605,7 @@ fn guarded_browser_pointer_input_overtakes_an_unrelated_clear_barrier() {
         state.requests.push_back(PendingSurfaceRequest {
             request: Request { id: Some(json!(1)), cmd },
             arrival: RequestArrival::now(),
+            cause: crate::event_cause::EventCause::Program,
             retained_bytes: 0,
             _bytes_permit: admission.try_reserve_bytes(0).unwrap(),
         });
