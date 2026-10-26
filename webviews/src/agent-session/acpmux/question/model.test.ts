@@ -61,7 +61,10 @@ test("a preview over the relay's 65,536-byte bound is left out, and the answer s
   const sized = (text: string): AgentQuestion => ({
     ...question,
     items: [
-      { ...item, options: item.options.map((o) => (o.id === tabs.id ? { ...o, preview: { ...o.preview!, text } } : o)) },
+      {
+        ...item,
+        options: item.options.map((o) => (o.id === tabs.id ? { ...o, preview: { ...o.preview!, text } } : o)),
+      },
       ...question.items.slice(1),
     ],
   });
