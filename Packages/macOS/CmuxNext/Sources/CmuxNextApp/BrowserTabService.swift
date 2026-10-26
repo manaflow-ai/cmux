@@ -164,7 +164,7 @@ final class BrowserTabService {
             return try? await connection.request(GetFrontendBrowserHistoryRequest(surface: surface)).history
         }
         tabModel = { _ in nil }
-        cefUnavailable = { [chromium] in chromium.engine.unavailableReason }  // the cache owns both: no cycle
+        cefUnavailable = { [chromium] in chromium.unavailableReason }  // builds no engine; the cache owns both: no cycle
         keepsState = { [weak self] tab in self?.daemonForTab(tab).store.servesStateResources ?? false }
         // Each store's tab index: called per tab and per sidebar row (favicons, profiles), so a scan of
         // every tab here made those passes quadratic in the tabs (space-switch-fast).

@@ -39,8 +39,9 @@ struct ChromiumNewTabNow {
     /// The page made now; nil if Chromium stopped since `runs`.
     var make: (BrowserTabConfiguration) -> (any BrowserTab)?
 
-    init(_ cef: CEFEngine) {
-        runs = { cef.isRunning }
-        make = { cef.makeTabIfRunning($0) }
+    /// An engine not built yet runs no Chromium, so these never build it.
+    init(_ chromium: ChromiumEngineSlot) {
+        runs = { chromium.built?.isRunning == true }
+        make = { chromium.built?.makeTabIfRunning($0) }
     }
 }

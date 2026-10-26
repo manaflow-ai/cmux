@@ -159,7 +159,7 @@ final class AppServices {
     let signInCallbacks = CEFSignInCallbacks()
     /// Every terminal's grid sender: next frame, one in flight, a split's or close's final grid at once.
     let resizes = ResizeCoordinator()
-    private(set) lazy var cache: TabContentCache = TabContentCache(daemon: daemon, chromium: ChromiumEngineSlot(stores: browserStores, waitDeadlines: mainWork.wakeUps, make: { [chromiumRuntime, signInCallbacks, contextMenus, inputTap] in CEFEngine(source: chromiumRuntime.source, stores: $0, signInCallbacks: signInCallbacks, lifecycleTrace: .shared, contextMenus: contextMenus, waitDeadlines: $1, input: inputTap) }, engineDidCreate: { [weak self] in self?.chromiumEngineDidCreate($0) }), fileInput: openPanel, resizes: resizes, terminalModifiers: TerminalModifierWatch(input: inputTap))  // first read in init (no IUO); its Chromium engine at its first read
+    private(set) lazy var cache: TabContentCache = TabContentCache(daemon: daemon, chromium: makeChromiumSlot(), fileInput: openPanel, resizes: resizes, terminalModifiers: TerminalModifierWatch(input: inputTap))  // first read in init (no IUO); its Chromium engine at its first read
     #if DEBUG || CMUX_BENCH_HOOKS
     /// `debug.terminal_final_grid`: a split's or close's terminal grids, sent, drawn and announced.
     private(set) lazy var finalGridTrace: TerminalFinalGridTrace = {
@@ -335,7 +335,7 @@ final class AppServices {
     /// Its views are listed in `PageRegistry.processWide` while the static forwarders remain (p13-webui-010).
     private(set) lazy var webUI: WebUIHost = WebUIHost(
         chromium: ChromiumPageHost(
-            cef: cache.cef,
+            chromium: cache.chromium,  // the engine at the first page opened in Chromium, not here
             preference: { [weak self] in
                 self?.settings?.snapshot.browserDefaultEngine ?? self?.cache.browserTabs.preference.defaultEngine ?? .fallback
             },
@@ -408,7 +408,7 @@ final class AppServices {
     private(set) lazy var layoutTemplates = LayoutTemplateLibrary(repository: LayoutTemplateRepository(fileURL: environment.layoutTemplatesFile))
     /// Room, workspace and terminal themes.
     /// Every daemon answers terminal color queries with the colors terminals are painted with.
-    private(set) lazy var terminalColors = TerminalColorSync(machines: machines) {  // first read in init (no IUO)
+    private(set) lazy var terminalColors = TerminalColorSync(machines: machines) {  // first read by the daemon start (`startLocalDaemon`), before it connects
         GhosttyRuntime.shared.themeColors.map(TerminalDefaultColors.init)
     }
     private(set) lazy var themes: ThemeCoordinator = ThemeCoordinator(services: self, terminalThemes: .forApplication(bundleIdentifier: environment.launch.bundleID))  // built by its start (`Themes.start`)
@@ -563,7 +563,6 @@ final class AppServices {
         }
         _ = cache  // built here, as before
         DebugTimings.markLaunch("services.cache")
-        _ = terminalColors  // kept: it gives the daemons the painted colors before they connect (OSC 10/11/12)
         let runtime = GhosttyRuntime.shared
         let previousConfigChange = runtime.onConfigChange
         runtime.onConfigChange = { [weak self] in
@@ -694,19 +693,6 @@ final class AppServices {
             keyRouter.cancelChord()
         }
         AppMemoryConsumers(services: self).registerMemoryConsumers()  // AppServices+Memory.swift
-    }
-    /// `cache`'s Chromium engine was built (its first read, `ChromiumEngineSlot`): wired before any reader can start Chromium.
-    private func chromiumEngineDidCreate(_ engine: CEFEngine) {
-        crashRecovery.observe(engine.crashLog)
-        AppRunMarker.keepSignalHandlers(crashRecovery.marker, across: engine, reporter: crashReporting.reporter)  // before CefInitialize
-        // Chromium wanted a window and has none for that (normal) profile: a new browser tab in the focused pane of a
-        // normal window (Chromium opens nothing), in the requesting page's browser profile.
-        engine.openURLWithoutWindow = { [weak self] url, disposition, profile in
-            self?.normalWindowForPageRequest()?.focusedPane?.newBrowserTab(url: url, background: disposition == .backgroundTab,
-                                                                          profile: profile.map(BrowserProfileRecord.wireID(for:)))
-        }
-        engine.openOffTheRecord = { [weak self] url, source in self?.openOffTheRecord(url, source: source) }
-        (NSApp as? CmuxApplication)?.assistiveClientsChanged = { [weak engine] active in engine?.setAssistiveClientActive(active) }
     }
     /// Starts the energy monitor and the idle histogram, and pushes the inputs, now and on each change, to the consumers
     /// that cannot import CmuxNextEnergy: WebKit's render rate, KeepAwake's battery rule, the video wallpaper. Only

@@ -90,8 +90,12 @@ public final class CEFEngine: BrowserEngine {
 
     /// Why Chromium cannot open a tab now, nil when it can (or may still
     /// start: idle or loading).
-    public var unavailableReason: CEFUnavailableReason? {
-        if let pending = runtimeSource.unavailableReason { return pending }
+    public var unavailableReason: CEFUnavailableReason? { Self.unavailableReason(source: runtimeSource) }
+
+    /// ``unavailableReason`` of an engine over `source`, answered before one is built
+    /// (``ChromiumEngineSlot/unavailableReason``): only the source and the process's runtime are read.
+    public static func unavailableReason(source: CEFRuntimeSource) -> CEFUnavailableReason? {
+        if let pending = source.unavailableReason { return pending }
         switch CEFRuntime.shared.state {
         case .failed(let message): return .startFailed(message)
         case .shutDown: return .shutDown
