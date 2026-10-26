@@ -1558,23 +1558,32 @@ impl Brain {
                 let hold = now + crate::auto_resume::NETWORK_WAIT_MAX + wait;
                 self.resume_at = Some(hold);
                 let (tx, reach, poll) = (self.tx.clone(), self.reach.clone(), self.network_poll);
-                std::thread::spawn(move || {
-                    let online = crate::auto_resume::wait_online(
-                        &*reach,
-                        poll,
-                        crate::auto_resume::NETWORK_WAIT_MAX,
-                        std::thread::sleep,
-                    );
-                    let _ = tx.send(super::Input::NetworkBack {
-                        hold,
-                        not_before: now + wait,
-                        online,
+                let probe = std::thread::Builder::new()
+                    .name("chief-network-wait".into())
+                    .spawn(move || {
+                        let online = crate::auto_resume::wait_online(
+                            &*reach,
+                            poll,
+                            crate::auto_resume::NETWORK_WAIT_MAX,
+                            std::thread::sleep,
+                        );
+                        let _ = tx.send(super::Input::NetworkBack {
+                            hold,
+                            not_before: now + wait,
+                            online,
+                        });
                     });
-                });
-                format!(
-                    "once the model endpoint answers (at least {} s)",
-                    wait.as_secs()
-                )
+                match probe {
+                    Ok(_) => format!(
+                        "once the model endpoint answers (at least {} s)",
+                        wait.as_secs()
+                    ),
+                    // No thread to wait on: an upstream backoff instead.
+                    Err(e) => {
+                        self.resume_at = Some(now + wait);
+                        format!("in {} s (no endpoint probe: {e})", wait.as_secs())
+                    }
+                }
             }
         };
         (self.log)(&format!(
