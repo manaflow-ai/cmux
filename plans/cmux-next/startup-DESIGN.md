@@ -21,8 +21,21 @@ Can `ghostty_init` and the Ghostty config parse (`ghostty_config_new` through
 `ghostty_init`: not as it is, because it changes process-wide state that other launch threads
 read. A small fork change makes it yes:** split the process-wide part (locale, environment
 snapshot, signals, rlimit) from the rest. cmux then runs the process-wide part in `main()` before
-any thread starts, and everything else on the launch thread. This is worth doing only if the
-measured main-thread cost is at least 3 ms (see the follow-up task).
+any thread starts, and everything else on the launch thread.
+
+**The current launch order is a live race, not only a limit on moving the call off main.**
+`main()` freezes the environment (`CmuxNextApp/CmuxNextApp+LaunchEnvironment.swift:29`) and
+starts `LaunchWarmup`, the `BackgroundWork` prefetches and `DaemonService.prestart`
+(`CmuxNextApp/CmuxNextApp.swift:37-61`; `posix_spawn` reads `environ`). Later, on main,
+`GhosttyRuntime.init` calls `ghostty_init` (`CmuxNextTerminal/GhosttyRuntime.swift:76-80`). On
+every Finder, Dock or launchd launch, `LANG` is unset, so `ensureLocale` calls `setenv("LANG")`,
+`setenv("LANGUAGE")` and `setlocale(LC_ALL, "")` (`src/os/locale.zig:23-30`, `120`, `143`) while
+those threads run. That is the same `environ` reallocation race as the iOS SIGSEGV and the
+`ghostty_init + 1388` crash (table below). It also breaks the `ProcessEnvironmentGuard` rule that
+no environment write follows the freeze; the guard does not see it, because libghostty calls
+`setenv` directly. So the follow-up is two tasks: a correctness fix with no measure gate
+(p08-startup-115), and the move off main, which is a performance change and keeps the 3 ms
+measure-first rule (p08-startup-116).
 
 ### Where the work runs today
 
@@ -111,16 +124,17 @@ main thread, before it starts any thread: `ContentMainRunnerImpl::Initialize`
 (`content/app/content_main_runner_impl.cc`). `base::Environment` documents that setting variables
 is not thread-safe (`base/environment.h`). Expensive, isolated startup work then goes to the
 `ThreadPool` from `BrowserMainLoop::CreateStartupTasks` (`content/browser/browser_main_loop.cc`).
-The follow-up below does the same split: process-wide mutation in `main()` while the process has
-one thread, then the rest on the launch thread.
+The follow-up tasks below do the same split, for the same reason (correctness first):
+process-wide mutation in `main()` while the process has one thread, then the rest on the launch
+thread.
 
-## Follow-up task (proposed id p08-startup-115): libghostty runtime init off main
+## Follow-up tasks
 
-Size M, risk:high (a GhosttyKit fork change and launch ordering). It depends on 026 and 014.
+### p08-startup-115 (proposed): process-wide libghostty init before any thread starts
 
-- **Measure first.** On the fleet, run 5 warm and 5 cold launches at the base. Record
-  `ghostty_runtime_ms.ghostty_init` and `config_load` after 026. If the main-thread sum is below 3 ms,
-  close the task with the numbers (the same rule as 067 Sparkle). Do not move it.
+Size S, risk:high (a GhosttyKit fork change and launch ordering). No dependencies. No measure
+gate: this fixes a crash race on every Finder launch, whatever it costs.
+
 - **Fork** (`ghostty`, per [cmux-ghostty](../../skills/cmux-ghostty/SKILL.md), with a conflict note in
   `docs/ghostty-fork.md`). Split `global.init` into
   `ghostty_init_process(argc, argv)`, which does the state allocation, environment snapshot,
@@ -129,13 +143,34 @@ Size M, risk:high (a GhosttyKit fork change and launch ordering). It depends on 
   `crash.init`. Each runs exactly once and returns an error if called again.
   `ghostty_init` stays as both calls in order, so upstream Ghostty.app and iOS do not change. Keep
   the ordering rule from "iOS startup locale before crash reporting": locale before any Ghostty
-  thread.
+  thread. A cmux-only `setenv("LANG")` before the freeze is not enough: `ensureLocale` can still
+  `setenv`/`unsetenv` on its fallback path (`locale.zig:56-57`, `73`), and it always calls
+  `setlocale`.
 - **cmux, files:** `CmuxNextApp/CmuxNextApp+LaunchEnvironment.swift`,
-  `CmuxNextTerminal/GhosttyRuntime.swift`, a new `CmuxNextTerminal/GhosttyLaunchConfig.swift`,
-  `CmuxNextApp/Startup/Startup+Terminal.swift` (which 001/026 create).
-  `prepareLaunchEnvironment` calls `ghostty_init_process` just before `environmentGuard.freeze()`,
-  while the process has one thread. Its `setenv` calls are then this process's last environment
-  writes, as the guard requires. The launch thread (014) runs `ghostty_init_runtime`. Then, inside
+  `CmuxNextTerminal/GhosttyRuntime.swift`. `prepareLaunchEnvironment` calls
+  `ghostty_init_process` just before `environmentGuard.freeze()`, through
+  `environmentGuard.write`, while the process has one thread. Its `setenv` calls are then this
+  process's last environment writes, as the guard requires. `GhosttyRuntime.init` calls
+  `ghostty_init_runtime` on main, as `ghostty_init` runs today. The test path that skips `main()`
+  calls both, in the same order, before its freeze.
+- **Acceptance:** a test fails if `ghostty_init_process` comes after the environment freeze or
+  after any thread start (`crash_ratchet.py env_write` covers the write side). Cold launch has no
+  SIGSEGV in 50 Finder-style launches (`LANG` unset) under TSan on the fleet. The locale and
+  `LANG` that shells get are the same as before.
+- **Test phase:** fleet `CmuxNextTerminal` and `CmuxNextApp` tests (launch-order test), and
+  relaunch-e2e with `LANG` unset.
+
+### p08-startup-116 (proposed): libghostty runtime init and config parse off main
+
+Size M, risk:high (launch ordering). It depends on 115, 026 and 014.
+
+- **Measure first.** On the fleet, run 5 warm and 5 cold launches at the base. Record
+  `ghostty_runtime_ms.ghostty_init` and `config_load` after 026 and 115. If the main-thread sum is
+  below 3 ms, close the task with the numbers (the same rule as 067 Sparkle). Do not move it. This
+  gate applies only to this task; 115 does not wait for it.
+- **cmux, files:** `CmuxNextTerminal/GhosttyRuntime.swift`, a new
+  `CmuxNextTerminal/GhosttyLaunchConfig.swift`, `CmuxNextApp/Startup/Startup+Terminal.swift`
+  (which 001/026 create). The launch thread (014) runs `ghostty_init_runtime`. Then, inside
   `autoreleasepool`, it builds the config from 026's bytes and a main-taken `GhosttyLaunchConfig.Input`
   (the statics above plus `NSEvent.doubleClickInterval`). It hands the result to main through 014's
   typed handoff. That handoff uses no new lock, no `DispatchQueue.main.async` and no polling. Main
@@ -146,13 +181,11 @@ Size M, risk:high (a GhosttyKit fork change and launch ordering). It depends on 
   `startup.ghosttyRuntimeOffMain` in `schemas/features/features.d/` (the directory the chrome-parity
   program adds).
 - **Acceptance:** with the feature on, `ghostty_init` and `config_load` show 0 ms on main (they run
-  on the launch thread). Config diagnostics are identical on both paths (test). A test fails if
-  `ghostty_init_process` comes after the environment freeze or after any thread start
-  (`crash_ratchet.py env_write` covers the write side). Cold launch has no SIGSEGV in 50 Finder-style
-  launches (`LANG` unset) under TSan on the fleet.
+  on the launch thread). Config diagnostics are identical on both paths (test).
+  `ghostty_init_runtime` has one owner (test).
 - **Test phase:** fleet `CmuxNextTerminal` tests (new `GhosttyLaunchConfigTests`: same diagnostics,
-  same `click-repeat-interval`, one-owner init), relaunch-e2e with `LANG` unset, and
-  `dfl.theme - dfl.settings_read` before and after.
+  same `click-repeat-interval`, one-owner init), and `dfl.theme - dfl.settings_read` before and
+  after.
 
 ## Not checked in this spike
 
