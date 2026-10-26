@@ -16,6 +16,7 @@ final class SidebarPriorityRowView: NSView {
     private var pressStart: NSPoint?
     private var dragging = false
     private var pressCancelled = false
+    private var lastWindowPoint: NSPoint?
 
     private let title = ChromeLabel(labelWithString: "")
     private let placeLabel = ChromeLabel(labelWithString: "")
@@ -202,6 +203,7 @@ final class SidebarPriorityRowView: NSView {
         window?.makeFirstResponder(self)
         pressCancelled = false
         pressStart = event.locationInWindow
+        lastWindowPoint = event.locationInWindow
         dragging = false
     }
 
@@ -209,6 +211,7 @@ final class SidebarPriorityRowView: NSView {
     override func mouseDragged(with event: NSEvent) {
         guard let start = pressStart else { return }
         let point = event.locationInWindow
+        lastWindowPoint = event.locationInWindow
         if !dragging { dragging = SidebarPress.movedPastThreshold(from: start, to: point) }
         if dragging { onDrag?(self, start.y - point.y, false) }
     }
@@ -221,6 +224,7 @@ final class SidebarPriorityRowView: NSView {
     }
 
     override func mouseUp(with event: NSEvent) {
+        lastWindowPoint = event.locationInWindow
         if pressCancelled {
             pressCancelled = false
             pressStart = nil
@@ -236,6 +240,13 @@ final class SidebarPriorityRowView: NSView {
         }
         guard bounds.contains(convert(event.locationInWindow, from: nil)) else { return }
         onAction?(.open(entry.id))
+    }
+
+    var heldWindowPoint: NSPoint? { lastWindowPoint }
+
+    func dragOffset(at windowPoint: NSPoint) -> CGFloat? {
+        guard let pressStart else { return nil }
+        return windowPoint.y - pressStart.y
     }
 
     func cancelPress() {

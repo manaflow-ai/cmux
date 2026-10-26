@@ -113,4 +113,23 @@ struct SidebarPriorityDragTests {
         #expect(harness.actions.isEmpty)
     }
 
+
+    @Test func aHeldPriorityDragAutoscrollsOnlyAtAnEdgeAndStopsOnRelease() throws {
+        let entries = (0..<20).map { SidebarPriorityEntry(id: "row\($0)", title: "row\($0)", state: .idle) }
+        let harness = Harness(entries: entries)
+        let row = try #require(harness.panel.rows["row7"])
+        let scroll = try #require(harness.panel.subviews.lazy.compactMap { $0 as? NSScrollView }.first)
+        row.mouseDown(with: try harness.event(.leftMouseDown, on: "row7"))
+        row.mouseDragged(with: try harness.event(.leftMouseDragged, on: "row7", dy: 10))
+        let before = scroll.contentView.bounds.minY
+        RunLoop.main.run(until: Date().addingTimeInterval(0.08))
+        #expect(scroll.contentView.bounds.minY > before)
+        row.mouseDragged(with: try harness.event(.leftMouseDragged, on: "row7", dy: -10))
+        let center = scroll.contentView.bounds.minY
+        RunLoop.main.run(until: Date().addingTimeInterval(0.08))
+        #expect(scroll.contentView.bounds.minY == center)
+        row.mouseUp(with: try harness.event(.leftMouseUp, on: "row7", dy: -10))
+        #expect(harness.panel.draggingID == nil)
+    }
+
 }
