@@ -50,6 +50,8 @@ nonisolated final class ChromiumHostConnection: Sendable {
         frames = stream
         let thread = Thread { [self] in readFrames(fd: readFD, into: continuation) }
         thread.name = "com.cmuxterm.chromium-host.read"
+        // The page's surface, address and title arrive here: what the person sees next.
+        thread.qualityOfService = .userInitiated
         thread.start()
     }
 
