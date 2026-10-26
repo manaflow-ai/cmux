@@ -33,9 +33,13 @@
 //!
 //! - A report the same as the lane's last one (state, reply, pull requests and commits) is not
 //!   sent again; the turn still counts as reported.
-//! - A report never steers: it waits for the parent's turn to end. The hub alone sets a
-//!   report's provenance (`prompt_provenance.rs` takes only `agent_message` from a client), so
-//!   no prompt passes for one.
+//! - A turn that ran on lane reports only (a report, or a turn of agent messages, `digest.rs`,
+//!   that took in nothing else, and nothing else steered into it, each turn on its own) sends
+//!   none, so a parent's turn
+//!   on reports never reports upward and a report never answers a report. The hub alone sets a report's provenance
+//!   (`prompt_provenance.rs` takes only `agent_message` from a client), so no prompt passes for
+//!   one. A report never steers: it waits for the parent's turn to end, so it never becomes part
+//!   of a turn that reports.
 //! - At most [`MAX_REPORTS`] reports a lane in [`WINDOW_MS`]: past it the newest is held and
 //!   goes when the window frees a place (or at a turn end under the cap), whatever the runaway
 //!   pair guard (`agent_pairs.rs`) decides.
@@ -109,6 +113,46 @@ pub(crate) struct LaneReports {
     links: StdMutex<BTreeMap<String, Link>>,
     /// Lanes with a delivery on its way, and whether a turn ended meanwhile.
     inflight: StdMutex<HashMap<String, bool>>,
+    /// What each running turn took in, by session and turn.
+    turns: StdMutex<TurnKinds>,
+}
+
+/// Which turns ran on lane reports only, each turn on its own: a turn that started on reports
+/// and had no other prompt steered into it.
+#[derive(Default)]
+struct TurnKinds {
+    /// Turns that started on reports only.
+    report_only: std::collections::HashSet<(String, u64)>,
+    /// Other prompts steered into a turn and not taken back.
+    carried: HashMap<(String, u64), usize>,
+}
+
+impl TurnKinds {
+    fn steer_in(&mut self, id: &str, turn: u64) {
+        *self.carried.entry((id.to_owned(), turn)).or_default() += 1;
+    }
+
+    fn steer_out(&mut self, id: &str, turn: u64) {
+        let key = (id.to_owned(), turn);
+        if let Some(n) = self.carried.get_mut(&key) {
+            *n -= 1;
+            if *n == 0 {
+                self.carried.remove(&key);
+            }
+        }
+    }
+
+    /// Turn `turn` of `id` ended: whether it ran on reports only. Forgets it.
+    fn end(&mut self, id: &str, turn: u64) -> bool {
+        let key = (id.to_owned(), turn);
+        let carried = self.carried.remove(&key).is_some();
+        self.report_only.remove(&key) && !carried
+    }
+
+    fn forget(&mut self, id: &str) {
+        self.report_only.retain(|(s, _)| s != id);
+        self.carried.retain(|(s, _), _| s != id);
+    }
 }
 
 /// One report, before it is written out.
@@ -150,6 +194,19 @@ impl Report {
              task. Answer only if it needs you.)",
         );
         t
+    }
+}
+
+/// Whether a turn's provenance is lane reports only: a report, or a turn of agent messages that
+/// took in nothing else.
+fn reports_only(provenance: Option<&Value>) -> bool {
+    let Some(p) = provenance else { return false };
+    match p.get("kind").and_then(Value::as_str) {
+        Some(KIND) => true,
+        Some(super::digest::DIGEST_KIND) => p["messages"].as_array().is_some_and(|m| {
+            !m.is_empty() && m.iter().all(|m| m.pointer("/provenance/kind") == Some(&json!(KIND)))
+        }),
+        _ => false,
     }
 }
 
@@ -234,6 +291,10 @@ impl Hub {
         self.lane_reports.inflight.lock().unwrap_or_else(|e| e.into_inner())
     }
 
+    fn lane_turns(&self) -> std::sync::MutexGuard<'_, TurnKinds> {
+        self.lane_reports.turns.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
     /// Takes `lane`'s one delivery; when another has it, that one goes again once done.
     fn lane_claim(&self, lane: &str) -> bool {
         let mut inflight = self.lane_inflight();
@@ -304,20 +365,56 @@ impl Hub {
         self.set_tags(&s, Some(&set), &[], None);
     }
 
+    /// `session`'s turn started (its turn count counts it), with `provenance` for the whole turn
+    /// (`digest.rs`).
+    pub(super) fn lane_turn_started(&self, session: &Session, provenance: Option<&Value>) {
+        if reports_only(provenance) {
+            let turn = session.meta().turn_count;
+            self.lane_turns().report_only.insert((session.id.clone(), turn));
+        }
+    }
+
+    /// A prompt that is not a lane report is about to be steered into `session`'s running turn:
+    /// that turn did more than take in reports, unless [`Hub::lane_steer_out`] takes it back.
+    /// Counted before the steer reaches the agent, so however the turn ends after it, its end
+    /// sees it. The turn it counts for.
+    pub(super) fn lane_steer_in(
+        &self,
+        session: &Session,
+        provenance: Option<&Value>,
+    ) -> Option<u64> {
+        if reports_only(provenance) {
+            return None;
+        }
+        let turn = session.meta().turn_count;
+        self.lane_turns().steer_in(&session.id, turn);
+        Some(turn)
+    }
+
+    /// The steer [`Hub::lane_steer_in`] counted never went into turn `turn`: it found no turn
+    /// running, or was withdrawn before the agent read it.
+    pub(super) fn lane_steer_out(&self, session: &Session, turn: u64) {
+        self.lane_turns().steer_out(&session.id, turn);
+    }
+
     /// A local session's turn ended, or failed before its agent started (`turns.rs`): a lane's
     /// report of it is made now, from this turn's own records and state, and queued; delivery
     /// and its retries send that report and never read the lane again.
     pub(super) fn lane_turn_ended(self: &Arc<Self>, session: &Arc<Session>, started: bool) {
         let turn = session.meta().turn_count;
+        let on_reports = self.lane_turns().end(&session.id, turn);
         if !self.lane_links(|links| links.contains_key(&session.id)) {
             return;
         }
-        let report = self.lane_capture(session, turn, started);
-        self.lane_links(|links| {
-            if let Some(l) = links.get_mut(&session.id) {
-                l.ready = Some(replace_ready(report, l.ready.take()));
-            }
-        });
+        // A turn on reports only makes none, and leaves one still queued to go now.
+        if !on_reports {
+            let report = self.lane_capture(session, turn, started);
+            self.lane_links(|links| {
+                if let Some(l) = links.get_mut(&session.id) {
+                    l.ready = Some(replace_ready(report, l.ready.take()));
+                }
+            });
+        }
         self.lane_send(&session.id);
     }
 
@@ -457,6 +554,7 @@ impl Hub {
     /// reports to a closed parent and nothing of a closed lane stays here.
     pub(super) fn lane_retire(&self, id: &str) {
         self.lane_links(|links| links.retain(|lane, l| lane != id && l.parent != id));
+        self.lane_turns().forget(id);
     }
 
     /// Hands the report to the parent: accepted (queued, started, steered or held for the
@@ -665,6 +763,33 @@ mod tests {
         let got = replace_ready(report(2, &["pr/2"]), Some(report(1, &["pr/1", "pr/2"])));
         assert_eq!((got.turn, got.prs), (2, vec!["pr/2".to_owned(), "pr/1".to_owned()]));
         assert_eq!(replace_ready(report(1, &[]), None), report(1, &[]));
+    }
+
+    #[test]
+    fn each_turn_on_reports_only_is_known_on_its_own() {
+        let mut k = TurnKinds::default();
+        // Two report turns back to back: the second never hides the first.
+        k.report_only.insert(("c".into(), 1));
+        k.report_only.insert(("c".into(), 2));
+        assert!(k.end("c", 1));
+        assert!(k.end("c", 2));
+        // A task steered in before the turn ends: counted before the end, whenever its own
+        // answer comes, so the turn reports.
+        k.report_only.insert(("c".into(), 3));
+        k.steer_in("c", 3);
+        assert!(!k.end("c", 3));
+        k.steer_out("c", 3);
+        assert!(k.carried.is_empty());
+        // A steer withdrawn (or that found no turn) is taken back: still reports only.
+        k.report_only.insert(("c".into(), 4));
+        k.steer_in("c", 4);
+        k.steer_out("c", 4);
+        assert!(k.end("c", 4));
+        // A turn not on reports.
+        assert!(!k.end("c", 5));
+        k.steer_in("c", 6);
+        k.forget("c");
+        assert!(k.carried.is_empty() && k.report_only.is_empty());
     }
 
     #[test]
@@ -1027,6 +1152,21 @@ mod tests {
     }
 
     use super::*;
+
+    #[test]
+    fn a_turn_on_reports_only_is_known_by_its_provenance() {
+        let report = json!({"kind": "lane_report", "from": "s1"});
+        let task = json!({"kind": "session_message", "from": "s2"});
+        assert!(reports_only(Some(&report)));
+        assert!(!reports_only(Some(&task)));
+        assert!(!reports_only(None));
+        let digest = |kinds: &[&Value]| {
+            let m: Vec<Value> = kinds.iter().map(|p| json!({"provenance": p})).collect();
+            json!({"kind": "agent_digest", "messages": m})
+        };
+        assert!(reports_only(Some(&digest(&[&report, &report]))));
+        assert!(!reports_only(Some(&digest(&[&report, &task]))));
+    }
 
     #[test]
     fn the_state_names_what_the_lane_waits_on() {
