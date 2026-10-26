@@ -15,7 +15,7 @@ extension InternalPageDiscardPolicyCoverageTests {
     ///   `// discard: default <why>`. Every `InternalPageID` shows through a provider (the page store
     ///   keeps one per page), so this covers every page. A `WebPageTab(...)` call without a policy
     ///   argument takes WebPageTab's default and needs the same comment;
-    /// - a `TabContent` case whose ``TabContent/Case/discard`` names a ``ContentKind`` with no discard path;
+    /// - a `TabContent` case whose class's ``TabContentClass/discard`` names a ``ContentKind`` with no discard path;
     /// - a `BrowserTab` other than the mock, hibernated and deferred tabs that is not a
     ///   `BrowserHibernationSource` and does not say `// discard: never <why>`.
     ///
@@ -88,13 +88,13 @@ extension InternalPageDiscardPolicyCoverageTests {
 
         // MARK: Tab content (MQ-CONTENT)
 
-        /// `TabContent.Case.discard` is an exhaustive switch, so the compiler asks for a row for a new
+        /// `TabContent.contentClass` and `TabContentClass.discard` are exhaustive switches, so the compiler asks for a row for a new
         /// case; this checks that each claimed kind has a discard path: the browser or agent page
         /// hibernation (``MemoryHistograms/hibernationKinds``) or a `ContentDiscardScheduler` of that kind.
         @Test func everyTabContentKindHasADiscardPath() throws {
             let corpus = try Self.scanned()
-            let cases = TabContent.Case.allCases
-            #expect(cases.count >= 7, "TabContent has 7 cases (MQ-CONTENT); Case lists \(cases)")
+            let cases = TabContentClass.allCases
+            #expect(cases.count >= 7, "TabContent has 7 cases (MQ-CONTENT); TabContentClass lists \(cases)")
             let hibernated = Set(MemoryHistograms.hibernationKinds)
             for content in cases {
                 switch content.discard {
@@ -104,7 +104,7 @@ extension InternalPageDiscardPolicyCoverageTests {
                     #expect(hibernated.contains(kind.rawValue) || scheduled, """
                     TabContent.\(content) claims ContentKind.\(kind), but nothing discards that kind: no \
                     hibernation records it and no `\(scheduler))` is built. Give the kind a discard path, \
-                    or declare the case `.never(why:)` in TabContent.swift.
+                    or declare the class `.never(why:)` in CmuxNextHibernation/TabContentClass.swift.
                     """)
                 case .warmSet:
                     #expect(content == .terminal, "the warm set holds terminals only; TabContent.\(content) is not one")
