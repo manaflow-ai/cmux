@@ -71,9 +71,11 @@ final class LocalServerSource: ServerSource {
     /// The App's source: the bundled CLI, the user-mode server's files, and
     /// fixes through the privileged helper.
     static func app(fixer: ServerHealthFixer = .helper) -> LocalServerSource {
+        // SAFETY: the encoding pointer is nil, so SCDynamicStoreCopyComputerName writes no caller memory; the
+        // copied string is bridged with its +1.
         LocalServerSource(
             binary: bundledCLI(),
-            hostName: (SCDynamicStoreCopyComputerName(nil, nil) as String?) ?? "",
+            hostName: (unsafe SCDynamicStoreCopyComputerName(nil, nil) as String?) ?? "",
             watchedFiles: watchedFiles(home: FileManager.default.homeDirectoryForCurrentUser),
             runCLI: { executable, arguments in await runProcess(executable, arguments) },
             fix: { await fixer.fix($0) },

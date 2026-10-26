@@ -238,9 +238,12 @@ enum DebugCEF {
     static func footprintMegabytes() -> Double {
         var info = task_vm_info_data_t()
         var count = mach_msg_type_number_t(MemoryLayout<task_vm_info_data_t>.size / MemoryLayout<natural_t>.size)
-        let result = withUnsafeMutablePointer(to: &info) { pointer in
-            pointer.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
-                task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count)
+        // SAFETY: `count` is task_vm_info_data_t's size in integer_t words, the capacity the rebound view
+        // covers; task_info writes at most `count` words into `info`, a local live for the call, and
+        // lowers `count` to what it wrote.
+        let result = unsafe withUnsafeMutablePointer(to: &info) { pointer in
+            unsafe pointer.withMemoryRebound(to: integer_t.self, capacity: Int(count)) {
+                unsafe task_info(mach_task_self_, task_flavor_t(TASK_VM_INFO), $0, &count)
             }
         }
         guard result == KERN_SUCCESS else { return 0 }

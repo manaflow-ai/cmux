@@ -187,7 +187,9 @@ final class SessionTransferService {
     /// peer chooses the commands its sessions reopen with.
     nonisolated static func isOwnedSocket(_ path: String) -> Bool {
         var info = stat()
-        guard lstat(path, &info) == 0 else { return false }
+        // SAFETY: lstat reads the NUL-terminated copy of `path` made for the call and writes one struct stat
+        // into `info`, a local live for the call.
+        guard unsafe lstat(path, &info) == 0 else { return false }
         return (info.st_mode & S_IFMT) == S_IFSOCK && info.st_uid == getuid()
     }
 
