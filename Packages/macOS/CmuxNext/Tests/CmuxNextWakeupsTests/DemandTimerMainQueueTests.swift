@@ -7,7 +7,9 @@ import Testing
 /// tasks share the pump's one `delayed_work_timer_`, base/message_loop/message_pump_apple.mm). The async
 /// action starts one Task from the fire, the sync one (`scheduleOnMain`) runs inline in it, a reset or
 /// cancel still wins, and a nonisolated action keeps the clock sleep. The queue runs on WakeUpQueueRig's
-/// fake timer and uptime; the test fires it itself.
+/// fake timer and uptime; the test fires it itself. A dropped entry is freed with no lock held, since its
+/// action may own another timer. Queue deadlines are the queue's uptime, so these tests fire the queue;
+/// the ManualClock only proves the sleep path is unused.
 @MainActor
 @Suite("DemandTimer main queue")
 struct DemandTimerMainQueueTests {
@@ -118,6 +120,40 @@ struct DemandTimerMainQueueTests {
         #expect(rig.queue.count == 0)
     }
 
+    @Test("Releasing a timer frees its entry outside the queue's lock, even when the entry owns another queued timer")
+    func releaseFreesAnEntryThatOwnsAnotherQueuedTimer() {
+        let rig = WakeUpQueueRig()
+        var first: DemandTimer? = DemandTimer(owner: Self.owner, ledger: rig.ledger, wakeUps: rig.queue)
+        do {
+            let box = TimerBox(DemandTimer(owner: "test.second", ledger: rig.ledger, wakeUps: rig.queue))
+            box.timer.scheduleOnMain(after: .milliseconds(200)) {}
+            first?.scheduleOnMain(after: .milliseconds(100)) { box.touch() }
+        }
+        #expect(rig.queue.count == 2)
+        // The entry's action holds the last reference to the box, so freeing it deinits the second timer,
+        // which cancels its own entry on the same queue (a re-entry of a held lock aborts the process).
+        first = nil
+        #expect(rig.queue.count == 0)
+        #expect(rig.timer.armedDate == nil)
+    }
+
+    @Test("A reset frees the old entry outside the timer's lock, even when its action owns a canceller of that timer")
+    func resetFreesAnEntryThatCancelsItsOwnTimer() {
+        let rig = Rig()
+        let log = RunLog()
+        do {
+            let canceller = CancelOnDeinit(rig.timer)
+            rig.timer.scheduleOnMain(after: .milliseconds(100)) { canceller.touch() }
+        }
+        // The reset frees the old action, the canceller deinits and cancels the timer: the cancel is the
+        // later call, so it wins over the new deadline.
+        rig.timer.scheduleOnMain(after: .milliseconds(300)) { log.ran.append("new") }
+        #expect(!rig.timer.isScheduled)
+        #expect(rig.queue.queue.count == 0)
+        rig.queue.fire()
+        #expect(log.ran.isEmpty)
+    }
+
     @Test("A nonisolated action sleeps on the clock and leaves the queue alone")
     func nonisolatedActionSleeps() async throws {
         let rig = Rig()
@@ -156,6 +192,32 @@ struct DemandTimerMainQueueTests {
     nonisolated private static func scheduleNonisolated(on timer: DemandTimer, fired: FiredSignal) {
         timer.schedule(after: .milliseconds(100)) { await fired.fire() }
     }
+}
+
+/// Owns a timer; an entry's action that captures it holds the timer's last reference.
+private final class TimerBox: Sendable {
+    let timer: DemandTimer
+
+    init(_ timer: DemandTimer) {
+        self.timer = timer
+    }
+
+    func touch() {}
+}
+
+/// Cancels its timer when it deinits, as an owner that tears its deadline down does.
+private final class CancelOnDeinit: Sendable {
+    private let timer: DemandTimer
+
+    init(_ timer: DemandTimer) {
+        self.timer = timer
+    }
+
+    deinit {
+        timer.cancel()
+    }
+
+    func touch() {}
 }
 
 @MainActor

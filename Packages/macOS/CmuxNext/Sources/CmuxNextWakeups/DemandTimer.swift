@@ -15,7 +15,12 @@ import CmuxNextCompat
 /// `@isolated(any)` isolation decides: a `@MainActor` action is a queue entry whose fire starts one
 /// `Task` on the main actor (the thread is already awake); ``scheduleOnMain(after:tolerance:_:)``
 /// runs a synchronous main-actor action inline in the fire, with no `Task`. Any other action, and
-/// every action of a timer with no queue, sleeps on the clock. Every sleep passes a tolerance so
+/// every action of a timer with no queue, sleeps on the clock.
+///
+/// The two paths have two clocks. A queue entry's deadline is the queue's uptime (`CLOCK_UPTIME_RAW`,
+/// which stops while the Mac sleeps, as Chromium's `TimeTicks` on macOS does) plus the delay, and it
+/// fires from the queue's timer; the injected `clock` never sees it. A test of a main-actor action
+/// fires the queue (`WakeUpQueueRig`), not a `ManualClock`. Every sleep passes a tolerance so
 /// the OS can coalesce the wakeup with others: the ``WakeLeeway`` window of the
 /// timer's ``DelayPolicy`` for the delay (Chromium's `PostDelayedTask` with a
 /// `subtle::DelayPolicy`, base/task/delay_policy.h). A `.precise` timer below
@@ -41,22 +46,34 @@ public final class DemandTimer: Sendable {
         case queued(MainWakeUpQueue.Token)
     }
 
-    /// The timer's lock is taken before the queue's (a reset drops the old entry and inserts the new
-    /// one under it) and never inside it: the queue runs an entry with its own lock released.
+    /// The timer's lock is taken before the queue's (a reset inserts the new entry under it) and never
+    /// inside it: the queue runs an entry with its own lock released. A dropped deadline is cancelled
+    /// after both locks are released (``drop(_:)``), because dropping a queue entry frees its action.
     private struct State {
         var generation: UInt64 = 0
         var pending: Pending?
+
+        /// Starts a new generation, so a fire of the old deadline is a no-op, and takes the old
+        /// deadline out for ``DemandTimer/drop(_:)``.
+        mutating func supersede() -> Pending? {
+            generation &+= 1
+            defer { pending = nil }
+            return pending
+        }
     }
 
     /// - Parameters:
     ///   - owner: The ledger name of each fire.
     ///   - policy: How strictly each deadline is honored (``DelayPolicy``).
-    ///   - clock: The clock the timer sleeps on; tests pass a `ManualClock`.
+    ///   - clock: The clock the timer sleeps on; tests pass a `ManualClock`. It times only the sleep
+    ///     path: a main-actor action on `wakeUps` runs on the queue's uptime instead.
     ///   - ledger: Where each fire is recorded.
     ///   - energy: The app's Energy Saver policy, which sets the sub-second wake alignment.
     ///     Owners with a `MainWorkScheduler` pass `mainWork.energy`; nil keeps 8 ms.
     ///   - wakeUps: The main thread's deadline queue, where main-actor actions go. Owners with a
-    ///     `MainWorkScheduler` pass `mainWork.wakeUps`; nil sleeps every deadline on `clock`.
+    ///     `MainWorkScheduler` pass `mainWork.wakeUps`; nil sleeps every deadline on `clock`. Its
+    ///     deadlines are uptime, which does not count system sleep: a deadline that must (an expiry
+    ///     measured in wall time) uses a nonisolated action, which sleeps on `clock`.
     public init(owner: String, policy: DelayPolicy = .flexibleNoSooner, clock: any Clock<Duration> = ContinuousClock(),
                 ledger: WakeupLedger = .shared, energy: EnergyPolicySource? = nil, wakeUps: MainWakeUpQueue? = nil) {
         self.owner = owner
@@ -67,16 +84,17 @@ public final class DemandTimer: Sendable {
         self.wakeUps = wakeUps
     }
 
-    /// A timer on the app's scheduler: its Energy Saver policy and its main-thread deadline queue.
-    public convenience init(owner: String, policy: DelayPolicy = .flexibleNoSooner,
-                            clock: any Clock<Duration> = ContinuousClock(), ledger: WakeupLedger = .shared,
+    /// A timer on the app's scheduler: its Energy Saver policy and its main-thread deadline queue. Its
+    /// main-actor actions run on the queue's uptime and the rest sleep on `ContinuousClock`; it takes no
+    /// `clock`, since a `ManualClock` would time only the second kind. A test that needs both seams
+    /// passes `clock:` and `wakeUps:` to the designated init.
+    public convenience init(owner: String, policy: DelayPolicy = .flexibleNoSooner, ledger: WakeupLedger = .shared,
                             mainWork: MainWorkScheduler) {
-        self.init(owner: owner, policy: policy, clock: clock, ledger: ledger,
-                  energy: mainWork.energy, wakeUps: mainWork.wakeUps)
+        self.init(owner: owner, policy: policy, ledger: ledger, energy: mainWork.energy, wakeUps: mainWork.wakeUps)
     }
 
     deinit {
-        state.withLock { dropPending(&$0) }
+        drop(state.withLock { $0.supersede() })
     }
 
     /// True while a deadline is pending.
@@ -123,10 +141,7 @@ public final class DemandTimer: Sendable {
     }
 
     public func cancel() {
-        state.withLock { state in
-            dropPending(&state)
-            state.generation &+= 1
-        }
+        drop(state.withLock { $0.supersede() })
     }
 
     /// Replaces the pending deadline with a task asleep on the clock; its fire records `deadline`.
@@ -134,9 +149,8 @@ public final class DemandTimer: Sendable {
                               _ action: @escaping @isolated(any) @Sendable () async -> Void) {
         let clock = clock
         let request = sleepRequest(for: delay, tolerance: tolerance)
-        state.withLock { state in
-            dropPending(&state)
-            state.generation &+= 1
+        let dropped = state.withLock { state -> Pending? in
+            let old = state.supersede()
             let generation = state.generation
             state.pending = .sleeping(Task { [weak self] in
                 do { try await clock.sleep(for: request.delay, tolerance: request.tolerance) } catch { return }
@@ -144,7 +158,9 @@ public final class DemandTimer: Sendable {
                 self.ledger.record(self.owner, reason: "deadline")
                 await action()
             })
+            return old
         }
+        drop(dropped)
     }
 
     /// Replaces the pending deadline with an entry in `queue`, which records its wake and this owner's
@@ -156,26 +172,29 @@ public final class DemandTimer: Sendable {
         let deadline = overflow ? UInt64.max : sum
         let window = mainWindow(for: delay, tolerance: tolerance, alignment: queue.alignment)
         let owner = owner
-        state.withLock { state in
-            dropPending(&state)
-            state.generation &+= 1
+        let dropped = state.withLock { state -> Pending? in
+            let old = state.supersede()
             let generation = state.generation
             let token = queue.insert(owner: owner, at: deadline, window: window) { [weak self] in
                 guard let self, self.take(generation) else { return }
                 action()
             }
             state.pending = .queued(token)
+            return old
         }
+        drop(dropped)
     }
 
-    /// Cancels the pending sleep or drops the pending queue entry.
-    private func dropPending(_ state: inout State) {
-        switch state.pending {
+    /// Cancels a superseded sleep or drops a superseded queue entry. Called with no lock held: dropping an
+    /// entry frees its action, and what the action held may deinit an owner that cancels this timer or
+    /// another one on the same queue. Its generation is already stale, so a fire that wins the race does
+    /// nothing.
+    private func drop(_ pending: Pending?) {
+        switch pending {
         case .sleeping(let task): task.cancel()
         case .queued(let token): wakeUps?.cancel(token)
         case nil: break
         }
-        state.pending = nil
     }
 
     /// The relative sleep and tolerance for a deadline `delay` from now: ``policy``'s ``WakeLeeway``
