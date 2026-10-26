@@ -80,6 +80,8 @@ pub(crate) struct AgentSessions {
     state: Mutex<AttachState>,
     /// WhoIs attestations from the same-user host proxy, fixed for each link.
     proxy_authors: Mutex<HashMap<u64, Value>>,
+    /// Unix connections past their first line: a proxy binds only on its first.
+    spoken: Mutex<HashSet<u64>>,
     /// `agent-session-start-v1`: the acpmux starter and the tabs starting.
     starts: agent_session_start::AgentSessionStarts,
     /// `agent-session-children-v1`: the descendants acpmux answered, which
@@ -121,10 +123,20 @@ impl AgentSessions {
         self.state.lock().unwrap_or_else(|e| e.into_inner())
     }
 
+    /// The connection's first line was handled: it can no longer bind a proxy identity.
+    pub(crate) fn first_line_done(&self, client: u64) {
+        self.spoken.lock().unwrap_or_else(|e| e.into_inner()).insert(client);
+    }
+
+    pub(super) fn past_first_line(&self, client: u64) -> bool {
+        self.spoken.lock().unwrap_or_else(|e| e.into_inner()).contains(&client)
+    }
+
     /// The connection ended: every attachment of it closes.
     pub(crate) fn disconnect(&self, client: u64) {
         self.inventory_watches.disconnect(client);
         self.proxy_authors.lock().unwrap_or_else(|e| e.into_inner()).remove(&client);
+        self.spoken.lock().unwrap_or_else(|e| e.into_inner()).remove(&client);
         let gone: Vec<Arc<Attachment>> = {
             let mut state = self.lock();
             state.reserved.retain(|(c, _)| *c != client);
@@ -515,8 +527,9 @@ pub(super) fn try_handle(
     }
     // A peer cannot self-attribute: only the preface's fixed identity is accepted, for the chat
     // the share pinned.
-    let author = match proxy::check(mux, client, &mut object) {
-        Ok(author) => author,
+    let (author, pinned) = match proxy::check(mux, client, &mut object) {
+        Ok(Some(teammate)) => (Some(teammate.author), teammate.pinned),
+        Ok(None) => (None, None),
         Err(refusal) => return Some(refuse(writer, object.remove("id"), refusal)),
     };
     // A teammate's link reaches the shared chat's own verbs only: never start, trust, media,
@@ -541,7 +554,7 @@ pub(super) fn try_handle(
     }
     if object.get("cmd").and_then(Value::as_str) == Some("agent-session-observe") {
         let clean = Value::Object(object).to_string();
-        return agent_session_observe::try_handle(mux, client, &clean, writer, author);
+        return agent_session_observe::try_handle(mux, client, &clean, writer, author, pinned);
     }
     let cmd = match object.remove("cmd") {
         Some(Value::String(cmd)) if cmd.starts_with("agent-session-") => cmd,
@@ -566,7 +579,7 @@ pub(super) fn try_handle(
     };
     Some(match command {
         AgentSessionCommand::Attach(params) => {
-            attach(mux, client, id, socket, params, false, author, writer)
+            attach(mux, client, id, socket, params, false, author, pinned, writer)
         }
         AgentSessionCommand::Detach(SurfaceParams { surface }) => {
             if let Some(attachment) = sessions.attachment(client, surface) {
@@ -578,6 +591,13 @@ pub(super) fn try_handle(
         command => {
             let surface = command_surface(&command);
             match sessions.attachment(client, surface) {
+                // A teammate's attachment is for the chat this request's share pins, only.
+                Some(attachment)
+                    if author.is_some()
+                        && pinned.as_deref() != Some(attachment.record_session.as_str()) =>
+                {
+                    refuse(writer, id, Refusal::NotShared)
+                }
                 Some(attachment) => run_on_worker(mux, attachment, id, command, writer),
                 None => refuse(writer, id, Refusal::NotAttached),
             }
@@ -724,10 +744,14 @@ fn attach(
     params: PageParams,
     read_only: bool,
     author: Option<Value>,
+    pinned: Option<String>,
     writer: &MessageWriter,
 ) -> bool {
     let sessions = &mux.control_clients.agent_sessions;
     if let Some(attachment) = sessions.attachment(client, params.surface) {
+        if author.is_some() && pinned.as_deref() != Some(attachment.record_session.as_str()) {
+            return refuse(writer, id, Refusal::NotShared);
+        }
         if attachment.read_only.load(Ordering::Acquire) != read_only {
             return refuse(writer, id, Refusal::ModeConflict);
         }
@@ -737,6 +761,11 @@ fn attach(
     let Some(session) = tab_session(mux, params.surface) else {
         return refuse(writer, id, Refusal::UnknownTab);
     };
+    // A teammate attaches to the chat its share pinned, as `proxy::check` saw it: a rebind since
+    // then is refused, never followed.
+    if author.is_some() && pinned.as_deref() != Some(session.as_str()) {
+        return refuse(writer, id, Refusal::NotShared);
+    }
     let record_session = session.clone();
     let mut acpmux_params = match page_params(&session, &params, true) {
         Ok(value) => value,

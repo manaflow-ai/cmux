@@ -9401,8 +9401,8 @@ same-user Unix connection that proxy's link for one teammate: `login` (at most
 proxy checked, and the daemon fixes the author to
 `{id:"tailnet:<login>", name, login, node}`. It is refused
 (`agent_session.not_trusted`) on a WebSocket or remote-relay connection, a
-second time on the same connection, or once the connection has an attachment;
-it answers `{app, protocol, version, generation, capabilities}` and nothing
+second time on the same connection, as anything but the connection's first
+line, or with any `_host_` field; it answers `{app, protocol, version, generation, capabilities}` and nothing
 about the machine's sessions or paths.
 
 Every later `agent-session-*` frame on a bound connection carries
@@ -9421,8 +9421,10 @@ the cut summary). A bound connection may send only `agent-session-attach`,
 `-observe`, `-events`, `-prompt`, `-cancel` and `-detach`; any other frame
 (`agent-session-start`, `-trust`, `-media`, `-children`, `-permission`,
 `-typing`, `-view`, `-of`, or any other daemon command, resource or page
-line) is `agent_session.not_trusted`. A page acpmux answers after the tab was
-rebound to another chat is refused as `agent_session.not_shared`.
+line) is `agent_session.not_trusted`. Each request uses the chat its check
+validated: an attach, a page or a command on an attachment of another chat,
+and a page acpmux answers after the tab was rebound, are refused as
+`agent_session.not_shared`.
 
 `{id, cmd:"agent-session-of", surface}` answers `{surface, session}`, the
 agent session the tab shows, so `cmux host share` can pin it; only the owner's
