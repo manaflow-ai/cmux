@@ -39,6 +39,7 @@ STEP = next(s for s in JOBS["base-only"]["steps"] if s.get("id") == "decide")
 SKIPPED_ON_BASE_ONLY = ("link", "size", "split")
 ANSWER = "needs.base-only.outputs.base_only != 'true'"
 LINES = "".join(f"let a{i} = {i}\n" for i in range(60))
+SAME = "x\n" * 30  # identical lines: one replacement reads the same wherever it is
 
 
 def git(repo: Path, *args: str) -> str:
@@ -57,8 +58,13 @@ def edit(text: str, line: int, new: str) -> str:
     return "".join(rows)
 
 
-def run(status: str, conclusion: str | None, title: str = "synchronize: t", number: int = 1) -> dict:
-    return {"status": status, "conclusion": conclusion, "display_title": title, "run_number": number}
+def run(status: str, conclusion: str | None, title: str = "synchronize: t", number: int = 1, pr: int = 7) -> dict:
+    return {"status": status, "conclusion": conclusion, "display_title": f"#{pr} {title}", "run_number": number}
+
+
+def normalized(repo: Path, a: str, b: str) -> str:
+    diff = git(repo, "-c", "diff.renames=false", "diff", "-U0", "--binary", "--no-color", a, b)
+    return "\n".join(line for line in diff.splitlines() if not line.startswith(("index ", "@@")))
 
 
 class BaseOnlyStepTests(unittest.TestCase):
@@ -73,12 +79,14 @@ class BaseOnlyStepTests(unittest.TestCase):
         git(src, "config", "uploadpack.allowFilter", "true")
         git(src, "config", "uploadpack.allowAnySHA1InWant", "true")
         write(src, "app/a.swift", LINES)
+        write(src, "app/same.swift", SAME)
         write(src, "docs/base.md", "base\n")
         git(src, "add", "-A")
         git(src, "commit", "-qm", "base")
         git(src, "checkout", "-qb", "pr")
         write(src, "app/a.swift", edit(LINES, 5, "let a5 = 50\n"))
         write(src, "app/new.swift", "let n = 1\n")
+        write(src, "app/same.swift", edit(SAME, 5, "y\n"))
         git(src, "add", "-A")
         git(src, "commit", "-qm", "pr")
         self.before = git(src, "rev-parse", "HEAD")
@@ -153,10 +161,12 @@ class BaseOnlyStepTests(unittest.TestCase):
         self.assertEqual(self.gh_calls(), [])
 
     def test_a_merge_that_moves_an_edit_runs_everything(self):
-        # The same replacement at another line: the -U0 diff without line numbers matches,
-        # the merged tree does not.
-        moved = edit(edit(LINES, 40, "let a40 = 400\n"), 7, "let a5 = 50\n")
-        answer, why = self.decide(self.merge_base(("app/a.swift", moved)))
+        # The same replacement at another of the identical lines: the -U0 diff without line
+        # numbers is the same, the merged tree is not.
+        after = self.merge_base(("app/same.swift", edit(SAME, 7, "y\n")))
+        old_base = git(self.src, "merge-base", self.before, self.base)
+        self.assertEqual(normalized(self.src, old_base, self.before), normalized(self.src, self.base, after))
+        answer, why = self.decide(after)
         self.assertEqual(answer, "false", why)
         self.assertIn("clean merge", why)
 
@@ -174,6 +184,24 @@ class BaseOnlyStepTests(unittest.TestCase):
                 self.assertIn("previous head", why)
         self.answer([run("completed", "success", "ready_for_review: t", 2), run("completed", "cancelled", "edited: t", 3)])
         self.assertEqual(self.decide(after)[0], "true")
+
+    def test_another_pull_requests_run_at_the_same_head_does_not_count(self):
+        after = self.merge_base()
+        self.answer([run("completed", "cancelled", number=1), run("completed", "success", number=2, pr=8),
+                     run("completed", "success", number=3, pr=77)])
+        answer, why = self.decide(after)
+        self.assertEqual(answer, "false", why)
+
+    def test_a_failed_history_listing_runs_everything(self):
+        after = self.merge_base()
+        # A git whose `rev-list ... --not` fails (a SIGPIPE, say): the shallow check is not skipped.
+        real = subprocess.run(["bash", "-c", "command -v git"], capture_output=True, text=True).stdout.strip()
+        (self.bin / "git").write_text('#!/usr/bin/env bash\nfor a; do [ "$a" = --not ] && exit 141; done\n'
+                                      f'exec {real} "$@"\n')
+        (self.bin / "git").chmod(0o755)
+        answer, why = self.decide(after)
+        self.assertEqual(answer, "false", why)
+        self.assertIn("Could not list the history", why)
 
     def test_an_unreadable_previous_run_runs_everything(self):
         answer, why = self.decide(self.merge_base(), GH_FAIL="1")
@@ -253,10 +281,11 @@ class WorkflowShapeTests(unittest.TestCase):
 
     def test_the_run_title_names_the_event_the_previous_run_check_reads(self):
         title = WORKFLOW["run-name"]
-        self.assertTrue(title.startswith("${{ github.event.action }}"), title)
+        self.assertTrue(title.startswith("#${{ github.event.pull_request.number }} ${{ github.event.action }}"), title)
         self.assertIn("vars.CI_QUOTA_HOLD == '1' && ' (held)'", title)
         self.assertIn("github.event.pull_request.draft && ' (draft)'", title)
-        self.assertIn('test("^(opened|synchronize|reopened|ready_for_review):")', STEP["run"])
+        self.assertIn('startswith("#@PR@ ")', STEP["run"])
+        self.assertIn('test("^#[0-9]+ (opened|synchronize|reopened|ready_for_review):")', STEP["run"])
 
     def test_a_description_edit_never_cancels_a_push_run(self):
         group = WORKFLOW["concurrency"]["group"]

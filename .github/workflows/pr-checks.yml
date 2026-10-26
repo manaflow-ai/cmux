@@ -16,10 +16,11 @@ on:
     branches: [feat-cmux-next]
     types: [opened, synchronize, reopened, edited, ready_for_review]
 
-# The base-only job reads the previous head's run by this title: an `edited` run
+# The base-only job reads the previous head's run by this title, which names the pull
+# request (two pull requests can share a head commit): an `edited` run
 # (the size advisory alone), a held one (CI_QUOTA_HOLD) or a draft's does not
 # answer for that head's other checks.
-run-name: "${{ github.event.action }}${{ vars.CI_QUOTA_HOLD == '1' && ' (held)' || '' }}${{ github.event.pull_request.draft && ' (draft)' || '' }}: ${{ github.event.pull_request.title }}"
+run-name: "#${{ github.event.pull_request.number }} ${{ github.event.action }}${{ vars.CI_QUOTA_HOLD == '1' && ' (held)' || '' }}${{ github.event.pull_request.draft && ' (draft)' || '' }}: ${{ github.event.pull_request.title }}"
 
 permissions: {}
 
@@ -93,8 +94,10 @@ jobs:
           # That merge base is the real one only if the fetched history is whole above it:
           # a commit whose parents the shallow fetch cut, reachable from either side but
           # not from the merge base, could hide a newer common ancestor.
-          if [ -f "$repo/.git/shallow" ] \
-              && git -C "$repo" rev-list "$BEFORE" "$second" --not "$bases" | grep -qFxf "$repo/.git/shallow"; then
+          # The whole list is written out first, so a failed rev-list answers false.
+          git -C "$repo" rev-list "$BEFORE" "$second" --not "$bases" > "$RUNNER_TEMP/base-only.above" \
+            || decide false "Could not list the history above where the previous head met $BASE_REF: every check runs."
+          if [ -f "$repo/.git/shallow" ] && grep -qFxf "$repo/.git/shallow" "$RUNNER_TEMP/base-only.above"; then
             decide false "The fetched history is cut above where the previous head met $BASE_REF: every check runs."
           fi
           # The new head is exactly the clean merge of the base into the previous head:
@@ -113,11 +116,16 @@ jobs:
           old="$(change "$bases" "$BEFORE")" || decide false "Could not diff the previous head: every check runs."
           new="$(change "$second" "$AFTER")" || decide false "Could not diff the new head: every check runs."
           [ "$old" = "$new" ] || decide false "The merge changed the pull request's own diff: every check runs."
-          # The previous head's answers exist: its newest push run (not a description edit,
-          # a held run or a draft's) finished green. One read, only for a base-only head.
+          # The previous head's answers exist: this pull request's newest push run at that
+          # head (not a description edit, a held run or a draft's; another pull request at
+          # the same commit does not count) finished green. One read, only for a base-only head.
+          case "$PR" in ""|*[!0-9]*) decide false "No pull request number: every check runs.";; esac
+          # gh's --jq takes no --arg: the number (digits only, checked above) goes in by substitution.
+          filter='[.workflow_runs[] | select(.display_title | startswith("#@PR@ "))
+                  | select(.display_title | test("^#[0-9]+ (opened|synchronize|reopened|ready_for_review):"))]
+                  | sort_by(.run_number) | last | if . == null then "none" else "\(.status)/\(.conclusion)" end'
           previous="$(gh api "repos/$REPOSITORY/actions/workflows/pr-checks.yml/runs?head_sha=$BEFORE&event=pull_request&per_page=30" \
-            --jq '[.workflow_runs[] | select(.display_title | test("^(opened|synchronize|reopened|ready_for_review):"))]
-                  | sort_by(.run_number) | last | if . == null then "none" else "\(.status)/\(.conclusion)" end')" \
+            --jq "${filter//@PR@/$PR}")" \
             || decide false "Could not read the previous head's run: every check runs."
           [ "$previous" = "completed/success" ] \
             || decide false "The previous head's run did not finish green ($previous): every check runs."
@@ -238,7 +246,7 @@ jobs:
   split:
     name: split-plan advisory
     needs: base-only
-    if: ${{ !cancelled() && needs.base-only.outputs.base_only != 'true' && github.event.action != 'edited' }}
+    if: ${{ !cancelled() && needs.base-only.outputs.base_only != 'true' && contains(fromJSON('["opened","synchronize","reopened"]'), github.event.action) }}
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-4vcpu-ubuntu-2404' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 5
     permissions:
