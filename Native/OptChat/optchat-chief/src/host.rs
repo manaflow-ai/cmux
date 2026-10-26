@@ -1370,6 +1370,7 @@ fn start(
                 host_name: crate::workspaces::host_name(),
                 harness: Some(sub_harness.clone()),
                 personal: true,
+                fallback: None,
             }) as Arc<dyn crate::workspaces::Workspaces>)
         }
         crate::workspaces::Placement::Cloud(daemon, install) => {
@@ -1379,6 +1380,7 @@ fn start(
                 host_name: crate::workspaces::host_name(),
                 harness: Some(sub_harness.clone()),
                 personal: false,
+                fallback: None,
             }) as Arc<dyn crate::workspaces::Workspaces>)
         }
         // Fresh Chief with no app in its environment (user 12374): the host's own session.
@@ -1389,6 +1391,7 @@ fn start(
                 host_name: crate::workspaces::host_name(),
                 harness: Some(sub_harness.clone()),
                 personal: false,
+                fallback: None,
             }) as Arc<dyn crate::workspaces::Workspaces>)
         }
     };

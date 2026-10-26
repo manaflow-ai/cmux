@@ -976,6 +976,10 @@ pub struct DaemonWorkspaces {
     /// workspace group <g> add` sends), not the daemon's older shared groups, which the app
     /// does not show for that session (a423).
     pub personal: bool,
+    /// The daemon to use while nothing listens at `daemon`: the host's own session daemon,
+    /// for an app link (`state/app-daemon.sock`) that dangles because no cmux app opened
+    /// this Chief home (a scratch Chief the `cmux chief` CLI started). None: `daemon` only.
+    pub fallback: Option<PathBuf>,
 }
 
 impl DaemonWorkspaces {
