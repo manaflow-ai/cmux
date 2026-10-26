@@ -1,6 +1,7 @@
 //! Client surface resizes: client size resolution and records, control client resizes with reservations and completions, rollback, and size client removal.
 
 use super::*;
+use cmux_threads::work::{Lane, Priority, Shutdown};
 
 impl Mux {
     pub(super) fn resolve_client_size(
@@ -465,32 +466,50 @@ impl Mux {
             hook();
         }
 
-        let restoration_failed = match restore {
-            SurfaceResizeRestore::Complete(restored) => !restored,
-            SurfaceResizeRestore::Pending(completion) => {
-                match completion.recv_timeout(Duration::from_secs(10)) {
-                    Ok(Ok(())) => false,
-                    Ok(Err(_)) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => true,
-                    Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
-                        // The rolled-back registry remains authoritative while
-                        // the compensating browser reservation stays queued.
-                        // Do not reinstall the failed attach's claim before the
-                        // browser worker reaches a terminal outcome, and do not
-                        // retain the connection or another blocking waiter.
-                        return;
+        let completion = match restore {
+            SurfaceResizeRestore::Complete(true) => return,
+            SurfaceResizeRestore::Complete(false) => {
+                self.reconcile_failed_surface_size_rollback(
+                    id,
+                    client,
+                    current_size,
+                    current_report_order,
+                    rollback_token,
+                );
+                return;
+            }
+            SurfaceResizeRestore::Pending(completion) => completion,
+        };
+        // The browser's outcome is awaited on a work lane, never on the
+        // request thread that rolled the attach back. A refused item (the mux
+        // is shutting down) leaves the rolled-back registry as a timeout does.
+        let _ = self.post_mux_work(
+            Priority::UserVisible,
+            Lane::System,
+            Shutdown::SkipOnShutdown,
+            move |mux| match cmux_threads::checked::sync::recv_timeout(
+                &completion,
+                Duration::from_secs(10),
+            ) {
+                Ok(Ok(())) => {}
+                Ok(Err(_)) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                    if let Some(mux) = mux.upgrade() {
+                        mux.reconcile_failed_surface_size_rollback(
+                            id,
+                            client,
+                            current_size,
+                            current_report_order,
+                            rollback_token,
+                        );
                     }
                 }
-            }
-        };
-        if restoration_failed {
-            self.reconcile_failed_surface_size_rollback(
-                id,
-                client,
-                current_size,
-                current_report_order,
-                rollback_token,
-            );
-        }
+                // The rolled-back registry remains authoritative while the
+                // compensating browser reservation stays queued: the failed
+                // attach's claim is not reinstalled before the browser worker
+                // reaches a terminal outcome.
+                Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {}
+            },
+        );
     }
 
     pub(super) fn reconcile_failed_surface_size_rollback(
