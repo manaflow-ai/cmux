@@ -3,23 +3,32 @@
 // Chromium's browser process in its own app, so a CHECK or crash in it ends
 // only this process, and its message pump runs on this process's main thread,
 // never on cmux's. One Chrome-style page per host. The page draws into a Core
-// Animation context (fork API 26, cmux_browser_set_layer_hosting) whose id
-// goes to cmux, which shows it in a pane with a CALayerHost. cmux forwards
-// mouse and key events over the wire (chromium_host_wire.h); they reach
-// Chromium through CefBrowserHost::Send*Event.
+// Animation context (cmux_browser_set_layer_hosting; the host needs fork API
+// kMinForkAPI) whose id goes to cmux, which shows it in a pane with a
+// CALayerHost. cmux forwards mouse and key events over the wire
+// (chromium_host_wire.h); they reach Chromium through
+// CefBrowserHost::Send*Event.
 //
 // The page window sits in a transparent, click-through window of this
-// process at the pane's screen rect: it has no pixels while hosted, and the
+// process at the pane's screen rect. Its parent view has alpha 0 for its whole
+// life: before hosting Chromium draws into it, and once hosted the page's
+// layers live in the context, so this window never shows pixels over other
+// apps (it floats on every Space), even when the fork drops the context. The
 // parent view's occlusion rect (the fork's -cmuxOcclusionRects) covers it, so
 // the fork's tracker never lets it take the mouse.
 //
 // Launched by cmux (ChromiumHostLauncher) with the wire on fd 3 (frames from cmux) and fd 4 (frames to cmux):
 //   <host> --framework=<CEF framework dir> --subprocess=<base helper exe>
-//          --root-cache=<dir> [--log-file=<path>] [--cef-switch=<name[=value]>]...
-// EOF on fd 3 (cmux quit or crashed) closes the page and ends the host.
+//          --main-bundle=<cmux.app> --root-cache=<dir> [--log-file=<path>]
+//          [--cef-switch=<name[=value]>]...
+// EOF on fd 3 (cmux quit or crashed) closes the page and ends the host; the
+// wire is read from before CefInitialize, and a host that has not ended
+// kQuitLimitSeconds after EOF or kQuit _exits, so a hung UI thread or a hung
+// CefInitialize never leaves an orphaned host behind.
 
 #import <AppKit/AppKit.h>
 #include <dlfcn.h>
+#include <objc/runtime.h>
 #include <fcntl.h>
 #include <signal.h>
 #include <sys/socket.h>
@@ -27,8 +36,12 @@
 #include <unistd.h>
 
 #include <algorithm>
+#include <atomic>
+#include <chrono>
+#include <mutex>
 #include <string>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #include "include/base/cef_callback.h"
@@ -37,6 +50,7 @@
 #include "include/cef_browser.h"
 #include "include/cef_client.h"
 #include "include/cef_command_line.h"
+#include "include/cef_values.h"
 #include "include/wrapper/cef_closure_task.h"
 #include "include/wrapper/cef_library_loader.h"
 
@@ -60,6 +74,54 @@
   CefScopedSendingEvent sendingEventScoper;
   [super sendEvent:event];
 }
+// The host has cmux's bundle id, so a Quit by bundle id (the Dock, an
+// AppleEvent) can reach it instead of cmux (chromium-host-bench.py ae_quit,
+// cmux20-bench 2026-10-25: the host ended, cmux did not). A quit is cmux's to
+// make: pass it to the app that started this host; the host then reads EOF
+// and ends. With no such app (cmux is gone) the host ends as at EOF.
+- (void)terminate:(id)sender {
+  NSRunningApplication* parent = [NSRunningApplication runningApplicationWithProcessIdentifier:getppid()];
+  if (parent && parent.processIdentifier != getpid() && parent.processIdentifier > 1) {
+    [parent terminate];
+    return;
+  }
+  [super terminate:sender];
+}
+@end
+
+namespace {
+// Gives an activation of the host back to the app that started it: a plain
+// [NSApp deactivate] left the host frontmost (cmux20-bench 2026-10-25: frontmost
+// for 10 of 10 clicks after one activation), because macOS picks the next app
+// itself. The host is the active app here, so it may hand activation over.
+void ReturnActivationToParent() {
+  NSRunningApplication* parent = [NSRunningApplication runningApplicationWithProcessIdentifier:getppid()];
+  if (!parent || parent.processIdentifier == getpid() || parent.processIdentifier <= 1) {
+    [NSApp deactivate];
+    return;
+  }
+  if (@available(macOS 14.0, *)) {
+    [NSApp yieldActivationToApplication:parent];
+    [parent activateFromApplication:NSRunningApplication.currentApplication options:0];
+  } else {
+    [parent activateWithOptions:0];
+  }
+}
+}  // namespace
+
+// The host's own window (the page window's parent): never key or main, so a
+// click or an accessibility focus on it cannot activate the host. Input comes
+// from cmux over the wire.
+@interface ChromiumHostWindow : NSWindow
+@end
+
+@implementation ChromiumHostWindow
+- (BOOL)canBecomeKeyWindow {
+  return NO;
+}
+- (BOOL)canBecomeMainWindow {
+  return NO;
+}
 @end
 
 namespace {
@@ -74,6 +136,13 @@ constexpr int kFromCmux = 3;
 int g_to_cmux = -1;
 int g_fork_api = 0;
 uint32_t (*g_set_layer_hosting)(int, int) = nullptr;
+// Fork API 30 (optional; null below it): a hosted page window that never
+// orders in, and its key state given by cmux (cef_cmux.h).
+int (*g_set_detached_hosting)(int, int) = nullptr;
+int (*g_set_embedder_active)(int, int) = nullptr;
+// cmux_browser_set_detached_hosting took this page: input and focus go
+// through the fork, the host's window may stay off screen.
+bool g_detached = false;
 CefRefPtr<CefBrowser> g_browser;
 bool g_creating = false;
 bool g_closing = false;
@@ -83,8 +152,39 @@ NSRect g_screen_rect = NSZeroRect;
 std::string g_pending_url;
 uint32_t g_context = 0;
 bool g_hosting_scheduled = false;
+// The host input hops of the last kHopWindow events (a ring), and how many in all.
+constexpr size_t kHopWindow = 8192;
 std::vector<uint32_t> g_hop_us;
+size_t g_hop_next = 0;
+uint64_t g_hop_events = 0;
 int g_refused_frames = 0;
+// Times the host became the active app, and times one of its windows (its
+// own, or Chromium's page window, a child of it) became key. Each one is
+// undone at once (ReturnActivationToParent); both stay 0 when nothing
+// activates the host (kStatsReply t0).
+uint32_t g_activations = 0;
+uint32_t g_key_windows = 0;
+// The focus cmux last sent (kFocus), applied when the browser exists.
+bool g_page_focused = false;
+
+// Ends the process kQuitLimitSeconds after the first call, if it has not
+// ended by then. Any thread: the reader arms it at EOF, the UI thread at kQuit.
+std::atomic<bool> g_quit_deadline_armed{false};
+void ArmQuitDeadline() {
+  if (g_quit_deadline_armed.exchange(true)) return;
+  std::thread([] {
+    std::this_thread::sleep_for(std::chrono::seconds(cmux_host::kQuitLimitSeconds));
+    _exit(0);  // no atexit handlers or destructors: they could wait on the hung thread
+  }).detach();
+}
+
+// Frames the reader has read and the UI thread has not run (also those read
+// before Chromium's UI thread exists, while CefInitialize runs). The
+// posted-task queue has no limit of its own: this one is bounded (pointer
+// moves, wheel deltas and geometry coalesce; keys and clicks are kept), so a
+// hung UI thread can neither grow the host's memory without end nor hide
+// from cmux that it stopped reading.
+cmux_host::FrameQueue g_frames(cmux_host::kFrameBacklog);
 
 void Send(cmux_host::Header h, const std::string& payload = std::string()) {
   if (g_to_cmux < 0) return;
@@ -108,16 +208,20 @@ void SendText(uint32_t kind, const std::string& text) {
 }
 
 void CloseHost() {
+  ArmQuitDeadline();
   if (g_closing) return;
   g_closing = true;
   if (g_browser) {
     g_browser->GetHost()->CloseBrowser(true);  // OnBeforeClose quits the loop
-  } else {
+  } else if (!g_creating) {
     CefQuitMessageLoop();
   }
+  // else: a browser is being created; OnAfterCreated closes it, and its
+  // OnBeforeClose quits the loop (CefShutdown never runs with a live browser).
 }
 
 void TryHosting();
+void SetPageFocused(bool focused);
 
 // Asks again at the end of this turn: the fork refuses while Chromium has
 // no compositor view in the page window yet, and calling it inside the
@@ -134,6 +238,13 @@ void TryHosting() {
   uint32_t id = g_set_layer_hosting(g_browser->GetIdentifier(), 1);
   if (!id) return;  // the next tracker read, load state or geometry asks again
   g_context = id;
+  // API 30: the page window leaves the host's window and never orders in, so
+  // no window of the host can become key; the focus then goes through
+  // cmux_browser_set_embedder_active (SetPageFocused).
+  if (g_set_detached_hosting && g_set_detached_hosting(g_browser->GetIdentifier(), 1)) {
+    g_detached = true;
+    if (g_page_focused) SetPageFocused(true);
+  }
   cmux_host::Header h;
   h.kind = cmux_host::kContext;
   h.v[0] = static_cast<int32_t>(id);
@@ -156,6 +267,9 @@ void TryHosting() {
   return @[ [NSValue valueWithRect:self.bounds] ];
 }
 - (NSBezierPath*)cmuxClipPath {
+  // Each tracker read: Chromium's page window (a child of the host's window)
+  // takes no mouse either; input comes from cmux over the wire.
+  for (NSWindow* child in self.window.childWindows) child.ignoresMouseEvents = YES;
   ScheduleHosting();
   return nil;
 }
@@ -165,7 +279,7 @@ namespace {
 
 void PlaceWindow() {
   if (!g_window) {
-    g_window = [[NSWindow alloc] initWithContentRect:g_screen_rect
+    g_window = [[ChromiumHostWindow alloc] initWithContentRect:g_screen_rect
                                            styleMask:NSWindowStyleMaskBorderless
                                              backing:NSBackingStoreBuffered
                                                defer:NO];
@@ -185,6 +299,13 @@ void PlaceWindow() {
     g_parent = [[ChromiumHostParentView alloc] initWithFrame:NSMakeRect(0, 0, g_screen_rect.size.width,
                                                                          g_screen_rect.size.height)];
     g_parent.autoresizingMask = NSViewWidthSizable | NSViewHeightSizable;
+    // No pixels, ever: until cmux_browser_set_layer_hosting gives a context
+    // (and again if the fork drops it), Chromium draws into this window,
+    // which floats above every app on every Space; once hosted, the page's
+    // layers are in the context, which cmux shows. A view's alpha, not the
+    // window's, so the window server's occlusion state (which Chromium reads)
+    // stays visible.
+    g_parent.alphaValue = 0;
     g_window.contentView = g_parent;
     [g_window orderFrontRegardless];
   } else if (!NSEqualRects(g_window.frame, g_screen_rect)) {
@@ -203,6 +324,12 @@ class Client : public CefClient, public CefLifeSpanHandler, public CefDisplayHan
   void OnAfterCreated(CefRefPtr<CefBrowser> browser) override {
     g_browser = browser;
     g_creating = false;
+    if (g_closing) {
+      // kQuit or EOF came while the browser was being created (CloseHost).
+      browser->GetHost()->CloseBrowser(true);
+      return;
+    }
+    if (g_page_focused) SetPageFocused(true);
     ScheduleHosting();
   }
   void OnBeforeClose(CefRefPtr<CefBrowser> browser) override {
@@ -266,7 +393,15 @@ uint32_t CefFlags(uint64_t ns, int buttons) {
 
 void RecordHop(uint64_t event_time) {
   const uint64_t now = Now();
-  if (event_time && now > event_time) g_hop_us.push_back(static_cast<uint32_t>((now - event_time) / 1000));
+  if (!event_time || now <= event_time) return;
+  const uint32_t hop = static_cast<uint32_t>((now - event_time) / 1000);
+  ++g_hop_events;
+  if (g_hop_us.size() < kHopWindow) {
+    g_hop_us.push_back(hop);
+  } else {
+    g_hop_us[g_hop_next] = hop;
+    g_hop_next = (g_hop_next + 1) % kHopWindow;
+  }
 }
 
 // The modifier key a flags-changed key code belongs to.
@@ -338,7 +473,30 @@ void HandleInput(const cmux_host::Header& h) {
   RecordHop(h.t0);
 }
 
-void SendStats() {
+// The page's focus, with no window or app activation. CefBrowserHost::SetFocus
+// cannot be used: in this windowed Chrome-style mode it activates the page's
+// widget (browser_platform_delegate_chrome_child_window.cc SetFocus ->
+// Widget::Activate -> NativeWidgetNSWindowBridge kShowAndActivateWindow ->
+// [NSApp activateIgnoringOtherApps:YES] + makeKeyAndOrderFront), which made
+// the host, an app with cmux's bundle id, the active app and took cmux's key
+// window. DevTools focus emulation makes the page behave as focused (focus
+// events, document.hasFocus(), a caret, text input) while its window stays
+// inactive; keys arrive over the wire either way.
+void SetPageFocused(bool focused) {
+  // Fork API 30, a detached page: Chromium sees its page window become or
+  // resign key (Views focus on the web contents, so keys reach the page; the
+  // caret, focus rings, document.hasFocus()) while no AppKit window becomes
+  // key. Focus emulation alone moves only the document's focus: keys sent
+  // with SendKeyEvent did not reach the field (cmux20-bench, 2026-10-25).
+  if (g_detached && g_set_embedder_active && g_set_embedder_active(g_browser->GetIdentifier(), focused ? 1 : 0)) {
+    return;
+  }
+  CefRefPtr<CefDictionaryValue> params = CefDictionaryValue::Create();
+  params->SetBool("enabled", focused);
+  g_browser->GetHost()->ExecuteDevToolsMethod(0, "Emulation.setFocusEmulationEnabled", params);
+}
+
+void SendStats(uint32_t seq) {
   std::vector<uint32_t> sorted = g_hop_us;
   std::sort(sorted.begin(), sorted.end());
   auto at = [&sorted](double q) -> int32_t {
@@ -348,18 +506,22 @@ void SendStats() {
   };
   cmux_host::Header h;
   h.kind = cmux_host::kStatsReply;
-  h.v[0] = static_cast<int32_t>(sorted.size());
+  h.seq = seq;
+  h.v[0] = static_cast<int32_t>(std::min<uint64_t>(g_hop_events, INT32_MAX));
   h.v[1] = at(0.5);
   h.v[2] = at(0.95);
   h.v[3] = at(0.99);
   h.v[4] = sorted.empty() ? 0 : static_cast<int32_t>(sorted.back());
   h.v[5] = g_refused_frames;
+  h.t1 = g_frames.coalesced();
+  h.t0 = (static_cast<uint64_t>(g_activations) << 32) | g_key_windows;
   Send(h);
 }
 
 void HandleFrame(cmux_host::Header h, std::string payload) {
   switch (h.kind) {
     case cmux_host::kNavigate:
+      if (g_closing) break;
       g_pending_url = payload;
       if (g_browser) {
         g_browser->GetMainFrame()->LoadURL(payload);
@@ -379,7 +541,8 @@ void HandleFrame(cmux_host::Header h, std::string payload) {
       if (g_browser) HandleInput(h);
       break;
     case cmux_host::kFocus:
-      if (g_browser) g_browser->GetHost()->SetFocus(h.v[0] != 0);
+      g_page_focused = h.v[0] != 0;
+      if (g_browser) SetPageFocused(g_page_focused);  // else OnAfterCreated applies it
       break;
     case cmux_host::kEdit:
       if (g_browser) {
@@ -405,7 +568,7 @@ void HandleFrame(cmux_host::Header h, std::string payload) {
       break;
     }
     case cmux_host::kStats:
-      SendStats();
+      SendStats(h.seq);
       break;
     case cmux_host::kQuit:
       CloseHost();
@@ -428,7 +591,20 @@ bool ReadAll(int fd, void* buffer, size_t length) {
   return true;
 }
 
-// Blocking reads on a thread of its own; every frame runs on the UI thread.
+// One posted task per batch: runs every waiting frame in the order read.
+void DrainFrames() {
+  for (cmux_host::QueuedFrame& frame : g_frames.Take()) HandleFrame(frame.header, std::move(frame.payload));
+}
+
+void Post(cmux_host::FrameQueue::Push push) {
+  if (push == cmux_host::FrameQueue::Push::kWake) CefPostTask(TID_UI, base::BindOnce(&DrainFrames));
+}
+
+// Blocking reads on a thread of its own, from before CefInitialize; every
+// frame runs on the UI thread, in a batch (g_frames). More than kFrameBacklog
+// waiting frames after coalescing means the UI thread hangs: the reader stops
+// reading and ends the host as at EOF. cmux's writes then fill the socket and
+// cmux ends the host too (ChromiumHostConnection.sendBuffer).
 void ReadWire(int fd) {
   for (;;) {
     uint8_t raw[cmux_host::kHeaderSize];
@@ -436,9 +612,15 @@ void ReadWire(int fd) {
     if (!ReadAll(fd, raw, sizeof raw) || !cmux_host::Decode(raw, &h)) break;
     std::string payload(h.payload, '\0');
     if (h.payload && !ReadAll(fd, payload.data(), h.payload)) break;
-    CefPostTask(TID_UI, base::BindOnce(&HandleFrame, h, std::move(payload)));
+    const cmux_host::FrameQueue::Push push = g_frames.Add(h, std::move(payload));
+    if (push == cmux_host::FrameQueue::Push::kFull) break;  // the UI thread hangs: end as at EOF
+    Post(push);
   }
-  CefPostTask(TID_UI, base::BindOnce(&CloseHost));
+  // EOF (cmux quit or died) or a broken wire: end within the quit limit,
+  // even when the UI thread or CefInitialize never gets to it. The quit runs
+  // after every waiting frame, once the UI thread exists.
+  ArmQuitDeadline();
+  Post(g_frames.AddEnd());
 }
 
 class App : public CefApp, public CefBrowserProcessHandler {
@@ -474,7 +656,8 @@ class App : public CefApp, public CefBrowserProcessHandler {
     ready.v[0] = g_fork_api;
     ready.v[1] = static_cast<int32_t>(getpid());
     Send(ready);
-    std::thread(ReadWire, kFromCmux).detach();
+    // The frames read so far (and an EOF meanwhile) run in one batch.
+    if (g_frames.MarkReady()) CefPostTask(TID_UI, base::BindOnce(&DrainFrames));
   }
 
  private:
@@ -495,7 +678,9 @@ std::string Arg(const std::vector<std::string>& args, const std::string& name) {
 int main(int argc, char* argv[]) {
   signal(SIGPIPE, SIG_IGN);
   std::vector<std::string> args(argv + 1, argv + argc);
-  if (fcntl(kFromCmux, F_SETFD, FD_CLOEXEC) != 0 || fcntl(4, F_SETFD, FD_CLOEXEC) != 0) return 64;  // launched without the wire
+  if (fcntl(kFromCmux, F_SETFD, FD_CLOEXEC) != 0 || fcntl(4, F_SETFD, FD_CLOEXEC) != 0) {
+    return cmux_host::kExitNoWire;  // launched without the wire
+  }
   g_to_cmux = 4;
   std::vector<std::string> switches;
   for (const std::string& arg : args) {
@@ -507,37 +692,78 @@ int main(int argc, char* argv[]) {
   @autoreleasepool {
     [ChromiumHostApplication sharedApplication];
     [NSApp setActivationPolicy:NSApplicationActivationPolicyAccessory];
+    // The host shares cmux's bundle id and is never the app a person uses:
+    // if anything activates it (a click or an accessibility focus on the
+    // page window, which Chromium owns), give the activation straight back.
+    // On the main thread (Chromium's UI thread), like the counters.
+    NSNotificationCenter* center = NSNotificationCenter.defaultCenter;
+    [center addObserverForName:NSApplicationDidBecomeActiveNotification object:nil queue:NSOperationQueue.mainQueue
+                    usingBlock:^(NSNotification*) {
+                      ++g_activations;
+                      ReturnActivationToParent();
+                    }];
+    [center addObserverForName:NSWindowDidBecomeKeyNotification object:nil queue:NSOperationQueue.mainQueue
+                    usingBlock:^(NSNotification*) {
+                      ++g_key_windows;
+                      // Which window: for the host log (cmux's stderr), so the source can be removed.
+                      NSWindow* key = NSApp.keyWindow;
+                      fprintf(stderr, "cmux-chromium-host: a window became key: %s (child of the host window: %d)\n",
+                              key ? object_getClassName(key) : "none", key && key.parentWindow == g_window);
+                      ReturnActivationToParent();
+                    }];
   }
   // One thread so far: the framework's allocator and static initializers run
   // before any other thread exists (the race CmuxNextMallocZone removes in
   // the app cannot happen here).
   if (!cef_load_library(binary.c_str())) {
     SendText(cmux_host::kError, "cef_load_library failed: " + binary);
-    return 65;
+    return cmux_host::kExitFrameworkLoad;
   }
-  if (auto version = reinterpret_cast<int (*)()>(dlsym(RTLD_DEFAULT, "cmux_cef_api_version"))) g_fork_api = version();
-  g_set_layer_hosting = reinterpret_cast<uint32_t (*)(int, int)>(dlsym(RTLD_DEFAULT, "cmux_browser_set_layer_hosting"));
-  if (g_fork_api < 26 || !g_set_layer_hosting) {
-    SendText(cmux_host::kError, "Chromium fork API " + std::to_string(g_fork_api) + " has no layer hosting (needs 26)");
-    return 66;
+  // cef_load_library opens the framework RTLD_LOCAL, so its fork exports are not
+  // visible through RTLD_DEFAULT: reopen the same image by path (as the shim's
+  // BindForkApi does). RTLD_DEFAULT read API 0 and every host exited kExitForkAPI.
+  if (void* image = dlopen(binary.c_str(), RTLD_NOLOAD | RTLD_LAZY)) {
+    if (auto version = reinterpret_cast<int (*)()>(dlsym(image, "cmux_cef_api_version"))) g_fork_api = version();
+    g_set_layer_hosting = reinterpret_cast<uint32_t (*)(int, int)>(dlsym(image, "cmux_browser_set_layer_hosting"));
+    g_set_detached_hosting = reinterpret_cast<int (*)(int, int)>(dlsym(image, "cmux_browser_set_detached_hosting"));
+    g_set_embedder_active = reinterpret_cast<int (*)(int, int)>(dlsym(image, "cmux_browser_set_embedder_active"));
   }
+  if (g_fork_api < cmux_host::kMinForkAPI || !g_set_layer_hosting) {
+    SendText(cmux_host::kError, "Chromium fork API " + std::to_string(g_fork_api) + " is older than the host needs (" +
+                                    std::to_string(cmux_host::kMinForkAPI) + ": layer hosting and resize sync)");
+    return cmux_host::kExitForkAPI;
+  }
+  // Reads the wire from here (after the framework load, which needs this to
+  // be the only thread), so EOF ends a host even while CefInitialize hangs.
+  std::thread(ReadWire, kFromCmux).detach();
 
   const std::string root = Arg(args, "root-cache");
   CefSettings settings;
   settings.no_sandbox = false;  // the helpers enter the sandbox themselves (helper_main.mm)
   settings.persist_session_cookies = false;
   CefString(&settings.framework_dir_path) = framework;
-  CefString(&settings.main_bundle_path) = [[[NSBundle mainBundle] bundlePath] UTF8String];
+  // The app the host is nested in (cmux.app), as in process: its bundle holds
+  // the framework and the helpers that Chromium starts and sandboxes. With the
+  // host's own small bundle here the page's renderer ended at once and the
+  // host aborted (SIGABRT in CrBrowserMain, twice, cmuxs-Mac-mini-3, macOS 27,
+  // 2026-10-24); the remote browser host failed the same way while its main
+  // bundle did not hold its helpers (7d2aa0ed900: "GPU process isn't usable").
+  std::string main_bundle = Arg(args, "main-bundle");
+  if (main_bundle.empty()) main_bundle = [[[NSBundle mainBundle] bundlePath] UTF8String];
+  CefString(&settings.main_bundle_path) = main_bundle;
   CefString(&settings.browser_subprocess_path) = Arg(args, "subprocess");
   CefString(&settings.root_cache_path) = root;
   CefString(&settings.cache_path) = root + "/Profile";
   const std::string log_file = Arg(args, "log-file");
-  if (!log_file.empty()) CefString(&settings.log_file) = log_file;
+  if (!log_file.empty()) {
+    CefString(&settings.log_file) = log_file;
+    settings.log_severity = LOGSEVERITY_WARNING;  // FATAL and CHECK messages, not every INFO line
+  }
 
   CefMainArgs main_args(0, nullptr);
   if (!CefInitialize(main_args, settings, new App(std::move(switches)), nullptr)) {
     SendText(cmux_host::kError, "CefInitialize failed");
-    return 67;
+    return cmux_host::kExitInitialize;
   }
   CefRunMessageLoop();
   if (g_window) [g_window close];
