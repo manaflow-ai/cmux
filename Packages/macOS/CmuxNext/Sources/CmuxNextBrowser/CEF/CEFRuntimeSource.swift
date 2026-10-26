@@ -35,6 +35,10 @@ public final class CEFRuntimeSource {
     /// own (feature `chromiumHostPopupMenus`, set by the App; ``ChromiumHostPopupMenus``). Read when the
     /// runtime adopts the source; in process it changes nothing.
     public var drawsHostPopupMenus = false
+    /// Host mode: a page's autofill, password and `<datalist>` suggestions show in cmux's list, not
+    /// Chromium's popup, which would open in the host (feature `chromiumHostSuggestions`, set by the App;
+    /// p01-process-061). Read when the runtime adopts the source; in process it changes nothing.
+    public var drawsHostSuggestions = false
 
     /// Creates a source.
     ///

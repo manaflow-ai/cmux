@@ -127,10 +127,12 @@ Per mode:
            magnify route is p01-process-042's input route with p01-process-054's PinchEvent) says not_measurable.
 
 --native-ui [ROWS] runs instead the native UI rows (chromium_host_native_ui.py), all or the comma-separated ROWS: a
-<select> as a cmux menu while the host is never frontmost (p01-process-060, feature chromiumHostPopupMenus), and the
+<select> as a cmux menu while the host is never frontmost (p01-process-060, feature chromiumHostPopupMenus), the
 hosted widget rows (p01-process-066): date, datalist, popup window, DevTools docked and in a window, an extension
 popup and a side panel, each shown by cmux from the host's layer context (`debug.cef` `host_widgets`), with feature
-chromiumHostWidgets on and two test extensions.
+chromiumHostWidgets on and two test extensions, then the autofill and password rows (chromium_host_suggestions.py,
+p01-process-061): the field's suggestions in cmux's list (`debug.cef` `host_suggestions`) with feature
+chromiumHostSuggestions on.
 
 --find runs instead the find rows (chromium_host_find.py, p01-process-048): Cmd-F, a typed query, Cmd-G, Cmd-Shift-G
 and Escape through cmux's find pill on a Chromium page in the host (`debug.cef` backend `host`), the pill's match

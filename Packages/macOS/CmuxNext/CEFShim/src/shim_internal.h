@@ -21,6 +21,7 @@
 #include "embedder_ui_args.h"
 #include "find_ids.h"
 #include "popup_menu_args.h"
+#include "suggestion_rows.h"
 
 namespace cmux_shim {
 
@@ -158,6 +159,10 @@ struct ForkApi {
   // popup_menu_args.h).
   int (*browser_set_popup_menu_handler)(int, ForkPopupMenuShowFn, ForkPopupMenuHideFn, void*) = nullptr;
   int (*browser_popup_menu_reply)(int, int64_t, int) = nullptr;
+  // API version 31 (task 172): autofill, password and <datalist> suggestions
+  // as data, drawn by the app (shim_password_core.mm; suggestion_rows.h).
+  int (*browser_set_suggestion_handler)(int, const ForkSuggestionHandler*) = nullptr;
+  int (*browser_suggestion_action)(int, int64_t, int, int) = nullptr;
   // No API number yet (p13-webui-017; the fork train numbers it): its
   // presence says the fork honors CMUX_EXTRA_INFO_NO_RENDERER.
   int (*tab_renderer_state)(int) = nullptr;
@@ -357,6 +362,9 @@ void InstallExtensionUIHandlers();
 // so Chromium's bubble does not show (shim_password_core.mm).
 void InstallPasswordPromptHandler();
 void RemovePasswordPromptHandler();
+// A new browser's suggestions go to the app as SUGGESTIONS events while it
+// asked for them (cmux_shim_set_suggestion_events; shim_password_core.mm).
+void InstallSuggestionHandler(int browser_id);
 // The visible entry's virtual URL when it is chrome://newtab (the New Tab
 // page, which loads another URL), else `url`.
 std::string DisplayAddress(CefRefPtr<CefBrowser> browser, const std::string& url);

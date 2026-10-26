@@ -79,6 +79,7 @@
     case CMUX_SHIM_CURSOR:
     case CMUX_SHIM_DRAG_OPERATION:
     case CMUX_SHIM_TOOLTIP:
+    case CMUX_SHIM_SUGGESTIONS:
       return true;
   }
   return false;
@@ -568,6 +569,7 @@ class Client : public CefClient,
     int id = browser->GetIdentifier();
     browsers()[id] = browser;
     registrations_[id] = browser->GetHost()->AddDevToolsMessageObserver(this);
+    InstallSuggestionHandler(id);
     int request = request_;
     request_ = 0;
     int window = fork_api().tab_window_id ? fork_api().tab_window_id(id) : 0;
