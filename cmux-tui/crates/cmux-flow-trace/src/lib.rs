@@ -3,21 +3,32 @@
 //! host and the holder call; the ring does the work, so this crate has no ring, file or thread of
 //! its own.
 //!
-//! A hop is one record in category [`category::KEY`]:
+//! A hop is one record in category [`category::KEY`], or two for a hop that carries a flow id:
 //! - name: the hop name, interned in the ring at its first record ([`hop_name`]);
-//! - phase: [`Phase::FlowIn`] with arg1 the flow id when the hop carries one (the press arrived
-//!   here), else [`Phase::Instant`] with arg1 0 (a hop no message carries the id to, which trace.py
-//!   places by its terminal);
+//! - phase: a hop that carries the press's flow id is a step of that flow, Chrome's
+//!   `TRACE_EVENT_FLAG_FLOW_IN | TRACE_EVENT_FLAG_FLOW_OUT` (base/trace_event/trace_event.h;
+//!   `perfetto::Flow`, not `TerminatingFlow`, in perfetto/tracing/track_event_args.h): a
+//!   [`Phase::FlowIn`] record (the press arrived here), then a [`Phase::FlowOut`] record (it goes
+//!   on), both with arg1 the flow id. Every Rust hop is a middle step; only the app's last hop ends
+//!   the flow (a `FlowIn` with no `FlowOut`). A reader takes the `FlowIn`'s time as the hop's. A hop
+//!   no message carries the id to is one [`Phase::Instant`] with arg1 0, which trace.py places by
+//!   its terminal;
 //! - arg0: the terminal key, the first 8 bytes of its 16-byte id read big-endian ([`terminal_key`]),
 //!   the same number from a hex id (the daemon) and from the raw bytes (the host, the holder).
 //!
 //! The ring stamps the clock (`CLOCK_UPTIME_RAW` on macOS) and the thread. Off, a hop is one
 //! relaxed load and a branch; on, it is a ring write: no lock, allocation or system call.
 //!
-//! Flows are off until [`init`] finds `CMUX_TRACE_FLOWS` naming a directory (it then starts the
-//! process's recording there) or [`set_enabled`] turns them on for a recording already running.
-//! The key category is in the black box's defaults, so flows keep their own switch: per-key hops
-//! stay out of the black box unless someone asked for them.
+//! Hops record only while a recording runs ([`cmux_trace::recording`]) and flows are on. Flows turn
+//! on when [`init`] finds `CMUX_TRACE_FLOWS` naming a directory and starts the process's recording
+//! there, or when [`set_enabled`] turns them on for a recording someone else started. The key
+//! category is in the black box's defaults, so the recording gate keeps per-key hops out of the
+//! black box: after a `trace.stop` a hop writes nothing until the next recording starts.
+//!
+//! `CMUX_TRACE_FLOWS` means "the recording is a file in this directory". When it cannot be (the
+//! process's `main` started its black box in another directory, or the recording could not be
+//! mapped as a file), [`init`] stops a recording it started, writes one line to stderr and leaves
+//! flows off. Ring files are unix only until task p09-observability-132, so flows are too.
 //!
 //! std and libc only (cmux-trace is too): the holder (`cmux-holder`) links it.
 
@@ -31,7 +42,8 @@ use cmux_trace::{InternedName, Phase, Role, category};
 /// The key category's bit index: the `category` byte of every hop name.
 const KEY_BIT: u8 = category::KEY.trailing_zeros() as u8;
 
-/// Whether hops record (see the module doc). Off by default.
+/// Whether hops are wanted (see the module doc); they write only while a recording runs as well.
+/// Off by default.
 static FLOWS: AtomicBool = AtomicBool::new(false);
 /// What the first [`init`] found, so later calls neither read the environment nor start again.
 static INIT: OnceLock<bool> = OnceLock::new();
@@ -45,25 +57,67 @@ pub fn init() -> bool {
         let Some(dir) = std::env::var_os("CMUX_TRACE_FLOWS").filter(|dir| !dir.is_empty()) else {
             return false;
         };
-        start_in(Path::new(&dir), process_role())
+        match start_in(Path::new(&dir), process_role()) {
+            Ok(()) => true,
+            Err(why) => {
+                eprintln!("cmux-flow-trace: key-press flows are off: {why}");
+                false
+            }
+        }
     })
 }
 
 /// [`init`]'s work with the directory and role given: the black box, a key recording, and the
-/// switch on when the recording has a file a reader can open.
-fn start_in(dir: &Path, role: Role) -> bool {
+/// switch on. When the recording is not a file in `dir`, a recording this call started stops and
+/// the error says why.
+fn start_in(dir: &Path, role: Role) -> Result<(), String> {
+    if !cfg!(unix) {
+        return Err("cmux-trace maps ring files on unix only (task p09-observability-132)".into());
+    }
     // The ring-open thread runs on its own; a process never waits for its file.
     drop(cmux_trace::init_blackbox(dir, role, &[]));
     // `AlreadyRecording`: a `trace.start` came first, and its recording takes the hops.
-    let _ = cmux_trace::start_recording(category::KEY);
-    let recording =
-        cmux_trace::status().is_some_and(|status| status.recording && status.recording_file_backed);
-    FLOWS.store(recording, Ordering::Relaxed);
-    recording
+    let started = cmux_trace::start_recording(category::KEY).is_ok();
+    let problem = cmux_trace::status().map_or_else(
+        || Some("cmux-trace did not start".to_owned()),
+        |status| recording_problem(&status, dir),
+    );
+    match problem {
+        None => {
+            FLOWS.store(true, Ordering::Relaxed);
+            Ok(())
+        }
+        Some(problem) => {
+            if started {
+                let _ = cmux_trace::stop();
+            }
+            Err(problem)
+        }
+    }
 }
 
-/// The role this process's rings are named by, from its executable: the holder, a terminal host
-/// (its own binary, or `cmux-tui __terminal-host` on Linux), else the daemon.
+/// Why the recording `status` describes is not a file in `dir` a reader finds, if it is not.
+fn recording_problem(status: &cmux_trace::Status, dir: &Path) -> Option<String> {
+    if !status.recording {
+        return Some("no recording runs".to_owned());
+    }
+    if !status.recording_file_backed {
+        return Some(format!("the recording could not be mapped as a file in {}", dir.display()));
+    }
+    match status.recording_path.as_deref().and_then(Path::parent) {
+        Some(parent) if parent == dir => None,
+        Some(parent) => Some(format!(
+            "this process's recording is in {}, not in CMUX_TRACE_FLOWS {}",
+            parent.display(),
+            dir.display()
+        )),
+        None => Some("the recording has no path".to_owned()),
+    }
+}
+
+/// The role this process's rings are named by, from its executable and first argument: the holder
+/// (its own binary, or `__holder` of the host binary or of `cmux-tui`), a terminal host (its own
+/// binary, or `cmux-tui __terminal-host` on Linux), else the daemon.
 fn process_role() -> Role {
     let mut args = std::env::args_os();
     let exe = args.next();
@@ -73,7 +127,8 @@ fn process_role() -> Role {
 
 fn role_of(exe_stem: Option<&OsStr>, first_arg: Option<&OsStr>) -> Role {
     let stem = exe_stem.and_then(OsStr::to_str).unwrap_or("");
-    if stem.starts_with("cmux-holder") {
+    // `__holder` before the host binary's name: `cmux-tui-host __holder` is the holder.
+    if stem.starts_with("cmux-holder") || first_arg == Some(OsStr::new("__holder")) {
         Role::Holder
     } else if stem.starts_with("cmux-tui-host") || first_arg == Some(OsStr::new("__terminal-host"))
     {
@@ -83,22 +138,28 @@ fn role_of(exe_stem: Option<&OsStr>, first_arg: Option<&OsStr>) -> Role {
     }
 }
 
-/// Turns hops on or off for the recording that runs now (a `trace.start` with keys, its stop).
-/// Hops write only while the key category is on as well.
+/// Turns hops on or off for the recordings that run (a `trace.start` with keys, its stop). Hops
+/// write only while a recording runs and the key category is on as well.
 pub fn set_enabled(on: bool) {
     FLOWS.store(on, Ordering::Relaxed);
 }
 
 /// Whether hops are recorded in this process now.
 pub fn enabled() -> bool {
-    FLOWS.load(Ordering::Relaxed) && cmux_trace::enabled(category::KEY)
+    on() && cmux_trace::enabled(category::KEY)
+}
+
+/// The hop gate: flows wanted (one relaxed load, all a hop costs when off), then a recording runs.
+#[inline(always)]
+fn on() -> bool {
+    FLOWS.load(Ordering::Relaxed) && cmux_trace::recording()
 }
 
 /// Records hop `name` of flow `flow` (0: a hop no message carries the id to) on the terminal whose
 /// lowercase hex id is `terminal`. No allocation, lock or system call.
 #[inline]
 pub fn hop(name: &'static str, flow: u64, terminal: &str) {
-    if FLOWS.load(Ordering::Relaxed) {
+    if on() {
         write_hop(name, flow, terminal_key(terminal.as_bytes()));
     }
 }
@@ -106,17 +167,23 @@ pub fn hop(name: &'static str, flow: u64, terminal: &str) {
 /// [`hop`] for a terminal named by its 16 raw id bytes (the holder, the terminal host).
 #[inline]
 pub fn hop_id(name: &'static str, flow: u64, terminal: &[u8; 16]) {
-    if FLOWS.load(Ordering::Relaxed) {
+    if on() {
         let mut first = [0u8; 8];
         first.copy_from_slice(&terminal[..8]);
         write_hop(name, flow, u64::from_be_bytes(first));
     }
 }
 
+/// A hop's records: one instant with no flow id, else a flow step (see the module doc).
 #[inline(never)]
 fn write_hop(name: &'static str, flow: u64, terminal: u64) {
-    let phase = if flow == 0 { Phase::Instant } else { Phase::FlowIn };
-    cmux_trace::write_interned(category::KEY, hop_name(name), phase, 0, terminal, flow);
+    let name = hop_name(name);
+    if flow == 0 {
+        cmux_trace::write_interned(category::KEY, name, Phase::Instant, 0, terminal, 0);
+    } else {
+        cmux_trace::write_interned(category::KEY, name, Phase::FlowIn, 0, terminal, flow);
+        cmux_trace::write_interned(category::KEY, name, Phase::FlowOut, 0, terminal, flow);
+    }
 }
 
 /// Whether every hop recorded before the call can be read from the recording file: true while
@@ -228,6 +295,8 @@ mod tests {
     fn the_role_comes_from_the_executable() {
         let os = |text: &'static str| Some(OsStr::new(text));
         assert_eq!(role_of(os("cmux-holder"), None), Role::Holder);
+        assert_eq!(role_of(os("cmux-tui-host"), os("__holder")), Role::Holder);
+        assert_eq!(role_of(os("cmux-tui"), os("__holder")), Role::Holder);
         assert_eq!(role_of(os("cmux-tui-host"), os("--bootstrap-stdio")), Role::TerminalHost);
         assert_eq!(role_of(os("cmux-tui"), os("__terminal-host")), Role::TerminalHost);
         assert_eq!(role_of(os("cmux-tui"), os("serve")), Role::Daemon);

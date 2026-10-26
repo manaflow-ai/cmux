@@ -47,6 +47,7 @@ fn hops_are_ring_records_in_the_recording_and_allocate_nothing() {
     cmux_flow_trace::hop("daemon.send.write", 41, "00ff");
     let before = ALLOCATIONS.with(Cell::get);
     cmux_flow_trace::hop("daemon.send.write", 42, "00ff");
+    cmux_flow_trace::hop("daemon.send.written", 42, "00ff");
     cmux_flow_trace::hop_id("host.pty.write", 0, &[0xab; 16]);
     let after = ALLOCATIONS.with(Cell::get);
     assert_eq!(after - before, 0, "a hop allocated on the caller's thread");
@@ -60,28 +61,57 @@ fn hops_are_ring_records_in_the_recording_and_allocate_nothing() {
     assert_eq!(decoded.header.role, Role::Daemon as u16);
     assert_eq!(decoded.header.pid, std::process::id());
 
-    let hops: Vec<_> = decoded
+    let mut hops: Vec<_> = decoded
         .records
         .iter()
         .map(|record| (decoded.name(record.name).unwrap_or("?"), record))
-        .filter(|(name, _)| matches!(*name, "daemon.send.write" | "host.pty.write"))
+        .filter(|(name, _)| HOPS.contains(name))
         .collect();
-    assert_eq!(hops.len(), 3, "{:?}", hops.iter().map(|(name, _)| name).collect::<Vec<_>>());
-    let (name, sent) = hops[1];
-    assert_eq!(name, "daemon.send.write");
-    assert_eq!(sent.phase, Phase::FlowIn as u8);
-    assert_eq!(sent.arg1, 42);
+    hops.sort_by_key(|(_, record)| record.t_ns);
+    let shape: Vec<_> =
+        hops.iter().map(|(name, record)| (*name, record.phase, record.arg1)).collect();
+    // Each hop with the id is a flow step, FlowIn then FlowOut (none ends the press's flow); the
+    // hop without it is one instant.
+    let (step_in, step_out, instant) =
+        (Phase::FlowIn as u8, Phase::FlowOut as u8, Phase::Instant as u8);
+    assert_eq!(
+        shape,
+        [
+            ("daemon.send.write", step_in, 41),
+            ("daemon.send.write", step_out, 41),
+            ("daemon.send.write", step_in, 42),
+            ("daemon.send.write", step_out, 42),
+            ("daemon.send.written", step_in, 42),
+            ("daemon.send.written", step_out, 42),
+            ("host.pty.write", instant, 0),
+        ]
+    );
+    let (_, sent) = hops[2];
     assert_eq!(sent.arg0, 0x00ff_0000_0000_0000);
-    let (name, written) = hops[2];
-    assert_eq!(name, "host.pty.write");
-    assert_eq!(written.phase, Phase::Instant as u8);
-    assert_eq!(written.arg1, 0);
+    let (_, written) = hops[6];
     assert_eq!(written.arg0, 0xabab_abab_abab_abab);
     assert!(written.t_ns >= sent.t_ns && sent.t_ns > 0);
     let thread = decoded.thread_of(sent).expect("the hop names its thread");
     assert_ne!(thread.tid, 0);
 
+    // After a stop, the key category is still on for the black box, but a hop writes nothing.
+    cmux_trace::stop().expect("the recording stops");
+    assert!(!cmux_flow_trace::enabled(), "hops are on with no recording");
+    cmux_flow_trace::hop("daemon.send.write", 43, "00ff");
+    cmux_flow_trace::hop_id("holder.pty.read", 0, &[0xab; 16]);
+    let blackbox = decode(&cmux_trace::snapshot_active().unwrap()).expect("the black box decodes");
+    let leaked: Vec<_> = blackbox
+        .records
+        .iter()
+        .filter_map(|record| blackbox.name(record.name))
+        .filter(|name| HOPS.contains(name))
+        .collect();
+    assert!(leaked.is_empty(), "hops went to the black box: {leaked:?}");
+
     cmux_flow_trace::set_enabled(false);
     assert!(!cmux_flow_trace::enabled());
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+const HOPS: [&str; 4] =
+    ["daemon.send.write", "daemon.send.written", "host.pty.write", "holder.pty.read"];

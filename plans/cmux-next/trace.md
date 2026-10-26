@@ -159,14 +159,21 @@ Turned on by `CMUX_NEXT_TRACE_FLOWS=<dir>` on the app, which `trace.py record --
 inherited `CMUX*` variable that is not a `CMUX_NEXT_*` launch knob, so the daemon launch passes it on as
 `CMUX_TRACE_FLOWS` (`DaemonDiagnosticKnobs`, also `CMUX_NEXT_TUI_DEBUG_SPANS` as `CMUX_TUI_DEBUG_SPANS`); the
 terminal hosts and the holder inherit it from the daemon. Each of these processes calls `cmux_flow_trace::init()` at start (daemon `serve`, the
-terminal host's `serve_terminal_host_process`, the holder's `serve`), which opens `<dir>/flows-<pid>.jsonl` and
-starts the writer thread, so no hop opens a file or starts a thread. A hop never allocates, locks or enters
-the kernel: off, it is one load of an unset `OnceLock` (test `cmux-flow-trace/tests/off.rs`); on, it reads the
-clock (commpage) and its thread id and pushes a plain record (the terminal id as at most 32 bytes) into a fixed
-ring of 8192 slots (test `tests/records.rs` counts the caller's allocations). The marks in the terminal host and
-in the daemon's local-PTY path run before the writer and runtime locks. The writer drains the ring every 50 ms
-while tracing is on, or when a hop finds it half full (the only wake a hop sends). A full ring drops records and
-counts them (`flow records dropped` in the summary). The app's hops are `key.flow` signpost events.
+terminal host's `serve_terminal_host_process`, the holder's `serve`), which starts the process's black box and a
+recording of the `key` category in `<dir>` (`<role>-<pid>.recording.cmxtrace`, "Release trace ring v1"), so no
+hop opens a file or starts a thread. When the recording cannot be a file in `<dir>` (the process's `main` put its
+black box elsewhere, the file cannot be mapped, or the platform has no ring files yet: unix only until task
+p09-observability-132), `init` stops the recording it started, prints one stderr line and leaves flows off. A hop
+never allocates, locks or enters the kernel: off, it is one relaxed load (test `cmux-flow-trace/tests/off.rs`);
+on, it is a ring write (test `tests/records.rs` counts the caller's allocations). Hops write only while a
+recording runs: `key` is a black-box category, but after `trace.stop` no hop goes to the black box. A hop is one
+ring record in category `key` with arg0 the terminal key (the first 8 id bytes, big-endian). A hop with a flow id
+is a flow step, Chrome's `TRACE_EVENT_FLAG_FLOW_IN | TRACE_EVENT_FLAG_FLOW_OUT`: a `f` record and then a `s`
+record with arg1 the flow id. Only the app's last hop ends the flow (`f` alone); a reader takes the `f` time as
+the hop's. A hop with no flow id is one `I` record with arg1 0. The marks in the terminal host and in the daemon's
+local-PTY path run before the runtime locks. The app's hops are `key.flow` signpost events. Until trace.py reads
+v1 rings (task p09-observability-023), `trace.py` stops with an error when `OUT/flows` holds only `.cmxtrace`
+files.
 
 | Hop | Process, thread | Carries |
 |---|---|---|

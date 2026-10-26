@@ -423,6 +423,11 @@ impl Tracer {
         Ok(self.status())
     }
 
+    /// Whether a recording runs now (between a `start_recording` and its `stop`): one load.
+    pub fn recording(&self) -> bool {
+        self.control.load(Ordering::Relaxed) == RECORDING
+    }
+
     pub fn status(&self) -> Status {
         let active = self.active_ring();
         let recording = self.recording.get();

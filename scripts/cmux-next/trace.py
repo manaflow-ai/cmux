@@ -2169,7 +2169,13 @@ def read_flow_records(out):
     and the dropped counts each process reported."""
     records, dropped = [], {}
     folder = os.path.join(out, "flows")
-    for name in sorted(os.listdir(folder)) if os.path.isdir(folder) else []:
+    names = sorted(os.listdir(folder)) if os.path.isdir(folder) else []
+    if any(name.endswith(".cmxtrace") for name in names) and not any(name.endswith(".jsonl") for name in names):
+        # cmux-flow-trace writes its hops into v1 trace rings (p09-observability-011); this reader
+        # knows only flows-<pid>.jsonl until the v1 reader lands (p09-observability-023).
+        raise SystemExit(f"trace: {folder} holds v1 trace rings (*.cmxtrace), which this trace.py cannot read yet "
+                         "(p09-observability-023); key-press flows would assemble nothing")
+    for name in names:
         with open(os.path.join(folder, name), errors="replace") as f:
             for line in f:
                 try:
