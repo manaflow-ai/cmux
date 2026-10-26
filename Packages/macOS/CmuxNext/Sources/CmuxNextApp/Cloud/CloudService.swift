@@ -508,6 +508,9 @@ final class CloudService {
     var willSignOut: [@MainActor () -> Void] = []
 
     func signOut() async {
+        // Start-session asks and runs end now, not after the link and install cleanup below.
+        startSessionRuns.forgetAll()
+        startSessionAsks.endAll()
         for hook in willSignOut { hook() }
         AgentPaneTailCache.shared.clear() // the panes' chat tails: memory only, forgotten whole
         // No ensure starts from here until the session's final endLink (the
