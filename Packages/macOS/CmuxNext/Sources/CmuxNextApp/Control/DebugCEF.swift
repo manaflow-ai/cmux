@@ -50,6 +50,8 @@ enum DebugCEF {
         if let pump = services.cache.cef.pumpStats { object["pump"] = pumpReport(pump) }
         object["tracker"] = trackerReport(services.cache.cef.trackerStats)
         object["windows"] = windows(services.cache.cef.windowReport)
+        // Host mode with feature chromiumHostWidgets (p01-process-066): null without a widget host.
+        object["host_widgets"] = services.cache.cef.hostWidgets.map { .array($0.map(hostWidget)) } ?? .null
         if let duration = report.loadDuration { object["load_ms"] = .number(milliseconds(duration)) }
         if let duration = report.initializeDuration { object["initialize_ms"] = .number(milliseconds(duration)) }
         if let seconds = report.readyAfterLaunch { object["ready_after_launch_s"] = .number(seconds) }
@@ -121,6 +123,12 @@ enum DebugCEF {
             "process_reuse_per_renderer_devtools": .bool(report.processReusePerRendererDevTools),
             "popup_windows": .array(report.popupWindows.map { .string($0) }),
         ])
+    }
+
+    /// One widget the Chromium host shows in cmux: its kind, ids and where it is on screen.
+    private static func hostWidget(_ widget: CEFHostWidgetReport) -> JSONValue {
+        .object(["kind": .string(widget.kind), "widget": .number(Double(widget.widget)), "owner": .number(Double(widget.owner)),
+                 "context_id": .number(Double(widget.contextID)), "shown": .bool(widget.shown), "frame": rect(widget.screenFrame)])
     }
 
     private static func rect(_ rect: CGRect) -> JSONValue {
