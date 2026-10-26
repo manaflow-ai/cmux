@@ -9,7 +9,8 @@ struct LaunchSignpostsTests {
     private let launchOrder = [
         "main_start", "main.environment_frozen", "main.warmup_started", "main.app_environment", "main.launch_reads",
         "main.prestart", "main.delegate", "main.nsapp", "main.run",
-        "did_finish_launching_start", "dfl.settings_wait", "dfl.settings_read", "dfl.theme", "services.crash_reporting", "services.cache",
+        "did_finish_launching_start", "dfl.settings_wait", "dfl.settings_read", "dfl.theme",
+        "crash.sentry_start", "crash.sentry_started", "services.crash_reporting", "services.cache",
         "services.windows", "services.palette_updater", "dfl.services", "dfl.bind", "dfl.settings", "dfl.menu",
         "daemon.binary_resolved", "dfl.daemon_cloud_updater", "dfl.first_window_hooks", "dfl.home_history",
         "launch_snapshot_shown", "dfl.windows", "did_finish_launching_end", "first_window_frame_committed",

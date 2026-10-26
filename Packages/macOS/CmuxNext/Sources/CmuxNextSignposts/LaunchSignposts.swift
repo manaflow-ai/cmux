@@ -30,6 +30,8 @@ public nonisolated struct LaunchSignposts: Sendable {
         case windowBuild = 4
         /// `dfl.windows` to `first_window_frame_committed`: the built window to its first committed frame.
         case firstCommit = 5
+        /// `crash.sentry_start` to `crash.sentry_started`: `SentrySDK.start` on main (p08-startup-032).
+        case sentryStart = 6
 
         /// The interval's signpost name.
         public var name: StaticString {
@@ -39,6 +41,7 @@ public nonisolated struct LaunchSignposts: Sendable {
             case .appServices: "launch.app_services"
             case .windowBuild: "launch.window_build"
             case .firstCommit: "launch.first_commit"
+            case .sentryStart: "launch.sentry_start"
             }
         }
 
@@ -50,6 +53,7 @@ public nonisolated struct LaunchSignposts: Sendable {
             case .appServices: "dfl.theme"
             case .windowBuild: "dfl.home_history"
             case .firstCommit: "dfl.windows"
+            case .sentryStart: "crash.sentry_start"
             }
         }
 
@@ -61,6 +65,7 @@ public nonisolated struct LaunchSignposts: Sendable {
             case .appServices: "dfl.services"
             case .windowBuild: "dfl.windows"
             case .firstCommit: "first_window_frame_committed"
+            case .sentryStart: "crash.sentry_started"
             }
         }
 
@@ -82,6 +87,8 @@ public nonisolated struct LaunchSignposts: Sendable {
             case "dfl.home_history": (nil, .windowBuild)
             case "dfl.windows": (.windowBuild, .firstCommit)
             case "first_window_frame_committed": (.firstCommit, nil)
+            case "crash.sentry_start": (nil, .sentryStart)
+            case "crash.sentry_started": (.sentryStart, nil)
             default: (nil, nil)
             }
         }
