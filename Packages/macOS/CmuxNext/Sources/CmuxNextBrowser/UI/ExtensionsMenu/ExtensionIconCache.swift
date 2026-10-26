@@ -43,7 +43,9 @@ final class ExtensionIconCache {
     /// nothing.
     private func downsampled(_ image: NSImage) -> NSImage {
         let pixels = Int(side * 2)
-        guard let rep = NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: pixels, pixelsHigh: pixels, bitsPerSample: 8,
+        // SAFETY: `bitmapDataPlanes` is nil, so AppKit allocates the pixel buffer and frees it with
+        // the rep; the drawing below reaches it only through NSGraphicsContext.
+        guard let rep = unsafe NSBitmapImageRep(bitmapDataPlanes: nil, pixelsWide: pixels, pixelsHigh: pixels, bitsPerSample: 8,
                                          samplesPerPixel: 4, hasAlpha: true, isPlanar: false, colorSpaceName: .deviceRGB,
                                          bytesPerRow: 0, bitsPerPixel: 0),
               let context = NSGraphicsContext(bitmapImageRep: rep) else {

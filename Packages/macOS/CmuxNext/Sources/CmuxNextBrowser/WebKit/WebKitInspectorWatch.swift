@@ -44,15 +44,7 @@ public final class WebKitInspectorWatch: NSObject {
     }
 
     private func read() {
-        let visible = Self.inspector(of: webView).map { $0.value(forKey: "visible") as? Bool ?? false } ?? false
+        let visible = webView.map { WebKitInspector.isVisible(of: $0) } ?? false
         if visible != isVisible { isVisible = visible }
-    }
-
-    private static func inspector(of webView: WKWebView?) -> NSObject? {
-        let selector = NSSelectorFromString("_inspector")
-        guard let webView, webView.responds(to: selector),
-              let inspector = webView.perform(selector)?.takeUnretainedValue() as? NSObject,
-              inspector.responds(to: NSSelectorFromString("isVisible")) else { return nil }
-        return inspector
     }
 }
