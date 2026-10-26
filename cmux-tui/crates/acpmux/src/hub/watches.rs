@@ -25,8 +25,6 @@ pub struct Watch {
     pub active: bool,
     pub cursors: BTreeMap<String, watch_events::Cursor>,
     pub offline: BTreeSet<String>,
-    #[serde(default)]
-    pub retry_count: u8,
 }
 
 impl Watch {
@@ -45,10 +43,21 @@ struct Inner {
     saved: Saved,
     path: Option<PathBuf>,
 }
-#[derive(Default)]
 pub struct Watches {
     inner: Mutex<Inner>,
     wake: Notify,
+    running: Mutex<BTreeMap<(String, String), bool>>,
+    slots: Arc<tokio::sync::Semaphore>,
+}
+impl Default for Watches {
+    fn default() -> Self {
+        Self {
+            inner: Mutex::default(),
+            wake: Notify::new(),
+            running: Mutex::default(),
+            slots: Arc::new(tokio::sync::Semaphore::new(8)),
+        }
+    }
 }
 impl Watches {
     pub(super) fn peer_settled(&self) {
@@ -168,115 +177,140 @@ pub(super) fn summary(hub: &Hub, key: &str) -> Value {
         json!({"status": "closed", "missing": true})
     }
 }
+// Checkpoint each successful page together with its wakes. Concurrent sources merge
+// only their own cursor; a stale reader cannot resurrect a removed/resolved watch.
+fn commit(
+    hub: &Hub,
+    old: &Watch,
+    next: &Watch,
+    key: &str,
+    lines: Vec<String>,
+    resolved: bool,
+) -> Result<(), RpcError> {
+    if old.cursors == next.cursors && old.offline == next.offline && lines.is_empty() {
+        return Ok(());
+    }
+    hub.watches.change(|saved| {
+        let Some(w) = saved.watches.get_mut(&old.id) else { return };
+        if !w.active || w.cursors.get(key) != old.cursors.get(key) { return; }
+        if !resolved && key.split_once('/').is_some_and(|(p, _)| next.offline.contains(p) && w.offline.contains(p)) { return; }
+        w.cursors.insert(key.into(), next.cursors[key].clone());
+        if let Some((peer, _)) = key.split_once('/') {
+            if next.offline.contains(peer) { w.offline.insert(peer.into()); }
+            else { w.offline.remove(peer); }
+        }
+        if resolved { w.active = false; }
+        if !lines.is_empty() {
+            let id = uuid::Uuid::now_v7().to_string();
+            let now = crate::store::now_ms();
+            let request = json!({"sessionId": w.to, "prompt": [{"type": "text", "text": format!("acpmux watch {}:\n{}", w.id, lines.join("\n\n"))}],
+                "_meta": {"acpmux": {"promptId": id, "resend": true, "steer": true,
+                    "watchId": w.id, "watchDone": resolved}}});
+            saved.pending.insert(id.clone(), Delivery { id, target: w.to.clone(), request,
+                caller: w.caller.clone(), state: State::Queued, attempts: 0, error: None,
+                accepted: None, created_at: now, updated_at: now });
+        }
+    })
+}
+fn snapshot(hub: &Hub) -> Vec<Watch> {
+    let inner = hub.watches.inner.lock().unwrap_or_else(|e| e.into_inner());
+    inner.saved.watches.values().filter(|w| w.active).cloned().collect()
+}
+async fn page(hub: &Hub, id: &str, key: &str) -> Result<bool, RpcError> {
+    let Some(old) = snapshot(hub).into_iter().find(|w| w.id == id) else { return Ok(false) };
+    let mut next = old.clone();
+    let s = summary(hub, key);
+    if s["stale"] == true || s["status"] == "unreachable" {
+        let peer = key.split('/').next().unwrap_or(key);
+        if hub.peer(peer).is_some_and(|p| p.link().down_since.is_some())
+            && next.offline.insert(peer.into())
+        {
+            commit(
+                hub,
+                &old,
+                &next,
+                key,
+                vec![format!(
+                    "Peer {peer} is offline; this does not resolve the watch. Run acpmux host doctor {peer} --json."
+                )],
+                false,
+            )?;
+        }
+        return Ok(false);
+    }
+    if let Some((peer, _)) = key.split_once('/') {
+        next.offline.remove(peer);
+    }
+    let (rows, more) = watch_events::collect(hub, &mut next, key).await?;
+    let resolved = !rows.is_empty();
+    commit(hub, &old, &next, key, rows, resolved)?;
+    Ok(more && !resolved)
+}
+// Called before local deletion too: no peer I/O can delay saving an owed wake.
+pub(super) async fn before_purge(hub: &Hub, key: &str) -> Result<(), RpcError> {
+    for w in snapshot(hub).into_iter().filter(|w| w.sessions.iter().any(|s| s == key)) {
+        while page(hub, &w.id, key).await? {}
+    }
+    hub.watches.wake.notify_one();
+    Ok(())
+}
 async fn reconcile(hub: &Arc<Hub>) -> Result<(), RpcError> {
-    let watches = hub.watches.inner.lock().unwrap_or_else(|e| e.into_inner()).saved.watches.clone();
-    let mut ordered: Vec<_> = watches.into_values().filter(|w| w.active).collect();
-    // Watches with local sources are reconciled before peer-only watches, so a
-    // slow remote cannot postpone an unrelated local wake.
-    ordered.sort_by_key(|w| w.sessions.iter().all(|key| key.contains('/')));
-    let mut retry_needed = false;
-    for mut w in ordered {
-        let old = json!(w);
-        let mut lines = Vec::new();
-        let mut resolved = false;
-        let mut keys = w.sessions.clone();
-        // Local journals are cheap and must wake promptly even when a peer is slow.
-        keys.sort_by_key(|key| key.contains('/'));
-        for key in keys {
-            let s = summary(hub, &key);
-            if s["stale"] == true || s["status"] == "unreachable" {
-                let peer = key.split('/').next().unwrap_or(&key);
-                if hub.peer(peer).is_some_and(|p| p.link().down_since.is_none()) {
-                    continue;
-                }
-                if w.offline.insert(peer.to_owned()) {
-                    lines.push(format!("Peer {peer} is offline; this does not resolve the watch. Run acpmux host doctor {peer} --json."));
-                }
+    let watches = snapshot(hub);
+    for w in &watches {
+        for key in w.sessions.iter().filter(|k| !k.contains('/')) {
+            while page(hub, &w.id, key).await? {}
+        }
+    }
+    drain(hub, true); // Dispatch local wakes before starting any remote read.
+    for w in watches {
+        for key in w.sessions.into_iter().filter(|k| k.contains('/')) {
+            let job = (w.id.clone(), key);
+            let mut running = hub.watches.running.lock().unwrap_or_else(|e| e.into_inner());
+            if running.insert(job.clone(), true).is_some() {
                 continue;
             }
-            if let Some((peer, _)) = key.split_once('/') {
-                w.offline.remove(peer);
-            }
-            let checkpoint = w.cursors.get(&key).cloned();
-            let collected = if key.contains('/') {
-                match tokio::time::timeout(
-                    std::time::Duration::from_millis(250),
-                    watch_events::collect(hub, &mut w, &key),
-                )
-                .await
-                {
-                    Ok(result) => result,
-                    Err(_) => Err(RpcError::internal("peer watch read timed out")),
-                }
-            } else {
-                watch_events::collect(hub, &mut w, &key).await
-            };
-            match collected {
-                Ok(rows) => {
-                    // A successful read, including a no-op page, proves the source is
-                    // reachable again. Do not let an earlier burst of timeouts strand
-                    // this watch's future retries.
-                    w.retry_count = 0;
-                    resolved |= !rows.is_empty();
-                    lines.extend(rows);
-                }
-                Err(e) => {
-                    // A failed peer read must neither consume its cursor nor block local wakes.
-                    if let Some(c) = checkpoint {
-                        w.cursors.insert(key.clone(), c);
+            let hub = Arc::clone(hub);
+            tokio::spawn(async move {
+                let mut failures = 0u32;
+                loop {
+                    hub.watches
+                        .running
+                        .lock()
+                        .unwrap_or_else(|e| e.into_inner())
+                        .insert(job.clone(), false);
+                    let permit = tokio::select! {
+                        () = hub.shutdown.notified() => break,
+                        p = hub.watches.slots.acquire() => p.unwrap(),
+                    };
+                    let result = tokio::select! {
+                        () = hub.shutdown.notified() => break,
+                        result = page(&hub, &job.0, &job.1) => result,
+                    };
+                    drop(permit);
+                    match result {
+                        Ok(more) => {
+                            drain(&hub, false);
+                            failures = 0;
+                            let mut jobs =
+                                hub.watches.running.lock().unwrap_or_else(|e| e.into_inner());
+                            if !more && jobs.get(&job) == Some(&false) {
+                                jobs.remove(&job);
+                                return;
+                            }
+                        }
+                        Err(e) => {
+                            tracing::warn!("watch {} source {}: {e}", job.0, job.1);
+                            failures = (failures + 1).min(6);
+                            tokio::select! {
+                                () = hub.shutdown.notified() => break,
+                                () = tokio::time::sleep(std::time::Duration::from_millis(250 << (failures - 1))) => {}
+                            }
+                        }
                     }
-                    w.retry_count = w.retry_count.saturating_add(1);
-                    retry_needed = true;
-                    tracing::warn!("watch {} source {key}: {e}", w.id);
                 }
-            }
+                hub.watches.running.lock().unwrap_or_else(|e| e.into_inner()).remove(&job);
+            });
         }
-        if w.once && resolved {
-            w.active = false;
-        }
-        if old == json!(w) {
-            continue;
-        }
-        hub.watches.change(|saved| {
-            // rm while a peer reply was in flight must not resurrect the watch.
-            if !saved.watches.contains_key(&w.id) { return; }
-            if !lines.is_empty() {
-                let id = uuid::Uuid::now_v7().to_string();
-                let now = crate::store::now_ms();
-                let request = json!({"sessionId": w.to, "prompt": [{"type": "text", "text": format!("acpmux watch {}:\n{}", w.id, lines.join("\n\n"))}],
-                    "_meta": {"acpmux": {"promptId": id, "resend": true, "steer": true,
-                        "watchId": w.id, "watchDone": w.once && resolved}}});
-                saved.pending.insert(id.clone(), Delivery { id, target: w.to.clone(), request,
-                    caller: w.caller.clone(), state: State::Queued, attempts: 0, error: None,
-                    accepted: None, created_at: now, updated_at: now });
-            }
-            saved.watches.insert(w.id.clone(), w);
-        })?;
-    }
-    drain(hub, true);
-    if retry_needed {
-        let retry_hub = Arc::clone(hub);
-        tokio::spawn(async move {
-            // A retry is armed only after an actual read error; normal watches are
-            // driven solely by hub events, with no polling timer. Back off repeated
-            // failures so a down peer cannot create a tight loop, while a later
-            // successful no-op read resets the counter above.
-            let failures = retry_hub
-                .watches
-                .inner
-                .lock()
-                .unwrap_or_else(|e| e.into_inner())
-                .saved
-                .watches
-                .values()
-                .map(|w| w.retry_count)
-                .max()
-                .unwrap_or(1)
-                .min(6);
-            let delay_ms = 250u64 << failures.saturating_sub(1);
-            tokio::time::sleep(std::time::Duration::from_millis(delay_ms)).await;
-            retry_hub.watches.wake.notify_one();
-        });
     }
     Ok(())
 }

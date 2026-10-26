@@ -132,10 +132,11 @@ resumes held queued prompts; it is not a machine-resume command.
 The daemon supports durable wake subscriptions through the local socket methods
 `_acpmux/watch_add`, `_acpmux/watch_ls`, and `_acpmux/watch_rm` (`durable-watches-v1`).
 Add takes `to`, explicit nonempty `sessions` (including `HOST/name`), `until`, optional
-`match`, and `once` (default true). It delivers batched ordinary messages with reply excerpts
+`match`, and `once` (only true is supported). It delivers batched ordinary messages with reply excerpts
 and inspection commands. Watches and undelivered messages survive restart; an offline peer
 produces one notice without resolving. Failed deliveries remain visible in the list and retry
-on a relevant session/peer change or restart. See the acpmux wire schema for the contract.
+on a relevant session/peer change or restart. A one-shot watch is removed after delivery.
+The CLI and MCP watch tools are not exposed yet; `acpmux wait` remains the script interface.
 
 ## Use cmux Cloud
 

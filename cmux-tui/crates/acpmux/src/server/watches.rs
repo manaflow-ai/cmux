@@ -39,6 +39,9 @@ pub(super) async fn handle(
             hub.wait_logs().await;
             let mut a: Add = serde_json::from_value(params.clone())
                 .map_err(|e| RpcError::invalid_params(e.to_string()))?;
+            if a.once == Some(false) {
+                return Err(RpcError::invalid_params("recurring watches are not supported yet"));
+            }
             if a.sessions.is_empty() {
                 return Err(RpcError::invalid_params(
                     "watch needs at least one session; run acpmux ls",
@@ -88,7 +91,6 @@ pub(super) async fn handle(
                 active: true,
                 cursors,
                 offline: Default::default(),
-                retry_count: 0,
             })
         }
     }

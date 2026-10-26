@@ -7,7 +7,7 @@ use crate::server::wait::Until;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
-#[derive(Clone, Debug, Default, Serialize, Deserialize)]
+#[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
 pub struct Cursor {
     pub seq: u64,
     pub initial: Option<Value>,
@@ -55,7 +55,7 @@ fn selected(until: &[String], s: &Value) -> Option<&'static str> {
 }
 /// Each candidate is journal-backed. Two turns ending between handler runs
 /// yield two entries; a later turn cannot hide an earlier permission/resolve.
-pub async fn collect(hub: &Hub, w: &mut Watch, key: &str) -> Result<Vec<String>, RpcError> {
+pub async fn collect(hub: &Hub, w: &mut Watch, key: &str) -> Result<(Vec<String>, bool), RpcError> {
     let s = summary(hub, key);
     let c = w
         .cursors
@@ -64,16 +64,19 @@ pub async fn collect(hub: &Hub, w: &mut Watch, key: &str) -> Result<Vec<String>,
     let mut found = Vec::new();
     let mut candidates = Vec::new();
     let end = s["lastSeq"].as_u64().unwrap_or(c.seq);
-    loop {
+    {
         let events: Vec<crate::store::EventRecord> = if let Ok(local) = hub.resolve(key) {
             hub.events(&local.id, c.seq, 256).map_err(|e| RpcError::internal(e.to_string()))?
         } else if let Some((peer, id, _)) = hub.resolve_remote(key) {
-            let page = peer
-                .request(
+            let page = tokio::time::timeout(
+                std::time::Duration::from_millis(250),
+                peer.request(
                     method::MUX_EVENTS,
                     json!({"sessionId": id, "afterSeq": c.seq, "limit": 256}),
-                )
-                .await?;
+                ),
+            )
+            .await
+            .map_err(|_| RpcError::internal("peer watch page timed out"))??;
             serde_json::from_value(page["events"].clone())
                 .map_err(|e| RpcError::internal(format!("watch events: {e}")))?
         } else {
@@ -160,8 +163,8 @@ pub async fn collect(hub: &Hub, w: &mut Watch, key: &str) -> Result<Vec<String>,
             emit(w.match_text.is_some(), key, &s, c, &mut candidates, &mut found);
         }
         emit(w.match_text.is_some(), key, &s, c, &mut candidates, &mut found);
-        if c.seq == before || c.seq >= end {
-            break;
+        if c.seq > before && c.seq < end {
+            return Ok((found, true));
         }
     }
     if c.await_fresh {
@@ -176,7 +179,7 @@ pub async fn collect(hub: &Hub, w: &mut Watch, key: &str) -> Result<Vec<String>,
     {
         emit(w.match_text.is_some(), key, &s, c, &mut vec![(state, "closed".into())], &mut found);
     }
-    Ok(found)
+    Ok((found, false))
 }
 fn initial(until: &[String], filtered: bool, key: &str, c: &mut Cursor, found: &mut Vec<String>) {
     if let Some(s) = c.initial.take()

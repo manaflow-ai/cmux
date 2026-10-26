@@ -54,6 +54,10 @@ async fn watch_rpc_refuses_remote_origins_self_and_invalid_parameters() {
         }
     }
     for (params, expected) in [
+        (
+            json!({"to": id, "sessions": [id], "once": false}),
+            "recurring watches are not supported yet",
+        ),
         (json!({"to": id, "sessions": [id]}), "cannot watch itself"),
         (json!({"to": id, "sessions": []}), "at least one session"),
         (json!({"sessions": [id]}), "to is required"),

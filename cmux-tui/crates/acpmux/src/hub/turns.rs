@@ -1192,6 +1192,7 @@ impl Hub {
         // The session's Claude Code MCP config holds the helper token.
         crate::agent_tools::remove_mcp_config(&crate::config::home(), &session.id);
         if purge {
+            super::watches::before_purge(self, &session.id).await?;
             session.purged.store(true, Ordering::SeqCst);
             let replaced = session.replaced.load(Ordering::SeqCst);
             self.sessions.lock().unwrap().remove(&session.id);
