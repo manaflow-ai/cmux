@@ -248,8 +248,8 @@ fn segments(script: &str) -> Option<Vec<Vec<String>>> {
     let mut in_word = false;
     let mut chars = script.chars().peekable();
     let end = |segs: &mut Vec<Vec<String>>, word: &mut String, in_word: &mut bool| {
-        if *in_word {
-            segs.last_mut().unwrap().push(std::mem::take(word));
+        if *in_word && let Some(last) = segs.last_mut() {
+            last.push(std::mem::take(word));
         }
         *in_word = false;
     };
