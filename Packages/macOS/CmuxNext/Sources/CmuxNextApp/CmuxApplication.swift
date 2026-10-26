@@ -40,6 +40,9 @@ import os
 ///   run never takes focus from the user's frontmost app.
 final class CmuxApplication: NSApplication, CEFAppProtocol {
     private var handlingSendEvent = false
+    /// The event in dispatch reached AppKit's `sendEvent` (no cmux stage consumed it): the tap's
+    /// dispatch-end outcome. A nested dispatch keeps its own and gives the outer one back.
+    private var dispatchDelivered = false
     /// Set once in `CmuxNextApp.shared.main` before `run()`.
     var refusesActivation = false
     /// Set once by `AppServices`. Gets the key-down and the window it goes
@@ -106,8 +109,12 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
 
     // perf-hot: 100ns main-turn (every event's dispatch: the turn meter's input span)
     override func sendEvent(_ event: NSEvent) {
-        guard let turnMeter else { return tapped(event, dispatchedNanos: nil) }
-        turnMeter.stampedInputDispatch { tapped(event, dispatchedNanos: $0) }
+        let outerDelivered = dispatchDelivered
+        dispatchDelivered = false
+        defer { dispatchDelivered = outerDelivered }
+        if let turnMeter { turnMeter.stampedInputDispatch { tapped(event, dispatchedNanos: $0) } } else { tapped(event, dispatchedNanos: nil) }
+        // Every path, outside the turn meter's input span and the tap's dispatch scope.
+        inputTap?.deliverDispatchEnd(event, outcome: dispatchDelivered ? .delivered : .consumed)
     }
 
     private func tapped(_ event: NSEvent, dispatchedNanos: UInt64?) {
@@ -166,6 +173,7 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
         if event.type == .keyDown, let keyDownInterceptor, keyDownInterceptor(event, keyWindow ?? event.window) { return }
         if event.type == .keyDown, FindPillView.forwardArrowKeyDown(event, in: keyWindow ?? event.window) { return }
         if inputTap?.deliverIntercepts(event) != .consume {
+            dispatchDelivered = true
             if event.type == .leftMouseDown || event.type == .leftMouseUp {
                 BenchSpans.measure(event.type == .leftMouseDown ? "app.sendEvent.down" : "app.sendEvent.up") { super.sendEvent(event) }
             } else {

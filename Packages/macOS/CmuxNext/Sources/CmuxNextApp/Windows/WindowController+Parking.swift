@@ -12,9 +12,11 @@ extension WindowController {
     }
 
     /// Critical memory pressure without the parked budget: the parked workspaces leave (views, panes,
-    /// observations; their terminal surfaces already left the warm set) and mount again when shown, with
-    /// their view-only state (strip and screen bar scroll) reset. The ones the window keeps stay
-    /// (``keepsParkedWorkspace(_:)``). With the budget, its memory consumer releases them one per slice.
+    /// observations; their terminal surfaces already left the warm set) and mount again when shown, as they
+    /// were: each leaves its `WorkspaceViewRecord` (strip, row, area, tab strip and screen bar scrolls), which
+    /// the mount applies before its first frame; its tab selections and focused pane stay in this window's
+    /// memory. The ones the window keeps stay (``keepsParkedWorkspace(_:)``). With the budget, its memory
+    /// consumer releases them one per slice.
     func releaseParked() {
         for id in Array(parked.keys) where !keepsParkedWorkspace(id) { discardParkedWorkspace(id) }
     }
@@ -43,6 +45,7 @@ extension WindowController: ParkedWorkspaceHolder {
     @discardableResult
     func discardParkedWorkspace(_ id: String) -> Bool {
         guard let controller = unpark(id) else { return false }
+        unmountedViews[id] = controller.viewRecord()
         controller.teardown()
         return true
     }

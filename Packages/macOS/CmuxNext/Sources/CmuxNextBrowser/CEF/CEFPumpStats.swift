@@ -1,3 +1,4 @@
+public import CmuxNextInputCore
 import Foundation
 
 /// Counters of the external message pump since `CefInitialize` (`debug.cef`
@@ -32,6 +33,50 @@ public nonisolated struct CEFPumpStats: Equatable, Sendable {
     /// its one pass for that frame (`RenderStarvationGuard`); each runs after
     /// the late link's tick.
     public var lateFrameHolds = 0
+    /// Passes that ran while a person's input was pending (``CEFPumpInputPolicy``): by the target of
+    /// the dispatched input that released them, and those the one-refresh bound released. DC2 reads
+    /// every bucket but `chromiumPage` as 0.
+    public var passesWhileInputPending = PassesByTarget()
+    /// Passes the input policy held until an input's dispatch ended (one per hold).
+    public var deferredForInput = 0
+    /// Each pass's main-thread time while the input policy runs.
+    public var passTimes = InputLatencyHistogram()
+
+    /// One pass's main-thread time at the 99th percentile in milliseconds, 0 before any pass.
+    public var passMillisecondsP99: Double {
+        passTimes.percentileNanos(0.99).map { Double($0) / 1_000_000 } ?? 0
+    }
 
     public init() {}
+
+    /// Pass counts while input was pending, per input target.
+    public nonisolated struct PassesByTarget: Equatable, Sendable {
+        /// Indexed by `InputTarget.rawValue`.
+        private var counts = [Int](repeating: 0, count: InputTarget.allCases.count)
+        /// Passes the one-refresh bound released with input still pending: that input was not
+        /// dispatched yet, so its target is unknown.
+        public var boundExpired = 0
+
+        public init() {}
+
+        /// Passes released right after an input to `target` was dispatched, with more input pending.
+        /// Only `chromiumPage` is expected: Chromium acks its input inside the pump.
+        public subscript(target: InputTarget) -> Int {
+            counts[Int(target.rawValue)]
+        }
+
+        /// The counts by target name (`terminal`, `chromiumPage`, ...) and `boundExpired`
+        /// (`debug.cef`, `debug.input`).
+        public var byName: [String: UInt64] {
+            var names = ["boundExpired": UInt64(clamping: boundExpired)]
+            for target in InputTarget.allCases {
+                names[String(describing: target)] = UInt64(clamping: counts[Int(target.rawValue)])
+            }
+            return names
+        }
+
+        mutating func add(_ target: InputTarget) {
+            counts[Int(target.rawValue)] += 1
+        }
+    }
 }

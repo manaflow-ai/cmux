@@ -70,6 +70,9 @@ public final class MainFrameBudget {
     /// (``MainTurnMeter``). The composition root makes it observe the main run loop.
     public let turns: MainTurnMeter
     private let input: any InputPendingSource
+    /// The app's one pending-input source, which the budget's yields read: other main-thread work that
+    /// yields to the person's input (the in-process CEF pump) reads the same one.
+    public var pendingInput: any InputPendingSource { input }
     /// The budget's clock; ``ObservationCauses`` times the input-response pass's cap on it.
     let uptimeNanos: () -> UInt64
     /// The budget's clock where any thread may read it (`CLOCK_UPTIME_RAW` in the app, or an

@@ -26,7 +26,11 @@ public struct MainPostSite: Sendable {
 ///
 /// The first post after idle (no display link, no turn queued) runs on the next main run loop
 /// turn when its class may run then, without waiting for a frame; work left after that turn, and
-/// work posted while frames run, waits for the next frame.
+/// work posted while frames run, waits for the next frame. Automation work also runs on the next
+/// turn while frames run: an agent's or the CLI's request and reply are sequential, and Chrome's
+/// sequence manager runs the next runnable task on the next pump iteration, never on vsync
+/// (base/task/sequence_manager/thread_controller_with_message_pump_impl.cc). Only pending input or
+/// its spent budget (``MainFrameBudget/mayRun(_:)``) holds it for a frame.
 ///
 /// ```swift
 /// mainWork.post(.automation, owner: "browser-host.open") { host.open(url) }
@@ -45,7 +49,12 @@ extension MainWorkScheduler {
         /// takes the ledger's lock only for a name's first instance.
         var observationOwners: [String: ObservationLedger.Owner] = [:]
         var hiddenWake: HiddenWake?
+        /// Queues one turn (``MainRunLoopBlock`` in the app; a test's own queue in tests).
+        var performTurn: TurnPerformer = { turn in MainRunLoopBlock.perform(turn) }
     }
+
+    /// Queues one call of `turn` on a later main run loop turn, never inline.
+    public typealias TurnPerformer = @MainActor (_ turn: @escaping @MainActor () -> Void) -> Void
 
     /// Asks for one call of `wake` at the next aligned hidden wake-up (1 s boundaries, Blink's
     /// `WakeUpBudgetPool::GetNextAllowedWakeUp` in
@@ -159,13 +168,14 @@ extension MainWorkScheduler {
     func post(_ workClass: BudgetedWorkClass, owner: MainTaskOwner, post: MainTaskPost?, _ body: @escaping @MainActor () -> Void) {
         let queue = classQueue(workClass)
         queue.append(owner: owner, post: post, body)
-        if posting.turnQueued { return }
         if frames.hasLink {
+            // The next frame runs it if the turn does not (the turn holds it, or a frame comes first).
             queue.activate()
-            return
+            guard Self.runsOnNextTurn(queue.workClass) else { return }
         }
+        if posting.turnQueued { return }
         posting.turnQueued = true
-        MainRunLoopBlock.perform { [weak self] in self?.runPostedTurn() }
+        posting.performTurn { [weak self] in self?.runPostedTurn() }
     }
 
     /// Reads the enqueue time here, on the posting thread (Chrome sets `PendingTask::queue_time` at
@@ -184,24 +194,38 @@ extension MainWorkScheduler {
                         _ body: @escaping @MainActor () -> Void) {
         let queue = classQueue(workClass)
         queue.append(owner: owner, post: MainTaskPost(site: site, enqueueNanos: enqueueNanos ?? budget.nowNanos), body)
-        if posting.turnQueued { return }
         if frames.hasLink {
-            queue.activate()
+            if Self.runsOnNextTurn(queue.workClass) { runNow(queue) } else { queue.activate() }
             return
         }
+        if posting.turnQueued { return }
         runPostedTurn()
     }
 
-    /// The turn after the first post on an idle scheduler: each class's queued work, in class
-    /// order, while its class may run; the rest ticks on the next frames. A queue already ticking
-    /// waits for its frame, so a task never runs twice and never passes work queued before it. A
-    /// class the launch holds runs nothing here: its queue's client waits for the phase change.
+    /// The turn after the first post on an idle scheduler, or after an automation post while
+    /// frames run: each class's queued work, in class order, while its class may run; the rest
+    /// ticks on the next frames. A queue already ticking waits for its frame unless its class runs
+    /// on the next turn (``runsOnNextTurn(_:)``); either way it drains from its head, so a task
+    /// never runs twice and never passes work queued before it. A class the launch holds runs
+    /// nothing here: its queue's client waits for the phase change.
     private func runPostedTurn() {
         posting.turnQueued = false
-        for queue in posting.queues where queue.count > 0 && !queue.isActive {
-            if startup.admits(queue.workClass), budget.mayRun(queue.workClass) { _ = queue.drainNow(limit: queue.count) }
-            queue.activate()
+        for queue in posting.queues where queue.count > 0 && (!queue.isActive || Self.runsOnNextTurn(queue.workClass)) {
+            runNow(queue)
         }
+    }
+
+    /// Runs `queue`'s work now while its class may run, and leaves the rest ticking on frames.
+    private func runNow(_ queue: FrameBatchQueue) {
+        if startup.admits(queue.workClass), budget.mayRun(queue.workClass) { _ = queue.drainNow(limit: queue.count) }
+        queue.activate()
+    }
+
+    /// Whether `workClass` runs on the next turn while frames run, not on the next frame: automation,
+    /// whose requests wait for their replies. Visible work stays on the frame that shows it, and
+    /// background work has nobody waiting.
+    private static func runsOnNextTurn(_ workClass: MainWorkClass) -> Bool {
+        workClass == .automation
     }
 
     /// The class's queue, built on its first post.

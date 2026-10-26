@@ -135,15 +135,20 @@ public final class MainWorkScheduler {
     ///   - mediaTime: The display clock's time (`CACurrentMediaTime`), when a tick runs: a test that
     ///     fires made-up timestamps with render-pass history passes one in step with them, or the
     ///     budget reads its ticks as late.
+    ///   - performTurn: Queues the posted work's run loop turns (``post(_:owner:file:line:_:)``); nil:
+    ///     the main run loop's (``MainRunLoopBlock``). A test that runs the turns itself passes its queue.
     ///   - makeLink: Makes the fake link.
     public static func testing(budget: MainFrameBudget = MainFrameBudget(), clock: any Clock<Duration> = ContinuousClock(),
                                ledger: WakeupLedger = .shared, startup: StartupPhase = .settled(),
                                mediaTime: @escaping @MainActor () -> CFTimeInterval = { CACurrentMediaTime() },
+                               performTurn: TurnPerformer? = nil,
                                makeLink: @escaping FrameScheduler.LinkFactory) -> MainWorkScheduler {
-        MainWorkScheduler(budget: budget, frames: FrameScheduler.testing(name: "budgeted test", clock: clock, ledger: ledger,
-                                                                         mediaTime: mediaTime, budget: budget,
-                                                                         makeLink: makeLink),
-                          startup: startup, renderPasses: nil)
+        let work = MainWorkScheduler(budget: budget, frames: FrameScheduler.testing(name: "budgeted test", clock: clock, ledger: ledger,
+                                                                                    mediaTime: mediaTime, budget: budget,
+                                                                                    makeLink: makeLink),
+                                     startup: startup, renderPasses: nil)
+        if let performTurn { work.posting.performTurn = performTurn }
+        return work
     }
 
     /// A discrete input (a key-down, a mouse-down, `debug.key`) finished its dispatch; the App's
