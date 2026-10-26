@@ -60,8 +60,7 @@ afterEach(() => {
 });
 
 const DISABLED = ":disabled, [aria-disabled='true']";
-const CONTROLS =
-  "button, input, select, textarea, [role='switch'], [role='combobox'], [aria-disabled]";
+const CONTROLS = "button, input, select, textarea, [role='switch'], [role='combobox'], [aria-disabled]";
 
 /// What a frame shows: rows, setting rows whose controls are all disabled (a row waiting for its
 /// value draws that way), and the page's groups. A disabled button beside enabled ones is the row's
