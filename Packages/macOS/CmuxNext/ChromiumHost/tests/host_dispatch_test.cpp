@@ -291,7 +291,7 @@ void HelloFirst() {
   Expect(f.Sent(),
          {mirror(kOpForkApiVersion), mirror(kOpPlaceholderSupported), mirror(kOpNavigationRestoreSupported), mirror(kOpPasswordImportAvailable),
           mirror(kOpPasswordReplaceAvailable), mirror(kOpPasskeysAvailable), mirror(kOpPasswordCoreAvailable),
-          "hello cmux_shim_tab_set_frozen"},
+          mirror(kOpExtLoadLaterSupported), "hello cmux_shim_tab_set_frozen"},
          "attach-only mirrors, then the hello with the optional exports the shim has");
   Check(f.delegate.calls.empty(), "no initialize before INITIALIZE");
   f.host.OnMessages({Hello()});
