@@ -40,9 +40,10 @@ struct CloudWorkspaceRestoreTests {
                                   workspaceKeys: [WorkspaceKey(rawValue: "ws-a"), WorkspaceKey(rawValue: Self.cloudWorkspace)])
         record.workspaceMachines = [Self.cloudWorkspace: "vm-1"]
         var document = WindowStateDocument(windows: [record])
-        document.prune(liveWorkspaces: [WorkspaceKey(rawValue: Self.cloudWorkspace)])
+        document.prune(liveWorkspaces: [WorkspaceKey(rawValue: "ws-a"), WorkspaceKey(rawValue: Self.cloudWorkspace)])
         #expect(document.windows.first?.workspaceMachines == [Self.cloudWorkspace: "vm-1"])
         document.prune(liveWorkspaces: [WorkspaceKey(rawValue: "ws-a")])
+        #expect(document.windows.first?.workspaceKeys == [WorkspaceKey(rawValue: "ws-a")])
         #expect(document.windows.first?.workspaceMachines.isEmpty == true)
     }
 
