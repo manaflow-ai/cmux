@@ -46,6 +46,13 @@ public final class DaemonRecovery {
     func attach(_ launcher: DaemonLauncher, wake: RetryWake) {
         self.launcher = launcher
         self.wake = wake
+        // The button's restart without its confirm: the terminal hosts are separate processes,
+        // so they outlive the stuck owner and the next owner adopts them.
+        launcher.ensureOutcome.follow(UnresponsiveOwnerWatch(policy: unresponsivePolicy, isEnabled: { [weak self] in
+            self?.restartsUnresponsiveOwner() ?? false
+        }, replace: { [weak self] in
+            await self?.restart(automatic: true) ?? false
+        }))
         let outcome = launcher.ensureOutcome
         outcome.observe { [weak self] in
             guard let self else { return }
