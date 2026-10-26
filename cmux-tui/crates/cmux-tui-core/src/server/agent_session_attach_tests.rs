@@ -429,6 +429,19 @@ pub(super) fn assert_code(reply: &Value, code: &str) {
     assert_eq!(reply["error_code"], json!(code), "{reply}");
 }
 
+/// Hands `message` to the route its head's `cmd` names (server/routes.rs), as
+/// the connection's dispatch does: `None` when no route takes it.
+fn through_route(
+    mux: &Arc<Mux>,
+    client: u64,
+    message: &str,
+    writer: &MessageWriter,
+) -> Option<bool> {
+    let head = RequestHead::parse(message);
+    let route = head.cmd().and_then(routes::find)?;
+    (route.entry)(&routes::RouteLine { mux, client, message, writer, head: &head })
+}
+
 include!("agent_session_observe_tests.rs");
 include!("agent_session_children_tests.rs");
 
@@ -464,7 +477,7 @@ fn a_start_checks_its_folder_off_the_request_thread() {
     let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
     let frame = json!({"id":1,"cmd":"agent-session-start","surface":surface,"cwd":"/"});
     let handled = request_thread_tests::on_request_thread_with(&mux, move |mux| {
-        agent_session_attach::try_handle(mux, client, &frame.to_string(), &writer)
+        through_route(mux, client, &frame.to_string(), &writer)
     });
     assert_eq!(handled, Some(true));
     assert_code(&request_thread_tests::next_reply(&outbound), "agent_session.above_home");
@@ -562,8 +575,7 @@ fn every_verb_is_refused_on_every_untrusted_connection() {
     let unregistered = 999_999;
     for client in [websocket, stamped, unregistered] {
         for frame in every_verb(surface) {
-            let handled =
-                agent_session_attach::try_handle(&mux, client, &frame.to_string(), &writer);
+            let handled = through_route(&mux, client, &frame.to_string(), &writer);
             assert_eq!(handled, Some(true));
             let reply: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
             assert_code(&reply, "agent_session.not_trusted");

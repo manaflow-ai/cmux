@@ -102,7 +102,7 @@ import Testing
     }
 
     @Test func aTooltipEventDecodes() {
-        #expect(CEFShimEvent(kind: 57, browser: 7, request: 0, a: 0, b: 0, s1: "Save", s2: "") == .tooltip(browser: 7, text: "Save"))
-        #expect(CEFShimEvent(kind: 57, browser: 7, request: 0, a: 0, b: 0, s1: "", s2: "") == .tooltip(browser: 7, text: ""))
+        #expect(CEFShimEvent(kind: 57, browser: 7, request: 0, a: 0, b: 0, s1: "Save", s2: "") == .pageView(browser: 7, .tooltip("Save")))
+        #expect(CEFShimEvent(kind: 57, browser: 7, request: 0, a: 0, b: 0, s1: "", s2: "") == .pageView(browser: 7, .tooltip("")))
     }
 }

@@ -130,6 +130,7 @@ extension TopHomePageView: PageDiscardable {
     func applyPendingListScroll() {
         guard let origin = pendingListScroll, !rows.isEmpty else { return }
         pendingListScroll = nil
+        // sync-layout: the scroll below reads the list's laid-out height; before it, the origin clamps to the top.
         list.layoutSubtreeIfNeeded()
         list.scroll(to: origin)
     }

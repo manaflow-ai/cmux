@@ -94,16 +94,10 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         // (cef-cmux 066b083f, `--cmux-pump-time-slice-us`) ends a pass after this slice and asks for
         // "now" again when work is left, so display frames run between passes. Older forks ignore it.
         result.append("cmux-pump-time-slice-us=\(Self.pumpTimeSliceMicroseconds)")
-        // The fork resizes a page's child window with its pane, and Chromium 154 then holds the
-        // app's Core Animation commit (its CATransactionCoordinator pre-commit handler, on our main
-        // thread) until it has a frame at the new size, or for up to 500 ms: each frame of a split
-        // or close that resized a page waited for that page's relayout and raster. AsyncLiveResize
-        // skips the wait in NativeWidgetNSWindowBridge::UpdateWindowGeometry; a page window is never
-        // in a live resize of its own, so the async live-resize path it also turns on never runs.
-        // From fork API 27 the fork's own default is no wait, and a layer-hosted page waits up to
-        // the deadline CEFLayerHosting sets, so AsyncLiveResize would only lose that sync.
-        if forkAPIVersion < Self.resizeSyncForkAPI { result.append("enable-features=AsyncLiveResize") }
         result.append(contentsOf: Self.chromePromptOffSwitches)
+        // One entry: the shim merges it into CEF's own list (CEFShim/src/command_line_switches.h),
+        // and Chromium passes the list to every child process.
+        result.append("enable-features=" + enabledFeatures.joined(separator: ","))
         // Chrome shares a renderer between at most 2 main frames of one site below its process
         // limit (kProcessPerSiteUpToMainFrameThreshold), but Chromium 154 turns that off for the
         // whole process once any frame ever had a DevTools agent (RenderFrameHostManager,
@@ -111,14 +105,6 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         // the check per renderer only (a renderer with a DevTools agent is never shared), so one
         // agent does not end sharing everywhere (fork API 29; tab-lifecycle.md "Renderer sharing").
         if rendererPaths { result.append(Self.processReusePerRendererDevTools) }
-        // The app's Chromium features, for example `cefTimerSlack` (default off): `kTimerSlackMac`
-        // (base/message_loop/message_pump_apple.mm, message_pump_kqueue.cc) gives each CFRunLoop and kqueue
-        // pump's delayed timer the task's leeway. It changes renderer, GPU and utility processes and the
-        // browser's non-UI threads only: the UI thread's MessagePumpExternal arms no base timer, and the
-        // app's deadline queue gets the leeway from the fork's absolute run times (p14-energy-046). Chrome
-        // turns it on by field trial; disable-field-trial-config leaves it off. The shim merges the list
-        // into CEF's, and Chromium passes it to every child process.
-        if !chromiumFeatures.isEmpty { result.append("enable-features=" + chromiumFeatures.joined(separator: ",")) }
         // Chrome gives every NTP one renderer (ChromeContentBrowserClient::ShouldUseProcessPerSite) and
         // sends top-chrome WebUI to a live renderer of its lock (ShouldTryToUseExistingProcessHost). The
         // fork reads this table the second way, so a cap holds: a listed cmux page host joins a live
@@ -156,6 +142,55 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         result.append(contentsOf: extraSwitches)
         return result
     }
+
+    /// The Chromium `base::Feature`s of the one `enable-features` entry, each once.
+    var enabledFeatures: [String] {
+        var features: [String] = []
+        // The fork resizes a page's child window with its pane, and Chromium 154 then holds the
+        // app's Core Animation commit (its CATransactionCoordinator pre-commit handler, on our main
+        // thread) until it has a frame at the new size, or for up to 500 ms: each frame of a split
+        // or close that resized a page waited for that page's relayout and raster. AsyncLiveResize
+        // skips the wait in NativeWidgetNSWindowBridge::UpdateWindowGeometry; a page window is never
+        // in a live resize of its own, so the async live-resize path it also turns on never runs.
+        // From fork API 27 the fork's own default is no wait, and a layer-hosted page waits up to
+        // the deadline CEFLayerHosting sets, so AsyncLiveResize would only lose that sync.
+        if forkAPIVersion < Self.resizeSyncForkAPI { features.append("AsyncLiveResize") }
+        // The app's Chromium features come last, for example `cefTimerSlack` (default off):
+        // `kTimerSlackMac` (base/message_loop/message_pump_apple.mm, message_pump_kqueue.cc) gives each
+        // CFRunLoop and kqueue pump's delayed timer the task's leeway. It changes renderer, GPU and
+        // utility processes and the browser's non-UI threads only: the UI thread's MessagePumpExternal
+        // arms no base timer, and the app's deadline queue gets the leeway from the fork's absolute
+        // run times (p14-energy-046).
+        for feature in [Self.chromePromptOffFeature] + Self.wakeUpAlignmentFeatures + chromiumFeatures
+        where !features.contains(feature) {
+            features.append(feature)
+        }
+        return features
+    }
+
+    /// Chromium's wake-up alignment. Both are `FEATURE_DISABLED_BY_DEFAULT`; Chrome turns them on
+    /// only through field trials, and `disable-field-trial-config` leaves them off in cmux:
+    /// - `AlignWakeUps` (base/task/task_features.h, .cc): `MessagePump::AdjustDelayedRunTime`
+    ///   (base/message_loop/message_pump.cc) snaps a delayed wake-up to the next `kDefaultLeeway`
+    ///   (8 ms) tick of `TimeTicks()`, never past the task's latest time (a precise task keeps
+    ///   its time), so the threads of every process wake together. The sequence manager asks the
+    ///   pump for each delayed wake-up (thread_controller_with_message_pump_impl.cc).
+    /// - `BatterySaverModeAlignWakeUps` (content/public/common/content_features.cc): in battery
+    ///   saver, `ChildThreadImpl::SetBatterySaverMode` (content/child/child_thread_impl.cc) widens
+    ///   the grid to 32 ms in each child process. It does nothing until saver mode is set.
+    ///
+    /// The app's Chromium UI thread runs CEF's `MessagePumpExternal` (fork
+    /// libcef/browser/browser_message_loop.cc, made by `MessagePumpFactoryForUI` when
+    /// `external_message_pump` is set). It derives from `base::MessagePumpForUI`, which is plain
+    /// `base::MessagePump` on Mac (base/message_loop/message_pump_for_ui.h), and keeps the base
+    /// `AdjustDelayedRunTime`, so the UI thread snaps too. The browser's other threads and every
+    /// child process use Chromium's own pumps (message_pump_apple.mm, message_pump_kqueue.cc).
+    ///
+    /// `TimerSlackMac` is not in this list: with it on, those pumps return `earliest_time` from
+    /// `AdjustDelayedRunTime` and give the kernel the leeway instead of the snap, which the UI
+    /// thread gets only from the absolute run times of p14-energy-046. It stays the default-off
+    /// feature `cefTimerSlack` (``chromiumFeatures``).
+    static let wakeUpAlignmentFeatures = ["AlignWakeUps", "BatterySaverModeAlignWakeUps"]
 
     /// The first fork API whose `cmux-page-scheme-process-per-site` reads a per-site cap table
     /// (``CEFForkFeatures/pageSiteSharingForkAPI``, the fork train's number). API 29 has only
@@ -212,7 +247,8 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
     ///   dialog (search_engine_choice_service.cc). Defense in depth: a build
     ///   without Chrome branding makes no dialog service unless
     ///   `force-search-engine-choice-screen` is set.
-    /// - `enable-features=IPH_DemoMode:chosen_feature/IPH_Dummy`: the
+    /// - `IPH_DemoMode:chosen_feature/IPH_Dummy` (``chromePromptOffFeature``,
+    ///   in the one `enable-features` entry, ``enabledFeatures``): the
     ///   feature-engagement tracker runs in demo mode with only IPH_Dummy
     ///   valid (Tracker::Create, CreateDemoModeTracker), and nothing triggers
     ///   IPH_Dummy. Code that asks the tracker directly, not through
@@ -233,8 +269,9 @@ nonisolated struct CEFSwitches: Equatable, Sendable {
         "no-first-run",
         "no-default-browser-check",
         "disable-search-engine-choice-screen",
-        "enable-features=IPH_DemoMode:chosen_feature/IPH_Dummy",
     ]
+
+    static let chromePromptOffFeature = "IPH_DemoMode:chosen_feature/IPH_Dummy"
 
     /// Switches for this process. `CMUX_NEXT_CEF_LOAD_EXTENSIONS` is a
     /// colon-separated list of unpacked extension directories.

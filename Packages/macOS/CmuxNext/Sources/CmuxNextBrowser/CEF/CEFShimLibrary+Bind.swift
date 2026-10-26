@@ -230,6 +230,22 @@ nonisolated extension CEFShimLibrary {
             let count = unsafe cRendererClientIDs(browser, &ids, room)
             return Array(ids.prefix(Int(min(max(count, 0), room))))
         }
+        let cRendererFrames: @convention(c) (UnsafeMutablePointer<Int32>?, UnsafeMutablePointer<Int32>?, UnsafeMutablePointer<Int32>?, Int32) -> Int32 =
+            try unsafe r("cmux_shim_renderer_frames")
+        rendererFrames = {
+            // A second call sized to the first one's count; the browsers cannot change between them on this thread.
+            var room = 64
+            for _ in 0 ..< 2 {
+                var browsers = [Int32](repeating: 0, count: room), ids = browsers, frames = browsers
+                // SAFETY: the shim writes at most `room` entries into each array's buffer during the call.
+                let count = Int(max(unsafe cRendererFrames(&browsers, &ids, &frames, Int32(room)), 0))
+                guard count > room else {
+                    return (0 ..< count).map { CEFRendererFrames.Entry(browser: browsers[$0], clientID: ids[$0], frames: Int(frames[$0])) }
+                }
+                room = count
+            }
+            return nil
+        }
         rendererPID = try r("cmux_shim_renderer_pid")
         let cAddDocumentScript: (@convention(c) (UnsafePointer<CChar>?, UnsafePointer<CChar>?, Int32, Int32) -> Int32)? = unsafe r.optional("cmux_shim_add_document_script")
         if let c = unsafe cAddDocumentScript {
@@ -255,6 +271,7 @@ nonisolated extension CEFShimLibrary {
         tabDiscard = r.hostExports == nil ? r.optional("cmux_shim_tab_discard") : nil
         widgets = CEFShimWidgetOps(setGeometry: r.optional("cmux_shim_widget_set_geometry"), dismiss: r.optional("cmux_shim_widget_dismiss"),
                                    sendInput: r.optional("cmux_shim_widget_send_input"))
+        dragTarget = try CEFShimDragTargetOps(r)
         let cImeSetComposition: (@convention(c) (Int32, UnsafePointer<UInt8>?, Int32, UnsafePointer<UInt8>?, Int32, Int32, Int32, Int32,
                                                  Int32) -> Void)? = unsafe r.optional("cmux_shim_browser_ime_set_composition")
         let cImeCommitText: (@convention(c) (Int32, UnsafePointer<UInt8>?, Int32, Int32, Int32) -> Void)? = unsafe r.optional("cmux_shim_browser_ime_commit_text")

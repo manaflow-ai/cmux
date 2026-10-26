@@ -24,20 +24,23 @@ enum MDCarry: Hashable {
 
 enum MarkdownLong {
     // MARK: Cutting (index build, bytes)
+    // cmux: the scanners take the bytes as a generic collection and read them only through bounds-checked
+    // operations (`slice`, `[checked:]`, `prefix`), so none touches an unsafe buffer (strict memory safety,
+    // p10-stability-073); LongTextIndex.build hands them the text's UTF-8 storage.
 
     private struct Line { var start: Int; var end: Int }   // [start, end), end at the newline or n
 
     /// One scanned line: indentation and the leaf facts the cut rule needs.
-    private static func indent(_ p: UnsafeBufferPointer<UInt8>, _ l: Line) -> (cols: Int, first: Int) {
+    private static func indent<Bytes: RandomAccessCollection<UInt8>>(_ p: Bytes, _ l: Line) -> (cols: Int, first: Int) where Bytes.Index == Int {
         // the line as a clamped slice (p is an unsafe buffer: its subscript does not check in release).
         var col = 0, i = l.start
         for b in p.slice(l.start, l.end) { guard b == 32 || b == 9 else { break }; col += b == 9 ? 4 - col % 4 : 1; i += 1 }
         return (col, i)
     }
-    private static func isBlank(_ p: UnsafeBufferPointer<UInt8>, _ l: Line) -> Bool {
+    private static func isBlank<Bytes: RandomAccessCollection<UInt8>>(_ p: Bytes, _ l: Line) -> Bool where Bytes.Index == Int {
         p.slice(l.start, l.end).allSatisfy { $0 == 32 || $0 == 9 || $0 == 13 } // clamped slice
     }
-    private static func fence(_ p: UnsafeBufferPointer<UInt8>, _ l: Line) -> (UInt8, Int, Bool)? {
+    private static func fence<Bytes: RandomAccessCollection<UInt8>>(_ p: Bytes, _ l: Line) -> (UInt8, Int, Bool)? where Bytes.Index == Int {
         let (cols, i) = indent(p, l)
         guard cols < 4, i < l.end, let c = p[checked: i], c == 96 || c == 126 else { return nil } // checked
         let n = p.slice(i, l.end).prefix(while: { $0 == c }).count // clamped slice
@@ -47,11 +50,11 @@ enum MarkdownLong {
         if c == 96, tick { return nil }
         return (c, n, rest)
     }
-    private static func hasPipe(_ p: UnsafeBufferPointer<UInt8>, _ l: Line) -> Bool {
+    private static func hasPipe<Bytes: RandomAccessCollection<UInt8>>(_ p: Bytes, _ l: Line) -> Bool where Bytes.Index == Int {
         p.slice(l.start, l.end).contains(124) // clamped slice
     }
     /// A GFM delimiter row ("|---|:--:|"): only | - : and spaces, at least one "-".
-    private static func isDelimiter(_ p: UnsafeBufferPointer<UInt8>, _ l: Line) -> Bool {
+    private static func isDelimiter<Bytes: RandomAccessCollection<UInt8>>(_ p: Bytes, _ l: Line) -> Bool where Bytes.Index == Int {
         let (cols, i) = indent(p, l)
         guard cols < 4, i < l.end else { return false }
         var dash = false
@@ -61,19 +64,19 @@ enum MarkdownLong {
         return dash
     }
     /// "===" or "---" alone (a setext underline after a paragraph line, or a rule).
-    private static func isUnderline(_ p: UnsafeBufferPointer<UInt8>, _ l: Line) -> Bool {
+    private static func isUnderline<Bytes: RandomAccessCollection<UInt8>>(_ p: Bytes, _ l: Line) -> Bool where Bytes.Index == Int {
         let (cols, i) = indent(p, l)
         guard cols < 4, i < l.end, let c = p[checked: i], c == 61 || c == 45 else { return false } // checked
         return p.slice(i, l.end).allSatisfy { $0 == c || $0 == 32 || $0 == 9 || $0 == 13 } // clamped slice
     }
     /// A line that ends a table (GFM: a blank line or the start of another block).
-    private static func endsTable(_ p: UnsafeBufferPointer<UInt8>, _ l: Line) -> Bool {
+    private static func endsTable<Bytes: RandomAccessCollection<UInt8>>(_ p: Bytes, _ l: Line) -> Bool where Bytes.Index == Int {
         if isBlank(p, l) || fence(p, l) != nil { return true }
         let (cols, i) = indent(p, l)
         guard cols < 4, i < l.end else { return false }
         return p[checked: i] == 35 || p[checked: i] == 62 // checked
     }
-    private static func listOrIndented(_ p: UnsafeBufferPointer<UInt8>, _ l: Line) -> Bool {
+    private static func listOrIndented<Bytes: RandomAccessCollection<UInt8>>(_ p: Bytes, _ l: Line) -> Bool where Bytes.Index == Int {
         let (cols, i) = indent(p, l)
         if cols > 0 { return true }
         guard i < l.end else { return false }
@@ -82,15 +85,15 @@ enum MarkdownLong {
         let k = i + p.slice(i, l.end).prefix(9).prefix(while: { $0 >= 48 && $0 <= 57 }).count // up to 9 digits, clamped slice
         return k > i && k < l.end && (p[checked: k] == 46 || p[checked: k] == 41)
     }
-    private static func string(_ p: UnsafeBufferPointer<UInt8>, _ a: Int, _ b: Int) -> String {
-        String(decoding: UnsafeBufferPointer(rebasing: p.slice(a, b)), as: UTF8.self) // clamped slice
+    private static func string<Bytes: RandomAccessCollection<UInt8>>(_ p: Bytes, _ a: Int, _ b: Int) -> String where Bytes.Index == Int {
+        String(decoding: p.slice(a, b), as: UTF8.self) // clamped slice
     }
 
     /// The block end for a markdown text: the plain rule's `plainEnd` moved back to the last
     /// line start outside fences and tables (preferring a blank line followed by an unindented,
     /// non-list line, the boundary of top-level blocks), else `plainEnd` with the open state
     /// carried. Returns the end and the carry at it. `state` is the carry at `from`.
-    static func cut(_ p: UnsafeBufferPointer<UInt8>, from: Int, plainEnd: Int, block: Int, state: MDCarry) -> (Int, MDCarry) {
+    static func cut<Bytes: RandomAccessCollection<UInt8>>(_ p: Bytes, from: Int, plainEnd: Int, block: Int, state: MDCarry) -> (Int, MDCarry) where Bytes.Index == Int {
         let n = p.count
         if plainEnd >= n { return (n, .none) }
         var st = state

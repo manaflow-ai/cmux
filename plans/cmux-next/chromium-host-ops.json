@@ -378,7 +378,7 @@
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "Host page windows are always detached and never ordered in (task 053); ChromiumHostPageView owns the mode."
+      "reason": "Host page windows are always detached and never ordered in (task 053): the host detaches each page window once its layers are hosted (HostContext::HandleLayerHosting), so cmux never sends it."
     },
     {
       "name": "cmux_shim_browser_set_embedder_active",
@@ -635,6 +635,138 @@
       "pending_keys": [],
       "reply_event": null,
       "reason": "The page's own drag came back over the page (task 050)."
+    },
+    {
+      "name": "cmux_shim_browser_drag_target_enter",
+      "class": "post",
+      "args": [
+        {
+          "name": "browser_id",
+          "type": "int"
+        },
+        {
+          "name": "files",
+          "type": "const char* const*"
+        },
+        {
+          "name": "file_count",
+          "type": "int"
+        },
+        {
+          "name": "text",
+          "type": "const char*"
+        },
+        {
+          "name": "url",
+          "type": "const char*"
+        },
+        {
+          "name": "url_title",
+          "type": "const char*"
+        },
+        {
+          "name": "x",
+          "type": "int"
+        },
+        {
+          "name": "y",
+          "type": "int"
+        },
+        {
+          "name": "allowed_operations",
+          "type": "int"
+        },
+        {
+          "name": "modifiers",
+          "type": "int"
+        }
+      ],
+      "returns": "int",
+      "result_used_by": [],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "A drag from outside the page entered the page view (task 050, Chrome's WebDragDest -draggingEntered:). One-way, in order with the over, leave and drop after it; the page's answer comes as CMUX_SHIM_DRAG_OPERATION, which the destination keeps as its last operation."
+    },
+    {
+      "name": "cmux_shim_browser_drag_target_over",
+      "class": "post",
+      "args": [
+        {
+          "name": "browser_id",
+          "type": "int"
+        },
+        {
+          "name": "x",
+          "type": "int"
+        },
+        {
+          "name": "y",
+          "type": "int"
+        },
+        {
+          "name": "allowed_operations",
+          "type": "int"
+        },
+        {
+          "name": "modifiers",
+          "type": "int"
+        }
+      ],
+      "returns": "int",
+      "result_used_by": [],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "The drag moved over the page view (task 050, -draggingUpdated:). One-way on the control channel, after its enter; the answer is CMUX_SHIM_DRAG_OPERATION, never awaited: AppKit gets the last answer at once."
+    },
+    {
+      "name": "cmux_shim_browser_drag_target_leave",
+      "class": "post",
+      "args": [
+        {
+          "name": "browser_id",
+          "type": "int"
+        }
+      ],
+      "returns": "int",
+      "result_used_by": [],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "The drag left the page view or ended with no drop there (task 050, -draggingExited:)."
+    },
+    {
+      "name": "cmux_shim_browser_drag_target_drop",
+      "class": "post",
+      "args": [
+        {
+          "name": "browser_id",
+          "type": "int"
+        },
+        {
+          "name": "x",
+          "type": "int"
+        },
+        {
+          "name": "y",
+          "type": "int"
+        },
+        {
+          "name": "modifiers",
+          "type": "int"
+        }
+      ],
+      "returns": "int",
+      "result_used_by": [],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "The drag was dropped on the page view (task 050, -performDragOperation:); AppKit gets YES at once, as Chrome's WebDragDest returns it."
     },
     {
       "name": "cmux_shim_set_color_chooser_handler",
@@ -3735,6 +3867,37 @@
       "reason": "Out buffer of renderer ids (task 018); the hover card can show the previous value until the reply."
     },
     {
+      "name": "cmux_shim_renderer_frames",
+      "class": "local",
+      "args": [
+        {
+          "name": "browser_ids",
+          "type": "int*"
+        },
+        {
+          "name": "client_ids",
+          "type": "int*"
+        },
+        {
+          "name": "frame_counts",
+          "type": "int*"
+        },
+        {
+          "name": "capacity",
+          "type": "int"
+        }
+      ],
+      "returns": "int",
+      "result_used_by": [
+        "CmuxNextBrowser/CEF/CEFRendererFrames.swift"
+      ],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "Every browser's frames per renderer for memory per hidden workspace (p09-observability-061). In-process only, as cmux_shim_renderer_pid: in host mode the renderers are the host's children, whose pids the app does not list, so the remote shim returns 0 and the sample counts as unclear."
+    },
+    {
       "name": "cmux_shim_renderer_pid",
       "class": "local",
       "args": [
@@ -4436,6 +4599,11 @@
     {
       "kind": "CMUX_SHIM_CURSOR",
       "value": 54,
+      "refreshes": []
+    },
+    {
+      "kind": "CMUX_SHIM_DRAG_OPERATION",
+      "value": 55,
       "refreshes": []
     },
     {

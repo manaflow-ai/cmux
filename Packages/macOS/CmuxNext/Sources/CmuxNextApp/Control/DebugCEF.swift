@@ -89,6 +89,8 @@ enum DebugCEF {
                     "page_tooltip": ChromiumHostPageView.first(in: tab.contentView)?.pageTooltipText.map(JSONValue.string) ?? .null,
                     "tooltip_shown": TooltipPresenter.shared.shown.map { JSONValue.string($0.text) } ?? .null,
                     "page_accessibility": ChromiumHostPageView.first(in: tab.contentView)?.remoteAccessibilityPhaseName.map(JSONValue.string) ?? .null,
+                    // Host mode: drags the page view sent as DragTarget calls (null in process).
+                    "page_drag": ChromiumHostPageView.first(in: tab.contentView).map { pageDrag($0.dragCounts) } ?? .null,
                 ]
                 if let panel = tab.sidePanelDiagnostic {
                     object["side_panel"] = .object(["title": .string(panel.title), "pinned": .bool(panel.pinned),
@@ -111,6 +113,11 @@ enum DebugCEF {
             }
         }
         return out
+    }
+
+    private static func pageDrag(_ counts: ChromiumHostDragCounts) -> JSONValue {
+        .object(["takes_drags": .bool(counts.takesDrags), "enters": .number(Double(counts.enters)),
+                 "drops": .number(Double(counts.drops)), "answers": .number(Double(counts.answers))])
     }
 
     /// Runs `control` on the first shown Chromium tab with a side panel.

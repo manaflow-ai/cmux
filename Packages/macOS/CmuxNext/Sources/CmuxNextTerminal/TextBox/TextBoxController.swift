@@ -54,9 +54,11 @@ package final class TextBoxController {
         let view = self.view
         model.isVisible = true
         view.isHidden = false
-        session?.view.needsLayout = true
+        session?.view.needsLayout = true // invalidate: the box shows, the terminal gives it room
+        guard focus else { return }
+        // sync-layout: the editor takes the keyboard at its laid-out frame (caret and scroll-to-visible read it).
         session?.view.layoutSubtreeIfNeeded()
-        if focus { view.window?.makeFirstResponder(view.textView) }
+        view.window?.makeFirstResponder(view.textView)
     }
 
     /// Hides the box (the draft stays); the terminal takes the keyboard back when the box had it.
@@ -64,7 +66,7 @@ package final class TextBoxController {
         let hadKeyboard = hasKeyboard
         model.isVisible = false
         installed?.isHidden = true
-        session?.view.needsLayout = true
+        session?.view.needsLayout = true // invalidate: the box hides, the terminal takes its room back
         if hadKeyboard { session?.focus() }
     }
 

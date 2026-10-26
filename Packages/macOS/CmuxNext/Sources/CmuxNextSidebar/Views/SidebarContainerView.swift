@@ -259,6 +259,7 @@ public final class SidebarContainerView: NSView {
         guard model.isHidden else { return }
         model.presentation = .shown
         apply()
+        // sync-layout: a rename field attaches to a laid-out row in this turn.
         panel.layoutSubtreeIfNeeded()
     }
 

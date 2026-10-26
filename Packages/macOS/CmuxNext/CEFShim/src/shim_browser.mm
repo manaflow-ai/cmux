@@ -34,6 +34,22 @@ int CreateWindowWith(int request, void* parent_view, int width, int height, cons
   return CefBrowserHost::CreateBrowser(info, MakeClient(request), url ? url : "", settings, extra_info, context) ? 1 : 0;
 }
 
+// The renderer client id of each frame of browser (the main frame and every
+// iframe, in its process or out of it; RendererClientIdOf): one entry per
+// frame.
+std::vector<int> FrameRendererClientIDs(CefRefPtr<CefBrowser> browser) {
+  std::vector<int> clients;
+  if (!browser) return clients;
+  std::vector<CefString> identifiers;
+  browser->GetFrameIdentifiers(identifiers);
+  clients.reserve(identifiers.size());
+  for (const CefString& identifier : identifiers) {
+    const int id = RendererClientIdOf(identifier.ToString());
+    if (id > 0) clients.push_back(id);
+  }
+  return clients;
+}
+
 }  // namespace
 
 namespace cmux_shim {
@@ -131,17 +147,12 @@ int cmux_shim_unresponsive_reply(int browser_id, int terminate) {
 }
 
 int cmux_shim_renderer_client_ids(int browser_id, int* out, int capacity) {
-  CefRefPtr<CefBrowser> browser = BrowserById(browser_id);
-  if (!browser || !out || capacity <= 0) {
+  if (!out || capacity <= 0) {
     return 0;
   }
-  // Each frame's render process host id (RendererClientIdOf), once.
-  std::vector<CefString> identifiers;
-  browser->GetFrameIdentifiers(identifiers);
+  // Each frame's render process host id, once.
   int count = 0;
-  for (const CefString& identifier : identifiers) {
-    const int id = RendererClientIdOf(identifier.ToString());
-    if (id <= 0) continue;
+  for (const int id : FrameRendererClientIDs(BrowserById(browser_id))) {
     bool seen = false;
     for (int i = 0; i < count; ++i) {
       if (out[i] == id) {
@@ -150,6 +161,34 @@ int cmux_shim_renderer_client_ids(int browser_id, int* out, int capacity) {
       }
     }
     if (!seen && count < capacity) out[count++] = id;
+  }
+  return count;
+}
+
+int cmux_shim_renderer_frames(int* browser_ids, int* client_ids, int* frame_counts, int capacity) {
+  if (!browser_ids || !client_ids || !frame_counts || capacity < 0) {
+    return 0;
+  }
+  int count = 0;
+  for (const auto& [browser_id, browser] : browsers()) {
+    std::vector<std::pair<int, int>> renderers;  // client id, frames
+    for (const int id : FrameRendererClientIDs(browser)) {
+      size_t at = 0;
+      while (at < renderers.size() && renderers[at].first != id) ++at;
+      if (at < renderers.size()) {
+        ++renderers[at].second;
+      } else {
+        renderers.emplace_back(id, 1);
+      }
+    }
+    for (const auto& [client_id, frames] : renderers) {
+      if (count < capacity) {
+        browser_ids[count] = browser_id;
+        client_ids[count] = client_id;
+        frame_counts[count] = frames;
+      }
+      ++count;
+    }
   }
   return count;
 }

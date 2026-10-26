@@ -134,8 +134,8 @@ final class FieldChrome: NSView {
         let px = (0..<w).map { i -> UInt8 in let x = (Double(i) + 0.5 - Double(w) / 2) / s; return UInt8(clamping: CrashGuard.int((exp(-x * x / 2) * 255).rounded(), in: 0...255)) } // no trap
         let data = px.flatMap { [UInt8(255), UInt8(255), UInt8(255), $0] }
         if let p = CGDataProvider(data: Data(data) as CFData) {
-            l.contents = CGImage(width: w, height: 1, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: w * 4, space: CGColorSpaceCreateDeviceRGB(),
-                                 bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.last.rawValue), provider: p, decode: nil, shouldInterpolate: true, intent: .defaultIntent)
+            l.contents = CGImage.make(width: w, height: 1, bitsPerComponent: 8, bitsPerPixel: 32, bytesPerRow: w * 4, space: CGColorSpaceCreateDeviceRGB(),
+                                      bitmapInfo: CGBitmapInfo(rawValue: CGImageAlphaInfo.last.rawValue), provider: p, shouldInterpolate: true, intent: .defaultIntent)
         }
         l.contentsGravity = .resize
         l.opacity = 0

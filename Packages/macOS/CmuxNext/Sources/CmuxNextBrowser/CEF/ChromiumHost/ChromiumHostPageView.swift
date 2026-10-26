@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextCompat
+import CmuxNextInput
 import CmuxNextRemoteLayer
 import CmuxNextWakeups
 import QuartzCore
@@ -113,6 +114,8 @@ public final class ChromiumHostPageView: NSView {
     var accessibilityBridge = ChromiumHostAccessibilityBridge.system
     /// Drops the remote element when its window closes: the element holds the window.
     var accessibilityWindowClose: EventSubscription?
+    /// Drags from outside into the page (ChromiumHostPageView+Drag.swift); none until ``takeDrags(through:)``.
+    let dragDestination = ChromiumHostDragDestination()
 
     #if DEBUG || CMUX_BENCH_HOOKS
     /// Where frames for the host go (``InputTarget/view`` only), synchronously
@@ -435,35 +438,10 @@ extension ChromiumHostPageView {
         _ = sink?(ChromiumHostFrame(.edit, v: [command]))
     }
 
-    /// An event time (seconds since boot) as CLOCK_UPTIME_RAW nanoseconds, the host's clock too.
+    /// An event time (seconds since boot) as CLOCK_UPTIME_RAW nanoseconds, the host's clock too: the input latency
+    /// slot's `generated` time, so the host's presentation report by this time finds the slot (p04-input-066).
     static func nanoseconds(_ seconds: TimeInterval) -> UInt64 {
-        seconds > 0 ? UInt64(seconds * 1e9) : 0
-    }
-}
-#endif
-
-/// The page view's place on screen, as the host's window takes it.
-nonisolated struct ChromiumHostGeometry: Equatable, Sendable {
-    var width: Int32
-    var height: Int32
-    /// Bottom left of the view in screen points.
-    var screenX: Int32
-    var screenY: Int32
-    var scaleMilli: Int32
-
-    init(screenRect: CGRect, scale: CGFloat) {
-        width = Int32(screenRect.width.rounded())
-        height = Int32(screenRect.height.rounded())
-        screenX = Int32(screenRect.minX.rounded())
-        screenY = Int32(screenRect.minY.rounded())
-        scaleMilli = Int32((scale * 1_000).rounded())
-    }
-}
-
-#if DEBUG || CMUX_BENCH_HOOKS
-extension ChromiumHostGeometry {
-    var frame: ChromiumHostFrame {
-        ChromiumHostFrame(.geometry, v: [width, height, screenX, screenY, scaleMilli])
+        InputLatencyTracker.eventNanos(seconds)
     }
 }
 #endif

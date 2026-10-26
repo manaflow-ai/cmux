@@ -2313,6 +2313,7 @@ fn run_server(
     };
 
     localization::terminal_respawn::install();
+    let features = feature_flags::install_daemon_features();
     let mut surface_options = SurfaceOptions::default();
     config::apply_browser_to_surface_options(&config, &mut surface_options);
     surface_options.scrollback = config.scrollback_limit_bytes();
@@ -2453,7 +2454,7 @@ fn run_server(
     app::install_mux_diagnostic_logger(&mux);
     // After restore and adoption: a terminal that joins the catalog later
     // wakes the worker itself.
-    if let Err(error) = mux.start_cold_scrollback(&feature_flags::daemon_features()) {
+    if let Err(error) = mux.start_cold_scrollback(&features) {
         eprintln!("cmux-tui: cold scrollback worker did not start: {error}");
     }
     #[cfg(debug_assertions)]

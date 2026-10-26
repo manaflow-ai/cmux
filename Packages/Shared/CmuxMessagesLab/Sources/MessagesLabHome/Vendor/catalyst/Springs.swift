@@ -713,7 +713,8 @@ enum Presenter {
             var u = b.duration > 0 ? tau / b.duration : 1
             if let f = b.timingFunction {
                 var p1: [Float] = [0, 0], p2: [Float] = [0, 0]
-                f.getControlPoint(at: 1, values: &p1); f.getControlPoint(at: 2, values: &p2)
+                // SAFETY: each call writes one control point, two floats, into a local two-float array.
+                unsafe f.getControlPoint(at: 1, values: &p1); unsafe f.getControlPoint(at: 2, values: &p2)
                 u = Curve.solve(u, Double(p1[0]), Double(p1[1]), Double(p2[0]), Double(p2[1]))
             }
             return (kp, from + (to - from) * u)

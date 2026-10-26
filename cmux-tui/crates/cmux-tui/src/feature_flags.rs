@@ -394,6 +394,15 @@ fn disabled_now() -> Vec<String> {
     disabled
 }
 
+/// [`daemon_features`], installed where core reads a feature process-wide:
+/// call once at daemon start, before the mux and its first terminal.
+pub(crate) fn install_daemon_features() -> cmux_features::Snapshot {
+    let features = daemon_features();
+    #[cfg(unix)]
+    cmux_tui_core::install_terminal_holder(&features);
+    features
+}
+
 /// The daemon's features, resolved once at start (p12-perf-process 3.9):
 /// the channel default, then `CMUX_ENABLE_FEATURES` / `CMUX_DISABLE_FEATURES`,
 /// then `DisabledFeatures` of the managed policy and the signed document,

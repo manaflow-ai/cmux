@@ -196,7 +196,15 @@ typedef enum {
   // s1 = the image as PNG, base64; request = image pixels per DIP x 1000;
   // b = the hotspot in image pixels, x in the low 32 bits, y in the high 32.
   CMUX_SHIM_CURSOR = 54,
-  // 55 and 56 are kept for the drag and window-request events (p01-process-050, 031).
+  // The page answered a drag over it (cmux_shim_browser_drag_target_enter
+  // and _over; fork API 31's cmux_browser_drag_target_watch, task
+  // p01-process-172): a = the operation the page takes
+  // (cef_drag_operations_mask_t, 0 none); b = 1 when the document handles
+  // the drag itself. It may come turns after the enter or over it answers;
+  // the drag's destination returns the last one (Chrome's WebDragDest
+  // -setCurrentOperation:).
+  CMUX_SHIM_DRAG_OPERATION = 55,
+  // 56 is kept for the window-request event (p01-process-031).
   // The page's tooltip changed (CefDisplayHandler::OnTooltip), only after
   // cmux_shim_set_cursor_events(1): s1 = the text, UTF-8; "" hides it.
   // Chromium shows no tooltip of its own then.
@@ -425,6 +433,22 @@ CMUX_SHIM_EXPORT int cmux_shim_browser_drag_source_ended(int browser_id, double 
 // page's data; continue with the DragTarget* calls.
 CMUX_SHIM_EXPORT int cmux_shim_browser_drag_target_enter_source(int browser_id, int x, int y,
                                                                 int allowed_operations, int modifiers);
+// A drag from outside the page is over it (Chrome's WebDragDest: enter, over,
+// leave, drop; content/app_shim_remote_cocoa/web_drag_dest_mac.mm). x and y
+// are page-view points from the top left; allowed_operations is the drag
+// source's cef_drag_operations_mask_t; modifiers are cef_event_flags_t. The
+// enter carries the drag's data: files (absolute paths), text, url and
+// url_title, each NULL or empty when the drag has none. Each enter and over
+// is answered by CMUX_SHIM_DRAG_OPERATION when the fork watches drags
+// (API 31). A drop grants the page the dropped files, as a native drop does.
+// Each returns 0 when the browser is gone.
+CMUX_SHIM_EXPORT int cmux_shim_browser_drag_target_enter(int browser_id, const char* const* files, int file_count,
+                                                         const char* text, const char* url, const char* url_title,
+                                                         int x, int y, int allowed_operations, int modifiers);
+CMUX_SHIM_EXPORT int cmux_shim_browser_drag_target_over(int browser_id, int x, int y, int allowed_operations,
+                                                        int modifiers);
+CMUX_SHIM_EXPORT int cmux_shim_browser_drag_target_leave(int browser_id);
+CMUX_SHIM_EXPORT int cmux_shim_browser_drag_target_drop(int browser_id, int x, int y, int modifiers);
 // Fork API 31 (p01-process task 227): Chromium's own windows for these would
 // open in the helper-app browser process, which has no visible window, so the
 // app shows its own UI from data and answers by token. Each returns 0 when
@@ -997,6 +1021,16 @@ CMUX_SHIM_EXPORT void cmux_shim_free_owned(char* s);
 // that host a frame of browser_id: the main frame and every out-of-process
 // iframe. Returns how many it wrote; 0 when the browser is gone.
 CMUX_SHIM_EXPORT int cmux_shim_renderer_client_ids(int browser_id, int* out, int capacity);
+// Every frame of every browser the shim holds, by browser and renderer
+// (memory per hidden workspace, p09-observability-061): entry i says that
+// browser_ids[i] has frame_counts[i] frames (the main frame and every
+// iframe) in renderer client_ids[i] (as above). Covering every browser
+// (tabs, popups, popup windows, spares, DevTools) gives each renderer's
+// whole frame count. Stock CEF API only (CefBrowser::GetFrameIdentifiers);
+// the app finds each renderer's pid from its helper's --renderer-client-id.
+// Writes at most `capacity` entries and returns how many there are, which
+// can be more; 0 in host mode.
+CMUX_SHIM_EXPORT int cmux_shim_renderer_frames(int* browser_ids, int* client_ids, int* frame_counts, int capacity);
 // The pid of the renderer process that hosts browser_id's main frame
 // (p14-energy-124, the fork's cmux_cef_browser_renderer_pid); same-site
 // tabs can share it. 0 while there is none (no renderer yet, gone, a

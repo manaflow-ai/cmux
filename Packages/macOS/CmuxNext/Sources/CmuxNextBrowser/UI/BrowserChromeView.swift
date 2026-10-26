@@ -438,6 +438,7 @@ public final class BrowserChromeView: NSView {
         super.layout()
         // Auto Layout may defer the address bar's frame until its subtree is
         // laid out. Follow the card only after that frame reflects this pass.
+        // sync-layout: followLayout below reads the address bar's frame from this pass.
         addressBar.layoutSubtreeIfNeeded()
         addressBar.followLayout()
         updateOcclusion()

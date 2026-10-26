@@ -77,6 +77,7 @@
     case CMUX_SHIM_PAGE_DRAG_ENTER:
     case CMUX_SHIM_FILE_DIALOG:
     case CMUX_SHIM_CURSOR:
+    case CMUX_SHIM_DRAG_OPERATION:
     case CMUX_SHIM_TOOLTIP:
       return true;
   }

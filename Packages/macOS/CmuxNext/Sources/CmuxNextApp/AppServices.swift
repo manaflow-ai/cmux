@@ -487,19 +487,19 @@ final class AppServices {
     /// (`noteDiscreteDispatch(began:)`).
     let inputDispatch: InputDispatchContext
     let inputTap: InputEventTap  // the one input tap (AppDelegate's; a test's own); owners subscribe, never add event monitors (p04-input.md 3 (A))
-    /// One input latency slot per tracked event (p04-input.md 3 (I)), its target by surface, most specific first;
-    /// an agent chat's Chromium page window (`CefNSWindow`) is the agent pane's. Its key and scroll slots carry the
-    /// `key.frame` and `key.scroll_frame` intervals.
-    private(set) lazy var inputLatency = InputLatencyDispatch(
-        tracker: InputLatencyTracker(presentation: PresentationClock()),
-        classifier: InputTargetClassifier(rules: [
+    /// One input latency slot per tracked event (p04-input.md 3 (I)), its target by surface (``inputTargets(agentPaneOwnsPage:)``).
+    /// Its key and scroll slots carry the `key.frame` and `key.scroll_frame` intervals.
+    private(set) lazy var inputLatency = InputLatencyDispatch(tracker: InputLatencyTracker(presentation: PresentationClock()), classifier: Self.inputTargets {
+        [weak self] page in self?.madeAgentTabs?.views.values.contains { $0.chromiumPage?.contentView.window === page } == true })
+    /// The surfaces, most specific first. A Chromium page in either process: an in-process page window (`CefNSWindow`, an agent
+    /// chat's being the agent pane's) or a host-mode page view, which takes text input, so it precedes that rule (p04-input-066).
+    static func inputTargets(agentPaneOwnsPage: @escaping @MainActor (NSWindow) -> Bool) -> InputTargetClassifier {
+        InputTargetClassifier(rules: [
             .view(TerminalSurfaceView.self, is: .terminal), .view(AgentPaneView.self, is: .agentPane),
-            .windowClassNamed("CefNSWindow", is: .chromiumPage, owner: { [weak self] page in
-                self?.madeAgentTabs?.views.values.contains { $0.chromiumPage?.contentView.window === page } == true ? .agentPane : nil
-            }),
-            .view(WKWebView.self, is: .webkitPage), .textInputClient(is: .textView),
-            .view(SidebarContainerView.self, is: .sidebar), .view(LayoutRootView.self, is: .layout),
-        ]))
+            .windowClassNamed("CefNSWindow", is: .chromiumPage, owner: { agentPaneOwnsPage($0) ? .agentPane : nil }),
+            .view(ChromiumHostPageView.self, is: .chromiumPage), .view(WKWebView.self, is: .webkitPage), .textInputClient(is: .textView),
+            .view(SidebarContainerView.self, is: .sidebar), .view(LayoutRootView.self, is: .layout)])
+    }
     private var mouseDownSubscription: InputSubscription?  // a click after dispatch (start)
     private(set) lazy var keyRouter: KeyRouter = KeyRouter(registry: registry, inputDispatch: inputDispatch)  // first read in init (no IUO)
     private(set) lazy var routeKeyDown: (NSEvent, NSWindow?) -> Bool = PerfLabCanaryKeyDown(features: { [weak self] in self?.features })
@@ -874,7 +874,7 @@ final class AppServices {
     /// follows its edges (`energy.set`). Only
     /// `AppDelegate` calls it, so an `AppServices` a test builds reads no IOKit (tests pass their own consumers).
     func startEnergy(keepAwake: KeepAwakeService = .shared, videos: BackdropVideoPlayers = .shared, design: DesignSettings = .shared) {
-        energy.start(inputs: energyMonitor)
+        energy.start(inputs: energyMonitor, suspend: features.isEnabled(.sleepWakeKeepalives) ? SuspendWatch(events: workspaceEvents, path: .system(on: mainWork)) : nil)
         energyMotion = MotionEnergyLink(mainWork.energy, design: design)
         daemon.follow(mainWork.energy, on: mainWork)
         energyLink = energyMonitor.follow { [weak self] inputs in
@@ -886,15 +886,17 @@ final class AppServices {
     /// Builds ``idleWakeups`` and feeds it the app's resign and become-active notices through ``appEvents`` (the
     /// app's one observer per notice, no timer); an app that is inactive now opens its first period. `AppDelegate`
     /// calls it after startup, with the watchdog that counts main run-loop wakes, and hands the sampler to the input
-    /// tap's subscription (`AppControl.idleWakeups`); a second call does nothing.
-    func startIdleWakeups(watchdog: MainThreadWatchdog) {
+    /// tap's subscription (`AppControl.idleWakeups`); a second call does nothing. The same resign-active notice
+    /// takes a `hiddenWorkspaceMemory` sample (p09-observability-061).
+    func startIdleWakeups(watchdog: MainThreadWatchdog, hiddenWorkspaceMemory: HiddenWorkspaceMemory?) {
         guard idleWakeups == nil else { return }
         let sampler = IdleWakeupSampler(sources: .live(mainRunLoopWakes: { [weak watchdog] in watchdog?.mainRunLoopWakes },
                                                        daemonPID: { [weak daemon = self.daemon] in daemon?.identity?.pid }))
         idleWakeups = sampler
         idleWakeupEvents = [
-            appEvents.subscribe(NSApplication.didResignActiveNotification, owner: "IdleWakeupSampler") { [weak sampler] in
+            appEvents.subscribe(NSApplication.didResignActiveNotification, owner: "IdleWakeupSampler") { [weak sampler, weak hiddenWorkspaceMemory] in
                 sampler?.appResignedActive()
+                hiddenWorkspaceMemory?.appDidResignActive()
             },
             appEvents.subscribe(NSApplication.didBecomeActiveNotification, owner: "IdleWakeupSampler") { [weak sampler] in
                 sampler?.appBecameActive()

@@ -1,0 +1,14 @@
+{
+  "$schema": "../features.schema.json",
+  "name": "sleepWakeKeepalives",
+  "owner": "Performance Lead",
+  "description": "cmux follows sleep, wake and display sleep: heartbeats, cloud socket pings and ambient frames stop while the Mac or its displays sleep (the device hub ping only while the Mac sleeps, for Mac Screen), and each cloud socket reconnects once within 2 s after a wake finds the network.",
+  "defaults": { "dev": false, "nightly": false, "release": false },
+  "kind": "perfPath",
+  "expires": "2026-12-20",
+  "process": "app",
+  "params": [],
+  "stories": ["idle-budget"],
+  "sticky": false,
+  "runtimeMutable": false
+}

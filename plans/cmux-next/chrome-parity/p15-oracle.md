@@ -588,6 +588,11 @@ Dropped or merged draft items: 022 and 045 (replaced by 026 and 191); 025 merged
 | 291 | Select Conversation 1-9 is a focus action | S | 20-28 | 076 | |
 | 292 | No picker or ask for a socket run without an argument | S | 20-28 | 076 | |
 | 293 | TOGGLES matches whole words | S | 18-24 | 071, 076 | |
+| 330 | Action cases: generated setup runs with focus | M | 20-36 | 071, 072, 077 | MQ-actions |
+| 331 | Facet: screen and screen group metadata | S | 20-28 | 035, 077 | |
+| 332 | Screen creates answer with the screen | S | 20-28 | 077 | |
+| 333 | No silent no-op for column and workspace moves | S | 20-28 | 077 | |
+| 334 | Reopen Saved Screen Group refuses an unknown id | S | 18-24 | 077 | |
 | 206 | I10 idempotent retry steps | S | 20-28 | 060, 110 | |
 | 204 | Streams suite + I8 | L | 18-36 | 023, 110 | |
 | 205 | restore_preview + I9 | M | 18-30 | 021, 201 | |
@@ -1092,6 +1097,130 @@ sets pink again. Match `pin` and `mute` as id words (the end of the id or a capi
 so no real toggle loses its restore. The space.color.pink note loses its divergence. Test: every-action-sweep.py
 `--plan-only` over a live catalog, the toggles before and after differ by the color actions only; gen_actions.py
 `--check` after regeneration; fleet, the case green twice.
+
+The tab action cases (078, `tests/oracle/corpus/actions/tabs/_tuning.json`) state for every create what its turn must
+already show (I3). Creates whose handler waits for the daemon before anything shows carry a `divergence` note naming
+one of these follow-ups; invariants.py is not yet part of a run, so the cases stay green on their outcome and waitFor
+checks until it is.
+
+**320 I3 pairs a stand-in with the object that replaced it.** Files: `OracleIntentsFacet.swift`,
+`snapshot-v1.schema.json`, `invariants.py`, `OracleIntentsFacetTests.swift`. An optimistic create shows a stand-in in
+its turn (NewTerminalTabCommand.intendNow: a `pending_tab_` id, a provisional surface, no title or size; a page or
+workspace stand-in the same way) and the daemon's tab takes its place at settle (ProvisionalTab.created, echoed). I3
+compares raw ids, so it reports every optimistic create. The intents facet lists, per create intent of the window's
+store, the stand-in id and the id that replaced it (the intent log's createdSurface, mapped to the tab); invariants.py
+relabels the turn's stand-in ids by that list and leaves out, for those tabs only, the fields the daemon fills
+(surface, title, columns, rows, git_branch). Chrome makes the WebContents with its final id in the same call
+(TabStripModel::AddWebContents, chrome/browser/ui/tabs/tab_strip_model.cc), so it has no such pairing; cmux keeps the
+stand-in because the daemon owns the id. Test: invariants.py --selftest (a stand-in replaced passes, a stand-in that
+vanished or a field the stand-in claimed that changed fails); OracleIntentsFacetTests; fleet, newSurface, newTab and
+newColumn green on I3.
+
+**321 A positioned new tab is in its slot in its turn.** Files: `NewTabSlot.swift`, `NewTerminalTabCommand.swift`,
+`Intent.swift`, `NewTabPositionSlotTests.swift`. NewTabSlot makes the tab at the end and moves it into its slot
+(TabMoves.move) once the pane lists it; NewTabSuccession places it in the strip only, so the store's order, which the
+topology and every client read, has it last in the turn. Give the create intent the index (the stand-in is inserted
+there) and send it with new-tab, as Chrome inserts at the index in one call (TabStripModel::InsertWebContentsAt). Test:
+NewTabPositionSlotTests (the stand-in is at its index in the turn); fleet, newTab.atStart, afterCurrent and toRight
+green on I3.
+
+**322 Tab group writes are store intents.** Files: `TabGroupHandlers.swift`, `TabGroupHandlers+Moves.swift`,
+`Intent.swift`, `TabGroupIntentTests.swift`. TabGroupHandlers.run passes no intent except for collapse, so create,
+addTab, removeTab, newTab, rename, setColor and color.*, ungroup, close and moveLeft/Right change nothing until the
+daemon's echo. Add an intent per write, applied to the pane's tab groups in the turn and rolled back on a refusal
+(the strip's resync stays the fallback), as Chrome's TabStripModel::AddToNewGroup, AddToExistingGroup,
+RemoveFromGroup, MoveGroupTo and TabGroup::SetVisualData change the model at once. Test: TabGroupIntentTests (each
+write shows in the turn; a refusal restores it); fleet, the tab group cases green on I3.
+
+**323 Windows, workspaces and reopens show in their turn.** Files: `WindowManager+Creation.swift`,
+`WindowManager+Incognito.swift`, `WorkspaceHandlers.swift`, `PaneController+Intents.swift`,
+`DaemonClosedHistory.swift`, `TabGroupHandlers.swift`, `OptimisticCreateTests.swift`. newWindow and
+newIncognitoWindow open their window after createWorkspace returns, newBrowserWorkspace creates in createAndShow's
+unstructured Task, newTab.submit's `!` command skips the terminal stand-in (newTerminalTab's `typing`),
+reopenClosedBrowserPanel, reopenClosedWorkspace and tabGroup.reopenSaved await the daemon. Open the window with a
+workspace stand-in (as Cmd-N's startWorkspace does), give the typed terminal its stand-in and send the text after the
+daemon's tab replaces it, and show a reopened item from the closed record in the turn. Chrome: chrome::NewEmptyWindow,
+chrome::NewIncognitoWindow (chrome/browser/ui/browser_commands.cc), TabRestoreService::RestoreMostRecentEntry
+(components/sessions/core/tab_restore_service_helper.cc). Test: OptimisticCreateTests; fleet, those cases green on
+I3.
+
+**324 Tab and group moves into new containers show in their turn.** Files: `TabMoves.swift`, `TabGroupMoves.swift`,
+`TabGroupHandlers+Moves.swift`, `TabHandlers+More.swift`, `TabMoveIntentTests.swift`. TabMoves.toNewSplit,
+toNewColumn, toNewDockColumn and toNewWorkspace and the group moves await the daemon (only TabMoves.toWorkspace is an
+intent); TabGroupHandlers.moveToNewWorkspace runs in an untracked Task, so action.run answers before the move. Make
+each a store intent with a provisional pane, column or workspace, as the splits are, and track the group move.
+Chrome: TabStripModel::DetachWebContentsAtForInsertion then InsertDetachedTabAt, chrome::MoveTabsToNewWindow. Test:
+TabMoveIntentTests; fleet, the move cases green on I3.
+
+**325 Facets: tab and group icons, tab tint, saved tab groups.** Files: `ControlTopology+JSON.swift`,
+`ControlTopologyMapper.swift`, `snapshot-v1.schema.json`, CmuxNextControlTests. The topology's tab and tab group have
+no icon, a tab's own tint is in no facet and no facet lists the daemon's saved tab groups, so tab.setIcon,
+tab.clearIcon, tab.setTint, tabGroup.setIcon, clearIcon, save and unsave are checked on their ok answer only. Add
+`icon` (null, or `set`: an icon is user text) to both, the tab's own `tint`, and the saved groups (id, open group,
+name); the cases gain a waitFor. Test: CmuxNextControlTests on the JSON; fleet, the seven cases green twice.
+
+**326 A tab-group target and the groups a run made.** Files: `PublicIDTargetResolver.swift`,
+`ControlRouter+ActionRun.swift`, `case-v1.schema.json`, `driver_app.py`, `driver_app_test.py`, the tabs tuning.
+action.run's `created` lists no tab group or saved group, and case-v1 has no tab-group target kind (270 adds the
+sidebar's), so tabGroup.addTab and tabGroup.reopenSaved are blocked `live-value` and the group actions act only on the
+selected tab's group. List created tab groups and saved groups in `created`, add the `tabGroup` target kind
+(`tab-group:`), and move the two cases' placeholders to `$step:` values. Test: driver_app_test.py; fleet, the two cases
+green twice.
+
+The layout action cases (077, `tests/oracle/corpus/actions/layout/_tuning.json`: screen, screenGroup, column,
+layout, split, resize, swap and move) check structure on the layout facet (tree, ratios, column widths, docks, the
+active screen, the focused and zoomed pane), tab moves on the topology facet's panes (they list terminal tabs; the
+tabs facet lists only browser and page tabs, so a pane of terminals is not in it), workspace order on the sidebar rows
+and the two layout settings on settings.nonDefaultKeys. A socket run without focus may not move focus
+(FocusCoordinator.send refuses every changesView event), so a split or create in a case's setup leaves the launch's
+pane focused; the cases pick a pane with focusPaneByNumber, a focus action. Three cases fail at a generated setup
+step until 330, and the other four tasks are what the cases found. As for 076, the cases cannot be listed in
+`Expectations.d/actions.txt` until a live action-list.json checks the case files in; each case's note names its task.
+
+**330 Action cases: generated setup runs with focus.** Files: `gen_actions.py`, `layout/_tuning.json`. The sweep
+runs its context, neighbor and PREPARE steps through `SweepDriver.run`, which is action.run with `focus: true`;
+gen_actions.py `run_step` sends them without it. Without focus the neighbor split does not focus the new pane, so
+swapPaneRight's neighbor-2 focusLeft and swapPaneDown's focusUp run from the leftmost or top pane and are refused
+(refuseQuietly, control.unavailable), and column.moveRight's prepare-2 column.focusLeft the same. Give the generated
+setup steps `args.focus: true` (case-v1's action.run `focus`, which 072 adds with driver_app.py) and nothing else:
+the action under test keeps the caller's own permission. The cases' focus-pane-N steps keep working with either
+setup, since they pick the pane by number. Test: gen_actions.py --selftest (a generated setup step has focus, the
+action step does not); fleet, the three cases green twice.
+
+**331 Facet: screen and screen group metadata.** Files: `ControlTopology+JSON.swift`, `ControlTopologyMapper.swift`,
+`snapshot-v1.schema.json`, `OracleTopologyFacetTests.swift`, `layout/_tuning.json`. The topology facet's screen has
+id, handle, name, zoomed pane and panes; its color, icon, pin and group are in no facet, and no facet lists a
+workspace's screen groups. Add `color` (the wire token or null), `icon` (null, or `set`: an icon is user text),
+`pinned` and `group` to the screen, and `screen_groups` (id, name, color, icon as for screens, collapsed, saved) to
+the workspace, from the store's ScreenModel and ScreenGroupSnapshot, as the mapper reads the rest. The 14 screen
+look cases and the 21 screen group cases without a waitFor gain one. Test: OracleTopologyFacetTests (a colored,
+pinned, grouped screen and a collapsed saved group read back); fleet, those cases green twice.
+
+**332 Screen creates answer with the screen.** Files: `ScreenCommands.swift`, `ScreenGroupCommands.swift`,
+`ScreenCreateTrackingTests.swift`, `layout/_tuning.json`. `ScreenCommands.create` and `moveToNewWorkspace` start their
+daemon request in an untracked `Task`, so action.run (and `cmux screen new`) answers before the screen exists and
+`created` does not name it. Hand the work to the registry (`ctx.registry.track`, or the handler returns an
+ActionEffect), so the run's scope waits for the reply and lists the screen, as Chrome's `chrome.tabs.create` answers
+with the tab it made (chrome/browser/extensions/api/tabs/tabs_api.cc, TabsCreateFunction). screen.focus's case then
+targets `$step:second-screen#/created/0` for its success path, and the setup steps' layout waits become plain
+checks. Test: ScreenCreateTrackingTests (a socket screen.new answers with the new screen's id); fleet, screen.new,
+screen.focus and screen.moveToWorkspace green twice.
+
+**333 No silent no-op for column and workspace moves.** Files: `ColumnHandlers.swift`, `AppActions+Workspaces.swift`,
+`AppActions+PersonalOrder.swift`, `SilentNoOpRefusalTests.swift`, `layout/_tuning.json`. On a screen that is still one
+split tree, the column width presets, the width cycle and Center Column find no column for the implicit one
+(`LayoutModel.setColumnWidth` returns without a word) and the run answers ok for nothing done; Move Workspace Up or
+Down at the top or bottom returns the same way. Refuse with `refuseQuietly` and a localized reason (a key stays
+quiet; the CLI and the palette get the reason), or, for the presets, apply the width to the lone column as newColumn
+makes a strip. Chrome's Move Tab Left at the first tab is a no-op for the key but chrome.tabs.move with an index out
+of range is an error (chrome/browser/extensions/api/tabs/tabs_api.cc). Test: SilentNoOpRefusalTests; fleet, the
+column and moveWorkspace cases green twice, plus a refusal case for each.
+
+**334 Reopen Saved Screen Group refuses an unknown id.** Files: `ScreenGroupHandlers.swift`,
+`ScreenGroupReopenSavedTests.swift`, `layout/_tuning.json`. A saved id that names no saved group reaches the caller as
+`daemon_error` (the daemon's refusal wrapped as failed work). Check the id against the store's saved groups first and
+refuse with `refuseNotFound` (`not_found`), as 290 does for Home conversations. The case's tuning turns to
+`error: control.not_found`. Test: ScreenGroupReopenSavedTests; fleet, the case green twice.
 
 **206 I10 idempotent retry.** For each of the 201 `idempotency: required` ops, the generator adds a same-key retry step. Test: holds on all ops.
 
