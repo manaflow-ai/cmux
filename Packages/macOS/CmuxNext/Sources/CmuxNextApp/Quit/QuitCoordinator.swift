@@ -173,7 +173,7 @@ final class QuitCoordinator {
             prepareWindows: {
                 // Remote-terminal tabs keep their last screen for the
                 // placeholder after relaunch (data-model.md 1.4).
-                await services.remoteTerminals.saveSnapshots()
+                await services.madeRemoteTerminals?.saveSnapshots()
                 // Agent chats get their composer's chips, shell command and place back at the next
                 // launch (pages are asked at once, each within a second).
                 await services.agentTabs.relaunchWake.save(services.agentTabs.relaunchWakeStates())

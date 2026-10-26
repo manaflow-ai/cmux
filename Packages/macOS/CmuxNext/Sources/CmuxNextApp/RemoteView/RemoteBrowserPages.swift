@@ -5,7 +5,7 @@ import CmuxNextControl
 import CmuxNextDesign
 import CmuxNextSettings
 import Foundation
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 import CmuxNextRemoteBrowser
 #endif
 
@@ -37,7 +37,7 @@ enum RemoteBrowserPages {
         })
     }
 
-    #if DEBUG
+    #if DEBUG || CMUX_BENCH_HOOKS
     /// Live sessions by tab key, for the debug socket (weak: tabs own them).
     @MainActor static var sessions: [String: WeakSession] = [:]
 
@@ -393,7 +393,7 @@ enum RemoteBrowserPages {
 
 extension AppControl {
     func registerRemoteBrowserDebugMethods(_ services: AppServices) {
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         service?.router.register([
             .mainActor("debug.remote_browser") { [weak services] call in
                 guard let services else { return .value(.null) }

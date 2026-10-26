@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 public import Foundation
 import os
 import ImageIO
@@ -138,7 +139,7 @@ public nonisolated enum BackdropSelection: Equatable, Hashable, Sendable {
         let follows: Bool
         if let wallpaper = appleWallpaper(path), wallpaper.isDynamic {
             follows = true
-        } else if let url = imageURL(for: .light), let source = CGImageSourceCreateWithURL(url as CFURL, nil) {
+        } else if let url = imageURL(for: .light), let source = CheckedImageSource(blockingContentsOf: url)?.source {
             follows = BackdropAppearance.light.frame(in: source) != BackdropAppearance.dark.frame(in: source)
         } else {
             follows = false

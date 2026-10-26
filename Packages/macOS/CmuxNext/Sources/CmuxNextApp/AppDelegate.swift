@@ -63,8 +63,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// The one input tap (p04-input.md 3 (A)), made in `main`: pending input, control and services
     /// observe it; `main` installs it on the application before `run()`.
     let inputTap: InputEventTap
-    private let mouseSideButtons = MouseSideButtons()
-    private var cloudContext: Task<Void, Never>?
+    private let mouseSideButtons: MouseSideButtons
     /// OSC 52 clipboard reads on the local daemon (`TerminalClipboardReadService`).
     var daemonPrompts: DaemonPrompts?
     /// The binding table's Ghostty keybinds, kept current (GHOSTTY-CONFIG).
@@ -93,6 +92,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         startupReferences = StartupReferences(startup: startup, reveal: reveal, paneRefs: paneRefs)
         (self.mainWork, self.inputTap) = (order.mainWork, inputTap)
         control = AppControl(mainWork: order.mainWork, input: inputTap)
+        mouseSideButtons = MouseSideButtons(input: inputTap)
         super.init()
     }
 
@@ -144,7 +144,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         DebugTimings.markLaunch("dfl.theme")
         let services = AppServices(environment: environment, launchReveal: launchReveal, work: launchReads.work, mainWork: mainWork,
                                    launchImages: launchReads.images, relaunchWake: launchReads.wake, wireStats: wireStats, inputTap: inputTap,
-                                   launchImageHold: launchImageHold, crashKeys: control.crashKeys)
+                                   launchImageHold: launchImageHold, launchStartup: order.startup, crashKeys: control.crashKeys)
         AppProcessRoot.shared.adopt(services)
         self.services = services
         TooltipPresenter.shared.appEvents = services.appEvents  // its inactive-app dismissal shares the app's one observer
@@ -198,7 +198,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                               terminalEnvironmentProvider: environment.terminalEnvironmentProvider(),
                               resolvesShellIntegration: environment.resolvesShellIntegration, prestart: daemonPrestart)
         FeaturePolicyEnforcer(services: services).start()
-        cloudContext = services.startCloud()
+        services.postCloudStart(on: order.startup)  // no Cloud restore or connect before the first frame (p08-startup 020)
         services.postNonPaintServices(on: order.startup)
         // Before the first window opens (restoreWhenLoaded opens one at once).
         services.windows.onPresent = { [weak services] controller in
@@ -304,7 +304,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let registry = services.registry
         let settings = SettingsController(registry: registry, fileURL: launch.fileURL, launch: launch)
         settings.applyManagedFeaturesNow()
-        ManagedPolicyBridge(settings: settings, updater: services.updater, auth: services.cloud.auth).start()
+        ManagedPolicyBridge(settings: settings, updater: services.updater, auth: services.cloudAuth).start()
         self.settings = settings
         services.settings = settings
         UserOnlySettingConfirmation.install(settings, services: services)
@@ -348,7 +348,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let settings else { return }
             await settings.waitForLoad(atLeast: 1)
             for await github in ObservationStream({ settings.snapshot.feedGitHub }) {
-                services?.feed.configureGitHub(enabled: github.enabled, pollIntervalSeconds: github.pollIntervalSeconds)
+                services?.configureFeedGitHub(enabled: github.enabled, pollIntervalSeconds: github.pollIntervalSeconds)  // builds no feed
             }
         }
         // macOS posts no notification when an MDM profile changes; activation
@@ -376,7 +376,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.terminalTheme.follow(settings)
         services.themes.start()
         services.themes.followChromeTheme(settings)
-        services.remoteLocalhost.follow(settings)
         services.bookmarks.follow(settings)
         services.apps.start()
         Task {
@@ -408,7 +407,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 DebugNowPlaying.register(on: control.service?.router, services: services)
                 DebugDownloads.register(on: control.service?.router, services: services)
                 DebugCEFDevToolsLayout.register(on: control.service?.router, services: services)
-                #if DEBUG
+                #if DEBUG || CMUX_BENCH_HOOKS
                 // The Chromium host app prototype (browserHost.helper; cef-helper-app-DESIGN.md).
                 // Socket focus policy: `open` makes the page first responder only with focus: true.
                 let chromiumHost = ChromiumHostPrototype(makeConfiguration: { ChromiumHostPrototype.bundledConfiguration() },
@@ -500,10 +499,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// then `ExternalOpenRouter`.
     private func routeOpenedURL(_ url: URL) {
         guard let services else { return }
-        let auth = services.cloud.auth
+        let auth = services.cloudAuth
         let destination = OpenedURLRouting.route(url, isAuthCallback: { auth.isCallback($0) }, open: { services.externalOpen.open($0) })
         guard destination == .auth else { return }
-        Task { _ = await auth.handleCallback(url) }
+        Task { _ = await auth.handleCallback(url) }  // it starts Cloud first (`CloudAuth.onSignIn`)
     }
 
     func applicationWillTerminate(_ notification: Notification) {
@@ -517,10 +516,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         BrowserDesignModeController.tempFiles.removeAll()
         services?.home.applicationWillTerminate()
         services?.vscodeServeWeb.terminateForAppExit()
-        cloudContext?.cancel()
-        services?.cloud.stop()
-        for session in services?.machines.cloud ?? [] { session.disconnect() }
-        services?.ssh.stop()
+        services?.stopCloud()
+        services?.madeSSH?.stop()
         services?.serverReach.stop()
         control.stop()
         services?.configActions.stop()

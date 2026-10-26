@@ -66,7 +66,7 @@ public struct FirefoxLoginReader {
                 skipped.empty += 1
                 continue
             }
-            let created = entry.timeCreated.map { Date(timeIntervalSince1970: $0 / 1000) }
+            let created = entry.timeCreated.flatMap { BrowserTime().unix($0 / 1000) }
             let login = ImportedLogin(url: url, signonRealm: realm, username: username, password: password, created: created)
             let key = realm + "\u{0}" + username
             if let kept = byKey[key] {

@@ -343,6 +343,7 @@ static void BindForkApi(const char* framework_binary) {
   CMUX_BIND(set_drag_source_handler, "cmux_set_drag_source_handler");
   CMUX_BIND(browser_drag_source_ended, "cmux_browser_drag_source_ended");
   CMUX_BIND(browser_drag_target_enter_source, "cmux_browser_drag_target_enter_source");
+  CMUX_BIND(tab_renderer_state, "cmux_tab_renderer_state");
 #undef CMUX_BIND
 }
 
@@ -444,7 +445,9 @@ int cmux_shim_initialize(const char* framework_dir, const char* main_bundle_path
   h.key = key;
 
   CefSettings settings;
-  settings.external_message_pump = true;
+  // cmux in process pumps CEF from its own run loop (schedule -> do_work);
+  // the Chromium Host passes no schedule_fn and runs CefRunMessageLoop.
+  settings.external_message_pump = schedule != nullptr;
   settings.no_sandbox = false;  // helpers enter the sandbox themselves
   settings.persist_session_cookies = false;  // see RequestContextFor
   if (log_severity) {

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextInput
 import Foundation
 import os
 
@@ -153,7 +154,7 @@ extension CEFRuntime {
             break
         default:
             if let browser = event.browserID, let tab = tabsByBrowser[browser] {
-                #if DEBUG
+                #if DEBUG || CMUX_BENCH_HOOKS
                 CEFEventTrace.record(browser, event)
                 #endif
                 tab.handle(event)
@@ -222,12 +223,33 @@ extension CEFRuntime {
             tab.automaticDownloads.userGesture()
             tab.pageUserInput?(ProcessInfo.processInfo.systemUptime)
         }
-        windowRequests.linkClicks.startRecordingClicks { [weak self] in self?.windowRequests.clickTargets() ?? [] }
-        swipeNavigation.start()
+        startInput()
         tabsByBrowser[browser] = tab
         tab.attach(browser: browser)
         accessibility.attached(browser)
         signInCallbacks.attached(tab)
+    }
+
+    /// Gives the runtime `tap`, the input tap of the engine made now. It replaces the one before:
+    /// link clicks and swipes that already hear a tap move to this one, so the newest engine's tap is
+    /// always the one heard.
+    func attachInput(_ tap: InputEventTap) {
+        guard tap !== input else { return }
+        input = tap
+        if windowRequests.linkClicks.isRecording || swipeNavigation.isStarted { startInput() }
+    }
+
+    /// Link clicks and swipes hear `input` (a call with the tap they already hear does nothing).
+    private func startInput() {
+        guard let input else {
+            if !reportedMissingInput {
+                reportedMissingInput = true
+                logger.fault("a Chromium tab registered with no input tap: link clicks and swipes are not heard")
+            }
+            return
+        }
+        windowRequests.linkClicks.startRecordingClicks(input: input) { [weak self] in self?.windowRequests.clickTargets() ?? [] }
+        swipeNavigation.start(input: input)
     }
 
     private func browserClosed(_ browser: Int32) {

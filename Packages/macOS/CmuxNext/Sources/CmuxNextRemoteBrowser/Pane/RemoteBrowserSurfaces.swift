@@ -2,7 +2,7 @@ public import AppKit
 public import CmuxNextRemoteView
 import CmuxNextCompat
 
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 /// The popup surfaces of one remote tab (`rb.surface.show/update/hide`,
 /// RT5): each is a borderless child panel of the page's window
 /// (`RemoteBrowserSurfacePanel`, page content below the app's overlays) at

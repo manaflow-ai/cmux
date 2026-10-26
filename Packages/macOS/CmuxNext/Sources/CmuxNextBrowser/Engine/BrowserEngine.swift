@@ -57,4 +57,6 @@ public nonisolated enum BrowserRestoreState: Hashable, Sendable {
     case webKit(Data)
     /// The Chromium fork's `cmux_tab_navigation_state` (API 7).
     case chromium(String)
+    /// A cmux page in a browser tab (`BrowserAppPage`): its address and view state, no engine history.
+    case appPage(BrowserAppPageState)
 }

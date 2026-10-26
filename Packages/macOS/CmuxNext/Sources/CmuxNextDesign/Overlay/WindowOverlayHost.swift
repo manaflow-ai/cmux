@@ -1,6 +1,6 @@
 public import AppKit
 public import CmuxNextDesignTokens
-import CmuxNextInput
+public import CmuxNextInput
 
 /// The one place app overlays draw above Chromium pages.
 ///

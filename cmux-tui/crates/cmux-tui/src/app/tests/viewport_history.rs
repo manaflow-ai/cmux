@@ -1180,7 +1180,10 @@ fn ctrl_l_reaches_foreground_primary_screen_app() {
     let mut output = attach.replay.to_vec();
     while !output.windows(5).any(|window| window == b"ready") {
         match attach.stream.recv_timeout(Duration::from_millis(20)) {
-            Ok(cmux_tui_core::AttachFrame::Output(bytes)) => output.extend_from_slice(&bytes),
+            Ok(
+                cmux_tui_core::AttachFrame::Output(bytes)
+                | cmux_tui_core::AttachFrame::FlowOutput { output: bytes, .. },
+            ) => output.extend_from_slice(&bytes),
             Ok(cmux_tui_core::AttachFrame::OutputWithColors { output: bytes, .. }) => {
                 output.extend_from_slice(&bytes);
             }
@@ -1203,7 +1206,10 @@ fn ctrl_l_reaches_foreground_primary_screen_app() {
     output.clear();
     while !output.contains(&b'\x0c') {
         match attach.stream.recv_timeout(Duration::from_millis(20)) {
-            Ok(cmux_tui_core::AttachFrame::Output(bytes)) => output.extend_from_slice(&bytes),
+            Ok(
+                cmux_tui_core::AttachFrame::Output(bytes)
+                | cmux_tui_core::AttachFrame::FlowOutput { output: bytes, .. },
+            ) => output.extend_from_slice(&bytes),
             Ok(cmux_tui_core::AttachFrame::OutputWithColors { output: bytes, .. }) => {
                 output.extend_from_slice(&bytes);
             }
@@ -1239,7 +1245,10 @@ fn command_k_reaches_a_kitty_app_on_the_alternate_screen() {
     let mut output = attach.replay.to_vec();
     while !output.windows(5).any(|window| window == b"ready") {
         match attach.stream.recv_timeout(Duration::from_millis(20)) {
-            Ok(cmux_tui_core::AttachFrame::Output(bytes)) => output.extend_from_slice(&bytes),
+            Ok(
+                cmux_tui_core::AttachFrame::Output(bytes)
+                | cmux_tui_core::AttachFrame::FlowOutput { output: bytes, .. },
+            ) => output.extend_from_slice(&bytes),
             Ok(cmux_tui_core::AttachFrame::OutputWithColors { output: bytes, .. }) => {
                 output.extend_from_slice(&bytes);
             }
@@ -1264,7 +1273,10 @@ fn command_k_reaches_a_kitty_app_on_the_alternate_screen() {
     output.clear();
     while !output.windows(expected.len()).any(|window| window == expected) {
         match attach.stream.recv_timeout(Duration::from_millis(20)) {
-            Ok(cmux_tui_core::AttachFrame::Output(bytes)) => output.extend_from_slice(&bytes),
+            Ok(
+                cmux_tui_core::AttachFrame::Output(bytes)
+                | cmux_tui_core::AttachFrame::FlowOutput { output: bytes, .. },
+            ) => output.extend_from_slice(&bytes),
             Ok(cmux_tui_core::AttachFrame::OutputWithColors { output: bytes, .. }) => {
                 output.extend_from_slice(&bytes);
             }
@@ -1286,7 +1298,10 @@ fn command_k_reaches_a_kitty_app_on_the_alternate_screen() {
     output.clear();
     while !output.windows(expected.len()).any(|window| window == expected) {
         match attach.stream.recv_timeout(Duration::from_millis(20)) {
-            Ok(cmux_tui_core::AttachFrame::Output(bytes)) => output.extend_from_slice(&bytes),
+            Ok(
+                cmux_tui_core::AttachFrame::Output(bytes)
+                | cmux_tui_core::AttachFrame::FlowOutput { output: bytes, .. },
+            ) => output.extend_from_slice(&bytes),
             Ok(cmux_tui_core::AttachFrame::OutputWithColors { output: bytes, .. }) => {
                 output.extend_from_slice(&bytes);
             }
@@ -1331,7 +1346,10 @@ fn prefixed_clear_history_never_forwards_only_the_suffix_key() {
     let mut output = attach.replay.to_vec();
     while !output.windows(5).any(|window| window == b"ready") {
         match attach.stream.recv_timeout(Duration::from_millis(20)) {
-            Ok(cmux_tui_core::AttachFrame::Output(bytes)) => output.extend_from_slice(&bytes),
+            Ok(
+                cmux_tui_core::AttachFrame::Output(bytes)
+                | cmux_tui_core::AttachFrame::FlowOutput { output: bytes, .. },
+            ) => output.extend_from_slice(&bytes),
             Ok(cmux_tui_core::AttachFrame::OutputWithColors { output: bytes, .. }) => {
                 output.extend_from_slice(&bytes);
             }
@@ -1362,7 +1380,10 @@ fn prefixed_clear_history_never_forwards_only_the_suffix_key() {
     let deadline = Instant::now() + Duration::from_millis(250);
     while Instant::now() < deadline {
         match attach.stream.recv_timeout(Duration::from_millis(20)) {
-            Ok(cmux_tui_core::AttachFrame::Output(bytes)) => output.extend_from_slice(&bytes),
+            Ok(
+                cmux_tui_core::AttachFrame::Output(bytes)
+                | cmux_tui_core::AttachFrame::FlowOutput { output: bytes, .. },
+            ) => output.extend_from_slice(&bytes),
             Ok(cmux_tui_core::AttachFrame::OutputWithColors { output: bytes, .. }) => {
                 output.extend_from_slice(&bytes);
             }

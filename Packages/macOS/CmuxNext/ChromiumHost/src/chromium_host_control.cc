@@ -5,11 +5,20 @@
 #include <fcntl.h>
 #include <poll.h>
 #include <pthread.h>
+#include <sys/mman.h>
 #include <sys/socket.h>
+#include <sys/stat.h>
 #include <sys/types.h>
 #include <unistd.h>
 
+#if defined(__APPLE__)
+#include <libproc.h>
+#include <sys/proc_info.h>
+#endif
+
 #include <algorithm>
+#include <atomic>
+#include <cstdio>
 #include <cstring>
 #include <mutex>
 #include <thread>
@@ -47,7 +56,131 @@ void CloseAll(std::deque<int>* fds) {
   fds->clear();
 }
 
+void CloseEach(const std::vector<int>& fds) {
+  for (int fd : fds) ::close(fd);
+}
+
+// The bytes a received message keeps on the heap until it runs: its bytes
+// and str payloads (the inbox's byte limit counts them).
+size_t PayloadBytes(const Message& message) {
+  size_t bytes = 0;
+  for (const Field& field : message.fields) bytes += field.bytes.size();
+  return bytes;
+}
+
+// Shared fields on the wire (chromium_host_control.h): the u64 byte count of
+// a payload in one of the frame's descriptors.
+constexpr uint8_t kWireSharedBytes = 6;
+constexpr uint8_t kWireSharedStr = 7;
+constexpr size_t kSharedFieldSize = 8;
+
+// Whether the receiver may map the region `fd` names (see
+// CreateSharedRegion). Linux: its write, grow and shrink seals. macOS: a
+// read-only descriptor of a POSIX shm object (proc_pidfdinfo
+// PROC_PIDFDPSHMINFO succeeds only for one); xnu sizes a shm object once
+// (pshm_truncate refuses a second), so it cannot shrink under the mapping,
+// where a regular file could be truncated and the read would fault. Chrome
+// on macOS passes a Mach memory entry instead
+// (base/memory/platform_shared_memory_region_apple.cc); this channel is a
+// Unix socket, so it passes the shm descriptor and checks its type.
+// Elsewhere: never (no region type is proven fixed there).
+bool IsSealed(int fd) {
+#if defined(__linux__)
+  constexpr int kNeeded = F_SEAL_WRITE | F_SEAL_GROW | F_SEAL_SHRINK;
+  const int seals = ::fcntl(fd, F_GET_SEALS);
+  return seals >= 0 && (seals & kNeeded) == kNeeded;
+#elif defined(__APPLE__)
+  const int flags = ::fcntl(fd, F_GETFL);
+  if (flags < 0 || (flags & O_ACCMODE) != O_RDONLY) return false;
+  struct pshm_fdinfo info;
+  return ::proc_pidfdinfo(::getpid(), fd, PROC_PIDFDPSHMINFO, &info, static_cast<int>(sizeof info)) ==
+         static_cast<int>(sizeof info);
+#else
+  (void)fd;
+  return false;
+#endif
+}
+
+// The first `count` bytes of the sealed region `fd`, into `out`, through a
+// mapping (macOS shm descriptors have no read). The seal keeps the region
+// from shrinking under it.
+bool ReadSharedRegion(int fd, uint64_t count, std::string* out) {
+  if (!IsSealed(fd)) return false;
+  struct stat info;
+  if (::fstat(fd, &info) != 0 || info.st_size < 0 || static_cast<uint64_t>(info.st_size) < count) return false;
+  void* mapping = ::mmap(nullptr, static_cast<size_t>(count), PROT_READ, MAP_SHARED, fd, 0);
+  if (mapping == MAP_FAILED) return false;
+  out->assign(static_cast<const char*>(mapping), static_cast<size_t>(count));
+  ::munmap(mapping, static_cast<size_t>(count));
+  return true;
+}
+
+// Reads the shared fields `shared` (field indices, ascending) of `message`
+// from its last descriptors, then closes and drops those: message->fds keeps
+// the others. False (message->fds untouched) when one is malformed.
+bool ReadSharedFields(const std::vector<size_t>& shared, Message* message) {
+  if (shared.empty()) return true;
+  const size_t first = message->fds.size() - shared.size();
+  for (size_t k = 0; k < shared.size(); ++k) {
+    Field& field = message->fields[shared[k]];
+    if (!ReadSharedRegion(message->fds[first + k], static_cast<uint64_t>(field.integer), &field.bytes)) return false;
+    field.integer = 0;
+    if (field.type == Type::kStr && !IsValidUtf8(field.bytes)) return false;
+  }
+  for (size_t k = first; k < message->fds.size(); ++k) ::close(message->fds[k]);
+  message->fds.resize(first);
+  return true;
+}
+
 }  // namespace
+
+int CreateSharedRegion(const std::string& data) {
+  if (data.empty() || data.size() > kMaxSharedBytes) return -1;
+  // Sizes `fd` to the data and fills it through a mapping, unmapped before any seal.
+  auto fill = [&data](int fd) {
+    if (::ftruncate(fd, static_cast<off_t>(data.size())) != 0) return false;
+    void* mapping = ::mmap(nullptr, data.size(), PROT_READ | PROT_WRITE, MAP_SHARED, fd, 0);
+    if (mapping == MAP_FAILED) return false;
+    std::memcpy(mapping, data.data(), data.size());
+    ::munmap(mapping, data.size());
+    return true;
+  };
+#if defined(__linux__)
+  const int fd = ::memfd_create("cmux-host-payload", MFD_CLOEXEC | MFD_ALLOW_SEALING);
+  if (fd < 0) return -1;
+  if (!fill(fd) || ::fcntl(fd, F_ADD_SEALS, F_SEAL_WRITE | F_SEAL_GROW | F_SEAL_SHRINK | F_SEAL_SEAL) != 0) {
+    ::close(fd);
+    return -1;
+  }
+  return fd;
+#else
+  // As Chrome's POSIX region (platform_shared_memory_region_posix.cc, not
+  // its macOS Mach entries) makes a read-only one: the read-only
+  // descriptor is opened before the name goes; the writable one never leaves
+  // this process. PSHMNAMLEN is 31: "/cmux-hp-" with a pid and a serial fits.
+  static std::atomic<uint32_t> serial{0};
+  for (int attempt = 0; attempt < 8; ++attempt) {
+    char name[32];
+    std::snprintf(name, sizeof name, "/cmux-hp-%d-%u", static_cast<int>(::getpid()), serial.fetch_add(1));
+    const int writable = ::shm_open(name, O_RDWR | O_CREAT | O_EXCL, 0600);
+    if (writable < 0) {
+      if (errno == EEXIST) continue;
+      return -1;
+    }
+    const int readable = ::shm_open(name, O_RDONLY, 0);
+    ::shm_unlink(name);
+    const bool filled = readable >= 0 && fill(writable);
+    ::close(writable);
+    if (!filled) {
+      if (readable >= 0) ::close(readable);
+      return -1;
+    }
+    ::fcntl(readable, F_SETFD, FD_CLOEXEC);
+    return readable;
+  }
+  return -1;
+#endif
+}
 
 Field Field::I32(uint8_t tag, int32_t value) {
   Field field;
@@ -143,10 +276,57 @@ bool IsValidUtf8(const std::string& text) {
   return true;
 }
 
-bool Encode(const Message& message, std::vector<uint8_t>* out) {
-  if (message.fds.size() > kMaxFds) return false;
+bool Encode(const Message& message, std::vector<uint8_t>* out) { return EncodeShared(message, {}, out); }
+
+std::vector<size_t> SharedFields(const Message& message) {
+  std::vector<size_t> shared;
+  std::vector<size_t> inline_payloads;  // bytes and str fields that fit a field
+  size_t body = 0;
+  for (size_t i = 0; i < message.fields.size(); ++i) {
+    const Field& field = message.fields[i];
+    if (field.type != Type::kBytes && field.type != Type::kStr) {
+      body += kFieldHeaderSize + (field.type == Type::kI32 ? 4 : 8);
+    } else if (field.bytes.size() > UINT16_MAX) {
+      shared.push_back(i);
+      body += kFieldHeaderSize + kSharedFieldSize;
+    } else {
+      body += kFieldHeaderSize + field.bytes.size();
+      if (field.bytes.size() > kSharedFieldSize) inline_payloads.push_back(i);
+    }
+  }
+  std::stable_sort(inline_payloads.begin(), inline_payloads.end(), [&](size_t a, size_t b) {
+    return message.fields[a].bytes.size() > message.fields[b].bytes.size();
+  });
+  for (size_t i : inline_payloads) {
+    if (body <= kMaxBody) break;
+    shared.push_back(i);
+    body -= message.fields[i].bytes.size() - kSharedFieldSize;
+  }
+  std::sort(shared.begin(), shared.end());
+  return shared;
+}
+
+bool EncodeShared(const Message& message, const std::vector<size_t>& shared, std::vector<uint8_t>* out) {
+  const size_t fd_count = message.fds.size() + shared.size();
+  if (fd_count > kMaxFds) return false;
   std::vector<uint8_t> body;
-  for (const Field& field : message.fields) {
+  size_t next_shared = 0;
+  uint64_t shared_total = 0;
+  for (size_t i = 0; i < message.fields.size(); ++i) {
+    const Field& field = message.fields[i];
+    if (next_shared < shared.size() && shared[next_shared] == i) {
+      ++next_shared;
+      if (field.type != Type::kBytes && field.type != Type::kStr) return false;
+      if (field.bytes.empty() || field.bytes.size() > kMaxSharedBytes - shared_total) return false;
+      shared_total += field.bytes.size();
+      if (field.type == Type::kStr && !IsValidUtf8(field.bytes)) return false;
+      body.push_back(field.type == Type::kStr ? kWireSharedStr : kWireSharedBytes);
+      body.push_back(field.tag);
+      Put16(&body, static_cast<uint16_t>(kSharedFieldSize));
+      Put64(&body, field.bytes.size());
+      if (body.size() > kMaxBody) return false;
+      continue;
+    }
     body.push_back(static_cast<uint8_t>(field.type));
     body.push_back(field.tag);
     switch (field.type) {
@@ -176,7 +356,8 @@ bool Encode(const Message& message, std::vector<uint8_t>* out) {
     }
     if (body.size() > kMaxBody) return false;
   }
-  const uint16_t flags = static_cast<uint16_t>((message.reply ? kFlagReply : 0) | message.fds.size());
+  if (next_shared != shared.size()) return false;  // an index past the fields, or not ascending
+  const uint16_t flags = static_cast<uint16_t>((message.reply ? kFlagReply : 0) | fd_count);
   Put32(out, static_cast<uint32_t>(body.size()));
   Put16(out, message.op);
   Put16(out, flags);
@@ -198,6 +379,8 @@ Parse Decode(const uint8_t* data, size_t size, std::deque<int>* fds, Message* ou
   message.token = static_cast<uint32_t>(GetLE(data + 8, 4));
   size_t at = kHeaderSize;
   const size_t end = kHeaderSize + length;
+  std::vector<size_t> shared;  // indices of the shared fields
+  uint64_t shared_total = 0;   // their byte counts together
   while (at < end) {
     if (end - at < kFieldHeaderSize) return Parse::kMalformed;
     Field field;
@@ -231,16 +414,31 @@ Parse Decode(const uint8_t* data, size_t size, std::deque<int>* fds, Message* ou
         field.bytes.assign(reinterpret_cast<const char*>(value), field_length);
         if (field.type == Type::kStr && !IsValidUtf8(field.bytes)) return Parse::kMalformed;
         break;
+      case kWireSharedBytes:
+      case kWireSharedStr: {
+        if (field_length != kSharedFieldSize) return Parse::kMalformed;
+        const uint64_t count = GetLE(value, 8);
+        if (count == 0 || count > kMaxSharedBytes - shared_total) return Parse::kMalformed;
+        shared_total += count;
+        field.type = type == kWireSharedStr ? Type::kStr : Type::kBytes;
+        field.integer = static_cast<int64_t>(count);  // until ReadSharedFields reads the region
+        shared.push_back(message.fields.size());
+        break;
+      }
       default:
         return Parse::kMalformed;
     }
     at += field_length;
     message.fields.push_back(std::move(field));
   }
-  if (fds->size() < fd_count) return Parse::kMalformed;
+  if (fds->size() < fd_count || shared.size() > fd_count) return Parse::kMalformed;
   for (size_t i = 0; i < fd_count; ++i) {
     message.fds.push_back(fds->front());
     fds->pop_front();
+  }
+  if (!ReadSharedFields(shared, &message)) {
+    CloseEach(message.fds);
+    return Parse::kMalformed;
   }
   *out = std::move(message);
   *consumed = end;
@@ -266,7 +464,8 @@ void Outbox::CloseFds(Entry* entry) {
   entry->fds.clear();
 }
 
-bool Outbox::Push(std::vector<uint8_t> bytes, std::vector<int> fds, std::optional<uint64_t> key) {
+bool Outbox::Push(std::vector<uint8_t> bytes, std::vector<int> fds, std::optional<uint64_t> key,
+                  size_t shared_bytes) {
   bool replaced = false;
   if (key) {
     auto found = keyed_.find(*key);
@@ -279,9 +478,9 @@ bool Outbox::Push(std::vector<uint8_t> bytes, std::vector<int> fds, std::optiona
       keyed_.erase(found);
     }
   }
-  bytes_ += bytes.size();
+  bytes_ += bytes.size() + shared_bytes;
   ++messages_;
-  entries_.push_back(Entry{std::move(bytes), std::move(fds), 0, key, true});
+  entries_.push_back(Entry{std::move(bytes), std::move(fds), 0, key, true, shared_bytes});
   if (key) keyed_[*key] = removed_ + entries_.size() - 1;
   if (dead_ > 64 && dead_ > messages_) Compact();
   return replaced;
@@ -337,7 +536,7 @@ void Outbox::PopFront() {
     if (found != keyed_.end() && found->second == removed_) keyed_.erase(found);
   }
   CloseFds(front);
-  bytes_ -= front->bytes.size();
+  bytes_ -= front->bytes.size() + front->shared_bytes;
   --messages_;
   entries_.pop_front();
   ++removed_;
@@ -361,7 +560,7 @@ size_t Outbox::CountKey(uint64_t key) const {
 
 void Outbox::Drop(Entry* entry) {
   CloseFds(entry);
-  bytes_ -= entry->bytes.size();
+  bytes_ -= entry->bytes.size() + entry->shared_bytes;
   std::vector<uint8_t>().swap(entry->bytes);
   entry->live = false;
   --messages_;
@@ -422,8 +621,9 @@ struct Channel::Core : std::enable_shared_from_this<Core> {
   uint64_t coalesced = 0;
   // Read and not run on the UI thread yet; the drain task takes it whole.
   std::vector<Message> inbox;
+  size_t inbox_bytes = 0;  // the inbox's payload bytes (PayloadBytes)
   bool drain_posted = false;
-  bool paused = false;       // inbox at its limit: the reader does not read
+  bool paused = false;       // inbox at a limit: the reader does not read or decode
   bool reader_done = false;  // the reader closed its descriptors; on_end may run
   bool end_delivered = false;
   std::thread reader;
@@ -518,6 +718,7 @@ struct Channel::Core : std::enable_shared_from_this<Core> {
       std::lock_guard<std::mutex> lock(mutex);
       if (detached) return;  // ~Core closes what the inbox holds
       batch.swap(inbox);
+      inbox_bytes = 0;
       drain_posted = false;
       if (paused) {
         paused = false;
@@ -546,8 +747,9 @@ struct Channel::Core : std::enable_shared_from_this<Core> {
   }
 
   // Reads what the socket holds; false when the connection must end
-  // (`reason` says why).
-  bool ReadAvailable(std::vector<uint8_t>* buffer, std::deque<int>* fds, End* reason) {
+  // (`reason` says why). `paused_now`: it stopped at an inbox limit with whole
+  // frames left in `buffer`.
+  bool ReadAvailable(std::vector<uint8_t>* buffer, std::deque<int>* fds, End* reason, bool* paused_now) {
     uint8_t chunk[64 * 1024];
     // wakeup-allow: bounded reads only what the socket holds: ends at EAGAIN, EOF or an error
     for (;;) {
@@ -592,40 +794,53 @@ struct Channel::Core : std::enable_shared_from_this<Core> {
         return false;
       }
       buffer->insert(buffer->end(), chunk, chunk + count);
-      size_t start = 0;
-      bool post_drain = false;
-      bool stop = false;
-      // wakeup-allow: bounded each pass takes one whole frame of the bytes read, or stops
-      for (;;) {
-        Message message;
-        size_t consumed = 0;
-        const Parse parse = Decode(buffer->data() + start, buffer->size() - start, fds, &message, &consumed);
-        if (parse == Parse::kNeedMore) break;
-        if (parse == Parse::kMalformed) {
-          for (int received_fd : message.fds) ::close(received_fd);
-          *reason = End::kMalformed;
-          if (post_drain) PostDrain();
-          return false;
-        }
-        start += consumed;
-        std::lock_guard<std::mutex> lock(mutex);
-        inbox.push_back(std::move(message));
-        post_drain = NeedsDrainLocked() || post_drain;
-        if (inbox.size() >= options.inbox_limit) {
-          paused = true;
-          stop = true;
-        }
-      }
-      // Descriptors that came with a frame declaring fewer, which no later frame may take.
-      if (!PendingFdsFit(buffer->data() + start, buffer->size() - start, fds->size())) {
+      if (!DeliverBuffered(buffer, fds, reason, paused_now)) return false;
+      if (*paused_now) return true;
+    }
+  }
+
+  // Decodes the whole frames of `buffer` into the inbox (one drain posted per
+  // batch). Stops once the inbox is at a limit, before decoding (and copying
+  // the regions of) the next frame; the rest waits in `buffer` and `fds`.
+  // False when the connection must end (`reason` says why).
+  bool DeliverBuffered(std::vector<uint8_t>* buffer, std::deque<int>* fds, End* reason, bool* paused_now) {
+    size_t start = 0;
+    bool post_drain = false;
+    bool stop = false;
+    // wakeup-allow: bounded each pass takes one whole frame of the bytes read, or stops
+    while (!stop) {
+      Message message;
+      size_t consumed = 0;
+      const Parse parse = Decode(buffer->data() + start, buffer->size() - start, fds, &message, &consumed);
+      if (parse == Parse::kNeedMore) break;
+      if (parse == Parse::kMalformed) {
+        for (int received_fd : message.fds) ::close(received_fd);
         *reason = End::kMalformed;
         if (post_drain) PostDrain();
         return false;
       }
-      buffer->erase(buffer->begin(), buffer->begin() + static_cast<std::ptrdiff_t>(start));
-      if (post_drain) PostDrain();
-      if (stop) return true;
+      start += consumed;
+      const size_t bytes = PayloadBytes(message);
+      std::lock_guard<std::mutex> lock(mutex);
+      inbox.push_back(std::move(message));
+      inbox_bytes += bytes;
+      post_drain = NeedsDrainLocked() || post_drain;
+      if (inbox.size() >= options.inbox_limit || inbox_bytes >= options.inbox_bytes_limit) {
+        paused = true;
+        stop = true;
+      }
     }
+    // Descriptors that came with a frame declaring fewer, which no later frame
+    // may take (checked once every whole frame is taken).
+    if (!stop && !PendingFdsFit(buffer->data() + start, buffer->size() - start, fds->size())) {
+      *reason = End::kMalformed;
+      if (post_drain) PostDrain();
+      return false;
+    }
+    buffer->erase(buffer->begin(), buffer->begin() + static_cast<std::ptrdiff_t>(start));
+    if (post_drain) PostDrain();
+    *paused_now = stop;
+    return true;
   }
 
   void Run() {
@@ -635,6 +850,7 @@ struct Channel::Core : std::enable_shared_from_this<Core> {
 #endif
     std::vector<uint8_t> buffer;
     std::deque<int> fds;
+    bool frames_wait = false;  // whole frames in `buffer`: DeliverBuffered stopped at an inbox limit
     for (;;) {
       pollfd polls[2];
       int timeout = -1;
@@ -654,6 +870,9 @@ struct Channel::Core : std::enable_shared_from_this<Core> {
           timeout = static_cast<int>(
               std::max<int64_t>(0, std::chrono::ceil<std::chrono::milliseconds>(left).count()));
         }
+        // Whole frames wait in `buffer` and the inbox has room: take them now,
+        // whether or not the socket brings more.
+        if (want_read && frames_wait) timeout = 0;
       }
       polls[0].revents = 0;
       polls[1].fd = wake_read;
@@ -677,9 +896,18 @@ struct Channel::Core : std::enable_shared_from_this<Core> {
         std::lock_guard<std::mutex> lock(mutex);
         if (Writable()) FlushLocked();
       }
-      if (want_read && (got & (POLLIN | POLLERR | POLLHUP)) != 0) {
+      if (want_read && frames_wait) {
+        // A drain made room: the frames read before the inbox filled go first.
         End reason = End::kClosed;
-        if (!ReadAvailable(&buffer, &fds, &reason)) {
+        if (!DeliverBuffered(&buffer, &fds, &reason, &frames_wait)) {
+          std::lock_guard<std::mutex> lock(mutex);
+          EndLocked(reason);
+          break;
+        }
+      }
+      if (want_read && !frames_wait && (got & (POLLIN | POLLERR | POLLHUP)) != 0) {
+        End reason = End::kClosed;
+        if (!ReadAvailable(&buffer, &fds, &reason, &frames_wait)) {
           std::lock_guard<std::mutex> lock(mutex);
           EndLocked(reason);
           break;
@@ -746,22 +974,41 @@ Channel::~Channel() {
 }
 
 bool Channel::Send(const Message& message, std::optional<uint64_t> state_key) {
+  const std::vector<size_t> shared = SharedFields(message);
   std::vector<uint8_t> bytes;
-  if (!Encode(message, &bytes)) return false;
+  if (!EncodeShared(message, shared, &bytes)) return false;
+  // Made before the lock: copying a large payload never holds it. EncodeShared
+  // refused shared fields over kMaxSharedBytes together.
+  size_t shared_bytes = 0;
+  std::vector<int> regions;
+  for (size_t index : shared) {
+    const int region = CreateSharedRegion(message.fields[index].bytes);
+    if (region < 0) {
+      CloseEach(regions);
+      return false;
+    }
+    regions.push_back(region);
+    shared_bytes += message.fields[index].bytes.size();
+  }
   Core& core = *core_;
   std::lock_guard<std::mutex> lock(core.mutex);
-  if (!core.Writable()) return false;
+  if (!core.Writable()) {
+    CloseEach(regions);
+    return false;
+  }
   std::vector<int> fds;
   for (int fd : message.fds) {
     const int copy = ::fcntl(fd, F_DUPFD_CLOEXEC, 0);
     if (copy < 0) {
-      for (int made : fds) ::close(made);
+      CloseEach(fds);
+      CloseEach(regions);
       return false;
     }
     fds.push_back(copy);
   }
+  fds.insert(fds.end(), regions.begin(), regions.end());  // the outbox owns them from here
   const bool was_empty = core.outbox.empty();
-  if (core.outbox.Push(std::move(bytes), std::move(fds), state_key)) ++core.coalesced;
+  if (core.outbox.Push(std::move(bytes), std::move(fds), state_key, shared_bytes)) ++core.coalesced;
   if (was_empty) {
     if (!core.FlushLocked()) return false;
     if (!core.outbox.empty()) core.WakeLocked();  // the reader now watches for write

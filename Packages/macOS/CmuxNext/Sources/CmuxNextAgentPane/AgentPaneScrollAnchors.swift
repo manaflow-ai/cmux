@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// Where a chat's transcript rests (cx-6bgzj): the row at the top of the view and how far into it.
@@ -54,7 +55,7 @@ public final class AgentPaneScrollAnchors {
         if let entries { return entries }
         // concurrency-allow: one read of a small local state file, at the first chat's attach
         let data = file.flatMap { try? Data(contentsOf: $0) }
-        let read = data.flatMap { try? JSONDecoder().decode([Entry].self, from: $0) } ?? []
+        let read = data.flatMap { try? JSONDecoder().blockingDecode([Entry].self, from: $0) } ?? []
         entries = read
         return read
     }

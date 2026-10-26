@@ -2,10 +2,13 @@ import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextHomeEngine
+import CmuxNextLaunch
 import CmuxNextPhone
 import CmuxNextMobile
 import CmuxNextMobileHost
 import CmuxNextPhoneAccess
+import CmuxNextSettings
+import CmuxNextWakeups
 import Observation
 
 extension AppServices {
@@ -28,7 +31,7 @@ extension AppServices {
     /// machine header work from any window.
     func cloudContextDidChange() {
         var context = registry.context
-        let signedIn = cloud.isSignedIn
+        let signedIn = cloudAuth.isSignedIn  // the auth, not `cloud`: a window's first show must not build CloudService
         context.remove([.signedIn, .signedOut, .cloudWorkspace])
         context.insert(signedIn ? .signedIn : .signedOut)
         if signedIn, let machine = windows.active?.state.machineID, machines.session(machine) != nil {
@@ -37,10 +40,70 @@ extension AppServices {
         if registry.context != context { registry.context = context }
     }
 
-    /// Starts Cloud and keeps the registry context current.
-    func startCloud() -> Task<Void, Never> {
+    /// Cloud machines and the Cloud API, built at the first read (``cloudIfBuilt`` stays nil until then),
+    /// with the administrator's policy and the machine create confirmation already in place.
+    var cloud: CloudService {
+        if let cloudIfBuilt { return cloudIfBuilt }
+        let cloud = CloudService(machines: machines, auth: cloudAuth, mainWork: mainWork)
+        cloudIfBuilt = cloud
+        cloud.applyPolicy(disabled: cloudPolicyDisabled)
         // An agent's request waits in the sidebar card; with the active window's sidebar hidden it takes the sheet, so it never waits unseen.
         cloud.confirmCreate = { [weak self] in await CloudPresenter.confirmCreate($0, in: self?.windows.active?.window, asks: self?.windows.active?.state.sidebarHidden == false ? self?.machineAsks : nil, chatOpen: { [weak self] in self?.agentTabs.tab(showing: $0) != nil }) }
+        return cloud
+    }
+
+    /// The feed mirror (`FeedDO`), started once the cmux account is signed in; built at the first read
+    /// (``feedIfBuilt`` stays nil until then) with the `feed.github` setting already applied.
+    var feed: FeedService {
+        if let feedIfBuilt { return feedIfBuilt }
+        let feed = FeedService(auth: cloudAuth, showcase: environment.showcase, acpmuxEnvironment: QuitAgents.environment(self))
+        feedIfBuilt = feed
+        if let feedGitHub { feed.configureGitHub(enabled: feedGitHub.enabled, pollIntervalSeconds: feedGitHub.pollIntervalSeconds) }
+        return feed
+    }
+
+    /// The administrator turned Cloud off or on (`FeaturePolicyEnforcer`): kept for ``cloud``'s build, applied now if built.
+    func applyCloudPolicy(disabled: Bool) {
+        cloudPolicyDisabled = disabled
+        cloudIfBuilt?.applyPolicy(disabled: disabled)
+    }
+
+    /// The `feed.github` setting: kept for ``feed``'s build, applied now if built (a setting builds no feed).
+    func configureFeedGitHub(enabled: Bool, pollIntervalSeconds: Double) {
+        feedGitHub = (enabled, pollIntervalSeconds)
+        feedIfBuilt?.configureGitHub(enabled: enabled, pollIntervalSeconds: pollIntervalSeconds)
+    }
+
+    /// The launch's Cloud start (`CloudStartPost`): after startup, or right after the first frame on a visible
+    /// need (``cloudNeeded()``). A sign-in, a Cloud action and a `cloud.machines` read start Cloud at once.
+    func postCloudStart(on startup: StartupScheduler) {
+        let post = CloudStartPost(startup: startup, start: { [weak self] in self?.startCloudNow() })
+        cloudStart = post
+        cloudAuth.onSignIn = { [weak self] in self?.startCloudNow() }
+        registry.willRunObservers.append { [weak self] id, _ in
+            guard let self, cloudContext == nil, registry.descriptor(for: id)?.category == .cloud else { return }
+            startCloudNow()
+        }
+        post.post()
+    }
+
+    /// A window shows, or waits off screen for, a Cloud machine's workspace (`WindowManager.makeController`):
+    /// Cloud starts right after the first frame, or in the next frame once it passed. Nothing in tests.
+    func cloudNeeded() {
+        guard cloudContext == nil else { return }
+        cloudStart?.need()
+    }
+
+    /// Starts Cloud once (the launch's post, or an earlier need such as a sign-in callback): restores the
+    /// session, builds the feed (its mirror follows the account), follows the host replica and the hands'
+    /// approval banners, re-reads Home's cloud Chiefs, and keeps the registry context current. A second
+    /// call does nothing.
+    func startCloudNow() {
+        guard cloudContext == nil else { return }
+        followCloudContext()  // first: it marks Cloud started; its body runs on a later turn, after the wiring below
+        notifications.startFeedHandoff(self)  // builds the feed: its account follow waits for the restore
+        notifications.followHandApprovals(cloud.hands)
+        if let settings { followHostReplica(settings) }
         cloud.start()
         iphone.wire(auth: cloud.auth, daemon: daemon, acpmuxHost: { [weak self] in self?.agentTabs.host }, acpmuxEnvironment: QuitAgents.environment(self),
                     agentTabHost: { [weak self] in self?.agentTabs.localHost },
@@ -53,8 +116,14 @@ extension AppServices {
         iphone.pairNotices = IPhonePairNotices(post: { [weak self] in self?.notifications.desktop.post(id: IPhonePairNotices.id, title: $0,
             body: $1, surface: nil, workspace: nil, defaultSound: true, category: IPhonePairNotices.category) },
             withdraw: { [weak self] in self?.notifications.desktop.withdraw([IPhonePairNotices.id]) })
+        home.cloudDidStart()
+    }
+
+    /// The registry context, the model router, phone access and team reloads follow the account (``cloudContext``).
+    private func followCloudContext() {
         let cloud = cloud, machines = machines
-        return Task { [weak self] in
+        // task-owner: AppServices.cloudContext, cancelled by stopCloud() at quit; event-driven (Observation)
+        cloudContext = Task { [weak self] in
             var account: (user: String, team: String)?
             var routerUser: String??
             for await state in ObservationStream({ (cloud.isSignedIn, machines.cloud.count, cloud.auth.user?.id, cloud.auth.teamID) }) {
@@ -80,6 +149,19 @@ extension AppServices {
                 }
             }
         }
+    }
+
+    /// The phone host replica follows `settings` and the signed-in account (from the Cloud start on).
+    func followHostReplica(_ settings: SettingsController) {
+        cloud.hostReplica.follow(settings, local: machines.local, account: { [cloud] in cloud.auth.isSignedIn && cloud.mayCallCloud && !cloud.policyDisabled ? cloud.auth.user?.id : nil })
+    }
+
+    /// At quit: ends the Cloud start's follow, Cloud and its machines' connections. Builds nothing when Cloud never started.
+    func stopCloud() {
+        guard let cloudContext else { return }
+        cloudContext.cancel()
+        cloud.stop()
+        for session in machines.cloud { session.disconnect() }
     }
 }
 

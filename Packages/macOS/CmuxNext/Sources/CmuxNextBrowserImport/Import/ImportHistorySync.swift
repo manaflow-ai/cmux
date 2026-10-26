@@ -152,7 +152,7 @@ public actor ImportHistorySync {
         // A Preferences or Cookies write also wakes the folder watch: nothing to read then.
         let stamp = HistoryFileWatch.stamp(watch.file)
         guard stamp != lastRead[key], let record = await store.syncedSources().first(where: { $0.sourceKey == key }) else { return }
-        guard let pages = try? BrowserImporter.readHistory(record.browser.family, file: watch.file, limit: limit),
+        guard let pages = try? BrowserImporter.readHistory(record.browser.family, file: watch.file, limit: limit).items,
               let saved = try? await store.replaceHistory(key, with: pages) else { return }
         lastRead[key] = stamp
         if !saved.changed.isEmpty { await deliver(saved.record.targetProfileID, saved.changed, []) }

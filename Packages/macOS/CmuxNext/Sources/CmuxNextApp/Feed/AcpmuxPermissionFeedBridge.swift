@@ -1,5 +1,6 @@
 import CmuxNextAgentActivity
 import CmuxNextAgentPane
+import CmuxNextCompat
 import CmuxNextFeed
 import CmuxNextWakeups
 import Foundation
@@ -170,11 +171,11 @@ final class AcpmuxPermissionFeedBridge {
             replies[id] = waiter
             connection.send(data)
         }
-        return reply.flatMap { (try? JSONSerialization.jsonObject(with: $0)) as? [String: Any] }
+        return reply.flatMap { (try? JSONSerialization.blockingJSONObject(with: $0)) as? [String: Any] }
     }
 
     private func handle(_ data: Data) {
-        guard let message = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else { return }
+        guard let message = try? JSONSerialization.blockingJSONObject(with: data) as? [String: Any] else { return }
         if let id = (message["id"] as? NSNumber)?.intValue {
             if id == 1 {
                 if let connection { initialized(message["result"] as? [String: Any], on: connection) }

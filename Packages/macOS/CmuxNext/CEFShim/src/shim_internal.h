@@ -117,6 +117,9 @@ struct ForkApi {
   void (*set_drag_source_handler)(void (*)(void*, int, const void*), void*) = nullptr;
   int (*browser_drag_source_ended)(int, double, double, double, double, int) = nullptr;
   int (*browser_drag_target_enter_source)(int, int, int, int, int) = nullptr;
+  // No API number yet (p13-webui-017; the fork train numbers it): its
+  // presence says the fork honors CMUX_EXTRA_INFO_NO_RENDERER.
+  int (*tab_renderer_state)(int) = nullptr;
 };
 
 struct Host {

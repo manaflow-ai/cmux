@@ -11,16 +11,18 @@ public nonisolated enum BrowserBackend: String, Sendable, Equatable {
     case host
 }
 
-/// Debug Settings of the Chromium Host app: Debug builds only, like the host
-/// app itself (embed-cef.sh) and its Swift side, so a NIGHTLY never lists a
-/// toggle for a host it does not bundle.
+/// Debug Settings of the Chromium Host app: Debug and bench builds only, like the
+/// host app itself (embed-cef.sh) and its Swift side, so a NIGHTLY never lists a
+/// toggle for a host it does not bundle. A bench build registers the toggle so
+/// `debug.chromium_host` can measure the host (chromium-host-bench.py), but never
+/// moves a tab to it: ``backend(in:)`` stays in process there.
 /// plans/cmux-next/cef-helper-app-DESIGN.md.
 public nonisolated struct BrowserHostTunables {
     public nonisolated init() {}
 
-    /// The tunables to register: none outside Debug builds.
+    /// The tunables to register: none outside Debug and bench builds.
     public static var all: [TunableDescriptor] {
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         [helper.descriptor]
         #else
         []
@@ -38,7 +40,7 @@ public nonisolated struct BrowserHostTunables {
         #endif
     }
 
-    #if DEBUG
+    #if DEBUG || CMUX_BENCH_HOOKS
     /// The Debug Settings section of the host app's tunables.
     public static let section = TunableSection(id: "browserHost", title: "Chromium Host App", symbol: "macwindow.on.rectangle", order: 44)
 
@@ -48,7 +50,7 @@ public nonisolated struct BrowserHostTunables {
     /// 080) hands ``backend(in:)`` to the runtime.
     public static let helper = Tunable<Bool>.toggle(
         "browserHost.helper", section, "Chromium Host app",
-        help: "Lets debug.chromium_host show a Chromium page whose browser process runs in the Chromium Host app. Chromium tabs still run in cmux until the host supervisor lands. Debug builds only.",
+        help: "Lets debug.chromium_host show a Chromium page whose browser process runs in the Chromium Host app. Chromium tabs still run in cmux until the host supervisor lands. Debug and bench builds only.",
         default: false, code: "BrowserHostTunables.helper")
     #endif
 }

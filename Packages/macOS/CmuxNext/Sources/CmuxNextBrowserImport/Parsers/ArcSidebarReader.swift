@@ -20,42 +20,66 @@ public struct ArcSidebarReader {
     /// Bookmarks of the profile in folder `profileDirectory` ("Default",
     /// "Profile 1"): Favorites first, then each space's pinned items under
     /// the space's name.
-    public func parse(_ data: Data, profileDirectory: String) throws -> [ImportedBookmark] {
+    public func parse(_ data: Data, profileDirectory: String) throws -> ImportRead<ImportedBookmark> {
         guard let root = try JSONSerialization.jsonObject(with: data) as? [String: Any],
               let sidebar = root["sidebar"] as? [String: Any],
               let containers = sidebar["containers"] as? [[String: Any]] else { throw Failure.notSidebar }
-        guard let container = containers.first(where: { $0["items"] != nil || $0["spaces"] != nil }) else { return [] }
+        guard let container = containers.first(where: { $0["items"] != nil || $0["spaces"] != nil }) else { return ImportRead() }
         let items = Dictionary(objects(container["items"]).compactMap { item in (item["id"] as? String).map { ($0, item) } },
                                uniquingKeysWith: { first, _ in first })
-        var result: [ImportedBookmark] = []
+        var read = ImportRead<ImportedBookmark>()
+        // Each container and list is read once: items name each other by id, so a damaged file can
+        // link a list into itself or into many parents (counted as repeated).
+        var expanded: Set<String> = []
         // Favorites: the profile's top-apps container.
         for (profile, id) in pairs(container["topAppsContainerIDs"]) where profile == profileDirectory {
-            walk(id, items: items, path: ["Favorites"], depth: 0, into: &result)
+            walk(id, items: items, path: ["Favorites"], depth: 0, expanded: &expanded, into: &read)
         }
         for space in objects(container["spaces"]) where Self.profileDirectory(space["profile"]) == profileDirectory {
             let title = (space["title"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "Space"
             let ids = space["containerIDs"] as? [Any] ?? []
             for (index, value) in ids.enumerated() where (value as? String) == "pinned" && index + 1 < ids.count {
                 guard let pinned = ids[index + 1] as? String else { continue }
-                walk(pinned, items: items, path: [title], depth: 0, into: &result)
+                walk(pinned, items: items, path: [title], depth: 0, expanded: &expanded, into: &read)
             }
         }
-        return result
+        return read
     }
 
-    private func walk(_ id: String, items: [String: [String: Any]], path: [String], depth: Int, into result: inout [ImportedBookmark]) {
-        guard depth < 64, let node = items[id] else { return }
-        for childID in node["childrenIds"] as? [String] ?? [] {
-            guard let child = items[childID] else { continue }
+    private func walk(_ id: String, items: [String: [String: Any]], path: [String], depth: Int, expanded: inout Set<String>,
+                      into read: inout ImportRead<ImportedBookmark>) {
+        guard let node = items[id] else {
+            read.skipped.unsupported += 1
+            return
+        }
+        guard depth < ImportSkipCounts.maximumDepth else {
+            read.skipped.tooDeep += 1
+            return
+        }
+        guard expanded.insert(id).inserted else {
+            read.skipped.repeatedFolder += 1
+            return
+        }
+        for element in node["childrenIds"] as? [Any] ?? [] {
+            guard let childID = element as? String, let child = items[childID] else {
+                read.skipped.unsupported += 1
+                continue
+            }
             let data = child["data"] as? [String: Any] ?? [:]
             if let tab = data["tab"] as? [String: Any] {
-                guard let text = tab["savedURL"] as? String, let url = ImportableURL.parse(text) else { continue }
+                guard let text = tab["savedURL"] as? String, let url = ImportableURL.parse(text) else {
+                    read.skipped.notImportable += 1
+                    continue
+                }
                 let title = [child["title"] as? String, tab["savedTitle"] as? String].compactMap { $0 }.first { !$0.isEmpty } ?? text
-                let created = (child["createdAt"] as? Double).flatMap(BrowserTime().cocoa)
-                result.append(ImportedBookmark(title: title, url: url, folderPath: path, dateAdded: created))
+                let created = (child["createdAt"] as? Double).flatMap { BrowserTime().cocoa($0) }
+                read.items.append(ImportedBookmark(title: title, url: url, folderPath: path, dateAdded: created))
             } else if data["list"] != nil || data["itemContainer"] != nil {
                 let name = (child["title"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-                walk(childID, items: items, path: name.map { path + [$0] } ?? path, depth: depth + 1, into: &result)
+                walk(childID, items: items, path: name.map { path + [$0] } ?? path, depth: depth + 1, expanded: &expanded, into: &read)
+            } else {
+                // Another kind of sidebar item (an easel, a split view): not a bookmark the import reads.
+                read.skipped.unsupported += 1
             }
         }
     }

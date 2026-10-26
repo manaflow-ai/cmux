@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CmuxNextDaemon
 import Foundation
 
@@ -65,7 +66,7 @@ nonisolated struct CloudMoveCLI: Sendable {
                                                  timeout: timeout ?? self.timeout, clock: ContinuousClock())
         let lines = String(decoding: result.stdout, as: UTF8.self).split(separator: "\n")
         guard let line = lines.last(where: { !$0.allSatisfy(\.isWhitespace) }),
-              let object = (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any],
+              let object = (try? JSONSerialization.blockingJSONObject(with: Data(line.utf8))) as? [String: Any],
               let ok = object["ok"] as? Bool else {
             let detail = String(decoding: result.stderr, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines)
             return Answer(ok: false, errorCode: Self.badAnswer, error: detail.isEmpty ? "exit \(result.status)" : detail)

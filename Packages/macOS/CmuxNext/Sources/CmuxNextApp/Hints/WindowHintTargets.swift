@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBrowser
+import CmuxNextCompat
 import WebKit
 import CmuxNextWakeups
 
@@ -114,7 +115,7 @@ enum WindowHintTargets {
             var x: Double, y: Double, left: Double, top: Double
             var text: String?
         }
-        guard let elements = try? JSONDecoder().decode([Element].self, from: Data(json.utf8)) else { return [] }
+        guard let elements = try? JSONDecoder().blockingDecode([Element].self, from: Data(json.utf8)) else { return [] }
         let zoom = page.pageZoom * page.magnification
         func point(_ x: Double, _ y: Double) -> NSPoint {
             let local = NSPoint(x: x * zoom, y: page.isFlipped ? y * zoom : page.bounds.height - y * zoom)

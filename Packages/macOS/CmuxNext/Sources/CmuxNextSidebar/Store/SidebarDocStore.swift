@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 public import Observation
 
@@ -428,7 +429,7 @@ public nonisolated struct SidebarDocReply: Hashable, Sendable {
 
     /// The inverse holds at least one op.
     public var hasInverse: Bool {
-        guard let ops = try? JSONSerialization.jsonObject(with: inverse) as? [Any] else { return false }
+        guard let ops = try? JSONSerialization.blockingJSONObject(with: inverse) as? [Any] else { return false }
         return !ops.isEmpty
     }
 }

@@ -40,8 +40,11 @@ mode.add_argument("--stats", action="store_true")
 parser.add_argument("--out", default=os.environ.get("NX_ARTIFACTS") or tempfile.mkdtemp(prefix="rb-local-live-"))
 opts = parser.parse_args()
 os.makedirs(opts.out, exist_ok=True)
+# A Debug build, or a bench build (reload.sh --config bench, Release products) for --stats.
 APP = next(iter(glob.glob(os.path.expanduser(
-    f"~/Library/Developer/Xcode/DerivedData/cmux-{opts.tag}/Build/Products/Debug/cmux DEV {opts.tag}.app"))), None)
+    f"~/Library/Developer/Xcode/DerivedData/cmux-{opts.tag}/Build/Products/Debug/cmux DEV {opts.tag}.app"))
+    + glob.glob(os.path.expanduser(
+    f"~/Library/Developer/Xcode/DerivedData/cmux-{opts.tag}/Build/Products/Release/cmux DEV {opts.tag}.app"))), None)
 if not APP:
     sys.exit(f"no tagged app for {opts.tag}")
 with open(os.path.join(APP, "Contents/Info.plist"), "rb") as f:
@@ -395,6 +398,9 @@ try:
         report["select"] = rpc("action.run", {"action": "selectWorkspaceByNumber", "args": {"index": index}})
         time.sleep(1)
         report["open"] = rpc("action.run", {"action": "remote.openLocalBrowserTab", "focus": True})
+        if "error" in report["open"]:
+            # A bench build has no Debug-only actions (DevTools): the same openLocal through the debug socket.
+            report["open"] = rb("open_local")
         if "error" not in report["open"]:
             report["workspace_index"] = index
             break

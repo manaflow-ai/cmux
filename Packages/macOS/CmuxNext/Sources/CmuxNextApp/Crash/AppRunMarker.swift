@@ -230,7 +230,7 @@ final class AppRunMarker {
         guard let data = try? Data(contentsOf: marker) else { return nil }
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .secondsSince1970
-        guard var run = try? decoder.decode(PreviousRun.self, from: data) else { return nil }
+        guard var run = try? decoder.blockingDecode(PreviousRun.self, from: data) else { return nil }
         // concurrency-allow: once at launch before the first window, a file of at most 3 bytes.
         if let text = try? String(contentsOf: signal, encoding: .utf8),
            let first = text.split(whereSeparator: \.isNewline).first,

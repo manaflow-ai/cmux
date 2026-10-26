@@ -114,6 +114,19 @@ impl super::ClientRegistry {
             .map(|record| record.transport)
     }
 
+    /// [`Self::transport_of`] with the origin the client derives, in the
+    /// same lock: a frame reads both once.
+    fn transport_and_origin_of(
+        &self,
+        client: u64,
+    ) -> Option<(ClientTransport, crate::request_origin::RequestOrigin)> {
+        lock_checked(&self.state, RelayLock::Clients)
+            .ok()?
+            .clients
+            .get(&client)
+            .map(|record| (record.transport, record.origin.derive()))
+    }
+
     /// True for a connection that came through the remote entry (tests;
     /// dispatch uses `Mux::is_remote_client`, which also fails closed).
     #[cfg(test)]
@@ -128,7 +141,22 @@ impl Mux {
     /// at all. An unregistered id fails closed: it is never trusted as
     /// local (a frame racing its connection's disconnect, a stray id).
     pub(super) fn is_remote_client(&self, client: u64) -> bool {
-        match self.control_clients.transport_of(client) {
+        self.is_remote_with(client, self.control_clients.transport_of(client))
+    }
+
+    /// For one frame of `client`: [`Self::is_remote_client`] and the cause
+    /// of what the frame sets off, from one registry lookup. A client the
+    /// registry does not list is remote, and its cause is automation, as
+    /// the origin gate treats it as an agent.
+    pub(super) fn frame_client(&self, client: u64) -> (bool, crate::event_cause::EventCause) {
+        let found = self.control_clients.transport_and_origin_of(client);
+        let cause = found
+            .map_or(crate::event_cause::EventCause::Automation, |(_, origin)| origin.event_cause());
+        (self.is_remote_with(client, found.map(|(transport, _)| transport)), cause)
+    }
+
+    fn is_remote_with(&self, client: u64, transport: Option<ClientTransport>) -> bool {
+        match transport {
             // A poisoned peers lock cannot say the client has no peer
             // record: remote (fail closed).
             Some(ClientTransport::Unix | ClientTransport::WebSocket) => {

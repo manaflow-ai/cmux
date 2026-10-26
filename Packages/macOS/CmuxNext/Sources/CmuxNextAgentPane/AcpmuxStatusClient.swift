@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 import Network
 
@@ -179,7 +180,7 @@ nonisolated enum AcpmuxStatusClient {
 
     /// The `result` of the reply to `id` in `line`, nil for any other message.
     static func reply(to id: Int, in line: Data) throws -> [String: Any]? {
-        guard let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
+        guard let object = try? JSONSerialization.blockingJSONObject(with: line) as? [String: Any],
               (object["id"] as? NSNumber)?.intValue == id else { return nil }
         if let error = object["error"] as? [String: Any] {
             throw Failure.rpc(error["message"] as? String ?? "acpmux request failed")
@@ -189,7 +190,7 @@ nonisolated enum AcpmuxStatusClient {
 
     /// `reply(to:in:)` that keeps the error's JSON-RPC code and data (``AcpmuxRPCError``).
     static func detailedReply(to id: Int, in line: Data) throws -> [String: Any]? {
-        guard let object = try? JSONSerialization.jsonObject(with: line) as? [String: Any],
+        guard let object = try? JSONSerialization.blockingJSONObject(with: line) as? [String: Any],
               (object["id"] as? NSNumber)?.intValue == id else { return nil }
         if let error = object["error"] as? [String: Any] { throw AcpmuxRPCError(error) }
         return object["result"] as? [String: Any] ?? [:]
