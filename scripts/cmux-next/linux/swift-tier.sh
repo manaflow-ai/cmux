@@ -16,6 +16,14 @@
 #   <scratch>/build  SwiftPM --scratch-path, outside src so rsync --delete
 #                    keeps it and builds stay incremental.
 #
+# Before each SwiftPM command (not --update-resolved), compile-xcstrings.py
+# writes the string tables the Linux mode takes from every target with a
+# catalog (LinuxStringTables, p15-oracle-228) into the source copy, for the
+# targets the Linux-mode dump-package names. Without them SwiftPM stops on the
+# missing folder before it compiles any Swift. The copy's tables and links are
+# kept between runs, so the script rewrites only changed tables; the
+# checkout's own (from a manual run) are not copied.
+#
 # Every SwiftPM command gets --only-use-versions-from-resolved-file, so a
 # manifest change that needs new pins fails instead of resolving silently.
 # A package pinned in both files must have the same revision in both, so the
@@ -169,6 +177,7 @@ for entry in "${copy_entries[@]}"; do
   [[ -e "$repo_root/$entry" ]] || continue
   rsync -a --delete \
     --exclude='.build/' --exclude='.swiftpm/' --exclude='Package.resolved' \
+    --exclude="/${package_rel#Packages/}/.build-linux/lproj/" --exclude='LinuxStringTables' \
     --link-dest="$repo_root/$entry" \
     "$repo_root/$entry/" "$src/$entry/"
 done
@@ -202,6 +211,12 @@ else
     rm -f "$build/workspace-state.json"
     printf '%s\n' "$digest" >"$pins_marker"
   fi
+  manifest_dump="$build/cmux-linux-manifest.json"
+  "$swift_bin" package --package-path "$package_path" --scratch-path "$build" \
+    dump-package >"$manifest_dump"
+  python3 -I "$repo_root/scripts/cmux-next/linux/compile-xcstrings.py" \
+    --package "$package_path" --manifest "$manifest_dump" >"$build/cmux-linux-string-tables.log" \
+    || { echo "error: compile-xcstrings.py failed (log: $build/cmux-linux-string-tables.log)" >&2; exit 1; }
   status=0
   # swift package takes these options before its subcommand; build, test and
   # run take them anywhere.

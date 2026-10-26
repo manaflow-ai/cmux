@@ -7,16 +7,21 @@ back to its default (p15-oracle-228). This script writes what xcstringstool writ
 
   Packages/macOS/CmuxNext/.build-linux/lproj/<Target>/<lang>.lproj/<table>.strings   (binary plist)
 
-and links that folder into the target as Sources/<Target>/LinuxStringTables (Tests/<Target>/... for
-test targets), because SwiftPM only takes resources from inside a target's folder. The Linux mode of
-Package.swift (CMUX_SWIFTPM_TARGET_LINUX=1) adds .process("LinuxStringTables") to every target that
-has a catalog, so a build without this script's output fails on that missing folder.
+and links that folder into the target's folder as LinuxStringTables, because SwiftPM only takes
+resources from inside a target's folder. The Linux mode of Package.swift (CMUX_SWIFTPM_TARGET_LINUX=1)
+adds .process("LinuxStringTables") to every target that has a catalog, so a build without this
+script's output fails on that missing folder. scripts/cmux-next/linux/swift-tier.sh runs this script
+before every SwiftPM command.
 
-  compile-xcstrings.py [--package DIR] [--target NAME ...] [--check]
+  compile-xcstrings.py [--package DIR] [--manifest FILE] [--target NAME ...] [--check]
 
-With no --target, every target folder (Sources/* and Tests/*) that holds a catalog is compiled, and the
-output and link of a target that no longer has one are removed. A second run writes nothing.
---check writes nothing and exits 1 when any table or link is missing or stale. Python stdlib only.
+The targets and their folders come from the manifest, not from the folder layout: every target that
+the Linux-mode `swift package dump-package` gives a LinuxStringTables resource, at its `path` (default
+Sources/<name>, or Tests/<name> for a test target). --manifest reads that dump from FILE; without it
+the script runs the dump itself ($SWIFT, default swift). With no --target, every such target is
+compiled, and the tables and links of targets that no longer take them are removed. A second run
+writes nothing. --check writes nothing and exits 1 when any table or link is missing or stale.
+Python stdlib only.
 
 Plural and device variations become their "other" form: xcstringstool writes them to a .stringsdict,
 and swift-corelibs-foundation (Swift 6.2) crashes reading one. Substitutions are refused.
@@ -25,7 +30,10 @@ import argparse
 import json
 import os
 import plistlib
+import shutil
+import subprocess
 import sys
+import tempfile
 
 REPO = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))))
 DEFAULT_PACKAGE = os.path.join(REPO, "Packages", "macOS", "CmuxNext")
@@ -78,19 +86,47 @@ def compile_catalog(path):
     return tables, variations
 
 
-def catalog_targets(package):
-    """{target name: its folder} for every Sources/* and Tests/* folder that holds a catalog."""
+def dump_manifest(package):
+    """The Linux-mode `swift package dump-package` of package, parsed."""
+    swift = shutil.which(os.environ.get("SWIFT", "swift"))
+    if swift is None:
+        raise CatalogError("no swift to read the manifest: pass --manifest, or run scripts/cmux-next/linux/setup-swift.sh")
+    env = dict(os.environ, CMUX_SWIFTPM_TARGET_LINUX="1")
+    with tempfile.TemporaryDirectory(prefix="compile-xcstrings-") as scratch:
+        result = subprocess.run(
+            [swift, "package", "--package-path", package, "--scratch-path", scratch, "dump-package"],
+            env=env, capture_output=True, text=True, check=False,
+        )
+    if result.returncode != 0:
+        raise CatalogError(f"swift package dump-package failed:\n{result.stderr.strip()}")
+    return json.loads(result.stdout)
+
+
+def catalog_targets(package, manifest):
+    """{target name: its folder} for every target the manifest gives a LinuxStringTables resource."""
     found = {}
-    for parent in TARGET_PARENTS:
-        root = os.path.join(package, parent)
-        if not os.path.isdir(root):
+    for target in manifest.get("targets", []):
+        if not any(resource.get("path") == LINK for resource in target.get("resources") or []):
             continue
-        for name in sorted(os.listdir(root)):
-            folder = os.path.join(root, name)
-            if os.path.isdir(folder) and not os.path.islink(folder) and catalogs(folder):
-                if name in found:
-                    raise CatalogError(f"two target folders named {name}")
-                found[name] = folder
+        name = target["name"]
+        relative = target.get("path") or os.path.join("Tests" if target.get("type") == "test" else "Sources", name)
+        folder = os.path.normpath(os.path.join(package, relative))
+        if os.path.isabs(relative) or os.path.relpath(folder, package).split(os.sep)[0] == os.pardir:
+            raise CatalogError(f"target {name}: its path {relative} is outside the package")
+        if not os.path.isdir(folder) or os.path.islink(folder):
+            raise CatalogError(f"target {name}: no folder at {relative}")
+        found[name] = folder
+    return found
+
+
+def linked_folders(package):
+    """Every folder under the package's Sources and Tests that holds a LinuxStringTables link."""
+    found = set()
+    for parent in TARGET_PARENTS:
+        for current, dirs, _ in os.walk(os.path.join(package, parent)):
+            if os.path.islink(os.path.join(current, LINK)):
+                found.add(current)
+            dirs[:] = [d for d in dirs if not d.startswith(".") and d != LINK]
     return found
 
 
@@ -179,6 +215,7 @@ def sync_link(folder, target_root, check):
 def main(argv):
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--package", default=DEFAULT_PACKAGE, help="the CmuxNext package folder")
+    parser.add_argument("--manifest", help="the Linux-mode `swift package dump-package` JSON (default: run the dump)")
     parser.add_argument("--target", action="append", help="a target to compile (repeatable)")
     parser.add_argument("--check", action="store_true", help="write nothing; exit 1 if any output is stale")
     args = parser.parse_args(argv)
@@ -190,20 +227,23 @@ def main(argv):
     out = os.path.join(package, OUTPUT)
     changed = []
     try:
-        targets = catalog_targets(package)
+        if args.manifest:
+            with open(args.manifest, encoding="utf-8") as f:
+                manifest = json.load(f)
+        else:
+            manifest = dump_manifest(package)
+        targets = catalog_targets(package, manifest)
         if args.target:
             unknown = sorted(set(args.target) - set(targets))
             if unknown:
-                raise CatalogError(f"no catalogs in target {', '.join(unknown)}")
+                raise CatalogError(f"the manifest gives target {', '.join(unknown)} no {LINK} resource")
             targets = {name: targets[name] for name in args.target}
         else:
-            # Targets that lost their last catalog: drop their tables and their link.
+            # Targets that no longer take tables: drop their tables and their link.
             for gone in sorted(set(os.listdir(out)) - set(targets)) if os.path.isdir(out) else []:
                 changed += sync_tables(out, gone, {}, args.check)
-                for parent in TARGET_PARENTS:
-                    folder = os.path.join(package, parent, gone)
-                    if os.path.isdir(folder):
-                        changed += sync_link(folder, None, args.check)
+            for folder in sorted(linked_folders(package) - set(targets.values())):
+                changed += sync_link(folder, None, args.check)
         for target, folder in targets.items():
             outputs, variations = target_outputs(folder, target)
             changed += sync_tables(out, target, outputs, args.check)
@@ -212,7 +252,7 @@ def main(argv):
             tables = len({os.path.basename(p) for p in outputs})
             note = f", {variations} keys with variations as their 'other' form" if variations else ""
             print(f"{target}: {tables} tables x {languages} languages{note}")
-    except (CatalogError, KeyError, json.JSONDecodeError) as error:
+    except (CatalogError, KeyError, OSError, json.JSONDecodeError) as error:
         print(f"compile-xcstrings: {error}", file=sys.stderr)
         return 2
     if not args.check:
@@ -223,7 +263,7 @@ def main(argv):
             with open(ignore, "w", encoding="utf-8") as f:
                 f.write("*\n")
     verb = "stale" if args.check else "updated"
-    print(f"{len(changed)} files {verb} under {os.path.relpath(out, os.getcwd())}")
+    print(f"{len(changed)} files {verb} under {out}")
     return 1 if args.check and changed else 0
 
 

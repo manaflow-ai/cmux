@@ -7,7 +7,10 @@
 # swift-numerics for swift-system), then checks:
 #   1. --update-resolved changes only Package.linux.resolved;
 #   2. two builds through swift-tier.sh leave `git status --porcelain` empty,
-#      and the scratch sources are hard links into the checkout;
+#      and the scratch sources are hard links into the checkout; the target's
+#      string catalog builds because swift-tier.sh compiled the tables of the
+#      Linux mode's LinuxStringTables resource (p15-oracle-228) into the
+#      scratch copy, and the second run rewrites none of them;
 #   3. extra pins and no originHash (the shape of the committed CmuxNext seed:
 #      the macOS pins minus sentry-cocoa and Sparkle) still build;
 #   4. a Package.linux.resolved without a needed pin fails the build and still
@@ -40,7 +43,8 @@ trap cleanup EXIT
 repo="$work/repo"
 pkg="$repo/Packages/macOS/CmuxNext"
 mkdir -p "$pkg/Sources/Tier" "$repo/scripts/cmux-next/linux"
-cp "$root/scripts/cmux-next/linux/swift-tier.sh" "$repo/scripts/cmux-next/linux/swift-tier.sh"
+cp "$root/scripts/cmux-next/linux/swift-tier.sh" "$root/scripts/cmux-next/linux/compile-xcstrings.py" \
+  "$repo/scripts/cmux-next/linux/"
 
 cat >"$pkg/Package.swift" <<'EOF'
 // swift-tools-version:6.0
@@ -52,6 +56,8 @@ var dependencies: [Package.Dependency] = [
     .package(url: "https://github.com/apple/swift-collections.git", .upToNextMinor(from: "1.1.0")),
 ]
 var tierDependencies: [Target.Dependency] = [.product(name: "DequeModule", package: "swift-collections")]
+// The Linux mode takes the catalog as compiled tables, as the CmuxNext manifest does.
+let tierResources: [Resource] = [.process("Tier.xcstrings")] + (linux ? [.process("LinuxStringTables")] : [])
 if linux {
     dependencies.append(.package(url: "https://github.com/apple/swift-system.git", exact: "1.4.0"))
     tierDependencies.append(.product(name: "SystemPackage", package: "swift-system"))
@@ -61,9 +67,13 @@ if linux {
 }
 let package = Package(
     name: "CmuxNext",
+    defaultLocalization: "en",
     dependencies: dependencies,
-    targets: [.target(name: "Tier", dependencies: tierDependencies)]
+    targets: [.target(name: "Tier", dependencies: tierDependencies, resources: tierResources)]
 )
+EOF
+cat >"$pkg/Sources/Tier/Tier.xcstrings" <<'EOF'
+{"sourceLanguage": "en", "version": "1.0", "strings": {"tier.title": {"localizations": {"en": {"stringUnit": {"state": "translated", "value": "Tier"}}}}}}
 EOF
 cat >"$pkg/Sources/Tier/Tier.swift" <<'EOF'
 import DequeModule
@@ -101,7 +111,11 @@ done
   || fail "the scratch sources are not hard links into the checkout"
 [[ "$(inode "$pkg/Package.linux.resolved")" != "$(inode "$copy/Package.resolved")" ]] \
   || fail "the scratch Package.resolved is a hard link"
-echo "ok 2 two builds leave the checkout unchanged; sources are hard links"
+[[ -L "$copy/Sources/Tier/LinuxStringTables" && -f "$copy/Sources/Tier/LinuxStringTables/en.lproj/Tier.strings" ]] \
+  || fail "swift-tier.sh did not compile the string tables into the scratch copy"
+grep -q '^0 files updated' "$scratch/build/cmux-linux-string-tables.log" \
+  || fail "the second run rewrote string tables: $(cat "$scratch/build/cmux-linux-string-tables.log")"
+echo "ok 2 two builds leave the checkout unchanged; sources are hard links; string tables compiled once"
 
 cp "$pkg/Package.linux.resolved" "$work/linux.resolved"
 python3 -I - "$pkg/Package.linux.resolved" "$pkg/Package.resolved" <<'PY'
