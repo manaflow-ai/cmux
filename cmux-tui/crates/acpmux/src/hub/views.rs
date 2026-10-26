@@ -16,6 +16,10 @@ pub const SPAWNED_BY_TAG: &str = "spawnedBy";
 /// - `lost`: the agent process is gone (`disconnected`, or a peer's
 ///   `unreachable`) and the chat's last turn did not answer. A chat with
 ///   no turn yet has nothing to lose.
+/// - `working` again: work the session started runs on past its last turn
+///   (`subagentsWorkingSince`: a background subagent or a working
+///   sub-session, `work_below.rs`), except on a peer gone unreachable. A
+///   task is not done until its subagents are (manaflow-ai/cmux#25230).
 /// - `done`: the last turn answered. Whether the person saw it is each
 ///   client's own record.
 /// - null: nothing to show (no turn yet, a cancelled turn, closed).
@@ -41,6 +45,10 @@ pub fn status_indicator(summary: &Value) -> Option<&'static str> {
         "running" => Some("working"),
         _ if last == Some("failed") => Some("failed"),
         "disconnected" | "unreachable" if last.is_some() && !answered => Some("lost"),
+        // A peer gone unreachable takes its work with it; a local chat whose harness stopped
+        // (`disconnected`) still works while a sub-session it started runs.
+        "unreachable" => answered.then_some("done"),
+        _ if summary["subagentsWorkingSince"].is_u64() => Some("working"),
         _ if answered => Some("done"),
         _ => None,
     }
@@ -48,8 +56,18 @@ pub fn status_indicator(summary: &Value) -> Option<&'static str> {
 
 /// The keys of a turn's result kept as the session's `lastTurn` (its `detail` names why a turn
 /// ended without an answer, e.g. `outcome_unknown`).
-pub(super) const LAST_TURN_KEYS: [&str; 7] =
-    ["turnId", "promptId", "status", "stopReason", "errorText", "errorSource", "detail"];
+pub(super) const LAST_TURN_KEYS: [&str; 10] = [
+    "turnId",
+    "promptId",
+    "status",
+    "stopReason",
+    "errorText",
+    "errorSource",
+    "detail",
+    "errorKind",
+    "recovery",
+    "details",
+];
 
 impl Hub {
     /// Ends a turn no one heard the outcome of (`outcome_unknown`: a daemon restart, or a host
@@ -64,7 +82,8 @@ impl Hub {
 /// The session's lane (cx-v9k2f): what a coordinator watching many agents
 /// needs at a glance, decided here once from the summary's own fields.
 ///
-/// - `working` since its turn started.
+/// - `working` since its turn started, or since its subagents work on past
+///   its last turn.
 /// - `input`: a permission or question waits for the person.
 /// - `failed` since its last turn ended, with that turn's error text (an
 ///   agent dead on "Credit balance too low" must not read as idle).
@@ -100,7 +119,11 @@ pub fn lane(summary: &Value) -> Value {
     };
     let ended = summary["lastTurn"]["endedAt"].as_u64().or(made);
     let (state, since) = match status_indicator(summary) {
-        Some("working") => ("working", summary["turn"]["startedAt"].as_u64()),
+        // Its own turn's start, else since its subagents work on past the last one.
+        Some("working") => (
+            "working",
+            summary["turn"]["startedAt"].as_u64().or(summary["subagentsWorkingSince"].as_u64()),
+        ),
         Some("input") => ("input", summary["inputSince"].as_u64().or(updated)),
         Some("failed") => ("failed", ended),
         Some("lost") if in_turn => ("lost", updated),
@@ -273,6 +296,8 @@ impl Hub {
         let turn = session.turn();
         let stall_after = self.config.try_read().ok().and_then(|c| c.stalled_turn());
         let heard_at = session.last_model_at.load(Ordering::Relaxed);
+        // After `turn`: a retry's turn that started since is seen there (`retry_row`).
+        let (retry, retry_deciding) = self.retry_row(session, m.last_turn.as_ref());
         let summary = SessionSummary {
             session_id: m.id.clone(),
             name: m.name.clone(),
@@ -341,6 +366,8 @@ impl Hub {
                     prompt: q.preview,
                     queued_at: q.queued_at,
                     held: q.held,
+                    from_agent: q.run.agent.clone(),
+                    author: crate::author::listed(q.run.provenance.as_ref()),
                     // By attachment id: `_acpmux/attachment` reads each back.
                     images: super::prompt_images::named(&q.run.blocks)
                         .into_iter()
@@ -379,6 +406,9 @@ impl Hub {
             state_seq: session.state_seq.load(Ordering::SeqCst),
             unread: m.unread,
             last_turn: m.last_turn.clone(),
+            // A retry of its failed last turn waits, or is being decided (`auto_resume.rs`).
+            retry,
+            retry_deciding,
             attached: session.attached.load(Ordering::SeqCst) as u64,
             // Some attached client shows the chat (`hub/seen.rs`).
             shown: self.shown(session),
@@ -400,6 +430,8 @@ impl Hub {
         // The branch its folder has checked out now (`git_watch.rs`); null on
         // a detached HEAD or outside a repository.
         summary["gitBranch"] = json!(self.git_branch_now(&m));
+        // Since when work it started runs on past its own turn (`work_below.rs`).
+        summary["subagentsWorkingSince"] = json!(self.work_below_since(session));
         decide(&mut summary);
         summary
     }
@@ -414,6 +446,10 @@ impl Hub {
         v["agentCapabilities"] = m.agent_capabilities.clone().unwrap_or(Value::Null);
         v["usage"] = m.usage.clone().unwrap_or(Value::Null);
         v["goal"] = m.goal.clone().unwrap_or(Value::Null);
+        // What the context holds by category, as Claude Code's /context says after each turn.
+        v["contextBreakdown"] = m.context_breakdown.clone().unwrap_or(Value::Null);
+        // The account's plan usage limits, as Claude Code's rate_limit_event last said them.
+        v["usageLimits"] = m.usage_limits.clone().unwrap_or(Value::Null);
         // The newest command list: a client that has it needs no read of the log for it.
         if let Some(commands) = &m.available_commands {
             v["availableCommands"] = commands.clone();
@@ -439,6 +475,12 @@ impl Hub {
         // Before the config lock: it may wait up to `host_pressure::SAMPLE_WAIT` for a sample.
         let host_pressure = self.host_pressure_status().await;
         let cfg = self.config.read().await;
+        // The space of acpmux's disk, `disk.low` with what to free under the floor. Blocking
+        // (statvfs and a bounded, cached folder walk), so off the async workers.
+        let low = cfg.disk_low_bytes.unwrap_or(crate::recovery::DISK_LOW_DEFAULT_BYTES);
+        let disk = tokio::task::spawn_blocking(move || crate::recovery::disk_status(low))
+            .await
+            .unwrap_or(Value::Null);
         let sessions = self.sessions();
         let mut live = 0;
         for s in &sessions {
@@ -468,6 +510,14 @@ impl Hub {
             "store": cfg.store,
             "sessions": sessions.len(),
             "liveAgents": live,
+            "disk": disk,
+            // macOS: whether this daemon's agents can read the login keychain
+            // (`daemon/login_session.rs`); absent elsewhere.
+            "loginSession": daemon_login_session(),
+            "ownHome": crate::daemon::login_placement::own_home(
+                &crate::config::home(),
+                &crate::config::default_home()
+            ),
             // `deny`: this daemon starts no agent process (cx-9ettq).
             "agentLaunch": crate::launch_policy::status_word(),
             // Hidden pre-created sessions; never counted above.
@@ -480,6 +530,7 @@ impl Hub {
             "permissionPolicy": cfg.permission_policy.to_string(),
             "peers": self.peers(),
             "remoteSessions": self.remote_sessions.lock().unwrap().len(),
+            "openWaits": self.open_waits.load(Ordering::SeqCst),
             "webUrl": web_url(&cfg),
             "listen": cfg.web_listener().map(|w| w.listen.clone()),
             "ready": self.startup_complete(),
@@ -508,3 +559,16 @@ pub(crate) fn runs_as_cmux_tui_acp<A: AsRef<std::ffi::OsStr>>(
 #[cfg(test)]
 #[path = "views_lane_tests.rs"]
 mod lane_tests;
+
+/// `true` when this daemon runs in the user's login session (its agents read the
+/// login keychain), `false` when it does not, `"unknown"` when its security session
+/// could not be read; null off macOS.
+fn daemon_login_session() -> Value {
+    #[cfg(target_os = "macos")]
+    return match crate::daemon::login_session::in_login_session() {
+        Some(here) => Value::Bool(here),
+        None => Value::String("unknown".into()),
+    };
+    #[cfg(not(target_os = "macos"))]
+    Value::Null
+}

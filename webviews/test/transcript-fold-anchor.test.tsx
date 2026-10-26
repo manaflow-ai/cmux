@@ -3,7 +3,7 @@
 // "Expanding/collapsing any tool call or collapsible must NOT scroll the user's view: anchor the
 // clicked row in place"). Followed to the latest row, opening the last turn's "Worked for" used to
 // put the view at the new latest row, so the line the reader clicked jumped up by everything it
-// opened. jsdom has no layout: a row is drawn at its translateY, and an element in it at the row's
+// opened. jsdom has no layout: a row is drawn at its `top`, and an element in it at the row's
 // top less the scroller's offset. A toggled "Worked for" also plays (turnFold.ts, Leo 2026-10-21: "and
 // we shuold also have some animation for collapsing and expanding"): the rows below slide from where
 // they were drawn, the rows it reveals fade in and copies of the rows it hides fade out.
@@ -66,7 +66,7 @@ const scroller = () => dom.window.document.querySelector<HTMLElement>(".acpmux-s
 /// no drawn height (0 is "not laid out"), so they place by their estimates.
 dom.window.HTMLElement.prototype.getBoundingClientRect = function (this: HTMLElement) {
   const row = this.closest<HTMLElement>(".acpmux-row");
-  const at = row ? Number(/translateY\(([-\d.]+)px\)/.exec(row.style.transform)?.[1] ?? 0) : 0;
+  const at = row ? (Number.parseFloat(row.style.top) || 16) - 16 : 0; // less the thread's top padding
   const top = row ? at - (scroller()?.scrollTop ?? 0) : 0;
   return { top, bottom: top, left: 0, right: 0, width: 0, height: 0, x: 0, y: top, toJSON() {} } as DOMRect;
 };

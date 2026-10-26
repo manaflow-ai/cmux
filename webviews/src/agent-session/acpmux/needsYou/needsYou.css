@@ -14,11 +14,13 @@
   box-shadow: 0 0 0 3px color-mix(in srgb, var(--acpmux-needs-you-mark) 18%, transparent);
 }
 
-/* The badge: the header's tool button, widened by the count while asks are open. */
+/* The badge: the header's tool button, widened by the count while asks are open. The count keeps the
+   text's ink over the tools' muted rest: open asks are not a quiet tool. */
 .acpmux-header-tool.acpmux-needs-you-button[data-count] {
   width: auto;
   gap: 5px;
   padding: 0 7px 0 6px;
+  color: var(--agent-text);
 }
 .acpmux-needs-you-count {
   display: inline-flex;
