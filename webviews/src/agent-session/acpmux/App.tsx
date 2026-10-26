@@ -9318,7 +9318,9 @@ function AcpmuxPane() {
       <section
         ref={setShell}
         className="acpmux-shell"
+        data-tab-row={inTabRow ? "" : undefined}
         aria-label={composerSnapshot.summary?.title || t("header.agentChat")}
+        style={inTabRow ? tabRowStyle(tabRow) : undefined}
       >
         <div
           className="acpmux-main"
