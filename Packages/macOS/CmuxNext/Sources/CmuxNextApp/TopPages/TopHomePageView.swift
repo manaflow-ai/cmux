@@ -377,8 +377,8 @@ final class TopHomePageView: NSView {
     /// File menu, `cmux action run home.newMessage`): a selected "New
     /// Message" row at the top of the list and the New Message page in the
     /// transcript column, with the caret in To:. A kept draft comes back as
-    /// the person left it.
-    func presentNewMessage() {
+    /// the person left it. `focus` false leaves the keyboard where it is (a discarded page made again).
+    func presentNewMessage(focus: Bool = true) {
         guard let services else { return }
         let page = newMessage ?? makeNewMessage(services)
         if page.superview == nil {
@@ -393,7 +393,7 @@ final class TopHomePageView: NSView {
         list.select(HomeSidebarView.draftRowID)
         page.needsLayout = true
         page.layoutSubtreeIfNeeded()
-        window?.makeFirstResponder(page.focusTarget)
+        if focus { window?.makeFirstResponder(page.focusTarget) }
     }
 
     private func makeNewMessage(_ services: AppServices) -> HomeNewMessageView {

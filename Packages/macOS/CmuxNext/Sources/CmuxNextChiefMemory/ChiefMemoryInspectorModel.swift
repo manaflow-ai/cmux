@@ -51,6 +51,8 @@ public final class ChiefMemoryInspectorModel {
 
     private let source: any ChiefMemorySource
     private let confirmDelete: ConfirmDelete
+    /// A restored search waits for the first ``reload()`` to run it again (``restore(trail:query:searched:)``).
+    @ObservationIgnored private var searchesOnReload = false
 
     /// A model reading and changing memory through `source`.
     ///
@@ -62,7 +64,8 @@ public final class ChiefMemoryInspectorModel {
         self.confirmDelete = confirmDelete
     }
 
-    /// Reads the counts, the view, the change list and the opened node again.
+    /// Reads the counts, the view, the change list and the opened node again; after a
+    /// ``restore(trail:query:searched:)``, the restored search runs again too.
     public func reload() async {
         await run {
             status = try await get("/api/status", as: ChiefMemoryStatus.self)
@@ -72,6 +75,9 @@ public final class ChiefMemoryInspectorModel {
                 detail = try await get("/api/node", ["name": name], as: ChiefMemoryNode.self)
             }
         }
+        guard searchesOnReload, error == nil else { return }
+        searchesOnReload = false
+        await search()
     }
 
     /// Opens node `name` (a view line, a child, a search hit) and adds it to the trail.
@@ -112,6 +118,15 @@ public final class ChiefMemoryInspectorModel {
         draft = text(of: target) ?? ""
         editing = target
         error = nil
+    }
+
+    /// Opens on `trail` (outermost first) with `query` in the search field: what a tab whose view
+    /// was discarded showed. The next ``reload()`` reads the last node and, when the search's hits
+    /// showed (`searched`), searches again, so the field and the list agree.
+    public func restore(trail: [String], query: String, searched: Bool) {
+        self.trail = trail
+        self.query = query
+        searchesOnReload = searched && !query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     /// Drops the edit.

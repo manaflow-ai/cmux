@@ -24,6 +24,7 @@ import { HomeChannelsStore, PendingCarry } from "./store";
 import { DaemonGate, type DaemonSource, type HostCredential } from "./DaemonGate";
 import { DaemonHomeClient } from "./daemonHome";
 import { ComposerEdit, hostEdit } from "./composerEdit";
+import { UnsentInput, UnsentInputReport } from "./hostUnsentInput";
 import { QUOTE_COMMAND, quoteSelection } from "./quoteSelection";
 import "../shared/pageBase.css";
 import "../../ui/ui.css";
@@ -64,6 +65,8 @@ export function mountDaemonHomeChannelsPage(
   const carry = new PendingCarry();
   // In the app, the composers' Cut, Copy and Paste run as the page view's own edits.
   const edit = client ? hostEdit(client) : undefined;
+  // In the app, the host hears whether a composer holds unsent input (it keeps the page then).
+  const unsent = client ? new UnsentInputReport(client) : undefined;
   // The app's menu on selected message text: Quote in Reply.
   void client
     ?.subscribe<PageCommand>(PAGE_COMMAND, (data) => {
@@ -73,13 +76,15 @@ export function mountDaemonHomeChannelsPage(
   createRoot(root).render(
     <UiProvider container={root} popupHost={appPopupHost(client)} dir={languageDirection(strings.language)}>
       <ComposerEdit.Provider value={edit}>
-        <DaemonGate source={source} strings={strings}>
-          {(daemon, _pages, owner) => (
-            <div className="hc-daemon">
-              <DaemonHome daemon={daemon} owner={owner} host={client} strings={strings} carry={carry} />
-            </div>
-          )}
-        </DaemonGate>
+        <UnsentInput.Provider value={unsent}>
+          <DaemonGate source={source} strings={strings}>
+            {(daemon, _pages, owner) => (
+              <div className="hc-daemon">
+                <DaemonHome daemon={daemon} owner={owner} host={client} strings={strings} carry={carry} />
+              </div>
+            )}
+          </DaemonGate>
+        </UnsentInput.Provider>
       </ComposerEdit.Provider>
     </UiProvider>,
   );

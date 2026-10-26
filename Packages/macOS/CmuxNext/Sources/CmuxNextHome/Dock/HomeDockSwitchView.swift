@@ -196,6 +196,13 @@ open class HomeDockSwitchView: NSView {
     /// The shown view's primary input takes the keyboard (the message box, or the page).
     public func focusPrimaryInput() { focusContent(mode) }
 
+    /// Shows `target` on a view made again after a discard: no selection handed over, and the
+    /// keyboard stays where it is (showing a tab again is not the person choosing a view).
+    public func restore(_ target: HomeDockMode) {
+        guard target.isEnabled, target != mode else { return }
+        show(target)
+    }
+
     private func show(_ target: HomeDockMode) {
         mode = target
         needsLayout = true // the shown view's row tools (HomeDockSwitchView+TabRow)

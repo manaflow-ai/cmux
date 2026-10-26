@@ -16,6 +16,8 @@ final class HomeDockView: HomeDockSwitchView {
     private weak var services: AppServices?
     private(set) var messages: TopHomePageView?
     private(set) var channels: PageWebView?
+    /// Whether the Channels page's composers hold unsent input, as the page reports it.
+    let channelsInput = HomeChannelsInput()
     /// Asks the Channels page for its selection (`home.currentSelection`); nil when it has none
     /// or does not answer. Set by the provider (the page's reply path).
     var channelsSelection: (@MainActor (PageWebView) async -> Selection?)?
@@ -35,7 +37,7 @@ final class HomeDockView: HomeDockSwitchView {
             messages = TopHomePageView(services: services, windowKey: { HomeDockTab.widthKey })
             return messages
         case .channels:
-            guard let page = PageFactory(services: services).homeChannelsWebPage(dock: self) else { return nil }
+            guard let page = PageFactory(services: services).homeChannelsWebPage(dock: self, input: channelsInput) else { return nil }
             // A web link the person clicks opens on the Home workspace's right side (cx-ebm.59.6).
             page.onOpenExternal = { [weak services] in services?.home.dock.openLink($0, on: services?.daemon.connection) }
             channels = page
