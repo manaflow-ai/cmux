@@ -9,6 +9,9 @@
 // An arm `<rail>+canvas` is that rail with the VS Code Minimap on (chatMinimap/ChatMinimap.tsx); its
 // rounds pair with `<rail>`'s, run back to back in alternating order, and their p95 deltas are printed.
 // ARMS=off,off+canvas SCENARIOS=scroll,stream picks arms and scenarios.
+// The minimap's budget: the run exits 1 when any `+canvas` arm's median p95 delta over its rail
+// exceeds MINIMAP_BUDGET_MS (1 ms) in scroll or stream, naming which. It needs a `+canvas` arm with
+// its rail, both scenarios, and the minimap drawn; without them it exits 2. A bench, not a CI gate.
 // PROD_DIR is required: the output of vite's build() on vite.config.acpmux-pane.mjs, so React runs
 // as it ships. KEEP_TRACES=1 keeps the traces (and PROFILE=1's CPU profiles); otherwise they go.
 /// <reference types="bun" />
@@ -20,7 +23,10 @@ import { PAPERCUT_CHAT, papercutEvents } from "../test/support/papercutChat";
 
 const ROUNDS = Number(process.argv[2] ?? 3);
 const TURNS = Number(process.argv[3] ?? 1000);
-const ARMS = (process.env.ARMS?.split(",") ?? ["off", "compact", "full"]) as readonly string[];
+const ARMS = (process.env.ARMS?.split(",") ?? ["off", "off+canvas", "compact", "full"]) as readonly string[];
+/// The VS Code Minimap's budget: its median p95 cost per frame, scrolling and streaming.
+const MINIMAP_BUDGET_MS = 1;
+const GATED = ["scroll", "stream"] as const;
 const SCENARIOS = (process.env.SCENARIOS?.split(",") ?? ["idle", "scroll", "stream"]) as readonly (
   | "idle"
   | "scroll"
@@ -243,6 +249,8 @@ async function drive(page: Page, scenario: (typeof SCENARIOS)[number]) {
 }
 
 const results: Record<string, ReturnType<typeof analyze>[]> = {};
+/// The `+canvas` runs whose page drew no minimap (the setting never reached it): their deltas mean nothing.
+const undrawn: string[] = [];
 /// What the run acquired, released in reverse in the `finally` below, each on its own: one that
 /// fails to close still lets the rest close.
 const releases: Array<[string, () => unknown]> = [];
@@ -328,6 +336,7 @@ try {
         });
         await drive(page, scenario);
         if (drawn.canvas) console.error(arm, scenario, `round ${round}: ${(await draws()) - drawsBefore} canvas draws`);
+        else if (arm.endsWith("+canvas")) undrawn.push(`${arm}/${scenario} round ${round}`);
         await page.evaluate(() => {
           (window as unknown as { benchFrames?: boolean }).benchFrames = false;
           console.timeStamp("bench-end");
@@ -374,16 +383,39 @@ for (const scenario of SCENARIOS) {
     );
   }
 }
-// A `+canvas` arm against its rail alone, round by round: the median p95 delta and its spread.
+// A `+canvas` arm against its rail alone, round by round: the median p95 delta and its spread, and
+// the budget.
+const gated = ARMS.filter((each) => each.endsWith("+canvas") && ARMS.includes(each.split("+")[0]!));
+const missing = [
+  ...(gated.length === 0 ? ["a `<rail>+canvas` arm with its rail (ARMS=off,off+canvas)"] : []),
+  ...GATED.filter((scenario) => !SCENARIOS.includes(scenario)).map((scenario) => `the ${scenario} scenario`),
+];
+const over: string[] = [];
 for (const scenario of SCENARIOS) {
-  for (const arm of ARMS.filter((each) => each.endsWith("+canvas"))) {
+  for (const arm of gated) {
     const a = results[`${arm}/${scenario}`];
     const b = results[`${arm.split("+")[0]}/${scenario}`];
     if (!a || !b) continue;
     const deltas = a.map((run, index) => run.p95 - b[index]!.p95);
-    const under = deltas.filter((delta) => delta < 1).length;
+    const under = deltas.filter((delta) => delta < MINIMAP_BUDGET_MS).length;
     console.log(
-      `${arm} paired ${scenario}: p95 delta median ${fmt(median(deltas))} min ${fmt(Math.min(...deltas))} max ${fmt(Math.max(...deltas))}; under 1 ms in ${under}/${deltas.length}; deltas ${deltas.map((delta) => delta.toFixed(2)).join(" ")}`,
+      `${arm} paired ${scenario}: p95 delta median ${fmt(median(deltas))} min ${fmt(Math.min(...deltas))} max ${fmt(Math.max(...deltas))}; under ${MINIMAP_BUDGET_MS} ms in ${under}/${deltas.length}; deltas ${deltas.map((delta) => delta.toFixed(2)).join(" ")}`,
     );
+    if ((GATED as readonly string[]).includes(scenario) && median(deltas) > MINIMAP_BUDGET_MS)
+      over.push(`${arm} ${scenario}: median p95 delta ${median(deltas).toFixed(2)} ms`);
   }
 }
+if (missing.length || undrawn.length) {
+  console.error(
+    `thread-minimap-frame-cost: the minimap budget could not be checked: ${[
+      ...missing.map((what) => `missing ${what}`),
+      ...(undrawn.length ? [`no minimap drawn in ${undrawn.join(", ")}`] : []),
+    ].join("; ")}`,
+  );
+  process.exit(2);
+}
+if (over.length) {
+  console.error(`thread-minimap-frame-cost: over the ${MINIMAP_BUDGET_MS} ms budget: ${over.join("; ")}`);
+  process.exit(1);
+}
+console.log(`minimap budget: within ${MINIMAP_BUDGET_MS} ms (median p95 delta) in ${GATED.join(" and ")}`);
