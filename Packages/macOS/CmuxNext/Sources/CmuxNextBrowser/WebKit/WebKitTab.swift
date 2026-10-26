@@ -274,13 +274,7 @@ public final class WebKitTab: NSObject, BrowserTab {
     /// There is no public API for this; if WebKit removes it, the user can
     /// still use "Inspect Element" from the context menu.
     public func showDevTools() {
-        let selector = NSSelectorFromString("_inspector")
-        guard webView.responds(to: selector),
-              let inspector = webView.perform(selector)?.takeUnretainedValue() as? NSObject else { return }
-        let show = NSSelectorFromString("show")
-        if inspector.responds(to: show) {
-            inspector.perform(show)
-        }
+        WebKitInspector(webView: webView).show()
     }
 
     public func close() {

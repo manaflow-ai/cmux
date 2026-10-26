@@ -32,9 +32,8 @@ public struct WebKitInspector {
 
     /// Whether the inspector is shown.
     public var isVisible: Bool {
-        guard let inspector, inspector.responds(to: Selector(("isVisible"))) else { return false }
-        // crash-allow: guarded by responds(to: isVisible) above; KVC's "visible" getter search finds -isVisible, so no undefined-key exception
-        return inspector.value(forKey: "visible") as? Bool ?? false
+        prepare()
+        return Self.isVisible(of: webView)
     }
 
     /// Shows the inspector; with `panel`, on that tab when WebKit can
@@ -83,6 +82,19 @@ public struct WebKitInspector {
 
     private var inspector: NSObject? {
         prepare()
+        return Self.inspector(of: webView)
+    }
+
+    /// Whether `webView`'s inspector is shown, read without making the web view inspectable
+    /// (``WebKitInspectorWatch`` reads this on view and window changes).
+    static func isVisible(of webView: WKWebView) -> Bool {
+        guard let inspector = Self.inspector(of: webView), inspector.responds(to: Selector(("isVisible"))) else { return false }
+        // crash-allow: guarded by responds(to: isVisible) above; KVC's "visible" getter search finds -isVisible, so no undefined-key exception
+        return inspector.value(forKey: "visible") as? Bool ?? false
+    }
+
+    /// The private `_WKInspector` of `webView`, or nil when this WebKit has none.
+    static func inspector(of webView: WKWebView) -> NSObject? {
         guard webView.responds(to: Selector(("_inspector"))) else { return nil }
         // crash-allow: guarded by responds(to: _inspector) above; KVC's getter search finds -_inspector, so no undefined-key exception
         return webView.value(forKey: "_inspector") as? NSObject

@@ -63,6 +63,17 @@ import WebKit
         #expect(!WebKitInspector(webView: webView).isVisible)
     }
 
+    /// The watch's read (`WebKitInspectorWatch`) shares the same KVC lookup and, unlike the
+    /// inspector's own actions, does not make the web view inspectable as a side effect.
+    @Test func theWatchReadOfAnInspectorIsHiddenAndLeavesTheWebViewUninspectable() {
+        let webView = WKWebView(frame: .zero)
+        webView.isInspectable = false
+        #expect(!WebKitInspector.isVisible(of: webView))
+        #expect(!webView.isInspectable)
+        #expect(!WebKitInspector(webView: webView).isVisible)
+        #expect(webView.isInspectable)
+    }
+
     private static func temporaryDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("cmux-pointer-free-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
