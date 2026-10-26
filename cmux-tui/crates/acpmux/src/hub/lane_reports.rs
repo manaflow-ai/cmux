@@ -202,6 +202,11 @@ fn last_reply(events: &[Value]) -> Option<String> {
     })
 }
 
+/// A report's reply from its transcript read.
+fn reply_of(read: Result<Option<String>>) -> String {
+    read.ok().flatten().unwrap_or_default()
+}
+
 /// `found` without what `seen` has, each once, in order.
 fn new_items(found: impl IntoIterator<Item = String>, seen: &[String]) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
@@ -365,13 +370,10 @@ impl Hub {
     fn lane_capture(&self, session: &Session, turn: u64, started: bool) -> Report {
         let summary = self.session_summary(session);
         let read = if started { self.lane_last_reply(&session.id, &summary) } else { Ok(None) };
-        let reply = match read {
-            Ok(reply) => reply.unwrap_or_default(),
-            Err(e) => {
-                tracing::warn!(lane = %session.id, "lane report: its transcript did not read: {e}");
-                String::new()
-            }
-        };
+        if let Err(e) = &read {
+            tracing::warn!(lane = %session.id, "lane report: its transcript did not read: {e}");
+        }
+        let reply = reply_of(read);
         let opened = summary
             .get("pullRequests")
             .and_then(Value::as_array)
@@ -711,6 +713,43 @@ mod tests {
             reply: "last words".into(),
             prs: vec![],
             shas: vec![],
+        }
+    }
+
+    #[test]
+    fn a_transcript_that_does_not_read_says_so_instead_of_no_reply() {
+        assert_eq!(reply_of(Ok(Some("done".into()))), "done");
+        assert_eq!(reply_of(Ok(None)), "");
+        let got = reply_of(Err(anyhow::anyhow!("page 3 failed")));
+        assert!(got.contains("did not read") && got.contains("page 3 failed"), "{got}");
+    }
+
+    #[tokio::test]
+    async fn a_report_held_at_the_cap_goes_when_the_window_frees_a_place() {
+        let hub = test_hub();
+        let start = || NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
+        let parent = hub.new_session(start()).await.unwrap();
+        let lane = hub.new_session(start()).await.unwrap();
+        hub.lane_link(&parent.id, &lane.id);
+        // The cap is full, its oldest report leaving the window in 300 ms; the lane never ends
+        // another turn.
+        let oldest = now_ms() - WINDOW_MS + 300;
+        hub.lane_links(|l| {
+            let l = l.get_mut(&lane.id).unwrap();
+            l.sent = vec![oldest; MAX_REPORTS];
+            l.ready = Some(queued_report(&lane.id));
+        });
+        hub.lane_deliver_ready(&lane.id).await;
+        assert_eq!(parent.meta().turn_count, 0, "the report went past the cap");
+        for _ in 0..150 {
+            if parent.meta().turn_count > 0 {
+                break;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+        assert_eq!(parent.meta().turn_count, 1, "the held report never went");
+        for s in [&lane, &parent] {
+            hub.kill(s, true).await.unwrap();
         }
     }
 
