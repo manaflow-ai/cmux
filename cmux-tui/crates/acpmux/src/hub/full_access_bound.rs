@@ -190,6 +190,11 @@ impl Hub {
     /// progress ends with it), each under its session's spawn lock, checked again there.
     pub(super) async fn end_every_managed_full_access(&self) {
         for session in self.sessions() {
+            // A host a restart left: the mode its harness reported without declaring modes is
+            // known only from the log, read back before the check (review 27 of #23322).
+            if self.full_access_managed_off() && Self::host_record_live(&session.id) {
+                self.read_back_undeclared_mode(&session);
+            }
             if self.managed_off_runs_full_access(&session) {
                 let _spawning = session.spawn_lock.lock().await;
                 self.end_if_runs_full_access(&session).await;
@@ -208,11 +213,19 @@ impl Hub {
             return;
         }
         let mut last = None;
+        // A subagent's update is not the session's own: the tap marks it (`SubagentTree::annotate`)
+        // only for a thread that is not the session's own, as `on_update` skips it live. A mark on
+        // the session's own thread (an agent may write one) does not hide its mode.
+        let own = session.meta().agent_session_id;
         let kinds = ["host_started", "current_mode_update"];
         let _ = self.store.scan_kinds(&session.id, &kinds, &mut |e: crate::store::EventRecord| {
             match (e.dir.as_str(), e.kind.as_str()) {
                 ("mux", "host_started") => last = None,
-                ("in", "current_mode_update") => {
+                ("in", "current_mode_update")
+                    if e.msg.pointer("/params/_meta/acpmux/subagent").is_none()
+                        || e.msg.pointer("/params/sessionId").and_then(Value::as_str)
+                            == own.as_deref() =>
+                {
                     last = e
                         .msg
                         .pointer("/params/update/currentModeId")
@@ -235,7 +248,12 @@ impl Hub {
         let child = session.child.lock().await.take();
         let ended = child.is_some() || Self::host_record_live(&session.id);
         if let Some(child) = child {
-            child.terminate(super::shutdown::SHUTDOWN_GRACE).await;
+            // Bounded: a host whose link stopped reading never answers the terminate; it is then
+            // ended by its nonce below (review 27 of #23322).
+            let grace = super::shutdown::SHUTDOWN_GRACE;
+            if tokio::time::timeout(grace * 2, child.terminate(grace)).await.is_err() {
+                tracing::warn!(session = %session.id, "its full-access agent did not end in time; its host is ended");
+            }
         }
         if Self::host_record_live(&session.id) {
             self.end_unadopted_host(session).await;
