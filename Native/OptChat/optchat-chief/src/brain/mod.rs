@@ -200,6 +200,15 @@ pub enum Input {
         after_network: bool,
         online: bool,
     },
+    /// The model endpoint answers again after the Chief's turn was cut by a
+    /// network error (`turns::Cut::Network`), or the wait for it ended
+    /// (`!online`): the cut turn whose hold is `hold` runs at `not_before`
+    /// at the earliest.
+    NetworkBack {
+        hold: Instant,
+        not_before: Instant,
+        online: bool,
+    },
     /// Subagent `id`, whose account hit a usage limit, continues in a new
     /// session on `harness` (auto_resume.rs `Decision::Move`).
     AutoMove {
@@ -862,6 +871,8 @@ pub struct Brain {
     resume_at: Option<Instant>,
     /// The waits before such a turn runs again (`turns::UPSTREAM_RESUME_BACKOFF`).
     upstream_backoff: Vec<std::time::Duration>,
+    /// How often a turn cut by a network error checks the model endpoint.
+    network_poll: std::time::Duration,
     /// An update asked for a handoff: the brain stops between turns, at
     /// the latest at this deadline.
     handoff_at: Option<Instant>,
@@ -1001,6 +1012,7 @@ impl Brain {
             resume_at: None,
             orphan_wait: None,
             upstream_backoff: turns::UPSTREAM_RESUME_BACKOFF.to_vec(),
+            network_poll: crate::auto_resume::NETWORK_POLL,
             handoff_at: None,
             handoff_wait: HANDOFF_DEADLINE,
             steer_deadline: None,
@@ -1324,6 +1336,11 @@ impl Brain {
                 online,
             } => self.auto_resume_due(&id, attempt, &reason, after_network, online),
             Input::AutoMove { id, harness } => self.auto_move_due(&id, &harness),
+            Input::NetworkBack {
+                hold,
+                not_before,
+                online,
+            } => self.network_back(hold, not_before, online),
             Input::TurnView { reply } => {
                 let _ = reply.send(self.turn_view.clone());
             }

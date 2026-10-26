@@ -212,7 +212,6 @@
   border-radius: 5px;
   background: none;
   color: var(--agent-muted);
-  cursor: default;
 }
 .acpmux-needs-you-go:hover,
 .acpmux-needs-you-ask-about:hover,
@@ -292,7 +291,6 @@
   font: inherit;
   font-size: var(--text-body);
   text-align: left;
-  cursor: default;
   letter-spacing: var(--text-body--letter-spacing);
 }
 .acpmux-needs-you-answer::before {
@@ -336,7 +334,6 @@
   font-size: var(--text-detail);
   white-space: nowrap;
   text-overflow: ellipsis;
-  cursor: default;
   letter-spacing: var(--text-detail--letter-spacing);
 }
 .acpmux-needs-you-side-send:hover:not(:disabled) {
@@ -422,7 +419,6 @@
   border: 0;
   background: none;
   font: inherit;
-  cursor: default;
 }
 .cv-link.is-needs-you .acpmux-needs-you-dot {
   width: 6px;

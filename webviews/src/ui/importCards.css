@@ -160,7 +160,6 @@
   border-radius: 6px;
   font: inherit;
   font-size: var(--text-detail);
-  cursor: default;
   letter-spacing: var(--text-detail--letter-spacing);
 }
 

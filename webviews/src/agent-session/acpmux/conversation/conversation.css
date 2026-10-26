@@ -332,7 +332,6 @@
   color: var(--cv-text-muted);
   white-space: nowrap;
   user-select: none;
-  cursor: default;
   letter-spacing: var(--text-detail--letter-spacing);
 }
 .cv-user__more:hover {
@@ -358,7 +357,6 @@
   font: inherit;
   font-size: var(--text-detail);
   text-align: start;
-  cursor: default;
   letter-spacing: var(--text-detail--letter-spacing);
 }
 .cv-user__paste:hover {
@@ -397,7 +395,6 @@
   color: inherit;
   text-decoration: underline;
   text-underline-offset: 2px;
-  cursor: default;
 }
 .cv-user__cancel:hover {
   color: var(--cv-text);
@@ -466,7 +463,6 @@
   color: inherit;
   text-decoration: underline;
   text-underline-offset: 2px;
-  cursor: default;
 }
 .cv-thinking__cancel:hover {
   color: var(--cv-text);
@@ -533,13 +529,13 @@
 }
 .acpmux-artifact-tab {
   all: unset;
+  cursor: pointer;
   height: 24px;
   padding: 0 10px;
   border-radius: 6px;
   font-size: var(--text-detail);
   line-height: 24px;
   color: var(--agent-muted);
-  cursor: default;
   letter-spacing: var(--text-detail--letter-spacing);
 }
 .acpmux-artifact-tab:hover:not([aria-pressed="true"]) {
@@ -731,6 +727,7 @@
 }
 .cv-user__edit-button {
   all: unset;
+  cursor: pointer;
   box-sizing: border-box;
   height: 26px;
   padding: 0 10px;
@@ -740,7 +737,6 @@
   line-height: 26px;
   color: var(--cv-text);
   box-shadow: inset 0 0 0 1px var(--cv-rule);
-  cursor: default;
   letter-spacing: var(--text-control--letter-spacing);
 }
 .cv-user__edit-button:hover {
@@ -1307,13 +1303,13 @@ pre.cv-math-source {
    line of their own under it, so none of them is cut off (cx-ncc.111). */
 .acpmux-ask-toggle {
   all: unset;
+  cursor: pointer;
   display: flex;
   flex: 1 1 10rem;
   align-items: center;
   gap: 6px;
   min-inline-size: 0;
   border-radius: 5px;
-  cursor: default;
 }
 .acpmux-ask-chevron {
   flex: none;
@@ -1370,6 +1366,7 @@ pre.cv-math-source {
 }
 .acpmux-ask-action {
   all: unset;
+  cursor: pointer;
   box-sizing: border-box;
   height: 22px;
   padding: 0 8px;
@@ -1377,7 +1374,6 @@ pre.cv-math-source {
   color: var(--cv-text);
   font-size: var(--text-detail);
   line-height: 22px;
-  cursor: default;
   letter-spacing: var(--text-detail--letter-spacing);
 }
 .acpmux-ask-action:hover {
@@ -1476,6 +1472,9 @@ pre.cv-math-source {
   font-variant-numeric: tabular-nums;
   -webkit-font-smoothing: antialiased;
   user-select: none;
+}
+:is(button, a[href]).cv-worked {
+  cursor: pointer;
 }
 .cv-worked.is-toggle {
   cursor: pointer;
@@ -1676,6 +1675,12 @@ pre.cv-math-source {
   min-height: var(--cv-tool-row-height);
   line-height: 20px;
   color: var(--cv-text-dim);
+}
+/* `all: unset` takes the shared pointing hand away (the cursor inherits the page's arrow): a row
+   that is a button or link (a tool row that opens, "Subagent finished", a background task) gets it
+   back; a plain line keeps the arrow (clickable-cursor.test.ts). */
+:is(button, a[href]).cv-tool {
+  cursor: pointer;
 }
 .cv-tool.is-strong {
   color: var(--cv-tool-strong);
@@ -3424,7 +3429,6 @@ a.cv-sha:focus-visible {
   --glass-edge: var(--acpmux-jump-latest-rim, color-mix(in srgb, var(--agent-text) 18%, transparent));
   --glass-elevation: var(--elevation-2);
   color: var(--agent-text);
-  cursor: default;
   opacity: 0;
   pointer-events: none;
   transform: translate3d(-50%, 6px, 0);
@@ -3901,7 +3905,6 @@ article.acpmux-row:empty {
   background: none;
   font: inherit;
   color: inherit;
-  cursor: default;
 }
 .cv-user__send-now:hover:not(:disabled) {
   color: var(--cv-text);
@@ -3918,7 +3921,6 @@ article.acpmux-row:empty {
   padding: 0;
   background: none;
   color: inherit;
-  cursor: default;
 }
 .cv-user__take-back:hover:not(:disabled) {
   color: var(--cv-text);

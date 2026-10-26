@@ -31,7 +31,6 @@
   font-size: var(--text-body);
   line-height: var(--text-body--line-height);
   text-align: start;
-  cursor: default;
   letter-spacing: var(--text-body--letter-spacing);
 }
 .acpmux-started-row + .acpmux-started-row {

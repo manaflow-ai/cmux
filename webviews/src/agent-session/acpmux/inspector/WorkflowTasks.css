@@ -69,7 +69,6 @@
   color: inherit;
   font: inherit;
   text-align: start;
-  cursor: default;
 }
 .acpmux-workflow-phase__head > svg {
   flex: none;
