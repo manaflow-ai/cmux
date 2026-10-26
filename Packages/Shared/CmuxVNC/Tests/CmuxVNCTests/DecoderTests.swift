@@ -4,10 +4,10 @@ import Testing
 @testable import CmuxVNC
 @testable import CmuxVNCDemoServer
 
-/// Feeds one rectangle body through the decoder from scripted bytes.
+/// Feeds one rectangle body through the decoder from scripted bytes, `chunk` bytes per receive.
 func decode(_ header: RFBRectangleHeader, body: [UInt8], into framebuffer: Framebuffer,
-            decoder: RFBRectangleDecoder = RFBRectangleDecoder()) async throws -> RFBRectangleEffect {
-    try await decoder.decode(header, reader: RFBReader(transport: ScriptedTransport(body, chunk: 5)), into: framebuffer)
+            decoder: RFBRectangleDecoder = RFBRectangleDecoder(), chunk: Int = 5) async throws -> RFBRectangleEffect {
+    try await decoder.decode(header, reader: RFBReader(transport: ScriptedTransport(body, chunk: chunk)), into: framebuffer)
 }
 
 func bgrx(_ pixel: UInt32) -> [UInt8] {
@@ -43,13 +43,23 @@ struct DecoderTests {
         #expect(framebuffer.pixels == pixels)
     }
 
-    /// Raw rows arrive as slices of the reader's buffer at a nonzero start (row 2 starts
-    /// 8 bytes in): the blit indexes from the slice's start, not from 0.
+    /// Raw rows arrive as slices of the reader's buffer at a nonzero start: one receive
+    /// buffers the whole body, so row 2 is the slice 8..<16 (no compaction between rows).
+    /// The blit indexes from the slice's start, not from 0.
     @Test func rawRowsFromBufferSlices() async throws {
         let framebuffer = Framebuffer(width: 2, height: 2)
         _ = try await decode(RFBRectangleHeader(x: 0, y: 0, width: 2, height: 2, encoding: 0),
-                             body: bgrx(red) + bgrx(green) + bgrx(blue) + bgrx(red), into: framebuffer)
+                             body: bgrx(red) + bgrx(green) + bgrx(blue) + bgrx(red), into: framebuffer, chunk: 64)
         #expect(framebuffer.pixels == [red, green, blue, red])
+    }
+
+    /// A Hextile raw tile follows its one-byte subencoding mask, so its pixels are the
+    /// slice 1..<9 of the reader's buffer (one receive, no compaction).
+    @Test func hextileRawTileFromBufferSlice() async throws {
+        let framebuffer = Framebuffer(width: 2, height: 1)
+        _ = try await decode(RFBRectangleHeader(x: 0, y: 0, width: 2, height: 1, encoding: 5),
+                             body: [UInt8(1)] + bgrx(green) + bgrx(blue), into: framebuffer, chunk: 64)
+        #expect(framebuffer.pixels == [green, blue])
     }
 
     /// CopyRect moving left inside one row, and down over its own rows: no word is read

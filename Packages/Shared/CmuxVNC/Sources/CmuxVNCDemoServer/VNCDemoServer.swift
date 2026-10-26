@@ -491,7 +491,7 @@ final class Deflater {
                     // SAFETY: the stream is initialized and its in/out windows are set above.
                     _ = unsafe zlib.deflate(stream, Z_SYNC_FLUSH)
                     // SAFETY: the live stream; a field read.
-                    return out.count - Int(unsafe stream.pointee.avail_out)
+                    return unsafe out.count - Int(stream.pointee.avail_out)
                 }
                 result.append(contentsOf: chunk[0 ..< produced])
                 // SAFETY: the live stream; a field read.
