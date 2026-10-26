@@ -2,8 +2,8 @@ import { useEffect, useSyncExternalStore } from "react";
 
 /// The permission mode acpmux would start a new chat on a harness in (`_acpmux/start_mode`,
 /// hub/start_mode.rs, cx-wx93i): the mode id, and its name when acpmux knows it. acpmux alone
-/// decides it (the latest pick, a preset, a profile that pins its mode, the settings); the pane
-/// only asks, and names no mode it has no answer for.
+/// decides it (a preset, a profile that pins its mode, the settings); a mode picked in a chat holds
+/// for that chat only. The pane only asks, and names no mode it has no answer for.
 export type StartMode = { modeId: string; name?: string };
 
 /// Asks the connected acpmux; undefined when it sets no mode, cannot know, or predates the method.
@@ -19,8 +19,8 @@ const STORAGE_KEY = "cmux.acpmux.startModes.v1";
 
 let ask: AskStartMode | undefined;
 /// Bumped whenever an answer may have changed (acpmux's `_acpmux/start_mode_changed`, which it
-/// also sends when the `agents.defaultPermissionMode` setting changes; this pane's own pick; a new
-/// client): every pending chat asks again. Showing the pane again asks nothing.
+/// also sends when the `agents.defaultPermissionMode` setting changes; a new client): every
+/// pending chat asks again. Showing the pane again asks nothing.
 let generation = 0;
 /// Bumped whenever a kept answer changed: every pending chat draws it.
 let version = 0;
@@ -138,19 +138,6 @@ export function resetStartModesForTests(): void {
   memory = undefined;
   version += 1;
   notify();
-}
-
-/// This pane picked `mode` (named `name`) in a local chat on `harness`, and acpmux took it: its
-/// kept answers for that harness say so at once, then every pending chat asks acpmux again, which
-/// corrects any that acpmux did not take as a pick (a preset's chat, a profile that pins it).
-export function pickedMode(harness: string | undefined, mode: string, name?: string): void {
-  if (harness && mode) {
-    const all = { ...load() };
-    const keys = Object.keys(all).filter((key) => key.startsWith(`${harness}\u0000`));
-    for (const key of keys) all[key] = { modeId: mode, ...(name ? { name } : {}) };
-    if (keys.length > 0) save(all);
-  }
-  startModeChanged();
 }
 
 /// acpmux's answer may have changed: every pending chat asks again.
