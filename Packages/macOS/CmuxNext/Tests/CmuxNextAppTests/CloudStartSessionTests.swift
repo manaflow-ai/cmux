@@ -261,6 +261,24 @@ struct CloudStartSessionTests {
         #expect(!services.machines.cloud.contains { $0.machine.title == name })
     }
 
+    /// A machine in the store whose account's list isn't the one read now (after a team switch,
+    /// the previous team's machines stay until that list lands) is never a target.
+    @Test func aTargetOutsideTheListOfTheAccountSignedInNowStartsNothing() async throws {
+        let f = Self.fixture()
+        #expect(!f.services.cloud.hasLoadedCurrentMachines)
+        let invoke = try #require(f.services.registry.action(for: CloudStartSession.action)?.invoke)
+        let run = f.services.registry.capturingRun { invoke(Self.invocation(target: f.session.machineID, ["agent": .string("claude")])) }
+        let task = try #require(run.results.first, "start-session tracked no result")
+        guard case .failure(let failure) = await task.value else {
+            Issue.record("a target outside this account's list went on")
+            return
+        }
+        let request = CloudStartSession.Request(machineID: f.session.machineID, name: nil, agent: "claude", cwd: nil)
+        #expect(failure.message == CloudStartSessionStrings.targetUnread(request.asked(machine: f.session.machineID)))
+        #expect(failure.message.contains("`cmux cloud start-session --target machine:\(f.session.machineID) --agent claude`"))
+        #expect(f.session.daemon.connection == nil, "nothing connected")
+    }
+
     @Test func theAccountCheckRefusesAChangeAndStopsACancelledRun() async throws {
         let asked = Self.asked
         #expect(throws: Never.self) { try CloudStartSession.checked(Self.account, now: Self.account, asked) }

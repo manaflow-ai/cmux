@@ -159,7 +159,7 @@ struct CloudStartSession {
         let session = try await machine(request, invocation, account: account, askedBy: askedBy)
         let name = session.machine.title, id = session.machineID, agent = request.agent
         try still(name)
-        try await connected(session, invocation, request)
+        try await connected(session, invocation, request, account: account)
         try still(name)
         let daemon = session.daemon
         guard let host = AgentTabStore.registryHost(of: daemon) else {
@@ -178,9 +178,10 @@ struct CloudStartSession {
             let tabs = services.agentTabs
             let pending = try tabs.open(in: anchor.pane.handle, of: daemon, seed: request.cwd.map { AgentPaneSeedSource(AgentPaneSeed(cwd: $0)) })
             tabKey = try await pending.value().key
-            // The start reads the tab as the machine's tree lists it.
-            _ = await CloudMove.holds(within: .seconds(10)) { [services] in services.locateTab(tabKey) != nil }
+            // The start reads the tab as the machine's tree lists it (`tabKey` is the store's id).
+            let listed = await CloudMove.holds(within: .seconds(10)) { [services] in services.locateTab(tabKey) != nil }
             try Self.check(account, now: services.cloud.account, request.asked(machine: name))
+            guard listed else { throw AccountChanged(failure: ActionFailure(message: CloudStartSessionStrings.notConnected(name, id: id, agent: agent))) }
             switch tabs.remoteHost(tabKey) {
             case let remote as AgentTabRemoteHost: started = try await remote.startNow(cwd: request.cwd, harness: agent)
             case let refused as AgentTabRefusedHost: throw refused.refusal
@@ -195,7 +196,8 @@ struct CloudStartSession {
         }
         // Where a hook that saves the session's trajectory off the machine (hq#4381) would go, once
         // acpmux has one: the session started, so its id is known here. None exists on base yet.
-        if revealing, invocation.allowsViewChange { CloudHandlers.show(anchor.id, context) }
+        // The session runs now; the result reports it. A switch during the start shows nothing.
+        if revealing, invocation.allowsViewChange, account == services.cloud.account { CloudHandlers.show(anchor.id, context) }
         return [
             "machine_id": .string(id), "machine_name": .string(name), "target": .string("machine:\(id)"),
             "session_id": .string(started.session), "host": .string(host), "agent": .string(agent),
@@ -203,7 +205,8 @@ struct CloudStartSession {
         ]
     }
 
-    /// The account changed (or the run was cancelled) since `asked` was asked: stop before the next step.
+    /// A refusal that passes through a step's error mapping as it is: the account changed since
+    /// the run was asked, or a step's own precondition failed.
     struct AccountChanged: Error { var failure: ActionFailure }
 
     /// Inside a step whose other errors are mapped (``AccountChanged`` passes through the mapping).
@@ -251,12 +254,17 @@ struct CloudStartSession {
     /// The machine named by id, else by name, else a new one with that name.
     private func machine(_ request: Request, _ invocation: ActionInvocation, account: [String?], askedBy: String?) async throws -> CloudMachineSession {
         let machines = services.machines
+        let cloud = services.cloud
         if let id = request.machineID {
+            // Only a machine of the list read for the account signed in now: after a team switch,
+            // the previous team's machines stay in the store until that list lands.
+            if !cloud.hasLoadedCurrentMachines { await cloud.refresh() }
+            try Self.checked(account, now: cloud.account, request.asked(machine: id))
+            guard cloud.hasLoadedCurrentMachines else { throw ActionFailure(message: CloudStartSessionStrings.targetUnread(request.asked(machine: id))) }
             guard let session = machines.session(id) else { throw ActionFailure(message: CloudStartSessionStrings.noSuchMachine(id: id, agent: request.agent)) }
             return session
         }
         let name = request.name ?? ""
-        let cloud = services.cloud
         // A list the server answered just now for this account: a machine by this name made
         // elsewhere is taken, never made again. A failed or superseded read refuses.
         let still = { try Self.check(account, now: cloud.account, request.asked(machine: name)) }
@@ -283,10 +291,12 @@ struct CloudStartSession {
 
     /// The machine connected with its store's id: a paused one resumes, a new one comes up. Nothing
     /// here waits on a client snapshot (hq#4381): the machine's own acpmux keeps its sessions.
-    private func connected(_ session: CloudMachineSession, _ invocation: ActionInvocation, _ request: Request) async throws {
+    private func connected(_ session: CloudMachineSession, _ invocation: ActionInvocation, _ request: Request, account: [String?]) async throws {
         let failure = { ActionFailure(message: CloudStartSessionStrings.notConnected(session.machine.title, id: session.machineID, agent: request.agent)) }
         if session.daemon.connection == nil {
             await session.refreshIfMaybePaused()
+            // The resume or connect below changes the machine: only for the account that asked.
+            try Self.checked(account, now: services.cloud.account, request.asked(machine: session.machine.title))
             let origin = CloudHandlers.connectOrigin(for: invocation)
             if session.machine.status == .paused { session.attach(origin: origin) } else { session.connect(origin: origin) }
         }
