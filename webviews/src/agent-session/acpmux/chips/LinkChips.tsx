@@ -47,7 +47,7 @@ export function PathChip({ path, label, written, ...position }: PathChipProps) {
   const scope = useMessageScope();
   if (isDeniedPath(path)) return <NoChip path={path} label={label} written={written} code={position.code} />;
   // Another machine's file: never asked about or opened here (chips/messageScope.ts).
-  if (scope?.host !== undefined) return <ElsewhereChip path={path} host={scope.host} label={label} />;
+  if (scope?.host !== undefined) return <ElsewhereChip path={path} host={scope.host} label={label} suffix={position.suffix} />;
   return <HostPathChip path={path} label={label} written={written} {...position} />;
 }
 
@@ -92,7 +92,18 @@ function HostPathChip({ path, label, written, location, suffix, code, bare }: Pa
 
 /// A file on the machine an agent's message came from: its name with a lock, the path and the
 /// machine in its tooltip. Not a button: this Mac has no way to it.
-export function ElsewhereChip({ path, host, label }: { path: string; host: string; label?: ReactNode }) {
+export function ElsewhereChip({
+  path,
+  host,
+  label,
+  suffix,
+}: {
+  path: string;
+  host: string;
+  label?: ReactNode;
+  /** The written `:line` (or `#L…`), kept in the label as on this Mac's chips. */
+  suffix?: string;
+}) {
   const t = useT();
   const where = host ? t("message.fileOnHost", { host, path }) : t("message.fileElsewhere", { path });
   return (
@@ -103,7 +114,10 @@ export function ElsewhereChip({ path, host, label }: { path: string; host: strin
       aria-label={where}
     >
       <FileDoc size={15} className="cv-chip__icon" />
-      <span className="cv-chip__label">{label ?? pathName(path)}</span>
+      <span className="cv-chip__label">
+        {label ?? pathName(path)}
+        {path.endsWith("/") ? "" : suffix}
+      </span>
       <Lock size={11} className="cv-chip__lock" />
     </span>
   );
