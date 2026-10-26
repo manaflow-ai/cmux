@@ -175,6 +175,8 @@ fn close_extra_fds() -> io::Result<()> {
     Ok(())
 }
 
+/// Proxy outbound requests, but bypass loopback so the API forwarder is reachable.
+/// Inside bwrap's network namespace only the handed-off listeners use loopback.
 fn set_proxy_environment(proxy: u16) {
     let value = format!("http://127.0.0.1:{proxy}");
     for key in ["HTTPS_PROXY", "HTTP_PROXY", "ALL_PROXY", "https_proxy", "http_proxy", "all_proxy"]
@@ -188,7 +190,7 @@ fn set_proxy_environment(proxy: u16) {
     for key in ["NO_PROXY", "no_proxy"] {
         // SAFETY: see the set_var safety argument above.
         unsafe {
-            std::env::remove_var(key);
+            std::env::set_var(key, "127.0.0.1,localhost,::1");
         }
     }
 }
@@ -205,6 +207,20 @@ fn exec_program(program: String, args: Vec<String>) -> ! {
     }
     let mut pointers: Vec<*const libc::c_char> = argv.iter().map(|arg| arg.as_ptr()).collect();
     pointers.push(ptr::null());
+    // Rust startup ignores SIGPIPE. Restore it and clear the inherited mask
+    // immediately before exec so PROGRAM has normal Unix signal behavior.
+    // SAFETY: this is the single-threaded helper; empty is initialized before use.
+    unsafe {
+        if libc::signal(libc::SIGPIPE, libc::SIG_DFL) == libc::SIG_ERR {
+            fail(format!("reset SIGPIPE: {}", io::Error::last_os_error()));
+        }
+        let mut empty: libc::sigset_t = std::mem::zeroed();
+        if libc::sigemptyset(&mut empty) != 0
+            || libc::sigprocmask(libc::SIG_SETMASK, &empty, ptr::null_mut()) != 0
+        {
+            fail(format!("clear signal mask: {}", io::Error::last_os_error()));
+        }
+    }
     // SAFETY: all CString buffers and the pointer array live until execv;
     // the program path is absolute and argv is NUL-terminated.
     unsafe {
