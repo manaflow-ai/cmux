@@ -26,8 +26,11 @@
 //                                              without the function pointers, in
 //                                              header order (switches as a str list)
 //   kOpTextInputWatch                           i32 browser, i32 watch: text input
-//                                              pushes for the browser start or stop
+//                                              pushes for the browser start or stop;
+//                                              answered with the fork's result
 //                                              (host_text_input.h)
+//   kOpTextInputStats                           no fields: answered with the text
+//                                              input push counters (host_text_input.h)
 // Every preinit op comes before kOpInitialize (the remote shim queues them,
 // task 014); everything else after it.
 //
@@ -40,7 +43,7 @@
 //   kOpAck     reply flag, token: the op ran
 //   kOpReply   reply flag, token, the op's result and out-parameters
 //   kOpTextInputState  a watched browser's text input state, at most once per
-//              UI-thread turn (host_text_input.h)
+//              display frame (host_text_input.h)
 //
 // Everything here runs on the host's main thread (Chromium's UI thread), so
 // it holds no lock (p01-process section 4, rule 1).
@@ -133,10 +136,10 @@ class HostContext {
   // does not declare yet).
   using Resolve = void* (*)(const char* name);
 
-  // `schedule` runs the text input flush after the UI thread's queued tasks
-  // (TextInputPushes::Schedule).
+  // `request_frame` runs the text input flush at the next display frame
+  // (TextInputPushes::RequestFrame).
   HostContext(Send send, HostDelegate& delegate, PageViews& views, Resolve resolve,
-              TextInputPushes::Schedule schedule = nullptr);
+              TextInputPushes::RequestFrame request_frame = nullptr);
   HostContext(const HostContext&) = delete;
   HostContext& operator=(const HostContext&) = delete;
 
@@ -204,6 +207,11 @@ class HostContext {
   void Dispatch(const control::Message& message);
   bool HandleInitialize(const control::Message& message);
   bool HandleTextInputWatch(const control::Message& message);
+  // Watches `chromium_id`'s text input in the fork: its result (0 refused).
+  int ArmTextInputWatch(int chromium_id);
+  // True while `client_id` is a minted id whose creation event has not come.
+  bool AwaitsCreation(int32_t client_id) const;
+  void ReplyResult(uint32_t token, int32_t result);
   void Watch(uint16_t op, const std::vector<control::Field>& key);
   void ForwardEvent(int kind, int browser_id, int request, int64_t a, int64_t b, const char* s1, const char* s2);
   void Refresh(const MirrorEvent& event);
@@ -221,7 +229,8 @@ class HostContext {
   void ReleaseView(uint64_t token);
   void Bind(int32_t client_id, int chromium_id);
   int32_t ClientOf(int chromium_id) const;
-  void Post(control::Message message);
+  // False when the message did not go out (logged).
+  bool Post(control::Message message);
 
   Send send_;
   HostDelegate& delegate_;
@@ -268,6 +277,10 @@ class HostContext {
 
   // Browsers cmux watches the text input of, by Chromium id.
   TextInputPushes text_input_;
+  // Text input watches of minted ids whose creation has not come, by the
+  // minted id: the watch tokens Bind arms and answers. Bounded with
+  // pending_binds_ (AwaitsCreation).
+  std::unordered_map<int32_t, std::vector<uint32_t>> text_input_awaiting_;
 };
 
 }  // namespace cmux_host

@@ -7,19 +7,29 @@
 // content/common/render_widget_host_ns_view.mojom (SetTextInputState,
 // SetCompositionRangeInfo, SetTextSelection; render_widget_host_view_mac.mm)
 // and still keeps SyncGetFirstRectForRange for ranges its cache misses. The
-// host sends them as one TEXT_INPUT_STATE per browser per UI-thread turn, and
+// host folds them into one TEXT_INPUT_STATE per browser per display frame,
 // with the selection's text plus kExtraCharsBeforeAndAfterSelection on each
-// side (Chrome's RenderFrameImpl::SyncSelectionIfRequired context) cmux needs
-// no sync call at all.
+// side (Chrome's RenderFrameImpl::SyncSelectionIfRequired context), so cmux
+// needs no sync call at all.
 //
-// Wire, next to kOpHello (chromium_host_tlv.h); neither is in the generated op
+// Wire, next to kOpHello (chromium_host_tlv.h); none is in the generated op
 // table, and the host sends TEXT_INPUT_STATE only for a browser cmux watches:
-//   cmux -> host  kOpTextInputWatch  i32 browser, i32 watch (1 on, 0 off); a
-//                                    token != 0 is acked. Sent by the remote
-//                                    shim's local cmux_shim_browser_text_input_watch
-//                                    (task 014b).
+//   cmux -> host  kOpTextInputWatch  i32 browser, i32 watch (1 on, 0 off).
+//                                    A token != 0 is answered by kOpReply with
+//                                    i32 cmux_shim_browser_text_input_watch's
+//                                    result, as in process: 0 is a refused
+//                                    watch (an unknown browser, a fork without
+//                                    the watch). The watch of a browser cmux
+//                                    minted whose creation has not come yet is
+//                                    armed, and answered, when it comes. Sent
+//                                    by the remote shim's local
+//                                    cmux_shim_browser_text_input_watch (014b).
 //   host -> cmux  kOpTextInputState  EncodeTextInputState's fields; the remote
 //                                    shim gives fn ForkViewOf(the decoded state).
+//   cmux -> host  kOpTextInputStats  no fields; answered by kOpReply with
+//                                    TextInputPushes::Stats as i64 changes,
+//                                    pushes, frames, unsent, then i64 watches
+//                                    (chromium-host-bench.py --ime).
 //
 // No CEF, no AppKit: scripts/cmux-next/tests/chromium-host-dispatch.test.sh
 // compiles it on Linux. UI thread only, like host_dispatch.h: no lock.
@@ -40,6 +50,7 @@ namespace cmux_host {
 
 inline constexpr uint16_t kOpTextInputWatch = 0x8006;
 inline constexpr uint16_t kOpTextInputState = 0x8007;
+inline constexpr uint16_t kOpTextInputStats = 0x8008;
 
 // UTF-16 units of field text kept before the selection's (and composition's)
 // start and after its end.
@@ -48,8 +59,6 @@ inline constexpr int32_t kExtraCharsBeforeAndAfterSelection = 100;
 // selection longer than this sends its first kMaxTextInputUnits units.
 inline constexpr int32_t kMaxTextInputUnits = 8192;
 inline constexpr int32_t kMaxCompositionRects = 1024;
-// Browsers watched at once (each is an open page).
-inline constexpr size_t kMaxTextInputWatches = 4096;
 
 // The fork's cmux_text_input_state_t (include/cef_cmux.h, API 30): offsets
 // are UTF-16 units in the focused field, rects are the page view's DIP with a
@@ -112,26 +121,41 @@ bool DecodeTextInputState(std::vector<control::Field> fields, int32_t* browser, 
 // unchanged.
 ForkTextInputState ForkViewOf(const TextInputState& state);
 
-// The watched browsers and their states. A change waits for the flush that
-// Changed schedules once per turn, so the several notifications Chromium
-// makes for one keystroke (text input state, selection bounds, composition
-// range: separate WidgetHost messages, each a task) go out as one push, and a
-// state equal to the last one pushed is not pushed again.
+// The watched browsers and their states. A change waits for the start of the
+// next display frame, as Chrome aligns input and what it changes to the
+// BeginFrame (InputHandlerProxy::DeliverInputForBeginFrame in
+// third_party/blink/renderer/platform/widget/input/input_handler_proxy.cc,
+// driven on macOS by ExternalBeginFrameSourceMac,
+// components/viz/service/frame_sinks/external_begin_frame_source_mac.cc):
+// the notifications Chromium makes within one frame (text input state,
+// selection bounds, composition range: separate WidgetHost messages) go out
+// as one push, and a state equal to the last one cmux got is not pushed
+// again. That bounds pushes to one per browser per frame, not per keystroke:
+// chromium-host-bench.py --ime counts pushes per keystroke (stats()).
 class TextInputPushes {
  public:
-  // Runs a task after the tasks already queued on the UI thread
-  // (CefPostTask(TID_UI) in the host). nullptr: a change is pushed at once.
-  using Schedule = std::function<void(std::function<void()>)>;
-  using Push = std::function<void(int browser, const TextInputState& state)>;
+  // Runs a task at the start of the next display frame (the host's display
+  // link, browser_host_main.mm). nullptr: a change is pushed at once.
+  using RequestFrame = std::function<void(std::function<void()>)>;
+  // Sends one state; false when it did not go out (the channel refused it).
+  using Push = std::function<bool(int browser, const TextInputState& state)>;
 
-  TextInputPushes(Schedule schedule, Push push);
+  struct Stats {
+    uint64_t changes = 0;  // states the fork reported for watched browsers
+    uint64_t pushes = 0;  // TEXT_INPUT_STATEs sent
+    uint64_t frames = 0;  // frames that flushed waiting states
+    uint64_t unsent = 0;  // pushes the channel refused (sent again on the next change)
+  };
+
+  TextInputPushes(RequestFrame request_frame, Push push);
   ~TextInputPushes();
   TextInputPushes(const TextInputPushes&) = delete;
   TextInputPushes& operator=(const TextInputPushes&) = delete;
 
-  // False when kMaxTextInputWatches browsers are watched already. A browser
-  // watched again pushes its next state even when it equals the last one.
-  bool Watch(int browser);
+  // A browser watched again pushes its next state even when it equals the
+  // last one. No bound of its own: a browser stays watched only while it is
+  // live (the fork refuses an unknown one; a closed one is forgotten).
+  void Watch(int browser);
   // Stops pushes for the browser (also when it closed).
   void Forget(int browser);
   bool watching(int browser) const { return watched_.count(browser) != 0; }
@@ -139,28 +163,26 @@ class TextInputPushes {
 
   // A new state of a watched browser (others are ignored).
   void Changed(int browser, TextInputState state);
-  // Pushes every waiting state that differs from the browser's last push, in
-  // the order of their first change since the last flush.
+  // Pushes every waiting state that differs from the last one cmux got for
+  // its browser, in the order of their first change since the last flush.
   void Flush();
 
-  uint64_t changes() const { return changes_; }
-  uint64_t pushes() const { return pushes_; }
+  const Stats& stats() const { return stats_; }
 
  private:
   struct Watched {
     std::optional<TextInputState> waiting;
-    std::optional<TextInputState> pushed;
+    std::optional<TextInputState> pushed;  // the last state cmux got
   };
 
-  Schedule schedule_;
+  RequestFrame request_frame_;
   Push push_;
   std::unordered_map<int, Watched> watched_;
   std::vector<int> order_;  // browsers with a waiting state, by first change
-  bool flush_scheduled_ = false;
-  // The scheduled flush runs only while this object lives.
+  bool frame_requested_ = false;
+  // The requested frame flushes only while this object lives.
   std::shared_ptr<bool> alive_ = std::make_shared<bool>(true);
-  uint64_t changes_ = 0;
-  uint64_t pushes_ = 0;
+  Stats stats_;
 };
 
 }  // namespace cmux_host

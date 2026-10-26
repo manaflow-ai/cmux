@@ -3,9 +3,13 @@
 // (src/host_dispatch.mm) with a fake shim: the fork's state is read with its
 // size; the text keeps 100 UTF-16 units around the selection and the
 // composition and never splits a surrogate pair; the wire fields round-trip
-// to the fork's struct; the several notifications of one keystroke go out as
-// one TEXT_INPUT_STATE, an unchanged state as none; only a browser cmux
-// watches is pushed, under cmux's id, until cmux unwatches it or it closes.
+// to the fork's struct; the notifications of one display frame go out as
+// one TEXT_INPUT_STATE, an unchanged state as none, and a state the channel
+// refused goes out again; only a browser cmux watches is pushed, under cmux's
+// id, until cmux unwatches it or it closes; a watch is answered with the
+// fork's result, and a watch of a minted browser not created yet is armed
+// and answered at its creation. These fix the host's side; whether one IME
+// keystroke stays one push is chromium-host-bench.py --ime's row (fleet).
 // Run by scripts/cmux-next/tests/chromium-host-dispatch.test.sh.
 #include <cstdio>
 #include <cstdlib>
@@ -75,6 +79,7 @@ struct Shim {
   int watched = 0;
   const ForkState* current = nullptr;  // what the fork reports at once on a watch
   int live = 0;
+  bool create_at_once = true;  // create_window's AFTER_CREATED comes inside the call
 } shim;
 
 void Emit(int kind, int browser, int request) {
@@ -92,13 +97,13 @@ void cmux_shim_set_unhandled_key_handler(cmux_shim_key_fn) {}
 void cmux_shim_devtools_set_key_handler(cmux_shim_key_fn) {}
 int cmux_shim_create_window(int request, void*, int, int, const char*, const char*) {
   ++shim.live;
-  Emit(CMUX_SHIM_AFTER_CREATED, 3, request);
+  if (shim.create_at_once) Emit(CMUX_SHIM_AFTER_CREATED, 3, request);
   return 1;
 }
 int cmux_shim_browser_text_input_watch(int browser_id, void (*fn)(void* context, int browser_id, const void* state),
                                        void* context) {
   shim.calls.push_back("watch " + std::to_string(browser_id) + (fn ? " on" : " off"));
-  if (browser_id != 3) return 0;  // the only browser the fake fork has
+  if (browser_id != 3 && browser_id != 5) return 0;  // the only browsers the fake fork has
   shim.fn = fn;
   shim.context = context;
   shim.watched = fn ? browser_id : 0;
@@ -134,13 +139,15 @@ Message Op(uint16_t op, uint32_t token, const Writer& w) {
   return m;
 }
 
-// The UI thread's queue: the dispatcher's flushes wait here until Turn().
+// The display's frames: the dispatcher's flushes wait here until Frame().
 struct Fixture {
   std::vector<Message> sent;
   std::vector<std::function<void()>> queued;
+  bool refuse_sends = false;  // the channel refuses every message (a full outbox)
   Delegate delegate;
   Views views;
   HostContext host{[this](const Message& m) {
+                     if (refuse_sends) return false;
                      sent.push_back(m);
                      return true;
                    },
@@ -179,18 +186,26 @@ struct Fixture {
     w.I32(on);
     host.OnMessages({Op(kOpTextInputWatch, token, w)});
   }
-  // Runs the queued tasks, as the UI thread does after the renderer's messages.
-  void Turn() {
+  // The next display frame starts: the flushes requested before it run.
+  void Frame() {
     std::vector<std::function<void()>> tasks;
     tasks.swap(queued);
     for (auto& task : tasks) task();
   }
-  // The TEXT_INPUT_STATEs sent since the last call; other messages as "op N" or "ack N".
+  // The TEXT_INPUT_STATEs sent since the last call; other messages as "op N",
+  // "ack N" or "reply N = result" (one i32 result).
   std::vector<TextInputState> States(std::vector<std::string>* others = nullptr, std::vector<int32_t>* browsers = nullptr) {
     std::vector<TextInputState> states;
     for (const Message& m : sent) {
       if (m.op != kOpTextInputState) {
-        if (others) others->push_back(m.op == kOpAck ? "ack " + std::to_string(m.token) : "op " + std::to_string(m.op));
+        if (!others) continue;
+        if (m.op == kOpReply) {
+          control::TlvReader r(m.fields);
+          const int32_t result = r.I32();
+          others->push_back("reply " + std::to_string(m.token) + (r.ok() && r.AtEnd() ? " = " + std::to_string(result) : " ?"));
+        } else {
+          others->push_back(m.op == kOpAck ? "ack " + std::to_string(m.token) : "op " + std::to_string(m.op));
+        }
         continue;
       }
       int32_t browser = 0;
@@ -334,12 +349,17 @@ void RoundTripsTheWire() {
   Check(!DecodeTextInputState(fields, &browser, &decoded), "a missing field is refused");
 }
 
-void OnePushPerTurn() {
+void OnePushPerFrame() {
   std::vector<std::function<void()>> queued;
   std::vector<std::pair<int, TextInputState>> pushed;
+  bool channel_open = true;
   TextInputPushes pushes([&](std::function<void()> task) { queued.push_back(std::move(task)); },
-                         [&](int browser, const TextInputState& state) { pushed.emplace_back(browser, state); });
-  auto turn = [&] {
+                         [&](int browser, const TextInputState& state) {
+                           if (!channel_open) return false;
+                           pushed.emplace_back(browser, state);
+                           return true;
+                         });
+  auto frame = [&] {
     std::vector<std::function<void()>> tasks;
     tasks.swap(queued);
     for (auto& task : tasks) task();
@@ -347,11 +367,12 @@ void OnePushPerTurn() {
   TextInputState typed;
   typed.type = 1;
   pushes.Changed(3, typed);
-  turn();
+  frame();
   Check(pushed.empty(), "a browser nobody watches is not pushed");
 
-  Check(pushes.Watch(3) && pushes.Watch(4), "watched");
-  // One IME keystroke: Chromium's text input state, selection and composition range, each its own task.
+  pushes.Watch(3);
+  pushes.Watch(4);
+  // Chromium's text input state, selection bounds and composition range, each its own message, in one frame.
   typed.selection_start = typed.selection_end = 1;
   pushes.Changed(3, typed);
   typed.composition_start = 0;
@@ -359,15 +380,23 @@ void OnePushPerTurn() {
   pushes.Changed(3, typed);
   typed.composition_rects = {0, 0, 8, 16};
   pushes.Changed(3, typed);
-  Check(queued.size() == 1, "one flush is scheduled per turn");
-  turn();
+  Check(queued.size() == 1, "one frame is requested for the changes before it");
+  Check(pushed.empty(), "nothing goes out before the frame starts");
+  frame();
   Check(pushed.size() == 1 && pushed[0].first == 3 && pushed[0].second == typed,
-        "three notifications of one keystroke are one push of the last state");
-  Check(pushes.changes() == 3 && pushes.pushes() == 1, "counted");
+        "three notifications in one frame are one push of the last state");
+  Check(pushes.stats().changes == 3 && pushes.stats().pushes == 1 && pushes.stats().frames == 1, "counted");
+
+  // A notification the renderer sends a frame later is that frame's push: one per browser per frame.
+  pushed.clear();
+  typed.composition_rects = {0, 0, 9, 16};
+  pushes.Changed(3, typed);
+  frame();
+  Check(pushed.size() == 1 && pushes.stats().frames == 2, "a later frame pushes the later change");
 
   pushed.clear();
   pushes.Changed(3, typed);
-  turn();
+  frame();
   Check(pushed.empty(), "a state equal to the last push is not pushed again");
 
   TextInputState other;
@@ -375,44 +404,56 @@ void OnePushPerTurn() {
   pushes.Changed(4, other);
   typed.selection_start = typed.selection_end = 2;
   pushes.Changed(3, typed);
-  turn();
+  frame();
   Check(pushed.size() == 2 && pushed[0].first == 4 && pushed[1].first == 3, "browsers push in the order they changed");
 
   pushed.clear();
-  Check(pushes.Watch(3), "watched again");
+  pushes.Watch(3);
   pushes.Changed(3, typed);
-  turn();
+  frame();
   Check(pushed.size() == 1, "a new watch pushes its first state even when unchanged");
+
+  // A push the channel refused never reached cmux: the same state goes out on the next change.
+  pushed.clear();
+  typed.selection_start = typed.selection_end = 3;
+  channel_open = false;
+  pushes.Changed(3, typed);
+  frame();
+  Check(pushed.empty() && pushes.stats().unsent == 1, "the refused push is counted, not taken as sent");
+  channel_open = true;
+  pushes.Changed(3, typed);
+  frame();
+  Check(pushed.size() == 1 && pushed[0].second == typed, "the state cmux missed goes out again, though unchanged");
 
   pushed.clear();
   pushes.Changed(3, other);
   pushes.Forget(3);
-  turn();
+  frame();
   Check(pushed.empty() && !pushes.watching(3), "a forgotten browser's waiting state is dropped");
 
   {
-    TextInputPushes bounded(nullptr, [](int, const TextInputState&) {});
-    for (size_t i = 0; i < kMaxTextInputWatches; ++i) bounded.Watch(static_cast<int>(i));
-    Check(!bounded.Watch(-1) && bounded.watches() == kMaxTextInputWatches, "watches are bounded");
+    TextInputPushes many(nullptr, [](int, const TextInputState&) { return true; });
+    for (int i = 0; i < 5000; ++i) many.Watch(i);
+    Check(many.watches() == 5000, "watches have no cap of their own: live browsers bound them");
   }
   {
     int count = 0;
-    TextInputPushes immediate(nullptr, [&](int, const TextInputState&) { ++count; });
+    TextInputPushes immediate(nullptr, [&](int, const TextInputState&) { return ++count > 0; });
     immediate.Watch(1);
     immediate.Changed(1, typed);
-    Check(count == 1, "with no schedule a change goes out at once");
+    Check(count == 1, "with no frame source a change goes out at once");
   }
   {
     std::vector<std::function<void()>> late;
     int count = 0;
     {
       TextInputPushes gone([&](std::function<void()> task) { late.push_back(std::move(task)); },
-                           [&](int, const TextInputState&) { ++count; });
+                           [&](int, const TextInputState&) { return ++count > 0; });
       gone.Watch(1);
       gone.Changed(1, typed);
     }
     for (auto& task : late) task();
-    Check(count == 0, "a flush that runs after its pushes are gone does nothing");
+    Check(count == 0, "a frame that starts after its pushes are gone does nothing");
   }
 }
 
@@ -423,16 +464,16 @@ void DispatcherPushesWatchedBrowsers() {
   f.Watch(kMinted, 1, 7);
   Check(shim.calls == std::vector<std::string>({"watch 3 on"}), "cmux's id maps to Chromium's for the shim watch");
   std::vector<std::string> others;
-  Check(f.States(&others).empty() && others == std::vector<std::string>({"ack 7"}),
-        "the watch is acked; its first state waits for the turn's flush");
-  f.Turn();
+  Check(f.States(&others).empty() && others == std::vector<std::string>({"reply 7 = 1"}),
+        "the watch is answered with the fork's 1; its first state waits for the next frame");
+  f.Frame();
   std::vector<int32_t> browsers;
   std::vector<TextInputState> states = f.States(nullptr, &browsers);
   Check(states.size() == 1 && browsers == std::vector<int32_t>({kMinted}) && states[0].type == 1 &&
             states[0].text == Units(u"abc"),
         "the current state goes out under cmux's id");
 
-  // One keystroke of a Japanese IME: three fork notifications, one push.
+  // One frame of a Japanese IME keystroke: three fork notifications, one push.
   ForkState composing(1, 4, 4, Units(u"abcか"));
   composing.Compose(3, 4, {30, 0, 12, 16});
   shim.fn(shim.context, 3, &focused.fork);
@@ -440,17 +481,42 @@ void DispatcherPushesWatchedBrowsers() {
   composing.fork.caret[0] = 42;
   composing.fork.caret[3] = 16;
   shim.fn(shim.context, 3, &composing.fork);
-  f.Turn();
+  f.Frame();
   states = f.States();
   Check(states.size() == 1 && states[0].composition_start == 3 && states[0].composition_rects == std::vector<int32_t>({30, 0, 12, 16}) &&
             states[0].caret[0] == 42,
-        "<= 1 state message per IME keystroke, with the composition rects and caret in page view points");
+        "one push per frame, with the composition rects and caret in page view points");
+
+  // A push the channel refuses is not taken as sent: the same state goes out on the next change.
+  ForkState moved(1, 4, 4, Units(u"abcか"));
+  moved.Compose(3, 4, {31, 0, 12, 16});
+  f.refuse_sends = true;
+  shim.fn(shim.context, 3, &moved.fork);
+  f.Frame();
+  f.refuse_sends = false;
+  Check(f.States().empty() && f.host.text_input().stats().unsent == 1, "the refused push is counted");
+  shim.fn(shim.context, 3, &moved.fork);
+  f.Frame();
+  states = f.States();
+  Check(states.size() == 1 && states[0].composition_rects == std::vector<int32_t>({31, 0, 12, 16}),
+        "cmux gets the state it missed");
+
+  // The push counters for chromium-host-bench.py --ime.
+  f.host.OnMessages({Op(kOpTextInputStats, 11, Writer())});
+  Check(f.sent.size() == 1 && f.sent[0].op == kOpReply && f.sent[0].token == 11, "the stats are answered");
+  {
+    control::TlvReader r(f.sent[0].fields);
+    const int64_t changes = r.I64(), pushes = r.I64(), frames = r.I64(), unsent = r.I64(), watches = r.I64();
+    Check(r.ok() && r.AtEnd() && changes == 6 && pushes == 3 && frames == 4 && unsent == 1 && watches == 1,
+          "changes, pushes, frames, unsent, watches");
+  }
+  f.sent.clear();
 
   f.Watch(kMinted, 0, 8);
   Check(shim.calls.back() == "watch 3 off" && shim.fn == nullptr, "unwatch stops the fork's watch");
   others.clear();
   f.States(&others);
-  Check(others == std::vector<std::string>({"ack 8"}), "the unwatch is acked");
+  Check(others == std::vector<std::string>({"reply 8 = 1"}), "the unwatch is answered with the fork's result");
 
   shim.current = nullptr;
   f.Watch(kMinted, 1, 0);
@@ -459,15 +525,71 @@ void DispatcherPushesWatchedBrowsers() {
   Emit(CMUX_SHIM_BEFORE_CLOSE, 3, 0);
   f.sent.clear();
   fn(context, 3, &composing.fork);
-  f.Turn();
+  f.Frame();
   Check(f.States().empty(), "a closed browser is no longer pushed");
 
   f.Watch(77, 1, 9);
   others.clear();
   f.States(&others);
-  Check(others == std::vector<std::string>({"ack 9"}) && !f.host.text_input().watching(77),
-        "a watch the shim refuses (unknown browser, older fork) is acked and not kept");
+  Check(others == std::vector<std::string>({"reply 9 = 0"}) && !f.host.text_input().watching(77),
+        "a watch the shim refuses (unknown browser, older fork) is answered 0, so cmux sees it, and not kept");
   Check(f.delegate.calls == std::vector<std::string>({"initialize", "closed"}), "no bad message so far");
+}
+
+// cmux watches a browser it minted in the key's turn, before Chromium created it.
+void WatchBeforeCreation() {
+  Fixture f;
+  shim.create_at_once = false;
+  Writer create;
+  create.I32(kMinted + 1);
+  create.I32(43);
+  create.ViewToken(10);
+  create.I32(800);
+  create.I32(600);
+  create.Str("https://b/");
+  create.Str(nullptr);
+  f.host.OnMessages({Op(kOpCreateWindow, 12, create)});
+  f.sent.clear();
+
+  ForkState focused(1, 0, 0, Units(u"x"));
+  shim.current = &focused;
+  f.Watch(kMinted + 1, 1, 13);
+  std::vector<std::string> others;
+  f.States(&others);
+  Check(others.empty() && shim.calls.empty(), "the watch waits for the creation: no answer and no fork call yet");
+
+  Emit(CMUX_SHIM_AFTER_CREATED, 5, 43);
+  Check(shim.calls == std::vector<std::string>({"watch 5 on"}), "the creation arms the watch on Chromium's id");
+  others.clear();
+  f.States(&others);
+  Check(!others.empty() && others[0] == "reply 13 = 1", "then the watch is answered with the fork's result");
+  f.Frame();
+  std::vector<int32_t> browsers;
+  const std::vector<TextInputState> states = f.States(nullptr, &browsers);
+  Check(states.size() == 1 && browsers == std::vector<int32_t>({kMinted + 1}) && states[0].text == Units(u"x"),
+        "and its state goes out under the minted id");
+
+  // Unwatched before its creation: the watch never ran.
+  Writer other;
+  other.I32(kMinted + 2);
+  other.I32(44);
+  other.ViewToken(11);
+  other.I32(800);
+  other.I32(600);
+  other.Str("https://c/");
+  other.Str(nullptr);
+  f.host.OnMessages({Op(kOpCreateWindow, 14, other)});
+  f.sent.clear();
+  shim.calls.clear();
+  f.Watch(kMinted + 2, 1, 15);
+  f.Watch(kMinted + 2, 0, 16);
+  others.clear();
+  f.States(&others);
+  Check(others == std::vector<std::string>({"reply 15 = 0", "reply 16 = 1"}) && shim.calls.empty(),
+        "an unwatch before the creation answers the waiting watch 0 and touches no fork watch");
+  Emit(CMUX_SHIM_AFTER_CREATED, 6, 44);
+  Check(shim.calls.empty(), "the creation arms nothing then");
+  Check(f.delegate.calls == std::vector<std::string>({"initialize"}), "no bad message");
 }
 
 void MalformedWatches() {
@@ -483,6 +605,13 @@ void MalformedWatches() {
     f.Watch(3, 2, 0);
     Check(f.delegate.calls.back() == "bad a malformed text input watch", "a watch flag other than 0 or 1 is bad");
   }
+  {
+    Fixture f;
+    Writer w;
+    w.I32(1);
+    f.host.OnMessages({Op(kOpTextInputStats, 1, w)});
+    Check(f.delegate.calls.back() == "bad a malformed text input stats request", "a stats request with fields is bad");
+  }
 }
 
 }  // namespace
@@ -491,8 +620,9 @@ int main() {
   ReadsTheForkStruct();
   TrimsToTheSelectionContext();
   RoundTripsTheWire();
-  OnePushPerTurn();
+  OnePushPerFrame();
   DispatcherPushesWatchedBrowsers();
+  WatchBeforeCreation();
   MalformedWatches();
   if (failures) return EXIT_FAILURE;
   std::puts("chromium-host-text-input tests: ok");

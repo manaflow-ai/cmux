@@ -19,6 +19,7 @@
 // hung CefInitialize never leaves an orphaned host behind.
 
 #import <AppKit/AppKit.h>
+#import <QuartzCore/QuartzCore.h>
 #include <CoreFoundation/CoreFoundation.h>
 #include <objc/runtime.h>
 #include <dlfcn.h>
@@ -40,7 +41,6 @@
 
 #include "include/cef_app.h"
 #include "include/cef_application_mac.h"
-#include "include/cef_task.h"
 
 #include "chromium_host_control.h"
 #include "chromium_host_wire.h"
@@ -139,22 +139,86 @@ std::string Arg(const std::vector<std::string>& args, const std::string& name) {
   return std::string();
 }
 
-// Runs a task on Chromium's UI thread after the tasks already queued there
-// (TextInputPushes::Schedule): the renderer's messages for one keystroke are
-// queued before the flush, so they go out as one push.
-class UITask : public CefTask {
- public:
-  explicit UITask(std::function<void()> task) : task_(std::move(task)) {}
-  void Execute() override { task_(); }
+}  // namespace
 
- private:
-  std::function<void()> task_;
-  IMPLEMENT_REFCOUNTING(UITask);
-};
+// Runs main-thread work at the start of the main display's next frame
+// (TextInputPushes::RequestFrame), as ExternalBeginFrameSourceMac drives
+// Chrome's BeginFrames from the display link
+// (components/viz/service/frame_sinks/external_begin_frame_source_mac.cc).
+// The link is paused while no work waits, as Chrome stops BeginFrames no
+// client needs; a screen change makes a new link for the next request.
+// Main thread only.
+@interface ChromiumHostFrameClock : NSObject
+- (void)requestFrame:(std::function<void()>)task;
+- (void)invalidate;
+@end
 
-void PostToUIThread(std::function<void()> task) {
-  CefPostTask(TID_UI, new UITask(std::move(task)));
+@implementation ChromiumHostFrameClock {
+  CADisplayLink* _link;  // retained; retains this clock until -invalidate
+  std::vector<std::function<void()>> _waiting;
+  id _screenObserver;
 }
+
+- (instancetype)init {
+  if ((self = [super init])) {
+    // The block retains this clock until -invalidate removes the observer.
+    _screenObserver = [[NSNotificationCenter.defaultCenter
+        addObserverForName:NSApplicationDidChangeScreenParametersNotification
+                    object:nil
+                     queue:NSOperationQueue.mainQueue
+                usingBlock:^(NSNotification*) {
+                  [self dropLink];
+                }] retain];
+  }
+  return self;
+}
+
+- (void)requestFrame:(std::function<void()>)task {
+  _waiting.push_back(std::move(task));
+  if (!_link) {
+    NSScreen* screen = NSScreen.mainScreen;
+    if (!screen) {
+      [self tick:nil];  // no display: no frame to wait for
+      return;
+    }
+    _link = [[screen displayLinkWithTarget:self selector:@selector(tick:)] retain];
+    [_link addToRunLoop:NSRunLoop.mainRunLoop forMode:NSRunLoopCommonModes];
+  }
+  _link.paused = NO;
+}
+
+- (void)tick:(CADisplayLink*)link {
+  _link.paused = YES;
+  std::vector<std::function<void()>> tasks;
+  tasks.swap(_waiting);
+  for (auto& task : tasks) task();
+}
+
+- (void)dropLink {
+  [_link invalidate];
+  [_link release];
+  _link = nil;
+  if (!_waiting.empty()) {
+    std::vector<std::function<void()>> tasks;
+    tasks.swap(_waiting);
+    for (auto& task : tasks) [self requestFrame:std::move(task)];
+  }
+}
+
+- (void)invalidate {
+  if (_screenObserver) {
+    [NSNotificationCenter.defaultCenter removeObserver:_screenObserver];
+    [_screenObserver release];
+    _screenObserver = nil;
+  }
+  _waiting.clear();
+  [_link invalidate];
+  [_link release];
+  _link = nil;
+}
+@end
+
+namespace {
 
 // A symbol of the shim linked into this executable (an optional export), or nullptr.
 void* ResolveShimSymbol(const char* name) {
@@ -272,9 +336,18 @@ int main(int argc, char* argv[]) {
   HostMain host_main;
   cmux_host::HostPageViews page_views;
   std::unique_ptr<cmux_host::control::Channel> channel;
+  // Outlives `host`, whose text input flushes it runs.
+  struct FrameClock {
+    ChromiumHostFrameClock* clock = [[ChromiumHostFrameClock alloc] init];
+    ~FrameClock() {
+      [clock invalidate];
+      [clock release];
+    }
+  } frame_clock;
   cmux_host::HostContext host(
       [&channel](const cmux_host::control::Message& message) { return channel && channel->Send(message); },
-      host_main, page_views, &ResolveShimSymbol, &PostToUIThread);
+      host_main, page_views, &ResolveShimSymbol,
+      [clock = frame_clock.clock](std::function<void()> task) { [clock requestFrame:std::move(task)]; });
   // The reader thread starts here, after the framework load.
   channel = std::make_unique<cmux_host::control::Channel>(
       kControlFd, &PostToMain,

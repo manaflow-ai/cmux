@@ -89,12 +89,12 @@ control::Message MessageOf(uint16_t op, bool reply, uint32_t token, std::vector<
 }  // namespace
 
 HostContext::HostContext(Send send, HostDelegate& delegate, PageViews& views, Resolve resolve,
-                         TextInputPushes::Schedule schedule)
+                         TextInputPushes::RequestFrame request_frame)
     : send_(std::move(send)),
       delegate_(delegate),
       views_(views),
-      text_input_(std::move(schedule), [this](int browser, const TextInputState& state) {
-        Post(MessageOf(kOpTextInputState, false, 0, EncodeTextInputState(ClientOf(browser), state)));
+      text_input_(std::move(request_frame), [this](int browser, const TextInputState& state) {
+        return Post(MessageOf(kOpTextInputState, false, 0, EncodeTextInputState(ClientOf(browser), state)));
       }) {
   for (const auto& entry : kOptionalExports) {
     if (void* fn = resolve ? resolve(entry.name) : nullptr) optional_exports_.emplace_back(entry.op, fn);
@@ -177,6 +177,17 @@ void HostContext::Handle(control::Message& message) {
         if (!HandleTextInputWatch(message)) Bad("a malformed text input watch");
         return;
       }
+      if (message.op == kOpTextInputStats) {
+        if (!message.fields.empty()) return Bad("a malformed text input stats request");
+        const TextInputPushes::Stats& stats = text_input_.stats();
+        TlvWriter reply;
+        for (uint64_t value : {stats.changes, stats.pushes, stats.frames, stats.unsent,
+                               static_cast<uint64_t>(text_input_.watches())}) {
+          reply.I64(static_cast<int64_t>(value));
+        }
+        Reply(message.token, reply);
+        return;
+      }
       if (IsMirrorOp(message.op)) return Watch(message.op, message.fields);
       Dispatch(message);
       return;
@@ -220,22 +231,47 @@ bool HostContext::HandleTextInputWatch(const control::Message& message) {
   const int32_t client = r.I32();
   const int32_t watch = r.I32();
   if (!r.ok() || !r.AtEnd() || (watch != 0 && watch != 1)) return false;
-  const int browser = Browser(client);
+  auto awaiting = text_input_awaiting_.find(client);
   if (watch) {
-    // The fork calls OnTextInput at once with the current state: watch first.
-    if (!text_input_.Watch(browser)) {
-      Bad("too many text input watches");
-      return true;
+    if (awaiting != text_input_awaiting_.end() || AwaitsCreation(client)) {
+      text_input_awaiting_[client].push_back(message.token);  // Bind arms and answers it
+    } else {
+      ReplyResult(message.token, ArmTextInputWatch(Browser(client)));
     }
-    if (!cmux_shim_browser_text_input_watch(browser, &HostContext::OnTextInput, this)) {
-      text_input_.Forget(browser);  // an unknown browser, or a fork without the watch
-    }
-  } else {
-    text_input_.Forget(browser);
-    cmux_shim_browser_text_input_watch(browser, nullptr, nullptr);
+    return true;
   }
-  Ack(message.token);
+  if (awaiting != text_input_awaiting_.end()) {
+    // The watch never reached the fork: it answers 0, the unwatch 1.
+    for (uint32_t token : awaiting->second) ReplyResult(token, 0);
+    text_input_awaiting_.erase(awaiting);
+    ReplyResult(message.token, 1);
+    return true;
+  }
+  const int browser = Browser(client);
+  text_input_.Forget(browser);
+  ReplyResult(message.token, cmux_shim_browser_text_input_watch(browser, nullptr, nullptr));
   return true;
+}
+
+int HostContext::ArmTextInputWatch(int chromium_id) {
+  // The fork calls OnTextInput at once with the current state: watch first.
+  text_input_.Watch(chromium_id);
+  const int result = cmux_shim_browser_text_input_watch(chromium_id, &HostContext::OnTextInput, this);
+  if (!result) text_input_.Forget(chromium_id);  // an unknown browser, or a fork without the watch
+  return result;
+}
+
+bool HostContext::AwaitsCreation(int32_t client_id) const {
+  for (const auto& [key, pending] : pending_binds_) {
+    if (pending.minted == client_id) return true;
+  }
+  return false;
+}
+
+void HostContext::ReplyResult(uint32_t token, int32_t result) {
+  TlvWriter reply;
+  reply.I32(result);
+  Reply(token, reply);
 }
 
 void HostContext::OnTextInput(void* ctx, int browser_id, const void* state) {
@@ -400,6 +436,12 @@ int32_t HostContext::ClientOf(int chromium_id) const {
 void HostContext::Bind(int32_t client_id, int chromium_id) {
   chromium_of_[client_id] = chromium_id;
   client_of_[chromium_id] = client_id;
+  auto awaiting = text_input_awaiting_.find(client_id);
+  if (awaiting == text_input_awaiting_.end()) return;
+  const std::vector<uint32_t> tokens = std::move(awaiting->second);
+  text_input_awaiting_.erase(awaiting);
+  const int result = ArmTextInputWatch(chromium_id);
+  for (uint32_t token : tokens) ReplyResult(token, result);
 }
 
 void HostContext::Forget(int32_t client_id, int chromium_id) {
@@ -538,10 +580,11 @@ void HostContext::ForgetMirror(uint16_t op, const TlvWriter& key) {
   Post(MessageOf(kOpMirror, false, 0, forget.Take()));
 }
 
-void HostContext::Post(control::Message message) {
-  if (send_(message)) return;
+bool HostContext::Post(control::Message message) {
+  if (send_(message)) return true;
   // Over a frame bound (a value past 64 KiB goes as shm, task 020) or the channel ended.
   fprintf(stderr, "cmux-chromium-host: op %#x not sent\n", message.op);
+  return false;
 }
 
 void HostContext::Bad(const std::string& what) {

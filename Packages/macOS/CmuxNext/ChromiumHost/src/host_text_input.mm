@@ -150,22 +150,15 @@ ForkTextInputState ForkViewOf(const TextInputState& state) {
   return view;
 }
 
-TextInputPushes::TextInputPushes(Schedule schedule, Push push)
-    : schedule_(std::move(schedule)), push_(std::move(push)) {}
+TextInputPushes::TextInputPushes(RequestFrame request_frame, Push push)
+    : request_frame_(std::move(request_frame)), push_(std::move(push)) {}
 
 TextInputPushes::~TextInputPushes() {
   *alive_ = false;
 }
 
-bool TextInputPushes::Watch(int browser) {
-  auto found = watched_.find(browser);
-  if (found != watched_.end()) {
-    found->second.pushed.reset();
-    return true;
-  }
-  if (watched_.size() >= kMaxTextInputWatches) return false;
-  watched_.emplace(browser, Watched{});
-  return true;
+void TextInputPushes::Watch(int browser) {
+  watched_[browser].pushed.reset();
 }
 
 void TextInputPushes::Forget(int browser) {
@@ -176,21 +169,22 @@ void TextInputPushes::Forget(int browser) {
 void TextInputPushes::Changed(int browser, TextInputState state) {
   auto found = watched_.find(browser);
   if (found == watched_.end()) return;
-  ++changes_;
+  ++stats_.changes;
   if (!found->second.waiting) order_.push_back(browser);
   found->second.waiting = std::move(state);
-  if (!schedule_) return Flush();
-  if (flush_scheduled_) return;
-  flush_scheduled_ = true;
-  schedule_([this, alive = alive_] {
+  if (!request_frame_) return Flush();
+  if (frame_requested_) return;
+  frame_requested_ = true;
+  request_frame_([this, alive = alive_] {
     if (*alive) Flush();
   });
 }
 
 void TextInputPushes::Flush() {
-  flush_scheduled_ = false;
+  frame_requested_ = false;
   std::vector<int> order;
   order.swap(order_);
+  if (!order.empty()) ++stats_.frames;
   for (int browser : order) {
     auto found = watched_.find(browser);
     if (found == watched_.end() || !found->second.waiting) continue;
@@ -198,9 +192,14 @@ void TextInputPushes::Flush() {
     TextInputState state = std::move(*watched.waiting);
     watched.waiting.reset();
     if (watched.pushed == state) continue;
-    watched.pushed = state;
-    ++pushes_;
-    push_(browser, state);
+    if (!push_(browser, state)) {
+      // cmux did not get it: its last state is unknown, so the next change goes out even when equal.
+      ++stats_.unsent;
+      watched.pushed.reset();
+      continue;
+    }
+    ++stats_.pushes;
+    watched.pushed = std::move(state);
   }
 }
 
