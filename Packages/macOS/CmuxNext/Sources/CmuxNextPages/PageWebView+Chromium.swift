@@ -87,12 +87,11 @@ extension PageWebView {
     /// exists, so an ``open(route:)`` meanwhile wins); falls back to WebKit when that fails or the
     /// page does not reach the host in time.
     func startChromium(hosting: any PageChromiumHosting) {
-        #if DEBUG || CMUX_BENCH_HOOKS
         traceMark(.chromiumStart)
-        #endif
         webView.isHidden = true
         let scripts = PageChromiumDocumentScripts(controller: webView.configuration.userContentController)
         let descriptor = descriptor
+        let chatOpen = chatOpen
         #if DEBUG || CMUX_BENCH_HOOKS
         let traced = ChatOpenTrace.shared.isTraced(page: self)
         #endif
@@ -102,7 +101,7 @@ extension PageWebView {
                 #if DEBUG || CMUX_BENCH_HOOKS
                 ChatOpenTrace.shared.makingTracedPage = traced
                 #endif
-                page = try await hosting.makePage(descriptor)
+                page = try await hosting.makePage(descriptor, chatOpen: chatOpen)
             } catch {
                 self?.fallBackToWebKit(.chromiumFailed, detail: "\(error)")
                 return
@@ -111,9 +110,7 @@ extension PageWebView {
                 page.close()
                 return
             }
-            #if DEBUG || CMUX_BENCH_HOOKS
             traceMark(.browserCreated)
-            #endif
             await self.attachChromium(page, scripts: scripts, work: hosting.work)
         }
     }
@@ -138,9 +135,7 @@ extension PageWebView {
             session.end()
             return
         }
-        #if DEBUG || CMUX_BENCH_HOOKS
         traceMark(.setupDone)
-        #endif
         bridge.install { [weak self] message in await self?.receive(message) }
         bridge.onMessage = { [weak self] name, body in self?.chromiumMessage(name, body: body) }
         bridge.onFirstMessage = { [weak session] in session?.deadline.cancel() }
@@ -159,9 +154,7 @@ extension PageWebView {
         addSubview(page.contentView)
         applyNativeRects()
         page.setVisible(window != nil && !isHiddenOrHasHiddenAncestor)
-        #if DEBUG || CMUX_BENCH_HOOKS
         traceMark(.navigationStart)
-        #endif
         page.load(descriptor.url(route: route))
         let wait = chromiumDeadline
         // The page's first message cancels the deadline (onFirstMessage); ending the session too.
