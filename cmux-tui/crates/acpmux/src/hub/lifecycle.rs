@@ -217,9 +217,12 @@ impl Hub {
             let session = self.make_session(meta);
             *session.fork_from.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
                 fork_from.clone();
+            // Read before the session is published: a stop from then on ends its first start.
+            let stops = session.stops.load(Ordering::SeqCst);
             sessions.insert(id.clone(), session.clone());
-            session
+            (session, stops)
         };
+        let (session, created_stops) = session;
         if let Err(e) = self.store.save(&session.meta()) {
             self.sessions.lock().unwrap().remove(&id);
             return Err(RpcError::internal(e.to_string()));
@@ -253,8 +256,8 @@ impl Hub {
         }
         let spawned = match self.spawn_profile(&session, &profile, &defaults.env).await {
             Ok(spawn) => {
-                let stops = session.stops.load(Ordering::SeqCst);
-                self.ensure_checked_child(&session, &spawn, checked_cwd.as_ref(), stops).await
+                let checked = checked_cwd.as_ref();
+                self.ensure_checked_child(&session, &spawn, checked, created_stops).await
             }
             Err(e) => Err(e),
         };
@@ -442,10 +445,16 @@ impl Hub {
         // One spawn at a time per session; a caller that waited here finds
         // the child the previous holder started.
         let _spawning = session.spawn_lock.lock().await;
+        // Stopped since the request: it starts nothing and touches no agent. One a later request
+        // started after the stop is that request's (it reopened the session).
+        if session.stops.load(Ordering::SeqCst) != stops {
+            return Err(stopped_while_starting());
+        }
         // Boxed: a start is a deep future, and the stack a caller polls it on is not.
         let child = Box::pin(self.reach_or_start(session, profile, stops)).await?;
-        // Stopped while this agent started: the stop found no agent to end yet, or the start
-        // went on after it. The agent is ended here and the session stays closed.
+        // Stopped while this agent started (no other start can run while this one holds the
+        // spawn lock): the stop found no agent to end yet, or the start went on after it. The
+        // agent is ended here and the session stays closed.
         if session.stops.load(Ordering::SeqCst) != stops
             || session.status() == SessionStatus::Closed
         {

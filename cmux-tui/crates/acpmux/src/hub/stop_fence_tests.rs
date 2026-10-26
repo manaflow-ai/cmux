@@ -72,6 +72,23 @@ async fn a_start_asked_for_before_a_stop_leaves_the_session_closed() {
     assert!(kinds_after(&hub, &session, seq).iter().any(|k| k == "reopened"));
 }
 
+/// A request from before a stop that reaches its start only after a later request reopened
+/// the chat: it fails, and leaves the agent that later request started running.
+#[tokio::test]
+async fn a_start_asked_for_before_a_stop_leaves_a_later_start_alone() {
+    let (hub, session) = chat().await;
+    let asked = session.stops.load(Ordering::SeqCst);
+    hub.kill(&session, false).await.unwrap();
+    let fresh = hub.child_for(&session).await.unwrap();
+    assert_ne!(session.status(), SessionStatus::Closed);
+    let stale = hub.child_for_since(&session, asked).await;
+    assert!(stale.is_err(), "a request from before the stop got an agent");
+    assert!(fresh.is_alive().await, "the stale request ended the agent a later request started");
+    let now = session.child.lock().await.clone().expect("an agent");
+    assert!(Arc::ptr_eq(&now, &fresh));
+    assert_ne!(session.status(), SessionStatus::Closed);
+}
+
 /// A closed chat whose agent is still running (a host the daemon adopted at its start that
 /// outlived the stop): a request reopens it and finds it ready, never a running agent behind a
 /// chat `acpmux ls` lists as closed.
