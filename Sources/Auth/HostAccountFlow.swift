@@ -47,6 +47,8 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
     /// The most recent plan request. Only it may write, so an older request
     /// that finishes late cannot overwrite a newer answer.
     @ObservationIgnored private var billingPlanRequestID: UUID?
+    /// The account and team the most recent plan request was made for.
+    @ObservationIgnored private var billingPlanRequestScope: (accountID: String, teamID: String?)?
     /// Whether `isProActive` is a real answer for the signed-in account.
     var hasLoadedBillingPlan: Bool {
         guard let identityID = currentIdentity?.id else { return false }
@@ -294,6 +296,20 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
         _ = await refreshBillingPlanAndReportSuccess()
     }
 
+    /// A plan answer belongs to one team. When the confirmed team changes
+    /// under the same account, fetch the new team's plan here so the Settings
+    /// card, menus and Machines panel do not wait on a surface that happens
+    /// to refetch. A request still in flight for the old team is dropped when
+    /// it lands, so it counts too. The new scope is recorded before the
+    /// request starts, so later observation passes do not start another one.
+    func refreshBillingPlanAfterTeamChange() {
+        guard let scope = billingPlanRequestScope,
+              scope.accountID == currentIdentity?.id,
+              scope.teamID != confirmedTeamID else { return }
+        billingPlanRequestScope = (scope.accountID, confirmedTeamID)
+        Task { await refreshBillingPlan() }
+    }
+
     @discardableResult
     func refreshBillingPlanAndReportSuccess() async -> Bool {
         guard coordinator.currentUser != nil, let identityID = currentIdentity?.id else {
@@ -308,6 +324,7 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
         // of the same account and team keeps its answer, so a failed refresh
         // does not hide every upgrade entrypoint until the next change.
         let teamID = confirmedTeamID
+        billingPlanRequestScope = (identityID, teamID)
         if !billingPlanState.matches(accountID: identityID, teamID: teamID) {
             billingPlanState = .unknown
         }
