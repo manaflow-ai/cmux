@@ -1,10 +1,12 @@
 import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { chromium, type Browser, type Page } from "playwright";
+import { mkdir, writeFile } from "node:fs/promises";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { inspectorPushAlways, papercutPane } from "./support/papercutChat";
 
 await requireBrowserLane("chat-inspector-artifact-motion.test.ts", async () => {
-  const REPLY = "Open the [right pane](https://example.com/native-pane) from this chat.";
+  const URL = "https://example.com/native-pane";
+  const LINK = `.acpmux-scroll a[href='${URL}']`;
   setDefaultTimeout(300_000);
   let browser: Browser | undefined;
   let pane: Awaited<ReturnType<typeof papercutPane>> | undefined;
@@ -21,7 +23,10 @@ await requireBrowserLane("chat-inspector-artifact-motion.test.ts", async () => {
             method: "session/update",
             params: {
               sessionId: "agent-1",
-              update: { sessionUpdate: "agent_message_chunk", content: { type: "text", text: REPLY } },
+              update: {
+                sessionUpdate: "agent_message_chunk",
+                content: { type: "text", text: `Open the [right pane](${URL}) from this chat.` },
+              },
             },
           },
         ],
@@ -34,92 +39,158 @@ await requireBrowserLane("chat-inspector-artifact-motion.test.ts", async () => {
     await pane?.close();
   });
 
-  const settle = (page: Page) =>
-    page.evaluate(async () => {
-      await Promise.all(document.getAnimations().map((animation) => animation.finished.catch(() => undefined)));
-      for (let frame = 0; frame < 3; frame++) await window.cmuxPaintFrame();
-    });
-
-  const recordResize = async (page: Page, width: number) => {
-    const before = await page.evaluate(() => {
-      const current = document.querySelector<HTMLElement>("a[href='https://example.com/native-pane']")!;
-      const rect = current.getBoundingClientRect();
-      return { x: Number(rect.left.toFixed(2)), visible: rect.width > 0 && rect.height > 0, animations: 0 };
-    });
-    await page.setViewportSize({ width, height: 700 });
-    return page.evaluate(async (initial) => {
-      const frames: { x: number; visible: boolean; animations: number }[] = [];
-      for (let index = 0; index < 120; index++) {
-        await window.cmuxPaintFrame();
-        const current = document.querySelector<HTMLElement>("a[href='https://example.com/native-pane']");
-        const rect = current?.getBoundingClientRect() ?? new DOMRect();
-        const scroll = document.querySelector<HTMLElement>(".acpmux-main > .acpmux-stage > .acpmux-scroll");
-        frames.push({
-          x: Number(rect.left.toFixed(2)),
-          visible:
-            current !== null && rect.width > 0 && rect.height > 0 && getComputedStyle(current).visibility !== "hidden",
-          animations: scroll?.getAnimations().length ?? 0,
+  type Frame = { x: number; visible: boolean; sameNode: boolean; animations: number; width: number };
+  type Probe = Window & { motionFrames: Frame[]; motionDone: Promise<void> };
+  // Install before the click/resize, so no first painted frame is lost to a protocol round trip.
+  const startRecording = (page: Page, targetWidth: number) =>
+    page.evaluate(
+      ({ link, targetWidth }) => {
+        const anchor = document.querySelector<HTMLElement>(link)!;
+        const column = anchor.closest("p")!;
+        const text = document.createRange();
+        text.selectNodeContents(column);
+        const scroll = anchor.closest<HTMLElement>(".acpmux-scroll")!;
+        const frames: Frame[] = [];
+        const read = () => {
+          const rect = text.getBoundingClientRect();
+          let visible = rect.width > 0 && rect.height > 0 && column.isConnected;
+          for (let node: HTMLElement | null = column; node; node = node.parentElement) {
+            const style = getComputedStyle(node);
+            visible &&= style.visibility !== "hidden" && style.display !== "none" && Number(style.opacity) > 0;
+          }
+          return {
+            x: Number(rect.left.toFixed(2)),
+            visible,
+            sameNode: document.querySelector(link) === anchor,
+            animations: scroll.getAnimations().length,
+            width: window.innerWidth,
+          };
+        };
+        frames.push(read());
+        const probe = window as unknown as Probe;
+        probe.motionFrames = frames;
+        probe.motionDone = new Promise<void>((resolve) => {
+          let still = 0;
+          // Eight settled painted frames with no remaining shift animation, or 120 frames total.
+          window.cmuxAfterPaint(() => {
+            const next = read();
+            still = next.x === frames.at(-1)!.x && next.width === targetWidth && next.animations === 0 ? still + 1 : 0;
+            frames.push(next);
+            if (still < 8 && frames.length < 120) return true;
+            resolve();
+            return false;
+          });
         });
-        if (frames.length >= 4 && frames.at(-1)!.x === frames.at(-2)!.x && frames.at(-2)!.x === frames.at(-3)!.x) break;
+      },
+      { link: LINK, targetWidth },
+    );
+  const finishRecording = (page: Page) =>
+    page.evaluate(async () => {
+      const probe = window as unknown as Probe;
+      await probe.motionDone;
+      return probe.motionFrames;
+    });
+
+  // A stop followed by a move is a new phase even if both moves have the same direction.
+  const movement = (xs: number[]) => {
+    let phases = 0,
+      moving = false,
+      direction = 0,
+      reversed = false;
+    for (let index = 1; index < xs.length; index++) {
+      const delta = xs[index]! - xs[index - 1]!;
+      const nextMoving = Math.abs(delta) >= 0.5;
+      if (nextMoving) {
+        if (!moving) phases++;
+        if (direction && direction !== Math.sign(delta)) reversed = true;
+        direction = Math.sign(delta);
       }
-      return [initial, ...frames];
-    }, before);
+      moving = nextMoving;
+    }
+    return { phases, reversed };
   };
 
-  const movementPhases = (frames: { x: number }[]) => {
-    const deltas = frames.slice(1).map((frame, index) => frame.x - frames[index]!.x);
-    const signs = deltas.filter((delta) => Math.abs(delta) >= 0.5).map((delta) => Math.sign(delta));
-    return { signs, phases: signs.filter((sign, index) => index === 0 || sign !== signs[index - 1]).length };
-  };
+  test("motion oracle rejects no movement, reversal, and a same-direction restart", () => {
+    expect(movement([0, 0, 0]).phases).toBe(0);
+    expect(movement([0, 10, 10, 20]).phases).toBe(2);
+    expect(movement([0, 10, 5]).reversed).toBe(true);
+    expect(movement([0, 0, 10, 20, 20])).toEqual({ phases: 1, reversed: false });
+  });
 
-  test("a native link pane resize keeps the live transcript visible and moves once", async () => {
+  test("a native link pane resize keeps the transcript mounted and moves its text once", async () => {
     const page = await pane!.open({ width: 1600, height: 700 });
+    const evidence = process.env.CMUX_PANE_MOTION_EVIDENCE;
+    const recording = evidence ? await page.context().newCDPSession(page) : undefined;
+    const images: Promise<unknown>[] = [];
+    let imageIndex = 0;
+    if (evidence) await mkdir(evidence, { recursive: true });
     try {
       await page.evaluate(() => {
         const bridge = (window as unknown as { cmuxAcpmuxBridge: { applyHeaderState(state: unknown): void } })
           .cmuxAcpmuxBridge;
         bridge.applyHeaderState({ inspector: true, version: 2 });
-        document.addEventListener("click", (event) => {
-          if ((event.target as Element | null)?.closest("a[href='https://example.com/native-pane']")) {
-            event.preventDefault();
-            (window as any).__nativeLinkClicked = true;
-          }
-        });
       });
       await inspectorPushAlways(page, false);
       const toggle = page.locator("button.acpmux-chat-inspector-toggle");
       await toggle.waitFor({ timeout: 10_000 });
       if ((await page.locator("aside.acpmux-chat-inspector").count()) === 0) await toggle.click({ force: true });
       await page.locator('aside.acpmux-chat-inspector[data-presence="shown"]').waitFor({ timeout: 10_000 });
-      await settle(page);
-      const link = page.locator("a[href='https://example.com/native-pane']").first();
-      await link.waitFor({ timeout: 10_000 });
+      await page.evaluate(async () => {
+        await Promise.all(document.getAnimations().map((animation) => animation.finished.catch(() => undefined)));
+        for (let frame = 0; frame < 3; frame++) await window.cmuxPaintFrame();
+      });
+      // UrlChip emits a real navigation; native AgentPaneNavigation cancels it and opens a
+      // browser beside the chat. Intercept at that boundary, not at the click handler.
+      if (recording) {
+        recording.on("Page.screencastFrame", ({ data, sessionId }) => {
+          if (imageIndex < 120)
+            images.push(
+              writeFile(`${evidence}/frame-${String(imageIndex++).padStart(3, "0")}.png`, Buffer.from(data, "base64")),
+            );
+          void recording.send("Page.screencastFrameAck", { sessionId }).catch(() => undefined);
+        });
+        await recording.send("Page.startScreencast", { format: "png", everyNthFrame: 1 });
+      }
+      let navigation = false;
+      await page.route(URL, async (route) => {
+        navigation = route.request().isNavigationRequest();
+        await route.fulfill({ status: 204, body: "" });
+      });
+      const openedNavigation = page.waitForResponse((response) => response.url() === URL);
+      await startRecording(page, 1200);
+      await page.locator(LINK).click();
+      await openedNavigation;
+      expect(navigation).toBe(true);
+      await page.setViewportSize({ width: 1200, height: 700 });
+      const opening = await finishRecording(page);
 
-      await link.click();
-      await page.waitForFunction(() => (window as any).__nativeLinkClicked === true);
-      console.log(
-        "native link count after click",
-        await page.locator("a[href='https://example.com/native-pane']").count(),
-      );
-      const opening = await recordResize(page, 1200);
-      console.log(
-        "native pane open text-column frames",
-        opening.map((frame) => frame.x),
-      );
-
-      const closing = await recordResize(page, 1600);
+      await startRecording(page, 1600);
+      await page.setViewportSize({ width: 1600, height: 700 });
+      const closing = await finishRecording(page);
       console.log(
         "native pane close text-column frames",
         closing.map((frame) => frame.x),
       );
-
-      expect(opening.every((frame) => frame.visible)).toBe(true);
-      expect(closing.every((frame) => frame.visible)).toBe(true);
-      expect(opening.every((frame) => frame.animations === 0)).toBe(true);
-      expect(closing.every((frame) => frame.animations === 0)).toBe(true);
-      expect(movementPhases(opening).phases).toBe(1);
-      expect(movementPhases(closing).phases).toBe(1);
+      if (evidence) await writeFile(`${evidence}/trace.json`, JSON.stringify({ opening, closing }, null, 2));
+      for (const [name, frames] of [
+        ["open", opening],
+        ["close", closing],
+      ] as const) {
+        console.log(
+          `native pane ${name} text-column frames`,
+          frames.map((frame) => frame.x),
+        );
+        expect(frames.every((frame) => frame.visible && frame.sameNode)).toBe(true);
+        expect(frames.every((frame) => frame.animations === 0)).toBe(true);
+        expect(movement(frames.map((frame) => frame.x))).toEqual({ phases: 1, reversed: false });
+      }
+      expect(await page.locator(".acpmux-shell").getAttribute("data-inspector-chat-resizing")).toBeNull();
     } finally {
+      if (recording) {
+        await recording.send("Page.stopScreencast");
+        await recording.detach();
+        await Promise.all(images);
+      }
       await page.close();
     }
   });
