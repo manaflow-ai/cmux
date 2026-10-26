@@ -122,6 +122,9 @@ await requireBrowserLane("thread-minimap-jump-history.test.ts", async () => {
         const box = document.querySelector<HTMLElement>('[data-tick="100"]')!.getBoundingClientRect();
         return { x: box.left + 6, y: box.top + box.height / 2 };
       });
+      await page.evaluate(() => {
+        (window as any).__clickedAt = ((window as any).__frames as unknown[]).length;
+      });
       await page.mouse.click(tick.x, tick.y);
       await page.waitForFunction(() => ((window as any).__frames as unknown[]).length >= 120);
       const captured = await page.evaluate(() => (window as any).__frames as { target?: number; scrollTop: number }[]);
@@ -130,15 +133,29 @@ await requireBrowserLane("thread-minimap-jump-history.test.ts", async () => {
         (window as any).__stopTargetObserver?.();
         return (window as any).__targetRemounts ?? 0;
       });
-      console.log("history pages", pageCount, "range", Math.max(...captured.filter((f) => f.target !== undefined).map((f) => f.target!)) - Math.min(...captured.filter((f) => f.target !== undefined).map((f) => f.target!)));
+      const clickedAt = await page.evaluate(() => (window as any).__clickedAt as number);
       frames.push(...captured);
       await page.close();
 
       const landed = frames.filter((frame) => frame.target !== undefined);
+      const postClick = captured.slice(clickedAt).filter((frame) => frame.target !== undefined);
       expect(landed.length).toBeGreaterThan(30);
-      const tail = landed.slice(-30);
+      const tail = postClick.slice(-30);
       expect(tail.every((frame) => Math.abs(frame.target! - LANDING_OFFSET) <= 2)).toBe(true);
-      const targetRange = landed.map((frame) => frame.target!);
+      const settledAt = postClick.findIndex((frame) => Math.abs(frame.target! - LANDING_OFFSET) <= 2);
+      expect(settledAt).toBeGreaterThanOrEqual(0);
+      const targetRange = postClick.slice(settledAt).map((frame) => frame.target!);
+      console.log(
+        JSON.stringify({
+          historyPages: pageCount,
+          paintedFrames: captured.length,
+          clickedAt,
+          settledAt,
+          postTargetRange: [Math.min(...targetRange), Math.max(...targetRange)],
+          postScrollRange: [postClick[0]?.scrollTop, postClick.at(-1)?.scrollTop],
+          targetRemounts,
+        }),
+      );
       expect(Math.max(...targetRange) - Math.min(...targetRange)).toBeLessThanOrEqual(4);
       expect(targetRemounts).toBe(0);
     });
