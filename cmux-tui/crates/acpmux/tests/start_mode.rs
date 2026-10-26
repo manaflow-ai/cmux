@@ -778,3 +778,37 @@ async fn deny_all_in_config_holds_on_every_chat_from_startup() {
     assert_eq!(mode_soon(&mut app, &id, "read-only").await, "read-only");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// claude-sr2, 2026-10-25 (item L): "acpmux refuses read-only reviews it should allow": a
+/// reviewer started from an agent's shell with `acpmux new -m codex --mode read-only` was refused
+/// on the unix socket, because the start gate knew only the Web table's asking modes, which list
+/// no Codex mode. The Codex bridge's `ask` asks before every change and its `read-only` only
+/// reads (`hub/start_mode.rs` `NARROW_MODES`), so a start in either needs no person. A bridge
+/// mode that does not ask still does, and so does the codex-acp adapter's `read-only`, which
+/// writes in the workspace without asking (`web_modes::NON_ASKING_MODES`).
+#[tokio::test]
+async fn the_unix_socket_starts_the_codex_bridge_in_read_only_or_ask() {
+    let dir = home("narrow-start", json!({"defaultPermissionMode": "fullAccess"}));
+    let daemon = hub_with(&dir, |cfg| {
+        let adapter = json!({"argv": ["python3", FAKE_AGENT, "codex-acp"], "family": "codex"});
+        cfg.harnesses.insert("adapter".into(), serde_json::from_value(adapter).unwrap());
+    });
+    let mut agent = Client::new(&daemon, Origin::Local, ConnAuth::LocalSocket);
+    let start = |harness: &str, mode: &str| {
+        json!({"cwd": dir.join("work"), "mcpServers": [],
+            "_meta": {"acpmux": {"harness": harness, "mode": mode}}})
+    };
+    for mode in ["read-only", "ask"] {
+        let r = agent.call("session/new", start("codex", mode)).await;
+        let id = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{mode}: {r}"));
+        let id = id.to_owned();
+        assert_eq!(agent.mode(&id).await, mode);
+    }
+    for mode in ["agent", "agent-full-access"] {
+        let r = agent.call("session/new", start("codex", mode)).await;
+        assert_eq!(r["error"]["data"]["reason"], "permission.person_required", "{mode}: {r}");
+    }
+    let r = agent.call("session/new", start("adapter", "read-only")).await;
+    assert_eq!(r["error"]["data"]["reason"], "permission.person_required", "adapter: {r}");
+    let _ = std::fs::remove_dir_all(&dir);
+}
