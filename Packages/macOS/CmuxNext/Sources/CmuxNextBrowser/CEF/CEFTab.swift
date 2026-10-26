@@ -146,6 +146,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// URL of the last main-frame load that committed (Chromium's current
     /// entry). Renderer debug URLs (chrome://crash) never commit.
     @ObservationIgnored var committedURL: URL?
+    /// ``discard()`` emptied the tab in place; any commit, load or reload ends it.
+    @ObservationIgnored var isDiscardedInPlace = false
     /// Chromium's own Back/Forward state; the tab also offers the entries
     /// saved before a relaunch (`restored`).
     @ObservationIgnored var nativeHistory = (back: false, forward: false)
@@ -359,6 +361,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
 
     public func load(_ url: URL) {
         guard !isClosed else { return }
+        isDiscardedInPlace = false
         automaticDownloads.userGesture()
         let id = makeNavigationID()
         navigation = id
@@ -384,6 +387,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
 
     public func reload() {
         reloadWhenShown = false
+        isDiscardedInPlace = false
         guard let browserID else {
             if let url = pendingURL ?? state.url { load(url) }
             return

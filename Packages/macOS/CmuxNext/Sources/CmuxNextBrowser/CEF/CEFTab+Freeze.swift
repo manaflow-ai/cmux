@@ -38,24 +38,24 @@ extension CEFTab: BrowserFreezing {
 /// stays, `WebContents::Discard` (content/public/browser/web_contents.h) through the fork's
 /// `cmux_shim_tab_discard` (p13-webui-018).
 extension CEFTab {
-    /// Discards the hidden page in place. The tab keeps its browser id, window slot, NavigationEntry
-    /// (with its PageState) and session storage, so ``loadDiscarded(_:)`` brings the page back in the
-    /// same browser. Makes no call into the page.
+    /// Discards the hidden page in place: the tab keeps its browser, window slot, NavigationEntry and
+    /// session storage, and Chromium reloads the entry when the page shows. Makes no call into the page.
     ///
-    /// - Returns: False when nothing was discarded: the fork has no export, the tab is closed or has
-    ///   no browser yet, or Chromium still counts the page visible. The caller then closes the page.
+    /// - Returns: False when nothing was discarded (no export, host mode, no browser, closed, or
+    ///   Chromium refused): the caller closes the page instead.
     @discardableResult
     public func discard() -> Bool {
-        guard let browserID, !isClosed, let discard = runtime.shim?.tabDiscard else { return false }
-        return discard(browserID) == 1
+        guard let browserID, !isClosed, let discard = runtime.shim?.tabDiscard, discard(browserID) == 1 else { return false }
+        isDiscardedInPlace = true
+        return true
     }
 
-    /// Loads `url` in a tab ``discard()`` emptied. The URL its last entry committed reloads that entry
-    /// in place, as Chromium restores a discarded tab (`NavigationControllerImpl::LoadIfNecessary`,
-    /// content/browser/renderer_host/navigation_controller_impl.cc): the same entry, its PageState and
-    /// session storage, and the document sees `document.wasDiscarded`. Another URL is a new navigation.
-    public func loadDiscarded(_ url: URL) {
-        guard browserID != nil, !isClosed, committedURL == url else { return load(url) }
-        reload()
+    /// Loads `url`, except the URL of the entry ``discard()`` emptied (as `.address` last set it): that
+    /// sends nothing, because Chromium reloads the entry itself when the page shows, with its PageState
+    /// and `document.wasDiscarded` (`WebContentsImpl::WasShown` -> `NavigationControllerImpl::SetActive`
+    /// -> `LoadIfNecessary`, content/browser/renderer_host/navigation_controller_impl.cc).
+    public func loadRestoringDiscard(_ url: URL) {
+        if isDiscardedInPlace, !isClosed, (state.url ?? committedURL) == url { return }
+        load(url)
     }
 }

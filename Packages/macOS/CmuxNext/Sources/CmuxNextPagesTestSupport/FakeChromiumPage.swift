@@ -40,7 +40,7 @@ public final class FakeChromiumPage: PageChromiumPage {
     public var discardAnswer = true
     /// How many times the host discarded the page (answered true).
     public private(set) var discards = 0
-    /// A discard took and no load ran since (the next load reloads in place).
+    /// A discard took and no load ran since (the engine reloads the entry when the page shows).
     public private(set) var isDiscarded = false
     /// The last ``setSeeThrough(_:)``; nil before any.
     public private(set) var seeThrough: Bool?

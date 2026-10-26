@@ -47,6 +47,7 @@ extension CEFTab {
             if let title = titleBeforeCommit { machine.apply(.titleChanged(title)) }
             clearTitleBeforeCommit()
             committedURL = URL(string: url)
+            isDiscardedInPlace = false
             pageInfoDocumentCommitted(URL(string: url))
             resetPageBackdrop()
             // The document that just committed is the only one that can hear
@@ -67,6 +68,7 @@ extension CEFTab {
             refreshExtensionActions()
         case .loadError(_, let code, let text, let url, let chromiumInterstitial):
             clearTitleBeforeCommit()
+            isDiscardedInPlace = false
             guard let navigation else { return }
             let error = Self.loadError(code: code, text: text, url: url, chromiumInterstitial: chromiumInterstitial)
             machine.apply(.failed(navigation, error))

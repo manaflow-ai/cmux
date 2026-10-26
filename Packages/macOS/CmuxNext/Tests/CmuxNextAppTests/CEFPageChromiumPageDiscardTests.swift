@@ -4,11 +4,12 @@ import AppKit
 import Foundation
 import Testing
 
-/// p13-webui-031: a cmux page in Chromium discards through its tab's in-place discard, and only the
-/// next load after a discard that took reloads the discarded entry; a fork without the export
-/// answers false so the page host closes the page. Against a spy shim.
+/// p13-webui-031: a cmux page in Chromium discards through its tab's in-place discard. Chromium
+/// reloads the discarded entry when the page shows, so the page host's show and load of the same URL
+/// send no reload or navigation of cmux's own; once the entry commits again a load navigates. A fork
+/// without the export answers false so the page host closes the page. Against a spy shim.
 @MainActor @Suite(.serialized) struct CEFPageChromiumPageDiscardTests {
-    @Test func theLoadAfterADiscardReloadsInPlaceAndTheOneAfterNavigates() throws {
+    @Test func theShowAndLoadAfterADiscardLeaveTheRestoreToChromium() throws {
         let rig = try PageDiscardRig(exportsDiscard: true)
         defer { rig.close() }
         let page = try rig.page()
@@ -17,13 +18,31 @@ import Testing
 
         #expect(page.discard())
         PageDiscardSpy.loads = []
+        page.setVisible(true)
         page.load(route)
-        #expect(PageDiscardSpy.reloads == [7], "the discarded entry did not reload in place")
-        #expect(PageDiscardSpy.loads.isEmpty)
+        #expect(PageDiscardSpy.reloads.isEmpty, "cmux reloaded on top of Chromium's restore on show")
+        #expect(PageDiscardSpy.loads.isEmpty, "the discarded entry was replaced by a new navigation")
 
+        // Chromium's restore commits the entry: the page is live again.
+        rig.runtime.handle(.loadStart(browser: 7, url: route.absoluteString, fromPost: false))
         page.load(route)
-        #expect(PageDiscardSpy.loads == [route.absoluteString], "a load with no discard before it is a navigation")
+        #expect(PageDiscardSpy.loads == [route.absoluteString], "a load into a live page is a navigation")
+        #expect(PageDiscardSpy.reloads.isEmpty)
+    }
+
+    @Test func aReloadAfterADiscardEndsIt() throws {
+        let rig = try PageDiscardRig(exportsDiscard: true)
+        defer { rig.close() }
+        let page = try rig.page()
+        let route = try #require(URL(string: "cmux-page://cmux.markdown/index.html"))
+        rig.runtime.handle(.loadStart(browser: 7, url: route.absoluteString, fromPost: false))
+
+        #expect(page.discard())
+        PageDiscardSpy.loads = []
+        page.reload()
+        page.load(route)
         #expect(PageDiscardSpy.reloads == [7])
+        #expect(PageDiscardSpy.loads == [route.absoluteString])
     }
 
     @Test func aForkWithoutTheExportRefusesAndTheNextLoadNavigates() throws {
