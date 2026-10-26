@@ -77,6 +77,10 @@ final class FileIconGridView: NSObject, FileContentView, NSCollectionViewDataSou
         if let last = paths.max() { collection.scrollToItems(at: [last], scrollPosition: .nearestHorizontalEdge) }
     }
 
+    func redrawIcons() {
+        collection.reloadItems(at: collection.indexPathsForVisibleItems())
+    }
+
     func reveal(_ name: String) {
         guard let index = entries.firstIndex(where: { $0.name == name }) else { return }
         collection.scrollToItems(at: [IndexPath(item: index, section: 0)], scrollPosition: .nearestHorizontalEdge)

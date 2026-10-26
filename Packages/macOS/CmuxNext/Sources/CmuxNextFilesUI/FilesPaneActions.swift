@@ -38,4 +38,6 @@ protocol FileContentView: AnyObject {
     func reveal(_ name: String)
     /// The view that takes keyboard focus.
     var focusView: NSView { get }
+    /// Redraws the icons of the items on screen (an icon that showed a placeholder landed).
+    func redrawIcons()
 }

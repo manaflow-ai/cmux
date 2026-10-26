@@ -119,7 +119,7 @@ extension AgentPaneView {
             retry: { [weak self] row in self?.runMessageAction("chat.retryPrompt", ["rowId": row]) },
             edit: { [weak self] text in self?.runMessageAction("chat.editPrompt", ["text": text]) },
             open: { [weak self] url in self?.openLink(url) },
-            linkItems: { LinkMenu().linkItems(for: $0) },
+            linkItems: { [queries = model.replyLinks.workspaceQueries] in LinkMenu(queries: queries).linkItems(for: $0) },
             pathItems: { [weak self] path in self?.pathMenuItems(path) },
             search: { [weak self] text in self?.model.onSearchWeb?(text) },
             page: { [weak self] name, params in self?.runMessageAction(name, params) },

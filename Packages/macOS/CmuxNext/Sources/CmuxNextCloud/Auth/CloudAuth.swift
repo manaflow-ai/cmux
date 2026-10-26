@@ -5,6 +5,7 @@ import Foundation
 import os
 public import Observation
 import CmuxNextCompat
+public import CmuxNextWakeups
 
 /// Stack Auth for cmux-next, composed from the kept `CmuxAuthRuntime`
 /// library exactly as the old app did (MacAuthComposition): the Keychain
@@ -62,7 +63,9 @@ public final class CloudAuth {
 
     /// `environment` nil reads this process's environment plus the captured auth launch keys.
     public init(configuration: CloudConfiguration, environment explicitEnvironment: [String: String]? = nil,
-                defaults: UserDefaults = .standard) {
+                defaults: UserDefaults = .standard, workspaceQueries: WorkspaceQueries? = nil) {
+        self.workspaceQueries = workspaceQueries
+        workspaceQueries?.prefetch([CloudSignInWindow.defaultBrowserQuery()], priority: .bestEffort)
         let environment = explicitEnvironment
             ?? Self.authEnvironment(process: ProcessInfo.processInfo.environment, launch: Self.launchEnvironment)
         self.configuration = configuration
@@ -119,8 +122,8 @@ public final class CloudAuth {
             makeSignInURL: { configuration.signInURL(callbackState: $0) },
             callbackScheme: { configuration.callbackScheme },
             openExternalURL: { url in
-                // Whether a browser opens it (a database lookup); the open runs off the main thread (cx-050n).
-                guard NSWorkspace.shared.urlForApplication(toOpen: url) != nil else { return false }
+                // An https page always has a browser (Safari is on the sealed system volume), so no Launch Services
+                // check waits on the main thread; the open runs off it (cx-050n).
                 NSWorkspace.shared.openInBackground(url)
                 return true
             }
@@ -152,6 +155,19 @@ public final class CloudAuth {
     /// Where a sign-in opens; the App reads its Debug Settings tunable here.
     @ObservationIgnored public var signInWindow: @MainActor () -> CloudSignInWindow = { .automatic }
 
+    /// The app's Launch Services answers: the default browser a sign-in checks is read from what they keep, asked
+    /// on the system lane from init. Nil (tests) knows no default browser.
+    @ObservationIgnored private let workspaceQueries: WorkspaceQueries?
+
+    /// The default browser's bundle identifier as kept; nil when unknown (a miss asks for the next sign-in).
+    private func keptDefaultBrowser() -> String? {
+        guard let queries = workspaceQueries else { return nil }
+        let query = CloudSignInWindow.defaultBrowserQuery()
+        if let kept = queries.cached(query) { return kept }
+        queries.prefetch([query], priority: .userBlocking)
+        return nil
+    }
+
     /// Hosted browser sign-in; returns whether the app ended signed in.
     /// Every entry point (Settings, the palette, the sidebar, the Cloud page)
     /// comes through here, so they all open the same window.
@@ -165,7 +181,7 @@ public final class CloudAuth {
     @discardableResult
     public func beginSignIn(selectAccount: Bool = false) -> Task<Bool, Never> {
         signInBegins()
-        let inBrowser = signInWindow().opensDefaultBrowser(defaultBrowser: CloudSignInWindow.currentDefaultBrowser())
+        let inBrowser = signInWindow().opensDefaultBrowser(defaultBrowser: keptDefaultBrowser())
         return browserSignIn.beginSignIn(selectAccount: selectAccount, inDefaultBrowser: inBrowser)
     }
 
