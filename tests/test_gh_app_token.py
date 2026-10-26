@@ -20,6 +20,7 @@ import tempfile
 import threading
 import unittest
 import unittest.mock
+import urllib.error
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -182,6 +183,31 @@ class WrapperTests(unittest.TestCase):
         self.assertIn("backing off 1s", result.stderr)  # 60 s, capped by the job's total
         self.assertEqual(h.waited(), 1)
 
+    def test_an_unreadable_ledger_counts_as_the_whole_budget(self) -> None:
+        for content in ("", "garbage", "-5", "1.5"):
+            h = self.harness(GH_BUDGET_WAIT_MAX_SECONDS="100")
+            ledger = h.runner_temp / "gh-budget-wait" / "waited"
+            ledger.parent.mkdir(parents=True, exist_ok=True)
+            ledger.write_text(content)
+            h.refuse(APP, 1, SECONDARY)
+            h.refuse(FALLBACK, 1, SECONDARY)
+            result = h.gh("api", "x")
+            self.assertEqual(result.returncode, 1, (content, result))
+            self.assertNotIn("backing off", result.stderr, content)
+            self.assertEqual(ledger.read_text(), content)
+
+    def test_the_wait_is_reserved_before_sleeping(self) -> None:
+        text = SCRIPT.read_text()
+        self.assertLess(text.index('mv -f "$ledger_dir/waited.$$" "$ledger_dir/waited"'), text.index('sleep "$want"'))
+        h = self.harness(GH_BUDGET_WAIT_MAX_SECONDS="1")
+        (h.runner_temp / "gh-budget-wait").write_text("not a directory")  # the ledger cannot be written
+        h.refuse(APP, 1, SECONDARY)
+        h.refuse(FALLBACK, 1, SECONDARY)
+        result = h.gh("api", "x")
+        self.assertEqual(result.returncode, 1, result)
+        self.assertIn("not waiting", result.stderr)
+        self.assertNotIn("backing off", result.stderr)
+
     def test_backoff_is_exponential_from_60s_and_honours_retry_after(self) -> None:
         text = SCRIPT.read_text()
         self.assertIn("want=$((60 * (1 << (try - 1))))", text)
@@ -337,6 +363,32 @@ class PublisherTests(unittest.TestCase):
             self.assertEqual(prune.github_api_json("GET", "repos/o/r/releases/tags/nightly"), {"ok": True})
             self.assertEqual(prune.github_api_json("GET", "repos/o/r/releases/1/assets"), {"ok": True})
         self.assertEqual(seen, [APP, FALLBACK, FALLBACK])
+
+    def test_finalize_download_falls_back_when_the_app_token_is_refused(self) -> None:
+        spec = importlib.util.spec_from_file_location("finalize_app_token", ROOT / "scripts/ci/finalize-release.py")
+        finalize = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = finalize
+        spec.loader.exec_module(finalize)
+        client = publisher.GitHub("o/r", APP, fallback=FALLBACK)
+        seen = []
+        body = unittest.mock.MagicMock()
+
+        def fake_open(c, url):
+            seen.append(c.token)
+            if c.token == APP:
+                raise urllib.error.HTTPError(url, 403, "Forbidden", {}, None)
+            return body
+        with unittest.mock.patch.object(finalize, "open_asset", fake_open):
+            self.assertIs(finalize.open_asset_with_fallback(client, "https://api.github.com/a"), body)
+        self.assertEqual(seen, [APP, FALLBACK])
+        self.assertEqual(client.token, FALLBACK)
+        # A refusal of the fallback itself is raised, not retried.
+        with unittest.mock.patch.object(finalize, "open_asset", fake_open):
+            client.token = APP
+            client.fallback = ""
+            with self.assertRaises(urllib.error.HTTPError):
+                finalize.open_asset_with_fallback(client, "https://api.github.com/a")
+        self.assertIn("open_asset_with_fallback(client, remote[\"url\"])", (ROOT / "scripts/ci/finalize-release.py").read_text())
 
     def test_another_failure_after_a_concurrent_switch_is_not_sent_again(self) -> None:
         client = publisher.GitHub("o/r", APP, fallback=FALLBACK)
