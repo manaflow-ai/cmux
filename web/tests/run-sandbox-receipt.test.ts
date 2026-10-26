@@ -138,6 +138,21 @@ describe("sandbox receipt", () => {
     // After `_`, which `\b` never matches after.
     expect(sandboxReply("dump_sk-abcdefghijklmnopqrstuvwxyz.txt")).toBe("dump_[redacted].txt");
     expect(sandboxReply("dump_ghp_abcdefghijklmnopqrstuvwxyz0123.txt")).toBe("dump_[redacted].txt");
+    expect(sandboxReply("dump_AKIA1234567890123456_backup")).toBe("dump_[redacted]_backup");
+    expect(sandboxReply("cfg_postgres://admin:hunter2@db/x")).not.toContain("hunter2");
+  });
+
+  test("npm and Azure credential keys are redacted in any spacing, quoting or JSON", () => {
+    for (const line of [
+      "_auth = dXNlcjpwYXNz", "_auth=dXNlcjpwYXNz", '"_auth": "dXNlcjpwYXNz"', "//registry.npmjs.org/:_auth = dXNlcjpwYXNz",
+      '{"AccountKey":"dXNlcjpwYXNz"}', "AccountKey = dXNlcjpwYXNz", '{"SharedAccessSignature": "dXNlcjpwYXNz"}', "account_key: dXNlcjpwYXNz",
+    ]) {
+      expect(sandboxReply(line)).not.toContain("dXNlcjpwYXNz");
+    }
+    // Only the key itself: a word that ends in `_author` is ordinary text.
+    expect(sandboxReply("book_author = Jane")).toBe("book_author = Jane");
+    expect(redactReceiptValue({ AccountKey: "a", _auth: "b", sig: "c", SharedAccessKey: "d", author: "Jane" }, []))
+      .toEqual({ AccountKey: "[redacted]", _auth: "[redacted]", sig: "[redacted]", SharedAccessKey: "[redacted]", author: "Jane" });
   });
 
   test("VM time is the VM rows' own lifetime, not the Run's queueing or the attempt's run; unknown without a row", () => {

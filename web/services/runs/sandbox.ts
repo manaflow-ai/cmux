@@ -35,18 +35,20 @@ const TOKEN_SHAPES = [
   /(?<![A-Za-z0-9])AIza[0-9A-Za-z_-]{30,}/g,
   /(?<![A-Za-z0-9])xox[abprs]-[A-Za-z0-9-]{10,}/g,
   /(?<![A-Za-z0-9])xapp-[A-Za-z0-9-]{10,}/g,
-  /(?<![A-Za-z0-9])(?:AKIA|ASIA)[0-9A-Z]{16}\b/g,
+  /(?<![A-Za-z0-9])(?:AKIA|ASIA)[0-9A-Z]{16}(?![A-Za-z0-9])/g,
   // Credentials inside a URL (`postgres://user:pass@host`) and Basic auth.
-  /(\b[A-Za-z][A-Za-z0-9+.-]*:\/\/)[^/?#\s@]+@/g,
-  /(\bbasic\s+)[A-Za-z0-9+/]{8,}=*/gi,
+  /((?<![A-Za-z0-9])[A-Za-z][A-Za-z0-9+.-]*:\/\/)[^/?#\s@]+@/g,
+  /((?<![A-Za-z0-9])basic\s+)[A-Za-z0-9+/]{8,}=*/gi,
   /(?<![A-Za-z0-9])eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g,
-  /(\bbearer\s+)[A-Za-z0-9._~+/-]{8,}=*/gi,
+  /((?<![A-Za-z0-9])bearer\s+)[A-Za-z0-9._~+/-]{8,}=*/gi,
   // Credentials in query strings and connection strings: Azure SAS `sig=`, `AccountKey=`,
   // `SharedAccessKey=`, `SharedAccessSignature=`, and npm's `_auth=`.
   /(\b(?:sig|AccountKey|SharedAccessKey|SharedAccessSignature|_auth)=)[^&\s;"',]+/gi,
+  // npm's `_auth = …` / `"_auth": "…"` in any spacing or quoting (the key exactly: `my_author` is not one).
+  /((?<![A-Za-z0-9_])_auth["']?\s*[:=]\s*)(?:"(?:[^"\\]|\\.)*(?:"|$)|'(?:[^'\\]|\\.)*(?:'|$)|[^\s"',;}]{2,})/gi,
   // `PASSWORD="…"`, `api_key: …`, `"clientSecret": "…"`, `MY_TOKEN=…`: a secret-named key, then its
   // value; a quoted value the output cut off before its closing quote runs to the end.
-  /(\b[A-Za-z0-9_]*(?:token|password|passwd|pwd|secret|api[_-]?key|apikey|access[_-]?key|private[_-]?key|authorization|credential)[A-Za-z0-9_]*["']?\s*[:=]\s*)(?:"(?:[^"\\]|\\.)*(?:"|$)|'(?:[^'\\]|\\.)*(?:'|$)|[^\s"',;}]{2,})/gi,
+  /(\b[A-Za-z0-9_]*(?:token|password|passwd|pwd|secret|api[_-]?key|apikey|access[_-]?key|account[_-]?key|private[_-]?key|authorization|credential|shared[_-]?access[_-]?signature)[A-Za-z0-9_]*["']?\s*[:=]\s*)(?:"(?:[^"\\]|\\.)*(?:"|$)|'(?:[^'\\]|\\.)*(?:'|$)|[^\s"',;}]{2,})/gi,
 ];
 
 /** A PEM or OpenSSH private key block, whole (the receipt never needs one). */
@@ -142,7 +144,7 @@ function sandboxCleanupPending(snapshot: RunSnapshotRow): boolean {
 }
 
 /** Keys whose value is a secret whatever it looks like. */
-const SECRET_KEY = /(?:token|password|passwd|pwd|secret|api[_-]?key|apikey|access[_-]?key|private[_-]?key|authorization|credential|cookie|session)/i;
+const SECRET_KEY = /(?:token|password|passwd|pwd|secret|api[_-]?key|apikey|access[_-]?key|account[_-]?key|private[_-]?key|authorization|credential|cookie|session|shared[_-]?access|^_auth$|^sig$)/i;
 
 /**
  * Every string inside `value` (any depth) redacted like the receipt: keys too, and the whole value

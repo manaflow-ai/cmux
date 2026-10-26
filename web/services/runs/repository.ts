@@ -700,6 +700,7 @@ export async function recordRunArtifact(input: {
       return withoutWriter(duplicate);
     }
     await checkLease(tx, input);
+    const eventName = await artifactEventName(tx, input);
     const artifact = (await tx.insert(runArtifacts).values({
       runId: input.runId,
       attemptId: input.attemptId,
@@ -719,7 +720,7 @@ export async function recordRunArtifact(input: {
       externalId: `artifact-${artifact.id}`,
       attemptSequence: null,
       kind: "attempt.artifact",
-      payload: { artifactId: artifact.id, name: artifact.name, digest: artifact.digest, sizeBytes: artifact.sizeBytes },
+      payload: { artifactId: artifact.id, name: eventName, digest: artifact.digest, sizeBytes: artifact.sizeBytes },
       ...leaseWriter(input),
     });
     return withoutWriter(artifact);
@@ -898,6 +899,17 @@ export async function claimExpiredAttemptCleanups(input: { readonly limit?: numb
 }
 
 /**
+ * The name an artifact's event shows: as given for a persistent Run; for a sandboxed Run, redacted
+ * like its receipt (token shapes and the attempt's own handles), since events are served as stored.
+ */
+async function artifactEventName(tx: RunQueryDb, input: { readonly runId: string; readonly attemptId: string; readonly name: string }): Promise<string> {
+  const row = (await tx.select({ environment: runs.environment, attempt: { providerVmId: runAttempts.providerVmId, providerWorkspaceId: runAttempts.providerWorkspaceId, providerTerminalId: runAttempts.providerTerminalId } })
+    .from(runAttempts).innerJoin(runs, eq(runs.id, runAttempts.runId)).where(eq(runAttempts.id, input.attemptId)).limit(1))[0];
+  if (row?.environment !== "sandboxed") return input.name;
+  return redactReceiptText(input.name, [row.attempt.providerVmId, row.attempt.providerWorkspaceId, row.attempt.providerTerminalId]);
+}
+
+/**
  * Before cleanup clears a sandbox attempt's provider handles, take them out of every stored text
  * that could name them (the receipt's reply, the attempt's error, artifact names), so nothing
  * stored needs the handles again and the handles themselves are kept nowhere.
@@ -936,6 +948,12 @@ async function scrubSandboxHandles(attemptId: string, cleanupLeaseToken: string)
       if (name !== artifact.name || mediaType !== artifact.mediaType || uri !== artifact.uri || metadataChanged) {
         await tx.update(runArtifacts).set({ name, mediaType, uri, metadata }).where(eq(runArtifacts.id, artifact.id));
       }
+      // The artifact's event carries a copy of its name: it ends up the same as the row's.
+      await tx.update(runEvents).set({ payload: sql`jsonb_set(${runEvents.payload}, '{name}', ${JSON.stringify(name)}::jsonb)` }).where(and(
+        eq(runEvents.attemptId, attemptId),
+        eq(runEvents.externalId, `artifact-${artifact.id}`),
+        sql`${runEvents.payload}->>'name' is distinct from ${name}`,
+      ));
     }
   });
 }

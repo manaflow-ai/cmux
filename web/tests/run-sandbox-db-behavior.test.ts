@@ -487,6 +487,35 @@ describe("sandboxed Run lifecycle in the repository", () => {
     }
   });
 
+  dbTest("an artifact's event shows its name redacted for a sandbox, then the same name as its row after cleanup", async () => {
+    const userId = `sandbox-${randomUUID()}`;
+    try {
+      const digest = `sha256:${"c".repeat(64)}`;
+      const record = (target: Awaited<ReturnType<typeof startedAttempt>>, name: string) => repo().recordRunArtifact({
+        runId: target.runId, attemptId: target.attemptId, ...target.lease, name, sizeBytes: 1, digest, uri: "artifact://x",
+      });
+      const eventName = async (attemptId: string) => (await sql!`select payload->>'name' as name from run_events where attempt_id = ${attemptId} and kind = 'attempt.artifact'`)[0]?.name;
+      const sandbox = await startedAttempt(userId);
+      const leaky = `dump_sk-abcdefghijklmnopqrstuvwxyz_vm-${sandbox.attemptId}.txt`;
+      await record(sandbox, leaky);
+      expect(await eventName(sandbox.attemptId)).toBe("dump_[redacted][redacted].txt");
+
+      await finishAttempt(sandbox);
+      const claims = await repo().claimExpiredAttemptCleanups({ runId: sandbox.runId });
+      await repo().finishAttemptCleanup({ attemptId: sandbox.attemptId, cleanupLeaseToken: claims[0]!.cleanupLeaseToken, succeeded: true });
+      const [row] = await sql!`select name from run_artifacts where attempt_id = ${sandbox.attemptId}`;
+      expect(row?.name).not.toContain("abcdefghijklmnop");
+      expect(await eventName(sandbox.attemptId)).toBe(row?.name);
+
+      // A persistent Run's event keeps the name as given.
+      const persistent = await startedAttempt(userId, "persistent");
+      await record(persistent, leaky);
+      expect(await eventName(persistent.attemptId)).toBe(leaky);
+    } finally {
+      await removeRuns(userId);
+    }
+  });
+
   dbTest("a sandbox key allocates one machine, ever: a destroyed or failed row is returned, never replaced", async () => {
     const userId = `sandbox-${randomUUID()}`;
     try {
