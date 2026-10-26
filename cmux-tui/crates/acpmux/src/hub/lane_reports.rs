@@ -119,8 +119,9 @@ pub(crate) struct LaneReports {
 
 /// Which turns ran on lane reports only: a turn that started on reports, with no other prompt
 /// steered in while it ran. A steer is aimed at a turn but goes into whichever one the agent runs
-/// when it reads it, so steers are counted by session: one on its way when a turn ends, or that
-/// went in since the last turn end, makes that turn report.
+/// when it reads it, so steers are counted by session: one on its way when a turn ends makes that
+/// turn report. Its answer comes once the turn it went into ended; one that went in with no turn
+/// ending on its way makes the next turn end report.
 #[derive(Default)]
 struct TurnKinds {
     /// Turns that started on reports only.
@@ -129,28 +130,34 @@ struct TurnKinds {
     in_flight: HashMap<String, usize>,
     /// Sessions another prompt went into since their last turn end.
     carried: std::collections::HashSet<String>,
+    /// Turn ends so far, by session.
+    ends: HashMap<String, u64>,
 }
 
 impl TurnKinds {
-    fn steer_in(&mut self, id: &str) {
+    /// Counts a steer; the turn ends so far, for [`TurnKinds::steer_done`].
+    fn steer_in(&mut self, id: &str) -> u64 {
         *self.in_flight.entry(id.to_owned()).or_default() += 1;
+        self.ends.get(id).copied().unwrap_or(0)
     }
 
-    /// A steer [`TurnKinds::steer_in`] counted was answered: `entered`, it went into a turn.
-    fn steer_done(&mut self, id: &str, entered: bool) {
+    /// A steer [`TurnKinds::steer_in`] counted when the ends were `since` was answered:
+    /// `entered`, it went into a turn. A turn that ended on its way already reported for it.
+    fn steer_done(&mut self, id: &str, entered: bool, since: u64) {
         if let Some(n) = self.in_flight.get_mut(id) {
             *n -= 1;
             if *n == 0 {
                 self.in_flight.remove(id);
             }
         }
-        if entered {
+        if entered && self.ends.get(id).copied().unwrap_or(0) == since {
             self.carried.insert(id.to_owned());
         }
     }
 
     /// Turn `turn` of `id` ended: whether it ran on reports only. Forgets it.
     fn end(&mut self, id: &str, turn: u64) -> bool {
+        *self.ends.entry(id.to_owned()).or_default() += 1;
         let carried = self.carried.remove(id) || self.in_flight.contains_key(id);
         self.report_only.remove(&(id.to_owned(), turn)) && !carried
     }
@@ -159,6 +166,7 @@ impl TurnKinds {
         self.report_only.retain(|(s, _)| s != id);
         self.in_flight.remove(id);
         self.carried.remove(id);
+        self.ends.remove(id);
     }
 }
 
@@ -167,13 +175,14 @@ impl TurnKinds {
 pub(super) struct SteerCount<'a> {
     turns: &'a StdMutex<TurnKinds>,
     id: String,
+    since: u64,
     entered: Option<bool>,
 }
 
 impl<'a> SteerCount<'a> {
     fn new(turns: &'a StdMutex<TurnKinds>, id: &str) -> Self {
-        turns.lock().unwrap_or_else(|e| e.into_inner()).steer_in(id);
-        Self { turns, id: id.to_owned(), entered: None }
+        let since = turns.lock().unwrap_or_else(|e| e.into_inner()).steer_in(id);
+        Self { turns, id: id.to_owned(), since, entered: None }
     }
 
     /// The steer was answered: `entered`, it went into a turn, which reports (the one running,
@@ -186,7 +195,10 @@ impl<'a> SteerCount<'a> {
 impl Drop for SteerCount<'_> {
     fn drop(&mut self) {
         let entered = self.entered.unwrap_or(true);
-        self.turns.lock().unwrap_or_else(|e| e.into_inner()).steer_done(&self.id, entered);
+        self.turns
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .steer_done(&self.id, entered, self.since);
     }
 }
 
@@ -798,19 +810,17 @@ mod tests {
         // A task steered in before the turn ends: counted before the end, whenever its own
         // answer comes, so the turn reports.
         k.report_only.insert(("c".into(), 3));
-        k.steer_in("c");
+        let since = k.steer_in("c");
         assert!(!k.end("c", 3));
-        k.steer_done("c", true);
+        k.steer_done("c", true, since);
         assert!(k.in_flight.is_empty());
-        // A steer withdrawn (or that found no turn) is taken back: still reports only.
+        // (answered after turn 3 ended, which reported for it: turn 4 does not)
         k.report_only.insert(("c".into(), 4));
-        k.steer_in("c");
-        k.steer_done("c", false);
-        // (the one answered after turn 3 ended still counts once, for turn 4)
-        assert!(!k.end("c", 4));
+        assert!(k.end("c", 4));
+        // A steer withdrawn (or that found no turn) is taken back: still reports only.
         k.report_only.insert(("c".into(), 5));
-        k.steer_in("c");
-        k.steer_done("c", false);
+        let since = k.steer_in("c");
+        k.steer_done("c", false, since);
         assert!(k.end("c", 5));
         // A turn not on reports.
         assert!(!k.end("c", 6));
@@ -845,12 +855,12 @@ mod tests {
         let mut k = TurnKinds::default();
         // A task's steer is counted while turn 1 is the count, then the agent takes it into turn
         // 2, a report turn that started meanwhile: turn 2 did a task, so it reports.
-        k.steer_in("c");
+        let since = k.steer_in("c");
         k.report_only.insert(("c".into(), 2));
         assert!(!k.end("c", 2), "the task's turn was taken for reports only");
         // Answered after that turn ended: the turn it went into already reported, so the next
         // one does not.
-        k.steer_done("c", true);
+        k.steer_done("c", true, since);
         k.report_only.insert(("c".into(), 3));
         assert!(k.end("c", 3));
     }
