@@ -7,9 +7,10 @@ import CmuxNextCompat
 /// shift moves a sample to the next bucket, which log2 edges (2, 4, 8 ms) cannot show: 3.6 and 4.4 ms
 /// count in different buckets.
 ///
-/// The counters are relaxed atomics, all made at init: recording takes no lock,
-/// allocates nothing and reads no clock (the caller passes a duration from stamps it already took).
-/// One writer (the main thread) and any reader; a read while the writer counts may miss that sample.
+/// The counters are relaxed atomics in one fixed allocation (each bucket's word, then the maximum's,
+/// addressed through ``AtomicPointerSlot``, like Chromium's flat `SampleVector` counts): recording takes
+/// no lock, allocates nothing and reads no clock (the caller passes a duration from stamps it already
+/// took). One writer (the main thread) and any reader; a read while the writer counts may miss that sample.
 ///
 /// The watchdog keeps two (``MainThreadWatchdog/turnHistogram``, ``MainThreadWatchdog/inputQueueHistogram``),
 /// served by `debug.hangs` `turn_histogram`.
@@ -37,19 +38,27 @@ public final class MainTurnHistogram: Sendable {
 
     /// Buckets including the underflow and overflow ones.
     public static let bucketCount = edgesNanos.count + 1
+    /// The allocation's words: one per bucket, then the maximum.
+    private static let wordCount = bucketCount + 1
 
-    /// One bucket's counter (an ``Atomic`` cannot sit in an array by value).
-    private final class Counter: Sendable {
-        let value = Atomic<UInt64>(0)
-    }
-
-    /// One counter per bucket, made at init and never resized.
-    private let counters: [Counter]
-    private let maximum = Atomic<UInt64>(0)
+    /// `wordCount` zeroed words, 8-byte aligned; allocated once, never resized.
+    nonisolated(unsafe) private let words: UnsafeMutablePointer<UInt64> // crash-allow: one fixed allocation; every access after init is an atomic operation (AtomicPointerSlot)
 
     public init() {
-        counters = (0..<Self.bucketCount).map { _ in Counter() }
+        words = UnsafeMutablePointer<UInt64>.allocate(capacity: Self.wordCount)
+        words.initialize(repeating: 0, count: Self.wordCount)
     }
+
+    deinit {
+        words.deinitialize(count: Self.wordCount)
+        words.deallocate()
+    }
+
+    @inline(__always)
+    private func slot(_ index: Int) -> AtomicPointerSlot { AtomicPointerSlot(words + index) }
+
+    @inline(__always)
+    private var maximum: AtomicPointerSlot { slot(Self.bucketCount) }
 
     /// The bucket `nanos` counts in: the number of edges at or below it.
     public static func bucket(forNanos nanos: UInt64) -> Int {
@@ -59,7 +68,7 @@ public final class MainTurnHistogram: Sendable {
     /// Counts one sample of `nanos`: two relaxed atomic adds and, for a new maximum, a compare-exchange.
     // perf-hot: 1us frame-tick
     public func record(nanos: UInt64) {
-        counters[checked: Self.bucket(forNanos: nanos)]?.value.add(1, ordering: .relaxed)
+        slot(Self.bucket(forNanos: nanos)).add(1, ordering: .relaxed)
         var seen = maximum.load(ordering: .relaxed)
         while nanos > seen {
             let (exchanged, original) = maximum.compareExchange(expected: seen, desired: nanos, ordering: .relaxed)
@@ -70,13 +79,12 @@ public final class MainTurnHistogram: Sendable {
 
     /// The counts now (allocates; read off the hot path).
     public func snapshot() -> Snapshot {
-        Snapshot(counts: counters.map { $0.value.load(ordering: .relaxed) }, maxNanos: maximum.load(ordering: .relaxed))
+        Snapshot(counts: (0..<Self.bucketCount).map { slot($0).load(ordering: .relaxed) }, maxNanos: maximum.load(ordering: .relaxed))
     }
 
     /// Zeroes every bucket and the maximum (`debug.hangs clear`).
     public func reset() {
-        for counter in counters { counter.value.store(0, ordering: .relaxed) }
-        maximum.store(0, ordering: .relaxed)
+        for index in 0..<Self.wordCount { slot(index).store(0, ordering: .relaxed) }
     }
 
     /// One read of a ``MainTurnHistogram``.
@@ -137,18 +145,20 @@ public final class MainTurnHistogram: Sendable {
 
 /// The main-turn and input-queueing histograms (task p12-perf-process-031): a turn is a run-loop wake to
 /// the end of its before-waiting phase, the heartbeat's own stamps; an input's queueing is its OS event
-/// time to its dispatch (`sendEvent`), the queue part of Chromium's `kQueueAndExecution`
+/// time to its first dispatch (`sendEvent`), the queue part of Chromium's `kQueueAndExecution`
 /// (content/browser/scheduler/responsiveness/calculator.h).
 extension MainThreadWatchdog {
     /// Counts one input's queueing: from `eventTimestamp` (`NSEvent.timestamp`, seconds of
-    /// `CLOCK_UPTIME_RAW`) to the main thread's last run-loop stamp, which AppKit takes when it leaves
-    /// the run loop to dispatch the event: no clock read. An event stamped after that (posted inside
-    /// the turn) counts 0. Main thread; a timestamp of 0 (no OS time) counts nothing.
+    /// `CLOCK_UPTIME_RAW`) to `dispatchedNanos`, the uptime stamp its dispatch took (the turn meter's
+    /// input span begins there), so time spent behind an earlier event's handler counts. An event counts
+    /// once: one no newer than the newest counted (a held key replayed, a chord re-sent) counts nothing.
+    /// Main thread; a timestamp of 0 (no OS time) counts nothing.
     // perf-hot: 1us frame-tick
-    public func noteInputDispatch(eventTimestamp: Double) {
-        guard eventTimestamp > 0, let event = UInt64(exactly: (eventTimestamp * 1_000_000_000).rounded(.down)) else { return }
-        let dispatched = beatNanos.load(ordering: .relaxed)
-        inputQueueHistogram.record(nanos: dispatched > event ? dispatched - event : 0)
+    public func noteInputDispatch(eventTimestamp: Double, dispatchedNanos: UInt64) {
+        guard eventTimestamp > 0, let event = UInt64(exactly: (eventTimestamp * 1_000_000_000).rounded(.down)),
+              event > newestQueuedInputNanos.load(ordering: .relaxed) else { return }
+        newestQueuedInputNanos.store(event, ordering: .relaxed)
+        inputQueueHistogram.record(nanos: dispatchedNanos > event ? dispatchedNanos - event : 0)
     }
 
     /// `debug.hangs` `turn_histogram`: the bucket edges in microseconds, then `main_turn` and

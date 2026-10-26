@@ -1,6 +1,7 @@
 @testable import CmuxNextControl
 import CmuxNextCompat
 import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -108,56 +109,94 @@ import Testing
         #expect(clock.reads == 6)
     }
 
-    /// Queueing is the event's OS time to the last run-loop stamp before its dispatch; no clock is read.
+    /// Queueing is the event's OS time to the stamp its dispatch took (the turn meter's input span),
+    /// not the turn's last run-loop stamp: two keys dispatched in one turn behind a slow handler, and the
+    /// second key's queueing holds the first one's 30 ms of handling. The histogram reads no clock.
     @MainActor
-    @Test func inputQueueingRunsFromTheEventTimeToTheLastStamp() {
+    @Test func inputQueueingRunsFromTheEventTimeToItsDispatchStamp() {
         let clock = CountingUptime()
         let watchdog = MainThreadWatchdog(configuration: .init(threshold: .milliseconds(50), sampleStacks: false, logStalls: false),
                                           uptime: clock.read)
-        let pressed = clock.now
-        clock.advance(by: 6_000_000)
+        let meter = MainTurnMeter(uptimeNanos: clock.read)
+        let first = clock.now
+        clock.advance(by: 1_000_000)
+        let second = clock.now
+        clock.advance(by: 1_000_000)
         watchdog.heartbeat(.afterWaiting)
-        watchdog.heartbeat(.exit) // AppKit leaves the run loop to dispatch the event
+        meter.loopWoke()
+        meter.stampedInputDispatch { dispatched in
+            watchdog.noteInputDispatch(eventTimestamp: Self.seconds(first), dispatchedNanos: dispatched)
+            clock.advance(by: 30_000_000) // a slow handler
+        }
         let readsBefore = clock.reads
-        watchdog.noteInputDispatch(eventTimestamp: Double(pressed) / 1_000_000_000)
-        // Posted inside the turn, after the last stamp: no queueing.
-        watchdog.noteInputDispatch(eventTimestamp: Double(clock.now + 1_000_000) / 1_000_000_000)
-        // No OS time, or not an uptime: nothing counted.
-        watchdog.noteInputDispatch(eventTimestamp: 0)
-        watchdog.noteInputDispatch(eventTimestamp: -1)
-        watchdog.noteInputDispatch(eventTimestamp: .infinity)
-        watchdog.noteInputDispatch(eventTimestamp: .nan)
-        #expect(clock.reads == readsBefore)
+        meter.stampedInputDispatch { dispatched in
+            watchdog.noteInputDispatch(eventTimestamp: Self.seconds(second), dispatchedNanos: dispatched)
+        }
+        #expect(clock.reads == readsBefore + 2, "only the meter's span reads the clock")
         let snapshot = watchdog.inputQueueHistogram.snapshot()
         #expect(snapshot.count == 2)
-        #expect(snapshot.counts[MainTurnHistogram.bucket(forNanos: 6_000_000)] == 1)
-        #expect(snapshot.counts[0] == 1)
+        #expect(snapshot.counts[MainTurnHistogram.bucket(forNanos: 2_000_000)] == 1)
+        #expect(snapshot.counts[MainTurnHistogram.bucket(forNanos: 31_000_000)] == 1)
+        #expect((31_000_000...31_000_001).contains(snapshot.maxNanos), "an OS time in seconds rounds down by under 1 ns")
         #expect(watchdog.turnHistogram.snapshot().count == 0)
     }
 
+    /// An event counts once: a held key replayed or a chord re-sent (the same OS time as a counted
+    /// event, or an older one) adds no sample; a newer event counts, one stamped after its dispatch
+    /// counts 0, and an event with no OS time counts nothing.
+    @Test func aReSentEventCountsOnce() {
+        let watchdog = MainThreadWatchdog(configuration: .init(threshold: .milliseconds(50), sampleStacks: false, logStalls: false))
+        let pressed: UInt64 = 5_000_000_000, typed: UInt64 = 5_010_000_000
+        watchdog.noteInputDispatch(eventTimestamp: Self.seconds(pressed), dispatchedNanos: pressed + 3_000_000)
+        watchdog.noteInputDispatch(eventTimestamp: Self.seconds(typed), dispatchedNanos: typed + 4_000_000)
+        // Replayed after a creation hold of 1.5 s, with their original OS times.
+        watchdog.noteInputDispatch(eventTimestamp: Self.seconds(pressed), dispatchedNanos: pressed + 1_500_000_000)
+        watchdog.noteInputDispatch(eventTimestamp: Self.seconds(typed), dispatchedNanos: typed + 1_500_000_000)
+        #expect(watchdog.inputQueueHistogram.snapshot().count == 2)
+        #expect(watchdog.inputQueueHistogram.snapshot().maxNanos == 4_000_000)
+        // A newer event stamped after its dispatch: counted, at 0.
+        watchdog.noteInputDispatch(eventTimestamp: Self.seconds(typed + 2_000_000_000), dispatchedNanos: typed + 1_600_000_000)
+        for invalid in [0, -1, Double.infinity, .nan] {
+            watchdog.noteInputDispatch(eventTimestamp: invalid, dispatchedNanos: typed + 1_700_000_000)
+        }
+        let snapshot = watchdog.inputQueueHistogram.snapshot()
+        #expect(snapshot.count == 3)
+        #expect(snapshot.counts[0] == 1)
+        #expect(snapshot.counts[MainTurnHistogram.bucket(forNanos: 3_000_000)] == 1)
+        #expect(snapshot.counts[MainTurnHistogram.bucket(forNanos: 4_000_000)] == 1)
+    }
+
+    /// `debug.hangs` through the router: `turn_histogram` holds both histograms, and `clear` zeroes both.
     @MainActor
-    @Test func debugHangsFieldsAndClear() {
+    @Test func debugHangsServesTheHistogramsAndClearZeroesThem() async throws {
         let clock = CountingUptime()
         let watchdog = MainThreadWatchdog(configuration: .init(threshold: .milliseconds(50), sampleStacks: false, logStalls: false),
                                           uptime: clock.read)
         watchdog.heartbeat(.afterWaiting)
         clock.advance(by: 2_000_000)
         watchdog.heartbeat(.beforeWaiting)
-        guard case .object(let fields) = watchdog.turnHistogramJSON,
-              case .object(let turn) = fields["main_turn"],
-              case .array(let edges) = fields["edges_us"],
-              case .array(let buckets) = turn["buckets"] else {
-            Issue.record("turn_histogram is not the expected object")
-            return
-        }
-        #expect(edges.count == MainTurnHistogram.edgesNanos.count)
-        #expect(buckets.count == MainTurnHistogram.bucketCount)
-        #expect(turn["count"] == JSONValue.number(1))
-        #expect(turn["max_ms"] == JSONValue.number(2))
-        #expect(fields["input_queueing"] != nil)
-        watchdog.resetTurnHistograms()
-        #expect(watchdog.turnHistogram.snapshot().count == 0)
+        watchdog.noteInputDispatch(eventTimestamp: Self.seconds(clock.now), dispatchedNanos: clock.now + 6_000_000)
+        let router = ControlRouter(identity: testIdentity(), executor: CountingExecutor(), configuration: .init(allowsDebugMethods: true))
+        router.snapshots.publish { $0 = .sample() }
+        router.attach(watchdog: watchdog)
+
+        let reply = try await router.handle(ControlRequest(id: "1", method: "debug.hangs", params: ["clear": true])).get()
+        let histogram = try #require(reply["turn_histogram"])
+        #expect(histogram["edges_us"]?.arrayValue?.count == MainTurnHistogram.edgesNanos.count)
+        #expect(histogram["main_turn"]?["count"] == 1)
+        #expect(histogram["main_turn"]?["max_ms"] == 2)
+        #expect(histogram["main_turn"]?["buckets"]?.arrayValue?.count == MainTurnHistogram.bucketCount)
+        #expect(histogram["input_queueing"]?["count"] == 1)
+        #expect(abs((histogram["input_queueing"]?["max_ms"]?.doubleValue ?? 0) - 6) < 1e-5)
+
+        let cleared = try await router.handle(ControlRequest(id: "2", method: "debug.hangs", params: [:])).get()
+        #expect(cleared["turn_histogram"]?["main_turn"]?["count"] == 0)
+        #expect(cleared["turn_histogram"]?["input_queueing"]?["count"] == 0)
+        #expect(watchdog.turnHistogram.snapshot() == MainTurnHistogram().snapshot())
+        #expect(watchdog.inputQueueHistogram.snapshot() == MainTurnHistogram().snapshot())
     }
+
+    private static func seconds(_ nanos: UInt64) -> Double { Double(nanos) / 1_000_000_000 }
 }
 
 /// An uptime clock (nanoseconds) that moves only when the test moves it and counts its reads.

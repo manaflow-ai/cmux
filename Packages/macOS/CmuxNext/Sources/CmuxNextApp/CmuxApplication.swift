@@ -99,29 +99,29 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
         meter.observe()
     }
 
-    /// Set once by `AppDelegate` when the watchdog starts: each key, click and wheel event's queueing (its OS
-    /// time to this dispatch) goes to the watchdog's input-queueing histogram (`debug.hangs` `turn_histogram`).
+    /// Set once by `AppDelegate` when the watchdog starts: each user key, click and wheel event's queueing
+    /// (its OS time to the turn meter's dispatch stamp) goes to the watchdog's input-queueing histogram
+    /// (`debug.hangs` `turn_histogram`).
     var inputQueueing: MainThreadWatchdog?
 
     // perf-hot: 100ns main-turn (every event's dispatch: the turn meter's input span)
     override func sendEvent(_ event: NSEvent) {
-        if let inputQueueing, Self.measuresQueueing(event.type) { inputQueueing.noteInputDispatch(eventTimestamp: event.timestamp) }
-        guard let turnMeter else { return tapped(event) }
-        turnMeter.inputDispatch { tapped(event) }
+        guard let turnMeter else { return tapped(event, dispatchedNanos: nil) }
+        turnMeter.stampedInputDispatch { tapped(event, dispatchedNanos: $0) }
     }
 
-    private func tapped(_ event: NSEvent) {
+    private func tapped(_ event: NSEvent, dispatchedNanos: UInt64?) {
         // One tap dispatch scope per event: a subscription made in one stage never hears this event.
-        guard let inputTap else { return dispatchInput(event) }
-        inputTap.dispatching { dispatchInput(event) }
+        guard let inputTap else { return dispatchInput(event, dispatchedNanos: dispatchedNanos) }
+        inputTap.dispatching { dispatchInput(event, dispatchedNanos: dispatchedNanos) }
     }
 
-    private func dispatchInput(_ event: NSEvent) {
-        guard let inputDispatch else { return route(event) }
-        inputDispatch.dispatching(event) { route(event) }
+    private func dispatchInput(_ event: NSEvent, dispatchedNanos: UInt64?) {
+        guard let inputDispatch else { return route(event, dispatchedNanos: dispatchedNanos) }
+        inputDispatch.dispatching(event) { route(event, dispatchedNanos: dispatchedNanos) }
     }
 
-    private func route(_ event: NSEvent) {
+    private func route(_ event: NSEvent, dispatchedNanos: UInt64?) {
         if event.type == .keyDown {
             let terminal = (keyWindow ?? event.window)?.firstResponder is TerminalSurfaceView
             keyFrames.begin(target: terminal ? .terminal : .view, eventTimestamp: event.timestamp)
@@ -132,6 +132,9 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
         let previousSynthetic = currentEventIsSynthetic
         currentEventIsSynthetic = !SyntheticInput.isUserInput(event)
         defer { currentEventIsSynthetic = previousSynthetic }
+        if let inputQueueing, let dispatchedNanos, Self.measuresQueueing(event.type, synthetic: currentEventIsSynthetic) {
+            inputQueueing.noteInputDispatch(eventTimestamp: event.timestamp, dispatchedNanos: dispatchedNanos)
+        }
         if let inputTap { BenchSpans.measure("app.inputTap.observe") { inputTap.deliverObserve(event) } }
         // Pending moves and scrolls run before a key or click is handled (Chromium's ShouldFlushQueue).
         frameInput.willDispatch(event.type)
@@ -144,9 +147,11 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
         dispatchScope(event) { dispatch(event) }
     }
 
-    /// The input events whose queueing is measured: Chromium's EventLatency kinds (keys, clicks, wheel).
-    static func measuresQueueing(_ type: NSEvent.EventType) -> Bool {
-        scopesDispatch(type) || type == .keyUp || type == .scrollWheel
+    /// The input events whose queueing is measured: the user's own keys, clicks and wheel (Chromium's
+    /// EventLatency kinds), never the app's synthetic input (`SyntheticInput`). A re-sent event (a held key
+    /// replayed, a chord re-sent) is the watchdog's to skip: it is no newer than the newest it counted.
+    static func measuresQueueing(_ type: NSEvent.EventType, synthetic: Bool) -> Bool {
+        !synthetic && (scopesDispatch(type) || type == .keyUp || type == .scrollWheel)
     }
 
     /// The input events whose dispatch acts in the window they came from (`dispatchScope`).
