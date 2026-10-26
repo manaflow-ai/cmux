@@ -918,14 +918,14 @@ public final class ConversationViewController: UIViewController {
     /// readied; any other row builds its text as before.
     private func bubbleTextPreparation(for message: ConversationMessage) -> (@Sendable () async -> Void)? {
         let width = collectionView.bounds.width
-        guard width > 0, let text = ConversationLiveBubbleText(message: message, meID: store.meID),
+        guard width > 0, let inputs = ConversationBubbleInputs.live(message, meID: store.meID),
               store.translations.presentation(for: message) == nil else { return nil }
         let margin = layoutMargin
         let traits = collectionView.traitCollection
         return {
             await Task.detached(priority: .userInitiated) {
                 traits.performAsCurrent {
-                    let body = MessageCellLayout.attributedBody(text.text, outgoing: text.outgoing, mentions: text.mentions, meID: text.meID, runs: text.runs, links: text.links)
+                    let body = MessageCellLayout.attributedBody(inputs)
                     _ = BubbleTextCache.shared.size(of: body, width: MessageCellLayout.bubbleTextWidth(width: width, margin: margin))
                 }
             }.value
