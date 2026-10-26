@@ -293,6 +293,7 @@ extension PageWebView {
 
     /// Writes the page as WebKit rendered it to `url` as PNG.
     public func debugSnapshot(to url: URL) async -> Bool {
+        if awaitsFirstShow { return false } // nothing drawn yet
         if let page = chromiumSession?.page {
             guard let json = try? await page.devTools("Page.captureScreenshot", params: ["format": "png"]),
                   let object = ChromiumPageHostWire.object(json), let base64 = object["data"] as? String,

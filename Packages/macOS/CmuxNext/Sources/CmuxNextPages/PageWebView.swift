@@ -105,7 +105,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// Where those come from: the app's ``AppearanceSignals`` (its composition root's, once a pane shows the page).
     private(set) var appearanceSignals = DesignSettings.shared.signals
     /// The page's tab in the visibility tree, held while it follows it (``followAppearance(_:node:)``).
-    private var visibilityNode: VisibilityNode?
+    private(set) var visibilityNode: VisibilityNode?
     /// How many appearance changes reached this page (tests: a hidden page gets none).
     package private(set) var appearanceCalls = 0
     public var additionalZoom: Double = 1 {
@@ -182,6 +182,8 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     let claimState = PageClaimState()
     /// The document start a page opened hidden waits with until its first show (PageWebView+FirstShow.swift).
     var firstShowStart: PageFirstShowStart?
+    /// The visibility node a page waiting for its first show follows (PageWebView+FirstShow.swift).
+    var firstShowWatch: PageFirstShowWatch?
     /// The picture and state kept from the page's last hide (PageWebView+Snapshot.swift).
     let hideState = PageHideState()
     #if DEBUG || CMUX_BENCH_HOOKS
@@ -308,7 +310,8 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         inputReadiness.attach(webView)
         let webKitBridge = WebKitPageHostBridge(webView: webView)
         bridge = webKitBridge
-        let target = PageScriptTarget(webKitBridge)
+        // A page that starts at its first show sends no script until then (``PageScriptTarget/hasDocument``).
+        let target = PageScriptTarget(webKitBridge, hasDocument: !(load && startsAtFirstShow))
         scriptTarget = target
         scripts = PageScriptPipeline { script in target.evaluate(script) }
         let decision = Self.engineDecision(for: descriptor, options: options, hosting: chromium)
@@ -384,8 +387,8 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         installDocumentStartTheme()
         guard load else { return }
         let start = PageFirstShowStart(chromium: chromium, requested: constructionStart)
-        // A view is in no window while it is made: one opened to show waits only for its pane's
-        // attach in this turn; one opened hidden makes no renderer until it shows.
+        // A view is in no window while it is made: one opened to show starts at its pane's attach
+        // in this turn; one opened hidden makes no renderer until it shows.
         if startsAtFirstShow { firstShowStart = start } else { startDocument(start) }
     }
 
@@ -434,6 +437,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         visibilityNode = node
         observeAppearance()
         applyTheme()
+        checkFirstShow() // the tab's node now says whether the page shows
     }
 
     /// Reduce Motion, the master motion switch, a category switch or the speed (`data-cmux-motion`),
@@ -595,6 +599,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         // Its tab or window closed: the page's popup ends with it.
         if window == nil { popupHost?.dismiss() }
         setEngineVisible(window != nil && !isHiddenOrHasHiddenAncestor)
+        checkFirstShow()
         applyTheme()
         windowDidChangeChrome()
         if shouldFocusOnAttach, window != nil {
@@ -613,6 +618,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public override func viewDidUnhide() {
         super.viewDidUnhide()
         setEngineVisible(window != nil)
+        checkFirstShow()
     }
 
     public override func viewDidChangeEffectiveAppearance() {
@@ -623,6 +629,8 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public override func viewDidMoveToSuperview() {
         super.viewDidMoveToSuperview()
         themeFollower.rebind()
+        // A move between containers of one window calls no window or unhide callback.
+        checkFirstShow()
     }
 
     func applyTheme(force: Bool = false) {

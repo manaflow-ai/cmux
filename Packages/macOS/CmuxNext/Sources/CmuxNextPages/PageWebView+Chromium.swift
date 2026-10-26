@@ -61,10 +61,8 @@ extension PageWebView {
         scriptTarget.evaluate(script)
     }
 
-    /// Tells a Chromium page whether it shows (a hidden one stops drawing), and the census; a page
-    /// opened hidden starts its document at the first show (PageWebView+FirstShow.swift).
+    /// Tells a Chromium page whether it shows (a hidden one stops drawing), and the census.
     func setEngineVisible(_ visible: Bool) {
-        if visible { startAtFirstShow() }
         chromiumSession?.page.setVisible(visible)
         #if DEBUG || CMUX_BENCH_HOOKS
         noteCensusVisibility(visible)
@@ -310,6 +308,7 @@ extension PageWebView {
     ///   - arguments: Named JSON-compatible values (`NSNull` for null).
     /// - Returns: The returned value as Foundation JSON (`String`, `NSNumber`, arrays, dictionaries).
     public func callPageFunction(_ body: String, arguments: [String: Any] = [:]) async -> Any? {
+        guard !awaitsFirstShow else { return nil } // no document yet; WebKit would launch its process for it
         guard let page = chromiumSession?.page else {
             return try? await webView.callAsyncJavaScript(body, arguments: arguments, contentWorld: .page)
         }

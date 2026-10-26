@@ -6,6 +6,7 @@ extension PageWebView {
     public func close() {
         _ = claimState.end()
         firstShowStart = nil // a page closed before it showed never starts
+        firstShowWatch = nil
         router.close()
         bridge.uninstall()
         endChromium()
