@@ -63,7 +63,8 @@ impl Work {
 
 /// Where a verdict of [`place`] put the work, in the words `new --host auto`
 /// prints and the sub-session tool returns: `placed on NAME: 31 GB RAM free,
-/// ...`. `None`: no host has room.
+/// ...`. When no host had room the pick takes it anyway and the line says so
+/// (`overloaded`). `None`: no host's role takes the work.
 pub fn placed(verdict: &Value) -> Option<String> {
     verdict.get("pick")?.as_str()?;
     Some(format!("placed on {}", verdict.get("why").and_then(Value::as_str).unwrap_or_default()))

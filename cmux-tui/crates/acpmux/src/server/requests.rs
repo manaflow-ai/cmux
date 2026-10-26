@@ -474,8 +474,15 @@ async fn dispatch_brief(
         .pointer("/host_pressure/warning")
         .and_then(Value::as_str)
         .map(str::to_owned);
+    // Another host only when it has room: an overloaded pick is no better a place (`placement.rs`).
     let suggestion = match &pressure {
-        Some(_) => auto_host(hub, &brief).await.ok().flatten(),
+        Some(_) => {
+            let v = super::place::pick(hub, super::place::brief_work(&brief)).await;
+            let flag = |k: &str| v.get(k).and_then(Value::as_bool) == Some(true);
+            (!flag("overloaded") && !flag("local"))
+                .then(|| v.get("pick").and_then(Value::as_str).map(str::to_owned))
+                .flatten()
+        }
         None => None,
     }
     .filter(|host| row.get("host").and_then(Value::as_str) != Some(host));
