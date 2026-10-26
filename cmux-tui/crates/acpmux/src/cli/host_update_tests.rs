@@ -621,6 +621,15 @@ fn keep_newer_leaves_a_later_or_own_build_and_updates_an_older_one() {
     assert_eq!((up.outcome, up.reason.as_deref()), (Outcome::Current, Some("ownBuild")), "{up:?}");
     peer.assert_untouched(&fake_acpmux(OLD, Some(OLD)), "fedcba987+dirty.0badf00d 2026-10-01");
 
+    // Someone's own build is kept also when the pushed binary names no
+    // build (a source-archive build stamped `nogit`).
+    let peer = FakePeer::new("keep-own-unnamed");
+    peer.write("daemon", "fedcba987+dirty.0badf00d 2026-10-01");
+    peer.offer("nogit 2026-10-26", Some("nogit 2026-10-26"));
+    let up = peer.update_with(false, true);
+    assert_eq!((up.outcome, up.reason.as_deref()), (Outcome::Current, Some("ownBuild")), "{up:?}");
+    peer.assert_untouched(&fake_acpmux(OLD, Some(OLD)), "fedcba987+dirty.0badf00d 2026-10-01");
+
     // An older build is still updated.
     let peer = FakePeer::new("keep-older");
     peer.offer(NEW, Some(NEW));
