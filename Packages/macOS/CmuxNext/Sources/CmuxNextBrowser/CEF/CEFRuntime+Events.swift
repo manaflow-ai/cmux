@@ -171,18 +171,23 @@ extension CEFRuntime {
         }
     }
 
-    /// App content shortcuts first (through the host's key router, which
-    /// also runs extension shortcuts), then, for Option chords the router
-    /// does not see, the profile's extension shortcuts (`chrome.commands`),
-    /// which Chromium would dispatch from the Chromium toolbar cmux hides.
-    func routeKey(_ event: NSEvent, browser: Int32) -> Bool {
-        guard event.type == .keyDown, let tab = tabsByBrowser[browser] else { return false }
-        if !event.modifierFlags.isDisjoint(with: [.command, .control]), let router = tab.keyRouter,
+    /// Chromium's pre-key hook. A key without Command, Control or Option is the page's, and a key
+    /// the host's dispatcher decided in `sendEvent` goes to the page at once: neither resolves a
+    /// binding here (Chrome decides a browser shortcut once, in
+    /// `BrowserView::PreHandleKeyboardEvent`, chrome/browser/ui/views/frame/browser_view.cc). A
+    /// key that never passed `sendEvent` runs the host's dispatcher (which also runs extension
+    /// shortcuts), then, for Option chords the dispatcher does not see, the profile's extension
+    /// shortcuts (`chrome.commands`), which Chromium would dispatch from the toolbar cmux hides.
+    func routeKey(_ event: NSEvent, browser: Int32) -> Bool { // perf-hot: 0.5ms key-dispatch (every key-down a Chromium page gets)
+        guard event.type == .keyDown, !event.modifierFlags.isDisjoint(with: [.command, .control, .option]),
+              let tab = tabsByBrowser[browser] else { return false }
+        let router = tab.keyRouter
+        if router?.hasDecided(event) == true { return false }
+        if !event.modifierFlags.isDisjoint(with: [.command, .control]), let router,
            router.browserTab(tab, keyEquivalent: event) == .handledByHost {
             return true
         }
-        guard !event.modifierFlags.isDisjoint(with: [.command, .control, .option]),
-              tab.keyRouter?.pageOwnsAllKeys(tab) != true else { return false }
+        guard router?.pageOwnsAllKeys(tab) != true else { return false }
         let store = extensionStores.readyStore(for: tab.profileID)
         guard let command = store.command(matching: event) else { return false }
         return store.run(command, in: tab)

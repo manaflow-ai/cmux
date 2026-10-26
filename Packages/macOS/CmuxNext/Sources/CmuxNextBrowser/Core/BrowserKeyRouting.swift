@@ -12,6 +12,10 @@ public nonisolated enum BrowserKeyDisposition: Hashable, Sendable {
 /// Hook that runs before the page sees a key equivalent, so app shortcuts
 /// win over page handlers. CEF implements it from its pre-key-event handler.
 public protocol BrowserKeyRouting: AnyObject {
+    /// Whether the host's key dispatcher already decided `event` in `sendEvent` (it ran the key's
+    /// action or chose where the key goes), by identity or as a copy of that key. O(1): the
+    /// engine's pre-key hook asks it first and gives a decided key to the page at once.
+    func hasDecided(_ event: NSEvent) -> Bool
     func browserTab(_ tab: any BrowserTab, keyEquivalent event: NSEvent) -> BrowserKeyDisposition
     /// Browser focus mode: the page gets every key, extension shortcuts included.
     func pageOwnsAllKeys(_ tab: any BrowserTab) -> Bool

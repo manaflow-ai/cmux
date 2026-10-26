@@ -175,6 +175,9 @@ extension KeyRouter {
         window(showing: tab)?.focus.state.isBrowserFocusModeActive ?? false
     }
 
+    /// Asked first by Chromium's pre-key hook (`CEFRuntime.routeKey`): a decided key, or Chromium's copy of it, resolves nothing.
+    func hasDecided(_ event: NSEvent) -> Bool { decided.contains(event) }
+
     /// Chromium's pre-key hook (`CEFTab.keyRouter`): a key the dispatcher
     /// decided in `sendEvent` goes to the page; a key that reached Chromium
     /// without passing `sendEvent` runs the whole dispatcher here, in the
