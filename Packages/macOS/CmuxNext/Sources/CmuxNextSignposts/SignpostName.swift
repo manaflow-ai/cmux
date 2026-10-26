@@ -16,8 +16,8 @@
 /// ``stallMainTask``, ``stallOverBudget``, ``stallMainTurn`` (the trace ring's), ``stallRenderStarved``,
 /// ``launchStartupTask``, ``launchStartupComplete``, ``launchReadDone``, ``stallPaletteOpen``, ``stallIconPickerOpen``,
 /// ``webuiOpen``, ``webuiScheme``, ``stallCreateSurface``, ``daemonStep``, ``webuiAgentPaneStep``, ``createTab``,
-/// ``createWorkspace``, ``stallGhosttyRuntimePhase``, ``switchWorkspace``, ``switchTab``, ``switchPaneFocus`` and
-/// ``burstEvent`` have an emitter today. The
+/// ``createWorkspace``, ``stallGhosttyRuntimePhase``, ``switchWorkspace``, ``switchTab``, ``switchPaneFocus``,
+/// ``burstEvent`` and ``cefMemoryPressureVote`` have an emitter today. The
 /// other cases are **reserved**: the task and owner named on each add the emitter. Until then no build records them,
 /// and no bench or report may quote them. "Ring" on a reserved case gives its record phases and the
 /// meaning of `arg0` and `arg1` (the ring v1 record, plans/cmux-next/trace.md).
@@ -416,6 +416,14 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// output, else the input event's `CLOCK_UPTIME_RAW` ns (0 without one).
     case burstEvent = 81
 
+    // MARK: cef memory pressure (emitter: CmuxNextBrowser `CEFMemoryPressureVote`, task p07-memory-051)
+
+    /// cmux's memory pressure vote into in-process Chromium's aggregator (`cmux_shim_memory_pressure_vote`):
+    /// Chromium's pressure listeners run inside the call, on the main thread, so the interval is their main-thread
+    /// time; the memory coordinator's release slices run on later frames. Message: `level=<0 none|1 moderate|2
+    /// critical>`. Ring: B/E; begin arg0 the level. Once per change of the coordinator's vote.
+    case cefMemoryPressureVote = 82
+
     /// The name `os_signpost` records (a compile-time string, as the API requires).
     public var staticName: StaticString {
         switch self {
@@ -500,6 +508,7 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
         case .webuiAgentPaneStep: "webui.agent_pane_step"
         case .stallGhosttyRuntimePhase: "stall.ghostty_runtime_phase"
         case .burstEvent: "burst.event"
+        case .cefMemoryPressureVote: "cef.memory_pressure_vote"
         }
     }
 }

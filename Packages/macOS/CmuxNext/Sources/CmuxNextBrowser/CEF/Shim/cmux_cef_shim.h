@@ -1056,6 +1056,15 @@ CMUX_SHIM_EXPORT int cmux_shim_page_scheme_add_first_party_dynamic(const char* i
 // Returns 1 when the request was waiting, 0 when it ended or was answered.
 CMUX_SHIM_EXPORT int cmux_shim_page_resource_respond(int token, int status, const char* mime, const void* body,
                                                      size_t length);
+// cmux's vote in Chromium's memory pressure aggregator (fork
+// cmux_memory_pressure_vote, p07-memory-051): one voter next to Chromium's
+// own platform voter (content/browser/browser_main_loop.cc
+// CreateMemoryPressureMonitor); Chromium's listeners get the highest vote.
+// level: 0 none (withdraws cmux's vote), 1 moderate, 2 critical. Chromium's
+// listeners run inside the call. Main thread, after cmux_shim_initialize.
+// Returns 1 when the fork took the vote, 0 when the fork lacks the call,
+// for a level out of range, or once quit began (nothing changes).
+CMUX_SHIM_EXPORT int cmux_shim_memory_pressure_vote(int level);
 
 #ifdef __cplusplus
 }

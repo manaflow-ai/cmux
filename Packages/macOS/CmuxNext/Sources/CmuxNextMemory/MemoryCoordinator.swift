@@ -27,7 +27,9 @@ public import CmuxNextCompat
 ///
 /// The level is the debug override when set (`debug.hibernation.pressure`), else the kernel's level
 /// from ``MemoryPressureEvents`` (read at init, then each change). Nothing here waits or reads on a
-/// schedule: the pressure events and the slicer's frames are its only inputs.
+/// schedule: the pressure events and the slicer's frames are its only inputs. The override is also
+/// its vote in in-process Chromium's pressure aggregator (``pressureVote``, p07-memory-051), which
+/// hears the kernel through Chromium's own platform voter.
 ///
 /// ```swift
 /// let coordinator = MemoryCoordinator(pressure: memoryPressure, mode: .medium, slicer: frameSlicer)
@@ -35,7 +37,7 @@ public import CmuxNextCompat
 ///     name: "preview-images", traits: traits, consumer: cache, registry: coordinator)
 /// ```
 @MainActor
-public final class MemoryCoordinator: MemoryConsumerRegistry {
+public final class MemoryCoordinator: MemoryConsumerRegistry, MemoryPressureVoteSource {
     /// The main-thread time one release slice may take (p07-memory.md section 3.A).
     public nonisolated static let sliceBudget: Duration = .milliseconds(2)
 
@@ -45,12 +47,19 @@ public final class MemoryCoordinator: MemoryConsumerRegistry {
     public private(set) var kernelLevel: MemoryPressureLevel
 
     /// A level that replaces the kernel's until it is set back to nil (`debug.hibernation.pressure`).
+    /// Each change of ``pressureVote`` it makes is told to the vote's observers after the new limits.
     public var pressureOverride: MemoryPressureLevel? {
         didSet {
             guard pressureOverride != oldValue else { return }
             levelInputsDidChange()
+            if pressureVote != (oldValue ?? .normal) { voteHandlers.call(pressureVote) }
         }
     }
+
+    /// The level cmux votes into in-process Chromium's pressure aggregator (``MemoryPressureVoteSource``):
+    /// ``pressureOverride``, or normal (no vote) without one. The kernel's level reaches Chromium
+    /// through Chromium's own platform voter, so it is not part of the vote.
+    public var pressureVote: MemoryPressureLevel { pressureOverride ?? .normal }
 
     /// The `memory.saver` mode. Changing it changes only the limits of consumers that take a mode
     /// share at the current level.
@@ -73,6 +82,7 @@ public final class MemoryCoordinator: MemoryConsumerRegistry {
     private let clock: any Clock<Duration>
     private let sliceDuration: Duration
     private var pressureObservation: MainActorHandlerRegistration<MemoryPressureLevel>?
+    private let voteHandlers = MainActorHandlers<MemoryPressureLevel>()
 
     /// Makes the coordinator and starts following `pressure`, from its current level.
     ///
@@ -133,6 +143,11 @@ public final class MemoryCoordinator: MemoryConsumerRegistry {
             )
         }
         return MemoryReport(level: level, mode: mode, budget: budget, consumers: rows)
+    }
+
+    public func observePressureVote(_ handler: @escaping @MainActor @Sendable (MemoryPressureLevel) -> Void)
+        -> MainActorHandlerRegistration<MemoryPressureLevel> {
+        voteHandlers.add(handler)
     }
 
     public func addMemoryConsumer(_ entry: MemoryConsumerEntry) {

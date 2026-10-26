@@ -207,6 +207,8 @@ final class CEFRuntime {
     var waitDeadlines: AlignedWakeups { AlignedWakeups(queue: wakeUps) }
     /// Chromium's Energy Saver from the start (``CEFEnergySaver/following(_:)``); nil before it and on an older fork.
     private(set) var energySaver: CEFEnergySaver?
+    /// cmux's vote in Chromium's memory pressure aggregator (``followMemoryPressureVotes(_:)``).
+    private(set) lazy var memoryPressureVote = CEFMemoryPressureVote.sending(to: self)
 
     private init() {
         makePumpTimer = CEFInProcessPump.wakeUpQueueTimer
@@ -423,6 +425,7 @@ final class CEFRuntime {
                 // The app's pane host views exist in both modes; helpers, Chromium windows and page windows only in process.
                 observeDisplays()
                 if energySaver == nil { energySaver = CEFEnergySaver.following(self) }
+                memoryPressureVote.chromiumDidStart()
                 if case .inProcess = library {
                     startChildMonitor(); windowGuard.start(); ChromiumPageWindowMain.install()
                     ChromiumPageTextAccessory.install { [weak self] view in self?.showsCmuxPage(in: view.window) ?? false }

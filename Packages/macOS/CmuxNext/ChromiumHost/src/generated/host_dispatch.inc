@@ -174,24 +174,25 @@ enum Op : uint16_t {
   kOpPageSchemeAddFirstParty = 164,
   kOpPageSchemeAddFirstPartyDynamic = 165,
   kOpPageResourceRespond = 166,
-  kOpAddDocumentScript = 167,  // optional
-  kOpAddPageChannel = 168,  // optional
-  kOpTabEvaluate = 169,  // optional
-  kOpTabSetFrozen = 170,  // optional
-  kOpTabSendClick = 171,  // optional
-  kOpTabSetColorScheme = 172,  // optional
-  kOpPageSchemeSetGroup = 173,  // optional
-  kOpTabDiscard = 174,  // optional
+  kOpMemoryPressureVote = 167,
+  kOpAddDocumentScript = 168,  // optional
+  kOpAddPageChannel = 169,  // optional
+  kOpTabEvaluate = 170,  // optional
+  kOpTabSetFrozen = 171,  // optional
+  kOpTabSendClick = 172,  // optional
+  kOpTabSetColorScheme = 173,  // optional
+  kOpPageSchemeSetGroup = 174,  // optional
+  kOpTabDiscard = 175,  // optional
 };
-inline constexpr uint16_t kOpCount = 174;
+inline constexpr uint16_t kOpCount = 175;
 inline constexpr uint16_t kOpEvent = 0x8001;  // host -> cmux: one shim event
 inline constexpr uint16_t kOpReply = 0x8002;  // host -> cmux: an async op's result
 inline constexpr uint16_t kOpMirror = 0x8003;  // host -> cmux: a mirror value
 inline constexpr uint16_t kOpAck = 0x8004;  // host -> cmux: a token's op ran
 inline constexpr int kEventKindCount = 51;
-inline constexpr char kShimAbiID[] = "588fca8016b02a0fa991f93b679b0928e086af927e43015e338195629a536bf8";
+inline constexpr char kShimAbiID[] = "5397af351911fb9d334b7d592cc41a1a9982a6348e0f498314a27aa999c36cd9";
 // Both sides' HELLO carries it: the op ids, classes and wire types of this generation.
-inline constexpr char kWireID[] = "4806cead3339ffcc3f9f4a5b8a4a28c04040f0774e4052824878a111ed9931cc";
+inline constexpr char kWireID[] = "6c7965a449e55d674820e1a3e2e4c6497754a89b890c45d5ee4d7d6ecc2272ce";
 inline constexpr int32_t kMaxRecords = 65536;
 inline constexpr int32_t kMaxOutCapacity = 65536;
 
@@ -1477,6 +1478,14 @@ inline bool DispatchOp(HostContext& ctx, uint16_t op, uint32_t wire_token, TlvRe
       const std::string arg_body = r.Bytes();
       if (!r.ok() || !r.AtEnd()) return false;
       const auto call_result = cmux_shim_page_resource_respond(arg_token, arg_status, arg_mime ? arg_mime->c_str() : nullptr, reinterpret_cast<const void*>(arg_body.data()), static_cast<size_t>(arg_body.size()));
+      (void)call_result;
+      ctx.Ack(wire_token);
+      return true;
+    }
+    case kOpMemoryPressureVote: {
+      const auto arg_level = r.I32();
+      if (!r.ok() || !r.AtEnd()) return false;
+      const auto call_result = cmux_shim_memory_pressure_vote(arg_level);
       (void)call_result;
       ctx.Ack(wire_token);
       return true;
