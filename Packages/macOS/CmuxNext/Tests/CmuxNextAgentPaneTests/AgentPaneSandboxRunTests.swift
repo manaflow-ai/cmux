@@ -191,7 +191,7 @@ struct AgentPaneSandboxRunTests {
         let runs = AgentPaneSandboxRuns()
         let gate = AsyncStream<Void>.makeStream()
         let sent = Task { @MainActor in
-            await runs.run(task: "go", key: "k-1") {
+            _ = await runs.run(task: "go", key: "k-1") {
                 for await _ in gate.stream { break }
                 return AgentPaneReply.success(["receipt": ["status": "succeeded"]])
             }
@@ -216,19 +216,19 @@ struct AgentPaneSandboxRunTests {
         #expect((none["value"] as? [String: Any]) == nil)
         // A reloaded page that waits on a send which is then refused before any Run finds none.
         let waited = AgentPaneSandboxRuns()
-        let gate = AsyncStream<Void>.makeStream()
+        let refusalGate = AsyncStream<Void>.makeStream()
         let refusing = Task { @MainActor in
-            await waited.run(task: "x", key: "k-4") {
-                for await _ in gate.stream { break }
+            _ = await waited.run(task: "x", key: "k-4") {
+                for await _ in refusalGate.stream { break }
                 return AgentPaneReply.failure(code: "run_sandbox_unavailable", message: "x")
             }
         }
         await Task.yield()
-        let waiting = Task { @MainActor in await waited.state(wait: true) }
+        let waiting = Task { @MainActor in (await waited.state(wait: true))["value"] is [String: Any] }
         await Task.yield()
-        gate.continuation.yield()
+        refusalGate.continuation.yield()
         _ = await refusing.value
-        #expect(((await waiting.value)["value"] as? [String: Any]) == nil)
+        #expect(await waiting.value == false)
         let lost = AgentPaneSandboxRuns()
         _ = await lost.run(task: "x", key: "k-3") { AgentPaneReply.failure(code: "timeout", message: "x") }
         #expect(lost.refusal == "sandbox_spent")

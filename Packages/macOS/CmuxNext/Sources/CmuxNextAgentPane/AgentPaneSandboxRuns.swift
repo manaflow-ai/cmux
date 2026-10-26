@@ -6,7 +6,7 @@ public import Foundation
 @MainActor
 public final class AgentPaneSandboxRuns {
     /// The send in flight: its task and the work the App runs.
-    private var running: (task: String, key: String, work: Task<[String: Any], Never>)?
+    private var running: (task: String, key: String, work: Task<Reply, Never>)?
     /// The last finished send: its task, its key (the page's attempt id) and the page's reply
     /// (`AgentPaneReply.sandbox`).
     private var last: (task: String, key: String, reply: [String: Any])?
@@ -14,6 +14,12 @@ public final class AgentPaneSandboxRuns {
     public init() {}
 
     public var isRunning: Bool { running != nil }
+
+    /// A send's reply as its task's result: main-actor bound, so it may cross the task's end.
+    @MainActor final class Reply {
+        let value: [String: Any]
+        init(_ value: [String: Any]) { self.value = value }
+    }
 
     /// The refusals that come before the server could create a Run (the page's `sandboxRetryable`):
     /// after one of these the tab may send again.
@@ -41,9 +47,9 @@ public final class AgentPaneSandboxRuns {
     /// Runs `work` as this pane's one send and answers its reply.
     func run(task: String, key: String, _ work: @escaping @MainActor () async -> [String: Any]) async -> [String: Any] {
         // task-owner: the pane's one Sandboxed send; it ends when the App's runner answers (bounded there)
-        let job = Task { @MainActor in await work() }
+        let job = Task { @MainActor in Reply(await work()) }
         running = (task, key, job)
-        let reply = await job.value
+        let reply = await job.value.value
         running = nil
         last = (task, key, reply)
         return reply
@@ -55,7 +61,7 @@ public final class AgentPaneSandboxRuns {
     func state(wait: Bool) async -> [String: Any] {
         if let running {
             guard wait else { return AgentPaneReply.success(["task": running.task, "key": running.key, "running": true]) }
-            let reply = await running.work.value
+            let reply = await running.work.value.value
             guard !Self.isDefiniteRefusal(reply) else { return AgentPaneReply.success() }
             return AgentPaneReply.success(["task": running.task, "key": running.key, "reply": reply])
         }

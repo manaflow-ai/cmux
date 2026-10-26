@@ -196,6 +196,17 @@ struct CloudAPIClientRunTests {
         #expect(await page(.notSignedIn) == "not_signed_in")
     }
 
+    @Test func aCancelledCallerStartsNoRun() async throws {
+        SandboxAPI.createKeys = []
+        let api = sandboxAPI()
+        let call = Task {
+            withUnsafeCurrentTask { $0?.cancel() }
+            _ = try await api.runSandbox(task: "hi", timeoutMs: 60_000, idempotencyKey: "cancelled")
+        }
+        await #expect(throws: CancellationError.self) { try await call.value }
+        #expect(SandboxAPI.createKeys.isEmpty)
+    }
+
     nonisolated final class LockedCounter: @unchecked Sendable {
         private let lock = NSLock()
         private var count = 0

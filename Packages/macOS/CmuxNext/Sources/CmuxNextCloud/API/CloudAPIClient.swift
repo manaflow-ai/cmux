@@ -506,6 +506,8 @@ nonisolated final class SandboxDeadline<T: Sendable>: Sendable {
     private struct State {
         var continuation: CheckedContinuation<T, any Error>?
         var cancels: [@Sendable () -> Void] = []
+        /// The caller was cancelled, possibly before the continuation was registered: no work starts.
+        var cancelled = false
     }
     private let state = Mutex(State())
 
@@ -513,7 +515,12 @@ nonisolated final class SandboxDeadline<T: Sendable>: Sendable {
         let gate = SandboxDeadline<T>()
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
-                gate.state.withLock { $0.continuation = continuation }
+                let cancelled = gate.state.withLock { state -> Bool in
+                    if !state.cancelled { state.continuation = continuation }
+                    return state.cancelled
+                }
+                // Cancelled first: answered now, and no Run is created.
+                guard !cancelled else { return continuation.resume(throwing: CancellationError()) }
                 // concurrency-allow: the race answers at the bound without awaiting this task; it is cancelled then.
                 let job = Task { do { gate.finish(.success(try await work())) } catch { gate.finish(.failure(error)) } }
                 // concurrency-allow: one-shot timer, cancelled when the work answers first.
@@ -525,6 +532,7 @@ nonisolated final class SandboxDeadline<T: Sendable>: Sendable {
                 gate.onFinish { job.cancel(); timer.cancel() }
             }
         } onCancel: {
+            gate.state.withLock { $0.cancelled = true }
             gate.finish(.failure(CancellationError()))
         }
     }
