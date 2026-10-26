@@ -15,8 +15,8 @@ import Testing
 /// while the page is hidden, so the follower runs whether or not the page shows.
 @MainActor @Suite struct SettingsPageStreamFlushTests {
     @Test func aStateStreamSendsTheNewestChangeOncePerFrame() async throws {
-        let rig = StreamFrames()
-        let lists = HostLists()
+        let rig = PageFrameRig()
+        let lists = StreamHostLists()
         let directory = FileManager.default.temporaryDirectory.appending(path: "cn-settings-stream-\(UUID().uuidString)")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: directory) }
@@ -26,7 +26,7 @@ import Testing
                                           managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
         await settings.reload()
         let page = SettingsPageProvider(settings: settings, hostLists: { lists.value }, on: rig.work)
-        let received = ReceivedEvents()
+        let received = StreamEvents()
         let subscription = try await page.subscribe("cmux.settings.host.changed", filter: [:], context: PageCallContext(page: "cmux.test"),
                                                     onEvent: { received.events.append($0) })
         defer { subscription.cancel() }
@@ -53,47 +53,61 @@ import Testing
     }
 }
 
+extension SettingsPageStreamFlushTests {
+    /// Rule 9, automation case: the stream's flush is budgeted visible work, so a pending key goes
+    /// first and the event waits one frame, never two.
+    @Test func aStreamFlushYieldsToPendingInputForOneFrame() async throws {
+        let (frames, lists, received, subscription) = try await Self.hostStream()
+        defer { subscription.cancel() }
+        lists.value = ["hosts": ["a"]]
+        frames.inputPending = true
+        frames.frame()
+        #expect(received.events.isEmpty, "the flush ran ahead of the person's pending key")
+        frames.frame()
+        #expect(received.events == [["hosts": ["a"]]], "held one frame, never two")
+    }
+
+    /// Rule 9, person case: a change the person's own input caused is sent in the input-response
+    /// pass, before the commit and before any frame, even while their next keys are pending.
+    @Test func aPersonsChangeIsSentInTheInputResponsePass() async throws {
+        let (frames, lists, received, subscription) = try await Self.hostStream()
+        defer { subscription.cancel() }
+        frames.inputPending = true
+        frames.work.causes.withCause(.person) { lists.value = ["hosts": ["mine"]] }
+        #expect(frames.work.causes.flushPersonCaused() == 1)
+        #expect(received.events == [["hosts": ["mine"]]], "the person's change waited for a frame")
+        frames.frame()
+        frames.frame()
+        #expect(received.events.count == 1, "the pass flushed it: no second event")
+    }
+
+    /// A host-lists stream on a frame rig, past its first frame.
+    private static func hostStream() async throws -> (PageFrameRig, StreamHostLists, StreamEvents, PageSubscription) {
+        let frames = PageFrameRig()
+        let lists = StreamHostLists()
+        let directory = FileManager.default.temporaryDirectory.appending(path: "cn-settings-stream-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let url = directory.appending(path: "cmux.json")
+        try Data("{}".utf8).write(to: url)
+        let settings = SettingsController(registry: ActionRegistry(catalog: []), design: DesignSettings(), fileURL: url,
+                                          managedReader: FixedManagedPreferenceReader(ManagedPreferences()), managedWatchFiles: [])
+        await settings.reload()
+        let page = SettingsPageProvider(settings: settings, hostLists: { lists.value }, on: frames.work)
+        let received = StreamEvents()
+        let subscription = try await page.subscribe("cmux.settings.host.changed", filter: [:], context: PageCallContext(page: "cmux.test"),
+                                                    onEvent: { received.events.append($0) })
+        frames.frame()
+        return (frames, lists, received, subscription)
+    }
+}
+
 @Observable @MainActor
-private final class HostLists {
+final class StreamHostLists {
     var value: JSONValue = ["hosts": []]
 }
 
 @MainActor
-private final class ReceivedEvents {
+final class StreamEvents {
     var events: [JSONValue] = []
-}
-
-/// The app's scheduler with a display link the test fires: a posted flush waits for ``frame()``.
-@MainActor
-private final class StreamFrames {
-    let work: MainWorkScheduler
-    private let uptime: StreamUptime
-    private let keeper: FrameClient
-    private var timestamp: Double = 0
-
-    init() {
-        let uptime = StreamUptime()
-        self.uptime = uptime
-        work = MainWorkScheduler.testing(budget: MainFrameBudget(uptimeNanos: uptime.read), ledger: WakeupLedger()) { _ in StreamLink() }
-        keeper = FrameClient(owner: "test.keeper", isAnimation: false, on: work.frames) { _ in true }
-        keeper.activate()
-    }
-
-    func frame() {
-        uptime.now += 17_000_000
-        timestamp += 1
-        work.frameDidFire(timestamp: timestamp, refreshInterval: 1.0 / 60)
-    }
-}
-
-@MainActor
-private final class StreamUptime {
-    var now: UInt64 = 1_000_000_000
-    // Strong: the scheduler may read it after the test returned.
-    var read: () -> UInt64 { { [self] in self.now } }
-}
-
-private final class StreamLink: FrameLink {
-    var isPaused = false
-    func invalidate() {}
 }

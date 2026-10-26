@@ -188,6 +188,10 @@ final class InternalPageTabStore {
     /// The provider key of store page tab `id`, nil for any other tab.
     func storeKey(of id: String) -> String? { storeKeys[id] }
 
+    /// The strip id of the tab whose provider key is `key`, as the content cache names it (and its
+    /// visibility node): a store page tab's id, else `key` itself.
+    func stripTab(ofKey key: String) -> String { storeKeys.first { $0.value == key }?.key ?? key }
+
     /// `key`'s view with its content made: an app-only page tab's, or a store page tab's by its id.
     /// Nil for a tab that has not shown yet (its content waits, ``tabView(for:)``).
     func existingView(_ key: String) -> InternalPageView? {

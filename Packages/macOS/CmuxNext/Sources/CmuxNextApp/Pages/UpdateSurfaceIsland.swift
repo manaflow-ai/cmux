@@ -35,7 +35,9 @@ final class UpdateSurfaceIsland: SidebarSurfaceIsland {
     let provider: UpdateSurfaceProvider
 
     init(kind: SidebarUpdateSurfaceKind, services: AppServices?) {
-        let provider = UpdateSurfaceProvider(kind: kind, services: services)
+        // No services (no app): no page subscribes, so a scheduler of its own does nothing.
+        let provider = UpdateSurfaceProvider(kind: kind, services: services,
+                                             mainWork: services?.mainWork ?? MainWorkScheduler(budget: MainFrameBudget()))
         self.provider = provider
         view = services.flatMap { PageFactory(services: $0).updateSurfacePage(kind: kind, provider: provider) } ?? NSView()
         provider.onHeight = { [weak self] height in self?.setHeight(height) }
@@ -67,6 +69,9 @@ final class UpdateSurfaceIsland: SidebarSurfaceIsland {
 final class UpdateSurfaceProvider: PageProvider {
     let kind: SidebarUpdateSurfaceKind
     private weak var services: AppServices?
+    /// The app's main-thread scheduler, held strongly: the changes stream flushes on it even after
+    /// `services` is gone.
+    private let mainWork: MainWorkScheduler
     var onHeight: ((CGFloat) -> Void)?
     /// The page ran an action (the popover closes).
     var onAction: (() -> Void)?
@@ -74,9 +79,11 @@ final class UpdateSurfaceProvider: PageProvider {
     /// card-dismiss path; the provider never dismisses on its own.
     var onDismiss: (() -> Void)?
 
-    init(kind: SidebarUpdateSurfaceKind, services: AppServices?) {
+    /// - Parameter mainWork: The app's main-thread scheduler (`AppServices.mainWork`).
+    init(kind: SidebarUpdateSurfaceKind, services: AppServices?, mainWork: MainWorkScheduler) {
         self.kind = kind
         self.services = services
+        self.mainWork = mainWork
     }
 
     private var highlights: UpdateHighlights? {
@@ -116,7 +123,7 @@ final class UpdateSurfaceProvider: PageProvider {
     func subscribe(_ stream: String, filter: JSONValue, context: PageCallContext,
                    onEvent: @escaping @MainActor (JSONValue) -> Void) async throws -> PageSubscription {
         guard stream == "cmux.changelog.surface.changes" else { throw PageError.unknownOp(stream) }
-        guard let mainWork = services?.mainWork else { throw PageError.closed }
+        let mainWork = mainWork
         // The page's router holds events while the page is hidden: a service observation, one flush per
         // frame. The stream starts with the current highlights, sent in a posted task after the subscribe
         // returned; the value applied inside `init` is that one.

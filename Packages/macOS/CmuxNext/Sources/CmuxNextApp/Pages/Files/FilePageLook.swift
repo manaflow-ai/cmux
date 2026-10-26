@@ -20,9 +20,12 @@ final class FilePageLook {
     private var listeners: [UUID: @MainActor (JSONValue) -> Void] = [:]
     private var themeCSS = ""
     private var themeWatcher: ConfigFileWatcher?
-    private var themeRead: Task<Void, Never>?
+    /// Bumped by every theme read and by ``stop()``: an older read's reply applies nothing.
+    private var themeGeneration = 0
     private var settingsWatch: ServiceObservation<LookSettings>?
     private let mainWork: MainWorkScheduler
+    /// The app's lanes: the theme and import reads run on their files lane.
+    private let work: BackgroundWork
     private var languageFeed: DiffLanguageFeed?
     private var stopLanguages: (() -> Void)?
     private var languages: JSONValue?
@@ -36,15 +39,18 @@ final class FilePageLook {
     private(set) var importedFrom: ImportableEditor?
     private var importChoice: EditorImportChoice?
     private var importWatchers: [ConfigFileWatcher] = []
-    private var importRead: Task<Void, Never>?
+    /// Bumped by every import read and by ``stop()``: an older read's reply applies nothing.
+    private var importGeneration = 0
 
     /// `configDirectory`: where `<section>/theme.css` lives; nil uses the settings file's folder.
     /// `importSources`: where the code editor reads another editor's settings (the home folder).
-    /// `mainWork`: the app's main-thread scheduler (`AppServices.mainWork`).
+    /// `mainWork`: the app's main-thread scheduler (`AppServices.mainWork`); `work`: the app's lanes
+    /// (`AppServices.work`), where the theme and import files are read.
     init(kind: FilePageKind, settings: @escaping () -> SettingsController?, configDirectory: URL? = nil,
          importSources: EditorSettingsSources = EditorSettingsSources(home: FileManager.default.homeDirectoryForCurrentUser),
-         mainWork: MainWorkScheduler) {
+         mainWork: MainWorkScheduler, work: BackgroundWork) {
         self.mainWork = mainWork
+        self.work = work
         self.kind = kind
         self.settings = settings
         fixedConfigDirectory = configDirectory
@@ -159,44 +165,35 @@ final class FilePageLook {
         readImport()
     }
 
+    /// Reads the chosen editor's settings on the files lane; the newest read's reply applies them.
     private func readImport() {
         guard let choice = importChoice else { return }
-        importRead?.cancel()
-        let sources = importSources
-        // main-hop-allow: the load is @concurrent (off main); this task resumes on main once to apply it, and the next read cancels it
-        importRead = Task { [weak self] in
-            let found = await Self.load(sources, choice)
-            guard let self, !Task.isCancelled else { return }
-            self.importedFrom = found?.editor
-            let section = found?.section ?? .object([:])
-            guard section != self.imported else { return }
-            self.imported = section
-            self.publish()
-        }
-    }
-
-    @concurrent private static func load(_ sources: EditorSettingsSources, _ choice: EditorImportChoice) async -> EditorSettingsSources.Found? {
-        // concurrency-allow: @concurrent, off the main actor
-        sources.load(choice)
+        importGeneration += 1
+        let generation = importGeneration, sources = importSources
+        work.run(.userVisible, mayBlock: .files) { sources.load(choice) }
+            .reply(on: mainWork, class: .visible, owner: "file-look.import") { [weak self] found in
+                guard let self, self.importGeneration == generation else { return }
+                self.importedFrom = found?.editor
+                let section = found?.section ?? .object([:])
+                guard section != self.imported else { return }
+                self.imported = section
+                self.publish()
+            }
     }
 
     /// The defaults taken from another editor now (the Import Settings action copies them).
     var importedSection: JSONValue { imported }
 
+    /// Reads `file` (the page's theme.css) on the files lane; the newest read's reply applies it.
     private func readTheme(_ file: URL) {
-        themeRead?.cancel()
-        // main-hop-allow: the read is @concurrent (off main); this task resumes on main once to apply it, and the next read cancels it
-        themeRead = Task { [weak self] in
-            let text = await Self.read(file)
-            guard let self, !Task.isCancelled, text != self.themeCSS else { return }
-            self.themeCSS = text
-            self.publish()
-        }
-    }
-
-    @concurrent private static func read(_ file: URL) async -> String {
-        // concurrency-allow: @concurrent, off the main actor
-        (try? String(contentsOf: file, encoding: .utf8)) ?? ""
+        themeGeneration += 1
+        let generation = themeGeneration
+        work.run(.userVisible, mayBlock: .files) { (try? String(contentsOf: file, encoding: .utf8)) ?? "" }
+            .reply(on: mainWork, class: .visible, owner: "file-look.theme") { [weak self] text in
+                guard let self, self.themeGeneration == generation, text != self.themeCSS else { return }
+                self.themeCSS = text
+                self.publish()
+            }
     }
 
     /// Sends the keys that changed since the last event.
@@ -216,12 +213,12 @@ final class FilePageLook {
         settingsWatch = nil
         themeWatcher?.stop()
         themeWatcher = nil
-        themeRead?.cancel()
+        themeGeneration += 1
         stopLanguages?()
         stopLanguages = nil
         importWatchers.forEach { $0.stop() }
         importWatchers = []
-        importRead?.cancel()
+        importGeneration += 1
         importChoice = nil
         listeners.removeAll()
     }

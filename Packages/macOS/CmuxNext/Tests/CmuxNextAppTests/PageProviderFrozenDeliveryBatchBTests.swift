@@ -94,7 +94,7 @@ import Testing
     }
 
     @Test func updateSurfaceChangesKeepTheNewest() async throws {
-        let page = UpdateSurfaceProvider(kind: .updated, services: nil)
+        let page = UpdateSurfaceProvider(kind: .updated, services: nil, mainWork: linklessMainWork())
         let changes = try await Self.subscribe(page, "cmux.changelog.surface.changes")
         defer { changes.cancel() }
         #expect(changes.frozenDelivery == .latest)

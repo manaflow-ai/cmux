@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextBrowser
 import CmuxNextDiff
+import CmuxNextPages
 import CmuxNextPalette
 import typealias CmuxNextDaemon.SurfaceID
 
@@ -19,6 +20,8 @@ final class ViewerService {
     /// The diff open a picker choice started (one at a time; the next
     /// choice cancels it).
     private(set) var diffOpen: Task<Void, Never>?
+    /// The picker opens' replies (a refusal): no tab exists yet, so each is one visible task.
+    private lazy var replies = PageTabReplies(owner: "viewers.diff-open", on: owner.mainWork) { _ in nil }
     private weak var services: AppServices?
     /// The owner of the page services below (the app's services outlive the viewers).
     // crash-allow: AppServices owns this ViewerService for the app's whole life, so it outlives it.
@@ -88,14 +91,14 @@ final class ViewerService {
             // One diff open at a time: a newer choice cancels the one before.
             self.diffOpen?.cancel()
             let created = beside?()
-            // main-hop-allow: openDiff is main-actor async (the provider and the pane); a refusal shows in its reply's job
-            self.diffOpen = Task { @MainActor [weak self, weak pane] in
-                guard let self, let pane else { return }
-                do { try await self.openDiff(folder.path, in: pane, focus: created == nil, created: created) } catch {
-                    if !Task.isCancelled { self.showRefusal(Self.reason(error)) }
-                }
-                // A cancelled open leaves the handle to the one that replaced it.
-                if !Task.isCancelled { self.diffOpen = nil }
+            let path = folder.path
+            // The open, then its refusal as a reply; a cancelled open shows nothing.
+            self.diffOpen = self.replies.reply(for: nil) { [weak self, weak pane] () -> (any Error)? in
+                guard let self, let pane else { return nil }
+                do { try await self.openDiff(path, in: pane, focus: created == nil, created: created) } catch { return error }
+                return nil
+            } apply: { [weak self] error in
+                if let error { self?.showRefusal(Self.reason(error)) }
             }
         }
     }

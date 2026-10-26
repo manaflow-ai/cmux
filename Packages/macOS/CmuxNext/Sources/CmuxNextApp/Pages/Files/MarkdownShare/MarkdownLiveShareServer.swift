@@ -30,23 +30,20 @@ final class MarkdownLiveShareServer {
     private var tokens: [String: String] = [:]
     private var connections: [ObjectIdentifier: NWConnection] = [:]
     private let renderer = MarkdownHTMLRenderer()
-    private let clock: any Clock<Duration>
     /// The blocking-work lanes a page request's file read runs on.
     private let work: BackgroundWork
-    /// The app's main-thread scheduler: a shared file's change reaches main on it.
-    private let mainWork: MainWorkScheduler
+    /// The app's deadline scheduler: a shared file's change watch debounces on it.
+    private let deadlines: MainDeadlineScheduler
 
     /// Largest request head accepted; a longer one is dropped.
     static let headLimit = 16 * 1024
 
     /// - Parameters:
     ///   - work: the process's one set of blocking-work lanes (`AppServices.work`); a test passes its own.
-    ///   - mainWork: the app's main-thread scheduler (`AppServices.mainWork`); a test's own by default.
-    init(clock: any Clock<Duration> = ContinuousClock(), work: BackgroundWork,
-         mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget())) {
-        self.clock = clock
+    ///   - deadlines: the app's deadline scheduler (`AppServices.mainDeadlines`); a test's own by default.
+    init(work: BackgroundWork, deadlines: MainDeadlineScheduler = MainDeadlineScheduler(work: MainWorkScheduler(budget: MainFrameBudget()))) {
         self.work = work
-        self.mainWork = mainWork
+        self.deadlines = deadlines
     }
 
     /// The live link of `file`: the same link for the same file while the server runs.
@@ -209,7 +206,7 @@ final class MarkdownLiveShareServer {
     // MARK: Changes
 
     private func watch(_ file: URL, token: String) -> FileChangeWatch {
-        let watch = FileChangeWatch(url: file, inWorkspace: { true }, clock: clock, mainWork: mainWork) { [weak self] _ in
+        let watch = FileChangeWatch(url: file, inWorkspace: { true }, deadlines: deadlines, work: work) { [weak self] _ in
             self?.changed(token)
         }
         watch.start()

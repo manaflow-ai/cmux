@@ -65,9 +65,10 @@ struct PageFactory {
     /// ops over the control router (``CodeRouterPageProvider``); before the control socket starts
     /// every call answers `unavailable`. `cmux.app.` runs the page's four account actions.
     func coderouterWebPage() -> PageWebView? {
-        // The page's call reads the router on main as one automation-class task, behind the person's input.
+        // The page's own reads (status, accounts, usage) fill the page the person has open: the router is
+        // read on main as one visible-class task, ahead of agent and CLI work.
         let ops = CodeRouterAppOps(control: { [weak apps = services.apps, mainWork = services.mainWork] method, params throws(AppHostCapabilityError) in
-            guard let router = await mainWork.apply(.automation, owner: "coderouter.control-router", { apps?.controlRouter }) else {
+            guard let router = await mainWork.apply(.visible, owner: "coderouter.control-router", { apps?.controlRouter }) else {
                 throw AppHostCapabilityError(code: "unavailable", message: "cmux is still starting", retryable: true)
             }
             return try await router.appControl(method, params)

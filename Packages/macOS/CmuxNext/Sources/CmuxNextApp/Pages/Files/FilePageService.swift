@@ -57,15 +57,21 @@ final class FilePageService: InternalPageProvider {
     private let tableWidths: (any MarkdownTableWidthStoring)?
     /// Where the markdown tabs keep viewer comments (viewer-comments-DESIGN.md "Comments in the viewer").
     private let comments: (any MarkdownCommentStoring)?
-    private(set) lazy var look = FilePageLook(kind: kind, settings: { [weak services] in services?.settings }, mainWork: services.mainWork)
+    private(set) lazy var look = FilePageLook(kind: kind, settings: { [weak services] in services?.settings }, mainWork: services.mainWork,
+                                                work: services.work)
     /// The documents of the R96 quit hook (one per file, shared with the other file page).
     let documents: FileQuitDocuments
     /// Files whose draft is over the store's limit and that already said so.
     var warnedTooLarge: Set<String> = []
     /// Pages saving or reporting their last edits after their tab closed or was discarded.
     var flushing: [UUID: Task<Void, Never>] = [:]
+    /// Replies to the tabs' async calls (a selection read, an open), each on its tab's node queue: held
+    /// while the tab is hidden, dropped when it closes.
+    private(set) lazy var replies = PageTabReplies(owner: "\(kind.namespace).page-reply", on: services.mainWork) { [weak services] key in
+        services.map { $0.cache.node(for: $0.pages.stripTab(ofKey: key)) }
+    }
     /// The local live links of the Markdown Share menu, started on the first link.
-    private(set) lazy var liveShare = MarkdownLiveShareServer(clock: clock, work: services.work, mainWork: services.mainWork)
+    private(set) lazy var liveShare = MarkdownLiveShareServer(work: services.work, deadlines: services.mainDeadlines)
 
     /// The file pages draw at the display's full rate, as the diff and agent pages do.
     static let engineOptions = PageEngineOptions(fullFrameRate: true)
@@ -300,8 +306,8 @@ final class FilePageService: InternalPageProvider {
         let libraries = Bundle.main.resourceURL.map(PageDescriptor.markdownLibraries(inAppResources:))
         if tab.access != nil, tab.recoveredText == nil { tab.recoveredText = unsavedText(of: tab.file) }
         let provider = FilePageProvider(kind: kind, file: tab.file, userChose: tab.userChose, readOnly: tab.readOnly, access: tab.access,
-                                        host: host, clock: clock, libraries: libraries, images: images, tableWidths: tableWidths,
-                                        comments: comments, mainWork: services.mainWork)
+                                        host: host, libraries: libraries, images: images, tableWidths: tableWidths,
+                                        comments: comments, deadlines: services.mainDeadlines, work: services.work)
         provider.recoveredText = tab.recoveredText
         provider.reveal = tab.reveal
         provider.viewState = tab.viewState
@@ -367,11 +373,10 @@ final class FilePageService: InternalPageProvider {
         provider.userChose(file)
         // A tab showing a file keeps its history: the page opens the typed one as the next entry.
         if provider.file != nil, page.send(command: MarkdownPageCommand.open, arguments: ["text": .string(file.path)]) { return }
-        // task-owner: one open of the typed file; ends when the tab shows it or refuses it
-        // main-hop-allow: the provider's open is main-actor async; the reload runs in its reply's job
-        Task {
-            guard (try? await provider.open(url)) != nil else { return NSSound.beep() }
-            page.reload()
+        // The open, then the reload (or the refusal's beep) as a reply on the tab's queue.
+        replies.reply(for: key) { (try? await provider.open(url)) != nil } apply: { [weak page] opened in
+            guard opened else { return NSSound.beep() }
+            page?.reload()
         }
     }
 
@@ -390,6 +395,7 @@ final class FilePageService: InternalPageProvider {
     func tabClosed(_ key: String) {
         guard let tab = tabs[key] else { return }
         tabs[key] = nil
+        replies.close(key)
         letPageGo(tab, key: key, closing: true)
     }
 
@@ -409,7 +415,8 @@ final class FilePageService: InternalPageProvider {
         // answers. Past the timeout the page closes, which fails the pending call. A document no
         // other tab shows then leaves the quit hook; edits that did not save are dropped with it
         // (a close without saving removes the draft). A discarded tab keeps them for its next page.
-        let clock = clock, provider = tab.provider, op = kind.op("flush"), documents = documents, holder = holder(key)
+        let clock = clock, timeout = Self.flushTimeout, provider = tab.provider, op = kind.op("flush"), documents = documents,
+            holder = holder(key)
         // Each closure is assigned on its own: in a `?:` the literals get no @Sendable from the
         // annotation, so they would be non-Sendable values converted afterwards.
         let finish: @MainActor @Sendable () -> Void
@@ -419,12 +426,12 @@ final class FilePageService: InternalPageProvider {
             finish = { [weak self] in self?.settleDiscard(key, file: file) }
         }
         let id = UUID()
-        // task-owner: flushing[id]; it leaves `flushing` once the page answered or timed out and closed
-        // main-hop-allow: the flush awaits the page's main-actor router, then closes the page and the provider in its reply's job
-        flushing[id] = Task { @MainActor [weak self] in
-            // The page's answer or the timeout, whichever comes first (a flexible, no-sooner request deadline):
-            // closing the page then fails a call still pending.
-            _ = await Deadline(Self.flushTimeout, clock: clock).value("files.flush") { try? await page.router.callPage(op, params: .object([:])) }
+        // The page's answer or the timeout, whichever comes first (a flexible, no-sooner request deadline); closing
+        // the page then fails a call still pending. The teardown is a reply with no tab: the tab closed or was
+        // discarded, and its page goes whether or not anything shows. It leaves `flushing` when it ran.
+        flushing[id] = replies.reply(for: nil) {
+            _ = await Deadline(timeout, clock: clock).value("files.flush") { try? await page.router.callPage(op, params: .object([:])) }
+        } apply: { [weak self] _ in
             page.close()
             provider?.close()
             finish()

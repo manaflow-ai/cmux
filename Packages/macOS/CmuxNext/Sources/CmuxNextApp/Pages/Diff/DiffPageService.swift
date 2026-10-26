@@ -69,6 +69,11 @@ final class DiffPageService: InternalPageProvider {
     private(set) var closing: [UUID: Task<Void, Never>] = [:]
     /// The clock of the view state deadline (``viewStateTimeout``).
     let clock: any Clock<Duration>
+    /// Replies to the tabs' async calls (a card's reopen), each on its tab's node queue: held while the
+    /// tab is hidden, dropped when it closes.
+    private lazy var replies = PageTabReplies(owner: "diff.page-reply", on: services.mainWork) { [weak services] key in
+        services.map { $0.cache.node(for: $0.pages.stripTab(ofKey: key)) }
+    }
 
     init(services: AppServices, runtime: DiffPageRuntime? = nil, recents: DiffRecents? = nil, stores: DiffPageStores? = nil,
          clock: any Clock<Duration> = ContinuousClock()) {
@@ -134,14 +139,14 @@ final class DiffPageService: InternalPageProvider {
         guard let provider = tabs[key]?.provider, let page = tabs[key]?.page else { return }
         let previous = tabs[key]?.reopen
         previous?.cancel()
-        // task-owner: one reopen of this tab's repository, after the one before it; ends when the page reloads or a newer card takes over
-        // main-hop-allow: the provider's open is main-actor async; the reload runs in its reply's job
-        tabs[key]?.reopen = Task {
+        let folder = URL(fileURLWithPath: repository.root, isDirectory: true)
+        // The open runs after the one before it; the reload is its reply on the tab's queue. A newer card cancels it.
+        tabs[key]?.reopen = replies.reply(for: key) {
             await previous?.value
-            guard !Task.isCancelled,
-                  (try? await provider.open(folder: URL(fileURLWithPath: repository.root, isDirectory: true), source: .turn)) != nil,
-                  !Task.isCancelled else { return }
-            page.reload()
+            guard !Task.isCancelled, (try? await provider.open(folder: folder, source: .turn)) != nil else { return false }
+            return !Task.isCancelled
+        } apply: { [weak page] opened in
+            if opened { page?.reload() }
         }
     }
 
@@ -182,9 +187,8 @@ final class DiffPageService: InternalPageProvider {
 
     private func record(_ repository: DiffRepository, source: DiffOpenSource) {
         let recents = recentsStore
-        // task-owner: one ordered append to the recents file; DiffRecents chains its writes
-        // main-hop-allow: DiffRecents is main-actor state; record awaits its one load, its file write runs off main
-        Task { await recents.record(repository, source: source) }
+        // task-owner: one ordered append to the recents file; DiffRecents chains its writes. It only starts it.
+        Task { @concurrent in await recents.record(repository, source: source) }
     }
 
     /// The repository root the tab opened on (page-tab-route-v1).
@@ -331,6 +335,7 @@ final class DiffPageService: InternalPageProvider {
 
     func tabClosed(_ key: String) {
         guard let tab = tabs.removeValue(forKey: key) else { return }
+        replies.close(key)
         release(tab)
     }
 
@@ -340,10 +345,8 @@ final class DiffPageService: InternalPageProvider {
         tab.page?.close()
         guard let provider = tab.provider else { return }
         let id = UUID()
-        // task-owner: closing[id]; it leaves `closing` when the provider closed
-        // main-hop-allow: the provider's close is main-actor async (its sessions and grant)
-        closing[id] = Task { [weak self] in
-            await provider.close()
+        // The close of its sessions and grant, then a reply with no tab (the tab closed): it leaves `closing`.
+        closing[id] = replies.reply(for: nil) { await provider.close() } apply: { [weak self] _ in
             self?.closing[id] = nil
         }
     }
@@ -421,9 +424,12 @@ final class DiffTabHost: DiffTabHosting {
     func repository(at folder: URL) async -> DiffRepository? { await service?.repository(at: folder) }
 
     func prepare(_ repository: DiffRepository, source: DiffOpenSource) -> Task<DiffTabReady, any Error> {
-        service?.prepare(repository, source: source, for: key)
-            // main-hop-allow: a task that fails at once (the service is gone); it does no work on main
-            ?? Task { throw DiffTabFailure(title: repository.name, message: DiffPageStrings.unavailable) }
+        guard let service else {
+            // The service is gone: a task that fails at once, off main.
+            let failure = DiffTabFailure(title: repository.name, message: DiffPageStrings.unavailable)
+            return Task { @concurrent in throw failure }
+        }
+        return service.prepare(repository, source: source, for: key)
     }
 
     func recents() async -> JSONValue { await service?.recents.page() ?? ["items": .array([])] }

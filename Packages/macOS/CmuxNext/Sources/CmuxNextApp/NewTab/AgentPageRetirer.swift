@@ -17,6 +17,9 @@ final class AgentPageRetirer {
         deadline = MainDeadline(owner: "AgentPageRetirer", workClass: .background, scheduler: deadlines)
     }
 
+    /// Closed pages whose teardown has not run yet.
+    var pendingCount: Int { retiring.count }
+
     func retire(_ view: AgentPaneView) {
         // A closed New Tab page drops the chat a chip pick started behind it; the page stays alive
         // until the teardown below, long enough to send the discard.

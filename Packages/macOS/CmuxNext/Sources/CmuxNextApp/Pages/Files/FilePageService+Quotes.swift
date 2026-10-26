@@ -21,11 +21,10 @@ extension FilePageService {
         let registry = services.registry
         for id in ["home.sendSelectionToChief", "home.sendSelectionTo"] as [ActionID] {
             guard let title = registry.title(for: id) else { continue }
-            rows.append(.init(title: title) { [weak page] in
-                // task-owner: one selection read per menu choice; ends with the page's answer
-                // main-hop-allow: the page's selection read is main-actor async; the action runs in its reply's job
-                Task { @MainActor in
-                    guard let text = await page?.selectedText(), !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+            rows.append(.init(title: title) { [weak self, weak page] in
+                // The selection read, then the action as a reply on the tab's queue.
+                _ = self?.replies.reply(for: key) { [weak page] in await page?.selectedText() } apply: { text in
+                    guard let text, !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
                     _ = registry.perform(id, invocation: ActionInvocation(arguments: ["text": .string(text)], origin: .user))
                 }
             })
@@ -38,11 +37,12 @@ extension FilePageService {
         guard let file = file(key) else { return }
         let op = kind.op("selection")
         let viewer: ChatQuote.Kind = kind == .markdown ? .markdown : .code
-        // task-owner: one page call per menu choice; ends with the page's reply (the router fails it when the page closes).
-        // main-hop-allow: the page's router call is main-actor async; the quote and its prompt run in its reply's job
-        Task { @MainActor [weak self, weak page] in
-            guard let page, let reply = try? await page.router.callPage(op, params: .object([:])),
-                  let quote = ChatQuote(selection: reply, source: file.path, kind: viewer) else { return }
+        // The page's call (the router fails it when the page closes), then the quote and its prompt as a
+        // reply on the tab's queue.
+        replies.reply(for: key) { [weak page] in
+            try? await page?.router.callPage(op, params: .object([:]))
+        } apply: { [weak self, weak page] reply in
+            guard let page, let reply, let quote = ChatQuote(selection: reply, source: file.path, kind: viewer) else { return }
             let deliver = { [weak self, weak page] (quote: ChatQuote) in
                 guard let self else { return }
                 ChatQuoteDelivery(services: self.services).deliver(quote, from: page?.window)
@@ -53,9 +53,8 @@ extension FilePageService {
                 deliver(quote)
                 // The comment also stays in the Markdown viewer, as a margin marker on its lines.
                 guard let provider = self?.provider(key) else { return }
-                // task-owner: one store write per added comment; ends when the write does.
-                // main-hop-allow: the provider's comment store is main-actor async
-                Task { @MainActor in await provider.addComment(quote) }
+                // task-owner: one store write per added comment; ends when the write does. It only starts it.
+                Task { @concurrent in _ = await provider.addComment(quote) }
             }
         }
     }

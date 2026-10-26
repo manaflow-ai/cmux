@@ -39,6 +39,27 @@ struct NewTabSparePoolTests {
         }
     }
 
+    /// p06-scheduler-309: the spare follows its window's close through that window's one observer
+    /// (WindowEvents), not an app-wide one: a closing target hands the spare to another visible main window.
+    @Test func theSpareMovesToAnotherWindowWhenItsWindowCloses() async throws {
+        try await PasswordManagerRouteTests.withApp { services, _ in
+            services.agentTabs.localHost = AgentSessionRef.host(installID: "cn-spare-close")
+            try #require(services.agentTabs.canHostChat, "this build has no New Tab page")
+            let pool = NewTabSparePool(services: services, memory: services.memoryCoordinator, input: FakeInputTap(),
+                                       deadlines: MainDeadlineRig().deadlines)
+            pool.webKit.markSlow() // the warm makes no web view: this test is about where the spare parks
+            let main = try #require(services.windows.active?.window)
+            main.setIsVisible(true)
+            let other = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.titled],
+                                 backing: .buffered, defer: true)
+            other.isReleasedWhenClosed = false
+            pool.retarget(other)
+            #expect(pool.target === other)
+            other.close()
+            #expect(pool.target === main, "the spare stayed with its closed window")
+        }
+    }
+
     /// p08-startup-017: the launch posts the hooks after the first frame and the warm at afterStartup.
     @Test func aHeldStartMakesNoSpareUntilWarmingStarts() async throws {
         try await PasswordManagerRouteTests.withApp { services, _ in
