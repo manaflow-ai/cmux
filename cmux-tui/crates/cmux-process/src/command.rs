@@ -47,7 +47,7 @@ pub struct Command {
     #[cfg(target_os = "linux")]
     pub(crate) process_group_fence: bool,
     /// [`Command::open_file_limit`].
-    #[cfg(all(unix, not(target_vendor = "apple")))]
+    #[cfg(unix)]
     pub(crate) open_file_limit: Option<u64>,
     /// [`Command::creation_flags`].
     #[cfg(windows)]
@@ -79,7 +79,7 @@ impl Command {
             isolate: false,
             #[cfg(target_os = "linux")]
             process_group_fence: false,
-            #[cfg(all(unix, not(target_vendor = "apple")))]
+            #[cfg(unix)]
             open_file_limit: None,
             #[cfg(windows)]
             creation_flags: 0,
@@ -248,9 +248,13 @@ impl Command {
     }
 
     /// The child's soft `RLIMIT_NOFILE` (at most its hard limit), set before
-    /// its exec. Not on macOS: `posix_spawn` cannot set a limit, so a child
-    /// there keeps this process's.
-    #[cfg(all(unix, not(target_vendor = "apple")))]
+    /// its program runs. Linux: `setrlimit` before the exec. macOS:
+    /// `posix_spawn` cannot set a limit, so the child is `/bin/sh -c
+    /// 'ulimit -S -n N; exec "$@"'` that execs the program in the same
+    /// process (same pid, session and terminal); the program's `argv[0]` is
+    /// then its resolved path, and a [`Command::arg0`] makes the spawn fail
+    /// with `InvalidInput`.
+    #[cfg(unix)]
     pub fn open_file_limit(&mut self, soft: u64) -> &mut Self {
         self.open_file_limit = Some(soft);
         self
@@ -370,6 +374,7 @@ impl Command {
                 // child needs beyond std goes in one pre_exec hook (only
                 // async-signal-safe calls on data prepared here; the
                 // descriptors are this builder's copies).
+                crate::fd::lift_sources_above_targets(&mut self.inherit)?;
                 let setup = crate::child_setup::ChildSetup {
                     new_session: self.new_session,
                     cwd_fd: self.cwd_fd.as_ref().map(std::os::fd::AsRawFd::as_raw_fd),

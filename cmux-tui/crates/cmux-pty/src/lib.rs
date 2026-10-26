@@ -544,4 +544,95 @@ mod tests {
             io::Error::last_os_error()
         );
     }
+
+    /// Read the PTY until `marker` appears or the child's side closes.
+    fn read_until(reader: &mut dyn io::Read, marker: &str) -> String {
+        let mut output = Vec::new();
+        let mut buffer = [0u8; 1024];
+        while !String::from_utf8_lossy(&output).contains(marker) {
+            match reader.read(&mut buffer) {
+                Ok(0) | Err(_) => break,
+                Ok(count) => output.extend_from_slice(&buffer[..count]),
+            }
+        }
+        String::from_utf8_lossy(&output).into_owned()
+    }
+
+    /// `kill` of a child that ignores the hangup: SIGHUP, then SIGKILL
+    /// after the grace, so the child ends anyway.
+    #[test]
+    fn kill_ends_a_child_that_ignores_the_hangup() {
+        let pair = open(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 }).unwrap();
+        let mut command = PtyCommand::new("/bin/sh");
+        command.args(["-c", "trap '' HUP; echo ready; exec sleep 30"]);
+        let mut spawned = pair.spawn(command).unwrap();
+        let mut reader = spawned.master.try_clone_reader().unwrap();
+        assert!(read_until(&mut *reader, "ready").contains("ready"));
+
+        let started = std::time::Instant::now();
+        spawned.child.kill().unwrap();
+        let status = spawned.child.wait().unwrap();
+        assert!(!status.success(), "{status:?}");
+        assert!(started.elapsed() < std::time::Duration::from_secs(10), "{:?}", started.elapsed());
+    }
+
+    /// `kill` of a child that dies of the hangup returns once it ended.
+    #[test]
+    fn kill_ends_a_child_on_the_hangup() {
+        let pair = open(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 }).unwrap();
+        let mut command = PtyCommand::new("/bin/sh");
+        command.args(["-c", "echo ready; exec sleep 30"]);
+        let mut spawned = pair.spawn(command).unwrap();
+        let mut reader = spawned.master.try_clone_reader().unwrap();
+        assert!(read_until(&mut *reader, "ready").contains("ready"));
+
+        spawned.child.kill().unwrap();
+        let status = spawned.child.try_wait().unwrap().expect("the child ended within the kill");
+        assert!(!status.success(), "{status:?}");
+    }
+
+    /// After the daemon raised its open-file limit, a shell it starts on a
+    /// PTY gets the limit the daemon started with (Linux: setrlimit in the
+    /// child; macOS: the `ulimit` launcher). Runs in a re-executed copy of
+    /// this test binary, so the lowered and raised limits stay there.
+    #[test]
+    fn a_pty_child_gets_the_open_file_limit_from_before_the_raise() {
+        const CHILD: &str = "CMUX_PTY_OPEN_FILE_LIMIT_CHILD";
+        const NAME: &str = "tests::a_pty_child_gets_the_open_file_limit_from_before_the_raise";
+        if std::env::var_os(CHILD).is_none() {
+            let output = cmux_process::Command::new(std::env::current_exe().unwrap())
+                .args([NAME, "--exact", "--nocapture"])
+                .env(CHILD, "1")
+                .output()
+                .unwrap();
+            assert!(
+                output.status.success(),
+                "{NAME} failed in its own process:\nstdout:\n{}\nstderr:\n{}",
+                String::from_utf8_lossy(&output.stdout),
+                String::from_utf8_lossy(&output.stderr)
+            );
+            return;
+        }
+        let mut limit = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
+        // SAFETY: valid storage for one rlimit; only this re-run process
+        // changes its soft limit.
+        unsafe {
+            assert_eq!(libc::getrlimit(libc::RLIMIT_NOFILE, &raw mut limit), 0);
+            assert!(limit.rlim_max >= 1_024, "hard limit {}", limit.rlim_max);
+            limit.rlim_cur = 200;
+            assert_eq!(libc::setrlimit(libc::RLIMIT_NOFILE, &raw const limit), 0);
+        }
+        let raised = raise_open_file_limit(1_024).unwrap();
+        assert_eq!(raised, OpenFileLimit { before: 200, after: 1_024 });
+        assert_eq!(original_open_file_limit(), Some(200));
+
+        let pair = open(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 }).unwrap();
+        let mut command = PtyCommand::new("/bin/sh");
+        command.args(["-c", "echo limit=$(ulimit -S -n)."]);
+        let mut spawned = pair.spawn(command).unwrap();
+        let mut reader = spawned.master.try_clone_reader().unwrap();
+        let output = read_until(&mut *reader, ".");
+        assert!(spawned.child.wait().unwrap().success());
+        assert!(output.contains("limit=200."), "{output}");
+    }
 }

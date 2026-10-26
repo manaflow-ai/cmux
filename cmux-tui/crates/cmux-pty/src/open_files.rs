@@ -9,12 +9,11 @@
 //! environment, which it applies itself ([`restore_open_file_limit`]); a hook
 //! started through `UnixProcessScope` from its launcher script; a shell the
 //! daemon starts on a PTY of its own through
-//! `cmux_process::Command::open_file_limit` (Linux). Programs in a terminal
-//! then see the limit of the environment that launched cmux, and a raised
-//! limit is not inherited by code that uses `select(2)` with descriptors
-//! below 1024. Ghostty does the same for its own children. On macOS
-//! `posix_spawn` cannot set a limit, so a shell on a daemon-owned PTY (the
-//! fallback when no terminal host starts) keeps the raised one.
+//! `cmux_process::Command::open_file_limit` (macOS: a `ulimit` launcher, as
+//! for hooks). Programs in a terminal then see the limit of the environment
+//! that launched cmux, and a raised limit is not inherited by code that uses
+//! `select(2)` with descriptors below 1024. Ghostty does the same for its own
+//! children.
 
 use std::io;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -90,7 +89,7 @@ fn macos_max_files_per_process() -> u64 {
 
 /// The soft limit this process had before [`raise_open_file_limit`] raised
 /// it, or `None` when it did not raise it. A child the daemon starts gets it
-/// in its spawn (`cmux_process::Command::open_file_limit`, Linux) or in its
+/// in its spawn (`cmux_process::Command::open_file_limit`) or in its
 /// environment, and then calls [`restore_open_file_limit`] itself.
 pub fn original_open_file_limit() -> Option<u64> {
     ORIGINAL_SOFT_LIMIT.load(Ordering::Acquire).checked_sub(1)

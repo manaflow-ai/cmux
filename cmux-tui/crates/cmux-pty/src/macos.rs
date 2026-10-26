@@ -206,10 +206,8 @@ pub(crate) fn spawn(
     // 0-2 and default signals with an empty mask (`isolate`; on macOS every
     // spawn through cmux_process).
     process.new_session().open_stdin_path(&slave.path).isolate();
-    // The original open-file limit cmux started with. On macOS posix_spawn
-    // cannot set it, and the child keeps this process's limit (Chromium's
-    // children keep the browser's raised limit the same way).
-    #[cfg(not(target_vendor = "apple"))]
+    // The original open-file limit cmux started with, not the daemon's
+    // raised one (as Ghostty gives its own children).
     if let Some(soft) = crate::open_files::original_open_file_limit() {
         process.open_file_limit(soft);
     }
@@ -262,10 +260,11 @@ impl ChildKiller for NativePtyChild {
             return Ok(());
         }
         PtySignaller { pid: self.0.id() }.kill()?;
-        if self.0.wait_timeout(HANGUP_GRACE)?.is_some() {
-            return Ok(());
+        // A failed wait is no proof the child ended: SIGKILL it too.
+        match self.0.wait_timeout(HANGUP_GRACE) {
+            Ok(Some(_)) => Ok(()),
+            Ok(None) | Err(_) => self.0.kill(),
         }
-        self.0.kill()
     }
 
     fn clone_killer(&self) -> Box<dyn ChildKiller + Send + Sync> {

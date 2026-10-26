@@ -17,7 +17,8 @@ pub(crate) struct ChildSetup {
     pub(crate) sweep: Option<DescriptorSweep>,
     /// (path, also onto 1, also onto 2).
     pub(crate) stdin_path: Option<(CString, bool, bool)>,
-    /// (descriptor, the number the child gets it at).
+    /// (descriptor, the number the child gets it at); no descriptor is
+    /// numbered as any target.
     pub(crate) inherit: Vec<(RawFd, RawFd)>,
     pub(crate) process_group_fence: bool,
     pub(crate) open_file_limit: Option<u64>,
@@ -65,10 +66,11 @@ impl ChildSetup {
                     libc::close(fd);
                 }
             }
+            // No source is numbered as a target (`fd::lift_sources_above_targets`
+            // ran in the parent), so each dup2 reads an intact source and
+            // gives the child a copy without close-on-exec.
             for &(fd, at) in &self.inherit {
-                let result =
-                    if fd == at { libc::fcntl(fd, libc::F_SETFD, 0) } else { libc::dup2(fd, at) };
-                if result < 0 {
+                if libc::dup2(fd, at) < 0 {
                     return Err(io::Error::last_os_error());
                 }
             }
@@ -371,7 +373,7 @@ fn install_process_group_fence() -> io::Result<()> {
 /// The sweep's fallbacks, run where seccomp takes away the faster path (a
 /// container that denies `close_range`, or also `openat` and `fcntl`).
 #[cfg(all(test, target_os = "linux"))]
-mod tests {
+pub(crate) mod tests {
     use std::fs::File;
     use std::io;
     use std::os::fd::{AsRawFd, FromRawFd};
@@ -380,7 +382,7 @@ mod tests {
 
     /// Runs `name` again in a new copy of this test binary with `env` set,
     /// so a seccomp filter it installs stays out of this process.
-    fn rerun(name: &str, env: &str) {
+    pub(crate) fn rerun(name: &str, env: &str) {
         let output = std::process::Command::new(std::env::current_exe().unwrap())
             .args([name, "--exact", "--nocapture"])
             .env(env, "1")
@@ -444,7 +446,7 @@ mod tests {
     }
 
     /// Fail each of `syscalls` with EPERM in this process from now on.
-    fn deny(syscalls: &[libc::c_long]) {
+    pub(crate) fn deny(syscalls: &[libc::c_long]) {
         let mut filter = vec![libc::sock_filter {
             code: (libc::BPF_LD | libc::BPF_W | libc::BPF_ABS) as u16,
             jt: 0,
