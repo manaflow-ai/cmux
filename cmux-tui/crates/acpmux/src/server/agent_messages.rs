@@ -77,9 +77,8 @@ pub(super) async fn person_prompt(
     agent_message: bool,
 ) {
     if !agent_message && local_person(conn) {
-        // After its log loads, which restores the pairs this resumes; a peer's log read later
-        // resumes its side too (`agent_pairs.rs` `restore_agent_pairs`).
-        hub.session_log(s).await;
+        // After its log and its peers' load, which restore the pairs this resumes.
+        hub.pair_peer_logs(s).await;
         hub.agent_pair_person_prompt(s);
     }
 }

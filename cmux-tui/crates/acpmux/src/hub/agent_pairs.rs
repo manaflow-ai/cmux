@@ -174,10 +174,10 @@ struct PairsState {
     /// Pairs a restart found resumed with messages still to deliver: `resume_queues` delivers
     /// them (`Hub::resume_agent_pair_drains`).
     restored_drains: Vec<PairKey>,
-    /// Chats the person prompted while the chat logs were still loading (`log_load.rs`): a
-    /// pause restored later from a peer's log was resumed by that prompt, so it drains.
-    /// Emptied once every log is read.
-    person_prompted: HashSet<String>,
+    /// By chat, the peers its log names in pair records (a pause is written to both chats'
+    /// logs): a restart that reads the logs lazily reads theirs before it resumes or drains a
+    /// pair of that chat (`log_load.rs`). Emptied once every log is read.
+    peers: HashMap<String, HashSet<String>>,
 }
 
 #[derive(Default)]
@@ -734,6 +734,15 @@ impl Hub {
         records: Vec<EventRecord>,
         recorded: &HashSet<String>,
     ) {
+        if !self.logs_loaded() {
+            let named = records.iter().filter_map(|r| {
+                r.msg.get("peer").or_else(|| r.msg.get("from")).and_then(Value::as_str)
+            });
+            let mut state = self.pairs_state();
+            let peers = state.peers.entry(session.to_owned()).or_default();
+            peers.extend(named.map(str::to_owned));
+            peers.remove(session);
+        }
         let Owed { held, resumed } = still_held(session, records, recorded);
         if let Some(last) = held.iter().map(|h| h.order).max() {
             self.agent_pairs.order.fetch_max(last, Ordering::SeqCst);
@@ -742,8 +751,7 @@ impl Hub {
         let mut drains = Vec::new();
         for h in held {
             let key = pair_key(&h.from, session);
-            let prompted = |id: &str| state.person_prompted.contains(id);
-            let drain = resumed.contains(&h.from) || prompted(&h.from) || prompted(session);
+            let drain = resumed.contains(&h.from);
             let pair = state.pairs.entry(key.clone()).or_default();
             let paused = pair
                 .paused
@@ -768,13 +776,6 @@ impl Hub {
             let hub = self.clone();
             tokio::spawn(async move {
                 hub.wait_startup().await;
-                // Both receivers' held messages, merged in the order they were held, before the
-                // first goes (`log_load.rs` reads each log on its own).
-                for id in [&key.0, &key.1] {
-                    if let Ok(s) = hub.resolve(id) {
-                        hub.session_log(&s).await;
-                    }
-                }
                 hub.drain_pair(key).await;
             });
         }
@@ -792,18 +793,32 @@ impl Hub {
         }
     }
 
+    /// After a restart, before a pair of `session` is resumed: its log and its peers' logs, so
+    /// every pause it is in is restored with what both sides held (immediate once every log is
+    /// read).
+    pub(crate) async fn pair_peer_logs(self: &Arc<Self>, session: &Arc<Session>) {
+        self.session_log(session).await;
+        if self.logs_loaded() {
+            return;
+        }
+        let peers: Vec<String> =
+            self.pairs_state().peers.get(&session.id).into_iter().flatten().cloned().collect();
+        for peer in peers {
+            if let Ok(s) = self.resolve(&peer) {
+                self.session_log(&s).await;
+            }
+        }
+    }
+
     /// The person prompted `session`: every pair it is in starts over, and a paused one is
     /// resumed.
     pub fn agent_pair_person_prompt(self: &Arc<Self>, session: &Session) {
-        if !self.logs_loaded() {
-            self.pairs_state().person_prompted.insert(session.id.clone());
-        }
         self.agent_pair_resume_inner(&session.id, None, "person");
     }
 
-    /// Every chat log is read: no pause is restored after this (`log_load.rs`).
-    pub(super) fn forget_person_prompts(&self) {
-        self.pairs_state().person_prompted.clear();
+    /// Every chat log is read: no pair needs a peer's log read first (`log_load.rs`).
+    pub(super) fn forget_pair_peers(&self) {
+        self.pairs_state().peers.clear();
     }
 
     /// `_acpmux/agent_pair_resume {sessionId, peerSessionId?}`: resumes the paused pairs of
@@ -873,6 +888,13 @@ impl Hub {
     /// fails before acceptance stays held and pauses the pair again; one that fails
     /// [`RELEASE_TRIES`] times is dropped, in both logs.
     async fn drain_pair(self: Arc<Self>, key: PairKey) {
+        // After a restart, both receivers' held messages, merged in the order they were held,
+        // before the first is chosen: `log_load.rs` reads each log on its own.
+        for id in [&key.0, &key.1] {
+            if let Ok(s) = self.resolve(id) {
+                self.session_log(&s).await;
+            }
+        }
         loop {
             let next = {
                 let mut state = self.pairs_state();

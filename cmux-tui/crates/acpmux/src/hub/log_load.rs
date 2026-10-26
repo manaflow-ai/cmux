@@ -25,6 +25,9 @@ use super::*;
 pub(crate) struct LoadPlan {
     /// Chats whose agent host still ran at the start: adopted, never marked lost.
     pub(super) hosted: std::collections::HashSet<String>,
+    /// `hosted` as the start read it, never changed: prompts to these chats wait until adoption
+    /// and its settling end (`wait_adopted`).
+    pub(super) adopting: std::collections::HashSet<String>,
     /// Chats the previous daemon left waiting on a permission (`mark_lost_wait`).
     pub(super) waiting: std::collections::HashSet<String>,
 }
@@ -68,7 +71,7 @@ impl Hub {
         self.load_session_logs(&sessions);
         // Every log is read: a person's prompt no longer resumes pairs ahead of their logs.
         self.logs_ready.send_replace(true);
-        self.forget_person_prompts();
+        self.forget_pair_peers();
         tracing::info!(
             "loaded the chat logs of {} sessions in {} ms",
             sessions.len(),
@@ -100,7 +103,7 @@ impl Hub {
     /// otherwise): a prompt that went first would take the turn ahead of the turn adoption
     /// recovers (`hosts.rs`).
     pub(crate) async fn wait_adopted(&self, session: &Session) {
-        if self.load_plan.lock().unwrap_or_else(|e| e.into_inner()).hosted.contains(&session.id) {
+        if self.load_plan.lock().unwrap_or_else(|e| e.into_inner()).adopting.contains(&session.id) {
             let mut adopted = self.adoption_ready.subscribe();
             let _ = adopted.wait_for(|ready| *ready).await;
         }
@@ -190,10 +193,6 @@ impl Hub {
                 continue;
             }
             let gone = !Self::host_record_live(&id);
-            if gone {
-                // From now on its log is read as any other chat's.
-                self.load_plan.lock().unwrap_or_else(|e| e.into_inner()).hosted.remove(&id);
-            }
             let hub = self.clone();
             let settled = tokio::task::spawn_blocking(move || hub.settle_one(&session, gone));
             if let Err(e) = settled.await {
@@ -204,6 +203,11 @@ impl Hub {
 
     fn settle_one(self: &Arc<Self>, session: &Arc<Session>, gone: bool) {
         let loaded = session.log_load.lock().unwrap_or_else(|e| e.into_inner());
+        if gone {
+            // From now on its log is read as any other chat's: under its load lock, so a read
+            // either came before (its cut turn is settled below) or comes after this.
+            self.load_plan.lock().unwrap_or_else(|e| e.into_inner()).hosted.remove(&session.id);
+        }
         let waiting =
             self.load_plan.lock().unwrap_or_else(|e| e.into_inner()).waiting.contains(&session.id);
         let kept = matches!(

@@ -266,11 +266,24 @@ async fn a_host_that_ends_before_adoption_settles_its_chat() {
         // SAFETY: process groups this test's daemon created.
         unsafe { libc::killpg(pid as i32, libc::SIGKILL) };
     }
+    // Its log is read on demand while it still counts as hosted (no cut turn settled then),
+    // and a prompt comes before adoption: the settling after adoption still settles the cut
+    // turn, and its continuation runs ahead of the prompt.
+    rpc.call("_acpmux/info", json!({"sessionId": session})).await;
+    let prompt = json!({"sessionId": session, "prompt": [{"type": "text", "text": "after the settle"}],
+                        "_meta": {"acpmux": {"promptId": "p-new"}}});
+    rpc.send("session/prompt", prompt).await;
     daemon.wait_event(&session, "outcome_unknown", |e| {
         e["kind"] == "turn_result" && e["msg"]["detail"] == "outcome_unknown"
     });
-    daemon.wait_event(&session, "the continuation's turn result", |e| {
-        e["kind"] == "turn_result"
-            && e["msg"]["promptId"].as_str().is_some_and(|p| p.contains("~resume-"))
+    daemon.wait_event(&session, "p-new's turn result", |e| {
+        e["kind"] == "turn_result" && e["msg"]["promptId"] == "p-new"
     });
+    let events = daemon.events(&session);
+    let resumed = |e: &Value| e["msg"]["promptId"].as_str().is_some_and(|p| p.contains("~resume-"));
+    let continued = seq_of(&events, |e| e["kind"] == "turn_started" && resumed(e))
+        .expect("the continuation started");
+    let new = seq_of(&events, |e| e["kind"] == "turn_started" && e["msg"]["promptId"] == "p-new")
+        .expect("p-new started");
+    assert!(continued < new, "p-new (seq {new}) ran ahead of the continuation (seq {continued})");
 }

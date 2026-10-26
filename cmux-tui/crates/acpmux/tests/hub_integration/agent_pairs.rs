@@ -865,3 +865,46 @@ async fn a_lazy_restart_drains_both_sides_in_the_order_held() {
     hub.shutdown_all().await;
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// After a lazy restart, the person's prompt into `a` resumes a pause whose held messages are
+/// only in the peer's log (`a`'s messages held for `b`): `b`'s log is read first, the resume is
+/// written to both logs (it holds across another restart), and the held messages run, the
+/// oldest first even though `a`'s own log holds a newer one (`b` to `a`).
+#[tokio::test]
+async fn a_lazy_restart_resumes_a_pause_the_person_prompts_from_either_side_in_order() {
+    let dir = std::env::temp_dir().join(format!("acpmux-pairs-{}", uuid::Uuid::now_v7()));
+    let hub = hub_in(Some(&dir));
+    let mut c = Client::open(&hub);
+    let (a, b) = (c.new_session().await, c.new_session().await);
+    for i in 0..2 {
+        c.message(&a, &b, &format!("v{i}"), "please check the build").await;
+    }
+    assert!(held(&c.message(&a, &b, "v2", "please check the build").await));
+    assert!(held(&c.message(&b, &a, "v3", "checking now").await));
+    hub.shutdown_all().await;
+    drop(c);
+    drop(hub);
+
+    let hub = deferred_hub_in(&dir);
+    let mut person = Client::person(&hub).await;
+    person
+        .call("session/prompt", json!({"sessionId": a, "prompt": [{"type": "text", "text": "carry on"}]}))
+        .await;
+    let mut c = Client::open(&hub);
+    c.wait_ran(&b, "v2").await;
+    c.wait_ran(&a, "v3").await;
+    assert_eq!(c.records(&b, "agent_pair_resumed").await.len(), 1, "the resume is in b's log");
+    let page = |s: &str| json!({"sessionId": s, "kinds": ["agent_pair_released"]});
+    let mut at = Vec::new();
+    for session in [&a, &b] {
+        let events = c.call("_acpmux/events", page(session)).await;
+        for e in events["events"].as_array().unwrap() {
+            at.push((e["at"].as_u64().unwrap(), e["msg"]["promptId"].as_str().unwrap().to_owned()));
+        }
+    }
+    at.sort();
+    let ids: Vec<&str> = at.iter().map(|(_, id)| id.as_str()).collect();
+    assert_eq!(ids, ["v2", "v3"], "released in the order held");
+    hub.shutdown_all().await;
+    let _ = std::fs::remove_dir_all(&dir);
+}

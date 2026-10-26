@@ -673,7 +673,11 @@ impl Hub {
             self.adoption_ready.send_replace(false);
         }
         *self.load_plan.lock().unwrap_or_else(std::sync::PoisonError::into_inner) =
-            log_load::LoadPlan { waiting: waiting.collect(), hosted: hosted.clone() };
+            log_load::LoadPlan {
+                waiting: waiting.collect(),
+                adopting: hosted.clone(),
+                hosted: hosted.clone(),
+            };
         let mut sessions = self.sessions.lock().unwrap();
         for mut meta in metas {
             // An agent whose host still runs keeps its saved status until adoption reaches it:
