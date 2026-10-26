@@ -2999,6 +2999,7 @@ version = "0.1.0"
 dependencies = [
  "base64",
  "cmux-memory",
+ "flate2",
  "ghostty-vt-sys",
  "png",
 ]
