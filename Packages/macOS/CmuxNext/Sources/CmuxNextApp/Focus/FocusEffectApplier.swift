@@ -35,6 +35,11 @@ final class FocusEffectApplier: FocusEffectApplying {
             guard let window else { return }
             self?.ownedWindowDidBecomeKey(window)
             self?.childWindowDidBecomeKey(window)
+            // This window took the keys back from a page it focused, with no click (ChildPageFocus.keysReturned):
+            // the model re-applies its target, which grants the page the keys again.
+            if let self, window === self.controller.window, self.pageFocus.keysReturned(to: window) {
+                self.controller.focus.responderDidChange(.windowOrNone, source: .programmatic)
+            }
         })
         for (name, active) in [(NSApplication.didBecomeActiveNotification, true), (NSApplication.didResignActiveNotification, false)] {
             observers.append(MainActorObservation(name, center: center) { [weak self] in
@@ -250,7 +255,7 @@ final class FocusEffectApplier: FocusEffectApplying {
     private func facts(of other: NSWindow, in window: NSWindow, clicked: Bool = false,
                        overPane: Bool = false, isDevTools: Bool = false) -> ChildWindowKeyRule.Facts {
         let parent: ChildWindowKeyRule.Parent = other.parent === window ? .thisWindow : other.parent == nil ? .none : .other
-        return ChildWindowKeyRule.Facts(parent: parent, isPanel: other is NSPanel, isChromiumPage: Self.isChromiumPageWindow(other),
+        return ChildWindowKeyRule.Facts(parent: parent, isPanel: other is NSPanel, isChromiumPage: other.isChromiumPageWindow,
                                         isDevTools: isDevTools, clicked: clicked, overPane: overPane,
                                         thisWindowIsActive: controller.services.windows.active === controller)
     }
@@ -352,14 +357,6 @@ final class FocusEffectApplier: FocusEffectApplying {
             controller.focus.responderDidChange(chosen ? .content(pane: pane.key) : .windowOrNone, source: chosen ? .mouse : .programmatic)
             if window.firstResponder !== window { window.makeFirstResponder(nil) }
         }
-    }
-
-    /// Chromium's page windows (and docked DevTools) are CEF Views windows,
-    /// `CefNSWindow`; extension popups and other bubbles are plain
-    /// Chromium widget windows.
-    private static func isChromiumPageWindow(_ window: NSWindow) -> Bool {
-        guard let pageClass = NSClassFromString("CefNSWindow") else { return false }
-        return window.isKind(of: pageClass)
     }
 
     private func paneShowingDevTools(window child: NSWindow) -> (key: String, tab: any BrowserDevToolsHosting)? {
