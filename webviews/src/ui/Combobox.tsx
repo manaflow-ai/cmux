@@ -129,6 +129,8 @@ export function Combobox({
     return () => window.removeEventListener("resize", reset);
   }, [keep]);
   const held = keep && tallest > 0;
+  const enabledSuggestions = suggestions.filter((item) => !isItemDisabled?.(item));
+  const disabledSuggestions = suggestions.filter((item) => isItemDisabled?.(item));
   const update = (next: string) => {
     setValue(next);
     onQuery(next);
@@ -143,20 +145,25 @@ export function Combobox({
       event.preventBaseUIHandler?.();
       const highlighted = highlightedRef.current;
       const completed = completionRef.current;
+      const completedKey =
+        completed?.text === typed && completed.key && enabledSuggestions.includes(completed.key)
+          ? completed.key
+          : undefined;
+      const matchingCurrent =
+        completed?.text === typed ? enabledSuggestions.find((item) => completionText?.(item) === typed) : undefined;
       const next =
-        highlighted && suggestions.includes(highlighted)
+        highlighted && enabledSuggestions.includes(highlighted)
           ? highlighted
-          : completed?.text === typed
-            ? completed.key
-            : typed;
+          : (completedKey ?? matchingCurrent ?? typed);
       if (!isItemDisabled?.(next)) onSubmit(next);
     } else if (event.key === "Escape") {
       event.preventDefault();
       event.stopPropagation();
       event.preventBaseUIHandler?.();
       onCancel();
-    } else if (event.key === "Tab" && !event.shiftKey && suggestions.length) {
-      const next = highlightedRef.current ?? suggestions[0];
+    } else if (event.key === "Tab" && !event.shiftKey && enabledSuggestions.length) {
+      const highlighted = highlightedRef.current;
+      const next = highlighted && enabledSuggestions.includes(highlighted) ? highlighted : enabledSuggestions[0]!;
       const completed = completionText?.(next) ?? next;
       // A completed field is a normal Tab stop: keyboard users can reach actions beside the list.
       if (typed === completed) return;
@@ -166,8 +173,6 @@ export function Combobox({
       update(completed);
     }
   };
-  const enabledSuggestions = suggestions.filter((item) => !isItemDisabled?.(item));
-  const disabledSuggestions = suggestions.filter((item) => isItemDisabled?.(item));
   const renderItemContent = (item: string) => (renderItem ? renderItem(item) : item);
   const list = (
     <Autocomplete.List
@@ -188,17 +193,21 @@ export function Combobox({
             className={cx("ui-combobox-item", itemClassName)}
             render={<li />}
             onMouseDown={(event) => {
-              if (event.button !== 0 || isItemDisabled?.(item)) return;
+              if (event.button !== 0) {
+                pressActivatedRef.current = undefined;
+                return;
+              }
+              if (isItemDisabled?.(item)) return;
               event.preventDefault();
               pressActivatedRef.current = item;
               onSubmit(item);
             }}
             onClick={(event) => {
-              // A primary press already selected this item; consume its follow-up click so it cannot
-              // submit twice. Keyboard and synthetic clicks have no preceding press.
+              // A real mouse click follows the primary press and must not submit twice. Keyboard and
+              // synthetic detail=0 clicks remain independent even if a press was cancelled outside.
               const pressed = pressActivatedRef.current;
               pressActivatedRef.current = undefined;
-              if (pressed === item) return;
+              if (pressed === item && event.detail > 0) return;
               if (event.detail === 0 && !isItemDisabled?.(item)) onSubmit(item);
             }}
           >
