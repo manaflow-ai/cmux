@@ -58,7 +58,6 @@ struct AppMemoryConsumers {
         // One line per package, sorted by package name, for example:
         // registerTabs()  // CmuxNextTabs
         registerInternalPageDiscards()  // CmuxNextApp
-        registerAppBundleImages()  // CmuxNextApps (p07-memory-059)
         registerConversationDiscards()  // CmuxNextHibernation, CmuxNextHome
         registerPageLifecycle()  // CmuxNextPages
         registerTerminalLastFrames()  // CmuxNextTerminal
@@ -71,10 +70,10 @@ struct AppMemoryConsumers {
         services.features.isEnabled(.memoryFileHomeCaches) ? services.memoryCoordinator : nil
     }
 
-    /// `memoryFileHomeCaches`: the Files pane's thumbnail pixel bytes, a quarter of the Mac's image
-    /// cache budget (32 MiB at 16 GB); nil (a count bound alone, as before) while the feature is off.
-    var filesThumbnailBytes: Int? {
-        fileCacheRegistry == nil ? nil : SubsystemBudget.forThisMac(gpuResidentAvailable: false).imageCacheBytes / 4
+    /// The Files pane's thumbnail pixel bytes, a quarter of the Mac's image cache budget (32 MiB at
+    /// 16 GB), whatever the feature state: only the registration waits for `memoryFileHomeCaches`.
+    var filesThumbnailBytes: Int {
+        SubsystemBudget.forThisMac(gpuResidentAvailable: false).imageCacheBytes / 4
     }
 
     /// `memoryFileHomeCaches`: the grid thumbnail cache of the Screenshots pages as an asynchronous
@@ -87,10 +86,11 @@ struct AppMemoryConsumers {
         }
     }
 
-    /// `memoryFileHomeCaches`: the decoded app bundle images are one lossless consumer.
-    private func registerAppBundleImages() {
+    /// `memoryFileHomeCaches`: the apps client's decoded bundle images are one lossless consumer;
+    /// their owner, the apps service, calls this when it makes them.
+    func registerAppBundleImages(_ cache: AppBundleImageCache) {
         guard let registry = fileCacheRegistry else { return }
-        AppBundleImageCache.shared.registerMemoryConsumer(with: registry)
+        cache.registerMemoryConsumer(with: registry)
     }
 
     /// `memoryTerminalLastFrames` (default off): evicted terminals' last frames are one lossless

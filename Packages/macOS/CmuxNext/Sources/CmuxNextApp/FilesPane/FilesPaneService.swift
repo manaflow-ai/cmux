@@ -30,8 +30,8 @@ final class FilesPaneService: InternalPageProvider {
 
     private weak var services: AppServices?
     private var tabs: [String: Tab] = [:]
-    /// Icons and thumbnails for every Files tab; with `memoryFileHomeCaches` a memory consumer
-    /// held to a share of the image cache budget.
+    /// Icons and thumbnails for every Files tab, held to a share of the image cache budget; with
+    /// `memoryFileHomeCaches` also a memory consumer.
     private let icons: FileIconProvider
     /// Favorites and Locations, shared by every Files tab (the composition root picks `.standard`).
     private let sidebar = SidebarModel(home: FileManager.default.homeDirectoryForCurrentUser, defaults: .standard)

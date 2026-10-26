@@ -9,16 +9,21 @@ import UniformTypeIdentifiers
 ///
 /// Type icons are cached per extension (one `NSWorkspace` lookup per type,
 /// not per file), so a 100 000-row list asks the system a handful of times.
-/// Thumbnails come from `QLThumbnailGenerator` off the main actor, only for
-/// the tiles on screen, and are kept least recently used first by path, size
-/// and modification date, bounded by count and by pixel bytes.
+/// Package icons (apps carry their own) are kept per package, least recently
+/// used first, within a count bound. Thumbnails come from `QLThumbnailGenerator`
+/// off the main actor, only for the tiles on screen, and are kept least
+/// recently used first by path, size and modification date, bounded by count
+/// and by pixel bytes (a share of the Mac's image cache budget).
 ///
 /// It is a ``MemoryConsumer`` (Chrome's base/memory_coordinator/memory_consumer.h)
-/// once its owner calls ``registerMemoryConsumer(with:)``: the limit scales both
-/// thumbnail bounds, a release drops the least recently used thumbnails down to
-/// them, and at the critical limit the type icons go too. A tile or row drawn
-/// after a release asks the system again. A plain `NSCache` cannot do this: it
-/// reports neither its count nor its bytes, and its limit 0 means no limit.
+/// once its owner calls ``registerMemoryConsumer(with:)``: the limit scales the
+/// bounds, a release drops the least recently used down to them, and at the
+/// critical limit the type icons go too. The newest ``defaultWorkingSet``
+/// thumbnails and package icons, about a screenful, are the working set and stay
+/// at every limit (p07-memory.md section 3.A), so a grid reloaded under critical
+/// pressure shows its tiles without a Quick Look render each. A plain `NSCache`
+/// cannot do this: it reports neither its count nor its bytes, and its limit 0
+/// means no limit.
 @MainActor
 public final class FileIconProvider {
     /// Draws the thumbnail of a file at a side in points and a backing scale; nil when it has none.
@@ -26,10 +31,20 @@ public final class FileIconProvider {
 
     /// Thumbnails kept at the full memory limit.
     public static let defaultThumbnailCount = 2_000
+    /// Their pixel bytes at the full memory limit when the owner gives none: 32 MiB, the quarter of
+    /// the image cache budget of a 16 GB Mac.
+    public static let defaultThumbnailBytes = 32 << 20
+    /// Package icons kept at the full memory limit.
+    public static let defaultPackageIconCount = 256
+    /// The newest thumbnails (and package icons) every limit keeps: about one screenful.
+    public static let defaultWorkingSet = 64
+    /// The estimated bytes of one system icon as a row draws it (32 points at 2x, 4 bytes a pixel).
+    public static let iconBytes = 64 * 64 * 4
 
     private var typeIcons: [String: NSImage] = [:]
-    private var thumbnails: FileThumbnailStore
-    private var pending: [String: Task<FileThumbnail?, Never>] = [:]
+    private var packageIcons: FileImageStore
+    private var thumbnails: FileImageStore
+    private var pending: [String: Task<FileImage?, Never>] = [:]
     private let render: Render
     private var memoryRegistration: MemoryConsumerRegistration?
 
@@ -38,11 +53,15 @@ public final class FileIconProvider {
     /// - Parameters:
     ///   - thumbnailCount: Thumbnails kept at the full memory limit.
     ///   - thumbnailBytes: Their pixel bytes at the full memory limit (the composition root gives a
-    ///     share of the Mac's image cache budget); nil bounds them by count alone.
+    ///     share of the Mac's image cache budget).
+    ///   - workingSet: The newest thumbnails and package icons kept at every limit.
     ///   - render: What draws thumbnails (Quick Look; tests pass their own).
-    public init(thumbnailCount: Int = FileIconProvider.defaultThumbnailCount, thumbnailBytes: Int? = nil,
+    public init(thumbnailCount: Int = FileIconProvider.defaultThumbnailCount,
+                thumbnailBytes: Int = FileIconProvider.defaultThumbnailBytes,
+                workingSet: Int = FileIconProvider.defaultWorkingSet,
                 render: @escaping Render = FileIconProvider.quickLookThumbnail) {
-        thumbnails = FileThumbnailStore(maxCount: thumbnailCount, maxBytes: thumbnailBytes ?? .max)
+        thumbnails = FileImageStore(maxCount: thumbnailCount, maxBytes: thumbnailBytes, workingSet: workingSet)
+        packageIcons = FileImageStore(maxCount: Self.defaultPackageIconCount, maxBytes: .max, workingSet: workingSet)
         self.render = render
     }
 
@@ -60,6 +79,9 @@ public final class FileIconProvider {
         memoryRegistration = MemoryConsumerRegistration(
             name: Self.memoryConsumerName, traits: Self.memoryTraits, consumer: self, registry: registry)
     }
+
+    /// The pixel bytes the thumbnails may hold now (beyond the working set).
+    public var thumbnailByteLimit: Int { thumbnails.byteLimit }
 
     /// The type icon for `entry` (folder, package, or by extension).
     public func icon(for entry: FileEntry) -> NSImage {
@@ -104,8 +126,8 @@ public final class FileIconProvider {
         if let running = pending[key] { return await running.value?.image }
         let url = entry.url
         let render = render
-        let task = Task<FileThumbnail?, Never> {
-            await render(url, size, scale).map { FileThumbnail($0, scale: scale) }
+        let task = Task<FileImage?, Never> {
+            await render(url, size, scale).map { FileImage($0, scale: scale) }
         }
         pending[key] = task
         let thumbnail = await task.value
@@ -115,11 +137,11 @@ public final class FileIconProvider {
     }
 
     private func packageIcon(_ entry: FileEntry) -> NSImage {
-        // Apps carry their own icons, so packages are looked up per item (rare in a folder).
-        let key = "/package" + entry.url.path
-        if let cached = typeIcons[key] { return cached }
-        let image = NSWorkspace.shared.icon(forFile: entry.url.path)
-        typeIcons[key] = image
+        // Apps carry their own icons, so packages are looked up per item.
+        let key = entry.url.path
+        if let cached = packageIcons.image(for: key) { return cached }
+        let image = NSWorkspace.shared.icon(forFile: key)
+        packageIcons.insert(FileImage(image: image, bytes: Self.iconBytes), for: key)
         return image
     }
 
@@ -128,12 +150,11 @@ public final class FileIconProvider {
     }
 }
 
-/// The thumbnails and type icons are one lossless consumer: each comes back from Quick Look or
-/// `NSWorkspace` the next time a row or tile draws it. A tile on screen keeps the picture it shows;
-/// only the cache behind it shrinks.
+/// The thumbnails and icons are one lossless consumer: each comes back from Quick Look or
+/// `NSWorkspace` the next time a row or tile draws it. The working set stays at every limit.
 extension FileIconProvider: MemoryConsumer {
     /// Nothing to write back, but a Quick Look render each to make again: warning pressure leaves it
-    /// whole and critical pressure empties it.
+    /// whole and critical pressure empties it down to its working set.
     public static let memoryTraits = MemoryConsumerTraits(
         estimatedUsage: .medium,
         dataAccess: .none,
@@ -147,61 +168,73 @@ extension FileIconProvider: MemoryConsumer {
     /// The consumer's name in the memory report.
     public static let memoryConsumerName = "files-thumbnails"
 
-    /// Scales both thumbnail bounds; frees nothing (the next thumbnail drops the oldest past them).
+    /// Scales the thumbnail and package icon bounds; frees nothing (the next insert drops the oldest
+    /// past them).
     public func updateMemoryLimit(_ limit: MemoryLimit) {
-        thumbnails.setLimits(count: limit.scale(thumbnails.maxCount), bytes: limit.scale(thumbnails.maxBytes))
+        thumbnails.setLimits(limit)
+        packageIcons.setLimits(limit)
     }
 
-    /// Drops least recently used thumbnails until both bounds hold or the slice ends; at the
-    /// critical limit then the type icons.
+    /// Drops least recently used thumbnails, then package icons, until the bounds hold or the slice
+    /// ends; at the critical limit then the type icons.
     public func releaseMemory(within slice: MemoryReleaseSlice) -> MemoryReleaseProgress {
         updateMemoryLimit(slice.limit)
-        guard thumbnails.trim(until: { slice.isExpired }) else { return .more }
+        guard thumbnails.trim(until: { slice.isExpired }), packageIcons.trim(until: { slice.isExpired }) else { return .more }
         if slice.limit.isCritical { typeIcons.removeAll() }
         return .done
     }
 
-    /// Thumbnail pixel bytes from a counter; the entries are the thumbnails and the type icons.
+    /// Thumbnail pixel bytes from a counter plus the icons' estimated bytes; the entries are the
+    /// thumbnails and the icons.
     public var memoryUsage: MemoryUsage? {
-        MemoryUsage(footprintBytes: thumbnails.bytes, entries: thumbnails.count + typeIcons.count)
+        MemoryUsage(footprintBytes: thumbnails.bytes + packageIcons.bytes + typeIcons.count * Self.iconBytes,
+                    entries: thumbnails.count + packageIcons.count + typeIcons.count)
     }
 }
 
-/// One thumbnail and its pixel bytes.
-private nonisolated struct FileThumbnail: Sendable {
+/// One image and its bytes.
+private nonisolated struct FileImage: Sendable {
     let image: NSImage
     let bytes: Int
 
-    /// `cgImage` shown at `scale` pixels per point.
+    init(image: NSImage, bytes: Int) {
+        self.image = image
+        self.bytes = bytes
+    }
+
+    /// `cgImage` shown at `scale` pixels per point; its bytes are its pixel bytes.
     init(_ cgImage: CGImage, scale: CGFloat) {
         image = NSImage(cgImage: cgImage, size: CGSize(width: CGFloat(cgImage.width) / scale, height: CGFloat(cgImage.height) / scale))
         bytes = cgImage.bytesPerRow * cgImage.height
     }
 }
 
-/// The thumbnails, least recently used first, within a count bound and a pixel byte bound that
-/// the memory limit lowers. Hits and inserts are O(1); an eviction sorts once and drops down to
-/// seven eighths of each bound, so a scroll does not sort per thumbnail.
-private struct FileThumbnailStore {
+/// Images, least recently used first, within a count bound and a byte bound that the memory limit
+/// lowers. The newest `workingSet` stay whatever the bounds. Hits and inserts are O(1); an eviction
+/// sorts once and drops down to seven eighths of each bound, so a scroll does not sort per image.
+private struct FileImageStore {
     private struct Entry {
-        let thumbnail: FileThumbnail
+        let image: FileImage
         var used: UInt64
     }
 
     /// The bounds at the full memory limit.
     let maxCount: Int
     let maxBytes: Int
+    /// The newest images kept at every limit (at most `maxCount`).
+    let workingSet: Int
     /// The bounds the memory limit allows now.
     private(set) var countLimit: Int
     private(set) var byteLimit: Int
     private var entries: [String: Entry] = [:]
     private var clock: UInt64 = 0
-    /// The pixel bytes held, kept on every insert and removal.
+    /// The bytes held, kept on every insert and removal.
     private(set) var bytes = 0
 
-    init(maxCount: Int, maxBytes: Int) {
+    init(maxCount: Int, maxBytes: Int, workingSet: Int) {
         self.maxCount = max(0, maxCount)
         self.maxBytes = max(0, maxBytes)
+        self.workingSet = min(max(0, workingSet), self.maxCount)
         countLimit = self.maxCount
         byteLimit = self.maxBytes
     }
@@ -213,30 +246,32 @@ private struct FileThumbnailStore {
         guard entries[key] != nil else { return nil }
         clock += 1
         entries[key]?.used = clock
-        return entries[key]?.thumbnail.image
+        return entries[key]?.image.image
     }
 
-    /// Keeps `thumbnail` within the bounds: at a count bound of 0, or over the byte bound alone,
-    /// it keeps nothing.
-    mutating func insert(_ thumbnail: FileThumbnail, for key: String) {
-        guard countLimit > 0, thumbnail.bytes <= byteLimit else { return }
+    /// Keeps `image` (it is drawn now) unless it alone is over the full byte bound, then drops the
+    /// least recently used past the bounds, never below the working set.
+    mutating func insert(_ image: FileImage, for key: String) {
+        guard maxCount > 0, image.bytes <= maxBytes else { return }
         clock += 1
-        bytes += thumbnail.bytes - (entries[key]?.thumbnail.bytes ?? 0)
-        entries[key] = Entry(thumbnail: thumbnail, used: clock)
+        bytes += image.bytes - (entries[key]?.image.bytes ?? 0)
+        entries[key] = Entry(image: image, used: clock)
         guard isOverLimits else { return }
         let countTarget = countLimit - countLimit / 8
         let byteTarget = byteLimit - byteLimit / 8
-        for key in oldestKeys() where entries.count > countTarget || bytes > byteTarget { remove(key) }
+        for key in oldestKeys() where entries.count > workingSet && (entries.count > countTarget || bytes > byteTarget) {
+            remove(key)
+        }
     }
 
-    /// New bounds, clamped to the full ones. Frees nothing.
-    mutating func setLimits(count: Int, bytes: Int) {
-        countLimit = min(max(count, 0), maxCount)
-        byteLimit = min(max(bytes, 0), maxBytes)
+    /// The bounds `limit` allows. Frees nothing.
+    mutating func setLimits(_ limit: MemoryLimit) {
+        countLimit = limit.scale(maxCount)
+        byteLimit = limit.scale(maxBytes)
     }
 
-    /// Drops the least recently used thumbnails until both bounds hold, checking `isExpired` before
-    /// each. True when the bounds hold.
+    /// Drops the least recently used images until the bounds hold, checking `isExpired` before each.
+    /// True when the bounds hold.
     mutating func trim(until isExpired: () -> Bool) -> Bool {
         guard isOverLimits else { return true }
         for key in oldestKeys() {
@@ -247,13 +282,14 @@ private struct FileThumbnailStore {
         return !isOverLimits
     }
 
-    private var isOverLimits: Bool { entries.count > countLimit || bytes > byteLimit }
+    /// Over a bound, with more than the working set left to drop.
+    private var isOverLimits: Bool { entries.count > workingSet && (entries.count > countLimit || bytes > byteLimit) }
 
     private func oldestKeys() -> [String] {
         entries.sorted { $0.value.used < $1.value.used }.map(\.key)
     }
 
     private mutating func remove(_ key: String) {
-        bytes -= entries.removeValue(forKey: key)?.thumbnail.bytes ?? 0
+        bytes -= entries.removeValue(forKey: key)?.image.bytes ?? 0
     }
 }

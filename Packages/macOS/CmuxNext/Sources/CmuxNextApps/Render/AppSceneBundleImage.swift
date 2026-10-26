@@ -6,41 +6,60 @@ import SwiftUI
 struct AppSceneBundleImage: View {
     let path: String?
     @Environment(\.appBundleDirectory) private var directory
+    @Environment(\.appBundleImages) private var images
 
     var body: some View {
-        if let image = AppBundleImageCache.shared.image(path: path, in: directory) {
+        if let image = images?.image(path: path, in: directory) {
             Image(nsImage: image).resizable().scaledToFit()
         }
     }
 }
 
+extension EnvironmentValues {
+    /// The decoded bundle images of the app scenes below: the apps client's one cache, which
+    /// ``AppSceneView`` and the sidebar section provider set. Nil draws no bundle image.
+    @Entry var appBundleImages: AppBundleImageCache?
+}
+
 /// Decoded bundle images, keyed by absolute path, least recently used first. Paths are validated
-/// to stay inside the bundle directory.
+/// to stay inside the bundle directory. ``AppsClient`` holds the one instance its owner makes.
 ///
-/// It is one lossless memory consumer once the composition root calls
-/// ``registerMemoryConsumer(with:)`` (Chrome's base/memory_coordinator/memory_consumer.h): the
-/// limit scales how many images it keeps, a release drops the least recently used down to that,
-/// and an image drawn after a release is read again.
+/// It is one lossless memory consumer once its owner calls ``registerMemoryConsumer(with:)``
+/// (Chrome's base/memory_coordinator/memory_consumer.h): the limit scales how many images it keeps,
+/// and a release drops the least recently used down to that. The working set stays at every limit
+/// (p07-memory.md section 3.A): an image drawn less than ``workingSet`` ago is never dropped, and an
+/// image a view reads now is always kept.
 @MainActor
 public final class AppBundleImageCache {
-    /// The cache every app scene and section header reads.
-    public static let shared = AppBundleImageCache()
+    /// Images drawn this recently are never dropped (as `WarmSetRelease.workingSet`, p07-memory.md 3.A).
+    static let workingSet: Duration = .seconds(2)
 
-    /// Images kept at the full memory limit.
+    private struct Entry {
+        let image: NSImage
+        let bytes: Int
+        var used: ContinuousClock.Instant
+    }
+
+    /// Images kept at the full memory limit, beyond the working set.
     let maxCount: Int
-    /// Images kept now: `maxCount` scaled by the memory limit (0 at critical: none kept).
+    /// Images kept now beyond the working set: `maxCount` scaled by the memory limit.
     private(set) var countLimit: Int
-    private var images: [String: NSImage] = [:]
-    /// The keys of `images`, least recently used first (at most `maxCount`, 64: O(64) edits).
+    private let now: @MainActor () -> ContinuousClock.Instant
+    private var images: [String: Entry] = [:]
+    /// The keys of `images`, least recently used first (`maxCount` plus the working set: O(64) edits).
     private var order: [String] = []
-    /// The decoded bytes of each image, by key, and their sum.
-    private var sizes: [String: Int] = [:]
     private(set) var bytes = 0
     private var memoryRegistration: MemoryConsumerRegistration?
 
-    init(maxCount: Int = 64) {
+    /// Makes an empty cache.
+    ///
+    /// - Parameters:
+    ///   - maxCount: Images kept at the full memory limit, beyond the working set.
+    ///   - now: The clock the working set is measured on (tests pass their own).
+    public init(maxCount: Int = 64, now: @escaping @MainActor () -> ContinuousClock.Instant = { ContinuousClock.now }) {
         self.maxCount = max(0, maxCount)
         countLimit = self.maxCount
+        self.now = now
     }
 
     /// Registers with the app's memory coordinator (once; a later call replaces the registration).
@@ -56,31 +75,35 @@ public final class AppBundleImageCache {
         let url = directory.appending(path: path).standardizedFileURL
         guard url.path.hasPrefix(directory.standardizedFileURL.path) else { return nil }
         let key = url.path
-        if let cached = images[key] {
+        if var cached = images[key] {
+            cached.used = now()
+            images[key] = cached
             order.removeAll { $0 == key }
             order.append(key)
-            return cached
+            return cached.image
         }
         guard let data = try? Data(blockingContentsOf: url), let image = blockingNSImage(data) else { return nil }
-        insert(image, bytes: Self.decodedBytes(of: image, encoded: data.count), for: key)
+        // Drawn now, so in the working set: kept whatever the limit; older ones past it go.
+        let entry = Entry(image: image, bytes: Self.decodedBytes(of: image, encoded: data.count), used: now())
+        images[key] = entry
+        order.append(key)
+        bytes += entry.bytes
+        _ = trim { false }
         return image
     }
 
-    /// Keeps `image` within the count limit, dropping the least recently used past it.
-    private func insert(_ image: NSImage, bytes size: Int, for key: String) {
-        guard countLimit > 0 else { return }
-        images[key] = image
-        order.append(key)
-        sizes[key] = size
-        bytes += size
-        while order.count > countLimit { dropOldest() }
-    }
-
-    private func dropOldest() {
-        guard !order.isEmpty else { return }
-        let key = order.removeFirst()
-        images[key] = nil
-        bytes -= sizes.removeValue(forKey: key) ?? 0
+    /// Drops the least recently used images while more than ``countLimit`` are kept and the oldest is
+    /// out of the working set, checking `isExpired` before each. False when the slice ended first.
+    private func trim(until isExpired: () -> Bool) -> Bool {
+        let instant = now()
+        while order.count > countLimit, let oldest = order.first, let entry = images[oldest],
+              instant - entry.used >= Self.workingSet {
+            if isExpired() { return false }
+            order.removeFirst()
+            images[oldest] = nil
+            bytes -= entry.bytes
+        }
+        return true
     }
 
     /// The pixels of the largest bitmap representation at 4 bytes each; the file's bytes when it
@@ -93,7 +116,8 @@ public final class AppBundleImageCache {
 
 extension AppBundleImageCache: MemoryConsumer {
     /// Small (bundle icons and pictures), lossless (read again from the bundle), but read on the main
-    /// actor to come back: warning pressure leaves it whole and critical pressure empties it.
+    /// actor to come back: warning pressure leaves it whole and critical pressure empties it down to
+    /// its working set.
     public static let memoryTraits = MemoryConsumerTraits(
         estimatedUsage: .small,
         dataAccess: .none,
@@ -114,14 +138,10 @@ extension AppBundleImageCache: MemoryConsumer {
     }
 
     /// Drops the least recently used images down to what the slice's limit keeps, one at a time
-    /// until the slice ends.
+    /// until the slice ends; the working set stays.
     public func releaseMemory(within slice: MemoryReleaseSlice) -> MemoryReleaseProgress {
         updateMemoryLimit(slice.limit)
-        while order.count > countLimit {
-            if slice.isExpired { return .more }
-            dropOldest()
-        }
-        return .done
+        return trim(until: { slice.isExpired }) ? .done : .more
     }
 
     /// Decoded bytes from a counter.

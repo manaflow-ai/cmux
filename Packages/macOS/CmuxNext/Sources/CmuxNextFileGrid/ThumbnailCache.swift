@@ -17,6 +17,9 @@ public import Foundation
 /// limit's calls run on this actor. The limit scales the capacity; a release
 /// drops the least recently used thumbnails down to it, and at the critical
 /// limit the movie lengths too. A tile asked for after a release renders again.
+/// The newest `workingSet` thumbnails, about a screenful, stay at every limit
+/// (p07-memory.md section 3.A), so a grid reconfigured under critical pressure
+/// shows its tiles without a render each.
 ///
 /// ```swift
 /// let cache = ThumbnailCache(capacity: 600)
@@ -40,7 +43,9 @@ public actor ThumbnailCache {
     private let generator: any ThumbnailGenerating
     /// Thumbnails kept at the full memory limit.
     private let maxCapacity: Int
-    /// Thumbnails kept now: `maxCapacity` scaled by the memory limit (0 at critical: none kept).
+    /// The newest thumbnails kept at every limit (at most `maxCapacity`).
+    private let workingSet: Int
+    /// Thumbnails kept now: `maxCapacity` scaled by the memory limit, never below `workingSet`.
     private var capacity: Int
     private var images: [Key: Entry] = [:]
     /// The pixel bytes of `images`, kept on every insert and removal.
@@ -56,9 +61,12 @@ public actor ThumbnailCache {
     /// - Parameters:
     ///   - capacity: thumbnails kept at the full memory limit (default 600, about four screens of
     ///     large tiles).
+    ///   - workingSet: the newest thumbnails kept at every memory limit (default 64, about a
+    ///     screenful of tiles).
     ///   - generator: what draws them (default Quick Look).
-    public init(capacity: Int = 600, generator: any ThumbnailGenerating = QuickLookThumbnailGenerator()) {
+    public init(capacity: Int = 600, workingSet: Int = 64, generator: any ThumbnailGenerating = QuickLookThumbnailGenerator()) {
         maxCapacity = max(1, capacity)
+        self.workingSet = min(max(0, workingSet), maxCapacity)
         self.capacity = maxCapacity
         self.generator = generator
     }
@@ -85,8 +93,6 @@ public actor ThumbnailCache {
         renderCount += 1
         let image = await render.value
         renders[key] = nil
-        // At the critical memory limit nothing is kept: the tile still gets its picture.
-        guard capacity > 0 else { return image }
         clock += 1
         let bytes = image.map(Self.bytes(of:)) ?? 0
         storedBytes += bytes - (images[key]?.bytes ?? 0)
@@ -119,13 +125,6 @@ public actor ThumbnailCache {
         return seconds
     }
 
-    /// Drops every cached thumbnail (memory pressure).
-    public func removeAll() {
-        images.removeAll()
-        storedBytes = 0
-        durations.removeAll()
-    }
-
     /// The number of thumbnails held.
     public var count: Int { images.count }
 
@@ -134,8 +133,8 @@ public actor ThumbnailCache {
 
     private func evictIfNeeded() {
         guard images.count > capacity else { return }
-        // Drop the oldest eighth at once so a scroll does not evict one per render.
-        dropOldest(max(1, images.count - capacity + capacity / 8))
+        // Drop the oldest eighth at once so a scroll does not evict one per render; the working set stays.
+        dropOldest(min(images.count - workingSet, images.count - capacity + capacity / 8))
     }
 
     /// Drops the `count` least recently used thumbnails.
@@ -151,7 +150,7 @@ public actor ThumbnailCache {
 extension ThumbnailCache: AsyncMemoryConsumer {
     /// Large (hundreds of tiles of up to a few hundred KB each), lossless (a tile renders again)
     /// and expensive to make again (a Quick Look render each), so warning pressure leaves it whole
-    /// and critical pressure empties it.
+    /// and critical pressure empties it down to its working set.
     nonisolated public static let memoryTraits = MemoryConsumerTraits(
         estimatedUsage: .large,
         dataAccess: .none,
@@ -168,14 +167,14 @@ extension ThumbnailCache: AsyncMemoryConsumer {
     /// Scales how many thumbnails it keeps from now on. Frees nothing: the next render drops the
     /// oldest past the new capacity.
     public func updateMemoryLimit(_ limit: MemoryLimit) -> MemoryUsage? {
-        capacity = limit.scale(maxCapacity)
+        capacity = max(limit.scale(maxCapacity), workingSet)
         return memoryUsage
     }
 
-    /// Drops the least recently used thumbnails down to what `limit` keeps; at the critical limit
-    /// every thumbnail and every movie length.
+    /// Drops the least recently used thumbnails down to what `limit` keeps, never below the working
+    /// set; at the critical limit every movie length too.
     public func releaseMemory(downTo limit: MemoryLimit) -> MemoryUsage? {
-        capacity = limit.scale(maxCapacity)
+        _ = updateMemoryLimit(limit)
         dropOldest(images.count - capacity)
         if limit.isCritical { durations.removeAll() }
         return memoryUsage
