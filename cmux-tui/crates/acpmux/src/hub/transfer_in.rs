@@ -44,14 +44,6 @@ fn recovery_owner(root: &Path, agent_id: &str, outer_id: &str) -> bool {
     false
 }
 
-/// Remove the file at `path`; true when nothing is there afterwards.
-fn gone(path: &Path) -> bool {
-    match std::fs::remove_file(path) {
-        Ok(()) => true,
-        Err(e) => e.kind() == std::io::ErrorKind::NotFound,
-    }
-}
-
 fn transfer_error(what: &str, message: impl std::fmt::Display) -> RpcError {
     RpcError::new(-32000, format!("transfer.{what}: {message}"))
 }
@@ -176,7 +168,7 @@ impl Hub {
             if !super::transfer::is_plain_id(agent_id) {
                 continue;
             }
-            let _ = self.recover_durable_marker(root, &entry.path(), agent_id);
+            self.recover_durable_marker(root, &entry.path(), agent_id);
         }
         if let Ok(entries) = std::fs::read_dir(root) {
             for entry in entries.flatten() {
@@ -202,14 +194,10 @@ impl Hub {
 
     /// Recover one durable session's transfer marker (`.{agent_id}.durable-transfer-state` at
     /// `path`): the chat it stood for comes back as it was before the transfer, or keeps what a
-    /// committed one installed, and the marker goes. A journal or Pi session it cannot put back
-    /// keeps the marker, the backups and the chat's store, so a later sweep finishes it. True when
-    /// the marker is gone.
-    pub(super) fn recover_durable_marker(&self, root: &Path, path: &Path, agent_id: &str) -> bool {
-        let Ok(marker) = std::fs::read(path) else {
-            return std::fs::symlink_metadata(path).is_err();
-        };
-        let Ok(value) = serde_json::from_slice::<Value>(&marker) else { return false };
+    /// committed one installed, and the marker goes.
+    pub(super) fn recover_durable_marker(&self, root: &Path, path: &Path, agent_id: &str) {
+        let Ok(marker) = std::fs::read(path) else { return };
+        let Ok(value) = serde_json::from_slice::<Value>(&marker) else { return };
         let phase = value.get("phase").and_then(Value::as_str).unwrap_or("");
         if phase == "prepared" {
             let outer_id = value.get("outerId").and_then(Value::as_str).unwrap_or("");
@@ -221,16 +209,17 @@ impl Hub {
                 if value.get("agentId").and_then(Value::as_str) != Some(agent_id)
                     || !recovery_owner(root, agent_id, outer_id)
                 {
-                    return false;
+                    return;
                 }
                 if !replace_durable {
                     let _ = std::fs::remove_dir_all(target);
                 }
             }
-            return gone(path);
+            let _ = std::fs::remove_file(path);
+            return;
         }
         if phase != "staged" && phase != "committed" {
-            return false;
+            return;
         }
         let filename = value.get("piFilename").and_then(Value::as_str).unwrap_or("");
         let outer_id = value.get("outerId").and_then(Value::as_str).unwrap_or("");
@@ -238,20 +227,20 @@ impl Hub {
         if value.get("agentId").and_then(Value::as_str) != Some(agent_id)
             || !recovery_owner(root, agent_id, outer_id)
         {
-            return false;
+            return;
         }
         if !filename.is_empty()
             && (Path::new(filename).components().count() != 1 || !filename.ends_with(".jsonl"))
         {
-            return false;
+            return;
         }
         let Some(had_journal) = value.get("hadJournal").and_then(Value::as_bool) else {
-            return false;
+            return;
         };
-        let Some(had_pi) = value.get("hadPi").and_then(Value::as_bool) else { return false };
+        let Some(had_pi) = value.get("hadPi").and_then(Value::as_bool) else { return };
         let Some(dir_was_present) = value.get("journalDirWasPresent").and_then(Value::as_bool)
         else {
-            return false;
+            return;
         };
         let landed = if let (Some(transfer_id), true) = (
             value.get("transferId").and_then(Value::as_str),
@@ -280,25 +269,22 @@ impl Hub {
         let journal_backup = root.join(agent_id).join("journal.ndjson.transfer-backup");
         let pi = root.join(filename);
         let pi_backup = root.join(format!("{filename}.transfer-backup"));
-        // Each step says whether it left things as the marker wants them.
-        let put_back = |backup: &Path, target: &Path, had: bool| {
-            if std::fs::symlink_metadata(backup).is_ok() {
-                let _ = std::fs::remove_file(target);
-                std::fs::rename(backup, target).is_ok()
-            } else {
-                had || gone(target)
-            }
-        };
-        // A marker that names no Pi session file staged none.
-        let rolled_back = if outer_committed {
-            gone(&journal_backup) & (filename.is_empty() || gone(&pi_backup))
+        if outer_committed {
+            let _ = std::fs::remove_file(&journal_backup);
+            let _ = std::fs::remove_file(&pi_backup);
         } else {
-            put_back(&journal_backup, &journal, had_journal)
-                & (filename.is_empty() || put_back(&pi_backup, &pi, had_pi))
-        };
-        if !rolled_back {
-            tracing::warn!(agent = %agent_id, "a durable transfer's rollback did not finish; its marker stays");
-            return false;
+            if std::fs::symlink_metadata(&journal_backup).is_ok() {
+                let _ = std::fs::remove_file(&journal);
+                let _ = std::fs::rename(&journal_backup, &journal);
+            } else if !had_journal {
+                let _ = std::fs::remove_file(&journal);
+            }
+            if std::fs::symlink_metadata(&pi_backup).is_ok() {
+                let _ = std::fs::remove_file(&pi);
+                let _ = std::fs::rename(&pi_backup, &pi);
+            } else if !had_pi {
+                let _ = std::fs::remove_file(&pi);
+            }
         }
         let _ = std::fs::remove_file(root.join(agent_id).join("journal.ndjson.importing"));
         let _ = std::fs::remove_file(root.join(format!("{filename}.importing")));
@@ -308,7 +294,7 @@ impl Hub {
         if !replace_durable && !outer_committed && super::transfer::is_plain_id(outer_id) {
             let _ = std::fs::remove_dir_all(root.join(outer_id));
         }
-        gone(path)
+        let _ = std::fs::remove_file(path);
     }
 
     pub(super) async fn transfer_receive(&self, params: &Value) -> Result<Value, RpcError> {

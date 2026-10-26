@@ -369,29 +369,42 @@ impl Hub {
         prepared
     }
 
-    /// Undo a failed import's durable state as a restart would (`recover_durable_marker`), so a
-    /// retry on this daemon finds no marker of it. Before its store goes: that names the owner.
-    /// False when the rollback could not finish: its marker stays, and so must the store, for the
-    /// restart's sweep to finish it.
+    /// Undo a failed import's prepared durable state as a restart would (`recover_durable_marker`),
+    /// so a retry on this daemon finds no marker of it. Before its store goes: that names the
+    /// owner. A staged one (files installed, backups taken) is left whole for the next start's
+    /// sweep, which rolls it back before any chat loads. Returns whether the failed import's store
+    /// must stay for that sweep to prove the marker's owner: not for a replacement, whose owner is
+    /// the store the receive moved aside and puts back (`transfer_in.rs`).
     #[must_use]
     fn abort_harness_state(&self, meta: &SessionMeta) -> bool {
         if meta.harness != "cmux-harness" {
-            return true;
+            return false;
         }
-        let Some(agent_id) = meta.agent_session_id.as_deref() else { return true };
-        let Some(session_dir) = self.store.session_dir(&meta.id) else { return true };
-        let Some(root) = session_dir.parent() else { return true };
+        let Some(agent_id) = meta.agent_session_id.as_deref() else { return false };
+        let Some(session_dir) = self.store.session_dir(&meta.id) else { return false };
+        let Some(root) = session_dir.parent() else { return false };
         let marker = root.join(format!(".{agent_id}.durable-transfer-state"));
-        !marker_names(&marker, &meta.id) || self.recover_durable_marker(root, &marker, agent_id)
+        let Some(value) =
+            std::fs::read(&marker).ok().and_then(|raw| serde_json::from_slice::<Value>(&raw).ok())
+        else {
+            return false;
+        };
+        if value.get("outerId").and_then(Value::as_str) != Some(meta.id.as_str()) {
+            return false;
+        }
+        if value.get("phase").and_then(Value::as_str) == Some("prepared") {
+            self.recover_durable_marker(root, &marker, agent_id);
+            return false;
+        }
+        value.get("replaceDurable").and_then(Value::as_bool) != Some(true)
     }
 
-    /// A failed import's store goes once its durable state is rolled back. A rollback that could
-    /// not finish keeps it: its `session.json` names the marker's owner for the restart's sweep.
+    /// A failed import's store goes once its durable state is rolled back (`abort_harness_state`).
     fn drop_failed_import(&self, meta: &SessionMeta) {
         if self.abort_harness_state(meta) {
-            let _ = self.store.delete(&meta.id);
+            tracing::warn!(session = %meta.id, "a failed import's staged durable state waits for the next start to roll it back");
         } else {
-            tracing::warn!(session = %meta.id, "a failed import's durable rollback did not finish; a restart finishes it");
+            let _ = self.store.delete(&meta.id);
         }
     }
 
@@ -667,16 +680,21 @@ impl Hub {
             if installed_pi {
                 let _ = std::fs::remove_file(&pi_target);
             }
+            let mut restored = true;
             if backed_journal {
-                let _ = std::fs::rename(&journal_backup, &journal);
+                restored &= std::fs::rename(&journal_backup, &journal).is_ok();
             }
             if backed_pi {
-                let _ = std::fs::rename(&session_backup, &pi_target);
+                restored &= std::fs::rename(&session_backup, &pi_target).is_ok();
             }
             if !journal_dir_was_present {
                 let _ = std::fs::remove_dir(&journal_dir);
             }
-            let _ = std::fs::remove_file(&durable_state);
+            // A backup that could not go back keeps the marker, staged: the next start's sweep
+            // puts it back (`recover_durable_marker`) instead of it being lost.
+            if restored {
+                let _ = std::fs::remove_file(&durable_state);
+            }
             return Err(e);
         }
         Ok(())
