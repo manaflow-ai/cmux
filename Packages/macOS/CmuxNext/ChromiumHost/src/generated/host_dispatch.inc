@@ -189,8 +189,12 @@ enum Op : uint16_t {
   kOpWidgetSetGeometry = 179,  // optional
   kOpWidgetDismiss = 180,  // optional
   kOpWidgetSendInput = 181,  // optional
+  kOpBrowserImeSetComposition = 182,  // optional
+  kOpBrowserImeCommitText = 183,  // optional
+  kOpBrowserImeFinishComposing = 184,  // optional
+  kOpBrowserImeCancelComposition = 185,  // optional
 };
-inline constexpr uint16_t kOpCount = 181;
+inline constexpr uint16_t kOpCount = 185;
 inline constexpr uint16_t kOpEvent = 0x8001;  // host -> cmux: one shim event
 inline constexpr uint16_t kOpReply = 0x8002;  // host -> cmux: an async op's result
 inline constexpr uint16_t kOpMirror = 0x8003;  // host -> cmux: a mirror value
@@ -198,7 +202,7 @@ inline constexpr uint16_t kOpAck = 0x8004;  // host -> cmux: a token's op ran
 inline constexpr int kEventKindCount = 54;
 inline constexpr char kShimAbiID[] = "98dff5fbdc4745862beb88e6cb2914ff6caf516e44f91bb4311138e3b7c6e0ef";
 // Both sides' HELLO carries it: the op ids, classes and wire types of this generation.
-inline constexpr char kWireID[] = "d9c6f4e2b2f005ae59a2b89d1f7c565d2853b53a70de4187396e89c455316cc7";
+inline constexpr char kWireID[] = "72806ec9bfdff36fd2728acb89fdaf1c3256e5846edbc147289eeef3787c3a52";
 inline constexpr int32_t kMaxRecords = 65536;
 inline constexpr int32_t kMaxOutCapacity = 65536;
 
@@ -220,6 +224,10 @@ inline constexpr OptionalExport kOptionalExports[] = {
     {kOpWidgetSetGeometry, "cmux_shim_widget_set_geometry"},
     {kOpWidgetDismiss, "cmux_shim_widget_dismiss"},
     {kOpWidgetSendInput, "cmux_shim_widget_send_input"},
+    {kOpBrowserImeSetComposition, "cmux_shim_browser_ime_set_composition"},
+    {kOpBrowserImeCommitText, "cmux_shim_browser_ime_commit_text"},
+    {kOpBrowserImeFinishComposing, "cmux_shim_browser_ime_finish_composing"},
+    {kOpBrowserImeCancelComposition, "cmux_shim_browser_ime_cancel_composition"},
 };
 
 // Hand-written in HOST/src: install the host's own handler and push its policy.
@@ -1736,6 +1744,47 @@ inline bool DispatchOp(HostContext& ctx, uint16_t op, uint32_t wire_token, TlvRe
       if (!r.ok() || !r.AtEnd()) return false;
       const auto optional_fn = reinterpret_cast<void (*)(int, int, int, int, int, int, int, int, int64_t, int64_t, int, int)>(ctx.OptionalExport(kOpWidgetSendInput));
       if (optional_fn != nullptr) optional_fn(arg_widget_id, arg_kind, arg_v0, arg_v1, arg_v2, arg_v3, arg_v4, arg_v5, arg_flags, arg_time_ns, arg_ch, arg_unmod);
+      ctx.Ack(wire_token);
+      return true;
+    }
+    case kOpBrowserImeSetComposition: {
+      const auto arg_browser_id = r.I32();
+      const std::string arg_text = r.Bytes();
+      const std::string arg_clauses = r.Bytes();
+      const auto arg_selection_start = r.I32();
+      const auto arg_selection_end = r.I32();
+      const auto arg_replace_start = r.I32();
+      const auto arg_replace_end = r.I32();
+      if (!r.ok() || !r.AtEnd()) return false;
+      const auto optional_fn = reinterpret_cast<void (*)(int, const uint8_t*, int, const uint8_t*, int, int, int, int, int)>(ctx.OptionalExport(kOpBrowserImeSetComposition));
+      if (optional_fn != nullptr) optional_fn(ctx.Browser(arg_browser_id), reinterpret_cast<const uint8_t*>(arg_text.data()), static_cast<int>(arg_text.size()), reinterpret_cast<const uint8_t*>(arg_clauses.data()), static_cast<int>(arg_clauses.size()), arg_selection_start, arg_selection_end, arg_replace_start, arg_replace_end);
+      ctx.Ack(wire_token);
+      return true;
+    }
+    case kOpBrowserImeCommitText: {
+      const auto arg_browser_id = r.I32();
+      const std::string arg_text = r.Bytes();
+      const auto arg_replace_start = r.I32();
+      const auto arg_replace_end = r.I32();
+      if (!r.ok() || !r.AtEnd()) return false;
+      const auto optional_fn = reinterpret_cast<void (*)(int, const uint8_t*, int, int, int)>(ctx.OptionalExport(kOpBrowserImeCommitText));
+      if (optional_fn != nullptr) optional_fn(ctx.Browser(arg_browser_id), reinterpret_cast<const uint8_t*>(arg_text.data()), static_cast<int>(arg_text.size()), arg_replace_start, arg_replace_end);
+      ctx.Ack(wire_token);
+      return true;
+    }
+    case kOpBrowserImeFinishComposing: {
+      const auto arg_browser_id = r.I32();
+      if (!r.ok() || !r.AtEnd()) return false;
+      const auto optional_fn = reinterpret_cast<void (*)(int)>(ctx.OptionalExport(kOpBrowserImeFinishComposing));
+      if (optional_fn != nullptr) optional_fn(ctx.Browser(arg_browser_id));
+      ctx.Ack(wire_token);
+      return true;
+    }
+    case kOpBrowserImeCancelComposition: {
+      const auto arg_browser_id = r.I32();
+      if (!r.ok() || !r.AtEnd()) return false;
+      const auto optional_fn = reinterpret_cast<void (*)(int)>(ctx.OptionalExport(kOpBrowserImeCancelComposition));
+      if (optional_fn != nullptr) optional_fn(ctx.Browser(arg_browser_id));
       ctx.Ack(wire_token);
       return true;
     }
