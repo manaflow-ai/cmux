@@ -84,6 +84,9 @@ arrive on the same pipe as `<name> <value>` (a number, true/false, or a name).
 So do p08-startup-064's `launch.sidebar_rows_built` and `launch.sidebar_rows_visible`:
 the sidebar row views built before startup_complete against the rows its clip showed
 (sent right after `startup_complete`, so they need --startup-complete).
+`launch.views_built` (p08-startup-065: the pane content views made before
+startup_complete, sent just before it; == the visible panes; --startup-complete
+waits for it) arrives the same way.
 They are not times: no table row, gap or --order term. Task 007 can also send
 the temperature as the instant mark `launch.temperature.<name>`; it reads the
 same. Each run's line and the summary print them when the build sends them.
@@ -290,7 +293,11 @@ SIDEBAR_ROWS_VISIBLE = "launch.sidebar_rows_visible"
 SIDEBAR_ROWS_SLACK = 2
 # How long a launch that completed waits for the sidebar's row counts, sent right after startup_complete.
 SIDEBAR_ROWS_WAIT_S = 0.5
-VALUE_MARKS = (TEMPERATURE, PAGEINS_RUN_LOOP, PAGEINS, MAIN_CPU, INTERRUPTED, SIDEBAR_ROWS_BUILT, SIDEBAR_ROWS_VISIBLE)
+# The pane content views made before startup_complete (p08-startup-065, `launchVisiblePanesOnly`): == visible panes.
+# The app sends it just before startup_complete, so a --startup-complete run has it.
+VIEWS_BUILT = "launch.views_built"
+VALUE_MARKS = (TEMPERATURE, PAGEINS_RUN_LOOP, PAGEINS, MAIN_CPU, INTERRUPTED, SIDEBAR_ROWS_BUILT, SIDEBAR_ROWS_VISIBLE,
+               VIEWS_BUILT)
 # Percentiles printed after p50 (perf_stats.summary).
 PERCENTILES = (95, 99)
 
@@ -968,6 +975,8 @@ def run_values(marks):
         shown.append(f"main cpu {marks[MAIN_CPU]:.0f} ms")
     if is_number(marks.get(SIDEBAR_ROWS_BUILT)) and is_number(marks.get(SIDEBAR_ROWS_VISIBLE)):
         shown.append(f"sidebar rows built {marks[SIDEBAR_ROWS_BUILT]:.0f} for {marks[SIDEBAR_ROWS_VISIBLE]:.0f} visible")
+    if is_number(marks.get(VIEWS_BUILT)):
+        shown.append(f"views built {marks[VIEWS_BUILT]:.0f}")
     reason = completion_reason(marks)
     if reason is not None:
         shown.append(f"startup complete {reason}")
@@ -1014,6 +1023,10 @@ def value_summary(runs, temperature=None):
             lines.append(f"  {mark}: {cells}  n {len(values)}")
         else:
             lines.append(f"  {mark}: missing in all {total} runs")
+    built = [run[VIEWS_BUILT] for run in runs if is_number(run.get(VIEWS_BUILT))]
+    if built:  # only a launchVisiblePanesOnly build sends it
+        cells = "  ".join(f"{column} {value:.0f}" for column, value in spread(built).items())
+        lines.append(f"  {VIEWS_BUILT}: {cells}  n {len(built)} (== the visible panes)")
     lines += sidebar_rows_summary(runs)
     lines.append(completion_summary(runs))
     stopped = [str(index + 1) for index, run in enumerate(runs) if interrupted(run)]
@@ -1257,7 +1270,8 @@ def parse_args(argv):
                              "lacks one or has a MILESTONE_ORDER pair out of order")
     parser.add_argument("--startup-complete", action="store_true",
                         help="after the first content, keep each launch until startup_complete (within --timeout) "
-                             "and print its reason per run and as counts, the failsafe ones counted")
+                             "and print its reason per run and as counts, the failsafe ones counted, and "
+                             "launch.views_built (sent just before it)")
     parser.add_argument("--hangs", type=int, metavar="MS",
                         help="record main-thread stalls over MS during each launch (debug.hangs) and print the worst")
     parser.add_argument("--purge", action="store_true",
