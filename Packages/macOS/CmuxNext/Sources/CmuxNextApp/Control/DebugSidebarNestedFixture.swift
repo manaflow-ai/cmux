@@ -92,6 +92,7 @@ extension DebugSidebarNestedFixture {
             sidebar.model.groupsByComputer = show || (groupsByComputerBefore ?? sidebar.model.groupsByComputer)
             if !show { groupsByComputerBefore = nil }
             sidebar.rows.fixture = show ? fixture(machine: machine, name: name, host: host) : nil
+            sidebar.container.sidebarView.renderNow() // the list reloads on its next turn otherwise; the header is looked up below
             sidebar.container.layoutSubtreeIfNeeded()
             answer["sidebar"] = .bool(show)
         }
