@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextApp
+import CmuxNextHibernation
 import Testing
 
 /// Hidden top pages are discarded with a view-state record (p07-memory-023): a page hidden past its
