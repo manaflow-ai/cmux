@@ -4,6 +4,7 @@ import CmuxNextAgentPane
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextHistory
+import CmuxNextWakeups
 import Foundation
 
 /// What Open Chat does with a daemon plan (Lawrence 2026-10-09): one click on a chat shows it in a
@@ -93,13 +94,22 @@ final class ChatsOpenCoordinator {
         if !inTerminal, !watch, revealRunning(key) { return }
         // Every Open of an outside Claude Code or Codex chat is View Only unless the Debug toggle is off.
         let watch = watch || AgentPaneTunables.openOutsideChatsViewOnly.value
-        Task { [weak self] in
-            guard let self else { return }
-            do {
-                guard let plan = try await environment.chatOpenPlan(key: key) else { return }
-                await dispatch(plan, key: key, environment: environment, inTerminal: inTerminal, watch: watch, replacing: page)
-            } catch {
-                services.refusalHUD.show(error.localizedDescription, in: services.windows.active?.window ?? NSApp.keyWindow)
+        let mainWork = services.mainWork
+        // The person's click: acpmux's plan is read off main at userBlocking, and what it opens is the rest of
+        // their action, one userBlocking task (Chrome's PostTaskAndReply with kUserBlocking).
+        services.work.task(.userBlocking) { [weak self] in
+            let plan: Result<AcpmuxChatOpenPlan?, any Error>
+            do { plan = .success(try await environment.chatOpenPlan(key: key)) } catch { plan = .failure(error) }
+            await mainWork.apply(.userBlocking, owner: "ChatsOpen.dispatch") {
+                switch plan {
+                case .success(let plan?):
+                    self?.dispatch(plan, key: key, environment: environment, inTerminal: inTerminal, watch: watch, replacing: page)
+                case .success(nil):
+                    break
+                case .failure(let error):
+                    guard let services = self?.services else { return }
+                    services.refusalHUD.show(error.localizedDescription, in: services.windows.active?.window ?? NSApp.keyWindow)
+                }
             }
         }
     }
@@ -117,7 +127,7 @@ final class ChatsOpenCoordinator {
     }
 
     private func dispatch(_ plan: AcpmuxChatOpenPlan, key: String, environment: AcpmuxEnvironment, inTerminal: Bool = false,
-                          watch: Bool = false, replacing page: String? = nil) async {
+                          watch: Bool = false, replacing page: String? = nil) {
         guard let services else { return }
         let chat = services.chatsFeed?.chat(id: key)
         let title = chat?.title
@@ -152,6 +162,7 @@ final class ChatsOpenCoordinator {
         // The page's store id (it may have been provisional at the click). The New Tab page is an
         // agent tab, not an internal page tab: its pane is found by its tab model.
         let page = services.agentTabs.resolve(page)
+        // view-observation-allow: locateTab is one MachineTabIndex lookup (R-index's target), not an observation
         guard services.agentTabs.isNewTabPage(page), let (slot, model) = services.locateTab(page),
               let pane = services.paneController(for: model) else { return false }
         // A page of another machine never becomes a chat of this Mac (cx-k21v): the chat opens in a
@@ -161,6 +172,7 @@ final class ChatsOpenCoordinator {
             let closePage = NewTabPage.closingPage(page, in: pane)
             return services.linkOpener.open(from: pane, mainPane: false) { [services] target, placed in
                 services.agentTabs.openTab(in: target, seed: AgentPaneSeedSource(seed), select: placed == nil) { key in
+                    // view-observation-allow: locateTab is one MachineTabIndex lookup (R-index's target), not an observation
                     if let placed, let surface = services.locateTab(key)?.0.surface { placed(surface) }
                     closePage()
                 }
@@ -179,15 +191,14 @@ final class ChatsOpenCoordinator {
         guard let services else { return }
         var spawn = spawn
         spawn.firstChat = seed
-        let windowID = services.windows.active?.state.id
-        services.registry.track(Task { @MainActor in
-            do {
-                _ = try await services.windows.createWorkspace(spawn, into: windowID)
-                return nil
-            } catch {
-                return ActionWorkFailure("open chat", error)
-            }
-        })
+        let windowID = services.windows.active?.state.id, windows = services.windows
+        // The create is awaited off main; its failure is the run's, in one task on main.
+        services.registry.trackWork(owner: "ChatsOpen.createWorkspace", on: services.mainWork) {
+            _ = try await windows.createWorkspace(spawn, into: windowID)
+        } then: { result in
+            guard case .failure(let error) = result else { return nil }
+            return ActionWorkFailure("open chat", error)
+        }
     }
 
     /// Choose Folder… in the pane of a chat whose folder is missing: acpmux's `chat_open` again
@@ -201,7 +212,7 @@ final class ChatsOpenCoordinator {
             case .adopt(let adopt, let cwd, _): return .adopt(adopt, cwd: cwd ?? folder)
             case .needsFolder(let reason): return .needsFolder(reason)
             case .terminal, .readOnly:
-                await dispatch(plan, key: key, environment: environment)
+                dispatch(plan, key: key, environment: environment)
                 return .opened
             }
         } catch {

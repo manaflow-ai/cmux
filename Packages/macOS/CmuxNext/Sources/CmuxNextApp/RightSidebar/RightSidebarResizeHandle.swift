@@ -73,11 +73,13 @@ final class RightSidebarResizeHandle: NSView {
         needsLayout = true // invalidate: another window's scale sets the line's width.
     }
 
+    // visibility-walk-allow: the body only sets the hairline layer's color (applyLineTheme: performWithTheme resolves the theme's appearance), R-appear's kept form
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyLineTheme()
     }
 
+    // visibility-walk-allow: no hidden gate; a strip hidden under a still pointer gets no mouse exit, so its hover ends here
     /// Hidden with the sidebar under a still pointer: no exit comes.
     override func viewDidHide() {
         super.viewDidHide()
@@ -111,6 +113,7 @@ final class RightSidebarResizeHandle: NSView {
         onDrag?(.began)
     }
 
+    // local-monitor-allow: the drag's events go through its window's FrameInputCoalescer (frameDrag) under pointerFrameDrags; with the feature off each event resizes at once, as before it
     override func mouseDragged(with event: NSEvent) { // perf-hot: 2ms resize-drag (every drag event)
         guard isDragging else { return }
         if let frameDrag {

@@ -383,7 +383,7 @@ final class AppServices {
     private(set) lazy var bookmarkPages = BookmarkPageService(services: self)
     /// The sidebar section layout every window draws (plans/cmux-next/sidebar-sections.md); tests may set a fake owner.
     lazy var sidebarLayout: SidebarLayoutService = {
-        let service = SidebarLayoutService(remote: DaemonSidebarLayoutRemote(services: self),
+        let service = SidebarLayoutService(remote: DaemonSidebarLayoutRemote(services: self), mainWork: self.mainWork, work: self.work,
                                            onRefused: { [weak self] message in self?.registry.refuse(message) })
         service.start()
         SidebarDocWiring.start(self, layout: service)
