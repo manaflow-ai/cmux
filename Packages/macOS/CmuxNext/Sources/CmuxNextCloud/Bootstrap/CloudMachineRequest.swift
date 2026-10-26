@@ -17,6 +17,8 @@ public struct CloudMachineRequest: Equatable, Sendable {
     /// `--bootstrap-script FILE` (absolute: the CLI resolved it against its working directory).
     public var bootstrapPath: String?
     public var bootstrapKind: CloudMachineBootstrap.Kind = .plain
+    /// `--repo OWNER/NAME[@REF]`, cloned before the script (or alone).
+    public var repo: CloudMachineRepo?
     /// One key per request: the creation's Retry sends it again, so a create that reached the
     /// server but whose answer was lost does not make a second machine.
     public var idempotencyKey = UUID().uuidString
@@ -38,25 +40,27 @@ public struct CloudMachineRequest: Equatable, Sendable {
     }
 
     public init(name: String? = nil, size: String? = nil, memoryMb: Int? = nil, persistent: Bool = false,
-                bootstrapPath: String? = nil, bootstrapKind: CloudMachineBootstrap.Kind = .plain) {
+                bootstrapPath: String? = nil, bootstrapKind: CloudMachineBootstrap.Kind = .plain, repo: CloudMachineRepo? = nil) {
         self.name = name
         self.size = size
         self.memoryMb = memoryMb
         self.persistent = persistent
         self.bootstrapPath = bootstrapPath
         self.bootstrapKind = bootstrapKind
+        self.repo = repo
     }
 
-    public var isDefault: Bool { name == nil && size == nil && !persistent && bootstrapPath == nil }
+    public var isDefault: Bool { name == nil && size == nil && !persistent && bootstrapPath == nil && repo == nil }
 
     /// The script at ``bootstrapPath`` could not be read, is empty or is over ``CloudMachineBootstrap/maxBytes``.
     public struct ScriptUnreadable: Error, Equatable {
         public var path: String
     }
 
-    /// The bootstrap script from ``bootstrapPath``, read on `work`'s files lane; nil without one.
+    /// The bootstrap script from ``bootstrapPath``, read on `work`'s files lane, with ``repo``; a
+    /// repo alone runs ``CloudMachineBootstrap/noScript``; nil with neither.
     public func loadScript(work: BackgroundWork) async throws -> CloudMachineBootstrap? {
-        guard let path = bootstrapPath else { return nil }
+        guard let path = bootstrapPath else { return repo.map { CloudMachineBootstrap(kind: .plain, contents: CloudMachineBootstrap.noScript, repo: $0) } }
         let kind = bootstrapKind
         let data = try? await work.run(.userBlocking, mayBlock: .files) { () -> Data? in
             // A regular file of at most maxBytes: never a FIFO or a device, and nothing larger read.
@@ -66,6 +70,6 @@ public struct CloudMachineRequest: Equatable, Sendable {
             return try Data(blockingContentsOf: URL(fileURLWithPath: path))
         } ?? nil
         guard let data, !data.isEmpty, data.count <= CloudMachineBootstrap.maxBytes else { throw ScriptUnreadable(path: path) }
-        return CloudMachineBootstrap(kind: kind, contents: data)
+        return CloudMachineBootstrap(kind: kind, contents: data, repo: repo)
     }
 }
