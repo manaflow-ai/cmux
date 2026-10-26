@@ -11,7 +11,7 @@ import os
 /// acpmux's host budget, and the level the windows' top-row indicator shows.
 ///
 /// Stop condition: it runs while a window's indicator subscribes
-/// (`subscribe()`: the Debug toggle `hostPressure.enabled` is on and that window
+/// (`subscribe()`: the feature `hostPressure` or its Debug toggle `hostPressure.enabled` is on and that window
 /// can be seen), and stops when the last one unsubscribes (toggle off, or every
 /// window hidden, minimized, occluded or closed) and at quit (`stop()`). Cleanup: the monitor ends its
 /// subscription to the app's memory pressure feed, cancels its timer and any read in flight, and drops

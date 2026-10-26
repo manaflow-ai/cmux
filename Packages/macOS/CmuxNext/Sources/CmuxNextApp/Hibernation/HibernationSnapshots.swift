@@ -9,7 +9,7 @@ import UniformTypeIdentifiers
 /// own budget, least recently used first out, so every hibernated tab wakes to its picture
 /// (PR 23083). They used to share the decoded `previews` LRU with terminal previews at up
 /// to a quarter of it each: four hibernated pages kept a picture and the others woke to an empty
-/// pane. With `HibernationTunables.compressedSnapshots` off it keeps decoded pictures instead, under
+/// pane. With feature `compressedSnapshots` off it keeps decoded pictures instead, under
 /// the same budget and the same neighbor rule.
 ///
 /// Its full size is `ImageCacheShares.hibernationSnapshotBytes`: with `memoryImageCaches` on,
@@ -52,6 +52,9 @@ final class HibernationSnapshots {
     /// The tabs beside each shown tab now, whose pictures are kept at any limit (`BrowserHibernation`
     /// sets it; read once per trim).
     var neighbors: () -> Set<String> = { [] }
+    /// Whether a new picture is kept compressed: feature `compressedSnapshots` (on by default), with Debug
+    /// Settings `hibernation.compressedSnapshots` as its local override (the App sets it; read at each sleep).
+    var keepsCompressed: () -> Bool = { true }
     private(set) var totalBytes = 0
     private var pictures: [String: Picture] = [:]
     /// Least recently used first.
@@ -59,7 +62,7 @@ final class HibernationSnapshots {
     private var memoryRegistration: MemoryConsumerRegistration?
 
     /// One page's picture: `data` is the JPEG or PNG (nil for a decoded picture, when
-    /// `HibernationTunables.compressedSnapshots` is off), `image` decodes from it.
+    /// feature `compressedSnapshots` is off), `image` decodes from it.
     nonisolated struct Picture: Sendable {
         let data: Data?
         let image: CGImage

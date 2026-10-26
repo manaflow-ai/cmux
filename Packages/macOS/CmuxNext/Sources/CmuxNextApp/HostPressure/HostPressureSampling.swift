@@ -2,8 +2,8 @@ import AppKit
 import CmuxNextCompat
 
 /// When a window's host pressure indicator samples the host (cmux#22662: a new dev
-/// surface ships off). It samples only while the Debug Settings toggle
-/// `hostPressure.enabled` is on and its window can be seen: in a window, not
+/// surface ships off). It samples only while the feature `hostPressure` (Debug
+/// Settings `hostPressure.enabled` overrides it) is on and its window can be seen: in a window, not
 /// minimized, and not fully occluded (hidden app, another Space, covered).
 /// Everything else (toggle off, hidden, minimized, occluded, closed) means no
 /// subscription, so no service, no monitor, no 15 s timer and no reads.

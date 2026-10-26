@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextFeatures
 import CmuxNextHostPressure
 
 /// The window's host pressure indicator in the top row, after the toolbar band
@@ -14,9 +15,9 @@ import CmuxNextHostPressure
 /// own: it follows the same level observation, and ends with it.
 ///
 /// Off by default (cmux#22662): it subscribes to the app's `HostPressureService`
-/// only while `HostPressureSampling.samples` holds (the Debug Settings toggle
-/// `hostPressure.enabled` is on and its window can be seen). Stop condition: the
-/// toggle going off, or the window (or the whole app) hiding, minimizing, being fully occluded or
+/// only while `HostPressureSampling.samples` holds (the feature `hostPressure`, or
+/// its Debug Settings override `hostPressure.enabled`, is on and its window can be
+/// seen). Stop condition: the toggle going off, or the window (or the whole app) hiding, minimizing, being fully occluded or
 /// closing, unsubscribes it, and the service stops the monitor and its one 15 s
 /// timer when no window is subscribed. Cleanup: leaving the window, and deinit,
 /// cancel the notification, toggle and level observations (from any thread) and
@@ -107,14 +108,19 @@ final class HostPressureIndicatorView: NSView {
         applyTint()
     }
 
-    /// The gate's inputs now: the toggle and whether the window can be seen. A forced level
+    /// The gate's inputs now: the feature (or its toggle) and whether the window can be seen. A forced level
     /// (Debug Settings only, for captures) counts as seen while the indicator is in a window:
     /// capture minis run windows the occlusion state calls hidden. The 15 s read then runs while
     /// the level stays forced; Off restores the window gate, and leaving the window still stops it.
     var sampling: HostPressureSampling {
         let forced = HostPressureTunables.force.value(in: store) != .off && window != nil
-        return HostPressureSampling(enabled: HostPressureTunables.enabled.value(in: store),
+        return HostPressureSampling(enabled: Self.isEnabled(services.features, store),
                                     windowVisible: forced || windowVisible(window))
+    }
+
+    /// The feature `hostPressure`, with Debug Settings `hostPressure.enabled` as its local override, read live.
+    static func isEnabled(_ features: FeatureList, _ store: TunableStore) -> Bool {
+        features.isEnabled(.hostPressure, localOverride: HostPressureTunables.enabled.override(in: store))
     }
 
     /// Subscribes while `sampling.samples`, else unsubscribes (idempotent).
@@ -147,10 +153,10 @@ final class HostPressureIndicatorView: NSView {
                 }
             })
         }
-        let (store, enabled, force) = (store, HostPressureTunables.enabled, HostPressureTunables.force)
+        let (store, features, force) = (store, services.features, HostPressureTunables.force)
         // task-owner: `watching` (cancelled on a window change, on willClose and in deinit); event-driven (Observation of the tunable store)
         watching.add(Task { [weak self] in
-            for await _ in ObservationStream({ (enabled.value(in: store), force.value(in: store)) }) {
+            for await _ in ObservationStream({ (HostPressureIndicatorView.isEnabled(features, store), force.value(in: store)) }) {
                 guard !Task.isCancelled, let self else { return }
                 reconcile()
             }

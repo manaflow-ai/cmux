@@ -40,12 +40,16 @@ enum HostPressureIndicatorStyle: String, Sendable, CaseIterable, TunableChoice {
 enum HostPressureTunables {
     static let section = TunableSection(id: "hostPressure", title: "Host Pressure", symbol: "gauge.with.dots.needle.67percent", order: 50)
 
-    /// Off (the default, cmux#22662: a new dev surface ships off): no indicator, no service,
-    /// no timer and no sampling. On: each visible window's indicator subscribes, and the app's
-    /// one monitor reads the host every 15 s while at least one window can be seen.
+    /// The developer's local override of the feature `hostPressure`
+    /// (`schemas/features/features.d/hostPressure.json`, which `replaces` this key, off on every
+    /// channel, cmux#22662: a new dev surface ships off). The indicator reads it through
+    /// `FeatureList.isEnabled(_:localOverride:)` (DEV and NIGHTLY, under managed policy and
+    /// `CMUX_DISABLE_FEATURES`/`CMUX_ENABLE_FEATURES`), live. Off: no indicator, no service, no
+    /// timer and no sampling. On: each visible window's indicator subscribes, and the app's one
+    /// monitor reads the host every 15 s while at least one window can be seen.
     static let enabled = Tunable<Bool>.toggle(
         "hostPressure.enabled", section, "Show the host pressure indicator",
-        help: "Off by default. On: a still gauge after the toolbar band when this Mac is busy or overloaded, with a popover of the load, acpmux's reasons and its busiest sessions. It reads the host every 15 seconds only while a window can be seen. Off: no indicator, no timer and no reads.",
+        help: "Overrides the feature hostPressure (off by default). On: a still gauge after the toolbar band when this Mac is busy or overloaded, with a popover of the load, acpmux's reasons and its busiest sessions. It reads the host every 15 seconds only while a window can be seen. Off: no indicator, no timer and no reads.",
         default: false, code: "HostPressureTunables.enabled")
 
     static let force = Tunable<HostPressureForce>.choice(
