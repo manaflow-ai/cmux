@@ -1,3 +1,4 @@
+import CmuxNextAgentPane
 import CmuxNextDaemon
 import CmuxNextRemote
 import CmuxNextSidebar
@@ -17,9 +18,11 @@ extension SidebarBridge {
     }
 
     /// An ssh machine header's tooltip: the destination (with its cmux-tui session when not the
-    /// default), then `detail`. One place for the live header and `debug.daemon_update`'s fixture.
+    /// default), then `detail`, then the machine's daemon update line (``DaemonUpdateBoard``). One
+    /// place for the live header and `debug.daemon_update`'s fixture.
     static func sshTooltip(destination: SSHDestination, session: String, detail: String?) -> String {
-        [destination.description + (session == RemoteSessionName.defaultName ? "" : " · " + session), detail]
+        [destination.description + (session == RemoteSessionName.defaultName ? "" : " · " + session), detail,
+         DaemonUpdateBoard.shared.detail(sshHost: destination.host)]
             .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "\n")
     }
 

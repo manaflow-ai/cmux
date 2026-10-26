@@ -696,7 +696,9 @@ class PathRoutingStructure(unittest.TestCase):
         guard = "(github.run_attempt == 1 || github.triggering_actor != 'github-actions[bot]') && "
         # The session-only jobs read `(session_runner || gui_runner)`, the rest one output
         # (the fast tier's fast_runner is attempt 1 only, so not counted here).
-        self.assertEqual(text.count(guard + "needs.macos-placement.outputs."), 9)
+        # The Release compile's owned-first PR route reads the placement output
+        # in both `runs-on` and `CMUX_NEXT_RUNNER`.
+        self.assertEqual(text.count(guard + "needs.macos-placement.outputs."), 11)
         self.assertEqual(text.count(guard + "(needs.macos-placement.outputs.session_runner || "
                                     "needs.macos-placement.outputs.gui_runner)"), 4)
         # 7242a82b4a8 (#24763): the rescue re-admits a queued run, a free owned Mac first, then Blacksmith.

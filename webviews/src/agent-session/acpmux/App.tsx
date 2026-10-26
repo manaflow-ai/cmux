@@ -12,7 +12,8 @@ import React, {
   useState,
   useSyncExternalStore,
 } from "react";
-import { AnsweredBy, AuthorChip, PresenceStack, TypingLine } from "./multiplayer/Faces";
+import { AnsweredBy, AuthorChip } from "./multiplayer/Faces";
+import { LivePresenceStack, LiveTypingLine } from "./multiplayer/LivePresence";
 import { flushSync } from "react-dom";
 import { CONNECT_ACTIONS, savedEnvironmentHost, type ConnectKind, type OffloadKind } from "./environments";
 import { chiefEnvelope } from "./conversation/chiefEnvelope";
@@ -7132,6 +7133,8 @@ function AcpmuxPane() {
               steer === true,
             ),
           "chat.cancel": () => client.cancel(),
+          "chat.typing": async ({ text, sessionId }) =>
+            client.typing(typeof text === "string" ? text : "", typeof sessionId === "string" ? sessionId : undefined),
           "chat.queue.remove": ({ promptId }) => client.removeQueued(String(promptId)),
           "chat.agentPair.resume": ({ peer }) => client.resumeAgentPair(String(peer)),
           "chat.queue.edit": ({ promptId, ...edit }) => client.editQueued(String(promptId), edit as QueueEdit),
@@ -9514,7 +9517,10 @@ function AcpmuxPane() {
                     {!inTabRow && environmentSurface.header && environmentLine(environmentSurface.compact)}
                   </ChatHeaderStatus>
                   <div className="acpmux-handoff-header-tools" ref={tabRowTools}>
-                    {snapshot.presence && <PresenceStack viewing={snapshot.presence.viewing} />}
+                    <LivePresenceStack
+                      sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
+                      fallback={snapshot.presence}
+                    />
                     {inTabRow && (
                       <ChatHeaderInlineStatus status={header.status} detail={header.detail}>
                         {environmentSurface.header && environmentLine(environmentSurface.compact)}
@@ -9727,7 +9733,10 @@ function AcpmuxPane() {
                   </div>
                 )}
                 {hostErrorCard}
-                {snapshot.presence && <TypingLine typing={snapshot.presence.typing} />}
+                <LiveTypingLine
+                  sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
+                  fallback={snapshot.presence}
+                />
                 {composer}
               </div>
             </>
