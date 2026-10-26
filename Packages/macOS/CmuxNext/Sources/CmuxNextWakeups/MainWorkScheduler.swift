@@ -29,7 +29,7 @@ public import QuartzCore
 /// // The composition root, with the app's one display clock:
 /// let displays = DisplayClock()
 /// FrameScheduler.install(displays: displays)
-/// let mainWork = MainWorkScheduler(budget: MainFrameBudget(input: SessionInputPending(), signposts: true),
+/// let mainWork = MainWorkScheduler(budget: MainFrameBudget(input: SessionInputPending(events: WindowServerInputEvents(input: inputTap)), signposts: true),
 ///                                  displays: displays)
 /// let requests = FrameBatchQueue(owner: "Control.frames", budgeted: .automation, on: mainWork)
 /// mainWork.post(.automation, owner: "browser-host.open") { host.open(url) }
@@ -75,7 +75,9 @@ public final class MainWorkScheduler {
     /// - Parameters:
     ///   - budget: The app's budget (the app: ``SessionInputPending`` input and signposts on).
     ///     The render pass (layout, display, the Core Animation commit) is timed on the main run loop
-    ///     while it ticks and charged to the next frame (``MainFrameBudget/noteRenderPass(nanos:)``).
+    ///     while it ticks (``MainFrameBudget/noteRenderPass(nanos:)``): it is the source of the
+    ///     commit estimate (``MainCommitMeter``) that ends each frame's budgeted work before the
+    ///     tick's `targetTimestamp`, and the charge on a frame with no target.
     ///   - displays: The composition root's display clock, which it shares with ``FrameScheduler/app``
     ///     and the windows (``FrameScheduler/install(displays:)``).
     ///   - startup: The launch's phases. The app's composition root passes a launching phase
@@ -118,19 +120,24 @@ public final class MainWorkScheduler {
     /// A scheduler on a fake link of its own display clock (tests): frames fire only through
     /// ``frameDidFire(timestamp:refreshInterval:targetTimestamp:)``,
     /// and render passes reach the budget only through ``renderPassEnded(nanos:)`` (or
-    /// ``MainFrameBudget/noteRenderPass(nanos:)`` directly).
+    /// ``MainFrameBudget/noteRenderPass(nanos:)`` directly); a budget with no passes keeps the
+    /// fixed per-frame limit (no deadline without history).
     ///
     /// - Parameters:
     ///   - budget: The budget (tests inject its clock and input source).
     ///   - clock: The stall deadline's clock.
     ///   - ledger: Where frames are recorded.
     ///   - startup: The launch's phases (default: already settled, so no class is held).
+    ///   - mediaTime: The display clock's time (`CACurrentMediaTime`), when a tick runs: a test that
+    ///     fires made-up timestamps with render-pass history passes one in step with them, or the
+    ///     budget reads its ticks as late.
     ///   - makeLink: Makes the fake link.
     public static func testing(budget: MainFrameBudget = MainFrameBudget(), clock: any Clock<Duration> = ContinuousClock(),
                                ledger: WakeupLedger = .shared, startup: StartupPhase = .settled(),
+                               mediaTime: @escaping @MainActor () -> CFTimeInterval = { CACurrentMediaTime() },
                                makeLink: @escaping FrameScheduler.LinkFactory) -> MainWorkScheduler {
         MainWorkScheduler(budget: budget, frames: FrameScheduler.testing(name: "budgeted test", clock: clock, ledger: ledger,
-                                                                         mediaTime: { CACurrentMediaTime() }, budget: budget,
+                                                                         mediaTime: mediaTime, budget: budget,
                                                                          makeLink: makeLink),
                           startup: startup, renderPasses: nil)
     }

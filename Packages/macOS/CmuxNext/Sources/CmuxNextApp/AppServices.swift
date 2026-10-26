@@ -107,6 +107,9 @@ final class AppServices {
     private(set) lazy var addDevice = AddDeviceCard(services: .app(self))
     private(set) lazy var devices = DeviceDirectory.app(self)
     let machineHealth = MachineHealthStore()
+    /// The app's one fan-out of app-wide notices (`AppEvents`, p06-scheduler-021): every window's
+    /// key tracker and later adopters subscribe here, one observer per name for the whole app.
+    let appEvents = AppEvents(center: .default)
     let mobile = MobileHostService(displayName: { await MacName().displayName() })  // phone access; the account layer starts it
     /// iPhone connections for the cmux-next iPhone app (cmux-next-ios, Settings > Mobile).
     let iphone = IPhoneHostService()
@@ -305,7 +308,7 @@ final class AppServices {
         histograms: memoryHistograms, webContentPIDs: { [weak self] in if let self { AppMemoryModel.liveWebContentPIDs(self) } else { [] } },
         sample: { await AppMemoryModel.processes(webContentPIDs: $0) })
     /// One prewarmed new tab page per window (instant open).
-    private(set) lazy var newTabSpares = NewTabSparePool(services: self, memoryPressure: memoryPressure)
+    private(set) lazy var newTabSpares = NewTabSparePool(services: self, memoryPressure: memoryPressure, input: inputTap)
     /// The spare React page hosts for Settings, History and Cloud.
     private(set) lazy var pageHostPool = PageHostPool(memoryPressure: memoryPressure)
     /// The one owner of cmux pages (p13-webui.md 3.A): every page view opens and closes through it.
@@ -348,10 +351,10 @@ final class AppServices {
     /// mouse-down is reported to ``mainWork`` (`noteDiscreteInput(expectsFrame:)`), and the span of its dispatch
     /// (`noteDiscreteDispatch(began:)`).
     let inputDispatch: InputDispatchContext
-    let inputTap = InputEventTap()  // the one input tap; owners subscribe, never add event monitors (p04-input.md 3 (A))
+    let inputTap: InputEventTap  // the one input tap (AppDelegate's; a test's own); owners subscribe, never add event monitors (p04-input.md 3 (A))
     private var mouseDownSubscription: InputSubscription?  // a click after dispatch (start)
     private(set) lazy var keyRouter: KeyRouter = KeyRouter(registry: registry, inputDispatch: inputDispatch)  // first read in init (no IUO)
-    private(set) lazy var chromiumWarmup: ChromiumWarmup = ChromiumWarmup(engine: cache.cef)  // first read in init (no IUO)
+    private(set) lazy var chromiumWarmup: ChromiumWarmup = ChromiumWarmup(engine: cache.cef, input: inputTap)  // first read in init (no IUO)
     /// The Settings window (Settings…, Cmd-,).
     private(set) lazy var settingsWindow = SettingsWindowService(services: self)
     /// The wallpaper choices, built off main and kept current by folder events (BackdropCatalogStore).
@@ -483,14 +486,14 @@ final class AppServices {
          work: BackgroundWork? = nil, mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget()),
          launchImages: AgentPaneLaunchImages = AgentPaneLaunchImages(directory: nil), relaunchWake: AgentPaneRelaunchWake = AgentPaneRelaunchWake(file: nil),
          wireStats: DaemonWireStats? = nil, hangWatch: (any HangWatchScoping)? = TraceRuntime.shared.hangWatch,
-         energyMonitor: EnergyMonitor = EnergyMonitor()) {
+         energyMonitor: EnergyMonitor = EnergyMonitor(), inputTap: InputEventTap = InputEventTap()) {
         let work = work ?? BackgroundWork(hangs: hangWatch)
         self.work = work
         self.energyMonitor = energyMonitor
         // First: the black-box ring is attached to TraceRuntime.shared, so every trace point records from here
         // on; the ring file opens on `.files`, never on main.
         traceBlackBox = environment.marksRun ? TraceBlackBoxFileSteps.startApp(bundleID: environment.launch.bundleID, work: work) : nil
-        self.wireStats = wireStats
+        (self.wireStats, self.inputTap) = (wireStats, inputTap)
         (self.launchImages, self.relaunchWake) = (launchImages, relaunchWake)
         actionBudget = ActionBudgetMonitor(board: mainWork.budget.board)
         updater = UpdaterService(work: work)
@@ -604,7 +607,6 @@ final class AppServices {
         registry.menuKeyEquivalentGate = { [weak self] id in self?.keyRouter.allowsMenuKeyEquivalent(id) ?? true }
         let inputDispatch = inputDispatch
         (NSApp as? CmuxApplication)?.inputDispatch = inputDispatch
-        (NSApp as? CmuxApplication)?.inputTap = inputTap
         registry.dispatchingInputEvent = { inputDispatch.event }
         registry.isDispatchingKeyDown = { inputDispatch.isKeyDown }
         registry.effectExpectsFrame = { inputDispatch.noteFrameExpected() }

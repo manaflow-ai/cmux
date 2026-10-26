@@ -3997,6 +3997,30 @@
       "reply_event": null,
       "reason": "A web preference of the tab; the memo of the sent scheme needs no answer (task 022).",
       "fork_api": 29
+    },
+    {
+      "name": "cmux_shim_page_scheme_set_group",
+      "class": "preinit",
+      "args": [
+        {
+          "name": "id",
+          "type": "const char*"
+        },
+        {
+          "name": "group",
+          "type": "const char*"
+        }
+      ],
+      "returns": "int",
+      "result_used_by": [
+        "CmuxNextBrowser/CEF/CEFPageSchemes.swift"
+      ],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": "wire:REPLY",
+      "reason": "A first-party page's renderer group (p13-webui-011) is set before initialize, after its page_scheme_add_first_party; the client returns its own check when it queues the op, and the host's refusal is the reply.",
+      "fork_api": 29
     }
   ],
   "optional_events": [

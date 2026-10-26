@@ -591,6 +591,12 @@
       "row": "observer_sites",
       "allow": 1,
       "why": "p03-rendering-011: CmuxNextWakeups WindowScreenFamily is the per-window adapter the rule asks for: one NSWindow.didChangeScreenNotification observation per window, scoped to object: window, made once by FrameScheduler.forWindow and released with the window's scheduler, and it calls only that window's scheduler (screenDidChange, which moves it to the new display's link on the DisplayClock). It is the only didChangeScreen observer in CmuxNextWakeups; before it nothing moved a dragged window's frame clock until the old display's stall deadline. Chrome: ViewsNSWindowDelegate windowDidChangeScreen (components/remote_cocoa/app_shim/views_nswindow_delegate.mm)."
+    },
+    {
+      "date": "2026-10-26",
+      "row": "blocking_allow_escapes",
+      "allow": 2,
+      "why": "p05-ipc-027 CmuxNextWireGen: the SwiftPM build-tool executable that reads cmux-tui/spec and writes one file into the plugin work directory. It runs on the build host as its own short process, never inside the app, so the app's main-thread detector does not apply; routing it through the CmuxNextCompat seams would compile Compat and swift-atomics for the host and rerun the generator on every Compat edit. One read and one write."
     }
   ],
   "observer_wrappers": [

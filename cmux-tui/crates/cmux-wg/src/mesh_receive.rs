@@ -18,6 +18,7 @@ use cmux_transport::{DatagramClass, classify};
 use tokio::time::Instant;
 
 use super::MeshDriver;
+use crate::decrypted::receive_tagged;
 use crate::mesh_route::PeerRoute;
 use crate::tcp_stack::PeerKey;
 use crate::wire::packet_source;
@@ -105,8 +106,7 @@ impl MeshDriver {
                     // for a SYN, so an accepted connection is tagged with
                     // the session that carried it.
                     if packet_source(packet).is_some_and(|address| peer.allows(address)) {
-                        self.pacer.received(packet, now);
-                        self.stack.push_rx(packet.to_vec(), Some(key));
+                        receive_tagged(&mut self.pacer, &mut self.stack, packet, key, now);
                     }
                     break;
                 }

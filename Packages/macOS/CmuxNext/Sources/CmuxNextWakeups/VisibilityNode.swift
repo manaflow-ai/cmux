@@ -63,6 +63,8 @@ import Darwin
     /// after each pass, so dropping costs O(1) amortized per insert.
     private var compactAt = 16
     private var subscriptions: [WeakSubscription] = []
+    /// Told when media starts or stops, or a capture vote begins or ends (``subscribeExemption(owner:_:)``).
+    private var exemptionSubscriptions: [WeakSubscription] = []
     /// The value subscribers were last told, so a flip and its undo inside one pass tell nobody.
     private var notified: Visibility
     /// Counts changes of ``notified``: a delivery stops when a subscriber's change started a newer one.
@@ -75,6 +77,10 @@ import Darwin
 
     /// Whether ``freeze()`` stopped this node's task queues.
     public private(set) var isFrozen = false
+
+    /// Whether a capture vote that does not stay hidden holds this node: its hidden work runs as if it were
+    /// seen (a screenshot, a screencast, screen share). Task 211's `captureVote(reason:stayHidden:)` drives it.
+    public private(set) var isCaptured = false
 
     /// Makes a root node (the app, or a window when the app has no node yet).
     ///
@@ -165,6 +171,33 @@ import Darwin
         guard active != mediaPlaying else { return }
         mediaPlaying = active
         if !active { mediaStoppedAt = uptime() }
+        notifyExemption()
+    }
+
+    /// Records that a capture vote that does not stay hidden starts or stops holding this node (``isCaptured``).
+    public func setCaptured(_ captured: Bool) {
+        guard captured != isCaptured else { return }
+        isCaptured = captured
+        notifyExemption()
+    }
+
+    /// Calls `onChange` each time media starts or stops on this node or ``isCaptured`` changes: the inputs of
+    /// the hidden-work exemptions, so a pending throttled deadline is placed again at once (Blink's
+    /// `PageSchedulerImpl::AudioStateChanged` updates the policy of its throttled queues the same way). Hold the
+    /// returned token as a ``subscribe(owner:_:)`` one.
+    public func subscribeExemption(owner: String, _ onChange: @escaping @MainActor () -> Void) -> VisibilitySubscription {
+        let subscription = VisibilitySubscription(owner: owner, node: self) { _ in onChange() }
+        exemptionSubscriptions.removeAll { $0.subscription == nil }
+        exemptionSubscriptions.append(WeakSubscription(subscription: subscription))
+        return subscription
+    }
+
+    private func notifyExemption() {
+        exemptionSubscriptions.removeAll { $0.subscription == nil }
+        let value = effective
+        for subscription in exemptionSubscriptions.compactMap(\.subscription) where subscription.isActive {
+            subscription.onFlip(value)
+        }
     }
 
     /// Whether this node plays media now or stopped less than `window` ago. Hidden-work rules exempt
@@ -253,6 +286,7 @@ import Darwin
 
     func remove(_ subscription: VisibilitySubscription) {
         subscriptions.removeAll { $0.subscription == nil || $0.subscription === subscription }
+        exemptionSubscriptions.removeAll { $0.subscription == nil || $0.subscription === subscription }
     }
 
     // MARK: Propagation
