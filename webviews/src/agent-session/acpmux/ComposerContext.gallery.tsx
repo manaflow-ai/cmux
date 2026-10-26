@@ -380,6 +380,19 @@ export default componentEntry<ComponentProps<typeof ComposerContext>>({
         await ctx.waitFor(() => ctx.document.querySelector('.acpmux-env-popover [role="option"]'));
       },
     },
+    "environment-picker-run-as": {
+      note: "Preview (hq#3367): a new chat's Run as heads the list. Persistent is a chat, as before; Sandboxed runs the first message once on a throwaway Cloud VM and says up front what it keeps, reaches and costs.",
+      props: {
+        ...baseProps,
+        environments: true,
+        runMode: { mode: "sandboxed", onMode: () => undefined },
+      },
+      height: 420,
+      play: async (ctx) => {
+        await ctx.click({ role: "button", name: /^Environment/ });
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-env-popover .acpmux-env-mode"));
+      },
+    },
     "machine-colors": {
       note: "Another machine keeps one color from its name (machineColor) in the list, so two SSH machines and a Cloud machine tell apart at a glance; this Mac stays quiet.",
       props: {

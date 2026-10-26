@@ -566,3 +566,34 @@ test("New Tab, previews on: a slower worktree reply doesn't replace a newer choi
   await act(async () => replies[0]!("/Users/you/wt/app-red-owl"));
   expect(folderName()).toContain("fox");
 });
+
+// Run as (hq#3367): a new chat's first message as a chat (Persistent) or once on a throwaway Cloud
+// VM (Sandboxed), with what it keeps, reaches and costs on its row. Only with Labs on.
+test("Run as lists Persistent and Sandboxed with the sandbox's retention, access and cost", async () => {
+  const modes: string[] = [];
+  await mount(true, { runMode: { mode: "persistent", onMode: (mode: string) => modes.push(mode) } });
+  await openPicker();
+  const modeRows = rows().filter((row) => row.querySelector(".acpmux-env-mode"));
+  expect(modeRows.map((row) => row.querySelector(".acpmux-menu-label")?.textContent)).toEqual([
+    t("composer.persistent"),
+    t("composer.sandboxed"),
+  ]);
+  const sandboxed = rowText(modeRows[1]!);
+  for (const key of ["composer.sandboxedRetention", "composer.sandboxedAccess", "composer.sandboxedCost"] as const) {
+    expect(sandboxed).toContain(t(key));
+  }
+  expect(modeRows[0]!.querySelector("[data-current]")).toBeTruthy();
+  await act(async () => modeRows[1]!.click());
+  expect(modes).toEqual(["sandboxed"]);
+});
+
+test("without Labs, or once the chat started, there is no Run as", async () => {
+  const runMode = { mode: "persistent", onMode: () => undefined };
+  await mount(false, { runMode });
+  expect(host.textContent).not.toContain(t("composer.sandboxed"));
+  act(() => root?.unmount());
+  root = undefined;
+  await mount(true, { runMode, started: true, onOffload: () => undefined, offloads: ["move"] });
+  await openPicker();
+  expect(rows().some((row) => row.querySelector(".acpmux-env-mode"))).toBe(false);
+});

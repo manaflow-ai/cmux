@@ -17,6 +17,7 @@ import { translate as t } from "./i18n";
 import { useLocationOpener, useLocationPopover } from "./locationPopover";
 import { usePopoverTrigger } from "../../ui/popoverTrigger";
 import { focusAfterEscape } from "../../ui/escapeFocus";
+import type { RunModeRows } from "./sandboxRun";
 
 export const CONTEXT_LABELS = {
   computer: "composer.computer",
@@ -69,6 +70,7 @@ export function ComposerContext({
   offloads = NO_OFFLOADS,
   saved,
   onRefreshMachines,
+  runMode,
 }: {
   summary?: Summary;
   sessions?: Session[];
@@ -111,6 +113,8 @@ export function ComposerContext({
   saved?: SavedEnvironmentRows;
   /// The environment picker opened: read the machines and their status again.
   onRefreshMachines?(): void;
+  /// A new chat's Run as rows in the environment picker (Persistent or Sandboxed, hq#3367).
+  runMode?: RunModeRows;
 }) {
   const computers = useMemo(
     // The peers' transports and status draw only in the environment picker: the plain menu stays
@@ -321,6 +325,7 @@ export function ComposerContext({
               {...(!started && onConnect ? { onConnect } : {})}
               {...(savedRows ? { saved: savedRows } : {})}
               {...(onRefreshMachines ? { onOpen: onRefreshMachines } : {})}
+              {...(runMode && !started && !readOnly ? { runMode } : {})}
             />
           ) : (
             <LocationPicker

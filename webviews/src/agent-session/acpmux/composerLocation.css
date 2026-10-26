@@ -1325,6 +1325,22 @@
 }
 .acpmux-env-row .acpmux-env-status[data-connected="true"] { background: var(--agent-success, var(--acpmux-add, currentColor)); }
 .acpmux-env-row .acpmux-env-status[data-connected="false"] { border: 1px solid var(--agent-muted); }
+/* Run as (Persistent, Sandboxed; hq#3367): the name, then each fact on its own wrapped line, so what a
+   sandbox keeps, reaches and costs reads in full at the menu's width in every language. */
+.acpmux-env-mode { align-items: flex-start; }
+.acpmux-env-mode .acpmux-menu-text.acpmux-location-name {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  white-space: normal;
+}
+.acpmux-env-mode .acpmux-env-detail {
+  color: var(--agent-muted);
+  font-size: var(--text-caption);
+  line-height: 14px;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
 /* New Cloud Machine, Move to Cloud and Bring Back Local: the name, then one quiet line of what it does. */
 .acpmux-env-new:is([data-kind="cloud"], [data-kind="local"]) .acpmux-menu-text {
   display: flex;

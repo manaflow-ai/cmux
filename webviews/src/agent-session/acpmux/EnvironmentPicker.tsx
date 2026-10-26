@@ -15,6 +15,7 @@ import {
 } from "./environments";
 import { useLocationOpener, useLocationPopover } from "./locationPopover";
 import { machineColor } from "./machineColor";
+import type { RunMode, RunModeRows } from "./sandboxRun";
 
 const SECTION_LABELS = {
   local: "composer.envLocal",
@@ -55,6 +56,7 @@ export function EnvironmentPicker({
   onOpen,
   offload,
   onOffload,
+  runMode,
 }: {
   label: string;
   /// The name automation opens it by (`openPicker`).
@@ -73,6 +75,9 @@ export function EnvironmentPicker({
   /// A started chat's move, run by `onOffload`.
   offload?: OffloadKind;
   onOffload?(kind: OffloadKind): void;
+  /// A new chat's Run as rows (preview, hq#3367): Persistent (a chat, as before) or Sandboxed (the
+  /// first message runs once on a throwaway Cloud VM), each with what it keeps, reaches and costs.
+  runMode?: RunModeRows;
 }) {
   // A picked saved environment is the current row: every machine row is then a change.
   const currentRow = saved?.current !== undefined ? SAVED + saved.current : current;
@@ -193,7 +198,11 @@ export function EnvironmentPicker({
       ? [{ value: ACTION + "ssh", text: t("composer.connectSSH"), kind: "ssh" as const, run: () => onConnect("ssh") }]
       : []),
   ];
+  const modes = (runMode ? RUN_MODES : []).filter((mode) =>
+    matches(words, `${t(MODE_LABELS[mode])} ${t("composer.runAs")}`),
+  );
   const suggestions = [
+    ...modes.map((mode) => MODE + mode),
     ...savedShown.map((environment) => SAVED + environment.id),
     ...shown.map((environment) => environment.id),
     ...actions.map((action) => action.value),
@@ -252,12 +261,43 @@ export function EnvironmentPicker({
   const submit = (value: string) => {
     const action = actions.find((candidate) => candidate.value === value);
     close();
-    if (action) action.run();
+    if (value.startsWith(MODE)) runMode?.onMode(value.slice(MODE.length) as RunMode);
+    else if (action) action.run();
     else if (value === currentRow) focusPrompt();
     else if (value.startsWith(SAVED)) saved?.onPick(value.slice(SAVED.length));
     else if (positions.has(value)) onPick(value);
   };
   const row = (value: string) => {
+    if (value.startsWith(MODE)) {
+      const mode = value.slice(MODE.length) as RunMode;
+      const first = modes[0] === mode;
+      return (
+        <span
+          className="acpmux-location-row acpmux-env-row acpmux-env-mode"
+          data-mode={mode}
+          data-section={first ? t("composer.runAs") : undefined}
+          data-first-section={first ? "" : undefined}
+          data-current={runMode?.mode === mode ? "" : undefined}
+        >
+          <EnvironmentIcon kind={mode === "sandboxed" ? "cloud" : "local"} />
+          <span className="acpmux-menu-text acpmux-location-name">
+            <span className="acpmux-menu-label">{t(MODE_LABELS[mode])}</span>
+            {mode === "sandboxed" ? (
+              <>
+                <span className="acpmux-env-detail">{t("composer.sandboxedRetention")}</span>
+                <span className="acpmux-env-detail">{t("composer.sandboxedAccess")}</span>
+                <span className="acpmux-env-detail">{t("composer.sandboxedCost")}</span>
+              </>
+            ) : (
+              <span className="acpmux-env-detail">{t("composer.persistentDetail")}</span>
+            )}
+          </span>
+          <span className="acpmux-location-check" aria-hidden="true">
+            {runMode?.mode === mode && <CheckIcon />}
+          </span>
+        </span>
+      );
+    }
     const action = actions.find((candidate) => candidate.value === value);
     if (action) {
       // The cloud action heads its section only when no cloud machine does, as Bring Back Local
@@ -280,7 +320,7 @@ export function EnvironmentPicker({
           className="acpmux-location-row acpmux-env-row acpmux-env-new"
           data-kind={action.kind === "saved" ? undefined : action.kind}
           data-section={section}
-          data-first-section={first ? "" : undefined}
+          data-first-section={first && modes.length === 0 ? "" : undefined}
         >
           {action.kind === "saved" ? action.icon : <EnvironmentIcon kind={action.kind} />}
           <span className="acpmux-menu-text acpmux-location-name">
@@ -299,7 +339,7 @@ export function EnvironmentPicker({
           className="acpmux-location-row acpmux-env-row acpmux-env-saved"
           data-kind={environment.kind}
           data-section={index === 0 ? t("composer.envSaved") : undefined}
-          data-first-section={index === 0 ? "" : undefined}
+          data-first-section={index === 0 && modes.length === 0 ? "" : undefined}
           data-current={value === currentRow ? "" : undefined}
         >
           <EnvironmentIcon kind={environment.kind} />
@@ -321,7 +361,9 @@ export function EnvironmentPicker({
         className="acpmux-location-row acpmux-env-row"
         data-kind={environment.kind}
         data-section={sectionStart ? t(SECTION_LABELS[environment.kind]) : undefined}
-        data-first-section={sectionStart && index === 0 && savedShown.length === 0 ? "" : undefined}
+        data-first-section={
+          sectionStart && index === 0 && savedShown.length === 0 && modes.length === 0 ? "" : undefined
+        }
         data-current={environment.id === currentRow ? "" : undefined}
       >
         <EnvironmentIcon kind={environment.kind} name={environment.label} />
@@ -412,6 +454,10 @@ export function EnvironmentPicker({
 const ACTION = "\u0000action:";
 /// A saved environment's row value: its id after this, never a machine's id.
 const SAVED = "\u0000saved:";
+/// A Run as row's value: the mode after this.
+const MODE = "\u0000mode:";
+const RUN_MODES: readonly RunMode[] = ["persistent", "sandboxed"];
+const MODE_LABELS = { persistent: "composer.persistent", sandboxed: "composer.sandboxed" } as const;
 
 /// Whether every search word is in `text`.
 function matches(words: readonly string[], text: string): boolean {
