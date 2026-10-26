@@ -69,8 +69,9 @@ extension SidebarListViewComponents {
 
     /// Sees every left press and release of the app before its window does (`pointerEventSeen`); the caller removes it.
     func observePointerEnds() -> Any? {
-        NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseUp]) { [weak self] event in
-            _ = self?.pointerEventSeen(event.type, in: event.window)
+        NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .leftMouseUp, .keyDown]) { [weak self] event in
+            if event.type == .keyDown { self?.onPointerKeyDown?(event) }
+            else { _ = self?.pointerEventSeen(event.type, in: event.window) }
             return event
         }
     }

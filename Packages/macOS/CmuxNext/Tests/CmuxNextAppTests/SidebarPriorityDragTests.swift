@@ -99,4 +99,18 @@ struct SidebarPriorityDragTests {
         #expect(harness.actions.isEmpty, "a stale release must neither place nor open the chat")
         #expect(harness.panel.panel.entries.map(\.id) == entries.map(\.id))
     }
+
+    @Test func escapeCancelsPriorityDragWithoutPlacingOrOpening() throws {
+        let harness = Harness()
+        let row = try #require(harness.panel.rows["c"])
+        let height = row.frame.height
+        row.mouseDown(with: try harness.event(.leftMouseDown, on: "c"))
+        row.mouseDragged(with: try harness.event(.leftMouseDragged, on: "c", dy: -height))
+        #expect(harness.panel.draggingID == "c")
+        harness.panel.cancelOperation(nil)
+        #expect(harness.panel.draggingID == nil)
+        row.mouseUp(with: try harness.event(.leftMouseUp, on: "c", dy: -height))
+        #expect(harness.actions.isEmpty)
+    }
+
 }
