@@ -175,6 +175,37 @@ await requireBrowserLane("running-strip.test.ts", async () => {
     });
   }
 
+  test("in a pane under 360px tall View all stays in reach: focus scrolls it into view", async () => {
+    const page = await browser!.newPage({ viewport: { width: 760, height: 300 } });
+    try {
+      const { port } = vite!.httpServer!.address() as { port: number };
+      await page.goto(`http://127.0.0.1:${port}/test/browser/running-strip.html`);
+      await page.waitForFunction(() => document.documentElement.dataset.harnessReady === "1");
+      await page.evaluate(() => (window as unknown as { __showPanel: (h: number) => void }).__showPanel(34));
+      await page.waitForSelector(".acpmux-running-tray__finished");
+      await page.evaluate(() => {
+        for (const animation of document.getAnimations())
+          if (Number.isFinite(animation.effect?.getComputedTiming().endTime as number)) animation.finish();
+      });
+      await page.focus(".acpmux-running-tray__finished");
+      const seen = await page.evaluate(() => {
+        const tray = document.querySelector<HTMLElement>(".acpmux-running-tray")!;
+        const more = tray.querySelector<HTMLElement>(".acpmux-running-tray__finished")!;
+        const box = tray.getBoundingClientRect();
+        const rect = more.getBoundingClientRect();
+        const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
+        return { inside: rect.top >= box.top - 0.5 && rect.bottom <= box.bottom + 0.5, drawn: !!hit && more.contains(hit) };
+      });
+      expect(seen).toEqual({ inside: true, drawn: true });
+      await page.keyboard.press("Enter");
+      expect(await page.$eval(".acpmux-running-tray__finished", (more) => more.getAttribute("aria-expanded"))).toBe(
+        "true",
+      );
+    } finally {
+      await page.close();
+    }
+  });
+
   test("a line with nothing to open has no hover and no hand", async () => {
     const page = await open(false);
     try {

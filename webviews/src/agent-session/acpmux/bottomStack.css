@@ -109,19 +109,24 @@
   overscroll-behavior: contain;
 }
 /* The tray never scrolls as a whole: its header and View all stay pinned and only its list scrolls
-   (subagents.css). As the stack's own scroller it scrolled its header out of view in a short pane. */
-/* In a short pane its list gives up its height to nothing first; past that the tray keeps the
-   stack's own one-row minimum, so the composer keeps its priority and the header, on top, is what
-   stays. Clip, not hidden: a hidden box still scrolls when focus or a script moves into it. */
+   (subagents.css). As the stack's own scroller it scrolled its header out of view in a short pane.
+   In a short pane its list gives up its height to nothing first; the tray keeps room for both pinned
+   rows, the header and View all, whole. Clip, not hidden: a hidden box still scrolls when focus or a
+   script moves into it. */
 .acpmux-dock > .acpmux-running-tray {
   overflow: clip;
 }
-/* Where the pane has room (a webview at least 360px tall) the tray keeps both pinned rows, the header
-   and View all, whole; in a shorter pane the composer's priority wins and View all, clipped, stays
-   reachable by keyboard and to assistive tech. */
-@media (min-height: 360px) {
+.acpmux-dock > .acpmux-running-tray:has(> .acpmux-running-tray__finished) {
+  min-height: calc(2 * 28px + 2px + 2 * var(--cmux-hairline, 0.5px));
+}
+/* A pane too short for both pinned rows and the composer (a webview under 360px) keeps the composer
+   first: the tray takes the stack's one-row minimum and scrolls as a whole again, as it did before,
+   so View all is never cut out of reach (a wheel or keyboard focus scrolls it into view). */
+@media (max-height: 359.98px) {
+  .acpmux-dock > .acpmux-running-tray,
   .acpmux-dock > .acpmux-running-tray:has(> .acpmux-running-tray__finished) {
-    min-height: calc(2 * 28px + 2px + 2 * var(--cmux-hairline, 0.5px));
+    min-height: var(--acpmux-stack-row-min, 34px);
+    overflow-y: auto;
   }
 }
 
