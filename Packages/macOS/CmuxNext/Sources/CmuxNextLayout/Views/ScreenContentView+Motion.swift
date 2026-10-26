@@ -51,6 +51,15 @@ extension ScreenContentView {
     }
 
     // MARK: Animation
+    /// The panes' and dividers' CPU springs (``panePlacement``), in place: a step mutates one entry, no copy.
+    var paneFrames: [PaneID: AnimatedFrame] {
+        get { panePlacement.springs }
+        _modify { yield &panePlacement.springs }
+    }
+    var dividerFrames: [DividerHandleView.Kind: AnimatedFrame] {
+        get { dividerPlacement.springs }
+        _modify { yield &dividerPlacement.springs }
+    }
     /// Motion the CPU steps: a fling on the render server is not (the reducer's spring rests on its target).
     var hasMotion: Bool {
         let camera = scrollState.spring
@@ -104,7 +113,7 @@ extension ScreenContentView {
         let cameraSpring = scrollRidesFrames ? frameSpring : policy.spring(.scroll)
         if stepRows(dt, spring: cameraSpring) { moving = true }
         if stepAreas(dt, policy: policy) { moving = true }
-        if MotionTrace.isEnabled { MotionTrace.sample("layout.travel", Double(travelLeft)) }
+        if MotionTrace.isEnabled { MotionTrace.sample("layout.travel", Double(panePlacement.travelLeft + dividerPlacement.travelLeft)) }
         let panesMoving = paneFrames.values.contains { $0.rect != $0.targetRect }
         // The panes landed: their terminals' grids go to the PTY once, now.
         if holdsGrids, !panesMoving { holdsGrids = false }
@@ -172,15 +181,6 @@ extension ScreenContentView {
         panPresentedInFrame = false
         if panPresentationPending { applyPresentation() }
         return isUserScrolling && panBase == nil
-    }
-
-    /// Sets `frame`'s target (opaque); without animation it snaps there. During a pointer gesture (a divider drag)
-    /// only a frame the gesture retargets snaps: a spring already running elsewhere (a close landing in another
-    /// column) keeps going (M3). Reduce Motion snaps every frame.
-    func place(_ frame: inout AnimatedFrame, at target: CGRect, animated: Bool) {
-        let retargeted = frame.targetRect != target
-        frame.setTarget(target, alpha: 1)
-        if !animated, retargeted || !context.model.isGestureActive || context.reduceMotion { frame.snap() }
     }
 
     /// New dock columns' panes still growing in from their screen edge (their frames).

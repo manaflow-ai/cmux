@@ -89,6 +89,17 @@ extension ScreenContentView {
         return true
     }
 
+    /// The strip camera as it shows: during a fling on the render server (`StripClipContainerView.fling`)
+    /// the reducer's spring rests on the fling's target and this is where the strip is on the way. A
+    /// write takes the camera back from the fling first (``takeCameraFromServer()``).
+    var scroll: SpringValue {
+        get { stripContainer.fling == nil ? scrollState.spring : flingCamera }
+        set {
+            takeCameraFromServer()
+            scrollState.spring = newValue
+        }
+    }
+
     /// The camera as it shows during a fling: the target the reducer rests on, less the translation
     /// the render server shows now.
     var flingCamera: SpringValue {

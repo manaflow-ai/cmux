@@ -1,9 +1,8 @@
 import AppKit
 import CmuxNextDesign
 
-// Pane chrome (focus ring, dim, attention), visibility and hit testing, and
-// the travel a split has left (debug.motion), split out of
-// ScreenContentView.swift to keep it under its size budget.
+// Pane chrome (focus ring, dim, attention), visibility from the motion plan and hit testing, split out
+// of ScreenContentView.swift to keep it under its size budget.
 extension ScreenContentView {
     // MARK: Chrome
 
@@ -56,32 +55,44 @@ extension ScreenContentView {
 
     // MARK: Visibility and hit testing
 
-    /// Panes whose displayed frame intersects the viewport. During a fling on the render server, the
-    /// panes it shows on its way to rest too: the strip's viewport is swept over the translation left.
+    /// Panes whose displayed sweep (``displayedSweep(of:)``) meets the viewport. During a fling on the render
+    /// server, the panes it shows on its way to rest too: the strip's viewport is swept over the translation left.
     func visiblePanes() -> Set<PaneID> {
         var result: Set<PaneID> = []
         let left = stripContainer.fling == nil ? 0 : stripContainer.shownTranslation
         let uncovered = uncoveredRect.union(uncoveredRect.offsetBy(dx: left, dy: 0))
-        for (pane, frame) in paneFrames {
+        for (pane, frame) in paneFrames where max(frame.alpha.value, frame.alpha.target) > 0.01 {
+            guard let sweep = displayedSweep(of: pane) else { continue }
             // A strip pane wholly under a docked column is hidden.
-            let scrolls = geometry.scrolls(pane: pane)
-            let displayed = displayedRect(frame.rect, pane: pane)
-            let overlap = displayed.intersection(scrolls ? uncovered : bounds)
-            if !overlap.isNull, overlap.width > 0.5, overlap.height > 0.5, frame.alpha.value > 0.01 {
-                result.insert(pane)
-            }
+            let overlap = sweep.intersection(geometry.scrolls(pane: pane) ? uncovered : bounds)
+            if !overlap.isNull, overlap.width > 0.5, overlap.height > 0.5 { result.insert(pane) }
         }
         return result
     }
 
-    /// Panes whose displayed frame lies within one viewport width of the
+    /// Panes whose displayed sweep lies within one viewport width of the
     /// viewport on either side (architecture.md 4): visible panes plus the
     /// off-screen columns a short scroll brings in. Their content stays
     /// alive, paused, so scrolling back shows it at once.
     func keepAlivePanes() -> Set<PaneID> {
-        KeepAliveBand.panes(displayed: paneFrames.reduce(into: [:]) { $0[$1.key] = displayedRect($1.value.rect, pane: $1.key) },
-                            viewport: bounds)
+        var sweeps: [PaneID: CGRect] = [:]
+        for pane in paneFrames.keys { sweeps[pane] = displayedSweep(of: pane) }
+        return KeepAliveBand.panes(displayed: sweeps, viewport: bounds)
     }
+
+    /// Every place `pane` shows between now and its rest, in local coordinates (``ScreenVisibilityPlan/sweep(shown:rest:track:)``):
+    /// where it shows now, where it rests with each camera at its rest, and where each render-server spring that
+    /// carries it started.
+    func displayedSweep(of pane: PaneID) -> CGRect? {
+        guard let frame = paneFrames[pane] else { return nil }
+        let row = baseGeometry.rowColumnOfPane[pane].flatMap { rowScrolls[$0]?.state.restOffset } ?? 0
+        let area = baseGeometry.scrollAreaOfPane[pane].flatMap { areaScrolls[$0]?.state.restOffset } ?? 0
+        let rest = frame.targetRect.offsetBy(dx: (geometry.scrolls(pane: pane) ? restStripShift : 0) - area, dy: -row)
+        return ScreenVisibilityPlan.sweep(shown: displayedRect(frame.rect, pane: pane), rest: rest, track: renderTracks.panes[pane])
+    }
+
+    /// The strip's view shift with its camera at rest (at the finger while a pan holds it).
+    var restStripShift: CGFloat { isUserScrolling ? stripShift : geometry.viewShift(offset: scrollState.spring.target) }
 
     /// The pane under `localPoint`: a docked column's pane above the strip.
     func pane(at localPoint: NSPoint) -> PaneID? {
@@ -99,17 +110,5 @@ extension ScreenContentView {
     /// Displayed frame of `pane` in local coordinates: its host's frame (on the pixel grid, `applyPresentation`).
     func displayedFrame(of pane: PaneID) -> CGRect? {
         paneFrames[pane].map { displayedRect($0.rect.pixelEdges(scale), pane: pane) }
-    }
-
-    // MARK: Motion trace
-
-    /// The points every pane and divider still has to travel (all four
-    /// edges): the layout spring's path, sampled per frame for debug.motion.
-    var travelLeft: CGFloat {
-        func left(_ frame: AnimatedFrame) -> CGFloat {
-            abs(frame.x.target - frame.x.value) + abs(frame.y.target - frame.y.value)
-                + abs(frame.width.target - frame.width.value) + abs(frame.height.target - frame.height.value)
-        }
-        return paneFrames.values.reduce(0) { $0 + left($1) } + dividerFrames.values.reduce(0) { $0 + left($1) }
     }
 }

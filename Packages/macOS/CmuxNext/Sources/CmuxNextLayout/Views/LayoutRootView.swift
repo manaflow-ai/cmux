@@ -60,8 +60,7 @@ public final class LayoutRootView: NSView {
     var burstClock: () -> CFTimeInterval = { CACurrentMediaTime() }
     /// Structural changes of automation bursts that landed with no spring, cumulative (diagnostics, tests).
     private(set) var automationBurstSnaps = 0
-    private var reportedVisible: Set<PaneID> = []
-    private var reportedKeepAlive: Set<PaneID> = []
+    private var presence = PanePresenceReport()
     var scrollLock: ScrollLock = .idle
     var consumeMomentum = false
     /// The current gesture's touch (`mayBegin`) chose its owner: its `began` keeps it (`LayoutRootView+Scroll`).
@@ -186,7 +185,9 @@ public final class LayoutRootView: NSView {
         context.wireOverlaySync(to: self)
         context.userMotionStepped = { [weak self] in self?.setLayoutInMotion(true) }
         context.userMotionEnded = { [weak self] in
-            guard let self, !self.screenViews.values.contains(where: \.hasMotion), !self.driver.isRunning else { return }
+            guard let self else { return }
+            self.updateVisibilityIfPlanChanged() // render-server springs landed: narrow to the rest
+            guard !self.screenViews.values.contains(where: \.hasMotion), !self.driver.isRunning else { return }
             self.setLayoutInMotion(false)
             // The render server's springs landed after the CPU's last frame: the run rests here.
             if !self.rendersMotion { self.motionTrace.endRun() }
@@ -491,7 +492,7 @@ public final class LayoutRootView: NSView {
             applyScreenFrames()
         }
 
-        updateVisibility()
+        updateVisibilityIfPlanChanged()
         overlayIsStale = true
         flushOverlaySync()
         // Pane padding or corners changed: pages drawn as child windows
@@ -555,7 +556,7 @@ public final class LayoutRootView: NSView {
             for view in screenViews.values where view.hasMotion { view.settleMotion() }
             for id in Array(screenFrames.keys) { screenFrames[id]?.snap() }
             applyScreenFrames()
-            updateVisibility()
+            updateVisibilityIfPlanChanged()
             flushOverlaySync()
             setLayoutInMotion(false)
             return false
@@ -574,7 +575,7 @@ public final class LayoutRootView: NSView {
         }
         applyScreenFrames()
         if highlightStepsOnFrames, highlight.step(dt) { moving = true }
-        updateVisibility()
+        updateVisibilityIfPlanChanged() // a frame on the way changes no presence (`ScreenVisibilityPlan`)
         // A pan with the finger down is layout motion (`userMotionActive`): a frame tick during it
         // is not its landing, so what waits for the landing (page windows, catcher panels) waits on.
         let gesturing = screenViews.values.contains(where: \.userMotionActive)
@@ -597,10 +598,18 @@ public final class LayoutRootView: NSView {
     }
 
     /// `updateVisibility()` calls (`debug.layout_counters` `update_visibility`): a spring wants <= 2 (p03-rendering DC2).
-    public private(set) var visibilityUpdates: UInt64 = 0
+    public var visibilityUpdates: UInt64 { presence.passes }
+
+    /// A visibility pass when the active screen's plan (`ScreenVisibilityPlan`) changed since the last one.
+    func updateVisibilityIfPlanChanged() {
+        if visibilityPlan != presence.plan { updateVisibility() }
+    }
+
+    private var visibilityPlan: ScreenVisibilityPlan? {
+        isLive ? model.activeScreenID.flatMap { screenViews[$0] }.map { ScreenVisibilityPlan($0) } : nil
+    }
 
     func updateVisibility() {
-        visibilityUpdates &+= 1
         var visible: Set<PaneID> = []
         var keepAlive: Set<PaneID> = []
         if isLive, let active = model.activeScreenID, let view = screenViews[active] {
@@ -609,21 +618,9 @@ public final class LayoutRootView: NSView {
             // A strip pan event inside this span reports nothing: it skips the pass (`LayoutRootView+Scroll`).
             view.recordVisibilitySpan()
         }
-        guard visible != reportedVisible || keepAlive != reportedKeepAlive else { return }
-        var changes: [(PaneID, PanePresence)] = []
-        for pane in reportedKeepAlive.union(keepAlive) {
-            let before = PanePresence(pane, visible: reportedVisible, keepAlive: reportedKeepAlive)
-            let after = PanePresence(pane, visible: visible, keepAlive: keepAlive)
-            if before != after { changes.append((pane, after)) }
-        }
-        reportedVisible = visible
-        reportedKeepAlive = keepAlive
+        guard let changes = presence.record(visible: visible, keepAlive: keepAlive, plan: visibilityPlan) else { return }
         model.reportVisiblePanes(visible, keepAlive: keepAlive)
-        // Losses first, so content leaving the band frees room before new
-        // content attaches.
-        for (pane, presence) in changes.sorted(by: { $0.1.rank < $1.1.rank }) {
-            context.provider?.panePresenceDidChange(pane, presence: presence)
-        }
+        for (pane, now) in changes { context.provider?.panePresenceDidChange(pane, presence: now) }
     }
 
     // MARK: Layout and window
@@ -647,7 +644,7 @@ public final class LayoutRootView: NSView {
             }
         }
         applyScreenFrames()
-        updateVisibility()
+        updateVisibilityIfPlanChanged()
         if overlayPlane.syncFrame() { overlayIsStale = true }
         flushOverlaySync()
         planeHost?.planeDidLayout(overlayPlane)
@@ -721,7 +718,7 @@ public final class LayoutRootView: NSView {
             inputIntercept = subscribeInput()
             updatePointerLanding()
         }
-        updateVisibility()
+        updateVisibilityIfPlanChanged()
         // The layout changes it saw while parked: one overlay sync now.
         if live { flushOverlaySync() }
     }
