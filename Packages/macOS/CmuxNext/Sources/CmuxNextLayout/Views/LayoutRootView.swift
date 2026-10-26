@@ -165,14 +165,17 @@ public final class LayoutRootView: NSView {
     /// and the drop highlight follow through it.
     /// `motionSignposter` takes the window's `motion.frame` and `motion.run` intervals; tests pass one on
     /// their own trace runtime.
+    /// `hiddenWork` is the app's count of work done while off screen (its passes while ``isOffScreen``); nil
+    /// where nobody reads it.
     public init(model: LayoutModel, contentProvider: any LayoutPaneContentProvider,
                 scrollbarClock: any Clock<Duration> = ContinuousClock(),
                 scrollFocusSignals: ScrollFocusSignals = ScrollFocusSignals(),
                 rendersMotionOnServer: @escaping () -> Bool = { LayoutTunables.motionRenderServer.value },
                 input: InputEventTap? = nil, mainWork: MainWorkScheduler,
-                motionSignposter: Signposter = .motion) {
+                motionSignposter: Signposter = .motion, hiddenWork: HiddenLayoutWork? = nil) {
         self.model = model
         inputTap = input
+        self.hiddenWork = hiddenWork
         motionTrace = LayoutMotionTrace(signposter: motionSignposter)
         self.scrollFocusSignals = scrollFocusSignals
         self.context = LayoutViewContext(model: model, provider: contentProvider, scrollbarClock: scrollbarClock,
@@ -632,19 +635,16 @@ public final class LayoutRootView: NSView {
     /// workspace only; a parked one keeps its frame until it shows again.
     public static var layoutPasses: UInt64 = 0
     /// Whether its workspace is off screen (parked on no screen), set by the workspace's controller: its passes
-    /// then count as ``hiddenLayoutPasses``.
+    /// then count in ``HiddenLayoutWork/layoutPasses``.
     public var isOffScreen = false
-    /// Layout passes of every root while ``isOffScreen`` (`debug.layout_counters` `hidden_workspace_layouts`); a hidden
-    /// workspace's changes update the model only, so a pass here is work nobody sees. Monotonic as ``layoutPasses``:
-    /// a root that unmounts keeps its passes in the count.
-    public static var hiddenLayoutPasses: UInt64 = 0
+    private let hiddenWork: HiddenLayoutWork?
     /// Panes whose chrome (ring, dim, tab emphasis) a sync re-ran, all windows (`debug.layout_counters`).
     public static var paneChromeUpdates: UInt64 = 0
 
     override public func layout() {
         super.layout()
         Self.layoutPasses &+= 1
-        if isOffScreen { Self.hiddenLayoutPasses &+= 1 }
+        if isOffScreen { hiddenWork?.noteLayoutPass() }
         for (id, view) in screenViews {
             if view.frame.size != bounds.size { view.setFrameSize(bounds.size) }
             if var frame = screenFrames[id] {
