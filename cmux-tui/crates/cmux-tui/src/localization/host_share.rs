@@ -8,6 +8,7 @@ pub(crate) struct Messages {
     pub confirm: &'static str,
     pub not_approved: &'static str,
     pub agents: &'static str,
+    pub full_access: &'static str,
 }
 
 pub(crate) const ENGLISH: Messages = Messages {
@@ -18,6 +19,7 @@ pub(crate) const ENGLISH: Messages = Messages {
     confirm: "Shares expire when the daemon restarts. Type yes to confirm:",
     not_approved: "not approved; nothing changed",
     agents: "participate in agent chats shared with you",
+    full_access: "this login has full access (cmux host allow); remove it with cmux host deny before sharing one chat",
 };
 pub(crate) const JAPANESE: Messages = Messages {
     no_arguments: "位置引数は指定できません",
@@ -27,4 +29,5 @@ pub(crate) const JAPANESE: Messages = Messages {
     confirm: "共有はデーモンの再起動で期限切れになります。確認するには yes と入力してください:",
     not_approved: "承認されませんでした。変更はありません",
     agents: "自分と共有されたエージェントチャットに参加する",
+    full_access: "このログインにはフルアクセスがあります (cmux host allow)。チャットを共有する前に cmux host deny で削除してください",
 };

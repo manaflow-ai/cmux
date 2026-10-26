@@ -181,6 +181,11 @@ impl Attachment {
         params
     }
 
+    /// A page as this attachment may see it: a proxied teammate gets no `composer` records.
+    fn private(&self, page: Value) -> Value {
+        if self.author.is_some() { stream::without_drafts(page) } else { page }
+    }
+
     fn note_permission(&self, id: &str) {
         let mut permissions = self.permissions.lock().unwrap_or_else(|e| e.into_inner());
         if permissions.iter().any(|known| known == id) {
@@ -803,14 +808,14 @@ fn call(attachment: &Attachment, command: AgentSessionCommand) -> Result<Value, 
             let params = page_params(session, &params, true)?;
             let page =
                 attachment.link.call("_acpmux/attach", attachment.stamp(params), CALL_TIMEOUT);
-            page.map(|page| bound_page(page, newest_first)).map_err(Refusal::of)
+            page.map(|page| attachment.private(bound_page(page, newest_first))).map_err(Refusal::of)
         }
         AgentSessionCommand::Events(params) => {
             let newest_first = params.before_seq.is_some();
             let params = page_params(session, &params, false)?;
             let page =
                 attachment.link.call("_acpmux/events", attachment.stamp(params), CALL_TIMEOUT);
-            page.map(|page| bound_page(page, newest_first)).map_err(Refusal::of)
+            page.map(|page| attachment.private(bound_page(page, newest_first))).map_err(Refusal::of)
         }
         AgentSessionCommand::Prompt(PromptParams { prompt_id, text, .. }) => {
             prompt(attachment, prompt_id, text)

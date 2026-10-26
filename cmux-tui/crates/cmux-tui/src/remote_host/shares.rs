@@ -46,6 +46,10 @@ pub(super) fn run(verb: &str, args: &[String]) -> anyhow::Result<()> {
         "guest" => Role::Guest,
         _ => return Err(super::usage(text.role)),
     };
+    // A full-access login (`cmux host allow`) is the owner's own trust, not a teammate.
+    if verb == "share" && config.allow.iter().any(|allowed| config::same_login(allowed, &login)) {
+        bail!("{}: {login}", text.full_access);
+    }
     if verb == "share"
         && !matches!(grant::check(&config, &login),
         grant::Check::Granted(scopes) if scopes.contains(&grant::Scope::Agents))

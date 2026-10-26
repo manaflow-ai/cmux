@@ -324,3 +324,23 @@ fn agent_proxy_shares_expire_on_daemon_change() {
         Err("agent_session.not_shared")
     );
 }
+
+#[test]
+fn a_shared_login_on_the_full_access_list_still_goes_through_its_grant() {
+    let mut config = leo_host(consented(LAWRENCE, &[Scope::Agents]));
+    config.allow = vec![LAWRENCE.to_owned()];
+    assert!(matches!(decide_for(&config, PEER, person(LAWRENCE)), Decision::Allowed(_)));
+    config.shares = vec![super::shares::Share {
+        surface: 7,
+        login: LAWRENCE.to_owned(),
+        role: super::shares::Role::Member,
+        shared_at: "2026-10-26T09:00:00Z".to_owned(),
+        generation: "g1".to_owned(),
+    }];
+    match decide_for(&config, PEER, person(LAWRENCE)) {
+        Decision::Guest(_, scopes) => assert_eq!(scopes, vec![Scope::Agents]),
+        other => panic!("expected the scoped grant, got {other:?}"),
+    }
+    config.grants.clear();
+    assert!(matches!(decide_for(&config, PEER, person(LAWRENCE)), Decision::Refused(_)));
+}
