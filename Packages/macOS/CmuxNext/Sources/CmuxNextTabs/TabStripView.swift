@@ -2,7 +2,7 @@ public import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
 public import CmuxNextInput
-public import CmuxNextWakeups
+import CmuxNextWakeups
 import Observation
 import QuartzCore
 
@@ -25,11 +25,8 @@ public final class TabStripView: NSView {
 
     public let model: TabStripModel
     let inputTap: InputEventTap  // the app's one; the strip's modes subscribe only while they last
-    /// The windows' frame-aligned input (feature `pointerFrameHover`): a frame's moves hover once, at the
-    /// latest point (`TabStripView+Pointer`). Nil: each move hovers at once.
-    public var hoverFrameInput: FrameInputCoalescers?
-    /// This strip's owner name in its window's coalescer: each pane's strip merges only its own moves.
-    private(set) lazy var hoverInputOwner = "TabStripView.hover.\(ObjectIdentifier(self).hashValue)"
+    /// The strip's own hover moves (`pointerFrameHover`, `TabStripView+Pointer`): two strips never merge theirs.
+    private(set) lazy var hoverMoves = PointerFrameHover(owner: "TabStripView.hover", view: self) { [weak self] point in self?.hoverMoved(toWindowPoint: point) }
 
     public weak var previewProvider: (any TabPreviewProvider)? {
         didSet { hoverCard.previewProvider = previewProvider }

@@ -81,7 +81,9 @@ final class SidebarBridge {
         container.sidebarView.resourceSource = services.resources
         container.sidebarView.hoverCards = services.hoverCards
         container.sidebarView.inputTap = services.inputTap
-        container.sidebarView.hoverFrameInput = services.hoverFrameInput  // hover once per frame (`pointerFrameHover`)
+        // The list, the space bar and the rail hover once per frame (`pointerFrameHover`).
+        container.sidebarView.hoverFrameInput = services.hoverFrameInput
+        container.railView.hoverFrameInput = services.hoverFrameInput
         if services.features.isEnabled(.sidebarRowsNearViewport) { container.sidebarView.rowFeed = rowFeed }
         container.sidebarView.customization = services.sidebarCustomization
         // The workspace card's history (u3320), read from the workspace's daemon and the acpmux

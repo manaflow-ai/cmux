@@ -4,7 +4,6 @@ public import CmuxNextInput
 public import CmuxNextResources
 import CmuxNextCompat
 import CmuxNextIcons
-public import CmuxNextWakeups
 import Observation
 /// Footer slots the App fills (account, cloud, status).
 public enum SidebarAccessorySlot: CaseIterable, Sendable {
@@ -105,12 +104,6 @@ public final class SidebarView: NSView {
     public var inputTap: InputEventTap? {
         get { list.inputTap }
         set { list.inputTap = newValue }
-    }
-    /// The windows' frame-aligned input (feature `pointerFrameHover`): the list's hover follows the pointer
-    /// once per frame. Nil: each move hovers at once.
-    public var hoverFrameInput: FrameInputCoalescers? {
-        get { list.hoverFrameInput }
-        set { list.hoverFrameInput = newValue }
     }
     /// The row feed of this sidebar's rows (the App injects it with feature `sidebarRowsNearViewport` on): only
     /// the rows the list draws on screen stay armed. Nil observes every row.

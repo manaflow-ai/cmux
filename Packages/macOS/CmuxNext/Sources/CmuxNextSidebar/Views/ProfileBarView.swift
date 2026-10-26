@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextInput
 
 /// The space switcher at the bottom of the sidebar or under its titlebar row
 /// (`sidebar.spacesPosition`, R109). Each profile keeps its name, optional
@@ -28,6 +29,10 @@ final class ProfileBarView: NSView {
     private var wheel = SpaceWheelPager()
     private var paging = false
     static let plusIndex = -1
+    /// The bar's hover moves (`ProfileBarView+Hover`).
+    private(set) lazy var hoverMoves = PointerFrameHover(owner: "ProfileBarView.hover", view: self) { [weak self] point in
+        self?.hover(atWindowPoint: point)
+    }
 
     /// The current space's chip; it slides on a switch.
     let indicator = ProfileBarLayerView()
@@ -112,7 +117,7 @@ final class ProfileBarView: NSView {
         return (strip.slots + [strip.plus]).map { NSRect(x: $0.x, y: 0, width: $0.width, height: bounds.height) }
     }
 
-    private func index(at point: NSPoint) -> Int? {
+    func index(at point: NSPoint) -> Int? {
         let rects = slotRects()
         guard let hit = rects.firstIndex(where: { $0.contains(point) }) else { return nil }
         guard hit == model.profiles.count else { return hit }
@@ -255,10 +260,14 @@ final class ProfileBarView: NSView {
         addTrackingArea(NSTrackingArea(rect: .zero, options: [.mouseMoved, .mouseEnteredAndExited, .activeAlways, .inVisibleRect], owner: self))
     }
 
-    override func mouseMoved(with event: NSEvent) { setHovered(index(at: convert(event.locationInWindow, from: nil))) }
-    override func mouseEntered(with event: NSEvent) { isPointerInside = true }
+    // Enter and exit are discrete: the pending moves land first (Chromium's `ShouldFlushQueue`).
+    override func mouseEntered(with event: NSEvent) {
+        hoverMoves.flush()
+        isPointerInside = true
+    }
 
     override func mouseExited(with event: NSEvent) {
+        hoverMoves.flush()
         setHovered(nil)
         isPointerInside = false
     }
@@ -291,6 +300,7 @@ final class ProfileBarView: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        hoverMoves.flush() // the frame's pending hover lands before the press
         let point = convert(event.locationInWindow, from: nil)
         pressPoint = point
         setPressed(index(at: point))

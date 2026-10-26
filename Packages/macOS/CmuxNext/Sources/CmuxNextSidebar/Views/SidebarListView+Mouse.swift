@@ -1,6 +1,6 @@
 import AppKit
 import CmuxNextDesign
-import CmuxNextWakeups
+import CmuxNextInput
 import QuartzCore
 // Mouse selection, click-to-collapse, and keyboard navigation.
 extension SidebarListViewComponents {
@@ -9,7 +9,7 @@ extension SidebarListViewComponents {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
     override func mouseDown(with event: NSEvent) {
         // The frame's pending hover lands first, so the press hit-tests from the row under its own point.
-        flushHoverInput()
+        hoverMoves.flush()
         // A drag or press whose release never came here (the app or window lost focus mid-drag, a menu took the
         // mouse-up) ends now: its rows come back where they were, and this press starts clean.
         endPointerGesture()
@@ -162,24 +162,6 @@ extension SidebarListViewComponents {
             break
         }
         reload(animated: true)
-    }
-    // MARK: - Hover once per frame (feature `pointerFrameHover`)
-    /// A pointer move hovers once per frame with `hoverFrameInput`, at the frame's latest point, as
-    /// Chromium delivers rAF-aligned mouse moves (`third_party/blink/renderer/platform/widget/input/
-    /// main_thread_event_queue.cc`); without it, at once.
-    func hoverPointerMoved(_ event: NSEvent) {
-        guard let window, let coalescer = hoverFrameInput?.coalescer(for: window) else { return updateHover(event.locationInWindow) }
-        coalescer.post(.pointerMove, owner: hoverInputOwner, sample: FrameInputSample(event)) { [weak self, weak window] latest, _, _ in
-            // A point in a window the list has left hovers nothing here.
-            guard let self, let window, self.window === window else { return }
-            updateHover(latest.location)
-        }
-    }
-    /// Delivers the window's pending moves now: an enter, an exit or a press is discrete and must see the
-    /// moves before it (Chromium's `ShouldFlushQueue`).
-    func flushHoverInput() {
-        guard let window, let hoverFrameInput else { return }
-        hoverFrameInput.coalescer(for: window).flushBeforeDiscreteInput()
     }
     // MARK: - Middle click (MIDDLE-CLICK-CLOSES-WORKSPACE; SidebarMiddleClick)
     override func otherMouseDown(with event: NSEvent) { if !middleClick.down(event, in: self) { super.otherMouseDown(with: event) } }
