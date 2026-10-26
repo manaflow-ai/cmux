@@ -275,6 +275,8 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// Agent chat tabs on the store: the `agent_session` source of a conversation tab and
     /// `bind-conversation-tab-session` (cmux-tui/spec/commands.md, new-conversation-tab).
     case agentSessionTabs = "agent-session-tabs-v1"
+    /// Canonical conversation kinds in closed history; live support alone is insufficient.
+    case closedConversationTabs = "closed-conversation-tabs-v1"
     /// Agent chat tabs of another machine's store: attach, replay, prompt and answer
     /// permissions through that machine's session daemon (cmux-tui/spec/commands.md
     /// "Agent session attach").
@@ -499,7 +501,7 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .tabColumnRespawn, .tabRestart, .tabRestartKeptLayout, .tabPark, .detachedTerminals, .personalTerminals,
              .browserProfiles, .bookmarks, .bookmarkIcon, .history, .localConversations, .conversationDraftEvents,
              .chiefLive, .cloudChiefLive, .conversationRuns, .cloudConversationRuns, .cloudConversationTyping,
-             .workspaceKind, .workspaceAgentFolder, .workspaceAgentStart, .conversationTabs, .agentSessionTabs,
+             .workspaceKind, .workspaceAgentFolder, .workspaceAgentStart, .conversationTabs, .agentSessionTabs, .closedConversationTabs,
              .agentSessionAttach, .agentSessionObserve, .agentSessionStart, .agentSessionTrust,
              .agentSessionStartKeyedReason, .agentSessionChildren, .pageTabs, .pageTabRoute, .appScreens,
              .conversationSearch, .conversationThreads, .conversationThread, .conversationInboxState, .homeInbox,

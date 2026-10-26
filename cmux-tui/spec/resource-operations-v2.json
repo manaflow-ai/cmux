@@ -7405,9 +7405,11 @@
             "kind": "enum",
             "values": [
               "terminal",
-              "browser"
+              "browser",
+              "conversation"
             ]
-          }
+          },
+          "description": "An agent chat reads as conversation under closed-conversation-tabs-v1; older connections retain browser and safe agent_session metadata."
         },
         "name": {
           "required": true,
@@ -11508,10 +11510,12 @@
             "values": [
               "terminal_tab",
               "browser_tab",
+              "conversation_tab",
               "screen",
               "workspace"
             ]
-          }
+          },
+          "description": "conversation_tab requires closed-conversation-tabs-v1; older connections read browser_tab."
         },
         "cwd": {
           "required": false,

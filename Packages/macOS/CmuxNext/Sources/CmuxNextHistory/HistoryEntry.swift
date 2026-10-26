@@ -66,7 +66,7 @@ public nonisolated struct HistoryEntry: Identifiable, Hashable, Sendable {
 
 /// A closed tab, screen or workspace that can be reopened.
 public nonisolated struct ClosedItem: Hashable, Sendable {
-    public enum Kind: String, Hashable, Sendable { case terminalTab, browserTab, screen, workspace }
+    public enum Kind: String, Hashable, Sendable { case terminalTab, browserTab, conversationTab, screen, workspace }
 
     /// The closed-items log's own id for the record.
     public var id: String

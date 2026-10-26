@@ -61,6 +61,7 @@ enum NewTabClosed {
     static func kind(for item: CmuxNextHistory.ClosedItem) -> AgentPaneClosedItem.Kind {
         switch item.kind {
         case .terminalTab: .terminal
+        case .conversationTab: .agent
         case .browserTab where item.agentSession != nil: .agent
         case .browserTab: .browser
         case .screen: .screen

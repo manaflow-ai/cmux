@@ -56,6 +56,7 @@ fn public_tab(tab: &Value, evicted: &HashSet<String>) -> Value {
     // daemon-owned and stays private; the public record carries only the
     // session id and harness type needed to identify the chat.
     if let Some(agent) = tab["conversation"]["agent_session"].as_object() {
+        public["kind"] = json!(super::conversation_tabs_store::CONVERSATION_KIND);
         let string_or_null = |key: &str| {
             agent
                 .get(key)

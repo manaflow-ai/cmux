@@ -162,12 +162,7 @@ final class HistoryService {
         let shown = DaemonClosedHistory.entries(DaemonClosedHistory.allKinds, in: services).filter { Self.isWorthReopening($0.item) }
         return DaemonClosedHistory.newestOnce(shown) { ($0.item, $0.daemon.machineID) }.map { entry in
             let item = entry.item, tab = Self.shownTab(item)
-            let kind: CmuxNextHistory.ClosedItem.Kind = switch item.kind {
-            case .tab: tab?.kind == "browser" ? .browserTab : .terminalTab
-            case .screen: .screen
-            // A closed window lists as its workspace (it reopens with the workspaces it kept).
-            case .workspace, .window: .workspace
-            }
+            let kind = Self.closedKind(item)
             let (title, detail) = Self.daemonClosedText(item, pages: services.pages)
             let closed = CmuxNextHistory.ClosedItem(id: DaemonClosedHistory.historyID(item.id), kind: kind, title: title,
                                                     machine: entry.daemon.machineID, cwd: tab?.cwd,
@@ -178,6 +173,19 @@ final class HistoryService {
                                 time: Date(timeIntervalSince1970: Double(item.closedAtMs) / 1000), title: title,
                                 detail: detail, machineName: local ? nil : entry.daemon.machineID,
                                 payload: .closed(closed))
+        }
+    }
+
+    static func closedKind(_ item: CmuxNextDaemon.ClosedItem) -> CmuxNextHistory.ClosedItem.Kind {
+        switch item.kind {
+        case .tab:
+            switch shownTab(item)?.kind {
+            case "conversation": .conversationTab
+            case "browser": .browserTab
+            default: .terminalTab
+            }
+        case .screen: .screen
+        case .workspace, .window: .workspace
         }
     }
 

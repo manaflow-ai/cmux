@@ -15,7 +15,7 @@ public struct ClosedItem: Sendable, Hashable, Identifiable, Decodable {
 
     /// What reopening recreates for one tab (`ClosedTabRecord`).
     public struct Tab: Sendable, Hashable, Decodable {
-        /// `terminal` or `browser`.
+        /// `terminal`, `browser`, or `conversation` (closed-conversation-tabs-v1).
         public var kind: String
         public var name: String?
         public var cwd: String?

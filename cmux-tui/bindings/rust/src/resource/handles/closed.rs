@@ -25,7 +25,8 @@ const WINDOW_ID_MAX_LEN: usize = 257;
 /// One tab a closed screen recreates.
 #[derive(Clone, Debug, Deserialize, PartialEq)]
 pub struct ClosedTabRecord {
-    /// Known values: `terminal`, `browser`. Other values are future kinds.
+    /// Known values: `terminal`, `browser`, `conversation`. Other values are future kinds.
+    /// Canonical closed chat kinds require `closed-conversation-tabs-v1`.
     pub kind: String,
     pub name: Option<String>,
     pub cwd: Option<String>,

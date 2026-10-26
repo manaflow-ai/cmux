@@ -30,9 +30,9 @@ use super::{
 use crate::Actor;
 use crate::state::conversation_tabs::ConversationTabTarget;
 use crate::state::conversation_tabs_store::{
-    AGENT_SESSION_TABS_CAPABILITY, CONVERSATION_KIND, CONVERSATION_TABS_CAPABILITY,
-    ConversationTabDowngrade, ConversationTabRecord, PAGE_TABS_CAPABILITY,
-    conversation_tabs_present, downgrade_conversation_tabs,
+    AGENT_SESSION_TABS_CAPABILITY, CLOSED_CONVERSATION_TABS_CAPABILITY, CONVERSATION_KIND,
+    CONVERSATION_TABS_CAPABILITY, ConversationTabDowngrade, ConversationTabRecord,
+    PAGE_TABS_CAPABILITY, conversation_tabs_present, downgrade_conversation_tabs,
 };
 use crate::workspace_registry::WorkspaceMutation;
 
@@ -371,6 +371,7 @@ pub(super) struct NegotiatedTabs {
     conversation: AtomicBool,
     agent_sessions: AtomicBool,
     pages: AtomicBool,
+    closed: AtomicBool,
 }
 
 impl NegotiatedTabs {
@@ -398,6 +399,7 @@ pub(super) fn negotiable(capability: &str) -> bool {
     capability == CONVERSATION_TABS_CAPABILITY
         || capability == AGENT_SESSION_TABS_CAPABILITY
         || capability == PAGE_TABS_CAPABILITY
+        || capability == CLOSED_CONVERSATION_TABS_CAPABILITY
 }
 
 impl MessageWriter {
@@ -414,6 +416,8 @@ impl MessageWriter {
                 self.conversation_tabs.agent_sessions.store(true, Ordering::Release);
             } else if capability == PAGE_TABS_CAPABILITY {
                 self.conversation_tabs.pages.store(true, Ordering::Release);
+            } else if capability == CLOSED_CONVERSATION_TABS_CAPABILITY {
+                self.conversation_tabs.closed.store(true, Ordering::Release);
             }
         }
     }
@@ -421,17 +425,22 @@ impl MessageWriter {
     /// The one outbound projection: a connection without
     /// `conversation-tabs-v1` reads every conversation tab as `browser`, one
     /// without `agent-session-tabs-v1` every agent session tab, one without
-    /// `page-tabs-v1` every page tab.
+    /// `page-tabs-v1` every page tab. Closed kinds require their own
+    /// `closed-conversation-tabs-v1` opt-in; safe closed metadata is retained.
     pub(super) fn project_conversation_tabs(
         &self,
         text: Arc<BudgetedText>,
     ) -> std::io::Result<Arc<BudgetedText>> {
-        let Some(downgrade) = self.conversation_tabs.downgrade() else { return Ok(text) };
-        if !conversation_tabs_present() || !text.contains("\"conversation\"") {
+        if self.conversation_tabs.downgrade().is_none()
+            && self.conversation_tabs.closed.load(Ordering::Acquire)
+        {
+            return Ok(text);
+        }
+        if !text.contains("\"conversation") {
             return Ok(text);
         }
         let Ok(mut value) = serde_json::from_str::<Value>(&text) else { return Ok(text) };
-        if !downgrade_conversation_tabs(&mut value, downgrade) {
+        if !self.project_tab_kinds(&mut value) {
             return Ok(text);
         }
         self.render_service.serialize_control(&value)
@@ -441,12 +450,54 @@ impl MessageWriter {
     /// (`session.events` snapshot and delta items, journal records): stream
     /// items do not pass through `send_control`.
     pub(super) fn project_conversation_tab_item(&self, mut item: Value) -> Value {
+        self.project_tab_kinds(&mut item);
+        item
+    }
+
+    fn project_tab_kinds(&self, value: &mut Value) -> bool {
+        let mut changed = false;
         if let Some(downgrade) = self.conversation_tabs.downgrade()
             && conversation_tabs_present()
         {
-            downgrade_conversation_tabs(&mut item, downgrade);
+            changed |= downgrade_conversation_tabs(value, downgrade);
         }
-        item
+        if !self.conversation_tabs.closed.load(Ordering::Acquire) {
+            changed |= downgrade_closed_tabs(value);
+        }
+        changed
+    }
+}
+
+/// Older native apps already understand live conversation tabs, but closed
+/// kinds need their own opt-in. Keep the safe metadata and browser fallback.
+fn downgrade_closed_tabs(value: &mut Value) -> bool {
+    match value {
+        Value::Object(object) => {
+            let mut changed = false;
+            if object.get("kind").and_then(Value::as_str) == Some(CONVERSATION_KIND)
+                && object.contains_key("agent_session")
+                && object.contains_key("browser_profile_id")
+            {
+                object.insert("kind".into(), json!("browser"));
+                changed = true;
+            }
+            if object.get("closed_kind").and_then(Value::as_str) == Some("conversation_tab") {
+                object.insert("closed_kind".into(), json!("browser_tab"));
+                changed = true;
+            }
+            for child in object.values_mut() {
+                changed |= downgrade_closed_tabs(child);
+            }
+            changed
+        }
+        Value::Array(items) => {
+            let mut changed = false;
+            for item in items {
+                changed |= downgrade_closed_tabs(item);
+            }
+            changed
+        }
+        _ => false,
     }
 }
 
@@ -500,3 +551,7 @@ mod page_tabs_tests;
 #[cfg(test)]
 #[path = "conversation_tab_split_tests.rs"]
 mod conversation_tab_split_tests;
+
+#[cfg(test)]
+#[path = "closed_conversation_tabs_tests.rs"]
+mod closed_conversation_tabs_tests;
