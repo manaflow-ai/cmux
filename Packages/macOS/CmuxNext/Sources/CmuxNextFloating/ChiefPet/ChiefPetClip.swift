@@ -1,4 +1,5 @@
 import CoreGraphics
+import Foundation
 import ImageIO
 
 /// An upload's frames as the pet plays them: a GIF's frames with their own delays, or one still.
