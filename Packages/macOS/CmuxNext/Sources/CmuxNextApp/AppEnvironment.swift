@@ -1,3 +1,4 @@
+import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
@@ -57,6 +58,9 @@ struct AppEnvironment: Sendable {
     /// it each `HomeService` uses a temporary folder of its own (tests that build `AppServices`), so
     /// no test reads a draft another test typed in the same conversation.
     var homeCachesDirectory: URL?
+    /// The action catalog's launch build, which the registry takes: the real app process passes the one
+    /// its launch warm-up thread builds (`LaunchWarmup`); tests that build `AppServices` build it on main.
+    var actionCatalog = ActionCatalogLaunch()
 
     var tag: String? { launch.tag }
     /// The build whose state roots this app uses (per-build isolation, cx-is1kf).

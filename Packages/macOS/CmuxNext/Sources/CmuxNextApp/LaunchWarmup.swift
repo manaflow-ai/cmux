@@ -12,18 +12,16 @@ import Foundation
 /// process start on a loaded machine; the catalog alone took 50-70 ms on
 /// the main thread).
 ///
-/// `ActionCatalog.all` is a lazy global (`swift_once`): if the main thread
-/// reaches it while this thread still builds it, the main thread waits for
-/// the rest of that one build, never longer than building it itself.
+/// The action catalog is built here first (`ActionCatalogLaunch.build`), so
+/// the registry's read on the main thread before the first window finds it
+/// ready; `ActionCatalogLaunch.mainAccess` records how that read went
+/// (`debug.startup`'s `action_catalog_main_wait_ms`), and the
+/// `action_catalog_built` launch mark is when this thread finished it.
 enum LaunchWarmup {
-    static func start() {
-        // The login shell's environment (`$SHELL -l -i`, 1-17 s) is each
-        // new terminal's env and is remembered for the next launch's
-        // daemon; capture it while AppKit starts. Nothing that connects
-        // the app waits for it.
-        DaemonLauncher.prewarmLoginEnvironment()
+    static func start(catalog: ActionCatalogLaunch) {
         let thread = Thread {
-            _ = ActionCatalog.all
+            catalog.build()
+            DebugTimings.markLaunch("action_catalog_built")
             PaletteController.prewarmStrings()
             // The SF Symbols catalog loads on first lookup (20 ms on the
             // main thread while the palette or the main menu first drew).
@@ -34,8 +32,16 @@ enum LaunchWarmup {
             prewarmDisplayUUIDs()
         }
         thread.name = "cmux-next launch warm-up"
-        thread.qualityOfService = .userInitiated
+        // The main thread waits for each of these before its first frame (the
+        // registry's catalog read, the menu's symbols, the window's display):
+        // below main's QoS, a loaded machine can run them after main reaches them.
+        thread.qualityOfService = .userInteractive
         thread.start()
+        // The login shell's environment (`$SHELL -l -i`, 1-17 s) is each
+        // new terminal's env and is remembered for the next launch's
+        // daemon; capture it while AppKit starts. Nothing that connects
+        // the app waits for it.
+        DaemonLauncher.prewarmLoginEnvironment()
         // Its own thread: the connecting screen's strings can be read before the work above ends.
         Bundle.warmResourceBundlesInBackground()
     }

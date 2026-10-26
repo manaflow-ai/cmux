@@ -188,4 +188,14 @@ extension ActionRegistry {
     public static func standard(runTiming: any ActionRunTiming) -> ActionRegistry {
         ActionRegistry(catalog: ActionCatalog.all, aliases: ActionCatalog.legacyAliases, runTiming: runTiming)
     }
+
+    /// A registry seeded with the catalog `launch` built off the main thread, and the legacy aliases.
+    ///
+    /// - Parameters:
+    ///   - launch: The launch's catalog build (``ActionCatalogLaunch/descriptors()`` times this read).
+    ///   - runTiming: Times every run (the App passes ``SignpostActionRunTiming``).
+    @MainActor
+    public static func standard(launch: ActionCatalogLaunch, runTiming: any ActionRunTiming) -> ActionRegistry {
+        ActionRegistry(catalog: launch.descriptors(), aliases: ActionCatalog.legacyAliases, runTiming: runTiming)
+    }
 }

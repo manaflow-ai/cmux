@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextCloud
 import CmuxNextControl
@@ -34,10 +35,12 @@ public struct CmuxNextApp {
         // after it stops a debug build (ProcessEnvironmentGuard).
         Self.prepareLaunchEnvironment()
         // Pure launch work (action catalog, string tables) overlaps AppKit's start.
-        LaunchWarmup.start()
+        let actionCatalog = ActionCatalogLaunch()
+        LaunchWarmup.start(catalog: actionCatalog)
         DebugTimings.markLaunch("main.warmup_started")
         var environment = AppEnvironment.current(openFiles: openFiles) // shells get the launch limit back
         environment.marksRun = true
+        environment.actionCatalog = actionCatalog
         environment.sidebarSnapshotFile = SidebarSnapshotFile.standard(launch: environment.launch)
         environment.layoutTemplatesFile = environment.sidebarSnapshotFile?.url.deletingLastPathComponent().appending(path: "layout-templates.json")
         environment.homeCachesDirectory = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first

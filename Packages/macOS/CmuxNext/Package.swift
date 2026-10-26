@@ -1426,8 +1426,9 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextActions",
             // Wakeups: the main-thread task board, where an action run is published as a span so the
-            // watchdog samples a run past its 10 ms budget (ActionBudgetMonitor).
-            dependencies: ["CmuxNextSignposts", "CmuxNextWakeups", "CmuxNextTrace", "CmuxNextMetrics"],
+            // watchdog samples a run past its 10 ms budget (ActionBudgetMonitor). Compat: the Atomic of
+            // ActionCatalogLaunch (the catalog's first main-thread read at launch).
+            dependencies: ["CmuxNextCompat", "CmuxNextSignposts", "CmuxNextWakeups", "CmuxNextTrace", "CmuxNextMetrics"],
             resources: [
                 .process("AccountsActions.xcstrings"),
                 .process("ActionCatalog.xcstrings"),
@@ -1821,7 +1822,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextActionsTests",
-            dependencies: ["CmuxNextActions", "CmuxNextTrace", "CmuxNextMetrics"],
+            dependencies: ["CmuxNextActions", "CmuxNextCompat", "CmuxNextTrace", "CmuxNextMetrics"],
             swiftSettings: uiSwiftSettings
         ),
     ] + [appFFI]

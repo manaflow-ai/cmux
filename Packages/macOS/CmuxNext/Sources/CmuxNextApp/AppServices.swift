@@ -428,7 +428,7 @@ final class AppServices {
         self.work = work
         actionBudget = ActionBudgetMonitor(board: mainWork.budget.board)
         updater = UpdaterService(work: work)
-        registry = ActionRegistry.standard(runTiming: SignpostActionRunTiming(monitor: actionBudget))
+        registry = ActionRegistry.standard(launch: environment.actionCatalog, runTiming: SignpostActionRunTiming(monitor: actionBudget))
         DaemonService.launchMark = { DebugTimings.markLaunch($0) }  // before any daemon service starts
         self.mainWork = mainWork
         daemon = DaemonService(echoesPlacementShift: SidebarMirror.isLinked, mainWork: mainWork)
