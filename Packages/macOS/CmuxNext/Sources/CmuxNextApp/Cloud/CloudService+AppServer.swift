@@ -3,6 +3,7 @@ import CmuxNextCloud
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextSidebar
+import CmuxNextWakeups
 import Foundation
 
 /// The Cloud app server path of the machine list and create (cx-t2rz):
@@ -42,8 +43,9 @@ extension CloudService {
                 try await approvals.approve(request: request, op: "cloud.machine.create", params: try JSONEncoder().encode(params), team: team)
             },
             pause: { attempt in
-                // wakeup-allow: bounded same-key retry of a retryable approval.pending after the person approved (cx-t2rz)
-                try await ContinuousClock().sleep(for: CloudMachineCreateFlow.backoff(attempt))
+                let step = CloudMachineCreateFlow.backoff(attempt)
+                // wakeup-allow: backoff a bounded same-key retry of a retryable approval.pending after the person approved (cx-t2rz)
+                try await ContinuousClock().sleep(for: step, tolerance: Backoff.tolerance(for: step))
             }
         )
         let record = try await flow.create(name: name, startedByPerson: startedByPerson, askedBy: askedBy, gate: createGate)

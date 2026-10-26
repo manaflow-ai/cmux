@@ -164,7 +164,7 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// long run (CEF's whole time slice), arg1 the elapsed us.
     case cefPump = 14
     /// Reserved (task 033, PL-cef-tab). `CefBrowserHost::CreateBrowser` on the main thread, or the Chromium
-    /// host's create to its reply. Ring: AB/AE; begin arg0 1 for a spare, arg1 the profile index.
+    /// host's create to its reply. Ring: AB/AE; begin arg0 bit 0 1 for a spare, bits 8-39 the profile index.
     case cefCreateBrowser = 15
     /// Reserved (task 038, PL-motion-cef; perf-hot `cef-geometry`). A page's parent geometry change and its
     /// catcher sync. Ring: B/E, plus an instant per geometry post; end arg0 the catcher count.

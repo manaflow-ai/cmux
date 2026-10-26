@@ -47,6 +47,38 @@ import Testing
         #expect(f.order.startup.log.records.allSatisfy { $0.durationNanos != nil }, "one record per task, each with its run")
     }
 
+    /// p08-startup-031: the starts `AppServices.init` made before the first frame are posts: three after the
+    /// first frame, three after startup, in post order with the launch's other afterStartup posts.
+    @Test func initServiceStartsArePostsAtTheirDesignPriority() {
+        let f = LaunchOrderFixture()
+        let ran = LaunchServiceRan()
+        LaunchServicePosts.serviceStarts(
+            windowOcclusion: { ran.names.append("SurfaceInvariant.observeWindowOcclusion") },
+            inputVerification: { ran.names.append("InputVerification.start") },
+            notifications: { ran.names.append("Notifications.start") },
+            updaterWork: { ran.names.append("Updater.attachedWork") },
+            serverUpdates: { ran.names.append("ServerUpdates.start") },
+            browserHost: { ran.names.append("BrowserHost.start") }
+        ).post(on: f.order.startup)
+        LaunchServicePosts.nonPaint(
+            freeTierAttest: {}, ssh: {}, serverReach: {}, updater: { ran.names.append("Updater.start") }, emptyWorkspaceRepair: {}
+        ).post(on: f.order.startup)
+        f.hand.drain()
+        for _ in 0..<3 { f.fire() }
+        #expect(ran.names.isEmpty, "nothing runs before the first frame")
+        let firstFrame = ["SurfaceInvariant.observeWindowOcclusion", "InputVerification.start", "Notifications.start"]
+        for record in f.order.startup.log.records where firstFrame.contains(record.name.description) {
+            #expect(record.priority == .afterFirstFrame, "\(record.name)")
+        }
+        f.order.startup.firstFrameCommitted()
+        for _ in 0..<4 { f.fire() }
+        #expect(ran.names == firstFrame, "occlusion, input verification and banners run after the first frame, before completion")
+        f.complete()
+        for _ in 0..<12 { f.fire() }
+        #expect(ran.names == firstFrame + ["Updater.attachedWork", "ServerUpdates.start", "BrowserHost.start", "Updater.start"],
+                "the updater's reads, server updates and the browser host run after startup, in post order")
+    }
+
     /// p08-startup-029: the platform services, one post each at their startup-DESIGN.md priority. The hot keys
     /// run in the first frame's slot, so a system-wide key works long before the 10 s failsafe.
     @Test func platformServicesPostAtTheirDesignPriority() {
