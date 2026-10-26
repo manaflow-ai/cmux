@@ -41,7 +41,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCover
     @ObservationIgnored public internal(set) lazy var automaticDownloads = makeAutomaticDownloadGate()
 
     /// Chromium browser identifier once created.
-    @ObservationIgnored public private(set) var browserID: Int32?
+    @ObservationIgnored public internal(set) var browserID: Int32?
     /// The `switch.tab` interval waiting for this tab's page window to show it (the app's visible-time
     /// request, as Chrome stores one on the destination WebContents): the next show takes it.
     @ObservationIgnored var tabSwitchShow: TabSwitchSignpost.PageShow?
@@ -386,8 +386,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCover
     }
 
     public func reload() {
-        reloadWhenShown = false
-        isDiscardedInPlace = false
+        (reloadWhenShown, isDiscardedInPlace) = (false, false)
+        if runtime.awaitsHostRestart { return runtime.reloadAfterHostRestart(self) }
         guard let browserID else {
             if let url = pendingURL ?? state.url { load(url) }
             return
