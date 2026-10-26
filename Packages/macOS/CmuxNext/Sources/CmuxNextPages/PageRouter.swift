@@ -313,29 +313,34 @@ public final class PageRouter {
     // MARK: Host to page
 
     /// Calls an op the page serves (`cmux.page.command`) and waits for its reply. The call goes
-    /// past the hold, after a thaw, so a frozen page answers it. A cancelled caller stops waiting
-    /// (`CancellationError`) and its call leaves the router, so a deadline that cancels the call
-    /// (`Deadline`, `PageCallDeadline`) keeps no continuation for a page that never replies; a late
-    /// reply resolves nothing.
+    /// past the hold, after a thaw, so a frozen page answers it.
     public func callPage(_ op: String, params: JSONValue) async throws -> JSONValue {
+        try await callPage(op, params: params) { _ in }
+    }
+
+    /// ``callPage(_:params:)`` that tells `started` the call's id once it is pending, so a caller
+    /// whose deadline passed can ``abandonCall(_:)`` it.
+    func callPage(_ op: String, params: JSONValue, started: (UInt64) -> Void) async throws -> JSONValue {
         guard !closed, let send else { throw PageError.closed }
         let id = nextCall
         nextCall += 1
         lifecycle?.thawForDelivery()
-        return try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { continuation in
-                // Cancelled before it started: the cancel handler found nothing to fail.
-                guard !Task.isCancelled else { return continuation.resume(throwing: CancellationError()) }
-                pendingCalls[id] = continuation
-                send(["t": "call", "id": .number(Double(id)), "op": .string(op), "params": params])
-            }
-        } onCancel: {
-            // task-owner: one hop onto the main actor to fail the call; ends when it ran
-            Task { @MainActor [weak self] in
-                self?.pendingCalls.removeValue(forKey: id)?.resume(throwing: CancellationError())
-            }
+        return try await withCheckedThrowingContinuation { continuation in
+            pendingCalls[id] = continuation
+            started(id)
+            send(["t": "call", "id": .number(Double(id)), "op": .string(op), "params": params])
         }
     }
+
+    /// Fails pending host call `id` with `CancellationError` and forgets it: its caller gave up (a
+    /// deadline passed), so a page that never replies keeps no continuation here and a late reply
+    /// resolves nothing. A finished or unknown id is a no-op.
+    func abandonCall(_ id: UInt64) {
+        pendingCalls.removeValue(forKey: id)?.resume(throwing: CancellationError())
+    }
+
+    /// Host calls still waiting for the page's reply.
+    var pendingHostCalls: Int { pendingCalls.count }
 
     private func resolve(id: UInt64, _ message: JSONValue) {
         guard let continuation = pendingCalls.removeValue(forKey: id) else { return }

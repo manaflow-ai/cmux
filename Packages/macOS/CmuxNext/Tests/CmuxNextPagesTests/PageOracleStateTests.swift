@@ -8,7 +8,7 @@ import Testing
 
 /// The host half of the oracle's `webviews` facet (p15-oracle-215): `cmux.page.oracle.state` maps the page's reply
 /// to state, `unknown_op` to unserved, `closed` to gone and any other error to a throw; a page that never replies is
-/// timed out at the deadline, and a cancelled host call leaves the router; a page that is not loaded answers loading
+/// timed out at the deadline and its call leaves the router; a page that is not loaded answers loading
 /// and the parked spare is never asked; a page's `cmux.page.oracle.changed` and its loads wake the page host's feed.
 /// Run: `swift test --filter PageOracleStateTests`.
 @MainActor
@@ -63,16 +63,10 @@ struct PageOracleStateTests {
         let (router, sent) = Self.router(reply: nil)
         #expect(try await router.oracleState(within: .seconds(1), clock: PageTestClock.immediate) == .timedOut)
         #expect(sent().count == 1)
-    }
-
-    /// The caller is cancelled while its call is pending (from the send seam, so the call was sent): it stops waiting.
-    @Test func aCancelledHostCallStopsWaitingForThePage() async {
-        final class Holder { var call: Task<JSONValue, any Error>? }
-        let holder = Holder()
-        let router = PageRouter(descriptor: Self.descriptor, routes: [])
-        router.send = { _ in holder.call?.cancel() }
-        holder.call = Task { @MainActor in try await router.callPage("cmux.never", params: .object([:])) }
-        await #expect(throws: CancellationError.self) { try await holder.call?.value }
+        // The timed-out call left the router; a late reply resolves nothing.
+        #expect(router.pendingHostCalls == 0)
+        let late = try #require(sent().first)
+        #expect(await router.handle(["t": "ok", "id": late["id"] ?? .null, "value": .object([:])]) == .null)
     }
 
     @Test func thePagesChangeCallRunsTheHookAndIsAnswered() async {

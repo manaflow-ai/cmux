@@ -21,13 +21,17 @@ extension PageRouter {
     /// - Throws: The page's own error (`cmux.oracle.no_digest` when it cannot hash its draft).
     public func oracleState(within deadline: Duration,
                             clock: any Clock<Duration>) async throws(PageError) -> PageWebView.OracleStateAnswer {
+        let call = PendingCall()
         do {
-            // The call leaves the router when the limit cancels it (``callPage(_:params:)``).
             let state = try await Deadline(deadline, clock: clock).run(Self.oracleStateOp) { @MainActor [self] in
-                try await callPage(Self.oracleStateOp, params: .object([:]))
+                // A limit that passed before this ran cancelled it: nothing is sent, so nothing waits here.
+                try Task.checkCancellation()
+                return try await callPage(Self.oracleStateOp, params: .object([:])) { call.id = $0 }
             }
             return .state(state)
         } catch is Deadline.Exceeded {
+            // Back on the main actor: the call leaves the router in this turn.
+            if let id = call.id { abandonCall(id) }
             return .timedOut
         } catch let error as PageError {
             switch error.code {
@@ -39,6 +43,11 @@ extension PageRouter {
             throw PageError(code: "cmux.page.failed", message: String(describing: error))
         }
     }
+}
+
+/// The id of a host call once it is pending (``PageRouter/callPage(_:params:started:)``).
+private final class PendingCall {
+    var id: UInt64?
 }
 
 extension PageWebView {
