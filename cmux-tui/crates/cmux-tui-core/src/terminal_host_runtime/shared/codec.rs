@@ -957,3 +957,6 @@ pub(crate) fn read_required_frame(reader: &mut impl Read, context: &str) -> anyh
     read_frame(reader, MAX_FRAME_PAYLOAD)?
         .ok_or_else(|| anyhow::anyhow!("terminal host closed before {context}"))
 }
+
+#[cfg(test)]
+mod tests;
