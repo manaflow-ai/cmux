@@ -91,9 +91,6 @@ final class WindowManager {
     /// The launch window's saved picture as its first frame (p08-startup-059, `LaunchSnapshotWindow`); nil when the
     /// launch shows none.
     var launchPicture: LaunchPicturePhase?
-    /// The launch window's live views being built behind its picture, slice by slice (p08-startup-060); nil once
-    /// the build ended.
-    private var launchBuild: (id: String, build: LaunchWindowBuild)?
     /// Work that waits for the launch's session restore (``whenRestored(_:)``); nil once it ran.
     private var restoreWaiters: [() -> Void]? = []
     /// A window installed workspace content (links opened at launch wait for it).
@@ -336,7 +333,7 @@ final class WindowManager {
         // Its content goes in before it is ordered in (the launch snapshot's workspace, else the connecting state), so
         // its first frame on screen draws it, never the backdrop alone; the controller's own observer would install
         // it a main-actor hop later. The launch picture's window is on screen already, its picture over it: its
-        // content is built behind the picture in slices (`buildUnderPicture`, p08-startup-060).
+        // content is built behind the picture in slices (`LaunchSnapshotWindow`, p08-startup-060).
         if premade == nil { controller.showWorkspace(requested: state.workspaceID) }
         // A window none of whose workspaces is mirrored yet stays off screen until `contentDidAppear` (never an
         // empty frame). The launch window (no workspaces) shows the connecting state at once.
@@ -349,41 +346,6 @@ final class WindowManager {
         return controller
     }
 
-    /// Builds the launch window behind its picture (p08-startup-060): this slice makes its controller with its
-    /// sidebar rows; its tab strips, focused pane and other visible panes follow, one afterFirstFrame post each
-    /// (`LaunchWindowBuild`). The sidebar's part of the picture leaves at its first rows, each pane's at its own first
-    /// content, the rest with the last of them.
-    func buildUnderPicture(_ window: WindowRegistry.Window, in shell: ShellWindow, phase: LaunchPicturePhase) {
-        let controller = makeController(for: window, in: shell), root = controller.root, reveal = services.launchReveal
-        guard let regions = phase.adopt(root: root, reveal: reveal) else {
-            controller.goLive()
-            return phase.buildFinished()
-        }
-        root.launchPictureRegions = regions
-        let sidebar = root.sidebar
-        let sidebarPart = regions.add { [weak sidebar] picture in
-            guard let sidebar, !sidebar.isHidden else { return .zero }
-            return sidebar.convert(sidebar.bounds, to: picture)
-        }
-        reveal.whenProduced(.sidebar) { [weak regions] in regions?.leave(sidebarPart) }
-        let startup = services.launchStartup
-        let build = LaunchWindowBuild(window: controller, regions: regions, reveal: reveal, post: { name, work in
-            guard let startup else { return work() }
-            startup.post(.afterFirstFrame, name, on: .main, work)
-        }) { [weak self] in
-            self?.launchBuild = nil
-            phase.buildFinished()
-        }
-        launchBuild = (window.id, build)
-        phase.whenRemoved { build.stop() }
-        build.start()
-    }
-
-    /// Whether window `id`'s panes wait for the launch build's slices to show their content.
-    func holdsLaunchContent(of id: String) -> Bool {
-        guard let launchBuild else { return false }
-        return launchBuild.id == id && !launchBuild.build.isDone
-    }
 
     /// True when a machine reports at least one of `window`'s workspaces.
     func hasMirroredWorkspace(_ window: WindowRegistry.Window) -> Bool {
@@ -492,27 +454,5 @@ final class WindowManager {
                 return WindowRegistry.Changes()
             }
         }
-    }
-}
-
-/// The launch window as its build behind the picture makes it (p08-startup-060).
-extension WindowController: LaunchBuiltWindow {
-    /// The second slice: the shown workspace's layout and its panes' tab strips, laid out now so each pane has its
-    /// area; each pane's content waits for its own slice. The focused pane first, then the others on screen.
-    func mountLaunchStrips() -> [any LaunchWindowPane] {
-        showWorkspace(requested: state.workspaceID)
-        guard let content else { return [] }
-        // sync-layout: the next lines need the panes the viewport shows (their presence) and their areas for the picture's parts; this slice's own pass
-        root.layoutSubtreeIfNeeded()
-        let focused = content.focusedPane
-        let others = content.layoutModel.screens.flatMap(\.layout.panes).compactMap { content.panes[$0] }.filter { $0.isVisible && $0 !== focused }
-        return (focused.map { [$0] } ?? []) + others
-    }
-
-    /// The build ended: the window follows its workspace, and each pane it did not show shows as usual.
-    func goLive() {
-        guard !tornDown else { return }
-        if workspaceObservation == nil { observeWorkspace() }
-        for pane in content.map({ Array($0.panes.values) }) ?? [] { pane.releaseFromLaunch() }
     }
 }

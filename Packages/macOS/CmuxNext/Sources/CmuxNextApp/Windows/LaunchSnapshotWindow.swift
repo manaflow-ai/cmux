@@ -17,7 +17,7 @@ import Foundation
 /// from the last quit (p08-startup-059, `LaunchPicturePhase`): the window at
 /// its saved frame, its live material and the picture, nothing else; its
 /// controller and live views are built behind the picture after that frame,
-/// slice by slice (`buildUnderPicture`, p08-startup-060).
+/// slice by slice (`build(_:in:phase:)`, p08-startup-060).
 struct LaunchSnapshotWindow {
     let manager: WindowManager
 
@@ -115,8 +115,35 @@ struct LaunchSnapshotWindow {
                 manager.states[window.id] = nil
                 return phase.skip()
             }
-            manager.buildUnderPicture(window, in: shell, phase: phase)
+            LaunchSnapshotWindow(manager: manager).build(window, in: shell, phase: phase)
         }
+    }
+
+    /// Builds the launch window behind its picture (p08-startup-060): this slice makes its controller with its
+    /// sidebar rows; its tab strips, focused pane and other visible panes follow, one afterFirstFrame post each
+    /// (`LaunchWindowBuild`). The sidebar's part of the picture leaves at its first rows, each pane's at its own first
+    /// content, the rest with the last of them.
+    private func build(_ window: WindowRegistry.Window, in shell: ShellWindow, phase: LaunchPicturePhase) {
+        let manager = manager, services = manager.services
+        let controller = manager.makeController(for: window, in: shell), root = controller.root, reveal = services.launchReveal
+        guard let regions = phase.adopt(root: root, reveal: reveal) else {
+            controller.goLive()
+            return phase.buildFinished()
+        }
+        root.launchPictureRegions = regions
+        let sidebar = root.sidebar
+        let sidebarPart = regions.add { [weak sidebar] picture in
+            guard let sidebar, !sidebar.isHidden else { return .zero }
+            return sidebar.convert(sidebar.bounds, to: picture)
+        }
+        reveal.whenProduced(.sidebar) { [weak regions] in regions?.leave(sidebarPart) }
+        let startup = services.launchStartup
+        let build = LaunchWindowBuild(window: controller, regions: regions, reveal: reveal, post: { name, work in
+            guard let startup else { return work() }
+            startup.post(.afterFirstFrame, name, on: .main, work)
+        }) { phase.buildFinished() }
+        phase.whenRemoved { build.stop() }
+        build.start()
     }
 
     /// No picture shows (none in time, another window's, a mismatch): the window opens as today.
@@ -171,5 +198,27 @@ extension ShellWindow {
         window.isReleasedWhenClosed = false
         window.tabbingMode = .disallowed
         return window
+    }
+}
+
+/// The launch window as its build behind the picture makes it (p08-startup-060).
+extension WindowController: LaunchBuiltWindow {
+    /// The second slice: the shown workspace's layout and its panes' tab strips, laid out now so each pane has its
+    /// area; each pane's content waits for its own slice. The focused pane first, then the others on screen.
+    func mountLaunchStrips() -> [any LaunchWindowPane] {
+        showWorkspace(requested: state.workspaceID)
+        guard let content else { return [] }
+        // sync-layout: the next lines need the panes the viewport shows (their presence) and their areas for the picture's parts; this slice's own pass
+        root.layoutSubtreeIfNeeded()
+        let focused = content.focusedPane
+        let others = content.layoutModel.screens.flatMap(\.layout.panes).compactMap { content.panes[$0] }.filter { $0.isVisible && $0 !== focused }
+        return (focused.map { [$0] } ?? []) + others
+    }
+
+    /// The build ended: the window follows its workspace, and each pane it did not show shows as usual.
+    func goLive() {
+        guard !tornDown else { return }
+        if workspaceObservation == nil { observeWorkspace() }
+        for pane in content.map({ Array($0.panes.values) }) ?? [] { pane.releaseFromLaunch() }
     }
 }
