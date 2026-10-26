@@ -179,6 +179,38 @@ class HealthTests(unittest.TestCase):
         run(host, {"dnsFailuresBeforeHeal": 1})
         self.assertEqual(restarts(), 1, "still once per 15 min")
 
+    def test_a_heal_that_resolves_every_name_starts_the_count_again(self):
+        host = FakeHost()
+        host.resolving = set()
+        host.heal["systemd-resolved.service"] = lambda: host.resolving.add("github.com")
+        config = {"dnsFailuresBeforeHeal": 2}
+        run(host, config)
+        host.t += 60
+        self.assertEqual(run(host, config)["problems"], [])
+        self.assertEqual(json.loads(host.files[cmh.STATE_FILE])["dnsFailures"], 0)
+
+    def test_a_hostile_stored_failure_count_is_ignored_and_the_count_saturates(self):
+        for stored in ("true", "-1", '"3"', "1.5", "9" * 4300, str(cmh.DNS_FAILURES_MAX + 1)):
+            host = FakeHost()
+            host.resolving = set()
+            host.files[cmh.STATE_FILE] = '{"dnsFailures": %s}' % stored
+            run(host)
+            self.assertEqual(json.loads(host.files[cmh.STATE_FILE])["dnsFailures"], 1, stored[:20])
+        host = FakeHost()
+        host.resolving = set()
+        host.files[cmh.STATE_FILE] = json.dumps({"dnsFailures": cmh.DNS_FAILURES_MAX})
+        run(host)
+        self.assertEqual(json.loads(host.files[cmh.STATE_FILE])["dnsFailures"], cmh.DNS_FAILURES_MAX)
+
+    def test_a_dns_check_that_raises_keeps_the_count(self):
+        host = FakeHost()
+        host.resolving = set()
+        run(host)
+        host.t += 60
+        real, host.run = host.run, lambda argv, timeout, **kw: (_ for _ in ()).throw(OSError("getent")) if argv[0] == "getent" else real(argv, timeout, **kw)
+        self.assertIn("machine health: the dns check failed: OSError", details(run(host)))
+        self.assertEqual(json.loads(host.files[cmh.STATE_FILE])["dnsFailures"], 1)
+
     def test_dns_fixes_once_per_15_minutes_and_keeps_the_problem_since(self):
         host = FakeHost()
         host.resolving = set()
@@ -487,7 +519,7 @@ class HealthTests(unittest.TestCase):
         host.files[cmh.CONFIG_FILE] = json.dumps({"dnsNames": "github.com"})
         self.assertEqual(details(run(host)), ["/etc/cmux/machine-health.json: dnsNames must be a list of non-empty strings; the defaults apply"])
         self.assertFalse(any(c.startswith("getent ahosts g ") or c == "getent ahosts g" for c in host.calls))
-        for bad in ({"hygieneCommand": []}, {"hygieneCommands": ["systemctl start x"]}, ["not", "an", "object"], {"diskFloorBytes": -1}, {"ramFloorBytes": True}, {"tailnetName": "yes"}, {"restartTailscaled": 1}, {"dnsFailuresBeforeHeal": 0}, {"dnsFailuresBeforeHeal": True}, {"diskPath": "home"}, {"peerDownMinutes": "10"}, {"expectedPeers": "big-red"}, {"acpmuxSockets": ["acpmux.sock"]}):
+        for bad in ({"hygieneCommand": []}, {"hygieneCommands": ["systemctl start x"]}, ["not", "an", "object"], {"diskFloorBytes": -1}, {"ramFloorBytes": True}, {"tailnetName": "yes"}, {"restartTailscaled": 1}, {"dnsFailuresBeforeHeal": 0}, {"dnsFailuresBeforeHeal": 61}, {"dnsFailuresBeforeHeal": 2.0}, {"dnsFailuresBeforeHeal": True}, {"diskPath": "home"}, {"peerDownMinutes": "10"}, {"expectedPeers": "big-red"}, {"acpmuxSockets": ["acpmux.sock"]}):
             with self.assertRaises(SystemExit, msg=bad):
                 cmh.check_config(bad)
         cmh.check_config({"hygieneCommands": [["systemctl", "start", "x"]], "dnsNames": ["github.com"], "diskFloorBytes": 0, "acpmuxUnits": ["acpmux-agent-huge-blue.service"], "expectedPeers": ["big-red"], "peerDownMinutes": 10})
