@@ -56,6 +56,10 @@ pub use reaper::tree_rss_bytes;
 /// Most a pooled start's `initialize` and harness session may take before
 /// it counts as failed (and its host is ended).
 const START_BUDGET: Duration = Duration::from_secs(90);
+// A pooled host waits longer for its first controller than this budget
+// gives the attach (`agent_host/host.rs`).
+#[cfg(unix)]
+const _: () = assert!(agent_host::host::POOLED_OWNER_WAIT.as_secs() > START_BUDGET.as_secs());
 /// How often the pool's RSS is measured again while it holds entries.
 const RSS_TICK: Duration = Duration::from_secs(60);
 /// Most a `session/new` waits for a matching entry that is still starting
@@ -137,6 +141,9 @@ pub(super) struct Pooled {
     parked: bool,
     /// Whether it was started with OpenCode asked to ask (`opencode_ask.rs`).
     opencode_asks: bool,
+    /// The question preview format its command was pinned to at prewarm
+    /// (`agent::pinned_preview_format`), which the taking session records.
+    preview: crate::hub::questions::PreviewFormat,
 }
 
 /// What a pooled session is started from, and the key it is served under.
@@ -613,6 +620,7 @@ impl Hub {
             return Err(e);
         }
         self.forget_adopted_caller(&session.id);
+        self.record_preview_format(session, p.preview);
         let tap = self.session_tap(session);
         let mut started = json!({
             "incarnation": p.record.incarnation.clone(),
@@ -843,7 +851,7 @@ impl Drop for ClaimGuard {
 
 /// End one pooled session: continue a parked harness, end it through its
 /// host, then by nonce proof if the host still runs.
-async fn end_pooled(p: Pooled) {
+pub(super) async fn end_pooled(p: Pooled) {
     #[cfg(unix)]
     if p.parked {
         signal_harness(&p.record, libc::SIGCONT);

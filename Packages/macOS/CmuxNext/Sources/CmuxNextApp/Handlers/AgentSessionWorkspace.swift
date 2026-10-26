@@ -71,16 +71,22 @@ enum AgentSessionWorkspace {
         // Placed like Cmd-N (`workspaces.newPlacement`): in the group of the
         // workspace the window shows, when it is in one (cx-caoh), then into
         // the named `group`.
-        var join: (@MainActor @Sendable (String, SidebarBridge) -> Void)?
+        var join: (@MainActor @Sendable (String, any WorkspaceSpawnSidebar) -> Void)?
         if let group {
-            join = { id, sidebar in AgentSessionWorkspace.join(id, group: group, sidebar: sidebar) }
+            join = { id, sidebar in
+                guard let sidebar = sidebar as? SidebarBridge else { return }
+                AgentSessionWorkspace.join(id, group: group, sidebar: sidebar)
+            }
         }
         NewWorkspacePlacements.expect(key.rawValue, in: nil, byDefault: NewWorkspacePlacements.rule(for: nil, in: windows),
                                       then: join, windows: windows)
         return Task { @MainActor in
             do {
+                // Waits for the terminal on a loaded host (Leo, 2026-10-21: a 5 s start deadline
+                // left the workspace a bare shell, never attached): the start that lands late is
+                // the one the session's tab goes beside.
                 _ = try await WorkspaceCreation.create(key, name: name, on: connection, repair: repair) { workspace in
-                    try await connection.createTerminal(in: workspace, cwd: cwd)
+                    try await connection.createTerminalWaitingForStart(in: workspace, cwd: cwd)
                 }
                 // The workspace's first pane once the store mirrors it, found
                 // by the key chosen here (as CloudHandlers finds its anchor).

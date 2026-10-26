@@ -8,6 +8,8 @@ from __future__ import annotations
 
 import datetime as dt
 import importlib.util
+import itertools
+import re
 import sys
 import tempfile
 import unittest
@@ -20,6 +22,7 @@ ROOT = Path(__file__).resolve().parents[1]
 SCRIPTS = ROOT / "scripts/ci"
 WORKFLOW = ROOT / ".github/workflows/cmux-next.yml"
 LARGE, SMALL, HOSTED = "blacksmith-12vcpu-macos-26", "blacksmith-6vcpu-macos-26", "macos-26"
+MACOS_15 = "blacksmith-6vcpu-macos-15"
 SIDE = "glaeda-side-light-xcode-26.6"
 GUI = "glaeda-gui-std-xcode-26.6"
 CASCADED = ("fast-tier", "swift-canary", "cmux-scheme-compile", "release-compile")
@@ -77,7 +80,11 @@ class Counts(unittest.TestCase):
         runners = {15: [{"status": "online", "busy": True}] * 4 + [{"status": "offline", "busy": False}] * 3,
                    10: [{"status": "online", "busy": True}] * 9 + [{"status": "online", "busy": False}],
                    8: [{"status": "online", "busy": True}] * 7}
-        self.assertEqual(cascade.in_flight(self.GROUPS, runners.__getitem__), {LARGE: 4, SMALL: 10})
+        # The macOS 15 label draws on the same organization pool, so its runners count too.
+        self.assertEqual(cascade.in_flight(self.GROUPS, runners.__getitem__),
+                         {LARGE: 4, SMALL: 10, MACOS_15: 7})
+        # Its group is optional: without it the snapshot's running jobs stand in (with_running()).
+        self.assertEqual(cascade.in_flight(self.GROUPS[:2], runners.__getitem__), {LARGE: 4, SMALL: 10})
 
     def test_a_missing_scale_set_group_counts_nothing(self):
         self.assertIsNone(cascade.in_flight(self.GROUPS[1:], lambda group: []))
@@ -91,14 +98,60 @@ class Counts(unittest.TestCase):
         self.assertEqual(cascade.queued({"generated_at": "2026-10-19T21:58:00Z", "pools": {}}, NOW),
                          {LARGE: 0, SMALL: 0})
 
+    def test_the_pools_other_labels_count_from_the_snapshot(self):
+        shot = snapshot(large=1, small=2)
+        shot["pools"][MACOS_15] = {"queued": 4, "running": 3}
+        shot["pools"]["glaeda-side-std-xcode-26.6"] = {"queued": 121, "running": 10}
+        # Queued counts every Blacksmith macOS label, never an owned or hosted one.
+        self.assertEqual(cascade.queued(shot, NOW), {LARGE: 1, SMALL: 2, MACOS_15: 4})
+        self.assertEqual(cascade.pool_queued(cascade.queued(shot, NOW)), 7)
+        # A label no visible scale-set group counted takes the snapshot's running jobs; a live count wins.
+        self.assertEqual(cascade.with_running({LARGE: 0, SMALL: 5}, shot, NOW), {LARGE: 0, SMALL: 5, MACOS_15: 3})
+        self.assertEqual(cascade.with_running({LARGE: 0, SMALL: 5, MACOS_15: 1}, shot, NOW),
+                         {LARGE: 0, SMALL: 5, MACOS_15: 1})
+        self.assertEqual(cascade.with_running({LARGE: 0, SMALL: 5}, None, NOW), {LARGE: 0, SMALL: 5})
+        self.assertEqual((cascade.vcpus(LARGE), cascade.vcpus(SMALL), cascade.vcpus(MACOS_15)), (12, 6, 6))
+        self.assertFalse(cascade.pool_label(HOSTED) or cascade.pool_label("blacksmith-4vcpu-ubuntu-2404"))
+
 
 class Cascade(unittest.TestCase):
     def test_twelve_vcpu_first_then_six_then_the_queue(self):
-        placed = cascade.cascade(CASCADED, {LARGE: 4, SMALL: 8}, {LARGE: 0, SMALL: 1})
-        self.assertEqual(placed, none_placed(**{LARGE: ("fast-tier",), SMALL: ("swift-canary",)}))
+        # 30 of the pool's 60 vCPU are free: two 12 vCPU jobs (this run's share), then one 6 vCPU job.
+        placed = cascade.cascade(CASCADED, {LARGE: 1, SMALL: 3}, {LARGE: 0, SMALL: 0})
+        self.assertEqual(placed, none_placed(**{LARGE: ("fast-tier", "swift-canary"),
+                                                SMALL: ("cmux-scheme-compile",)}))
 
-    def test_a_full_twelve_sends_the_jobs_to_six(self):
-        placed = cascade.cascade(CASCADED[:2], {LARGE: 5, SMALL: 2}, {LARGE: 0, SMALL: 0})
+    def test_a_queue_anywhere_sends_the_jobs_to_six_not_twelve(self):
+        # A 12 vCPU job needs twelve vCPUs freed at once; while 6 vCPU jobs queue, they take each one first.
+        placed = cascade.cascade(CASCADED[:2], {LARGE: 0, SMALL: 2}, {LARGE: 0, SMALL: 1})
+        self.assertEqual(placed, none_placed(**{SMALL: CASCADED[:2]}))
+        # A queue on the macOS 15 label is the same pool's queue.
+        placed = cascade.cascade(CASCADED[:2], {LARGE: 0, SMALL: 2}, {LARGE: 0, SMALL: 0, MACOS_15: 1})
+        self.assertEqual(placed, none_placed(**{SMALL: CASCADED[:2]}))
+
+    def test_twelve_vcpu_waits_behind_a_pool_its_own_count_calls_free(self):
+        """Runs 40386035282 and 40386506758 (2026-10-26): the placement read 12 vCPU as "0 in flight + 0
+        queued of 5" and 6 vCPU as "9 in flight + 3 queued of 10", sent both DEV Release compiles to 12 vCPU,
+        and they queued from 19:25Z to 20:42Z and 20:52Z. 6 vCPU's nine are 54 of the pool's 60 vCPU."""
+        live, waiting = {LARGE: 0, SMALL: 9}, {LARGE: 0, SMALL: 3}
+        self.assertEqual(cascade.cascade(("cmux-scheme-compile",), live, waiting), none_placed())
+        self.assertEqual(cascade.retry_label(live, waiting), "")
+        result = cascade.place(env(CASCADE_RUNS=" cmux-scheme-compile "), (), live, waiting)
+        self.assertEqual(result.jobs, none_placed())
+        self.assertIn("pool 72 of 60 vCPU in flight or queued", result.why)
+        self.assertIn("cmux-scheme-compile stay queued on the owned label", result.why)
+        # The pool's other label holds vCPUs as well: five 6 vCPU jobs on each fill it.
+        self.assertEqual(cascade.cascade(("cmux-scheme-compile",), {LARGE: 0, SMALL: 5, MACOS_15: 5},
+                                         {LARGE: 0, SMALL: 0}), none_placed())
+        # With room for twelve and nothing queued anywhere, 12 vCPU still comes first.
+        self.assertEqual(cascade.cascade(("cmux-scheme-compile",), {LARGE: 0, SMALL: 8}, {LARGE: 0, SMALL: 0}),
+                         none_placed(**{LARGE: ("cmux-scheme-compile",)}))
+
+    def test_a_stalled_twelve_vcpu_queue_holds_no_six_vcpu_room(self):
+        # 2026-10-26 20:38Z to 20:47Z: six jobs queued on 12 vCPU for 78 to 83 minutes while 6 vCPU ran
+        # seven and five with no queue, so a 12 vCPU job that waits does not hold the pool's vCPUs.
+        self.assertEqual(cascade.pool_room({LARGE: 0, SMALL: 7}, {LARGE: 6, SMALL: 0}), 18)
+        placed = cascade.cascade(CASCADED[:2], {LARGE: 0, SMALL: 7}, {LARGE: 6, SMALL: 0})
         self.assertEqual(placed, none_placed(**{SMALL: CASCADED[:2]}))
 
     def test_one_run_takes_at_most_max_per_run_slots_on_a_label(self):
@@ -114,10 +167,12 @@ class Cascade(unittest.TestCase):
         self.assertEqual(placed, none_placed())
 
     def test_retry_goes_to_the_least_loaded_label(self):
-        self.assertEqual(cascade.retry_label({LARGE: 5, SMALL: 4}, {LARGE: 6, SMALL: 3}), SMALL)
+        self.assertEqual(cascade.retry_label({LARGE: 1, SMALL: 4}, {LARGE: 1, SMALL: 0}), SMALL)
         # No free slot anywhere: no Blacksmith label, so the overflow waits on the owned label.
         self.assertEqual(cascade.retry_label({LARGE: 5, SMALL: 10}, {LARGE: 6, SMALL: 0}), "")
-        self.assertEqual(cascade.retry_label({LARGE: 0, SMALL: 10}, {LARGE: 0, SMALL: 0}), LARGE)
+        self.assertEqual(cascade.retry_label({LARGE: 0, SMALL: 0}, {LARGE: 0, SMALL: 0}), LARGE)
+        # Ten 6 vCPU jobs fill the pool: 12 vCPU's five idle slots are no room.
+        self.assertEqual(cascade.retry_label({LARGE: 0, SMALL: 10}, {LARGE: 0, SMALL: 0}), "")
 
     def test_a_full_fleet_overflows_to_6_vcpu_whose_slots_turn_over(self):
         # 2026-10-20 01:04-02:35Z: other workflows' long jobs held 12 vCPU's five slots. The
@@ -125,7 +180,7 @@ class Cascade(unittest.TestCase):
         # 15 minutes, up to 89, then cancelled) while 6 vCPU started 69 at a median 2.5 minutes.
         # Both full: never a Blacksmith queue (5+ hour waits on 12 vCPU, 2026-10-20); the owned label.
         self.assertEqual(cascade.retry_label({LARGE: 5, SMALL: 10}, {LARGE: 0, SMALL: 0}), "")
-        self.assertEqual(cascade.retry_label({LARGE: 5, SMALL: 9}, {LARGE: 0, SMALL: 0}), SMALL)
+        self.assertEqual(cascade.retry_label({LARGE: 0, SMALL: 9}, {LARGE: 0, SMALL: 0}), SMALL)
         # The placement log of run 39358219316: 12 vCPU 5 + 1 of 5, 6 vCPU 10 + 4 of 10.
         self.assertEqual(cascade.retry_label({LARGE: 5, SMALL: 10}, {LARGE: 1, SMALL: 4}), "")
         self.assertEqual(cascade.retry_label({LARGE: 7, SMALL: 30}, {LARGE: 0, SMALL: 9}), "")
@@ -185,6 +240,37 @@ class Place(unittest.TestCase):
         self.assertEqual(cascade.place(env(CASCADE_RUNS=runs, PROMOTE_LABEL=PROMOTE), ("fast-tier",), free, free,
                                        promote_busy=False).jobs, none_placed())
 
+    def test_a_feat_push_release_compile_takes_the_runs_first_slot(self):
+        # Run 40298786351 (2026-10-26 09:21Z): 6 vCPU had room, but MAX_PER_RUN went to fast-tier and the
+        # scheme compile ahead of it in JOBS, and the Release compile queued on the owned label.
+        runs = " fast-tier cmux-scheme-compile release-compile "
+        live, waiting = {LARGE: 0, SMALL: 5}, {LARGE: 7, SMALL: 0}
+        stalled = cascade.Seen(waits={LARGE: 227.0}, age=1.0, hosted=18)
+        before = cascade.place(env(CASCADE_RUNS=runs), (), live, waiting, stalled)
+        self.assertEqual(before.jobs[SMALL], ("fast-tier", "cmux-scheme-compile"))
+        first = env(CASCADE_RUNS=runs, FIRST_JOBS="release-compile")
+        self.assertEqual(cascade.place(first, (), live, waiting, stalled).jobs[SMALL], ("release-compile", "fast-tier"))
+        # The idle minis are spent on the run's other jobs first: one idle mini, and the Release compile still
+        # has its slot (fast-tier races for the mini); as many idle minis as side jobs, and nothing cascades.
+        one = cascade.place(first, ("fast-tier",), live, waiting, stalled)
+        self.assertEqual(one.jobs[SMALL], ("release-compile", "cmux-scheme-compile"))
+        three = cascade.place(first, ("fast-tier", "swift-canary", "cmux-scheme-compile"), live, waiting, stalled)
+        self.assertEqual(three.jobs, none_placed())
+        two = cascade.place(first, ("fast-tier", "swift-canary"), live, waiting, stalled)
+        self.assertEqual(two.jobs[SMALL], ("release-compile",))
+
+    def test_the_placement_names_the_first_jobs_only_on_a_feat_push_attempt_1(self):
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        place = next(step for step in jobs["macos-placement"]["steps"] if step.get("id") == "place")
+        expression = place["env"]["FIRST_JOBS"]
+        for event, ref, attempt, expected in (("push", "refs/heads/feat-cmux-next", "1", "release-compile"),
+                                              ("push", "refs/heads/feat-cmux-next", "2", ""),
+                                              ("push", "refs/heads/next-batch/abc", "1", ""),
+                                              ("pull_request", "refs/pull/1/merge", "1", "")):
+            with self.subTest(event=event, ref=ref, attempt=attempt):
+                context = {"github": {"event_name": event, "ref": ref, "run_attempt": attempt}}
+                self.assertEqual(evaluate(expression, context), expected)
+
     def test_a_busy_promotion_mini_sends_the_feat_push_release_compile_to_blacksmith_first(self):
         runs = " swift-canary cmux-scheme-compile release-compile "
         free = {LARGE: 0, SMALL: 0}
@@ -197,13 +283,13 @@ class Place(unittest.TestCase):
         self.assertEqual(busy.jobs, none_placed(**{LARGE: ("release-compile",)}))
 
     def test_a_partly_free_fleet_splits_and_leaves_the_rest_queued(self):
-        result = cascade.place(env(), (), {LARGE: 4, SMALL: 9}, {LARGE: 0, SMALL: 0})
+        result = cascade.place(env(), (), {LARGE: 1, SMALL: 5}, {LARGE: 0, SMALL: 0})
         self.assertEqual(result.jobs, none_placed(**{LARGE: ("fast-tier",), SMALL: ("swift-canary",)}))
         self.assertIn("cmux-scheme-compile stay queued on the owned label", result.why)
 
     def test_the_overflow_counts_the_slots_this_run_just_took(self):
-        # 6 vCPU had one free slot and this run's fast-tier took it: the overflow has none left.
-        result = cascade.place(env(), (), {LARGE: 5, SMALL: 9}, {LARGE: 0, SMALL: 0})
+        # The pool had one 6 vCPU job's room and this run's fast-tier took it: the overflow has none left.
+        result = cascade.place(env(), (), {LARGE: 0, SMALL: 9}, {LARGE: 0, SMALL: 0})
         self.assertEqual(result.jobs, none_placed(**{SMALL: ("fast-tier",)}))
         self.assertEqual(result.retry_runner, "")
 
@@ -292,14 +378,14 @@ class Place(unittest.TestCase):
             fake.return_value.runners.return_value = runners
             with mock.patch.object(placement.pool, "GitHub", fake), \
                     mock.patch.object(placement.cascade, "read",
-                                      return_value=({LARGE: 4, SMALL: 0}, {LARGE: 0, SMALL: 0}, None)):
+                                      return_value=({LARGE: 0, SMALL: 7}, {LARGE: 0, SMALL: 0}, None)):
                 placement.main(env(ROUTE_TOKEN="t", GITHUB_REPOSITORY="manaflow-ai/cmux", GITHUB_OUTPUT=str(output)))
             lines = dict(line.split("=", 1) for line in output.read_text().splitlines())
-        # The idle mini takes the first job; 12 vCPU's one free slot the next; 6 vCPU the rest.
+        # The idle mini takes the first job; the pool's 18 free vCPU take one 12 vCPU job, then one 6 vCPU job.
         self.assertEqual(lines["owned_jobs"], " fast-tier ")
         self.assertEqual(lines["blacksmith_12_jobs"], " swift-canary ")
         self.assertEqual(lines["blacksmith_6_jobs"], " cmux-scheme-compile ")
-        self.assertEqual(lines["retry_runner"], SMALL)
+        self.assertEqual(lines["retry_runner"], "")
         self.assertEqual((lines["hosted_jobs"], lines["hosted_runner"]), ("", ""))
 
     def test_side_lane_placement_reads_the_promotion_minis_load(self):
@@ -331,6 +417,37 @@ class Place(unittest.TestCase):
         self.assertEqual(outputs(False, PROMOTE_LABEL=PROMOTE)["blacksmith_12_jobs"], "")
         # Any other run (no promotion label) cascades it as a side job: the side mini is busy.
         self.assertEqual(outputs(False)["blacksmith_12_jobs"], " release-compile ")
+
+    def test_dedicated_nightly_builder_gets_release_compile_before_blacksmith(self):
+        side = {"name": "side-mini", "status": "online", "busy": True,
+                "labels": [{"name": label} for label in ("self-hosted", "glaeda-light-xcode-26.6", SIDE)]}
+        dedicated = {"name": "cmux22", "status": "online", "busy": False,
+                     "labels": [{"name": label} for label in
+                                ("self-hosted", "glaeda-trusted-light-xcode-26.6",
+                                 "glaeda-runner-cmux22-nightly-next", "glaeda-trusted-next-nightly")]}
+
+        def run(busy: bool):
+            dedicated_copy = {**dedicated, "busy": busy}
+            with tempfile.TemporaryDirectory() as tmp:
+                output = Path(tmp) / "out"
+                fake = mock.Mock()
+                fake.return_value.runners.return_value = [side, dedicated_copy]
+                with mock.patch.object(placement.pool, "GitHub", fake), \
+                        mock.patch.object(placement.cascade, "read",
+                                          return_value=({LARGE: 0, SMALL: 0}, {LARGE: 0, SMALL: 0}, None)):
+                    placement.main(env(ROUTE_TOKEN="t", GITHUB_REPOSITORY="manaflow-ai/cmux",
+                                       GITHUB_OUTPUT=str(output), CASCADE_RUNS=" release-compile ",
+                                       PROMOTE_LABEL=PROMOTE,
+                                       NIGHTLY_POOL="glaeda-trusted-light-xcode-26.6",
+                                       NIGHTLY_RUNNER="glaeda-runner-cmux22-nightly-next"))
+                return dict(line.split("=", 1) for line in output.read_text().splitlines())
+
+        ready = run(False)
+        self.assertEqual(ready["nightly_runner_ready"], "true")
+        self.assertEqual(ready["blacksmith_12_jobs"], "")
+        overflow = run(True)
+        self.assertEqual(overflow["nightly_runner_ready"], "")
+        self.assertEqual(overflow["blacksmith_12_jobs"], " release-compile ")
 
 
 class Stall(unittest.TestCase):
@@ -414,12 +531,13 @@ class Stall(unittest.TestCase):
 
     def test_without_the_snapshots_waits_nothing_changes(self):
         # Fail toward the current behavior: no stall known, no hosted spill.
-        result = cascade.place(env(), (), {LARGE: 4, SMALL: 10}, {LARGE: 0, SMALL: 0}, None)
+        result = cascade.place(env(), (), {LARGE: 4, SMALL: 0}, {LARGE: 0, SMALL: 0}, None)
         self.assertEqual(result.jobs, none_placed(**{LARGE: ("fast-tier",)}))
 
     def test_the_bots_overflow_avoids_a_stalled_label(self):
         live, waiting = {LARGE: 0, SMALL: 9}, {LARGE: 1, SMALL: 0}
-        self.assertEqual(cascade.retry_label(live, waiting), LARGE)
+        # A job already waits on 12 vCPU, so the overflow takes the pool's last 6 vCPU job instead.
+        self.assertEqual(cascade.retry_label(live, waiting), SMALL)
         seen = cascade.Seen(waits={LARGE: 30.0, SMALL: 0.0}, hosted=0)
         self.assertEqual(cascade.place(env(), (), {LARGE: 0, SMALL: 5}, waiting, seen).retry_runner, SMALL)
         # The one free 6 vCPU slot goes to this run's fast-tier, so no label is left for the overflow.
@@ -475,8 +593,15 @@ class Wiring(unittest.TestCase):
         for name in CASCADED:
             runs_on = self.jobs[name]["runs-on"]
             with self.subTest(job=name):
-                self.assertEqual(evaluate(runs_on, self.context(large=f" x {name} ")), LARGE)
-                self.assertEqual(evaluate(runs_on, self.context(small=f" {name} y ")), SMALL)
+                if name == "release-compile":
+                    # A same-repository PR uses a free owned Mac first; Blacksmith is spillover.
+                    self.assertEqual(evaluate(runs_on, self.context(large=f" x {name} ")), SIDE)
+                    self.assertEqual(evaluate(runs_on, self.context(small=f" {name} y ")), SIDE)
+                    self.assertEqual(evaluate(runs_on, self.context(runner="", large=f" x {name} ")), LARGE)
+                    self.assertEqual(evaluate(runs_on, self.context(runner="", small=f" {name} y ")), SMALL)
+                else:
+                    self.assertEqual(evaluate(runs_on, self.context(large=f" x {name} ")), LARGE)
+                    self.assertEqual(evaluate(runs_on, self.context(small=f" {name} y ")), SMALL)
                 # Whole keys only: another job's slot is not this job's.
                 self.assertEqual(evaluate(runs_on, self.context(large=f" {name}-x ", small=f" x{name} ")), SIDE)
                 self.assertEqual(evaluate(runs_on, self.context()), SIDE)
@@ -486,6 +611,14 @@ class Wiring(unittest.TestCase):
                 self.assertEqual(evaluate(runs_on, self.context("2", large=f" {name} ")), SIDE)
                 self.assertEqual(evaluate(runs_on, self.context("3", large=f" {name} ")), SIDE)
                 self.assertEqual(evaluate(runs_on, self.context(fork=True, large=f" {name} ")), SMALL)
+
+    def test_release_compile_pr_is_owned_first_and_spills_to_blacksmith(self):
+        runs_on = self.jobs["release-compile"]["runs-on"]
+        self.assertEqual(self.jobs["release-compile"]["env"]["CMUX_NEXT_RUNNER"], runs_on)
+        owned = self.context(runner="glaeda-side-std-xcode-26.6", large=" release-compile ")
+        spill = self.context(runner="", large=" release-compile ")
+        self.assertEqual(evaluate(runs_on, owned), "glaeda-side-std-xcode-26.6")
+        self.assertEqual(evaluate(runs_on, spill), LARGE)
 
     def test_attempt_1_takes_the_hosted_spill_the_placement_chose(self):
         for name in CASCADED:
@@ -501,7 +634,7 @@ class Wiring(unittest.TestCase):
                 # A fork keeps its own route.
                 self.assertEqual(evaluate(runs_on, self.context(fork=True, hosted=f" {name} ")), SMALL)
 
-    def test_a_feat_push_release_compile_takes_the_promotion_mini_unless_the_placement_overflowed_it(self):
+    def test_a_feat_push_release_compile_uses_a_free_fleet_mac_then_blacksmith(self):
         runs_on = self.jobs["release-compile"]["runs-on"]
 
         def push(**outputs: str) -> dict:
@@ -511,13 +644,123 @@ class Wiring(unittest.TestCase):
             context["vars"]["CI_NEXT_PROMOTE_POOL"] = PROMOTE
             return context
 
-        self.assertEqual(evaluate(runs_on, push()), PROMOTE)
+        # An idle owned Mac wins: the cascade then gives the compile no Blacksmith slot and it takes the
+        # owned label. The cascade places it on Blacksmith only when no idle mini took it, so its slot comes
+        # before the owned label, which is then a queue (2026-10-26: 10-40 min on the std side label).
+        self.assertEqual(evaluate(runs_on, push(runner="free-owned-mac")), "free-owned-mac")
+        self.assertEqual(evaluate(runs_on, push()), SIDE)
+        self.assertEqual(evaluate(runs_on, push(runner="")), SMALL)
         self.assertEqual(evaluate(runs_on, push(large=" release-compile ")), LARGE)
         self.assertEqual(evaluate(runs_on, push(small=" release-compile ")), SMALL)
+        self.assertEqual(evaluate(runs_on, push(runner="", large=" release-compile ")), LARGE)
+        self.assertEqual(evaluate(runs_on, push(runner="", small=" release-compile ")), SMALL)
         # Another job's slot is not the Release compile's.
-        self.assertEqual(evaluate(runs_on, push(large=" cmux-scheme-compile ")), PROMOTE)
+        self.assertEqual(evaluate(runs_on, push(large=" cmux-scheme-compile ")), SIDE)
+        # A re-run of the push does not reuse attempt 1's slot.
+        rerun = push(large=" release-compile ")
+        rerun["github"]["run_attempt"] = "2"
+        self.assertEqual(evaluate(runs_on, rerun), SIDE)
+        # The job's own label variable agrees with its runs-on.
+        runner_env = self.jobs["release-compile"]["env"]["CMUX_NEXT_RUNNER"]
+        for outputs in ({}, {"large": " release-compile "}, {"small": " release-compile "}, {"runner": ""}):
+            self.assertEqual(evaluate(runner_env, push(**outputs)), evaluate(runs_on, push(**outputs)))
         self.assertEqual(evaluate(runs_on, self.context("3", BOT, retry=SMALL)), SMALL)
-        self.assertEqual(self.jobs["release-compile"]["env"]["CMUX_NEXT_RUNNER"], runs_on)
+        # Release compile never targets the dedicated nightly runner.
+        self.assertNotIn("CI_NIGHTLY_NEXT_TRUSTED_RUNNER", self.jobs["release-compile"]["runs-on"])
+        self.assertNotIn("CI_NIGHTLY_NEXT_TRUSTED_RUNNER", self.jobs["release-compile"]["env"]["CMUX_NEXT_RUNNER"])
+
+    NIGHTLY_POOL = "glaeda-trusted-light-xcode-26.6"
+    NIGHTLY_RUNNER = "glaeda-runner-cmux22-nightly-next"
+
+    # The events release-compile runs on: a push to either branch, a dispatch, and a same-repo or fork pull request.
+    EVENTS = (("push", "refs/heads/feat-cmux-next", False), ("push", "refs/heads/main", False),
+              ("workflow_dispatch", "refs/heads/feat-cmux-next", False), ("pull_request", "refs/pull/1/merge", False),
+              ("pull_request", "refs/pull/1/merge", True))
+
+    def nightly_push(self, ready: str, attempt: str = "1", fast: tuple[str, str] = ("skipped", ""),
+                     event: tuple[str, str, bool] = EVENTS[0], actor: str = "teamleaderleo", config: str = "owned",
+                     **outputs: str) -> dict:
+        name, ref, fork = event
+        context = self.context(attempt, actor, fork=fork, **outputs)
+        if config == "another owner":
+            context["github"]["repository_owner"] = "someone"
+        elif config == "pool not owned":
+            context["vars"].pop("CI_PR_POOL_OWNED")
+        elif config == "no side route":
+            context["vars"].update(CI_SIDE_LANE_RUNNER="", MACOS_RUNNER_26="")
+        # The fleet fast check: skipped (no idle gateway), no verdict, or an unavailable fleet.
+        context["needs"]["release-compile-fast"] = {"result": fast[0], "outputs": {"verdict": fast[1]}}
+        context["github"].update(event_name=name, ref=ref)
+        if name != "pull_request":
+            context["github"]["event"] = {}
+        context["vars"].update(CI_NIGHTLY_NEXT_TRUSTED_POOL=self.NIGHTLY_POOL,
+                               CI_NIGHTLY_NEXT_TRUSTED_RUNNER=self.NIGHTLY_RUNNER, CI_NEXT_PROMOTE_POOL=PROMOTE)
+        # The job sees placement's step outputs through the workflow's own `outputs:` mapping, evaluated here,
+        # so a mapping that names a nightly variable reaches the runs-on.
+        placed = dict(context["needs"]["macos-placement"]["outputs"], nightly_runner_ready=ready)
+        mapping = self.jobs["macos-placement"]["outputs"]
+        step = {}
+        for key, expression in mapping.items():
+            match = re.fullmatch(r"\$\{\{ steps\.place\.outputs\.(\w+) \}\}", expression)
+            if match:
+                step[match.group(1)] = placed.get(key, "")
+        scope = dict(context, steps={"place": {"outputs": step}})
+        context["needs"]["macos-placement"]["outputs"] = {key: evaluate(expression, scope)
+                                                          for key, expression in mapping.items()}
+        if config == "placement skipped":
+            context["needs"]["macos-placement"] = {"result": "skipped", "outputs": {}}
+        return context
+
+    def off_the_nightly_runner(self, label) -> bool:
+        """`label` (a runs-on value: one label, or a list every runner must carry) is set and names no nightly label."""
+        labels = label if isinstance(label, list) else [label]
+        return bool(labels) and all(isinstance(name, str) and name and name not in (self.NIGHTLY_POOL, self.NIGHTLY_RUNNER)
+                                    and "nightly" not in name for name in labels)
+
+    CONFIGS = ("owned", "another owner", "pool not owned", "no side route", "placement skipped")
+
+    def test_release_compile_never_targets_the_dedicated_nightly_runner(self):
+        """The nightly runner builds and signs nightly-next; the Release compile that gates it never takes it,
+        whatever placement read about it. The runs-on and the job's own label variable are evaluated, as a
+        single label or a label list, on every event the workflow runs on, for every attempt, owner and pool
+        configuration, fast-check state and placement output it can see."""
+        job = self.jobs["release-compile"]
+        seen = {event: set() for event in self.EVENTS}
+        failures = []
+        attempts = (("1", "teamleaderleo"), ("2", "teamleaderleo"), ("2", BOT), ("3", "teamleaderleo"), ("3", BOT),
+                    ("4", BOT))
+        # Every fast-check state release-compile runs after: skipped, no verdict (failed, or the
+        # continue-on-error step left success with none), or an unavailable fleet.
+        fasts = (("skipped", ""), ("failure", ""), ("success", ""), ("success", "unavailable"),
+                 ("failure", "unavailable"))
+        placed = ({}, {"runner": ""}, {"large": " release-compile "}, {"small": " release-compile "}, {"retry": SMALL})
+        for event, config, ready, (attempt, actor), fast, outputs in itertools.product(
+                self.EVENTS, self.CONFIGS, ("true", ""), attempts, fasts, placed):
+            context = self.nightly_push(ready, attempt, fast, event, actor, config, **outputs)
+            label = evaluate(job["runs-on"], context)
+            if config == "owned" and attempt in ("1", "2"):
+                seen[event].add(tuple(label) if isinstance(label, list) else label)
+            for name, value in (("runs-on", label), ("CMUX_NEXT_RUNNER", evaluate(job["env"]["CMUX_NEXT_RUNNER"],
+                                                                                   context))):
+                if not self.off_the_nightly_runner(value):
+                    failures.append(f"{name}={value!r}: {event} {config} ready={ready!r} attempt={attempt} {actor} "
+                                    f"fast={fast} outputs={outputs}")
+        self.assertEqual(failures[:10], [], f"{len(failures)} cases name the nightly runner")
+        # Every route each event can take was evaluated: the cascade's two slots and the owned side label
+        # (a feat push also takes 6 vCPU with no placement runner, or a fast check that died before its
+        # verdict); a fork pull request takes 6 vCPU only. side_lane_placement never writes a nightly label
+        # into the runner outputs (test_ci_side_lane_placement.NightlyRunnerStaysOffTheRoutes).
+        for event in self.EVENTS:
+            self.assertEqual(seen[event], {SMALL} if event[2] else {LARGE, SMALL, SIDE}, event)
+        self.assertEqual(evaluate(job["runs-on"], self.nightly_push("", fast=("failure", ""))), SMALL)
+
+    def test_a_configured_but_unavailable_dedicated_runner_overflows_to_blacksmith(self):
+        # Dedicated runner configured but not ready: the Blacksmith slot placement gave, else the owned route.
+        runs_on = self.jobs["release-compile"]["runs-on"]
+        self.assertEqual(evaluate(runs_on, self.nightly_push("", large=" release-compile ")), LARGE)
+        self.assertEqual(evaluate(runs_on, self.nightly_push("", small=" release-compile ")), SMALL)
+        self.assertEqual(evaluate(runs_on, self.nightly_push("")), SIDE)
+        self.assertEqual(evaluate(runs_on, self.nightly_push("", runner="")), SMALL)
 
     def test_the_placement_knows_the_promotion_label_only_on_a_feat_push(self):
         place = next(step for step in self.jobs["macos-placement"]["steps"] if step.get("id") == "place")
@@ -554,8 +797,9 @@ class Wiring(unittest.TestCase):
         # compiles need full-ci again, except a member's dev-build scheme compile (its dogfood app).
         self.assertEqual(runs(labels=()), {"fast-tier", "swift-canary"})
         self.assertEqual(runs(labels=(), canary="false", scheme="false"), {"fast-tier"})
-        self.assertEqual(runs(fast_lane="glaeda-fast-std-xcode-26.6"),
-                         {"swift-canary", "cmux-scheme-compile", "release-compile"})
+        # The fast lane's label is a preference the placement takes only while it is idle
+        # (side_lane_placement.fast_route()), so the fast tier is always a cascade candidate.
+        self.assertEqual(runs(fast_lane="glaeda-fast-std-xcode-26.6"), set(CASCADED))
         self.assertEqual(runs("push", labels=(), canary="false"), {"fast-tier", "cmux-scheme-compile", "release-compile"})
         self.assertEqual(runs(labels=("dev-build",), association="CONTRIBUTOR"), {"fast-tier", "swift-canary"})
         self.assertEqual(runs(labels=("dev-build",)), {"fast-tier", "swift-canary", "cmux-scheme-compile"})
@@ -585,15 +829,17 @@ class Wiring(unittest.TestCase):
     def test_each_jobs_own_label_copy_matches_runs_on(self):
         for name in CASCADED:
             job_env = self.jobs[name].get("env") or {}
-            if "CMUX_NEXT_RUNNER" in job_env:
+            if "CMUX_NEXT_RUNNER" in job_env and name != "release-compile":
                 self.assertEqual(job_env["CMUX_NEXT_RUNNER"], self.jobs[name]["runs-on"], name)
 
     def test_the_placement_job_reads_the_snapshot_and_exports_the_cascade(self):
         job = self.jobs["macos-placement"]
         self.assertEqual(job["permissions"].get("actions"), "read")
         place = next(step for step in job["steps"] if step.get("id") == "place")
-        self.assertEqual(place["env"]["SNAPSHOT_TOKEN"], "${{ github.token }}")
-        for output in ("blacksmith_12_jobs", "blacksmith_6_jobs", "hosted_jobs", "hosted_runner"):
+        # The pool snapshot reads with the glaeda read token (its own budget), else GITHUB_TOKEN.
+        self.assertEqual(place["env"]["SNAPSHOT_TOKEN"], "${{ steps.snapshot-read-token.outputs.token || github.token }}")
+        for output in ("blacksmith_12_jobs", "blacksmith_6_jobs", "hosted_jobs", "hosted_runner",
+                       "nightly_runner_ready"):
             self.assertEqual(job["outputs"][output], f"${{{{ steps.place.outputs.{output} }}}}")
         # A placement script that predates the free-slot rule (a pull request's old base) writes only
         # retry_runner, which may name a full label; the job reads the key only the new rule writes.

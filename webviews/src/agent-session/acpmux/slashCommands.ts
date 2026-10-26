@@ -48,6 +48,26 @@ export function commandsFromUpdate(update: any): SlashCommand[] | undefined {
   return commands;
 }
 
+/// Whether `command` is the harness's own `/fast` (Claude Code lists it as "Toggle fast mode"). The
+/// `/` menu draws it as ChatGPT does (Leo 2026-10-22): the bolt, the plain name Fast, and what
+/// picking it does in the chat's current state (fastModeState).
+export function isFastCommand(command: SlashCommand): boolean {
+  return (command.source ?? "agent") === "agent" && command.name.toLowerCase() === "fast";
+}
+
+type FastOption = { id: string; name?: string; currentValue?: string; options: { value: string }[] };
+
+/// The chat's fast mode, from its config options as the model menu reads them (ComposerPickers.tsx):
+/// Claude Code's `fast-mode`, or an option named for it. Undefined when the session reports none or
+/// no current value.
+export function fastModeState(options: readonly FastOption[] | undefined): "on" | "off" | undefined {
+  const option = options?.find((entry) => entry.id === "fast-mode" || /fast[ _-]?mode/i.test(entry.name ?? ""));
+  if (!option || option.currentValue === undefined) return undefined;
+  const off =
+    option.options.find((choice) => /^(off|false|disabled)$/i.test(choice.value))?.value ?? option.options[0]?.value;
+  return option.currentValue === off ? "off" : "on";
+}
+
 /// The query while the caret is in a leading `/word` (no space yet), else undefined.
 export function slashQuery(text: string, caret: number): string | undefined {
   return /^\/(\S*)$/.exec(text.slice(0, caret))?.[1];

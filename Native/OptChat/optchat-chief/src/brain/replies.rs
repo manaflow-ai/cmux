@@ -247,6 +247,10 @@ impl Brain {
                 reaction: kind.clone(),
             },
         ));
+        // A tapback is the Chief's answer to the message it is on (the
+        // react tool: "instead of a reply that only acknowledges"): it
+        // leaves the reply ledger, so no retry turn adds words to it.
+        self.reply_not_needed(std::slice::from_ref(&message.id));
         self.save();
         self.flush_outbox();
         Ok(format!(

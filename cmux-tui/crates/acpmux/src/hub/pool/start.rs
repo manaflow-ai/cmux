@@ -10,6 +10,10 @@ impl Hub {
         let draft = &spec.draft;
         let name = self.unique_name(&draft.harness);
         let profile = &spec.spawn;
+        // MDM forces full access off (#23322): a profile pinning it is never prewarmed.
+        if self.refuse_pinned_full_access(profile).is_err() {
+            anyhow::bail!("{} pins full access, which MDM forces off", draft.harness);
+        }
         let claude = profile.kind == crate::config::HarnessKind::ClaudeStdio;
         let (command_line, translator) = if claude {
             // As `ensure_child` starts a fresh Claude session.
@@ -47,6 +51,7 @@ impl Hub {
             command_line,
             Some((&session_id, &name)),
         )?;
+        let preview = crate::agent::pinned_preview_format(&cmd);
         let std_cmd = cmd.as_std();
         let dir = pool_dir();
         let host_spec = agent_host::SpawnSpec {
@@ -65,16 +70,19 @@ impl Hub {
             hosts_dir: dir,
             buffer_cap: agent_host::DEFAULT_BUFFER_CAP,
             router_owner_fifo: crate::daemon::router_owner_path(),
+            // Never a sub-session's checked folder: a sub-session start takes no pooled harness.
+            cwd_pin: None,
         };
         // No host starts once `stop_pool` began: it could not end it.
         if self.pool.stopping.load(Ordering::SeqCst) {
             anyhow::bail!("the daemon is stopping");
         }
         let launcher = agent_host::link::HostLauncher::current()?;
-        let record = agent_host::link::spawn(&launcher, &host_spec).await?;
+        let record = agent_host::program_wait::spawn(&launcher, &host_spec).await?;
         lock(&self.pool.starting).insert(session_id.clone(), record.clone());
         let started =
             self.start_pooled(session_id.clone(), name, record.clone(), spec, claude).await;
+        let started = started.map(|p| Pooled { preview, ..p });
         if started.is_err() {
             lock(&self.pool.starting).remove(&session_id);
         }
@@ -156,6 +164,7 @@ impl Hub {
             rss: 0,
             parked: false,
             opencode_asks: spec.spawn.env.contains_key(crate::opencode_ask::MARKER),
+            preview: Default::default(),
         })
     }
 

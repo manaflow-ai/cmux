@@ -1,3 +1,4 @@
+import CmuxMobileModel
 import CmuxMobileTerminal
 import Foundation
 
@@ -21,6 +22,8 @@ enum DaemonTerminalInbound: Sendable, Equatable {
     case detached(reason: String?)
     /// A `resized` at the grid the mirror already holds: kept, not replayed.
     case sameGridResize(columns: Int, rows: Int)
+    /// The terminal's shared size state changed (`size-state`, shared-sizing-v1).
+    case sizeState(TerminalSizeState, selfParticipant: String?)
 }
 
 /// Decodes attach-stream event lines (JSON, base64) and follows the alternate
@@ -83,6 +86,10 @@ struct DaemonTerminalEventParser: Sendable {
             out.append(contentsOf: chunks.map { .output($0) })
         case "detached":
             out.append(.detached(reason: object["reason"] as? String))
+        case "size-state":
+            if let state = TerminalSizeState.decode(object["state"]) {
+                out.append(.sizeState(state, selfParticipant: object["self_participant"] as? String))
+            }
         default:
             break
         }

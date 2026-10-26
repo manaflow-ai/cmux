@@ -9,7 +9,7 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
     static func descriptors() -> [ActionDescriptor] {
         // Owner round trips a caller that waits (`action.run` with `wait`) gets the
         // 40 s result deadline for: a group with invites takes several requests.
-        let waits: Set<ActionID> = ["home.newMessage", "home.invite", "home.newChief", "home.archiveChief",
+        let waits: Set<ActionID> = ["home.newMessage", "home.invite", "home.newChief", "home.archiveChief", "home.deleteChief",
                                     "home.renameConversation", "home.addMembers", "home.removeMember", "home.leaveConversation",
                                     "home.muteConversation", "home.unmuteConversation", "home.sendMessage",
                                     "home.createGroup", "home.setChiefReplies"]
@@ -144,6 +144,26 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 category: .window, symbol: "text.quote", surfaces: [.palette, .keyboard],
                 surfacePlan: ActionSurfacePlan(cli: .exempt(.liveInput), contextMenuExemption: .liveInput)
             ),
+            // Chief zoom: Cmd-= (and Cmd-+), Cmd-- and Cmd-0 on Home (KeyBindingDefaults.scopedDefaults) step
+            // the Agent Chat Zoom setting (`agentPane.zoom`), which the Chief transcript follows like an agent chat.
+            ActionDescriptor(
+                id: "home.zoomIn", title: t("action.home.zoomIn", "Chief: Zoom In"),
+                keywords: ["home", "chief", "chat", "zoom", "bigger", "text size", "font"],
+                category: .window, symbol: "plus.magnifyingglass", surfaces: [.palette, .keyboard],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.stepAdjust), contextMenuExemption: .stepAdjust)
+            ),
+            ActionDescriptor(
+                id: "home.zoomOut", title: t("action.home.zoomOut", "Chief: Zoom Out"),
+                keywords: ["home", "chief", "chat", "zoom", "smaller", "text size", "font"],
+                category: .window, symbol: "minus.magnifyingglass", surfaces: [.palette, .keyboard],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.stepAdjust), contextMenuExemption: .stepAdjust)
+            ),
+            ActionDescriptor(
+                id: "home.zoomReset", title: t("action.home.zoomReset", "Chief: Actual Size"),
+                keywords: ["home", "chief", "chat", "zoom", "reset", "actual size", "text size"],
+                category: .window, symbol: "1.magnifyingglass", surfaces: [.palette, .keyboard],
+                surfacePlan: ActionSurfacePlan(cli: .exempt(.stepAdjust), contextMenuExemption: .stepAdjust)
+            ),
             // The Home page's conversation list (plans/cmux-next/home-messaging.md):
             // New Message (a DM or a group), Invite, New Chief and Archive Chief.
             // Without arguments the first three open their sheet on the Home page;
@@ -173,6 +193,10 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 keywords: ["home", "chief", "agent", "subchief", "new", "create", "orchestrator"],
                 category: .window, symbol: "sparkles", surfaces: [.palette, .menu],
                 arguments: [ActionArgument(name: "name", title: t("argument.home.chief.name", "Chief Name"), kind: .string,
+                                           isRequired: false),
+                            ActionArgument(name: "harness", title: t("argument.home.chief.harness", "Harness"), kind: .string,
+                                           isRequired: false),
+                            ActionArgument(name: "engine", title: t("argument.home.chief.engine", "Engine"), kind: .string,
                                            isRequired: false)],
                 cliName: "home new-chief", mainMenu: .file,
                 surfacePlan: ActionSurfacePlan(cli: .offered, contextMenuExemption: .noObject)
@@ -183,6 +207,15 @@ nonisolated enum HomeActionCatalog: ActionCatalogGroup {
                 category: .window, symbol: "archivebox", surfaces: [.keyboard],
                 arguments: [ActionArgument(name: "chief", title: t("argument.home.chief.id", "Chief"), kind: .string)],
                 cliName: "home archive-chief",
+                surfacePlan: ActionSurfacePlan(palette: .exempt(.noTargetSurface), cli: .offered, contextMenuExemption: .noTargetSurface)
+            ),
+            // Deleting cannot be undone (Archive Chief can): it asks first.
+            ActionDescriptor(
+                id: "home.deleteChief", title: t("action.home.deleteChief", "Delete Chief…"),
+                keywords: ["home", "chief", "delete", "remove", "agent"],
+                category: .window, symbol: "trash", surfaces: [.keyboard],
+                arguments: [ActionArgument(name: "chief", title: t("argument.home.chief.id", "Chief"), kind: .string)],
+                cliName: "home delete-chief", destructive: true,
                 surfacePlan: ActionSurfacePlan(palette: .exempt(.noTargetSurface), cli: .offered, contextMenuExemption: .noTargetSurface)
             ),
             // On Home the tab keys move through the chat list (Lawrence 2026-10-21): Ctrl-Tab /
