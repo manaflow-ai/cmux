@@ -1,20 +1,56 @@
+import CmuxNextCompat
 import CmuxNextServerHelper
+import CmuxNextWakeups
 import Foundation
 import ServiceManagement
 
-/// One launchd job the app registered with `SMAppService`, as a seam.
+/// One launchd job the app registers with `SMAppService`, as a seam. `status` and `register` wait for
+/// backgroundtaskmanagementd's reply, so the app runs them through the blocking seams on the system lane,
+/// never on the main thread (Chrome's UI-thread rule, base/threading/scoped_blocking_call.h).
 struct ServerServiceRegistration {
-    var status: @MainActor () -> SMAppService.Status
+    var status: @MainActor () async -> SMAppService.Status
+    var register: @MainActor () async throws -> Void
     var unregister: @MainActor () async throws -> Void
+    var openLoginItems: @MainActor () -> Void = { SMAppService.openSystemSettingsLoginItems() }
 
-    static func agent(plistName: String) -> ServerServiceRegistration {
-        ServerServiceRegistration(status: { SMAppService.agent(plistName: plistName).status },
-                                  unregister: { try await SMAppService.agent(plistName: plistName).unregister() })
+    /// The cmux server LaunchAgent (``ServerLaunchAgent``).
+    static func agent(work: BackgroundWork) -> ServerServiceRegistration {
+        let name = ServerLaunchAgent.plistName
+        return app(work: work) { .agent(plistName: name) }
     }
 
-    static func daemon(plistName: String) -> ServerServiceRegistration {
-        ServerServiceRegistration(status: { SMAppService.daemon(plistName: plistName).status },
-                                  unregister: { try await SMAppService.daemon(plistName: plistName).unregister() })
+    /// The privileged helper LaunchDaemon (``ServerHelperClient``).
+    static func helper(work: BackgroundWork) -> ServerServiceRegistration {
+        let name = ServerHelperConstants().plistName
+        return app(work: work) { .daemon(plistName: name) }
+    }
+
+    /// A status the lane could not read (the caller was cancelled) is `.notFound`.
+    private static func app(work: BackgroundWork, _ service: @escaping @Sendable () -> SMAppService) -> ServerServiceRegistration {
+        ServerServiceRegistration(
+            status: { (try? await work.run(.userBlocking, mayBlock: .system) { blockingSMAppServiceStatus(service()) }) ?? .notFound },
+            register: { try await work.run(.userBlocking, mayBlock: .system) { try blockingSMAppServiceRegister(service()) } },
+            unregister: { try await service().unregister() })
+    }
+
+    /// Registers the job. Idempotent: an enabled job stays enabled. It may open System Settings, so
+    /// call it from an explicit user action only.
+    func enable<Failure: Error>(requiresApproval: Failure, failed: (String) -> Failure) async throws(Failure) {
+        switch await status() {
+        case .enabled:
+            return
+        case .requiresApproval:
+            break
+        default:
+            do {
+                try await register()
+            } catch {
+                throw failed(String(describing: error))
+            }
+            guard await status() == .requiresApproval else { return }
+        }
+        openLoginItems()
+        throw requiresApproval
     }
 }
 
@@ -57,12 +93,13 @@ struct ServerStopServing {
     /// The fixes this app had the helper apply.
     let ledger: ServerFixLedger
 
-    static func app() -> ServerStopServing {
-        ServerStopServing(
-            agent: ServerLaunchAgent.isBundled ? .agent(plistName: ServerLaunchAgent.plistName) : nil,
-            helper: ServerHelperClient.isBundled ? .daemon(plistName: ServerHelperConstants().plistName) : nil,
+    static func app(work: BackgroundWork) -> ServerStopServing {
+        let helper = ServerServiceRegistration.helper(work: work)
+        return ServerStopServing(
+            agent: ServerLaunchAgent.isBundled ? .agent(work: work) : nil,
+            helper: ServerHelperClient.isBundled ? helper : nil,
             revert: { (fix: ServerFix) async throws(ServerHelperClient.Failure) in
-                try await ServerHelperClient.run(fix, revert: true)
+                try await ServerHelperClient.run(fix, revert: true, helper: helper)
             }, ledger: .standard)
     }
 
@@ -85,7 +122,7 @@ struct ServerStopServing {
     /// Nil when nothing is left to restore, else the failure.
     private func revertRecorded() async -> Failure? {
         let recorded = await ledger.load()
-        switch helper?.status() {
+        switch await helper?.status() {
         case .enabled:
             break
         case .requiresApproval:
@@ -114,7 +151,7 @@ struct ServerStopServing {
     }
 
     private func unregister(_ job: ServerServiceRegistration) async throws(Failure) {
-        guard job.status() != .notRegistered else { return }
+        guard await job.status() != .notRegistered else { return }
         do {
             try await job.unregister()
         } catch {

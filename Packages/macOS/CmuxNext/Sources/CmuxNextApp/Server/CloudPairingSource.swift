@@ -1,6 +1,7 @@
 import CmuxNextCloud
 import CmuxNextHostedChief
 import CmuxNextServer
+import CmuxNextWakeups
 import Foundation
 
 /// "Add Server…" on a signed-in Mac (plans/cmux-next/server.md 6.2 steps 3-4):
@@ -26,9 +27,10 @@ final class CloudPairingSource: ServerSource {
     /// as the signed-in user. Phase 1 pairs into the Worker's team for the
     /// session (the personal team, server.md 6.2 step 4), read from the
     /// Worker: the app's Stack team id is not a Worker team id.
-    static func app(feed: FeedService, auth: CloudAuth, chiefPlaced: @escaping @MainActor () -> Void = {}) -> CloudPairingSource {
+    static func app(feed: FeedService, auth: CloudAuth, work: BackgroundWork,
+                    chiefPlaced: @escaping @MainActor () -> Void = {}) -> CloudPairingSource {
         CloudPairingSource(
-            inner: LocalServerSource.app(),
+            inner: LocalServerSource.app(fixer: .helper(work: work)),
             call: { [weak feed] path, body in
                 guard let feed else { throw FeedServiceError.signedOut }
                 return try await feed.call(path, body)

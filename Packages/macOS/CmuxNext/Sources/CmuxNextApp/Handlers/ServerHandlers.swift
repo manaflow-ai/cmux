@@ -10,19 +10,25 @@ import CmuxNextServer
 enum ServerHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let menuBar = context.services.serverMenuBar
-        registry.bind("server.makeThisMacAServer", run: { _ in
+        registry.bindEffect("server.makeThisMacAServer", effect: { _ in
+            // The item shows on this turn; the agent's launchd calls run on the system lane.
             menuBar.show()
-            do throws(ServerLaunchAgent.Failure) {
-                try ServerLaunchAgent.app().register()
-            } catch {
-                throw refusal(for: error)
-            }
+            let agent = ServerLaunchAgent.app(work: context.services.work)
+            return .applied(ActionConfirmation(send: {
+                do throws(ServerLaunchAgent.Failure) {
+                    try await agent.register()
+                    return nil
+                } catch {
+                    return ActionWorkFailure(refusal: .unavailable, reason: refusal(for: error))
+                }
+            }))
         })
+        let services = context.services
         registry.bind("server.stopServing", run: { _ in
             menuBar.hide()
             registry.track(Task { @MainActor in
                 do throws(ServerStopServing.Failure) {
-                    try await ServerStopServing.app().run()
+                    try await ServerStopServing.app(work: services.work).run()
                     return nil
                 } catch {
                     return ActionWorkFailure(error.message)
@@ -38,9 +44,8 @@ enum ServerHandlers {
             guard ServerHeadlessApproval.allows(origin: invocation.origin) else {
                 throw ActionFailure(message: ServerHeadlessApproval.notFromThisMac)
             }
-            let services = context.services
             registry.track(Task { @MainActor in
-                let source = CloudPairingSource.app(feed: services.feed, auth: services.cloud.auth, chiefPlaced: { [weak services] in services?.home.refreshChiefTab() })
+                let source = CloudPairingSource.app(feed: services.feed, auth: services.cloud.auth, work: services.work, chiefPlaced: { [weak services] in services?.home.refreshChiefTab() })
                 let reject = await ServerHeadlessApproval.run(source: source, code: code, words: invocation["words"]?.stringValue,
                                                               name: invocation["name"]?.stringValue,
                                                               runChief: invocation["chief"]?.boolValue)
@@ -49,16 +54,16 @@ enum ServerHandlers {
         })
     }
 
-    private static func refusal(for failure: ServerLaunchAgent.Failure) -> ActionFailure {
+    private static func refusal(for failure: ServerLaunchAgent.Failure) -> String {
         switch failure {
         case .notInBuild:
-            ActionFailure(message: RefusalStrings.text("refusal.server.notInBuild", "This build does not include the server software yet."))
+            RefusalStrings.text("refusal.server.notInBuild", "This build does not include the server software yet.")
         case .notReady:
-            ActionFailure(message: RefusalStrings.text("refusal.server.notReady", "The server software is not ready in this build yet."))
+            RefusalStrings.text("refusal.server.notReady", "The server software is not ready in this build yet.")
         case .requiresApproval:
-            ActionFailure(message: RefusalStrings.text("refusal.server.needsApproval", "Allow cmux in System Settings > Login Items, then try again."))
+            RefusalStrings.text("refusal.server.needsApproval", "Allow cmux in System Settings > Login Items, then try again.")
         case let .failed(reason):
-            ActionFailure(message: RefusalStrings.format("refusal.server.registerFailed", "Could not start the server agent: %@", reason))
+            RefusalStrings.format("refusal.server.registerFailed", "Could not start the server agent: %@", reason)
         }
     }
 }
