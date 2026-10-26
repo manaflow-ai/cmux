@@ -19,6 +19,7 @@ pub(crate) use router_owner::open_router_owner;
 pub(crate) use router_owner::router_owner_path;
 use router_owner::{ensure_router, release_router};
 mod notify;
+mod persist_retry;
 #[cfg(windows)]
 mod windows;
 
@@ -368,10 +369,15 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     hub.start_harness_checks();
     // Uploads past their age cap (`hub/file_uploads.rs`).
     hub.start_upload_sweep();
-    crate::config::write_atomic(
-        &home().join("daemon.pid"),
-        std::process::id().to_string().as_bytes(),
-    )?;
+    // The pid file only explains a dropped connection (`client::closed_error`):
+    // a daemon that cannot write it (a full disk) serves without it and tries
+    // again, never exits (`daemon/persist_retry.rs`).
+    let pid_retry = {
+        let (path, pid) = (home().join("daemon.pid"), std::process::id().to_string());
+        persist_retry::write_or_retry("daemon.pid", move || {
+            crate::config::write_atomic(&path, pid.as_bytes())
+        })
+    };
     // The listener's token is on the hub before the unix socket serves, so a
     // `_acpmux/web_token_rotate` can never be overwritten by the launch token.
     let ws_listener = match ws_listener {
@@ -532,6 +538,11 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     };
     // After the agents: their model streams go through the router.
     let _ = tokio::task::spawn_blocking(move || release_router(kept == 0)).await;
+    // Cancelled and finished before the removal, so a late retry never puts it back.
+    if let Some(retry) = pid_retry {
+        retry.abort();
+        let _ = retry.await;
+    }
     let _ = std::fs::remove_file(home().join("daemon.pid"));
     for file in [local_app_file, peer_file].into_iter().flatten() {
         let _ = std::fs::remove_file(file);

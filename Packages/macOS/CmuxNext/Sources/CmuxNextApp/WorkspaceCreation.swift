@@ -75,7 +75,8 @@ enum WorkspaceCreation {
     /// Creates workspace `key` and its first tab from `firstTab`, which gets
     /// the created workspace (its handle, for commands that take one), owned
     /// by `repair` like ``create(_:name:on:repair:terminal:)``: a failure
-    /// closes the workspace.
+    /// closes the workspace. A late create reply asks again until `giveUp`
+    /// (``DaemonConnection/retryingLateReplies(_:until:_:)``).
     @MainActor
     static func createWithFirstTab<T>(
         _ key: WorkspaceKey,
@@ -83,13 +84,14 @@ enum WorkspaceCreation {
         placedBy rule: NewWorkspaceDefaultSlot? = nil,
         on connection: DaemonConnection,
         repair: EmptyWorkspaceRepair,
+        giveUp: ContinuousClock.Instant? = nil,
         firstTab: (WorkspaceMutationResult) async throws -> T
     ) async throws -> T {
         let sent = await NewWorkspacePlacements.sending(rule, key: key, on: connection)
         return try await repair.populating(key) {
             var created: WorkspaceMutationResult?
             return try await withTerminal(
-                key, createWorkspace: { created = try await connection.createWorkspaceRetryingLateReplies(name: name, key: key, placesBySetting: sent != nil, current: sent?.current.map { WorkspaceKey(rawValue: $0) }, placement: sent?.placement.rawValue) },
+                key, createWorkspace: { created = try await connection.createWorkspaceRetryingLateReplies(name: name, key: key, placesBySetting: sent != nil, current: sent?.current.map { WorkspaceKey(rawValue: $0) }, placement: sent?.placement.rawValue, until: giveUp) },
                 createTerminal: { _ in
                     guard let created else { throw DaemonError.notConnected }
                     return try await firstTab(created)

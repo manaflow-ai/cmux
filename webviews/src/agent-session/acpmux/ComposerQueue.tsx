@@ -20,10 +20,9 @@
 // 2026-10-20). The row's right-click menu has Steer, Edit message, the moves and Delete.
 //
 // Another agent's message waiting in the queue (`message`, direct.ts `queuedMessage`) is not the
-// person's prompt: its row is the message's received line (conversation/IncomingMessageCard.tsx), as
-// the transcript draws it once it runs: the sender's mark, its name as a chip that opens its chat,
-// and the message as a card under it, cut to eight lines when longer. Its actions, Steer too, sit at
-// the line's end (Leo, 2026-10-21).
+// person's prompt, and it is no row here (Leo, 2026-10-25: "I don't know why these things are queued
+// up"): the transcript draws it at once as its received card, with its actions in the card's ⋯ menu
+// (conversation/queuedMessages.ts). The rows, the fold and its count are the person's prompts alone.
 //
 // A prompt's images show as small thumbnails under its text (QueuedImages.tsx), each opening the
 // image viewer; while it is edited each has a remove control, and Save keeps only the images left
@@ -31,7 +30,7 @@
 //
 // After a failed turn acpmux pauses the queue: a note above the rows says so, with Resume.
 //
-// A long queue folds (Leo, 2026-10-14): past three queued prompts it shows the next two and one
+// A long queue folds (Leo, 2026-10-14): past three of the person's queued prompts it shows the next two and one
 // "N more queued" row, which opens the whole list in place and closes it back ("Show less"). The
 // fold is a button (aria-expanded) under the list, outside its scrolling, so ↑ from the prompt
 // reaches it first and no row runs under it. Opened, the list keeps about its folded height
@@ -47,8 +46,7 @@ import type { Translate } from "./i18n";
 import { ContextMenu, type ContextMenuItem } from "../../ui/ContextMenu";
 import { Menu, MenuButton, MenuItem, MenuPopup } from "../../ui/Menu";
 import { rovingTabStopProps } from "../../ui/listRowKeyboard";
-import { IncomingMessageLine } from "./conversation/IncomingMessageCard";
-import { SubsessionContext, type Subsessions } from "./subagents/subsessions";
+import { ownQueue, queuedAttachments } from "./conversation/queuedMessages";
 import { setQueueing, useQueueing } from "./queueing";
 
 type QueuedEntry = AcpmuxSnapshot["queue"][number];
@@ -146,7 +144,6 @@ export function ComposerQueue({
   onLost,
   onLeave,
   readImage,
-  subsessions,
   onSideChat,
 }: {
   queue: AcpmuxSnapshot["queue"];
@@ -170,8 +167,6 @@ export function ComposerQueue({
   onLeave?(): void;
   /// Reads an image a queued prompt sends by its acpmux id, as a data URL (`_acpmux/attachment`).
   readImage?(id: string): Promise<string | undefined>;
-  /// The listed chats, which an agent's message names its sender among, and how its chip opens one.
-  subsessions?: Subsessions | null;
   /// Opens a side chat that asks this prompt (as `/btw` does) and withdraws it from the queue; false
   /// when it already started. Absent where the chat opens no side chat.
   onSideChat?(id: string, prompt: string): Promise<boolean>;
@@ -238,8 +233,7 @@ export function ComposerQueue({
     }
   }, [queue, editing, onLost]);
   // Whole rows only: the list's height, after every draw, when its width changes, and when a row's
-  // height does: an agent's message opened, or its Details, is that line's own state
-  // (IncomingMessageLine), which draws no queue again.
+  // height does (a prompt opened to its whole text, its images read).
   const watched = useRef<{ list: HTMLElement; observer: ResizeObserver; rows: ResizeObserver }>(undefined);
   const fitReadyFrame = useRef<number | undefined>(undefined);
   const wasOpen = useRef(unfolded);
@@ -316,8 +310,10 @@ export function ComposerQueue({
       if (!done) restore();
     }, restore);
   };
-  const shown = queue.filter((entry) => !leaving.has(entry.id));
-  if (shown.length === 0) return null;
+  // The person's prompts only: another agent's message draws in the transcript.
+  const shown = ownQueue(queue).filter((entry) => !leaving.has(entry.id));
+  // A paused queue of agent messages alone still says so, with Resume.
+  if (shown.length === 0 && !(paused && queue.length > 0)) return null;
   // Prompts sent now come first: queued prompts count from after them.
   const steering = shown.filter((entry) => entry.next).length;
   // A long queue folds to its next prompts; the rows shown are always the first ones, in order.
@@ -351,20 +347,7 @@ export function ComposerQueue({
   const cancelEdit =
     onCancelEdit &&
     (async (entry: QueuedEntry) => {
-      if (entry.message) return;
-      const attachments = await Promise.all(
-        (entry.images ?? []).map(async (image): Promise<ComposerAttachment> => {
-          const src = image.src ?? (readImage ? await readImage(image.id) : undefined);
-          return {
-            id: image.id,
-            kind: "image",
-            name: image.name ?? "image",
-            mimeType: image.mimeType,
-            size: 0,
-            ...(src?.startsWith("data:") ? { data: src.slice(src.indexOf(",") + 1) } : {}),
-          };
-        }),
-      );
+      const attachments = await queuedAttachments(entry.images, readImage);
       await act(entry.id, () => onCancelEdit(entry.id, entry.prompt, attachments));
     });
   // A side chat asks the prompt's text alone, so a prompt with images stays in the queue.
@@ -389,12 +372,17 @@ export function ComposerQueue({
     });
   const canSendNow = (entry: QueuedEntry) => Boolean(sendNow && !entry.next && !sentNow.has(entry.id));
   // A move to the place of the row shown at `index` (acpmux counts rows still leaving too); the
-  // moved row keeps focus once acpmux's new order draws.
+  // moved row keeps focus once acpmux's new order draws. Past the first or last row shown, an
+  // agent's waiting message (drawn in the transcript) may still be its neighbour in the queue: it
+  // moves one place in the whole queue then.
+  const queueIndex = (entry: QueuedEntry) => queue.findIndex((q) => q.id === entry.id);
   const move =
     onChange &&
     ((entry: QueuedEntry, index: number) => {
-      const to = shown[index] && queue.findIndex((q) => q.id === shown[index].id);
-      if (to === undefined || to < 0) return;
+      const target = shown[index];
+      const from = queueIndex(entry);
+      const to = target ? queueIndex(target) : from + (index < shown.indexOf(entry) ? -1 : 1);
+      if (from < 0 || to < 0 || to >= queue.length) return;
       // A move into the folded part opens the queue, so the moved row stays in sight.
       if (folded && index >= visible.length) unfold(true);
       refocus.current = entry.id;
@@ -494,12 +482,12 @@ export function ComposerQueue({
       ? [
           {
             ...item("up", t("composer.queueMoveUp"), "⌥↑", () => move(entry, index - 1)),
-            disabled: index === 0,
+            disabled: queueIndex(entry) <= 0,
             separatorBefore: true,
           },
           {
             ...item("down", t("composer.queueMoveDown"), "⌥↓", () => move(entry, index + 1)),
-            disabled: index === shown.length - 1,
+            disabled: queueIndex(entry) === queue.length - 1,
           },
         ]
       : []),
@@ -531,7 +519,7 @@ export function ComposerQueue({
             <span>{t("composer.queueSteer")}</span>
           </button>
         )}
-        {cancelEdit && !entry.message && (
+        {cancelEdit && (
           <button
             type="button"
             className="acpmux-queued-action"
@@ -589,18 +577,6 @@ export function ComposerQueue({
       </span>
     );
   };
-  // Another agent's message: its received line, which finds its sender among the listed chats.
-  const received = (entry: QueuedEntry, message: NonNullable<QueuedEntry["message"]>) => {
-    const line = (
-      <IncomingMessageLine
-        id={`queued:${entry.id}`}
-        message={message}
-        onOpen={(sessionId) => (subsessions?.openSender ?? subsessions?.open)?.(sessionId)}
-        actions={editing !== entry.id && actions(entry)}
-      />
-    );
-    return subsessions ? <SubsessionContext.Provider value={subsessions}>{line}</SubsessionContext.Provider> : line;
-  };
   // A row's text (or its edit) and actions. A prompt sent now says "Steering" ahead of its text; a
   // queued one keeps "Queued" for assistive tech only.
   const cells = (entry: QueuedEntry, index: number) => (
@@ -613,8 +589,6 @@ export function ComposerQueue({
           onInput={(text) => (draft.current = { id: entry.id, original: entry.prompt, text })}
           onDone={(text) => (text === undefined ? cancel(index) : save(entry, text))}
         />
-      ) : entry.message ? (
-        received(entry, entry.message)
       ) : (
         <button
           type="button"
@@ -635,7 +609,7 @@ export function ComposerQueue({
           </span>
         </button>
       )}
-      {!entry.message && editing !== entry.id && actions(entry)}
+      {editing !== entry.id && actions(entry)}
       {/* Under the text, in its column. */}
       <QueuedImages
         images={

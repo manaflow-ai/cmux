@@ -49,6 +49,7 @@ import {
   useAttachmentIntake,
   useSendWhenAttached,
 } from "./composer/attachmentIntake";
+import { reordered } from "./composer/stripReorder";
 import { DropOverlay } from "./composer/DropOverlay";
 import { useHarnessesListed } from "./catalog";
 
@@ -703,6 +704,7 @@ export function NewTabPage({
               field.current?.focus();
             }}
             onRetry={retry}
+            onReorder={(id, index) => setAttachments((current) => reordered(current, id, index))}
           />
           {dropHost && (
             <DropOverlay state={drop} onLanded={dropLanded} container={dropHost} landingTarget={dropLandingTarget} />
