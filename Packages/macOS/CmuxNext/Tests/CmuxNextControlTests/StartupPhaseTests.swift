@@ -34,7 +34,7 @@ import Testing
     @Test func visibleAndAutomationAreNeverGated() {
         let startup = StartupPhase(clock: ManualClock(), ledger: WakeupLedger())
         #expect(startup.phase == .launching)
-        for workClass in [MainWorkClass.input, .frame, .visible, .automation] {
+        for workClass in [MainWorkClass.input, .frame, .userBlocking, .visible, .automation] {
             #expect(startup.admits(workClass), "\(workClass) runs while launching")
             var ran = false
             startup.whenReached(workClass.startupOpening) { ran = true }
