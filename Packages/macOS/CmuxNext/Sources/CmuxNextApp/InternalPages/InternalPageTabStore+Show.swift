@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextBridge
 import CmuxNextHibernation
+import CmuxNextPages
 
 extension InternalPageTabStore {
     /// The catalog show action of every page (`openSettings`,
@@ -169,7 +170,10 @@ extension InternalPageTabStore {
         let state = discards?.takePrepared(tab) ?? ContentViewState()
         guard let cache, cache.lifecycle.accepts(tab, token) else { return true }
         cache.presenter(of: tab)?.surfaceWasDisplaced(tab)
+        // A web page ends its bridge and engine session now, so its renderer goes with the view.
+        let page = existingView(tab)?.content as? PageWebView
         guard discardView(ofTab: tab, state: state) else { return true }
+        page?.close()
         cache.trace(tab, "page discarded \(token)")
         discards?.noteDiscarded(tab)
         return true
@@ -187,7 +191,7 @@ extension InternalPageTabStore {
 
 extension InternalPageTabStore: ContentDiscardHost {
     func discardPolicy(of key: String) -> ContentDiscardPolicy? {
-        guard existingView(key) != nil, let provider = provider(ofTab: key) else { return nil }
+        guard existingView(key) != nil, let provider = self.provider(ofTab: key) else { return nil }
         return provider.discardPolicy(for: providerKey(ofTab: key))
     }
 
@@ -202,7 +206,7 @@ extension InternalPageTabStore: ContentDiscardHost {
     /// Saves hidden page tab `key`'s state and picture. It stays (nil) when anything changed
     /// meanwhile: a show or hide (the lifecycle's generation), a new view, or a reason to keep it.
     func prepareDiscard(_ key: String) async -> ContentViewState? {
-        guard let view = existingView(key), let provider = provider(ofTab: key), let record = cache?.lifecycle.record(key),
+        guard let view = existingView(key), let provider = self.provider(ofTab: key), let record = cache?.lifecycle.record(key),
               record.phase == .mountedHidden else { return nil }
         let pageKey = providerKey(ofTab: key)
         let state = await provider.saveViewState(for: pageKey, content: view.content)
