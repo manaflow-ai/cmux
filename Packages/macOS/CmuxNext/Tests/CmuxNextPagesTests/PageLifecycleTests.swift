@@ -17,6 +17,8 @@ struct PageLifecycleTests {
         let log: Log
         var reasons: Set<PageLifecyclePlanner.KeepReason> = []
         var reasonReads = 0
+        /// The page answers a freeze with a refusal (it shows, or its engine did not freeze).
+        var refusesFreeze = false
         weak var lifecycle: PageLifecycle?
 
         init(_ name: String, log: Log) {
@@ -40,7 +42,10 @@ struct PageLifecycleTests {
         }
 
         func reportsReasonChanges(to lifecycle: PageLifecycle) { page.lifecycle = lifecycle }
-        func freeze() { page.log.lines.append("freeze \(page.name)") }
+        func freeze() -> Bool {
+            page.log.lines.append("freeze \(page.name)")
+            return !page.refusesFreeze
+        }
         func thaw() { page.log.lines.append("thaw \(page.name)") }
         func discard() { page.log.lines.append("discard \(page.name)") }
     }
@@ -116,6 +121,20 @@ struct PageLifecycleTests {
         try fireDuePass()
         #expect(lifecycle.state(of: "h") == .frozen)
         #expect(lifecycle.state(of: "c") == .hidden)
+        #expect(log.lines == ["freeze history"])
+    }
+
+    /// A page that refuses the freeze (it shows, or its engine did not freeze it) stays hidden: a
+    /// later show does not thaw a page that never froze.
+    @Test func aPageThatRefusesTheFreezeStaysHidden() throws {
+        let history = page("history"), cloud = page("cloud")
+        history.refusesFreeze = true
+        lifecycle.hide("h", page: Target(page: history))
+        rig.advance(to: .seconds(5))
+        lifecycle.hide("c", page: Target(page: cloud))
+        try fireDuePass()
+        #expect(lifecycle.state(of: "h") == .hidden)
+        lifecycle.show("h", page: Target(page: history))
         #expect(log.lines == ["freeze history"])
     }
 

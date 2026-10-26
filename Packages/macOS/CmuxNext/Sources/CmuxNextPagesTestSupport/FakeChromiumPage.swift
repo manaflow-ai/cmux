@@ -60,6 +60,17 @@ public final class FakeChromiumPage: PageChromiumPage {
     /// DevTools path, a `Runtime.evaluate` in ``calls`` answered as any call is (``answer``).
     public var rendererEvaluate: ((_ script: String) throws -> String)?
 
+    /// One visibility or lifecycle call the host made (``setVisible(_:)``, ``setFrozen(_:)``).
+    public enum LifecycleStep: Equatable, Sendable {
+        case visible(Bool)
+        case frozen(Bool)
+    }
+    /// Every ``setVisible(_:)`` and ``setFrozen(_:)``, in order: an order test reads that the page
+    /// hid before it froze and thawed before it showed.
+    public private(set) var lifecycleSteps: [LifecycleStep] = []
+    /// What ``setFrozen(_:)`` answers (false: the engine still counts the page visible).
+    public var freezes = true
+
     /// Makes a page with no calls yet.
     public init() {}
 
@@ -105,8 +116,17 @@ public final class FakeChromiumPage: PageChromiumPage {
     public func setZoom(_ zoom: Double) { self.zoom = zoom }
     /// Does nothing.
     public func setFocused(_ focused: Bool) {}
-    /// Does nothing.
-    public func setVisible(_ visible: Bool) {}
+    /// Records `.visible(visible)` in ``lifecycleSteps``.
+    public func setVisible(_ visible: Bool) { lifecycleSteps.append(.visible(visible)) }
+
+    /// Records `.frozen(frozen)` in ``lifecycleSteps`` and answers ``freezes``; a closed page
+    /// records nothing and answers false, as a CEF page does.
+    @discardableResult
+    public func setFrozen(_ frozen: Bool) -> Bool {
+        guard !closed else { return false }
+        lifecycleSteps.append(.frozen(frozen))
+        return freezes
+    }
 
     /// Sets ``closed`` and runs ``onClose``.
     public func close() {

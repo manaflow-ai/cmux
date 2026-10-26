@@ -116,6 +116,14 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
 
     func setVisible(_ visible: Bool) { tab.setContentVisible(visible) }
 
+    /// The tab's page lifecycle (`CEFTab.setFrozen`: the fork's `SetPageFrozen`, DevTools before
+    /// fork API 29). A closed page changes nothing.
+    @discardableResult
+    func setFrozen(_ frozen: Bool) -> Bool {
+        guard !closed else { return false }
+        return tab.setFrozen(frozen)
+    }
+
     func setSeeThrough(_ seeThrough: Bool) { tab.pageSeeThrough = seeThrough }
 
     func close() {

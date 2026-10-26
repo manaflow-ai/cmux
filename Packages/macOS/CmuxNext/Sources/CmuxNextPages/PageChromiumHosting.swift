@@ -89,6 +89,16 @@ public protocol PageChromiumPage: AnyObject {
     func setFocused(_ focused: Bool)
     /// Shows or hides and pauses the page.
     func setVisible(_ visible: Bool)
+    /// Freezes the hidden page (its timers, tasks and rendering stop; memory and state stay) or thaws
+    /// it, as Chrome's `WebContents::SetPageFrozen` (content/public/browser/web_contents.h), which
+    /// freezes hidden pages only: hide it (``setVisible(_:)`` false) before, and thaw it before it
+    /// shows again. The request leaves before this returns, so a call made after a thaw runs on a
+    /// live page.
+    ///
+    /// - Parameter frozen: True freezes, false thaws.
+    /// - Returns: False when nothing changed: the page is closed, or the engine still counts it visible.
+    @discardableResult
+    func setFrozen(_ frozen: Bool) -> Bool
     /// Makes the page see-through (true) or gives it its opaque page color back: where the document
     /// draws no background of its own, the view under the page shows, as under a WebKit page that
     /// draws no background.
