@@ -33,6 +33,8 @@ public import Foundation
 /// - `pr.inspect {url}`: what the user's GitHub CLI says about a GitHub pull request a reply or
 ///   the pull request bars link to (its hover card). Only a plain
 ///   `https://github.com/<owner>/<repo>/pull/<n>` is taken (``pullRequestURL(_:)``). Passive.
+///   `cached: true` (the Inspector's Changes, which asks for many links) answers from the cache
+///   only and never starts a read: its links are read in batches when it registers them.
 public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
     case inspect(paths: [String], urls: [String])
     case openPath(String)
@@ -49,7 +51,7 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
     case quickLookImage(src: String, name: String)
     case dragImage(src: String, name: String)
     case dragFile(String)
-    case inspectPullRequest(URL)
+    case inspectPullRequest(URL, cached: Bool = false)
 
     /// The methods, for ``AgentPageOps`` and ``AgentPaneRequest``.
     public static let methods: Set<String> = [
@@ -76,7 +78,7 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
         "image.quickLook": ["src", "name"],
         "image.drag": ["src", "name"],
         "file.drag": ["path"],
-        "pr.inspect": ["url"],
+        "pr.inspect": ["url", "cached"],
     ]
 
     /// Most paths or URLs in one `link.inspect`. The page gathers its chips' links across every
@@ -181,7 +183,9 @@ public nonisolated enum AgentPaneReplyRequest: Equatable, Sendable {
             }
         case "pr.inspect":
             guard let raw = text("url", Self.maximumURL), let url = Self.pullRequestURL(raw) else { return nil }
-            self = .inspectPullRequest(url)
+            let cached = params["cached"].map { $0 as? Bool } ?? false
+            guard let cached else { return nil }
+            self = .inspectPullRequest(url, cached: cached)
         default:
             return nil
         }

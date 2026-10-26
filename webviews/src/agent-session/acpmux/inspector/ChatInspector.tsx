@@ -62,6 +62,7 @@ import type { Artifact } from "../conversation/artifactPreview";
 import type { TurnFile } from "../diff";
 import type { StartedSession } from "../started/startedSessions";
 import { ChangesSection, headerStatus, visibleChanges, type InspectorPullRequestStatus } from "./ChangesSection";
+import { useChangesStatuses, useStableUrls, withHeader } from "./changesStatus";
 import { ContextSection } from "./ContextSection";
 import { EnvironmentSection } from "./EnvironmentSection";
 import { InspectorSection } from "./InspectorSection";
@@ -540,7 +541,11 @@ function InspectorPresence({
     () => (drawn && asks ? waitingSubagents(asks, views) : new Set<string>()),
     [drawn, asks, views],
   );
-  const statuses = useMemo(() => headerStatus(pullRequest), [pullRequest]);
+  // Every pull request's title, state, lines and checks from the App's cache, the folder's live
+  // read over it (changesStatus.ts); asked for only while Changes is unfolded.
+  const prUrls = useStableUrls(made?.pullRequests);
+  const { statuses: cached, unsettled } = useChangesStatuses(prUrls, drawn, drawn && sections.changes);
+  const statuses = useMemo(() => withHeader(cached, headerStatus(pullRequest)), [cached, pullRequest]);
   // An output's diff opens beside the chat. Pushing (Settings Push always), when that split leaves too
   // little room for a readable chat beside the Inspector, it steps aside until the toggle opens it
   // again. Floating, it takes no room from the chat and stays.
@@ -583,6 +588,7 @@ function InspectorPresence({
         waiting={waiting}
         onOpenSubagent={subagents?.onOpen}
         statuses={statuses}
+        changesUnsettled={unsettled}
         processes={processes}
         listed={registry?.listed}
         transcriptTasks={transcriptTasks}
@@ -758,6 +764,7 @@ export function ChatInspector({
   waiting = new Set(),
   onOpenSubagent,
   statuses = {},
+  changesUnsettled = false,
   processes = [],
   listed = false,
   transcriptTasks = [],
@@ -801,6 +808,10 @@ export function ChatInspector({
   onOpenSubagent?: (id: string) => void;
   /// What the App read of the pull requests, by URL.
   statuses?: Readonly<Record<string, InspectorPullRequestStatus>>;
+  /// A pull request the chat named has no settled answer from the App yet (none asked for while
+  /// Changes is folded, or the host still reading): Changes keeps its header, with no rows and no
+  /// count for them, so it can be opened to ask.
+  changesUnsettled?: boolean;
   /// The chat's background processes, in the order they started.
   processes?: readonly InspectorProcess[];
   /// The registry answered a listing for the chat: a transcript task it does not list no longer
@@ -979,15 +990,18 @@ export function ChatInspector({
       </ul>
     </InspectorSection>
   );
-  const changes = pullRequests.length > 0 && (
+  const candidates = made?.pullRequests.length ?? 0;
+  const changes = (pullRequests.length > 0 || (changesUnsettled && candidates > 0)) && (
     <InspectorSection
       id="changes"
       title={t("header.changes")}
       open={state.changes}
       onOpenChange={fold("changes")}
-      meta={value(String(pullRequests.length))}
+      meta={pullRequests.length > 0 ? value(String(pullRequests.length)) : undefined}
     >
-      <ChangesSection pullRequests={pullRequests} statuses={statuses} onOpenBeside={onOpenUrl} />
+      {pullRequests.length > 0 && (
+        <ChangesSection pullRequests={pullRequests} statuses={statuses} onOpenBeside={onOpenUrl} />
+      )}
     </InspectorSection>
   );
   const outputsShown = outputs.length + links.length + artifacts + (onOpenDocument ? documents.length : 0) > 0;

@@ -132,7 +132,7 @@ extension AgentPaneModel {
     /// A chat on another machine names its own files: this Mac's are never read for it. The disk is
     /// read off the main actor.
     func videoFile(_ src: String) async -> URL? {
-        guard !remoteChat else { return nil }
+        guard !chatIsElsewhere else { return nil }
         return await AgentPaneVideoInfo.file(src, in: replyPathScope())
     }
 
