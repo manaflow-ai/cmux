@@ -24,6 +24,10 @@ import Dispatch
 /// To keep work low, post it, or await it from a task that is itself low
 /// (`Task(priority: WorkPriority.bestEffort.taskPriority)`).
 ///
+/// Startup fence: between ``beginBestEffortFence()`` and ``endBestEffortFence()`` posted
+/// ``WorkPriority/idle`` and ``WorkPriority/bestEffort`` items wait, so they do not compete with launch.
+/// An awaited item is never held: someone waits for it, so it runs at once at its own priority.
+///
 /// One instance per app, built in the composition root (AppServices) and passed through `init`;
 /// tests build their own.
 ///
@@ -31,6 +35,9 @@ import Dispatch
 /// let data = try await work.run(.userVisible, mayBlock: .files) { try Data(contentsOf: url) }
 /// work.post(.bestEffort, mayBlock: .files, shutdown: .blockShutdown) { try? data.write(to: url, options: .atomic) }
 /// let addresses = try await work.run(.userBlocking, mayBlock: .system) { resolve(host) }
+/// // Main-actor callers: the result comes back as a posted, attributed main task (PostTaskAndReply).
+/// work.run(.userVisible, mayBlock: .files) { parse(url) }
+///     .reply(on: mainWork, class: .visible, owner: "preview.load") { preview.show($0) }
 /// ```
 public final class BackgroundWork: Sendable {
     /// How many ``BlockingLane/cpu`` items run at once.
@@ -122,7 +129,7 @@ public final class BackgroundWork: Sendable {
                                   work: { continuation.resume(with: Result { try body() }) },
                                   abandoned: { continuation.resume(throwing: CancellationError()) })
                 // Checked under the lane's lock, so a cancel either finds the item queued or stops it here.
-                submitted(scheduler.submit(job, at: priority, unless: { Task.isCancelled }), job, on: lane)
+                submitted(scheduler.submit(job, at: priority, posted: false, unless: { Task.isCancelled }), job, on: lane)
             }
         } onCancel: {
             scheduler.remove(id)?.abandon()
@@ -140,7 +147,67 @@ public final class BackgroundWork: Sendable {
     public func post(_ priority: WorkPriority, mayBlock lane: BlockingLane,
                      shutdown: ShutdownBehavior = .skipOnShutdown, _ body: @escaping @Sendable () -> Void) {
         let job = makeJob(id: nextID(), shutdown: shutdown, work: body, abandoned: {})
-        submitted(lanes[lane.rawValue].submit(job, at: priority, unless: { false }), job, on: lane)
+        submitted(lanes[lane.rawValue].submit(job, at: priority, posted: true, unless: { false }), job, on: lane)
+    }
+
+    /// Holds posted ``WorkPriority/idle`` and ``WorkPriority/bestEffort`` items on every lane until the
+    /// matching ``endBestEffortFence()``. Items that already run finish; higher priorities and awaited
+    /// items are not held; held items keep their priority and QoS. Fences nest. Chrome:
+    /// `ThreadPoolInstance::BeginBestEffortFence` (base/task/thread_pool/thread_pool_instance.h), raised
+    /// for startup and lowered at startup complete.
+    public func beginBestEffortFence() {
+        for lane in lanes { lane.fence() }
+    }
+
+    /// Lowers one ``beginBestEffortFence()``; when none is left, the held items start in post order
+    /// within each priority. A call with no fence up does nothing. ``shutdown()`` lifts every fence.
+    public func endBestEffortFence() {
+        for lane in lanes { lane.unfence() }
+    }
+
+    /// Starts nothing yet: names off-main work whose result goes back to the main thread with
+    /// ``Pending/reply(on:class:owner:file:line:_:)``, which queues it. Chrome's
+    /// `PostTaskAndReplyWithResult` (base/task/task_runner.h): the reply is a posted main task with
+    /// a class, an owner and its posting site, so main-actor callers need no `await` (whose resume
+    /// would be a main job nobody attributes). Like ``post(_:mayBlock:shutdown:_:)``, the item runs
+    /// at `priority`, never boosted by the caller; when shutdown drops it, the reply never runs.
+    ///
+    /// - Parameters:
+    ///   - priority: how much a person waits for it.
+    ///   - lane: the kind of blocking work `body` does.
+    ///   - shutdown: what ``shutdown()`` does with it.
+    ///   - body: the off-main work; return a `Result` for work that can fail.
+    /// - Returns: the work, queued by its ``Pending/reply(on:class:owner:file:line:_:)``.
+    public func run<T: Sendable>(_ priority: WorkPriority, mayBlock lane: BlockingLane, shutdown: ShutdownBehavior = .skipOnShutdown,
+                                 _ body: @escaping @Sendable () -> T) -> Pending<T> {
+        Pending(work: self, priority: priority, lane: lane, shutdown: shutdown, body: body)
+    }
+
+    /// Off-main work waiting for its reply (the non-async `run`); nothing runs until
+    /// ``reply(on:class:owner:file:line:_:)`` queues it.
+    public struct Pending<T: Sendable>: Sendable {
+        let work: BackgroundWork
+        let priority: WorkPriority
+        let lane: BlockingLane
+        let shutdown: ShutdownBehavior
+        let body: @Sendable () -> T
+
+        /// Queues the work; its result is posted to `mainWork` in `workClass` as `owner`, and the
+        /// board records this call's file and line as the reply's posting site.
+        public func reply(on mainWork: MainWorkScheduler, class workClass: BudgetedWorkClass, owner: MainTaskOwner,
+                          file: StaticString = #fileID, line: UInt = #line, _ reply: @escaping @MainActor @Sendable (T) -> Void) {
+            let site = MainPostSite(file: file, line: line), body = self.body
+            work.post(priority, mayBlock: lane, shutdown: shutdown) {
+                let value = body()
+                mainWork.postFromAnyThread(workClass, owner: owner, site: site) { reply(value) }
+            }
+        }
+
+        /// ``reply(on:class:owner:file:line:_:)`` with an owner name (interned on the board here).
+        public func reply(on mainWork: MainWorkScheduler, class workClass: BudgetedWorkClass, owner: String,
+                          file: StaticString = #fileID, line: UInt = #line, _ reply: @escaping @MainActor @Sendable (T) -> Void) {
+            self.reply(on: mainWork, class: workClass, owner: mainWork.board.owner(owner), file: file, line: line, reply)
+        }
     }
 
     /// Abandons a refused item and reports a queued one.
@@ -153,7 +220,8 @@ public final class BackgroundWork: Sendable {
     }
 
     /// Starts shutdown: drops every item that has not started except ``ShutdownBehavior/blockShutdown``
-    /// ones, refuses new ones the same way, and returns when every block-shutdown item has finished.
+    /// ones, refuses new ones the same way, lifts the best-effort fence so held block-shutdown items run,
+    /// and returns when every block-shutdown item has finished.
     /// Quit awaits it after its own saves.
     public func shutdown() async {
         for lane in lanes {

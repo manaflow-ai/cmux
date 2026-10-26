@@ -1,9 +1,11 @@
 #!/usr/bin/env python3
-"""idle-budget.py's pure parts: process kinds, per-kind sums, the budget check and the perf cron rows."""
+"""idle-budget.py's pure parts: process kinds, per-kind sums, the budget check and the perf cron rows; and
+procs.py's counters (interrupt and package-idle wakeups apart, billed energy, GPU time, the coalition)."""
 
 from __future__ import annotations
 
 import importlib.util
+import json
 import sys
 import unittest
 from pathlib import Path
@@ -14,6 +16,7 @@ sys.path.insert(0, str(HERE.parent / "perf-bench"))
 spec = importlib.util.spec_from_file_location("idle_budget", HERE / "idle-budget.py")
 ib = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(ib)
+procs = ib.procs
 
 APP = "/Users/x/DerivedData/cmux-t/Build/Products/Debug/cmux DEV t.app"
 
@@ -31,7 +34,21 @@ class IdleBudgetTests(unittest.TestCase):
         self.assertEqual(ib.kind(f"{APP}/Contents/Resources/bin/acpmux daemon"), "acpmux")
         self.assertEqual(ib.kind(f"{APP}/Contents/Frameworks/cmux Helper (Renderer).app/x --type=renderer"), "cef-renderer")
         self.assertEqual(ib.kind(f"{APP}/Contents/Frameworks/cmux Helper (GPU).app/x --type=gpu-process"), "cef-gpu")
+        self.assertEqual(ib.kind(f"{APP}/Contents/Frameworks/cmux Helper (Renderer).app/x --type=renderer --extension-process"),
+                         "cef-extension")
+        self.assertEqual(ib.kind(f"{APP}/Contents/Frameworks/cmux Helper.app/x --type=utility --utility-sub-type=n"), "cef-utility")
+        self.assertEqual(ib.kind(f"{APP}/Contents/Frameworks/cmux Helper.app/Contents/MacOS/cmux Helper"), "cef-helper")
+        self.assertEqual(ib.kind(f"{APP}/Contents/Frameworks/cmux Chromium Host.app/Contents/MacOS/cmux Chromium Host --x"),
+                         "cef-host")
+        # A --type process outside a Helper app is not a Chromium helper: the app binary is the app.
+        self.assertEqual(ib.kind(f"{APP}/Contents/MacOS/cmux DEV --type=renderer"), "app")
         self.assertEqual(ib.kind("/bin/zsh -l"), "other:zsh")
+
+    def test_every_chromium_kind_has_a_budget_row(self):
+        with open(ib.BUDGET_FILE) as handle:
+            budget = json.load(handle)
+        for name in ("cef-gpu", "cef-renderer", "cef-extension", "cef-utility", "cef-host"):
+            self.assertIn(name, budget["kinds"])
 
     def test_aggregate_sums_and_maxes_per_kind(self):
         kinds = ib.aggregate({"processes": [row("terminal-host", 3, 0.0), row("terminal-host", 5, 0.5), row("app", 40, 2.0)],
@@ -61,6 +78,122 @@ class IdleBudgetTests(unittest.TestCase):
     def test_checked_in_budget_parses(self):
         budget = ib.json.load(open(ib.BUDGET_FILE))
         self.assertEqual(budget["kinds"]["app"]["main_wakes_per_s"], 0)
+        self.assertIn("energy_mw_billed", budget["kinds"]["app"])
+        self.assertIn("gpu_ms_per_s", budget["kinds"]["app"])
+
+
+def rusage_words(pkg_idle=0, interrupt=0, energy=0, billed=0, serviced=0, user=0, system=0, footprint=0):
+    """An rusage_info_v6 as proc_pid_rusage fills it (64 words), with the words procs reads."""
+    words = [0] * 64
+    words[2], words[3], words[4], words[5], words[9] = user, system, pkg_idle, interrupt, footprint
+    words[33], words[34], words[42] = billed, serviced, energy
+    return words
+
+
+class CountersTests(unittest.TestCase):
+    """procs.py's counters as Chrome defines them (base/process/process_metrics_apple.mm,
+    components/power_metrics/resource_coalition_mac.mm)."""
+
+    def test_interrupt_and_package_idle_wakeups_are_reported_apart(self):
+        first = procs.usage_from_words(rusage_words(), 1, 1)
+        last = procs.usage_from_words(rusage_words(pkg_idle=4, interrupt=10), 1, 1)
+        got = procs.rates(first, last, 1.0)
+        self.assertEqual(got["wakeups_per_s"], 10)  # not 14: package-idle wakeups are a subset
+        self.assertEqual(got["pkg_idle_wakeups_per_s"], 4)
+
+    def test_billed_energy_adds_billed_and_takes_off_serviced(self):
+        first = procs.usage_from_words(rusage_words(energy=1_000_000, billed=500_000, serviced=0), 1, 1)
+        last = procs.usage_from_words(rusage_words(energy=11_000_000, billed=6_500_000, serviced=2_000_000), 1, 1)
+        got = procs.rates(first, last, 2.0)
+        self.assertEqual(got["energy_mw_cpu"], 5.0)
+        self.assertEqual(got["energy_mw_billed"], 7.0)  # (10 + 6 - 2) mJ over 2 s
+
+    def test_cpu_time_uses_the_timebase(self):
+        last = procs.usage_from_words(rusage_words(user=375, system=125), 125, 3)
+        self.assertEqual(last.cpu_ns, 500 * 125 // 3)
+        self.assertEqual(procs.rates(None, last, 1.0)["cpu_pct"], 100 * (500 * 125 // 3) / 1e9)
+
+    def test_gpu_time_per_pid_from_the_registry(self):
+        registry = [{"IORegistryEntryChildren": [
+            {"IOUserClientCreator": "pid 42, cmux", "AppUsage": [{"accumulatedGPUTime": 3_000_000},
+                                                                  {"accumulatedGPUTime": 1_000_000}]},
+            {"IOUserClientCreator": "pid 42, cmux", "AppUsage": [{"accumulatedGPUTime": 2_000_000}]},
+            {"IOUserClientCreator": "pid 7, WindowServer", "AppUsage": [{"accumulatedGPUTime": 9}]},
+            {"IOUserClientCreator": "pid 8, idle"}]}]
+        self.assertEqual(procs.gpu_ns_from_registry(registry), {42: 6_000_000, 7: 9})
+        self.assertEqual(procs.gpu_ms_per_s({42: 1_000_000}, {42: 6_000_000}, 42, 2.0), 2.5)
+        self.assertEqual(procs.gpu_ms_per_s({}, {}, 42, 2.0), 0)
+        self.assertIsNone(procs.gpu_ms_per_s(None, {42: 1}, 42, 2.0))
+
+    def test_coalition_rates(self):
+        def words(energy, to_me, to_others, gpu_ns, cpu_ticks, interrupt, idle):
+            w = [0] * procs._CRU_WORDS
+            w[3], w[4], w[5], w[8], w[11], w[20], w[21] = cpu_ticks, interrupt, idle, gpu_ns, energy, to_me, to_others
+            return w
+        first = procs.coalition_from_words(words(0, 0, 0, 0, 0, 0, 0), 125, 3)
+        last = procs.coalition_from_words(words(4_000_000, 3_000_000, 1_000_000, 8_000_000, 24_000_000, 20, 6), 125, 3)
+        self.assertEqual(last.gpu_ns, 8_000_000)  # ns already, not timebase ticks
+        self.assertEqual(last.cpu_ns, 1_000_000_000)
+        got = procs.coalition_rates(first, last, 2.0)
+        self.assertEqual(got, {"energy_mw_cpu": 2.0, "energy_mw_billed": 3.0, "gpu_ms_per_s": 4.0, "cpu_pct": 50.0,
+                               "wakeups_per_s": 10.0, "pkg_idle_wakeups_per_s": 3.0})
+
+    def test_a_coalition_read_failure_is_null_not_zero(self):
+        last = procs.coalition_from_words([0] * procs._CRU_WORDS, 1, 1)
+        self.assertIsNone(procs.coalition_rates(None, last, 1.0))
+        self.assertIsNone(procs.coalition_rates(last, None, 1.0))
+        self.assertEqual(ib.coalition_line(None), "app coalition: not readable")
+
+    def test_report_has_cpu_and_billed_energy_and_gpu_per_kind(self):
+        first = procs.usage_from_words(rusage_words(), 1, 1)
+        last = procs.usage_from_words(rusage_words(pkg_idle=4, interrupt=10, energy=3_000_000, billed=1_000_000,
+                                                   footprint=int(procs.MB)), 1, 1)
+        app = ib.process_row(1, f"{APP}/Contents/MacOS/cmux DEV", first, last, 1.0, gpu=1.5, threads_now=30, csw=12, ran=[])
+        daemon = ib.process_row(2, f"{APP}/Contents/Resources/bin/cmux-tui server", first, last, 1.0, gpu=None,
+                                threads_now=4, csw=0, ran=[])
+        started = ib.process_row(3, f"{APP}/Contents/MacOS/cmux DEV", None, last, 1.0, gpu=0.5, threads_now=1, csw=0, ran=[])
+        self.assertEqual((app["wakeups_per_s"], app["pkg_idle_wakeups_per_s"]), (10, 4))
+        self.assertTrue(started["partial"])
+        self.assertFalse(app["partial"])
+        kinds = ib.aggregate({"processes": [app, daemon, started]})
+        self.assertEqual(kinds["app"]["energy_mw_cpu"], 6.0)
+        self.assertEqual(kinds["app"]["energy_mw_billed"], 8.0)
+        self.assertEqual(kinds["app"]["gpu_ms_per_s"], 2.0)
+        self.assertEqual(kinds["app"]["wakeups_per_s"], 20)
+        self.assertEqual(kinds["app"]["pkg_idle_wakeups_per_s"], 8)
+        self.assertIsNone(kinds["daemon"]["gpu_ms_per_s"])  # no registry read: unknown, not 0
+        self.assertIn("billed mW", ib.table("light", kinds, []))
+
+    def test_cron_rows_carry_billed_energy_and_gpu(self):
+        report = {"sessions": {"light": {"kinds": {"app": {"energy_mw_billed": 3.5, "gpu_ms_per_s": None}}}}}
+        rows = ib.cron_rows(report, {"kinds": {"app": {"energy_mw_billed": None}}})
+        self.assertEqual(rows["idle_budget.light.app.energy_mw_billed"]["unit"], "mW")
+        self.assertNotIn("idle_budget.light.app.gpu_ms_per_s", rows)
+
+    def test_instance_window_totals(self):
+        rows = [{"kind": "main", "threads": 3, "mw": 1.0, "energy_mw_cpu": 1.0, "energy_mw_billed": 2.0,
+                 "gpu_ms_per_s": 0.5, "wakeups_per_s": 10.0, "pkg_idle_wakeups_per_s": 4.0},
+                {"kind": "gpu", "threads": 5, "mw": 2.0, "energy_mw_cpu": 2.0, "energy_mw_billed": 2.0,
+                 "gpu_ms_per_s": None, "wakeups_per_s": 1.0, "pkg_idle_wakeups_per_s": 0.0}]
+        got = procs.window_totals(rows)
+        self.assertEqual((got["wakeups_per_s"], got["pkg_idle_wakeups_per_s"]), (11.0, 4.0))
+        self.assertEqual(got["energy_mw_billed"], 4.0)
+        self.assertIsNone(got["gpu_ms_per_s"])
+        self.assertEqual(got["kinds"]["main"]["gpu_ms_per_s"], 0.5)
+        self.assertEqual((got["threads"], got["processes"]), (8, 2))
+        self.assertEqual(list(got["kinds"]), ["gpu", "main"])  # by CPU energy
+
+    def test_xbench_records_companion_rows_from_the_same_window(self):
+        sys.path.insert(0, str(HERE.parent / "perf-bench"))
+        import xbench
+        rows = xbench.window_rows({"power-idle-visible": "mw", "idle-cpu-20": "cpu_pct", "idle-wakeups-20": "wakeups_per_s"})
+        self.assertEqual(rows["power-idle-visible-billed"], "energy_mw_billed")
+        self.assertEqual(rows["power-idle-visible-gpu"], "gpu_ms_per_s")
+        self.assertEqual(rows["idle-wakeups-20-pkg-idle"], "pkg_idle_wakeups_per_s")
+        self.assertNotIn("idle-cpu-20-billed", rows)
+        self.assertEqual(xbench.ROW_INFO["power-idle-visible-gpu"][1], "ms/s")
+        self.assertEqual(xbench.fmt(2.25, "ms/s"), "2.2 ms/s")
+        self.assertIn("ms/s", xbench.FLOORS)
 
 
 if __name__ == "__main__":
