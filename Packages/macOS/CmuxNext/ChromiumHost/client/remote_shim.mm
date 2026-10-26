@@ -747,7 +747,8 @@ CMUX_SHIM_EXPORT int cmux_shim_set_schedule_delayed(cmux_shim_schedule_delayed_f
   return 0;
 }
 
-// A tab's renderer is the host's child, not attributed to app tabs yet: no pid.
+// Per-tab attribution is in-process only: a tab's renderer is the Chromium Host's child, which the
+// app does not sample, so there is no pid here. Host mode is task p14-energy-124a.
 CMUX_SHIM_EXPORT int cmux_shim_renderer_pid(int browser_id) {
   (void)browser_id;
   return 0;

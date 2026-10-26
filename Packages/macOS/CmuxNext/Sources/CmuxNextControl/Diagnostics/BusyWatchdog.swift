@@ -10,13 +10,14 @@ import CmuxNextCompat
 /// a threshold for a whole window (default 10 s) while nothing explains it:
 /// no input, no animation frame, no terminal output
 /// (plans/cmux-next/idle-wakeups.md). The record carries a main-thread stack
-/// sample and the busiest WakeupLedger owners. A busy helper's record names
-/// the browser tabs it serves (``setTabSource(_:)``): every tab whose main
-/// frame or any frame it hosts, so same-site tabs on one renderer are all named.
+/// sample and the busiest WakeupLedger owners. A busy tab renderer's record
+/// names the browser tabs it serves (``setTabSource(_:)``, a snapshot the App
+/// publishes): every tab whose main frame or any frame it hosts, so same-site
+/// tabs on one renderer are all named. Nothing here waits for the main thread.
 ///
 /// It is demand-driven: a window opens when the main run loop wakes
 /// (``noteAwake()``) and ends with one ``DemandTimer`` deadline; a new window
-/// opens at once only if the app was awake during the last one. An idle app
+/// opens at once only if the app was awake before that deadline. An idle app
 /// therefore costs nothing, and a steadily busy app one check per window.
 /// A spin on a background thread that never wakes the main thread is seen
 /// only in the window after the last main-thread wake.
@@ -39,13 +40,17 @@ public final class BusyWatchdog: Sendable {
         }
     }
 
-    /// A helper process to watch, with what it serves (tab title, URL).
+    /// A helper process to watch, with its kind.
     public struct Helper: Sendable {
         public var pid: pid_t
         public var label: String
-        public init(pid: pid_t, label: String) {
+        /// A tab renderer's `--renderer-client-id`; nil for every other helper (extension renderers too).
+        public var rendererClientID: Int32?
+
+        public init(pid: pid_t, label: String, rendererClientID: Int32? = nil) {
             self.pid = pid
             self.label = label
+            self.rendererClientID = rendererClientID
         }
     }
 
@@ -67,14 +72,14 @@ public final class BusyWatchdog: Sendable {
     private struct HelperSource: Sendable {
         let list: @Sendable () -> [Helper]
         /// The browser tabs and their renderers (p14-energy-124); nil until the App sets it.
-        let tabs: (@MainActor @Sendable () -> [ProcessUsage.TabRenderers])?
+        let tabs: (@Sendable () -> [ProcessUsage.TabRenderers])?
     }
 
     struct Window {
         var process: ProcessUsage?
         var mainCPUNanos: UInt64
         var activity: UInt64
-        var helpers: [pid_t: (label: String, usage: ProcessUsage)]
+        var helpers: [pid_t: (helper: Helper, usage: ProcessUsage)]
         var startNanos: UInt64
     }
 
@@ -100,9 +105,10 @@ public final class BusyWatchdog: Sendable {
         helpers.withLock { $0 = HelperSource(list: source, tabs: $0.tabs) }
     }
 
-    /// Supplies the browser tabs with their renderers, read on the main actor only when a helper was
-    /// busy, so a busy renderer's record names every tab it serves (p14-energy-124).
-    public func setTabSource(_ source: @escaping @MainActor @Sendable () -> [ProcessUsage.TabRenderers]) {
+    /// Supplies the browser tabs with their renderers, so a busy renderer's record names every tab it
+    /// serves (p14-energy-124). Called off the main thread when a window closes with a busy tab renderer:
+    /// it returns a published snapshot (``TabRendererDirectory/snapshot()``) and never waits for the main thread.
+    public func setTabSource(_ source: @escaping @Sendable () -> [ProcessUsage.TabRenderers]) {
         helpers.withLock { $0 = HelperSource(list: $0.list, tabs: source) }
     }
 
@@ -111,10 +117,10 @@ public final class BusyWatchdog: Sendable {
         helpers.withLock { $0.list }
     }
 
-    /// The tabs the tab source lists, in one main-actor turn; [] without a source.
-    func sourceTabs() async -> [ProcessUsage.TabRenderers] {
+    /// The tabs the tab source lists, called after releasing the lock; [] without a source.
+    func sourceTabs() -> [ProcessUsage.TabRenderers] {
         guard let source = helpers.withLock({ $0.tabs }) else { return [] }
-        return await source()
+        return source()
     }
 
     /// The main run loop woke. Cheap: one atomic store, plus opening a
@@ -128,18 +134,20 @@ public final class BusyWatchdog: Sendable {
     private func openWindow() {
         awakeDuringWindow.store(false, ordering: .relaxed)
         let helperList = helperSource()()
-        var sampled: [pid_t: (label: String, usage: ProcessUsage)] = [:]
+        var sampled: [pid_t: (helper: Helper, usage: ProcessUsage)] = [:]
         for helper in helperList {
-            if let usage = ProcessUsage.sample(helper.pid) { sampled[helper.pid] = (helper.label, usage) }
+            if let usage = ProcessUsage.sample(helper.pid) { sampled[helper.pid] = (helper: helper, usage: usage) }
         }
         let start = Window(process: ProcessUsage.sample(getpid()), mainCPUNanos: mainCPUNanos(), activity: activity.total,
                            helpers: sampled, startNanos: clock_gettime_nsec_np(CLOCK_UPTIME_RAW))
         window.withLock { $0 = start }
-        timer.schedule(after: configuration.window) { [weak self] in await self?.closeWindow() }
+        timer.schedule(after: configuration.window) { [weak self] in self?.closeWindow() }
     }
 
-    func closeWindow() async {
+    func closeWindow() {
         guard let start = window.withLock({ window in defer { window = nil }; return window }) else { return }
+        // The window ends at its deadline: a wake the close itself causes does not keep the watch going.
+        let stayAwake = awakeDuringWindow.load(ordering: .relaxed)
         let now = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
         let wall = Double(max(now &- start.startNanos, 1))
         let quiet = activity.total == start.activity
@@ -153,23 +161,23 @@ public final class BusyWatchdog: Sendable {
                        pid: getpid(), name: process?.name ?? "app", label: nil, share: max(mainShare, processShare),
                        wall: wall, end: now, addresses: addresses)
             }
-            var busy: [(pid: pid_t, name: String, label: String, share: Double)] = []
+            var busy: [(helper: Helper, name: String, share: Double)] = []
             for (pid, entry) in start.helpers {
                 guard let usage = ProcessUsage.sample(pid) else { continue }
                 let share = usage.cpuShare(since: entry.usage)
-                if share > configuration.helperThreshold { busy.append((pid: pid, name: usage.name, label: entry.label, share: share)) }
+                if share > configuration.helperThreshold { busy.append((helper: entry.helper, name: usage.name, share: share)) }
             }
             // Same-site tabs share a renderer: the record names every tab it serves.
-            var tabs: [ProcessUsage.TabRenderers] = []
-            if !busy.isEmpty { tabs = await sourceTabs() }
-            for helper in busy {
-                let served = tabs.isEmpty ? [] : ProcessUsage.tabs(tabs, servedBy: .identify(helper.pid))
-                record(scope: "helper", pid: helper.pid, name: helper.name, label: helper.label, tabs: served,
-                       share: helper.share, wall: wall, end: now, addresses: [])
+            let tabs = busy.contains { $0.helper.rendererClientID != nil } ? sourceTabs() : []
+            for entry in busy {
+                let helper = entry.helper
+                let served = helper.rendererClientID.map { ProcessUsage.tabs(tabs, servedBy: ProcessUsage.Renderer(pid: helper.pid, clientID: $0)) } ?? []
+                record(scope: "helper", pid: helper.pid, name: entry.name, label: helper.label, tabs: served,
+                       share: entry.share, wall: wall, end: now, addresses: [])
             }
         }
-        // Keep watching only while the app stays awake.
-        if awakeDuringWindow.load(ordering: .relaxed) {
+        // Keep watching only while the app stayed awake during the window.
+        if stayAwake {
             openWindow()
         } else {
             measuring.store(false, ordering: .releasing)

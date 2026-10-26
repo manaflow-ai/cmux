@@ -4,21 +4,12 @@ import Darwin
 
 /// `debug.energy`'s `tabs` (p14-energy-124): each Chromium tab with the renderers that serve it.
 extension EnergyReport {
-    /// The `processes` kind of a Chromium renderer helper.
-    public static let rendererKind = "cef-renderer"
-
-    /// Each tab's renderers: the sampled `cef-renderer` processes, each with the client id its argv
-    /// names, and a tab's main-frame renderer that `processes` does not list, sampled now. Blocking
-    /// system calls: off the main actor. `identify` and `sample` are seams for tests.
-    static func tabUsage(_ tabs: [ProcessUsage.TabRenderers], processes: [ProcessSample],
-                         identify: (pid_t) -> ProcessUsage.Renderer = ProcessUsage.Renderer.identify,
-                         sample: (pid_t) -> ProcessUsage? = ProcessUsage.sample) -> [ProcessUsage.TabUsage] {
+    /// Each tab's renderers: the sampled tab renderers (``ProcessSample/rendererClientID``), matched by
+    /// the pid of the tab's main frame and the client ids of its frames.
+    static func tabUsage(_ tabs: [ProcessUsage.TabRenderers], processes: [ProcessSample]) -> [ProcessUsage.TabUsage] {
         guard !tabs.isEmpty else { return [] }
-        var renderers = processes.filter { $0.kind == rendererKind }.map { (renderer: identify($0.usage.pid), usage: $0.usage) }
-        var known = Set(renderers.map { $0.renderer.pid })
-        for pid in tabs.compactMap(\.pid) where known.insert(pid).inserted {
-            guard let usage = sample(pid) else { continue }
-            renderers.append((renderer: ProcessUsage.Renderer(pid: pid, clientID: nil), usage: usage))
+        let renderers: [(renderer: ProcessUsage.Renderer, usage: ProcessUsage)] = processes.compactMap { sample in
+            sample.rendererClientID.map { (renderer: ProcessUsage.Renderer(pid: sample.usage.pid, clientID: $0), usage: sample.usage) }
         }
         return ProcessUsage.perTab(tabs, renderers: renderers)
     }
@@ -38,7 +29,7 @@ extension EnergyReport {
     private static func rendererJSON(_ shared: ProcessUsage.SharedRenderer) -> JSONValue {
         [
             "pid": JSONValue(Int(truncatingIfNeeded: shared.renderer.pid)),
-            "clientId": shared.renderer.clientID.map { JSONValue(Int(truncatingIfNeeded: $0)) } ?? .null,
+            "clientId": JSONValue(Int(truncatingIfNeeded: shared.renderer.clientID)),
             "cpuMs": .number(Double(shared.usage.cpuNanos) / 1e6),
             "energyNj": integer(shared.usage.energyNanojoules),
             "interruptWakeups": integer(shared.usage.interruptWakeups),

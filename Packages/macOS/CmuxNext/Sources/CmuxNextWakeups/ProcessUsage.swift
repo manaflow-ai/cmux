@@ -152,29 +152,17 @@ public struct ProcessUsage: Sendable, Equatable {
 // MARK: - Renderers per tab (p14-energy-124)
 
 extension ProcessUsage {
-    /// One Chromium renderer process: its pid and its `--renderer-client-id` (Chromium's
-    /// RenderProcessHost id); nil when its argv does not say.
+    /// One Chromium tab renderer: its pid and its `--renderer-client-id` (Chromium's RenderProcessHost id),
+    /// as the App's helper classification (`ChromiumHelperProcess`) reads it. Extension renderers are not
+    /// tab renderers.
     public struct Renderer: Sendable, Hashable {
         public var pid: pid_t
-        public var clientID: Int32?
+        public var clientID: Int32
 
-        public init(pid: pid_t, clientID: Int32?) {
+        public init(pid: pid_t, clientID: Int32) {
             self.pid = pid
             self.clientID = clientID
         }
-
-        /// The renderer `pid`, with the client id its argv names. Blocking system calls: call it off the main actor.
-        public static func identify(_ pid: pid_t) -> Renderer {
-            Renderer(pid: pid, clientID: ProcessUsage.rendererClientID(arguments: ProcessUsage.arguments(of: pid)))
-        }
-    }
-
-    /// The value of `--renderer-client-id=` in a helper's argv; nil when absent or not a positive number.
-    public static func rendererClientID(arguments: [String]) -> Int32? {
-        let prefix = "--renderer-client-id="
-        guard let argument = arguments.first(where: { $0.hasPrefix(prefix) }),
-              let id = Int32(argument.dropFirst(prefix.count)), id > 0 else { return nil }
-        return id
     }
 
     /// What one browser tab reports about its renderers, read on the main actor.
@@ -197,8 +185,7 @@ extension ProcessUsage {
         /// Whether `renderer` hosts the main frame or another frame of this tab.
         public func isServed(by renderer: Renderer) -> Bool {
             if let pid, pid == renderer.pid { return true }
-            guard let client = renderer.clientID else { return false }
-            return rendererClients.contains(client)
+            return rendererClients.contains(renderer.clientID)
         }
     }
 

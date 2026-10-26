@@ -42,7 +42,6 @@ import Testing
         let tab = ProcessUsage.TabRenderers(tab: "a", title: "Docs", pid: nil, rendererClients: [3])
         #expect(tab.isServed(by: ProcessUsage.Renderer(pid: 501, clientID: 3)))
         #expect(!tab.isServed(by: ProcessUsage.Renderer(pid: 501, clientID: 4)))
-        #expect(!tab.isServed(by: ProcessUsage.Renderer(pid: 501, clientID: nil)))
     }
 
     /// An out-of-process iframe's renderer is the tab's too, next to its main frame's.
@@ -66,10 +65,16 @@ import Testing
         #expect(grouped.first?.cpuNanos == 0)
     }
 
-    @Test func theClientIDComesFromTheRendererSwitch() {
-        #expect(ProcessUsage.rendererClientID(arguments: ["helper", "--type=renderer", "--renderer-client-id=12"]) == 12)
-        #expect(ProcessUsage.rendererClientID(arguments: ["helper", "--type=gpu-process"]) == nil)
-        #expect(ProcessUsage.rendererClientID(arguments: ["--renderer-client-id=x"]) == nil)
-        #expect(ProcessUsage.rendererClientID(arguments: ["--renderer-client-id=0"]) == nil)
+    /// The App publishes one tab at a time and drops the tabs it closed; the snapshot is ordered by tab id.
+    @Test func theDirectoryKeepsTheLatestOfEachOpenTab() {
+        let directory = TabRendererDirectory()
+        directory.update(ProcessUsage.TabRenderers(tab: "b", title: "Loading", pid: nil, rendererClients: []))
+        directory.update(ProcessUsage.TabRenderers(tab: "a", title: "Docs", pid: 501, rendererClients: [3]))
+        directory.update(ProcessUsage.TabRenderers(tab: "b", title: "News", pid: 502, rendererClients: [4]))
+        let read = directory.snapshot()
+        #expect(read.map(\.tab) == ["a", "b"])
+        #expect(read.last == ProcessUsage.TabRenderers(tab: "b", title: "News", pid: 502, rendererClients: [4]))
+        directory.keep(only: ["b"])
+        #expect(directory.snapshot().map(\.tab) == ["b"])
     }
 }

@@ -100,8 +100,9 @@ final class AppControl {
                                             overBudget: watchdog.overBudget, sampling: recordsTaskBudgets,
                                             logsRuns: ControlService.isDebugBuild)
         services.restartControlListener = { [weak service] in try service?.restartListener() }
-        // A busy renderer's record names the Chromium tabs it serves (p14-energy-124).
-        watchdog.busy.setTabSource { [weak services] in services.map { AppProcesses.tabRenderers($0) } ?? [] }
+        // A busy renderer's record names the Chromium tabs it serves (p14-energy-124), from the snapshot
+        // the cache publishes: the watchdog reads it off the main thread.
+        watchdog.busy.setTabSource { [directory = services.cache.tabRenderers] in directory.snapshot() }
         registerSyncBarrier(service.router, daemon: services.daemon)
         registerOracleSettle(service.router, services: services)
     }

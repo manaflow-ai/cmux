@@ -24,10 +24,12 @@ public import Foundation
 ///   histogram with fixed buckets and its p50/p95/p99 (``IdleEnergyStats``, task 008). Main process
 ///   only (`scope`); the helpers' counters are in `processes`, from the same ``ProcessUsage`` counter.
 /// - `tabs`: each Chromium tab with the CPU, energy and wakeups of the renderers that serve it
-///   (``ProcessUsage/perTab(_:renderers:)``, task 124), cumulative like `processes`. A renderer is a
-///   tab's when it hosts its main frame (the fork's `cmux_cef_browser_renderer_pid`) or any of its
-///   frames (renderer client ids against the helper's `--renderer-client-id`). Same-site tabs can share
-///   one renderer: each of them shows its whole usage, and the renderer's `tabs` name all of them.
+///   (``ProcessUsage/perTab(_:renderers:)``, task 124), cumulative like `processes`. A tab renderer of
+///   `processes` is a tab's when it hosts its main frame (the fork's `cmux_cef_browser_renderer_pid`) or
+///   any of its frames (renderer client ids against the helper's `--renderer-client-id`). Same-site tabs
+///   can share one renderer: each of them shows its whole usage, and the renderer's `tabs` name all of
+///   them. In process only: with the Chromium Host on, the renderers are the host's children and no
+///   tab lists one (p14-energy-124a).
 ///
 /// Top-level keys are snake_case (the spec's); the fields inside them are the camelCase names of the
 /// values they report (`policy.isSaver` is ``EnergyPolicy/isSaver``), which is what
@@ -236,10 +238,14 @@ extension EnergyReport {
     public struct ProcessSample: Sendable, Equatable {
         public var kind: String
         public var usage: ProcessUsage
+        /// A tab renderer's `--renderer-client-id` (the App's `ChromiumHelperProcess` classification);
+        /// nil for every other process, extension renderers included. `tabs` attributes only these.
+        public var rendererClientID: Int32?
 
-        public init(kind: String, usage: ProcessUsage) {
+        public init(kind: String, usage: ProcessUsage, rendererClientID: Int32? = nil) {
             self.kind = kind
             self.usage = usage
+            self.rendererClientID = rendererClientID
         }
 
         var json: JSONValue {

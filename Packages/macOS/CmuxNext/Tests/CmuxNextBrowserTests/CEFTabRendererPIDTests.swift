@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextBrowser
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -29,6 +30,35 @@ import Testing
         let unborn = CEFTab(id: .random(), profile: .default, host: host, runtime: rig.runtime)
         #expect(unborn.rendererPID == nil)
         #expect(RendererPIDSpy.asked.isEmpty)
+    }
+
+    /// The tab publishes its renderers at once and again when a load phase changes or its renderer ends
+    /// (a navigation can move it to another renderer); a commit in the same load asks the shim nothing.
+    /// Once its id names another page it stops publishing.
+    @Test func aLoadPhaseChangeOrARendererExitRepublishesTheTabsRenderers() throws {
+        let rig = try RendererPIDRig(answer: 4242)
+        defer { rig.close() }
+        let tab = try rig.attachedTab()
+        let directory = TabRendererDirectory()
+        var current = true
+        tab.publishRenderers(as: "t1", into: directory) { _ in current }
+        #expect(directory.snapshot() == [ProcessUsage.TabRenderers(tab: "t1", title: "", pid: 4242, rendererClients: [])])
+
+        RendererPIDSpy.answer = 5151
+        rig.runtime.handle(.loadStart(browser: 7, url: "https://example.com/", fromPost: false))
+        #expect(directory.snapshot().first?.pid == 5151, "a navigation's new renderer is published")
+        let asked = RendererPIDSpy.asked.count
+        rig.runtime.handle(.loadStart(browser: 7, url: "https://example.com/a", fromPost: false))
+        #expect(RendererPIDSpy.asked.count == asked, "a commit in the same load is no new phase")
+
+        RendererPIDSpy.answer = 0
+        rig.runtime.handle(.renderTerminated(browser: 7, status: 2, code: 11, text: "crashed"))
+        #expect(directory.snapshot().first?.pid == nil, "the ended renderer is no longer the tab's")
+
+        current = false
+        RendererPIDSpy.answer = 6161
+        rig.runtime.handle(.loadStart(browser: 7, url: "https://example.com/b", fromPost: false))
+        #expect(directory.snapshot().first?.pid == nil, "a page its id no longer names publishes nothing")
     }
 
     // MARK: Rig
