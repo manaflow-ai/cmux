@@ -38,7 +38,7 @@ public final class WebKitEngine: BrowserEngine {
         didSet { if energySaver != oldValue { applyRenderRate(energySaver: energySaver) } }
     }
     /// Follows the app's Energy Saver policy into ``energySaver`` while the engine lives.
-    private var energyObservation: EnergyPolicyObservation?
+    private var energyObservation: MainActorEnergyObservation?
     /// Open tabs, which follow an Energy Saver change.
     private let openTabs = NSHashTable<WebKitTab>.weakObjects()
     /// The highest rate of a window's display (tests replace it).
@@ -105,10 +105,7 @@ public final class WebKitEngine: BrowserEngine {
         self.downloadsDirectory = downloadsDirectory
         self.applicationNameForUserAgent = applicationNameForUserAgent
         energySaver = energy.policy.isSaver
-        energyObservation = energy.observe { [weak self] policy in
-            // main-proof: observers run on the writer's thread, and the source's one writer is the @MainActor EnergyPolicyDriver
-            MainActor.assumeIsolated { self?.energySaver = policy.isSaver }
-        }
+        energyObservation = MainActorEnergyObservation(energy) { [weak self] policy in self?.energySaver = policy.isSaver }
     }
 
     public func makeTab(_ configuration: BrowserTabConfiguration) async throws -> any BrowserTab {

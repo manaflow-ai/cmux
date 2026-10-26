@@ -131,7 +131,7 @@ final class BrowserHibernation {
     var uncoveredWakes = 0
     /// The app's Energy Saver policy (`MainWorkScheduler.energy`).
     private let energy: EnergyPolicySource
-    private var energyObservation: EnergyPolicyObservation?
+    private var energyObservation: MainActorEnergyObservation?
     /// Energy Saver is on, as of the policy's last change.
     private(set) var energySaver: Bool
     /// The app's windows going off screen and back (`occludedWindowDiscard`); nil when off.
@@ -202,10 +202,7 @@ final class BrowserHibernation {
         guard memoryRegistration == nil else { return }
         memoryRegistration = MemoryConsumerRegistration(
             name: Self.memoryConsumerName, traits: Self.memoryTraits, consumer: self, registry: memory)
-        energyObservation = energy.observe { [weak self] policy in
-            // main-proof: observers run on the writer's thread, and the source's one writer is the @MainActor EnergyPolicyDriver
-            MainActor.assumeIsolated { self?.energySaverDidChange(policy.isSaver) }
-        }
+        energyObservation = MainActorEnergyObservation(energy) { [weak self] policy in self?.energySaverDidChange(policy.isSaver) }
         energySaverDidChange(energy.policy.isSaver)
         // Pages mounted before the hibernation existed (a restored session) are followed too.
         for (key, entry) in cache?.browsers ?? [:] { pageDidMount(key, entry.tab) }
