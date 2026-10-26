@@ -1,0 +1,50 @@
+{
+  "id": "links-status-many",
+  "owner": "a672",
+  "about": "a status over several agents links every workspace, commit range, run and PR",
+  "history": [
+    {
+      "kind": "user",
+      "text": "get these going: the Kitty image protocol, bulk-close undo, composer paste"
+    },
+    {
+      "kind": "echo",
+      "text": "a910 spawned in /home/person/fun/cmux, workspace \"Kitty image\" (ws_5a1d3c00000000000000000000000000)"
+    },
+    {
+      "kind": "echo",
+      "text": "a911 spawned in /home/person/fun/cmux, workspace \"Bulk-close undo\" (ws_5a1d3c00000000000000000000001eef)"
+    },
+    {
+      "kind": "echo",
+      "text": "a912 spawned in /home/person/fun/cmux, workspace \"Composer paste\" (ws_5a1d3c00000000000000000000003dde)"
+    },
+    {
+      "kind": "user",
+      "text": "[a911] Landed 3c3da0280d4..98f8aea6d4a on feat-cmux-next: bulk-close undo; CI run 18230000001 green."
+    },
+    {
+      "kind": "user",
+      "text": "[a912] Opened PR 25240 (draft) for composer paste; waiting for review as asked by the repo rules."
+    }
+  ],
+  "turns": [
+    {
+      "text": "where are we?",
+      "tail": "Subagents at work now: a910, a912.",
+      "checks": [
+        {
+          "type": "no_raw_ids"
+        },
+        {
+          "type": "reply_matches",
+          "re": "\\]\\(https://github\\.com/manaflow-ai/cmux/pull/25240\\)"
+        },
+        {
+          "type": "reply_matches",
+          "re": "\\]\\(https://github\\.com/manaflow-ai/cmux/(compare|commit)/"
+        }
+      ]
+    }
+  ]
+}

@@ -76,6 +76,7 @@ import { AskTracker, pendingReader, SIDE_SESSION_METHOD } from "./needsYou/asks"
 import { chatTools, toolApplied, type ToolApplied } from "./summary/chatTools";
 import { taskGoal } from "./goal";
 import { recordedConversationEvents } from "./conversation/exportEvents";
+import { markPullRequestActivityVersion, pullRequestRowKey } from "./summary/transcriptPullRequests";
 
 export type AcpmuxHostConfig = {
   protocolVersion: number;
@@ -514,16 +515,16 @@ export function mergeQueue(current: readonly QueuedPrompt[], listed: readonly an
     // acpmux lists its images (after a reload or a restart too); one that lists none (an older
     // acpmux) keeps those the pane had.
     const images = Array.isArray(entry?.images) ? withKnownBytes(promptImages(entry.images), had?.images) : had?.images;
-    // acpmux's list names no sender: the `queued` record the pane read did, while its text is still
-    // the one listed (an edit the pane missed makes it the person's, as acpmux does).
-    return queuedEntry(
-      id,
-      whole ? had.prompt : preview,
-      had?.next === true,
-      false,
-      images,
-      whole ? had.message : undefined,
-    );
+    // The `queued` record the pane read names the sender, while its text is still the one listed
+    // (an edit the pane missed makes it the person's, as acpmux does). The list's `fromAgent`
+    // says so too: null is the person's (an edit past the preview's cut leaves its head the
+    // same), and a name is an agent's, also for a row the pane never read the record of (a
+    // reload). An older acpmux lists none.
+    const listed = entry?.fromAgent;
+    const listedMessage = queuedMessage({ text: preview, fromAgent: listed });
+    const kept = whole ? had.message : undefined;
+    const message = listed === undefined ? kept : listed === null ? undefined : (kept ?? listedMessage);
+    return queuedEntry(id, whole ? had.prompt : preview, had?.next === true, false, images, message);
   });
 }
 
@@ -868,6 +869,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
   /// The array handed to snapshots. Metadata updates can emit without changing a transcript row;
   /// reuse this reference so the pane's derived rows stay memoized.
   private snapshot: AcpmuxRow[] | undefined;
+  private pullRequestActivityVersion = Symbol();
 
   /// Puts back the earlier object of each row a rebuild made again unchanged (same kind, version and
   /// plain fields: a turn's totals change with what was folded before it, not its version), so what
@@ -893,7 +895,10 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
 
   override set(id: string, row: AcpmuxRow): this {
     const known = this.order.has(id);
-    const unchanged = known && this.get(id) === row;
+    const previous = this.get(id);
+    const unchanged = known && previous === row;
+    if (!unchanged && pullRequestRowKey(previous) !== pullRequestRowKey(row))
+      this.pullRequestActivityVersion = Symbol();
     if (!unchanged) this.snapshot = undefined;
     if (!known) {
       if (this.current !== undefined) {
@@ -926,6 +931,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
       return;
     }
     this.ordered = undefined;
+    this.pullRequestActivityVersion = Symbol();
   }
 
   /// Whether the row at `index` of the kept order sorts by its event alone, so a change of its
@@ -951,6 +957,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
   override delete(id: string): boolean {
     // Every text delta drops the typing row, which is usually gone already.
     if (!this.has(id)) return false;
+    this.pullRequestActivityVersion = Symbol();
     this.ordered = undefined;
     this.snapshot = undefined;
     this.order.delete(id);
@@ -959,6 +966,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
   }
 
   override clear(): void {
+    this.pullRequestActivityVersion = Symbol();
     this.ordered = undefined;
     this.snapshot = undefined;
     this.order.clear();
@@ -978,6 +986,7 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
   /// Moves the rows made without an event after every event, keeping their order: what a lag
   /// rebuild replayed happened before them.
   placeLocalLast(): void {
+    this.pullRequestActivityVersion = Symbol();
     this.ordered = undefined;
     this.snapshot = undefined;
     const local = [...this.local].sort((a, b) => (this.order.get(a) ?? 0) - (this.order.get(b) ?? 0));
@@ -992,7 +1001,11 @@ export class OrderedRows extends Map<string, AcpmuxRow> {
       );
       this.orderedIndex = new Map(this.ordered.map((row, index) => [row.id, index]));
     }
-    return (this.snapshot ??= this.ordered.slice());
+    if (!this.snapshot) {
+      this.snapshot = this.ordered.slice();
+      markPullRequestActivityVersion(this.snapshot, this.pullRequestActivityVersion);
+    }
+    return this.snapshot;
   }
 }
 
@@ -1839,7 +1852,7 @@ export class AcpmuxDirectClient {
       startModeChanged();
     } else if (notification.method === "_acpmux/process_update")
       for (const listener of this.processListeners) listener(notification.params?.process);
-    // A new chat's start mode may have changed (a pick in any pane, a config reload, the
+    // A new chat's start mode may have changed (a config reload, the
     // `agents.defaultPermissionMode` setting): pending chats ask acpmux again (startMode.ts).
     else if (notification.method === "_acpmux/start_mode_changed") startModeChanged();
   }
@@ -4750,7 +4763,8 @@ export class AcpmuxDirectClient {
     session?: string,
   ): Promise<void> {
     const sessionId = session ?? this.actingSessionId;
-    if (!sessionId) return;
+    // Nothing was sent, so the answer is refused: a card that waits on it lets the person answer again.
+    if (!sessionId) throw new Error("no chat to answer in");
     const ticket =
       optionId === undefined || answers !== undefined
         ? undefined

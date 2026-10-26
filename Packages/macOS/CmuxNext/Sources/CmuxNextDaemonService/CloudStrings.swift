@@ -3,11 +3,11 @@ import Foundation
 
 /// User-facing Cloud text. Keys live in Resources/Cloud.xcstrings (en, ja).
 public enum CloudStrings {
-    public static var localBackend: String {
+    nonisolated public static var localBackend: String {
         String(localized: "cloud.unavailable.localBackend", defaultValue: "This build has no Cloud backend. Rebuild it with ./scripts/reload.sh --tag <tag> --direct-backend.", table: "Cloud", bundle: .module)
     }
     public static var noClient: String { String(localized: "cloud.unavailable.noClient", defaultValue: "The bundled cmux-tui client is missing, so Cloud machines cannot connect.", table: "Cloud", bundle: .module) }
-    public static var signInFirst: String { String(localized: "cloud.failed.signInFirst", defaultValue: "Sign in to use Cloud machines.", table: "Cloud", bundle: .module) }
+    nonisolated public static var signInFirst: String { String(localized: "cloud.failed.signInFirst", defaultValue: "Sign in to use Cloud machines.", table: "Cloud", bundle: .module) }
     public static var noMachine: String { String(localized: "cloud.failed.noMachine", defaultValue: "No Cloud machine is selected. Right-click a machine or pass --target machine:<id>.", table: "Cloud", bundle: .module) }
     /// Why a Cloud machine needs an update, for its sidebar header and the
     /// Cloud diagnostics: the build it runs and what an update turns on.

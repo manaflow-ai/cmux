@@ -194,6 +194,7 @@ mod remote_cli_docs {
             words.as_slice(),
             ["action", "list", ..]
                 | ["action", "describe", ..]
+                | ["action", "run", ..]
                 | ["harness", "add", ..]
                 | ["harness", "secret", "set", ..]
                 | ["harness", "doctor", ..]

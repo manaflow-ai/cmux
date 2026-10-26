@@ -8,14 +8,16 @@ remote agent.
 This guide describes the cmux NEXT command surface checked on 2026-10-25.
 Use the CLI bundled with the app you are running. Available commands can differ
 between builds. See the [acpmux README](../cmux-tui/crates/acpmux/README.md) for
-harness profiles, protocol details and source-build prerequisites.
+harness profiles and protocol details, and the [cmux-tui build prerequisites](../cmux-tui/README.md#build)
+before building from source.
 
 ## Connect your own machine
 
 You need SSH access to your own Mac or Linux host, persistent storage, a
 compatible acpmux executable, and the agent harness you want to run. Authenticate
-that harness as yourself on the execution host. SSH does not forward your model
-login or GitHub credentials automatically.
+that harness as yourself on the execution host: after installing Claude Code or
+Codex, run `claude auth login` or `codex login` there. SSH does not forward your
+model login or GitHub credentials automatically.
 
 For example, a NIGHTLY installation exposes the bundled CLI in this shell with:
 
@@ -30,19 +32,28 @@ daemon over SSH and adds the peer. It copies the invoking executable: do not
 use a Mac executable to bootstrap a Linux machine.
 
 On your own Linux host, install a build for its architecture. To build from
-source with the Rust toolchain and cmux-tui prerequisites installed:
+source, install the Rust toolchain and Zig version required by the
+[cmux-tui README](../cmux-tui/README.md#build), then initialize the submodules
+before building. Install the resulting binary at `~/.local/bin/acpmux`, which
+`host doctor` checks by default:
 
 ```sh
 git clone --branch feat-cmux-next https://github.com/manaflow-ai/cmux.git
-cd cmux/cmux-tui
+cd cmux
+git submodule update --init ghostty ghostty-next
+cd cmux-tui
 cargo build --release -p acpmux
-export PATH="$PWD/target/release:$PATH"
+mkdir -p "$HOME/.local/bin"
+install -m 755 target/release/acpmux "$HOME/.local/bin/acpmux"
+export PATH="$HOME/.local/bin:$PATH"
 acpmux daemon run --listen 127.0.0.1:47811
 ```
 
 The daemon runs in the foreground. For unattended use, configure your own
 service supervisor with that executable, persistent home and harness PATH;
-verify it remains available after SSH logout. Keep the WebSocket listener on
+verify it remains available after SSH logout. Add `~/.local/bin` and the harness
+installation directory to that service's PATH as well; the shell export above
+affects only the current shell. Keep the WebSocket listener on
 loopback. The peer connection below tunnels it through SSH.
 
 Back on your Mac, use an SSH alias that reaches your own remote account:
@@ -65,6 +76,15 @@ acpmux reads the peer's authentication through SSH; you do not need to paste
 its daemon token. Peering grants access to session contents and tools, so add
 only hosts and accounts you trust.
 
+`host doctor` without `--harness` skips harness checks; a healthy peer does not
+prove that an agent can run. Its `--harness ID` option checks a named harness
+profile, not the PATH-discovered harness alone. Verify the remote harness with
+`acpmux daemon harnesses` on that host and a real session prompt.
+
+`host enroll` installs the invoking binary too. Use it only for a compatible
+remote OS and architecture. For a Linux host reached from a Mac, use the Linux
+installation and `host add` steps above instead.
+
 ## Work with a remote session
 
 Choose an existing project on the remote host. Its path must be a known local
@@ -75,12 +95,19 @@ daemon with the same home/listener. This authorizes remote access to that
 directory; choose only the project root you intend to expose.
 
 ```sh
-acpmux new --host my-linux -m codex --name api-work --cwd /home/me/project -d
+acpmux new --host my-linux -m codex --name api-work --cwd /home/me/project --tag task=api -d
 acpmux ls
 acpmux session info my-linux/api-work
 acpmux send my-linux/api-work "Summarize this project's structure."
 acpmux attach my-linux/api-work
 ```
+
+Creation labels are repeatable and are applied before the session is listed:
+`acpmux new --tag key=value` (and the same option on `run`, `exec` and `ensure`).
+If a remote policy, mode or folder check refuses a start, the JSON error's
+`error.data.try` is a complete shell-quoted command. Copy it verbatim; it keeps
+the prompt and launcher options. A `--prompt-file` is piped through stdin so
+the file does not need to exist on the remote host.
 
 Replace `codex` with an installed harness, such as `claude`. Ctrl-Q detaches
 the TUI; the agent remains on the host. You can use that TUI in a cmux terminal.
@@ -93,11 +120,35 @@ cmux agent open-tab api-work --host my-linux --focus
 
 The tab binds to the peer session mirrored by your Mac's daemon. If the name is
 ambiguous, use its session ID from `acpmux ls --json`. This does not move the
-agent. Remote sidebar group placement is a separate limitation: the checked
-launcher refuses combining `acpmux new --host` with `--group`; `agent open`
-creates workspaces for local/Chief sessions rather than performing this peer lookup.
-Opening an agent workspace may move focus; preserving focus for scripted opens
-is tracked separately from the CLI help changes.
+agent. For remote chat placement in local sidebar groups, see the
+[acpmux peer guide](../cmux-tui/crates/acpmux/README.md#peers-every-session-on-every-machine-from-one-mac).
+The generic action form also accepts the peer host:
+
+```sh
+cmux action run agent.openSessionTab --target PANE --session api-work --host my-linux
+```
+
+To create a remote chat inside a sidebar workspace group on the Mac where you
+run the command:
+
+```sh
+acpmux new --host my-linux -m codex --group "Remote demo" -d "say hi"
+```
+
+`--group` runs the local `cmux agent open` using the returned session ID. The
+workspace belongs to your Mac; the agent and its files stay on the peer. It
+joins a suitable group of that name or creates one. Opening the workspace may
+move focus.
+Use `--name api-work --reuse` to rerun a launch without creating another
+session. Without `--name`, each invocation creates a new session and row.
+
+If opening the sidebar fails, the session still runs and the warning gives a
+`cmux agent open ID --name ... --key ... --group ...` command to retry on your
+Mac. Run it with the CLI bundled with that Mac's app and the same local acpmux
+daemon that mirrors the peer. For wrappers that run acpmux **on the remote
+host**, omit `--group` there and open the returned session ID on the controller
+Mac after creation. Passing a peer name as `agent open --host` is not needed
+for an ID already mirrored locally.
 
 To end the current turn, stop the agent, or continue a saved session:
 
@@ -164,7 +215,11 @@ the current app actions; old `cmux vm` examples are not interchangeable with the
 The execution host owns the acpmux journal and the harness's native resume
 files. In the default local store, acpmux keeps session metadata and numbered
 event segments under `~/.acpmux/sessions`; an app or `ACPMUX_HOME` can select a
-different home. The checkout, harness login and native state must also remain
+different home. If you deliberately run an isolated standalone daemon from
+inside an agent session, unset the inherited `ACPMUX_SOCKET` before setting
+`ACPMUX_HOME`; otherwise commands can still target the enclosing session's
+daemon. Check `acpmux daemon status` for the actual socket and home before
+starting or stopping it. The checkout, harness login and native state must also remain
 available to resume execution.
 
 An SSH drop or app restart normally leaves remote work running. A daemon
