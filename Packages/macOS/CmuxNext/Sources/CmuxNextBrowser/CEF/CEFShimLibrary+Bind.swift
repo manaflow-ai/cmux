@@ -5,7 +5,8 @@ import Foundation
 // (`CEFShimABI`, the SHA-256 of cmux_cef_shim.h) matched, or a test's stand-in of the same C type,
 // so each cast below is that export's C type in the header. A C string argument is the
 // NUL-terminated buffer `withCString` gives for the call alone; the shim reads it during the call
-// and copies what it keeps. A returned string is the shim's own allocation, copied and then freed
+// and copies what it keeps. A byte array argument is the array's own storage for the call alone,
+// passed with its count; the shim copies the bytes before it returns. A returned string is the shim's own allocation, copied and then freed
 // once with the free function cmux_cef_shim.h names for it (`take`).
 nonisolated extension CEFShimLibrary {
     /// Every function from `r` (`open`; `resolving` and `overriding` in CEFShimLibrary+Resolver.swift).
@@ -254,6 +255,24 @@ nonisolated extension CEFShimLibrary {
         tabDiscard = r.hostExports == nil ? r.optional("cmux_shim_tab_discard") : nil
         widgets = CEFShimWidgetOps(setGeometry: r.optional("cmux_shim_widget_set_geometry"), dismiss: r.optional("cmux_shim_widget_dismiss"),
                                    sendInput: r.optional("cmux_shim_widget_send_input"))
+        dragTarget = try CEFShimDragTargetOps(r)
+        let cImeSetComposition: (@convention(c) (Int32, UnsafePointer<UInt8>?, Int32, UnsafePointer<UInt8>?, Int32, Int32, Int32, Int32,
+                                                 Int32) -> Void)? = unsafe r.optional("cmux_shim_browser_ime_set_composition")
+        let cImeCommitText: (@convention(c) (Int32, UnsafePointer<UInt8>?, Int32, Int32, Int32) -> Void)? = unsafe r.optional("cmux_shim_browser_ime_commit_text")
+        var imeSetComposition: ((Int32, [UInt8], [UInt8], Int32, Int32, Int32, Int32) -> Void)?
+        if let c = unsafe cImeSetComposition {
+            imeSetComposition = { browser, text, clauses, selectionStart, selectionEnd, replaceStart, replaceEnd in
+                unsafe c(browser, text, Int32(clamping: text.count), clauses, Int32(clamping: clauses.count), selectionStart, selectionEnd,
+                         replaceStart, replaceEnd)
+            }
+        }
+        var imeCommitText: ((Int32, [UInt8], Int32, Int32) -> Void)?
+        if let c = unsafe cImeCommitText {
+            imeCommitText = { browser, text, replaceStart, replaceEnd in unsafe c(browser, text, Int32(clamping: text.count), replaceStart, replaceEnd) }
+        }
+        textInput = CEFShimTextInputOps(setComposition: imeSetComposition, commitText: imeCommitText,
+                                        finishComposing: r.optional("cmux_shim_browser_ime_finish_composing"),
+                                        cancelComposition: r.optional("cmux_shim_browser_ime_cancel_composition"))
         let cBrowserAttachView: (@convention(c) (Int32, UnsafeMutableRawPointer?) -> Int32)? = unsafe r.optional("cmux_shim_browser_attach_view")
         if r.hostExports == nil, let c = unsafe cBrowserAttachView {  // host mode: no view pointer crosses the process
             browserAttachView = { browser, parent in unsafe c(browser, parent?.pointer) }

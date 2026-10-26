@@ -539,7 +539,8 @@ final class AppServices {
     private(set) lazy var agentHarnesses = AgentHarnessCenter(services: self)
     /// Links, files and services macOS hands cmux (default browser, ssh:, scripts).
     private(set) lazy var externalOpen = ExternalOpenController(services: self)
-    let terminalTheme = TerminalThemeSetting(backdropScope: .app)
+    private(set) lazy var terminalTheme = TerminalThemeSetting(backdropScope: .app, deadlines: mainDeadlines, appEvents: appEvents,
+                                                                      workspaceEvents: workspaceEvents)
     /// This Mac's layout templates (Save Layout as Template, New Workspace from Template).
     private(set) lazy var layoutTemplates = LayoutTemplateLibrary(repository: LayoutTemplateRepository(fileURL: environment.layoutTemplatesFile))
     /// Every daemon answers terminal color queries with the colors terminals are painted with.
@@ -551,7 +552,7 @@ final class AppServices {
     var remoteLocalhost: RemoteLocalhostService { madeRemoteLocalhost ?? RemoteLocalhostService.made(for: self) }  // on first use
     var madeRemoteLocalhost: RemoteLocalhostService?
     /// Which machines run browser tabs there, and their runtimes (cx-2cob slice 2).
-    private(set) lazy var machineBrowserHosts = MachineBrowserHosts(machines: machines) { [weak self] in self?.remoteLocalhost }
+    private(set) lazy var machineBrowserHosts = MachineBrowserHosts(machines: machines, mainWork: mainWork) { [weak self] in self?.remoteLocalhost }
     var chromiumLikelyObservations: [Task<Void, Never>] = []
     var lifetimeFollowers: [AnyObject] = []  // the launch's app-lifetime followers (scheduled observations, subscriptions)
     /// Follows the default engine for the pages spare window (`startChromiumWarmup`, feature `pagesSpareWindow`).

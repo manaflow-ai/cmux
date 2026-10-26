@@ -1,5 +1,6 @@
 import CmuxNextControl
 import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 
 /// Verification of the server reach on the debug socket.
@@ -19,7 +20,7 @@ enum ServerReachControl {
             .async("debug.server_reach") { [weak services] call in
                 guard let services else { throw ControlError(code: "unavailable", message: "no services") }
                 if call.params["refresh"]?.boolValue == true { await reach(services).read() }
-                return await MainActor.run { report(services) }
+                return await report(services, owner: "ServerReachControl.report")
             }.withDeadline(.fixed(.seconds(40))),
         ]
         guard ControlService.isDebugBuild else { return methods }
@@ -55,7 +56,7 @@ enum ServerReachControl {
                 out["revoke"] = try await owner(services, "v1/ops", ["op": "server.revoke", "origin": "user", "idempotency_key": "test-server-revoke-\(host)",
                                                                      "params": ["host": host]])
                 await reach(services).read()
-                out["servers"] = await MainActor.run { report(services) }
+                out["servers"] = await report(services, owner: "ServerReachControl.cleanup")
                 return .object(out)
             }.withDeadline(.fixed(.seconds(60))),
         ]
@@ -81,6 +82,11 @@ enum ServerReachControl {
         } catch {
             throw ControlError(code: "owner.unreachable", message: String(describing: error))
         }
+    }
+
+    /// ``report(_:)`` as one automation task on the app's scheduler: a socket caller asked for it.
+    nonisolated private static func report(_ services: AppServices, owner: String) async -> JSONValue {
+        await services.mainWork.apply(.automation, owner: owner) { report(services) }
     }
 
     @MainActor
