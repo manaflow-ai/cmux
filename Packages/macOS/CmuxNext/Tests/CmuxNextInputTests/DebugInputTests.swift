@@ -7,7 +7,8 @@ import Testing
 
 /// `debug.input` (p04-input-007): a read with every producer present decodes every section key into its
 /// shape, a section without a producer is listed under `absent`, `reset` reaches every source and
-/// recorder, a recorder that has not landed answers `unavailable`, and the params parse strictly.
+/// recorder, a recorder that has not landed answers `unavailable`, the latency section is a real
+/// `InputLatencyReporter`'s ledger, and the params parse strictly (a key the action does not take fails).
 @MainActor @Suite
 struct DebugInputTests {
     /// The names `reset` reached, in order.
@@ -56,12 +57,16 @@ struct DebugInputTests {
     static let pump = DebugInputPump(passesWhileInputPending: ["terminal": 0, "chromiumPage": 4], deferredForInput: 9,
                                      passMillisecondsP99: 1.5)
 
-    static func latency() -> InputLatencySnapshot {
+    static func latencyBatch() -> InputLatencyBatch {
         var slot = InputLatencySlot(kind: .keyPress, target: .terminal, entrypoint: .person, causedFrameUpdate: true)
         slot.generated = 1_000_000
         slot.presented = 7_000_000
+        return InputLatencyBatch(slots: [slot], vsyncNanos: 16_666_667)
+    }
+
+    static func latency() -> InputLatencySnapshot {
         var ledger = InputLatencyLedger()
-        ledger.fold(InputLatencyBatch(slots: [slot], vsyncNanos: 16_666_667))
+        ledger.fold(latencyBatch())
         return ledger.snapshot
     }
 
@@ -131,7 +136,7 @@ struct DebugInputTests {
         #expect(Set(gate.keys) == ["held_by_origin", "exempt_by_rule", "max_input_wait_behind_jobs_ms",
                                    "jobs_deferred_over_one_frame", "nonswift_blocks_while_input_pending"])
         let held = try #require(gate["held_by_origin"] as? [String: Any])
-        #expect(Set(held.keys) == ["main", "off_main"])
+        #expect(Set(held.keys) == ["main", "offMain"], "p04-input.md task 007 and DC10 name it offMain")
         let pump = try Self.object(JSONValue.parse(JSONEncoder().encode(Self.pump)))
         #expect(Set(pump.keys) == ["passes_while_input_pending", "deferred_for_input", "pass_ms_p99"])
         let tap = try Self.object(JSONValue.parse(JSONEncoder().encode(InputTapDebugSource.snapshot(InputEventTap()))))
@@ -152,6 +157,28 @@ struct DebugInputTests {
         let debugInput = DebugInput(sources: Self.everySource(tap: InputEventTap(), resets: Resets()))
         let reply = try await debugInput.reply(to: DebugInput.Request(params: ["sections": .array([.string("gate"), .string("pump")])]))
         #expect(Set(try Self.object(reply).keys) == ["gate", "pump", "absent"])
+    }
+
+    // MARK: latency
+
+    @Test func theLatencySectionIsTheReportersLedgerAndResetEmptiesIt() async throws {
+        let reporter = InputLatencyReporter()
+        let reader = Task.detached(priority: .utility) { await reporter.run() }
+        let debugInput = DebugInput(sources: [reporter])
+        reporter.submit(Self.latencyBatch())
+
+        let reply = try await debugInput.reply(to: .read([.latency]))
+        #expect(reply["absent"] == .array([]))
+        #expect(try Self.decode(InputLatencySnapshot.self, reply["latency"]) == Self.latency())
+
+        let reset = try await debugInput.reply(to: DebugInput.Request(params: ["action": .string("reset")]))
+        #expect(reset["reset"] == .array([.string("latency")]))
+        let after = try await debugInput.reply(to: .read([.latency]))
+        let empty = try Self.decode(InputLatencySnapshot.self, after["latency"])
+        #expect(empty == InputLatencyLedger().snapshot)
+        #expect(empty.rows.isEmpty)
+        reporter.finish()
+        await reader.value
     }
 
     // MARK: reset and recorders
@@ -199,6 +226,12 @@ struct DebugInputTests {
             ["sections": .string("gate")],
             ["sections": .array([.string("nope")])],
             ["action": .string("hops"), "since_launch": .string("yes")],
+            ["action": .string("hops"), "sinceLaunch": .bool(true)],
+            ["action": .string("hops"), "since-launch": .bool(true)],
+            ["action": .string("reset"), "sections": .array([.string("gate")])],
+            ["action": .string("read"), "since_launch": .bool(true)],
+            ["sections": .array([.string("gate")]), "verbose": .bool(true)],
+            ["action": .string("dirty"), "sections": .array([.string("gate")])],
         ]
         for params in invalid {
             do {

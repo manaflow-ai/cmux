@@ -96,8 +96,9 @@ extension DebugInput {
 
         /// Parses `params` (``DebugInput``'s list).
         ///
-        /// - Throws: ``ControlError/invalidParams(_:data:)`` for an unknown action or section, or a
-        ///   param of the wrong type.
+        /// - Throws: ``ControlError/invalidParams(_:data:)`` for an unknown action or section, a
+        ///   param of the wrong type, or a param the action does not take (`sections` is for `read`
+        ///   only, `since_launch` for the recorders only).
         public init(params: [String: JSONValue]) throws(ControlError) {
             let action: String
             switch params["action"] {
@@ -107,14 +108,17 @@ extension DebugInput {
             }
             switch action {
             case "read":
+                try Self.requireOnly(["action", "sections"], in: params, action: action)
                 self = .read(try Self.sections(params["sections"]))
             case "reset":
+                try Self.requireOnly(["action"], in: params, action: action)
                 self = .reset
             default:
                 guard let kind = DebugInputRecorderKind(rawValue: action) else {
                     let actions = ["read", "reset"] + DebugInputRecorderKind.allCases.map(\.rawValue)
                     throw Self.invalid("action must be one of \(actions.joined(separator: ", "))")
                 }
+                try Self.requireOnly(["action", "since_launch"], in: params, action: action)
                 let sinceLaunch: Bool
                 switch params["since_launch"] {
                 case nil, .null?: sinceLaunch = false
@@ -140,6 +144,15 @@ extension DebugInput {
                 return sections
             default:
                 throw invalid("sections must be an array of section names")
+            }
+        }
+
+        /// Refuses a param `action` does not take, so a misspelled key (`sinceLaunch`) fails instead
+        /// of being dropped.
+        private static func requireOnly(_ allowed: Set<String>, in params: [String: JSONValue], action: String) throws(ControlError) {
+            let unknown = params.keys.filter { !allowed.contains($0) }.sorted()
+            guard unknown.isEmpty else {
+                throw invalid("\(action) takes only \(allowed.sorted().joined(separator: ", ")); got \(unknown.joined(separator: ", "))")
             }
         }
 

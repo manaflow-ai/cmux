@@ -4,7 +4,8 @@
 
 /// `debug.input` section `gate`: the main-thread job gate (p04-input.md tasks 021, 076; DC2, DC10).
 public nonisolated struct DebugInputGate: Sendable, Equatable, Codable {
-    /// Jobs held while input was pending or dispatching, by where they were enqueued.
+    /// Jobs held while input was pending or dispatching, by where they were enqueued. The keys are
+    /// `main` and `offMain`, the names p04-input.md task 007 and DC10 fix.
     public nonisolated struct HeldByOrigin: Sendable, Equatable, Codable {
         /// Enqueued on the main thread.
         public var main: UInt64
@@ -14,11 +15,6 @@ public nonisolated struct DebugInputGate: Sendable, Equatable, Codable {
         public init(main: UInt64, offMain: UInt64) {
             self.main = main
             self.offMain = offMain
-        }
-
-        private enum CodingKeys: String, CodingKey {
-            case main
-            case offMain = "off_main"
         }
     }
 
