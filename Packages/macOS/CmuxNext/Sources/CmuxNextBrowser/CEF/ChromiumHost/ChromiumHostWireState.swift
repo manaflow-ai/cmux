@@ -38,7 +38,8 @@ nonisolated final class ChromiumHostWireState: Sendable {
             guard wire.outbox.push(frame) else { return false }
             if holdsLaterWheels { wire.outbox.holdWheelsUntilAck() }
             // Armed: the socket is full and the writable source flushes, in order.
-            return wire.writableArmed || flushLocked(&wire)
+            if wire.writableArmed { return true }
+            return flushLocked(&wire)
         }
         guard let sent else { return false }
         if !sent { fail() }
@@ -50,7 +51,8 @@ nonisolated final class ChromiumHostWireState: Sendable {
         let flushed = wire.withLock { wire -> Bool in
             guard wire.writeFD >= 0 else { return true }
             guard wire.outbox.wheelAcknowledged() else { return false }
-            return wire.writableArmed || flushLocked(&wire)
+            if wire.writableArmed { return true }
+            return flushLocked(&wire)
         }
         if !flushed { fail() }
     }
@@ -99,6 +101,7 @@ nonisolated final class ChromiumHostWireState: Sendable {
     }
 
     private static func write(_ fd: Int32, _ bytes: UnsafeRawBufferPointer) -> ChromiumHostInputOutbox.WriteOutcome {
+        // blocking-allow: the descriptor is O_NONBLOCK (init): a full socket returns EAGAIN, never waits
         let written = Darwin.write(fd, bytes.baseAddress, bytes.count)
         if written >= 0 { return .wrote(written) }
         switch errno {

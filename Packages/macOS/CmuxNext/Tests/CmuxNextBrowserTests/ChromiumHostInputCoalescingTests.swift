@@ -206,12 +206,19 @@ import Testing
     @Test func aMoveFloodWithAStoppedReaderKeepsTheConnectionAndTheOrder() throws {
         let wire = try Wire()
         defer { wire.close() }
-        // Ten seconds of a 1000 Hz pointer (t0 one millisecond apart) while the host reads nothing.
-        let flood = 10_000
-        for x in 0..<flood {
+        // A 1000 Hz pointer (t0 one millisecond apart) while the host reads nothing: moves fill the
+        // socket, then ten more seconds of them wait in the outbox.
+        var flood = 0
+        while flood < 100_000, !wire.connection.backlog.writableArmed {
+            #expect(wire.connection.send(Self.move(Int32(flood))))
+            flood += 1
+        }
+        try #require(wire.connection.backlog.writableArmed)
+        for x in flood..<(flood + 10_000) {
             #expect(wire.connection.send(Self.move(Int32(x))))
             #expect(wire.connection.backlog.coalescible <= 1)
         }
+        flood += 10_000
         #expect(!wire.connection.endedByProtocolError)
         #expect(wire.connection.backlog.writableArmed)
         // Keys and moves interleaved while the socket stays full: none folds across a key.
