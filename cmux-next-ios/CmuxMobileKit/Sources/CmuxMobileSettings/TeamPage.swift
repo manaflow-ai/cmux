@@ -249,7 +249,11 @@ struct TeamPage: View {
                     .accessibilityIdentifier("team.delete")
                 }
             } footer: {
-                Text("Deleting a team removes it for every member.").cmuxMobileTextColumn()
+                if detail.canDelete, detail.billing?.hasActiveSubscription == true {
+                    Text("This team has an active subscription. Cancel it on cmux.com before deleting the team.").cmuxMobileTextColumn()
+                } else {
+                    Text("Deleting a team removes it for every member.").cmuxMobileTextColumn()
+                }
             }
         } else if let detail, detail.role == .member {
             Section {

@@ -1,4 +1,5 @@
 import Foundation
+import Observation
 
 /// The signed-in account's role in a team, as the cmux team API reports it.
 public enum TeamRole: String, Codable, Hashable, Sendable {
