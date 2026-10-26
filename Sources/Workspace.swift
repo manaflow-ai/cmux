@@ -4672,6 +4672,7 @@ final class Workspace: Identifiable, ObservableObject, FilePreviewTabMetadataHos
     /// finished. It never publishes this workspace.
     func handleSharedLiveAgentIndexChange(userInfo: [AnyHashable: Any]?) {
         guard !isRetiredFromOwningTabManager else { return }
+        objectWillChange.send()
         if let index = SharedLiveAgentIndex.shared.index {
             let completedPanelIds: [UUID]
             if let panelIdsByWorkspaceId = userInfo?["panelIdsByWorkspaceId"] as? [UUID: Set<UUID>] {
