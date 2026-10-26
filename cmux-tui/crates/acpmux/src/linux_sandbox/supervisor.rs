@@ -370,8 +370,12 @@ fn arguments(data: &seccomp_data) -> Result<(i32, u64, i32, u32)> {
     Err(EACCES)
 }
 
-fn valid_errno(_errno: i32) -> Result<bool> {
-    Ok(false)
+fn valid_errno(errno: i32) -> Result<bool> {
+    match errno {
+        EINTR => Ok(true),
+        ENOENT => Ok(false),
+        _ => Err(EACCES),
+    }
 }
 
 /// Checks the notification id, retrying EINTR until the stop fd is readable.
@@ -398,36 +402,146 @@ fn valid(fd: RawFd, id: &u64, stop: RawFd) -> Result<bool> {
     }
 }
 
-fn reject_write_device(_mode: mode_t, _rdev: dev_t) -> Result<()> {
-    Ok(())
+fn reject_write_device(mode: mode_t, rdev: dev_t) -> Result<()> {
+    match mode & S_IFMT {
+        S_IFREG | S_IFIFO => Ok(()),
+        S_IFDIR => Err(EISDIR),
+        S_IFLNK => Err(ELOOP),
+        S_IFCHR if [3, 5, 7, 8, 9].iter().any(|minor| rdev == makedev(1, *minor)) => Ok(()),
+        _ => Err(EACCES),
+    }
 }
 
-fn open_mode(_mode: u32, _mask: u32) -> u32 {
-    0
+fn open_mode(mode: u32, _mask: u32) -> u32 {
+    mode
 }
 
 /// Pins and inspects the inode actually reopened. A competing creator gets
 /// one retry (two attempts total), then EAGAIN. The test hook models a leaf
 /// replacement after inspection; it cannot redirect the pinned proc-fd reopen.
 fn open_leaf(
-    _resolved: &Resolved,
-    _flags: i32,
-    _mode: u32,
-    _after_inspect: impl FnOnce(),
+    resolved: &Resolved,
+    flags: i32,
+    mode: u32,
+    after_inspect: impl FnOnce(),
 ) -> Result<(OwnedFd, bool)> {
-    Err(EACCES)
+    let mut hook = Some(after_inspect);
+    for attempt in 0..2 {
+        let pin = match resolved.object.as_ref() {
+            Some(object) => object.try_clone().map_err(|_| EACCES),
+            None => open_at(resolved.parent.as_raw_fd(), &resolved.name, O_PATH | O_NOFOLLOW, 0),
+        };
+        match pin {
+            Ok(pin) => {
+                if flags & (O_CREAT | O_EXCL) == (O_CREAT | O_EXCL) {
+                    return Err(EEXIST);
+                }
+                let info = stat(pin.as_raw_fd())?;
+                let tmpfile = flags & O_TMPFILE == O_TMPFILE;
+                if !tmpfile || info.st_mode & S_IFMT != S_IFDIR {
+                    reject_write_device(info.st_mode, info.st_rdev)?;
+                }
+                if let Some(hook) = hook.take() {
+                    hook();
+                }
+                // The pinned inode, never the mutable leaf name, is reopened.
+                // O_EXCL has independent meaning for anonymous O_TMPFILE files.
+                let acquired = (flags & !(O_CREAT | O_NOFOLLOW | if tmpfile { 0 } else { O_EXCL }))
+                    | O_NONBLOCK
+                    | O_NOCTTY;
+                let suffix = if resolved.directory_required { "/" } else { "" };
+                let opened = open_at(
+                    AT_FDCWD,
+                    &format!("/proc/self/fd/{}{suffix}", pin.as_raw_fd()),
+                    acquired,
+                    mode,
+                )?;
+                return Ok((opened, false));
+            }
+            Err(ENOENT) if attempt != 0 => return Err(EAGAIN),
+            Err(ENOENT) if flags & O_CREAT != 0 => {
+                if let Some(hook) = hook.take() {
+                    hook();
+                }
+                match open_at(
+                    resolved.parent.as_raw_fd(),
+                    &resolved.name,
+                    flags | O_CREAT | O_EXCL | O_NOFOLLOW | O_NONBLOCK | O_NOCTTY,
+                    mode,
+                ) {
+                    Ok(opened) => return Ok((opened, true)),
+                    Err(EEXIST) if flags & O_EXCL == 0 => {}
+                    Err(errno) => return Err(errno),
+                }
+            }
+            Err(errno) => return Err(errno),
+        }
+    }
+    Err(EAGAIN)
 }
 
 // Called under both transaction locks; never remove a replacement inode.
-fn rollback_created(_resolved: &Resolved, _opened: &OwnedFd) {}
+fn rollback_created(resolved: &Resolved, opened: &OwnedFd) {
+    let Ok(info) = stat(opened.as_raw_fd()) else { return };
+    let Ok(name) = CString::new(resolved.name.as_str()) else { return };
+    let mut current: stat = unsafe { std::mem::zeroed() };
+    if unsafe {
+        fstatat(resolved.parent.as_raw_fd(), name.as_ptr(), &mut current, AT_SYMLINK_NOFOLLOW)
+    } == 0
+        && (current.st_dev, current.st_ino) == (info.st_dev, info.st_ino)
+    {
+        unsafe {
+            unlinkat(resolved.parent.as_raw_fd(), name.as_ptr(), 0);
+        }
+    }
+}
 
-fn emulate(
-    _fd: RawFd,
-    _request: &seccomp_notif,
-    _policy: &WritePolicy,
-    _stop: RawFd,
-) -> Result<()> {
-    Err(EACCES)
+fn emulate(fd: RawFd, request: &seccomp_notif, policy: &WritePolicy, stop: RawFd) -> Result<()> {
+    let (dir, address, flags, mode) = arguments(&request.data)?;
+    // Pin this task's proc directory before copying memory; PID reuse cannot
+    // redirect later root/cwd/fd/status lookups to another process.
+    let task = open_at(AT_FDCWD, &format!("/proc/{}", request.pid), O_PATH | O_DIRECTORY, 0)
+        .map_err(|_| EACCES)?;
+    let path = copy_path(request.pid, address);
+    if !valid(fd, &request.id, stop)? {
+        return Ok(());
+    }
+    let path = path?;
+    let status = std::fs::read_to_string(format!("/proc/self/fd/{}/status", task.as_raw_fd()))
+        .map_err(|_| EACCES)?;
+    let field = |name: &str| status.lines().find_map(|line| line.strip_prefix(name));
+    let mask = u32::from_str_radix(field("Umask:").ok_or(EACCES)?.trim(), 8).map_err(|_| EACCES)?;
+    let nspid = field("NSpid:").and_then(|p| p.split_whitespace().last()).ok_or(EACCES)?;
+    let mut resolved = resolve(task.as_raw_fd(), dir, &path, flags, nspid)?;
+    if resolved.directory_required {
+        resolved.name.push('/');
+    }
+    policy.check(Path::new(&resolved.logical)).map_err(|_| EACCES)?;
+    if !valid(fd, &request.id, stop)? {
+        return Ok(());
+    }
+    let previous_umask = unsafe { umask(mask as mode_t) };
+    let opened_result = open_leaf(&resolved, flags, open_mode(mode, mask), || {});
+    unsafe { umask(previous_umask) };
+    let (opened, created) = opened_result?;
+    let delivery = (|| {
+        if flags & (O_NONBLOCK | O_PATH) == 0 {
+            let current = checked(unsafe { fcntl(opened.as_raw_fd(), F_GETFL) })?;
+            checked(unsafe { fcntl(opened.as_raw_fd(), F_SETFL, current & !O_NONBLOCK) })?;
+        }
+        let add = seccomp_notif_addfd {
+            id: request.id,
+            flags: SECCOMP_ADDFD_FLAG_SEND as u32,
+            srcfd: opened.as_raw_fd() as u32,
+            newfd: 0,
+            newfd_flags: (flags & O_CLOEXEC) as u32,
+        };
+        checked(unsafe { ioctl(fd, SECCOMP_IOCTL_NOTIF_ADDFD, &add) }).map(|_| ())
+    })();
+    if delivery.is_err() && created {
+        rollback_created(&resolved, &opened);
+    }
+    delivery
 }
 
 /// E1b owns the notification loop. E1a keeps the resolver callable and
