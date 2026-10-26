@@ -165,10 +165,12 @@ public final class DeviceHubSocket: Sendable {
     }
 
     private func ping(_ connection: any DeviceHubSocketConnection) async throws {
-        // wakeup-allow: PROTOCOL.md's keepalive; the server answers without waking its object.
+        // A keepalive has no exact due time: it sleeps with WakeLeeway's tolerance for the interval.
+        let tolerance = WakeLeeway.window(delay: pingInterval).tolerance
+        // wakeup-allow: periodic DeviceHubSocket.ping (PROTOCOL.md's keepalive; the server answers without waking its object)
         while !Task.isCancelled {
             // poll-allow: a keepalive is due every interval by protocol; it waits for no condition, so no event exists.
-            try await clock.sleep(for: pingInterval) // wakeup-allow: the ping interval (PROTOCOL.md keepalive)
+            try await clock.sleep(for: pingInterval, tolerance: tolerance) // wakeup-allow: periodic DeviceHubSocket.ping
             try await connection.send(#"{"type":"ping"}"#)
         }
     }

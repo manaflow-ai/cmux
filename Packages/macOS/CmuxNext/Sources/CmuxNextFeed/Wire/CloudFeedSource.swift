@@ -32,6 +32,8 @@ public final class CloudFeedSource: FeedSource {
     /// Bumped by every start, stop and reset: a finishing older connection never touches newer state.
     private var generation = 0
     private var probe: Task<Void, Never>?
+    /// How long ``checkAlive()`` waits for the pong; a flexible deadline (WakeLeeway: 1 s leeway).
+    private static let pongLimit: Duration = .seconds(10)
     private var stream = ""
     private var connected = false
     private var active = false
@@ -103,8 +105,8 @@ public final class CloudFeedSource: FeedSource {
         }
         // task-owner: CloudFeedSource.probe, one-shot pong deadline, cancelled by the next probe or stop.
         probe = Task {
-            // wakeup-allow: one-shot 10 s pong deadline after a wake, network change or send; not periodic.
-            try? await ContinuousClock().sleep(for: .seconds(10))
+            // wakeup-allow: deadline one-shot 10 s pong deadline after a wake, network change or send; not periodic.
+            try? await ContinuousClock().sleep(for: Self.pongLimit, tolerance: WakeLeeway.window(delay: Self.pongLimit).tolerance)
             if !Task.isCancelled, !answered.done, generation == self.generation { socket.cancel(with: .goingAway, reason: nil) }
         }
     }

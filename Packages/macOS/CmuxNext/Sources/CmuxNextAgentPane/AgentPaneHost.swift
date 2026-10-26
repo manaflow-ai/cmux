@@ -1,5 +1,6 @@
 public import CmuxNextDesign
 public import Foundation
+import CmuxNextWakeups
 import os
 
 /// Produces the handshake for a pane. The App picks the live acpmux host or
@@ -231,7 +232,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     /// accepted end before its first frame.)
     private static func verifiedEndpoint(_ environment: AcpmuxEnvironment) async throws -> AcpmuxWebEndpoint {
         let deadline = ContinuousClock.now + .seconds(3)
-        var delay: Duration = .milliseconds(100)
+        var backoff = socketRetryBackoff
         // wakeup-allow: bounded retry while the daemon recreates its Unix socket; this exits at the deadline or on any non-transient refusal.
         while true {
             do {
@@ -240,10 +241,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
                                                              allowForeign: true, deadline: .seconds(2))
                 return try AcpmuxStatus(result).endpoint()
             } catch let refusal as AcpmuxServerPeer.Refusal where refusal.isTransientRestart && ContinuousClock.now < deadline {
-                let remaining = deadline - ContinuousClock.now
-                // wakeup-allow: bounded backoff for the transient socket handoff; the deadline limits this sleep to three seconds.
-                try await Task.sleep(for: min(delay, remaining))
-                delay = min(delay * 2, .milliseconds(500))
+                try await socketRetryWait(&backoff, until: deadline)
             }
         }
     }
@@ -302,15 +300,13 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     /// its socket is still being bound, as ``verifiedEndpoint(_:)`` does. Nil when none answers.
     private static func startedStatus(_ environment: AcpmuxEnvironment) async -> AcpmuxStatus? {
         let deadline = ContinuousClock.now + .seconds(3)
-        var delay: Duration = .milliseconds(100)
+        var backoff = socketRetryBackoff
         // wakeup-allow: bounded retry while the started daemon binds its Unix socket; this exits at the deadline or on any other failure.
         while true {
             do {
                 return try await AcpmuxStatusClient.status(socketPath: environment.socketPath)
             } catch AcpmuxStatusClient.Failure.unreachable where ContinuousClock.now < deadline {
-                // wakeup-allow: bounded backoff for the socket bind; the deadline limits this sleep to three seconds.
-                do { try await Task.sleep(for: min(delay, deadline - ContinuousClock.now)) } catch { return nil }
-                delay = min(delay * 2, .milliseconds(500))
+                do { try await socketRetryWait(&backoff, until: deadline) } catch { return nil }
             } catch {
                 logger.error("acpmux status after a start failed error=\(String(describing: error), privacy: .public)")
                 return nil

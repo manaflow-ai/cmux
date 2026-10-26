@@ -1,5 +1,6 @@
 import CryptoKit
 public import Foundation
+import CmuxNextWakeups
 
 /// Polls GitHub and posts integration items into the existing local feed owner.
 /// ETags and the detail cache are client state; item lifecycle, dedupe, and
@@ -14,6 +15,10 @@ public final class GitHubFeedSource: GitHubFeedDetailProviding {
     private var interval: Duration
     private let now: @MainActor () -> Date
     private var runner: Task<Void, Never>?
+    /// The next refresh, one deadline at a time: set after each refresh finishes.
+    private let nextRefresh: DemandTimer
+    /// Bumped by every start and stop: a refresh that finishes after either schedules nothing.
+    private var pollGeneration = 0
     private var isRefreshing = false
     private var notificationETag: String?
     private var reviewETag: String?
@@ -25,12 +30,14 @@ public final class GitHubFeedSource: GitHubFeedDetailProviding {
         owner: any FeedPostingSource,
         client: any GitHubFeedAPI = GitHubCLIClient(),
         interval: Duration = GitHubFeedSource.defaultInterval,
-        now: @escaping @MainActor () -> Date = { Date() }
+        now: @escaping @MainActor () -> Date = { Date() },
+        clock: any Clock<Duration> = ContinuousClock()
     ) {
         self.owner = owner
         self.client = client
         self.interval = interval
         self.now = now
+        nextRefresh = DemandTimer(owner: "GitHubFeedSource.refresh", clock: clock)
     }
 
     /// Looks up a detail by a provisional or owner-assigned feed id.
@@ -51,21 +58,24 @@ public final class GitHubFeedSource: GitHubFeedDetailProviding {
 
     public func start() {
         stop()
-        runner = Task { @MainActor [weak self] in
-            guard let self else { return }
-            await refresh()
-            // wakeup-allow: periodic GitHub refresh; each pass awaits the configured interval and can be cancelled.
-            while !Task.isCancelled {
-                // wakeup-allow: the next refresh is a cancellable periodic deadline, not a busy wait.
-                do { try await Task.sleep(for: interval) } catch { return }
-                await refresh()
-            }
-        }
+        let generation = pollGeneration
+        runner = Task { @MainActor [weak self] in await self?.poll(generation) }
     }
 
     public func stop() {
+        pollGeneration += 1
         runner?.cancel()
         runner = nil
+        nextRefresh.cancel()
+    }
+
+    /// One refresh, then the next one's deadline ``interval`` after it, while the poll that
+    /// ``start()`` began as `generation` still runs.
+    private func poll(_ generation: Int) async {
+        await refresh()
+        guard generation == pollGeneration else { return }
+        // wakeup-allow: periodic GitHubFeedSource.refresh (GitHub has no push for the feed; task 066b moves it to NSBackgroundActivityScheduler)
+        nextRefresh.schedule(after: interval) { @MainActor [weak self] in await self?.poll(generation) }
     }
 
     /// Clears client-only detail when the signed-in account changes.

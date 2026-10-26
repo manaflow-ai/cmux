@@ -116,7 +116,8 @@ public nonisolated struct AgentPaneProcessExit: Sendable {
 
     private final class Once: Sendable {
         let done = Mutex(false)
-        let deadline = Mutex<Task<Void, Never>?>(nil)
+        /// The wait's bounded deadline (rare: one per handoff); cancelled at the exit event.
+        let deadline = DemandTimer(owner: "agent-pane.process-exit")
         func first() -> Bool {
             done.withLock { flag in
                 defer { flag = true }
@@ -135,17 +136,11 @@ public nonisolated struct AgentPaneProcessExit: Sendable {
             let finish: @Sendable (Bool) -> Void = { exited in
                 guard once.first() else { return }
                 source.cancel()
-                once.deadline.withLock { $0?.cancel() }
+                once.deadline.cancel()
                 continuation.resume(returning: exited)
             }
             if let timeout {
-                // task-owner: the bounded deadline of this one wait; cancelled when the exit arrives
-                let timer = Task {
-                    // wakeup-allow: one bounded deadline per handoff (rare); cancelled at the exit event
-                    try? await Task.sleep(for: timeout)
-                    if !Task.isCancelled { finish(false) }
-                }
-                once.deadline.withLock { $0 = timer }
+                once.deadline.schedule(after: timeout) { finish(false) }
             }
             source.setEventHandler { finish(true) }
             source.resume()
