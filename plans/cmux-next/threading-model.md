@@ -14,10 +14,15 @@ How it is enforced:
   (a process spawn: screen.close stalled main 807 ms on one, 2026-10-24), `blockingXPCSendWithReply`, and a contended
   `Mutex` wait over 2 ms); code that calls them is checked, and slice (c) moves the raw calls onto them (see
   the next item). On the main thread outside `allowBlocking(<reason>)` a seam call is a violation, recorded once
-  per call site (`#fileID:#line`; two seam calls on one line share a site). Debug: one unified-log line per call site
-  (`log stream --predicate 'category == "blocking"'`), the Debug menu's "Main-Thread Blocking (N)" and the
-  `debug.blocking` socket command; launch with `CMUX_BLOCKING_TRAP=1` to stop at the call (a contended `Mutex`
-  wait is always recorded only: it is measured on the wall clock). Bench builds (`reload.sh --config bench`,
+  per call site (`#fileID:#line`; two seam calls on one line share a site). Debug records during the push
+  (p02-threads-006; p02-threads-021 flips main and pool to trap after the sweep): each new site logs one
+  unified-log fault (`log stream --predicate 'category == "blocking"'`; a fault stays in the persistent log), and
+  the Debug menu's "Main-Thread Blocking (N)" shows a badge with the number of sites added since its submenu was
+  last opened; the `debug.blocking` socket command lists them. The mode is read once, when the table is made
+  (`BlockingMode.resolved(environment:)`); launch with `CMUX_BLOCKING_TRAP=1` to stop at the call (a contended
+  `Mutex` wait is always recorded only: it is measured on the wall clock). A seam call on main is always a new
+  bug: move it onto `work.run(_, mayBlock:)` or resolve its answer before the input's turn (the terminal
+  identity's terminfo check is one launch read on the files lane, awaited where a terminal's env is built). Bench builds (`reload.sh --config bench`,
   `-DCMUX_BLOCKING_CHECKS`): recorded for `debug.blocking`, never a trap. Nightly: to come with the
   `nightly.yml` flag and PL-telemetry's hang-report sink (kind + image UUID + offset frames only, no paths or
   names); it will never trap and has no log or menu. Release: compiled out. Debug records on the main thread and

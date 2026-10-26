@@ -90,8 +90,8 @@ final class BlockingViolationTable: Sendable {
     /// Makes a table.
     ///
     /// - Parameters:
-    ///   - environment: Read for `CMUX_BLOCKING_TRAP=1` and `CMUX_BLOCKING_TRAP_POOL=1` (Debug builds only: every
-    ///     other build records).
+    ///   - environment: Read once, here, for `CMUX_BLOCKING_TRAP=1` (``BlockingMode/resolved(environment:)``) and
+    ///     `CMUX_BLOCKING_TRAP_POOL=1` (Debug builds only: every other build records).
     ///   - mode: A test's main-thread mode; nil reads `environment`.
     ///   - poolMode: A test's pool mode; nil reads `environment`.
     ///   - lockWaitLimitNanos: The longest main-thread ``Mutex`` wait that is not a violation.
@@ -103,11 +103,11 @@ final class BlockingViolationTable: Sendable {
          uptimeNanos: @escaping @Sendable () -> UInt64 = { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) },
          startsDrain: Bool = true) {
         #if DEBUG
-        self.mode = mode ?? (environment["CMUX_BLOCKING_TRAP"] == "1" ? .trap : .record)
+        self.mode = mode ?? BlockingMode.resolved(environment: environment)
         self.poolMode = poolMode ?? (environment["CMUX_BLOCKING_TRAP_POOL"] == "1" ? .trap : .record)
         #else
         // A bench (and, to come, a Nightly) never stops the app, whatever it was asked.
-        self.mode = .record
+        self.mode = BlockingMode.resolved(environment: environment)
         self.poolMode = .record
         #endif
         self.lockWaitLimitNanos = lockWaitLimitNanos
@@ -335,13 +335,15 @@ final class BlockingViolationTable: Sendable {
                                         seamKind: pending.seamKind, location: location))
             }
             #if DEBUG
+            // A fault, not an error: a new site is a bug to fix (p02-threads-006), and a fault is kept in the
+            // persistent log and shown by `log show` without --info or --debug.
             switch context {
             case .pool:
-                logger.error("blocking \(pending.kind.rawValue, privacy: .public) on the cooperative pool or a GCD root queue at \(location, privacy: .public): run it on a BackgroundWork lane (plans/cmux-next/threading-model.md)")
+                logger.fault("blocking \(pending.kind.rawValue, privacy: .public) on the cooperative pool or a GCD root queue at \(location, privacy: .public): run it on a BackgroundWork lane (plans/cmux-next/threading-model.md)")
             case .cpuLane:
-                logger.error("blocking \(pending.seamKind.rawValue, privacy: .public) in a .cpu lane item at \(location, privacy: .public): the .cpu lane is sized to the cores and must not block; run the item on \(Self.mayBlockLane(for: pending.seamKind), privacy: .public) (plans/cmux-next/threading-model.md)")
+                logger.fault("blocking \(pending.seamKind.rawValue, privacy: .public) in a .cpu lane item at \(location, privacy: .public): the .cpu lane is sized to the cores and must not block; run the item on \(Self.mayBlockLane(for: pending.seamKind), privacy: .public) (plans/cmux-next/threading-model.md)")
             case .main, .lane, .dedicated:
-                logger.error("blocking \(pending.kind.rawValue, privacy: .public) on the main thread at \(location, privacy: .public): move it off the main thread, or wrap it in allowBlocking(<reviewed reason>) (plans/cmux-next/threading-model.md)")
+                logger.fault("blocking \(pending.kind.rawValue, privacy: .public) on the main thread at \(location, privacy: .public): move it off the main thread, or wrap it in allowBlocking(<reviewed reason>) (plans/cmux-next/threading-model.md)")
             }
             #endif
             guard let sink = sink.withLock({ $0 }) else { continue }
