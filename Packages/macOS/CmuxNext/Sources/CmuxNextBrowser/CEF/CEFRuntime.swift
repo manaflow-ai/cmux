@@ -534,6 +534,16 @@ final class CEFRuntime {
         return host
     }
 
+    /// `host`'s last tab left: it goes from the routing table, as Chromium closes a `Browser` whose
+    /// tab strip emptied (chrome/browser/ui/browser.cc, `Browser::TabStripEmpty`). A page key
+    /// (`cmux-page-<UUID>`) is never asked for again, and a pane's next tab gets a new host. An
+    /// untaken spare stays (`CEFSpareWindow` owns it), and so does whatever host now holds the key.
+    func hostEmptied(_ host: CEFPaneHost) {
+        guard host.tabs.isEmpty, !spareWindow.isSpare(host), hosts[host.key] === host else { return }
+        hosts[host.key] = nil
+        if lastShownHost === host { lastShownHost = nil }
+    }
+
     func makeRequestToken() -> Int32 {
         defer { nextRequest &+= 1 }
         return nextRequest
