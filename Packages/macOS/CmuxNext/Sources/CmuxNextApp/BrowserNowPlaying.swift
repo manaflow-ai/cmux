@@ -163,17 +163,16 @@ final class BrowserNowPlaying {
     /// UI thread (services/data_decoder/public/cpp/decode_image.h).
     private func loadMusicArtwork(_ data: Data) {
         musicArtwork = (data, nil)
-        guard let work = services?.work else { return }
-        // task-owner: one artwork decode; ends when the .cpu lane returns it
-        Task { [weak self] in
-            let decoded = try? await work.run(.userVisible, mayBlock: .cpu) { blockingImageDecode(data) }
-            guard let self, self.musicArtwork?.data == data, let image = decoded else { return }
-            let size = NSSize(width: image.width, height: image.height)
-            // crash-allow: the image is never mutated after decoding; MediaPlayer only reads it to draw, off the main thread.
-            nonisolated(unsafe) let shown = NSImage(cgImage: image, size: size)
-            self.musicArtwork = (data, MPMediaItemArtwork(boundsSize: size) { @Sendable _ in shown })
-            self.publish()
-        }
+        guard let services else { return }
+        services.work.run(.userVisible, mayBlock: .cpu) { blockingImageDecode(data) }
+            .reply(on: services.mainWork, class: .visible, owner: "nowPlaying.artwork") { [weak self] decoded in
+                guard let self, self.musicArtwork?.data == data, let image = decoded else { return }
+                let size = NSSize(width: image.width, height: image.height)
+                // crash-allow: the image is never mutated after decoding; MediaPlayer only reads it to draw, off the main thread.
+                nonisolated(unsafe) let shown = NSImage(cgImage: image, size: size)
+                self.musicArtwork = (data, MPMediaItemArtwork(boundsSize: size) { @Sendable _ in shown })
+                self.publish()
+            }
     }
 
     /// Loads the page's artwork through its tab (its cookies, its proxy).
