@@ -3,7 +3,7 @@ public import Foundation
 import os
 
 extension DaemonLauncher {
-    private static let buildLogger = Logger(subsystem: "com.cmuxterm.next", category: "daemon")
+    private static let buildLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "daemon")
 
     /// The app daemon's session and state directory of `build` (per-build
     /// isolation S3, cx-is1kf.4): ``BuildIdentity/appSession`` and
