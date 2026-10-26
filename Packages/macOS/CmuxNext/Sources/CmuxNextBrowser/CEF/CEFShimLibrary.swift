@@ -206,6 +206,9 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let freeOwned: @convention(c) (UnsafeMutablePointer<CChar>?) -> Void
     /// Distinct renderer client ids hosting the tab's frames.
     let rendererClientIDs: @convention(c) (Int32, UnsafeMutablePointer<Int32>?, Int32) -> Int32
+    /// The pid of the renderer hosting the tab's main frame (the fork's `cmux_cef_browser_renderer_pid`,
+    /// p14-energy-124); 0 while none, on a fork without the call, and in host mode.
+    let rendererPID: @convention(c) (Int32) -> Int32
 
     // Renderer paths that keep a tab off DevTools (fork API 29, `CEFForkFeatures.rendererPaths`), so
     // same-site tabs can share a renderer as in Chrome. Optional: a shim built before them lacks the
@@ -455,6 +458,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         certificateProceed = try r("cmux_shim_certificate_proceed")
         freeOwned = try r("cmux_shim_free_owned")
         rendererClientIDs = try r("cmux_shim_renderer_client_ids")
+        rendererPID = try r("cmux_shim_renderer_pid")
         addDocumentScript = r.optional("cmux_shim_add_document_script")
         addPageChannel = r.optional("cmux_shim_add_page_channel")
         tabEvaluate = r.optional("cmux_shim_tab_evaluate")
