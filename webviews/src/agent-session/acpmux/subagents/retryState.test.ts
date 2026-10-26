@@ -163,8 +163,7 @@ describe("the fold keeps a subagent's retry", () => {
     expect(fold.all()[0]!.retriedOut).toBeUndefined();
   });
 
-  test("a last try that succeeds is no give-up", () => {
-    c  test("the summary card's started-chat rows and counts read it", () => {
+  test("the summary card's started-chat rows and counts read it", () => {
     const chat = { sessionId: "s", title: "Push relay", state: "failed" as const, retry: FIXTURE.subagentRetry };
     expect(sessionStatus(chat)).toBe("running");
     expect(sessionStateText(translate, chat)).toEqual({
@@ -174,7 +173,8 @@ describe("the fold keeps a subagent's retry", () => {
     expect(sessionStatus({ ...chat, state: "idle" })).toBe("done");
   });
 
-onst fold = new SubagentFold();
+  test("a last try that succeeds is no give-up", () => {
+    const fold = new SubagentFold();
     feed(fold, { sessionUpdate: "subagent_spawned" }, { subagents: [{ id: "a", parent: null, name: "Overview" }] });
     change(fold, { state: "failed", retry: { attempt: 2, of: 2, reason: "capacity" } });
     change(fold, { state: "running", retry: null });
