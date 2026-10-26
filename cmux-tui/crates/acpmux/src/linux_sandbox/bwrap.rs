@@ -931,8 +931,13 @@ mod tests {
         let f = Fixture::new();
         let mut p = f.create_paths();
         p.home = PathBuf::from(std::env::var_os("HOME").expect("HOME is set on the runner"));
-        let (args, _fds) = plan(&p, &profile_read_denies(&p), &strings(&["true"]))
-            .expect("HOME planner accepts the runner filesystem");
+        let (args, _fds) = plan(
+            &p,
+            &profile_read_denies(&p),
+            &fs::read_to_string("/proc/self/mountinfo").unwrap(),
+            &strings(&["true"]),
+        )
+        .expect("HOME planner accepts the runner filesystem");
         assert!(args.iter().any(|arg| arg == "--tmpfs"));
     }
 
