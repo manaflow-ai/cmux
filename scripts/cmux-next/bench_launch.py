@@ -59,6 +59,11 @@ Check a host by hand or from a fleet step (exit 0 when the socket answered and a
     python3 scripts/cmux-next/bench_launch.py check --socket-only --app ...   # also with no GUI session; no frames
     python3 scripts/cmux-next/bench_launch.py session    # only the GUI session check, no app
 
+The control socket probe (p08-startup-019): over --runs launches, the first answered `system.ping` from the spawn
+against the launch's first window frame; exit 0 when its p50 is at most the first frame's p50 + --budget-ms (50):
+
+    python3 scripts/cmux-next/bench_launch.py socket-probe --app "/path/cmux DEV <tag>.app" [--runs 5] [--json out.json]
+
 Resource limits: an app opened from Finder or the Dock gets launchd's limits (`launchctl limit`; on the fleet
 minis the soft open-file limit is 256), but an app a script starts inherits the script's, and fleet job shells
 raise theirs (the cmux-ci worker to 65536 for every job, the hosts' ~/.zshenv to 65536 for nx-remote jobs). A
@@ -69,7 +74,7 @@ caller's. A script or step that starts an app on its own can run under the same 
     python3 scripts/cmux-next/bench_launch.py finder-exec -- python3 scripts/cmux-next/my-bench.py ...
     python3 scripts/cmux-next/bench_launch.py limits     # launchd's soft limits and this shell's, one JSON line
 """
-import argparse, atexit, contextlib, glob, hashlib, importlib.util, json, os, platform, pwd, re, resource, select, shutil, signal, socket, subprocess, sys, tempfile, time
+import argparse, atexit, contextlib, glob, hashlib, importlib.util, json, os, platform, pwd, re, resource, select, shutil, signal, socket, statistics, subprocess, sys, tempfile, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ROOT = os.path.dirname(os.path.dirname(HERE))
@@ -466,6 +471,41 @@ def rpc_at(path, method, params=None, timeout=60):
     except (OSError, ValueError) as error:
         return {"error": str(error), "unreachable": True}
     return reply.get("result") if reply.get("ok") else {"error": reply.get("error")}
+
+
+def first_answer(paths, start, deadline, alive=lambda: True, interval=0.002, method="system.ping"):
+    """Seconds from `start` (time.monotonic) to the first answer of `method` on the control socket, or None by
+    `deadline` or once `alive()` is false. `paths()` lists the socket files that exist now. A connect that finds no
+    file or is refused retries after `interval`; a connected request waits for its answer, because the app binds in
+    main() and reads requests only once its method groups are registered (p08-startup-019). So the time is when the
+    app first answered, not when it first accepted. Any reply that is not a transport failure is an answer."""
+    while time.monotonic() < deadline and alive():
+        for path in paths():
+            left = deadline - time.monotonic()
+            if left <= 0:
+                return None
+            reply = rpc_at(path, method, timeout=left)
+            if not (isinstance(reply, dict) and reply.get("unreachable")):
+                return time.monotonic() - start
+        time.sleep(interval)  # bench: retries the connect until the socket file exists and listens
+    return None
+
+
+def socket_probe_summary(runs, budget_ms=50):
+    """The socket probe's verdict over launches (p08-startup-019 test phase): first answered request p50 <= first
+    frame p50 + `budget_ms`. `runs` holds {"first_answer_ms", "first_frame_ms"} per launch (ms since spawn and since
+    process start, the same origin within a spawn's few ms); a run missing either fails the verdict."""
+    measured = [run for run in runs if run.get("first_answer_ms") is not None and run.get("first_frame_ms") is not None]
+
+    def p50(values):
+        return round(statistics.median(values), 1) if values else None
+
+    delta = p50([run["first_answer_ms"] - run["first_frame_ms"] for run in measured])
+    return {"runs": len(runs), "measured": len(measured),
+            "first_answer_p50_ms": p50([run["first_answer_ms"] for run in measured]),
+            "first_frame_p50_ms": p50([run["first_frame_ms"] for run in measured]),
+            "answer_after_frame_p50_ms": delta, "budget_ms": budget_ms,
+            "ok": bool(runs) and len(measured) == len(runs) and delta is not None and delta <= budget_ms}
 
 
 def socket_in_use(path):
@@ -935,6 +975,7 @@ class BenchApp:
         self.socket = socket_candidates(self.tag)[0]
         self.launched_at = None
         self.ready_seconds = None
+        self.first_answer_ms = None  # the last launch's first answered request (launch(probe_first_answer=True))
         self.limits = None
         self.read_session = session
         self.socket_only = socket_only
@@ -1083,9 +1124,11 @@ class BenchApp:
         os.rename(root, prev)
         note(f"bench-launch: {self.tag} starts from an empty saved session (earlier state moved to {prev})")
 
-    def launch(self, timeout=180, ready="debug.windows", on_start=None):
+    def launch(self, timeout=180, ready="debug.windows", on_start=None, probe_first_answer=False):
         """Starts the app and returns once `ready` answers (debug.windows: with a window).
 
+        With `probe_first_answer`, ``first_answer`` sends `system.ping` from the spawn on and ``first_answer_ms``
+        holds when the app first answered (ms since the spawn; None when it did not).
         `on_start(process)` runs right after the spawn (a script's own PID list for its cleanup). On a
         failure the report is printed to stdout (a fleet step log is stdout only), then LaunchError is raised.
         Once `ready` answers, the app's features.list snapshot is read into ``features`` (for ``record``).
@@ -1128,6 +1171,7 @@ class BenchApp:
         try:
             with finder_limits() as changed:
                 self.launched_at = time.time()
+                spawned = time.monotonic()
                 self.process = subprocess.Popen([self.binary], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
         except LaunchError as error:
             log.close()
@@ -1136,6 +1180,12 @@ class BenchApp:
         note(f"bench-launch: {self.tag} pid {self.process.pid}, limits {self.limits}")
         if on_start:
             on_start(self.process)
+        self.first_answer_ms = None
+        if probe_first_answer:
+            # Before anything else talks to the socket, so the first request answered is the probe's.
+            took = first_answer(lambda: unique_paths(p for p in socket_candidates(self.tag) if os.path.exists(p)),
+                                spawned, spawned + timeout, alive=lambda: self.process.poll() is None)
+            self.first_answer_ms = None if took is None else round(took * 1000, 1)
         start = time.monotonic()
         deadline = start + timeout
         last = None
@@ -1289,6 +1339,35 @@ def launch_app(app, env, log_path, timeout=120, on_start=None, ready="debug.wind
     return bench.process, bench.socket
 
 
+def socket_probe(opts, make_app=None):
+    """`socket-probe`: launches the app `opts.runs` times; each run times the first answered `system.ping` from the
+    spawn (``first_answer``) and reads that launch's `first_window_frame_committed` (debug.timings). Prints one
+    BENCH-LAUNCH line with ``socket_probe_summary`` and the runs; exit 0 when the verdict holds. `make_app` builds
+    the BenchApp (tests pass a stub)."""
+    runs = []
+    for index in range(opts.runs):
+        app = (make_app or BenchApp)(opts.app, out=opts.out)
+        run = {"run": index + 1, "first_answer_ms": None, "first_frame_ms": None}
+        try:
+            app.launch(timeout=opts.timeout, probe_first_answer=True)
+            timings = app.rpc("debug.timings")
+            marks = (timings.get("launch_ms_since_process_start") if isinstance(timings, dict) else None) or {}
+            run.update(first_answer_ms=app.first_answer_ms, first_frame_ms=marks.get("first_window_frame_committed"))
+        except LaunchError as error:
+            run["reason"] = error.reason
+        finally:
+            app.stop()
+        note(f"bench-launch: socket probe run {index + 1}: {json.dumps(run)}")
+        runs.append(run)
+    result = {**socket_probe_summary(runs, opts.budget_ms), "per_run": runs}
+    line = json.dumps(result)
+    print("BENCH-LAUNCH " + line, flush=True)
+    if opts.json:
+        with open(opts.json, "w") as f:
+            f.write(line + "\n")
+    return 0 if result["ok"] else 1
+
+
 def main(argv=None):
     parser = argparse.ArgumentParser(description="Launch-and-socket check of a tagged cmux DEV app.")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -1301,11 +1380,21 @@ def main(argv=None):
     check.add_argument("--socket-only", action="store_true",
                        help="launch even with no GUI session: only the socket and the window list are checked, no "
                             "frames; the result says socket_only and gui_session")
+    probe = sub.add_parser("socket-probe", help="first answered control request against the first window frame, over "
+                                                "launches (p08-startup-019: p50 <= first frame + --budget-ms)")
+    probe.add_argument("--app", required=True)
+    probe.add_argument("--out")
+    probe.add_argument("--runs", type=int, default=5)
+    probe.add_argument("--timeout", type=float, default=180)
+    probe.add_argument("--budget-ms", type=float, default=50)
+    probe.add_argument("--json", help="also write the result here")
     sub.add_parser("session", help="only report whether this account has a GUI session")
     sub.add_parser("limits", help="launchd's soft limits (a Finder launch's) and this process's, one JSON line")
     finder = sub.add_parser("finder-exec", help="run COMMAND with launchd's soft limits, as a Finder launch gets")
     finder.add_argument("cmd", nargs=argparse.REMAINDER, metavar="-- COMMAND")
     opts = parser.parse_args(argv)
+    if opts.command == "socket-probe":
+        return socket_probe(opts)
     if opts.command == "limits":
         launchd = launchd_soft_limits()
         print("BENCH-LAUNCH " + json.dumps({"launchd_soft": {k: shown(v) for k, v in launchd.items()},
