@@ -85,6 +85,18 @@ delivered the message, never from the payload.
 WebKit mechanism. One non-persistent data store per group, every view in the host's process pool,
 `_setRelatedWebView:` per group, 8 pages per process, every SPI gated with `responds(to:)`.
 
+Fork implementation (task 011, API 31, manaflow-ai/cef `cp/p13-webui-011`, `f1004e52`, on spike 091's branch; not
+built yet). It is the TLD rule. `cmux_page_scheme_set_group(host, group)` registers each host before CefInitialize.
+With a group registered, `cmux-page` is a WebUI scheme. A registered `<page>.<group>` host named in PL-memory's
+`--cmux-page-scheme-process-per-site=<host>:<cap>` tries an existing renderer first
+(`ShouldTryToUseExistingProcessHost`). The content patch `cmux_page_process_groups` adds
+`ContentBrowserClient::ShouldUseExistingProcessHost`, asked only in `RenderProcessHostImpl::GetExistingProcessHost`.
+There the fork refuses a renderer that holds `cap` main frames or a page of another group. The cap is not in
+`IsSuitableHost`, so a navigating page never moves off a full renderer. Without a registered group, a host the switch
+names shares only with its own origin. A one-label host (`passwords`, `diff`) never shares. cmux-page never uses
+process-per-site. The 091 measured run and `ceftests --gtest_filter=CmuxPageProcessTest.*` on this ref decide
+whether it stays.
+
 ### 3.3 Lifecycle: Active, Hidden, Frozen, Discarded
 
 - One visibility source: ContentLifecycle (TabContentCache+Lifecycle) for `.page` content and agent tabs. No
