@@ -31,18 +31,21 @@ import CmuxNextDesignTokens
         }
     }
 
-    /// The glass's environment reads the window's active appearance twice in one function, the
-    /// material first: only the lowest site of that one function is forced, whatever order the
-    /// reads are seen in, and a read from any other function never is.
+    /// The glass's environment reads the window's active appearance twice from one caller, the
+    /// material first. Nothing is forced until both reads are known, whichever comes first; then
+    /// only the lower one is, and a caller with one read or more than two never is.
     @Test func onlyTheGlassMaterialReadIsForcedActive() {
-        var learned: (function: UInt, site: UInt)?
-        #expect(ActiveLookScope.isMaterialRead(site: 1860, function: 1000, learned: &learned),
-                "the first read seen is taken as the material until a lower one shows up")
-        #expect(ActiveLookScope.isMaterialRead(site: 1584, function: 1000, learned: &learned))
-        #expect(!ActiveLookScope.isMaterialRead(site: 1860, function: 1000, learned: &learned), "the traffic-light read keeps AppKit's answer")
-        #expect(ActiveLookScope.isMaterialRead(site: 1584, function: 1000, learned: &learned))
-        #expect(!ActiveLookScope.isMaterialRead(site: 10, function: 2000, learned: &learned), "another function's read")
-        #expect(learned?.function == 1000 && learned?.site == 1584)
+        var reads: [UInt: Set<UInt>] = [:]
+        #expect(!ActiveLookScope.isMaterialRead(site: 1860, caller: 7000, reads: &reads), "the traffic-light read first: not forced")
+        #expect(!ActiveLookScope.isMaterialRead(site: 1860, caller: 7000, reads: &reads), "still only one read known")
+        #expect(ActiveLookScope.isMaterialRead(site: 1584, caller: 7000, reads: &reads), "both known: the material read")
+        #expect(!ActiveLookScope.isMaterialRead(site: 1860, caller: 7000, reads: &reads), "the traffic-light read keeps AppKit's answer")
+        #expect(ActiveLookScope.isMaterialRead(site: 1584, caller: 7000, reads: &reads))
+        #expect(!ActiveLookScope.isMaterialRead(site: 10, caller: 8000, reads: &reads), "another caller's lone read")
+        _ = ActiveLookScope.isMaterialRead(site: 20, caller: 9000, reads: &reads)
+        _ = ActiveLookScope.isMaterialRead(site: 30, caller: 9000, reads: &reads)
+        #expect(!ActiveLookScope.isMaterialRead(site: 5, caller: 9000, reads: &reads), "three reads from one caller: not the glass")
+        #expect(!ActiveLookScope.isMaterialRead(site: 20, caller: 9000, reads: &reads))
     }
 
     /// Only the window whose backdrop glass is updating is in scope, the innermost when updates

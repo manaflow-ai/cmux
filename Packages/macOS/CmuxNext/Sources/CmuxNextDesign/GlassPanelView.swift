@@ -234,22 +234,26 @@ final class ActiveLookGlassEffectView: NSGlassEffectView {
 /// Which reads of `NSWindow._hasActiveAppearanceIgnoringKeyFocus` answer true: only the glass's
 /// material read, for the window whose ``ActiveLookGlassEffectView`` is updating its subtree.
 ///
-/// A read is forced only when all of these hold: it is on the main thread; AppKit's own answer is
-/// false (a key window costs nothing more); the receiver is the window of the innermost glass
-/// update under way; the reader is AppKit code that a SwiftUI graph update called (the glass's
-/// environment, not titlebar or other chrome, which AppKit calls from Objective-C methods); and
-/// the read is the first of that graph's reads in code order. The graph reads the value twice, the
-/// material first and then a state the traffic lights follow; forcing both colored the close
-/// button of an inactive window, so the second read keeps AppKit's answer.
+/// The glass's private SwiftUI graph builds its environment in one AppKit function that reads the
+/// value twice: the material first, then a state the traffic lights follow (forcing both colored
+/// the close button of an inactive window). The scope learns the two reads before it forces
+/// anything. Each read inside a glass update for its own window, made by AppKit code with a SwiftUI
+/// frame above it in that same call, is filed under its caller's return address: two reads with
+/// one caller are one function's two reads, whatever symbols the binary has. A read is forced only
+/// when its caller has exactly two known reads, it is the lower one (the earlier in code), and
+/// AppKit answered false. Every other read, every read before both are known (the window is key
+/// when it first lays out its glass, so they are known before it can be inactive), and every read
+/// off the main thread keeps AppKit's answer.
 @MainActor
 enum ActiveLookScope {
     /// The windows of the glass updates under way, innermost last.
     private static var windows: [ObjectIdentifier] = []
-    /// Per reader return address: whether it is a SwiftUI graph's read in AppKit.
-    private static var graphReaders: [UInt: Bool] = [:]
-    /// The glass material's read: the lowest graph reader address seen in its function.
-    private static var materialSite: (function: UInt, site: UInt)?
+    /// The graph reads seen, by the return address of their caller.
+    private static var reads: [UInt: Set<UInt>] = [:]
     private static var installed = false
+    /// Frames read per check: enough for the reader, its caller and the SwiftUI frames above them
+    /// (the SwiftUI update was 3 to 6 frames up in the fleet traces).
+    private static let depth = 32
 
     /// Runs `body`, a glass update for `window`, with that window's material read forced active.
     static func during(_ window: NSWindow?, _ body: () -> Void) {
@@ -259,14 +263,15 @@ enum ActiveLookScope {
         body()
     }
 
-    /// Learns the material site from graph read `site` in `function` and says whether to force it.
-    /// The reads of one function are ordered by address, and the material read is its first, so a
-    /// lower address seen later replaces a higher one; a read of another function is never forced.
-    static func isMaterialRead(site: UInt, function: UInt, learned: inout (function: UInt, site: UInt)?) -> Bool {
-        if let known = learned, known.function != function { return false }
-        let material = min(learned?.site ?? site, site)
-        learned = (function, material)
-        return site == material
+    /// The window whose glass is updating now (tests read it).
+    static var scopedWindow: ObjectIdentifier? { windows.last }
+
+    /// Files graph read `site` under `caller` and says whether to force it: only the lower of
+    /// exactly two known reads of one caller.
+    static func isMaterialRead(site: UInt, caller: UInt, reads: inout [UInt: Set<UInt>]) -> Bool {
+        reads[caller, default: []].insert(site)
+        guard let known = reads[caller], known.count == 2 else { return false }
+        return site == known.min()
     }
 
     /// Routes `NSWindow._hasActiveAppearanceIgnoringKeyFocus` through the scope, once.
@@ -281,42 +286,27 @@ enum ActiveLookScope {
 
     typealias Getter = @convention(c) (NSWindow, Selector) -> Bool
 
-    /// The getter AppKit calls from any thread: off the main thread, or when AppKit already
-    /// answers true, it touches nothing here.
+    /// The getter AppKit calls from any thread: off the main thread it touches nothing here.
     nonisolated private static func replacement(_ original: Getter, _ selector: Selector) -> @convention(block) (NSWindow) -> Bool {
         { window in
             let answer = original(window, selector)
-            guard !answer, pthread_main_np() != 0 else { return answer }
-            return MainActor.assumeIsolated { forces(window) }
+            guard pthread_main_np() != 0 else { return answer }
+            return MainActor.assumeIsolated { decide(window, answer: answer) }
         }
     }
 
-    /// The window whose glass is updating now (tests read it).
-    static var scopedWindow: ObjectIdentifier? { windows.last }
-
-    private static func forces(_ window: NSWindow) -> Bool {
-        guard windows.last == ObjectIdentifier(window) else { return false }
-        // A bounded stack read: this block, then AppKit's reader, then its callers.
-        var frames = [UnsafeMutableRawPointer?](repeating: nil, count: 12)
-        let count = Int(frames.withUnsafeMutableBufferPointer { backtrace($0.baseAddress, 12) })
-        guard let reader = readerIndex(in: frames, count: count), let address = frames[reader].map({ UInt(bitPattern: $0) }) else {
-            return false
-        }
-        let isGraphRead: Bool
-        if let known = graphReaders[address] {
-            isGraphRead = known
-        } else {
-            isGraphRead = image(of: frames[reader]) == appKitImage && frames[(reader + 1)..<count].contains { isSwiftUI(image(of: $0)) }
-            graphReaders[address] = isGraphRead
-        }
-        guard isGraphRead, let function = functionStart(of: frames[reader]) else { return false }
-        return isMaterialRead(site: address, function: function, learned: &materialSite)
-    }
-
-    /// The first frame outside this binary: AppKit code that read the getter.
-    private static func readerIndex(in frames: [UnsafeMutableRawPointer?], count: Int) -> Int? {
-        let own = ownImage
-        return (0..<count).first { image(of: frames[$0]).map { $0 != own } ?? false }
+    private static func decide(_ window: NSWindow, answer: Bool) -> Bool {
+        // Outside a glass update for this window: one array read, AppKit's answer.
+        guard windows.last == ObjectIdentifier(window) else { return answer }
+        var frames = [UnsafeMutableRawPointer?](repeating: nil, count: depth)
+        let count = Int(frames.withUnsafeMutableBufferPointer { backtrace($0.baseAddress, Int32(depth)) })
+        guard let reader = (0..<count).first(where: { image(of: frames[$0]) != ownImage }), reader + 1 < count,
+              image(of: frames[reader]) == appKitImage,
+              frames[(reader + 1)..<count].contains(where: { isSwiftUI(image(of: $0)) }),
+              let site = frames[reader].map({ UInt(bitPattern: $0) }),
+              let caller = frames[reader + 1].map({ UInt(bitPattern: $0) }) else { return answer }
+        let material = isMaterialRead(site: site, caller: caller, reads: &reads)
+        return answer || material
     }
 
     private static let ownImage: UnsafeMutableRawPointer? = {
@@ -330,23 +320,26 @@ enum ActiveLookScope {
         return dladdr(unsafeBitCast(layout, to: UnsafeRawPointer.self), &info) != 0 ? info.dli_fbase : nil
     }()
 
-    private static var imageNames: [UnsafeMutableRawPointer: String] = [:]
+    /// Whether each loaded image is SwiftUI's: images never move while loaded.
+    private static var swiftUIImages: [UnsafeMutableRawPointer: Bool] = [:]
+
+    /// The image of each return address seen: code never moves while its image is loaded.
+    private static var imageByAddress: [UnsafeMutableRawPointer: UnsafeMutableRawPointer] = [:]
 
     private static func image(of frame: UnsafeMutableRawPointer?) -> UnsafeMutableRawPointer? {
+        guard let frame else { return nil }
+        if let known = imageByAddress[frame] { return known }
         var info = Dl_info()
-        guard let frame, dladdr(frame, &info) != 0, let base = info.dli_fbase else { return nil }
-        if imageNames[base] == nil, let name = info.dli_fname { imageNames[base] = String(cString: name) }
+        guard dladdr(frame, &info) != 0, let base = info.dli_fbase else { return nil }
+        imageByAddress[frame] = base
+        if swiftUIImages[base] == nil {
+            let name = info.dli_fname.map { String(cString: $0) } ?? ""
+            swiftUIImages[base] = name.hasSuffix("/SwiftUICore") || name.hasSuffix("/SwiftUI")
+        }
         return base
     }
 
     private static func isSwiftUI(_ base: UnsafeMutableRawPointer?) -> Bool {
-        guard let base, let name = imageNames[base] else { return false }
-        return name.hasSuffix("/SwiftUICore") || name.hasSuffix("/SwiftUI")
-    }
-
-    private static func functionStart(of frame: UnsafeMutableRawPointer?) -> UInt? {
-        var info = Dl_info()
-        guard let frame, dladdr(frame, &info) != 0, let start = info.dli_saddr else { return nil }
-        return UInt(bitPattern: start)
+        base.flatMap { swiftUIImages[$0] } ?? false
     }
 }
