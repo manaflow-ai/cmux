@@ -38,7 +38,7 @@
       "args": {
         "method": "workspace.ensure_app",
         "params": {
-          "app": ""
+          "app": "oracle/not-installed"
         },
         "idempotencyKey": "workspace-ensure-app-error.call"
       },
@@ -50,7 +50,7 @@
         "before",
         "settled"
       ],
-      "note": "app breaks its catalog type (value has too few UTF-8 bytes); the daemon's catalog check refuses it"
+      "note": "a well-formed app id that is not installed and enabled here: validation.invalid, field app (state/app_workspaces.rs state_ensure_app)"
     }
   ],
   "invariants": [

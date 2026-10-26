@@ -18,10 +18,12 @@
   },
   "preconditions": [
     "hermetic state root",
-    "no other cmux-tui on the state root"
+    "no other cmux-tui on the state root",
+    "the daemon the cmux app started, reached over the app's verified connection (origin user)"
   ],
   "requires": [
-    "resource_api"
+    "resource_api",
+    "gui"
   ],
   "platforms": [
     "linux",
@@ -38,7 +40,7 @@
       "args": {
         "method": "workspace.ensure_app",
         "params": {
-          "app": "oracle"
+          "app": "cmux/notes"
         },
         "idempotencyKey": "workspace-ensure-app-ok.call"
       },
@@ -50,7 +52,7 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "the first call makes the app's one workspace with its app tab (state/app_workspaces.rs)"
     }
   ],
   "invariants": [
@@ -59,5 +61,8 @@
   "teardown": [
     "stop the case daemon",
     "verify the socket and state root are gone"
+  ],
+  "untested": [
+    "an installed app: the app bundle's first-party directory holds cmux/notes, installed and enabled by default (apps/catalog.rs defaults); the VM daemon has no apps/first-party beside its binary"
   ]
 }

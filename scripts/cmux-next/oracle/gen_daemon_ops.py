@@ -29,7 +29,8 @@ Cases are flat in the suite directory, as every suite: `oracle.py` and the expec
 `<family>/_tuning.json` (oracle.py skips `_` files), which this generator reads, so regeneration keeps the tuning
 and stays byte-stable. A tuning changes params and target, the error code, and adds `before` steps (a mutation
 or a waitFor settle between the fixture and the call), `requires` capabilities (`chromium` for a daemon-rendered
-browser, which needs a cmux-browser provider) and `untested` reasons. coverage.json lists every operation with its
+browser, which needs a cmux-browser provider; `gui` for the app product's verified connection) and `untested`
+reasons. coverage.json lists every operation with its
 family, cases, fixture steps, broken field, placeholders (fields with a fixed id, not a fixture object: the tuning
 work), known gap, tuning and the capabilities of cases that need more than resource_api. An operation counts as
 covered only when its success case has no placeholder and no known gap; the rest are excluded with the family task
@@ -822,6 +823,10 @@ OK = {"outcome": "ok", "receipt": "mutation_result"}
 # target it attaches to (resource_router/browser_engine.rs), so without one `tab.create_browser` is
 # engine_unavailable. The daemon product on the VM has none; the app product brings its browser host.
 ENGINE_PRECONDITION = "a cmux-browser provider attached to the case daemon (the daemon launches no browser)"
+# A case that requires `gui` runs on the app product only: its daemon was started by the cmux app, so the
+# case's connection is the verified app (origin user, server/client_hello.rs) and the app bundle's first-party
+# apps are installed. The daemon product's driver connects as an agent beside a bare binary.
+APP_PRECONDITION = "the daemon the cmux app started, reached over the app's verified connection (origin user)"
 
 
 def known_gap(operation: str) -> Optional[str]:
@@ -844,6 +849,8 @@ def case_doc(case_id: str, operation: str, family: str, kind: str, request: Requ
     preconditions = ["hermetic state root", "no other cmux-tui on the state root"]
     if "chromium" in requires:
         preconditions.append(ENGINE_PRECONDITION)
+    if "gui" in requires:
+        preconditions.append(APP_PRECONDITION)
     doc: Dict[str, Any] = {
         "$schema": SCHEMA_REF,
         "corpusVersion": 1,
@@ -885,7 +892,7 @@ def before_step(case_id: str, spec: Mapping[str, Any]) -> Dict[str, Any]:
 TUNING_KINDS = ("success", "error")
 TUNING_KEYS = frozenset({"params", "target", "error", "note", "before", "requires", "untested"})
 # The capabilities a tuning may add (case-v1 capability); resource_api is every case's.
-TUNING_CAPABILITIES = frozenset({"chromium", "restart"})
+TUNING_CAPABILITIES = frozenset({"chromium", "gui", "restart"})
 BEFORE_CALL_KEYS = frozenset({"id", "method", "target", "params"})
 BEFORE_WAIT_KEYS = frozenset({"id", "waitFor"})
 STEP_ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
@@ -1281,7 +1288,7 @@ class GenDaemonOpsSelfTest(unittest.TestCase):
             ({"operations": {"pane.close": {"error": {"error": "home.pinned_first"}}}}, "not an error"),
             ({"operations": {"pane.close": {"retry": {}}}}, "takes only"),
             ({"rules": {}}, "unknown keys"),
-            ({"operations": {"pane.close": {"success": {"requires": ["gui"]}}}}, "requires takes only"),
+            ({"operations": {"pane.close": {"success": {"requires": ["keys"]}}}}, "requires takes only"),
             ({"operations": {"pane.close": {"success": {"untested": [""]}}}}, "untested is a list"),
             ({"operations": {"pane.close": {"success": {"before": [{"id": "x", "method": "workspace.list"}]}}}},
              "not a mutation of the catalog"),
@@ -1363,6 +1370,43 @@ class GenDaemonOpsSelfTest(unittest.TestCase):
             self.assertEqual(entry["placeholders"], [], operation)
             code = entry["error"]["code"]
             self.assertEqual(code == "operation.failed", operation in engine, operation)
+
+    def test_the_workspace_family_tuning(self) -> None:
+        """tests/oracle/corpus/daemon-ops/workspace/_tuning.json (p15-oracle-064): each of the 26 workspace-family
+        mutations has a success and a typed-error case with no placeholder. Only the two successes that need the
+        app's verified connection or its installed apps require gui; every other case runs on the daemon product,
+        and no case needs a daemon-rendered browser."""
+        app_only = {"workspace.agent_folder.set", "workspace.ensure_app"}
+        handler_errors = {
+            "workspace.agent_folder.set": "origin.forbidden", "workspace.place": "resource.not_found",
+            "workspace.focus": "selector.not_found", "workspace_group.delete": "resource.not_found",
+            "workspace_group.move": "resource.not_found", "workspace_group.update": "resource.not_found",
+        }
+        tuning = load_tuning(DEFAULT_OUT, self.catalog)
+        files = generate(self.catalog, tuning)
+        family = sorted(op for op in self.catalog.mutations() if family_of(op) == "workspace")
+        self.assertEqual(len(family), 26)
+        self.assertLessEqual({op for op in tuning if family_of(op) == "workspace"}, set(family))
+        for operation in family:
+            entry = files[COVERAGE]["operations"][operation]
+            self.assertEqual(entry["placeholders"], [], operation)
+            self.assertNotIn("gap", entry, operation)
+            self.assertEqual(entry["error"]["code"], handler_errors.get(operation, ERROR_CODE), operation)
+            for kind in ("success", "error"):
+                case = files[entry["cases"][kind].split("/", 1)[1] + ".json"]
+                self.assertEqual(case["steps"][-1]["args"]["method"], operation)
+                self.assertNotIn("chromium", case["requires"], f"{operation} {kind}")
+                self.assertNotIn("fx-browser", [step["id"] for step in case["steps"]], f"{operation} {kind}")
+                needs_app = kind == "success" and operation in app_only
+                self.assertEqual("gui" in case["requires"], needs_app, f"{operation} {kind}")
+                self.assertEqual(APP_PRECONDITION in case["preconditions"], needs_app, f"{operation} {kind}")
+        # open_url reuses the app-drawn browser it focused first, so it needs no cmux-browser provider.
+        open_ok = files["workspace-open-url-ok.json"]["steps"]
+        self.assertEqual([step["id"] for step in open_ok][-2:], ["focus-app-browser", "call"])
+        self.assertEqual(open_ok[-2]["target"]["tab"], "$step:fx-app-browser#/value/tab_id")
+        # A tuned handler-level error is the tuned success request with one change, never a broken catalog type.
+        place_error = files["workspace-place-error.json"]["steps"][-1]["args"]["params"]
+        self.assertEqual(place_error, {"group": "oracle-missing-group"})
 
     def test_a_git_remote_outside_the_case_root_is_refused(self) -> None:
         for remote in ("git@github.com:manaflow-ai/cmux.git", "/srv/repos/cmux.git", f"{ROOT_TOKEN}/../x.git", "origin"):
