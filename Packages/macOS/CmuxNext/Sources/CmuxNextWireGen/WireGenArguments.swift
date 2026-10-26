@@ -8,29 +8,36 @@ enum WireGenError: Error, CustomStringConvertible {
     case unwritable(path: String, reason: String)
     /// A schema the method table cannot encode, with its JSON path.
     case methodTable(MethodTableSchemaError)
+    /// A schema type the Swift wire types cannot express, with its JSON path.
+    case types(TypeSchemaError)
 
     var description: String {
         switch self {
         case .usage(let detail):
             "\(detail)\nusage: CmuxNextWireGen --sdk-schema PATH --resource-operations PATH --identity-output PATH "
-                + "--method-table-output PATH"
+                + "--method-table-output PATH --types-output-dir PATH"
         case .unreadable(let path, let reason): "\(path): cannot read: \(reason)"
         case .malformed(let path, let reason): "\(path): not a schema file: \(reason)"
         case .unwritable(let path, let reason): "\(path): cannot write: \(reason)"
         case .methodTable(let error): "\(error)"
+        case .types(let error): "\(error)"
         }
     }
 }
 
 /// The command line: every option exactly once, each followed by a path.
 struct WireGenArguments {
-    static let flags = ["--sdk-schema", "--resource-operations", "--identity-output", "--method-table-output"]
+    static let flags = [
+        "--sdk-schema", "--resource-operations", "--identity-output", "--method-table-output", "--types-output-dir",
+    ]
 
     let sdkSchema: URL
     let resourceOperations: URL
     let identityOutput: URL
     /// Where `MethodTable.schema` goes (TableEmitter).
     let methodTableOutput: URL
+    /// The directory TypeEmitter writes its per-family files into.
+    let typesOutputDirectory: URL
 
     init(_ argv: [String]) throws(WireGenError) {
         var values: [String: String] = [:]
@@ -46,6 +53,7 @@ struct WireGenArguments {
         resourceOperations = try Self.path("--resource-operations", in: values)
         identityOutput = try Self.path("--identity-output", in: values)
         methodTableOutput = try Self.path("--method-table-output", in: values)
+        typesOutputDirectory = try Self.path("--types-output-dir", in: values)
     }
 
     private static func path(_ flag: String, in values: [String: String]) throws(WireGenError) -> URL {

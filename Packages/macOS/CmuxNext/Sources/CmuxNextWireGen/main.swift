@@ -7,7 +7,8 @@
 //   CmuxNextWireGen --sdk-schema cmux-tui/spec/sdk-schema.json \
 //     --resource-operations cmux-tui/spec/resource-operations-v2.json \
 //     --identity-output <plugin work dir>/WireSchemaIdentity+Built.generated.swift \
-//     --method-table-output <plugin work dir>/MethodTable+Schema.swift
+//     --method-table-output <plugin work dir>/MethodTable+Schema.swift \
+//     --types-output-dir <plugin work dir>
 //
 // Its outputs live only in the plugin work directory; nothing it writes is in git
 // (scripts/ci/generated-files.json, `ipc-wire-swift`, status "build"). The Rust side
@@ -30,6 +31,16 @@ func run(_ argv: [String]) throws(WireGenError) {
         throw WireGenError.methodTable(error)
     }
     try GeneratedFile(url: arguments.methodTableOutput).write(table.source())
+    let types: [GeneratedSource]
+    do {
+        types = try TypeEmitter(sdkSchema: sdk.bytes).files()
+    } catch {
+        throw WireGenError.types(error)
+    }
+    for file in types {
+        try GeneratedFile(url: arguments.typesOutputDirectory.appending(path: file.fileName, directoryHint: .notDirectory))
+            .write(file.text)
+    }
 }
 
 do {
