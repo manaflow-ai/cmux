@@ -29,17 +29,20 @@ typing keys type a fixed synthetic text. Records (no other field is allowed):
 Determinism: the frames of a transcript depend only on its records, so two replays stream the same ACP frames in the
 same order. `frames_digest` is sha256 over each update object (canonical JSON) and the stop reason; it leaves out the
 session id and the JSON-RPC ids, which acpmux and the pool assign. With CMUX_PERF_REPLAY_LOG set, each turn appends
-`{"transcript", "frames", "digest", "stop"}` to that file, so a lab replay compares two runs' digests.
+`{"transcript", "frames", "digest", "stop"}` to that file before it answers the prompt, so a lab replay that reads the
+file once the stopReason arrives compares two runs' digests.
 
 The bench app: its acpmux home is its own under CMUX_NEXT_ACPMUX_ROOT (read by bench builds since task 221,
 AcpmuxEnvironment.testRoot), `<root>/builds/<key>`, never the person's. acpmux reads profile files from
 `$XDG_CONFIG_HOME/cmux/harnesses` (config/profiles.rs `ProfileSources::current`; its per-build `<home>/harnesses`
 applies only to a home under `~/.acpmux`), so the bench gets a scratch XDG_CONFIG_HOME too. `install` writes the
-profile there and `defaultHarness: "replay"` into the home's config.json, so a chat or a pool prewarm in that bench
-starts the replay agent and no real harness. `launch_env` is what the bench launch adds: the root, the scratch config
-home, model probes for `replay` only (ACPMUX_PROBE_HARNESSES), and the bench's agent-launch denial and agent-pane mock
-taken off. An ad-hoc signed bench build passes its whole environment to its acpmux (AcpmuxDaemonLauncher
-`spawnEnvironment`).
+profile there and `defaultHarness: "replay"` into the home's config.json, so a chat or a pool prewarm that names no
+harness starts the replay agent. `launch_env` is what the bench launch adds: the root, the scratch config home, model
+probes for `replay` only (ACPMUX_PROBE_HARNESSES), the agent-pane mock taken off, and bench_env's
+`ACPMUX_AGENT_LAUNCH=deny` narrowed to `only:replay`. That allowlist is what keeps real agents out: acpmux still
+discovers the host's harnesses, and a session/new or prewarm that names one gets the launch-disabled error
+(launch_policy.rs; test: acpmux tests/agent_launch_deny.rs). The app passes ACPMUX_AGENT_LAUNCH to every acpmux it
+starts (AcpmuxEnvironment `agentLaunchKeys`).
 
 Stdlib only; runs under python3 -I. Tests: python3 -m unittest scripts/perf-lab/tests/test_agent_replay.py
 """
@@ -338,12 +341,13 @@ class ReplayAgent:
                 break
             self.send({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": session, "update": update}})
             sent.append(update)
-        self.answer(rid, {"stopReason": stop})
+        # The turn's record is written before its stopReason goes out, so a reader that sees the answer finds it.
         if self.log:
             line = json.dumps({"transcript": match.group(1), "frames": len(sent), "digest": frames_digest(sent, stop),
                                "stop": stop}) + "\n"
             with open(self.log, "a", encoding="utf-8") as handle:
                 handle.write(line)
+        self.answer(rid, {"stopReason": stop})
 
     def serve(self, lines: Iterable[str]) -> None:
         for line in lines:
@@ -414,10 +418,12 @@ def _write_private(path: Path, text: str) -> None:
 
 
 def launch_env(root: Path, config_home: Path) -> dict[str, str | None]:
-    """What a bench launch that plays agent tracks adds to bench_env's fixed env (None: unset the variable)."""
+    """What a bench launch that plays agent tracks adds to bench_env's fixed env (None: unset the variable).
+    ACPMUX_AGENT_LAUNCH goes from `deny` to `only:replay`: acpmux (launch_policy.rs) starts the replay harness and
+    refuses any other launch, probe or credential read as under `deny`."""
     return {"CMUX_NEXT_ACPMUX_ROOT": str(root), "XDG_CONFIG_HOME": str(config_home),
             "ACPMUX_PROBE_HARNESSES": HARNESS_ID,
-            "ACPMUX_AGENT_LAUNCH": None, "CMUX_NEXT_AGENT_PANE_MOCK": None}
+            "ACPMUX_AGENT_LAUNCH": f"only:{HARNESS_ID}", "CMUX_NEXT_AGENT_PANE_MOCK": None}
 
 
 # ---------------------------------------------------------------- CLI

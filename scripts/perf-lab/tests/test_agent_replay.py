@@ -4,6 +4,7 @@ Run: python3 -m unittest scripts/perf-lab/tests/test_agent_replay.py
 With ACPMUX_BIN set to an acpmux binary, one more test plays a transcript through a real acpmux daemon.
 """
 
+import contextlib
 import hashlib
 import importlib.util
 import json
@@ -123,6 +124,47 @@ class DigestTest(unittest.TestCase):
             self.assertEqual(turns[0], turns[1])
             self.assertEqual(turns[0], {"transcript": digest, "frames": len(expected), "stop": stop,
                                         "digest": ar.frames_digest(updates, stop)})
+
+    def test_the_turn_is_logged_before_its_stop_reason_goes_out(self):
+        """A reader that opens the log when the prompt's answer arrives finds the turn's line."""
+
+        class Out:
+            def __init__(self, log):
+                self.log, self.at_answer = log, None
+
+            def write(self, text):
+                if '"stopReason"' in text:
+                    self.at_answer = self.log.read_text() if self.log.exists() else ""
+
+            def flush(self):
+                pass
+
+        with tempfile.TemporaryDirectory() as folder:
+            digest = store(folder, transcript_bytes())
+            log = Path(folder) / "turns.ndjson"
+            out = Out(log)
+            agent = ar.ReplayAgent(out, {ar.TRANSCRIPTS_ENV: folder, ar.LOG_ENV: str(log), ar.SPEED_ENV: "1000"})
+            agent.serve([rpc(1, "session/new", {"cwd": "/", "mcpServers": []}),
+                         rpc(2, "session/prompt", {"sessionId": "replay-1",
+                                                   "prompt": [{"type": "text", "text": f"replay {digest}"}]})])
+            self.assertIsNotNone(out.at_answer)
+            self.assertEqual([json.loads(line)["transcript"] for line in out.at_answer.splitlines()], [digest])
+
+    def test_the_log_is_complete_when_the_answer_arrives(self):
+        with tempfile.TemporaryDirectory() as folder:
+            digest = store(folder, transcript_bytes())
+            log = Path(folder) / "turns.ndjson"
+            agent = Agent(folder, log)
+            try:
+                agent.send(rpc(1, "session/new", {"cwd": "/", "mcpServers": []}))
+                agent.until(1)
+                agent.send(rpc(2, "session/prompt", {"sessionId": "replay-1",
+                                                     "prompt": [{"type": "text", "text": f"replay {digest}"}]}))
+                agent.until(2)
+                turns = [json.loads(line) for line in log.read_text().splitlines()]
+                self.assertEqual([turn["transcript"] for turn in turns], [digest])
+            finally:
+                agent.close()
 
     def test_the_digest_leaves_out_session_and_request_ids(self):
         frames, stop = ar.transcript_frames(ar.parse_transcript(transcript_bytes()))
@@ -295,12 +337,12 @@ class InstallTest(unittest.TestCase):
             with self.subTest(hashed), self.assertRaises(ValueError):
                 ar.bench_acpmux_home(root, hashed)
 
-    def test_launch_env_turns_the_replay_on_and_nothing_else(self):
+    def test_launch_env_narrows_the_launch_denial_to_the_replay_harness(self):
         env = ar.launch_env(Path("/scratch/acpmux"), Path("/scratch/xdg"))
         self.assertEqual(env["CMUX_NEXT_ACPMUX_ROOT"], "/scratch/acpmux")
         self.assertEqual(env["XDG_CONFIG_HOME"], "/scratch/xdg")
         self.assertEqual(env["ACPMUX_PROBE_HARNESSES"], "replay")
-        self.assertIsNone(env["ACPMUX_AGENT_LAUNCH"])
+        self.assertEqual(env["ACPMUX_AGENT_LAUNCH"], "only:replay")
         self.assertIsNone(env["CMUX_NEXT_AGENT_PANE_MOCK"])
 
 
@@ -334,16 +376,37 @@ class AcpmuxTest(unittest.TestCase):
                     return updates, message["result"]["stopReason"]
         self.fail("acpmux closed the connection")
 
-    def test_two_sessions_through_acpmux_stream_the_same_frames(self):
+    def ask(self, sock, method, params):
+        """One request on its own connection; the whole response."""
+        with socket.socket(socket.AF_UNIX) as conn:
+            conn.settimeout(60)
+            conn.connect(sock)
+            conn.sendall(rpc(1, method, params).encode())
+            for line in conn.makefile("r"):
+                message = json.loads(line)
+                if message.get("id") == 1:
+                    return message
+        self.fail("acpmux closed the connection")
+
+    @contextlib.contextmanager
+    def bench_daemon(self):
+        """acpmux with the bench's environment (bench_env's ACPMUX_AGENT_LAUNCH=deny, then launch_env), the replay
+        profile installed, and a decoy harness beside it that leaves a marker file if it ever starts."""
         with tempfile.TemporaryDirectory(dir="/tmp") as folder:
             root = Path(folder)
             transcripts = root / "tx"
             transcripts.mkdir()
-            digest = store(transcripts, transcript_bytes())
             home, xdg = root / "home", root / "xdg"
-            ar.install(home, xdg, transcripts, log=root / "turns.ndjson")
+            profile = ar.install(home, xdg, transcripts, log=root / "turns.ndjson")
+            marker = root / "decoy-started"
+            script = 'echo started >>"$0"; exec "$1" -I "$2" serve'
+            args = json.dumps(["-c", script, str(marker), sys.executable, str(SCRIPT)])  # JSON strings are TOML strings
+            decoy = f'schema = 1\nid = "decoy"\nprotocol = "acp"\ncommand = "/bin/sh"\nargs = {args}\n'
+            (profile.parent / "decoy.toml").write_text(decoy)
+            (profile.parent / "decoy.toml").chmod(0o600)  # acpmux skips a profile another user may change
             sock = str(root / "a.sock")
-            env = dict(os.environ, ACPMUX_HOME=str(home), ACPMUX_SOCKET=sock, HOME=str(root))
+            env = dict(os.environ, ACPMUX_HOME=str(home), ACPMUX_SOCKET=sock, HOME=str(root),
+                       ACPMUX_AGENT_LAUNCH="deny")
             for key, value in ar.launch_env(root / "acpmux", xdg).items():
                 if value is None:
                     env.pop(key, None)
@@ -358,18 +421,39 @@ class AcpmuxTest(unittest.TestCase):
                     self.assertIsNone(daemon.poll(), (root / "daemon.log").read_text())
                     self.assertLess(time.monotonic(), deadline)
                     time.sleep(0.05)
-                first = self.call_session(sock, digest)
-                second = self.call_session(sock, digest)
+                yield root, transcripts, sock, marker
             finally:
                 daemon.terminate()
                 daemon.wait(10)
                 log.close()
+
+    def test_two_sessions_through_acpmux_stream_the_same_frames(self):
+        with self.bench_daemon() as (root, transcripts, sock, marker):
+            digest = store(transcripts, transcript_bytes())
+            first = self.call_session(sock, digest)
+            second = self.call_session(sock, digest)
             expected, stop = ar.transcript_frames(ar.parse_transcript(transcript_bytes()))
             self.assertEqual(first, second)
             self.assertEqual(first, ([update for _, update in expected], stop))
             turns = [json.loads(line) for line in (root / "turns.ndjson").read_text().splitlines()]
             self.assertEqual([t["digest"] for t in turns], [ar.frames_digest(first[0], stop)] * 2)
+            self.assertFalse(marker.exists())
 
+    def test_a_harness_other_than_replay_never_starts(self):
+        with self.bench_daemon() as (root, _, sock, marker):
+            self.assertEqual(self.ask(sock, "_acpmux/status", {})["result"]["agentLaunch"], "only")
+            for harness in ("decoy", "claude", "codex"):
+                with self.subTest(harness):
+                    reply = self.ask(sock, "session/new", {"cwd": "/tmp", "mcpServers": [],
+                                                           "_meta": {"acpmux": {"harness": harness}}})
+                    self.assertIn("error", reply, reply)
+            reply = self.ask(sock, "session/new", {"cwd": "/tmp", "mcpServers": [],
+                                                   "_meta": {"acpmux": {"harness": "decoy"}}})
+            self.assertEqual(reply["error"].get("data", {}).get("reason"), "agent_launch_disabled", reply)
+            prewarm = self.ask(sock, "_acpmux/prewarm", {"harness": "decoy", "cwd": str(root), "wait": True})
+            self.assertFalse(prewarm["result"]["accepted"], prewarm)
+            self.ask(sock, "_acpmux/models", {"refresh": True})
+            self.assertFalse(marker.exists(), "the decoy harness started")
 
 if __name__ == "__main__":
     unittest.main()
