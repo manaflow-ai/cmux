@@ -1,3 +1,4 @@
+import CmuxNextWakeups
 import Foundation
 
 /// When the external message pump must call `CefDoMessageLoopWork` next.
@@ -22,6 +23,16 @@ nonisolated struct CEFPumpSchedule: Equatable, Sendable {
     /// with others (an idle browser asks about 1.7 times a second). Never more
     /// than a tenth of the delay; a request for "now" stays exact.
     static let delayedLeeway: TimeInterval = 0.008
+
+    /// The class a pass runs in on the main-thread task board (``CEFPumpBoard``, p06-scheduler-048):
+    /// input while a page has the keyboard or an input AppKit delivered to a page waits for the pass
+    /// that acks it (Chromium's input router runs inside `CefDoMessageLoopWork`), frame otherwise.
+    /// Never a budgeted class and never by visibility: Chromium's one UI thread serves every page, a
+    /// hidden tab's CDP round trip included, as Chrome's browser UI thread runs input at
+    /// USER_BLOCKING and its other work unbudgeted (content/browser/scheduler/browser_task_queues.cc).
+    static func workClass(pageHasFocus: Bool, pageInputUnacked: Bool) -> MainWorkClass {
+        pageHasFocus || pageInputUnacked ? .input : .frame
+    }
 
     /// The next timer fire, in the clock's seconds.
     struct Wake: Equatable, Sendable {

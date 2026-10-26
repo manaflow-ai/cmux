@@ -141,6 +141,9 @@ final class CEFRuntime {
     /// What the pump's input policy reads, from the engine made last (feature `cefPumpInputPolicy`,
     /// ``CEFPumpInputPolicy``); read at start with ``input``. Nil: the pump never holds for input.
     var pumpInput: CEFPumpInputSeams?
+    /// The main-thread budget the in-process pump's passes run on as owner `cef.pump`
+    /// (``CEFPumpBoard``), from the engine made last; read at start with ``input``. Nil: unattributed.
+    var pumpBudget: MainFrameBudget?
     /// True when this Chromium started with the built-in uBlock Origin.
     private(set) var builtInAdBlockerLoaded = false
     private var terminationObserver: (any NSObjectProtocol)?
@@ -423,10 +426,13 @@ final class CEFRuntime {
             if forkAPI < CEFPumpSchedule.demandDrivenForkAPI {
                 logger.error("CEF fork API \(forkAPI) predates the demand-driven pump (\(CEFPumpSchedule.demandDrivenForkAPI)): work left after a time slice and delayed tasks posted during a pass wait for the next CEF request, so pages may stall")
             }
+            let board = pumpBudget.map { CEFPumpBoard(budget: $0, input: input) }
             let pump = CEFMessagePump(
                 work: { [weak self] in CEFStartSteps.shared.pump(windowPending: self?.pendingWindows.isEmpty == false) { self?.pumpWork() } },
                 timer: CEFWakeUpQueuePumpTimer(queue: wakeUps),
-                gate: pumpGate
+                gate: pumpGate,
+                starvation: board?.budget.starvation,
+                board: board
             )
             self.pump = pump
             if let pumpInput, let input {
