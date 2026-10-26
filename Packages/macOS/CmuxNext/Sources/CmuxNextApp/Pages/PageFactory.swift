@@ -6,7 +6,6 @@ import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextHomeEngine
 import CmuxNextMacScreen
-import CmuxNextMemory
 import CmuxNextPages
 import CmuxNextServer
 import CmuxNextSettings
@@ -53,8 +52,9 @@ struct PageFactory {
         }
         let native = AppPageNativeProvider(services: services, page: .apps)
         let routes = [PageRoute(prefix: "cmux.apps.", provider: confirming), PageRoute(prefix: "cmux.app.", provider: native)]
+        let glyphs = AppsGlyphResource(memory: AppMemoryConsumers(services: services).appCacheRegistry)
         guard let page = services.webUI.open(PageOpenRequest(descriptor: .apps, routes: routes, route: route,
-                                                             dynamicResources: AppsGlyphResource(memory: services.memoryCoordinator))) else { return nil }
+                                                             dynamicResources: glyphs)) else { return nil }
         confirming.anchor = { [weak page] in page }
         native.anchor = { [weak page] in page }
         PageConnectionWatch(page: page, store: services.machines.local.store, on: services.mainWork).start()
@@ -200,7 +200,8 @@ struct PageFactory {
                 await services?.viewers.picker.open(.init(choose: .files, types: [.image, .movie]))?.first
             }
         }
-        let museumArt = MuseumArtSession(memory: AppMemoryConsumers(services: services).appCacheRegistry)
+        let appCaches = AppMemoryConsumers(services: services).appCacheRegistry
+        let museumArt = MuseumArtSession(memory: appCaches)
         provider.museumArt = museumArt
         provider.workspaceBackgrounds = SettingsWorkspaceBackgrounds(
             title: { [weak services] id in services?.workspace(id: id)?.displayName },
@@ -239,7 +240,7 @@ struct PageFactory {
                                                           userImages: SettingsWindowService.userImages, museum: museumArt,
                                                           iconPNG: { [weak services] icon in
                                                               await SettingsIconAssets.png(icon, owner: services?.machines.local)
-                                                          }, memory: services.memoryCoordinator)
+                                                          }, memory: appCaches)
         let page = services.pageHostPool.claim(.settings, routes: routes, route: route, options: Self.settingsEngineOptions,
                                                surface: .settings,
                                                dynamicResources: dynamicResources,

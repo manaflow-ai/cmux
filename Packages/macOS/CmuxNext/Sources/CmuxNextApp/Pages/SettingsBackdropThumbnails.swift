@@ -22,7 +22,8 @@ final class SettingsBackdropThumbnails: PageDynamicResourceSource {
     /// The PNGs served, by id or icon key: a memory consumer of `memory` (critical pressure empties it).
     let cache: PageResourceDataCache
 
-    /// - Parameter memory: The app's memory coordinator; nil keeps every PNG for the page's life (tests).
+    /// - Parameter memory: The app-cache registry (`AppMemoryConsumers.appCacheRegistry`); nil, while
+    ///   `memoryAppCaches` is off or in tests, keeps every PNG for the page's life.
     init(choices: [BackdropSelection], currentChoices: (@MainActor () -> [BackdropSelection])? = nil,
          userImages: BackdropUserImages?, museum: MuseumArtSession? = nil, iconPNG: ((String) async -> Data?)? = nil,
          memory: (any MemoryConsumerRegistry)? = nil) {

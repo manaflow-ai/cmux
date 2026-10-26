@@ -19,7 +19,8 @@ final class AppsGlyphResource: PageDynamicResourceSource {
     /// The masks served, by name: a memory consumer of `memory` (critical pressure empties it).
     let cache: PageResourceDataCache
 
-    /// - Parameter memory: The app's memory coordinator; nil keeps every mask for the page's life (tests).
+    /// - Parameter memory: The app-cache registry (`AppMemoryConsumers.appCacheRegistry`); nil, while
+    ///   `memoryAppCaches` is off or in tests, keeps every mask for the page's life.
     init(memory: (any MemoryConsumerRegistry)? = nil) {
         cache = PageResourceDataCache(name: "apps-glyphs", memory: memory)
     }
