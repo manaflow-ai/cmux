@@ -128,8 +128,6 @@ final class CEFRuntime {
     /// Replies that arrived before their caller awaited.
     var earlySiteReplies: [Int32: CEFSiteReply] = [:]
     var nextSiteReply: Int32 = 1
-    /// Host mode: where async exports answer (``sendAsync(_:)``); nil in process, where each call does.
-    var hostReplies: CEFHostReplyRoute?
     /// Host mode: the last page view token minted (``mintPageViewToken()``).
     var lastPageViewToken: UInt64 = 0
     /// Host mode: each profile proxy's verdict from the host (``applyProfileProxy(_:)``).
@@ -472,7 +470,6 @@ final class CEFRuntime {
         // The app's NSApplication subclass must conform (CmuxApplication); the shim no longer
         // patches NSApp at runtime. In host mode the host's NSApp runs Chromium.
         if case .inProcess = library, shim.prepareApplication() != 1 { throw .application }
-        hostReplies = try CEFHostReplyRoute.route(for: library)
         self.shim = shim
         if case .host = library { showHostWidgets(shim) }
         if case .inProcess(let loaded) = library {
