@@ -24,7 +24,8 @@ run-name: ${{ (github.event_name == 'schedule' || github.event_name == 'workflow
 # pool jobs" check on the pull request, dispatching its own rescue run: 263
 # rescue runs in the 2 hours to 12:30 UTC, and 59 of the last 60 did nothing.
 # A sweeper adopts runs for 5 hours, then stops its watches and gives a
-# rescue it started 25 minutes to settle. The two-hourly cron queues the next
+# rescue it started 40 minutes to settle (25, plus 15 for waits through GitHub
+# rate limits; RESCUE_GRACE_SECONDS). The two-hourly cron queues the next
 # one in the concurrency group, which for sweepers never cancels in progress,
 # so it starts as the old one ends and a started rescue is never killed. A
 # run the old one re-ran is resumed at attempt 2, and a run refused while no
