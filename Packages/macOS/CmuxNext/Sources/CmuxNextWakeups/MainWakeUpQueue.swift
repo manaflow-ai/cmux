@@ -82,9 +82,7 @@ public final class MainWakeUpQueue: Sendable {
     /// reads it inside this one; the source calls observers outside its lock), so locks are always taken
     /// in the same order.
     private let state: Mutex<State>
-    /// The Energy Saver policy this queue aligns to: the composition root's one source when the queue is
-    /// `MainWorkScheduler.wakeUps`, so an owner handed the queue follows the same policy (`CEFRuntime`).
-    public let energy: EnergyPolicySource
+    public let energy: EnergyPolicySource  // the policy it aligns to; an owner handed the queue follows it (CEFEnergySaver)
     /// Where each fire and each owner that runs in it are counted.
     let ledger: WakeupLedger
     private let uptime: @Sendable () -> UInt64

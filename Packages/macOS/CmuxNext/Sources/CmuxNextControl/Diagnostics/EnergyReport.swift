@@ -201,6 +201,9 @@ extension EnergyReport {
             case applied
             /// Chromium has not taken it: not started, a fork below the API, or the Chromium Host (p14-energy-045).
             case unsupported
+
+            /// `applied` only when the engine says the fork took the last state; nil is no Chromium built yet.
+            public init(applied: Bool?) { self = applied == true ? .applied : .unsupported }
         }
 
         public var saver: Saver

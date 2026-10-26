@@ -197,18 +197,14 @@ final class CEFRuntime {
     private(set) var energySaver: CEFEnergySaver?
 
     private init() {
-        makePumpTimer = Self.wakeUpQueueTimer
+        makePumpTimer = CEFInProcessPump.wakeUpQueueTimer
     }
 
     /// A runtime that has not started, its profiles under `storage` (tests start it against seams).
     /// `makePumpTimer` makes the in-process pump's timer; nil: one on ``wakeUps``.
     init(storage: CEFProfileStorage, makePumpTimer: CEFInProcessPump.MakeTimer? = nil) {
         self.storage = storage
-        self.makePumpTimer = makePumpTimer ?? Self.wakeUpQueueTimer
-    }
-
-    private static func wakeUpQueueTimer(_ queue: MainWakeUpQueue) -> any CEFPumpTimer {
-        CEFWakeUpQueuePumpTimer(queue: queue)
+        self.makePumpTimer = makePumpTimer ?? CEFInProcessPump.wakeUpQueueTimer
     }
 
     /// Takes the engine's stores, sign-in tabs and wait deadlines (the process has one Chromium, so the
@@ -240,7 +236,7 @@ final class CEFRuntime {
     init(shim: CEFShimLibrary, storage: CEFProfileStorage) {
         self.shim = shim
         self.storage = storage
-        makePumpTimer = Self.wakeUpQueueTimer
+        makePumpTimer = CEFInProcessPump.wakeUpQueueTimer
         state = .ready
     }
 

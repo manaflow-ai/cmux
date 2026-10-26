@@ -76,9 +76,13 @@ extension CEFEnergySaver {
         runtime.logger.notice("CEF energy saver: \(saver.isApplied ? "applied" : "refused", privacy: .public) on=\(saver.sent == true, privacy: .public)")
         return saver
     }
+
+    /// `runtime`'s Chromium took the app's last saver state: false before the ready hooks, below the fork
+    /// API, or when the fork refused it.
+    static func applied(by runtime: CEFRuntime) -> Bool { runtime.energySaver?.isApplied ?? false }
 }
 
 extension CEFEngine {
     /// Chromium took the app's last Energy Saver state (`debug.energy` `cef.energySaver`, ``CEFEnergySaver``).
-    public var energySaverApplied: Bool { CEFRuntime.shared.energySaver?.isApplied ?? false }
+    public var energySaverApplied: Bool { CEFEnergySaver.applied(by: .shared) }
 }

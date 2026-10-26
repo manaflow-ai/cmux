@@ -193,6 +193,19 @@ struct EnergyReportTests {
         #expect(rendered?["perSecond"]?.doubleValue != nil)
     }
 
+    /// p14-energy-030: `cef.energySaver` is `applied` only when the built engine says the fork took the last
+    /// state; a refused or uncalled saver and no Chromium built yet are `unsupported`.
+    @Test func cefEnergySaverIsAppliedOnlyWhenTheEngineSaysSo() async {
+        #expect(EnergyReport.CEF.Saver(applied: true) == .applied)
+        #expect(EnergyReport.CEF.Saver(applied: false) == .unsupported)
+        #expect(EnergyReport.CEF.Saver(applied: nil) == .unsupported)
+        for (applied, name) in [(true, "applied"), (false, "unsupported")] {
+            var state = Self.state
+            state.cef = .init(saver: .init(applied: applied), earlyPasses: nil)
+            #expect(await Self.report(state: state)["cef"]?["energySaver"]?.stringValue == name)
+        }
+    }
+
     @Test func thermalStatesHaveStableNames() {
         let names = [ProcessInfo.ThermalState.nominal, .fair, .serious, .critical].map(EnergyReport.Inputs.name)
         #expect(names == ["nominal", "fair", "serious", "critical"])

@@ -153,8 +153,8 @@ extension EnergyReport {
                            setting: services.settings?.snapshot.energySaver ?? EnergySaverSetting.defaultValue,
                            sessionOverride: driver.isOffForSession, simulated: services.energyMonitor.isSimulated),
             wakeQueue: WakeQueue(entries: wakeUps.count, coalescedFires: wakeUps.coalescedFires),
-            // No early-pass count yet (p14-energy-018). A Chromium not built yet has applied nothing.
-            cef: CEF(saver: services.cache.chromium.built?.energySaverApplied == true ? .applied : .unsupported, earlyPasses: nil),
+            // No early-pass count yet (p14-energy-018).
+            cef: CEF(saver: CEF.Saver(applied: services.cache.chromium.built?.energySaverApplied), earlyPasses: nil),
             idle: services.energy.idle.stats
         )
     }

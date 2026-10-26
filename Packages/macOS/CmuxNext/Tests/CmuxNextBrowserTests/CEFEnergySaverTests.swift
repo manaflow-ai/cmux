@@ -1,5 +1,6 @@
+import CmuxNextCompat
 @testable import CmuxNextBrowser
-import CmuxNextWakeups
+@testable import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -35,6 +36,32 @@ import Testing
         #expect(!saver.isApplied)
         source.update(.normal)
         #expect(recorder.calls == [true, false])
+    }
+
+    /// The source tells observers on its writer's thread. Changes told off the main thread reach Chromium
+    /// only from the main wake queue's fire, and each queued hop reads the latest policy: three edges
+    /// off main make one call, with the state the source ends in.
+    @Test func changesOffTheMainThreadMakeOneCallWithTheLatestStateOnTheQueuesFire() async {
+        let source = EnergyPolicySource()
+        let uptime = Uptime()
+        let queue = MainWakeUpQueue(energy: source, ledger: WakeupLedger(uptime: { 0 }), uptime: { uptime.now }) { _ in ParkedWakeUpTimer() }
+        let recorder = Recorder()
+        let saver = CEFEnergySaver { recorder.calls.append($0); return true }
+        saver.follow(source, queue: queue)
+
+        await Task.detached {
+            source.update(EnergyPolicy(saverReason: .setting))
+            source.update(.normal)
+            source.update(EnergyPolicy(saverReason: .lowPowerMode))
+        }.value
+        #expect(recorder.calls == [false], "a change off the main thread called Chromium before the queue's fire")
+        #expect(queue.count == 3)
+
+        uptime.now = 1_000_000_000
+        queue.fire()
+        #expect(recorder.calls == [false, true], "the hops sent an older state, or more than one call")
+        #expect(queue.count == 0)
+        #expect(saver.isApplied)
     }
 
     @Test func theForkAPIGuardsTheCall() {
@@ -83,6 +110,22 @@ import Testing
 @MainActor
 private final class Recorder {
     var calls: [Bool] = []
+}
+
+/// The queue's uptime in ns: the queue reads it from any thread, the test's main actor moves it.
+private nonisolated final class Uptime: Sendable {
+    private let value = Atomic<UInt64>(0)
+
+    var now: UInt64 {
+        get { value.load(ordering: .relaxed) }
+        set { value.store(newValue, ordering: .relaxed) }
+    }
+}
+
+/// A timer that never fires: the test fires the queue itself.
+private nonisolated final class ParkedWakeUpTimer: MainWakeUpTimer {
+    func arm(at _: UInt64, tolerance _: UInt64, now _: UInt64) {}
+    func park() {}
 }
 
 /// A shim with a fork API number and a `cmux_shim_set_energy_saver` that records its calls (a C function
