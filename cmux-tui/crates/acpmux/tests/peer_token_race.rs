@@ -105,6 +105,10 @@ enum Reads {
     /// real one after: the remote restarted between the read and the
     /// handshake and had not written its new token when it was read again.
     Gap,
+    /// No token on the first read or its three rereads, the real one
+    /// after: the remote wrote it after the peer's last read before the
+    /// connect.
+    AfterHandshake,
     /// Never a token: a remote too old to make one.
     Never,
 }
@@ -141,7 +145,7 @@ n = int(open(count).read()) if os.path.exists(count) else 0
 open(count, "w").write(str(n + 1))
 mode = {mode}
 out = open(os.path.join(home, "config.json"), "rb").read() + b"\0"
-if mode == "never" or (mode == "late" and n == 0) or (mode == "gap" and n == 1):
+if mode == "never" or (mode == "late" and n == 0) or (mode == "gap" and n == 1) or (mode == "after" and n < 5):
     os.write(1, out)
     sys.exit(1)
 if mode in ("stale", "gap") and n == 0:
@@ -156,6 +160,7 @@ os.write(1, out)
             Reads::Late => "\"late\"",
             Reads::Stale => "\"stale\"",
             Reads::Gap => "\"gap\"",
+            Reads::AfterHandshake => "\"after\"",
             Reads::Never => "\"never\"",
         },
     );
@@ -242,14 +247,21 @@ fn a_peer_whose_stale_token_vanished_reconnects_once_the_new_one_is_written() {
 }
 
 #[test]
+fn a_peer_whose_remote_writes_its_token_after_the_handshake_reconnects_as_a_peer() {
+    let pair = Pair::start("after", Reads::AfterHandshake);
+    pair.wait_served_as("peer");
+}
+
+#[test]
 fn a_remote_with_no_token_stays_remote_after_a_bounded_number_of_reads() {
     let pair = Pair::start("never", Reads::Never);
     let first = pair.wait_served_as("remote");
     // The first read, three rereads before the connect, one after the
-    // handshake; then the link stays up with no more reads.
-    std::thread::sleep(Duration::from_secs(5));
+    // handshake and three once the link is admitted (1 + 2 + 4 s); then the
+    // link stays up with no more reads.
+    std::thread::sleep(Duration::from_secs(10));
     let later = pair.peer();
     assert_eq!(later["state"], json!("connected"), "{later}");
     assert_eq!(later["attempts"], first["attempts"], "the link did not reconnect: {later}");
-    assert_eq!(pair.reads(), 5, "reads of a remote with no token");
+    assert_eq!(pair.reads(), 8, "reads of a remote with no token");
 }

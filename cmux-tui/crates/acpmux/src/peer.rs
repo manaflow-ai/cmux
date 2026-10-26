@@ -346,6 +346,34 @@ impl Peer {
         })
     }
 
+    /// `stale_token` for a connection that presented no token, once the
+    /// link is admitted: the remote is reread (`TOKEN_REREADS`), and a token
+    /// it writes after the handshake's read is a reason to connect again as
+    /// a peer. None once the rereads end with no token (a remote too old to
+    /// make one), when a read fails, or on stop.
+    async fn late_token(&self) -> Option<String> {
+        self.ssh_parts()?;
+        let served_as_web =
+            self.served_as.lock().unwrap_or_else(|e| e.into_inner()).as_deref() == Some("remote");
+        if !served_as_web || self.presented.lock().unwrap_or_else(|e| e.into_inner()).is_some() {
+            return None;
+        }
+        for wait in TOKEN_REREADS {
+            tokio::time::sleep(wait).await;
+            if self.stop.load(Ordering::SeqCst) {
+                return None;
+            }
+            if self.remote_tokens().await.ok()?.1.is_some() {
+                return Some(
+                    "the peer served this daemon as remote, and it has written its peer token; \
+                     reconnecting"
+                        .to_owned(),
+                );
+            }
+        }
+        None
+    }
+
     pub fn remote_build(&self) -> Option<String> {
         self.remote_version.lock_or_recover().as_ref().map(|(_, b)| b.clone())
     }
@@ -598,6 +626,10 @@ impl Peer {
     {
         use tokio_tungstenite::tungstenite::Message as Frame;
         let (mut sink, mut source) = ws.split();
+        // A frame still queued was enqueued for the link that went down;
+        // its caller was failed when that link dropped, so it never goes
+        // out on this one.
+        while out_rx.try_recv().is_ok() {}
         self.admitting.store(true, Ordering::SeqCst);
         self.connected.store(true, Ordering::SeqCst);
         *self.last_error.lock_or_recover() = None;
@@ -672,6 +704,9 @@ impl Peer {
                 let _ = me.request(method::MUX_ATTACH, hidden_attach(&sid)).await;
             }
             me.refresh_health();
+            if let Some(why) = me.late_token().await {
+                let _ = stale_tx.send(why);
+            }
             Ok::<(), RpcError>(())
         });
 
@@ -791,7 +826,7 @@ impl Peer {
 }
 
 /// The waits before each reread of a remote that has no peer token yet
-/// (`Peer::remote_tokens_settled`, `Peer::stale_token`).
+/// (`Peer::remote_tokens_settled`, `Peer::stale_token`, `Peer::late_token`).
 const TOKEN_REREADS: [Duration; 3] =
     [Duration::from_secs(1), Duration::from_secs(2), Duration::from_secs(4)];
 
