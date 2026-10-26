@@ -416,6 +416,8 @@ pub struct Hub {
     pub catalog: Arc<crate::catalog::CatalogService>,
     /// Agent CLI health (`harness_health`, `hub/health_view.rs`).
     pub health: Arc<crate::harness_health::HealthService>,
+    /// Energy Saver and the periodic upkeep on one clock (`maintenance.rs`).
+    pub maintenance: crate::maintenance::Maintenance,
     /// The token the web listener checks now (`web_token.rs`).
     pub web_token: WebToken,
     /// This launch's person key (`person.rs`): who may allow and grant.
@@ -524,6 +526,7 @@ impl Hub {
             git_watch: Default::default(),
             catalog: Arc::new(crate::catalog::CatalogService::new()),
             health: Arc::new(crate::harness_health::HealthService::new()),
+            maintenance: Default::default(),
             web_token: WebToken::new(String::new()),
             person: Default::default(),
             workflow_index: Default::default(),

@@ -8,11 +8,10 @@
 //! (chrome/browser/performance_manager/public/user_tuning/battery_saver_mode_manager.h).
 
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Weak};
+use std::sync::{Arc, Mutex, Weak};
 use std::time::Duration;
 
 use super::{DEFAULT_ALIGNMENT, Deadline, Policy, SAVER_ALIGNMENT, Ticks, deadline_aligned};
-use crate::lock_rank::{LockRank, RankedMutex};
 
 type Notify = Arc<dyn Fn() + Send + Sync>;
 
@@ -27,17 +26,15 @@ struct Watchers {
 pub struct EnergyMode {
     saver: AtomicBool,
     /// Who to tell on an edge. Taken only to add, remove or copy the list:
-    /// a watcher is called after the lock is released.
-    watchers: RankedMutex<Watchers>,
+    /// a watcher is called after the lock is released, so no other lock is
+    /// ever taken under it.
+    watchers: Mutex<Watchers>,
 }
 
 impl EnergyMode {
     /// A mode that starts with Energy Saver `saver`.
     pub fn new(saver: bool) -> Arc<Self> {
-        Arc::new(Self {
-            saver: AtomicBool::new(saver),
-            watchers: RankedMutex::new(LockRank::Leaf, "wake.energy.watchers", Watchers::default()),
-        })
+        Arc::new(Self { saver: AtomicBool::new(saver), watchers: Mutex::new(Watchers::default()) })
     }
 
     /// Whether Energy Saver is on.

@@ -64,6 +64,9 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 tracing-log = { version = "0.2", default-features = false }
 # The Release trace ring (src/trace_layer.rs): event instants and request slices.
 cmux-trace.workspace = true
+# Catalog refresh, the health check and the upload sweep on one MaintenanceClock
+# (src/maintenance.rs), and Energy Saver (src/energy_control.rs).
+cmux-wake.workspace = true
 uuid = { version = "1.20", features = ["v7"] }
 libc = "0.2"
 notify.workspace = true
