@@ -842,3 +842,36 @@ async fn an_adopt_never_moves_a_running_bridge_chat_to_read_only() {
     assert_eq!(agent.mode(&id).await, "ask");
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// The reviewer of cmux#25310, 2026-10-26: a session in the Codex bridge's `read-only` lends that
+/// mode id to a chat it starts on the codex-acp adapter, whose `read-only` writes in the
+/// workspace without asking. The agent in a bridge chat in `read-only` (its caller token) is
+/// refused the adapter in `read-only`, and still starts the bridge in it.
+#[tokio::test]
+async fn a_bridge_caller_never_lends_read_only_to_the_adapter() {
+    let dir = home("narrow-lend", json!({"defaultPermissionMode": "fullAccess"}));
+    let daemon = hub_with(&dir, |cfg| {
+        let adapter = json!({"argv": ["python3", FAKE_AGENT, "codex-acp"], "family": "codex"});
+        cfg.harnesses.insert("adapter".into(), serde_json::from_value(adapter).unwrap());
+    });
+    let start = |harness: &str| {
+        json!({"cwd": dir.join("work"), "mcpServers": [],
+            "_meta": {"acpmux": {"harness": harness, "mode": "read-only"}}})
+    };
+    let mut cli = Client::new(&daemon, Origin::Local, ConnAuth::LocalSocket);
+    let r = cli.call("session/new", start("codex")).await;
+    let parent = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("{r}")).to_owned();
+    assert_eq!(cli.mode(&parent).await, "read-only");
+    let mut agent = Client::new(&daemon, Origin::Local, ConnAuth::LocalSocket);
+    let token = acpmux::hub::person::caller_token(&parent);
+    let caller = json!({"callerSession": {"sessionId": parent, "token": token}});
+    let r =
+        agent.call("initialize", json!({"protocolVersion": 1, "_meta": {"acpmux": caller}})).await;
+    assert!(r.get("error").is_none(), "{r}");
+    let r = agent.call("session/new", start("adapter")).await;
+    assert_eq!(r["error"]["data"]["reason"], "permission.person_required", "adapter: {r}");
+    let r = agent.call("session/new", start("codex")).await;
+    let id = r["result"]["sessionId"].as_str().unwrap_or_else(|| panic!("bridge: {r}")).to_owned();
+    assert_eq!(agent.mode(&id).await, "read-only");
+    let _ = std::fs::remove_dir_all(&dir);
+}
