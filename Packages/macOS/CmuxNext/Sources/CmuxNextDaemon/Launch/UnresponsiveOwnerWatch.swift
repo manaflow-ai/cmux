@@ -81,8 +81,10 @@ public final class UnresponsiveOwnerWatch: Sendable {
 
     /// - Parameters:
     ///   - isEnabled: The Debug Settings toggle, read at each stuck ensure, when the window passes
-    ///     and at the claim; its changes come through ``toggled(on:)``. Off: no streak builds up
-    ///     and no deadline is pending.
+    ///     and at the claim. Off at any of those ends the streak and its deadline. The window
+    ///     measures the owner, not the toggle: turned off and on again between two reads, the
+    ///     owner stayed stuck the whole time, so the streak goes on; the replace itself runs only
+    ///     when the claim reads the toggle on, on the executor that replaces.
     ///   - replace: Replaces the owner; true when the owner was replaced. It must call `claim`
     ///     right before it replaces, on the executor that replaces, and replace only when `claim`
     ///     says yes: the replace was queued before it ran, and by then the toggle may be off, an
@@ -115,22 +117,14 @@ public final class UnresponsiveOwnerWatch: Sendable {
         }
     }
 
-    /// The toggle changed (``DaemonRecovery`` follows it). Off ends the streak and cancels its
-    /// deadline, so a window never spans time with the toggle off, even when it is on again
-    /// before the next ensure or the deadline. On does nothing: the next stuck ensure starts over.
-    public func toggled(on: Bool) {
-        guard !on else { return }
-        state.withLock { state in Self.endStreak(&state, window: window) }
-    }
-
     /// Records how one ensure ended; may start the replace. The deadline is scheduled and
     /// cancelled under the state lock, so an older outcome never cancels a newer streak's
     /// deadline (the timer's own lock is taken inside this one, never the other way).
     ///
     /// The deadline (``Policy/sustained``, one-shot) is pending only during a stuck streak with
     /// the toggle on: an ensure that is not stuck cancels it, a stuck one with the toggle off ends
-    /// the streak and cancels it, ``toggled(on:)`` off and ``stop()`` cancel it, and when it fires
-    /// with the toggle off it ends the streak.
+    /// the streak and cancels it, ``stop()`` cancels it, and when it fires with the toggle off it
+    /// ends the streak.
     public func note(_ ensure: Ensure) {
         let enabled = isEnabled()
         let policy = policy
@@ -223,7 +217,7 @@ public final class UnresponsiveOwnerWatch: Sendable {
     /// Whether the replace queued for `streak` may still run: the toggle is on, the watch was not
     /// stopped, and the same owner is still in the same stuck streak. When not, the replace is
     /// given back (its count and its owner), so that owner can be replaced on a later streak; a
-    /// claim that finds the toggle off also ends the streak, as ``toggled(on:)`` would have.
+    /// claim that finds the toggle off also ends the streak.
     nonisolated private func claim(_ streak: UInt64, owner: Int32?) -> Bool {
         let enabled = isEnabled()
         return state.withLock { state in

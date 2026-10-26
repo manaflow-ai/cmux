@@ -256,28 +256,27 @@ struct UnresponsiveOwnerWatchTests {
         #expect(watch.replaceCount == 1)
     }
 
-    /// Review 2 of #25382: the toggle turned off and on again between two ensures ends the streak
-    /// at once (``UnresponsiveOwnerWatch/toggled(on:)``): its window never counts the time off.
-    @Test func theToggleOffAndOnBetweenEnsuresStartsTheWindowOver() async throws {
+    /// Review 3 of #25382: the toggle is read, not followed. Turned off and on again between two
+    /// reads, the owner stayed stuck the whole time: the streak goes on and the owner is replaced
+    /// with the toggle on. Off at a read ends the streak (the tests above and below).
+    @Test func theToggleOffAndOnBetweenTwoReadsKeepsTheStreak() async throws {
         let clock = ManualClock()
-        let watch = UnresponsiveOwnerWatch(policy: .standard, clock: clock, isEnabled: { true }, replace: Self.claiming)
+        let enabled = Shared(true)
+        let reads = Shared<[Bool]>([])
+        let watch = UnresponsiveOwnerWatch(policy: .standard, clock: clock, isEnabled: {
+            let on = enabled.current
+            reads.current.append(on)
+            return on
+        }, replace: Self.claiming)
         watch.note(.stuck)
         watch.note(.stuck)
         try await clock.waitForSleeper()
-        watch.toggled(on: false)
-        #expect(!watch.isWaiting, "turning the toggle off cancels the deadline")
-        watch.toggled(on: true)
-        clock.advance(by: .seconds(30))
-        try? await Task.sleep(for: .milliseconds(50))
-        watch.note(.stuck)
-        #expect(watch.replaceCount == 0, "a window that spanned the toggle off replaced the owner")
-        // The streak that starts on again needs its own window.
-        try await clock.waitForSleeper()
+        enabled.current = false  // between two reads: nothing reads it
+        enabled.current = true
         clock.advance(by: .seconds(30))
         await Self.replaces(watch, reach: 1)
-        #expect(watch.replaceCount == 0, "one stuck ensure since the toggle came back is not enough")
-        watch.note(.stuck)
         #expect(watch.replaceCount == 1)
+        #expect(!reads.current.contains(false), "every read the watch made saw the toggle on")
     }
 
     /// Review 2 of #25382: a queued replace whose claim finds the toggle off ends the streak, so
