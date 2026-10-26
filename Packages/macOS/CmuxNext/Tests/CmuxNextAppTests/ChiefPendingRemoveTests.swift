@@ -234,6 +234,56 @@ struct ChiefPendingRemoveTests {
         #expect(!store.isPending(SidebarLayoutDocument.chiefItemID), "the add the refusal dropped still counts as pending")
     }
 
+    /// The same, when the remove is never answered and the reload that settles it comes after the add: the load
+    /// holds the confirmed Chief, the remove it answers is put back, and the add the mirror drops then settles too.
+    @Test func aReloadThatSettlesAnUnansweredRemoveSettlesTheAddItDropped() async throws {
+        let remote = HeldReload(document: Self.document(chief: Self.hiddenLabelChief))
+        let (_, store, end) = try await Self.pending(remote: remote)
+        defer { end() }
+        try store.sendChecked(ops: [["op": "item.remove", "id": "itm_chief"]], title: "Remove", undoable: false)
+        await RapidWorkspaceCreateTests.wait(within: .seconds(5)) { remote.held != nil }
+        try #require(remote.held != nil, "the unanswered remove asked for no reload")
+        try store.sendChecked(ops: [["op": "item.add", "item": ["id": "itm_chief", "body": ["type": "builtin", "id": "chief"], "shows_label": true] as [String: Any],
+                                     "to": ["section": "sec_top"]]], title: "Add", undoable: false)
+        try #require(store.isPending(SidebarLayoutDocument.chiefItemID), "the Chief added again is not pending")
+        remote.release()
+        let restored = { (Self.drawn(store).first { $0.ref == .builtIn(.chief) }?.showsLabel) == false }
+        await RapidWorkspaceCreateTests.wait(within: .seconds(5)) { restored() && !store.isPending(SidebarLayoutDocument.chiefItemID) }
+        #expect(restored(), "the Chief draws the dropped add's label, not the loaded record's")
+        #expect(!store.isPending(SidebarLayoutDocument.chiefItemID), "the add the reload's refusal dropped still counts as pending")
+    }
+
+    /// A daemon that never answers a change (a remove times out at once, so the store asks for a reload), and holds
+    /// every load after the first until the test releases it.
+    @MainActor final class HeldReload: SidebarDocRemote {
+        let document: Data
+        var loads = 0
+        var held: CheckedContinuation<Void, Never>?
+        init(document: Data) { self.document = document }
+        var isAvailable: Bool { true }
+        func get() async throws -> Data {
+            loads += 1
+            if loads > 1 { await withCheckedContinuation { held = $0 } }
+            return document
+        }
+        func release() {
+            held?.resume()
+            held = nil
+        }
+        func move(_ items: [String], to target: SidebarDocTarget, key: String) async throws -> SidebarDocReply { try await unanswered() }
+        func pin(_ items: [String], key: String) async throws -> SidebarDocReply { try await unanswered() }
+        func unpin(_ items: [String], key: String) async throws -> SidebarDocReply { try await unanswered() }
+        func adopt(_ refs: [SidebarDocWorkspaceRef], key: String) async throws -> SidebarDocReply { try await unanswered() }
+        func apply(ops: Data, key: String) async throws -> SidebarDocReply {
+            if String(decoding: ops, as: UTF8.self).contains("remove") { throw SidebarDocUnsettled() }
+            return try await unanswered()
+        }
+        private func unanswered() async throws -> SidebarDocReply {
+            try await Task.sleep(for: .seconds(600))
+            throw CancellationError()
+        }
+    }
+
     /// A daemon that answers every change (with an inverse) and echoes none; its document is the test's.
     @MainActor final class AnsweringRemote: SidebarDocRemote {
         var document: Data
