@@ -636,6 +636,8 @@ impl Hub {
         turn_seq: u64,
         joined: Option<&super::digest::DigestTurn>,
     ) -> Result<Value, RpcError> {
+        // This turn's number, before taking it lets the next one start (`lane_reports.rs`).
+        let turn = session.meta().turn_count;
         // A model switch (`detach_child`) ended this turn already: its failure is not the queue's.
         let detached = self.take_turn(session, turn_id).is_none_or(|t| t.turn_id != turn_id);
         session.queue_moved.notify_waiters();
@@ -805,7 +807,7 @@ impl Hub {
         }
         self.save_meta(session);
         self.send_offer_result(session);
-        self.lane_turn_ended(session, true);
+        self.lane_turn_ended(session, true, turn);
         result
     }
 
@@ -849,6 +851,7 @@ impl Hub {
         turn_id: &str,
         e: &RpcError,
     ) {
+        let turn = session.meta().turn_count;
         *session.turn.lock().unwrap() = None;
         let mut e = e.clone();
         crate::recovery::annotate(&mut e, Some(&session.meta().cwd));
@@ -875,7 +878,7 @@ impl Hub {
         self.save_meta(session);
         // The turn was counted: its lane's parent hears it failed, with no reply of its own
         // (`lane_reports.rs`).
-        self.lane_turn_ended(session, false);
+        self.lane_turn_ended(session, false, turn);
     }
 
     /// Waits until the inbound loop handled every agent message queued before

@@ -120,45 +120,45 @@ pub(crate) struct LaneReports {
 /// Which turns ran on lane reports only: a turn that started on reports, with no other prompt
 /// steered in while it ran. A steer is aimed at a turn but goes into whichever one the agent runs
 /// when it reads it, so steers are counted by session: one on its way when a turn ends makes that
-/// turn report. Its answer comes once the turn it went into ended; one that went in with no turn
-/// ending on its way makes the next turn end report.
+/// turn report, and one answered as gone in makes every turn up to the last started that has not
+/// ended yet report.
 #[derive(Default)]
 struct TurnKinds {
     /// Turns that started on reports only.
     report_only: std::collections::HashSet<(String, u64)>,
     /// Other prompts steered in and not answered yet, by session.
     in_flight: HashMap<String, usize>,
-    /// Sessions another prompt went into since their last turn end.
-    carried: std::collections::HashSet<String>,
-    /// Turn ends so far, by session.
-    ends: HashMap<String, u64>,
+    /// The last turn started when another prompt was answered as gone in, by session.
+    carried: HashMap<String, u64>,
 }
 
 impl TurnKinds {
-    /// Counts a steer; the turn ends so far, for [`TurnKinds::steer_done`].
-    fn steer_in(&mut self, id: &str) -> u64 {
+    fn steer_in(&mut self, id: &str) {
         *self.in_flight.entry(id.to_owned()).or_default() += 1;
-        self.ends.get(id).copied().unwrap_or(0)
     }
 
-    /// A steer [`TurnKinds::steer_in`] counted when the ends were `since` was answered:
-    /// `entered`, it went into a turn. A turn that ended on its way already reported for it.
-    fn steer_done(&mut self, id: &str, entered: bool, since: u64) {
+    /// A steer [`TurnKinds::steer_in`] counted was answered with `last` the last turn started:
+    /// `entered`, it went into a turn up to that one.
+    fn steer_done(&mut self, id: &str, entered: bool, last: u64) {
         if let Some(n) = self.in_flight.get_mut(id) {
             *n -= 1;
             if *n == 0 {
                 self.in_flight.remove(id);
             }
         }
-        if entered && self.ends.get(id).copied().unwrap_or(0) == since {
-            self.carried.insert(id.to_owned());
+        if entered {
+            let t = self.carried.entry(id.to_owned()).or_default();
+            *t = (*t).max(last);
         }
     }
 
     /// Turn `turn` of `id` ended: whether it ran on reports only. Forgets it.
     fn end(&mut self, id: &str, turn: u64) -> bool {
-        *self.ends.entry(id.to_owned()).or_default() += 1;
-        let carried = self.carried.remove(id) || self.in_flight.contains_key(id);
+        let upto = self.carried.get(id).copied();
+        if upto.is_some_and(|t| t <= turn) {
+            self.carried.remove(id);
+        }
+        let carried = upto.is_some_and(|t| t >= turn) || self.in_flight.contains_key(id);
         self.report_only.remove(&(id.to_owned(), turn)) && !carried
     }
 
@@ -166,39 +166,36 @@ impl TurnKinds {
         self.report_only.retain(|(s, _)| s != id);
         self.in_flight.remove(id);
         self.carried.remove(id);
-        self.ends.remove(id);
     }
 }
 
 /// One steer [`TurnKinds::steer_in`] counted, until its answer: [`SteerCount::done`] takes it
 /// back. Dropped first (its request was dropped), it may have gone in, so it counts as in.
-pub(super) struct SteerCount<'a> {
+/// `last` reads the last turn started.
+pub(super) struct SteerCount<'a, F: Fn() -> u64> {
     turns: &'a StdMutex<TurnKinds>,
     id: String,
-    since: u64,
+    last: F,
     entered: Option<bool>,
 }
 
-impl<'a> SteerCount<'a> {
-    fn new(turns: &'a StdMutex<TurnKinds>, id: &str) -> Self {
-        let since = turns.lock().unwrap_or_else(|e| e.into_inner()).steer_in(id);
-        Self { turns, id: id.to_owned(), since, entered: None }
+impl<'a, F: Fn() -> u64> SteerCount<'a, F> {
+    fn new(turns: &'a StdMutex<TurnKinds>, id: &str, last: F) -> Self {
+        turns.lock().unwrap_or_else(|e| e.into_inner()).steer_in(id);
+        Self { turns, id: id.to_owned(), last, entered: None }
     }
 
-    /// The steer was answered: `entered`, it went into a turn, which reports (the one running,
-    /// or, if that one already ended, the next).
+    /// The steer was answered: `entered`, it went into a turn, which reports.
     pub(super) fn done(mut self, entered: bool) {
         self.entered = Some(entered);
     }
 }
 
-impl Drop for SteerCount<'_> {
+impl<F: Fn() -> u64> Drop for SteerCount<'_, F> {
     fn drop(&mut self) {
         let entered = self.entered.unwrap_or(true);
-        self.turns
-            .lock()
-            .unwrap_or_else(|e| e.into_inner())
-            .steer_done(&self.id, entered, self.since);
+        let last = (self.last)();
+        self.turns.lock().unwrap_or_else(|e| e.into_inner()).steer_done(&self.id, entered, last);
     }
 }
 
@@ -423,19 +420,26 @@ impl Hub {
 
     /// A prompt that is not a lane report is about to be steered into `session`: counted before
     /// it reaches the agent, so any turn that ends while it is on its way reports.
-    pub(super) fn lane_steer_in(
-        &self,
-        session: &Session,
+    pub(super) fn lane_steer_in<'a>(
+        &'a self,
+        session: &'a Session,
         provenance: Option<&Value>,
-    ) -> Option<SteerCount<'_>> {
-        (!reports_only(provenance)).then(|| SteerCount::new(&self.lane_reports.turns, &session.id))
+    ) -> Option<SteerCount<'a, impl Fn() -> u64 + 'a>> {
+        let last = move || session.meta().turn_count;
+        (!reports_only(provenance))
+            .then(|| SteerCount::new(&self.lane_reports.turns, &session.id, last))
     }
 
     /// A local session's turn ended, or failed before its agent started (`turns.rs`): a lane's
     /// report of it is made now, from this turn's own records and state, and queued; delivery
     /// and its retries send that report and never read the lane again.
-    pub(super) fn lane_turn_ended(self: &Arc<Self>, session: &Arc<Session>, started: bool) {
-        let turn = session.meta().turn_count;
+    /// `turn` is its own number, read before its end let the next turn start.
+    pub(super) fn lane_turn_ended(
+        self: &Arc<Self>,
+        session: &Arc<Session>,
+        started: bool,
+        turn: u64,
+    ) {
         let on_reports = self.lane_turns().end(&session.id, turn);
         if !self.lane_links(|links| links.contains_key(&session.id)) {
             return;
