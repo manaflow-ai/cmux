@@ -1,6 +1,5 @@
 public import AppKit
 import CmuxNextDesign
-import WebKit
 
 extension AgentPaneView {
     /// The pane's side of the host transport: the native sheet it asks for (a config option that is
@@ -74,11 +73,12 @@ extension AgentPaneView {
             return judgeChromium(event, eventWindow: eventWindow)
         }
         guard let window, eventWindow === window, AgentPanePersonInput.isPerson(event) else { return }
+        // The page view holds whichever engine's view shows the chat, at the same frame.
         switch event.type {
         case .keyDown:
-            guard !event.isARepeat, (window.firstResponder as? NSView)?.isDescendant(of: webView) == true else { return }
+            guard !event.isARepeat, (window.firstResponder as? NSView)?.isDescendant(of: page) == true else { return }
         default:
-            guard webView.bounds.contains(webView.convert(event.locationInWindow, from: nil)) else { return }
+            guard page.bounds.contains(page.convert(event.locationInWindow, from: nil)) else { return }
         }
         model.transport.gestures.record(click: event.type != .keyDown)
     }

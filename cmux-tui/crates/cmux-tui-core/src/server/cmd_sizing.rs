@@ -226,12 +226,8 @@ pub(super) fn get_cell_pixels(mux: &Arc<Mux>) -> anyhow::Result<Value> {
     }))
 }
 
-pub(super) fn set_cell_pixels(
-    mux: &Arc<Mux>,
-    width_px: u16,
-    height_px: u16,
-) -> anyhow::Result<Value> {
-    let update = mux.set_cell_pixel_size(width_px, height_px);
+/// The `set-cell-pixels` answer (super::deferred_commands runs the update).
+pub(super) fn cell_pixels_answer(update: crate::CellPixelUpdate) -> Value {
     let resizes = update
         .resizes
         .into_iter()
@@ -255,7 +251,7 @@ pub(super) fn set_cell_pixels(
             })
         })
         .collect::<Vec<_>>();
-    Ok(json!({"resizes": resizes, "failures": failures}))
+    json!({"resizes": resizes, "failures": failures})
 }
 
 pub(super) fn resize_surface(

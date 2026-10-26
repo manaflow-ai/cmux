@@ -56,16 +56,12 @@ extension AgentPaneView {
     /// Whether the chat shows in Chromium (its clicks go through DevTools, ``debugPress(x:y:)``).
     public var debugShowsChromium: Bool { page.showsChromium }
 
-    /// The zoom the chat shows at: view points per page CSS pixel.
-    public var debugPageZoom: Double {
-        page.showsChromium ? page.debugPageZoom : page.webKitView.pageZoom * page.webKitView.magnification
-    }
+    /// The zoom the chat shows at: view points per page CSS pixel, in either engine.
+    public var debugPageZoom: Double { page.pageZoom }
 
     /// The WebKit view that shows the chat, which AppKit clicks go to; nil when the chat shows in
     /// Chromium.
-    public var debugPageWebView: WKWebView? {
-        page.showsChromium ? nil : page.webKitView
-    }
+    public var debugPageWebView: WKWebView? { page.webKitEngine }
 
     /// A trusted DevTools left click at `x`,`y` (CSS pixels) on a chat shown in Chromium; false
     /// otherwise (``PageWebView/debugPress(x:y:)``).

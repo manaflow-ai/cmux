@@ -206,8 +206,9 @@ impl Mux {
                 let marked = workspace_public_id.as_str().to_string();
                 let marked_key = key.clone();
                 let writes = mark.writes();
-                let write_mark =
-                    move |tx: &rusqlite::Transaction<'_>| mark.write(tx, &marked, &marked_key);
+                let write_mark = move |tx: &crate::workspace_registry::RegistryTransaction<'_>| {
+                    mark.write(tx, &marked, &marked_key)
+                };
                 registry.commit_for_resource_effect_with(
                     mutation,
                     &fingerprint,
