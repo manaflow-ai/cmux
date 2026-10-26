@@ -27403,7 +27403,7 @@
         "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Chave pública SSH"}},
         "ru": {"stringUnit": {"state": "needs_review", "value": "Открытый ключ SSH"}},
         "th": {"stringUnit": {"state": "needs_review", "value": "คีย์สาธารณะ SSH"}},
-        "tr": {"stringUnit": {"state": "needs_review", "value": "SSH ortak anahtarı"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "SSH açık anahtarı"}},
         "uk": {"stringUnit": {"state": "needs_review", "value": "Відкритий ключ SSH"}},
         "vi": {"stringUnit": {"state": "needs_review", "value": "Khóa công khai SSH"}}
       }

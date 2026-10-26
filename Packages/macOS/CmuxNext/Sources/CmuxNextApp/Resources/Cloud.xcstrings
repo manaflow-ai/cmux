@@ -17531,7 +17531,7 @@
         "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Não é possível usar a chave ssh %@: ela precisa ser uma única chave pública ssh-ed25519. Passe --ssh-key com um caminho absoluto."}},
         "ru": {"stringUnit": {"state": "needs_review", "value": "Невозможно использовать ключ ssh %@: это должен быть один открытый ключ ssh-ed25519. Укажите --ssh-key с абсолютным путём."}},
         "th": {"stringUnit": {"state": "needs_review", "value": "ใช้คีย์ ssh %@ ไม่ได้: ต้องเป็นคีย์สาธารณะ ssh-ed25519 เพียงหนึ่งคีย์ ส่ง --ssh-key พร้อมพาธแบบเต็ม"}},
-        "tr": {"stringUnit": {"state": "needs_review", "value": "%@ ssh anahtarı kullanılamıyor: tek bir ssh-ed25519 ortak anahtarı olmalı. --ssh-key'i mutlak bir yolla verin."}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "%@ ssh anahtarı kullanılamıyor: tek bir ssh-ed25519 açık anahtarı olmalı. --ssh-key'i mutlak bir yolla verin."}},
         "uk": {"stringUnit": {"state": "needs_review", "value": "Неможливо використати ключ ssh %@: це має бути один відкритий ключ ssh-ed25519. Вкажіть --ssh-key з абсолютним шляхом."}},
         "vi": {"stringUnit": {"state": "needs_review", "value": "Không thể dùng khóa ssh %@: đây phải là một khóa công khai ssh-ed25519 duy nhất. Truyền --ssh-key với đường dẫn tuyệt đối."}}
       }
