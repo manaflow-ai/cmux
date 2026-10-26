@@ -164,7 +164,7 @@ import Testing
     /// A browser tab service for one app process: its daemon stores one tab's history in memory.
     private static func service(record url: URL, stored: @escaping () -> FrontendBrowserHistory?,
                                 store: @escaping (FrontendBrowserHistory) -> Void) -> (BrowserTabService, TabModel) {
-        let service = BrowserTabService(daemon: DaemonService(), chromium: ChromiumEngineSlot(CEFEngine(layout: nil, stores: .inMemory(), signInCallbacks: CEFSignInCallbacks(), input: InputEventTap())))
+        let service = BrowserTabService(daemon: DaemonService(), chromium: ChromiumEngineSlot(CEFEngine(layout: nil, stores: .inMemory(), signInCallbacks: CEFSignInCallbacks(), input: InputEventTap())), mainWork: linklessMainWork())
         let tab = TabModel(TabSnapshot(surface: SurfaceID(rawValue: 7), kind: .browser, url: url.absoluteString,
                                        browserRenderer: "frontend", browserEngine: "webkit"))
         service.tabModel = { $0 == tab.id ? tab : nil }

@@ -9,6 +9,19 @@ import CmuxNextFocus
 // type-ahead queue of a page whose document has not focused its primary
 // input yet (`PageInputReadiness`). Shortcuts resolve before either.
 extension KeyRouter {
+    /// A key that is not a chord, after every early owner passed it (or, in normal mode, none could take it): a page
+    /// that owns bare keys, the type-ahead queue or the screen's primary input may take it, else it goes on to the
+    /// focused view. Typing into a terminal reads only the first responder (the plain-typing path, KeyRouterBench).
+    /// Returns whether the key was consumed.
+    func typesIntoFocusedView(_ event: NSEvent, in window: NSWindow?) -> Bool { // perf-hot: 0.5ms key-dispatch (every typing key)
+        if let window, !(window.firstResponder is TerminalSurfaceView) {
+            if routesBareKey(event, in: window) { return true }
+            if typesAhead(event, in: window) || typesIntoPrimaryInput(event, in: window) { return true }
+        }
+        onTyping?(window)
+        return false
+    }
+
     /// A key on a screen whose primary input claims it (R65; Home's message
     /// box: printable and dead keys, `PrimaryInputTarget.routesToPrimaryInput`)
     /// while none of the screen's text inputs has the keyboard: focus that
