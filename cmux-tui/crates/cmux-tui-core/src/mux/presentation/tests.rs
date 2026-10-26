@@ -361,6 +361,28 @@ fn cmux_next_git_head_reads_branches_worktrees_and_detached_heads() {
     let _ = std::fs::remove_dir_all(&root);
 }
 
+/// p02-threads-221: a tree read on a request thread answers git HEADs from
+/// memory and never reads the repository there.
+#[test]
+fn git_head_lookup_on_a_request_thread_never_reads_the_disk() {
+    let root = std::env::temp_dir()
+        .join(format!("cmux-git-head-request-{}", WorkspacePublicId::random().unwrap()));
+    let repo = root.join("repo");
+    std::fs::create_dir_all(repo.join(".git")).unwrap();
+    std::fs::write(repo.join(".git/HEAD"), "ref: refs/heads/request-path\n").unwrap();
+    let mux = Mux::new_for_test("git-heads-request", SurfaceOptions::default());
+    let cwd = repo.to_string_lossy().into_owned();
+
+    let request_mux = mux.clone();
+    let request_cwd = cwd.clone();
+    let answered = mux_work::on_request_thread_in_panic_mode(move || {
+        request_mux.resolve_tab_directories(vec![(7, request_cwd)], true)
+    });
+
+    assert!(answered.is_ok(), "the git HEAD lookup read the disk on its request thread");
+    let _ = std::fs::remove_dir_all(&root);
+}
+
 fn tab_json(mux: &Mux, surface: SurfaceId) -> Value {
     let decorations = mux.tree_decorations();
     mux.with_state(|state| {

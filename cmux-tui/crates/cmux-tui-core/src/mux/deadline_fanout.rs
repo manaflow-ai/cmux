@@ -162,6 +162,8 @@ pub(super) enum DeadlineMapResult<R> {
     Unscheduled,
 }
 
+/// Its wait for the items is a checked `recv` at the caller's line.
+#[track_caller]
 pub(super) fn bounded_deadline_map<T, R, F>(
     pool: &DeadlineFanoutPool,
     items: &[T],
@@ -209,7 +211,7 @@ where
         if remaining.is_zero() {
             break;
         }
-        match receiver.recv_timeout(remaining) {
+        match cmux_threads::checked::sync::recv_timeout(&receiver, remaining) {
             Ok(index) => {
                 let pending =
                     std::mem::replace(&mut ordered[index], DeadlineMapResult::Unscheduled);

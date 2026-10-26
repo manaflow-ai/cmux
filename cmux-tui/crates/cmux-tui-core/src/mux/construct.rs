@@ -387,6 +387,7 @@ impl Mux {
             shutting_down: AtomicBool::new(false),
             session_shutdown,
             exit_settles: Arc::default(),
+            work: mux_work::MuxWork::new()?,
             terminal_respawns: terminal_respawn::TerminalRespawns::from_env(),
             daemon_shutdown_waker: Mutex::new(None),
             control_clients: crate::server::ClientRegistry::new(),
@@ -422,6 +423,7 @@ impl Mux {
             session,
         });
         mux.exit_settles.bind(Arc::downgrade(&mux));
+        mux.work.bind(Arc::downgrade(&mux));
         mux.start_command_history_for_persistent_registry();
         let weak_mux = Arc::downgrade(&mux);
         mux.journal_plugin.set_exit_handler(Some(Arc::new(move |plugin_id, generation| {

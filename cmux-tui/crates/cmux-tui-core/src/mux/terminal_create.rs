@@ -492,11 +492,13 @@ fn created_terminal_bind_test_gate(workspace_key: &str) {
         return;
     }
     let folder = std::path::PathBuf::from(folder);
-    if std::fs::write(folder.join("entered"), b"").is_err() {
+    if cmux_threads::checked::fs::write(folder.join("entered"), b"").is_err() {
         return;
     }
     let deadline = Instant::now() + Duration::from_secs(10);
-    while !folder.join("release").exists() && Instant::now() < deadline {
+    while !cmux_threads::checked::fs::exists(folder.join("release")).unwrap_or(false)
+        && Instant::now() < deadline
+    {
         crate::request_path::sleep(Duration::from_millis(10));
     }
 }

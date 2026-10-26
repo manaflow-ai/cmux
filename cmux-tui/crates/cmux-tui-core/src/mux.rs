@@ -236,6 +236,7 @@ pub use layout_types::{
     LayoutUndoResult, ViewportWidthError, ZoomMode, ZoomState,
 };
 mod layout_undo_commit;
+pub(crate) mod mux_work;
 pub use events::{GraphicsStatus, LayoutDelta, MachineUsage, MuxEvent, TreeDelta, TreeDeltaKind};
 mod notification_types;
 mod notifications;
@@ -739,6 +740,8 @@ pub struct Mux {
     /// Detaches of live signal exits that wait out the session shutdown
     /// lead (`session-shutdown`, logout race).
     exit_settles: Arc<exit_settle::ExitSettleTimer>,
+    /// Blocking work that request handlers hand off (mux_work.rs).
+    work: mux_work::MuxWork,
     terminal_respawns: terminal_respawn::TerminalRespawns,
     /// Called after `request_daemon_shutdown`, so the owner loop that waits
     /// for it blocks instead of polling the flag.

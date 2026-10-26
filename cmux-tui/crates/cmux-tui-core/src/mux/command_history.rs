@@ -19,6 +19,7 @@ use std::sync::mpsc::{Receiver, RecvTimeoutError, SyncSender, TrySendError};
 use std::sync::{Arc, PoisonError, Weak};
 use std::time::Duration;
 
+use cmux_threads::checked;
 use serde_json::{Value, json};
 
 use super::Mux;
@@ -105,8 +106,7 @@ impl Mux {
             self.forget_command_history_worker();
             anyhow::bail!("terminal command history worker stopped");
         }
-        let deleted = answer
-            .recv()
+        let deleted = checked::sync::recv(&answer)
             .map_err(|_| anyhow::anyhow!("terminal command history worker stopped"))??;
         Ok(json!({ "deleted": deleted }))
     }
@@ -216,10 +216,13 @@ impl Worker {
     fn run(mut self, receiver: Receiver<CommandHistoryMessage>, mut deadline: Option<u64>) {
         loop {
             let message = match deadline {
-                None => receiver.recv().map_err(|_| RecvTimeoutError::Disconnected),
+                None => checked::sync::recv(&receiver).map_err(|_| RecvTimeoutError::Disconnected),
                 Some(deadline) => {
                     let now = unix_epoch_ms().unwrap_or(deadline);
-                    receiver.recv_timeout(Duration::from_millis(deadline.saturating_sub(now)))
+                    checked::sync::recv_timeout(
+                        &receiver,
+                        Duration::from_millis(deadline.saturating_sub(now)),
+                    )
                 }
             };
             deadline = match message {

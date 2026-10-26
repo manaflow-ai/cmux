@@ -98,10 +98,12 @@ impl JournalMaintenance {
                     if *stopped {
                         return;
                     }
-                    let (next, timeout) = worker_control
-                        .changed
-                        .wait_timeout(stopped, interval)
-                        .unwrap_or_else(PoisonError::into_inner);
+                    let (next, timeout) = cmux_threads::checked::sync::wait_timeout(
+                        &worker_control.changed,
+                        stopped,
+                        interval,
+                    )
+                    .unwrap_or_else(PoisonError::into_inner);
                     stopped = next;
                     if *stopped {
                         return;
@@ -125,7 +127,7 @@ impl JournalMaintenance {
             // The last `Arc<Mux>` can drop on the worker itself; it must not
             // join its own thread.
             if thread.thread().id() != std::thread::current().id() {
-                let _ = thread.join();
+                let _ = cmux_threads::checked::sync::join(thread);
             }
         }
     }

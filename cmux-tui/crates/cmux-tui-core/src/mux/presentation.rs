@@ -88,11 +88,11 @@ const GIT_HEAD_CACHE_LIMIT: usize = 4096;
 const GIT_METADATA_MAX_BYTES: u64 = 4096;
 
 fn read_small_file(path: &Path) -> Option<String> {
-    let metadata = std::fs::metadata(path).ok()?;
+    let metadata = cmux_threads::checked::fs::metadata(path).ok()?;
     if !metadata.is_file() || metadata.len() > GIT_METADATA_MAX_BYTES {
         return None;
     }
-    std::fs::read_to_string(path).ok()
+    cmux_threads::checked::fs::read_to_string(path).ok()
 }
 
 fn read_git_head_file(git_dir: &Path) -> Option<GitHead> {
@@ -113,7 +113,7 @@ pub(crate) fn read_git_head(directory: &Path) -> Option<GitHead> {
     let mut current = Some(directory);
     while let Some(candidate) = current {
         let dot_git = candidate.join(".git");
-        match std::fs::metadata(&dot_git) {
+        match cmux_threads::checked::fs::metadata(&dot_git) {
             Ok(metadata) if metadata.is_dir() => return read_git_head_file(&dot_git),
             Ok(metadata) if metadata.is_file() => {
                 let pointer = read_small_file(&dot_git)?;

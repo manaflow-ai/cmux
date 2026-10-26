@@ -287,7 +287,7 @@ impl Mux {
     ) {
         let _registry = self.workspace_registry.lock().unwrap();
         entered.send(()).unwrap();
-        release.recv().unwrap();
+        cmux_threads::checked::sync::recv(&release).unwrap();
     }
 
     /// Holds the registry connection lock (the journal writer's only lock)
@@ -300,7 +300,7 @@ impl Mux {
     ) {
         let _connection = self.registry_connection.get();
         entered.send(()).unwrap();
-        release.recv().unwrap();
+        cmux_threads::checked::sync::recv(&release).unwrap();
     }
 
     #[cfg(test)]

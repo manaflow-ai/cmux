@@ -468,7 +468,10 @@ impl Mux {
         let restoration_failed = match restore {
             SurfaceResizeRestore::Complete(restored) => !restored,
             SurfaceResizeRestore::Pending(completion) => {
-                match completion.recv_timeout(Duration::from_secs(10)) {
+                match cmux_threads::checked::sync::recv_timeout(
+                    &completion,
+                    Duration::from_secs(10),
+                ) {
                     Ok(Ok(())) => false,
                     Ok(Err(_)) | Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => true,
                     Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {

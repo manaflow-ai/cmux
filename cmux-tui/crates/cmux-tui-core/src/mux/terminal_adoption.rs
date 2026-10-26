@@ -559,11 +559,11 @@ impl Mux {
             terminal_public_id.as_str()
         );
         if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent)?;
+            cmux_threads::checked::fs::create_dir_all(parent)?;
         }
         let temporary = path.with_extension("tmp");
-        std::fs::write(&temporary, contents)?;
-        std::fs::rename(&temporary, path)?;
+        cmux_threads::checked::fs::write(&temporary, contents)?;
+        cmux_threads::checked::fs::rename(&temporary, path)?;
         Ok(())
     }
 
