@@ -43,11 +43,14 @@ export type HomeInboxActions = {
 /// AgentPaneAskAnswer): the host takes it only on the person's own click or key, for an ask still
 /// pending in a chat on this Mac's acpmux, with that ask's allow once or deny once. A host that does
 /// not answer it here opens the chat, whose card answers it: `unsupported` (another computer's chat
-/// or daemon, or the pane's own host before the op) and `native.invalid_request` (the shared page
-/// host before the op: `callPageHost` reports its `cmux.protocol.unknown_op` so; the op's own
-/// refusals of a bad request are `unsupported`, so nothing the op answers lands here). Any other
-/// refusal rejects, and the row says so.
-const NOT_ANSWERED_HERE = new Set(["unsupported", "native.invalid_request"]);
+/// or daemon, or the pane's own host before the op), or the shared page host without the op
+/// (`callPageHost` reports its `cmux.protocol.unknown_op` as `native.invalid_request` with the
+/// protocol code in `details`). Any other refusal, a malformed request's `invalid_params` included,
+/// rejects, and the row says so.
+const notAnsweredHere = (error: NativeError) =>
+  error.code === "unsupported" ||
+  (error.code === "native.invalid_request" &&
+    (error.details as { protocol?: unknown } | undefined)?.protocol === "cmux.protocol.unknown_op");
 
 export async function answerFromHome(
   call: (method: string, params: Record<string, unknown>) => Promise<unknown>,
@@ -64,7 +67,7 @@ export async function answerFromHome(
     });
     return "answered";
   } catch (error) {
-    if (!(error instanceof NativeError) || !NOT_ANSWERED_HERE.has(error.code ?? "")) throw error;
+    if (!(error instanceof NativeError) || !notAnsweredHere(error)) throw error;
     open(item.sessionId);
     return "opened";
   }

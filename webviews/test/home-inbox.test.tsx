@@ -261,7 +261,7 @@ test("an answer the host can't give here opens the chat and keeps its row", asyn
   await inbox.unmount();
 });
 
-test("answerFromHome: answered, opened on unsupported or invalid_request, and any other refusal rejects", async () => {
+test("answerFromHome: answered, opened on unsupported, and any other refusal rejects", async () => {
   const item = { sessionId: "tests", permissionId: "p-tests" } as NeedsYouItem;
   const choice = { id: "p-tests-yes", label: "Allow once", tone: "allow" } as const;
   const calls: unknown[] = [];
@@ -283,10 +283,10 @@ test("answerFromHome: answered, opened on unsupported or invalid_request, and an
     { sessionId: "tests", permissionId: "p-tests", optionId: "p-tests-yes" },
   ]);
   expect(await answer("unsupported")).toBe("opened");
-  expect(await answer("native.invalid_request")).toBe("opened");
-  expect(opened).toEqual(["tests", "tests"]);
+  expect(opened).toEqual(["tests"]);
   await expect(answer("refused")).rejects.toThrow();
-  expect(opened).toHaveLength(2);
+  await expect(answer("native.invalid_request")).rejects.toThrow();
+  expect(opened).toHaveLength(1);
 });
 
 test("the shortcuts answer nothing here while the home's own chat shows its card, or after unmount", async () => {
@@ -317,4 +317,24 @@ test("on the shared page host, a host without the op opens the chat (its unknown
   );
   expect(outcome).toBe("opened");
   expect(opened).toEqual(["tests"]);
+});
+
+test("on the shared page host, a malformed request still says refused (invalid_params opens nothing)", async () => {
+  const item = { sessionId: "tests", permissionId: "p-tests" } as NeedsYouItem;
+  const choice = { id: "p-tests-yes", label: "Allow once", tone: "allow" } as const;
+  const opened: string[] = [];
+  const page = {
+    call: async () => {
+      throw pageError("cmux.protocol.invalid_params", "bad params");
+    },
+  } as unknown as Parameters<typeof callPageHost>[0];
+  await expect(
+    answerFromHome(
+      (method, params) => callPageHost(page, method, params),
+      item,
+      choice,
+      (id) => void opened.push(id),
+    ),
+  ).rejects.toThrow();
+  expect(opened).toEqual([]);
 });
