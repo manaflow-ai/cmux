@@ -266,7 +266,8 @@ struct OnboardingThemesMainWorkTests {
     @Test(arguments: ClassicWait.allCases)
     func aClassicWaitThatHoldsNowArmsNothing(_ kind: ClassicWait) async {
         let rig = MainDeadlineRig()
-        #expect(await kind.wait(rig) { true })
+        let holds = await kind.wait(rig) { true }
+        #expect(holds)
         #expect(!rig.hasArmedWake, "a satisfied wait armed its timeout")
     }
 
