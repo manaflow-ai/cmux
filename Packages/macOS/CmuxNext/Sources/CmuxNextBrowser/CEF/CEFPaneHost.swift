@@ -21,9 +21,9 @@ final class CEFPaneHost {
         case live(window: Int32)
     }
 
-    var window: WindowState = .none
+    var window: WindowState = .none { didSet { runtime.windowRequests.policyMayHaveChanged() } }
     /// Tabs of this host, in creation order.
-    private(set) var tabs: [CEFTab] = []
+    private(set) var tabs: [CEFTab] = [] { didSet { runtime.windowRequests.policyMayHaveChanged() } }
     /// The tab whose creation created the window.
     private var windowTab: CEFTab?
     /// The tab currently shown in `hostView`.
@@ -139,6 +139,7 @@ final class CEFPaneHost {
         hostVisibilityPending = false
         let hidden = visibleTab.map(\.isContentHidden) ?? true
         if hostView.isHidden != hidden { hostView.isHidden = hidden }
+        runtime.windowRequests.policyMayHaveChanged()
     }
 
     /// Called when a tab's content view enters a window: show that tab.

@@ -5,6 +5,7 @@
 
 #include <unistd.h>
 
+#include <cstdint>
 #include <cstdio>
 #include <utility>
 
@@ -318,6 +319,10 @@ void HostContext::ForwardEvent(int kind, int browser_id, int request, int64_t a,
   }
   int32_t client = ClientOf(browser_id);
   int32_t out_request = request;
+  // WINDOW_REQUEST_RESULT's a is the anchor whose window gets the new tab (task 031).
+  const int64_t out_a = kind == CMUX_SHIM_WINDOW_REQUEST_RESULT && a > 0 && a <= INT32_MAX
+                            ? ClientOf(static_cast<int>(a))
+                            : a;
   MirrorEvent mirror_event{kind, request, client, a, b, std::nullopt};
   auto pending = request != 0 ? pending_binds_.find(BindKey(kind, request)) : pending_binds_.end();
   if (pending != pending_binds_.end()) {
@@ -336,7 +341,7 @@ void HostContext::ForwardEvent(int kind, int browser_id, int request, int64_t a,
   }
   Refresh(mirror_event);
   TlvWriter event;
-  EncodeEvent(event, kind, client, out_request, a, b, s1, s2);
+  EncodeEvent(event, kind, client, out_request, out_a, b, s1, s2);
   Post(MessageOf(kOpEvent, false, 0, event.Take()));
   if (kind == CMUX_SHIM_BEFORE_CLOSE) {
     Forget(client, browser_id);
@@ -514,23 +519,18 @@ int HostContext::OnFocusRequest(void* ctx, int, int) {
 }
 
 // Chromium never opens a window of its own in the host (it would be a
-// visible host window): a tab, window or popup request becomes a tab in the
-// window of the tab that asked, which cmux adopts from AFTER_CREATED, until
-// cmux pushes its WindowRequestPolicy (task 031). Incognito and app windows
-// open nothing.
-int HostContext::OnWindowRequest(void*, int kind, int, int source_browser_id, int, int, int, int, int, int,
-                                 const char*, const char*) {
-  return kind <= 2 ? source_browser_id : 0;
-}
-
+// visible host window), and no one is asked inside its navigation: with no
+// window request handler the shim decides each request with the policy cmux
+// pushed (cmux_shim_set_window_request_policy) and reports it as
+// CMUX_SHIM_WINDOW_REQUEST_RESULT (task 031).
 void HostContext::InstallHostPolicies() {
   cmux_shim_set_focus_request_handler(&HostContext::OnFocusRequest);
-  cmux_shim_set_window_request_handler(&HostContext::OnWindowRequest);
+  cmux_shim_set_window_request_handler(nullptr);
 }
 
-// The host's own handlers stay in place whatever cmux installs: the host
-// decides focus and windows itself (above); keys go on to Chromium until
-// cmux routes them first (tasks 030 and 033).
+// The host's own policies stay in place whatever cmux installs: the host
+// decides focus itself (above) and windows by cmux's pushed policy; keys go
+// on to Chromium until cmux routes them first (tasks 030 and 033).
 void InstallPolicySetFocusRequestHandler(HostContext& ctx, bool) {
   ctx.InstallHostPolicies();
 }

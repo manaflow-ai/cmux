@@ -41,8 +41,8 @@ final class CEFRuntime {
     let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cef")
 
     // Routing tables (main thread).
-    var tabsByBrowser: [Int32: CEFTab] = [:]
-    var hosts: [CEFPaneKey: CEFPaneHost] = [:]
+    var tabsByBrowser: [Int32: CEFTab] = [:] { didSet { windowRequests.policyMayHaveChanged() } }
+    var hosts: [CEFPaneKey: CEFPaneHost] = [:] { didSet { windowRequests.policyMayHaveChanged() } }
     /// The chat open of each page window by pane (``CEFEngine/pagesTabConfiguration(chatOpen:)``); each leaves at its
     /// window's first contentful paint or when its host leaves ``hosts``.
     var chatOpens: [String: ChatOpenStages] = [:]
@@ -91,7 +91,7 @@ final class CEFRuntime {
     var openOffTheRecord: ((URL?, CEFTab?) -> Void)?
     /// The pane host that last showed a tab: where tabs from windows cmux
     /// does not host go.
-    weak var lastShownHost: CEFPaneHost?
+    weak var lastShownHost: CEFPaneHost? { didSet { windowRequests.policyMayHaveChanged() } }
     /// Off-the-record context keys created this launch, by profile.
     var offTheRecordContexts: [BrowserProfileID: Set<String>] = [:]
     /// Extension mirrors by profile.
@@ -515,8 +515,10 @@ final class CEFRuntime {
         let context = Unmanaged.passUnretained(self).toOpaque()
         // The shim sets `external_message_pump` from this callback: in process only, where the app pumps.
         let schedule: CEFShimLibrary.ScheduleFn? = if case .inProcess = library { cefScheduleCallback } else { nil }
-        // Chromium never opens a window (fork API 8) nor focuses a page of its own.
-        shim.setWindowRequestHandler(cefWindowRequestCallback)
+        // Chromium never opens a window (fork API 8) nor focuses a page of its own. In host mode cmux
+        // answers no window request inside the host's navigation: it pushes its policy instead.
+        let hostMode = if case .host = library { true } else { false }
+        windowRequests.install(on: shim, hostMode: hostMode)
         shim.setFocusRequestHandler(cefFocusRequestCallback)
         let paths = library.chromiumPaths
         let ok = switchStorage.withUnsafeBufferPointer { buffer in  // never empty (ends with nil); no base: 0, a failed init

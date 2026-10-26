@@ -108,6 +108,7 @@ ClientIds::Event ClientIds::ToClient(const Event& chromium) {
     }
     case CMUX_SHIM_DEVTOOLS_OPENED:
     case CMUX_SHIM_DEVTOOLS_CLOSED:
+    case CMUX_SHIM_WINDOW_REQUEST_RESULT:  // a = the anchor whose window gets the new tab
       if (IsChromiumID(chromium.a)) out.a = ClientOf(static_cast<int>(chromium.a));
       break;
     case CMUX_SHIM_DEVTOOLS_RESULT: {

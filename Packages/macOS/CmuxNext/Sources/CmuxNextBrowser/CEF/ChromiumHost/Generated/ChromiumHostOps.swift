@@ -31,27 +31,28 @@ nonisolated enum ChromiumHostOp: UInt16, CaseIterable, Sendable {
     case extCommandRun = 99, tabMoveToWindow = 100, unresponsiveReply = 101, contextMenuDone = 102
     case setPopupWindowsEnabled = 103, popupWindowBounds = 104, devToolsInspectedBounds = 105
     case popupWindowAttach = 106, sidePanelState = 107, sidePanelPress = 108, installPromptReply = 109
-    case omniboxKeywords = 110, omniboxInput = 111, setWindowRequestHandler = 112, foreignBrowserCount = 113
-    case downloadURL = 114, downloadContinue = 115, downloadControl = 116, permissionContinue = 117, closeAll = 118
-    case liveBrowserCount = 119, windowCount = 120, shutdown = 121, contentSetting = 122, setContentSetting = 123
-    case visitCookies = 124, deleteCookies = 125, downloadFavicon = 126, importCookies = 127, clearCookies = 128
-    case importPasswords = 129, passwordEntrySize = 130, passwordImportAvailable = 131, passwordPromptAnswer = 132
-    case setPasswordGenerationEnabled = 133, passwordReplaceAvailable = 134, replacePasswords = 135
-    case setPasswordFill = 136, passkeysAvailable = 137, passkeysList = 138, passkeyDelete = 139
-    case passwordCoreAvailable = 140, passwordList = 141, passwordRemove = 142, passwordExceptionRemove = 143
-    case passwordSetUsername = 144, passwordReveal = 145, passwordExport = 146, sslStatus = 147
-    case clearCertificateExceptions = 148, certificateProceed = 149, freeOwned = 150, rendererClientIDs = 151
-    case rendererPid = 152, setContextProxy = 153, setContextProxyServer = 154, contextProxyState = 155
-    case releaseContext = 156, setNavigationGuard = 157, setAuthCallback = 158, prefGet = 159, prefSetBool = 160
-    case prefWatch = 161, bookmarksSync = 162, pageSchemeAdd = 163, pageSchemeAddFirstParty = 164
-    case pageSchemeAddFirstPartyDynamic = 165, pageResourceRespond = 166, addDocumentScript = 167
-    case addPageChannel = 168, tabEvaluate = 169, tabSetFrozen = 170, tabSendClick = 171, tabSetColorScheme = 172
-    case pageSchemeSetGroup = 173, tabDiscard = 174
+    case omniboxKeywords = 110, omniboxInput = 111, setWindowRequestHandler = 112, setWindowRequestPolicy = 113
+    case foreignBrowserCount = 114, downloadURL = 115, downloadContinue = 116, downloadControl = 117
+    case permissionContinue = 118, closeAll = 119, liveBrowserCount = 120, windowCount = 121, shutdown = 122
+    case contentSetting = 123, setContentSetting = 124, visitCookies = 125, deleteCookies = 126
+    case downloadFavicon = 127, importCookies = 128, clearCookies = 129, importPasswords = 130
+    case passwordEntrySize = 131, passwordImportAvailable = 132, passwordPromptAnswer = 133
+    case setPasswordGenerationEnabled = 134, passwordReplaceAvailable = 135, replacePasswords = 136
+    case setPasswordFill = 137, passkeysAvailable = 138, passkeysList = 139, passkeyDelete = 140
+    case passwordCoreAvailable = 141, passwordList = 142, passwordRemove = 143, passwordExceptionRemove = 144
+    case passwordSetUsername = 145, passwordReveal = 146, passwordExport = 147, sslStatus = 148
+    case clearCertificateExceptions = 149, certificateProceed = 150, freeOwned = 151, rendererClientIDs = 152
+    case rendererPid = 153, setContextProxy = 154, setContextProxyServer = 155, contextProxyState = 156
+    case releaseContext = 157, setNavigationGuard = 158, setAuthCallback = 159, prefGet = 160, prefSetBool = 161
+    case prefWatch = 162, bookmarksSync = 163, pageSchemeAdd = 164, pageSchemeAddFirstParty = 165
+    case pageSchemeAddFirstPartyDynamic = 166, pageResourceRespond = 167, addDocumentScript = 168
+    case addPageChannel = 169, tabEvaluate = 170, tabSetFrozen = 171, tabSendClick = 172, tabSetColorScheme = 173
+    case pageSchemeSetGroup = 174, tabDiscard = 175
 
     /// The SHA-256 of the cmux_cef_shim.h this table was generated from (`CEFShimABI`).
-    static let abiIdentity = "588fca8016b02a0fa991f93b679b0928e086af927e43015e338195629a536bf8"
+    static let abiIdentity = "b9c60dfbb69dfd665a89a9e15abc2df0878470a9304f122e23cfa390e67cac3a"
     /// This generation's op ids, classes and wire types; both HELLOs carry it.
-    static let wireIdentity = "4806cead3339ffcc3f9f4a5b8a4a28c04040f0774e4052824878a111ed9931cc"
+    static let wireIdentity = "479bb7b5fcd92e4f820f1441ab900b9de3cb4864c5c86f345f40f8c9e091fb3e"
     /// Ops of fork API symbols the header does not declare yet (`r.optional` in CEFShimLibrary).
     static let optionalOps: Set<ChromiumHostOp> = [
         .addDocumentScript, .addPageChannel, .tabEvaluate, .tabSetFrozen, .tabSendClick, .tabSetColorScheme,
@@ -246,6 +247,7 @@ nonisolated enum ChromiumHostOp: UInt16, CaseIterable, Sendable {
         Row(.mirror, [.int32], [.string]),
         Row(.async, [.int32, .string, .int32, .string, .int32], [.int32]),
         Row(.policy, [.int32], []),
+        Row(.post, [.records, .records, .string, .int32, .int32, .int32, .int32, .int32], []),
         Row(.mirror, [], [.int32]),
         Row(.post, [.int32, .string], [.int32]),
         Row(.post, [.int32, .string], [.int32]),
@@ -426,8 +428,8 @@ nonisolated enum ChromiumHostEventKind: Int32, CaseIterable, Sendable {
     case prefChanged = 33, downloadStarted = 34, downloadProgress = 35, downloadDone = 36, authCallback = 37
     case localFileHandoff = 38, bookmarksEvent = 39, externalURL = 40, permissionPrompt = 41
     case permissionDismissed = 42, passwordPrompt = 43, beforeUnloadDialog = 44, beforeUnloadDismissed = 45
-    case pageResource = 46, pageDragEnter = 47, fileDialog = 48, pageMessage = 49, evaluateResult = 50
-    case createFailed = 51
+    case pageResource = 46, pageDragEnter = 47, fileDialog = 48, windowRequestResult = 52, pageMessage = 49
+    case evaluateResult = 50, createFailed = 51
 
     /// The mirrors this event refreshes; the host pushes them before the event. `request` is the
     /// event's request (CMUX_SHIM_TAB_EVENT's sub-kind).

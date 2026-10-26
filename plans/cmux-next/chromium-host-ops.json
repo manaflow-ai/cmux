@@ -7,7 +7,7 @@
     "post": "One-way op, sent in call order on the control channel; returns at once. A Swift caller that binds, guards, compares or returns the result is refused (--check-return-use) unless the site is a host_mode_rewrites entry. pending_keys name the mirror keys it changes: pending (or optimistic) until the host's ack (task 016b). Like a one-way mojo message.",
     "mirror": "Served on main from the client's cache, which the host's MIRROR pushes refresh in the same per-frame batch as the events in refresh_events, pushed before those events (tasks 013 and 016b). Chrome caches the renderer's pushed TextInputState the same way and answers NSTextInputClient queries from it (content/browser/renderer_host/text_input_manager.cc). A read before attach is a bug: the client returns the C zero value (0 or NULL) and reports a fault (task 014). In host mode CEFRuntime.start awaits attach before its first shim call (task 015), so the startup reads listed in host_mode_rewrites (needs after_attach) see the host's hello; --check-pre-attach (task 011) refuses any other mirror read on the startup path before that await.",
     "async": "Sent with a token; the answer is reply_event, resumed by token (task 018). The remote returns at once (1 once sent, NULL for a string result) and cmux_remote_shim_last_reply_token(), read right after the call, is the token of its wire:REPLY: the result, then the out-parameters. CEFHostStart.expectReply() reads it in the call's turn and expects it in CEFHostStart.replies (CEFHostReplies, CEFS/CEFReplyWaiters.swift, one per runtime), which awaits it with an injected-clock deadline. The remote shim's reply callback (cmux_remote_shim_set_reply, main thread) only copies the bytes in; the typed decode (CEFHostReplyFields) runs off main in the awaiting call. Every pending token resolves with .hostGone when the host exits (task 091). Like a mojo method with a reply callback; never a [Sync] call.",
-    "mint": "The client mints the id (browser ids from 1 << 20, DevTools message ids below 2^30); the host maps it to Chromium's id for every op and event (task 019, HOST/src/host_client_ids.h). The C return keeps the header's contract, named by mint_returns: id returns the minted id at once; sent returns 1 when the op is sent, and the minted id first reaches cmux in reply_event. A browser the host's shim refuses comes as CMUX_SHIM_CREATE_FAILED. In process, AFTER_CREATED runs inside the call; in host mode it comes in a later batch, so a Swift site that relies on that order is a host_mode_rewrites entry. Tabs Chromium opens itself (popups, target=_blank, chrome.tabs.create, DevTools browsers) keep Chromium's id, the same number on both sides, until task 031 reports the id cmux minted for a window request.",
+    "mint": "The client mints the id (browser ids from 1 << 20, DevTools message ids below 2^30); the host maps it to Chromium's id for every op and event (task 019, HOST/src/host_client_ids.h). The C return keeps the header's contract, named by mint_returns: id returns the minted id at once; sent returns 1 when the op is sent, and the minted id first reaches cmux in reply_event. A browser the host's shim refuses comes as CMUX_SHIM_CREATE_FAILED. In process, AFTER_CREATED runs inside the call; in host mode it comes in a later batch, so a Swift site that relies on that order is a host_mode_rewrites entry. Tabs Chromium opens itself (popups, target=_blank, chrome.tabs.create, DevTools browsers) keep Chromium's id, the same number on both sides; the pushed window request policy (task 031) places them and reports where (CMUX_SHIM_WINDOW_REQUEST_RESULT), but mints no id for them.",
     "policy": "A synchronous callback becomes a policy pushed to the host plus events; the host decides inside Chromium without asking cmux (tasks 030-033).",
     "view": "NSView* or page-window plumbing: ChromiumHostPageView owns it in host mode, where cmux passes the page view's token for an NSView* argument (CEFRuntime.mintPageViewToken) and the client sends it as is; only geometry and ids cross the wire (tasks 040, 052, 053, 066).",
     "local": "Function-pointer args or client-only work: hand-written client code (task 014b), no generated marshaller.",
@@ -2790,7 +2790,60 @@
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "window_request_fn runs on main inside a Chromium navigation. cmux pushes a WindowRequestPolicy; the host decides in the navigation and reports the result with the id it minted (task 031)."
+      "reason": "window_request_fn runs on main inside a Chromium navigation, where cmux cannot answer across processes. In host mode no one installs it: cmux pushes its policy (cmux_shim_set_window_request_policy), the host's shim decides in the navigation and reports CMUX_SHIM_WINDOW_REQUEST_RESULT (task 031). The host installs NULL whatever cmux sends."
+    },
+    {
+      "name": "cmux_shim_set_window_request_policy",
+      "class": "post",
+      "args": [
+        {
+          "name": "windows",
+          "type": "const cmux_shim_window_policy_window*"
+        },
+        {
+          "name": "window_count",
+          "type": "int"
+        },
+        {
+          "name": "clicks",
+          "type": "const cmux_shim_window_policy_click*"
+        },
+        {
+          "name": "click_count",
+          "type": "int"
+        },
+        {
+          "name": "profile_root",
+          "type": "const char*"
+        },
+        {
+          "name": "cmd_click",
+          "type": "int"
+        },
+        {
+          "name": "cmd_shift_click",
+          "type": "int"
+        },
+        {
+          "name": "shift_click",
+          "type": "int"
+        },
+        {
+          "name": "option_click",
+          "type": "int"
+        },
+        {
+          "name": "middle_click",
+          "type": "int"
+        }
+      ],
+      "returns": "void",
+      "result_used_by": [],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "The policy the host's shim decides window requests with (task 031): cmux's pane windows by anchor, the last clicks and the link mapping, pushed when one changes (at most once per turn). The host maps the records' browser ids to Chromium's; each decision comes back as CMUX_SHIM_WINDOW_REQUEST_RESULT."
     },
     {
       "name": "cmux_shim_foreign_browser_count",
@@ -4363,6 +4416,11 @@
     {
       "kind": "CMUX_SHIM_FILE_DIALOG",
       "value": 48,
+      "refreshes": []
+    },
+    {
+      "kind": "CMUX_SHIM_WINDOW_REQUEST_RESULT",
+      "value": 52,
       "refreshes": []
     }
   ],

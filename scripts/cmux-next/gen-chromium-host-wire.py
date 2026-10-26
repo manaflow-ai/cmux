@@ -1251,6 +1251,9 @@ def host_decode(a: Arg, structs: dict[str, list[Arg]], lines: list[str]) -> str:
                 lines.append(f"        {n}[i].{f[1]} = {s}.data();")
                 lines.append(f"        {n}[i].{f[2]} = {s}.size();")
                 slot += 1
+            elif f[1].endswith("browser_id"):
+                # A browser id in a record is cmux's, as a browser argument is: mapped to Chromium's.
+                lines.append(f"        {n}[i].{f[1]} = ctx.Browser(static_cast<int32_t>(r.I64()));")
             else:
                 lines.append(f"        {n}[i].{f[1]} = r.I64();")
         lines.append("      }")

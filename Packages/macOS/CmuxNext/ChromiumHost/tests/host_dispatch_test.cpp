@@ -6,8 +6,9 @@
 // cmux_shim_initialize and everything else after it, in cmux's order; a
 // MIRROR goes out before the EVENT that refreshes it, and both before the
 // ack of the op that caused them; client-minted ids map to Chromium's both
-// ways; Chromium focuses a page only inside cmux's set_focus; a bad message
-// ends the host. Run by scripts/cmux-next/tests/chromium-host-dispatch.test.sh.
+// ways; Chromium focuses a page only inside cmux's set_focus; window requests
+// go to cmux's pushed policy in Chromium's ids, never to a handler; a bad
+// message ends the host. Run by scripts/cmux-next/tests/chromium-host-dispatch.test.sh.
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
@@ -100,6 +101,24 @@ char* cmux_shim_tab_navigation_state(int browser_id) {
 }
 void cmux_shim_free(char* s) { std::free(s); }
 int cmux_shim_live_browser_count(void) { return shim.live; }
+void cmux_shim_set_window_request_policy(const cmux_shim_window_policy_window* windows, int window_count,
+                                         const cmux_shim_window_policy_click* clicks, int click_count,
+                                         const char* profile_root, int cmd_click, int cmd_shift_click,
+                                         int shift_click, int option_click, int middle_click) {
+  std::string text = "policy";
+  for (int i = 0; i < window_count; ++i) {
+    text += " " + std::to_string(windows[i].anchor_browser_id) + ":" + std::to_string(windows[i].opener_browser_id) +
+            ":" + std::to_string(windows[i].flags) + ":" + std::string(windows[i].store, windows[i].store_length);
+  }
+  for (int i = 0; i < click_count; ++i) {
+    text += " click " + std::to_string(clicks[i].browser_id) + ":" + std::to_string(clicks[i].gesture) + ":" +
+            std::to_string(clicks[i].uptime_ms);
+  }
+  text += std::string(" root ") + (profile_root ? profile_root : "(null)") + " actions " + std::to_string(cmd_click) +
+          "," + std::to_string(cmd_shift_click) + "," + std::to_string(shift_click) + "," +
+          std::to_string(option_click) + "," + std::to_string(middle_click);
+  shim.calls.push_back(text);
+}
 }
 
 namespace {
@@ -331,7 +350,8 @@ void PreinitBeforeInitialize() {
   Expect(f.Sent(), {"ack 11", Key("mirror", kOpForeignBrowserCount), Key("mirror", kOpLiveBrowserCount),
                     Key("mirror", kOpWindowCount), Key("mirror", kOpTabNavigationState, "5"), "ack 12", "ack 13"},
          "initialize acked, then the counts that refresh on attach too, then the rest");
-  Check(shim.focus != nullptr && shim.window != nullptr, "the host's policies are installed after initialize");
+  Check(shim.focus != nullptr, "the host's focus policy is installed after initialize");
+  Check(shim.window == nullptr, "no window request handler: the shim decides by cmux's pushed policy");
 }
 
 // What AFTER_CREATED (`verb` "mirror") or BEFORE_CLOSE ("forget") sends for
@@ -501,9 +521,62 @@ void FocusOnlyFromCmux() {
   focus.I32(1);
   f.host.OnMessages({Op(kOpSetFocus, 50, focus)});
   Check(shim.focus_answer == 1, "the request inside cmux's set_focus is granted");
-  Check(shim.window && shim.window(&f.host, 2, 0, 3, 0, 0, 0, 0, 0, 1, "https://p/", "") == 3,
-        "a popup opens as a tab in the opener's window");
-  Check(shim.window(&f.host, 3, 0, 3, 0, 0, 0, 0, 0, 1, "https://p/", "") == 0, "an incognito window opens nothing");
+}
+
+// The pushed window request policy (task 031): the records' browser ids reach
+// the shim as Chromium's (a minted tab with no browser yet keeps its id, which
+// names no Chromium window, so the shim never picks it), and the
+// decision's anchor comes back in cmux's id. cmux's own handler never
+// reaches the shim, whatever cmux sends.
+void WindowRequestPolicy() {
+  Fixture f;
+  f.Start();
+  Writer add;
+  add.I32(kMinted + 1);
+  add.I32(3);
+  add.Str("https://d/");
+  add.I32(-1);
+  add.I32(1);
+  f.host.OnMessages({Op(kOpTabAdd, 30, add)});  // Chromium's 4
+  f.Sent();
+  shim.calls.clear();
+  Writer policy;
+  policy.I32(2);
+  policy.I64(kMinted + 1);
+  policy.I64(0);
+  policy.I64(CMUX_SHIM_WINDOW_CANDIDATE | CMUX_SHIM_WINDOW_LAST_SHOWN);
+  policy.Bytes("/p/Profile-A", 12);
+  policy.I64(kMinted + 9);  // minted, no browser yet
+  policy.I64(kMinted + 1);
+  policy.I64(0);
+  policy.Bytes("/p/Profile-A", 12);
+  policy.I32(1);
+  policy.I64(kMinted + 1);
+  policy.I64(CMUX_SHIM_GESTURE_CMD_SHIFT);
+  policy.I64(1234);
+  policy.Str("/p");
+  for (int action : {3, 2, 4, 5, 1}) policy.I32(action);
+  f.host.OnMessages({Op(kOpSetWindowRequestPolicy, 31, policy)});
+  Expect(shim.calls, {"policy 4:0:3:/p/Profile-A " + std::to_string(kMinted + 9) + ":4:0:/p/Profile-A click 4:2:1234 root /p actions 3,2,4,5,1"},
+         "the policy reaches the shim in Chromium's ids");
+  Expect(f.Sent(), {"ack 31"}, "the policy is a post");
+
+  HostContext::OnShimEvent(&f.host, CMUX_SHIM_WINDOW_REQUEST_RESULT, 4, 77, 4, CMUX_SHIM_WINDOW_INSERT,
+                           "https://p/", ";/p/Profile-A");
+  Check(f.sent.size() == 1, "one result event");
+  if (f.sent.size() == 1) {
+    Reader r(f.sent[0].fields);
+    const int kind = r.I32(), browser = r.I32(), request = r.I32();
+    const int64_t anchor = r.I64();
+    Check(kind == CMUX_SHIM_WINDOW_REQUEST_RESULT && browser == kMinted + 1 && request == 77 && anchor == kMinted + 1,
+          "the result names the source and the anchor by cmux's ids and keeps Chromium's window id");
+  }
+  f.Sent();
+
+  Writer install;
+  install.I32(1);
+  f.host.OnMessages({Op(kOpSetWindowRequestHandler, 32, install)});
+  Check(shim.window == nullptr, "cmux's window request handler never reaches the host's shim");
 }
 
 void Shutdown() {
@@ -595,6 +668,7 @@ int main() {
   DevTools();
   DevToolsPlacementView();
   FocusOnlyFromCmux();
+  WindowRequestPolicy();
   Shutdown();
   BadMessages();
   PopupBoundsByWindow();

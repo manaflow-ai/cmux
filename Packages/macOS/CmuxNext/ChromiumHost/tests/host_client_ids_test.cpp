@@ -221,6 +221,17 @@ void DevToolsResultsCarryTheMintedMessageId() {
   CHECK(opened.browser_id == kAdded && opened.a == 20 && opened.b == 1);
 }
 
+// WINDOW_REQUEST_RESULT (task 031) names the source and the anchor whose
+// window gets the new tab by cmux's ids; the window id in `request` is
+// Chromium's on both sides.
+void AWindowRequestResultNamesItsAnchorByTheMintedId() {
+  Fixture f;
+  CHECK(f.ids.Bind(kAdded, 6) == Outcome::kBound);
+  const Event result = f.Through(Of(CMUX_SHIM_WINDOW_REQUEST_RESULT, 6, 77, 6, CMUX_SHIM_WINDOW_INSERT));
+  CHECK(result.browser_id == kAdded && result.request == 77 && result.a == kAdded);
+  CHECK(f.Through(Of(CMUX_SHIM_WINDOW_REQUEST_RESULT, 0, 0, 0, CMUX_SHIM_WINDOW_OFF_THE_RECORD)).a == 0);
+}
+
 // BEFORE_CLOSE carries the minted id; then the id names no browser, so a late
 // op is dropped, and Chromium's id is its own again.
 void BeforeCloseForgetsTheBrowser() {
@@ -245,6 +256,7 @@ int main() {
   APopupNamesItsOpenerByTheMintedId();
   AChromiumIdInTheMintedRangeEndsTheHost();
   DevToolsResultsCarryTheMintedMessageId();
+  AWindowRequestResultNamesItsAnchorByTheMintedId();
   BeforeCloseForgetsTheBrowser();
   if (failures != 0) {
     std::fprintf(stderr, "host_client_ids_test: %d failure(s)\n", failures);

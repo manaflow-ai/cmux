@@ -78,3 +78,11 @@ nonisolated enum CEFWindowPolicy {
         return placement
     }
 }
+
+extension CEFWindowDecision {
+    /// The tab whose window gets the new tab (`.insert`), else nil.
+    var anchor: Int32? {
+        if case .insert(let anchor, _) = self { return anchor }
+        return nil
+    }
+}

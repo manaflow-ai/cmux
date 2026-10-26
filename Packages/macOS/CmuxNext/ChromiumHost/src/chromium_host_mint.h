@@ -5,9 +5,9 @@
 // Browser ids (create_window, tab_add, tab_duplicate) start at kFirstBrowserID, above every id
 // Chromium gives a browser in one host's life, so an id below it is always Chromium's own. A tab
 // Chromium opens itself (a popup, target=_blank, chrome.tabs.create, a DevTools browser) keeps
-// Chromium's id, the same number on both sides, until task 031 makes the window request a pushed
-// policy that reports the id cmux minted for it. ClientIds::FromShim ends the host if Chromium's
-// counter ever reaches the minted range. DevTools message ids (devtools_call) are in
+// Chromium's id, the same number on both sides: the pushed window request policy (task 031) places
+// such a tab and reports where (WINDOW_REQUEST_RESULT), but mints no id for it. ClientIds::FromShim
+// ends the host if Chromium's counter ever reaches the minted range. DevTools message ids (devtools_call) are in
 // [kFirstDevToolsID, kEndDevToolsID): below 2^30, the header's shim-internal range, and above
 // the host shim's own counter.
 #pragma once

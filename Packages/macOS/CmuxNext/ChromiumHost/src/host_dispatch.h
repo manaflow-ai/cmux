@@ -144,9 +144,6 @@ class HostContext {
                           const char* s2);
   // The policy handlers installed through InstallPolicy* (initialize's ctx).
   static int OnFocusRequest(void* ctx, int browser_id, int source);
-  static int OnWindowRequest(void* ctx, int kind, int disposition, int source_browser_id, int has_bounds, int x,
-                             int y, int width, int height, int user_gesture, const char* url,
-                             const char* profile_path);
 
   // The interface of the generated host_dispatch.inc.
   int Browser(int32_t client_id);
@@ -167,8 +164,8 @@ class HostContext {
   // No value: cmux's cache drops the key.
   void ForgetMirror(uint16_t op, const TlvWriter& key);
 
-  // Puts the host's own focus and window-request handlers in the shim
-  // (InstallPolicy* and Resume).
+  // Puts the host's own focus handler in the shim and leaves window requests
+  // to cmux's pushed policy (InstallPolicy* and Resume).
   void InstallHostPolicies();
 
  private:

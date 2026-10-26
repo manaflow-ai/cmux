@@ -98,6 +98,8 @@ extension CEFRuntime {
             // AFTER_CREATED of the popup's tab carries its URL, disposition and gesture (the shim's pending popups).
             break
         case .createFailed(let browser, let request): CEFCreateFailure(browser: browser, request: request).apply(to: self)
+        case .windowRequestResult(let result):
+            windowRequests.hostDecided(result)
         case .chromeCommand(let browser, let command):
             chromeWindowCommandBlocked(command, browser: browser)
         case .beforeClose(let browser):
@@ -449,7 +451,8 @@ extension CEFShimEvent {
              .fileDialog(let b, _, _, _, _),
              .pageMessage(let b, _, _, _):
             b
-        case .contextInitialized, .omniboxSuggestions, .preferenceChanged, .bookmarks, .download, .evaluateResult, .unknown:
+        case .contextInitialized, .omniboxSuggestions, .preferenceChanged, .bookmarks, .download, .evaluateResult,
+             .windowRequestResult, .unknown:
             nil
         }
     }

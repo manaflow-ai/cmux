@@ -97,7 +97,8 @@ class ClientIds {
 
   // A shim event. Sent in cmux's ids: browser_id, the opener in
   // AFTER_CREATED's b (opener << 32 | flags), the DevTools browser in
-  // DEVTOOLS_OPENED and DEVTOOLS_CLOSED's a, and DEVTOOLS_RESULT's message id.
+  // DEVTOOLS_OPENED and DEVTOOLS_CLOSED's a, the anchor in
+  // WINDOW_REQUEST_RESULT's a, and DEVTOOLS_RESULT's message id.
   // AFTER_CREATED of a create_window binds its minted id; BEFORE_CLOSE
   // forgets the browser after its own translation. False when Chromium named
   // a new browser by an id of the minted range: the id spaces met, and the

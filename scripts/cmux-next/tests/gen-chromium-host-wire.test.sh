@@ -772,6 +772,13 @@ if [[ -f "$repo/$ops" ]]; then
   if [[ -n "$cxx" ]]; then
     compile_inc "$scratch" "the real header"
   fi
+  # A record field named *browser_id carries cmux's id: the host maps it as it maps a browser argument.
+  policy="$(case_of "$scratch/${outputs[0]}" kOpSetWindowRequestPolicy)"
+  grep -qF 'arg_windows[i].anchor_browser_id = ctx.Browser(static_cast<int32_t>(r.I64()));' <<<"$policy" ||
+    fail "a record's browser id reaches the host shim unmapped"
+  grep -qF 'arg_clicks[i].browser_id = ctx.Browser(static_cast<int32_t>(r.I64()));' <<<"$policy" ||
+    fail "a click record's browser id reaches the host shim unmapped"
+  grep -qF 'arg_windows[i].flags = r.I64();' <<<"$policy" || fail "a plain record field is mapped as a browser id"
   expect 0 "0 mirror reads before attach" "the real startup path" -- --root "$repo" --check-pre-attach
 else
   echo "note: $ops is not in this checkout (task p01-process-010); real-header ops check skipped" >&2
