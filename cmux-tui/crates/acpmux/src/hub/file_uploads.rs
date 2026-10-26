@@ -183,6 +183,13 @@ fn meta_path(session: &str, upload: &str) -> Option<PathBuf> {
     Some(session_dir(session)?.join(upload_id(upload)?).join(".meta"))
 }
 
+/// Where a finished upload `upload` of session `session` named `name` is (`finish`); None for an
+/// id that is not a UUIDv7 or a name that is not a plain file name (`prompt_uploads.rs`).
+pub(crate) fn finished_path(session: &str, upload: &str, name: &str) -> Option<PathBuf> {
+    is_file_name(name).then_some(())?;
+    Some(session_dir(session)?.join(upload_id(upload)?).join(name))
+}
+
 fn begin(session: &str, params: &Value) -> Result<Value, RpcError> {
     let name = params
         .get("fileName")
