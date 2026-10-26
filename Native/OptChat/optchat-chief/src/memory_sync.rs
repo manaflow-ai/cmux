@@ -451,7 +451,7 @@ pub fn cloud_append(
 pub const USAGE: &str = "optchat-chief memory import-from detect [--json]   what this Mac holds (Claude Code, Claude memory, Codex, claude.ai / ChatGPT export zips)
 optchat-chief memory import-from undo [--to local|cloud[:staging|:URL]] [--chief agent_ID] [--batch ID]   take the last write back
 optchat-chief memory import-from SOURCE dry-run|write [--to local|cloud[:staging|:URL]] [--chief agent_ID]
-    [--max-cost USD] [--max-items N] [--price-in USD --price-out USD] [--session-token-file F] [--mux-home DIR] [--json]
+    [--stop-host] [--max-cost USD] [--max-items N] [--price-in USD --price-out USD] [--session-token-file F] [--mux-home DIR] [--json]
   SOURCE: chief (this home's memory), chief:MUX_HOME, claude-memory, claude-code, codex, zip:FILE (claude.ai / ChatGPT export)
   --to local (default) merges into this home's memory (host stopped); --to cloud appends to the Cloud Chief --chief names.
   Incremental: a key per item, so a re-run brings only what is new. Secrets are dropped. A write backs up first.";
@@ -541,8 +541,16 @@ pub fn run(flags: &crate::cli::Flags, home: &Path, json_out: bool) -> Result<Str
         if let Some(m) = max_items {
             fresh.truncate(m);
         }
-        let before = crate::claude_import::existing_messages(&paths.chat, &paths.memory_db)?;
-        let (n, backup) = write_local(&paths, &fresh)?;
+        let (before, n, backup) = crate::memory_sync_state::with_host_stopped(
+            &paths,
+            flags.value("stop-host").is_some(),
+            || {
+                let before =
+                    crate::claude_import::existing_messages(&paths.chat, &paths.memory_db)?;
+                let (n, backup) = write_local(&paths, &fresh)?;
+                Ok((before, n, backup))
+            },
+        )?;
         if n > 0 {
             crate::memory_sync_state::record(
                 &paths,
@@ -632,7 +640,11 @@ fn undo(flags: &crate::cli::Flags, home: &Path) -> Result<String, String> {
     let paths = Paths::new(home);
     let to = flags.value("to").unwrap_or("local");
     if to == "local" {
-        return crate::memory_sync_state::undo_local(&paths, flags.value("batch"));
+        return crate::memory_sync_state::with_host_stopped(
+            &paths,
+            flags.value("stop-host").is_some(),
+            || crate::memory_sync_state::undo_local(&paths, flags.value("batch")),
+        );
     }
     let chief = flags
         .value("chief")
