@@ -15,6 +15,7 @@ import Foundation
 /// - `void cmux_remote_shim_detach(void)`: the host is gone; a later attach serves the next host.
 ///
 /// Immutable C function pointers and the `dlopen` handle: safe to hand from the loading thread to main.
+// crash-allow: every stored property is a let: C function pointers and a dlsym closure over a handle never closed; nothing mutates after make.
 nonisolated struct CEFRemoteShim: @unchecked Sendable {
     typealias HelloFn = @convention(c) (UnsafeMutableRawPointer?, Int32, UnsafePointer<CChar>?) -> Void
     typealias AttachFn = @convention(c) (Int32, Int32, Int32, UnsafeMutableRawPointer?, HelloFn?) -> Int32

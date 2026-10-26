@@ -33,6 +33,8 @@ final class CEFHostStart {
         let started = clock.now
         let attachment: ChromiumHostAttachment
         do { attachment = try await supervisor.attachment() } catch { return .failure(.host(error.description)) }
+        // dlopen holds dyld's loader lock, so never on main; the in-process load beside it in CEFRuntime.start runs the same way.
+        // qos-allow: the first Chromium tab waits for this one dlopen (userInitiated); nothing else runs in the task
         let opened = await Task.detached(priority: .userInitiated) { open(attachment) }.value
         let remote: CEFRemoteShim
         switch opened {
