@@ -187,8 +187,9 @@ mod remote_cli_docs {
     }
 
     fn builtin_command(words: &[String]) -> bool {
+        let words = words.iter().map(String::as_str).collect::<Vec<_>>();
         matches!(
-            words,
+            words.as_slice(),
             ["action", "list", ..]
                 | ["action", "describe", ..]
                 | ["harness", "add", ..]

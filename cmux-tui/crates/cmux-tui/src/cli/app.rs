@@ -237,8 +237,13 @@ pub(super) fn parse(args: &[String]) -> Result<Option<AppCommand>, UsageError> {
             call("action.list", Value::Object(params))
         }
         ("action", Some("describe")) => {
-            let [id] = positional::<1>(&rest[1..], messages.action_describe_usage)?;
-            call("action.describe", json!({ "action": id }))
+            // CLI names contain spaces (for example `cloud exec`), so the
+            // shell's natural unquoted spelling remains one action name.
+            let words = &rest[1..];
+            if words.is_empty() || words.iter().any(|word| word.starts_with('-')) {
+                return Err(UsageError::new(messages.action_describe_usage));
+            }
+            call("action.describe", json!({ "action": words.join(" ") }))
         }
         ("action", Some("run")) => {
             let Some((id, tail)) = rest[1..].split_first() else {
