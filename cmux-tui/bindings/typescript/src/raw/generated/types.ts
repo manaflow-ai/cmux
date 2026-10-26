@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 10db015791ceaa255896dc9d4d23a3130e79ac68fe8fc6297f20d8fae16e6169. */
+/* cmux-tui mux protocol 12, IR 34e67f493acd3c2652a00ca96aa114eceff2edd43bc458265a55bf52754cb373. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -1488,6 +1488,24 @@ export type ServerStatsLockWaits = {
   "recent": Array<ServerStatsLockWait>;
 };
 
+export type ServerStatsMethodLatency = {
+  "class": string;
+  "handler_us": ServerStatsPercentiles;
+  "id": (number) | null;
+  "latency_us": ServerStatsPercentiles;
+  "lock_wait_us": ServerStatsPercentiles;
+  "method": string;
+  "trace_id": number;
+};
+
+export type ServerStatsPercentiles = {
+  "count": bigint;
+  "max": bigint;
+  "p50": bigint;
+  "p95": bigint;
+  "p99": bigint;
+};
+
 export type ServerStatsRegistryLock = {
   "contended_acquisitions": bigint;
   "hold_us": ServerStatsHistogram;
@@ -1555,6 +1573,7 @@ export type ServerStatsResult = {
   "connections": ServerStatsConnections;
   "dispatch_queue_us"?: ServerStatsHistogram;
   "ipc"?: ServerStatsIpc;
+  "ipc_methods"?: Array<ServerStatsMethodLatency>;
   "journal_writer": (ServerStatsJournalWriter) | null;
   "lock_classes"?: ServerStatsLockClasses;
   "registry_lock": ServerStatsRegistryLock;

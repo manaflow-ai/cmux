@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 10db015791ceaa255896dc9d4d23a3130e79ac68fe8fc6297f20d8fae16e6169. */
+/* cmux-tui mux protocol 12, IR 34e67f493acd3c2652a00ca96aa114eceff2edd43bc458265a55bf52754cb373. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "10db015791ceaa255896dc9d4d23a3130e79ac68fe8fc6297f20d8fae16e6169" as const;
+export const SDK_IR_SHA256 = "34e67f493acd3c2652a00ca96aa114eceff2edd43bc458265a55bf52754cb373" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -3531,7 +3531,7 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "Owner-only diagnostics; never journaled and safe to poll.",
-      "include names optional result sections (resource_projection, write_path, request_path_io, slow_requests, requests, ipc, lock_classes); unknown names are ignored."
+      "include names optional result sections (resource_projection, write_path, request_path_io, slow_requests, requests, ipc, lock_classes, ipc_methods); unknown names are ignored."
     ]
   },
   "set-cell-pixels": {
@@ -13882,6 +13882,123 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "ServerStatsMethodLatency": {
+    "additional_properties": false,
+    "constraints": [
+      "method is the cmd tag, the cmux.protocol/2 operation, or route:<class> for a line a feature route answers.",
+      "id is the schema method_id (family << 8 | ordinal), the key of the app's debug.daemon.wire methods rows; null for a route line or a method the schema gives no id.",
+      "trace_id is the method id of the daemon.request trace slice, a row of this build's command table; class is its request_latency_us class.",
+      "latency_us is arrival to reply queued, handler_us handler start to reply queued, lock_wait_us the lock waits of the threads that handled it in between."
+    ],
+    "fields": {
+      "class": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "handler_us": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsPercentiles"
+        }
+      },
+      "id": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint16"
+        }
+      },
+      "latency_us": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsPercentiles"
+        }
+      },
+      "lock_wait_us": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsPercentiles"
+        }
+      },
+      "method": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "trace_id": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint16"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ServerStatsPercentiles": {
+    "additional_properties": false,
+    "constraints": [
+      "Percentiles are log-linear bucket upper bounds, at most 25% above the true value."
+    ],
+    "fields": {
+      "count": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "max": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "p50": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "p95": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "p99": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "ServerStatsRegistryLock": {
     "additional_properties": false,
     "constraints": [
@@ -14339,7 +14456,8 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       "slow_requests is present only when the request names it in include.",
       "request_latency_us and dispatch_queue_us are present only when the request names requests in include; dispatch_queue_us is microseconds from a request's parse to its handler's start.",
       "lock_classes is present only when the request names it in include.",
-      "ipc is present only when the request names it in include."
+      "ipc is present only when the request names it in include.",
+      "ipc_methods is present only when the request names it in include; its rows are ordered by id, the rows without one last."
     ],
     "fields": {
       "connections": {
@@ -14364,6 +14482,17 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "ServerStatsIpc"
+        }
+      },
+      "ipc_methods": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "ServerStatsMethodLatency"
+          },
+          "kind": "array"
         }
       },
       "journal_writer": {

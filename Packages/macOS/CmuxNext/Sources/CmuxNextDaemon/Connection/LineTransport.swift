@@ -36,9 +36,16 @@ final class LineTransport: Sendable {
     /// reports it: a line is a few microseconds, so 100 ms means the reader thread is stuck.
     static let lineHangDeadline: Duration = .milliseconds(100)
 
+    /// A request waiting for its reply, and when it was sent while a recorder times replies (nil
+    /// without one, and once its deadline passed: a late reply is not timed).
+    private struct Pending {
+        var waiter: Waiter
+        var sent: DaemonWireStats.RequestStamp?
+    }
+
     private struct State {
         var nextID: UInt64 = 1
-        var pending: [UInt64: Waiter] = [:]
+        var pending: [UInt64: Pending] = [:]
         /// Request ids in send order, for id-less error responses.
         var order: [UInt64] = []
         var closed: TransportCloseReason?
@@ -51,16 +58,16 @@ final class LineTransport: Sendable {
         /// Gets resource API stream lines (`stream_item`, `stream_end`).
         var streamHandler: (@Sendable (_ streamID: String, _ line: Data) -> Void)?
 
-        /// Marks a pending reply expired; its command and slot, or nil when
+        /// Marks a pending reply expired; its command, slot and send stamp, or nil when
         /// `id` is not waiting for a reply.
-        mutating func expireReply(_ id: UInt64) -> (String, ReplySlot)? {
-            guard case .reply(let cmd, let slot)? = pending[id] else { return nil }
-            pending.updateValue(.expired(cmd: cmd), forKey: id)
-            return (cmd, slot)
+        mutating func expireReply(_ id: UInt64) -> (String, ReplySlot, DaemonWireStats.RequestStamp?)? {
+            guard let entry = pending[id], case .reply(let cmd, let slot) = entry.waiter else { return nil }
+            pending.updateValue(Pending(waiter: .expired(cmd: cmd), sent: nil), forKey: id)
+            return (cmd, slot, entry.sent)
         }
 
-        /// Every pending waiter, in send order.
-        func waitersInSendOrder() -> [Waiter] {
+        /// Every pending request, in send order.
+        func pendingInSendOrder() -> [Pending] {
             order.compactMap { pending[$0] }
         }
     }
@@ -94,7 +101,7 @@ final class LineTransport: Sendable {
     /// Why this connection exists, for ``recorder``.
     let role: DaemonWireStats.Role
     /// Where this connection's traffic is counted (lock-free; the reader thread records too); nil
-    /// counts nothing (a release build).
+    /// counts nothing (a release build that did not opt in to field data).
     let recorder: DaemonWireStats.Recorder?
     /// Decodes this connection's lines on its reader thread, counting into ``recorder``; event
     /// handlers, which run there, decode with it too.
@@ -240,8 +247,9 @@ final class LineTransport: Sendable {
 
     /// Fails a still-pending request with `timedOut`.
     func expire(id: UInt64, after timeout: Duration) {
-        let expired: (String, ReplySlot)? = state.withLock { state in state.expireReply(id) }
-        guard let (cmd, slot) = expired else { return }
+        let expired: (String, ReplySlot, DaemonWireStats.RequestStamp?)? = state.withLock { state in state.expireReply(id) }
+        guard let (cmd, slot, sent) = expired else { return }
+        if let sent { recorder?.timedOut(sent) }
         slot.resolve(.failure(DaemonError.timedOut("\(cmd) (no reply within \(timeout))")))
     }
 
@@ -286,8 +294,9 @@ final class LineTransport: Sendable {
             }
             let payload: Data
             do { payload = try body(id) } catch { return error }
+            let stamp = recorder?.requestSent(waiter.cmd)
             state.withLock { state in
-                state.pending.updateValue(waiter, forKey: id)
+                state.pending.updateValue(Pending(waiter: waiter, sent: stamp), forKey: id)
                 state.order.append(id)
             }
             submittedID = id
@@ -328,16 +337,18 @@ final class LineTransport: Sendable {
     }
 
     private func failAll(_ reason: TransportCloseReason) {
-        let waiters: [Waiter] = state.withLock { state in
+        let unanswered: [Pending] = state.withLock { state in
             if state.closed == nil { state.closed = reason }
-            let waiters = state.waitersInSendOrder()
+            let unanswered = state.pendingInSendOrder()
             state.pending.removeAll()
             state.order.removeAll()
-            return waiters
+            return unanswered
         }
         let error = Self.closedError(reason)
-        for waiter in waiters {
-            switch waiter {
+        for entry in unanswered {
+            // A request the connection closed under never gets its reply.
+            if let sent = entry.sent { recorder?.abandoned(sent) }
+            switch entry.waiter {
             case .reply(_, let slot): slot.resolve(.failure(error))
             case .discard, .expired: break
             }
@@ -440,16 +451,18 @@ final class LineTransport: Sendable {
             recorder?.lineRead(.ignored)
             return
         }
-        let waiter: (UInt64, Waiter)? = state.withLock { state in
+        let routed: (UInt64, Pending)? = state.withLock { state in
             let id = envelope.id ?? state.order.first
-            guard let id, let waiter = state.pending.removeValue(forKey: id) else { return nil }
+            guard let id, let entry = state.pending.removeValue(forKey: id) else { return nil }
             state.order.removeAll { $0 == id }
-            return (state.eventCount, waiter)
+            return (state.eventCount, entry)
         }
-        guard let (barrier, waiter) = waiter else {
+        guard let (barrier, entry) = routed else {
             recorder?.lineRead(.droppedReply)
             return
         }
+        let waiter = entry.waiter
+        if let sent = entry.sent { recorder?.replied(sent) }
         recorder?.lineRead(waiter.replyKind(ok: envelope.ok == true))
         if envelope.ok == true {
             if case .reply(_, let slot) = waiter {

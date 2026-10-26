@@ -2126,6 +2126,28 @@ class ServerStatsLockWaits:
 
 
 @dataclass(frozen=True)
+class ServerStatsMethodLatency:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsMethodLatency'
+    class_: str = field(metadata={'wire_name': 'class'})
+    handler_us: ServerStatsPercentiles
+    id: Union[int, None]
+    latency_us: ServerStatsPercentiles
+    lock_wait_us: ServerStatsPercentiles
+    method: str
+    trace_id: int
+
+
+@dataclass(frozen=True)
+class ServerStatsPercentiles:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsPercentiles'
+    count: int
+    max: int
+    p50: int
+    p95: int
+    p99: int
+
+
+@dataclass(frozen=True)
 class ServerStatsRegistryLock:
     __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsRegistryLock'
     contended_acquisitions: int
@@ -2208,6 +2230,7 @@ class ServerStatsResult:
     uptime_ms: int
     dispatch_queue_us: Union[ServerStatsHistogram, MissingType] = field(default=MISSING)
     ipc: Union[ServerStatsIpc, MissingType] = field(default=MISSING)
+    ipc_methods: Union[List[ServerStatsMethodLatency], MissingType] = field(default=MISSING)
     lock_classes: Union[ServerStatsLockClasses, MissingType] = field(default=MISSING)
     request_latency_us: Union[ServerStatsRequestLatency, MissingType] = field(default=MISSING)
     request_path_io: Union[ServerStatsRequestPathIo, MissingType] = field(default=MISSING)
@@ -7721,6 +7744,8 @@ __all__ = [
     'ServerStatsLockStall',
     'ServerStatsLockWait',
     'ServerStatsLockWaits',
+    'ServerStatsMethodLatency',
+    'ServerStatsPercentiles',
     'ServerStatsRegistryLock',
     'ServerStatsRequestLatency',
     'ServerStatsRequestPathIo',

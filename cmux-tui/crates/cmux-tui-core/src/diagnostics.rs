@@ -35,6 +35,8 @@ pub use owner_panic_log::spawn_owner_hang_test;
 pub use owner_panic_log::{owner_hang_log_path, owner_panic_log_path};
 mod slow_requests;
 pub use slow_requests::{SlowRequest, SlowRequestFrame, SlowRequestsSnapshot};
+mod method_latency;
+pub use method_latency::{MethodLatencySnapshot, MethodLatencyStats, MethodName, MethodSample};
 mod requests;
 pub use requests::{REQUEST_CLASSES, RequestLatencySnapshot, RequestStats, RequestStatsSnapshot};
 mod write_path;
@@ -80,7 +82,7 @@ impl LogLinearHistogram {
         }
     }
 
-    fn bucket_index(value: u64) -> usize {
+    pub(crate) fn bucket_index(value: u64) -> usize {
         if value < SUB_BUCKETS as u64 {
             return value as usize;
         }
@@ -90,7 +92,7 @@ impl LogLinearHistogram {
     }
 
     /// Largest value that lands in `index`.
-    fn bucket_upper_bound(index: usize) -> u64 {
+    pub(crate) fn bucket_upper_bound(index: usize) -> u64 {
         if index < SUB_BUCKETS {
             return index as u64;
         }
@@ -115,38 +117,71 @@ impl LogLinearHistogram {
         self.record(u64::try_from(duration.as_micros()).unwrap_or(u64::MAX));
     }
 
+    /// The bucket counts and their sum, read once.
+    fn counts(&self) -> (Vec<u64>, u64) {
+        let counts: Vec<u64> = self.buckets.iter().map(|b| b.load(Ordering::Relaxed)).collect();
+        let count = counts.iter().sum();
+        (counts, count)
+    }
+
+    /// The upper bound of the bucket that holds the sample of rank
+    /// `ceil(count * fraction)`; 0 for no samples.
+    fn percentile(counts: &[u64], count: u64, fraction: f64) -> u64 {
+        if count == 0 {
+            return 0;
+        }
+        let rank = ((count as f64) * fraction).ceil().max(1.0) as u64;
+        let mut seen = 0;
+        for (index, bucket) in counts.iter().enumerate() {
+            seen += bucket;
+            if seen >= rank {
+                return Self::bucket_upper_bound(index);
+            }
+        }
+        Self::bucket_upper_bound(BUCKETS - 1)
+    }
+
     pub fn snapshot(&self) -> HistogramSnapshot {
         self.snapshot_with_p95().0
     }
 
     /// [`Self::snapshot`] and the p95 from the same bucket counts.
     pub fn snapshot_with_p95(&self) -> (HistogramSnapshot, u64) {
-        let counts: Vec<u64> = self.buckets.iter().map(|b| b.load(Ordering::Relaxed)).collect();
-        let count: u64 = counts.iter().sum();
-        let percentile = |fraction: f64| -> u64 {
-            if count == 0 {
-                return 0;
-            }
-            let rank = ((count as f64) * fraction).ceil().max(1.0) as u64;
-            let mut seen = 0;
-            for (index, bucket) in counts.iter().enumerate() {
-                seen += bucket;
-                if seen >= rank {
-                    return Self::bucket_upper_bound(index);
-                }
-            }
-            Self::bucket_upper_bound(BUCKETS - 1)
-        };
+        let (counts, count) = self.counts();
         let snapshot = HistogramSnapshot {
             count,
             mean: self.sum.load(Ordering::Relaxed).checked_div(count).unwrap_or(0),
             max: self.max.load(Ordering::Relaxed),
-            p50: percentile(0.50),
-            p90: percentile(0.90),
-            p99: percentile(0.99),
+            p50: Self::percentile(&counts, count, 0.50),
+            p90: Self::percentile(&counts, count, 0.90),
+            p99: Self::percentile(&counts, count, 0.99),
         };
-        (snapshot, percentile(0.95))
+        (snapshot, Self::percentile(&counts, count, 0.95))
     }
+
+    /// p50, p95, p99 and max, the distribution every perf claim gives
+    /// (bucket upper bounds, as [`Self::snapshot`]).
+    pub fn percentiles(&self) -> PercentilesSnapshot {
+        let (counts, count) = self.counts();
+        PercentilesSnapshot {
+            count,
+            p50: Self::percentile(&counts, count, 0.50),
+            p95: Self::percentile(&counts, count, 0.95),
+            p99: Self::percentile(&counts, count, 0.99),
+            max: self.max.load(Ordering::Relaxed),
+        }
+    }
+}
+
+/// A [`LogLinearHistogram`]'s p50, p95, p99 and max; percentiles are bucket
+/// upper bounds, so a reader on another clock agrees within one bucket.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize)]
+pub struct PercentilesSnapshot {
+    pub count: u64,
+    pub p50: u64,
+    pub p95: u64,
+    pub p99: u64,
+    pub max: u64,
 }
 
 /// Percentiles are bucket upper bounds; see [`LogLinearHistogram`]. Units are
@@ -215,6 +250,7 @@ impl LockStats {
 
     pub fn acquired(&self, site: LockSite, waited: Duration, blocker: Option<LockSite>) {
         self.wait.record_duration(waited);
+        cmux_threads::note_thread_lock_wait(waited);
         if waited >= Duration::from_micros(500) {
             crate::debug_spans::mark_with(|| {
                 format!("lock.wait {}:{} {}us", site.file(), site.line(), waited.as_micros()).into()
@@ -235,6 +271,7 @@ impl LockStats {
     /// Record a wait that ended without acquiring the mutex.
     pub fn wait_failed(&self, site: LockSite, waited: Duration, blocker: Option<LockSite>) {
         self.wait.record_duration(waited);
+        cmux_threads::note_thread_lock_wait(waited);
         if waited >= LOCK_CONTENDED_THRESHOLD {
             self.contended.fetch_add(1, Ordering::Relaxed);
         }
@@ -690,6 +727,10 @@ pub struct ServerStatsSnapshot {
     /// only when the request names `ipc` in `include`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub ipc: Option<IpcSnapshot>,
+    /// Request latency, handler time and lock wait by method; present only
+    /// when the request names `ipc_methods` in `include`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub ipc_methods: Option<Vec<MethodLatencySnapshot>>,
 }
 
 pub const SERVER_STATS_SCHEMA: u32 = 1;

@@ -581,8 +581,8 @@ reads atomics and never touches SQLite or the journal, so it is safe to poll.
 
 Params: `{include?: array<string>|null}`. `include` names optional result
 sections: `resource_projection`, `write_path`, `request_path_io`,
-`slow_requests`, `requests`, `ipc` and `lock_classes`; unknown names are
-ignored.
+`slow_requests`, `requests`, `ipc`, `lock_classes` and `ipc_methods`;
+unknown names are ignored.
 
 `lock_classes` reports wait and hold by class on the three locks that admit by
 class: the workspace registry, the registry connection (first acquisitions) and
@@ -659,7 +659,11 @@ object{
   lock_classes?:object{
     registry:lock_class_set, registry_connection:lock_class_set,
     state:lock_class_set
-  }
+  },
+  ipc_methods?:array<object{
+    method:string, id:uint16|null, trace_id:uint16, class:string,
+    latency_us:percentiles, handler_us:percentiles, lock_wait_us:percentiles
+  }>
 }
 kind_count = object{kind:string,messages:uint64,bytes:uint64}
 parse_count = object{requests:uint64,json_parses:uint64,json_parses_per_request:float64}
@@ -670,6 +674,7 @@ lock_class_set = object{
 }
 lock_class = object{wait_us:histogram, wait_p95_us:uint64, hold_us:histogram}
 histogram = object{count:uint64,mean:uint64,max:uint64,p50:uint64,p90:uint64,p99:uint64}
+percentiles = object{count:uint64,p50:uint64,p95:uint64,p99:uint64,max:uint64}
 ```
 
 `resource_projection` splits the topology projection that every topology
@@ -775,6 +780,28 @@ receive buffer. `bad_message` counts connections closed for a malformed
 message: a JSON line over the size limit or not UTF-8, a bad frame, or a
 WebSocket message that is oversized, not UTF-8, binary or against the
 protocol.
+
+`ipc_methods` adds the same requests by method (Chrome's per-message IPC
+timing): one row per method that ran since daemon start, ordered by `id`,
+the rows without one last. `method` is the `cmd` tag, the `cmux.protocol/2`
+operation, or `route:<class>` for the lines a feature route answers. `id` is
+the schema `method_id` (`family << 8 | ordinal`, the same id the app's
+`debug.daemon.wire` `methods` rows carry, so the two reports join on `id`),
+null for a route line or a method the schema gives no id. `trace_id` is the
+method id of its trace slice (below), a row of this build's command table
+that moves when a command is added, and `class` its `request_latency_us`
+class. `latency_us` is the `request_latency_us` time; `handler_us` is from
+the handler's start to its reply entering the outbound queue; `lock_wait_us`
+is the time the threads that handled it waited for locks in that span (the
+registry lock and every contended `LockHolder` lock): for a request a worker
+answers later, the dispatching thread's waits until the hand-off plus the
+worker's from when it takes the request. Percentiles are the upper bounds of
+log-linear buckets (four per power of two, at most 25% above the true value)
+of the nearest-rank sample, so they share a bucket with a client-side
+nearest-rank percentile of the same requests; `bench-daemon-latency.py`
+checks it per op. Recording takes no lock and allocates only the first time
+a method runs. It is not the `ipc` section (p05-ipc-082), which counts the IPC
+layer itself.
 
 In a trace, each request is the slice `daemon.request`: arg0 is the method
 id (a command's row in the command table, `0x4000` plus a resource

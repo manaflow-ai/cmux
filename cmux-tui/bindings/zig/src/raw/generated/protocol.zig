@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "10db015791ceaa255896dc9d4d23a3130e79ac68fe8fc6297f20d8fae16e6169";
+pub const ir_sha256 = "34e67f493acd3c2652a00ca96aa114eceff2edd43bc458265a55bf52754cb373";
 
 pub const AccessRequestKind = enum {
     file,
@@ -2707,6 +2707,24 @@ pub const ServerStatsLockWaits = struct {
     recent: []const ServerStatsLockWait,
 };
 
+pub const ServerStatsMethodLatency = struct {
+    class: []const u8,
+    handler_us: ServerStatsPercentiles,
+    id: wire.Nullable(u16),
+    latency_us: ServerStatsPercentiles,
+    lock_wait_us: ServerStatsPercentiles,
+    method: []const u8,
+    trace_id: u16,
+};
+
+pub const ServerStatsPercentiles = struct {
+    count: u64,
+    max: u64,
+    p50: u64,
+    p95: u64,
+    p99: u64,
+};
+
 pub const ServerStatsRegistryLock = struct {
     contended_acquisitions: u64,
     hold_us: ServerStatsHistogram,
@@ -2779,6 +2797,7 @@ pub const ServerStatsResult = struct {
     connections: ServerStatsConnections,
     dispatch_queue_us: ?ServerStatsHistogram = null,
     ipc: ?ServerStatsIpc = null,
+    ipc_methods: ?[]const ServerStatsMethodLatency = null,
     journal_writer: wire.Nullable(ServerStatsJournalWriter),
     lock_classes: ?ServerStatsLockClasses = null,
     registry_lock: ServerStatsRegistryLock,
@@ -2793,6 +2812,7 @@ pub const ServerStatsResult = struct {
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
         "dispatch_queue_us",
         "ipc",
+        "ipc_methods",
         "lock_classes",
         "request_latency_us",
         "request_path_io",

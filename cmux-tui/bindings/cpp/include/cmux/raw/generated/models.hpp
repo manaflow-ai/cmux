@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "10db015791ceaa255896dc9d4d23a3130e79ac68fe8fc6297f20d8fae16e6169";
+inline constexpr std::string_view kProtocolIrSha256 = "34e67f493acd3c2652a00ca96aa114eceff2edd43bc458265a55bf52754cb373";
 
 enum class AccessRequestKind;
 struct AccessRequestPending;
@@ -229,6 +229,8 @@ struct ServerStatsLockSite;
 struct ServerStatsLockStall;
 struct ServerStatsLockWait;
 struct ServerStatsLockWaits;
+struct ServerStatsMethodLatency;
+struct ServerStatsPercentiles;
 struct ServerStatsRegistryLock;
 struct ServerStatsRequestLatency;
 struct ServerStatsRequestPathIo;
@@ -6333,6 +6335,26 @@ struct ServerStatsLockWaits {
     friend bool operator==(const ServerStatsLockWaits&, const ServerStatsLockWaits&) = default;
 };
 
+struct ServerStatsPercentiles {
+    std::uint64_t count{};
+    std::uint64_t max{};
+    std::uint64_t p50{};
+    std::uint64_t p95{};
+    std::uint64_t p99{};
+    friend bool operator==(const ServerStatsPercentiles&, const ServerStatsPercentiles&) = default;
+};
+
+struct ServerStatsMethodLatency {
+    std::string class_{};
+    ServerStatsPercentiles handler_us{};
+    std::optional<std::uint16_t> id{};
+    ServerStatsPercentiles latency_us{};
+    ServerStatsPercentiles lock_wait_us{};
+    std::string method{};
+    std::uint16_t trace_id{};
+    friend bool operator==(const ServerStatsMethodLatency&, const ServerStatsMethodLatency&) = default;
+};
+
 struct ServerStatsRegistryLock {
     std::uint64_t contended_acquisitions{};
     ServerStatsHistogram hold_us{};
@@ -6450,6 +6472,7 @@ struct ServerStatsResult {
     ServerStatsConnections connections{};
     std::optional<ServerStatsHistogram> dispatch_queue_us{};
     std::optional<ServerStatsIpc> ipc{};
+    std::optional<std::vector<ServerStatsMethodLatency>> ipc_methods{};
     std::optional<ServerStatsJournalWriter> journal_writer{};
     std::optional<ServerStatsLockClasses> lock_classes{};
     ServerStatsRegistryLock registry_lock{};
@@ -8845,6 +8868,18 @@ template <>
 struct Codec<ServerStatsLockWaits> {
     static Result<Json> encode(const ServerStatsLockWaits& value);
     static Result<ServerStatsLockWaits> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsMethodLatency> {
+    static Result<Json> encode(const ServerStatsMethodLatency& value);
+    static Result<ServerStatsMethodLatency> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsPercentiles> {
+    static Result<Json> encode(const ServerStatsPercentiles& value);
+    static Result<ServerStatsPercentiles> decode(const Json& value);
 };
 
 template <>
