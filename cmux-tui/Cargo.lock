@@ -2988,6 +2988,7 @@ name = "ghostty-vt"
 version = "0.1.0"
 dependencies = [
  "base64",
+ "flate2",
  "ghostty-vt-sys",
  "png",
 ]
