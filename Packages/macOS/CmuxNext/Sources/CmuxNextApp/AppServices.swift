@@ -164,7 +164,7 @@ final class AppServices {
     }()
     #endif
     private(set) lazy var windows: WindowManager = WindowManager(services: self)  // first read in init (no IUO)
-    private(set) lazy var dragSession: TabDragSession = TabDragSession(services: self)  // first read in init (no IUO)
+    private(set) lazy var dragSession: TabDragSession = TabDragSession(services: self)  // built by the first drag
     private(set) lazy var palette: PaletteController = {
         let palette = PaletteController(registry: registry, sources: PaletteSourcesBridge.make(services: self),
                                         usage: DaemonPaletteUsageStore(services: self))
@@ -173,16 +173,18 @@ final class AppServices {
         }
         return palette
     }()  // first read in init (no IUO)
-    private(set) lazy var previews: TabPreviewSource = TabPreviewSource(cache: cache)  // first read in init (no IUO)
+    private(set) lazy var previews: TabPreviewSource = TabPreviewSource(cache: cache)  // built by the first tab card
     /// CPU and memory for the hover cards and `resources` (sampled on demand).
-    private(set) lazy var resources: AppResourceSource = AppResourceSource(services: self)  // first read in init (no IUO)
+    private(set) lazy var resources: AppResourceSource = AppResourceSource(services: self)  // built by its first reader
     private(set) lazy var presentation = ContentPresentationScheduler(mainWork: mainWork)
     private(set) lazy var newTabCloseFrames = FrameBatcher(owner: "NewTabPage.close", scheduler: mainWork.frames)  // a pick's page close: unbudgeted
     /// Blank-pane invariant, checked after each presentation settle.
     let surfaceInvariant = SurfaceInvariantMonitor()
     /// Input invariants, desync reports, focus journaling and the no-activate keyboard guard.
     let input = InputVerificationService()
-    private(set) lazy var emptyWorkspaces: EmptyWorkspaceRepair = EmptyWorkspaceRepair(daemon: daemon)  // first read in init (no IUO)
+    /// Built by its first reader (a window's content, a tab close, a workspace create), else by its afterStartup
+    /// post (`postNonPaintServices`), so a launch with no window still follows its workspaces.
+    private(set) lazy var emptyWorkspaces: EmptyWorkspaceRepair = EmptyWorkspaceRepair(daemon: daemon)
     /// The closed-tab signal and the undo toasts of user closes; set when the tab handlers bind. The daemon owns the closed history (`DaemonClosedHistory`).
     var closedTabs: ClosedTabsFeed?
     /// Find Work's GitHub reads, with the user's `gh` login (``FindWorkPalettePage``); tests replace it.
@@ -217,11 +219,11 @@ final class AppServices {
     var rightSidebarDefaults: UserDefaults = .standard
     /// Each window's file explorer (the right sidebar's Files section) and its actions' effects.
     private(set) lazy var fileExplorers = FileExplorerService(services: self)
-    /// The right sidebar's sections by mode (the file explorer adds Files and Find).
+    /// The right sidebar's sections by mode (the file explorer adds Files and Find): built by the first panel, or by
+    /// the afterStartup post of its icon build (`postLaterTabWarmups`).
     private(set) lazy var rightSidebarSections: RightSidebarSections = {
-        let sections = RightSidebarSections()
+        let sections = RightSidebarSections(startup: launchStartup)
         sections.registerAppSections()
-        sections.prewarmIcons()
         return sections
     }()
     /// `cmux://agent-activity`: the computer use sessions page.
@@ -337,7 +339,7 @@ final class AppServices {
     /// The one icon picker (R94): Set Icon of workspaces, screens, spaces, browser profiles.
     private(set) lazy var iconPicker = IconPickerService(services: self, webUI: webUI)
     /// cmux.json command `actions`, registered as `cmuxConfig.<name>`.
-    private(set) lazy var configActions: ConfigActionsController = ConfigActionsController(context: AppActionContext(services: self))  // first read in init (no IUO)
+    private(set) lazy var configActions: ConfigActionsController = ConfigActionsController(context: AppActionContext(services: self))  // built by its start
     /// System-wide hot keys for catalog actions marked `isGlobalHotKey`.
     private(set) lazy var globalHotKeys = GlobalHotKeyService.app(self)
     let terminalDelegate = TerminalHostDelegate()
@@ -404,7 +406,7 @@ final class AppServices {
     private(set) lazy var terminalColors = TerminalColorSync(machines: machines) {  // first read in init (no IUO)
         GhosttyRuntime.shared.themeColors.map(TerminalDefaultColors.init)
     }
-    private(set) lazy var themes: ThemeCoordinator = ThemeCoordinator(services: self, terminalThemes: .forApplication(bundleIdentifier: environment.launch.bundleID))  // first read in init (no IUO)
+    private(set) lazy var themes: ThemeCoordinator = ThemeCoordinator(services: self, terminalThemes: .forApplication(bundleIdentifier: environment.launch.bundleID))  // built by its start (`Themes.start`)
     /// Browser tabs of remote machines reach that machine's localhost.
     private(set) lazy var remoteLocalhost = machines.makeRemoteLocalhost()  // first read in init (no IUO)
     /// Which machines run browser tabs there, and their runtimes (cx-2cob slice 2).
@@ -474,6 +476,8 @@ final class AppServices {
     let launchImages: AgentPaneLaunchImages, relaunchWake: AgentPaneRelaunchWake
     /// The agent panes' launch images as one startup ref (made at the root with the launch's scheduler).
     let launchImageHold: LaunchImageHold
+    /// The launch's scheduler: the right sidebar's icon build is one of its cpu-lane posts. Nil in tests with no launch.
+    let launchStartup: StartupScheduler?
     /// The burst bench's record of refusals, designed no-op Cmd-W presses and terminal grids (`debug.burst`).
     let burstTrace = BurstTrace()
     /// The inline VS Code server (`serve-web`) behind VS Code (Inline); starts on first use.
@@ -499,12 +503,14 @@ final class AppServices {
     ///   (`TraceRuntime.shared`) by default, a test's fake, or nil to watch nothing.
     /// - Parameter energyMonitor: The app's power inputs: the system's by default (nothing reads IOKit
     ///   until `startEnergy`, which only `AppDelegate` calls), or a test's over fixed inputs.
+    /// - Parameter launchStartup: The launch's scheduler (`AppDelegate` passes `LaunchOrder.startup`); nil (tests)
+    ///   makes the right sidebar's icons on main when its first panel is built.
     init(environment: AppEnvironment, launchReveal: LaunchReveal = LaunchReveal(), agentPaneEnvironment: [String: String]? = nil,
          work: BackgroundWork? = nil, mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget()),
          launchImages: AgentPaneLaunchImages = AgentPaneLaunchImages(directory: nil), relaunchWake: AgentPaneRelaunchWake = AgentPaneRelaunchWake(file: nil),
          wireStats: DaemonWireStats? = nil, hangWatch: (any HangWatchScoping)? = TraceRuntime.shared.hangWatch,
          energyMonitor: EnergyMonitor = EnergyMonitor(), inputTap: InputEventTap = InputEventTap(),
-         launchImageHold: LaunchImageHold = LaunchImageHold()) {
+         launchImageHold: LaunchImageHold = LaunchImageHold(), launchStartup: StartupScheduler? = nil) {
         let work = work ?? BackgroundWork(hangs: hangWatch)
         self.work = work
         self.energyMonitor = energyMonitor
@@ -514,6 +520,7 @@ final class AppServices {
         (self.wireStats, self.inputTap) = (wireStats, inputTap)
         hoverCards = HoverCardCoordinator(input: inputTap)
         (self.launchImages, self.relaunchWake, self.launchImageHold) = (launchImages, relaunchWake, launchImageHold)
+        self.launchStartup = launchStartup
         actionBudget = ActionBudgetMonitor(board: mainWork.budget.board)
         updater = UpdaterService(work: work)
         #if DEBUG || CMUX_BENCH_HOOKS
@@ -541,15 +548,13 @@ final class AppServices {
         DebugTimings.markLaunch("services.crash_reporting")
         machines = MachineRegistry(local: daemon)
         machines.isFeatureDisabled = { [registry] in registry.disabledFeatures.contains($0) }
-        _ = rightSidebarSections  // built at launch: its icons are made off the main thread before the first show
         _ = ssh  // built here, as before
         BrowserLifecycleTrace.shared.configure { tab, event in
             InputJournal.shared.append(window: nil, .content(tab: tab, event: event))
         }
         _ = cache  // built here, as before
         DebugTimings.markLaunch("services.cache")
-        _ = themes  // built here, as before
-        _ = terminalColors
+        _ = terminalColors  // kept: it gives the daemons the painted colors before they connect (OSC 10/11/12)
         let runtime = GhosttyRuntime.shared
         let previousConfigChange = runtime.onConfigChange
         runtime.onConfigChange = { [weak self] in
@@ -600,7 +605,6 @@ final class AppServices {
             guard let self else { return explicit }
             return browserProfiles.profileForNewTab(in: pane.handle, on: machines.daemon(forPane: pane), explicit: explicit)
         }
-        _ = emptyWorkspaces  // built here, as before
         cache.sessionDelegate = terminalDelegate
         cache.pageRequests.services = self
         _ = keyRouter  // built here, as before
@@ -659,22 +663,18 @@ final class AppServices {
             let onlyTerminalsAndAgents = self.cache.presentationChanges.changedKeys?.allSatisfy { self.cache.existingTerminal($0) != nil || self.madeAgentTabs?.existingView($0) != nil }
             if onlyTerminalsAndAgents != true { self.browserHost?.provider.refreshTabs() }
         }
-        _ = resources  // built here, as before
         _ = windows  // built here, as before
         DebugTimings.markLaunch("services.windows")
         windows.incognitoHistoryReset = { [weak cache, weak self] in
             cache?.resetIncognitoHistory()
             self?.locationTrail.forgetIncognito()
         }
-        _ = dragSession  // built here, as before
-        _ = previews  // built here, as before
         _ = remoteTerminals  // built here, as before
         remoteTerminals.start()
         WorkspaceClose.willClose = { [weak self] workspace in self?.remoteTerminals.workspaceClosing(workspace) }
         daemon.workTracker = { [registry] in registry.track($0) }
         _ = palette  // built here, as before
         terminalDelegate.services = self
-        _ = configActions  // built here, as before
         let updateSheet = self.updateSheet  // built here, as before
         updater.attach(sheet: updateSheet, services: self, simulating: { SidebarTunables.simulatePendingUpdate.value })
         serverUpdates.start(registry: registry)
