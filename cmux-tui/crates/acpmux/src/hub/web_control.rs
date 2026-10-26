@@ -127,12 +127,23 @@ impl Hub {
                     ModeWrite::ConfigOptions(v) => m.config_options = Some(v),
                 }
             }
+            // A mode cmux set stays cmux's only while the chat runs it: a write that moves the mode
+            // anywhere else (the harness's own update, through either form) takes the mark, under
+            // this same lock, so a later write cannot bring the mode back with it
+            // (`trust_wait.rs` `full_access_by_cmux`, `permissions.rs` `full_access_mode`).
+            let unmarked = m.mode_set_by_cmux.is_some()
+                && crate::web_modes::mode_of(&m) != m.mode_set_by_cmux
+                && m.mode_set_by_cmux.take().is_some();
             let asks = self.session_asks_now(session, &m);
             let left = (asked && !asks && !session.web_control_ended.swap(true, Ordering::SeqCst))
                 .then(|| crate::web_modes::mode_of(&m));
-            (left, asks)
+            (left, asks, unmarked)
         };
-        let (left, asks) = left;
+        let (left, asks, unmarked) = left;
+        // Saved now, so a restart does not load the mark back.
+        if unmarked {
+            self.save_meta(session);
+        }
         if let Some(mode) = left {
             tracing::warn!(session = %session.id, ?mode, "the session left the asking-mode table: Web control ends");
             self.append(session, "mux", "remote_control_ended", json!({"mode": mode}));
