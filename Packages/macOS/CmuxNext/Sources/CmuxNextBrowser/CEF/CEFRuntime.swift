@@ -83,6 +83,8 @@ final class CEFRuntime {
     var pointerFrames: FrameInputCoalescers?
     /// The last `CEFEngine`'s Chromium features (`CEFSwitches.chromiumFeatures`), read at start.
     var chromiumFeatures: [String] = []
+    /// The last `CEFEngine`'s Chromium features turned off (`CEFSwitches.disabledChromiumFeatures`), read at start.
+    var disabledChromiumFeatures: [String] = []
     /// The last `CEFEngine`'s features `cefLayerHosting` and `cefAttachedPages` (`CEFLayerHosting.Policy`).
     var pageHosting = CEFLayerHosting.Policy()
     /// A tab registered with no input tap: logged once.
@@ -505,7 +507,7 @@ final class CEFRuntime {
         let builtInPlan = inputs.builtInPlan
         let switchSet = CEFSwitches.current(
             forkAPIVersion: shim.forkAPIVersion(), rendererPaths: CEFForkFeatures(shim).rendererPaths,
-            chromiumFeatures: chromiumFeatures,
+            chromiumFeatures: chromiumFeatures, disabledChromiumFeatures: disabledChromiumFeatures,
             spareAfterFirstTab: spareAfterFirstTabFeature(),
             bundleIdentifier: Bundle.main.bundleIdentifier,
             environment: environment, builtInExtensions: builtInPlan.folders,
