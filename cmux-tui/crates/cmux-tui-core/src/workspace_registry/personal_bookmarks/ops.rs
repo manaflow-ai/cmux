@@ -76,6 +76,7 @@ fn create_in(tx: &Transaction<'_>, input: BookmarkInput) -> anyhow::Result<(Book
 /// Change the title, URL (URL nodes only), favicon key, last use or icon
 /// (folders only) of a node. An asset icon must name a stored blob, checked
 /// in this transaction so no sweep runs in between.
+#[track_caller]
 fn update_in(
     tx: &Transaction<'_>,
     id: &str,
@@ -380,6 +381,7 @@ fn record_replay(
 
 /// Apply one op in the caller's transaction. Returns the wire result
 /// (without `replayed`) and the profile whose tree changed.
+#[track_caller]
 fn apply_op(tx: &Transaction<'_>, op: BookmarkOp) -> anyhow::Result<(Value, Option<String>)> {
     Ok(match op {
         BookmarkOp::Create(input) => {
@@ -412,6 +414,7 @@ fn apply_op(tx: &Transaction<'_>, op: BookmarkOp) -> anyhow::Result<(Value, Opti
 impl WorkspaceRegistry {
     /// The revision and every node of one profile's tree, in depth-first
     /// pre-order.
+    #[track_caller]
     pub fn list_bookmarks(&self, profile: &str) -> anyhow::Result<(u64, Vec<Bookmark>)> {
         ensure_profile(&self.connection.get(), profile)?;
         Ok((
@@ -425,6 +428,7 @@ impl WorkspaceRegistry {
     /// anything else and written with the op: a retry returns the original
     /// result with `replayed:true` and changes nothing, and the same key
     /// with another op is refused.
+    #[track_caller]
     pub fn apply_bookmark_op(
         &mut self,
         key: Option<&WorkspaceMutation>,

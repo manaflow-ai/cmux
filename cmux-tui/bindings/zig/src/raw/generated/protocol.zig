@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "ca927e883490b82807120214e0decf2d999fd9278029b1b2fadeb456d9196749";
+pub const ir_sha256 = "db9c7f58775fe51cf1c2eb7ae6cdb7288151e222616b63864f55257cdf21913f";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -1893,6 +1893,31 @@ pub const ServerStatsRegistryLock = struct {
     wait_us: ServerStatsHistogram,
 };
 
+pub const ServerStatsRequestPathIo = struct {
+    child_process: u64,
+    fs_write: u64,
+    host_wait: u64,
+    journal_wait: u64,
+    lock_hold_over_1ms: ?u64 = null,
+    network: u64,
+    proc_scan: u64,
+    process_spawn: u64,
+    recording: bool,
+    scopes: u64,
+    sites: []const ServerStatsRequestPathSite,
+    sleep: u64,
+    sqlite: u64,
+
+    pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "lock_hold_over_1ms",
+    };
+};
+
+pub const ServerStatsRequestPathSite = struct {
+    kind: []const u8,
+    site: []const u8,
+};
+
 pub const ServerStatsResourceProjection = struct {
     commit_apply_us: ServerStatsHistogram,
     commit_journal_us: ServerStatsHistogram,
@@ -1917,6 +1942,7 @@ pub const ServerStatsResult = struct {
     connections: ServerStatsConnections,
     journal_writer: wire.Nullable(ServerStatsJournalWriter),
     registry_lock: ServerStatsRegistryLock,
+    request_path_io: ?ServerStatsRequestPathIo = null,
     resource_projection: ?ServerStatsResourceProjection = null,
     schema: u32,
     slow_requests: ?ServerStatsSlowRequests = null,
@@ -1924,6 +1950,7 @@ pub const ServerStatsResult = struct {
     write_path: ?ServerStatsWritePath = null,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "request_path_io",
         "resource_projection",
         "slow_requests",
         "write_path",
@@ -1933,20 +1960,25 @@ pub const ServerStatsResult = struct {
 pub const ServerStatsSlowRequest = struct {
     busy_ms: u64,
     client: u64,
+    duration_ms: wire.Nullable(u64),
     method: []const u8,
     stack: []const ServerStatsSlowRequestFrame,
     stack_error: wire.Nullable([]const u8),
+    stack_truncated: bool,
     started_ms: u64,
 };
 
 pub const ServerStatsSlowRequestFrame = struct {
     image: wire.Nullable([]const u8),
+    image_id: wire.Nullable([]const u8),
     offset: u64,
     symbol: wire.Nullable([]const u8),
 };
 
 pub const ServerStatsSlowRequests = struct {
+    expected_waits: u64,
     recent: []const ServerStatsSlowRequest,
+    spawn_failures: u64,
     threshold_ms: u64,
     total: u64,
     unwatched: u64,

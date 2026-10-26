@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR ca927e883490b82807120214e0decf2d999fd9278029b1b2fadeb456d9196749. */
+/* cmux-tui mux protocol 12, IR db9c7f58775fe51cf1c2eb7ae6cdb7288151e222616b63864f55257cdf21913f. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "ca927e883490b82807120214e0decf2d999fd9278029b1b2fadeb456d9196749" as const;
+export const SDK_IR_SHA256 = "db9c7f58775fe51cf1c2eb7ae6cdb7288151e222616b63864f55257cdf21913f" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -2681,7 +2681,7 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "Owner-only diagnostics; never journaled and safe to poll.",
-      "include names optional result sections (resource_projection, write_path); unknown names are ignored."
+      "include names optional result sections (resource_projection, write_path, request_path_io); unknown names are ignored."
     ]
   },
   "set-cell-pixels": {
@@ -10401,6 +10401,151 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     },
     "kind": "object"
   },
+  "ServerStatsRequestPathIo": {
+    "additional_properties": false,
+    "constraints": [
+      "Counters accumulate since daemon start: notes of blocking work made on request threads (inside a frame or a queued request).",
+      "scopes counts outermost request scopes entered: frames read plus queued requests run.",
+      "lock_hold_over_1ms is present only while recording is true: registry connection holds are timed only then.",
+      "sites holds the newest notes first, at most 128, and is empty unless recording is true."
+    ],
+    "fields": {
+      "child_process": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "fs_write": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "host_wait": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "journal_wait": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "lock_hold_over_1ms": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "network": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "proc_scan": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "process_spawn": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "recording": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
+      "scopes": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "sites": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "items": {
+            "kind": "ref",
+            "name": "ServerStatsRequestPathSite"
+          },
+          "kind": "array"
+        }
+      },
+      "sleep": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "sqlite": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "ServerStatsRequestPathSite": {
+    "additional_properties": false,
+    "constraints": [
+      "kind is one of sqlite, journal_wait, process_spawn, fs_write, host_wait, sleep, proc_scan, child_process, network, lock_hold_over_1ms.",
+      "site is the file:line of the code that asked for the blocking work."
+    ],
+    "fields": {
+      "kind": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "site": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
   "ServerStatsResourceProjection": {
     "additional_properties": false,
     "constraints": [
@@ -10557,6 +10702,7 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       "Counters accumulate since daemon start; reading them never touches SQLite or the journal.",
       "resource_projection is present only when the request names it in include.",
       "write_path is present only when the request names it in include.",
+      "request_path_io is present only when the request names it in include.",
       "slow_requests is present only when the request names it in include."
     ],
     "fields": {
@@ -10582,6 +10728,14 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
         "type": {
           "kind": "ref",
           "name": "ServerStatsRegistryLock"
+        }
+      },
+      "request_path_io": {
+        "nullable": false,
+        "presence": "optional",
+        "type": {
+          "kind": "ref",
+          "name": "ServerStatsRequestPathIo"
         }
       },
       "resource_projection": {
@@ -10630,10 +10784,12 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
   "ServerStatsSlowRequest": {
     "additional_properties": false,
     "constraints": [
-      "method is the request cmd tag, or unknown.",
+      "method is the request cmd tag, its v2 operation, frame:<handler> for a frame its connection handler answers, or unknown.",
       "started_ms is milliseconds since daemon start; busy_ms is how long the request had run when it was recorded.",
-      "stack is the busy thread's stack when the request was recorded, innermost first (the interrupted pc, then return addresses); it is empty when stack_error is non-null.",
-      "stack_error is null, or one of unsupported, current-thread, suspend-failed, thread-state-failed, signal-failed, timeout, run-ended."
+      "duration_ms is how long the request ran in total, null while it still runs.",
+      "stack is the stack of the thread running the request, captured while it was still busy, innermost first (the interrupted pc, then return addresses); it is empty when stack_error is non-null.",
+      "stack_truncated is true when stack holds only the interrupted pc because the daemon was built without frame pointers.",
+      "stack_error is null, or one of run-ended, unsupported, current-thread, suspend-failed, thread-state-failed, signal-failed, timeout."
     ],
     "fields": {
       "busy_ms": {
@@ -10646,6 +10802,14 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       },
       "client": {
         "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
+      "duration_ms": {
+        "nullable": true,
         "presence": "required",
         "type": {
           "kind": "scalar",
@@ -10679,6 +10843,14 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
           "name": "string"
         }
       },
+      "stack_truncated": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "boolean"
+        }
+      },
       "started_ms": {
         "nullable": false,
         "presence": "required",
@@ -10694,11 +10866,20 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     "additional_properties": false,
     "constraints": [
       "image is the file name of the image that holds the frame, or null when no loaded image does.",
+      "image_id is that image's build id (Mach-O LC_UUID as dwarfdump --uuid prints it, or the ELF NT_GNU_BUILD_ID in lowercase hex), or null when it has none.",
       "offset is the frame address minus the image load address (the address itself when image is null), for offline symbolication.",
       "symbol is the nearest exported symbol, mangled, or null for a local function."
     ],
     "fields": {
       "image": {
+        "nullable": true,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "image_id": {
         "nullable": true,
         "presence": "required",
         "type": {
@@ -10730,9 +10911,19 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
     "constraints": [
       "Counters accumulate since daemon start.",
       "total counts requests that ran past threshold_ms, each once; recent keeps the newest 128, oldest first.",
-      "unwatched counts requests that started while every watchdog slot was taken."
+      "unwatched counts requests that started while every watchdog slot was taken.",
+      "expected_waits counts requests that block by design (wait-for); they are not recorded.",
+      "spawn_failures counts failed starts of the watchdog thread; nonzero means slow requests may be missing."
     ],
     "fields": {
+      "expected_waits": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
+        }
+      },
       "recent": {
         "nullable": false,
         "presence": "required",
@@ -10742,6 +10933,14 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
             "name": "ServerStatsSlowRequest"
           },
           "kind": "array"
+        }
+      },
+      "spawn_failures": {
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "uint64"
         }
       },
       "threshold_ms": {

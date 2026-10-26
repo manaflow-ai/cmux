@@ -19,11 +19,14 @@ public import CmuxNextSignposts
 /// always reports; a mouse-up reports only when its turn expects a frame (a button acts on release). It reports
 /// when its dispatch ends, or earlier, at the first wait of a run loop nested in it (a menu, a drag or a button's
 /// tracking loop draws its frames there). Key-ups, moves, drags, scrolls and modifier changes report nothing.
+/// Around the discrete dispatches it says when the first begins and the last ends (after its report), so the
+/// scheduler's input-response pass is on the run loop before any nested loop waits.
 ///
 /// The App's composition root makes one and passes it to the application object and the key router:
 ///
 /// ```swift
-/// let inputDispatch = InputDispatchContext(discreteInput: { mainWork.noteDiscreteInput(expectsFrame: $0) })
+/// let inputDispatch = InputDispatchContext(discreteInput: { mainWork.noteDiscreteInput(expectsFrame: $0) },
+///                                          discreteDispatch: { mainWork.noteDiscreteDispatch(began: $0) })
 /// registry.dispatchingInputEvent = { inputDispatch.event }
 /// registry.effectExpectsFrame = { inputDispatch.noteFrameExpected() }
 /// ```
@@ -51,6 +54,8 @@ public final class InputDispatchContext {
     private let scrollFrames: any ScrollFrameTiming
     /// Told about each discrete input whether its turn expects a frame (``report(_:)``).
     private let discreteInput: @MainActor (_ expectsFrame: Bool) -> Void
+    /// Told when the first discrete dispatch begins (true) and the last one ends (false).
+    private let discreteDispatch: @MainActor (_ began: Bool) -> Void
     /// Whether a window of `event` still has a display request pending when its dispatch ends.
     private let displayPending: @MainActor (NSEvent) -> Bool
 
@@ -62,13 +67,17 @@ public final class InputDispatchContext {
     ///   - discreteInput: Told about each discrete input, whether its turn expects a frame (the App passes its
     ///     main-thread scheduler's `noteDiscreteInput(expectsFrame:)`; the default ignores it). Once per input,
     ///     or twice when it reported early with no frame and its dispatch expected one later.
+    ///   - discreteDispatch: Told true before the first discrete dispatch runs and false after the last one
+    ///     reported (the App passes its scheduler's `noteDiscreteDispatch(began:)`; the default ignores it).
     ///   - displayPending: Whether a view asked for display during the dispatch (the default reads the event's
     ///     window and the key window, ``windowsNeedDisplay(for:)``; tests inject one).
     public init(scrollFrames: any ScrollFrameTiming = NoScrollFrameTiming(),
                 discreteInput: @escaping @MainActor (_ expectsFrame: Bool) -> Void = { _ in },
+                discreteDispatch: @escaping @MainActor (_ began: Bool) -> Void = { _ in },
                 displayPending: @escaping @MainActor (NSEvent) -> Bool = InputDispatchContext.windowsNeedDisplay(for:)) {
         self.scrollFrames = scrollFrames
         self.discreteInput = discreteInput
+        self.discreteDispatch = discreteDispatch
         self.displayPending = displayPending
     }
 
@@ -136,8 +145,8 @@ public final class InputDispatchContext {
             let dispatch = stack.removeLast()
             if dispatch.isScroll { scrollFrames.end(target: dispatch.layoutTook ? .layout : .content) }
             if dispatch.isDiscrete {
-                watchNestedRunLoops(opening: false)
                 _ = report(dispatch)
+                watchNestedRunLoops(opening: false)
             } else if let outer = stack.indices.last {
                 stack[outer].expectsFrame = stack[outer].expectsFrame || dispatch.expectsFrame
             }
@@ -176,9 +185,11 @@ public final class InputDispatchContext {
             }
             CFRunLoopAddObserver(CFRunLoopGetMain(), observer, CFRunLoopMode.commonModes)
             nestedRunLoopObserver = observer
+            discreteDispatch(true)
         } else if !opening, openDiscrete == 0, let observer = nestedRunLoopObserver {
             CFRunLoopObserverInvalidate(observer)
             nestedRunLoopObserver = nil
+            discreteDispatch(false)
         }
     }
 }

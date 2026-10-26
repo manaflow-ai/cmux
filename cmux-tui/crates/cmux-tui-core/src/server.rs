@@ -2606,7 +2606,7 @@ mod message_writer;
 use message_writer::{MessageSink, MessageWriter, OutboundStream};
 
 mod request_watchdog;
-pub(crate) use request_watchdog::RequestWatchdog;
+pub(crate) use request_watchdog::{FrameStage, RequestScope, RequestWatchdog, WatchedMethod};
 
 mod connection_scheduler;
 #[cfg(test)]

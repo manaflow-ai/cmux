@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR ca927e883490b82807120214e0decf2d999fd9278029b1b2fadeb456d9196749. */
+/* cmux-tui mux protocol 12, IR db9c7f58775fe51cf1c2eb7ae6cdb7288151e222616b63864f55257cdf21913f. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -1064,6 +1064,27 @@ export type ServerStatsRegistryLock = {
   "wait_us": ServerStatsHistogram;
 };
 
+export type ServerStatsRequestPathIo = {
+  "child_process": bigint;
+  "fs_write": bigint;
+  "host_wait": bigint;
+  "journal_wait": bigint;
+  "lock_hold_over_1ms"?: bigint;
+  "network": bigint;
+  "proc_scan": bigint;
+  "process_spawn": bigint;
+  "recording": boolean;
+  "scopes": bigint;
+  "sites": Array<ServerStatsRequestPathSite>;
+  "sleep": bigint;
+  "sqlite": bigint;
+};
+
+export type ServerStatsRequestPathSite = {
+  "kind": string;
+  "site": string;
+};
+
 export type ServerStatsResourceProjection = {
   "commit_apply_us": ServerStatsHistogram;
   "commit_journal_us": ServerStatsHistogram;
@@ -1088,6 +1109,7 @@ export type ServerStatsResult = {
   "connections": ServerStatsConnections;
   "journal_writer": (ServerStatsJournalWriter) | null;
   "registry_lock": ServerStatsRegistryLock;
+  "request_path_io"?: ServerStatsRequestPathIo;
   "resource_projection"?: ServerStatsResourceProjection;
   "schema": number;
   "slow_requests"?: ServerStatsSlowRequests;
@@ -1098,20 +1120,25 @@ export type ServerStatsResult = {
 export type ServerStatsSlowRequest = {
   "busy_ms": bigint;
   "client": bigint;
+  "duration_ms": (bigint) | null;
   "method": string;
   "stack": Array<ServerStatsSlowRequestFrame>;
   "stack_error": (string) | null;
+  "stack_truncated": boolean;
   "started_ms": bigint;
 };
 
 export type ServerStatsSlowRequestFrame = {
   "image": (string) | null;
+  "image_id": (string) | null;
   "offset": bigint;
   "symbol": (string) | null;
 };
 
 export type ServerStatsSlowRequests = {
+  "expected_waits": bigint;
   "recent": Array<ServerStatsSlowRequest>;
+  "spawn_failures": bigint;
   "threshold_ms": bigint;
   "total": bigint;
   "unwatched": bigint;

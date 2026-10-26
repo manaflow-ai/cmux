@@ -13,11 +13,23 @@
 //! through the kernel (`mach_vm_read_overwrite`, `process_vm_readv`), so a
 //! bad frame pointer ends the walk instead of faulting.
 //!
-//! The walk follows frame pointers: Apple's arm64 ABI always keeps them; on
-//! Linux, a frame compiled without one ends the walk after the interrupted
-//! pc. Symbols are resolved after the thread runs again
-//! ([`Backtrace::symbolicate`]): each frame's image and offset, which `atos`
-//! or `addr2line` resolve offline, and the dynamic symbol when there is one.
+//! The walk follows frame pointers, so it runs only in a build that keeps
+//! them, as Chrome uses its frame-pointer unwinder only with
+//! `enable_frame_pointers` (build/config/compiler/BUILD.gn). Apple's targets
+//! always keep them. Linux targets omit them unless the build passes
+//! `-C force-frame-pointers=yes` (build.rs then sets `cmux_frame_pointers`):
+//! without them the frame-pointer register holds data, so a capture keeps
+//! only the interrupted pc and says so ([`Backtrace::truncated`]). In a
+//! frame-pointer build, a thread stopped inside code linked in without them
+//! (a distribution's libc, the precompiled std) can still lose or add a frame
+//! at that point, as with Chrome's unwinder.
+//!
+//! Symbols are resolved after the thread runs again
+//! ([`Backtrace::symbolicate`]): each frame's image, the image's build id
+//! (Mach-O `LC_UUID`, ELF `NT_GNU_BUILD_ID`; Chrome's
+//! base/profiler/module_cache.h `Module::GetId`) and offset, which `atos` or
+//! `addr2line` resolve offline against that exact build, and the dynamic
+//! symbol when there is one.
 //!
 //! On Linux the signal interrupts a system call the thread is blocked in:
 //! the handler is installed with SA_RESTART, so reads and writes restart,
@@ -29,6 +41,9 @@
 //! until the first capture.
 
 use std::fmt;
+use std::time::Duration;
+
+mod image_id;
 
 /// The most frames a capture keeps, the interrupted pc first.
 pub const MAX_FRAMES: usize = 32;
@@ -71,7 +86,7 @@ pub enum BacktraceError {
     /// exited): the errno.
     Signal(i32),
     /// The thread did not run the signal handler in time (it blocks the
-    /// signal or was not scheduled).
+    /// signal, was not scheduled, or is exiting).
     Timeout,
 }
 
@@ -108,18 +123,25 @@ impl std::error::Error for BacktraceError {}
 pub struct Backtrace {
     frames: [usize; MAX_FRAMES],
     len: usize,
+    truncated: bool,
+    stopped: Duration,
 }
 
 impl fmt::Debug for Backtrace {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
-        formatter.debug_list().entries(self.frames().iter().map(|pc| format!("{pc:#x}"))).finish()
+        formatter
+            .debug_struct("Backtrace")
+            .field("frames", &self.frames().iter().map(|pc| format!("{pc:#x}")).collect::<Vec<_>>())
+            .field("truncated", &self.truncated)
+            .field("stopped", &self.stopped)
+            .finish()
     }
 }
 
 impl Backtrace {
     #[cfg(any(target_os = "macos", target_os = "linux"))]
     const fn empty() -> Self {
-        Self { frames: [0; MAX_FRAMES], len: 0 }
+        Self { frames: [0; MAX_FRAMES], len: 0, truncated: false, stopped: Duration::ZERO }
     }
 
     #[cfg(any(target_os = "macos", target_os = "linux"))]
@@ -137,9 +159,27 @@ impl Backtrace {
         &self.frames[..self.len]
     }
 
-    /// Each frame's image and offset, and its dynamic symbol when the image
-    /// exports one. Call it after the capture: it takes the loader's lock.
+    /// The capture kept only the interrupted pc because this build has no
+    /// frame pointers to walk (Linux without `-C force-frame-pointers=yes`):
+    /// the callers are unknown, not absent.
+    pub fn truncated(&self) -> bool {
+        self.truncated
+    }
+
+    /// How long the capture kept the thread from its own work: from
+    /// `thread_suspend` to `thread_resume` on macOS; on Linux from the
+    /// handler's entry to its answer (the kernel's signal delivery is not
+    /// counted, nor the time the thread waited to be scheduled).
+    pub fn stopped(&self) -> Duration {
+        self.stopped
+    }
+
+    /// Each frame's image, build id and offset, and its dynamic symbol when
+    /// the image exports one. Call it after the capture: it takes the
+    /// loader's lock.
     pub fn symbolicate(&self) -> Vec<SymbolicatedFrame> {
+        // Each image's build id is read once per capture.
+        let mut image_ids: Vec<(usize, Option<String>)> = Vec::new();
         self.frames()
             .iter()
             .enumerate()
@@ -147,7 +187,18 @@ impl Backtrace {
                 // A return address can be the first byte after its function
                 // when the call was its last instruction: look up the call.
                 let lookup = if index == 0 { address } else { address.saturating_sub(1) };
-                imp::symbolicate(address, lookup)
+                let (mut frame, base) = imp::symbolicate(address, lookup);
+                if let Some(base) = base {
+                    frame.image_id = match image_ids.iter().find(|(known, _)| *known == base) {
+                        Some((_, id)) => id.clone(),
+                        None => {
+                            let id = image_id::of(base, lookup);
+                            image_ids.push((base, id.clone()));
+                            id
+                        }
+                    };
+                }
+                frame
             })
             .collect()
     }
@@ -160,6 +211,12 @@ pub struct SymbolicatedFrame {
     pub address: usize,
     /// The file name of the image that holds it; `None` when no loaded image does.
     pub image: Option<String>,
+    /// The build id of that image, which ties `offset` to one build: the
+    /// Mach-O `LC_UUID` as `dwarfdump --uuid` prints it
+    /// (`XXXXXXXX-XXXX-XXXX-XXXX-XXXXXXXXXXXX`), or the ELF
+    /// `NT_GNU_BUILD_ID` in lowercase hex as `readelf -n` prints it; `None`
+    /// when the image has none.
+    pub image_id: Option<String>,
     /// The address minus the image's load address (the address itself
     /// without an image): `addr2line -e IMAGE OFFSET`, or `atos -o IMAGE -l
     /// 0x100000000 0x100000000+OFFSET` for a Mach-O image.
@@ -168,14 +225,18 @@ pub struct SymbolicatedFrame {
     pub symbol: Option<String>,
 }
 
-/// The image, offset and dynamic symbol of one code address of this
-/// process, as [`Backtrace::symbolicate`] resolves a pc.
+/// The image, build id, offset and dynamic symbol of one code address of
+/// this process, as [`Backtrace::symbolicate`] resolves a pc.
 pub fn symbolicate_address(address: usize) -> SymbolicatedFrame {
-    imp::symbolicate(address, address)
+    let (mut frame, base) = imp::symbolicate(address, address);
+    frame.image_id = base.and_then(|base| image_id::of(base, address));
+    frame
 }
 
 /// Stop `thread`, walk its frame pointers and let it run again, in well
-/// under a millisecond. Captures from several threads run one at a time.
+/// under a millisecond. On Linux captures run one at a time, since the
+/// signal handler answers through one shared request; on macOS each capture
+/// suspends only its own target, so captures from several threads overlap.
 pub fn capture(thread: ThreadHandle) -> Result<Backtrace, BacktraceError> {
     if ThreadHandle::current() == Some(thread) {
         return Err(BacktraceError::CurrentThread);
@@ -190,7 +251,8 @@ const MAX_STACK_SPAN: usize = 1 << 30;
 
 /// Walk the frame records from `fp`: each holds the caller's frame pointer
 /// and the return address. `read` reads one record and fails on unmapped
-/// memory; the chain must climb the stack.
+/// memory; the chain must climb the stack. Only for code built with frame
+/// pointers: elsewhere `fp` is any value.
 #[cfg(any(target_os = "macos", target_os = "linux"))]
 fn walk(
     pc: usize,
@@ -232,9 +294,10 @@ fn strip_pointer_authentication(address: usize) -> usize {
     address
 }
 
-/// Image, offset and dynamic symbol of `address` through `dladdr`.
+/// Image, offset and dynamic symbol of `address` through `dladdr`, with the
+/// image's load address (`None` without an image).
 #[cfg(any(target_os = "macos", target_os = "linux"))]
-fn dladdr_frame(address: usize, lookup: usize) -> SymbolicatedFrame {
+fn dladdr_frame(address: usize, lookup: usize) -> (SymbolicatedFrame, Option<usize>) {
     use std::ffi::CStr;
 
     let mut info = std::mem::MaybeUninit::<libc::Dl_info>::zeroed();
@@ -249,24 +312,34 @@ fn dladdr_frame(address: usize, lookup: usize) -> SymbolicatedFrame {
     };
     let base = info.dli_fbase as usize;
     if !found || base == 0 {
-        return SymbolicatedFrame { address, image: None, offset: address, symbol: None };
+        let frame = SymbolicatedFrame {
+            address,
+            image: None,
+            image_id: None,
+            offset: address,
+            symbol: None,
+        };
+        return (frame, None);
     }
     let image = text(info.dli_fname).map(|path| match path.rsplit_once('/') {
         Some((_, name)) => name.to_string(),
         None => path,
     });
-    SymbolicatedFrame {
+    let frame = SymbolicatedFrame {
         address,
         image,
+        image_id: None,
         offset: address.wrapping_sub(base),
         symbol: text(info.dli_sname),
-    }
+    };
+    (frame, Some(base))
 }
 
 #[cfg(target_os = "macos")]
 mod imp {
     use super::{Backtrace, BacktraceError, SymbolicatedFrame, ThreadHandle, walk};
     use std::cell::Cell;
+    use std::time::Instant;
 
     const KERN_SUCCESS: libc::kern_return_t = 0;
 
@@ -381,6 +454,7 @@ mod imp {
         let Ok(port) = libc::thread_t::try_from(thread.raw()) else {
             return Err(BacktraceError::Unsupported);
         };
+        let suspending = Instant::now();
         // SAFETY: a port name of this task's thread; a stale one fails.
         let suspended = unsafe { thread_suspend(port) };
         if suspended != KERN_SUCCESS {
@@ -401,10 +475,13 @@ mod imp {
         });
         // SAFETY: balances the successful thread_suspend above.
         unsafe { thread_resume(port) };
-        backtrace.ok_or(BacktraceError::ThreadState(read))
+        let stopped = suspending.elapsed();
+        let mut backtrace = backtrace.ok_or(BacktraceError::ThreadState(read))?;
+        backtrace.stopped = stopped;
+        Ok(backtrace)
     }
 
-    pub(super) fn symbolicate(address: usize, lookup: usize) -> SymbolicatedFrame {
+    pub(super) fn symbolicate(address: usize, lookup: usize) -> (SymbolicatedFrame, Option<usize>) {
         super::dladdr_frame(address, lookup)
     }
 }
@@ -413,7 +490,7 @@ mod imp {
 mod imp {
     use super::{Backtrace, BacktraceError, MAX_FRAMES, SymbolicatedFrame, ThreadHandle, walk};
     use std::cell::Cell;
-    use std::sync::atomic::{AtomicI32, AtomicU32, AtomicUsize, Ordering};
+    use std::sync::atomic::{AtomicI32, AtomicU32, AtomicU64, AtomicUsize, Ordering};
     use std::sync::{Mutex, OnceLock, PoisonError};
     use std::time::{Duration, Instant};
 
@@ -425,23 +502,40 @@ mod imp {
     /// How long a capture waits for the handler to run.
     const ANSWER_TIMEOUT: Duration = Duration::from_millis(50);
 
+    /// The build keeps frame pointers (build.rs), so the handler walks them;
+    /// otherwise it keeps only the interrupted pc.
+    const WALKS_FRAMES: bool = cfg!(cmux_frame_pointers);
+
     const FUTEX_WAIT_PRIVATE: libc::c_int = 128;
     const FUTEX_WAKE_PRIVATE: libc::c_int = 129;
 
+    /// The request word: a capture generation above a two-bit phase, so a
+    /// handler can claim only the request it read the target of.
+    const PHASE: u32 = 0b11;
+    const GENERATION: u32 = 1 << 2;
     const IDLE: u32 = 0;
     const REQUESTED: u32 = 1;
     const WALKING: u32 = 2;
     const DONE: u32 = 3;
 
+    fn with_phase(word: u32, phase: u32) -> u32 {
+        (word & !PHASE) | phase
+    }
+
     /// The one capture in flight, shared with the signal handler through
     /// atomics only.
     struct Request {
-        /// IDLE -> REQUESTED (capturer) -> WALKING -> DONE (handler) -> IDLE
-        /// (capturer); a capturer that times out takes REQUESTED back to IDLE.
+        /// Generation and phase: IDLE -> REQUESTED (capturer, next
+        /// generation) -> WALKING -> DONE (the target's handler) -> IDLE
+        /// (capturer); a capturer that times out takes REQUESTED back to
+        /// IDLE.
         state: AtomicU32,
+        /// The thread asked, written before its generation is published.
         target: AtomicI32,
         len: AtomicUsize,
         frames: [AtomicUsize; MAX_FRAMES],
+        /// How long the handler kept its thread from its work, in ns.
+        handler_ns: AtomicU64,
     }
 
     static REQUEST: Request = Request {
@@ -449,7 +543,18 @@ mod imp {
         target: AtomicI32::new(0),
         len: AtomicUsize::new(0),
         frames: [const { AtomicUsize::new(0) }; MAX_FRAMES],
+        handler_ns: AtomicU64::new(0),
     };
+
+    /// CLOCK_MONOTONIC in ns; clock_gettime is async-signal-safe.
+    fn monotonic_ns() -> u64 {
+        let mut now = libc::timespec { tv_sec: 0, tv_nsec: 0 };
+        // SAFETY: writes only `now`.
+        unsafe { libc::clock_gettime(libc::CLOCK_MONOTONIC, &raw mut now) };
+        let seconds = u64::try_from(now.tv_sec).unwrap_or(0);
+        let nanos = u64::try_from(now.tv_nsec).unwrap_or(0);
+        seconds.saturating_mul(1_000_000_000).saturating_add(nanos)
+    }
 
     /// Lock carve-out: serializes capturing threads (request watchdogs),
     /// held for one capture (< 1 ms, at most ANSWER_TIMEOUT); never taken by
@@ -584,36 +689,52 @@ mod imp {
     /// # Safety
     /// `info` and `context` are the handler's arguments.
     unsafe fn answer(info: *const libc::siginfo_t, context: *const libc::c_void) -> bool {
+        let entered = monotonic_ns();
         // SAFETY: valid siginfo_t from the kernel; getpid is a system call.
         let sent_here =
             unsafe { (*info).si_code == libc::SI_TKILL && (*info).si_pid() == libc::getpid() };
         if !sent_here {
             return false;
         }
-        // Claim the request first, then read its target: the capturer
-        // publishes the target before the request, so a late signal from an
-        // earlier capture never answers for another thread.
-        if REQUEST
-            .state
-            .compare_exchange(REQUESTED, WALKING, Ordering::Acquire, Ordering::Relaxed)
-            .is_err()
+        // Read the request, then its target (published before it), and
+        // claim only that generation: a late signal from an earlier capture,
+        // on another thread, leaves the request alone for its target.
+        let request = REQUEST.state.load(Ordering::Acquire);
+        // SAFETY: gettid is a system call.
+        if request & PHASE != REQUESTED
+            || REQUEST.target.load(Ordering::Relaxed) != unsafe { libc::gettid() }
         {
             return true;
         }
-        // SAFETY: gettid is a system call.
-        if REQUEST.target.load(Ordering::Relaxed) != unsafe { libc::gettid() } {
-            REQUEST.state.store(REQUESTED, Ordering::Release);
-            futex_wake(&REQUEST.state);
+        if REQUEST
+            .state
+            .compare_exchange(
+                request,
+                with_phase(request, WALKING),
+                Ordering::Acquire,
+                Ordering::Relaxed,
+            )
+            .is_err()
+        {
+            // That request timed out; a newer one for this thread sends its
+            // own signal, delivered when this handler returns.
             return true;
         }
         // SAFETY: the handler's ucontext_t.
         let (pc, fp, sp) = unsafe { registers(context.cast()) };
-        let backtrace = walk(pc, fp, sp, read_record);
+        let backtrace = if WALKS_FRAMES {
+            walk(pc, fp, sp, read_record)
+        } else {
+            let mut backtrace = Backtrace::empty();
+            backtrace.push(pc);
+            backtrace
+        };
         for (slot, &address) in REQUEST.frames.iter().zip(backtrace.frames()) {
             slot.store(address, Ordering::Relaxed);
         }
         REQUEST.len.store(backtrace.len, Ordering::Relaxed);
-        REQUEST.state.store(DONE, Ordering::Release);
+        REQUEST.handler_ns.store(monotonic_ns().saturating_sub(entered), Ordering::Relaxed);
+        REQUEST.state.store(with_phase(request, DONE), Ordering::Release);
         futex_wake(&REQUEST.state);
         true
     }
@@ -645,26 +766,35 @@ mod imp {
         };
         install()?;
         let _serial = CAPTURES.lock().unwrap_or_else(PoisonError::into_inner);
+        // Every earlier request is IDLE now: this one is the next generation.
+        let idle = REQUEST.state.load(Ordering::Relaxed);
+        let request = with_phase(idle.wrapping_add(GENERATION), REQUESTED);
         REQUEST.target.store(tid, Ordering::Relaxed);
         // Release publishes the target with the request (see `answer`).
-        REQUEST.state.store(REQUESTED, Ordering::Release);
+        REQUEST.state.store(request, Ordering::Release);
+        let signalled = Instant::now();
         // SAFETY: tgkill names this process, so a stale tid cannot reach another one.
         if unsafe { libc::syscall(libc::SYS_tgkill, libc::getpid(), tid, CAPTURE_SIGNAL) } != 0 {
             let error = errno();
-            REQUEST.state.store(IDLE, Ordering::Release);
+            REQUEST.state.store(with_phase(request, IDLE), Ordering::Release);
             return Err(BacktraceError::Signal(error));
         }
-        let deadline = Instant::now() + ANSWER_TIMEOUT;
+        let deadline = signalled + ANSWER_TIMEOUT;
         loop {
             let state = REQUEST.state.load(Ordering::Acquire);
-            if state == DONE {
+            if state == with_phase(request, DONE) {
                 break;
             }
             let remaining = deadline.saturating_duration_since(Instant::now());
-            if state == REQUESTED && remaining.is_zero() {
+            if state == request && remaining.is_zero() {
                 if REQUEST
                     .state
-                    .compare_exchange(REQUESTED, IDLE, Ordering::AcqRel, Ordering::Acquire)
+                    .compare_exchange(
+                        request,
+                        with_phase(request, IDLE),
+                        Ordering::AcqRel,
+                        Ordering::Acquire,
+                    )
                     .is_ok()
                 {
                     return Err(BacktraceError::Timeout);
@@ -672,7 +802,8 @@ mod imp {
                 continue;
             }
             // A walking handler finishes in bounded time: wait it out.
-            let wait = if state == WALKING { ANSWER_TIMEOUT } else { remaining };
+            let wait =
+                if state == with_phase(request, WALKING) { ANSWER_TIMEOUT } else { remaining };
             futex_wait(&REQUEST.state, state, wait);
         }
         let mut backtrace = Backtrace::empty();
@@ -680,11 +811,13 @@ mod imp {
         for slot in &REQUEST.frames[..len.min(MAX_FRAMES)] {
             backtrace.push(slot.load(Ordering::Relaxed));
         }
-        REQUEST.state.store(IDLE, Ordering::Release);
+        backtrace.stopped = Duration::from_nanos(REQUEST.handler_ns.load(Ordering::Relaxed));
+        REQUEST.state.store(with_phase(request, IDLE), Ordering::Release);
+        backtrace.truncated = !WALKS_FRAMES;
         Ok(backtrace)
     }
 
-    pub(super) fn symbolicate(address: usize, lookup: usize) -> SymbolicatedFrame {
+    pub(super) fn symbolicate(address: usize, lookup: usize) -> (SymbolicatedFrame, Option<usize>) {
         super::dladdr_frame(address, lookup)
     }
 }
@@ -701,8 +834,18 @@ mod imp {
         Err(BacktraceError::Unsupported)
     }
 
-    pub(super) fn symbolicate(address: usize, _lookup: usize) -> SymbolicatedFrame {
-        SymbolicatedFrame { address, image: None, offset: address, symbol: None }
+    pub(super) fn symbolicate(
+        address: usize,
+        _lookup: usize,
+    ) -> (SymbolicatedFrame, Option<usize>) {
+        let frame = SymbolicatedFrame {
+            address,
+            image: None,
+            image_id: None,
+            offset: address,
+            symbol: None,
+        };
+        (frame, None)
     }
 }
 

@@ -238,6 +238,7 @@ pub(crate) fn tab_folders(snapshot: &Value, workspace: &str) -> Vec<String> {
 
 impl Mux {
     /// `workspace.agent_start.get`.
+    #[track_caller]
     pub(crate) fn agent_start(
         &self,
         selectors: &crate::ResourceSelectors,

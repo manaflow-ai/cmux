@@ -14,6 +14,7 @@ public final class ServerStatsResult implements WireValue {
     private final ServerStatsConnections connections;
     private final ServerStatsJournalWriter journalWriter;
     private final ServerStatsRegistryLock registryLock;
+    private final Field<ServerStatsRequestPathIo> requestPathIo;
     private final Field<ServerStatsResourceProjection> resourceProjection;
     private final long schema;
     private final Field<ServerStatsSlowRequests> slowRequests;
@@ -27,6 +28,7 @@ public final class ServerStatsResult implements WireValue {
         this.journalWriter = builder.journalWriter;
         if (!builder.registryLockSet) throw new IllegalArgumentException("registry_lock is required");
         this.registryLock = Wire.nonNull(builder.registryLock, "registry_lock");
+        this.requestPathIo = builder.requestPathIo;
         this.resourceProjection = builder.resourceProjection;
         if (!builder.schemaSet) throw new IllegalArgumentException("schema is required");
         this.schema = builder.schema;
@@ -41,6 +43,7 @@ public final class ServerStatsResult implements WireValue {
     public ServerStatsConnections connections() { return connections; }
     public ServerStatsJournalWriter journalWriter() { return journalWriter; }
     public ServerStatsRegistryLock registryLock() { return registryLock; }
+    public Field<ServerStatsRequestPathIo> requestPathIo() { return requestPathIo; }
     public Field<ServerStatsResourceProjection> resourceProjection() { return resourceProjection; }
     public long schema() { return schema; }
     public Field<ServerStatsSlowRequests> slowRequests() { return slowRequests; }
@@ -56,6 +59,10 @@ public final class ServerStatsResult implements WireValue {
         builder.journalWriter(rawJournalWriter == null ? null : ServerStatsJournalWriter.fromWire(rawJournalWriter));
         Object rawRegistryLock = Wire.required(object, "registry_lock");
         builder.registryLock(ServerStatsRegistryLock.fromWire(rawRegistryLock));
+        Object rawRequestPathIo = Wire.optional(object, "request_path_io");
+        if (!Wire.isMissing(rawRequestPathIo)) {
+            builder.requestPathIo(ServerStatsRequestPathIo.fromWire(rawRequestPathIo));
+        }
         Object rawResourceProjection = Wire.optional(object, "resource_projection");
         if (!Wire.isMissing(rawResourceProjection)) {
             builder.resourceProjection(ServerStatsResourceProjection.fromWire(rawResourceProjection));
@@ -81,6 +88,7 @@ public final class ServerStatsResult implements WireValue {
         Wire.put(object, "connections", connections);
         Wire.put(object, "journal_writer", journalWriter);
         Wire.put(object, "registry_lock", registryLock);
+        Wire.put(object, "request_path_io", requestPathIo);
         Wire.put(object, "resource_projection", resourceProjection);
         Wire.put(object, "schema", schema);
         Wire.put(object, "slow_requests", slowRequests);
@@ -92,11 +100,11 @@ public final class ServerStatsResult implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof ServerStatsResult that)) return false;
-        return Objects.equals(connections, that.connections) && Objects.equals(journalWriter, that.journalWriter) && Objects.equals(registryLock, that.registryLock) && Objects.equals(resourceProjection, that.resourceProjection) && Objects.equals(schema, that.schema) && Objects.equals(slowRequests, that.slowRequests) && Objects.equals(uptimeMs, that.uptimeMs) && Objects.equals(writePath, that.writePath);
+        return Objects.equals(connections, that.connections) && Objects.equals(journalWriter, that.journalWriter) && Objects.equals(registryLock, that.registryLock) && Objects.equals(requestPathIo, that.requestPathIo) && Objects.equals(resourceProjection, that.resourceProjection) && Objects.equals(schema, that.schema) && Objects.equals(slowRequests, that.slowRequests) && Objects.equals(uptimeMs, that.uptimeMs) && Objects.equals(writePath, that.writePath);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(connections, journalWriter, registryLock, resourceProjection, schema, slowRequests, uptimeMs, writePath); }
+    public int hashCode() { return Objects.hash(connections, journalWriter, registryLock, requestPathIo, resourceProjection, schema, slowRequests, uptimeMs, writePath); }
 
     @Override
     public String toString() { return "ServerStatsResult" + toWire(); }
@@ -108,6 +116,7 @@ public final class ServerStatsResult implements WireValue {
         private boolean journalWriterSet;
         private ServerStatsRegistryLock registryLock;
         private boolean registryLockSet;
+        private Field<ServerStatsRequestPathIo> requestPathIo = Field.omitted();
         private Field<ServerStatsResourceProjection> resourceProjection = Field.omitted();
         private Long schema;
         private boolean schemaSet;
@@ -129,6 +138,10 @@ public final class ServerStatsResult implements WireValue {
         public Builder registryLock(ServerStatsRegistryLock value) {
             this.registryLock = value;
             this.registryLockSet = true;
+            return this;
+        }
+        public Builder requestPathIo(ServerStatsRequestPathIo value) {
+            this.requestPathIo = Field.of(value);
             return this;
         }
         public Builder resourceProjection(ServerStatsResourceProjection value) {

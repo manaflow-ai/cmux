@@ -19250,6 +19250,71 @@
         "ty": "uint64",
         "required": true
       },
+      "/data/request_path_io": {
+        "ty": "object"
+      },
+      "/data/request_path_io/child_process": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/request_path_io/fs_write": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/request_path_io/host_wait": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/request_path_io/journal_wait": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/request_path_io/lock_hold_over_1ms": {
+        "ty": "uint64"
+      },
+      "/data/request_path_io/network": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/request_path_io/proc_scan": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/request_path_io/process_spawn": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/request_path_io/recording": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/request_path_io/scopes": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/request_path_io/sites": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/request_path_io/sites/*": {
+        "ty": "object"
+      },
+      "/data/request_path_io/sites/*/kind": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/request_path_io/sites/*/site": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/request_path_io/sleep": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/request_path_io/sqlite": {
+        "ty": "uint64",
+        "required": true
+      },
       "/data/resource_projection": {
         "ty": "object"
       },
@@ -19568,6 +19633,10 @@
       "/data/slow_requests": {
         "ty": "object"
       },
+      "/data/slow_requests/expected_waits": {
+        "ty": "uint64",
+        "required": true
+      },
       "/data/slow_requests/recent": {
         "ty": "array",
         "required": true
@@ -19583,6 +19652,11 @@
         "ty": "uint64",
         "required": true
       },
+      "/data/slow_requests/recent/*/duration_ms": {
+        "ty": "uint64",
+        "required": true,
+        "nullable": true
+      },
       "/data/slow_requests/recent/*/method": {
         "ty": "string",
         "required": true
@@ -19595,6 +19669,11 @@
         "ty": "object"
       },
       "/data/slow_requests/recent/*/stack/*/image": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      },
+      "/data/slow_requests/recent/*/stack/*/image_id": {
         "ty": "string",
         "required": true,
         "nullable": true
@@ -19613,7 +19692,15 @@
         "required": true,
         "nullable": true
       },
+      "/data/slow_requests/recent/*/stack_truncated": {
+        "ty": "boolean",
+        "required": true
+      },
       "/data/slow_requests/recent/*/started_ms": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/data/slow_requests/spawn_failures": {
         "ty": "uint64",
         "required": true
       },

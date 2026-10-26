@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "ca927e883490b82807120214e0decf2d999fd9278029b1b2fadeb456d9196749";
+inline constexpr std::string_view kProtocolIrSha256 = "db9c7f58775fe51cf1c2eb7ae6cdb7288151e222616b63864f55257cdf21913f";
 
 struct ActivitySnapshot;
 struct ActivitySubscribeResult;
@@ -162,6 +162,8 @@ struct ServerStatsLockHolder;
 struct ServerStatsLockSite;
 struct ServerStatsLockStall;
 struct ServerStatsRegistryLock;
+struct ServerStatsRequestPathIo;
+struct ServerStatsRequestPathSite;
 struct ServerStatsResourceProjection;
 struct ServerStatsResult;
 struct ServerStatsSlowRequest;
@@ -4882,6 +4884,29 @@ struct ServerStatsRequest {
     friend bool operator==(const ServerStatsRequest&, const ServerStatsRequest&) = default;
 };
 
+struct ServerStatsRequestPathSite {
+    std::string kind{};
+    std::string site{};
+    friend bool operator==(const ServerStatsRequestPathSite&, const ServerStatsRequestPathSite&) = default;
+};
+
+struct ServerStatsRequestPathIo {
+    std::uint64_t child_process{};
+    std::uint64_t fs_write{};
+    std::uint64_t host_wait{};
+    std::uint64_t journal_wait{};
+    std::optional<std::uint64_t> lock_hold_over_1ms{};
+    std::uint64_t network{};
+    std::uint64_t proc_scan{};
+    std::uint64_t process_spawn{};
+    bool recording{};
+    std::uint64_t scopes{};
+    std::vector<ServerStatsRequestPathSite> sites{};
+    std::uint64_t sleep{};
+    std::uint64_t sqlite{};
+    friend bool operator==(const ServerStatsRequestPathIo&, const ServerStatsRequestPathIo&) = default;
+};
+
 struct ServerStatsResourceProjection {
     ServerStatsHistogram commit_apply_us{};
     ServerStatsHistogram commit_journal_us{};
@@ -4905,6 +4930,7 @@ struct ServerStatsResourceProjection {
 
 struct ServerStatsSlowRequestFrame {
     std::optional<std::string> image{};
+    std::optional<std::string> image_id{};
     std::uint64_t offset{};
     std::optional<std::string> symbol{};
     friend bool operator==(const ServerStatsSlowRequestFrame&, const ServerStatsSlowRequestFrame&) = default;
@@ -4913,15 +4939,19 @@ struct ServerStatsSlowRequestFrame {
 struct ServerStatsSlowRequest {
     std::uint64_t busy_ms{};
     std::uint64_t client{};
+    std::optional<std::uint64_t> duration_ms{};
     std::string method{};
     std::vector<ServerStatsSlowRequestFrame> stack{};
     std::optional<std::string> stack_error{};
+    bool stack_truncated{};
     std::uint64_t started_ms{};
     friend bool operator==(const ServerStatsSlowRequest&, const ServerStatsSlowRequest&) = default;
 };
 
 struct ServerStatsSlowRequests {
+    std::uint64_t expected_waits{};
     std::vector<ServerStatsSlowRequest> recent{};
+    std::uint64_t spawn_failures{};
     std::uint64_t threshold_ms{};
     std::uint64_t total{};
     std::uint64_t unwatched{};
@@ -4942,6 +4972,7 @@ struct ServerStatsResult {
     ServerStatsConnections connections{};
     std::optional<ServerStatsJournalWriter> journal_writer{};
     ServerStatsRegistryLock registry_lock{};
+    std::optional<ServerStatsRequestPathIo> request_path_io{};
     std::optional<ServerStatsResourceProjection> resource_projection{};
     std::uint32_t schema{};
     std::optional<ServerStatsSlowRequests> slow_requests{};
@@ -6888,6 +6919,18 @@ template <>
 struct Codec<ServerStatsRegistryLock> {
     static Result<Json> encode(const ServerStatsRegistryLock& value);
     static Result<ServerStatsRegistryLock> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsRequestPathIo> {
+    static Result<Json> encode(const ServerStatsRequestPathIo& value);
+    static Result<ServerStatsRequestPathIo> decode(const Json& value);
+};
+
+template <>
+struct Codec<ServerStatsRequestPathSite> {
+    static Result<Json> encode(const ServerStatsRequestPathSite& value);
+    static Result<ServerStatsRequestPathSite> decode(const Json& value);
 };
 
 template <>

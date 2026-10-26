@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR ca927e883490b82807120214e0decf2d999fd9278029b1b2fadeb456d9196749.
+// cmux-tui mux protocol 12, IR db9c7f58775fe51cf1c2eb7ae6cdb7288151e222616b63864f55257cdf21913f.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -1736,6 +1736,32 @@ pub struct ServerStatsRegistryLock {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsRequestPathIo {
+    pub child_process: u64,
+    pub fs_write: u64,
+    pub host_wait: u64,
+    pub journal_wait: u64,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub lock_hold_over_1ms: Option<u64>,
+    pub network: u64,
+    pub proc_scan: u64,
+    pub process_spawn: u64,
+    pub recording: bool,
+    pub scopes: u64,
+    pub sites: Vec<ServerStatsRequestPathSite>,
+    pub sleep: u64,
+    pub sqlite: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsRequestPathSite {
+    pub kind: String,
+    pub site: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ServerStatsResourceProjection {
     pub commit_apply_us: ServerStatsHistogram,
     pub commit_journal_us: ServerStatsHistogram,
@@ -1763,6 +1789,8 @@ pub struct ServerStatsResult {
     pub journal_writer: Nullable<ServerStatsJournalWriter>,
     pub registry_lock: ServerStatsRegistryLock,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub request_path_io: Option<ServerStatsRequestPathIo>,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub resource_projection: Option<ServerStatsResourceProjection>,
     pub schema: u32,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
@@ -1777,9 +1805,11 @@ pub struct ServerStatsResult {
 pub struct ServerStatsSlowRequest {
     pub busy_ms: u64,
     pub client: u64,
+    pub duration_ms: Nullable<u64>,
     pub method: String,
     pub stack: Vec<ServerStatsSlowRequestFrame>,
     pub stack_error: Nullable<String>,
+    pub stack_truncated: bool,
     pub started_ms: u64,
 }
 
@@ -1787,6 +1817,7 @@ pub struct ServerStatsSlowRequest {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ServerStatsSlowRequestFrame {
     pub image: Nullable<String>,
+    pub image_id: Nullable<String>,
     pub offset: u64,
     pub symbol: Nullable<String>,
 }
@@ -1794,7 +1825,9 @@ pub struct ServerStatsSlowRequestFrame {
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ServerStatsSlowRequests {
+    pub expected_waits: u64,
     pub recent: Vec<ServerStatsSlowRequest>,
+    pub spawn_failures: u64,
     pub threshold_ms: u64,
     pub total: u64,
     pub unwatched: u64,

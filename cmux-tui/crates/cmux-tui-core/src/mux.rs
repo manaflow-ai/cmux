@@ -498,6 +498,8 @@ pub struct Mux {
     connection_stats: Arc<crate::diagnostics::ConnectionStats>,
     /// Clone of the registry's projection spans, read without its lock.
     resource_projection_stats: Arc<crate::diagnostics::ResourceProjectionStats>,
+    /// Blocking notes of request handlers (`server-stats` `request_path_io`).
+    request_path_stats: Arc<crate::request_path::RequestPathStats>,
     started_at: Instant,
     pub(crate) state: signaled_mutex::StateMutex,
     subscribers: MuxEventBroadcaster,
@@ -943,6 +945,7 @@ impl Mux {
     /// Reconcile a surface whose child exited before its tree insert
     /// completed. Hosted terminals commit their exit and detach every view;
     /// local terminals are reaped after the creator closes the insert race.
+    #[track_caller]
     fn reap_if_dead(self: &Arc<Self>, surface: &Arc<Surface>) {
         if surface.is_dead() {
             if self.resource_creation_active.load(Ordering::Acquire) {
@@ -1008,6 +1011,7 @@ fn sidebar_retry_delay(failures: u32) -> Duration {
 }
 
 impl Drop for Mux {
+    #[track_caller]
     fn drop(&mut self) {
         if let Some(maintenance) =
             self.journal_maintenance.get_mut().unwrap_or_else(PoisonError::into_inner).take()

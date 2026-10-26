@@ -621,11 +621,14 @@ object{
     writer_registry_locks:uint64
   },
   slow_requests?:object{
-    threshold_ms:uint64, total:uint64, unwatched:uint64, watchdog_wakeups:uint64,
+    threshold_ms:uint64, total:uint64, unwatched:uint64, expected_waits:uint64,
+    spawn_failures:uint64, watchdog_wakeups:uint64,
     recent:array<object{
       method:string, client:uint64, started_ms:uint64, busy_ms:uint64,
-      stack:array<object{image:string|null,offset:uint64,symbol:string|null}>,
-      stack_error:string|null
+      duration_ms:uint64|null,
+      stack:array<object{image:string|null,image_id:string|null,offset:uint64,
+        symbol:string|null}>,
+      stack_truncated:boolean, stack_error:string|null
     }>
   }
 }
@@ -669,31 +672,49 @@ journal writer thread. It is always `0`: a request thread holds the registry
 lock (and may hold state) while it waits for its writer receipt, so the
 writer never takes either.
 
-`slow_requests` lists requests that ran past `threshold_ms` (250) on a
-connection's request sequence, each recorded once while it still runs:
-`method` is its `cmd` tag, `client` its connection, `started_ms` its start
-in milliseconds since daemon start and `busy_ms` how long it had run when it
-was recorded. `total` counts every recorded request and `recent` keeps the
-newest 128, oldest first. `unwatched` counts requests that started while all
-128 watch slots were taken. `watchdog_wakeups` counts wakes of the
+`slow_requests` lists requests that ran past `threshold_ms` (250), each
+recorded once. Every frame a connection reads is watched from its arrival
+until its handler returns, and a `cmd` request the connection's scheduler
+runs on another thread is watched there. `method` is the request's `cmd`
+tag, its v2 `operation`, or `frame:<handler>` for a frame its connection
+handler answers itself (`frame:fs`, `frame:agent-inventory`, ...; plain
+`frame` before a handler is picked). `client` is its connection,
+`started_ms` its start in milliseconds since daemon start, `busy_ms` how long
+it had run when it was recorded, and `duration_ms` how long it ran in total
+(`null` while it still runs). A request that ends past the threshold before
+the watchdog looked is still recorded. `total` counts every recorded request
+and `recent` keeps the newest 128, oldest first. `unwatched` counts requests
+that started while all 256 watch slots were taken. `expected_waits` counts
+requests that block by design (`wait-for` waits up to its `timeout_ms`); they
+are not recorded. `spawn_failures` counts failed starts of the watchdog
+thread; each later request tries again, and while it is nonzero slow
+requests may be missing. `watchdog_wakeups` counts wakes of the
 `mux-request-watchdog` thread: it has no periodic timer, so the count stays
-still while the daemon is idle and grows by at most four a second under load.
+still while the daemon is idle, and it wakes only on a 250 ms grid, so the
+count grows by at most four a second (plus one) under any request pattern.
 With `CMUX_TUI_DEBUG_SPANS` set, each recorded request also appends a
 `slow-request` line with the method as its mark.
 
-`stack` is the stack of the thread that ran the request, captured when it
-was recorded (macOS suspends the thread, Linux interrupts it with SIGURG;
-under a millisecond). Frames are innermost first: the interrupted pc, then
-return addresses along the frame pointers, at most 32. `image` is the file
-name of the image that holds the frame, `offset` the address minus the
-image's load address, for offline symbolication (`addr2line -f -e IMAGE
+`stack` is the stack of the thread that ran the request, captured when the
+watchdog first saw it running past the threshold (macOS suspends the thread,
+Linux interrupts it with SIGURG; under a millisecond). Frames are innermost
+first: the interrupted pc, then return addresses along the frame pointers,
+at most 32. `image` is the file name of the image that holds the frame,
+`image_id` that image's build id (the Mach-O LC_UUID as `dwarfdump --uuid`
+prints it, or the ELF NT_GNU_BUILD_ID in lowercase hex; null when it has
+none), which picks the matching build's symbols, `offset` the address minus
+the image's load address, for offline symbolication (`addr2line -f -e IMAGE
 OFFSET`; for a Mach-O image `atos -o IMAGE -l 0x100000000
 0x100000000+OFFSET`), and `symbol` the nearest exported symbol, mangled, or
-null. Code built without frame pointers ends the walk early. `stack` is
-empty when `stack_error` names why: `unsupported` (no capture on this OS),
-`suspend-failed`, `thread-state-failed`, `signal-failed`, `timeout` (the
-thread did not answer the signal in 50 ms) or `run-ended` (the request ended
-during the capture).
+null. `stack_truncated` is true when `stack` holds only the interrupted pc
+because the daemon was built without frame pointers (a Linux build without
+`-C force-frame-pointers=yes`); a thread stopped inside code linked in
+without frame pointers (a libc, the precompiled std) can still lose or add
+a frame there. `stack` is empty when `stack_error` names
+why: `run-ended` (the request ended before the watchdog stopped its thread,
+including one first seen after it ended), `unsupported` (no capture on this
+OS), `suspend-failed`, `thread-state-failed`, `signal-failed` or `timeout`
+(the thread did not answer the signal in 50 ms).
 
 `schema` is `1`. Latency histograms are in microseconds; `batch_size` counts
 events. Percentiles are log-linear bucket upper bounds and overestimate by at
