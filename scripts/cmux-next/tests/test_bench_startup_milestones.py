@@ -4,8 +4,9 @@
 1. MARKS lists each milestone once, in launch order.
 2. `--milestones` (check_milestones) passes a run that has every milestone in order, names each missing
    milestone, and names each MILESTONE_ORDER pair a run has out of order.
-3. With `--milestones` a run also waits for every milestone (startup_complete lands after the first frames);
-   without it a run still ends at its first frames.
+3. With `--milestones` a run that reached its first frames also waits for every milestone, only for the time
+   left of its one timeout; a run that missed them, or one without the flag, ends there.
+4. startup_complete is listed and order-checked when it lands, but not required until p08-startup-012 fires it.
 
 Runs on any host (Linux included): no app, no fleet.
 
@@ -25,12 +26,13 @@ SPEC = importlib.util.spec_from_file_location("bench_startup", HERE / "bench-sta
 bench = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(bench)
 
-NEW = ["run_loop_start", "first_idle", "window_display", "first_live_content_frame", "startup_complete"]
+NEW = ["run_loop_start", "first_idle", "window_display", "first_page_frame", "first_live_content_frame",
+       "startup_complete"]
 
 
 def good_run():
     return {"main_start": 20.0, "main.run": 40.0, "run_loop_start": 41.0, "did_finish_launching_end": 90.0,
-            "window_display": 85.0, "first_idle": 120.0, "first_window_frame_committed": 110.0,
+            "window_display": 85.0, "launch_snapshot_shown": 86.0, "first_idle": 120.0, "first_window_frame_committed": 110.0,
             "first_live_content_frame": 300.0, "startup_complete": 800.0}
 
 
@@ -48,6 +50,9 @@ class MarksTests(unittest.TestCase):
         self.assertLess(names.index("main.run"), names.index("run_loop_start"))
         self.assertLess(names.index("did_finish_launching_end"), names.index("first_idle"))
         self.assertLess(names.index(bench.FINAL_MARK), names.index("first_live_content_frame"))
+        # LaunchSnapshotWindow marks launch_snapshot_shown after makeController presented the window.
+        self.assertLess(names.index("window_display"), names.index("launch_snapshot_shown"))
+        self.assertLess(names.index("first_live_content_frame"), names.index("startup_complete"))
 
     def test_order_pairs_name_listed_marks(self):
         names = {mark for mark, _ in bench.MARKS}
@@ -63,9 +68,22 @@ class CheckMilestonesTests(unittest.TestCase):
 
     def test_missing_milestone_is_named_once(self):
         run = good_run()
-        del run["startup_complete"]
+        del run["first_idle"]
         out = bench.check_milestones({"a": {"warm": [good_run(), run]}})
-        self.assertEqual(out, ["a warm run 2: milestones missing: startup_complete"])
+        self.assertEqual(out, ["a warm run 2: milestones missing: first_idle"])
+
+    def test_startup_complete_is_not_required_until_the_scheduler_fires_it(self):
+        self.assertNotIn("startup_complete", bench.MILESTONES)
+        run = good_run()
+        del run["startup_complete"]
+        self.assertEqual(bench.check_milestones({"a": {"warm": [run]}}), [])
+
+    def test_startup_complete_before_live_content_is_named(self):
+        run = good_run()
+        run["startup_complete"] = 200.0
+        out = bench.check_milestones({"a": {"warm": [run]}})
+        self.assertEqual(len(out), 1)
+        self.assertIn("startup_complete at 200 ms, before first_live_content_frame", out[0])
 
     def test_out_of_order_pair_is_named(self):
         run = good_run()
@@ -76,15 +94,16 @@ class CheckMilestonesTests(unittest.TestCase):
 
 
 class FakeLaunch:
-    """Stands in for bench-startup's Launch: records what each run waited for."""
+    """Stands in for bench-startup's Launch: records what each run waited for, and how long."""
     waits = []
+    reaches = True
 
     def __init__(self, tag, scratch, extra_env=None):
         self.marks = {**good_run(), "first_terminal_frame": 290.0}
 
     def wait_for(self, mark, timeout, any_of=False):
-        FakeLaunch.waits.append(([mark] if isinstance(mark, str) else list(mark), any_of))
-        return True
+        FakeLaunch.waits.append(([mark] if isinstance(mark, str) else list(mark), any_of, timeout))
+        return FakeLaunch.reaches
 
     def quit(self):
         pass
@@ -97,6 +116,7 @@ class OneRunWaitTests(unittest.TestCase):
         bench.app_pids = lambda tag: []
         bench.tag_pids = lambda tag: [4242]  # the daemon runs: a warm run needs no priming launch
         FakeLaunch.waits = []
+        FakeLaunch.reaches = True
 
     def tearDown(self):
         for name, value in self.saved.items():
@@ -105,7 +125,16 @@ class OneRunWaitTests(unittest.TestCase):
     def test_milestones_flag_waits_for_every_milestone(self):
         bench.WAIT_MILESTONES = True
         bench.one_run("t", "warm", 5)
-        self.assertEqual(FakeLaunch.waits[-1], (bench.MILESTONES, False))
+        self.assertEqual(len(FakeLaunch.waits), 2)
+        marks, any_of, timeout = FakeLaunch.waits[-1]
+        self.assertEqual((marks, any_of), (bench.MILESTONES, False))
+        self.assertLessEqual(timeout, 5, "the milestone wait shares the run's one timeout")
+
+    def test_a_run_that_missed_its_first_frames_does_not_wait_again(self):
+        bench.WAIT_MILESTONES = True
+        FakeLaunch.reaches = False
+        bench.one_run("t", "warm", 5)
+        self.assertEqual(len(FakeLaunch.waits), 1)
 
     def test_without_the_flag_a_run_ends_at_its_first_frames(self):
         bench.WAIT_MILESTONES = False

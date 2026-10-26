@@ -86,8 +86,8 @@ MARKS = [
     ("dfl.daemon_cloud_updater", "dfl: daemon, cloud, updater"),
     ("dfl.first_window_hooks", "dfl: first window hooks"),
     ("dfl.home_history", "dfl: home, bookmarks, history"),
-    ("launch_snapshot_shown", "cached layout window made"),
     ("window_display", "first window ordered on screen"),
+    ("launch_snapshot_shown", "cached layout window made"),
     ("dfl.windows", "dfl: windows restored"),
     ("did_finish_launching_end", "applicationDidFinishLaunching end"),
     ("first_window_frame_committed", "first window frame committed"),
@@ -117,7 +117,8 @@ MARKS = [
     ("first_terminal_content", "first terminal content decoded"),
     ("first_terminal_content_applied", "first content in a surface"),
     (FINAL_MARK, "first live terminal frame"),
-    ("first_live_content_frame", "first live content frame (terminal or agent page)"),
+    ("first_page_frame", "first page painted in a visible pane (agent or internal page)"),
+    ("first_live_content_frame", "first live content frame (terminal or page, shown)"),
     ("sidebar_rows_shown", "sidebar rows shown"),
     ("reveal.sidebar", "sidebar revealed"),
     ("reveal.tabs", "tab strips revealed"),
@@ -137,13 +138,16 @@ MARKS = [
     ("startup_complete", "startup complete (scheduler refs 0, or failsafe)"),
 ]
 # Chrome's startup milestones (components/startup_metric_utils/browser/startup_metric_utils.h): --milestones
-# requires each in every run, and each pair below (the ones every launch orders the same way).
+# requires each in every run, and each pair below (the ones every launch orders the same way) when both landed.
+# startup_complete is not required yet: nothing fires it until p08-startup-012 makes StartupScheduler in main()
+# and passes DebugTimings.markStartupComplete as its completion; 012 adds it here.
 MILESTONES = ["main_start", "run_loop_start", "window_display", "first_window_frame_committed", "first_idle",
-              "first_live_content_frame", "startup_complete"]
+              "first_live_content_frame"]
 MILESTONE_ORDER = [
     "main_start<run_loop_start",
     "run_loop_start<first_idle",
     "did_finish_launching_end<first_idle",
+    "window_display<launch_snapshot_shown",
     "window_display<first_window_frame_committed",
     "first_window_frame_committed<startup_complete",
     "first_live_content_frame<startup_complete",
@@ -303,7 +307,7 @@ SEED_FOCUS = "agent"
 SEED_CHAT_PANE = "last"
 # --hangs: main-thread stalls over this many ms are recorded with stacks (debug.hangs).
 HANG_THRESHOLD_MS = None
-# --milestones: each run also waits for every MILESTONES mark (startup_complete comes after the first frames).
+# --milestones: each run that reached its first frames also waits for every MILESTONES mark, within the same timeout.
 WAIT_MILESTONES = False
 
 
@@ -504,10 +508,11 @@ def one_run(tag, mode, timeout, profile=None):
         prime.wait_for([FINAL_MARK, AGENT_MARK], timeout, any_of=True)
         prime.quit()
     launch = Launch(tag, scratch)
+    deadline = time.monotonic() + timeout
     try:
         reached = launch.wait_for(final, timeout, any_of=any_of)
-        if WAIT_MILESTONES:
-            launch.wait_for(MILESTONES, timeout)
+        if WAIT_MILESTONES and reached:
+            launch.wait_for(MILESTONES, max(0.0, deadline - time.monotonic()))
         if HANG_THRESHOLD_MS:
             launch.stalls = launch_stalls(tag)
     finally:

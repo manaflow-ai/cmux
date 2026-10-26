@@ -1,8 +1,10 @@
 import AppKit
 import class CmuxNextAgentPane.AgentPaneLaunchTimings
+import protocol CmuxNextAgentPane.PaneFirstPaintGated
 import CmuxNextDesign
 import CmuxNextPalette
 import CmuxNextSettings
+import CmuxNextSignposts
 import CmuxNextTerminal
 import CmuxNextUpdater
 import class CmuxNextDaemon.DaemonLaunchTimings
@@ -20,7 +22,7 @@ enum DebugTimings {
     static let signposter = OSSignposter(subsystem: "com.cmuxterm.app.next", category: "stalls")
 
     /// Launch marks from any thread (the daemon start path runs off main).
-    private nonisolated static let launchMarks = Mutex<[(name: String, ms: Double)]>([])
+    private nonisolated static let launchMarks = Mutex(LaunchMarkLog())
     private static var paletteOpens: [PaletteOpenTiming] = []
     private static var iconPickerOpens: [IconPickerOpenTiming] = []
     private static var surfaces: [Double] = []
@@ -49,36 +51,39 @@ enum DebugTimings {
         return Date(timeIntervalSince1970: Double(start.tv_sec) + Double(start.tv_usec) / 1_000_000)
     }()
 
-    /// The marks of a pane's first frame of its own live content, not a saved picture: the
-    /// terminal's first frame after the daemon's content reached its surface (`LaunchSettle`),
-    /// the agent page's (or its New Tab page's) first paint. The first of them is also `first_live_content_frame`,
-    /// Chrome's `RecordFirstWebContentsNonEmptyPaint`
-    /// (components/startup_metric_utils/browser/startup_metric_utils.h).
-    private nonisolated static let liveContentFrameMarks: Set<String> = ["first_terminal_frame", "agent_pane.painted", "agent_pane.newtab_painted"]
-
     /// Records a launch mark (milliseconds since process start) once per
     /// name, from any thread. The first record of a name goes to
     /// ``LaunchMarkSink``: a launch os_signpost in every build, and the
     /// bench's pipe when one was passed.
+    /// A first live content frame (``LaunchMarkLog/liveContentFrameMarks``) also marks
+    /// `first_live_content_frame`, once.
     nonisolated static func markLaunch(_ name: String, at date: Date = Date()) {
-        _ = recordLaunchMark(name, at: date)
+        let ms = date.timeIntervalSince(processStart) * 1_000
+        publish(launchMarks.withLock { $0.record(name, ms: ms) }, at: date)
     }
 
-    /// Records `name` unless it was already; true when this call recorded it.
-    private nonisolated static func recordLaunchMark(_ name: String, at date: Date) -> Bool {
-        let ms = date.timeIntervalSince(processStart) * 1_000
-        let first = launchMarks.withLock { marks in
-            guard !marks.contains(where: { $0.name == name }) else { return false }
-            marks.append((name, ms))
-            return true
+    /// Hands the marks a record call added to ``LaunchMarkSink`` (and the update harness).
+    private nonisolated static func publish(_ recorded: [LaunchMarkLog.Mark], at date: Date) {
+        for mark in recorded {
+            LaunchMarkSink.shared.write(name: mark.name, ms: mark.ms)
+            #if DEBUG || CMUX_BENCH_HOOKS
+            UpdateHarness.mark("launch.\(mark.name)", at: date)
+            #endif
         }
-        guard first else { return false }
-        LaunchMarkSink.shared.write(name: name, ms: ms)
-        #if DEBUG || CMUX_BENCH_HOOKS
-        UpdateHarness.mark("launch.\(name)", at: date)
-        #endif
-        if liveContentFrameMarks.contains(name) { markLaunch("first_live_content_frame", at: date) }
-        return true
+    }
+
+    /// Marks `first_page_frame` when `view`, a page just put in a pane (an agent page or an
+    /// internal page, ``PaneFirstPaintGated``), first paints while it shows in a visible window.
+    /// A page that paints out of sight (the New Tab spare parked in its window, a pane of a
+    /// hidden window) is not live content; Chrome's `FirstWebContentsProfiler` likewise stops
+    /// at a hidden or background tab (chrome/browser/metrics/first_web_contents_profiler.cc).
+    static func markFirstPageFrame(of view: NSView?) {
+        let pageFrame = "first_page_frame"
+        guard let gated = view as? any PaneFirstPaintGated, !launchMarks.withLock({ $0.contains(pageFrame) }) else { return }
+        gated.whenFirstPainted { [weak view] in
+            guard let view, view.window?.isVisible == true, !view.isHiddenOrHasHiddenAncestor else { return }
+            markLaunch(pageFrame)
+        }
     }
 
     /// Marks `run_loop_start` at the main run loop's first entry, Chrome's
@@ -99,11 +104,11 @@ enum DebugTimings {
     /// The startup scheduler's completion (`StartupScheduler`: its refs reached zero or its
     /// failsafe fired): marks `startup_complete`, Chrome's `Startup.StartupComplete`, and with
     /// the first one only, `startup_complete.<reason>` at the same time, so `debug.timings` and
-    /// the bench say why (Chrome's `Startup.BrowserStartupCompleteReason`).
-    static func markStartupComplete(reason: String) {
-        let now = Date()
-        guard recordLaunchMark("startup_complete", at: now) else { return }
-        markLaunch("startup_complete.\(reason)", at: now)
+    /// the bench say why (Chrome's `Startup.BrowserStartupCompleteReason`). p08-startup-012 passes
+    /// this as the completion of the scheduler it makes in `main()`.
+    nonisolated static func markStartupComplete(reason: StartupCompleteReason, at date: Date = Date()) {
+        let ms = date.timeIntervalSince(processStart) * 1_000
+        publish(launchMarks.withLock { $0.recordStartupComplete(reason, ms: ms) }, at: date)
     }
 
     static func install() {
@@ -165,7 +170,7 @@ enum DebugTimings {
     private static var report: JSONValue {
         func round(_ ms: Double) -> JSONValue { .number((ms * 10).rounded() / 10) }
         var launch: [String: JSONValue] = [:]
-        for mark in launchMarks.withLock({ $0 }) { launch[mark.name] = round(mark.ms) }
+        for mark in launchMarks.withLock({ $0.marks }) { launch[mark.name] = round(mark.ms) }
         return [
             "launch_ms_since_process_start": .object(launch),
             "palette_opens": .array(paletteOpens.map { open in
