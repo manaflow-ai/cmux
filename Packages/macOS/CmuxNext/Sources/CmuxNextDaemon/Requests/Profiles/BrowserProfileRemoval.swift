@@ -4,7 +4,7 @@ import Foundation
 
 public struct MoveBrowserProfileRequest: DaemonRequest {
     public typealias Response = BrowserProfileResult
-    public static let command = "move-browser-profile"
+    public static let commandName: DaemonCommandName = "move-browser-profile"
     public static let requiredCapability: String? = DaemonCapability.browserProfiles.rawValue
     public var id: String
     public var index: Int
@@ -28,7 +28,7 @@ public struct DeleteBrowserProfileRequest: DaemonRequest {
             clearedRooms = try c.decodeIfPresent([String].self, forKey: .clearedRooms) ?? []
         }
     }
-    public static let command = "delete-browser-profile"
+    public static let commandName: DaemonCommandName = "delete-browser-profile"
     public static let requiredCapability: String? = DaemonCapability.browserProfiles.rawValue
     public var id: String
     public init(id: String) {

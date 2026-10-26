@@ -15,6 +15,10 @@ only after its progression task stops reproducing the crash on newer builds
                                             "sha": "<build sha, default tip>", "at": "<iso time>",
                                             "repro": {"minimal": URL, "seed": S, "test_id": T, "fuzz_input": URL},
                                             "source": "<artifact name, or sentry>"}, ...]}
+  sentry HEALTH.json       import the top Sentry issues of `stability-health.py --json` (task 034, schema
+                           cmux-stability-health/v1) as signatures with source sentry; '-' reads stdin. It reads
+                           env, days and top_issues: [{"id", "short_id", "permalink", "title", "culprit", "events",
+                           "users", "first_seen", "last_seen", "github": [N, ...], "owner": {...} or null}, ...].
   bisect-result --hash12   record stability_bisect.py's verdict: the first bad commit, or flaky (1-2 of 3 replays).
   fix-verified --hash12    record the fix commit once its repro no longer reproduces on a build that has it.
 
@@ -38,6 +42,16 @@ Rules:
     both. Every write counts against --max-writes and that budget, label creates too; writes beyond them are
     deferred per signature, exit 75, and the same sync applies them later.
 
+Sentry issues join the same flow:
+  * One Sentry issue maps to exactly one GitHub issue, and its link is never dropped. The stability issue whose state
+    links the Sentry id keeps it, through re-imports, lab syncs and duplicate merges. A new Sentry issue whose
+    annotations name a stability issue joins it; one that names another GitHub issue, or that an other-owner entry
+    claims, is not imported (a note names it); any other gets its own signature, a hash12 of "sentry:<id>".
+  * The link holds Sentry's numbers for the report's period, so the same report writes nothing.
+  * The import never changes a fix, clean tips or whether an issue is open. The report names releases by version,
+    not by commit, so it cannot tell whether an event came from a build with the fix. A lab repro (and its
+    fix-verified and clean tips) or a person closes an issue that only Sentry found.
+
 The issue body is generated; a person comments instead of editing it. Its last line holds the state as JSON.
 
     python3 scripts/cmux-next/stability_issues.py sync run.json --dry-run
@@ -48,6 +62,7 @@ from __future__ import annotations
 import argparse
 import copy
 import fcntl
+import hashlib
 import json
 import os
 import re
@@ -60,6 +75,7 @@ from typing import Callable, Iterator, Protocol
 
 DEFAULT_REPO = os.environ.get("CMUX_STABILITY_REPO", "manaflow-ai/cmux")
 RUN_SCHEMA = "cmux-stability-run/v1"
+HEALTH_SCHEMA = "cmux-stability-health/v1"
 LABEL = "stability-sig"
 CLEAN_TIPS_TO_CLOSE = 3
 RUNS_KEPT = 200
@@ -70,6 +86,7 @@ GH_TIMEOUT_SECONDS = 120
 GIT_FETCH_TIMEOUT_SECONDS = 300
 PERSON_CLOSE_REASONS = {"NOT_PLANNED": "not planned", "DUPLICATE": "duplicate"}
 HASH12 = re.compile(r"^[0-9a-f]{12}$")
+SENTRY_LINK = re.compile(r"https://[A-Za-z0-9.-]+(/[A-Za-z0-9._~%/?=&+-]*)?")
 STATE_RE = re.compile(r"<!-- stability-sig-state: (\{.*?\}) -->", re.S)
 ROOT = Path(__file__).resolve().parent.parent.parent
 
@@ -313,6 +330,16 @@ def render_body(state: dict) -> str:
         lines += ["", f"Fix: none verified. The issue closes after a verified fix and {CLEAN_TIPS_TO_CLOSE} clean tips."]
     for old in state["fix_history"][-3:]:
         lines.append(f"- Earlier fix {short(old['sha'])} did not hold: seen again on {short(old['recurred_on'])}.")
+    if state.get("sentry"):
+        lines += ["", "Sentry:"]
+        for sentry_id, link in sorted(state["sentry"].items()):
+            name = re.sub(r"[^A-Za-z0-9_-]+", "", str(link.get("short_id") or "")) or f"issue {sentry_id}"
+            url = str(link.get("url") or "")
+            period = f" in the last {link['days']} d" if link.get("days") else ""
+            lines.append(f"- {f'[{name}]({url})' if SENTRY_LINK.fullmatch(url) else name} "
+                         f"({code(link.get('env') or '-')}): {link.get('events', 0)} events and "
+                         f"{link.get('users', 0)} users{period}, first seen {link.get('first_seen') or '-'}, "
+                         f"last seen {link.get('last_seen') or '-'}: {code(link.get('title') or '-')}")
     lines += ["", f"<!-- stability-sig-state: {encode_state(state)} -->"]
     return "\n".join(lines)
 
@@ -408,6 +435,8 @@ def merge_state(into: dict, other: dict) -> None:
     if not into["bisect"] and other.get("bisect"):
         into["bisect"] = other["bisect"]
     into["runs"] = list(dict.fromkeys(into["runs"] + list(other.get("runs") or [])))[-RUNS_KEPT:]
+    for sentry_id, link in (other.get("sentry") or {}).items():
+        into.setdefault("sentry", {}).setdefault(sentry_id, link)
 
 
 def merge_duplicates(t: Tracked, duplicates: list[Issue]) -> None:
@@ -551,6 +580,100 @@ def plan_sync(issues: list[Issue], run: dict,
     return out, notes
 
 
+def sentry_int(value: object) -> int:
+    try:
+        return int(value)  # type: ignore[arg-type]
+    except (TypeError, ValueError):
+        return 0
+
+
+def sentry_hash12(sentry_id: str) -> str:
+    return hashlib.sha256(f"sentry:{sentry_id}".encode()).hexdigest()[:12]
+
+
+def sentry_link(entry: dict, report: dict) -> dict:
+    """The state's record of one Sentry issue, from stability-health.py's normalized top_issues entry."""
+    return {
+        "short_id": str(entry.get("short_id") or ""), "url": str(entry.get("permalink") or ""),
+        "env": str(report.get("env") or ""), "days": sentry_int(report.get("days")),
+        "title": str(entry.get("title") or ""),
+        "events": sentry_int(entry["events"] if "events" in entry else entry.get("count")),
+        "users": sentry_int(entry.get("users")),
+        "first_seen": str(entry.get("first_seen") or ""), "last_seen": str(entry.get("last_seen") or ""),
+    }
+
+
+def validate_health(report: object) -> list[dict]:
+    if not isinstance(report, dict):
+        raise StabilityIssueError("the Sentry report is not a JSON object")
+    if report.get("schema") != HEALTH_SCHEMA:
+        raise StabilityIssueError(f"Sentry report schema is {report.get('schema')!r}, expected {HEALTH_SCHEMA} "
+                                  "(stability-health.py --json)")
+    entries = report.get("top_issues")
+    if not isinstance(entries, list):
+        raise StabilityIssueError("the Sentry report has no top_issues list")
+    for entry in entries:
+        if not isinstance(entry, dict) or not str(entry.get("id") or "").strip():
+            raise StabilityIssueError(f"Sentry issue without an id: {entry!r}")
+        if not isinstance(entry.get("github", []), list) or not all(
+                isinstance(number, int) for number in entry.get("github", [])):
+            raise StabilityIssueError(f"Sentry issue {entry['id']} has a github list that is not issue numbers")
+        if entry.get("owner") is not None and not isinstance(entry["owner"], dict):
+            raise StabilityIssueError(f"Sentry issue {entry['id']} has an owner that is not an object")
+    return entries
+
+
+def plan_sentry(issues: list[Issue], report: dict) -> tuple[list[Tracked], list[str]]:
+    """What one stability-health.py report changes. Pure, like plan_sync.
+
+    A Sentry issue already linked from a stability issue's state stays there. A new one joins the stability issue
+    that its Sentry annotations name; it is not imported when it names another GitHub issue or another owner claims
+    it, and otherwise gets its own signature issue. Only the link is written: fix, clean tips and open/closed state
+    are the lab's."""
+    entries = validate_health(report)
+    by_hash, duplicates = index_issues(issues)
+    by_number = {issue.number: hash12 for hash12, issue in by_hash.items()}
+    linked: dict[str, str] = {}
+    for issue in sorted(issues, key=lambda item: item.number):
+        state = read_state(issue.body)
+        for sentry_id in (state or {}).get("sentry") or {}:
+            linked.setdefault(sentry_id, state["hash12"])
+
+    notes: list[str] = []
+    groups: dict[str, list[dict]] = {}
+    for entry in entries:
+        sentry_id = str(entry["id"]).strip()
+        name = str(entry.get("short_id") or sentry_id)
+        hash12 = linked.get(sentry_id)
+        if hash12 is None and entry.get("owner"):
+            owner = entry["owner"]
+            notes.append(f"Sentry {name} is claimed by {owner.get('owner')} (#{owner.get('github_issue')}); "
+                         "not imported")
+            continue
+        if hash12 is None and entry.get("github"):
+            hash12 = next((by_number[number] for number in entry["github"] if number in by_number), None)
+            if hash12 is None:
+                notes.append(f"Sentry {name} already links GitHub issue "
+                             f"{', '.join(f'#{number}' for number in entry['github'])}; not imported")
+                continue
+        groups.setdefault(hash12 or sentry_hash12(sentry_id), []).append(entry)
+
+    out: list[Tracked] = []
+    for hash12, group in sorted(groups.items()):
+        first = group[0]
+        culprit = str(first.get("culprit") or "")
+        sig = {"hash12": hash12, "kind": "sentry", "process": "", "exception": str(first.get("title") or ""),
+               "frames": [culprit] if culprit else [], "source": "sentry"}
+        t = track(hash12, by_hash, sig)
+        merge_duplicates(t, duplicates.get(hash12, []))
+        links = t.state.setdefault("sentry", {})
+        for entry in group:
+            links[str(entry["id"]).strip()] = sentry_link(entry, report)
+        if t.writes():
+            out.append(t)
+    return out, notes
+
+
 def plan_bisect(issues: list[Issue], hash12: str, result: dict) -> Tracked:
     t = track(hash12, index_issues(issues)[0])
     t.state["bisect"] = result
@@ -650,15 +773,30 @@ def apply(tracked: list[Tracked], github: GitHub, max_writes: int, dry_run: bool
 # --- CLI ----------------------------------------------------------------------------------------------------------
 
 
-def plan(args: argparse.Namespace, github: GitHub,
+def read_input(args: argparse.Namespace) -> dict | None:
+    """The run file or Sentry report, read and checked before the lock: a slow producer on stdin never holds it."""
+    if args.cmd not in ("sync", "sentry"):
+        return None
+    path = args.run if args.cmd == "sync" else args.report
+    try:
+        data = json.loads(sys.stdin.read() if args.cmd == "sentry" and str(path) == "-" else path.read_text())
+    except (OSError, json.JSONDecodeError) as error:
+        raise StabilityIssueError(f"cannot read {path}: {error}") from error
+    if not isinstance(data, dict):
+        raise StabilityIssueError(f"{path} is not a JSON object")
+    if args.cmd == "sentry":
+        validate_health(data)
+    return data
+
+
+def plan(args: argparse.Namespace, data: dict | None, github: GitHub,
          is_ancestor: Callable[[str, str], bool | None]) -> tuple[list[Tracked], list[str]]:
-    """Read and plan inside the caller's lock, so no other sync on this host writes between the read and the writes."""
+    """Read issues and plan inside the caller's lock, so no other sync on this host writes between the read and the
+    writes."""
     if args.cmd == "sync":
-        try:
-            run = json.loads(args.run.read_text())
-        except (OSError, json.JSONDecodeError) as error:
-            raise StabilityIssueError(f"cannot read {args.run}: {error}") from error
-        return plan_sync(github.list_issues(LABEL), run, is_ancestor)
+        return plan_sync(github.list_issues(LABEL), data, is_ancestor)
+    if args.cmd == "sentry":
+        return plan_sentry(github.list_issues(LABEL), data)
     if not HASH12.match(args.hash12):
         raise StabilityIssueError(f"--hash12 must be 12 lowercase hex characters, got {args.hash12!r}")
     if args.cmd == "bisect-result":
@@ -686,6 +824,8 @@ def main(argv: list[str] | None = None, github: GitHub | None = None,
     sub = parser.add_subparsers(dest="cmd", required=True)
     sync = sub.add_parser("sync", help="apply one cmux-stability-run/v1 file")
     sync.add_argument("run", type=Path)
+    sentry = sub.add_parser("sentry", help="import stability-health.py --json top issues as signatures")
+    sentry.add_argument("report", type=Path, help="stability-health.py --json output, or - for stdin")
     bisect = sub.add_parser("bisect-result", help="record stability_bisect.py's verdict")
     bisect.add_argument("--hash12", required=True)
     verdict = bisect.add_mutually_exclusive_group(required=True)
@@ -703,8 +843,9 @@ def main(argv: list[str] | None = None, github: GitHub | None = None,
     is_ancestor = is_ancestor or GitAncestry(args.git_dir, args.remote)
     lock = nullcontext() if args.dry_run else repo_lock(args.lock_file or default_lock_file(args.repo))
     try:
+        data = read_input(args)
         with lock:
-            tracked, notes = plan(args, github, is_ancestor)
+            tracked, notes = plan(args, data, github, is_ancestor)
             outcome = apply(tracked, github, args.max_writes, args.dry_run)
     except (StabilityIssueError, OSError) as error:
         print(f"stability_issues: {error}", file=sys.stderr)

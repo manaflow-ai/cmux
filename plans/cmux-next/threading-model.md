@@ -20,7 +20,11 @@ How it is enforced:
   wait is always recorded only: it is measured on the wall clock). Bench builds (`reload.sh --config bench`,
   `-DCMUX_BLOCKING_CHECKS`): recorded for `debug.blocking`, never a trap. Nightly: to come with the
   `nightly.yml` flag and PL-telemetry's hang-report sink (kind + image UUID + offset frames only, no paths or
-  names); it will never trap and has no log or menu. Release: compiled out.
+  names); it will never trap and has no log or menu. Release: compiled out. Debug records on the main thread and
+  the pool until the every-action sweep (p02-threads-300, RUN-1) shows 0 main and 0 pool sites; then task 021 makes
+  both trap by default. Daemon (`cmux-threads::blocking`): a disallowed thread's blocking call records its site in
+  every build and, in Debug, panics at the caller's location (Chrome's `DCHECK`); `CMUX_DAEMON_BLOCKING=record`
+  turns the panic off. Release never panics.
   The same seam call on a shared pool thread (the Swift cooperative pool, `Task.detached`, an actor, a GCD root
   queue such as `DispatchQueue.global`) is a violation too, recorded at its own `pool` site (`debug.blocking`
   `context`, `contexts.pool`; not in the Debug menu); launch a Debug build with `CMUX_BLOCKING_TRAP_POOL=1` to
@@ -62,7 +66,7 @@ and changes both with the code).
 | **Frame clock** (`FrameScheduler`; `MotionClock`, `DisplayLinkDriver`, `DemandTimer` on it). `DisplayClock` (p03-rendering-010) holds one link per display and every `FrameScheduler` (window, app, budgeted) subscribes to it; with feature `vsyncHub` (p03-rendering-014, off by default) that link is the `VSyncHub`'s, and its ticks reach main as one coalesced post per vsync | Frame ticks for clients | Never | main | One link per display with an active client, 0 at idle; one stall timer per display; a link is rebuilt after 3 stalls of 100 ms (through the hub: `VSyncHub.rebuildLink(display:)`, so the display's off-main subscribers move to the new link too) |
 | **VSyncHub** thread `cmux-next vsync <display>`, one per display that got a link (`CmuxNextWakeups/VSyncHub.swift`, p03-rendering-014, feature `vsyncHub`, off by default; Chrome `ui/display/mac/ca_display_link_mac.mm` and `display_link_mac.mm`) | The display's only link, added to its own run loop; its subscriber list (a `Mutex`, held only to copy or change it, never across a callback); off-main `Sendable` vsync callbacks (Ghostty surfaces after p03-rendering-083) and the main fan-out of `DisplayClock` | Nothing: a callback that blocks is a bug. It never touches a layer whose superlayer belongs to an `NSView` | user-interactive (a frame waits on it; `// qos-allow:`) | The thread starts with the display's first link: a display with no screen (`DisplayClock.noDisplay`, a gone screen) gets no thread, however often its link is retried. The link runs while a subscriber is armed, at the fastest rate an armed subscriber asked for, and is paused while none is (`debug.wakeups` `vsync.live_links` counts the displays with an armed subscriber, `vsync.paused_links` the paused ones); it goes with the display's last subscriber, and the thread stays, asleep in its run loop. A paused link is kept, as Chrome keeps a `DisplayLinkMac` while a consumer holds it and only stops its `CADisplayLink` when the last `VSyncCallbackMac` unregisters, so an arm needs no main hop to make a link. Producers arm on dirty content and a tick that returns `.done` disarms them (an arm during the tick wins). Main gets one coalesced tick post (`MainRunLoopBlock`, common modes), at most one pending: a newer vsync replaces a pending one. Hop: `vsync.main_hop_p50_ms` / `main_hop_p99_ms` (post to main take, last 256 ticks). Before `vsyncHub` turns on by default, the round's fleet run records here: typing-frame-bench main tick p99 with the feature on and off, and bench_idle.py wakeups of the `cmux-next vsync` threads with a visible idle terminal (paused link: 0 expected). If the p99 rises >= 0.1 ms, the composition root keeps `DisplayClock()` main links next to the hub (<= 2 links per display; rendering-DESIGN difference 6). Measurement: not yet run, so the feature stays off |
 | **Main-thread watchdog** thread `cmux-next main-thread watchdog` | Stall/hang detection and stack samples | Its own kqueue (`MainThreadWatchdogAlarm`: a one-shot timer the main thread arms when its run loop wakes and deletes before it sleeps, and a user event for stop and task starts); a main turn shorter than the timer wakes it never | user-interactive | Rings of 128 hangs and 128 over-budget entries |
-| **Daemon connection** reader thread `cmux-tui reader <path>`; writer queue `com.cmuxterm.next.daemon.write`; `actor DaemonConnection`; `EventInbox` pump task | Socket read and line split; outbox drain; handshake and reconnect; off-main event buffer | Blocking `read(2)` (reader); `write` (writer) | user-interactive (reader), default (writer) | Line over 64 MiB closes the connection; outbox 64 MiB, past it `write` fails `.backlog`; inbox 4096 events, field events coalesced, overflow collapses to one resync; main drains 32 per slice under the visible budget |
+| **Daemon connection** reader thread `cmux-tui reader <path>`; writer queue `com.cmuxterm.next.daemon.write`; `actor DaemonConnection`; `EventInbox` pump task | Socket read and line split; outbox drain; handshake and reconnect; off-main event buffer | Blocking `read(2)` (reader); `write` (writer) | user-interactive (reader); writer by connection role (`DaemonWireStats.Role.writerQoS`): user-interactive only for the key-carrying roles `control` and `terminal_attach` (key echo path), user-initiated for `page_relay`, `agent_session_attach`, `journal_read`, `session_ending`, `shutdown`, default for `loopback_forward` (bulk page bytes stay below keystrokes), utility for `socket_probe` | Line over 64 MiB closes the connection; outbox 64 MiB, past it `write` fails `.backlog`; inbox 4096 events, field events coalesced, overflow collapses to one resync; main drains 32 per slice under the visible budget |
 | **Terminal attach** (`TerminalAttachment` reader → `TerminalEventQueue`) | One terminal's output stream | The reader waits above 8 MiB queued, resumes below 2 MiB | user-interactive | The daemon's attach mailbox overflows and ends the stream |
 | **Terminal output lane** `com.cmuxterm.next.terminal.output`; local PTY `com.cmuxterm.next.localpty.read` / `.write` | Feeding `ghostty_surface_process_output`; local PTY I/O | PTY read/write | user-interactive | 2 MiB high water: the consumer task suspends |
 | **Ghostty renderer and IO threads** (per surface, inside GhosttyKit) | Rendering; termio | Renderer mailbox (64, latest-value-wins, never waits); termio queue 64 | Renderer: focused user-interactive, visible user-initiated, hidden utility (ghostty-next `src/renderer/Thread.zig` `setQosClass`). IO: not set; removed for manual-IO surfaces by p03-rendering-086 ([Renderer QoS](#renderer-qos-rendering-design-r5)) | cmux runs surfaces in manual IO mode: no Ghostty read thread |
@@ -91,8 +95,10 @@ One priority model. Main thread: MainWorkClass (PL-main). Off main: WorkPriority
 | idle (opt-in) | none | background | background | nothing ever waits: indexing, telemetry upload, prefetch, cache cleanup. Never the journal, quit work, or anything a UI path awaits later |
 
 userInteractive: only the main thread and threads a frame waits for. Today: MainThreadWatchdog, QuitDeadline and
-CrashDeadline threads, LineTransport reader (daemon lines), LocalPTY read queue, TerminalOutputLane queue,
-MetalYUVRenderer. No BackgroundWork lane runs at it.
+CrashDeadline threads, LineTransport reader (daemon lines), the key echo path's queues (daemon `SocketWriter`
+`com.cmuxterm.next.daemon.write` of the key-carrying connections only, roles `control` and `terminal_attach`; every
+other connection's writer runs below it; LocalPTY read and write queues, p02-threads-030; tests: SocketWriterQoSTests,
+LocalPTYQoSTests), TerminalOutputLane queue, MetalYUVRenderer. No BackgroundWork lane runs at it.
 
 Blocking work never runs on the cooperative pool: a process wait uses AsyncProcess (no thread waits); file I/O uses lane
 .files (serial per priority); a sync system call (getaddrinfo, Security, Launch Services, AX, window lists) uses lane
@@ -131,6 +137,45 @@ is gate, then mailbox; nothing takes them the other way. The lock is what makes 
 no frame of that session reaches the presenter" hold, as Chrome's `RenderWidgetHostImpl::WasHidden`
 (content/browser/renderer_host/render_widget_host_impl.cc) stops a hidden widget's frames before it returns;
 an atomic flag alone would let a frame that passed the check before the close be presented after it.
+
+## Process roles (p02-threads-234)
+
+Every cmux process, its launchd `ProcessType` and whether a person's input passes through it. Rule: no
+process on the input path runs as `Background`. launchd.plist(5): `Background` puts the job under darwinbg
+(low CPU priority, throttled I/O and network); `Standard` keeps launchd's daemon limits; `Interactive` gets an
+app's limits (none); `Adaptive` is `Background` except while an XPC message is in flight. cmux processes talk
+over Unix sockets and QUIC, not XPC, so `Adaptive` would leave them at `Background`: a launchd job on the
+input path is `Interactive`. This is Chrome's model: a process the person uses is never lowered, only a hidden
+renderer drops below the browser (base/process/process_mac.cc `Process::SetPriority`, from
+content/browser/renderer_host/render_process_host_impl.cc `UpdateProcessPriority`). The Rust table is
+`cmux_server_core::units::LaunchdJob`; each plist generator reads it and has a test that asserts its value.
+launchd reads a plist only at bootstrap, so each installer also upgrades a plist an older cmux wrote: the
+remote host's `service::restart` sets the role before its bootstrap, and `cmux host serve` and `cmux link
+serve` set it at start (it applies from the next bootstrap: a restart, `install-agent` or login); acpmux's
+`host update` sets it with `plutil` before its bootstrap; the server agents are rewritten by their install
+(`write_if_changed`, then bootout and bootstrap) and the app's bundled agent ships in the bundle. A chatmux
+relay plist an older relay wrote gets the role at its next `cmux-relay --autostart`.
+
+| Process | Started by | launchd ProcessType | Input path |
+|---|---|---|---|
+| App (`cmux.app`, CmuxNext) | Launch Services | none (an app; the system's app policy) | yes: every key and click |
+| Daemon `cmux host run`: `com.cmux.server` agent and daemon (cmux-server-core `launch_agent_plist`, `launch_daemon_plist`), the app's `<bundle id>.server` (`app_service_agent_plist`, stamped by scripts/cmux-next/bundle-server-helper.sh, registered by ServerLaunchAgent.swift) | launchd | `Interactive` (was `Standard`) | yes: every terminal key and frame |
+| Link `cmux link serve` (`com.cmuxterm.link`, cmux-tui link/launchd.rs) | launchd | `Interactive` (was `Background`) | yes: a paired peer's session streams |
+| Remote host `cmux host serve` (`com.cmuxterm.host-remote`, cmux-tui remote_host/service.rs) | launchd | `Interactive` (was `Background`) | yes: a remote client's keys |
+| Holder (`cmux-holder`) | the daemon | none: runs in the daemon's launchd job | yes: PTY bytes |
+| acpmux daemon `acpmux daemon run` on a host set up by `acpmux hosts` (`com.acpmux.daemon`, acpmux cli/hosts.rs `launchd_plist`) | launchd | `Interactive` (was none, launchd's default limits) | yes: agent sessions a person prompts and watches |
+| acpmux started on demand (`cmux acp`, `acpmux daemon start`) | the app, the daemon or an agent CLI | none: runs in its parent's job | agent sessions a person watches |
+| acpmux session harness (Claude, Codex) | the acpmux daemon | none: runs in the acpmux daemon's job | the agent's output a person watches |
+| chatmux relay `cmux-relay` (`com.chatmux.relay`, chatmux-relay autostart.rs `launchd_plist`) | launchd (`--autostart`) | `Interactive` (was none, launchd's default limits) | yes: a paired chat client's terminal keys |
+| Chromium helpers and the out-of-process browser host | the app | none: run in the app's job | yes: page input |
+| Other helpers (`cmux-server-helper`, CLI calls) | the app or a shell | none: run in the parent's job | short-lived |
+
+A process with no launchd job of its own runs in its parent's. Mach task roles (`TASK_CATEGORY_POLICY`,
+foreground or background per process) are task 235. On Linux the server, link and remote-host systemd units set
+no CPU or I/O class, so those processes run at the default priority. acpmux puts each session harness in its
+own `systemd-run --user --scope` with a lower `CPUWeight` (default 50, systemd's own is 100;
+`ACPMUX_SESSION_CPU_WEIGHT`, 0 turns it off) and a `MemoryMax` (acpmux session_scope.rs), so a busy agent
+session yields the CPU to the rest of the machine.
 
 ## Renderer QoS (rendering-DESIGN R5)
 

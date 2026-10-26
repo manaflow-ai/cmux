@@ -60,7 +60,7 @@ extension ControlRouter {
                     "thread_hang_count": JSONValue(threadHangCount),
                     "thread_hangs": .array(threadHangs.map(\.json)),
                 ]
-            },
+            }.readingLastPublished(),
             .snapshot("debug.queue") { [weak self] call in
                 guard let self else { throw Self.stopped }
                 var stats = self.workQueue.stats.json
@@ -72,7 +72,7 @@ extension ControlRouter {
                 }
                 if call.params["reset"]?.boolValue == true { self.workQueue.resetStats() }
                 return stats
-            },
+            }.readingLastPublished(),
         ]
     }
 }

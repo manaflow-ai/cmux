@@ -42,6 +42,8 @@ mod private_mode;
 #[cfg(unix)]
 mod signal_sender;
 mod websocket_credential;
+#[cfg(feature = "fuzzing")]
+pub mod fuzzing;
 // The agent hook helper, also built as the standalone `cmux-tui-hook`.
 mod feature_flags;
 #[path = "bin/cmux-tui-hook.rs"]
@@ -49,6 +51,9 @@ mod hook_helper;
 mod host_colors;
 mod keys;
 mod layout_undo;
+// Tests build it everywhere so the upgrade checks run on Linux CI too.
+#[cfg(any(target_os = "macos", all(unix, test)))]
+mod launchd_role;
 #[cfg(unix)]
 mod link;
 mod local_owner;

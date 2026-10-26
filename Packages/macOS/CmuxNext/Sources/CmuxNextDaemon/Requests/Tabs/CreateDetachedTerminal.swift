@@ -16,7 +16,7 @@ public struct CreateDetachedTerminalRequest: TerminalSpawningRequest {
             case terminalResourceID = "terminal_resource_id"
         }
     }
-    public static let command = "create-terminal"
+    public static let commandName: DaemonCommandName = "create-terminal"
     public var cwd: String?
     public var size: CellSize?
     public var terminalID: TerminalID?

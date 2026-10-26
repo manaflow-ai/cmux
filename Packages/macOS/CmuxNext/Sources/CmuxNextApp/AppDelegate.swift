@@ -198,9 +198,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         WindowActivation.activateApp()
         launchSettle.install(daemon: services.daemon, warmup: services.agentPageWarmup)
         daemonPrompts = DaemonPrompts.start(services)
-        services.daemon.start(launch: environment.launch, terminalEnvironment: environment.terminalEnvironment,
-                              terminalEnvironmentProvider: environment.terminalEnvironmentProvider(),
-                              resolvesShellIntegration: environment.resolvesShellIntegration, prestart: daemonPrestart)
+        services.startLocalDaemon(prestart: daemonPrestart)  // the painted terminal colors first (OSC 10/11/12)
         FeaturePolicyEnforcer(services: services).start()
         services.postCloudStart(on: order.startup)  // no Cloud restore or connect before the first frame (p08-startup 020)
         services.postNonPaintServices(on: order.startup)
@@ -350,7 +348,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.configActions.start(settings: settings)
         // Agent- and bench-launched builds never take system-wide keys from the person's app.
         if !environment.isolatedLaunch { services.globalHotKeys.start() }
-        BrowserStartup(services: services).followEnginePreferences(settings)  // before any page picks an engine
+        services.cache.browserTabs.preference.follow(settings)
+        BrowserLinkClickPreference.follow(settings, webKit: services.cache.webKit, chromium: services.cache.chromium)
         WorkspaceAutoNameWiring(services: services).start(settings: settings) // `workspaces.autoName.variant` persist (hq#1957)
         BrowserOmnibarPreference.follow(settings, cache: services.cache)
         services.notifications.follow(settings)

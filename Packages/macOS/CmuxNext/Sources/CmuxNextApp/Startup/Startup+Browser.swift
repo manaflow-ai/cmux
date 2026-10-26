@@ -56,7 +56,7 @@ struct BrowserStartup {
     func followEnginePreferences(_ settings: SettingsController) {
         let cache = services.cache
         cache.browserTabs.preference.follow(settings)
-        BrowserLinkClickPreference.follow(settings, webKit: cache.webKit, cef: cache.cef)
+        BrowserLinkClickPreference.follow(settings, webKit: cache.webKit, chromium: cache.chromium)
     }
 
     /// History's daemon sync and the location trail's scope, after the first frame.

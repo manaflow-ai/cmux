@@ -164,9 +164,12 @@ final class CEFRuntime {
     private(set) var stores = BrowserSharedStores.inMemory()
     /// The App's sign-in tabs (`adopt`): the shim's AUTH_CALLBACK events go here.
     private(set) var signInCallbacks = CEFSignInCallbacks()
-    /// The engine's deadline queue for its pages' keyed waits (`adopt`); a queue of the runtime's own
-    /// until then (a spy runtime in tests).
-    private(set) var waitDeadlines = AlignedWakeups(queue: MainWakeUpQueue(energy: EnergyPolicySource()))
+    /// The main thread's one deadline queue (`MainWorkScheduler.wakeUps`, from the engine's `adopt`): the
+    /// pump's delayed fire dates and the pages' keyed waits. A queue of the runtime's own until then (a
+    /// spy runtime in tests).
+    private(set) var wakeUps = MainWakeUpQueue(energy: EnergyPolicySource())
+    /// The pages' keyed waits on ``wakeUps``.
+    var waitDeadlines: AlignedWakeups { AlignedWakeups(queue: wakeUps) }
 
     private init() {}
 
@@ -176,12 +179,13 @@ final class CEFRuntime {
     /// Takes the engine's stores, sign-in tabs and wait deadlines (the process has one Chromium, so the
     /// App's one engine hands them over before its first start or tab), and its host supervisor, which
     /// puts a runtime that has not started in host mode. Without `waitDeadlines` the runtime keeps its
-    /// own queue. Idempotent for the same stores.
+    /// own queue; the pump made at the start runs on the queue adopted before it. Idempotent for the
+    /// same stores.
     func adopt(stores: BrowserSharedStores, signInCallbacks: CEFSignInCallbacks, waitDeadlines: MainWakeUpQueue? = nil,
                hostSupervisor: (any ChromiumHostSupervising)? = nil) {
         if let hostSupervisor, hostStart == nil, state == .idle { hostStart = CEFHostStart(supervisor: hostSupervisor) }
         self.signInCallbacks = signInCallbacks
-        if let waitDeadlines { self.waitDeadlines = AlignedWakeups(queue: waitDeadlines) }
+        if let waitDeadlines { wakeUps = waitDeadlines }
         guard stores !== self.stores else { return }
         self.stores = stores
         // The pages profile belonged to the old stores: no key of these takes its spare.
@@ -421,6 +425,7 @@ final class CEFRuntime {
             }
             let pump = CEFMessagePump(
                 work: { [weak self] in CEFStartSteps.shared.pump(windowPending: self?.pendingWindows.isEmpty == false) { self?.pumpWork() } },
+                timer: CEFWakeUpQueuePumpTimer(queue: wakeUps),
                 gate: pumpGate
             )
             self.pump = pump
