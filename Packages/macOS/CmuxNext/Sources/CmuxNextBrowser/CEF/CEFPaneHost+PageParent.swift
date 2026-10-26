@@ -32,8 +32,6 @@ extension CEFPaneHost {
         if let hostedPageView { return hostedPageView }
         let page = ChromiumHostPageView(frame: hostView.bounds, inputTarget: .pageWindow)
         page.wireToken = runtime.mintPageViewToken()
-        // The page's focus follows the view's first responder state (``CEFTab/applyFocus(_:browser:)``).
-        page.onFocusChange = { [weak self] focused in self?.visibleTab?.hostedPageFocusChanged(focused) }
         hostView.addSubview(page, positioned: .below, relativeTo: nil)
         hostedPageView = page
         return page

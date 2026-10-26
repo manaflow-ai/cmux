@@ -88,8 +88,10 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     @ObservationIgnored var pendingFocus = false
     /// True while cmux's own `SetFocus(true)` runs (`chromiumRequestsFocus`).
     @ObservationIgnored var isGrantingFocus = false
-    /// Host mode: the embedder-active state last posted, and for which browser (a restarted host's
-    /// browser has a new id and hears it again).
+    /// Host mode: the browser the Chromium Host hosts detached (``hostDetachedPage(browser:)``); a
+    /// restarted host's browser has a new id and is not detached until the host says so.
+    @ObservationIgnored var detachedBrowser: Int32?
+    /// Host mode: the embedder-active state last posted for ``detachedBrowser``.
     @ObservationIgnored var embedderActive: (browser: Int32, active: Bool)?
     /// Navigation state to restore once the browser exists (created with
     /// an empty URL so its history starts empty).
