@@ -1,8 +1,7 @@
 // l10n-allow-file: test fixture titles, logins and branch names, not shipped UI.
 // Leo 2026-10-20 asked for one pull request card for every pull request cmux mentions, as good as
-// Claude's: a state pill, the title, the author and when GitHub last saw it change, base <- head,
-// the checks, the review decision and labels, and the files with +/- whose hover breaks the lines
-// down by kind and warns when code changed with no test. And it must read cmux's own cache: Leo's
+// Claude's: the title, state and checks, the author and when GitHub last saw it change, a compact
+// diff summary, and secondary branch, review and label context. And it must read cmux's own cache: Leo's
 // card showed "GitHub rate limit · resets 9:11 PM" because every hover called GitHub.
 import { afterAll, afterEach, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
@@ -138,10 +137,10 @@ function shownText(element: Element): string {
   return copy.textContent ?? "";
 }
 
-test("the card shows the state, who, the branches, the checks, the review and the labels", async () => {
+test("the card prioritizes the title, state and checks, then author and diff context", async () => {
   const { body } = await card({ pullRequest: pullRequest(), fetchedAt: Date.now() / 1000 - 5 });
   const text = body.textContent ?? "";
-  // The state is the glyph's colour, named for screen readers only: no state word on the card.
+  expect(body.querySelector(".acpmux-pr-card__state")?.textContent).toBe("Open");
   expect(body.querySelector(".acpmux-pr-card__glyph svg")?.getAttribute("aria-label")).toBe("Open");
   expect(body.querySelector(".acpmux-pr-card__glyph")?.getAttribute("data-state")).toBe("open");
   expect(body.querySelector(".acpmux-pr-card__conflicts")?.textContent).toBe("Has conflicts");
@@ -207,22 +206,13 @@ test("a card whose address is not a pull request link keeps owner/repo#N as text
   await act(async () => root.unmount());
 });
 
-test("hovering the +/- breaks the lines down by kind", async () => {
-  const { body, act } = await card({ pullRequest: pullRequest(), fetchedAt: Date.now() / 1000 - 5 });
+test("the diff breakdown stays inline without a nested card", async () => {
+  const { body } = await card({ pullRequest: pullRequest(), fetchedAt: Date.now() / 1000 - 5 });
   expect(body.querySelector(".acpmux-pr-card__kinds")).toBeNull();
-  const lines = body.querySelector<HTMLElement>(".acpmux-pr-card__lines")!;
-  await act(async () => lines.focus());
-  const kinds = [...body.querySelectorAll(".acpmux-pr-card__kind")].map((row) => [
-    row.getAttribute("data-kind"),
-    row.textContent,
-  ]);
-  expect(kinds).toEqual([
-    ["code", "Code+200−40"],
-    ["tests", "Tests+150−0"],
-    ["mocks", "Mocks+12−3"],
-    ["docs", "Docs+9−2"],
-    ["generated", "Generated+1,000−20"],
-  ]);
+  expect(body.querySelector(".acpmux-pr-card__lines")?.tagName).toBe("SPAN");
+  expect(body.querySelector(".acpmux-pr-card__breakdown")?.textContent).toContain(
+    "Code+200−40·Tests+150·Mocks+12−3·Docs+9−2·Generated+1,000−20",
+  );
 });
 
 test("code changed with no test gets a warning; a change with a test does not", async () => {
@@ -238,6 +228,19 @@ test("code changed with no test gets a warning; a change with a test does not", 
   teardown = undefined;
   const tested = await card({ pullRequest: pullRequest(), fetchedAt: Date.now() / 1000 - 5 });
   expect(tested.body.querySelector(".acpmux-pr-card__warning")).toBeNull();
+});
+
+test("a truncated file read says the inline breakdown is partial", async () => {
+  const files = Array.from({ length: 2 }, (_, index) => ({
+    path: `webviews/src/agent-session/acpmux/file-${index}.tsx`,
+    additions: 10,
+    deletions: 1,
+  }));
+  const { body } = await card({
+    pullRequest: pullRequest({ files, changedFiles: 3, additions: 20, deletions: 2 }),
+    fetchedAt: Date.now() / 1000 - 5,
+  });
+  expect(body.querySelector(".acpmux-pr-card__kindPartial")?.textContent).toBe("the first 2 files");
 });
 
 test("an answer cmux read a while ago says its age instead of looking current", async () => {
@@ -282,9 +285,9 @@ test("no answer yet: the card says it is reading and keeps asking the app, not G
   expect(calls.every((method) => method === "pr.inspect")).toBe(true);
 });
 
-// Leo 2026-10-21, on a #22826 card: no "Merged" word and no pill. The state is the pull request
-// glyph's colour alone, as Claude draws it: open green, merged purple, closed red, draft grey.
-test("the state is the glyph's colour, with no pill and no state word", async () => {
+// Leo 2026-10-21, on a #22826 card: the state is carried by the glyph and a quiet status label,
+// with merged using the theme purple, as GitHub draws it.
+test("the glyph follows state and the card names that state in its status row", async () => {
   for (const [state, label] of [
     ["open", "Open"],
     ["merged", "Merged"],
@@ -296,8 +299,8 @@ test("the state is the glyph's colour, with no pill and no state word", async ()
     expect(glyph.getAttribute("data-state")).toBe(state);
     expect(glyph.querySelector("svg")?.getAttribute("aria-label")).toBe(label);
     expect(glyph.querySelector("svg")).not.toBeNull();
-    expect(body.querySelector(".acpmux-pr-card__state")).toBeNull();
-    expect(shownText(body)).not.toContain(label);
+    expect(body.querySelector(".acpmux-pr-card__state")?.textContent).toBe(label);
+    expect(shownText(body)).toContain(label);
     await unmount();
   }
   const { readFileSync } = await import("node:fs");
@@ -305,10 +308,10 @@ test("the state is the glyph's colour, with no pill and no state word", async ()
   const styles = readFileSync(path.join(import.meta.dir, "../src/agent-session/acpmux/chips/linkCard.css"), "utf8");
   const colour = (state: string) =>
     new RegExp(`\\.acpmux-pr-card__glyph\\[data-state=${state}\\]\\{color:([^}]*)\\}`).exec(styles)?.[1];
-  expect(colour("open")).toContain("--agent-success");
-  expect(colour("merged")).toContain("--agent-ansi-5");
-  expect(colour("closed")).toContain("--agent-danger");
-  expect(styles).not.toContain(".acpmux-pr-card__state");
+  expect(colour("open")).toContain("--agent-status-success");
+  expect(colour("merged")).toContain("--agent-status-merged");
+  expect(colour("closed")).toContain("--agent-status-failure");
+  expect(styles).toContain(".acpmux-pr-card__state");
 });
 
 test("an open pull request's checks are a compact ✓/✗ count; a merged or closed one's are gone", async () => {

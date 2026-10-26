@@ -107,3 +107,27 @@ test("a host with no updater shows no Channels card", async () => {
   expect(mockChannels.tracks.length).toBe(4);
   page.unmount();
 });
+
+test("the card names the app's acpmux daemon's build and whether it is up to date, as the host says", async () => {
+  const page = await renderPage({
+    path: "/settings/updates",
+    setup: (provider) => {
+      provider.channels = { ...mockChannels, daemon: { title: "acpmux daemon", value: "abc123 (restarting…)" } };
+    },
+  });
+  await settle();
+  const row = card(page.container)!.querySelector<HTMLElement>("[data-channel-daemon]")!;
+  expect(row.textContent).toContain("acpmux daemon");
+  expect(row.textContent).toContain("abc123 (restarting…)");
+  page.unmount();
+  // A host without a local daemon sends none, and the card has no such row.
+  const none = await renderPage({
+    path: "/settings/updates",
+    setup: (provider) => {
+      provider.channels = { ...mockChannels, daemon: null };
+    },
+  });
+  await settle();
+  expect(card(none.container)!.querySelector("[data-channel-daemon]")).toBeNull();
+  none.unmount();
+});

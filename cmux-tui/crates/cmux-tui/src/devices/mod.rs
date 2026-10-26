@@ -180,7 +180,7 @@ fn read_sources(notes: &mut Vec<String>) -> Sources {
     };
     let peers = read(&["acp", "host", "ls", "--json"], "agent peers");
     let pairing = read(&["acp", "host", "ticket", "ls", "--json"], "paired devices");
-    let remote = match host_config::path().map(|p| p.exists()) {
+    let remote = match host_config::exists() {
         Ok(true) => match host_config::load() {
             Ok(c) => serde_json::to_value(&c).unwrap_or(Value::Null),
             Err(e) => {

@@ -79,7 +79,7 @@ extension AppOnboardingServices {
         }
         // A workspace with nothing that comes over (only a markdown viewer, or
         // only pages on a daemon without browser tabs) is not opened.
-        let browsers = daemon.supports(DaemonCapabilities.shared.frontendBrowserTabs)
+        let browsers = daemon.supports(DaemonCapability.frontendBrowserTabs.rawValue)
         if saved.leftOutPanels { summary.leftTabs = true }
         guard let layout = saved.layout.keeping({ browsers || $0.url == nil }) else { return nil }
         if saved.remote != nil, layout.tabs.contains(where: { $0.scrollback != nil }) { summary.leftSSHScrollback = true }

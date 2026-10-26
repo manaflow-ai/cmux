@@ -86,7 +86,7 @@ let cover: ((covered: boolean) => void) | undefined;
 
 /// The chat pane as App.tsx wires it: `covered` while a view (a diff in place) has the pane, and
 /// `onUncover` closing that view.
-function Pane({ initiallyCovered, wide = false }: { initiallyCovered: boolean; wide?: boolean }) {
+function Pane({ initiallyCovered }: { initiallyCovered: boolean }) {
   const [shell, setShell] = useState<HTMLElement | null>(null);
   const [covered, setCovered] = useState(initiallyCovered);
   cover = setCovered;
@@ -99,7 +99,6 @@ function Pane({ initiallyCovered, wide = false }: { initiallyCovered: boolean; w
       uncovered += 1;
       setCovered(false);
     },
-    wide,
   });
   reveal = inspector.reveal;
   return (
@@ -178,7 +177,7 @@ test("its toggle over a covered chat closes that view and opens the Inspector ov
 test("the palette and a running line's count close the covering view before they open it", async () => {
   const container = await mount(true);
   await act(async () => setInspectorOpen(false));
-  await act(async () => void openPicker("Inspector"));
+  await act(async () => void openPicker("Session Info"));
   expect(uncovered).toBe(1);
   expect(panel(container)).not.toBeNull();
   await act(async () => cover!(true));
@@ -197,23 +196,14 @@ test("over the chat nothing is closed: the toggle opens and closes it alone", as
   expect(uncovered).toBe(0);
 });
 
-test("shown, its own close button closes it", async () => {
-  const container = await mount(false);
-  const close = container.querySelector<HTMLButtonElement>("aside.acpmux-chat-inspector .acpmux-chat-inspector__close");
-  expect(close).not.toBeNull();
-  await act(async () => close!.click());
-  expect(panel(container)).toBeNull();
-  expect(inspectorState().open).toBe(false);
-});
-
 test("shown, Esc from inside it closes it", async () => {
   const container = await mount(false);
-  const close = container.querySelector<HTMLButtonElement>(
-    "aside.acpmux-chat-inspector .acpmux-chat-inspector__close",
-  )!;
-  close.focus();
+  // No x (Leo, 2026-10-24: "the top bit with the closing mark... it's not necessary"): Esc from a row.
+  expect(container.querySelector("aside.acpmux-chat-inspector .acpmux-chat-inspector__close")).toBeNull();
+  const row = container.querySelector<HTMLButtonElement>("aside.acpmux-chat-inspector button")!;
+  row.focus();
   await act(async () => {
-    close.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
+    row.dispatchEvent(new dom!.window.KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true }));
   });
   expect(panel(container)).toBeNull();
   expect(inspectorState().open).toBe(false);
@@ -250,8 +240,10 @@ test("floating beside a side panel, the card's right edge is the chat's", async 
   const aside = container.querySelector<HTMLElement>("aside.acpmux-chat-inspector")!;
   expect(aside.style.getPropertyValue("--acpmux-inspector-side")).toBe("736px");
   const css = readFileSync(new URL("../src/agent-session/acpmux/inspector/inspector.css", import.meta.url), "utf8");
+  // Its box ends at the side panel's edge and its inset is its right margin (the same margin as pushing,
+  // so a switch between the two places starts no slide: chat-inspector-push-motion.test.ts).
   expect(css).toMatch(
-    /\[data-placement="overlay"\] \{[^}]*right: calc\(var\(--acpmux-inspector-side, 0px\) \+ var\(--acpmux-inspector-inset\)\)/,
+    /\[data-placement="overlay"\] \{[^}]*right: var\(--acpmux-inspector-side, 0px\);[^}]*margin-right: var\(--acpmux-inspector-inset\);/,
   );
 });
 
@@ -299,20 +291,21 @@ test("the side panel's covering follows the pane's width as it crosses the query
   expect(listeners.size).toBe(0);
 });
 
-for (const wide of [false, true])
-  test(`in a wide pane it ${wide ? "pushes a handoff review's wider form aside" : "floats beside the transcript"}`, async () => {
-    const container = installDom();
-    // A 1600px pane: the transcript's gutter has room for the floating panel.
-    Object.defineProperty(dom!.window.HTMLElement.prototype, "clientWidth", {
-      configurable: true,
-      get(this: HTMLElement) {
-        return this.classList.contains("acpmux-shell") ? 1600 : 0;
-      },
-    });
-    await act(async () => setInspectorOpen(true));
-    await act(async () => {
-      root = createRoot(container);
-      root.render(<Pane initiallyCovered={false} wide={wide} />);
-    });
-    expect(panel(container)?.getAttribute("data-placement")).toBe(wide ? "push" : "overlay");
+// A handoff review's wider form included: it floats, never a column (Leo, 2026-10-24: "it was never
+// supposed to be a sidebar").
+test("in a wide pane it floats beside the transcript", async () => {
+  const container = installDom();
+  // A 1600px pane: the transcript's gutter has room for the floating panel.
+  Object.defineProperty(dom!.window.HTMLElement.prototype, "clientWidth", {
+    configurable: true,
+    get(this: HTMLElement) {
+      return this.classList.contains("acpmux-shell") ? 1600 : 0;
+    },
   });
+  await act(async () => setInspectorOpen(true));
+  await act(async () => {
+    root = createRoot(container);
+    root.render(<Pane initiallyCovered={false} />);
+  });
+  expect(panel(container)?.getAttribute("data-placement")).toBe("overlay");
+});

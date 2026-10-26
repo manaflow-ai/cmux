@@ -13,6 +13,7 @@
 
 use std::collections::{HashMap, HashSet};
 
+use super::archive::{archive, archived_side, unarchive, wake_groups_of};
 use super::check;
 use super::doc::{Doc, ListEntry};
 use super::model::*;
@@ -274,9 +275,14 @@ impl Tx<'_> {
 
 fn apply_op(tx: &mut Tx, op: &Op, mint: &mut dyn FnMut() -> ItemId) -> Result<(), Refusal> {
     match op {
-        Op::Move { items, to } => place(tx, items, to),
+        Op::Move { items, to } => {
+            place(tx, items, to)?;
+            wake_groups_of(tx, items)
+        }
         Op::Pin { items } => pin(tx, items),
         Op::Unpin { items } => unpin(tx, items),
+        Op::Archive { items } => archive(tx, items),
+        Op::Unarchive { items } => unarchive(tx, items),
         Op::ItemAdd { item, to } => add_item(tx, item, to, mint),
         Op::ItemRemove { id } => {
             let item = tx.doc.item(id).ok_or(Refusal::UnknownItem)?;
@@ -360,6 +366,16 @@ fn apply_op(tx: &mut Tx, op: &Op, mint: &mut dyn FnMut() -> ItemId) -> Result<()
             if let Some(value) = patch.collapsed {
                 *collapsed = value;
             }
+            match &patch.auto_archive {
+                Patch::Keep => {}
+                Patch::Clear => {
+                    item.extra.remove(AUTO_ARCHIVE_KEY);
+                }
+                Patch::Set(value) => {
+                    let rule = AutoArchiveRule::read(value).ok_or(Refusal::InvalidValue)?;
+                    item.extra.insert(AUTO_ARCHIVE_KEY.into(), rule.value());
+                }
+            }
             Ok(())
         }),
         Op::GroupUngroup { id } => {
@@ -379,7 +395,16 @@ fn apply_op(tx: &mut Tx, op: &Op, mint: &mut dyn FnMut() -> ItemId) -> Result<()
             tx.remove_item(id);
             Ok(())
         }
-        Op::Adopt { refs, to } => adopt(tx, refs, to.as_ref()),
+        Op::Adopt { refs, to } => {
+            adopt(tx, refs, to.as_ref())?;
+            let placed: Vec<ItemId> = refs
+                .iter()
+                .filter_map(|reference| {
+                    tx.doc.workspace_item(reference).map(|item| item.id.clone())
+                })
+                .collect();
+            wake_groups_of(tx, &placed)
+        }
         Op::Close { refs } => {
             close(tx, refs);
             Ok(())
@@ -489,7 +514,7 @@ fn add_item(
 
 /// The two entries around the place `to` names among the siblings that do
 /// not move: `(low, high)` (either absent at an end).
-fn neighbors(
+pub(super) fn neighbors(
     doc: &Doc,
     to: &Target,
     moved: &HashSet<ItemId>,
@@ -598,6 +623,15 @@ pub(super) fn place(tx: &mut Tx, ids: &[ItemId], to: &Target) -> Result<(), Refu
             }
         }
     }
+    // Archived items list last (archiving-DESIGN.md): a run that mixes both
+    // goes in two steps, and each keeps to its side.
+    let (archived, unarchived): (Vec<ItemId>, Vec<ItemId>) =
+        moved.iter().cloned().partition(|id| tx.doc.item(id).is_some_and(Item::archived));
+    if !archived.is_empty() && !unarchived.is_empty() {
+        place(tx, &unarchived, to)?;
+        return place(tx, &archived, to);
+    }
+    let archived = !archived.is_empty();
     if let Some(group) = &to.parent {
         // A group lists its pinned members first (pinning-DESIGN.md): a run
         // that mixes both goes in two steps, and each keeps to its side.
@@ -613,9 +647,11 @@ pub(super) fn place(tx: &mut Tx, ids: &[ItemId], to: &Target) -> Result<(), Refu
             return place(tx, &unpinned, to);
         }
         let to = pinned_side(tx.doc, to, group, &moved_set, !pinned.is_empty())?;
+        let to = archived_side(tx.doc, &to, &moved_set, archived)?;
         return place_run(tx, &moved, &moved_set, &to);
     }
-    place_run(tx, &moved, &moved_set, to)
+    let to = archived_side(tx.doc, to, &moved_set, archived)?;
+    place_run(tx, &moved, &moved_set, &to)
 }
 
 /// `to` moved to the pinned (or unpinned) side of `group`'s members.
@@ -784,6 +820,8 @@ fn ensure_pinned_section(tx: &mut Tx) {
 /// group, marked pinned, after the group's other pinned members. Any other
 /// item goes to the end of the Pinned band; [`place`] remembers where it was.
 fn pin(tx: &mut Tx, ids: &[ItemId]) -> Result<(), Refusal> {
+    // A pin is not archived: it comes back first.
+    unarchive(tx, ids)?;
     let mut moving = Vec::new();
     for id in ids {
         let item = tx.doc.item(id).ok_or(Refusal::UnknownItem)?;
@@ -1004,6 +1042,7 @@ fn add_section(tx: &mut Tx, section: &Section, place: &SectionPlace) -> Result<(
         }
         _ => {}
     }
+    validate_host_group_flags(section)?;
     if let Some(title) = &section.title {
         validate_title(title)?;
     }
@@ -1047,10 +1086,30 @@ fn update_section(tx: &mut Tx, id: &str, patch: &SectionPatch) -> Result<(), Ref
             return Err(Refusal::InvalidValue);
         }
         section.host_group = host_group;
+        // Older clients only sent `host_group`; preserve their explicit
+        // Remove/mark choice in the durable opt-out field unless a newer
+        // client supplied that field explicitly.
+        if patch.host_group_opt_out.is_none() {
+            section.host_group_opt_out = section.kind.machine().is_some() && !host_group;
+        }
     }
+    if let Some(opt_out) = patch.host_group_opt_out {
+        section.host_group_opt_out = opt_out;
+    }
+    validate_host_group_flags(&section)?;
     validate_section_numbers(&section)?;
     if tx.doc.section(id) != Some(&section) {
         tx.put_section(section);
+    }
+    Ok(())
+}
+
+fn validate_host_group_flags(section: &Section) -> Result<(), Refusal> {
+    if section.host_group_opt_out && section.kind.machine().is_none() {
+        return Err(Refusal::InvalidValue);
+    }
+    if section.host_group && section.host_group_opt_out {
+        return Err(Refusal::InvalidValue);
     }
     Ok(())
 }

@@ -429,13 +429,26 @@ public struct ACPMode: Hashable, Sendable, Codable, Identifiable {
 extension ACPMode {
     /// Modes a phone may switch an agent to: those that ask before each change (Claude Code's
     /// `default` and `plan`, the Codex bridge's `ask`). The Mac's cmux-mobile-host refuses any other
-    /// (`acpmux_policy.rs` `PHONE_MODES`), so the menus offer only these.
+    /// (`acpmux_policy.rs` `PHONE_MODES`) unless this phone's Full-access setting covers it.
     public static let phoneModeIDs: Set<String> = ["default", "plan", "ask"]
 
     /// `modes` a phone may pick, plus the current one (shown checked, so a chat the Mac moved
-    /// to another mode still says which).
-    public static func phoneChoices(_ modes: [ACPMode], current: String?) -> [ACPMode] {
-        modes.filter { phoneModeIDs.contains($0.id) || $0.id == current }
+    /// to another mode still says which). `fullAccess`: this phone's Full-access setting on the
+    /// Mac covers it (acpmux `initialize` `_meta.acpmux.fullAccess`), so the harness's Full
+    /// access mode (`bypassPermissions`, `agent-full-access`) is offered too. acpmux still
+    /// decides each switch by that setting; the menu only stops hiding the mode.
+    public static func phoneChoices(_ modes: [ACPMode], current: String?, fullAccess: Bool = false) -> [ACPMode] {
+        modes.filter { phoneModeIDs.contains($0.id) || $0.id == current || (fullAccess && isFullAccess($0.id)) }
+    }
+
+    /// The markers of cmux-tui/spec/full-access-modes.json, the rule acpmux (`hub/start_mode.rs`)
+    /// and the Mac (`AgentPaneModeConfirmation`) apply.
+    static let fullAccessMarkers = ["bypass", "fullaccess", "yolo", "dangerous", "autoapprove", "skippermissions"]
+
+    /// A mode that skips every approval: lowercased, without `-`, `_` or spaces, it contains a marker.
+    public static func isFullAccess(_ id: String) -> Bool {
+        let folded = String(id.lowercased().filter { !"-_ ".contains($0) })
+        return fullAccessMarkers.contains { folded.contains($0) }
     }
 }
 

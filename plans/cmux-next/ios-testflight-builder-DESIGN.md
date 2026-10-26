@@ -1,5 +1,8 @@
 # cmux-next INTERNAL iOS TestFlight builder
 
+> **Moved 2026-10-25.** All nine M6 minis (cmux16..cmux24) are reserved for the cmux Performance Lead
+> (Lawrence). The INTERNAL iOS archive now runs on cmux9s (M4 Pro, runner `cmux9s-mac-mini-ios-internal`, `CI_IOS_INTERNAL_RUNNER=glaeda-runner-cmux9s-mac-mini-ios-internal`). Install with `scripts/ci/ios-internal-builder-install.sh HOST`; the old M6 runner is removed.
+
 Owner: Chief subagent "iOS internal TestFlight builder" (2026-10-20). User ask:
 "a builder for cmux-next cmux INTERNAL iOS ... that just keeps on churning out
 new testflight builds, similar to what we have for the mac app".

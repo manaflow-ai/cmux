@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 
 /// A toolbar row that shows the arrow over its whole frame and the I-beam
 /// over the omnibar's text area (`OmnibarPointer`).
@@ -116,7 +117,7 @@ public class ArrowCursorView: NSView {
 extension ArrowCursorView {
     // MARK: A still pointer, while a child window has the key
 
-    private static var cursorKeeper: CFRunLoopObserver?
+    private static var cursorKeeper: MainRunLoopObserver?
 
     /// One main run loop observer, after every other observer of the pass
     /// (AppKit's display cycle runs in Core Animation's commit, before it).
@@ -128,11 +129,7 @@ extension ArrowCursorView {
         #if DEBUG
         if ProcessInfo.processInfo.environment["CMUX_NEXT_CURSOR_KEEPER"] == "off" { return }
         #endif
-        let observer = CFRunLoopObserverCreateWithHandler(nil, CFRunLoopActivity.beforeWaiting.rawValue, true, CFIndex.max) { _, _ in
-            MainActor.assumeIsolated { ArrowCursorView.keepCursor() } // main-proof: an observer of the main run loop
-        }
-        cursorKeeper = observer
-        CFRunLoopAddObserver(CFRunLoopGetMain(), observer, .commonModes)
+        cursorKeeper = MainRunLoopObserver(activities: .beforeWaiting, order: .max) { _ in ArrowCursorView.keepCursor() }
     }
 
     /// With a top-level key window it returns after one property read. While

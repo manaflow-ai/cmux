@@ -19,6 +19,8 @@
 // as glass even without a blur, so `backdrop-filter: none` never makes one a legitimately solid
 // card, and `findSolidTooltipMarkup` fails a tooltip class list in the page code (`ui-tooltip`,
 // `ui-title-tooltip`) that does not carry `ui-glass`.
+// Named floating surfaces are glass too, even when their old markup and stylesheet set neither
+// ui-glass nor a blur. The classic New Tab omnibar used to escape both checks that way.
 import { readdirSync, readFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -33,6 +35,7 @@ const HOST_SOLID = /^--cmux-(?:.*solid.*|popup-surface)$/;
 // A tooltip or hover card: `.ui-tooltip`, `.ui-title-tooltip`, `.ui-hint`, `.ui-card`, `.cu-tooltip`,
 // `.x-hover-card`, `[role="tooltip"]`.
 const TOOLTIP = /tooltip|\.ui-hint\b|\.ui-card\b|hover-?card|\[role=["']?tooltip/i;
+const REQUIRED_GLASS_CLASSES = new Set(["acpmux-omni"]);
 // Tooltip rules whose solid fill never paints, keyed `file selector`, with the reason. Prefer an
 // inline `glass-opaque-allow`; this list holds only fills in a file another open pull request is
 // editing, and each entry goes when that file is free.
@@ -237,6 +240,26 @@ function blurs(block: Block): boolean {
   );
 }
 
+/** The selector's subject, not a row or control inside a named glass surface. Functional pseudo
+ * selectors and attribute values do not contribute class names or descendant combinators. */
+export function targetsRequiredGlass(selector: string): boolean {
+  return splitArgs(selector).some((part) => {
+    let depth = 0;
+    let subject = "";
+    for (const ch of part) {
+      if (ch === "(" || ch === "[") {
+        depth++;
+      } else if (ch === ")" || ch === "]") {
+        depth--;
+      } else if (depth === 0) {
+        if (/[\s>+~]/.test(ch)) subject = "";
+        else subject += ch;
+      }
+    }
+    return [...subject.matchAll(/\.([\w-]+)/g)].some((match) => REQUIRED_GLASS_CLASSES.has(match[1] ?? ""));
+  });
+}
+
 /** Every rule under srcDir outside Reduce Transparency; loads the tokens they define for fillKind. */
 export function glassContextRules(srcDir: string = SRC): Block[] {
   const parsed = cssFiles(srcDir).flatMap((file) => parse(relative(srcDir, file), readFileSync(file, "utf8")));
@@ -260,9 +283,10 @@ export function fillKind(value: string): Kind {
 export function findOpaqueGlass(srcDir: string = SRC): string[] {
   const found: string[] = [];
   for (const block of glassContextRules(srcDir)) {
-    // Glass: a blur, a class named glass (`.sa-glass`), or a tooltip or hover card (always glass).
+    // A required surface stays glass even if its old markup has no ui-glass and its CSS no blur.
     const tooltip = TOOLTIP.test(block.selector);
-    const glass = blurs(block) || /\.[\w-]*glass[\w-]*/i.test(block.selector) || tooltip;
+    const glass =
+      blurs(block) || /\.[\w-]*glass[\w-]*/i.test(block.selector) || tooltip || targetsRequiredGlass(block.selector);
     const overridden = tooltip && TOOLTIP_FILL_OVERRIDDEN.has(`${block.file} ${block.selector}`);
     for (const d of block.decls) {
       if (d.allowed || overridden) continue;
@@ -274,6 +298,117 @@ export function findOpaqueGlass(srcDir: string = SRC): string[] {
       const opaque = share ? Number(share[1]) >= 100 : classify(d.value) === "opaque";
       if (opaque) found.push(`${block.file}:${d.line}: ${block.selector} { ${d.prop}: ${d.value} }`);
     }
+  }
+  return found;
+}
+
+// A page the app floats as a menu, picker or popover over the window (Swift
+// `PageEngineOptions(requiresWebKit: .transparentOverlay)`): the host draws Glass.makeOverlayPanel
+// behind the page, so the page's own root (html, body, :root, #root) must let it show. The shared
+// page base paints html with the host's `--cmux-surface-background`, which is the opaque theme
+// surface over an opaque window, so a popup document paints its html transparent itself.
+const ROOT_SUFFIX = /^(?:\[[^\]]*\]|:[\w-]+(?:\([^)]*\))?|[.#][\w-]+)*$/;
+const ROOT_COMPOUND = new RegExp(`^(?:html|body|:root|#root)${ROOT_SUFFIX.source.slice(1)}`);
+
+// `:is(a, b)`, `:where(...)` or `:matches(...)` opening a compound: its list and what follows it.
+function leadingList(compound: string): { list: string; rest: string } | null {
+  const open = /^:(?:is|where|matches)\(/.exec(compound);
+  if (!open) return null;
+  let depth = 1;
+  for (let i = open[0].length; i < compound.length; i++) {
+    if (compound[i] === "(") depth++;
+    else if (compound[i] === ")" && --depth === 0)
+      return { list: compound.slice(open[0].length, i), rest: compound.slice(i + 1) };
+  }
+  return null;
+}
+
+// Split at separators outside (...) and [...], so :is(a, b) and [x="a b"] stay whole.
+function splitTopLevel(text: string, separator: RegExp): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let start = 0;
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+    if (char === "(" || char === "[") depth++;
+    else if ((char === ")" || char === "]") && depth > 0) depth--;
+    else if (depth === 0 && separator.test(char)) {
+      parts.push(text.slice(start, i));
+      start = i + 1;
+    }
+  }
+  parts.push(text.slice(start));
+  return parts;
+}
+
+// "html" when one selector of the list is the document's root element alone, "root" when one ends
+// in html, body, :root or #root, else null.
+function rootTarget(selector: string): "html" | "root" | null {
+  let target: "html" | "root" | null = null;
+  for (const part of splitTopLevel(selector, /,/)) {
+    const compounds = splitTopLevel(part.trim(), /[\s>+~]/).filter(Boolean);
+    const last = compounds.at(-1) ?? "";
+    // :is(body, #root) and :where(...) match what their own list matches; classes, attributes and
+    // pseudo-classes after the list narrow the same element.
+    const listed = leadingList(last);
+    if (listed) {
+      const inner = ROOT_SUFFIX.test(listed.rest) ? rootTarget(listed.list) : null;
+      if (inner === "html" && compounds.length === 1) return "html";
+      if (inner) target = "root";
+      continue;
+    }
+    if (!ROOT_COMPOUND.test(last)) continue;
+    if (compounds.length === 1 && /^(?:html|:root)/.test(last)) return "html";
+    target = "root";
+  }
+  return target;
+}
+
+/** A root background value that leaves no fill: `none` (no image, the color's initial transparent)
+ * on the shorthand, and the CSS-wide keywords that reset to it (background is not inherited). */
+function clearsFill(prop: string, value: string): boolean {
+  const lower = value.trim().toLowerCase();
+  if (lower === "initial" || lower === "unset") return true;
+  return prop === "background" && lower === "none";
+}
+
+/**
+ * Every popup page document (`pages`, paths under src/: a stylesheet, or all of one page's) whose
+ * root paints an opaque fill, or whose html never paints itself transparent, as
+ * `file:line: selector { prop: value }` or `file: …` (a page's first stylesheet).
+ */
+export function findOpaquePopupPageRoots(pages: (string | string[])[], srcDir: string = SRC): string[] {
+  const all = cssFiles(srcDir).flatMap((file) => parse(relative(srcDir, file), readFileSync(file, "utf8")));
+  tokens = new Map();
+  for (const block of all) {
+    if (inReduce(block)) continue;
+    for (const d of block.decls) {
+      if (d.prop.startsWith("--")) tokens.set(d.prop, [...(tokens.get(d.prop) ?? []), d.value]);
+    }
+  }
+  const found: string[] = [];
+  for (const page of pages) {
+    const files = typeof page === "string" ? [page] : page;
+    let clearHtml = false;
+    for (const file of files) {
+      const blocks = all.filter((block) => block.file === file && !inReduce(block));
+      if (blocks.length === 0) found.push(`${file}: no such stylesheet under src/`);
+      for (const block of blocks) {
+        const target = rootTarget(block.selector);
+        if (!target) continue;
+        for (const d of block.decls) {
+          if (d.prop !== "background" && d.prop !== "background-color") continue;
+          const kind = classify(d.value);
+          if (kind === "opaque" && !d.allowed)
+            found.push(`${file}:${d.line}: ${block.selector} { ${d.prop}: ${d.value} }`);
+          if (target === "html" && (kind === "translucent" || clearsFill(d.prop, d.value))) clearHtml = true;
+        }
+      }
+    }
+    if (!clearHtml && files.length > 0 && !found.includes(`${files[0]}: no such stylesheet under src/`))
+      found.push(
+        `${files[0]}: the popup document never paints html transparent (the page base paints the host's surface)`,
+      );
   }
   return found;
 }
@@ -304,9 +439,30 @@ export function findSolidTooltipMarkup(srcDir: string = SRC): string[] {
   return found;
 }
 
+/** A named floating surface's className literal must carry ui-glass itself. Only className values
+ * count: an id, a query selector or a child class containing the surface's name is not its markup. */
+export function findMissingGlassMarkup(srcDir: string = SRC): string[] {
+  const found: string[] = [];
+  for (const file of sourceFiles(srcDir)) {
+    const text = readFileSync(file, "utf8");
+    for (const match of text.matchAll(/\bclassName\s*=\s*(?:\{\s*)?(["`])([^"`\n]*)\1/g)) {
+      const classes = match[2] ?? "";
+      const names = classes.split(/\s+/);
+      if (!names.some((name) => REQUIRED_GLASS_CLASSES.has(name)) || names.includes("ui-glass")) continue;
+      const line = text.slice(0, match.index).split("\n").length;
+      found.push(`${relative(srcDir, file)}:${line}: ${JSON.stringify(classes)}`);
+    }
+  }
+  return found;
+}
+
 if (import.meta.main) {
   for (const line of findSolidTooltipMarkup()) {
     console.error(`a tooltip is never solid (add ui-glass): ${line}`);
+    process.exitCode = 1;
+  }
+  for (const line of findMissingGlassMarkup()) {
+    console.error(`a floating surface is glass (add ui-glass): ${line}`);
     process.exitCode = 1;
   }
   const found = findOpaqueGlass();

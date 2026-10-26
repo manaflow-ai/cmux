@@ -27,8 +27,10 @@ pub mod host {
     }
 }
 pub mod link;
+pub mod program_wait;
 #[cfg(unix)]
 pub(crate) mod record_watch;
+pub(crate) mod scope;
 pub mod sweep;
 #[cfg(unix)]
 pub(crate) mod tree;
@@ -187,6 +189,10 @@ pub struct SpawnSpec {
     /// a write end for its whole life (`daemon::router_owner_fifo`).
     #[serde(default)]
     pub router_owner_fifo: Option<PathBuf>,
+    /// The folder the harness must exec in, by identity: a sub-session's checked folder
+    /// (`cwd_pin.rs`). The host's harness spawn fails when `cwd` leads elsewhere by then.
+    #[serde(default)]
+    pub cwd_pin: Option<crate::cwd_pin::CwdPin>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

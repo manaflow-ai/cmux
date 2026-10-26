@@ -2,7 +2,8 @@
 //! daemon and a stub brain executable that records its env and argv: a Chief
 //! the person makes gets its own brain in `<home>/c/<id tail>` with its own
 //! token; a person's message starts a stopped brain; a prompt change
-//! restarts it between turns; delete and daemon shutdown stop it. The
+//! restarts it between turns; delete and daemon shutdown stop it (delete also
+//! removes its brain folder). The
 //! default Chief is never started by the daemon.
 //!
 //! One acpmux per Chief home (hq-6d 2026-10-14): every brain uses the Chief
@@ -70,6 +71,18 @@ fn wait_file(path: &std::path::Path) -> String {
 /// A brain's directory: `<home>/c/<last 8 of the id, lowercased>`.
 fn brain_dir(home: &std::path::Path, chief: &str) -> PathBuf {
     home.join("c").join(chief[chief.len() - 8..].to_ascii_lowercase())
+}
+
+/// Waits (bounded) until `path` is gone.
+fn wait_absent(path: &std::path::Path, what: &str) {
+    let deadline = Instant::now() + Duration::from_secs(20);
+    while Instant::now() < deadline {
+        if !path.exists() {
+            return;
+        }
+        std::thread::sleep(Duration::from_millis(25));
+    }
+    panic!("{what} is still there: {}", path.display());
 }
 
 fn alive(pid: i32) -> bool {
@@ -284,6 +297,10 @@ fn each_chief_gets_its_own_brain_that_the_daemon_starts_and_stops() {
         "a daemon shutdown other than the old per-Chief home's: {called}"
     );
     assert!(shared.join("keep").exists(), "the shared acpmux home was touched");
+    // ...and its brain folder (its memory and state) goes once its sessions ended; the other
+    // Chief's stays.
+    wait_absent(&ops_home, "the deleted Chief's brain folder");
+    assert!(scout_home.join("starts").exists(), "another Chief's brain folder was touched");
     assert!(!old.exists(), "the old per-Chief acpmux home is still there");
     assert!(held.exists(), "an old Chief home whose daemon holds its lock was removed");
     let _ = holder.kill();
