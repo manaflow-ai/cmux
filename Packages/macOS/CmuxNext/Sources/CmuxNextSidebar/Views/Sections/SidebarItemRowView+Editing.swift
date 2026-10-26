@@ -18,7 +18,12 @@ extension SidebarItemRowView {
             removeButton?.removeFromSuperview()
             removeButton = nil
         }
-        // A new wiggle for the new state: added, or taken off.
+        restartWiggle()
+    }
+
+    /// A new wiggle for the current state and motion settings (edit mode turned on or off, Reduce
+    /// Motion or the sidebar's motion changed): added, or taken off, at the next layout.
+    func restartWiggle() {
         wiggleSize = .zero
         needsLayout = true
     }
