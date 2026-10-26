@@ -72,6 +72,9 @@ public actor DaemonConnection {
     var handoffHoldNext: UInt64 = 0
     var handoffQueue: [CheckedContinuation<Void, Never>] = []
     var handoffHoldTimer: DemandTimer?
+    /// Waits for a ready connection newer than `after` (`DaemonConnection+ReadyWait`), each with its limit.
+    var readyWaits: [UInt64: (after: UInt64, continuation: CheckedContinuation<Bool, Never>, timer: DemandTimer)] = [:]
+    var readyWaitNext: UInt64 = 0
     /// The launch's first snapshot, fetched right after the handshake (``prefetchSnapshot()``).
     var prefetchedSnapshot: (serial: UInt64, fetch: Task<(tree: DaemonTree, barrier: UInt64), any Error>)?
 
@@ -115,6 +118,7 @@ public actor DaemonConnection {
         if case .ready(let ready) = phase { ready.transport.close() }
         phase = .closed
         releaseHandoffHold()
+        endReadyWaits()
         continuation.finish()
     }
 
@@ -258,6 +262,7 @@ public actor DaemonConnection {
             self.endpoint = endpoint
             phase = .ready(DaemonReadyConnection(transport: transport, serial: serial, identity: identity, userOriginAllowed: userOriginAllowed))
             releaseHandoffHold()
+            resumeReadyWaits(serial: serial)
             wake.watch(file: endpoint.socketPath, companions: [endpoint.socketPath + ".websocket.json"])
             healthy.schedule(after: configuration.healthyAfter) { [weak self] in await self?.stayedHealthy(serial: serial) }
             if endpoint.bridge != nil || configuration.localHeartbeat { heartbeat.start(transport, every: configuration.heartbeat, misses: configuration.heartbeatMisses) }
@@ -274,7 +279,7 @@ public actor DaemonConnection {
         }
     }
 
-    private var isClosedPhase: Bool { if case .closed = phase { true } else { false } }
+    var isClosedPhase: Bool { if case .closed = phase { true } else { false } }
 
     private func transportClosed(serial: UInt64, reason: TransportCloseReason) {
         guard serial == self.serial else { return }
@@ -331,6 +336,7 @@ public actor DaemonConnection {
                     reconnectTask = nil
                     phase = .closed
                     releaseHandoffHold()
+                    endReadyWaits()
                     continuation.finish(throwing: error)
                     return
                 default:

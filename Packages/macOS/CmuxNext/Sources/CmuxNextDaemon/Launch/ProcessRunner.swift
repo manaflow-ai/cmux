@@ -109,20 +109,21 @@ public struct ProcessRunner {
         return ProcessResult(status: status, stdout: stdoutFile.contents(), stderr: stderrFile.contents())
     }
 
-    /// Returns once `progress` saw no stdout write for `idle`, or at `cap`; throws when cancelled.
+    /// Returns once `progress` saw no stdout write for `idle` (from the run's start or its last write), or at
+    /// `cap`; throws when cancelled.
+    ///
+    /// One deadline, moved lazily as Chromium's `DelayTimerBase` does (base/timer/timer.cc): a write only records
+    /// its time, and a fire before the desired time sleeps on for the time left to it.
     static func waitForSilence(of progress: StdoutProgress, idle: Duration, cap: Duration,
                                clock: any Clock<Duration>) async throws {
-        var seen = progress.count
-        var waited = Duration.zero
-        // wakeup-allow: bounded: the silence deadline re-arms only after stdout progress, until the hard cap
-        while waited < cap {
-            let window = min(idle, cap - waited)
-            // wakeup-allow: deadline of one silence window (no stdout progress in it = timeout)
-            try await clock.sleep(for: window, tolerance: WakeLeeway.window(delay: window).tolerance)
-            waited += window
-            let now = progress.count
-            if now == seen { return }
-            seen = now
+        // wakeup-allow: deadline: one silence deadline; a pass ends at it or sleeps on for the time a write added
+        while true {
+            let now = progress.elapsed()
+            let end = min((progress.lastWrite ?? .zero) + idle, cap)
+            guard end > now else { return }
+            let left = end - now
+            // wakeup-allow: deadline: to the silence deadline; another pass only when a write moved it
+            try await clock.sleep(for: left, tolerance: WakeLeeway.window(delay: left).tolerance)
         }
     }
 
@@ -152,39 +153,4 @@ final class ProcessBox: @unchecked Sendable {
         guard pid > 0, process.isRunning else { return }
         signal(pid, SIGKILL)
     }
-}
-
-/// Counts writes to a child's stdout file (`ProcessRunner.run(progressIdle:)`).
-/// The watch has its own duplicate of the descriptor, closed by the cancel
-/// handler, so the caller may close its file at any time.
-final class StdoutProgress: Sendable {
-    /// The time since the run started, on the run's clock.
-    let elapsed: @Sendable () -> Duration
-    private let writes = Mutex<Int>(0)
-    private let source = Mutex<(any DispatchSourceFileSystemObject)?>(nil)
-    private let queue = DispatchQueue(label: "com.cmuxterm.next.process-progress")
-
-    /// No watch: the caller reports each write with ``noteWrite()`` (tests).
-    init(elapsed: @escaping @Sendable () -> Duration) {
-        self.elapsed = elapsed
-    }
-
-    convenience init(watching fd: Int32, elapsed: @escaping @Sendable () -> Duration) {
-        self.init(elapsed: elapsed)
-        let watched = fcntl(fd, F_DUPFD_CLOEXEC, 0)
-        guard watched >= 0 else { return }
-        let watch = DispatchSource.makeFileSystemObjectSource(fileDescriptor: watched, eventMask: [.write, .extend],
-                                                              queue: queue)
-        watch.setEventHandler { [weak self] in self?.noteWrite() }
-        watch.setCancelHandler { close(watched) }
-        watch.activate()
-        source.withLock { $0 = watch }
-    }
-
-    /// One write to the child's stdout.
-    func noteWrite() { writes.withLock { $0 += 1 } }
-
-    var count: Int { writes.withLock { $0 } }
-
-    func cancel() { source.withLock { $0?.cancel() } }
 }

@@ -1,4 +1,3 @@
-import CmuxNextWakeups
 import Foundation
 import os
 
@@ -25,26 +24,30 @@ extension NewFrontendBrowserTabRequest {
         }
         var keyed = self
         keyed.idempotencyKey = (DaemonCommandScope.current?.nextDerivedUUID("frontend-browser-tab") ?? UUID()).uuidString.lowercased()
-        let giveUp = ContinuousClock.now + Self.lateReplyBudget
-        // A missed deadline already waited a whole deadline; a closed or absent connection fails at once, so that
-        // retry waits a Backoff step (the reconnect needs time) instead of spinning until the budget.
-        var backoff = Self.reconnectBackoff
-        // wakeup-allow: backoff: each pass waits for one reply or its deadline, or a Backoff step; it ends at the budget, on a reply, or on another error
+        // The budget runs on the clock the waits use (tests inject one).
+        let elapsed = Self.stopwatch(connection.clock)
+        // wakeup-allow: deadline: each pass waits for one reply or its deadline, or for the next ready connection; it ends at the budget, on a reply, on close or on another error
         while true {
+            let tried = connection.ready?.serial
             do {
                 return try await connection.request(keyed)
-            } catch let error as DaemonError where Self.asksAgain(after: error) && ContinuousClock.now < giveUp && !Task.isCancelled {
+            } catch let error as DaemonError where Self.asksAgain(after: error) && !Task.isCancelled {
+                let left = Self.lateReplyBudget - elapsed()
+                guard left > .zero else { throw error }
                 Self.logger.info("\(Self.command, privacy: .public): \(String(describing: error), privacy: .public); asking again with its key")
+                // A missed deadline already waited a whole deadline. A lost or absent connection fails at once:
+                // ask again when a newer connection is ready, never on a timer (closed for good: fail now).
                 if case .timedOut = error { continue }
-                // concurrency-allow: Backoff.wait is an async sleep on the connection's clock after a failure, not a blocking wait.
-                try await backoff.wait(owner: "NewFrontendBrowserTabRequest.keyedRetry", clock: connection.clock)
+                guard await connection.untilReady(after: tried, within: left) else { throw error }
             }
         }
     }
 
-    /// The spacing of a keyed retry after the connection closed or is not up: 50 ms growing to 1 s, well inside
-    /// ``lateReplyBudget``.
-    static let reconnectBackoff = Backoff(initial: .milliseconds(50), maximum: .seconds(1))
+    /// The time on `clock` since this call.
+    private static func stopwatch<C: Clock<Duration>>(_ clock: C) -> () -> Duration {
+        let origin = clock.now
+        return { origin.duration(to: clock.now) }
+    }
 
     /// The reply may still come (or the tab may exist) after these: the same key is safe to send again.
     private static func asksAgain(after error: DaemonError) -> Bool {
