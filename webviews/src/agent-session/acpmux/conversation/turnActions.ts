@@ -61,6 +61,8 @@ export type TurnActions = {
   /// Retry on a failed subagent's or sub-session's row (subagents/retryState.ts `runRetry`):
   /// settles with the note a refusal leaves on the row.
   retryAgent?: (agent: RetryTarget, how?: RetryAction) => Promise<RetryNote | undefined>;
+  /// The capabilities acpmux named (retryState.ts `retryActionOf`): which Retry a row offers.
+  retryCapabilities?: ReadonlySet<string>;
   /// Re-run the current harness's declared login command after an authentication failure.
   reauthenticate?: () => void;
   /// Who serves this chat's turns, for failure copy (cx-w10a): the harness profile's display name and id.

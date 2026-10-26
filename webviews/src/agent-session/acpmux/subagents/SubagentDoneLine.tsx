@@ -56,7 +56,7 @@ function DoneLine({ row, childRetry }: { row: AcpmuxRow; childRetry?: RetryState
   const nav = useContext(SubagentNavContext);
   const pane = useContext(SubagentPaneContext);
   const affordance = useContext(RetryAffordanceContext);
-  const { restartSubagent, retryAgent } = useContext(TurnActionsContext);
+  const { restartSubagent, retryAgent, retryCapabilities } = useContext(TurnActionsContext);
   const agent = row.subagents?.[0];
   // A refusal's note lasts until the row changes; `busy` only while the Retry is in flight (a
   // second one of the same target is refused by runRetry's shared guard, retryState.ts).
@@ -65,7 +65,7 @@ function DoneLine({ row, childRetry }: { row: AcpmuxRow; childRetry?: RetryState
   if (!agent) return null;
   const live: Subagent = childRetry && !agent.retry ? { ...agent, retry: childRetry } : agent;
   const waiting = retrying(live);
-  const action = retryAgent ? retryActionOf(live) : undefined;
+  const action = retryAgent ? retryActionOf(live, retryCapabilities) : undefined;
   const label = t(DONE_LABEL[agent.state] ?? DONE_LABEL.completed!, { name: agent.name });
   const reasonKey = agent.state === "cancelled" && agent.stopReason ? STOP_REASON_LABEL[agent.stopReason] : undefined;
   const time = formatDuration(elapsed(agent, agent.endedAt ?? row.at));

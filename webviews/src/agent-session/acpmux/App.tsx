@@ -5458,6 +5458,7 @@ function AcpmuxPane() {
           if (text) void callNative("chat.send", { text }).catch(() => undefined);
         })(restartChat),
         // Retry asks acpmux, else the chat's agent, as Restart does (subagents/retryState.ts).
+        retryCapabilities: directClient.current?.capabilities,
         retryAgent: ((owner: string) => (agent: RetryTarget, how?: RetryAction) => {
           const client = directClient.current;
           if (!client || !restartReaches(owner, sessionIdRef.current, client.selectedSession))

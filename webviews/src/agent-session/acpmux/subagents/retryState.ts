@@ -93,14 +93,19 @@ export type RetryAction = "daemon" | "ask";
 /// The Retry a subagent's end line offers: only a failed or lost one of the chat's own, with no
 /// retry waiting. An acpmux sub-session and a subagent acpmux says it can retry go to acpmux;
 /// any other is the chat's agent's to run again.
+/// `capabilities`: what acpmux's `initialize` named, undefined from one that names none (its
+/// Retry then tries the method and falls back on an unknown one). One that names them and not
+/// this row's (TURN_RETRY for a sub-session, SUBAGENT_RETRY for a subagent) gets the ask.
 export function retryActionOf(
   agent: Pick<Subagent, "state" | "parent" | "retry" | "retryable" | "child" | "harness">,
+  capabilities?: ReadonlySet<string>,
 ): RetryAction | undefined {
   if (agent.parent !== null || (agent.state !== "failed" && agent.state !== "disconnected")) return undefined;
   if (agent.retry) return undefined;
-  if (agent.child) return "daemon";
+  const served = (capability: string) => !capabilities || capabilities.has(capability);
+  if (agent.child) return served(TURN_RETRY) ? "daemon" : "ask";
   if (agent.harness) return "ask";
-  return agent.retryable ? "daemon" : "ask";
+  return agent.retryable && served(SUBAGENT_RETRY) ? "daemon" : "ask";
 }
 
 /// The line the chat's agent gets when the row asks it to retry.
@@ -160,13 +165,11 @@ export async function runRetry(
   t: Translate,
   how?: RetryAction,
 ): Promise<RetryNote | undefined> {
-  const offered = retryActionOf(agent);
+  const offered = retryActionOf(agent, deps.capabilities);
   if (!offered) return undefined;
-  // acpmux named its capabilities and not this one: ask, never probe.
-  const capability = agent.child ? TURN_RETRY : SUBAGENT_RETRY;
-  const served = !deps.capabilities || deps.capabilities.has(capability);
-  const action = how ?? (served ? offered : "ask");
-  return send(agent, chat, deps, t, action);
+  // Only what the row offers goes to acpmux: a "daemon" the row cannot offer (acpmux named its
+  // capabilities and not this one, or the subagent is not retryable) asks instead, never probes.
+  return send(agent, chat, deps, t, offered === "daemon" ? (how ?? "daemon") : "ask");
 }
 
 /// Retries in flight or just sent, by target (`chat`, then the sub-session or subagent), with when

@@ -11,7 +11,7 @@ import { Icon } from "../icons/Icon";
 import type { AcpmuxActivity } from "../model";
 import { AgentCard } from "../subagents/AgentCard";
 import { SubsessionContext, useSenderChat, useSubsessionInfo, waitingLine } from "../subagents/subsessions";
-import { retryLabel, type RetryNote } from "../subagents/retryState";
+import { retryLabel, TURN_RETRY, type RetryNote } from "../subagents/retryState";
 import { Retry, Spinner } from "./icons";
 import { TurnActionsContext } from "./turnActions";
 import { Markdown } from "./Markdown";
@@ -68,7 +68,7 @@ function SessionCard({
   const live = useSubsessionInfo(sessionId);
   const listed = useSenderChat("", sessionId).harness;
   const open = useContext(SubsessionContext)?.open;
-  const retryAgent = useContext(TurnActionsContext).retryAgent;
+  const { retryAgent, retryCapabilities } = useContext(TurnActionsContext);
   // A Retry refused leaves its note until the card's state changes.
   const [note, setNote] = useState<{ state?: string; key?: RetryNote; busy?: boolean }>();
   // While acpmux waits to retry its failed turn, the card works, and its state says so.
@@ -106,7 +106,8 @@ function SessionCard({
         <div className="cv-subsession__retry">
           <button type="button" className="cv-subagent-retry" disabled={shown?.busy} onClick={run}>
             <Retry size={12} />
-            {t("retry.action")}
+            {/* acpmux retries it, or, where it names no turn retry, the chat's agent is asked. */}
+            {t(retryCapabilities && !retryCapabilities.has(TURN_RETRY) ? "retry.askParent" : "retry.action")}
           </button>
           {shown?.key && <output>{t(shown.key)}</output>}
         </div>

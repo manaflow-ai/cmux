@@ -267,6 +267,17 @@ describe("Retry reaches acpmux, else the parent", () => {
     expect(both.calls).toEqual([[RETRY_METHOD, { sessionId: CHAT, subagentId: "sub" }]]);
   });
 
+  test("a row offers acpmux's Retry only where acpmux names it; an explicit daemon Retry never overrides that", async () => {
+    const turnOnly = new Set(["turn-retry-v1"]);
+    expect(retryActionOf({ ...failed, retryable: true }, turnOnly)).toBe("ask");
+    expect(retryActionOf({ ...failed, child: "s" }, turnOnly)).toBe("daemon");
+    expect(retryActionOf({ ...failed, child: "s" }, new Set())).toBe("ask");
+    expect(retryActionOf({ ...failed, retryable: true }, undefined)).toBe("daemon");
+    const d = { ...deps(), capabilities: turnOnly };
+    await runRetry({ ...failed, id: "forced" }, "forced", d, translate, "daemon");
+    expect(d.calls.map((call) => (call as unknown[])[0])).toEqual(["send"]);
+  });
+
   test("a refusal's why reads in words; subagent_unsupported asks the parent", async () => {
     const why = (w: string) => ({ code: -32000, reason: "retry.nothing_failed", data: { why: w } });
     expect(await runRetry({ ...failed, id: "w1" }, "why", deps(why("running")), translate)).toBe("retry.running");
