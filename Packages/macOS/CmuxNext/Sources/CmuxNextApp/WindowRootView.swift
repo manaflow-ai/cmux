@@ -94,6 +94,8 @@ final class WindowRootView: NSView, WindowSurfacePainting {
             needsLayout = true
         }
     }
+    /// The window's saved picture over this view while the launch builds it under it (p08-startup-060); nil once gone.
+    var launchPicture: LaunchPictureCover?
     /// The right sidebar's on-screen width (0 while hidden): the main pane
     /// is inset by it (`applyMainPane`).
     var rightPanelWidth: CGFloat = 0 {
@@ -256,6 +258,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         // Every frame is final here: the shade follows the card even when the
         // shade's own autoresizing landed after the card's frame change.
         updateMainPaneShade()
+        if launchPicture?.layout() == false { launchPicture = nil }
         // The band starts after the traffic lights (which never move) and is
         // as wide as the sidebar's on-screen share: 0 wide, with no gap
         // after the lights, while the sidebar is hidden (cx-uxdr).

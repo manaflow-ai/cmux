@@ -140,8 +140,9 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         observeSidebarHidden()
         followContentChanges()
         if rightSidebar.isVisible { showRightSidebar() }
-        // From the next turn: the manager registers this window and shows its first workspace first.
-        services.mainWork.post(.visible, owner: "WindowController.followWorkspace") { [weak self] in self?.observeWorkspace() }
+        // From the next turn: the manager registers this window and shows its first workspace first; under the launch
+        // picture the manager's afterFirstFrame post starts it (p08-startup-060).
+        services.mainWork.post(.visible, owner: "WindowController.followWorkspace") { [weak self] in if self?.root.launchPicture == nil { self?.observeWorkspace() } }
     }
 
     @available(*, unavailable)
