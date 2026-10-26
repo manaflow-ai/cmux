@@ -56,6 +56,8 @@ public final class MainWakeUpQueue: Sendable {
         /// The sub-second leeway of new entries (the energy policy's `wakeAlignment`; the heap holds the grid).
         var alignment: Duration
         var energyObservation: EnergyPolicyObservation?
+        /// Fires that ran more than one entry (``coalescedFires``).
+        var coalescedFires: UInt64 = 0
     }
 
     /// The timer is armed with the lock held, so two inserts on different threads can not arm in the
@@ -118,6 +120,11 @@ public final class MainWakeUpQueue: Sendable {
     /// entry: the next-fire value an idle period ends before (Blink's `IdleHelper` asks the same of its
     /// thread's `NextScheduledRunTime`).
     var armedDate: UInt64? { state.withLock { $0.armed?.date } }
+
+    /// Fires that ran more than one entry since launch: the wakes alignment saved (`debug.energy`). A
+    /// queue count, not a ledger record: it is not a wake, and the ledger's `fire` record already counts
+    /// each wake once.
+    public var coalescedFires: UInt64 { state.withLock { $0.coalescedFires } }
 
     /// Runs `action` on the main thread `delay` from now, in the window ``WakeLeeway`` gives `delay` and
     /// `policy` at the energy policy's alignment. Callable from any thread.
@@ -238,11 +245,16 @@ public final class MainWakeUpQueue: Sendable {
         }
         ledger.record(Self.ledgerOwner, reason: "fire")
         var owners = Set<String>()
+        var ran = 0
         while let entry = popDue(at: now) {
             if owners.insert(entry.owner).inserted { ledger.record(entry.owner, reason: "deadline") }
+            ran += 1
             entry.payload()
         }
-        state.withLock { rearm(&$0) }
+        state.withLock { state in
+            if ran > 1 { state.coalescedFires &+= 1 }
+            rearm(&state)
+        }
     }
 
     /// Pops the next entry due at `now` and arms the timer for what is left.
