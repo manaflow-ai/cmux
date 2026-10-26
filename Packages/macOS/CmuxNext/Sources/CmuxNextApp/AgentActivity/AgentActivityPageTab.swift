@@ -2,7 +2,9 @@ import AppKit
 import CmuxNextAgentActivity
 import CmuxNextBrowser
 import CmuxNextIcons
+import CmuxNextControl
 import CmuxNextPages
+import CmuxNextWakeups
 import Foundation
 import Observation
 
@@ -26,11 +28,17 @@ final class AgentActivityPageTab: BrowserTab {
     @ObservationIgnored let model: AgentActivityModel
     @ObservationIgnored let contentView: NSView
     @ObservationIgnored var onNavigate: ((URL) -> Void)?
-    /// The scroll position a hibernation saved, for the rebuilt page's first show.
-    @ObservationIgnored let scrollRestore = BrowserAppPageScroll()
+    /// The document scroll a hibernation saved, until the rebuilt document painted and ran it.
+    @ObservationIgnored var savedScroll: BrowserAppPageState.Point?
+    /// A woken page's last picture over its document until the document paints (`BrowserWakeStandIn`).
+    @ObservationIgnored var standIn: NSView?
+    /// Takes the picture away at the stand-in's cap when the document never painted.
+    @ObservationIgnored let standInCap: MainDeadline
 
-    init(id: BrowserTabID, engine: BrowserEngineKind, profile: BrowserProfileID, source: any AgentActivitySource, webUI: WebUIHost) {
+    init(id: BrowserTabID, engine: BrowserEngineKind, profile: BrowserProfileID, source: any AgentActivitySource, webUI: WebUIHost,
+         deadlines: MainDeadlineScheduler) {
         self.id = id
+        standInCap = MainDeadline(owner: "AgentActivityPageTab.standIn", workClass: .visible, scheduler: deadlines)
         self.engineKind = engine
         self.profileID = profile
         var state = BrowserTabState(url: AgentActivityPageAddress.url, title: AgentActivityPaneStrings.title)
@@ -63,10 +71,16 @@ final class AgentActivityPageTab: BrowserTab {
 
     func setContentVisible(_ visible: Bool) {
         contentView.isHidden = !visible
-        if visible { scrollRestore.pageDidShow(contentView) } else { scrollRestore.pageDidHide() }
     }
 
     func snapshot() async throws -> CGImage {
+        // A hidden web view draws nothing into an AppKit cache: its engine pictures it.
+        if let page = contentView as? PageWebView {
+            guard let image = await page.snapshot()?.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+                throw BrowserTabError.snapshotUnavailable
+            }
+            return image
+        }
         guard let rep = contentView.bitmapImageRepForCachingDisplay(in: contentView.bounds) else { throw BrowserTabError.snapshotUnavailable }
         contentView.cacheDisplay(in: contentView.bounds, to: rep)
         guard let image = rep.cgImage else { throw BrowserTabError.snapshotUnavailable }
@@ -85,23 +99,80 @@ final class AgentActivityPageTab: BrowserTab {
     /// Closed or discarded: the model's pushes stop (the host stops sending sessions and events),
     /// then the page goes.
     func close() {
-        scrollRestore.cancel()
+        savedScroll = nil
+        removeStandIn()
         model.stop()
         (contentView as? PageWebView)?.close()
     }
 }
 
-/// Hibernates as a web page does (`memoryDiscardPageTabs`): the filter, the selected session and
-/// the native list's scroll go with the tab; the rebuilt page starts a new model.
+/// Hibernates as a web page does (`memoryDiscardPageTabs`): the filter and the selected session
+/// (the model's, which the page reads when it starts) and the document's scroll go with the tab;
+/// the rebuilt page starts a new model.
 extension AgentActivityPageTab: BrowserAppPage {
-    func saveViewState() -> BrowserAppPageState {
-        BrowserAppPageState(url: state.url ?? AgentActivityPageAddress.url, scroll: BrowserAppPageScroll.origin(in: contentView),
-                            search: model.filter, selection: model.selectedSessionID)
+    var pageAddress: URL { state.url ?? AgentActivityPageAddress.url }
+    /// A web engine draws it once its document loads.
+    var drawsInFirstFrame: Bool { false }
+
+    func saveViewState() async -> BrowserAppPageState {
+        var scroll = savedScroll
+        if scroll == nil { scroll = await documentScroll() }
+        return BrowserAppPageState(url: pageAddress, scroll: scroll, search: model.filter, selection: model.selectedSessionID)
     }
 
     func restoreViewState(_ saved: BrowserAppPageState) {
         if let search = saved.search { model.filter = search }
         if let session = saved.selection { model.select(session: session) }
-        scrollRestore.restore(saved.scroll)
+        savedScroll = saved.scroll
+        guard let scroll = saved.scroll, scroll.x.isFinite, scroll.y.isFinite, let page = contentView as? PageWebView else { return }
+        // The document scrolls once it painted (WebKit and Chromium scroll a page in its renderer).
+        page.whenPainted { [weak self, weak page] in
+            guard let self, let page, self.savedScroll == scroll else { return }
+            page.evaluate("window.scrollTo(\(scroll.x), \(scroll.y));")
+            self.savedScroll = nil
+        }
+    }
+
+    /// The document's scroll, read within 2 s; nil for the old WebKit view or a page that does not answer.
+    private func documentScroll() async -> BrowserAppPageState.Point? {
+        guard let page = contentView as? PageWebView else { return nil }
+        let point = try? await ControlDeadline.shared.run(method: "pages.discard.scroll", deadline: .now + .seconds(2)) { @MainActor in
+            await page.documentScroll()
+        }
+        return point.map { BrowserAppPageState.Point(x: Double($0.x), y: Double($0.y)) }
+    }
+}
+
+/// A woken page's last frame over its rebuilt document until the document paints, at most `cap`,
+/// as a woken web page's (`WebKitTab+WakeStandIn`). The old WebKit view has no paint signal and a
+/// Chromium page draws in the engine's own view: those wakes count as uncovered.
+extension AgentActivityPageTab: BrowserWakeStandIn {
+    @discardableResult
+    func showStandIn(_ picture: CGImage, decoded: Bool, cap: Duration, clock: any Clock<Duration>) -> Bool {
+        guard let page = contentView as? PageWebView, !page.showsChromium else { return false }
+        removeStandIn()
+        // Pixels already decoded cover the page from the swap's first frame.
+        let view = decoded ? BrowserPictureView(decoded: picture) : BrowserPictureView(picture: { picture })
+        view.frame = page.bounds
+        view.autoresizingMask = [.width, .height]
+        page.addSubview(view, positioned: .above, relativeTo: nil)
+        standIn = view
+        // The cap of a stand-in, not a poll; the paint or a close cancels it. It runs on the app's
+        // deadline scheduler, not on `clock` (a test's manual clock drives WebKit tabs only).
+        standInCap.schedule(after: cap) { [weak self, weak view] in
+            guard let self, let view, self.standIn === view else { return }
+            self.removeStandIn()
+        }
+        page.whenPainted { [weak self, weak view] in
+            guard let self, let view, self.standIn === view else { return }
+            self.removeStandIn()
+        }
+        return true
+    }
+
+    func removeStandIn() {
+        standInCap.cancel()
+        standIn?.removeFromSuperview()
+        standIn = nil
     }
 }

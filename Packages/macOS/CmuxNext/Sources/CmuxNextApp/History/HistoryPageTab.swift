@@ -70,10 +70,17 @@ final class HistoryPageTab: BrowserTab {
         contentView.isHidden = !visible
         // The React page stays current from the owner's change events; the native one re-reads.
         if visible, webPage == nil { model.reload() }
-        if visible { scrollRestore.pageDidShow(contentView) } else { scrollRestore.pageDidHide() }
+        if visible { showSavedScroll() } else { scrollRestore.pageDidHide() }
     }
 
     func snapshot() async throws -> CGImage {
+        // A hidden web view draws nothing into an AppKit cache: its engine pictures it.
+        if let webPage {
+            guard let image = await webPage.snapshot()?.cgImage(forProposedRect: nil, context: nil, hints: nil) else {
+                throw BrowserTabError.snapshotUnavailable
+            }
+            return image
+        }
         guard let rep = contentView.bitmapImageRepForCachingDisplay(in: contentView.bounds) else { throw BrowserTabError.snapshotUnavailable }
         contentView.cacheDisplay(in: contentView.bounds, to: rep)
         guard let image = rep.cgImage else { throw BrowserTabError.snapshotUnavailable }
@@ -100,20 +107,30 @@ final class HistoryPageTab: BrowserTab {
 }
 
 /// Hibernates as a web page does (`memoryDiscardPageTabs`): the native page's search, selection
-/// and scroll go with the tab; the React page keeps none (it reads its state again when built).
+/// and the scroll of its list go with the tab. The React page keeps its search in its document,
+/// which no request reads, so it does not hibernate.
 extension HistoryPageTab: BrowserAppPage {
-    func saveViewState() -> BrowserAppPageState {
-        let url = state.url ?? HistoryPageAddress.url
-        guard webPage == nil else { return BrowserAppPageState(url: url) }
-        return BrowserAppPageState(url: url, scroll: BrowserAppPageScroll.origin(in: contentView), search: model.text,
-                                   selection: model.selection)
+    var pageAddress: URL { state.url ?? HistoryPageAddress.url }
+    var supportsHibernation: Bool { webPage == nil }
+    var drawsInFirstFrame: Bool { webPage == nil }
+
+    func saveViewState() async -> BrowserAppPageState {
+        BrowserAppPageState(url: pageAddress, scroll: scrollRestore.position(of: listScrollView), search: model.text,
+                            selection: model.selection)
     }
 
     func restoreViewState(_ saved: BrowserAppPageState) {
-        guard webPage == nil else { return }
         if let search = saved.search { model.text = search }
         model.selection = saved.selection
         scrollRestore.restore(saved.scroll)
+    }
+
+    /// The page's one list: its entries.
+    private var listScrollView: NSScrollView? { BrowserAppPageScroll.listScrollView(in: contentView) }
+
+    /// A saved scroll goes back once the list holds it; the entries load after the show.
+    private func showSavedScroll() {
+        scrollRestore.pageDidShow(list: { [weak self] in self?.listScrollView }, hasRows: { [model] in !model.groups.isEmpty })
     }
 }
 

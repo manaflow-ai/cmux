@@ -667,8 +667,9 @@ final class BrowserHibernation {
                                                             doubted: doubted) }
                 mayAsk = probe.unloadHandler
             }
-            // A page that stays needs no picture (each replan probes it again).
-            let snapshot = exemption == nil ? await self?.snapshot(tab, key: key) : nil
+            // A page that stays needs no picture (each replan probes it again); a cmux page saves its view state too.
+            let (snapshot, viewState): (HibernationSnapshots.Picture?, BrowserAppPageState?) = exemption == nil
+                ? (await self?.snapshot(tab, key: key), await (tab as? any BrowserAppPage)?.saveViewState()) : (nil, nil)
             guard let self else { return }
             // The page's beforeunload handlers run last, only when nothing else keeps it, still hidden
             // and about to go, and at most once while it stays hidden (`askedBeforeUnload`).
@@ -692,7 +693,7 @@ final class BrowserHibernation {
                 self.probeKeptAt[key] = .now
                 return
             }
-            guard let state = source.hibernationState() else {
+            guard let state = viewState.map(BrowserRestoreState.appPage) ?? source.hibernationState() else {
                 self.exemptions[key] = .unsupported
                 return
             }

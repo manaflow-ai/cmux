@@ -80,21 +80,29 @@ extension CEFTab: BrowserHibernationSource {
 /// (content/public/browser/navigation_entry.h) and loads the tab again when it shows
 /// (chrome/browser/resource_coordinator/tab_lifecycle_unit.cc).
 public protocol BrowserAppPage: BrowserHibernationSource {
-    /// The page's address and what it shows besides: search text, selection, scroll.
-    @MainActor func saveViewState() -> BrowserAppPageState
+    /// The page's `cmux://` address.
+    @MainActor var pageAddress: URL { get }
+    /// The page draws its content in its first frame (a native view): its wake needs no picture
+    /// over it. A page in a web engine paints after its document loads, so its wake shows the
+    /// stand-in (`BrowserWakeStandIn`) or counts as uncovered.
+    @MainActor var drawsInFirstFrame: Bool { get }
+    /// The page's address and what it shows besides: search text, selection, scroll. Asked right
+    /// before the page goes; a page in a web engine reads its document (bounded).
+    @MainActor func saveViewState() async -> BrowserAppPageState
     /// Puts `state` back on this page, built again after a hibernation.
     @MainActor func restoreViewState(_ state: BrowserAppPageState)
 }
 
 extension BrowserAppPage {
-    /// A cmux page can always be built again; the App's `memoryDiscardPageTabs` decides whether it hibernates.
+    /// A cmux page can be built again; the App's `memoryDiscardPageTabs` decides whether it hibernates.
     public var supportsHibernation: Bool { true }
     /// A cmux page is never a form submission's result.
     public var showsFormSubmission: Bool { false }
     /// A cmux page shows no web notifications.
     public var allowsNotifications: Bool { false }
 
-    public func hibernationState() -> BrowserRestoreState? { .appPage(saveViewState()) }
+    /// Its address only: the hibernation asks ``saveViewState()`` for the rest.
+    public func hibernationState() -> BrowserRestoreState? { .appPage(BrowserAppPageState(url: pageAddress)) }
 }
 
 /// What a hibernated cmux page (`BrowserAppPage`) gets back when it is built again: the same

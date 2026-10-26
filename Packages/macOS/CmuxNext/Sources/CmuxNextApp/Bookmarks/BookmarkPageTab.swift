@@ -56,7 +56,7 @@ final class BookmarkPageTab: BrowserTab {
     func setContentVisible(_ visible: Bool) {
         contentView.isHidden = !visible
         if visible { model.reload() }
-        if visible { scrollRestore.pageDidShow(contentView) } else { scrollRestore.pageDidHide() }
+        if visible { showSavedScroll() } else { scrollRestore.pageDidHide() }
     }
 
     func snapshot() async throws -> CGImage {
@@ -79,16 +79,27 @@ final class BookmarkPageTab: BrowserTab {
 }
 
 /// Hibernates as a web page does (`memoryDiscardPageTabs`): the shown folder, the search and the
-/// scroll go with the tab.
+/// scroll of the bookmark list go with the tab.
 extension BookmarkPageTab: BrowserAppPage {
-    func saveViewState() -> BrowserAppPageState {
-        BrowserAppPageState(url: state.url ?? BookmarkPageAddress.url, scroll: BrowserAppPageScroll.origin(in: contentView),
-                            search: model.query, selection: model.folder)
+    var pageAddress: URL { state.url ?? BookmarkPageAddress.url }
+    var drawsInFirstFrame: Bool { true }
+
+    func saveViewState() async -> BrowserAppPageState {
+        BrowserAppPageState(url: pageAddress, scroll: scrollRestore.position(of: listScrollView), search: model.query,
+                            selection: model.folder)
     }
 
     func restoreViewState(_ saved: BrowserAppPageState) {
         if let folder = saved.selection { model.folder = folder }
         if let search = saved.search { model.query = search }
         scrollRestore.restore(saved.scroll)
+    }
+
+    /// The bookmark list (a `List`), not the folder sidebar beside it (a `ScrollView`).
+    private var listScrollView: NSScrollView? { BrowserAppPageScroll.listScrollView(in: contentView) }
+
+    /// A saved scroll goes back once the list holds it.
+    private func showSavedScroll() {
+        scrollRestore.pageDidShow(list: { [weak self] in self?.listScrollView }, hasRows: { [model] in !model.rows.isEmpty })
     }
 }

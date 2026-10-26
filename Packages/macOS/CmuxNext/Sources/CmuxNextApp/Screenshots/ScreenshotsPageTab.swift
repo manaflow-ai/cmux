@@ -66,7 +66,7 @@ final class ScreenshotsPageTab: BrowserTab {
 
     func setContentVisible(_ visible: Bool) {
         view.isHidden = !visible
-        if visible { scrollRestore.pageDidShow(view) } else { scrollRestore.pageDidHide() }
+        if visible { showSavedScroll() } else { scrollRestore.pageDidHide() }
     }
 
     func snapshot() async throws -> CGImage {
@@ -99,14 +99,22 @@ final class ScreenshotsPageTab: BrowserTab {
 /// Hibernates as a web page does (`memoryDiscardPageTabs`): the shown folder, the file name filter
 /// and the grid's scroll go with the tab; its watches and reads stop with `close()`.
 extension ScreenshotsPageTab: BrowserAppPage {
-    func saveViewState() -> BrowserAppPageState {
-        BrowserAppPageState(url: state.url ?? ScreenshotsPageAddress.url, scroll: BrowserAppPageScroll.origin(in: view),
-                            search: model.query, selection: model.selectedSourceID)
+    var pageAddress: URL { state.url ?? ScreenshotsPageAddress.url }
+    var drawsInFirstFrame: Bool { true }
+
+    func saveViewState() async -> BrowserAppPageState {
+        BrowserAppPageState(url: pageAddress, scroll: scrollRestore.position(of: view.grid.tilesScrollView), search: model.query,
+                            selection: model.selectedSourceID)
     }
 
     func restoreViewState(_ saved: BrowserAppPageState) {
         if let search = saved.search { model.query = search }
         model.selectedSourceID = saved.selection
         scrollRestore.restore(saved.scroll)
+    }
+
+    /// A saved scroll goes back once the grid holds it; the files are listed after the show.
+    private func showSavedScroll() {
+        scrollRestore.pageDidShow(list: { [weak self] in self?.view.grid.tilesScrollView }, hasRows: { [model] in !model.visibleItems.isEmpty })
     }
 }

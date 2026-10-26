@@ -70,8 +70,8 @@ extension BrowserHibernation {
     func candidate(_ key: String, entry: BrowserEntry, hiddenFor: Double, now: ContinuousClock.Instant = .now) -> HibernationPlanner.Candidate {
         let tab = entry.tab
         let capturing = (tab as? any PageInfoProviding).map { !$0.pageInfoInUse.union($0.pageInfoActivity.inUse).isEmpty } ?? false
-        // A cmux page restores when `memoryDiscardPageTabs` is on (`discardsAppPages`).
-        let restores = tab is any BrowserAppPage ? discardsAppPages : (tab as? any BrowserHibernationSource)?.supportsHibernation ?? false
+        // A cmux page restores only when `memoryDiscardPageTabs` is on (`discardsAppPages`).
+        let restores = (tab as? any BrowserHibernationSource)?.supportsHibernation == true && (discardsAppPages || !(tab is any BrowserAppPage))
         var candidate = HibernationPlanner.Candidate(
             key: key, hiddenFor: hiddenFor, host: tab.state.url?.host(), isPinned: isPinned(key),
             hasDevTools: (tab as? any BrowserDevToolsHosting)?.devTools.isOpen ?? false, isCapturing: capturing,

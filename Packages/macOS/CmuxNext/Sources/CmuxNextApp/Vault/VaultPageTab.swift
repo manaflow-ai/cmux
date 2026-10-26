@@ -58,7 +58,7 @@ final class VaultPageTab: BrowserTab {
     func setContentVisible(_ visible: Bool) {
         contentView.isHidden = !visible
         if visible { reload() }
-        if visible { scrollRestore.pageDidShow(contentView) } else { scrollRestore.pageDidHide() }
+        if visible { showSavedScroll() } else { scrollRestore.pageDidHide() }
     }
 
     func snapshot() async throws -> CGImage {
@@ -80,17 +80,26 @@ final class VaultPageTab: BrowserTab {
     func close() { scrollRestore.cancel() }
 }
 
-/// Hibernates as a web page does (`memoryDiscardPageTabs`): the list's scroll goes with the tab;
-/// its search and picked row live on the vault the rebuilt page shows again, and are saved too.
+/// Hibernates as a web page does (`memoryDiscardPageTabs`): the list's scroll goes with the tab.
+/// Its search and picked row live on the app's one vault, which the right sidebar and every vault
+/// tab show and which outlives the page: a wake leaves them as they are now.
 extension VaultPageTab: BrowserAppPage {
-    func saveViewState() -> BrowserAppPageState {
-        BrowserAppPageState(url: state.url ?? VaultPageAddress.url, scroll: BrowserAppPageScroll.origin(in: contentView),
-                            search: vault.filter, selection: vault.selection)
+    var pageAddress: URL { state.url ?? VaultPageAddress.url }
+    var drawsInFirstFrame: Bool { true }
+
+    func saveViewState() async -> BrowserAppPageState {
+        BrowserAppPageState(url: pageAddress, scroll: scrollRestore.position(of: listScrollView))
     }
 
     func restoreViewState(_ saved: BrowserAppPageState) {
-        if let search = saved.search { vault.filter = search }
-        if let selection = saved.selection { vault.selection = selection }
         scrollRestore.restore(saved.scroll)
+    }
+
+    /// The session list, the page's one scroll view.
+    private var listScrollView: NSScrollView? { BrowserAppPageScroll.soleScrollView(in: contentView) }
+
+    /// A saved scroll goes back once the list holds it; the sessions load after the show.
+    private func showSavedScroll() {
+        scrollRestore.pageDidShow(list: { [weak self] in self?.listScrollView }, hasRows: { [vault] in !vault.shownRows.isEmpty })
     }
 }
