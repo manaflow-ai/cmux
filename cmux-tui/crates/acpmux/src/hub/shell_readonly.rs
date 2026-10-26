@@ -997,6 +997,8 @@ mod tests {
             &[("remote.origin.uploadpack", "/tmp/x")],
             // A lazy fetch writes objects and runs the transport.
             &[("remote.origin.promisor", "true")],
+            // A signature sort key verifies with gpg (`git branch`).
+            &[("branch.sort", "signature:grade")],
         ] {
             let dir = repo(config);
             assert!(
@@ -1016,7 +1018,11 @@ mod tests {
         let dir = repo(&[("core.fsmonitor", "true")]);
         assert!(!request_is_read_only(&execute(json!("git status")), &dir, &system_env()));
         std::fs::remove_dir_all(dir).unwrap();
-        let dir = repo(&[("core.fsmonitor", "false"), ("remote.origin.url", "/x")]);
+        let dir = repo(&[
+            ("core.fsmonitor", "false"),
+            ("remote.origin.url", "/x"),
+            ("branch.sort", "-committerdate"),
+        ]);
         assert!(request_is_read_only(&execute(json!("git status")), &dir, &system_env()));
         std::fs::remove_dir_all(dir).unwrap();
     }
@@ -1203,6 +1209,7 @@ mod tests {
             "[format]\n\tpretty = format:%G?\n",
             "[lfs]\n\tstandalonetransferagent = probe\n",
             "[interactive]\n\tdiffFilter = /tmp/hook\n",
+            "[tag]\n\tsort = signature:grade\n",
         ] {
             std::fs::write(home.join(".gitconfig"), config).unwrap();
             assert!(!reads("git diff"), "{config}");
