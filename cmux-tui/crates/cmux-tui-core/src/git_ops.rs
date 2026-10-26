@@ -87,6 +87,18 @@ pub(crate) fn handles(operation: ResourceOperation) -> bool {
     ) || checkpoint::handles(operation)
 }
 
+/// Answers a git request of a control connection through `reply`: the
+/// encoded response envelope, or the error that still needs one (as
+/// [`crate::resource_router::handle_parsed_resource_request`] returns).
+pub(crate) fn answer(
+    mux: &Arc<Mux>,
+    request: ParsedResourceRequest,
+    reply: impl FnOnce(Result<Value, ResourceError>) + Send + 'static,
+) {
+    debug_assert!(handles(request.envelope.operation));
+    reply(crate::resource_router::handle_parsed_resource_request(mux, request));
+}
+
 pub(crate) fn dispatch(
     mux: &Arc<Mux>,
     request: ParsedResourceRequest,

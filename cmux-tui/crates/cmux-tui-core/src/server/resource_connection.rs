@@ -296,6 +296,19 @@ pub(super) fn handle_resource_connection_message(
         ResourceOperation::OriginConfirmationIssue => {
             origin_gate::handle_issue(mux, client, &request, id, writer)
         }
+        operation if crate::git_ops::handles(operation) => {
+            let (reply_mux, reply_writer) = (mux.clone(), writer.clone());
+            crate::git_ops::answer(mux, request, move |handled| match handled {
+                Ok(response) => {
+                    activity::note_resource_input(&reply_mux, client, operation, &response);
+                    let _ = reply_writer.send_control(&response);
+                }
+                Err(error) => {
+                    send_resource_response(&reply_writer, id, operation, Err(error));
+                }
+            });
+            true
+        }
         _ => {
             debug_assert!(
                 !crate::resource_router::requires_connection_context(request.envelope.operation),
