@@ -23,135 +23,6 @@ func privateSelector(_ name: String) -> Selector {
     NSSelectorFromString(name)
 }
 
-/// A method's Objective-C type encoding (`method_getTypeEncoding`, Apple's
-/// "Type Encodings"), without qualifiers and frame offsets: what it returns
-/// and what each argument after `self` and `_cmd` is.
-struct PrivateSignature: Equatable {
-    /// How one value travels in a call: the property a function type and an
-    /// implementation must agree on for the call to read what was passed.
-    enum Kind: Equatable {
-        case void
-        /// An Objective-C object, class or block (`@`, `#`, `@?`).
-        case object
-        /// A C pointer (`^`, `*`).
-        case pointer
-        case selector
-        /// An integer of this many bytes (`B c C s S i I l L q Q`; `l` and `L`
-        /// are 32-bit in every Objective-C ABI, `long` is encoded `q`).
-        case integer(bytes: Int)
-        case float
-        case double
-        /// A C struct by its tag (`{CGSize=dd}` is `CGSize`).
-        case structure(String)
-        case other
-    }
-
-    /// The return type's code (`d`, `@`, `{CGSize=dd}`, ...).
-    let returns: String
-    /// The argument codes after `self` and `_cmd`.
-    let arguments: [String]
-
-    private static let qualifiers: Set<Character> = ["r", "n", "N", "o", "O", "R", "V", "A"]
-
-    /// Parses a method type encoding such as `@24@0:8@16`; nil when it is
-    /// not one (no `self` and `_cmd`, or a type that does not end).
-    init?(encoding: String) {
-        let codes = Array(encoding)
-        var types: [String] = []
-        var index = 0
-        while index < codes.count {
-            var start = index
-            while start < codes.count, Self.qualifiers.contains(codes[start]) { start += 1 }
-            guard let end = Self.typeEnd(codes, from: start) else { return nil }
-            types.append(String(codes[start..<end]))
-            index = end
-            // The frame size after the return type, the offset after each argument.
-            if index < codes.count, codes[index] == "-" { index += 1 }
-            while index < codes.count, codes[index].isASCII, codes[index].isNumber { index += 1 }
-        }
-        guard types.count >= 3, Self.kind(of: types[1]) == .object, types[2] == ":" else { return nil }
-        returns = types[0]
-        arguments = Array(types[3...])
-    }
-
-    /// The index after the one type that starts at `start`.
-    private static func typeEnd(_ codes: [Character], from start: Int) -> Int? {
-        guard start < codes.count else { return nil }
-        switch codes[start] {
-        case "^":
-            var pointee = start + 1
-            while pointee < codes.count, qualifiers.contains(codes[pointee]) { pointee += 1 }
-            return typeEnd(codes, from: pointee)
-        case "@":
-            var end = start + 1
-            if end < codes.count, codes[end] == "?" {
-                end += 1
-                // An extended block signature: @?<v@?@>.
-                if end < codes.count, codes[end] == "<" { return closing(codes, from: end, open: "<", close: ">") }
-                return end
-            }
-            // An extended object type: @"NSString".
-            if end < codes.count, codes[end] == "\"" {
-                guard let quote = codes[(end + 1)...].firstIndex(of: "\"") else { return nil }
-                end = quote + 1
-            }
-            return end
-        case "{": return closing(codes, from: start, open: "{", close: "}")
-        case "(": return closing(codes, from: start, open: "(", close: ")")
-        case "[": return closing(codes, from: start, open: "[", close: "]")
-        case "b":
-            var end = start + 1
-            while end < codes.count, codes[end].isASCII, codes[end].isNumber { end += 1 }
-            return end
-        default:
-            return start + 1
-        }
-    }
-
-    /// The index after the `close` that matches the `open` at `start`.
-    private static func closing(_ codes: [Character], from start: Int, open: Character, close: Character) -> Int? {
-        var depth = 0
-        for index in start..<codes.count {
-            if codes[index] == open { depth += 1 }
-            if codes[index] == close {
-                depth -= 1
-                if depth == 0 { return index + 1 }
-            }
-        }
-        return nil
-    }
-
-    static func kind(of code: String) -> Kind {
-        guard let first = code.first else { return .other }
-        switch first {
-        case "v": return .void
-        case "@", "#": return .object
-        case "^", "*": return .pointer
-        case ":": return .selector
-        case "B", "c", "C": return .integer(bytes: 1)
-        case "s", "S": return .integer(bytes: 2)
-        case "i", "I", "l", "L": return .integer(bytes: 4)
-        case "q", "Q": return .integer(bytes: 8)
-        case "f": return .float
-        case "d": return .double
-        case "{": return .structure(String(code.dropFirst().prefix { $0 != "=" && $0 != "}" }))
-        default: return .other
-        }
-    }
-
-    /// Whether `code` travels as `expected`. A Core Foundation reference
-    /// (`^{__IOSurface=}`) is an object: CF types are Objective-C objects.
-    static func matches(_ code: String, _ expected: Kind) -> Bool {
-        kind(of: code) == expected || (expected == .object && code.hasPrefix("^{__"))
-    }
-
-    /// Whether the method returns `returns` and takes exactly `arguments` after `self` and `_cmd`.
-    func matches(returns expected: Kind, arguments expectedArguments: [Kind]) -> Bool {
-        Self.matches(returns, expected) && arguments.count == expectedArguments.count
-            && zip(arguments, expectedArguments).allSatisfy { Self.matches($0, $1) }
-    }
-}
-
 /// A method an object (or a class) answers: its selector, its implementation
 /// and its signature.
 struct PrivateMethod {
@@ -159,29 +30,44 @@ struct PrivateMethod {
     let signature: PrivateSignature
     private let implementation: IMP
 
-    /// The instance method `name` of `target`; nil when `target` does not
-    /// answer it or the runtime gives no readable encoding for it.
+    private init(selector: Selector, signature: PrivateSignature, implementation: IMP) {
+        self.selector = selector
+        self.signature = signature
+        // SAFETY: stores the function pointer only; `function(_:returns:arguments:)` casts it.
+        unsafe self.implementation = implementation
+    }
+
+    /// The instance method `name` of `target`, its own or one it answers by
+    /// forwarding; nil when `target` does not answer it or no signature for
+    /// it can be read.
     init?(_ target: NSObject, _ name: String) {
         let selector = privateSelector(name)
-        guard target.responds(to: selector) else { return nil }
-        self.init(selector, of: type(of: target), classMethod: false)
+        guard target.responds(to: selector),
+              let found = Self.method(selector, of: type(of: target), classMethod: false)
+                ?? Self.forwarded(selector, of: target) else { return nil }
+        self = found
     }
 
     /// The instance method `name` of instances of `cls`, before there is one.
+    /// `class_respondsToSelector` counts only methods `cls` has, so there is
+    /// no forwarding to follow.
     init?(instanceMethod name: String, of cls: AnyClass) {
         let selector = privateSelector(name)
-        guard class_respondsToSelector(cls, selector) else { return nil }
-        self.init(selector, of: cls, classMethod: false)
+        guard class_respondsToSelector(cls, selector),
+              let found = Self.method(selector, of: cls, classMethod: false) else { return nil }
+        self = found
     }
 
     /// The class method `name` of `cls`.
     init?(classMethod name: String, of cls: AnyClass) {
         let selector = privateSelector(name)
-        guard let meta = object_getClass(cls), class_respondsToSelector(meta, selector) else { return nil }
-        self.init(selector, of: cls, classMethod: true)
+        guard let meta = object_getClass(cls), class_respondsToSelector(meta, selector),
+              let found = Self.method(selector, of: cls, classMethod: true) else { return nil }
+        self = found
     }
 
-    private init?(_ selector: Selector, of cls: AnyClass, classMethod: Bool) {
+    /// The method `cls` itself has for `selector`, with the runtime's encoding of it.
+    private static func method(_ selector: Selector, of cls: AnyClass, classMethod: Bool) -> PrivateMethod? {
         // SAFETY: a Method is the runtime's handle on one method of `cls`; method lists live as
         // long as their class, and a class is never unloaded once registered, so the handle and
         // the encoding it points to stay valid. Nothing here writes through it.
@@ -190,10 +76,72 @@ struct PrivateMethod {
               let types = unsafe method_getTypeEncoding(method),
               // SAFETY: String(cString:) copies the NUL-terminated encoding during the call.
               let signature = PrivateSignature(encoding: unsafe String(cString: types)) else { return nil }
-        self.selector = selector
-        self.signature = signature
         // SAFETY: as above, the handle of a method of a loaded class.
-        implementation = unsafe method_getImplementation(method)
+        return unsafe PrivateMethod(selector: selector, signature: signature, implementation: method_getImplementation(method))
+    }
+
+    private typealias ObjectForSelector = @convention(c) (AnyObject, Selector, Selector) -> AnyObject?
+    private typealias ArgumentCount = @convention(c) (AnyObject, Selector) -> UInt
+    private typealias ReturnType = @convention(c) (AnyObject, Selector) -> UnsafePointer<CChar>?
+    private typealias ArgumentType = @convention(c) (AnyObject, Selector, UInt) -> UnsafePointer<CChar>?
+
+    /// A selector `target` answers by forwarding, so its class has no Method
+    /// for it. Foundation forwards through `forwardingTargetForSelector:` or
+    /// through `methodSignatureForSelector:` and `forwardInvocation:`; the
+    /// signature comes from the same place, and the implementation is the
+    /// runtime's forwarding entry (`_objc_msgForward`, what
+    /// `class_getMethodImplementation` returns for such a selector), which
+    /// passes the call's registers on unchanged. A structure return is refused:
+    /// x86_64 forwards a large one through `_objc_msgForward_stret` instead.
+    private static func forwarded(_ selector: Selector, of target: NSObject) -> PrivateMethod? {
+        let receiver = forwardingTarget(selector, of: target) ?? target
+        guard let signature = method(selector, of: type(of: receiver), classMethod: false)?.signature
+                ?? messageSignature(selector, of: receiver) else { return nil }
+        if case .structure = PrivateSignature.kind(of: signature.returns) { return nil }
+        // SAFETY: the runtime's entry for `selector` on target's class, which lives as long as
+        // the runtime; nothing here calls it.
+        guard let forward = unsafe class_getMethodImplementation(type(of: target), selector) else { return nil }
+        // SAFETY: stores the entry only; function(_:returns:arguments:) checks `signature` first.
+        return unsafe PrivateMethod(selector: selector, signature: signature, implementation: forward)
+    }
+
+    /// The object `target` hands `selector` to (`forwardingTargetForSelector:`), if another.
+    private static func forwardingTarget(_ selector: Selector, of target: NSObject) -> NSObject? {
+        guard let asked = method(privateSelector("forwardingTargetForSelector:"), of: type(of: target), classMethod: false),
+              let call = asked.function(ObjectForSelector.self, returns: .object, arguments: [.selector]),
+              let other = call(target, asked.selector, selector) as? NSObject, other !== target else { return nil }
+        return other
+    }
+
+    /// The signature `methodSignatureForSelector:` gives for `selector` on
+    /// `target`, read from the NSMethodSignature's type strings (Swift does
+    /// not import NSMethodSignature); nil when it gives none.
+    static func messageSignature(_ selector: Selector, of target: NSObject) -> PrivateSignature? {
+        guard let asked = method(privateSelector("methodSignatureForSelector:"), of: type(of: target), classMethod: false),
+              let signatureFor = asked.function(ObjectForSelector.self, returns: .object, arguments: [.selector]),
+              let described = signatureFor(target, asked.selector, selector) else { return nil }
+        let cls: AnyClass = type(of: described)
+        guard let countMethod = method(privateSelector("numberOfArguments"), of: cls, classMethod: false),
+              let count = countMethod.function(ArgumentCount.self, returns: .integer(bytes: 8), arguments: []),
+              let returnMethod = method(privateSelector("methodReturnType"), of: cls, classMethod: false),
+              // SAFETY: only resolves the function; see the call below.
+              let returnType = unsafe returnMethod.function(ReturnType.self, returns: .pointer, arguments: []),
+              let argumentMethod = method(privateSelector("getArgumentTypeAtIndex:"), of: cls, classMethod: false),
+              // SAFETY: only resolves the function; see the call below.
+              let argumentType = unsafe argumentMethod.function(ArgumentType.self, returns: .pointer, arguments: [.integer(bytes: 8)])
+        else { return nil }
+        // SAFETY: the type is a NUL-terminated string that `described`, held here, owns;
+        // String(cString:) copies it during the call.
+        guard let returned = unsafe returnType(described, returnMethod.selector).map({ unsafe String(cString: $0) }) else { return nil }
+        var encoding = returned
+        for index in 0..<count(described, countMethod.selector) {
+            // SAFETY: as above; `index` is below numberOfArguments, so the call does not raise.
+            guard let argument = unsafe argumentType(described, argumentMethod.selector, index).map({ unsafe String(cString: $0) }) else {
+                return nil
+            }
+            encoding += argument
+        }
+        return PrivateSignature(encoding: encoding)
     }
 
     /// The implementation called as `F`, a `@convention(c)` function type
@@ -203,8 +151,9 @@ struct PrivateMethod {
     /// off instead of being called with the wrong registers.
     func function<F>(_: F.Type, returns: PrivateSignature.Kind, arguments: [PrivateSignature.Kind]) -> F? {
         guard signature.matches(returns: returns, arguments: arguments) else { return nil }
-        // SAFETY: an IMP is a C function pointer of the method's own signature, and the runtime's
-        // encoding of this method has the return and argument kinds F spells (checked above; the
+        // SAFETY: an IMP is a C function pointer of the method's own signature (or the runtime's
+        // forwarding entry, which passes the registers on unchanged to the method that has it),
+        // and that signature has the return and argument kinds F spells (checked above; the
         // caller writes `returns` and `arguments` from F next to it), so every value F passes or
         // reads is where the implementation puts it. F and IMP are both one function pointer.
         return unsafe unsafeBitCast(implementation, to: F.self)

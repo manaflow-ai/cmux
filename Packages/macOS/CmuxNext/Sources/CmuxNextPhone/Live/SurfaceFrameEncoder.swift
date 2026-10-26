@@ -180,6 +180,7 @@ final class SurfaceFrameEncoder {
                 guard unsafe CMVideoFormatDescriptionGetH264ParameterSetAtIndex(
                     format, parameterSetIndex: index, parameterSetPointerOut: &pointer, parameterSetSizeOut: &size,
                     parameterSetCountOut: nil, nalUnitHeaderLengthOut: nil) == noErr,
+                    // SAFETY: copies the address Core Media wrote; nothing is read through it here.
                     let pointer = unsafe pointer else { continue }
                 out.append(contentsOf: startCode)
                 // SAFETY: `pointer` has `size` bytes (Core Media said so above) inside the format

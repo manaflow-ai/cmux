@@ -78,6 +78,39 @@ import Testing
         #expect(fixture.touched == 0)
     }
 
+    /// A receiver that answers through forwarding (`forwardingTargetForSelector:`, as a
+    /// CoreSimulator proxy may) has no Method for the selector on its class; the call goes
+    /// through the runtime's forwarding entry with the forwarded method's signature.
+    @Test func forwardedSelectorsAreCalled() {
+        let proxy = ForwardingFixture()
+        #expect(privateObject(proxy, "name") as? String == "phone")
+        #expect(privateNumber(proxy, "scale") == 3)
+        #expect(privateNumber(proxy, "count") == -7)
+        #expect(privateVoid(proxy, "touch"))
+        #expect(privateVoid(proxy, "take:", "forwarded" as NSString))
+        #expect(privateObjectWithError(proxy, "defaultDeviceSetWithError:") as? String == "set")
+        #expect(proxy.inner.touched == 1 && proxy.inner.taken == "forwarded")
+        // The shape check holds for a forwarded selector too; a structure return is refused.
+        #expect(privateObject(proxy, "scale") == nil)
+        #expect(!privateVoid(proxy, "touch", "x" as NSString))
+        #expect(privateSize(proxy, "size") == nil)
+        #expect(privateObject(proxy, "missing") == nil)
+        #expect(proxy.inner.touched == 1)
+    }
+
+    /// `methodSignatureForSelector:`'s type strings read as the same signature the method's
+    /// own encoding gives (the source for a selector forwarded through `forwardInvocation:`).
+    @Test(arguments: ["name", "scale", "count", "size", "touch", "take:", "defaultDeviceSetWithError:"])
+    func messageSignaturesMatchMethodEncodings(name: String) throws {
+        let fixture = PrivateCallsFixture()
+        let encoded = try #require(PrivateMethod(fixture, name)).signature
+        #expect(PrivateMethod.messageSignature(privateSelector(name), of: fixture) == encoded)
+    }
+
+    @Test func aMissingSelectorHasNoMessageSignature() {
+        #expect(PrivateMethod.messageSignature(privateSelector("missing"), of: PrivateCallsFixture()) == nil)
+    }
+
     /// The error out-parameter is written (or not) inside the local it points to.
     @Test func errorOutParametersStayLocal() {
         let fixture = PrivateCallsFixture()
@@ -202,6 +235,19 @@ private final class PrivateCallsFixture: NSObject {
     @objc(failingWithError:) func failing() throws -> NSString { throw CocoaError(.featureUnsupported) }
 
     @objc(sharedForDirectory:error:) class func shared(directory: NSString) throws -> NSString { directory }
+}
+
+/// An object that answers PrivateCallsFixture's selectors only by forwarding them to one.
+private final class ForwardingFixture: NSObject {
+    let inner = PrivateCallsFixture()
+
+    override func responds(to aSelector: Selector!) -> Bool {
+        super.responds(to: aSelector) || inner.responds(to: aSelector)
+    }
+
+    override func forwardingTarget(for aSelector: Selector!) -> Any? {
+        inner.responds(to: aSelector) ? inner : super.forwardingTarget(for: aSelector)
+    }
 }
 
 /// A class made the way SimulatorKit's legacy HID client is: alloc, then a throwing initializer.

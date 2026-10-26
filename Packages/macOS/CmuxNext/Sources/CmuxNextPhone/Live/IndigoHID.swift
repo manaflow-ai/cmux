@@ -53,19 +53,24 @@ struct IndigoBuilders {
 /// this side owns until `sendWithMessage:freeWhenDone:YES` takes it, freed on
 /// every other path (Chromium's `std::unique_ptr<T, base::FreeDeleter>`,
 /// base/memory/free_deleter.h).
+// SAFETY: the pointer is private, and no API gives it out except the consuming handOff(), so
+// one IndigoMessage is the only owner of its block until that call ends its life.
 @safe
 struct IndigoMessage: ~Copyable {
     private let bytes: UnsafeMutableRawPointer?
 
     /// Owns `built`, which must be nil or a malloc'd block nobody else owns.
     init(_ built: UnsafeMutableRawPointer?) {
+        // SAFETY: stores the pointer only; it is freed once, in deinit, or handed off.
         unsafe bytes = built
     }
 
     /// The message for a callee that frees it; this side no longer owns it.
     consuming func handOff() -> UnsafeMutableRawPointer? {
+        // SAFETY: copies the address only; the block is not read or freed here.
         let handed = unsafe bytes
         discard self
+        // SAFETY: `discard self` stopped deinit, so only the callee that takes `handed` frees it.
         return unsafe handed
     }
 
