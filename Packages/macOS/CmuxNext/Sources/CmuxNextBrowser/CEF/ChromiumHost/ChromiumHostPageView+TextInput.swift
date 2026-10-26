@@ -113,11 +113,15 @@ extension ChromiumHostPageView: NSTextInputClient {
         deliver(textInput.doCommand(NSStringFromSelector(selector)))
     }
 
-    /// Chrome's set: the underlines an input method marks clauses with. AppKit declares
-    /// `NSTextInputReplacementRangeAttributeName` as a plain string, so it imports as a global, not a key member.
+    /// Chrome's set: the underlines an input method marks clauses with, and the replacement range.
+    /// AppKit's `NSTextInputReplacementRangeAttributeName` does not import into Swift, so the key is
+    /// spelled by its value.
     public func validAttributesForMarkedText() -> [NSAttributedString.Key] {
-        [.underlineStyle, .underlineColor, .markedClauseSegment, NSAttributedString.Key(NSTextInputReplacementRangeAttributeName)]
+        [.underlineStyle, .underlineColor, .markedClauseSegment, Self.textInputReplacementRangeKey]
     }
+
+    /// `NSTextInputReplacementRangeAttributeName` (NSTextInputClient.h).
+    static let textInputReplacementRangeKey = NSAttributedString.Key("NSTextInputReplacementRangeAttributeName")
 
     // MARK: NSTextInputClient: questions, from pushed state only
 

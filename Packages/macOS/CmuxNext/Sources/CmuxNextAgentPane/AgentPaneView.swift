@@ -313,7 +313,7 @@ public final class AgentPaneView: NSView {
         transportPacer?.stop()
         removeContextMenu()
         page.close()
-        page.endDocument()
+        page.endPageDocument()
         removeFromSuperview()
     }
 
