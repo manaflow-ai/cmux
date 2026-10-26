@@ -1,5 +1,6 @@
 import CmuxNextBrowser
 import CmuxNextDaemon
+import CmuxNextWakeups
 import Foundation
 #if DEBUG
 import CmuxNextRemoteBrowser
@@ -65,38 +66,52 @@ struct MachineBrowserPages {
             return
         }
         page.phase = .starting(name)
-        let hosts = services.machineBrowserHosts
+        let hosts = services.machineBrowserHosts, mainWork = services.mainWork, url = page.queuedURL
         // task-owner: one browser start; ends with its answer (the daemon's deadline bounds it).
-        Task { [weak cache, weak page] in
-            let result = await hosts.start(machine, url: page?.queuedURL)
-            guard let cache, let page, cache.browsers[key]?.tab === page else {
-                // The tab closed or changed meanwhile: nothing shows this browser.
-                if case let .success(runtime) = result { hosts.stop(machine, runtime: runtime.runtime) }
+        // The start is awaited off the main thread; its answer, the rest of the person's open or Retry, is one
+        // userBlocking task.
+        Task { @concurrent [weak cache, weak page] in
+            let result = await hosts.start(machine, url: url)
+            mainWork.postFromAnyThread(.userBlocking, owner: "MachineBrowserPages.started") { [weak cache, weak page] in
+                MachineBrowserPages.started(result, on: machine, cache: cache, page: page, key: key, profile: profile,
+                                            name: name, services: services)
+            }
+        }
+    }
+
+    /// The machine's browser answered `start(_:key:profile:)`: the tab's page becomes the streamed page, or the
+    /// not-ready page says why.
+    private static func started(_ result: Result<BrowserRuntime, BrowserRuntimeError>, on machine: String,
+                                cache: TabContentCache?, page: MachineBrowserPageTab?, key: String, profile: BrowserProfileID,
+                                name: String, services: AppServices) {
+        let hosts = services.machineBrowserHosts
+        guard let cache, let page, cache.browsers[key]?.tab === page else {
+            // The tab closed or changed meanwhile: nothing shows this browser.
+            if case let .success(runtime) = result { hosts.stop(machine, runtime: runtime.runtime) }
+            return
+        }
+        switch result {
+        case let .success(runtime):
+            guard let tab = RemoteBrowserPages.machineTab(key: key, profile: profile, machine: machine, runtime: runtime,
+                                                           initialURL: page.queuedURL, services: services) else {
+                hosts.stop(machine, runtime: runtime.runtime)
+                page.phase = .failed(name, RemoteBrowserStrings.hostDidNotStart)
                 return
             }
-            switch result {
-            case let .success(runtime):
-                guard let tab = RemoteBrowserPages.machineTab(key: key, profile: profile, machine: machine, runtime: runtime,
-                                                               initialURL: page.queuedURL, services: services) else {
-                    hosts.stop(machine, runtime: runtime.runtime)
-                    page.phase = .failed(name, RemoteBrowserStrings.hostDidNotStart)
-                    return
-                }
-                page.handOverWakeCover(to: tab)
-                cache.swapPage(key, with: tab)
-            case .failure(.notInstalled):
-                page.phase = nil
-            case .failure(.unsupported):
-                page.phase = .tooOld(name)
-            case .failure(.unavailable) where services.machines.daemon(machine: machine)?.connection == nil:
-                page.phase = nil
-            case let .failure(error):
-                // The daemon's text starts with its own "did not start"; the page says that already.
-                let reason = error.description
-                let lead = "the browser did not start"
-                let detail = reason.hasPrefix(lead) ? reason.dropFirst(lead.count).drop { ": ".contains($0) } : Substring(reason)
-                page.phase = .failed(name, detail.isEmpty ? reason : String(detail))
-            }
+            page.handOverWakeCover(to: tab)
+            cache.swapPage(key, with: tab)
+        case .failure(.notInstalled):
+            page.phase = nil
+        case .failure(.unsupported):
+            page.phase = .tooOld(name)
+        case .failure(.unavailable) where services.machines.daemon(machine: machine)?.connection == nil:
+            page.phase = nil
+        case let .failure(error):
+            // The daemon's text starts with its own "did not start"; the page says that already.
+            let reason = error.description
+            let lead = "the browser did not start"
+            let detail = reason.hasPrefix(lead) ? reason.dropFirst(lead.count).drop { ": ".contains($0) } : Substring(reason)
+            page.phase = .failed(name, detail.isEmpty ? reason : String(detail))
         }
     }
     #endif

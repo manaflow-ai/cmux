@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextPhone
+import CmuxNextWakeups
 
 /// The phone actions (PhoneActionCatalog): palette, `cmux phone ...` and the
 /// `app_phone_*` MCP tools all run these, over the one ``PhoneService``.
@@ -13,19 +14,17 @@ enum PhoneHandlers {
         services.pages.register(page) // at launch, so a restored tab finds it
         services.phones.feedbackSink = services.phoneFeedback
 
-        func work(_ id: ActionID, _ body: @escaping @MainActor (ActionInvocation, PhoneService) async throws -> Void) {
+        let mainWork = services.mainWork
+        // Each action's simctl and devicectl runs are awaited off main; a refusal is the run's, in one task on main.
+        func work(_ id: ActionID, _ body: @escaping @MainActor @Sendable (ActionInvocation, PhoneService) async throws -> Void) {
             registry.bind(id, run: { invocation in
                 let phones = services.phones
-                registry.track(Task { @MainActor in
-                    do {
-                        try await body(invocation, phones)
-                        return nil
-                    } catch {
-                        let reason = (error as? PhoneError)?.description ?? String(describing: error)
-                        registry.refuse(reason)
-                        return ActionWorkFailure(stringLiteral: reason)
-                    }
-                })
+                registry.trackWork(owner: "PhoneHandlers.\(id.rawValue)", on: mainWork) {
+                    try await body(invocation, phones)
+                } then: { result in
+                    guard case .failure(let error) = result else { return nil }
+                    return refused(error, registry)
+                }
             })
         }
 
@@ -39,19 +38,16 @@ enum PhoneHandlers {
             try await phones.boot(try await device(invocation, phones).id)
         }
         /// Work that answers fields (`action.run` `result`), so the CLI and MCP get data back.
-        func answer(_ id: ActionID, _ body: @escaping @MainActor (ActionInvocation, PhoneService) async throws -> [String: ActionResultValue]) {
+        func answer(_ id: ActionID,
+                    _ body: @escaping @MainActor @Sendable (ActionInvocation, PhoneService) async throws -> [String: ActionResultValue]) {
             registry.bind(id, run: { invocation in
                 let phones = services.phones
-                // task-owner: the action run; a capturing caller awaits it through the registry.
-                registry.track(result: Task { @MainActor in
-                    do {
-                        return .success(try await body(invocation, phones))
-                    } catch {
-                        let reason = (error as? PhoneError)?.description ?? String(describing: error)
-                        registry.refuse(reason)
-                        return .failure(ActionWorkFailure(stringLiteral: reason))
-                    }
-                })
+                // A capturing caller awaits the answer through the registry.
+                registry.trackResultWork(owner: "PhoneHandlers.\(id.rawValue)", on: mainWork) {
+                    try await body(invocation, phones)
+                } then: { result in
+                    result.mapError { refused($0, registry) }
+                }
             })
         }
 
@@ -162,21 +158,18 @@ enum PhoneHandlers {
     /// at once, so a run with no phone tab is refused before any work starts.
     private static func bindShortcuts(into registry: ActionRegistry, context: AppActionContext) {
         let services = context.services
-        func shortcut(_ id: ActionID, _ body: @escaping @MainActor (PhoneDeviceID, PhoneService) async throws -> Void) {
+        let mainWork = services.mainWork
+        func shortcut(_ id: ActionID, _ body: @escaping @MainActor @Sendable (PhoneDeviceID, PhoneService) async throws -> Void) {
             registry.bind(id, run: { invocation in
                 guard let device = focusedPhone(invocation, context) else { return }
                 let phones = services.phones
-                // task-owner: the action run; a capturing caller (CLI, MCP) awaits it through the registry.
-                registry.track(Task { @MainActor in
-                    do {
-                        try await body(device, phones)
-                        return nil
-                    } catch {
-                        let reason = (error as? PhoneError)?.description ?? String(describing: error)
-                        registry.refuse(reason)
-                        return ActionWorkFailure(stringLiteral: reason)
-                    }
-                })
+                // The phone's run is awaited off main; a capturing caller (CLI, MCP) awaits it through the registry.
+                registry.trackWork(owner: "PhoneHandlers.\(id.rawValue)", on: mainWork) {
+                    try await body(device, phones)
+                } then: { result in
+                    guard case .failure(let error) = result else { return nil }
+                    return refused(error, registry)
+                }
             })
         }
         shortcut("simulatorHome") { try await $1.send(.button(.home), to: $0) }
@@ -184,6 +177,13 @@ enum PhoneHandlers {
         shortcut("simulatorRotateRight") { try await $1.rotate($0, .right) }
         shortcut("simulatorToggleAppearance") { try await $1.toggleAppearance($0) }
         shortcut("simulatorToggleSoftwareKeyboard") { try await $1.send(.softwareKeyboard, to: $0) }
+    }
+
+    /// A phone action's failure: refused where the person sees it, and the run's failure for a capturing caller.
+    private static func refused(_ error: any Error, _ registry: ActionRegistry) -> ActionWorkFailure {
+        let reason = (error as? PhoneError)?.description ?? String(describing: error)
+        registry.refuse(reason)
+        return ActionWorkFailure(stringLiteral: reason)
     }
 
     /// The phone the targeted or focused phone tab shows; refuses (and returns nil) without one.
