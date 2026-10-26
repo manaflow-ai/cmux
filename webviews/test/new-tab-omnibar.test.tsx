@@ -304,6 +304,22 @@ test("in the text Up and Down move the caret between lines; in the list they ste
   expect(calls).toEqual([["ask", "claude", "first line\nsecond line", undefined, "claude-opus-5-5"]]);
 });
 
+// Review of https://github.com/manaflow-ai/cmux/pull/25222: ← to fix a typo left the list, and Return on an address then did nothing (no
+// row, and an address is no prompt). The top row typing selects keeps ← and → for the caret, and
+// with no row selected (↑ from the top row) Return still opens the address.
+test("an address keeps Return opening it after Left, and after Up from the top row", async () => {
+  const highlighted = () => rows().findIndex((row) => row.getAttribute("aria-selected") === "true");
+  for (const key of ["ArrowLeft", "ArrowUp"]) {
+    const calls: unknown[][] = [];
+    await render(calls);
+    const field = await type("reddit.com");
+    await act(async () => field.dispatchEvent(new window.KeyboardEvent("keydown", { key, bubbles: true, cancelable: true })));
+    expect(highlighted()).toBe(key === "ArrowLeft" ? 0 : -1);
+    await act(async () => field.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true })));
+    expect(calls).toEqual([["open", "https://reddit.com"]]);
+  }
+});
+
 // Leo 10-13: after typing, a click outside the composer left the suggestions open. A press outside
 // and Escape close them and keep the typed text; a second Escape leaves the field.
 function pressOutside() {
