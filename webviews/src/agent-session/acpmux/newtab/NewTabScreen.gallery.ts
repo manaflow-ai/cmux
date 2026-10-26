@@ -404,6 +404,7 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-model .acpmux-picker-button") !== null);
         await ctx.click({ selector: ".acpmux-model .acpmux-picker-button" });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-quick-fast") !== null);
+        await ctx.press("Escape");
       },
     },
     "reasoning-chip-stage": {
