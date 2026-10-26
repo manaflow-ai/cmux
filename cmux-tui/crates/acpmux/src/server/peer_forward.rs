@@ -159,6 +159,12 @@ async fn forward_inner(
         }
         super::remote_guard::mark_forwarded(conn.origin, conn.auth, params, &mut p);
         bound_page(m, params, &mut p);
+        // A peer's handles are this connection's own here (`media_forward.rs`).
+        if matches!(m, method::MUX_MEDIA_OPEN | method::MUX_MEDIA_RANGE) {
+            return super::media_forward::forward(&conn.remote_media, &peer, &id, m, p)
+                .await
+                .map(Some);
+        }
         // The peer cannot see the session this connection runs in: it gets that session's name.
         if m == method::SESSION_PROMPT {
             name_sender(hub, conn, &mut p);

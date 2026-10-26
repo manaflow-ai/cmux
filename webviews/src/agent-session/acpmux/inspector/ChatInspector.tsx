@@ -24,8 +24,9 @@
 // (a turn's diff in place, the event Inspector) it steps aside and comes back when that view closes,
 // and with the side panel open beside the chat it floats in the chat's gutter, never over the
 // document (Leo, 2026-10-22: "WHY DOES IT STAY ON IN THESE RANDOM SITUATIONS WITHOUT BEING
-// CLOSABLE!?"). Its left edge drags to resize it. Open, width and folds are the viewer's
-// and hold in every chat tab (inspectorState.ts). Debug Settings `agent.inspector` (on by default)
+// CLOSABLE!?"). Its left edge drags to resize it. Open, width and folds are each pane's own
+// (Leo, 2026-10-25: "they should all be individual per pane"), kept under the chat's session
+// (inspectorState.ts). Debug Settings `agent.inspector` (on by default)
 // turns it off, which brings back the summary card it replaces (summary/SummaryCard.tsx). It reads
 // only acpmux's common snapshot and the App's header state, never one harness's own fields.
 // While the pane shows a subagent's own view, it lists that subagent's things alone, under
@@ -69,6 +70,7 @@ import { InspectorSection } from "./InspectorSection";
 import { SUBAGENT_HEADER, SubagentBanner, SubagentTitle } from "./SubagentScopeHeader";
 import { subagentProcesses, subagentSummary, withChatEnds, type SubagentScope } from "./subagentScope";
 import {
+  bindInspectorPane,
   INSPECTOR_WIDTH,
   setInspectorOpen,
   setInspectorSection,
@@ -281,9 +283,16 @@ export function useChatInspector({
 } {
   const t = useT();
   const { inspector: on, pullRequest } = useHeaderState();
+  // This pane's state is its chat's: a relaunched pane shows its Inspector as it left it, and a
+  // toggle in another pane never reaches it (inspectorState.ts).
+  // The chat's state is read from its first frame (`useInspectorOpen(paneSession)`), before the bind,
+  // and the panel is keyed by the chat, so a pane switched to another chat shows that chat's
+  // Inspector at once instead of playing the last chat's panel out.
+  const paneSession = snapshot.sessionId ?? snapshot.summary?.sessionId;
+  useLayoutEffect(() => bindInspectorPane(paneSession), [paneSession]);
   // Open alone: the width and the folds are the panel's (InspectorPresence), so a drag step or a fold
   // does not draw the whole chat pane again.
-  const open = useInspectorOpen();
+  const open = useInspectorOpen(paneSession);
   // Closed for now (not remembered): an output's diff split left no room beside the chat.
   const [suppressed, setSuppressed] = useState(false);
   const suppress = useCallback(() => setSuppressed(true), []);
@@ -360,6 +369,8 @@ export function useChatInspector({
     button: <PanelToggle className="acpmux-chat-inspector-toggle" label={label} shown={shown} onToggle={toggle} />,
     panel: (
       <InspectorPresence
+        key={paneSession ?? ""}
+        chat={paneSession}
         shown={shown}
         snapshot={snapshot}
         pullRequest={pullRequest}
@@ -405,6 +416,7 @@ const closeInspector = () => {
 /// alone, not the chat pane that calls useChatInspector (one Inspector open drew that pane five
 /// times in a frame).
 function InspectorPresence({
+  chat,
   shown,
   snapshot,
   pullRequest,
@@ -431,6 +443,8 @@ function InspectorPresence({
   onShowCall,
   scope,
 }: {
+  /// The chat whose width and folds it draws (inspectorState.ts `useInspectorState`).
+  chat: string | undefined;
   shown: boolean;
   snapshot: AcpmuxSnapshot;
   /// What the App read of the chat's pull requests (header state), which the hook already follows.
@@ -468,7 +482,7 @@ function InspectorPresence({
   /// The subagent it lists, while the pane shows one's own view.
   scope?: SubagentScope;
 }) {
-  const { width, sections } = useInspectorState();
+  const { width, sections } = useInspectorState(chat);
   const display = useChatDisplay();
   const column = chatColumnOf(useChatWidth(), display);
   // It slides in from the pane's right edge and back out (ui/presence.ts), keeping its sections
