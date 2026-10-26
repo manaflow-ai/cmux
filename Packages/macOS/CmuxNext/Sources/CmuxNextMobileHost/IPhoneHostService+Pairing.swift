@@ -26,7 +26,6 @@ extension IPhoneHostService {
 
     /// This service alone owns the selected user; the other phone listener only reads it.
     func loadPaired(signedOut: Bool) {
-        let previous = pairedStore.current?.userID
         if pairedStore.current?.userID != account?.userID { resetPrompts() }
         pairedStore.select(userID: account?.userID)
         paired = pairedStore.current
@@ -34,7 +33,6 @@ extension IPhoneHostService {
         // task-owner: one off-main load for the account event, invalidated by the store generation
         Task { [pairedStore] in
             await pairedStore.attach(directory: directory)
-            if signedOut, let previous { await pairedStore.forget(userID: previous) }
             await pairedStore.reload()
         }
         if approverSync == nil, let environment = dependencies?.acpmuxEnvironment {

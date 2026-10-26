@@ -39,6 +39,9 @@ struct PhoneAdmissionStoreTests {
         }
         store.select(userID: nil)
         #expect(store.current == nil && !store.trusts(Self.phone))
+        store.select(userID: "one")
+        await store.reload()
+        #expect(!store.trusts(Self.phone))
     }
 
     @Test func failedSaveAndCorruptFileGrantNothing() async throws {

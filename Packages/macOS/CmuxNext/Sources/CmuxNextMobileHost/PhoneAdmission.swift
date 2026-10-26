@@ -1,6 +1,6 @@
 import AppKit
 import CmuxNextDesign
-import CmuxNextMobile
+public import CmuxNextMobile
 import CmuxNextWakeups
 import Foundation
 

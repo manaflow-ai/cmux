@@ -13,6 +13,7 @@ public final class MobileHostPairedStore: Sendable {
         var userID: String?
         var generation: UInt64 = 0
         var revision: UInt64 = 0
+        var forgotten: Set<String> = []
         var list: MobileHostPairedDevices?
         var observers: [@Sendable (Change) -> Void] = []
     }
@@ -30,6 +31,7 @@ public final class MobileHostPairedStore: Sendable {
         let event = state.withLock { state -> (Change, [@Sendable (Change) -> Void])? in
             guard state.userID != userID else { return nil }
             let removed = state.list?.devices ?? []
+            if userID == nil, let previous = state.userID { state.forgotten.insert(previous) }
             state.userID = userID
             state.generation &+= 1
             state.revision &+= 1
@@ -41,7 +43,6 @@ public final class MobileHostPairedStore: Sendable {
 
     public func attach(directory: URL) async { await disk.attach(directory: directory, store: self) }
     public func reload() async { await disk.load(store: self) }
-    public func forget(userID: String) async { await disk.forget(userID: userID) }
     public func trusts(_ request: MobileHostPairRequest) -> Bool { current?.decision(for: request) == .trusted }
     public func observe(_ handler: @escaping @Sendable (Change) -> Void) { state.withLock { $0.observers.append(handler) } }
 
@@ -71,15 +72,18 @@ public final class MobileHostPairedStore: Sendable {
         }
 
         func load(store: MobileHostPairedStore) {
-            let (user, generation) = store.state.withLock { ($0.userID, $0.generation) }
-            guard let user, let file else { return }
+            let (user, generation, forgotten) = store.state.withLock { ($0.userID, $0.generation, $0.forgotten) }
+            guard let file else { return }
+            // Every later load flushes sign-out first, even if sign-in raced its owner task.
+            for revoked in forgotten {
+                let old = file.load(userID: revoked)
+                do {
+                    if !old.devices.isEmpty || !old.denied.isEmpty { try file.save(MobileHostPairedDevices(userID: revoked)) }
+                    _ = store.state.withLock { $0.forgotten.remove(revoked) }
+                } catch { return }
+            }
+            guard let user else { return }
             store.publish(file.load(userID: user), generation: generation)
-        }
-
-        func forget(userID: String) {
-            guard let file, let data = try? Data(blockingContentsOf: file.file),
-                  let stored = try? JSONDecoder().decode(MobileHostPairedDevices.self, from: data), stored.userID == userID else { return }
-            try? file.save(MobileHostPairedDevices(userID: userID))
         }
 
         func change(store: MobileHostPairedStore, user: String, generation: UInt64?,
