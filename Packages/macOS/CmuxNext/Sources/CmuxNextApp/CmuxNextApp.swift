@@ -44,7 +44,7 @@ public struct CmuxNextApp {
         // after it stops a debug build (ProcessEnvironmentGuard).
         Self.prepareLaunchEnvironment()
         DebugTimings.markLaunch("main.environment_frozen")
-        // Pure launch work (action catalog, string tables) overlaps AppKit's start.
+        // Pure launch work (action catalog, symbols, displays) overlaps AppKit's start.
         LaunchWarmup.start()
         DebugTimings.markLaunch("main.warmup_started")
         // One hang watch for the process: the lanes, the daemon readers and the terminal output lanes.
@@ -106,6 +106,7 @@ public struct CmuxNextApp {
         WindowOverlayHost.appInputTap = inputTap
         TooltipPresenter.shared.inputTap = inputTap
         let order = LaunchOrder(fence: fence, input: inputTap) { DebugTimings.markLaunch($0) }
+        DaemonLauncher.captureLoginEnvironment(after: order.startup) // at once only with nothing remembered (p08-startup-034)
         let delegate = AppDelegate(environment: environment, daemonPrestart: prestart, wireStats: wireStats,
                                    startupTrace: startupTrace, order: order, inputTap: inputTap, settingsRead: settingsRead,
                                    launchReads: (work, launchImages, relaunchWake))
