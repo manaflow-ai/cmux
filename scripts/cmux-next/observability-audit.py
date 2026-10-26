@@ -33,11 +33,21 @@ needs Python 3.9+ and `rg` only: no network, no writes (the self-test feeds fixt
 Where a queue's text in the plan cannot be run literally, the script keeps its intent:
 - MQ1 and MQ12 skip comment lines (a doc example such as `Signposter.event(.frameTick, ...)` is not an emitter),
   and MQ1 also counts `flowOut`, `flowIn` and `counter`, the typed points task 000 added for the key echo hops.
-- MQ8 matches a builder chain across lines (`rg -U`).
+- MQ6 and MQ15 read a done mark on the hit line, or (only the escape comment) in the comment lines right above
+  it; a code line above with a trailing comment marks only itself.
+- MQ7 reads a variable label (`DispatchQueue(label: label`) from the owning type's call sites, expands a table
+  row's short forms (`.write` after `com.cmuxterm.next.localpty.read`), and counts a lane no row names: it gets
+  a "classify" task line, so the count cannot reach 0 while a lane is unresolved.
+- MQ7 and MQ8 count a registration for one site only: the site whose scope holds it (a Rust spawn closure or
+  runtime builder), else the nearest site in its file. One registered lane never marks a second one done.
+- MQ8 matches a builder chain across lines (`rg -U`) and reads the thread name from the whole match.
+- MQ9 with --bundle evaluates each role once: `cmux` and its alias `cmux-tui` reach the same roles.
+- MQ10 compares the options of both files in both directions; an app-only option set to `false` is not a diff.
 - MQ11 finds `enum Command {` instead of a fixed line number, and after task 013 counts only the variants
   that `server/command_names.rs` does not name.
 - MQ12 reads only `case` declarations (not `case let` arms of the name switch).
-- MQ14 lists CmuxNextCompat's sites as excluded: Wakeups depends on Compat, so they cannot call TracedTask (task 124).
+- MQ14 matches `Task.detached` at a word boundary, so the TracedTask.detached replacement is not a hit. It lists
+  CmuxNextCompat's sites as excluded: Wakeups depends on Compat, so they cannot call TracedTask (task 124).
 """
 
 from __future__ import annotations
@@ -95,19 +105,30 @@ class Q:
     MQ12_CASES = r"case (\w+)"
     MQ12_RECORD = r"record\(\.(\w+)\b"
     MQ13 = r"std::thread::spawn\(|thread::spawn\("
-    MQ14 = r"Task\.detached"
+    MQ14 = r"\bTask\.detached"  # `\b`: TracedTask.detached, the replacement (task 124), is not a hit
     MQ15 = r"ContinuousClock"
     MQ16 = r"assertionFailure\("
 
 
 # Done rules applied to the hits (not rg queries: they read the matched file around the hit).
 WALL_CLOCK_ESCAPE = re.compile(r"//\s*wall-clock:\s*\S")
-CONTINUOUS_CLOCK_DONE = re.compile(r"\bTraceClock\b|\bSuspendingClock\b|//\s*continuous-clock:\s*\S")
-HANG_WATCH_SWIFT = re.compile(r"\bHangWatch(Scope)?\b|\bregisterLane\(|\bregisterThread\(")
-HANG_WATCH_RUST = re.compile(r"hang_watch::")
+CONTINUOUS_CLOCK_REPLACED = re.compile(r"\bTraceClock\b|\bSuspendingClock\b")
+CONTINUOUS_CLOCK_ESCAPE = re.compile(r"//\s*continuous-clock:\s*\S")
+# One registration per line: a HangWatch register call, or a stored registration a lane gets injected.
+SWIFT_REGISTRATION = re.compile(
+    r"\bregister(Lane|Thread)\(|\b(let|var)\s+\w+\s*:\s*HangWatch\.Registration\b"
+)
+SWIFT_REGISTRATION_EXCLUDE = re.compile(r"\bfunc\s+register(Lane|Thread)\b")
+RUST_REGISTRATION = re.compile(r"\bregister_thread\s*\(")
+RUST_REGISTRATION_EXCLUDE = re.compile(r"^\s*(pub(\(\w+\))?\s+)?(use\s|fn\s)|\bfn\s+register_thread\b")
+RUST_SCOPE_REGISTRATION = re.compile(r"\bregister_thread\s*\(|hang_watch::")
 DUMP_WITHOUT_CRASHING = re.compile(r"dumpWithoutCrashing")
 COMMENT_LINE = re.compile(r"^\s*(//|/\*|\*)")
 LANE_LABEL = re.compile(r'DispatchQueue\(label:\s*"([^"\\]*)')
+LANE_LABEL_VARIABLE = re.compile(r"DispatchQueue\(label:\s*(\$\d+|[A-Za-z_]\w*)\s*[,)]")
+TYPE_DECL = re.compile(r"^\s*(?:@\w+\s+)*(?:(?:public|package|internal|private|fileprivate|final|nonisolated)\s+)*"
+                       r"(?:class|struct|actor|enum)\s+(\w+)")
+BACKTICKED = re.compile(r"`([^`]+)`")
 LANE_KEEP = re.compile(r"^(Nothing|Never|Non-blocking)|socket|PTY|read\(2\)|\bwrite\b|frame|`poll`|mailbox", re.I)
 LANE_DROP = re.compile(r"^Disk|kqueue|Condvar|GCD QoS", re.I)
 
@@ -138,6 +159,8 @@ class Queue:
     count_key: str
     batches: List[List[Hit]] = field(default_factory=list)
     notes: Dict[str, object] = field(default_factory=dict)
+    # A title per batch when the batches need different work (MQ7: register, or classify first).
+    batch_titles: List[str] = field(default_factory=list)
 
     @property
     def count(self) -> int:
@@ -163,6 +186,7 @@ class RgMatch:
     file: str
     line: int
     text: str
+    block: str = ""  # the match's lines from `line` on (a multiline match spans several)
 
 
 class Rg:
@@ -232,13 +256,15 @@ class Rg:
 
     def stdin_matches(self, pattern: str, text: str, pcre2: bool = False, multiline: bool = False) -> List[str]:
         """The lines of `text` a match starts on (self-test fixtures)."""
+        return [m.text for m in self.stdin_rg(pattern, text, pcre2=pcre2, multiline=multiline)]
+
+    def stdin_rg(self, pattern: str, text: str, pcre2: bool = False, multiline: bool = False) -> List[RgMatch]:
         args = ["--json"]
         if pcre2:
             args.append("--pcre2")
         if multiline:
             args.append("-U")
-        out = self._run([*args, "-e", pattern, "-"], stdin=text)
-        return [m.text for m in parse_rg_json(out)]
+        return parse_rg_json(self._run([*args, "-e", pattern, "-"], stdin=text))
 
 
 def parse_rg_json(out: str) -> List[RgMatch]:
@@ -264,7 +290,8 @@ def parse_rg_json(out: str) -> List[RgMatch]:
             if key in seen:
                 continue
             seen.add(key)
-            matches.append(RgMatch(path, line, text.split("\n")[offset] if text else ""))
+            split = text.split("\n") if text else [""]
+            matches.append(RgMatch(path, line, split[offset], "\n".join(split[offset:])))
     return matches
 
 
@@ -304,6 +331,96 @@ def near(lines: List[str], line: int, pattern: re.Pattern, before: int = 1, afte
     lo = max(0, line - 1 - before)
     hi = min(len(lines), line + after)
     return any(pattern.search(text) for text in lines[lo:hi])
+
+
+def marked(lines: List[str], line: int, on_line: re.Pattern, in_comment_above: Optional[re.Pattern] = None) -> bool:
+    """Whether the hit on line `line` (1-based) is done: `on_line` matches the hit line itself, or
+    `in_comment_above` matches the hit line or the run of comment-only lines right above it. A code line above
+    (another hit with a trailing comment) never marks this one."""
+    if not 0 < line <= len(lines):
+        return False
+    if on_line.search(lines[line - 1]):
+        return True
+    if in_comment_above is None:
+        return False
+    if in_comment_above.search(lines[line - 1]):
+        return True
+    i = line - 2
+    while i >= 0 and is_comment(lines[i]):
+        if in_comment_above.search(lines[i]):
+            return True
+        i -= 1
+    return False
+
+
+def assign_registrations(
+    sites: List[Tuple[int, Optional[Tuple[int, int]]]], registrations: List[int]
+) -> set:
+    """The site lines one registration each covers, in one file.
+
+    `sites` are (line, scope): the scope is the line range (inclusive) the site's own code runs in (a Rust
+    builder chain and its spawn closure), or None when the site has no scope this script can see (a Swift
+    queue). A registration inside a site's scope covers that site only. Each registration left (outside every
+    scope: a lane registered in its init, a thread registered in the function its closure calls) covers the
+    nearest uncovered site, one site per registration, so one registration never marks a second lane done."""
+    covered = set()
+    free = []
+    for reg in registrations:
+        owners = [(scope[1] - scope[0], line) for line, scope in sites if scope and scope[0] <= reg <= scope[1]]
+        owner = min(owners)[1] if owners else None  # the innermost scope (a thread spawned inside another)
+        if owner is None:
+            free.append(reg)
+        else:
+            covered.add(owner)
+    for reg in free:
+        open_sites = [line for line, _ in sites if line not in covered]
+        if not open_sites:
+            break
+        covered.add(min(open_sites, key=lambda line: (abs(line - reg), line)))
+    return covered
+
+
+def balanced_end(
+    lines: List[str], start: int, opener: re.Pattern, limit: int = 400, opener_within: int = 20
+) -> Optional[int]:
+    """The 1-based line where the parenthesis that `opener` opens (first match within `opener_within` lines of line
+    `start`) closes. Skips string literals and `//` comments; None when it does not close within `limit` lines."""
+    i = start - 1
+    while i < len(lines) and i < start - 1 + opener_within:
+        m = opener.search(lines[i])
+        if m:
+            break
+        i += 1
+    else:
+        return None
+    depth = 0
+    col = m.end() - 1  # the opening parenthesis
+    while i < len(lines) and i < start - 1 + limit:
+        text = lines[i]
+        in_string = False
+        while col < len(text):
+            ch = text[col]
+            if in_string:
+                if ch == "\\":
+                    col += 1
+                elif ch == '"':
+                    in_string = False
+            elif ch == '"':
+                in_string = True
+            elif text.startswith("//", col):
+                break
+            elif ch == "'" and col + 2 < len(text) and text[col + 2] == "'":
+                col += 2  # a char literal such as '('
+            elif ch == "(":
+                depth += 1
+            elif ch == ")":
+                depth -= 1
+                if depth == 0:
+                    return i + 1
+            col += 1
+        i += 1
+        col = 0
+    return None
 
 
 IF_DIRECTIVE = re.compile(r"^\s*#\s*(if|elseif|else|endif)\b(.*)$")
@@ -402,13 +519,14 @@ def task_lines(queue: Queue) -> List[str]:
     total = len(queue.batches)
     for i, batch in enumerate(queue.batches, 1):
         files = sorted({hit.file for hit in batch})
+        title = queue.batch_titles[i - 1] if queue.batch_titles else queue.title
         if len(batch) == 1:
             hit = batch[0]
             where = f"{hit.file}:{hit.line}" if hit.line else hit.file
-            out.append(f"{queue.queue} {i}/{total}: {queue.title}: {hit.symbol} ({where})")
+            out.append(f"{queue.queue} {i}/{total}: {title}: {hit.symbol} ({where})")
         else:
             out.append(
-                f"{queue.queue} {i}/{total}: {queue.title}: {len(batch)} hits in {len(files)} files: "
+                f"{queue.queue} {i}/{total}: {title}: {len(batch)} hits in {len(files)} files: "
                 + ", ".join(files)
             )
     return out
@@ -571,7 +689,7 @@ class Audit:
         hits = [
             Hit(m.file, m.line, m.text.strip()[:120])
             for m in self.rg.lines(Q.MQ6, [SOURCES])
-            if not near(self.files.lines(m.file), m.line, WALL_CLOCK_ESCAPE)
+            if not marked(self.files.lines(m.file), m.line, WALL_CLOCK_ESCAPE, WALL_CLOCK_ESCAPE)
         ]
         q = Queue("MQ6", "Wall clock to TraceClock", hits, "<=15 files per package group", "wallclock_duration_sites")
         q.batches = by_package_files(hits, 15)
@@ -584,7 +702,7 @@ class Audit:
         hits = [
             Hit(m.file, m.line, m.text.strip()[:120])
             for m in all_matches
-            if not near(self.files.lines(m.file), m.line, CONTINUOUS_CLOCK_DONE)
+            if not marked(self.files.lines(m.file), m.line, CONTINUOUS_CLOCK_REPLACED, CONTINUOUS_CLOCK_ESCAPE)
         ]
         q = Queue(
             "MQ15", "ContinuousClock to TraceClock or SuspendingClock, or say why", hits, "<=15 files",
@@ -603,38 +721,78 @@ class Audit:
         """(whole row, May block on) for each row of threading-model.md's thread table."""
         return thread_table_rows(self.files.lines(THREADING_MODEL))
 
+    def lane_labels(self, m: RgMatch) -> Tuple[List[str], str]:
+        """The labels a lane site's queue can have, and the type that owns it.
+
+        A literal label is read from the site. A variable label (`DispatchQueue(label: label`, `$0`) is read
+        from the owning type's call sites (`TerminalOutputLane(surface: s, label: "com...")`); an
+        interpolated call-site label keeps its literal prefix, and one with no literal prefix is not a label."""
+        owner = enclosing_type(self.files.lines(m.file), m.line)
+        literal = LANE_LABEL.search(m.text)
+        if literal:
+            label = literal.group(1).split("\\(")[0]
+            return ([label] if label else []), owner
+        if not owner or not LANE_LABEL_VARIABLE.search(m.text):
+            return [], owner
+        labels: List[str] = []
+        call = re.compile(r"\b" + re.escape(owner) + r'\([^)]*\blabel:\s*"([^"\\]*)')
+        for site in self.rg.lines(r"\b" + re.escape(owner) + r"\(", [SOURCES]):
+            if is_comment(site.text):
+                continue
+            cm = call.search(site.text)
+            label = cm.group(1).split("\\(")[0] if cm else ""
+            if label and label not in labels:
+                labels.append(label)
+        return labels, owner
+
     def mq7(self) -> Queue:
         rows = self.threading_rows()
-        hits: List[Hit] = []
+        unregistered: List[Hit] = []
         unclassified: List[Hit] = []
         dropped: List[Hit] = []
         registered = 0
+        sites: Dict[str, List[RgMatch]] = {}
         for m in self.rg.lines(Q.MQ7, [SOURCES]):
-            if is_comment(m.text):
-                continue
-            label_match = LANE_LABEL.search(m.text)
-            label = label_match.group(1).split("\\(")[0] if label_match else ""
-            stem = Path(m.file).stem.split("+")[0]
-            row = next((r for r in rows if label and label in r[0]), None) or next(
-                (r for r in rows if re.search(r"\b" + re.escape(stem) + r"\b", r[0])), None
-            )
-            hit = Hit(m.file, m.line, label or m.text.strip()[:80])
-            if row is None:
-                hit.extra["reason"] = "no threading-model row names this lane"
-                unclassified.append(hit)
-                continue
-            hit.extra["may_block_on"] = row[1][:80]
-            if LANE_DROP.search(row[1]) or not LANE_KEEP.search(row[1]):
-                dropped.append(hit)
-                continue
-            if HANG_WATCH_SWIFT.search("\n".join(self.files.lines(m.file))):
-                registered += 1
-                continue
-            hits.append(hit)
+            if not is_comment(m.text):
+                sites.setdefault(m.file, []).append(m)
+        for f in sorted(sites):
+            lines = self.files.lines(f)
+            regs = [
+                i
+                for i, text in enumerate(lines, 1)
+                if not is_comment(text) and SWIFT_REGISTRATION.search(text) and not SWIFT_REGISTRATION_EXCLUDE.search(text)
+            ]
+            covered = assign_registrations([(m.line, None) for m in sites[f]], regs)
+            for m in sites[f]:
+                labels, owner = self.lane_labels(m)
+                hit = Hit(m.file, m.line, labels[0] if len(labels) == 1 else (", ".join(labels) or m.text.strip()[:80]))
+                if m.line in covered:
+                    registered += 1
+                    continue
+                row = lane_row(rows, labels, [Path(m.file).stem.split("+")[0], owner])
+                if row is None:
+                    hit.extra["kind"] = "unclassified"
+                    hit.extra["reason"] = "no threading-model row names this lane's label or type"
+                    unclassified.append(hit)
+                    continue
+                hit.extra["may_block_on"] = row[1][:80]
+                if LANE_DROP.search(row[1]) or not LANE_KEEP.search(row[1]):
+                    dropped.append(hit)
+                    continue
+                hit.extra["kind"] = "unregistered"
+                unregistered.append(hit)
+        # An unclassified lane counts: the queue is not done until threading-model.md says whether it is kept.
+        hits = unregistered + unclassified
         q = Queue("MQ7", "Register the Swift lane with HangWatch", hits, "per file", "swift_lanes_unregistered")
-        q.batches = by_files(hits, 1)
+        register = by_files(unregistered, 1)
+        classify = by_files(unclassified, 1)
+        q.batches = register + classify
+        q.batch_titles = [q.title] * len(register) + [
+            "Classify the Swift lane in threading-model.md (a row naming its label or type), then register it if kept"
+        ] * len(classify)
         q.notes = {
             "registered": registered,
+            "unregistered_kept": len(unregistered),
             "dropped_by_threading_model": [h.to_json() for h in dropped],
             "unclassified": [h.to_json() for h in unclassified],
         }
@@ -644,21 +802,28 @@ class Audit:
     def mq8(self) -> Queue:
         thread_paths = [f"{CRATES}/{c}/src" for c in ("cmux-tui-core", "cmux-tui", "cmux-holder")]
         runtime_paths = [f"{CRATES}/{c}/src" for c in ("cmux-tui", "acpmux")]
-        hits: List[Hit] = []
-        registered = 0
+        sites: Dict[str, List[Tuple[str, RgMatch]]] = {}
         for kind, matches in (
             ("thread", self.rg.lines(Q.MQ8_THREADS, thread_paths, multiline=True)),
             ("runtime", self.rg.lines(Q.MQ8_RUNTIMES, runtime_paths)),
         ):
             for m in matches:
-                if is_comment(m.text):
-                    continue
-                if HANG_WATCH_RUST.search("\n".join(self.files.lines(m.file))):
+                if not is_comment(m.text):
+                    sites.setdefault(m.file, []).append((kind, m))
+        hits: List[Hit] = []
+        registered = 0
+        for f in sorted(sites):
+            lines = self.files.lines(f)
+            scoped: List[Tuple[int, Optional[Tuple[int, int]]]] = []
+            for kind, m in sites[f]:
+                scoped.append((m.line, rust_site_scope(lines, m.line, kind)))
+            regs = rust_registrations(lines, [scope for _, scope in scoped if scope])
+            covered = assign_registrations(scoped, regs)
+            for kind, m in sites[f]:
+                if m.line in covered:
                     registered += 1
                     continue
-                nm = re.search(r'\.name\(\s*(?:format!\()?"([^"{]*)', m.text)
-                symbol = nm.group(1) if nm else ("new_multi_thread" if kind == "runtime" else "thread")
-                hits.append(Hit(m.file, m.line, symbol, {"kind": kind}))
+                hits.append(Hit(m.file, m.line, rust_site_symbol(m, kind), {"kind": kind}))
         q = Queue("MQ8", "Register the Rust loop thread with cmux-hang-watch", hits, "per file", "rust_loops_unregistered")
         q.batches = by_files(hits, 1)
         q.notes = {"registered": registered}
@@ -712,38 +877,13 @@ class Audit:
     def bundle_roles(self, bundle: Path) -> Tuple[List[Tuple["ShippedRole", str, Optional[str]]], List[str]]:
         if not bundle.is_dir():
             raise AuditError(f"--bundle {bundle}: not a directory")
-        binaries = bundle_macho_names(bundle)
-        cargo = self.cargo_bins()
-        evaluated: List[Tuple[ShippedRole, str, Optional[str]]] = []
-        unmapped: List[str] = []
-        for binary in binaries:
-            bin_name = BUNDLE_ALIASES.get(binary, binary)
-            roles = [role for role in SHIPPED_ROLES if role.bin == bin_name]
-            if roles:
-                evaluated += [(role, binary, None) for role in roles]
-            elif bin_name in cargo:
-                crate_dir, _entry = cargo[bin_name]
-                evaluated.append((ShippedRole(bin_name, bin_name, (), panic=True, blackbox=False), binary, crate_dir))
-            else:
-                unmapped.append(binary)
-        return evaluated, unmapped
+        return map_bundle_binaries(bundle_macho_names(bundle), self.cargo_bins())
 
     # MQ10 --------------------------------------------------------------------------------------------------
     def mq10(self) -> Queue:
         app = sentry_options(self.rg.lines(Q.MQ10 + r"\s*=\s*[^\n]+", [CRASH_REPORTER]))
         cli = sentry_options(self.rg.lines(Q.MQ10 + r"\s*=\s*[^\n]+", [CLI_SENTRY_POLICY]))
-        hits: List[Hit] = []
-        for option, (cli_value, _line) in sorted(cli.items()):
-            app_value, app_line = app.get(option, ("unset", 0))
-            if app_value != cli_value:
-                hits.append(
-                    Hit(CRASH_REPORTER, app_line, option, {"app": app_value, "cli": cli_value})
-                )
-        hang = app.get("appHangTimeoutInterval")
-        if hang and app.get("enableAppHangTracking", ("unset", 0))[0] != "false" and not any(
-            h.symbol == "enableAppHangTracking" for h in hits
-        ):
-            hits.append(Hit(CRASH_REPORTER, hang[1], "appHangTimeoutInterval", {"app": hang[0], "cli": "tracking off"}))
+        hits = sentry_diffs(app, cli)
         q = Queue("MQ10", "Sentry option that adds wakeups or swizzles", hits, "1 task", "sentry_option_diffs")
         q.batches = one_task(hits)
         return q
@@ -932,13 +1072,14 @@ def is_macho(head: bytes) -> bool:
 
 
 def bundle_macho_names(bundle: Path) -> List[str]:
-    """The Mach-O file names in Contents/Resources/{bin,libexec} and Contents/Frameworks/*.app/Contents/MacOS."""
+    """The Mach-O file names in Contents/Resources/{bin,libexec} and Contents/Frameworks/*.app/Contents/MacOS, each
+    name once. An alias symlink keeps its own name: the binary picks its role from argv[0] (`bin/acpmux -> cmux`
+    runs acpmux), so map_bundle_binaries removes the duplicates by role, not by file."""
     dirs = [bundle / "Contents/Resources/bin", bundle / "Contents/Resources/libexec"]
     frameworks = bundle / "Contents/Frameworks"
     if frameworks.is_dir():
         dirs += sorted(p / "Contents/MacOS" for p in frameworks.glob("*.app"))
-    names: List[str] = []
-    seen = set()
+    entries: List[str] = []
     for d in dirs:
         if not d.is_dir():
             continue
@@ -950,10 +1091,35 @@ def bundle_macho_names(bundle: Path) -> List[str]:
                     head = handle.read(4)
             except OSError:
                 continue
-            if is_macho(head) and path.name not in seen:
-                seen.add(path.name)
-                names.append(path.name)
-    return names
+            if is_macho(head):
+                entries.append(path.name)
+    return list(dict.fromkeys(entries))
+
+
+def map_bundle_binaries(
+    binaries: Sequence[str], cargo: Dict[str, Tuple[str, str]]
+) -> Tuple[List[Tuple[ShippedRole, str, Optional[str]]], List[str]]:
+    """Each shipped role once (`cmux` and its alias `cmux-tui` both reach the daemon and mcp-serve roles; they count
+    once), and the binaries no role or Cargo [[bin]] names."""
+    evaluated: List[Tuple[ShippedRole, str, Optional[str]]] = []
+    unmapped: List[str] = []
+    seen_roles = set()
+    for binary in binaries:
+        bin_name = BUNDLE_ALIASES.get(binary, binary)
+        roles = [role for role in SHIPPED_ROLES if role.bin == bin_name]
+        if roles:
+            for role in roles:
+                if role.name not in seen_roles:
+                    seen_roles.add(role.name)
+                    evaluated.append((role, binary, None))
+        elif bin_name in cargo:
+            if bin_name not in seen_roles:
+                seen_roles.add(bin_name)
+                crate_dir, _entry = cargo[bin_name]
+                evaluated.append((ShippedRole(bin_name, bin_name, (), panic=True, blackbox=False), binary, crate_dir))
+        else:
+            unmapped.append(binary)
+    return evaluated, unmapped
 
 
 def parse_cargo_bins(text: str, crate_dir: str, exists: Callable[[str], bool]) -> List[Tuple[str, str]]:
@@ -1014,6 +1180,115 @@ def thread_table_rows(lines: List[str]) -> List[Tuple[str, str]]:
     return rows
 
 
+SWIFT_STRING_OR_COMMENT = re.compile(r'"(?:[^"\\]|\\.)*"|//.*$')
+
+
+def enclosing_type(lines: List[str], line: int) -> str:
+    """The innermost type whose body holds line `line` (1-based): the type whose init or method a lane site is in.
+    A nested type that closed above the line (`private struct State { ... }`) is not it."""
+    stack: List[List[object]] = []  # [name, depth before its declaration, body opened]
+    depth = 0
+    for text in lines[: max(0, line - 1)]:
+        m = TYPE_DECL.match(text)
+        if m:
+            stack.append([m.group(1), depth, False])
+        code = SWIFT_STRING_OR_COMMENT.sub("", text)
+        for ch in code:
+            if ch == "{":
+                depth += 1
+            elif ch == "}":
+                depth -= 1
+            for entry in stack:
+                if not entry[2] and depth > entry[1]:
+                    entry[2] = True
+            while stack and stack[-1][2] and depth <= stack[-1][1]:
+                stack.pop()
+    return str(stack[-1][0]) if stack else ""
+
+
+def row_labels(row: str) -> List[str]:
+    """The backticked names of a threading-model row, with short forms expanded: in
+    `` `com.cmuxterm.next.localpty.read` / `.write` `` the second is `com.cmuxterm.next.localpty.write`, and in
+    `` `acpmux-socket-read` / `-write` `` the second is `acpmux-socket-write`."""
+    out: List[str] = []
+    full = ""
+    for token in BACKTICKED.findall(row):
+        if full and re.fullmatch(r"[.-][\w.<>-]+", token) and token[0] in full:
+            out.append(full.rsplit(token[0], 1)[0] + token)
+        else:
+            out.append(token)
+            full = token
+    return out
+
+
+def label_names_row_label(label: str, name: str) -> bool:
+    """Whether a lane label is a row's backticked name: equal, or the literal prefix of an interpolated label
+    (`com.cmuxterm.next.control.` for `com.cmuxterm.next.control.<id>`)."""
+    if label == name:
+        return True
+    if "<" in name and label == name.split("<", 1)[0]:
+        return True
+    return label[-1:] in (".", "-") and name.startswith(label)
+
+
+def lane_row(rows: List[Tuple[str, str]], labels: Sequence[str], names: Sequence[str]) -> Optional[Tuple[str, str]]:
+    """The thread-table row a lane belongs to: a backticked name equal to one of its labels, else a row whose text
+    holds the label, else a row naming the lane's file stem or owning type as a word."""
+    for label in labels:
+        for row in rows:
+            if any(label_names_row_label(label, name) for name in row_labels(row[0])):
+                return row
+    for label in labels:
+        for row in rows:
+            if label in row[0]:
+                return row
+    for name in names:
+        if not name:
+            continue
+        word = re.compile(r"\b" + re.escape(name) + r"\b")
+        for row in rows:
+            if word.search(row[0]):
+                return row
+    return None
+
+
+RUST_SPAWN = re.compile(r"\.spawn(_scoped)?\s*\(")
+RUST_BUILD = re.compile(r"\.build\(\)")
+RUST_THREAD_NAME = re.compile(r'\.name\(\s*(?:format!\()?"([^"{]*)')
+
+
+def rust_site_scope(lines: List[str], line: int, kind: str) -> Optional[Tuple[int, int]]:
+    """The lines a Rust site's own code runs in: a thread's builder chain through the end of its spawn closure, a
+    runtime's builder chain through `.build()` (where its thread hooks go)."""
+    if kind == "thread":
+        end = balanced_end(lines, line, RUST_SPAWN)
+    else:
+        end = next((i for i in range(line, min(len(lines), line + 40) + 1) if RUST_BUILD.search(lines[i - 1])), None)
+    return (line, end) if end else None
+
+
+def rust_registrations(lines: List[str], scopes: Sequence[Tuple[int, int]]) -> List[int]:
+    """Registration lines in one Rust file: any `hang_watch::` use or `register_thread(` call inside a site's scope
+    (a runtime's hooks call into cmux-hang-watch), and outside every scope only a `register_thread(` call (a
+    thread registered in the function its closure runs)."""
+    regs: List[int] = []
+    for i, text in enumerate(lines, 1):
+        if is_comment(text) or RUST_REGISTRATION_EXCLUDE.search(text):
+            continue
+        inside = any(lo <= i <= hi for lo, hi in scopes)
+        if (RUST_SCOPE_REGISTRATION if inside else RUST_REGISTRATION).search(text):
+            regs.append(i)
+    return regs
+
+
+def rust_site_symbol(m: RgMatch, kind: str) -> str:
+    """The thread name a builder chain gives (read from the whole multiline match), or the runtime builder."""
+    if kind == "runtime":
+        return "new_multi_thread"
+    nm = RUST_THREAD_NAME.search(m.block or m.text)
+    return nm.group(1) if nm else "thread"
+
+
 COMMAND_TABLE_ROW = re.compile(r'^\s*([A-Z][A-Za-z0-9]*)\s*=>\s*"', re.M)
 COMMAND_PATH = re.compile(r"Command::([A-Z][A-Za-z0-9]*)")
 
@@ -1033,6 +1308,28 @@ def sentry_options(matches: List[RgMatch]) -> Dict[str, Tuple[str, int]]:
         if om:
             out[om.group(1)] = (om.group(2), m.line)
     return out
+
+
+def sentry_diffs(app: Dict[str, Tuple[str, int]], cli: Dict[str, Tuple[str, int]]) -> List[Hit]:
+    """Every option either file sets (both directions) whose app value differs from the CLI's. An app-only option
+    counts unless the app sets it `false` (quieter than Sentry's default, as the CLI's policy wants), so an app
+    `options.enableSwizzling = true` the CLI never names is a hit."""
+    hits: List[Hit] = []
+    for option in sorted(set(app) | set(cli)):
+        if option == "appHangTimeoutInterval" and option not in cli:
+            continue  # meaningful only with hang tracking on: the rule below
+        app_value, app_line = app.get(option, ("unset", 0))
+        cli_value = cli.get(option, ("unset", 0))[0]
+        if option not in cli and app_value == "false":
+            continue
+        if app_value != cli_value:
+            hits.append(Hit(CRASH_REPORTER, app_line, option, {"app": app_value, "cli": cli_value}))
+    hang = app.get("appHangTimeoutInterval")
+    if hang and app.get("enableAppHangTracking", ("unset", 0))[0] != "false" and not any(
+        h.symbol == "enableAppHangTracking" for h in hits
+    ):
+        hits.append(Hit(CRASH_REPORTER, hang[1], "appHangTimeoutInterval", {"app": hang[0], "cli": "tracking off"}))
+    return hits
 
 
 # ---------------------------------------------------------------------------------------------------------------
@@ -1110,14 +1407,51 @@ def self_test() -> int:
     expect("MQ5 marker", re.search(Q.MQ5_MARKER, "    // perf-hot: 2ms frame-tick").group(1), "frame-tick")
     expect("MQ5 trace", len(lines_of(Q.MQ5_TRACE, "Signposter.event(.x)\nKeyFrameSignpost.begin()\nTrace.scope(a)\nfoo()\n")), 3)
     expect("MQ6", len(lines_of(Q.MQ6, "let t = CFAbsoluteTimeGetCurrent()\nDate().timeIntervalSince(a)\nDate()\n")), 2)
-    expect("MQ6 escape", near(["let t = CFAbsoluteTimeGetCurrent() // wall-clock: shown to the person"], 1, WALL_CLOCK_ESCAPE), True)
-    expect("MQ6 escape above", near(["// wall-clock: a date", "let t = Date().timeIntervalSince(a)"], 2, WALL_CLOCK_ESCAPE), True)
+    expect("MQ6 escape", marked(["let t = CFAbsoluteTimeGetCurrent() // wall-clock: shown to the person"], 1,
+                                WALL_CLOCK_ESCAPE, WALL_CLOCK_ESCAPE), True)
+    expect("MQ6 escape above", marked(["// wall-clock: a date", "let t = Date().timeIntervalSince(a)"], 2,
+                                      WALL_CLOCK_ESCAPE, WALL_CLOCK_ESCAPE), True)
+    expect("MQ6 escape above a comment block", marked(["// wall-clock: a date", "// shown in the row",
+                                                       "let t = Date().timeIntervalSince(a)"], 3,
+                                                      WALL_CLOCK_ESCAPE, WALL_CLOCK_ESCAPE), True)
+    adjacent = ["let shown = Date() // wall-clock: shown to the person", "let elapsed = CFAbsoluteTimeGetCurrent() - t"]
+    expect("MQ6 adjacent hits", [marked(adjacent, i, WALL_CLOCK_ESCAPE, WALL_CLOCK_ESCAPE) for i in (1, 2)], [True, False])
     expect("MQ7", len(lines_of(Q.MQ7, 'DispatchQueue(label: "a")\nThread.detachNewThread {}\nlet t = Thread(block: b)\nThread.current\n')), 3)
     expect("MQ7 label", LANE_LABEL.search('DispatchQueue(label: "com.cmuxterm.next.control.\\(id)")').group(1).split("\\(")[0],
            "com.cmuxterm.next.control.")
     expect("MQ7 keep", [bool(LANE_KEEP.search(t)) and not LANE_DROP.search(t)
                         for t in ("Nothing", "Blocking `read(2)` (reader)", "Disk", "PTY read/write", "GCD QoS")],
            [True, True, False, True, False])
+    expect("MQ7 variable label", [LANE_LABEL_VARIABLE.search(t).group(1) for t in (
+        "self.queue = DispatchQueue(label: label, qos: .userInteractive)",
+        "slots = names.map { DispatchQueue(label: $0, qos: .unspecified) }",
+        "self.queue = DispatchQueue(label: label)")], ["label", "$0", "label"])
+    expect("MQ7 owner", enclosing_type(["import Foundation", "final class TerminalOutputLane: Sendable {",
+                                        "    private struct Backlog {", '        var s = "}"', "    }",
+                                        "    init(label: String) {", "        q = DispatchQueue(label: label)"], 7),
+           "TerminalOutputLane")
+    expect("MQ7 nested owner", enclosing_type(["final class A {", "    struct B", "    {", "        let q = 1"], 4), "B")
+    lane_rows = [
+        ("| **Daemon connection** reader; writer queue `com.cmuxterm.next.daemon.write` | x | Blocking `read(2)` |", "Blocking `read(2)`"),
+        ("| **Terminal output lane** `com.cmuxterm.next.terminal.output`; local PTY `com.cmuxterm.next.localpty.read` / `.write` | x | PTY read/write |", "PTY read/write"),
+        ("| **DispatchSource handlers** (`com.cmuxterm.next.control.accept`, `com.cmuxterm.next.control.<id>`; `FrameScheduler`) | x | Non-blocking reads |", "Non-blocking reads"),
+        ("| **acpmux** (`acpmux-socket-read` / `-write`) | x | Socket I/O |", "Socket I/O"),
+    ]
+    expect("MQ7 short forms", row_labels(lane_rows[1][0])[1:] + row_labels(lane_rows[3][0]),
+           ["com.cmuxterm.next.localpty.read", "com.cmuxterm.next.localpty.write", "acpmux-socket-read", "acpmux-socket-write"])
+    expect("MQ7 rows", [(lane_row(lane_rows, labels, names) or ("", "none"))[1] for labels, names in (
+        (["com.cmuxterm.next.localpty.write"], ["LocalPTYTerminalIO"]),
+        (["com.cmuxterm.next.daemon.write"], ["SocketWriter"]),  # resolved from `SocketWriter(fd:, label: "...")`
+        (["com.cmuxterm.next.control."], ["ControlConnection"]),
+        ([], ["FrameScheduler"]),
+        ([], ["LaneScheduler"]),
+    )], ["PTY read/write", "Blocking `read(2)`", "Non-blocking reads", "Non-blocking reads", "none"])
+    expect("MQ7 one registration per lane", assign_registrations([(25, None), (90, None)], [92]), {90})
+    expect("MQ7 registration lines", [bool(SWIFT_REGISTRATION.search(t)) and not SWIFT_REGISTRATION_EXCLUDE.search(t) for t in (
+        'let lane = runtime.hangWatch.registerLane("terminal-output")',
+        "private let watch: HangWatch.Registration",
+        "public func registerLane(_ name: StaticString) -> Registration {",
+        "let scope = hangWatch.watch(lane, deadline: .seconds(1))")], [True, True, False, False])
     model = [
         "| Thread / queue | Owns | May block on | QoS |",
         "|---|---|---|---|",
@@ -1130,11 +1464,42 @@ def self_test() -> int:
     expect("MQ7 thread table", [cells for _, cells in thread_table_rows(model)], ["Never"])
     multi = 'std::thread::Builder::new()\n    .name("mux-conn".into())\n'
     expect("MQ8 thread", lines_of(Q.MQ8_THREADS, "x()\n" + multi, multiline=True), ["std::thread::Builder::new()"])
+    expect("MQ8 multiline symbol", [rust_site_symbol(m, "thread") for m in rg.stdin_rg(Q.MQ8_THREADS, "x()\n" + multi, multiline=True)],
+           ["mux-conn"])
+    rust = [
+        "fn start() {",
+        "    let a = std::thread::Builder::new()",
+        '        .name("mux-conn".into())',
+        "        .spawn(move || {",
+        '            let _g = cmux_hang_watch::register_thread("mux-conn");',
+        '            serve(")");',
+        "        });",
+        '    let b = std::thread::Builder::new().name("mux-line-out".into()).spawn(move || {',
+        "        write_loop();",
+        "    });",
+        "}",
+    ]
+    scopes = [(2, rust_site_scope(rust, 2, "thread")), (8, rust_site_scope(rust, 8, "thread"))]
+    expect("MQ8 scopes", [scope for _, scope in scopes], [(2, 7), (8, 10)])
+    expect("MQ8 one registration per thread",
+           assign_registrations(scopes, rust_registrations(rust, [sc for _, sc in scopes if sc])), {2})
+    expect("MQ8 registration in the called function",
+           assign_registrations(scopes, rust_registrations(rust + ["fn write_loop() {", '    let _g = register_thread("mux-line-out");', "}"],
+                                                           [sc for _, sc in scopes if sc])), {2, 8})
+    expect("MQ8 use line", rust_registrations(["use cmux_hang_watch::register_thread;"], []), [])
+    expect("MQ8 runtime scope", rust_site_scope(["let rt = tokio::runtime::Builder::new_multi_thread()",
+                                                 "    .on_thread_start(cmux_hang_watch::tokio::on_start)",
+                                                 "    .build()?;"], 1, "runtime"), (1, 3))
     expect("MQ8 format", len(lines_of(Q.MQ8_THREADS, 'thread::Builder::new().name(format!("surface-{id}"))\n')), 1)
     expect("MQ8 other", lines_of(Q.MQ8_THREADS, 'thread::Builder::new().name("other".into())\n'), [])
     expect("MQ8 runtime", len(lines_of(Q.MQ8_RUNTIMES, "tokio::runtime::Builder::new_multi_thread()\n")), 1)
     expect("MQ9 panic", len(lines_of(Q.MQ9_PANIC, "cmux_panic_log::install(p)\ncmux_panic_log::install_with_opener(a)\n")), 2)
     expect("MQ9 blackbox", len(lines_of(Q.MQ9_BLACKBOX, "cmux_trace::init_blackbox(dir)\nmy_init_blackbox(x)\n")), 1)
+    # install-cmux-tui-client.sh: bin/cmux, with bin/cmux-tui and bin/acpmux as symlinks to it.
+    mapped, unmapped_bins = map_bundle_binaries(["acpmux", "cmux", "cmux-tui", "cmux-holder", "other"], {})
+    expect("MQ9 one role once", [role.name for role, _, _ in mapped],
+           ["acpmux", "agent-host", "daemon", "mcp-serve", "holder"])
+    expect("MQ9 unmapped", unmapped_bins, ["other"])
     expect("Mach-O", [is_macho(b) for b in (b"\xcf\xfa\xed\xfe", b"\xca\xfe\xba\xbe", b"#!/b")], [True, True, False])
     cargo = (
         '[package]\nname = "cmux-tui"\n\n[[bin]]\nname = "cmux-tui"\npath = "src/bin/cmux-tui.rs"\n\n'
@@ -1146,6 +1511,12 @@ def self_test() -> int:
            [("optchat-chief", "n/src/main.rs")])
     sentry = [RgMatch("a", 1, "        options.enableLogs = false"), RgMatch("a", 2, "options.appHangTimeoutInterval = 8.0 // s")]
     expect("MQ10 parse", sentry_options(sentry), {"enableLogs": ("false", 1), "appHangTimeoutInterval": ("8.0", 2)})
+    diffs = sentry_diffs(
+        {"enableLogs": ("false", 3), "enableSwizzling": ("true", 4), "enableCaptureFailedRequests": ("false", 5)},
+        {"enableLogs": ("false", 1), "enableMetricKit": ("false", 2)},
+    )
+    expect("MQ10 both directions", [(h.symbol, h.extra["app"], h.extra["cli"]) for h in diffs],
+           [("enableMetricKit", "unset", "false"), ("enableSwizzling", "true", "unset")])
     expect("MQ10", len(lines_of(Q.MQ10, "options.enableMetricKit = false\noptions.appHangTimeoutInterval = 8\noptions.dsn = x\n")), 2)
     enum = "    Identify {\n        machine: bool,\n    },\n    Ping,\n    Resize(Size),\n    // Note\n"
     expect("MQ11", len(lines_of(Q.MQ11_VARIANT, enum)), 3)
@@ -1161,11 +1532,21 @@ def self_test() -> int:
     expect("MQ12 record", [m.group(1) for m in re.finditer(Q.MQ12_RECORD, "metrics.record(.keyFrame(.view), 3); m.record(.mainTurn, d)")],
            ["keyFrame", "mainTurn"])
     expect("MQ13", len(lines_of(Q.MQ13, "std::thread::spawn(move || {})\nthread::spawn(f)\nthread::Builder::new().spawn(f)\n")), 2)
-    expect("MQ14", len(lines_of(Q.MQ14, "Task.detached(priority: .utility) {}\nTask {}\n")), 1)
+    expect("MQ14", lines_of(Q.MQ14, "Task.detached(priority: .utility) {}\nTask {}\n"
+                                    "TracedTask.detached(priority: .utility) {}\n_Concurrency.Task.detached {}\n"),
+           ["Task.detached(priority: .utility) {}", "_Concurrency.Task.detached {}"])
     expect("MQ15", len(lines_of(Q.MQ15, "let c = ContinuousClock()\nlet s = SuspendingClock()\n")), 1)
-    expect("MQ15 done", [bool(CONTINUOUS_CLOCK_DONE.search(t)) for t in
-                         ("ContinuousClock.now // continuous-clock: counts sleep on purpose", "ContinuousClock.now", "TraceClock.nowNanos()")],
+    def clock_done(lines: List[str], line: int) -> bool:
+        return marked(lines, line, CONTINUOUS_CLOCK_REPLACED, CONTINUOUS_CLOCK_ESCAPE)
+
+    expect("MQ15 done", [clock_done([t], 1) for t in
+                         ("ContinuousClock.now // continuous-clock: counts sleep on purpose", "ContinuousClock.now",
+                          "let c: any Clock = SuspendingClock() as ContinuousClock?")],
            [True, False, True])
+    expect("MQ15 TraceClock above", clock_done(["let t0 = TraceClock.nowNanos()", "let start = ContinuousClock.now"], 2), False)
+    expect("MQ15 escape above", clock_done(["// continuous-clock: counts sleep on purpose", "let s = ContinuousClock.now"], 2), True)
+    expect("MQ15 trailing escape above", clock_done(["let a = ContinuousClock.now // continuous-clock: x",
+                                                     "let b = ContinuousClock.now"], 2), False)
     expect("MQ16", len(lines_of(Q.MQ16, 'assertionFailure("x")\nassert(x)\n')), 1)
     expect("MQ16 done", near(['assertionFailure("x")', "Diagnostics.dumpWithoutCrashing(site: \"x\")"], 1,
                              DUMP_WITHOUT_CRASHING, before=3, after=3), True)
