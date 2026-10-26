@@ -1,21 +1,33 @@
 import CmuxHomeCore
 import CoreGraphics
+import CoreText
 import Foundation
 import Testing
 @testable import CmuxHomeRender
 
 /// What HomeRenderFuzzTests (p10-stability-028) found in the text path: a mention range from the wire
-/// trapped on `NSMaxRange`'s overflow when the bubble was drawn, and drawing re-walked every earlier line
-/// for each line's baseline (O(lines²)).
+/// trapped on `NSMaxRange`'s overflow when the bubble was drawn, a zero or NaN wrap width, and drawing that
+/// re-walked every earlier line for each line's baseline (O(lines²)).
 @MainActor
 @Suite struct TextLayoutRegressionTests {
-    @Test func aMentionRangeOfAnyIntsIsClampedToTheText() {
-        #expect(TextLayout.clamped(NSRange(location: -3, length: 5), to: 5) == NSRange(location: 0, length: 2))
-        #expect(TextLayout.clamped(NSRange(location: 2, length: Int.max), to: 5) == NSRange(location: 2, length: 3))
-        #expect(TextLayout.clamped(NSRange(location: Int.max, length: 1), to: 5) == nil)
-        #expect(TextLayout.clamped(NSRange(location: Int.min, length: Int.max), to: 5) == nil)
-        #expect(TextLayout.clamped(NSRange(location: 1, length: -4), to: 5) == nil)
-        #expect(TextLayout.clamped(NSRange(location: 1, length: 2), to: 5) == NSRange(location: 1, length: 2))
+    /// The UTF-16 units of `tl`'s text drawn in the bold face.
+    static func boldUnits(_ tl: TextLayout) -> [Int] {
+        let a = tl.attributed(font: Style.bodyFont, color: CGColor(gray: 0, alpha: 1))
+        let bold = Fonts.withTraits(Style.bodyFont, .traitBold)
+        return (0..<a.length).filter { i in
+            a.attribute(TextDraw.fontKey, at: i, effectiveRange: nil).map { CFEqual($0 as CFTypeRef, bold) } ?? false
+        }
+    }
+
+    /// The Mac renderer's rule for the same wire data (`TextLayout.range(_:_:in:)` in MessagesLabHome's
+    /// vendored Layout.swift): a run that does not fit the text is skipped, never cut to fit.
+    @Test func aMentionThatDoesNotFitTheTextIsSkipped() {
+        let text = "hello @chief" // 12 UTF-16 units
+        let wire = [NSRange(location: Int.max, length: 1), NSRange(location: 3, length: Int.max), NSRange(location: -2, length: 4),
+                    NSRange(location: Int.min, length: Int.max), NSRange(location: 1, length: -4), NSRange(location: 10, length: 3),
+                    NSRange(location: 6, length: 6)]
+        let tl = TextLayout.make(text, bold: wire, maxWidth: 1_000, font: Style.bodyFont)
+        #expect(Self.boldUnits(tl) == Array(6..<12))
     }
 
     @Test func aBubbleWithWireMentionsPastTheTextDraws() {
@@ -34,16 +46,6 @@ import Testing
         }
     }
 
-    @Test func allLineOffsetsMatchEachLinesOffset() {
-        let text = "one\ntwo wraps across the column because it is long enough to wrap twice at forty points\n\nend\n"
-        let tl = TextLayout.make(text, maxWidth: 40, font: Style.bodyFont)
-        for hard in [Style.lineHeight, Style.hardBreakAdvance] {
-            let all = tl.lineOffsets(hard: hard)
-            #expect(all.count == tl.lines.count)
-            for i in tl.lines.indices { #expect(all[i] == tl.lineOffset(i, hard: hard), "line \(i)") }
-        }
-    }
-
     @Test func aZeroOrNaNWidthStillCoversTheText() {
         for width in [CGFloat(0), -1, .nan] {
             let text = "a\u{1F468}\u{200D}\u{1F469}b\r\nc"
@@ -51,5 +53,37 @@ import Testing
             let end = tl.lines.last.map { $0.range.location + $0.range.length }
             #expect(end == (text as NSString).length, "width \(width)")
         }
+    }
+
+    /// A sent bubble's lines after a hard newline are `hard` apart, wrapped lines a line height.
+    @Test func theTextHeightAddsEachLinesAdvance() {
+        let hard = Style.hardBreakAdvance
+        let broken = TextLayout.make("one\n\ntwo\n", maxWidth: 1_000, font: Style.bodyFont)
+        #expect(broken.lines.count == 4)
+        #expect(broken.textHeight(hard: hard) == 3 * hard + Style.lineHeight)
+        let wrapped = TextLayout.make("a line long enough to wrap at forty points more than twice", maxWidth: 40, font: Style.bodyFont)
+        #expect(wrapped.lines.count > 2)
+        #expect(wrapped.textHeight(hard: hard) == CGFloat(wrapped.lines.count) * Style.lineHeight)
+    }
+
+    /// Drawing a bubble costs O(lines): 16 times the lines take about 16 times as long, not 256 times (the
+    /// baseline of each line was summed again from the first line). The bound leaves 3x for noise; each
+    /// size keeps its fastest of three draws.
+    @Test func drawingABubbleCostsLinearlyInItsLines() {
+        func drawTime(lines: Int) -> Duration {
+            let tl = TextLayout.make(String(repeating: "a\n", count: lines), maxWidth: 1_000, font: Style.bodyFont)
+            let body = CGRect(x: 0, y: 0, width: 200, height: 600)
+            let clock = ContinuousClock()
+            return (0..<3).map { _ in
+                clock.measure {
+                    _ = Canvas.image(size: CGSize(width: 240, height: 600), scale: 1) { ctx in
+                        PartDrawing.drawText(ctx, tl, in: body, outgoing: true, palette: Fixtures.palette)
+                    }
+                }
+            }.min() ?? .zero
+        }
+        let small = drawTime(lines: 500)
+        let large = drawTime(lines: 8_000)
+        #expect(large < small * 48, "500 lines: \(small), 8000 lines: \(large)")
     }
 }

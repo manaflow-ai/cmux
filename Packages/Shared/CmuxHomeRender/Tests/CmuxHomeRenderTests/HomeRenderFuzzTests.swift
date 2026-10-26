@@ -107,11 +107,6 @@ struct HomeRenderFuzzTests {
             end = r.location + r.length
         }
         try FuzzRun.check(end == length, "the lines end at \(end) of \(length) units")
-        let offsets = tl.lineOffsets(hard: Style.hardBreakAdvance)
-        try FuzzRun.check(offsets.count == tl.lines.count, "\(offsets.count) offsets for \(tl.lines.count) lines")
-        for i in Set([0, tl.lines.count / 2, tl.lines.count - 1]) {
-            try FuzzRun.check(offsets[i] == tl.lineOffset(i, hard: Style.hardBreakAdvance), "line \(i)'s offset differs from lineOffset")
-        }
         try FuzzRun.check(tl.textHeight(hard: Style.hardBreakAdvance).isFinite, "the text height is not finite")
     }
 

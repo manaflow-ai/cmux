@@ -26,8 +26,8 @@ struct TextLayout: Hashable, Sendable {
         var lines: [Line] = []
         var start = 0
         while start < length {
-            // At least one unit so the loop advances, never past the text (a NaN or zero width).
-            let n = min(max(CTTypesetterSuggestLineBreak(typesetter, start, Double(maxWidth)), 1), length - start)
+            var n = CTTypesetterSuggestLineBreak(typesetter, start, Double(maxWidth))
+            if n <= 0 { n = 1 }
             var range = NSRange(location: start, length: n)
             // A hard newline ends the line but is neither drawn nor measured.
             let hard = ns.character(at: start + n - 1) == 10
@@ -56,20 +56,10 @@ struct TextLayout: Hashable, Sendable {
     func attributed(font: CTFont, color: CGColor, kern: CGFloat = Style.bodyKern) -> NSAttributedString {
         let a = NSMutableAttributedString(string: text, attributes: TextDraw.attributes(font, color, kern: kern))
         let boldFont = Fonts.withTraits(font, .traitBold)
-        for range in bold {
-            guard let inText = Self.clamped(range, to: a.length) else { continue }
-            a.addAttribute(TextDraw.fontKey, value: boldFont, range: inText)
+        for range in bold where NSMaxRange(range) <= a.length {
+            a.addAttribute(TextDraw.fontKey, value: boldFont, range: range)
         }
         return a
-    }
-
-    /// The part of a mention range (from the wire: any `Int`s) inside a text of `length` UTF-16
-    /// units, or nil when none is. No `NSMaxRange`: `location + length` overflows on such values.
-    static func clamped(_ range: NSRange, to length: Int) -> NSRange? {
-        let lower = max(range.location, 0)
-        let (end, overflow) = range.location.addingReportingOverflow(max(range.length, 0))
-        let upper = min(overflow ? length : end, length)
-        return lower < upper ? NSRange(location: lower, length: upper - lower) : nil
     }
 
     /// Offset of line `i`'s baseline from the first: `hard` after a hard
@@ -83,24 +73,6 @@ struct TextLayout: Hashable, Sendable {
             y += afterNewline ? hard : Style.lineHeight
         }
         return y
-    }
-
-    /// `lineOffset(i, hard:)` of every line in one pass (drawing every line with `lineOffset` costs
-    /// O(lines²): seconds for a 64 KiB text of short lines).
-    func lineOffsets(hard: CGFloat = Style.lineHeight) -> [CGFloat] {
-        let ns = text as NSString
-        var y: CGFloat = 0
-        var out: [CGFloat] = []
-        out.reserveCapacity(lines.count)
-        for (i, line) in lines.enumerated() {
-            if i > 0 {
-                let loc = line.range.location
-                let afterNewline = loc > 0 && loc <= ns.length && ns.character(at: loc - 1) == 10
-                y += afterNewline ? hard : Style.lineHeight
-            }
-            out.append(y)
-        }
-        return out
     }
 
     func textHeight(hard: CGFloat) -> CGFloat { lineOffset(lines.count - 1, hard: hard) + Style.lineHeight }
