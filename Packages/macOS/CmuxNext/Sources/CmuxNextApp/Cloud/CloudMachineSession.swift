@@ -215,6 +215,7 @@ final class CloudMachineSession {
 
     /// "Disconnected, click to connect": no connection until the next connect.
     private func showEnded(_ error: any Error) {
+        CloudAppLinks.logEnded(error)
         let message = CloudAppLinks.endedMessage(error)
         daemon.shutdownConnection()
         daemon.store.markFailed(message)
