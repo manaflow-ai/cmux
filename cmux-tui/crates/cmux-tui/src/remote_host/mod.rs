@@ -376,6 +376,7 @@ fn enable_report(flags: &Flags) -> anyhow::Result<Value> {
             ),
         },
     };
+    let lock = config::lock()?;
     let mut config = config::load()?;
     config.enabled = true;
     config.owner = Some(owner);
@@ -393,7 +394,7 @@ fn enable_report(flags: &Flags) -> anyhow::Result<Value> {
         }
         config.spawn = false;
     }
-    config::save(&config)?;
+    config::save(&config, &lock)?;
     let exe = self_exe()?;
     let mut notes = Vec::new();
     let with_service = !flags.has("no-service");
@@ -422,9 +423,10 @@ fn enable_report(flags: &Flags) -> anyhow::Result<Value> {
 
 fn disable(args: &[String]) -> anyhow::Result<()> {
     let flags = Flags::parse(args, &[], &["json"])?;
+    let lock = config::lock()?;
     let mut config = config::load()?;
     config.enabled = false;
-    config::save(&config)?;
+    config::save(&config, &lock)?;
     service::uninstall()?;
     service::stop_running();
     let status = tailnet::Tailnet::locate().and_then(|t| t.status()).ok();
@@ -545,6 +547,7 @@ fn edit_allow(args: &[String], add: bool) -> anyhow::Result<()> {
     if login.is_empty() || login.eq_ignore_ascii_case("tagged-devices") {
         return Err(usage("needs a person's tailnet login"));
     }
+    let lock = config::lock()?;
     let mut config = config::load()?;
     config.allow.retain(|l| !config::same_login(l, login));
     if add {
@@ -553,7 +556,7 @@ fn edit_allow(args: &[String], add: bool) -> anyhow::Result<()> {
             "{login} can now use this machine's cmux sessions with full access (run commands as you)."
         );
     }
-    config::save(&config)?;
+    config::save(&config, &lock)?;
     let mut notes = Vec::new();
     // New connections read the file; connections already open were admitted
     // under the old list, so `deny` restarts the listener to close them.
@@ -691,6 +694,7 @@ fn grant_access(args: &[String]) -> anyhow::Result<()> {
     if !grant::confirmed(&answer) {
         bail!("not approved; nothing changed");
     }
+    let lock = config::lock()?;
     let mut config = config::load()?;
     config.grants.retain(|g| !config::same_login(&g.login, &login));
     config.grants.push(grant::Grant {
@@ -701,7 +705,7 @@ fn grant_access(args: &[String]) -> anyhow::Result<()> {
         revoked_at: None,
     });
     config.teammate_access = true;
-    config::save(&config)?;
+    config::save(&config, &lock)?;
     audit::append(&json!({"decision": "grant", "login": login, "outcome": "approved"}));
     let mut notes = vec![format!("approved teammate access for {login}")];
     if !config.enabled {
@@ -719,6 +723,7 @@ fn revoke_access(args: &[String]) -> anyhow::Result<()> {
         return Err(usage("needs exactly one tailnet login"));
     };
     let login = login.trim();
+    let lock = config::lock()?;
     let mut config = config::load()?;
     let now = grant::now_rfc3339();
     let mut found = false;
@@ -732,7 +737,7 @@ fn revoke_access(args: &[String]) -> anyhow::Result<()> {
     if config.grants.iter().all(|g| g.revoked_at.is_some()) {
         config.teammate_access = false;
     }
-    config::save(&config)?;
+    config::save(&config, &lock)?;
     audit::append(&json!({"decision": "revoke", "login": login, "outcome": "revoked"}));
     let mut notes = vec![format!("revoked teammate access for {login}")];
     if config.enabled && service::running_pid().is_some() {

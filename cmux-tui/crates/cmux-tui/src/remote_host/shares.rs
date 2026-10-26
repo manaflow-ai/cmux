@@ -63,23 +63,11 @@ pub(super) fn run(verb: &str, args: &[String]) -> anyhow::Result<()> {
     }
     // Applied to the config as it is now, under its lock: a grant revoked or a share changed
     // while the prompt waited is kept, and only this one share changes.
-    let _lock = config::lock()?;
-    let mut config = config::load()?;
-    shareable(verb, &config, &login)?;
-    if verb == "share" && self::generation(&config)? != generation {
-        bail!("{}", text.restarted);
-    }
-    config.shares.retain(|s| s.surface != surface || !config::same_login(&s.login, &login));
-    if verb == "share" {
-        config.shares.push(Share {
-            surface,
-            login: login.clone(),
-            role,
-            shared_at: grant::now_rfc3339(),
-            generation,
-        });
-    }
-    config::save(&config)?;
+    let lock = config::lock()?;
+    let config = config::load()?;
+    let now = if verb == "share" { self::generation(&config)? } else { String::new() };
+    let config = applied(verb, config, surface, &login, role, &generation, &now)?;
+    config::save(&config, &lock)?;
     audit::append(&json!({"decision": verb, "surface": surface, "login": login, "role": role}));
     // Restart on replacements too: a member may have become a guest.
     if service::running_pid().is_some() {
@@ -87,6 +75,35 @@ pub(super) fn run(verb: &str, args: &[String]) -> anyhow::Result<()> {
     }
     println!("{}", json!({"shares": config.shares}));
     Ok(())
+}
+
+/// `config` (as it is now, read under its lock) with one confirmed change: the share of
+/// `surface` to `login` replaced, or removed for `unshare`. A share is refused when `login` is no
+/// longer shareable, or when the daemon boot `now` is not the boot `consented` the prompt named.
+pub(super) fn applied(
+    verb: &str,
+    mut config: config::Config,
+    surface: u64,
+    login: &str,
+    role: Role,
+    consented: &str,
+    now: &str,
+) -> anyhow::Result<config::Config> {
+    shareable(verb, &config, login)?;
+    if verb == "share" && now != consented {
+        bail!("{}", crate::localization::catalog().host_share.restarted);
+    }
+    config.shares.retain(|s| s.surface != surface || !config::same_login(&s.login, login));
+    if verb == "share" {
+        config.shares.push(Share {
+            surface,
+            login: login.to_owned(),
+            role,
+            shared_at: grant::now_rfc3339(),
+            generation: consented.to_owned(),
+        });
+    }
+    Ok(config)
 }
 
 /// Whether `login` may get a share now: a consented `agents` grant, and not a full-access

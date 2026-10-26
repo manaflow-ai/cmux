@@ -36,6 +36,11 @@ pub(super) struct FakeAcpmux {
 
 impl FakeAcpmux {
     pub(super) fn start(label: &str) -> Self {
+        Self::start_with(label, Fixture::default())
+    }
+
+    /// A fake whose attach page and watch answer carry `fixture`'s extras.
+    pub(super) fn start_with(label: &str, fixture: Fixture) -> Self {
         static SEQUENCE: AtomicU64 = AtomicU64::new(0);
         let directory = PathBuf::from(format!(
             "/tmp/cmux-asa-{label}-{}-{}",
@@ -52,7 +57,8 @@ impl FakeAcpmux {
                 let Ok(stream) = stream else { return };
                 let _ = connection_tx.send(stream.try_clone().unwrap());
                 let frame_tx = frame_tx.clone();
-                std::thread::spawn(move || serve(stream, frame_tx));
+                let fixture = fixture.clone();
+                std::thread::spawn(move || serve(stream, frame_tx, &fixture));
             }
         });
         Self { directory, socket, frames, connections, current: None }
@@ -117,7 +123,15 @@ impl Drop for FakeAcpmux {
     }
 }
 
-fn serve(stream: UnixStream, frames: Sender<Value>) {
+/// What a test adds to the fake's answers: records after the attach page's
+/// own, and sessions after the watch answer's own.
+#[derive(Clone, Default)]
+pub(super) struct Fixture {
+    pub(super) page: Vec<Value>,
+    pub(super) watch: Vec<Value>,
+}
+
+fn serve(stream: UnixStream, frames: Sender<Value>, fixture: &Fixture) {
     let mut writer = stream.try_clone().unwrap();
     for line in BufReader::new(stream).lines() {
         let Ok(line) = line else { return };
@@ -132,15 +146,23 @@ fn serve(stream: UnixStream, frames: Sender<Value>) {
                 let early = json!({"jsonrpc":"2.0","method":"_acpmux/event","params":{
                     "sessionId": SESSION, "seq": 2, "dir": "in", "kind": "agent_message", "msg": {}}});
                 writeln!(writer, "{early}").unwrap();
+                let mut events = vec![
+                    json!({"sessionId": SESSION, "seq": 1, "dir": "mux", "kind": "user_message", "msg": {}}),
+                ];
+                events.extend(fixture.page.iter().cloned());
                 Some(json!({
                     "session": {"sessionId": SESSION, "name": "sub", "status": "running",
                                 "pending": [{"permissionId": "perm_attach", "options": []}]},
-                    "events": [{"sessionId": SESSION, "seq": 1, "dir": "mux", "kind": "user_message", "msg": {}}],
+                    "events": events,
                     "hasMore": false,
                     "lastSeq": 1,
                 }))
             }
-            "_acpmux/watch" => Some(json!({"sessions": [{"sessionId": "acp_unrelated"}]})),
+            "_acpmux/watch" => {
+                let mut sessions = vec![json!({"sessionId": "acp_unrelated"})];
+                sessions.extend(fixture.watch.iter().cloned());
+                Some(json!({"sessions": sessions}))
+            }
             // The machine's whole list: the attached session's family and others
             // (agent_session_children_tests.rs).
             "_acpmux/sessions" => Some(machine_sessions()),

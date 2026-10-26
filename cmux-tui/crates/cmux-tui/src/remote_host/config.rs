@@ -104,8 +104,9 @@ pub(crate) fn load_from(path: &Path) -> anyhow::Result<Config> {
     }
 }
 
-/// Writes the file atomically (temp file + rename), owner-only.
-pub(crate) fn save(config: &Config) -> anyhow::Result<()> {
+/// Writes the file atomically (temp file + rename), owner-only. The caller holds
+/// [`ConfigLock`] from before its load, so no two read-modify-writes interleave.
+pub(crate) fn save(config: &Config, _held: &ConfigLock) -> anyhow::Result<()> {
     let dir = ensure_dir()?;
     let path = dir.join("remote.json");
     let tmp = dir.join(format!(".remote.json.{}", std::process::id()));
@@ -150,7 +151,8 @@ pub(crate) fn lock() -> anyhow::Result<ConfigLock> {
         let file = options.open(ensure_dir()?.join("remote.json.lock"))?;
         // SAFETY: the descriptor is the file just opened.
         if unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX) } != 0 {
-            return Err(std::io::Error::last_os_error()).context("cannot lock the remote config");
+            return Err(std::io::Error::last_os_error())
+                .context(crate::localization::catalog().host_share.lock);
         }
         Ok(ConfigLock { file })
     }

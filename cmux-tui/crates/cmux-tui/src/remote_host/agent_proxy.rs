@@ -69,7 +69,10 @@ fn line(reader: &mut impl BufRead, limit: usize) -> io::Result<Option<Vec<u8>>> 
         return Ok(None);
     }
     if bytes.len() > limit || bytes.last() != Some(&b'\n') {
-        return Err(io::Error::new(io::ErrorKind::InvalidData, "frame exceeds line bound"));
+        return Err(io::Error::new(
+            io::ErrorKind::InvalidData,
+            crate::localization::catalog().host_share.frame_too_long,
+        ));
     }
     Ok(Some(bytes))
 }
@@ -112,7 +115,7 @@ fn run_with_config(
     if ack["ok"] != true || ack["id"] != "host-bind" {
         return Err(io::Error::new(
             io::ErrorKind::PermissionDenied,
-            "daemon refused proxy identity",
+            crate::localization::catalog().host_share.proxy_refused,
         ));
     }
     daemon.set_read_timeout(None)?;

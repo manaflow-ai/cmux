@@ -384,3 +384,32 @@ fn a_member_cannot_answer_the_hosts_asks() {
     let prompt = serde_json::json!({"cmd": "agent-session-prompt", "surface": 42, "text": "hi"});
     assert!(super::agent_proxy::filter(&config, &author, "boot-1", prompt).is_ok());
 }
+
+/// A share confirmed at the prompt applies to the config as it is then: a daemon restart while the
+/// prompt waited (another boot, so the number may be another chat), a grant revoked meanwhile, or
+/// the login put on the full-access list meanwhile each refuse it, and nothing else changes.
+#[test]
+fn a_confirmed_share_is_refused_when_the_boot_or_the_grant_changed_meanwhile() {
+    use super::shares::{Role, applied};
+    let config = shared_chat(Role::Guest);
+    let restarted =
+        applied("share", config.clone(), 42, LAWRENCE, Role::Member, "boot-1", "boot-2");
+    let message = restarted.unwrap_err().to_string();
+    assert_eq!(message, crate::localization::catalog().host_share.restarted);
+    let shared = applied("share", config.clone(), 42, LAWRENCE, Role::Member, "boot-1", "boot-1")
+        .expect("the same boot applies");
+    assert_eq!(shared.shares.len(), 1, "the share is replaced, not added");
+    assert_eq!(shared.shares[0].role, Role::Member);
+    assert_eq!(shared.shares[0].generation, "boot-1");
+    let mut revoked = config.clone();
+    revoked.grants.clear();
+    assert!(applied("share", revoked, 42, LAWRENCE, Role::Member, "boot-1", "boot-1").is_err());
+    let mut allowed = config.clone();
+    allowed.allow = vec![LAWRENCE.to_owned()];
+    assert!(applied("share", allowed, 42, LAWRENCE, Role::Member, "boot-1", "boot-1").is_err());
+    // Unsharing needs no boot and no grant: it only ever narrows.
+    let mut gone = config;
+    gone.grants.clear();
+    let unshared = applied("unshare", gone, 42, LAWRENCE, Role::Member, "", "").unwrap();
+    assert!(unshared.shares.is_empty());
+}
