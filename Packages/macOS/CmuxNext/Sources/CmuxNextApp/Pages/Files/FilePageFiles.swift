@@ -35,7 +35,10 @@ final class LocalFilePageFiles: FilePageFiles {
 
     var isLocal: Bool { true }
 
-    func canonical(_ url: URL) -> URL { url.standardizedFileURL.resolvingSymlinksInPath() }
+    func canonical(_ url: URL) -> URL { Self.resolved(url) }
+
+    /// The path with this Mac's symlinks resolved.
+    nonisolated static func resolved(_ url: URL) -> URL { url.standardizedFileURL.resolvingSymlinksInPath() }
 
     func read(_ url: URL, inWorkspace: Bool) async throws(FileOpenFailure) -> FileSnapshot {
         try await Self.read(url, inWorkspace: inWorkspace)
