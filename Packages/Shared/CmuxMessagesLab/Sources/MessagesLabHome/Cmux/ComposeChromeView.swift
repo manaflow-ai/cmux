@@ -217,8 +217,8 @@ final class ComposeChromeView: NSView {
     /// The element AppKit reports as focused while this view is the first responder: the send
     /// button's, not the view's unignored ancestor (Chromium: BridgedContentView's
     /// accessibilityFocusedUIElement, components/remote_cocoa/app_shim/bridged_content_view.mm).
-    override func accessibilityFocusedUIElement() -> Any? {
-        focusedElement.map { adopted($0) } ?? super.accessibilityFocusedUIElement()
+    override var accessibilityFocusedUIElement: Any? {
+        focusedElement.map { adopted($0) } ?? super.accessibilityFocusedUIElement
     }
 
     /// The control under a screen point (VoiceOver's mouse tracking, Voice Control, Accessibility
