@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 5819519176d5752a978a367bdd398e2ab4431f89841efa45c8da605ce35ec617. */
+/* cmux-tui mux protocol 12, IR c4d078b68b4a9079ad95fd659b1588764b5e90f7fd1a0eb409a871bc74539b8e. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "5819519176d5752a978a367bdd398e2ab4431f89841efa45c8da605ce35ec617" as const;
+export const SDK_IR_SHA256 = "c4d078b68b4a9079ad95fd659b1588764b5e90f7fd1a0eb409a871bc74539b8e" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -66,6 +66,160 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "See spec/commands.md for the result object."
+    ]
+  },
+  "agent-session-attach": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "agent-session-attach-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local (Unix) connections only: WebSocket clients and the remote relay are refused with agent_session.not_trusted; a daemon without an acpmux socket answers agent_session.unavailable.",
+      "The session always comes from the tab's store record: no param names a session, cwd, command, agent or MCP server, and an unknown param is agent_session.bad_request.",
+      "The tab must be an agent_session tab of this store with a bound session that acpmux resolves exactly, else agent_session.unknown_tab. 8 attachments per connection and 64 per daemon (agent_session.limit).",
+      "Subscribes the connection to the tab's session and answers the attach page; on a tab already attached in this mode it only pages, and on one observed it is agent_session.mode_conflict.",
+      "Live records then arrive as agent-session-record, permission requests as agent-session-permission and status changes as agent-session-changed; agent-session-closed ends the attachment. A record never overtakes the attach reply. See spec/commands.md.",
+      "limit is 1 to 500 (default 200) and kinds at most 32; a page holds at most 8 MiB of records, the rest left for the next page with hasMore."
+    ]
+  },
+  "agent-session-cancel": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "agent-session-attach-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local (Unix) connections only: WebSocket clients and the remote relay are refused with agent_session.not_trusted; a daemon without an acpmux socket answers agent_session.unavailable.",
+      "The session always comes from the tab's store record: no param names a session, cwd, command, agent or MCP server, and an unknown param is agent_session.bad_request.",
+      "Needs an attachment of surface on this connection (agent-session-attach or agent-session-observe), else agent_session.not_attached; at most 8 calls run per attachment (agent_session.limit) and acpmux has 5 s to answer (agent_session.timeout, agent_session.refused).",
+      "Refused with agent_session.read_only on an observation (agent-session-observe) attachment.",
+      "Cancels the session's running turn."
+    ]
+  },
+  "agent-session-children": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "agent-session-children-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local (Unix) connections only: WebSocket clients and the remote relay are refused with agent_session.not_trusted; a daemon without an acpmux socket answers agent_session.unavailable.",
+      "The session always comes from the tab's store record: no param names a session, cwd, command, agent or MCP server, and an unknown param is agent_session.bad_request.",
+      "Needs an attachment of surface on this connection (agent-session-attach or agent-session-observe), else agent_session.not_attached; at most 8 calls run per attachment (agent_session.limit) and acpmux has 5 s to answer (agent_session.timeout, agent_session.refused).",
+      "Lists the chats the tab's session started on this machine (startedBy or spawnedBy at any depth), never the session itself, another chat of the machine or a peer daemon's session.",
+      "From then on the attachment follows those chats: their session changes also arrive as agent-session-changed, and each may be filed under this store's registry: host."
+    ]
+  },
+  "agent-session-detach": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "agent-session-attach-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local (Unix) connections only: WebSocket clients and the remote relay are refused with agent_session.not_trusted; a daemon without an acpmux socket answers agent_session.unavailable.",
+      "The session always comes from the tab's store record: no param names a session, cwd, command, agent or MCP server, and an unknown param is agent_session.bad_request.",
+      "Ends this connection's attachment of surface, if any. Closing the connection ends all of its attachments."
+    ]
+  },
+  "agent-session-events": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "agent-session-attach-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local (Unix) connections only: WebSocket clients and the remote relay are refused with agent_session.not_trusted; a daemon without an acpmux socket answers agent_session.unavailable.",
+      "The session always comes from the tab's store record: no param names a session, cwd, command, agent or MCP server, and an unknown param is agent_session.bad_request.",
+      "Needs an attachment of surface on this connection (agent-session-attach or agent-session-observe), else agent_session.not_attached; at most 8 calls run per attachment (agent_session.limit) and acpmux has 5 s to answer (agent_session.timeout, agent_session.refused).",
+      "Pages the attached session's log as acpmux's _acpmux/events.",
+      "limit is 1 to 500 (default 200) and kinds at most 32; a page holds at most 8 MiB of records, the rest left for the next page with hasMore."
+    ]
+  },
+  "agent-session-media": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "agent-session-attach-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local (Unix) connections only: WebSocket clients and the remote relay are refused with agent_session.not_trusted; a daemon without an acpmux socket answers agent_session.unavailable.",
+      "The session always comes from the tab's store record: no param names a session, cwd, command, agent or MCP server, and an unknown param is agent_session.bad_request.",
+      "Needs an attachment of surface on this connection (agent-session-attach or agent-session-observe), else agent_session.not_attached; at most 8 calls run per attachment (agent_session.limit) and acpmux has 5 s to answer (agent_session.timeout, agent_session.refused).",
+      "Reads one image of the attached session from its host acpmux (_acpmux/media_open and _acpmux/media_range); another extension, an empty image or one over 10 MiB is agent_session.bad_request."
+    ]
+  },
+  "agent-session-observe": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "agent-session-observe-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local (Unix) connections only: WebSocket clients and the remote relay are refused with agent_session.not_trusted; a daemon without an acpmux socket answers agent_session.unavailable.",
+      "The session always comes from the tab's store record: no param names a session, cwd, command, agent or MCP server, and an unknown param is agent_session.bad_request.",
+      "Creates a read-only attachment with agent-session-attach's rules and answers the same page; agent-session-prompt, -cancel and -permission on it are agent_session.read_only before acpmux is called.",
+      "On a tab this connection attached with agent-session-attach it is agent_session.mode_conflict and the attachment is unchanged; the same mode again only pages.",
+      "limit is 1 to 500 (default 200) and kinds at most 32; a page holds at most 8 MiB of records, the rest left for the next page with hasMore."
+    ]
+  },
+  "agent-session-permission": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "agent-session-attach-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local (Unix) connections only: WebSocket clients and the remote relay are refused with agent_session.not_trusted; a daemon without an acpmux socket answers agent_session.unavailable.",
+      "The session always comes from the tab's store record: no param names a session, cwd, command, agent or MCP server, and an unknown param is agent_session.bad_request.",
+      "Needs an attachment of surface on this connection (agent-session-attach or agent-session-observe), else agent_session.not_attached; at most 8 calls run per attachment (agent_session.limit) and acpmux has 5 s to answer (agent_session.timeout, agent_session.refused).",
+      "Refused with agent_session.read_only on an observation (agent-session-observe) attachment.",
+      "Answers a permission request acpmux announced on this attachment once; an unknown one is agent_session.unknown_permission and a failed answer can be sent again. The daemon never answers by itself.",
+      "decision_nonce, person_decision and answered_by are checked for shape only and passed to acpmux unchanged as _meta.acpmux; acpmux decides."
+    ]
+  },
+  "agent-session-prompt": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "agent-session-attach-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local (Unix) connections only: WebSocket clients and the remote relay are refused with agent_session.not_trusted; a daemon without an acpmux socket answers agent_session.unavailable.",
+      "The session always comes from the tab's store record: no param names a session, cwd, command, agent or MCP server, and an unknown param is agent_session.bad_request.",
+      "Needs an attachment of surface on this connection (agent-session-attach or agent-session-observe), else agent_session.not_attached; at most 8 calls run per attachment (agent_session.limit) and acpmux has 5 s to answer (agent_session.timeout, agent_session.refused).",
+      "Refused with agent_session.read_only on an observation (agent-session-observe) attachment.",
+      "Sends one ACP text content block and answers once acpmux recorded it; the reply streams as agent-session-record."
+    ]
+  },
+  "agent-session-start": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "agent-session-start-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local (Unix) connections only: WebSocket clients and the remote relay are refused with agent_session.not_trusted; a daemon without an acpmux socket answers agent_session.unavailable.",
+      "The session always comes from the tab's store record: no param names a session, cwd, command, agent or MCP server, and an unknown param is agent_session.bad_request.",
+      "The tab must be an agent_session tab of this store whose host is this store's registry: host and that has no session (agent_session.unknown_tab, agent_session.bound).",
+      "cwd follows agent-session-trust's home folder rule (agent_session.above_home, agent_session.home_unconfirmed) and must already be trusted (agent_session.untrusted_folder).",
+      "A team VM is agent_session.team_vm_blocked and a VM of unknown kind agent_session.host_unverified. The session starts with policy ask and must be in an asking mode, else agent_session.not_asking.",
+      "With require_person_key, a run without the caller's key is agent_session.needs_keyed_start with data {reason, safe_to_restart, live_agents, remote_sessions}. See spec/commands.md."
+    ]
+  },
+  "agent-session-trust": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": "agent-session-trust-v1",
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Trusted local (Unix) connections only: WebSocket clients and the remote relay are refused with agent_session.not_trusted; a daemon without an acpmux socket answers agent_session.unavailable.",
+      "The session always comes from the tab's store record: no param names a session, cwd, command, agent or MCP server, and an unknown param is agent_session.bad_request.",
+      "Without level it answers acpmux's acp.trust.get {cwd} reply ({cwd, level, harnesses?, decided?}); with level, acpmux's acp.trust.set reply. A client sends level only for the person's own answer.",
+      "trusted for / or a folder above the home folder is agent_session.above_home; the home folder takes trusted only with home_confirmed, else agent_session.home_unconfirmed.",
+      "The tab must be an agent_session tab whose host names this store (agent_session.unknown_tab); at most 8 calls run at once (agent_session.limit)."
     ]
   },
   "apply-layout": {
@@ -4518,6 +4672,38 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       "hook"
     ]
   },
+  "AgentSessionAcpmuxReply": {
+    "kind": "opaque_json",
+    "reason": "The result acpmux answered for the call (permission_respond, acp.trust.get or acp.trust.set), passed through unchanged; acpmux owns its shape."
+  },
+  "AgentSessionAnsweredBy": {
+    "additional_properties": false,
+    "fields": {
+      "device": {
+        "description": "The device the person answered on: 1 to 128 of [A-Za-z0-9_.:-].",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      },
+      "feed_item": {
+        "description": "The feed item the person answered: 1 to 128 of [A-Za-z0-9_.:-].",
+        "nullable": false,
+        "presence": "required",
+        "type": {
+          "kind": "scalar",
+          "name": "string"
+        }
+      }
+    },
+    "kind": "object"
+  },
+  "AgentSessionPage": {
+    "kind": "opaque_json",
+    "reason": "acpmux's own _acpmux/attach or _acpmux/events page ({session, events, hasMore, lastSeq}; events only on agent-session-events), passed through unchanged except that a page over 8 MiB is cut and gets hasMore:true. acpmux owns the record shape."
+  },
   "AgentSessionSource": {
     "additional_properties": false,
     "fields": {
@@ -4562,6 +4748,10 @@ export const TYPE_SCHEMAS: Readonly<Record<string, TypeSchema>> = {
       }
     },
     "kind": "object"
+  },
+  "AgentSessionSummary": {
+    "kind": "opaque_json",
+    "reason": "One acpmux session summary from _acpmux/sessions, as acpmux writes it (sessionId, startedBy, spawnedBy and the rest); acpmux owns its shape."
   },
   "AgentSource": {
     "kind": "enum",
@@ -14293,6 +14483,595 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "TabGroupOutcome"
+    }
+  },
+  "agent-session-attach": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "after_seq": {
+          "description": "Records after this seq (oldest first).",
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "before_seq": {
+          "description": "Records before this seq (newest first).",
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "kinds": {
+          "description": "At most 32 acpmux record kinds or categories.",
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "items": {
+              "kind": "scalar",
+              "name": "string"
+            },
+            "kind": "array"
+          }
+        },
+        "limit": {
+          "description": "Records per page, 1 to 500 (default 200).",
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "surface": {
+          "description": "The agent chat tab: an agent_session tab of this daemon's store.",
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "AgentSessionPage"
+    }
+  },
+  "agent-session-cancel": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "surface": {
+          "description": "The agent chat tab: an agent_session tab of this daemon's store.",
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": false,
+      "fields": {},
+      "kind": "object"
+    }
+  },
+  "agent-session-children": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "surface": {
+          "description": "The agent chat tab: an agent_session tab of this daemon's store.",
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": false,
+      "fields": {
+        "sessions": {
+          "description": "At most 256 summaries and 8 MiB, in acpmux's order.",
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "items": {
+              "kind": "ref",
+              "name": "AgentSessionSummary"
+            },
+            "kind": "array"
+          }
+        }
+      },
+      "kind": "object"
+    }
+  },
+  "agent-session-detach": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "surface": {
+          "description": "The agent chat tab: an agent_session tab of this daemon's store.",
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": false,
+      "fields": {},
+      "kind": "object"
+    }
+  },
+  "agent-session-events": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "after_seq": {
+          "description": "Records after this seq (oldest first).",
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "before_seq": {
+          "description": "Records before this seq (newest first).",
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "kinds": {
+          "description": "At most 32 acpmux record kinds or categories.",
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "items": {
+              "kind": "scalar",
+              "name": "string"
+            },
+            "kind": "array"
+          }
+        },
+        "limit": {
+          "description": "Records per page, 1 to 500 (default 200).",
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "surface": {
+          "description": "The agent chat tab: an agent_session tab of this daemon's store.",
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "AgentSessionPage"
+    }
+  },
+  "agent-session-media": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "path": {
+          "description": "An image the session wrote: png, jpg, jpeg, gif or webp, at most 4096 bytes.",
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "surface": {
+          "description": "The agent chat tab: an agent_session tab of this daemon's store.",
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": false,
+      "fields": {
+        "data": {
+          "description": "The image bytes in standard base64, at most 10 MiB decoded.",
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "mimeType": {
+          "description": "The image type acpmux reported.",
+          "nullable": true,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    }
+  },
+  "agent-session-observe": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "after_seq": {
+          "description": "Records after this seq (oldest first).",
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "before_seq": {
+          "description": "Records before this seq (newest first).",
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "kinds": {
+          "description": "At most 32 acpmux record kinds or categories.",
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "items": {
+              "kind": "scalar",
+              "name": "string"
+            },
+            "kind": "array"
+          }
+        },
+        "limit": {
+          "description": "Records per page, 1 to 500 (default 200).",
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "uint64"
+          }
+        },
+        "surface": {
+          "description": "The agent chat tab: an agent_session tab of this daemon's store.",
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "AgentSessionPage"
+    }
+  },
+  "agent-session-permission": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "answered_by": {
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "ref",
+            "name": "AgentSessionAnsweredBy"
+          }
+        },
+        "decision_nonce": {
+          "description": "64 lowercase hex characters.",
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "option_id": {
+          "description": "The chosen option, 1 to 256 bytes.",
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "permission_id": {
+          "description": "A request acpmux announced on this attachment.",
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "person_decision": {
+          "description": "64 lowercase hex characters: the person's decision proof.",
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "surface": {
+          "description": "The agent chat tab: an agent_session tab of this daemon's store.",
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "AgentSessionAcpmuxReply"
+    }
+  },
+  "agent-session-prompt": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "prompt_id": {
+          "description": "1 to 128 letters, digits, '-' or '_'.",
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "surface": {
+          "description": "The agent chat tab: an agent_session tab of this daemon's store.",
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        },
+        "text": {
+          "description": "One text prompt, at most 64 KiB.",
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": false,
+      "fields": {
+        "prompt_id": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "queued": {
+          "description": "acpmux queued the prompt behind a running turn.",
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "turn_id": {
+          "description": "The turn acpmux started or queued, as it answered.",
+          "nullable": true,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        }
+      },
+      "kind": "object"
+    }
+  },
+  "agent-session-start": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "cwd": {
+          "description": "An absolute folder of this machine, at most 4096 bytes.",
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "harness": {
+          "description": "The agent kind acpmux resolves from its config: 1 to 64 letters, digits, '_', '.' or '-'.",
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "home_confirmed": {
+          "default": false,
+          "description": "The person chose the home folder as the chat's folder.",
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "person_instance": {
+          "description": "The acpmux run the caller holds a person key for: 1 to 128 of [A-Za-z0-9_.:-].",
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "require_person_key": {
+          "default": false,
+          "description": "Start only when acpmux holds a person key for person_instance (agent-session-start-keyed-reason-v1).",
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "surface": {
+          "description": "The agent chat tab: an agent_session tab of this daemon's store.",
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "additional_properties": false,
+      "fields": {
+        "conversation": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "ConversationTabRecord"
+          }
+        },
+        "session": {
+          "description": "The new acpmux session, bound to the tab.",
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "surface": {
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        }
+      },
+      "kind": "object"
+    }
+  },
+  "agent-session-trust": {
+    "request": {
+      "additional_properties": false,
+      "fields": {
+        "cwd": {
+          "description": "An absolute folder of this machine, at most 4096 bytes, no control characters.",
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "scalar",
+            "name": "string"
+          }
+        },
+        "home_confirmed": {
+          "default": false,
+          "description": "The person chose the home folder as the chat's folder.",
+          "nullable": false,
+          "presence": "optional",
+          "type": {
+            "kind": "scalar",
+            "name": "boolean"
+          }
+        },
+        "level": {
+          "description": "The person's answer; absent reads the folder's trust. unknown forgets the answer.",
+          "nullable": true,
+          "presence": "optional",
+          "type": {
+            "kind": "enum",
+            "values": [
+              "trusted",
+              "untrusted",
+              "unknown"
+            ]
+          }
+        },
+        "surface": {
+          "description": "The agent chat tab: an agent_session tab of this daemon's store.",
+          "nullable": false,
+          "presence": "required",
+          "type": {
+            "kind": "ref",
+            "name": "Id"
+          }
+        }
+      },
+      "kind": "object"
+    },
+    "result": {
+      "kind": "ref",
+      "name": "AgentSessionAcpmuxReply"
     }
   },
   "apply-layout": {

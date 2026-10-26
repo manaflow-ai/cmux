@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 5819519176d5752a978a367bdd398e2ab4431f89841efa45c8da605ce35ec617. */
+/* cmux-tui mux protocol 12, IR c4d078b68b4a9079ad95fd659b1588764b5e90f7fd1a0eb409a871bc74539b8e. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -37,6 +37,19 @@ export type AgentRecord = {
 
 export type AgentReportSource = "socket" | "hook";
 
+/** Opaque JSON: The result acpmux answered for the call (permission_respond, acp.trust.get or acp.trust.set), passed through unchanged; acpmux owns its shape. */
+export type AgentSessionAcpmuxReply = JsonValue;
+
+export type AgentSessionAnsweredBy = {
+  /** The device the person answered on: 1 to 128 of [A-Za-z0-9_.:-]. */
+  "device": string;
+  /** The feed item the person answered: 1 to 128 of [A-Za-z0-9_.:-]. */
+  "feed_item": string;
+};
+
+/** Opaque JSON: acpmux's own _acpmux/attach or _acpmux/events page ({session, events, hasMore, lastSeq}; events only on agent-session-events), passed through unchanged except that a page over 8 MiB is cut and gets hasMore:true. acpmux owns the record shape. */
+export type AgentSessionPage = JsonValue;
+
 export type AgentSessionSource = {
   /** The agent kind the chat was started with. */
   "harness"?: (string) | null;
@@ -47,6 +60,9 @@ export type AgentSessionSource = {
   /** The acpmux session id; null for a new chat until bind-conversation-tab-session. */
   "session"?: (string) | null;
 };
+
+/** Opaque JSON: One acpmux session summary from _acpmux/sessions, as acpmux writes it (sessionId, startedBy, spawnedBy and the rest); acpmux owns its shape. */
+export type AgentSessionSummary = JsonValue;
 
 export type AgentSource = "plugin" | "detected" | "socket" | "hook";
 

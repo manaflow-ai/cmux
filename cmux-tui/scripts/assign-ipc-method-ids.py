@@ -134,6 +134,10 @@ FAMILIES: dict[str, tuple[int, str, tuple[str, ...]]] = {
     )),
     "cloud": (0x10, "cmux Cloud session, host replica, conversations and inbox.", ("cloud-*",)),
     "assets": (0x11, "Content-addressed icon assets.", ("put-blob", "get-blob")),
+    # 0x12 is p05-ipc-013's apps family.
+    "agent-sessions": (0x13, "Agent chat tabs attached to this machine's acpmux sessions.", (
+        "agent-session-*",
+    )),
 }
 
 EVENT_FAMILIES: dict[str, tuple[int, str, tuple[str, ...]]] = {
@@ -170,19 +174,23 @@ EVENT_FAMILIES: dict[str, tuple[int, str, tuple[str, ...]]] = {
 # WidgetInputHandler, content/common/input/widget_input_handler.mojom).
 # bulk: large reads (journal and history reads, attachment bytes, icon
 # assets); a write stays control, so a later control command that names what
-# it wrote cannot pass it. background: stats; else control.
+# it wrote cannot pass it. background: stats; else control. An agent chat's
+# prompt, cancel and permission answer are the person's input to the attached
+# session and share input for the same reason; its log pages and images are
+# bulk reads.
 
 COMMAND_PRIORITY: dict[str, tuple[str, ...]] = {
     "input": (
         "send", "send-key", "paste-image", "browser-key", "browser-key-press", "browser-mouse",
         "browser-mouse-guarded", "browser-wheel", "browser-wheel-guarded", "browser-insert-text",
         "resize-attached-view", "scroll-surface",
+        "agent-session-prompt", "agent-session-cancel", "agent-session-permission",
     ),
     "bulk": (
         "terminal-events", "terminal-history", "terminal-read-range", "read-scrollback",
         "list-terminal-commands", "get-frontend-browser-history", "conversation-history",
         "cloud-conversation-history", "conversation-attachment-read", "cloud-attachment-read",
-        "get-blob",
+        "get-blob", "agent-session-events", "agent-session-media",
     ),
     "background": ("server-stats", "machine-usage", "terminal-resources"),
 }
@@ -220,6 +228,7 @@ READ_ONLY = (
     "cloud-conversation-snapshot", "cloud-conversation-history",
     "cloud-conversation-thread", "cloud-conversation-runs", "cloud-conversation-run",
     "cloud-participant-avatar-get", "cloud-attachment-read", "feed-local-list", "trace-status",
+    "agent-session-events", "agent-session-media",
 )
 MEMORY = (
     "send", "send-key", "paste-image", "copy", "scroll-surface", "browser-key", "browser-key-press",
@@ -241,6 +250,12 @@ MEMORY = (
     "browser-host-provider",
     # Admits a snapshot on the stream's gate (collapse and 500 ms throttle).
     "snapshot-request",
+    # Agent chat attachments and what they send to acpmux, which keeps the
+    # session and the folder trust itself; children also records the chats
+    # the tab may file. agent-session-start binds the tab, a journaled write.
+    "agent-session-attach", "agent-session-observe", "agent-session-detach",
+    "agent-session-prompt", "agent-session-cancel", "agent-session-permission",
+    "agent-session-children", "agent-session-trust",
 )
 REPLY_AFTER_JOURNAL = ("journal-frontend-event",)
 

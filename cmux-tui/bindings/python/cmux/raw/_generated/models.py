@@ -372,6 +372,13 @@ class AgentRecord:
 
 
 @dataclass(frozen=True)
+class AgentSessionAnsweredBy:
+    __cmux_schema_path__: ClassVar[str] = 'types/AgentSessionAnsweredBy'
+    device: str
+    feed_item: str
+
+
+@dataclass(frozen=True)
 class AgentSessionSource:
     __cmux_schema_path__: ClassVar[str] = 'types/AgentSessionSource'
     host: str
@@ -2250,6 +2257,141 @@ class AddTabsToTabGroupRequest:
     group: str
     surfaces: List[TabRef]
     transaction: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class AgentSessionAttachRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/agent-session-attach/request'
+    surface: Id
+    after_seq: Union[int, None, MissingType] = field(default=MISSING)
+    before_seq: Union[int, None, MissingType] = field(default=MISSING)
+    kinds: Union[List[str], None, MissingType] = field(default=MISSING)
+    limit: Union[int, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class AgentSessionCancelRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/agent-session-cancel/request'
+    surface: Id
+
+
+@dataclass(frozen=True)
+class AgentSessionCancelResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/agent-session-cancel/result'
+    pass
+
+
+@dataclass(frozen=True)
+class AgentSessionChildrenRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/agent-session-children/request'
+    surface: Id
+
+
+@dataclass(frozen=True)
+class AgentSessionChildrenResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/agent-session-children/result'
+    sessions: List[AgentSessionSummary]
+
+
+@dataclass(frozen=True)
+class AgentSessionDetachRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/agent-session-detach/request'
+    surface: Id
+
+
+@dataclass(frozen=True)
+class AgentSessionDetachResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/agent-session-detach/result'
+    pass
+
+
+@dataclass(frozen=True)
+class AgentSessionEventsRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/agent-session-events/request'
+    surface: Id
+    after_seq: Union[int, None, MissingType] = field(default=MISSING)
+    before_seq: Union[int, None, MissingType] = field(default=MISSING)
+    kinds: Union[List[str], None, MissingType] = field(default=MISSING)
+    limit: Union[int, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class AgentSessionMediaRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/agent-session-media/request'
+    surface: Id
+    path: str
+
+
+@dataclass(frozen=True)
+class AgentSessionMediaResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/agent-session-media/result'
+    data: str
+    mimeType: Union[str, None]
+
+
+@dataclass(frozen=True)
+class AgentSessionObserveRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/agent-session-observe/request'
+    surface: Id
+    after_seq: Union[int, None, MissingType] = field(default=MISSING)
+    before_seq: Union[int, None, MissingType] = field(default=MISSING)
+    kinds: Union[List[str], None, MissingType] = field(default=MISSING)
+    limit: Union[int, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class AgentSessionPermissionRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/agent-session-permission/request'
+    surface: Id
+    option_id: str
+    permission_id: str
+    answered_by: Union[AgentSessionAnsweredBy, None, MissingType] = field(default=MISSING)
+    decision_nonce: Union[str, None, MissingType] = field(default=MISSING)
+    person_decision: Union[str, None, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class AgentSessionPromptRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/agent-session-prompt/request'
+    surface: Id
+    prompt_id: str
+    text: str
+
+
+@dataclass(frozen=True)
+class AgentSessionPromptResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/agent-session-prompt/result'
+    prompt_id: str
+    queued: bool
+    turn_id: Union[str, None]
+
+
+@dataclass(frozen=True)
+class AgentSessionStartRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/agent-session-start/request'
+    surface: Id
+    cwd: str
+    harness: Union[str, None, MissingType] = field(default=MISSING)
+    home_confirmed: Union[bool, MissingType] = field(default=MISSING)
+    person_instance: Union[str, None, MissingType] = field(default=MISSING)
+    require_person_key: Union[bool, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class AgentSessionStartResult:
+    __cmux_schema_path__: ClassVar[str] = 'commands/agent-session-start/result'
+    surface: Id
+    conversation: ConversationTabRecord
+    session: str
+
+
+@dataclass(frozen=True)
+class AgentSessionTrustRequest:
+    __cmux_schema_path__: ClassVar[str] = 'commands/agent-session-trust/request'
+    surface: Id
+    cwd: str
+    home_confirmed: Union[bool, MissingType] = field(default=MISSING)
+    level: Union[Literal['trusted', 'untrusted', 'unknown'], None, MissingType] = field(default=MISSING)
 
 
 @dataclass(frozen=True)
@@ -6026,6 +6168,9 @@ class WorkspaceRenamedEvent(EventBase):
 
 
 # Named protocol aliases.
+AgentSessionAcpmuxReply = Any
+AgentSessionPage = Any
+AgentSessionSummary = Any
 Base64 = str
 ColorHex = str
 DeclarativeLayout = Union[DeclarativeLayoutLeaf, DeclarativeLayoutSplit, DeclarativeLayoutStack]
@@ -6088,6 +6233,7 @@ __all__ = [
     'ActivitySnapshot',
     'ActivitySubscribeResult',
     'AgentRecord',
+    'AgentSessionAnsweredBy',
     'AgentSessionSource',
     'AppliedPane',
     'ApplyLayoutResult',
@@ -6277,6 +6423,23 @@ __all__ = [
     'AckTabNotificationsRequest',
     'AddScreensToScreenGroupRequest',
     'AddTabsToTabGroupRequest',
+    'AgentSessionAttachRequest',
+    'AgentSessionCancelRequest',
+    'AgentSessionCancelResult',
+    'AgentSessionChildrenRequest',
+    'AgentSessionChildrenResult',
+    'AgentSessionDetachRequest',
+    'AgentSessionDetachResult',
+    'AgentSessionEventsRequest',
+    'AgentSessionMediaRequest',
+    'AgentSessionMediaResult',
+    'AgentSessionObserveRequest',
+    'AgentSessionPermissionRequest',
+    'AgentSessionPromptRequest',
+    'AgentSessionPromptResult',
+    'AgentSessionStartRequest',
+    'AgentSessionStartResult',
+    'AgentSessionTrustRequest',
     'ApplyLayoutRequest',
     'AttachSurfaceRequest',
     'BindConversationTabSessionRequest',
@@ -6699,6 +6862,9 @@ __all__ = [
     'WorkspaceClosedEvent',
     'WorkspaceMovedEvent',
     'WorkspaceRenamedEvent',
+    'AgentSessionAcpmuxReply',
+    'AgentSessionPage',
+    'AgentSessionSummary',
     'Base64',
     'ColorHex',
     'DeclarativeLayout',

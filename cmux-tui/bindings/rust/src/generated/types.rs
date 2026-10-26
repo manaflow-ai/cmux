@@ -1,11 +1,17 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 5819519176d5752a978a367bdd398e2ab4431f89841efa45c8da605ce35ec617.
+// cmux-tui mux protocol 12, IR c4d078b68b4a9079ad95fd659b1588764b5e90f7fd1a0eb409a871bc74539b8e.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+#[rustfmt::skip]
+pub type AgentSessionAcpmuxReply = serde_json::Value;
+#[rustfmt::skip]
+pub type AgentSessionPage = serde_json::Value;
+#[rustfmt::skip]
+pub type AgentSessionSummary = serde_json::Value;
 #[rustfmt::skip]
 pub type Base64 = String;
 #[rustfmt::skip]
@@ -84,6 +90,15 @@ pub enum AgentReportSource {
     Socket,
     #[serde(rename = "hook")]
     Hook,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentSessionAnsweredBy {
+    /// The device the person answered on: 1 to 128 of \[A-Za-z0-9_.:-\].
+    pub device: String,
+    /// The feed item the person answered: 1 to 128 of \[A-Za-z0-9_.:-\].
+    pub feed_item: String,
 }
 
 #[rustfmt::skip]

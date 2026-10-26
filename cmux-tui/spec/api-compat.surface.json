@@ -6679,6 +6679,203 @@
         "nullable": true
       }
     },
+    "request:agent-session-attach": {
+      "/after_seq": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/before_seq": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/kinds": {
+        "ty": "array",
+        "nullable": true
+      },
+      "/kinds/*": {
+        "ty": "string"
+      },
+      "/limit": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/surface": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
+    "request:agent-session-cancel": {
+      "/surface": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
+    "request:agent-session-children": {
+      "/surface": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
+    "request:agent-session-detach": {
+      "/surface": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
+    "request:agent-session-events": {
+      "/after_seq": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/before_seq": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/kinds": {
+        "ty": "array",
+        "nullable": true
+      },
+      "/kinds/*": {
+        "ty": "string"
+      },
+      "/limit": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/surface": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
+    "request:agent-session-media": {
+      "/path": {
+        "ty": "string",
+        "required": true
+      },
+      "/surface": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
+    "request:agent-session-observe": {
+      "/after_seq": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/before_seq": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/kinds": {
+        "ty": "array",
+        "nullable": true
+      },
+      "/kinds/*": {
+        "ty": "string"
+      },
+      "/limit": {
+        "ty": "uint64",
+        "nullable": true
+      },
+      "/surface": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
+    "request:agent-session-permission": {
+      "/answered_by": {
+        "ty": "object",
+        "nullable": true
+      },
+      "/answered_by/device": {
+        "ty": "string",
+        "required": true
+      },
+      "/answered_by/feed_item": {
+        "ty": "string",
+        "required": true
+      },
+      "/decision_nonce": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/option_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/permission_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/person_decision": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/surface": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
+    "request:agent-session-prompt": {
+      "/prompt_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/surface": {
+        "ty": "uint64",
+        "required": true
+      },
+      "/text": {
+        "ty": "string",
+        "required": true
+      }
+    },
+    "request:agent-session-start": {
+      "/cwd": {
+        "ty": "string",
+        "required": true
+      },
+      "/harness": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/home_confirmed": {
+        "ty": "boolean"
+      },
+      "/person_instance": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/require_person_key": {
+        "ty": "boolean"
+      },
+      "/surface": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
+    "request:agent-session-trust": {
+      "/cwd": {
+        "ty": "string",
+        "required": true
+      },
+      "/home_confirmed": {
+        "ty": "boolean"
+      },
+      "/level": {
+        "ty": "enum",
+        "nullable": true,
+        "values": [
+          "trusted",
+          "unknown",
+          "untrusted"
+        ]
+      },
+      "/surface": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
     "request:apply-layout": {
       "/cols": {
         "ty": "uint16",
@@ -11735,6 +11932,20 @@
         "nullable": true
       }
     },
+    "request:trace-start": {
+      "/categories": {
+        "ty": "array",
+        "nullable": true
+      },
+      "/categories/*": {
+        "ty": "string"
+      },
+      "/keys": {
+        "ty": "boolean"
+      }
+    },
+    "request:trace-status": {},
+    "request:trace-stop": {},
     "request:undo-layout": {
       "/confirm_close": {
         "ty": "boolean"
@@ -12139,6 +12350,118 @@
         "ty": "uint64",
         "required": true,
         "nullable": true
+      }
+    },
+    "response:agent-session-attach": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
+    "response:agent-session-cancel": {},
+    "response:agent-session-children": {
+      "/data/sessions": {
+        "ty": "array",
+        "required": true
+      },
+      "/data/sessions/*": {
+        "ty": "json"
+      }
+    },
+    "response:agent-session-detach": {},
+    "response:agent-session-events": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
+    "response:agent-session-media": {
+      "/data/data": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/mimeType": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      }
+    },
+    "response:agent-session-observe": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
+    "response:agent-session-permission": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
+    "response:agent-session-prompt": {
+      "/data/prompt_id": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/queued": {
+        "ty": "boolean",
+        "required": true
+      },
+      "/data/turn_id": {
+        "ty": "string",
+        "required": true,
+        "nullable": true
+      }
+    },
+    "response:agent-session-start": {
+      "/data/conversation": {
+        "ty": "object",
+        "required": true
+      },
+      "/data/conversation/agent_session": {
+        "ty": "object"
+      },
+      "/data/conversation/agent_session/harness": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/conversation/agent_session/host": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/conversation/agent_session/host_name": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/conversation/agent_session/session": {
+        "ty": "string",
+        "nullable": true
+      },
+      "/data/conversation/conversation": {
+        "ty": "string"
+      },
+      "/data/conversation/owner": {
+        "ty": "string"
+      },
+      "/data/conversation/page": {
+        "ty": "string"
+      },
+      "/data/conversation/route": {
+        "ty": "string"
+      },
+      "/data/session": {
+        "ty": "string",
+        "required": true
+      },
+      "/data/surface": {
+        "ty": "uint64",
+        "required": true
+      }
+    },
+    "response:agent-session-trust": {
+      "/data": {
+        "ty": "json",
+        "required": true
       }
     },
     "response:apply-layout": {
@@ -20703,6 +21026,24 @@
       },
       "/data/terminal_id": {
         "ty": "string",
+        "required": true
+      }
+    },
+    "response:trace-start": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
+    "response:trace-status": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
+    "response:trace-stop": {
+      "/data": {
+        "ty": "json",
         "required": true
       }
     },

@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '5819519176d5752a978a367bdd398e2ab4431f89841efa45c8da605ce35ec617'
+IR_SHA256 = 'c4d078b68b4a9079ad95fd659b1588764b5e90f7fd1a0eb409a871bc74539b8e'
 
 
 @dataclass(frozen=True)
@@ -73,6 +73,155 @@ COMMANDS = {
             'group': CommandFieldMetadata(None, None),
             'surfaces': CommandFieldMetadata(None, None),
             'transaction': CommandFieldMetadata(None, None),
+        },
+    ),
+    'agent-session-attach': CommandMetadata(
+        'agent-session-attach',
+        'local-admin',
+        12,
+        'agent-session-attach-v1',
+        ('local-admin',),
+        None,
+        {
+            'after_seq': CommandFieldMetadata(None, None),
+            'before_seq': CommandFieldMetadata(None, None),
+            'kinds': CommandFieldMetadata(None, None),
+            'limit': CommandFieldMetadata(None, None),
+            'surface': CommandFieldMetadata(None, None),
+        },
+    ),
+    'agent-session-cancel': CommandMetadata(
+        'agent-session-cancel',
+        'local-admin',
+        12,
+        'agent-session-attach-v1',
+        ('local-admin',),
+        None,
+        {
+            'surface': CommandFieldMetadata(None, None),
+        },
+    ),
+    'agent-session-children': CommandMetadata(
+        'agent-session-children',
+        'local-admin',
+        12,
+        'agent-session-children-v1',
+        ('local-admin',),
+        None,
+        {
+            'surface': CommandFieldMetadata(None, None),
+        },
+    ),
+    'agent-session-detach': CommandMetadata(
+        'agent-session-detach',
+        'local-admin',
+        12,
+        'agent-session-attach-v1',
+        ('local-admin',),
+        None,
+        {
+            'surface': CommandFieldMetadata(None, None),
+        },
+    ),
+    'agent-session-events': CommandMetadata(
+        'agent-session-events',
+        'local-admin',
+        12,
+        'agent-session-attach-v1',
+        ('local-admin',),
+        None,
+        {
+            'after_seq': CommandFieldMetadata(None, None),
+            'before_seq': CommandFieldMetadata(None, None),
+            'kinds': CommandFieldMetadata(None, None),
+            'limit': CommandFieldMetadata(None, None),
+            'surface': CommandFieldMetadata(None, None),
+        },
+    ),
+    'agent-session-media': CommandMetadata(
+        'agent-session-media',
+        'local-admin',
+        12,
+        'agent-session-attach-v1',
+        ('local-admin',),
+        None,
+        {
+            'path': CommandFieldMetadata(None, None),
+            'surface': CommandFieldMetadata(None, None),
+        },
+    ),
+    'agent-session-observe': CommandMetadata(
+        'agent-session-observe',
+        'local-admin',
+        12,
+        'agent-session-observe-v1',
+        ('local-admin',),
+        None,
+        {
+            'after_seq': CommandFieldMetadata(None, None),
+            'before_seq': CommandFieldMetadata(None, None),
+            'kinds': CommandFieldMetadata(None, None),
+            'limit': CommandFieldMetadata(None, None),
+            'surface': CommandFieldMetadata(None, None),
+        },
+    ),
+    'agent-session-permission': CommandMetadata(
+        'agent-session-permission',
+        'local-admin',
+        12,
+        'agent-session-attach-v1',
+        ('local-admin',),
+        None,
+        {
+            'answered_by': CommandFieldMetadata(None, None),
+            'decision_nonce': CommandFieldMetadata(None, None),
+            'option_id': CommandFieldMetadata(None, None),
+            'permission_id': CommandFieldMetadata(None, None),
+            'person_decision': CommandFieldMetadata(None, None),
+            'surface': CommandFieldMetadata(None, None),
+        },
+    ),
+    'agent-session-prompt': CommandMetadata(
+        'agent-session-prompt',
+        'local-admin',
+        12,
+        'agent-session-attach-v1',
+        ('local-admin',),
+        None,
+        {
+            'prompt_id': CommandFieldMetadata(None, None),
+            'surface': CommandFieldMetadata(None, None),
+            'text': CommandFieldMetadata(None, None),
+        },
+    ),
+    'agent-session-start': CommandMetadata(
+        'agent-session-start',
+        'local-admin',
+        12,
+        'agent-session-start-v1',
+        ('local-admin',),
+        None,
+        {
+            'cwd': CommandFieldMetadata(None, None),
+            'harness': CommandFieldMetadata(None, None),
+            'home_confirmed': CommandFieldMetadata(None, None),
+            'person_instance': CommandFieldMetadata(None, None),
+            'require_person_key': CommandFieldMetadata(None, None),
+            'surface': CommandFieldMetadata(None, None),
+        },
+    ),
+    'agent-session-trust': CommandMetadata(
+        'agent-session-trust',
+        'local-admin',
+        12,
+        'agent-session-trust-v1',
+        ('local-admin',),
+        None,
+        {
+            'cwd': CommandFieldMetadata(None, None),
+            'home_confirmed': CommandFieldMetadata(None, None),
+            'level': CommandFieldMetadata(None, None),
+            'surface': CommandFieldMetadata(None, None),
         },
     ),
     'apply-layout': CommandMetadata(

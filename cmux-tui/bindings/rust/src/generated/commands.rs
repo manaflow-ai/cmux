@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 5819519176d5752a978a367bdd398e2ab4431f89841efa45c8da605ce35ec617.
+// cmux-tui mux protocol 12, IR c4d078b68b4a9079ad95fd659b1588764b5e90f7fd1a0eb409a871bc74539b8e.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -41,6 +41,231 @@ pub struct AddTabsToTabGroupRequest {
 
 #[rustfmt::skip]
 pub type AddTabsToTabGroupResult = T::TabGroupOutcome;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentSessionAttachRequest {
+    /// Records after this seq (oldest first).
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub after_seq: Optional<u64>,
+    /// Records before this seq (newest first).
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub before_seq: Optional<u64>,
+    /// At most 32 acpmux record kinds or categories.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub kinds: Optional<Vec<String>>,
+    /// Records per page, 1 to 500 (default 200).
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub limit: Optional<u64>,
+    /// The agent chat tab: an agent_session tab of this daemon's store.
+    pub surface: T::Id,
+}
+
+#[rustfmt::skip]
+pub type AgentSessionAttachResult = T::AgentSessionPage;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentSessionCancelRequest {
+    /// The agent chat tab: an agent_session tab of this daemon's store.
+    pub surface: T::Id,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct AgentSessionCancelResult {
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentSessionChildrenRequest {
+    /// The agent chat tab: an agent_session tab of this daemon's store.
+    pub surface: T::Id,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentSessionChildrenResult {
+    /// At most 256 summaries and 8 MiB, in acpmux's order.
+    pub sessions: Vec<T::AgentSessionSummary>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentSessionDetachRequest {
+    /// The agent chat tab: an agent_session tab of this daemon's store.
+    pub surface: T::Id,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct AgentSessionDetachResult {
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentSessionEventsRequest {
+    /// Records after this seq (oldest first).
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub after_seq: Optional<u64>,
+    /// Records before this seq (newest first).
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub before_seq: Optional<u64>,
+    /// At most 32 acpmux record kinds or categories.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub kinds: Optional<Vec<String>>,
+    /// Records per page, 1 to 500 (default 200).
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub limit: Optional<u64>,
+    /// The agent chat tab: an agent_session tab of this daemon's store.
+    pub surface: T::Id,
+}
+
+#[rustfmt::skip]
+pub type AgentSessionEventsResult = T::AgentSessionPage;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentSessionMediaRequest {
+    /// An image the session wrote: png, jpg, jpeg, gif or webp, at most 4096 bytes.
+    pub path: String,
+    /// The agent chat tab: an agent_session tab of this daemon's store.
+    pub surface: T::Id,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentSessionMediaResult {
+    /// The image bytes in standard base64, at most 10 MiB decoded.
+    pub data: String,
+    /// The image type acpmux reported.
+    #[serde(rename = "mimeType")]
+    pub mime_type: Nullable<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentSessionObserveRequest {
+    /// Records after this seq (oldest first).
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub after_seq: Optional<u64>,
+    /// Records before this seq (newest first).
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub before_seq: Optional<u64>,
+    /// At most 32 acpmux record kinds or categories.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub kinds: Optional<Vec<String>>,
+    /// Records per page, 1 to 500 (default 200).
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub limit: Optional<u64>,
+    /// The agent chat tab: an agent_session tab of this daemon's store.
+    pub surface: T::Id,
+}
+
+#[rustfmt::skip]
+pub type AgentSessionObserveResult = T::AgentSessionPage;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentSessionPermissionRequest {
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub answered_by: Optional<T::AgentSessionAnsweredBy>,
+    /// 64 lowercase hex characters.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub decision_nonce: Optional<String>,
+    /// The chosen option, 1 to 256 bytes.
+    pub option_id: String,
+    /// A request acpmux announced on this attachment.
+    pub permission_id: String,
+    /// 64 lowercase hex characters: the person's decision proof.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub person_decision: Optional<String>,
+    /// The agent chat tab: an agent_session tab of this daemon's store.
+    pub surface: T::Id,
+}
+
+#[rustfmt::skip]
+pub type AgentSessionPermissionResult = T::AgentSessionAcpmuxReply;
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentSessionPromptRequest {
+    /// 1 to 128 letters, digits, '-' or '_'.
+    pub prompt_id: String,
+    /// The agent chat tab: an agent_session tab of this daemon's store.
+    pub surface: T::Id,
+    /// One text prompt, at most 64 KiB.
+    pub text: String,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentSessionPromptResult {
+    pub prompt_id: String,
+    /// acpmux queued the prompt behind a running turn.
+    pub queued: bool,
+    /// The turn acpmux started or queued, as it answered.
+    pub turn_id: Nullable<String>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentSessionStartRequest {
+    /// An absolute folder of this machine, at most 4096 bytes.
+    pub cwd: String,
+    /// The agent kind acpmux resolves from its config: 1 to 64 letters, digits, '_', '.' or '-'.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub harness: Optional<String>,
+    /// The person chose the home folder as the chat's folder.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub home_confirmed: Option<bool>,
+    /// The acpmux run the caller holds a person key for: 1 to 128 of \[A-Za-z0-9_.:-\].
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub person_instance: Optional<String>,
+    /// Start only when acpmux holds a person key for person_instance (agent-session-start-keyed-reason-v1).
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub require_person_key: Option<bool>,
+    /// The agent chat tab: an agent_session tab of this daemon's store.
+    pub surface: T::Id,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentSessionStartResult {
+    pub conversation: T::ConversationTabRecord,
+    /// The new acpmux session, bound to the tab.
+    pub session: String,
+    pub surface: T::Id,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum AgentSessionTrustRequestLevel {
+    #[serde(rename = "trusted")]
+    Trusted,
+    #[serde(rename = "untrusted")]
+    Untrusted,
+    #[serde(rename = "unknown")]
+    Unknown,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct AgentSessionTrustRequest {
+    /// An absolute folder of this machine, at most 4096 bytes, no control characters.
+    pub cwd: String,
+    /// The person chose the home folder as the chat's folder.
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub home_confirmed: Option<bool>,
+    /// The person's answer; absent reads the folder's trust. unknown forgets the answer.
+    #[serde(default, skip_serializing_if = "Optional::is_missing")]
+    pub level: Optional<AgentSessionTrustRequestLevel>,
+    /// The agent chat tab: an agent_session tab of this daemon's store.
+    pub surface: T::Id,
+}
+
+#[rustfmt::skip]
+pub type AgentSessionTrustResult = T::AgentSessionAcpmuxReply;
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -4153,6 +4378,50 @@ impl CmuxClient {
 
     pub fn add_tabs_to_tab_group(&mut self, request: AddTabsToTabGroupRequest) -> Result<AddTabsToTabGroupResult> {
         self.execute(&ADD_TABS_TO_TAB_GROUP_METADATA, &request)
+    }
+
+    pub fn agent_session_attach(&mut self, request: AgentSessionAttachRequest) -> Result<AgentSessionAttachResult> {
+        self.execute(&AGENT_SESSION_ATTACH_METADATA, &request)
+    }
+
+    pub fn agent_session_cancel(&mut self, request: AgentSessionCancelRequest) -> Result<AgentSessionCancelResult> {
+        self.execute(&AGENT_SESSION_CANCEL_METADATA, &request)
+    }
+
+    pub fn agent_session_children(&mut self, request: AgentSessionChildrenRequest) -> Result<AgentSessionChildrenResult> {
+        self.execute(&AGENT_SESSION_CHILDREN_METADATA, &request)
+    }
+
+    pub fn agent_session_detach(&mut self, request: AgentSessionDetachRequest) -> Result<AgentSessionDetachResult> {
+        self.execute(&AGENT_SESSION_DETACH_METADATA, &request)
+    }
+
+    pub fn agent_session_events(&mut self, request: AgentSessionEventsRequest) -> Result<AgentSessionEventsResult> {
+        self.execute(&AGENT_SESSION_EVENTS_METADATA, &request)
+    }
+
+    pub fn agent_session_media(&mut self, request: AgentSessionMediaRequest) -> Result<AgentSessionMediaResult> {
+        self.execute(&AGENT_SESSION_MEDIA_METADATA, &request)
+    }
+
+    pub fn agent_session_observe(&mut self, request: AgentSessionObserveRequest) -> Result<AgentSessionObserveResult> {
+        self.execute(&AGENT_SESSION_OBSERVE_METADATA, &request)
+    }
+
+    pub fn agent_session_permission(&mut self, request: AgentSessionPermissionRequest) -> Result<AgentSessionPermissionResult> {
+        self.execute(&AGENT_SESSION_PERMISSION_METADATA, &request)
+    }
+
+    pub fn agent_session_prompt(&mut self, request: AgentSessionPromptRequest) -> Result<AgentSessionPromptResult> {
+        self.execute(&AGENT_SESSION_PROMPT_METADATA, &request)
+    }
+
+    pub fn agent_session_start(&mut self, request: AgentSessionStartRequest) -> Result<AgentSessionStartResult> {
+        self.execute(&AGENT_SESSION_START_METADATA, &request)
+    }
+
+    pub fn agent_session_trust(&mut self, request: AgentSessionTrustRequest) -> Result<AgentSessionTrustResult> {
+        self.execute(&AGENT_SESSION_TRUST_METADATA, &request)
     }
 
     pub fn apply_layout(&mut self, request: ApplyLayoutRequest) -> Result<T::ApplyLayoutResult> {

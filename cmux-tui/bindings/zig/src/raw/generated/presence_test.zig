@@ -19,6 +19,9 @@ fn expectExplicitNullRejected(
 }
 
 test "every generated optional non-null field rejects explicit null" {
+    try expectExplicitNullRejected(protocol.AgentSessionStartRequest, "home_confirmed");
+    try expectExplicitNullRejected(protocol.AgentSessionStartRequest, "require_person_key");
+    try expectExplicitNullRejected(protocol.AgentSessionTrustRequest, "home_confirmed");
     try expectExplicitNullRejected(protocol.AttachSurfaceRequest, "snapshot_images");
     try expectExplicitNullRejected(protocol.AttachSurfaceRequest, "snapshot_local_history");
     try expectExplicitNullRejected(protocol.ChiefInspectRequest, "query");

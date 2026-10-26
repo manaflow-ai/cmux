@@ -610,7 +610,18 @@
       "conversation-live",
       "feed-local-handoff-begin",
       "feed-local-handoff-abort",
-      "feed-local-handoff-done"
+      "feed-local-handoff-done",
+      "agent-session-attach",
+      "agent-session-observe",
+      "agent-session-events",
+      "agent-session-prompt",
+      "agent-session-cancel",
+      "agent-session-permission",
+      "agent-session-detach",
+      "agent-session-children",
+      "agent-session-media",
+      "agent-session-start",
+      "agent-session-trust"
     ],
     "provider-authority": [
       "mark-workspaces-provider-managed",

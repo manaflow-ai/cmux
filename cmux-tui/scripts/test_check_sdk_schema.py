@@ -5,9 +5,11 @@ from __future__ import annotations
 
 import copy
 import importlib.util
+import re
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 
 SCRIPT = Path(__file__).with_name("check-sdk-schema.py")
@@ -110,6 +112,68 @@ class LiveSchemaTests(unittest.TestCase):
         self.assertEqual(
             set(fields), {"origin", "mutation_id", "bookmark", "parent", "index"}
         )
+
+    def test_sniffed_agent_session_requests_read_their_handler_structs(self) -> None:
+        commands = CHECKER.runtime_command_fields()
+        page = {"surface", "after_seq", "before_seq", "limit", "kinds"}
+        self.assertEqual(set(commands["agent-session-attach"]), page)
+        # observe spells its own literal and decodes attach's PageParams.
+        self.assertEqual(set(commands["agent-session-observe"]), page)
+        self.assertEqual(
+            set(commands["agent-session-start"]),
+            {"surface", "harness", "cwd", "home_confirmed", "require_person_key", "person_instance"},
+        )
+        self.assertEqual(
+            set(commands["agent-session-trust"]), {"surface", "cwd", "level", "home_confirmed"}
+        )
+        self.assertEqual(
+            CHECKER._runtime_type_shape(
+                commands["agent-session-permission"]["answered_by"].rust_type
+            ),
+            "ref<AgentSessionAnsweredBy>",
+        )
+
+    def test_every_agent_session_literal_is_a_schema_command(self) -> None:
+        server = CHECKER.SERVER.with_suffix("")
+        literals = set()
+        for module in ("agent_session_attach", "agent_session_observe"):
+            source = (server / f"{module}.rs").read_text(encoding="utf-8")
+            production = source.split("\n#[cfg(test)]\nmod tests", 1)[0]
+            literals |= set(re.findall(r'"(agent-session-[a-z-]+)"', production))
+        # The capability names and the closed event are not commands.
+        literals = {
+            name for name in literals
+            if not name.endswith("-v1") and name != "agent-session-closed"
+        }
+        self.assertEqual(len(literals), 11)
+        self.assertLessEqual(literals, set(self.ir.commands))
+        self.assertLessEqual(literals, set(CHECKER.SNIFFED_COMMAND_REQUESTS))
+
+    def test_sniffed_command_its_module_does_not_serve_is_rejected(self) -> None:
+        table = {"agent-session-forget": ("agent_session_attach", ("SurfaceParams",))}
+        with patch.dict(CHECKER.SNIFFED_COMMAND_REQUESTS, table):
+            with self.assertRaisesRegex(CHECKER.SdkSchemaError, "not served by"):
+                CHECKER.sniffed_command_fields()
+
+    def test_missing_sniffed_request_field_is_rejected(self) -> None:
+        document = copy.deepcopy(self.document)
+        document["commands"]["agent-session-start"]["request"]["fields"].pop("person_instance")
+        with self.assertRaisesRegex(CHECKER.SdkSchemaError, "request field"):
+            self.validate(document, self.inventory)
+
+    def test_unschemad_sniffed_command_is_rejected(self) -> None:
+        document = copy.deepcopy(self.document)
+        document["commands"].pop("agent-session-media")
+        with self.assertRaisesRegex(CHECKER.SdkSchemaError, "agent-session-media"):
+            self.validate(document, self.inventory)
+
+    def test_named_request_struct_drift_is_rejected(self) -> None:
+        document = copy.deepcopy(self.document)
+        document["types"]["AgentSessionAnsweredBy"]["fields"].pop("feed_item")
+        with self.assertRaisesRegex(
+            CHECKER.SdkSchemaError, "request field for AgentSessionAnsweredBy"
+        ):
+            self.validate(document, self.inventory)
 
     def test_missing_command_is_rejected(self) -> None:
         document = copy.deepcopy(self.document)

@@ -44,6 +44,17 @@ public:
     [[nodiscard]] Result<JsonValue> ack_tab_notifications(const AckTabNotificationsRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> add_screens_to_screen_group(const AddScreensToScreenGroupRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<TabGroupOutcome> add_tabs_to_tab_group(const AddTabsToTabGroupRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<AgentSessionPage> agent_session_attach(const AgentSessionAttachRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<AgentSessionCancelResult> agent_session_cancel(const AgentSessionCancelRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<AgentSessionChildrenResult> agent_session_children(const AgentSessionChildrenRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<AgentSessionDetachResult> agent_session_detach(const AgentSessionDetachRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<AgentSessionPage> agent_session_events(const AgentSessionEventsRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<AgentSessionMediaResult> agent_session_media(const AgentSessionMediaRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<AgentSessionPage> agent_session_observe(const AgentSessionObserveRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<AgentSessionAcpmuxReply> agent_session_permission(const AgentSessionPermissionRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<AgentSessionPromptResult> agent_session_prompt(const AgentSessionPromptRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<AgentSessionStartResult> agent_session_start(const AgentSessionStartRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<AgentSessionAcpmuxReply> agent_session_trust(const AgentSessionTrustRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ApplyLayoutResult> apply_layout(const ApplyLayoutRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EventStream> attach_surface(const AttachSurfaceRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<BindConversationTabSessionResult> bind_conversation_tab_session(const BindConversationTabSessionRequest& request, RequestOptions options = {});
