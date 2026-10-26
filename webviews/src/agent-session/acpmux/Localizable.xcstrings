@@ -202675,7 +202675,7 @@
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Umgebung sichern"
+            "value": "Umgebung speichern"
           }
         },
         "en": {
@@ -202771,7 +202771,7 @@
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "存储环境"
+            "value": "保存环境"
           }
         },
         "zh-Hant": {
