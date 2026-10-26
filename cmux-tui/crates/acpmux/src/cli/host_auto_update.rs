@@ -69,8 +69,8 @@ esac
 
 /// Installs the two units and starts the timer; it runs once
 /// `acpmux.service` (re)started. A unit file that is missing is written
-/// (beside, then renamed, so a cut-off copy is never taken for theirs; a
-/// failed write starts nothing); one with the same text is kept; one with
+/// (staged, then copied beside and renamed, so a cut-off copy is never
+/// taken for theirs; a failed write starts nothing); one with the same text is kept; one with
 /// other text was written by someone else and is theirs, so neither file is
 /// written and the timer is not started (the reason goes to stderr). The
 /// same holds when the running user manager has either unit from anywhere
@@ -82,11 +82,10 @@ esac
 pub(super) fn install_script() -> String {
     format!(
         r#"au_d=$HOME/.config/systemd/user
-if au_t=$(mktemp -d); then
-cat > "$au_t/acpmux-update.service" <<'ACPMUX_UPDATE_UNIT'
-{UPDATE_SERVICE}ACPMUX_UPDATE_UNIT
-cat > "$au_t/acpmux-update.timer" <<'ACPMUX_UPDATE_UNIT'
-{UPDATE_TIMER}ACPMUX_UPDATE_UNIT
+au_t=
+if au_t=$(mktemp -d) && cat > "$au_t/acpmux-update.service" <<'ACPMUX_UPDATE_SERVICE' && cat > "$au_t/acpmux-update.timer" <<'ACPMUX_UPDATE_TIMER'; then
+{UPDATE_SERVICE}ACPMUX_UPDATE_SERVICE
+{UPDATE_TIMER}ACPMUX_UPDATE_TIMER
 au_c=; au_w=; au_e=; au_ct=
 for au_f in {UNITS}; do au_o=$au_c; au_c=
 if [ -e "$au_d/$au_f" ] && ! cmp -s "$au_t/$au_f" "$au_d/$au_f"; then au_c=$au_d/$au_f; fi
@@ -100,6 +99,7 @@ if [ -n "$au_e" ]; then echo "writing the acpmux-update units in $au_d failed, s
 elif [ -z "$au_w" ] || systemctl --user daemon-reload; then systemctl --user enable --now acpmux-update.timer >/dev/null 2>&1 || :; fi
 fi
 rm -rf "$au_t"
+else echo "staging the acpmux-update units failed, so this host does not update itself yet: the next host update tries again" >&2; [ -z "$au_t" ] || rm -rf "$au_t"
 fi
 "#
     )

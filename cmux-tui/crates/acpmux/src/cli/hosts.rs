@@ -246,11 +246,13 @@ fn push_update(r: &dyn Remote, local: &Path, running: Option<&str>) -> Result<St
 /// was installed, so a rollback never brings back an older one) for a
 /// rollback. When the daemon runs (`$c`, its commit) a build other than
 /// the installed one (an update stopped between its install and its
-/// restart), the installed binary never ran here, so the `acpmux.prev` there
-/// is kept: it is still the build that last ran (review of #24232). The rename swaps the two in one step; prints the new binary's
+/// restart), or the pushed binary is the installed one (a retry, perhaps with
+/// no daemon left), the installed binary may never have run here, so the
+/// `acpmux.prev` there is kept: it is still the build that last ran (review
+/// of #24232). The rename swaps the two in one step; prints the new binary's
 /// version. Once it is in place nothing fails the install: a staging folder
 /// that will not go is left for the next push to clear.
-const INSTALL_PUSHED: &str = "cd ~/.local/bin && chmod +x .acpmux-new/acpmux && { v=$(.acpmux-new/acpmux --version) || { rm -rf .acpmux-new; echo 'the pushed acpmux does not run on this host' >&2; exit 1; }; } && { if [ ! -e acpmux ]; then rm -f acpmux.prev; elif [ -n \"$c\" ] && [ -f acpmux.prev ] && ! grep -qaF \"($c\" acpmux; then :; else ln -f acpmux acpmux.prev 2>/dev/null || cp -p acpmux acpmux.prev; fi; } && mv -f .acpmux-new/acpmux acpmux && { rmdir .acpmux-new 2>/dev/null; printf '%s\\n' \"$v\"; }";
+const INSTALL_PUSHED: &str = "cd ~/.local/bin && chmod +x .acpmux-new/acpmux && { v=$(.acpmux-new/acpmux --version) || { rm -rf .acpmux-new; echo 'the pushed acpmux does not run on this host' >&2; exit 1; }; } && { if [ ! -e acpmux ]; then rm -f acpmux.prev; elif [ -f acpmux.prev ] && { cmp -s acpmux .acpmux-new/acpmux || { [ -n \"$c\" ] && ! grep -qaF \"($c\" acpmux; }; }; then :; else ln -f acpmux acpmux.prev 2>/dev/null || cp -p acpmux acpmux.prev; fi; } && mv -f .acpmux-new/acpmux acpmux && { rmdir .acpmux-new 2>/dev/null; printf '%s\\n' \"$v\"; }";
 
 /// Put `acpmux.prev` back as `~/.local/bin/acpmux`; fails without one.
 const RESTORE_PREV: &str = "(cd ~/.local/bin && [ -f acpmux.prev ] && rm -f acpmux && { ln acpmux.prev acpmux 2>/dev/null || cp -p acpmux.prev acpmux; })";
