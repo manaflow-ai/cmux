@@ -70,4 +70,33 @@ struct SidebarPriorityDragTests {
         try harness.press("b", moves: [-height * 0.3, 0])
         #expect(harness.actions.isEmpty)
     }
+
+    @Test func hidingAttentionRowsEndsTheDragAndItsStaleReleaseDoesNothing() throws {
+        let entries = Self.entries.map { var entry = $0; entry.state = .needsYou; return entry }
+        let sidebar = SidebarView(model: SidebarModel(sections: []), design: DesignSettings())
+        let harness = Harness(entries: entries, sidebar: sidebar)
+        let row = try #require(harness.panel.rows["c"])
+        let originalTop = row.frame.minY
+        let height = row.frame.height
+        row.mouseDown(with: try harness.event(.leftMouseDown, on: "c"))
+        row.mouseDragged(with: try harness.event(.leftMouseDragged, on: "c", dy: -height))
+        #expect(harness.panel.draggingID == "c")
+        #expect(row.frame.minY != originalTop)
+
+        // Hidden Priority keeps all attention rows: only shown changes, never the IDs or geometry.
+        sidebar.showPriority(SidebarPriorityPanel(entries: entries.filter(\.needsAttention), shown: false))
+        #expect(harness.panel.isHidden)
+        #expect(harness.panel.panel.entries.map(\.id) == entries.map(\.id))
+        #expect(harness.panel.draggingID == nil)
+        #expect(row.layer?.zPosition == 0)
+        #expect(row.frame.minY == originalTop)
+
+        // The release missed the hidden row. Revealing it and delivering a stale release must do nothing.
+        sidebar.showPriority(SidebarPriorityPanel(entries: entries, shown: true))
+        #expect(!harness.panel.isHidden)
+        #expect(harness.panel.draggingID == nil)
+        row.mouseUp(with: try harness.event(.leftMouseUp, on: "c", dy: -height))
+        #expect(harness.actions.isEmpty, "a stale release must neither place nor open the chat")
+        #expect(harness.panel.panel.entries.map(\.id) == entries.map(\.id))
+    }
 }
