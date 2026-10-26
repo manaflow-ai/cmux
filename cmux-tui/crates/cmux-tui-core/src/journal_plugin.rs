@@ -5,6 +5,7 @@
 //! module. A plugin communicates through the local resource socket and writes
 //! normal journal events, so every frontend observes the same reducer state.
 
+use cmux_threads::checked::sync as waits;
 #[cfg(windows)]
 use std::mem::size_of;
 use std::path::{Path, PathBuf};
@@ -434,7 +435,7 @@ impl JournalPluginRuntime {
             handler(&plugin_id, generation);
         }
         if let Some(handle) = self.thread.lock().recover_poison().take()
-            && handle.join().is_err()
+            && waits::join(handle).is_err()
         {
             eprintln!("cmux-tui: journal plugin supervisor panicked during shutdown");
         }

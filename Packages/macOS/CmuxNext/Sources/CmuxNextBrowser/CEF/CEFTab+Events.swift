@@ -50,6 +50,7 @@ extension CEFTab {
             if let title = titleBeforeCommit { machine.apply(.titleChanged(title)) }
             clearTitleBeforeCommit()
             committedURL = URL(string: url)
+            isDiscardedInPlace = false
             pageInfoDocumentCommitted(URL(string: url))
             resetPageBackdrop()
             // The document that just committed is the only one that can hear
@@ -61,6 +62,8 @@ extension CEFTab {
         case .loadEnd:
             if let navigation { machine.apply(.finished(navigation)) }
             documentDidSettle()
+            // A document with no contentful paint (an empty body) shows as it is now.
+            firstContentFrame.contentShown()
             samplePageBackdrop()
             restored.documentLoaded()
             // Mixed content shows up while the page loads subresources.
@@ -70,9 +73,11 @@ extension CEFTab {
             refreshExtensionActions()
         case .loadError(_, let code, let text, let url, let chromiumInterstitial):
             clearTitleBeforeCommit()
+            isDiscardedInPlace = false
             guard let navigation else { return }
             let error = Self.loadError(code: code, text: text, url: url, chromiumInterstitial: chromiumInterstitial)
             machine.apply(.failed(navigation, error))
+            if !error.isBenignInterruption { firstContentFrame.contentShown() } // the error page or the base shows now
             if !error.isBenignInterruption, let failing = error.failingURL, PageBackground.isRealPage(failing) {
                 // The failed address is the tab's document now (Chrome's
                 // omnibox shows it), even when Chromium sends no address

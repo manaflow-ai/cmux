@@ -13,7 +13,6 @@ use serde_json::{Value, json};
 
 use super::mirror::Origin;
 use super::supervisor::OpRouter;
-use crate::event_cause::EventCauseScope;
 use crate::mux::Mux;
 use crate::request_origin::RequestOrigin;
 use crate::{Actor, MuxEvent, resource_router};
@@ -40,13 +39,14 @@ impl OpRouter for MuxRouter {
         idempotency_key: Option<String>,
         _origin: Origin,
     ) -> Result<Value, Value> {
-        // The supervisor calls in on its own threads: what an app's op sets
-        // off is automation, as its origin below is `app` (crate::event_cause).
-        let _cause = EventCauseScope::enter(RequestOrigin::App.event_cause());
         let mux = self
             .mux
             .upgrade()
             .ok_or_else(|| error("operation.failed", "the daemon is shutting down"))?;
+        // The supervisor calls in on its own threads: what an app's op sets
+        // off is automation, as its origin below is `app`, and it runs at
+        // automation's class (crate::request_qos).
+        let _cause = mux.request_qos().enter(RequestOrigin::App.event_cause());
         // An app's call has origin app (request-origin.md): gate A2 refuses
         // the operations that need the user.
         crate::request_origin::require_origin(op, RequestOrigin::App)

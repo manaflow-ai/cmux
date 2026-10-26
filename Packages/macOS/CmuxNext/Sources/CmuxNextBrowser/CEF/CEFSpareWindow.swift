@@ -77,6 +77,9 @@ final class CEFSpareWindow {
     /// Windows built for a key a spare serves because no spare of its kind was ready
     /// (`debug.cef` `window_built_on_key_turn`; a ready spare keeps it at 0).
     private(set) var windowsBuiltOnKeyTurn = 0
+    /// `cef.create_browser`: the pair around each window the shim is asked to build, spares and panes alike
+    /// (`CEFPaneHost.ensureCreated`), closed at the host's created reply in host mode (`CEFRuntime.browserCreated`).
+    var createTrace = CEFCreateBrowserTrace()
 
     /// The untaken spare of `kind`, nil when none is up.
     func host(of kind: Kind) -> CEFPaneHost? { hosts[kind] }
@@ -175,9 +178,9 @@ final class CEFSpareWindow {
             MainRunLoopBlock.perform { [weak taken] in
                 guard let taken, let blank = taken.placeholder, taken.tabs.count == 1 else { return }
                 taken.placeholder = nil
+                // Its last tab leaves: `removed` takes it out of the routing table (`CEFRuntime.hostEmptied`).
                 taken.removed(blank)
                 blank.close()
-                runtime.hosts[taken.key] = nil
             }
             return
         }
@@ -196,9 +199,9 @@ final class CEFSpareWindow {
             guard let spare = hosts[each], let blank = spare.placeholder else { continue }
             hosts[each] = nil
             spare.placeholder = nil
+            // No longer a spare: `removed` takes it out of the routing table (`CEFRuntime.hostEmptied`).
             spare.removed(blank)
             blank.close()
-            runtime.hosts[spare.key] = nil
         }
     }
 

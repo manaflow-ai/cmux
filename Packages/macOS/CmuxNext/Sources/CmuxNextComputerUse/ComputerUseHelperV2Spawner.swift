@@ -156,7 +156,7 @@ nonisolated struct DisclaimedHelperSpawner: ComputerUseHelperV2Spawning {
             let thread = Thread {
                 var pending = Data()
                 var bytes = [UInt8](repeating: 0, count: 16 * 1024)
-                // wakeup-allow: blocking read(2) on a dedicated thread; EOF and read errors end it, EINTR retries.
+                // wakeup-allow: bounded: blocking read(2) on a dedicated thread; EOF and read errors end it, EINTR retries.
                 while true {
                     // concurrency-allow: dedicated reader Thread, never the main actor.
                     let count = read(descriptor, &bytes, bytes.count)

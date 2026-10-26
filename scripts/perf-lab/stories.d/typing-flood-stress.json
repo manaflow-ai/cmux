@@ -1,0 +1,18 @@
+{
+  "id": "typing-flood-stress",
+  "tier": "T2",
+  "description": "Terminal keystroke hop by hop in the STRESS session (bench-typing.py --flood 10 --stress, IPC-8): key to the daemon's PTY write, to the daemon's echo, to the app's decoded echo and to the frame, joined by flow id, with no flood and then with 10 neighbor terminals each writing 10 MB/s.",
+  "command": ["scripts/cmux-next/bench-typing.py", "--story", "typing-flood-stress", "--flood", "10", "--stress"],
+  "session": "stress",
+  "engine": "none",
+  "config": "bench",
+  "metrics": [
+    {"name": "(single|flood)\\.key_to_(daemon_write|daemon_echo|app_echo|frame)_ms", "unit": "ms", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 300,
+  "needs": ["debug:debug.key", "env:CMUX_NEXT_TYPING_PROBE", "env:CMUX_NEXT_TRACE_FLOWS"],
+  "hot_paths": ["terminal-feed", "daemon-request"],
+  "owner": "PL-typing",
+  "component": "Terminal>Typing"
+}

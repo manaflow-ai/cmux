@@ -6,6 +6,7 @@ public import CmuxNextSettings
 import Observation
 import os
 public import WebKit
+public import CmuxNextWakeups
 
 /// Hosts the React agent pane (`Resources/agent-pane/index.html`, built by
 /// `scripts/cmux-next/build-agent-pane-web.sh`) on the shared page host (``WebUIHost``, at
@@ -74,8 +75,12 @@ public final class AgentPaneView: NSView {
     public var zoom: Double = 1 {
         didSet { guard zoom != oldValue else { return }; applyZoom() }
     }
-    private var reduceMotionObserver: MainActorObservation?
-    private var reduceMotionOverrideObserver: MainActorObservation?
+    /// Reduce Motion changes (``followAppearance(_:node:)``).
+    private var reduceMotionWatch: AppearanceSignals.Subscription?
+    /// Where they come from: the app's ``AppearanceSignals`` (its composition root's, once a pane shows the chat).
+    private var appearanceSignals = DesignSettings.shared.signals
+    /// The chat's tab in the visibility tree, held while it follows it.
+    private var visibilityNode: VisibilityNode?
     /// Hands this pane the person's key presses and clicks that go to it (``AgentPaneUserGestures``),
     /// through one input tap subscription per window, while the pane is in one.
     let gestureRouter: AgentPaneGestureRouter
@@ -144,6 +149,9 @@ public final class AgentPaneView: NSView {
         })
         self.webView = webView
         super.init(frame: .zero)
+        // The page holds its `dictation` keep reason while a session runs (p13-webui-032).
+        let keep = page.keepReasons
+        dictation.onRunning = { running in keep.dictation(running) }
         pageEvents.onUiPointerReport = { [weak self] value in self?.uiPointerReport?(value) }
         openURL = { [weak self] url, modifiers in
             if let self { LinkRouter.shared.open(url, modifiers: modifiers, from: self) } else { Self.routedOpenURL(url, modifiers) }
@@ -216,11 +224,23 @@ public final class AgentPaneView: NSView {
                 self.applyTheme()
             }
         }
-        // Reduce Motion is not observable through Observation.
-        reduceMotionObserver = MainActorObservation(NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, center: NSWorkspace.shared.notificationCenter) { [weak self] in
-            self?.applyTheme()
-        }
-        reduceMotionOverrideObserver = MainActorObservation(Motion.reduceMotionDidChange) { [weak self] in
+        observeReduceMotion()
+    }
+
+    /// Follows `signals` by `node`'s visibility (p06-scheduler.md B), its page too: a hidden chat
+    /// re-themes once when it shows, not on each change. The pane that shows the chat calls it
+    /// (`TabContent.followAppearance`).
+    public func followAppearance(_ signals: AppearanceSignals, node: VisibilityNode?) {
+        page.followAppearance(signals, node: node)
+        guard signals !== appearanceSignals || node !== visibilityNode else { return }
+        appearanceSignals = signals
+        visibilityNode = node
+        observeReduceMotion()
+    }
+
+    /// Reduce Motion: the system setting, the tests' pin or calm mode.
+    private func observeReduceMotion() {
+        reduceMotionWatch = appearanceSignals.subscribe([.reduceMotion], viewNode: visibilityNode, owner: "AgentPaneView") { [weak self] in
             self?.applyTheme()
         }
     }
@@ -285,8 +305,7 @@ public final class AgentPaneView: NSView {
         iconFamilyObservation?.cancel()
         iconFamilyObservation = nil
         sessionStatusObservation?.cancel()
-        reduceMotionObserver = nil
-        reduceMotionOverrideObserver = nil
+        reduceMotionWatch = nil
         dictation.close()
         model.shell.terminateAll()
         gestureRouter.detach(self)

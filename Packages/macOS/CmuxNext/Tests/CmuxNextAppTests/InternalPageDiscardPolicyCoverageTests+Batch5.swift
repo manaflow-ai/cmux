@@ -352,7 +352,7 @@ import CmuxNextWakeups
 
     static func macScreenPages() -> MacScreenPages {
         let file = FileManager.default.temporaryDirectory.appending(path: "mac-screen-\(UUID().uuidString)/mac-screen.json")
-        return MacScreenPages(store: MacScreenStore(file: file))
+        return MacScreenPages(store: MacScreenStore(file: file), mainWork: linklessMainWork())
     }
 
     static func phones() -> PhoneService {

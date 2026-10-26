@@ -35,6 +35,12 @@ public nonisolated struct CEFPumpStats: Equatable, Sendable {
     public var deferredForInput = 0
     /// Each pass's main-thread time while the input policy runs.
     public var passTimes = InputLatencyHistogram()
+    /// Passes for a delayed fire date that CEF answered during the pass, on the main thread, with a
+    /// request under 2 ms (``EarlyPassWatch``): the pass came before Chromium's task was due, because CEF
+    /// truncates each delay to whole milliseconds against a stale `recent_now` (the re-ask at the end of
+    /// `CefDoMessageLoopWork`), so one delayed task cost a second main wake. 0 once the fork sends
+    /// absolute run times (p14-energy-046).
+    public var earlyPasses = 0
 
     /// One pass's main-thread time at the 99th percentile in milliseconds, 0 before any pass.
     public var passMillisecondsP99: Double {
@@ -42,6 +48,49 @@ public nonisolated struct CEFPumpStats: Equatable, Sendable {
     }
 
     public init() {}
+
+    /// Counts one `CefDoMessageLoopWork` call of `elapsed` seconds.
+    ///
+    /// - Returns: Whether it used CEF's whole time slice (a ``longWorkRuns`` pass; `cef.pump` end `arg0` 1).
+    mutating func recordWorkRun(elapsed: TimeInterval) -> Bool {
+        let longRun = elapsed >= CEFPumpSchedule.timeSlice
+        workRuns += 1
+        workSeconds += elapsed
+        if longRun { longWorkRuns += 1 }
+        return longRun
+    }
+
+    /// Decides which passes count as ``earlyPasses``: only CEF's own re-ask during the pass counts. A
+    /// request after the pass is a Chromium thread's or cmux's, not the truncated re-ask, and a pass that
+    /// used CEF's whole time slice is not early: the fork asks for "now" because work is left.
+    nonisolated struct EarlyPassWatch: Equatable, Sendable {
+        /// The largest early re-ask (exclusive), in ms.
+        static let earlyReask: Int64 = 2
+
+        /// The running pass serves a delayed fire date.
+        private var delayedPassRuns = false
+        /// CEF asked for under ``earlyReask`` ms during that pass.
+        private var reasked = false
+
+        mutating func passBegan(servesFireDate: Bool) {
+            delayedPassRuns = servesFireDate
+            reasked = false
+        }
+
+        /// True when the pass that just ended was early.
+        mutating func passEnded(usedWholeSlice: Bool) -> Bool {
+            defer {
+                delayedPassRuns = false
+                reasked = false
+            }
+            return delayedPassRuns && reasked && !usedWholeSlice
+        }
+
+        /// A CEF request made on the main thread.
+        mutating func request(milliseconds: Int64) {
+            if delayedPassRuns, milliseconds < Self.earlyReask { reasked = true }
+        }
+    }
 
     /// Pass counts while input was pending, per input target.
     public nonisolated struct PassesByTarget: Equatable, Sendable {

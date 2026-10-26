@@ -22,7 +22,7 @@ extension AppServices {
         // Before the first spare: its placeholder has no renderer where the fork can (p13-webui-019).
         cache.cef.setRendererlessSpareWindows(features.isEnabled(.rendererlessSpareWindow))
         chromiumWarmup.start(defaultIsChromium: { preference.defaultEngine == .chromium },
-                             pagesPending: { [weak cache] in cache?.pendingBrowsers.isEmpty == false },
+                             pagesPending: { [weak cache] in cache?.hasPendingPages == true },
                              pagesSpare: { pagesSpare && preference.defaultEngine == .chromium })
         cache.onPagesSettled = { [weak chromiumWarmup] in chromiumWarmup?.pagesSettled() }
         if pagesSpare {
@@ -59,10 +59,10 @@ extension AppServices {
     func makeChromiumSlot() -> ChromiumEngineSlot {
         let pumpInput = features.isEnabled(.cefPumpInputPolicy) ? CEFPumpInputSeams(mainWork: mainWork) : nil
         return ChromiumEngineSlot(stores: browserStores, waitDeadlines: mainWork.wakeUps, source: chromiumRuntime.source,
-                                  make: { [signInCallbacks, contextMenus, inputTap, crashKeys] stores, deadlines, source in
+                                  make: { [signInCallbacks, contextMenus, inputTap, crashKeys, pointerFrames = dragFrameInput] stores, deadlines, source in
                                       CEFEngine(source: source, stores: stores, signInCallbacks: signInCallbacks, lifecycleTrace: .shared,
                                                 contextMenus: contextMenus, waitDeadlines: deadlines, input: inputTap, crashKeys: crashKeys,
-                                                pumpInput: pumpInput)
+                                                pumpInput: pumpInput, pointerFrames: pointerFrames)
                                   },
                                   engineDidCreate: AppServices.chromiumEngineHook(crashRecovery: crashRecovery, reporter: crashReporting.reporter,
                                                                                   routes: { [weak self] in self?.routeChromiumRequests($0) }),

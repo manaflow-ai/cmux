@@ -90,13 +90,46 @@ import Testing
         #expect(breathLoops == [])
     }
 
-    /// The pins follow `Motion.reduceMotionOverride` after the mirror is installed.
-    @Test func homesPinsFollowMotionsOverride() {
+    /// The vendored views' value follows `Motion.reduceMotion` (the pin, calm mode, the system
+    /// setting) once the host is installed.
+    @Test func homesValueFollowsMotionsReduceMotion() {
         _ = HomeSidebarView(frame: .zero)
         Motion.reduceMotionOverride = true
         #expect(CmuxSidebarView.reduceMotionOverride == true)
         Motion.reduceMotionOverride = nil
-        #expect(CmuxSidebarView.reduceMotionOverride == nil)
-        #expect(MessagesLabHomeView.reduceMotionOverride == nil)
+        #expect(CmuxSidebarView.reduceMotionOverride == Motion.reduceMotion)
+        #expect(MessagesLabHomeView.reduceMotionOverride == Motion.reduceMotion)
+    }
+
+    /// Calm mode reaches the vendored views (they read only the system setting and the pin before
+    /// p06-scheduler-043), and a pulsing bubble stills at once.
+    @Test func calmModeStillsHomesPulsingBubble() {
+        Motion.reduceMotionOverride = nil
+        let design = DesignSettings.shared
+        let calm = design.calmMode
+        defer { design.calmMode = calm }
+        design.calmMode = .off
+        guard !Motion.reduceMotion else { return } // this Mac has Reduce Motion on: nothing to turn on
+        let home = HomeSidebarView(frame: NSRect(x: 0, y: 0, width: 280, height: 600))
+        home.list.wantsLayer = true
+        let bubble = SidebarTypingLayer()
+        home.list.layer?.addSublayer(bubble)
+        bubble.animate()
+        #expect(Self.loops(under: bubble) != [], "the bubble should pulse before calm mode")
+        design.calmMode = .calm
+        #expect(CmuxSidebarView.reduceMotionOverride == true)
+        #expect(MessagesLabHomeView.reduceMotionOverride == true)
+        #expect(Self.loops(under: bubble) == [], "the bubble keeps pulsing in calm mode")
+    }
+
+    /// The vendored views add no observer of the display-options notice: the app's one is
+    /// ``AppearanceSignals``' (p06-scheduler-043).
+    @Test func homesViewsAddNoDisplayOptionsObserver() {
+        let signals = DesignSettings.shared.signals
+        _ = HomeSidebarView(frame: .zero) // the host's one subscription (once per process)
+        let before = signals.subscriberCount(.reduceMotion)
+        let homes = (0..<5).map { _ in HomeSidebarView(frame: NSRect(x: 0, y: 0, width: 280, height: 600)) }
+        #expect(signals.subscriberCount(.reduceMotion) == before, "each Home list subscribed itself")
+        withExtendedLifetime(homes) {}
     }
 }

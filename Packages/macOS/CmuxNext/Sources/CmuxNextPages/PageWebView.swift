@@ -2,12 +2,13 @@ public import AppKit
 public import CmuxNextDesign
 public import CmuxNextSettings
 import CmuxNextCompat
+import CmuxNextHibernation
 import Observation
 import os
 import CmuxNextErrorJournal
 public import WebKit
 import CmuxNextTrace
-import CmuxNextWakeups
+public import CmuxNextWakeups
 
 /// A view that is a cmux page. The key dispatcher reads it to know the focused surface is a page
 /// (`surfaceKind == page`); a page view adds no key handling of its own.
@@ -68,11 +69,23 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// The open panel for a page's `<input type="file">`: a forwarder the app sets once at startup to its ``WebUIHost``'s
     /// (``WebUIHost/openPanel``); removed by p13-webui-010. Nil: a file input does nothing (tests).
     public static var openPanel: MadeAheadOpenPanel?
-    /// This page's file chooser (its web view holds the UI delegate weakly).
-    private var fileChooser: PageOpenPanel?
-    var loaded = false { didSet { loadState.set(loading: !loaded, page: self) } }
+    /// This page's UI delegate: its file chooser and Web Inspector's open and close (its web view
+    /// holds the UI delegate weakly).
+    let webKitUI: PageUIDelegate
+    var loaded = false {
+        didSet {
+            loadState.set(loading: !loaded, page: self)
+            #if DEBUG || CMUX_BENCH_HOOKS
+            if loaded != oldValue { router.oracleStateChanged?() }
+            #endif
+        }
+    }
     /// The document's load as the page lifecycle reads it (its `.loading`); each change tells the lifecycle.
     let loadState = PageLoadState()
+    /// The keep reasons its document set (`cmux.page.keepAlive`) and the host holds on it (a
+    /// confirmation sheet, a menu or popup, a drop it reads, Web Inspector, dictation); each change
+    /// tells the lifecycle.
+    package let keepReasons = PageKeepReasons()
     var loadWaiters: [CheckedContinuation<Void, Never>] = []
     var shouldFocusOnAttach = false
     /// The page's popup past the window's edge (PageWebView+Popup.swift), made on first use.
@@ -87,7 +100,14 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     private var uiScaleObservation: Task<Void, Never>?
     /// The static status look (`WebTheme.statusIndicators`): the setting and Reduce Motion.
     private var statusLookObservation: Task<Void, Never>?
-    private var reduceMotionObservers: [MainActorObservation] = []
+    /// Reduce Motion, the motion switches and the display options (``followAppearance(_:node:)``).
+    private var appearanceWatch: AppearanceSignals.Subscription?
+    /// Where those come from: the app's ``AppearanceSignals`` (its composition root's, once a pane shows the page).
+    private(set) var appearanceSignals = DesignSettings.shared.signals
+    /// The page's tab in the visibility tree, held while it follows it (``followAppearance(_:node:)``).
+    private var visibilityNode: VisibilityNode?
+    /// How many appearance changes reached this page (tests: a hidden page gets none).
+    package private(set) var appearanceCalls = 0
     public var additionalZoom: Double = 1 {
         didSet { if additionalZoom != oldValue { applyUIScale() } }
     }
@@ -160,6 +180,8 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     var now: () -> Date = { Date() }
     var crashReloads = PageCrashReloads()
     let claimState = PageClaimState()
+    /// The picture and state kept from the page's last hide (PageWebView+Snapshot.swift).
+    let hideState = PageHideState()
     #if DEBUG || CMUX_BENCH_HOOKS
     /// What `debug.webui` knows of this page (PageWebView+Debug.swift).
     var censusState = PageCensusState()
@@ -274,6 +296,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         themeSurface = surface
         self.dynamicResources = dynamicResources
         router = PageRouter(descriptor: descriptor, routes: routes)
+        webKitUI = PageUIDelegate(fileInputs: openPanel.map { PageOpenPanel(openPanel: $0) })
         self.inputReadiness = inputReadiness
         // webview-allow: the page host's WebKit engine; PageEnginePolicy picks it
         let make: (WKWebViewConfiguration) -> PageWKWebView = { PageWKWebView(frame: .zero, configuration: $0) }
@@ -306,8 +329,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         // Web Inspector in every build (Inspect Element, Cmd-Opt-I).
         webView.isInspectable = true
         webView.navigationDelegate = self
-        fileChooser = openPanel.map { PageOpenPanel(openPanel: $0) }
-        webView.uiDelegate = fileChooser
+        webView.uiDelegate = webKitUI
         webView.onUserEvent = { [weak self] in self?.noteTouch() }
         webView.pageAcceptsFirstMouse = { [weak self] in
             guard let self else { return false }
@@ -321,9 +343,19 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         let scripts = scripts
         router.send = { envelope in scripts.send(envelope) }
         router.sendWithDrop = { envelope, onDrop in scripts.send(envelope, onDrop: onDrop) }
+        keepReasons.owner = self
         router.didClose = { [weak self] in
             scripts.reset()
             self?.popupHost?.hide()
+            // A reload, a crash, a navigation or a rebind: the document's own reasons end with it.
+            self?.keepReasons.documentEnded()
+        }
+        router.keepAlive = { [weak self] reason, on in self?.keepReasons.setFromPage(reason, on: on) }
+        webView.keepReasons = keepReasons
+        // Web Inspector stays open across reloads, as its hold does (it is the host's, not the document's).
+        webKitUI.onInspector = { [weak self] open in
+            guard let keep = self?.keepReasons else { return }
+            if open { keep.begin(.inspector) } else { keep.end(.inspector) }
         }
         router.titleBarDoubleClick = { [weak self] in self?.performTitleBarDoubleClick() }
         router.popup = { [weak self] op, params in self?.popup(op, params: params) ?? .object(["shown": .bool(false)]) }
@@ -344,6 +376,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         bridge.install { [weak self] message in
             await self?.receive(message)
         }
+        installPageStateSave()
         self.route = route.map { $0.hasPrefix("#") ? $0 : "#" + $0 }
         installDocumentStartTheme()
         guard load else { return }
@@ -391,19 +424,28 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
                 self.applyTheme()
             }
         }
-        // Reduce Motion is not observable through Observation.
-        reduceMotionObservers = [
-            MainActorObservation(NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, center: NSWorkspace.shared.notificationCenter) { [weak self] in
-                self?.applyTheme()
-            },
-            MainActorObservation(Motion.reduceMotionDidChange) { [weak self] in
-                self?.applyTheme()
-            },
-            // The master motion switch, a category switch or the speed: `data-cmux-motion` follows.
-            MainActorObservation(Motion.speedDidChange) { [weak self] in
-                self?.applyTheme()
-            },
-        ]
+        observeAppearance()
+    }
+
+    /// Follows `signals` by `node`'s visibility (p06-scheduler.md B): a hidden page re-themes once
+    /// when it shows, not on each change. The pane that shows the page calls it
+    /// (`TabContent.followAppearance`).
+    public func followAppearance(_ signals: AppearanceSignals, node: VisibilityNode?) {
+        guard signals !== appearanceSignals || node !== visibilityNode else { return }
+        appearanceSignals = signals
+        visibilityNode = node
+        observeAppearance()
+        applyTheme()
+    }
+
+    /// Reduce Motion, the master motion switch, a category switch or the speed (`data-cmux-motion`),
+    /// and Reduce Transparency (the opaque page background, ``currentTheme(backgrounds:)``).
+    private func observeAppearance() {
+        appearanceWatch = appearanceSignals.subscribe([.motion, .displayOptions], viewNode: visibilityNode, owner: "PageWebView") { [weak self] in
+            guard let self else { return }
+            appearanceCalls += 1
+            applyTheme()
+        }
     }
 
     private func observeUIScale() {
@@ -600,7 +642,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// The page theme from this view's scope and ``themeSurface``: the surface's override (from
     /// `backgrounds`, the app's) replaces the page background; nil keeps the scope's own.
     func currentTheme(backgrounds: SurfaceBackgrounds = ThemeScope.app.surfaceBackgrounds) -> WebTheme {
-        WebTheme(themeTokens, reduceTransparency: NSWorkspace.shared.accessibilityDisplayShouldReduceTransparency,
+        WebTheme(themeTokens, reduceTransparency: appearanceSignals.display.reduceTransparency,
                  surface: themeSurface ?? .internalPage, backgrounds: backgrounds)
     }
 

@@ -44,6 +44,8 @@ Usage:
       [--hibernate-after 1] [--tag TAG] [--session light] [--out DIR]
   bench_memory.py --app BUNDLE --pressure warning|critical [--pressure-window 10]
   bench_memory.py --app BUNDLE ... --kernel-pressure warn|critical [--kernel-pressure-window 5]
+  bench_memory.py --app BUNDLE --cold-scrollback 100 [--cold-scrollback-mb 10] [--cold-idle 0,10,30]
+      [--cold-codec-samples 5] [--cold-pressure 5] [--out FILE.json]
 
 Phases (plans/cmux-next/chrome-parity/p07-memory.md, DC6 and DC10):
   --hidden-workspaces N [--grace S]
@@ -94,6 +96,18 @@ attached app keeps its own setting: the bench reads it from debug.surfaces,
 or takes --grace. Lab stories: scripts/perf-lab/stories.d/memory-hidden.json
 (Chromium) and memory-hidden-webkit.json (WebKit).
 
+--cold-scrollback N (p07-memory-112, the gate of tasks 040 and 041; cold_scrollback.py has the method):
+N workspaces with one terminal each are opened (a control sample with empty scrollback), print
+--cold-scrollback-mb MiB of log-like text (a full 10 MB scrollback each), go hidden, and are sampled with
+`footprint -j` (dirty and compressed columns) and vm_stat at each --cold-idle minute and once more after
+--cold-pressure (real memory pressure, memory_pressure -p); then the deflated size of --cold-codec-samples
+terminals' scrollback. It prints, per terminal, the daemon's dirty and compressed growth, its scrollback share, the
+kernel compressor's ratio, what the kernel keeps for that scrollback, deflate's bytes and the go/no-go (gain >= 2x),
+or `not measured`, as COLD-SCROLLBACK lines and the cold-scrollback-DESIGN.md table. A launch runs the holder
+terminal model (refuses --terminal-host-model hosts) and raises `terminal.scrollback.maxTotalMemoryBytes` to twice
+N x 10 MB so the daemon's scrollback budget does not trim the terminals; an attached app keeps its own budget
+(default 256 MiB), so the bench says it may trim, and an attached app on the hosts model decides `not measured`.
+
 --kernel-pressure warn|critical then feeds real kernel pressure
 (`/usr/bin/memory_pressure -S -l LEVEL`, root or passwordless sudo; without
 either it says so and skips that step): kern.memorystatus_vm_pressure_level
@@ -125,6 +139,8 @@ import uuid
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from bench_launch import PERF_LAB, BenchApp, RecordError, load_by_path, tag_of  # noqa: E402
+import cold_scrollback  # noqa: E402
+from daemon_teardown import daemon_status, request as daemon_request  # noqa: E402
 
 perf_stats = load_by_path("perf_stats", os.path.join(PERF_LAB, "perf_stats.py"))
 perf_result = load_by_path("perf_result", os.path.join(PERF_LAB, "perf_result.py"))
@@ -1288,6 +1304,123 @@ def stop_simulator(simulator: subprocess.Popen, timeout: float) -> tuple[str | N
         return simulator.communicate()
 
 
+class ColdScrollbackEnv:
+    """The effects cold_scrollback.cold_scrollback_phase needs, on a real app and its daemon."""
+
+    python = sys.executable
+
+    def __init__(self, app: App, app_pid: int, bundle: str, url: str, opened: list):
+        self.app, self.app_pid, self.bundle, self.url, self.opened = app, app_pid, bundle, url, opened
+        self.binary = os.path.join(bundle, "Contents/Resources/bin/cmux-tui")
+        self.tag = tag_of(bundle)
+        self.socket: str | None = None
+        self.next_id = 0
+        self.sleep, self.monotonic = time.sleep, time.monotonic
+
+    def say(self, text: str):
+        print(text, flush=True)
+
+    def daemon(self, cmd: str, params: dict, timeout: float) -> dict:
+        """One request to the app's daemon; {"ok": False, "error": ...} when it cannot be made."""
+        try:
+            if self.socket is None:
+                status = daemon_status(self.binary, self.tag)
+                if status is None:
+                    return {"ok": False, "error": "the app's daemon is not running"}
+                self.socket = status["socket"]
+            self.next_id += 1
+            return daemon_request(self.socket, dict(params, id=self.next_id, cmd=cmd), timeout)
+        except (OSError, ValueError, ConnectionError, subprocess.TimeoutExpired) as error:
+            return {"ok": False, "error": f"{cmd}: {error}"}
+
+    def columns(self) -> tuple[dict[int, dict], dict[int, str]]:
+        """`footprint -j` columns of the app and its daemon-side processes, and their kinds."""
+        kinds = {pid: kind for pid, (kind, _) in owned(self.app_pid, self.bundle).items()
+                 if kind == "app" or kind in cold_scrollback.DAEMON_KINDS}
+        if not kinds:
+            return {}, {}
+        with tempfile.TemporaryDirectory() as folder:
+            path = os.path.join(folder, "footprint.json")
+            try:
+                ran = subprocess.run(["footprint", "-j", path, *map(str, sorted(kinds))], capture_output=True,
+                                     text=True, timeout=300)
+                why = (ran.stderr or ran.stdout).strip()[:300]
+                with open(path) as handle:
+                    columns = cold_scrollback.parse_footprint(json.load(handle))
+            except subprocess.TimeoutExpired:
+                why, columns = "timed out after 300 s", None
+            except (OSError, ValueError) as error:
+                why, columns = f"{error}", None
+        if columns is None:
+            # The sample is then invalid (no daemon category rows) and the decision says not measured.
+            print(f"bench-memory: footprint -j failed: {why}", file=sys.stderr, flush=True)
+            columns = {}
+        return columns, kinds
+
+    @staticmethod
+    def press(free_pct: int, hold_s: float) -> dict:
+        """Real memory pressure: `memory_pressure -p PCT -y S` allocates until PCT% of RAM is free, waits S
+        seconds, then exits and frees its pages. Not -S, which only sets the level the dispatch sources read and
+        makes the kernel compress nothing; not -l, which allocates and then waits forever."""
+        if not os.access(MEMORY_PRESSURE, os.X_OK):
+            return {"ok": False, "error": f"{MEMORY_PRESSURE} not found"}
+        argv = [MEMORY_PRESSURE, "-Q", "-p", str(free_pct), "-y", str(max(1, math.ceil(hold_s)))]
+        started = time.monotonic()
+        try:
+            ran = subprocess.run(argv, capture_output=True, text=True, timeout=hold_s + 900)
+        except subprocess.TimeoutExpired:
+            return {"ok": False, "error": f"{' '.join(argv)} did not exit within {hold_s + 900:.0f} s"}
+        except OSError as error:
+            return {"ok": False, "error": f"{' '.join(argv)}: {error}"}
+        result = {"ok": ran.returncode == 0, "argv": argv, "seconds": round(time.monotonic() - started, 1),
+                  "kernel_level_after": kernel_pressure_level()}
+        if ran.returncode != 0:
+            result["error"] = (ran.stderr or ran.stdout).strip()[:300] or f"exit {ran.returncode}"
+        return result
+
+    @staticmethod
+    def vm_stat() -> str:
+        return subprocess.run(["vm_stat"], capture_output=True, text=True, timeout=30).stdout
+
+    def open_workspace(self) -> str | None:
+        workspace, _ = open_workspace_parts(self.app, "none", self.url, 3000 + len(self.opened))
+        if workspace:
+            self.opened.append(workspace)
+        return workspace
+
+    def terminal_surface(self, workspace: str) -> int | None:
+        """The daemon surface of the workspace's first terminal tab; adds one when the workspace has none."""
+        for attempt in range(2):
+            deadline = time.monotonic() + 10
+            while time.monotonic() < deadline:
+                surface = workspace_terminal(self.app.call("snapshot.get").get("topology") or {}, workspace)
+                if surface is not None:
+                    return surface
+                time.sleep(0.1)  # test script: polls the app's published snapshot for the new terminal
+            if attempt == 0:
+                self.app.run("newSurface")
+        return None
+
+
+def workspace_terminal(topology: dict, workspace: str) -> int | None:
+    """The daemon surface id of `workspace`'s first terminal tab in a snapshot.get topology, or None."""
+    for row in topology.get("workspaces") or []:
+        if row.get("id") != workspace:
+            continue
+        for screen in row.get("screens") or []:
+            for pane in screen.get("panes") or []:
+                for tab in pane.get("tabs") or []:
+                    if tab.get("kind") == "terminal" and str(tab.get("surface", "")).isdigit():
+                        return int(tab["surface"])
+    return None
+
+
+def cold_scrollback_config(count: int) -> dict:
+    """Launch settings: the daemon's scrollback budget holds every cold terminal's full scrollback twice over."""
+    total = 2 * count * cold_scrollback.SCROLLBACK_LIMIT_BYTES
+    return {"terminal": {"scrollback": {"maxTotalMemoryBytes": total}}}
+
+
 def launch_env(cef_switches: str, host_model: str | None) -> dict:
     """The launch knobs of the app's environment. The app strips every inherited CMUX_* variable that is not
     CMUX_NEXT_* (LaunchIdentity.stripInheritedEnvironment), so the daemon's host model goes under its app name,
@@ -1315,6 +1448,26 @@ def check_args(parser: argparse.ArgumentParser, args) -> list[int]:
         parser.error("--hibernate-after is a number of minutes > 0, for an app this run launches")
     if args.tag is not None and tag_of(f"cmux DEV {args.tag}.app") != tag_of(args.app):
         parser.error(f"--tag {args.tag!r} is not the tag of --app {args.app!r}")
+    if args.cold_scrollback is not None:
+        if (args.tabs or args.hidden_workspaces is not None or args.hidden_slope or args.workspaces
+                or args.churn_minutes or args.pressure or args.kernel_pressure):
+            parser.error("--cold-scrollback is a run of its own (no --tabs, --hidden-workspaces, --hidden-slope, "
+                         "--workspaces, churn or pressure)")
+        if args.cold_scrollback < 1 or args.cold_scrollback_mb <= 0 or args.cold_codec_samples < 1:
+            parser.error("--cold-scrollback, --cold-scrollback-mb and --cold-codec-samples are > 0")
+        if args.terminal_host_model == "hosts":
+            parser.error("--cold-scrollback runs the holder model: a terminal host keeps a second VT copy of each "
+                         "scrollback, so the daemon's bytes would be half of what a terminal keeps")
+        if not 0 <= args.cold_pressure < 100:
+            parser.error("--cold-pressure is a percent of free RAM, 1 to 99, or 0 for none")
+        if not args.socket:
+            args.terminal_host_model = "holder"
+        try:
+            args.cold_idle_minutes = sorted(float(n) for n in args.cold_idle.split(",") if n)
+        except ValueError:
+            parser.error(f"--cold-idle {args.cold_idle!r}: idle minutes, e.g. 0,10,30")
+        if not args.cold_idle_minutes or args.cold_idle_minutes[0] < 0:
+            parser.error(f"--cold-idle {args.cold_idle!r}: idle minutes >= 0, e.g. 0,10,30")
     if not args.hidden_slope:
         return []
     if args.tabs or args.hidden_workspaces is not None or args.workspaces or args.churn_minutes:
@@ -1446,6 +1599,22 @@ def parse_args(argv=None):
                              "or passwordless sudo) and sample the footprint before, during and after")
     parser.add_argument("--kernel-pressure-window", type=float, default=5,
                         help="--kernel-pressure: seconds to sample under pressure")
+    parser.add_argument("--cold-scrollback", type=int, metavar="N",
+                        help="cold-scrollback run (p07-memory-112): N hidden terminals with a full scrollback each, "
+                             "footprint -j dirty and compressed bytes at each --cold-idle minute, against deflate")
+    parser.add_argument("--cold-scrollback-mb", type=float, default=10, metavar="MIB",
+                        help="--cold-scrollback: MiB of text each terminal prints (10 fills the 10 MB scrollback-limit)")
+    parser.add_argument("--cold-idle", default="0,10,30", metavar="MINUTES",
+                        help="--cold-scrollback: minutes after the terminals went hidden to sample")
+    parser.add_argument("--cold-codec-samples", type=int, default=5, metavar="N",
+                        help="--cold-scrollback: terminals whose scrollback is read back and deflated, after the last "
+                             "sample")
+    parser.add_argument("--cold-pressure", type=int, default=5, metavar="PCT_FREE",
+                        help="--cold-scrollback: after the idle samples, real memory pressure (memory_pressure -p, "
+                             "allocating until this percent of RAM is free) until the compressor holds the cold "
+                             "pages; 0 runs none and decides no-go")
+    parser.add_argument("--cold-pressure-hold", type=float, default=30, metavar="S",
+                        help="--cold-pressure: seconds memory_pressure holds before it exits and frees its pages")
     parser.add_argument("--out", help="the report file; with --hidden-slope a path not ending in .json is a folder for "
                                       "the result-v1 files and bench-memory.json")
     args = parser.parse_args(argv)
@@ -1482,6 +1651,8 @@ def main(argv=None):
             args.hibernate_after = SLOPE_HIBERNATE_AFTER_MINUTES
         if args.hibernate_after is not None:
             config = merged(config, {"browser": {"hibernation": args.hibernate_after}})
+        if args.cold_scrollback is not None:
+            config = merged(config, cold_scrollback_config(args.cold_scrollback))
         env = launch_env(args.cef_switches, args.terminal_host_model)
         if args.fake_agent:
             # The fake agent is a real ACP process: the bench env's agent-pane mock and launch denial would stop it.
@@ -1499,7 +1670,7 @@ def main(argv=None):
     chats = None
     recipes = args.mix.split(",")
     workspaces = args.workspaces or ("1" if args.hidden_workspaces is not None else "1,10,30")
-    counts = [] if args.hidden_slope else sorted(int(n) for n in workspaces.split(",") if n)
+    counts = [] if args.hidden_slope or args.cold_scrollback else sorted(int(n) for n in workspaces.split(",") if n)
     report = {"app": bundle, "mix": recipes, "settle_s": args.settle, "samples": [], "cef_switches": args.cef_switches,
               "webkit_attributed": _responsible is not None,
               "webkit_attribution": "app-responsible" if _foreign_webkit is None else "app-or-its-launcher"}
@@ -1543,6 +1714,14 @@ def main(argv=None):
             report["hidden_workspaces"] = hidden_workspaces_phase(app, args.hidden_workspaces, args.grace, recipes,
                                                                   args.url, opened, chats, settle_and_sample,
                                                                   host_model)
+        if args.cold_scrollback is not None:
+            if args.socket and args.cold_scrollback * cold_scrollback.SCROLLBACK_LIMIT_BYTES > 256 * MB:
+                print("bench-memory: an attached app keeps its own terminal.scrollback.maxTotalMemoryBytes "
+                      "(default 256 MiB); past it the daemon trims the least recently active terminals", flush=True)
+            env = ColdScrollbackEnv(app, app_pid, bundle, args.url, opened)
+            report["cold_scrollback"] = cold_scrollback.cold_scrollback_phase(
+                env, args.cold_scrollback, int(args.cold_scrollback_mb * MB), args.cold_idle_minutes,
+                args.cold_codec_samples, pressure=args.cold_pressure, pressure_hold_s=args.cold_pressure_hold)
         if args.hidden_slope:
             report["hidden_slope"] = run_hidden_slope(app, args, slope_counts, opened, chats, app_pid, bundle,
                                                       report, bench, results_dir)

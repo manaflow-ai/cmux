@@ -236,3 +236,68 @@ fn arbitrary_bytes_never_panic() {
         while let Ok(Some(_)) = reader.next_message() {}
     }
 }
+
+#[test]
+fn an_idle_reader_frees_the_room_a_long_message_grew() {
+    let mut reader = FrameReader::new(ReaderLimits::default());
+    let line = "x".repeat(4 * 1024 * 1024);
+    reader.push(line.as_bytes());
+    reader.push(b"\n");
+    assert!(reader.capacity() > line.len());
+    assert_eq!(reader.next_message(), Ok(Some(Message::Json(&line))));
+    assert_eq!(reader.next_message(), Ok(None));
+    assert!(reader.capacity() <= 1024 * 1024, "idle capacity {}", reader.capacity());
+
+    let frame =
+        Frame::new(FrameKind::Output, 1, Aux::Offset(0), Bytes::from(vec![3u8; 3 << 20])).unwrap();
+    let mut reader = framed_reader();
+    reader.push(&encode_all(std::slice::from_ref(&frame)));
+    assert_eq!(drain(&mut reader), Ok(vec![Got::Frame(frame)]));
+    reader.push(b"{}\n");
+    assert!(reader.capacity() <= 1024 * 1024, "idle capacity {}", reader.capacity());
+    assert_eq!(drain(&mut reader), Ok(vec![Got::Line("{}".to_owned())]));
+}
+
+#[test]
+fn read_with_lends_room_sized_to_the_pending_frame() {
+    let frame =
+        Frame::new(FrameKind::Output, 1, Aux::Offset(0), Bytes::from(vec![5u8; 200_000])).unwrap();
+    let encoded = encode_all(std::slice::from_ref(&frame));
+    let mut reader = framed_reader();
+    let mut lent = 0;
+    let header = reader
+        .read_with(|room| {
+            lent = room.len();
+            room[..HEADER_LEN].copy_from_slice(&encoded[..HEADER_LEN]);
+            Ok(HEADER_LEN)
+        })
+        .unwrap();
+    assert_eq!((header, lent), (HEADER_LEN, 64 * 1024), "no frame pending: the minimum");
+    assert_eq!(reader.next_message(), Ok(None));
+    let rest = reader
+        .read_with(|room| {
+            lent = room.len();
+            room[..200_000].copy_from_slice(&encoded[HEADER_LEN..]);
+            Ok(200_000)
+        })
+        .unwrap();
+    assert_eq!((rest, lent), (200_000, 200_000), "the header sizes the next read");
+    assert_eq!(drain(&mut reader), Ok(vec![Got::Frame(frame)]));
+
+    // A source that claims more than it was lent is held to the room.
+    let mut reader = FrameReader::new(ReaderLimits::default());
+    assert_eq!(reader.read_with(|room| Ok(room.len() + 10)).unwrap(), 64 * 1024);
+    assert_eq!(reader.buffered_len(), 64 * 1024);
+}
+
+#[test]
+fn next_is_frame_looks_past_the_lent_line() {
+    let mut reader = FrameReader::new(ReaderLimits::default());
+    assert!(!reader.next_is_frame());
+    reader.push(b"{}\n");
+    reader.push(&[0xFF]);
+    assert!(!reader.next_is_frame());
+    assert_eq!(reader.next_message(), Ok(Some(Message::Json("{}"))));
+    assert!(reader.next_is_frame());
+    assert_eq!(reader.next_message(), Err(BadMessage::FramesNotNegotiated));
+}

@@ -351,7 +351,7 @@ nonisolated enum AcpmuxServerPeer {
         }
         try write(payload, to: descriptor, until: until)
         var buffer = Data()
-        while true {  // wakeup-allow: each pass waits in poll(2) for socket data; EOF, error or the deadline ends it
+        while true {  // wakeup-allow: bounded each pass waits in poll(2) for socket data; EOF, an error or the call's deadline ends it
             while let newline = buffer.firstIndex(of: 0x0A) {
                 let line = Data(buffer[buffer.startIndex..<newline])
                 buffer.removeSubrange(buffer.startIndex...newline)

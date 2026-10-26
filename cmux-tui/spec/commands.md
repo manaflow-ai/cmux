@@ -580,8 +580,8 @@ control-socket admission. Counters accumulate since daemon start. The command
 reads atomics and never touches SQLite or the journal, so it is safe to poll.
 
 Params: `{include?: array<string>|null}`. `include` names optional result
-sections: `resource_projection`, `write_path`, `slow_requests` and `requests`;
-unknown names are ignored.
+sections: `resource_projection`, `write_path`, `request_path_io`,
+`slow_requests`, `requests` and `ipc`; unknown names are ignored.
 An optional section is absent unless requested, because SDK decoders refuse
 unknown result fields.
 
@@ -636,8 +636,18 @@ object{
     query:histogram, browser:histogram, agent:histogram, cloud:histogram,
     other:histogram
   },
-  dispatch_queue_us?:histogram
+  dispatch_queue_us?:histogram,
+  ipc?:object{
+    streams:object{open:uint64,peak:uint64,opened:uint64},
+    sequence_depth:histogram,
+    received:array<kind_count>, sent:array<kind_count>,
+    parses:object{lines:parse_count,frames:parse_count},
+    writes:object{messages:uint64,syscalls:uint64,syscalls_per_message:float64,stalls:uint64},
+    bad_message:uint64
+  }
 }
+kind_count = object{kind:string,messages:uint64,bytes:uint64}
+parse_count = object{requests:uint64,json_parses:uint64,json_parses_per_request:float64}
 histogram = object{count:uint64,mean:uint64,max:uint64,p50:uint64,p90:uint64,p99:uint64}
 ```
 
@@ -722,6 +732,29 @@ write is not counted. `dispatch_queue_us` is the time from a request's parse
 to its handler's start: the wait in the connection's request queue (0 for a
 line answered inline).
 
+`ipc` counts the IPC layer since daemon start, over the connections of every
+transport: the local socket, the remote entry and WebSocket. `streams`
+counts each connection's stream 0 (`open` now, `peak`, `opened` in total);
+no connection opens a second stream yet, so `open` is the open connections.
+`sequence_depth` samples the requests in a connection's sequence as each
+`cmd` request arrives at it, itself included, also when the full sequence
+refuses it. `received` and `sent` list messages and bytes by kind, only kinds
+seen at least once: `line` (a JSON line, bytes counting its delimiter, or a
+WebSocket text message) first, then frame kinds by name in wire order (a
+frame's bytes count its header). `sent` counts what was handed to a
+connection writer. `parses.lines` counts every non-blank JSON line or
+WebSocket text message a connection reads, the ones its admission or hello
+gate answers included, and every JSON parse of their bytes where it happens
+(the admission's, the hello gate's, the v2 probe's and each feature route's,
+also a route that then declines the line); `parses.frames` the same for
+admitted REQUEST frames. `json_parses_per_request` is 0 before the first
+request. `writes.syscalls` counts the writers' write calls and
+`writes.stalls` the calls that blocked for at least 1 ms on a full peer
+receive buffer. `bad_message` counts connections closed for a malformed
+message: a JSON line over the size limit or not UTF-8, a bad frame, or a
+WebSocket message that is oversized, not UTF-8, binary or against the
+protocol.
+
 In a trace, each request is the slice `daemon.request`: arg0 is the method
 id (a command's row in the command table, `0x4000` plus a resource
 operation's index, or `0x8000` plus the class of a feature-route line) and
@@ -732,6 +765,14 @@ instants `daemon.request.parsed`, `daemon.request.dispatched`,
 its own reply, has no `handled`. A worker's reply is the async slice
 `daemon.request.async` (arg0 the method id), with the instants
 `daemon.request.async.handled` and `daemon.request.async.reply.queued`.
+After each local line, the instant `daemon.frame.json_parses` has as arg0
+how many times the line was parsed as JSON before its reply, counted at
+each parse: its head once, then the one decode of the handler its head
+names, so 2 for every request a handler accepts. An error reply costs more:
+3 for a line no handler decodes (the bad-request reply decodes the line
+again for its `id`), 4 for a refused v2 envelope (its `protocol` probe and
+the refusal's `id`), 5 when that envelope names a page-routed operation. An
+older client's revision upgrade is not counted.
 
 `stack` is the stack of the thread that ran the request, captured when the
 watchdog first saw it running past the threshold (macOS suspends the thread,

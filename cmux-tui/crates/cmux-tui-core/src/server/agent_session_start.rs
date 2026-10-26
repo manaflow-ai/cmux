@@ -216,11 +216,12 @@ pub(super) fn start(
     let worker_id = id.clone();
     // The start keeps the cause of the frame that asked for it.
     let cause = crate::event_cause::EventCause::current();
+    let request_qos = mux.request_qos();
     let spawned = std::thread::Builder::new()
         .name("mux-agent-start".into())
         .stack_size(THREAD_STACK_BYTES)
         .spawn(move || {
-            let _cause = crate::event_cause::EventCauseScope::enter(cause);
+            let _cause = request_qos.enter(cause);
             // A chat never starts in `/`, above the home folder, or in the
             // home folder unless the person chose it (cx-1bhjj), as on the
             // Mac. It resolves the folder on disk, so it runs here, not on

@@ -68,9 +68,15 @@ import Testing
         #expect(schedule.nextWake == nil, "no wake while a pass runs")
         let nested = schedule.beginWork(now: 0.001)
         #expect(!nested)
+        #expect(!schedule.servesDeferredFire, "the pass that runs it has not begun")
         schedule.endWork()
         let wake = try #require(schedule.nextWake)
         #expect(wake.deadline == -.infinity)
+        #expect(schedule.servesDeferredFire)
+        #expect(schedule.beginWork(now: 0.002))
+        #expect(!schedule.servesDeferredFire, "only the next pass serves it")
+        schedule.endWork()
+        #expect(!schedule.servesDeferredFire)
     }
 
     /// A delayed request served by a pass leaves no wake; a later one replaces it.

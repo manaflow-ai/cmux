@@ -352,6 +352,11 @@ int main() {
   CHECK(seen.state_in_event == "{\"index\":1}");
   CHECK(seen.s2.empty());  // a NULL string reaches the callback as ""
 
+  // A resize fence carries this process's port name, which means nothing in the host: the
+  // client refuses it as a fork without the call would and sends nothing, so the next frame
+  // the host reads is go_back's.
+  CHECK(cmux_shim_browser_set_resize_fence(browser, 0x1103u, 2) == 0);
+
   // go_back marks the navigation state pending under its token until the host's ack.
   cmux_shim_go_back(browser);
   CHECK(NavigationState(browser) == "<null>");

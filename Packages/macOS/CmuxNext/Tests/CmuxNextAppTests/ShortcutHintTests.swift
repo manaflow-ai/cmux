@@ -1,7 +1,7 @@
 import AppKit
 @testable import CmuxNextApp
 import CmuxNextInput
-import CmuxNextWakeupsTestSupport
+import CmuxNextWakeups
 import Testing
 
 /// The shortcut-hint hold watcher on the app's input tap (p04-input-016): observe subscriptions while
@@ -90,17 +90,17 @@ struct ShortcutHintTests {
 
     @Test func anIntentionalHoldShowsHintsAndSetsTheTapFlagUntilAKeyDown() async throws {
         let tap = InputEventTap()
-        let clock = ManualClock()
+        let rig = MainDeadlineRig()
         let window = Self.window()
         defer { window.orderOut(nil) }
         let log = Log()
-        let monitor = Self.monitor(window, tap: tap, clock: clock, log: log)
+        let monitor = Self.monitor(window, tap: tap, rig: rig, log: log)
         monitor.setEnabled(true)
         defer { monitor.stop() }
 
         try Self.dispatch(Self.flags([.command], in: window), through: tap)
         #expect(log.changes.isEmpty, "hints show only after the intentional-hold delay")
-        try await Self.finishHold(clock: clock, log: log)
+        try Self.finishHold(rig: rig)
         #expect(log.changes == [.command])
         #expect(monitor.showing)
         #expect(tap.flags.contains(.hintsShowing), "showing hints did not set the tap's hints flag")
@@ -115,18 +115,38 @@ struct ShortcutHintTests {
         #expect(log.changes == [.command, nil], "a key-down with no hint up reports nothing")
     }
 
+    /// The hold deadline is a wake of the main thread's one queue with WakeLeeway's slack (8 ms at 300 ms), so it
+    /// shares a wake with other deadlines (p14-energy-019a), and its fire shows the hints.
+    @Test func theHoldDeadlineIsAMainDeadlineInWakeLeewaysWindow() async throws {
+        let tap = InputEventTap()
+        let rig = MainDeadlineRig()
+        let window = Self.window()
+        defer { window.orderOut(nil) }
+        let log = Log()
+        let monitor = Self.monitor(window, tap: tap, rig: rig, log: log)
+        monitor.setEnabled(true)
+        defer { monitor.stop() }
+
+        try Self.dispatch(Self.flags([.command], in: window), through: tap)
+        let hold = ShortcutHintModifierPolicy.intentionalHoldDelay
+        let wake = try #require(rig.deadlines.nextFire, "the hold armed no deadline")
+        #expect(wake >= hold && wake <= hold + WakeLeeway.defaultAlignment, "the hold wakes in WakeLeeway's 8 ms window")
+        try Self.finishHold(rig: rig)
+        #expect(log.changes == [.command], "the hold's deadline did not show the hints")
+    }
+
     @Test func aPaneNavigationKeyKeepsTheHintsAndTheFlag() async throws {
         let tap = InputEventTap()
-        let clock = ManualClock()
+        let rig = MainDeadlineRig()
         let window = Self.window()
         defer { window.orderOut(nil) }
         let log = Log()
         log.keeps = true
-        let monitor = Self.monitor(window, tap: tap, clock: clock, log: log)
+        let monitor = Self.monitor(window, tap: tap, rig: rig, log: log)
         monitor.setEnabled(true)
         defer { monitor.stop() }
 
-        try await Self.showHints(in: window, tap: tap, clock: clock, log: log)
+        try Self.showHints(in: window, tap: tap, rig: rig, log: log)
         try Self.dispatch(Self.key(in: window), through: tap)
         #expect(log.keepsHintsCalls == 1)
         #expect(log.changes == [.command], "a key that keeps hints took them down")
@@ -136,15 +156,15 @@ struct ShortcutHintTests {
 
     @Test func aClickInThisWindowHidesTheHints() async throws {
         let tap = InputEventTap()
-        let clock = ManualClock()
+        let rig = MainDeadlineRig()
         let window = Self.window()
         defer { window.orderOut(nil) }
         let log = Log()
-        let monitor = Self.monitor(window, tap: tap, clock: clock, log: log)
+        let monitor = Self.monitor(window, tap: tap, rig: rig, log: log)
         monitor.setEnabled(true)
         defer { monitor.stop() }
 
-        try await Self.showHints(in: window, tap: tap, clock: clock, log: log)
+        try Self.showHints(in: window, tap: tap, rig: rig, log: log)
         try Self.dispatch(Self.click(in: window, modifiers: [.command]), through: tap)
         #expect(log.changes == [.command, nil], "a click did not take the hints down")
         #expect(!tap.flags.contains(.hintsShowing))
@@ -152,15 +172,15 @@ struct ShortcutHintTests {
 
     @Test func aCommandClickInAnotherWindowHidesTheHints() async throws {
         let tap = InputEventTap()
-        let clock = ManualClock()
+        let rig = MainDeadlineRig()
         let mine = Self.window(), other = Self.window()
         defer { for window in [mine, other] { window.orderOut(nil) } }
         let log = Log()
-        let monitor = Self.monitor(mine, tap: tap, clock: clock, log: log)
+        let monitor = Self.monitor(mine, tap: tap, rig: rig, log: log)
         monitor.setEnabled(true)
         defer { monitor.stop() }
 
-        try await Self.showHints(in: mine, tap: tap, clock: clock, log: log)
+        try Self.showHints(in: mine, tap: tap, rig: rig, log: log)
         // A Cmd-click on a background window does not make it key: this window stays in front.
         try Self.dispatch(Self.click(in: other, modifiers: [.command]), through: tap)
         #expect(log.changes == [.command, nil], "a click in another window left the hints up")
@@ -170,16 +190,16 @@ struct ShortcutHintTests {
 
     @Test func resigningKeyHidesTheHintsAndForgetsTheHold() async throws {
         let tap = InputEventTap()
-        let clock = ManualClock()
+        let rig = MainDeadlineRig()
         let window = Self.window()
         defer { window.orderOut(nil) }
         let log = Log()
         let notifications = NotificationCenter()
-        let monitor = Self.monitor(window, tap: tap, notifications: notifications, clock: clock, log: log)
+        let monitor = Self.monitor(window, tap: tap, notifications: notifications, rig: rig, log: log)
         monitor.setEnabled(true)
         defer { monitor.stop() }
 
-        try await Self.showHints(in: window, tap: tap, clock: clock, log: log)
+        try Self.showHints(in: window, tap: tap, rig: rig, log: log)
         await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
             log.onChange = {
                 log.onChange = nil
@@ -198,14 +218,14 @@ struct ShortcutHintTests {
 
     @Test func turningHintsOffWhileTheyShowClearsTheFlag() async throws {
         let tap = InputEventTap()
-        let clock = ManualClock()
+        let rig = MainDeadlineRig()
         let window = Self.window()
         defer { window.orderOut(nil) }
         let log = Log()
-        let monitor = Self.monitor(window, tap: tap, clock: clock, log: log)
+        let monitor = Self.monitor(window, tap: tap, rig: rig, log: log)
         monitor.setEnabled(true)
 
-        try await Self.showHints(in: window, tap: tap, clock: clock, log: log)
+        try Self.showHints(in: window, tap: tap, rig: rig, log: log)
         monitor.setEnabled(false)
         #expect(log.changes == [.command, nil], "turning hints off left them up")
         #expect(!monitor.showing)
@@ -216,8 +236,8 @@ struct ShortcutHintTests {
     // MARK: helpers
 
     private static func monitor(_ window: NSWindow, tap: InputEventTap, notifications: NotificationCenter = NotificationCenter(),
-                                clock: any Clock<Duration> = ContinuousClock(), log: Log) -> WindowScopedShortcutHintModifierMonitor {
-        WindowScopedShortcutHintModifierMonitor(window: window, tap: tap, notifications: notifications, clock: clock,
+                                rig: MainDeadlineRig = MainDeadlineRig(), log: Log) -> WindowScopedShortcutHintModifierMonitor {
+        WindowScopedShortcutHintModifierMonitor(window: window, tap: tap, deadlines: rig.deadlines, notifications: notifications,
                                                 isFront: { _ in log.frontCalls += 1; return log.front },
                                                 keepsHints: { _ in log.keepsHintsCalls += 1; return log.keeps }) { flags in
             log.changes.append(flags)
@@ -226,23 +246,17 @@ struct ShortcutHintTests {
     }
 
     /// Holds Command in `window` past the intentional-hold delay; the hints show.
-    private static func showHints(in window: NSWindow, tap: InputEventTap, clock: ManualClock, log: Log) async throws {
-        try dispatch(flags([.command], in: window), through: tap)
-        try await finishHold(clock: clock, log: log)
+    private static func showHints(in window: NSWindow, tap: InputEventTap, rig: MainDeadlineRig, log: Log) throws {
+        try Self.dispatch(Self.flags([.command], in: window), through: tap)
+        try finishHold(rig: rig)
         #expect(log.changes == [.command], "the hold did not show hints")
         #expect(tap.flags.contains(.hintsShowing))
     }
 
-    /// Runs out the pending hold's delay and waits for its report.
-    private static func finishHold(clock: ManualClock, log: Log) async throws {
-        try await clock.waitForSleeper()
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            log.onChange = {
-                log.onChange = nil
-                continuation.resume()
-            }
-            clock.advance(by: ShortcutHintModifierPolicy.intentionalHoldDelay)
-        }
+    /// Fires the pending hold deadline and runs its action in one frame.
+    private static func finishHold(rig: MainDeadlineRig) throws {
+        try #require(rig.deadlines.nextFire != nil, "no hold deadline is pending")
+        rig.fireAndRun()
     }
 
     private static func liveSubscriptions(_ tap: InputEventTap) -> Int {

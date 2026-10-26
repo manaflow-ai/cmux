@@ -5,6 +5,7 @@ import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextHibernation
 import CmuxNextPages
+import CmuxNextSignposts
 import CmuxNextTerminal
 import CmuxNextWakeups
 
@@ -36,6 +37,17 @@ enum TabContent {
         }
     }
 
+    /// Hands the content's appearance readers the app's signals and its tab's node: Reduce Motion
+    /// and display option changes reach a hidden tab once, when it shows (p06-scheduler-043).
+    @MainActor func followAppearance(_ signals: AppearanceSignals, node: VisibilityNode) {
+        switch self {
+        case .terminal(let entry): entry.session.view.followAppearance(signals, node: node)
+        case .agent(let view): view.followAppearance(signals, node: node)
+        case .page(let view): (view.content as? PageWebView)?.followAppearance(signals, node: node)
+        case .browser, .placeholder, .notice, .conversation: break
+        }
+    }
+
     /// Whether a page's document can take typing yet (the key router's
     /// type-ahead): an agent page or a React page tab.
     @MainActor var inputReadiness: PageInputReadiness? {
@@ -56,6 +68,20 @@ enum TabContent {
         case .placeholder: "placeholder"
         case .notice: "notice"
         case .conversation: "conversation"
+        }
+    }
+
+    /// How this content reports its first themed frame for a new tab's `create.tab` (``CreateTabTimings``).
+    @MainActor var createTabFirstFrame: CreateTabTimings.FirstFrame {
+        let identity: AnyObject = view
+        switch self {
+        case .terminal(let entry): return entry.session.createTabFirstFrame(content: identity)
+        case .browser(let entry):
+            guard let page = entry.tab as? any BrowserFirstContentFrameReporting else { return .atCommit(identity) }
+            return page.createTabFirstFrame(content: identity)
+        case .agent(let view): return view.createTabFirstFrame(content: identity)
+        case .page(let view): return view.createTabFirstFrame(content: identity)
+        case .placeholder, .notice, .conversation: return .atCommit(identity)
         }
     }
 

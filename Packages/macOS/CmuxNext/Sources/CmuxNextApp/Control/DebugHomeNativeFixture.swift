@@ -4,6 +4,7 @@ import CmuxNextDesign
 import CmuxNextHibernation
 import CmuxNextHome
 import CmuxNextSettings
+import CmuxNextWakeups
 
 /// DEBUG ONLY: `debug.home_native_fixture.open` opens the native Home
 /// transcript (`HomeNativeTranscriptView`) over the mock owner's fixture
@@ -17,11 +18,13 @@ extension InternalPageID {
 @MainActor
 final class DebugHomeNativeFixture: InternalPageProvider {
     private var fixtures: [String: HomeNativeFixture] = [:]
-    /// The app's made-ahead file picker, for each fixture's "+".
+    /// The app's made-ahead file picker for each fixture's "+", and its main-thread scheduler.
     private let openPanel: MadeAheadOpenPanel
+    private let mainWork: MainWorkScheduler
 
-    init(openPanel: MadeAheadOpenPanel) {
+    init(openPanel: MadeAheadOpenPanel, mainWork: MainWorkScheduler) {
         self.openPanel = openPanel
+        self.mainWork = mainWork
     }
     /// The open fixture whose transcript is `view`.
     func fixture(showing view: HomeNativeTranscriptView) -> HomeNativeFixture? { fixtures.values.first { $0.shows(view) } }
@@ -33,7 +36,7 @@ final class DebugHomeNativeFixture: InternalPageProvider {
     var symbol: String { "bubble.left.and.bubble.right" }
 
     func makeView(for key: String, in window: WindowController?) -> NSView {
-        let fixture = HomeNativeFixture(attachments: nextAttachments, openPanel: openPanel)
+        let fixture = HomeNativeFixture(attachments: nextAttachments, openPanel: openPanel, mainWork: mainWork)
         nextAttachments = false
         fixtures[key] = fixture
         return fixture.container
@@ -224,7 +227,7 @@ final class DebugHomeNativeFixture: InternalPageProvider {
     }
 
     static func open(services: AppServices, attachments: Bool = false, fresh: Bool = false) -> JSONValue {
-        if services.pages.provider(.homeNativeFixture) == nil { services.pages.register(DebugHomeNativeFixture(openPanel: services.openPanel)) }
+        if services.pages.provider(.homeNativeFixture) == nil { services.pages.register(DebugHomeNativeFixture(openPanel: services.openPanel, mainWork: services.mainWork)) }
         (services.pages.provider(.homeNativeFixture) as? DebugHomeNativeFixture)?.nextAttachments = attachments
         let view = fresh ? services.pages.openNew(.homeNativeFixture, in: services.windows.active, focus: true)
             : services.pages.show(.homeNativeFixture, in: services.windows.active, focus: true)

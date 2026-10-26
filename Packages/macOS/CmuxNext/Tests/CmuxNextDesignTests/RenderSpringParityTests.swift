@@ -115,6 +115,31 @@ import Testing
         }
     }
 
+    /// A progress velocity starts a non-scalar spring (a point here; the canvas camera's zoom transform takes it
+    /// the same way) moving along its distance at that share of the distance per second.
+    @Test func aProgressVelocityStartsAPointSpringAlongItsDistance() throws {
+        try Self.withMotion {
+            let spring = Self.gate.spring(.scroll)
+            let scrubber = Scrubber()
+            let start = scrubber.layer.position, target = CGPoint(x: start.x + 240, y: start.y - 90)
+            // 3 distances per second toward the target, then the spring.
+            let progress: CGFloat = 3
+            Self.gate.renderSpring(.scroll).animateGroup([.init(scrubber.layer, "position", from: start, to: target, progressVelocity: progress)],
+                                                         in: nil)
+            #expect(scrubber.layer.position == target, "the model is not at rest at once")
+            let end = RenderSpring.duration(extent: 240 * (1 + progress / CGFloat(spring.omega)), spring: spring)
+            var worst: CGFloat = 0
+            for index in 1...Self.samples {
+                let time = end * Double(index) / Double(Self.samples)
+                // The displacement, as a share of the distance, starts at 1 moving at -progress per second.
+                let share = CGFloat(SpringValue.solve(displacement: 1, velocity: Double(-progress), time: time, parameters: spring).displacement)
+                let x = try scrubber.presented("position.x", at: time), y = try scrubber.presented("position.y", at: time)
+                worst = max(worst, abs(x - (target.x + (start.x - target.x) * share)), abs(y - (target.y + (start.y - target.y) * share)))
+            }
+            #expect(worst <= Self.tolerance, "a point spring at progress velocity \(progress) is \(worst) pt off cmux-motion's")
+        }
+    }
+
     @Test func aPerpendicularRetargetKeepsValueAndVelocityContinuous() throws {
         try Self.withMotion {
             let token = MotionSpring.split

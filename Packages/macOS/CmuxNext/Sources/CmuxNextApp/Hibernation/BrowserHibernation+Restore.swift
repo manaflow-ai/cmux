@@ -161,7 +161,8 @@ extension BrowserHibernation {
     }
 }
 
-/// One Duration in seconds, fractions included (the hibernation deadlines and their elapsed times).
+/// One Duration in seconds, fractions included (the hibernation deadlines and their elapsed times,
+/// and TopPageHost's hidden times). The one copy in CmuxNextApp: a second, even private, is a redeclaration.
 extension Duration {
     var seconds: Double { Double(components.seconds) + Double(components.attoseconds) / 1e18 }
 }

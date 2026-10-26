@@ -201,6 +201,15 @@ public nonisolated struct Signposter: Sendable {
         closeInterval(name, interval, arg0: EndCode.of(outcome))
     }
 
+    /// Ends a committed interval whose end is the app's commit after it asked another process to draw (a
+    /// ``SignpostName/switchTab`` to a Chromium page: the commit after `tab_activate`, before Chromium presents the
+    /// tab). The end carries `end=page_activated` and the ring code `EndCode.pageActivated`, and is not mirrored to
+    /// MetricKit: it is a lower bound, so readers keep it apart from app-drawn ends.
+    func endPageActivated(_ name: SignpostName, _ interval: SignpostInterval) {
+        signposter.endInterval(name.staticName, interval.state, "end=page_activated")
+        closeInterval(name, interval, arg0: EndCode.pageActivated)
+    }
+
     /// ``end(_:_:_:)`` for a ``SignpostName/scrollToFrame`` interval, with who took the event, formatted by the log
     /// system only when something reads it: `target=<target>` on a committed end, `commit=missed target=<target>` on a
     /// missed one.
@@ -272,8 +281,9 @@ public nonisolated struct Signposter: Sendable {
 
     /// Begins the log system's interval with `beginInterval`, the MetricKit mirror's and, while the name's
     /// category is on, the ring's slice with `arg0` (and `arg1`, which only a thread slice has free: an async
-    /// slice's `arg1` is its id).
-    func openInterval(_ name: SignpostName, arg0: UInt64, arg1: UInt64 = 0,
+    /// slice's `arg1` is its id). With `traced` false the ring takes no slice whatever the flags are (a name that
+    /// also needs a recording-only category on: ``beginCEFPump(reasonCode:)``).
+    func openInterval(_ name: SignpostName, arg0: UInt64, arg1: UInt64 = 0, traced: Bool = true,
                       _ beginInterval: (OSSignpostID) -> OSSignpostIntervalState) -> SignpostInterval {
         assert(name.category == category, "\(name) is not in category \(category)")
         assert(arg1 == 0 || name.opensThreadSlice, "\(name) is an async slice: its arg1 is the async id")
@@ -281,6 +291,6 @@ public nonisolated struct Signposter: Sendable {
         let beginNanos = clock.nowNanos()
         let state = beginInterval(id)
         return SignpostInterval(state: state, metricKitID: mirror.begin(name), beginUptimeNanos: beginNanos,
-                                ring: traceBegin(name, id: id, beginNanos: beginNanos, arg0: arg0, arg1: arg1))
+                                ring: traced ? traceBegin(name, id: id, beginNanos: beginNanos, arg0: arg0, arg1: arg1) : nil)
     }
 }

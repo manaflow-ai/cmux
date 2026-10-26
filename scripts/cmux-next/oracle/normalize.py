@@ -72,6 +72,10 @@ TASK = "p15-oracle-013"
 REPO = Path(__file__).resolve().parents[3]
 DEFAULT_SCHEMA = REPO / "schemas" / "oracle" / "snapshot-v1.schema.json"
 EXAMPLE_SNAPSHOT = REPO / "schemas" / "oracle" / "fixtures" / "snapshot-example.json"
+PATH_REWRITE_FIXTURE = REPO / "schemas" / "oracle" / "fixtures" / "path-rewrite.json"
+# The app's case-root variable (README "Case root and home"); CMUX_NEXT_, because the app unsets every other
+# inherited CMUX* variable at launch.
+APP_ROOT_VARIABLE = "CMUX_NEXT_ORACLE_ROOT"
 
 # Every rule has a reason naming the source of nondeterminism and a task id (spec rule 6).
 RULES: Dict[str, str] = {
@@ -809,6 +813,18 @@ class Context:
     home: Tuple[str, ...] = ()
     web: Tuple[str, ...] = ()
     epoch_ms: int = 0
+
+
+def app_environment(ctx: Context) -> Dict[str, str]:
+    """The variables the oracle's app driver exports to the app for a case, from the same Context it gives this
+    script as --root/--home: the app rewrites hashed text (terminal titles and rows) itself, before hashing, so it
+    must know the same prefixes."""
+    if len(ctx.home) != 1:
+        raise OracleError(f"the app takes one hermetic home, got {len(ctx.home)}")
+    for value in ctx.root:
+        if ":" in value or not value.rstrip("/"):
+            raise OracleError(f"case root {value!r} cannot be passed in {APP_ROOT_VARIABLE} (empty, '/' or has ':')")
+    return {APP_ROOT_VARIABLE: ":".join(ctx.root), "HOME": ctx.home[0]}
 
 
 class _Rewriter:
@@ -2281,6 +2297,17 @@ def selftest(seed: int, out: Any) -> int:
                                                         "panes": []}]}], "panes": {}}
         space = canonicalize(doc, schema, Context(root=("/tmp/o/ab",))).value["windows"][0]["workspaces"][0]
         assert space["title"] == "/tmp/o/ab/t" and space["cwd"] == "$ROOT/c", space
+
+    @case
+    def app_environment_rewrite_matches() -> None:
+        fixture = json.loads(PATH_REWRITE_FIXTURE.read_text())
+        ctx = Context(root=tuple(fixture["root"]), home=tuple(fixture["home"]))
+        assert app_environment(ctx) == fixture["environment"], app_environment(ctx)
+        r = _Rewriter(ctx)
+        for row in fixture["cases"]:
+            assert r.apply("path", row["text"])[0] == row["expected"], row
+        refused(lambda: app_environment(Context(root=("/a:b",), home=("/h",))), "cannot be passed")
+        refused(lambda: app_environment(Context(root=("/a",))), "one hermetic home")
 
     @case
     def longest_prefix_wins() -> None:

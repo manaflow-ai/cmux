@@ -5,7 +5,8 @@
 //! Order (spec/transports.md "Reply and event order"): replies and the items
 //! of control-sequence streams (`start_control_stream`) share the
 //! connection's control FIFO, so a reply is written after every control event
-//! enqueued before it; every other stream keeps its own FIFO.
+//! enqueued before it; every other stream keeps its own FIFO. A framed
+//! request's reply is a frame in that same FIFO (`send_reply`).
 
 use super::AttachWireShape;
 use super::BudgetedText;
@@ -13,12 +14,14 @@ use super::RenderService;
 use super::VtStateMessage;
 use super::api_revision_wire;
 use super::conversation_tabs_wire;
+use super::frame_dispatch::FrameCall;
 use crate::AttachFrame;
 use crate::SurfaceId;
 use crate::mux::ResourceWaitWake;
 use crate::panic_free::RecoverPoison;
 use crate::stream_interrupt::InterruptSet;
 use crate::stream_interrupt::StreamInterrupt;
+use cmux_ipc::FrameHeader;
 use serde::Serialize;
 use serde_json::Value;
 use std::sync::Arc;
@@ -88,6 +91,12 @@ pub(super) trait MessageSink: Send + Sync {
         self.send_stream(text, stream)
     }
     fn send_control(&self, text: Arc<BudgetedText>) -> std::io::Result<()>;
+    /// `text` as the payload of a frame with `header`, in the control FIFO
+    /// with replies and control events. Only a local Unix connection that
+    /// granted frames carries them.
+    fn send_frame(&self, _header: FrameHeader, _text: Arc<BudgetedText>) -> std::io::Result<()> {
+        Err(std::io::Error::new(std::io::ErrorKind::Unsupported, "this sink carries no frames"))
+    }
     fn send_terminal(
         &self,
         text: Arc<BudgetedText>,
@@ -128,6 +137,10 @@ pub(super) struct MessageWriter {
     pub(super) conversation_tabs: Arc<conversation_tabs_wire::NegotiatedTabs>,
     /// Negotiated API revision (server/api_revision_wire.rs).
     pub(super) api_revision: Arc<api_revision_wire::NegotiatedRevision>,
+    /// The framed request this writer answers (`replying_to`): its reply
+    /// leaves as that request's REPLY or ERROR frame. `None` on the
+    /// connection's own writer and for every line.
+    pub(super) reply: Option<Arc<FrameCall>>,
 }
 
 impl MessageWriter {
@@ -149,6 +162,63 @@ impl MessageWriter {
             closed: InterruptSet::default(),
             conversation_tabs: Arc::default(),
             api_revision: Arc::default(),
+            reply: None,
+        }
+    }
+
+    /// This connection's writer, answering the framed request `call`: like
+    /// the responder Mojo hands a method with a response
+    /// (chromium mojo/public/cpp/bindings/lib/interface_endpoint_client.cc,
+    /// `ResponderThunk`), it knows where the reply goes. Everything else it
+    /// sends goes where the connection's writer sends it.
+    pub(super) fn replying_to(&self, call: Arc<FrameCall>) -> Self {
+        Self { reply: Some(call), ..self.clone() }
+    }
+
+    /// The connection's writer, answering no framed request.
+    pub(super) fn connection_writer(&self) -> Self {
+        Self { reply: None, ..self.clone() }
+    }
+
+    /// The framed request this writer answers.
+    pub(super) fn frame_call(&self) -> Option<&Arc<FrameCall>> {
+        self.reply.as_ref()
+    }
+
+    /// The reply to the request this writer answers: a JSON line, or, for a
+    /// framed request, the same JSON as its REPLY frame (ERROR when `ok` is
+    /// false). Only the first reply of a framed request is framed.
+    pub(super) fn send_reply(&self, reply: &Value) -> std::io::Result<()> {
+        if self.reply.as_ref().is_none_or(|call| call.is_answered()) {
+            return self.send_control(reply);
+        }
+        if !self.is_open() {
+            return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
+        }
+        let ok = reply.get("ok") != Some(&Value::Bool(false));
+        let result = self.render_service.serialize_control(reply).and_then(|text| {
+            self.send_framed_reply(
+                self.project_api_revision(self.project_conversation_tabs(text)?)?,
+                ok,
+            )
+        });
+        if result.is_err() {
+            self.close();
+        }
+        result
+    }
+
+    /// `text`, projected already, as the framed request's reply, if this
+    /// writer answers one that has none yet; else as a control line.
+    fn send_framed_reply(&self, text: Arc<BudgetedText>, ok: bool) -> std::io::Result<()> {
+        match self.reply.as_ref().filter(|call| call.claim_reply()) {
+            Some(call) => {
+                let header = call.reply_header(ok, text.len()).map_err(|bad| {
+                    std::io::Error::new(std::io::ErrorKind::InvalidData, bad.to_string())
+                })?;
+                self.sink.send_frame(header, text)
+            }
+            None => self.sink.send_control(text),
         }
     }
 
@@ -326,6 +396,8 @@ impl MessageWriter {
         result
     }
 
+    /// A successful reply serialized ahead (`vt-state` writes its budgeted
+    /// reply itself); like `send_reply`, the REPLY frame of a framed request.
     pub(super) fn send_serialized_control(&self, text: Arc<BudgetedText>) -> std::io::Result<()> {
         if !self.is_open() {
             return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
@@ -333,7 +405,7 @@ impl MessageWriter {
         let result = self
             .project_conversation_tabs(text)
             .and_then(|text| self.project_api_revision(text))
-            .and_then(|text| self.sink.send_control(text));
+            .and_then(|text| self.send_framed_reply(text, true));
         if result.is_err() {
             self.close();
         }

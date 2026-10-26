@@ -64,7 +64,7 @@ final class TopHomePageView: NSView {
     init(services: AppServices, windowKey: @escaping () -> String) {
         self.services = services
         sidebar = services.home.makeSidebarSource()
-        split = HomeSidebarSplitView(sidebar: list, content: transcriptColumn)
+        split = HomeSidebarSplitView(sidebar: list, content: transcriptColumn, mainWork: services.mainWork)
         super.init(frame: .zero)
         setAccessibilityIdentifier("cmux.topPage.home")
         split.windowKey = windowKey
@@ -73,8 +73,11 @@ final class TopHomePageView: NSView {
         addSubview(split)
         wireList(services)
         observe(services.home)
+        // At launch Home starts right after the first frame (its list shows the last launch's until then),
+        // and the team and Chiefs read, a Cloud read, waits for that frame too (p08-startup-027).
+        services.home.launchFeeds?.need()
         // task-owner: lives as long as this view; one read of the team and Chiefs
-        Task { await services.home.directory.refresh() }
+        Task { [feeds = services.home.launchFeeds] in await feeds?.afterFirstFrame(); await services.home.directory.refresh() }
     }
 
     @available(*, unavailable)

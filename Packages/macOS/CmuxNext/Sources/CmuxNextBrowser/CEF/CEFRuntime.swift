@@ -65,6 +65,9 @@ final class CEFRuntime {
     private(set) lazy var swipeNavigation = CEFSwipeNavigation(runtime: self)
     /// The input tap of the last `CEFEngine` made (`attachInput`): link clicks and swipes hear it.
     var input: InputEventTap?
+    /// The windows' frame-aligned pointer input of the last `CEFEngine` made (feature
+    /// `pointerFrameDrags`): the DevTools divider's drag. Nil: each drag event moves it.
+    var pointerFrames: FrameInputCoalescers?
     /// A tab registered with no input tap: logged once.
     var reportedMissingInput = false
 
@@ -112,7 +115,7 @@ final class CEFRuntime {
     var nextSiteReply: Int32 = 1
     var shutdownSequence: CEFShutdownSequence?
     var shutdownWaiter: CheckedContinuation<Void, Never>?
-    var shutdownTimeout: Task<Void, Never>?
+    var shutdownTimeout: AlignedWakeups.Ticket?  // quit's bound on the wait for Chromium's windows, on `wakeUps`
     /// Recent renderer and helper process failures (`debug.crashes`).
     let crashLog = BrowserCrashLog()
     /// Watches helper exits (GPU, utility, extension renderers) from start.
@@ -519,11 +522,11 @@ final class CEFRuntime {
         storage.contextKey(for: key.profile, machineKey: key.machineKey, offTheRecord: key.offTheRecord)
     }
 
-    /// Off-the-record context keys the shim holds, by profile.
+    /// Off-the-record context keys the shim holds, by profile. The profile's hosts left the
+    /// routing table with their last tab (`hostEmptied`).
     func releaseOffTheRecordContexts(of profile: BrowserProfileID) {
         let keys = offTheRecordContexts.removeValue(forKey: profile) ?? []
         for key in keys { _ = key.withCString { shim?.releaseContext($0) } }
-        hosts = hosts.filter { $0.key.profile != profile || !$0.value.tabs.isEmpty }
     }
 
     func host(for key: CEFPaneKey, lifecycleTrace: BrowserLifecycleTrace = .shared, contextMenus: BrowserContextMenuBuilder = .shared) -> CEFPaneHost {
@@ -532,6 +535,18 @@ final class CEFRuntime {
         let host = CEFPaneHost(key: key, runtime: self, lifecycleTrace: lifecycleTrace, contextMenus: contextMenus)
         hosts[key] = host
         return host
+    }
+
+    /// `host`'s last tab left: it goes from the routing table, as Chromium closes a `Browser` whose
+    /// tab strip emptied (chrome/browser/ui/browser.cc, `Browser::TabStripEmpty`). The one place a
+    /// host whose tabs are gone leaves `hosts`. A page key (`cmux-page-<UUID>`) is never asked for
+    /// again, and a pane's next tab gets a new host. An untaken spare whose placeholder Chromium
+    /// closed stays in both tables (`CEFSpareWindow` owns it; `state(of:)` says `closed`), and a
+    /// host the key no longer names leaves the newer host in place.
+    func hostEmptied(_ host: CEFPaneHost) {
+        guard host.tabs.isEmpty, !spareWindow.isSpare(host), hosts[host.key] === host else { return }
+        hosts[host.key] = nil
+        if lastShownHost === host { lastShownHost = nil }
     }
 
     func makeRequestToken() -> Int32 {

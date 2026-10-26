@@ -380,11 +380,9 @@ final class FilePageService: InternalPageProvider {
         PageFileDrop(accepts: { url in url.isFileURL && !url.hasDirectoryPath }, open: { [weak self, weak provider, weak page] url in
             guard let self, let provider else { return }
             guard provider.isPicking, provider.kind.accepts(url) else { return self.openFile(url, from: key) }
-            // task-owner: one open of the dropped file; ends when the tab shows it or refuses it
-            Task {
-                guard (try? await provider.open(url)) != nil else { return NSSound.beep() }
-                page?.reload()
-            }
+            // The page keeps its `fileDrop` reason until the open returns (PageFileDrop.take).
+            guard (try? await provider.open(url)) != nil else { return NSSound.beep() }
+            page?.reload()
         })
     }
 
@@ -411,11 +409,18 @@ final class FilePageService: InternalPageProvider {
         // other tab shows then leaves the quit hook; edits that did not save are dropped with it
         // (a close without saving removes the draft). A discarded tab keeps them for its next page.
         let clock = clock, provider = tab.provider, op = kind.op("flush"), documents = documents, holder = holder(key)
-        let finish: @MainActor @Sendable () -> Void = closing ? { documents.release(file, holder: holder) }
-            : { [weak self] in self?.settleDiscard(key, file: file) }
+        // Each closure is assigned on its own: in a `?:` the literals get no @Sendable from the
+        // annotation, so they would be non-Sendable values converted afterwards.
+        let finish: @MainActor @Sendable () -> Void
+        if closing {
+            finish = { documents.release(file, holder: holder) }
+        } else {
+            finish = { [weak self] in self?.settleDiscard(key, file: file) }
+        }
         let flush = Task { @MainActor in
             let deadline = Task { @MainActor in
-                do { try await clock.sleep(for: Self.flushTimeout) } catch { return } // wakeup-allow: bounded flush on tab close
+                // wakeup-allow: bounded one flush wait on tab close, cancelled when the page answers
+                do { try await clock.sleep(for: Self.flushTimeout, tolerance: WakeLeeway.window(delay: Self.flushTimeout).tolerance) } catch { return }
                 page.close()
             }
             _ = try? await page.router.callPage(op, params: .object([:]))
@@ -463,7 +468,7 @@ final class FilePageService: InternalPageProvider {
     }
 
     /// The page gets its state in its first config (``makeView(for:in:)``), not from its view.
-    func restoreViewState(_ state: ContentViewState, for key: String, content: NSView) {}
+    func restoreViewState(_ state: ContentViewState, for key: String, content: NSView) async {}
 
     func willRemakeView(for key: String, with state: ContentViewState) {
         tabs[key]?.viewState = state.page

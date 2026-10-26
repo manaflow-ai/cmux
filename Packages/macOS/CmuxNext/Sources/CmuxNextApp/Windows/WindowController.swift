@@ -82,7 +82,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         sidebar.container.sidebarView.onSearch = { [weak registry = services.registry] _ in
             _ = registry?.perform("palette.open", invocation: ActionInvocation(arguments: ["scope": .string("search")], origin: .user))
         }
-        root = WindowRootView(sidebar: sidebar.container)
+        root = WindowRootView(sidebar: sidebar.container, signals: services.appearance)
         // The static toggle runs the same action as the shortcut, palette and menu (R68).
         root.toolbarBand.onToggleSidebar = { [weak registry = services.registry] in
             _ = registry?.perform("toggleSidebar", invocation: ActionInvocation(origin: .user))
@@ -121,6 +121,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         focus.applier = focusApplier
         focus.window = window
         focus.crashKeys = services.crashKeys
+        focus.keyInput = services.keyRouter.keyInput
         focus.send(.appActive(NSApp.isActive))
         startShortcutHints()
         observeWorkspace()
@@ -352,14 +353,27 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     /// confirmation).
     private var closeConfirmed = false
 
+    /// Who asked for the close `windowShouldClose` is deciding: a close button or a key is the
+    /// person's; ``performClose(by:)`` names an automation's for one call.
+    private var closeOrigin: ActionOrigin = .user
+
+    /// Closes the window as its close button does (the incognito check runs). Only the person's
+    /// close fades (`WindowCloseMotion.isPersonsClose`): a scripted close is done when it returns.
+    func performClose(by origin: ActionOrigin) {
+        closeOrigin = origin
+        defer { closeOrigin = .user }
+        window?.performClose(nil)
+    }
+
     /// An incognito window closes its workspaces: it asks first while one
     /// of its terminals runs a program (`IncognitoCloseConfirmation`).
     func windowShouldClose(_ sender: NSWindow) -> Bool {
-        guard !closeConfirmed, services.windows.isIncognito(window: state.id) else { return !fadeOutThenClose(sender) }
+        let fades = WindowCloseMotion.isPersonsClose(closeOrigin)
+        guard !closeConfirmed, services.windows.isIncognito(window: state.id) else { return !fadeOutThenClose(sender, fades: fades) }
         IncognitoCloseConfirmation.confirm(windows: [state.id], sheetOn: sender, services) { [weak self, weak sender] ok in
             guard ok, let self, let sender else { return }
             closeConfirmed = true
-            if !fadeOutThenClose(sender) { sender.close() }
+            if !fadeOutThenClose(sender, fades: fades) { sender.close() }
         }
         return false
     }
@@ -368,13 +382,13 @@ final class WindowController: NSWindowController, NSWindowDelegate {
     private var closeMotion: WindowCloseMotion?
 
     /// Starts the person's close as a fade of the whole window; false when it closes now (Reduce
-    /// Motion, not on screen, or a second close while it fades).
-    private func fadeOutThenClose(_ window: NSWindow) -> Bool {
+    /// Motion, not on screen, an automation's close, or a second close while it fades).
+    private func fadeOutThenClose(_ window: NSWindow, fades: Bool) -> Bool {
         if let closeMotion {
             closeMotion.finish()
             return true
         }
-        guard WindowCloseMotion.fades(window) else { return false }
+        guard fades, WindowCloseMotion.fades(window) else { return false }
         let motion = WindowCloseMotion(window: window) { [weak window] in window?.close() }
         closeMotion = motion
         let next = NSApp.orderedWindows.first { $0 !== window && $0 is ShellWindow && $0.isVisible && !$0.isMiniaturized }

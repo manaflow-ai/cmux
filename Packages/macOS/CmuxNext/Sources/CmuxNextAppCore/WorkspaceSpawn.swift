@@ -32,6 +32,10 @@ public struct WorkspaceSpawn: Sendable {
     public var firstChat: AgentPaneSeed?
     public var firstSession: String?
     public var inputToken: String?
+    /// The `NSEvent.timestamp` of the person's key or click that asked for this create, read from the action's
+    /// own dispatch (never `NSApp.currentEvent`); nil for a script's, socket's or later task's create. Its row's
+    /// `create.workspace` interval reports the input's age from it.
+    public var inputTimestamp: Double?
 
     public init(cwd: String? = nil, name: String? = nil, command: String? = nil, env: [String: String] = [:], keep: Bool = false,
                 profile: ProfileID? = nil, newTabPage: Bool = false) {

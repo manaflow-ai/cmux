@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextInput
 import Foundation
 import os
+import CmuxNextWakeups
 
 /// Faults from shim callbacks that arrive off the CEF UI (main) thread.
 private let callbackLogger = Logger(subsystem: "com.cmuxterm.app.next", category: "cef")
@@ -196,6 +197,8 @@ extension CEFRuntime {
     // MARK: Browser lifetime
 
     private func browserCreated(_ browser: Int32, request: Int32, window: Int32, created: CEFCreatedBy) {
+        // Host mode's `cef.create_browser` ends at the host's created reply, whoever takes the browser below.
+        if request != 0 { spareWindow.createTrace.created(request: request) }
         if shutdownSequence != nil {
             // Its creation was under way when quit closed every browser (`shutdown`): close it
             // too, or the wait for Chromium's windows runs out and CefShutdown is skipped.
@@ -389,15 +392,15 @@ extension CEFRuntime {
         if shutdownSequence?.phase != .readyToShutdown {
             await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
                 shutdownWaiter = continuation
-                shutdownTimeout = Task { @MainActor [weak self] in
-                    // wakeup-allow: one-shot shutdown deadline, cancelled when Chromium reports closed
-                    do { try await Task.sleep(for: timeout) } catch { return }
+                shutdownTimeout = waitDeadlines.schedule(owner: "CEFRuntime.shutdown", after: timeout) { [weak self] in
                     self?.resumeShutdownWaiter()
                 }
             }
         }
-        shutdownTimeout?.cancel()
+        if let shutdownTimeout { _ = waitDeadlines.cancel(shutdownTimeout) }
         shutdownTimeout = nil
+        // A create the host never answered before the wait ran out gets no reply now.
+        spareWindow.createTrace.endUnanswered()
         devToolsCalls.failAll(where: { _ in true }, with: BrowserTabError.closed)
         siteReplies.failAll(where: { _ in true }, with: BrowserTabError.closed)
         pump?.stop()

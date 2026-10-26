@@ -20,6 +20,7 @@
 //! for a receipt: a barrier, a resize or gap, any durable-lane event, writer
 //! shutdown, or a batch that reaches its byte or chunk bound.
 
+use cmux_threads::checked::sync as waits;
 use std::sync::atomic::Ordering;
 use std::time::{Duration, Instant};
 
@@ -132,7 +133,7 @@ pub(super) fn hold_terminal_output(
         // Both lanes were empty after this drain, so any later event posts a
         // new wake; so does writer shutdown. A disconnected wake channel
         // means every sender is gone.
-        if receivers.wake.recv_timeout(remaining).is_err() {
+        if waits::recv_timeout(&receivers.wake, remaining).is_err() {
             return;
         }
     }

@@ -77,7 +77,7 @@ final class SocketWriter: Sendable {
     // MARK: - Private (serial queue)
 
     private func drain() {
-        // wakeup-allow: drains queued bytes and stops when the queue is empty, closed, or a write fails or makes no progress
+        // wakeup-allow: bounded: drains queued bytes and stops when the queue is empty, closed, or a write fails or makes no progress
         while true {
             let chunk = state.withLock { state -> Data? in
                 guard !state.closed, !state.pending.isEmpty else {

@@ -79,7 +79,8 @@ extension SidebarBridge {
     func observeSections() {
         let model = model
         // Another client's group fold (the sidebar document's fold-only batches) folds this window's rows.
-        if let doc = SidebarDocStore.current { rows.followFolds(of: doc) }
+        // The list follows the document's events too: a drop's refusal or no-op, favicons.
+        if let doc = SidebarDocStore.current { rows.followFolds(of: doc); container.sidebarView.docStore = doc }
         let registry = services.registry
         // task-owner: the bridge (cancelled in teardown); event-driven (Observation)
         let service = services.sidebarLayout

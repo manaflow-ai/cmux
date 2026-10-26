@@ -8,6 +8,7 @@ import CmuxNextDesign
 import CmuxNextInput
 import CmuxNextPages
 import CmuxNextSettings
+import CmuxNextSignposts
 import CmuxNextTabs
 import CmuxNextWakeups
 import Observation
@@ -63,6 +64,8 @@ final class AgentTabStore {
     /// The acpmux turn states and sub-session links (`startedBy`) the app's watches mirror: a chat's
     /// page opens only sessions of its own family (``AgentPaneHeaderHooks/isFamily``).
     var turns: AgentTurnStateStore = .shared
+    /// New tabs' `create.tab` waits (the content cache's): a chat tab's release or rekey here is its close or move there.
+    weak var createTabs: CreateTabTimings?
     var chiefHost: String?, chiefPaneHost: (any AgentPaneHostProviding)?, localSessionHost: (any AgentPaneHostProviding)? // ChiefHomeAcpmux
     /// Whether `daemon` holds agent session tabs (`agent-session-tabs-v1`).
     var holdsTabs: @MainActor (DaemonService) -> Bool = { $0.supports(DaemonCapability.agentSessionTabs.rawValue) }
@@ -95,6 +98,10 @@ final class AgentTabStore {
         set { resolvedLocalHost = newValue }
     }
     var views: [String: AgentPaneView] = [:]
+    /// A page is about to show: a tab's (``view(for:)``, an adopted spare) or a standalone chat (a
+    /// prewarmed spare is not shown until adopted). The launch's New Tab feeds start right after the first frame
+    /// (`HomeService.postLaunchFeeds`, p08-startup-027).
+    var pageShown: @MainActor () -> Void = {}
     /// Agent tabs whose view waits for the launch's first pane content (`deferAtLaunch`).
     var launchDeferred: Set<String> = []
     /// The tabs' pages from the last quit, drawn at launch (`AgentPaneLaunchImages`).
@@ -402,7 +409,7 @@ final class AgentTabStore {
     /// A prewarmed new tab page (NewTabSparePool): loaded, rendered and
     /// connected before any tab exists; ``open(in:of:session:seed:newTab:spare:linked:adopt:idempotencyKey:)`` adopts it.
     func makeSpare(_ page: AgentPaneNewTab) -> AgentPaneView? {
-        guard let view = makeView(AgentPaneModel(host: host, newTab: page)) else { return nil }
+        guard let view = makeView(AgentPaneModel(host: host, newTab: page), shown: false) else { return nil }
         standaloneViews.add(view)
         return view
     }
@@ -500,8 +507,10 @@ final class AgentTabStore {
         }
     }
 
-    /// A pane view on this store's page and host, with the shared pushes.
-    private func makeView(_ model: AgentPaneModel) -> AgentPaneView? {
+    /// A pane view on this store's page and host, with the shared pushes. A view made to show (not a
+    /// prewarmed spare, which shows once adopted) is a shown page (``pageShown``).
+    private func makeView(_ model: AgentPaneModel, shown: Bool = true) -> AgentPaneView? {
+        if shown { pageShown() }
         AgentPaneNewTabFrame.shared.pageMade(model)
         model.linkScheme = linkScheme
         guard let source, let view = AgentPaneView(model: model, source: source, renderRate: renderRate, webUI: webUI, openPanel: openPanel, warmup: warmup, gestures: gestureRouter) else { return nil }

@@ -198,11 +198,14 @@ public final class HangEpisodeRecorder: Sendable {
         }
     }
 
-    /// Waits for every queued write, and with `symbols` every symbolication too (tests).
+    /// Waits for every queued write, and with `symbols` every symbolication too (tests; never the main thread).
     func drain(symbols: Bool = true) {
-        queue.sync {}
+        queue.blockingSync {}
         guard symbols else { return }
-        while queue.sync(execute: { state.withLock { $0.symbolicating } }) { symbolQueue.sync {} }
+        while state.withLock({ $0.symbolicating }) {
+            symbolQueue.blockingSync {}
+            queue.blockingSync {}
+        }
     }
 
     /// Episodes still held for their files (tests: bounded by ``maxFiles``).
