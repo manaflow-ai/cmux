@@ -77,7 +77,6 @@
    "CmuxHomeCore": 1,
    "CmuxHomeRender": 5,
    "CmuxIrohTransport": 7,
-   "CmuxIrxTransport": 14,
    "CmuxMobileRPC": 3,
    "CmuxMobileSSH": 7,
    "CmuxMobileShellModel": 7,
