@@ -3,7 +3,7 @@ import CmuxNextDesign
 
 /// A view in a frame-laid column (ChromeFrameLayout.swift): measured at the
 /// column's inner width, filling that width at a fixed height (a text
-/// field), or a row of views (buttons).
+/// field), or a row of views (buttons) that stacks when it does not fit.
 enum ChromeColumnItem {
     case view(NSView)
     case fill(NSView, height: CGFloat)
@@ -19,7 +19,7 @@ enum ChromeColumnItem {
             return CGSize(width: natural ? 0 : width, height: height)
         case .row(let views, let row):
             let sizes = views.map { $0.chromeLayoutSize(maxWidth: width) }
-            return CGSize(width: min(row.width(of: sizes), width), height: row.height(of: sizes))
+            return row.size(of: sizes, maxWidth: width)
         }
     }
 
@@ -30,7 +30,7 @@ enum ChromeColumnItem {
             view.setChromeLayoutRect(rect)
         case .row(let views, let row):
             let sizes = views.map { $0.chromeLayoutSize(maxWidth: rect.width) }
-            for (view, frame) in zip(views, row.place(sizes, in: rect)) { view.setChromeLayoutRect(frame) }
+            for (view, frame) in zip(views, row.placeFitting(sizes, in: rect)) { view.setChromeLayoutRect(frame) }
         }
     }
 }

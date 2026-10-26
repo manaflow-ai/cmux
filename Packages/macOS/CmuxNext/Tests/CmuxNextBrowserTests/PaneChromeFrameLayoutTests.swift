@@ -57,6 +57,23 @@ import Testing
         #expect(wide.map(\.width) == [300, 60, 24])
     }
 
+    /// Answers that fit stay side by side; ones that do not stack in reading order, each as wide
+    /// as the row, never past its edges (a narrow prompt bar's three answers).
+    @Test func aRowThatDoesNotFitStacksInsideItsBox() {
+        let row = ChromeRowLayout(spacing: 6)
+        let items = [CGSize(width: 80, height: 28), CGSize(width: 100, height: 28), CGSize(width: 150, height: 28)]
+        #expect(row.size(of: items, maxWidth: 342) == CGSize(width: 342, height: 28), "342 fits: one line")
+        #expect(row.placeFitting(items, in: CGRect(x: 0, y: 0, width: 342, height: 28)) == row.place(items, in: CGRect(x: 0, y: 0, width: 342, height: 28)))
+
+        #expect(row.size(of: items, maxWidth: 200) == CGSize(width: 200, height: 96))
+        let stacked = row.placeFitting(items, in: CGRect(x: 10, y: 0, width: 200, height: 96))
+        #expect(stacked == [CGRect(x: 10, y: 68, width: 200, height: 28), CGRect(x: 10, y: 34, width: 200, height: 28),
+                            CGRect(x: 10, y: 0, width: 200, height: 28)])
+        var rtl = row
+        rtl.rightToLeft = true
+        #expect(rtl.placeFitting(items, in: CGRect(x: 10, y: 0, width: 200, height: 96)) == stacked, "full-width rows mirror onto themselves")
+    }
+
     // MARK: Page message (error page, sad tab)
 
     @Test func aPageMessageIsCenteredAndRaisedByTheToolbar() {

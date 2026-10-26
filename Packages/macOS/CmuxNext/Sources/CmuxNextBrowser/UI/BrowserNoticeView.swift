@@ -17,7 +17,7 @@ final class BrowserNoticeView: ChromeFrameView, PageFloatingCard {
         }
     }
     private lazy var actionButton: ChromeTextButton = {
-        let button = ChromeTextButton(title: "", prominent: false, action: #selector(runAction), target: self)
+        let button = ChromeTextButton(title: "", prominent: false, action: #selector(runAction), target: self, sizing: .frame)
         button.isHidden = true
         return button
     }()
@@ -26,7 +26,7 @@ final class BrowserNoticeView: ChromeFrameView, PageFloatingCard {
     private let label = ChromeLabel(labelWithString: "")
     // The target is set in init (no IUOs).
     private let closeButton = ChromeIconButton(icon: .browserToolbarClose, label: Strings.dismissNotice,
-                                               action: #selector(BrowserNoticeView.close), target: nil)
+                                               action: #selector(BrowserNoticeView.close), target: nil, sizing: .frame)
     /// The pill's content (the glass's), where the row lays out.
     private let content = OverlayBackingView()
     private let density = DensityBinding()

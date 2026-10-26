@@ -113,4 +113,30 @@ nonisolated struct ChromeRowLayout: Equatable, Sendable {
         }
         return rects
     }
+
+    // A row of answers (a prompt's, a card's) that does not fit side by side
+    // stacks them in reading order, each as wide as the row, as Chrome's
+    // one-time permission bubble stacks its three answers
+    // (chrome/browser/ui/views/permissions/permission_prompt_bubble_base_view.cc).
+
+    /// The row's size at most `maxWidth` wide: side by side when the items
+    /// fit there, else stacked, as wide as `maxWidth`.
+    func size(of items: [CGSize], maxWidth: CGFloat) -> CGSize {
+        guard width(of: items) > maxWidth else { return CGSize(width: width(of: items), height: height(of: items)) }
+        return CGSize(width: max(maxWidth, 0), height: stack.size(of: items).height)
+    }
+
+    /// Each item's rect in `box`: side by side when the items fit in its
+    /// width, else stacked top to bottom, each as wide as the box less the
+    /// insets.
+    func placeFitting(_ items: [CGSize], in box: CGRect) -> [CGRect] {
+        guard width(of: items) > box.width else { return place(items, in: box) }
+        let inner = max(box.width - insets.horizontal, 0)
+        return stack.place(items.map { CGSize(width: inner, height: $0.height) }, in: box)
+    }
+
+    /// The row's items stacked: its gap between them, its insets around them.
+    private var stack: ChromeColumnLayout {
+        ChromeColumnLayout(spacing: spacing, insets: insets, alignment: .leading, rightToLeft: rightToLeft)
+    }
 }

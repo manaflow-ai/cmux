@@ -12,10 +12,14 @@ final class LoadErrorView: ChromeFrameView {
     private let titleLabel = ChromeLabel(labelWithString: Strings.loadFailedTitle)
     private let messageLabel = ChromeLabel(wrappingLabelWithString: "")
     // Targets are set in init (no IUOs).
-    let retryButton = ChromeTextButton(title: Strings.tryAgain, prominent: true, action: #selector(LoadErrorView.retry), target: nil)
-    let backButton = ChromeTextButton(title: Strings.certificateBackToSafety, prominent: true, action: #selector(LoadErrorView.goBack), target: nil)
-    let proceedButton = ChromeTextButton(title: "", prominent: false, action: #selector(LoadErrorView.proceed), target: nil)
-    let detailsButton = ChromeTextButton(title: Strings.certificateShowDetails, prominent: false, action: nil, target: nil)
+    let retryButton = ChromeTextButton(title: Strings.tryAgain, prominent: true, action: #selector(LoadErrorView.retry), target: nil,
+                                       sizing: .frame)
+    let backButton = ChromeTextButton(title: Strings.certificateBackToSafety, prominent: true, action: #selector(LoadErrorView.goBack),
+                                      target: nil, sizing: .frame)
+    let proceedButton = ChromeTextButton(title: "", prominent: false, action: #selector(LoadErrorView.proceed), target: nil,
+                                         sizing: .frame)
+    let detailsButton = ChromeTextButton(title: Strings.certificateShowDetails, prominent: false, action: nil, target: nil,
+                                         sizing: .frame)
     let detailsLabel = ChromeLabel(wrappingLabelWithString: "")
     private(set) var showsDetails = false
     private(set) var isCertificateInterstitial = false

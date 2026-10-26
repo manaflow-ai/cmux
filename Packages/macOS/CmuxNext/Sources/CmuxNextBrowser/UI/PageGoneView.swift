@@ -12,7 +12,8 @@ final class PageGoneView: ChromeFrameView {
     private let titleLabel = ChromeLabel(labelWithString: "")
     private let messageLabel = ChromeLabel(wrappingLabelWithString: "")
     private let codeLabel = NSTextField(labelWithString: "")
-    private let reloadButton = ChromeTextButton(title: Strings.pageGoneReload, prominent: true, action: #selector(reload), target: nil)
+    private let reloadButton = ChromeTextButton(title: Strings.pageGoneReload, prominent: true, action: #selector(reload), target: nil,
+                                                sizing: .frame)
     private let density = DensityBinding()
 
     override init(frame: NSRect) {

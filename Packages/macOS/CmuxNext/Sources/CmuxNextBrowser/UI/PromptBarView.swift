@@ -21,7 +21,7 @@ final class PromptBarView: ChromeFrameView {
     private let density = DensityBinding()
     /// The bar's material: glass, or opaque under Reduce Transparency.
     private(set) var glass: OverlaySurfaceView?
-    /// The room the bar's intrinsic size was last measured in.
+    /// The room `followRoom()` last saw.
     private var measuredRoom: CGFloat?
 
     override init(frame: NSRect) {
@@ -97,15 +97,20 @@ final class PromptBarView: ChromeFrameView {
     /// constraints.
     override var intrinsicContentSize: NSSize { size(fittingWidth: room) }
 
+    /// The owner calls this from its `layout()` before it solves its
+    /// subviews: a container that got wider or narrower measures the bar
+    /// again in the new room.
+    func followRoom() {
+        let room = self.room
+        guard room != measuredRoom else { return }
+        measuredRoom = room
+        invalidateIntrinsicContentSize() // invalidate: the container's width changed since the last measure
+    }
+
     override func layout() {
         super.layout()
         if let glass, glass.frame != bounds { glass.frame = bounds }
         cardLayout.column.layout(items, in: CGRect(origin: .zero, size: bounds.size))
-        let room = self.room
-        if measuredRoom != room {
-            measuredRoom = room
-            invalidateIntrinsicContentSize() // invalidate: the container's width changed since the last measure
-        }
     }
 
     /// The message, the fields or the answers changed: the column lays out
@@ -236,9 +241,8 @@ final class PromptBarView: ChromeFrameView {
     }
 
     private func addButton(_ title: String, prominent: Bool, response: BrowserPromptResponse?) {
-        let button = PromptResponseButton(title: title, prominent: prominent, action: #selector(respond(_:)), target: self)
+        let button = PromptResponseButton(title: title, prominent: prominent, action: #selector(respond(_:)), target: self, sizing: .frame)
         button.response = response
-        button.translatesAutoresizingMaskIntoConstraints = true
         content.addSubview(button)
         buttons.append(button)
     }

@@ -3,6 +3,15 @@ import CmuxNextWakeups
 import CmuxNextDesign
 import CmuxNextIcons
 
+/// Where a chrome button's size comes from: required constraints of its own
+/// (an Auto Layout parent), or its intrinsic size, read by a parent that sets
+/// its frame (ChromeFrameLayout.swift). A frame-laid button has no
+/// constraints of its own, so a hidden (zero) or cut frame breaks none.
+enum ChromeButtonSizing {
+    case constraints
+    case frame
+}
+
 /// Borderless icon button with gray hover and press fills (no accent color).
 final class ChromeIconButton: NSButton {
     private let density = DensityBinding()
@@ -16,6 +25,7 @@ final class ChromeIconButton: NSButton {
     /// Toolbar buttons use the omnibar geometry (`OmnibarStyle`); others the
     /// compact overlay size.
     private let isToolbar: Bool
+    private let sizing: ChromeButtonSizing
     /// False where the tooltip would only repeat the icon's name (Back,
     /// Forward, Reload/Stop, More: Lawrence 2026-10-13). The accessibility
     /// label stays.
@@ -27,11 +37,13 @@ final class ChromeIconButton: NSButton {
     private let holdTimer = DemandTimer(owner: "ChromeIconButton.hold")
     private var showedHoldMenu = false
 
-    init(icon: IconName, label: String, action: Selector?, target: AnyObject?, toolbar: Bool = false, toolTip: Bool = true) {
+    init(icon: IconName, label: String, action: Selector?, target: AnyObject?, toolbar: Bool = false, toolTip: Bool = true,
+         sizing: ChromeButtonSizing = .constraints) {
         isToolbar = toolbar
         showsToolTip = toolTip
+        self.sizing = sizing
         super.init(frame: .zero)
-        translatesAutoresizingMaskIntoConstraints = false
+        translatesAutoresizingMaskIntoConstraints = sizing == .frame
         isBordered = false
         bezelStyle = .regularSquare
         imagePosition = .imageOnly
@@ -42,14 +54,17 @@ final class ChromeIconButton: NSButton {
         themedToolTip = showsToolTip ? label : nil
         setAccessibilityLabel(label)
         wantsLayer = true
-        NSLayoutConstraint.activate([
-            density.bind(widthAnchor.constraint(equalToConstant: 0)) { toolbar ? OmnibarStyle.buttonSize : BrowserMetrics.controlHeight },
-            density.bind(heightAnchor.constraint(equalToConstant: 0)) { toolbar ? OmnibarStyle.buttonSize : BrowserMetrics.controlHeight },
-        ])
+        if sizing == .constraints {
+            NSLayoutConstraint.activate([
+                density.bind(widthAnchor.constraint(equalToConstant: 0)) { toolbar ? OmnibarStyle.buttonSize : BrowserMetrics.controlHeight },
+                density.bind(heightAnchor.constraint(equalToConstant: 0)) { toolbar ? OmnibarStyle.buttonSize : BrowserMetrics.controlHeight },
+            ])
+        }
         density.update { [weak self] in
             guard let self else { return }
             layer?.cornerRadius = isToolbar ? OmnibarStyle.buttonCornerRadius : BrowserMetrics.controlCornerRadius
             applyIcon()
+            if self.sizing == .frame { invalidateIntrinsicContentSize() } // invalidate: its square follows the design tokens
         }
         density.start(in: self)
         hover = PointerHover(self) { [weak self] _ in self?.updateFill(animated: true) }
@@ -58,6 +73,13 @@ final class ChromeIconButton: NSButton {
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    /// A frame-laid button is the square its constraints would make it.
+    override var intrinsicContentSize: NSSize {
+        guard sizing == .frame else { return super.intrinsicContentSize }
+        let side = isToolbar ? OmnibarStyle.buttonSize : BrowserMetrics.controlHeight
+        return NSSize(width: side, height: side)
+    }
 
     /// Unchanged icon and label keep the current image: a new NSImage
     /// makes AppKit lay out and redraw the button.
@@ -256,16 +278,18 @@ class ChromeTextButton: NSButton {
     private var isHovering: Bool { hover?.isHovering ?? false }
     private var titleText = ""
 
-    init(title: String, prominent: Bool, action: Selector?, target: AnyObject?) {
+    init(title: String, prominent: Bool, action: Selector?, target: AnyObject?, sizing: ChromeButtonSizing = .constraints) {
         self.prominent = prominent
         super.init(frame: .zero)
-        translatesAutoresizingMaskIntoConstraints = false
+        translatesAutoresizingMaskIntoConstraints = sizing == .frame
         isBordered = false
         bezelStyle = .regularSquare
         self.action = action
         self.target = target
         wantsLayer = true
-        density.bind(heightAnchor.constraint(equalToConstant: 0)) { BrowserMetrics.controlHeight }.isActive = true
+        if sizing == .constraints {
+            density.bind(heightAnchor.constraint(equalToConstant: 0)) { BrowserMetrics.controlHeight }.isActive = true
+        }
         titleText = title
         density.update { [weak self] in
             guard let self else { return }
@@ -338,78 +362,5 @@ class ChromeTextButton: NSButton {
             if let layer { ChromeHover.paint(layer, color, animated: animated && window != nil, pressed: isHighlighted) }
         }
         applyTitle()
-    }
-}
-
-/// Plain single-line field with no bezel, no focus ring, and a gray
-/// selection instead of the accent-colored one.
-class ChromeTextField: NSTextField {
-    private let density = DensityBinding()
-    private var placeholderText = ""
-    override init(frame: NSRect) {
-        super.init(frame: frame)
-        translatesAutoresizingMaskIntoConstraints = false
-        isBordered = false
-        isBezeled = false
-        drawsBackground = false
-        focusRingType = .none
-        usesSingleLineMode = true
-        lineBreakMode = .byTruncatingTail
-        cell?.isScrollable = true
-        cell?.wraps = false
-        density.update { [weak self] in
-            guard let self else { return }
-            font = BrowserMetrics.bodyFont
-            applyPlaceholder()
-        }
-        density.start(in: self)
-    }
-
-    @available(*, unavailable)
-    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
-
-    func setPlaceholder(_ text: String) {
-        placeholderText = text
-        applyPlaceholder()
-    }
-
-    override func viewDidChangeEffectiveAppearance() {
-        super.viewDidChangeEffectiveAppearance()
-        applyColors()
-    }
-
-    override func viewDidMoveToWindow() {
-        super.viewDidMoveToWindow()
-        applyColors()
-    }
-
-    private func applyColors() {
-        performWithTheme { textColor = Palette.textPrimary }
-        applyPlaceholder()
-        applyEditorColors()
-    }
-
-    private func applyPlaceholder() {
-        guard !placeholderText.isEmpty else { return }
-        performWithTheme {
-            setPlaceholderKeepingEdit(NSAttributedString(string: placeholderText, attributes: [
-                .foregroundColor: Palette.textSecondary,
-                .font: font ?? BrowserMetrics.bodyFont,
-            ]))
-        }
-    }
-
-    private func applyEditorColors() {
-        guard let editor = currentEditor() as? NSTextView else { return }
-        performWithTheme {
-            editor.insertionPointColor = Palette.caret
-            editor.selectedTextAttributes = [.backgroundColor: Palette.textSelection]
-        }
-    }
-
-    override func becomeFirstResponder() -> Bool {
-        let accepted = super.becomeFirstResponder()
-        if accepted { applyEditorColors() }
-        return accepted
     }
 }

@@ -1,5 +1,7 @@
 import AppKit
 @testable import CmuxNextBrowser
+import CmuxNextDesign
+import CmuxNextWakeups
 import Testing
 
 /// The browser's status views and bars lay out by frame (p03-rendering-072): each places its
@@ -46,6 +48,105 @@ import Testing
         #expect(zip(rtl, rtl.dropFirst()).allSatisfy { $0.minX >= $1.maxX }, "right to left: \(rtl)")
         let trailing = bar.bounds.width - BrowserMetrics.overlayPadding
         #expect(abs((rtl.first?.maxX ?? 0) - trailing) < 0.01, "the first answer at the leading (right) edge")
+    }
+
+    /// A narrow pane: the three answers do not fit side by side, so they stack inside the bar,
+    /// each as wide as it less its padding, in reading order from the top, in either direction.
+    @Test(arguments: [false, true]) func aNarrowBarStacksItsAnswersInsideIt(rightToLeft: Bool) {
+        let bar = PromptBarView(frame: .zero)
+        if rightToLeft { bar.userInterfaceLayoutDirection = .rightToLeft }
+        bar.show(Self.permission())
+        let size = bar.size(fittingWidth: 220)
+        bar.setFrameSize(size)
+        bar.layout()
+        let padding = BrowserMetrics.overlayPadding
+        let inner = bar.bounds.insetBy(dx: padding, dy: padding)
+        let answers = Self.buttons(in: bar).map(Self.alignmentRect)
+        #expect(answers.count == 3)
+        #expect(answers.allSatisfy { Self.contains(inner, $0) }, "inside \(inner): \(answers)")
+        #expect(answers.allSatisfy { abs($0.width - inner.width) < 0.01 }, "each as wide as the bar: \(answers)")
+        #expect(zip(answers, answers.dropFirst()).allSatisfy { $0.minY >= $1.maxY }, "top to bottom, no overlap: \(answers)")
+    }
+
+    /// The "Page unresponsive" card's Exit page / Wait row stacks the same way in a narrow page.
+    @Test(arguments: [false, true]) func aNarrowUnresponsiveCardStacksItsAnswersInsideIt(rightToLeft: Bool) {
+        let card = PageUnresponsiveView(frame: .zero)
+        if rightToLeft { card.userInterfaceLayoutDirection = .rightToLeft }
+        card.setFrameSize(card.size(fittingWidth: 120))
+        card.layout()
+        let padding = BrowserMetrics.overlayPadding
+        let inner = card.bounds.insetBy(dx: padding, dy: padding)
+        let answers = Self.leaves(of: card).filter { $0 is ChromeTextButton }.map(Self.alignmentRect)
+        #expect(answers.count == 2)
+        #expect(answers.allSatisfy { Self.contains(inner, $0) }, "inside \(inner): \(answers)")
+        #expect(!answers[0].intersects(answers[1]), "\(answers)")
+    }
+
+    /// The pane narrows, then widens again: the bar is measured in each new room, never left at
+    /// the narrow size with its message wrapped tall.
+    @Test func thePromptBarFollowsItsPaneWhenItWidens() {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 600), styleMask: [.titled],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        let page = WebKitEngine(fileInput: NoFileInput(), stores: .inMemory()).makeWebKitTab()
+        let chrome = BrowserChromeView(tab: page, mainWork: MainWorkScheduler(budget: MainFrameBudget()), node: nil)
+        chrome.frame = window.contentLayoutRect
+        window.contentView = chrome
+        window.orderFrontRegardless()
+        defer {
+            chrome.addressBar.dismissRows()
+            window.orderOut(nil)
+            window.close()
+            page.close()
+        }
+        page.enqueuePrompt(.permission(.camera), origin: "https://example.com") { _ in }
+        chrome.renderPrompt()
+        let bar = chrome.promptBar
+        let inset = BrowserMetrics.overlayInset
+        chrome.layoutSubtreeIfNeeded()
+        #expect(!bar.isHidden)
+
+        window.setContentSize(NSSize(width: 360, height: 600))
+        chrome.layoutSubtreeIfNeeded()
+        #expect(chrome.bounds.width == 360)
+        let narrow = bar.frame.size
+        #expect(Self.near(narrow, bar.size(fittingWidth: 360 - inset * 2)), "the narrow room: \(narrow)")
+
+        window.setContentSize(NSSize(width: 900, height: 600))
+        chrome.layoutSubtreeIfNeeded()
+        let wide = bar.size(fittingWidth: 900 - inset * 2)
+        #expect(wide.width > narrow.width + 1 && wide.height < narrow.height - 1, "precondition: the room changes the bar")
+        #expect(Self.near(bar.frame.size, wide), "widened again: \(bar.frame.size), measured \(wide)")
+    }
+
+    /// Auto Layout puts frames on the backing pixel grid.
+    private static func near(_ size: CGSize, _ other: CGSize) -> Bool {
+        abs(size.width - other.width) <= 1 && abs(size.height - other.height) <= 1
+    }
+
+    /// Frame-laid buttons hold no required size constraints: a hidden one (the notice's absent
+    /// action, the error page's certificate buttons) keeps the zero frame its parent leaves it,
+    /// which a required height of `controlHeight` could not satisfy.
+    @Test func frameLaidButtonsBreakNoConstraint() {
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 600, height: 500), styleMask: [.titled],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer {
+            window.orderOut(nil)
+            window.close()
+        }
+        let root = NSView(frame: NSRect(x: 0, y: 0, width: 600, height: 500))
+        window.contentView = root
+        let notice = BrowserNoticeView(frame: NSRect(x: 0, y: 0, width: 300, height: BrowserMetrics.findBarHeight))
+        notice.text = "Chromium could not start"
+        let error = LoadErrorView(frame: NSRect(x: 0, y: 40, width: 600, height: 460))
+        error.show(BrowserLoadError(domain: NSURLErrorDomain, code: NSURLErrorCannotFindHost, message: "The server could not be found."))
+        root.addSubview(notice)
+        root.addSubview(error)
+        root.layoutSubtreeIfNeeded()
+        #expect(error.backButton.isHidden && error.proceedButton.isHidden, "precondition: hidden buttons")
+        let broken = Self.brokenSizeConstraints(in: notice) + Self.brokenSizeConstraints(in: error)
+        #expect(broken.isEmpty, "\(broken)")
     }
 
     /// The sign-in prompt's fields fill the bar less its padding, under the message.
@@ -139,6 +240,31 @@ import Testing
 
     private static func alignmentRect(_ view: NSView) -> CGRect {
         view.alignmentRect(forFrame: view.frame)
+    }
+
+    private static func contains(_ outer: CGRect, _ inner: CGRect) -> Bool {
+        inner.minX >= outer.minX - 0.01 && inner.maxX <= outer.maxX + 0.01
+            && inner.minY >= outer.minY - 0.01 && inner.maxY <= outer.maxY + 0.01
+    }
+
+    /// The required width and height constants that `root`'s frame-laid subviews hold (their
+    /// autoresizing constraints are their superview's). Each fights the frame the parent sets
+    /// (zero while hidden, cut when narrow): Auto Layout logs the conflict and drops one, and may
+    /// move the frame to hide it, so the test reads the constraints, not the frames.
+    private static func brokenSizeConstraints(in root: NSView) -> [String] {
+        var broken: [String] = []
+        func visit(_ view: NSView) {
+            if view !== root, view.translatesAutoresizingMaskIntoConstraints {
+                for constraint in view.constraints where constraint.isActive && constraint.priority == .required
+                    && constraint.firstItem === view && constraint.secondItem == nil
+                    && [.width, .height].contains(constraint.firstAttribute) {
+                    broken.append("\(type(of: view))\(view.isHidden ? " hidden" : "") \(view.frame) \(constraint)")
+                }
+            }
+            view.subviews.forEach(visit)
+        }
+        visit(root)
+        return broken
     }
 
     private static func leaves(of view: NSView) -> [NSView] {

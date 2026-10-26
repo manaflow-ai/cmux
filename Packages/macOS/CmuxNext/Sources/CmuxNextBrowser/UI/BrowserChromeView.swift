@@ -83,7 +83,7 @@ public final class BrowserChromeView: NSView {
     /// Find in page: the bar's state, which the find bar view writes and renders.
     public let find: BrowserFindModel
     let findBar: FindBarView
-    private let promptBar = PromptBarView()
+    let promptBar = PromptBarView()
     private let promptDialogs = BrowserPromptDialogs()
     let pageStatus = PageStatusViews()
     lazy var pageOverlays = PageFloatingOverlays(page: contentContainer)
@@ -435,6 +435,7 @@ public final class BrowserChromeView: NSView {
 
     public override func layout() {
         applyToolbarLayout()
+        promptBar.followRoom()
         super.layout()
         // Auto Layout may defer the address bar's frame until its subtree is
         // laid out. Follow the card only after that frame reflects this pass.

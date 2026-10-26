@@ -15,9 +15,9 @@ final class PageUnresponsiveView: ChromeFrameView {
 
     // Targets are set in init (no IUOs).
     private let exitButton = ChromeTextButton(title: Strings.pageUnresponsiveExit, prominent: false,
-                                              action: #selector(PageUnresponsiveView.exitPage), target: nil)
+                                              action: #selector(PageUnresponsiveView.exitPage), target: nil, sizing: .frame)
     private let waitButton = ChromeTextButton(title: Strings.pageUnresponsiveWait, prominent: true,
-                                              action: #selector(PageUnresponsiveView.waitForPage), target: nil)
+                                              action: #selector(PageUnresponsiveView.waitForPage), target: nil, sizing: .frame)
     /// The card's content (the glass's), where the column lays out.
     private let content = OverlayBackingView()
 
