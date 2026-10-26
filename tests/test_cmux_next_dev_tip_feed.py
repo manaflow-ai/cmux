@@ -198,6 +198,7 @@ unlock_src = (ROOT / "scripts/ci/r2_cas.py").read_text().split("def unlock", 1)[
 check("delete(" not in unlock_src and "_store(" in unlock_src, "release is a conditional PUT, not an undocumented conditional DELETE")
 
 # The publish step's decision, run in bash with gh and the R2 helper stubbed.
+import re
 import subprocess
 import textwrap
 
@@ -218,7 +219,7 @@ case "$1 $2" in
     [[ "$NOTES_SHA" == empty ]] && { echo ""; exit 0; }
     echo "Rolling build from feat-cmux-next commit $NOTES_SHA."; exit 0 ;;
   api\ repos/o/r/compare/*)
-    pair="${2#repos/o/r/compare/}"; key="${pair//./_}"; var="CMP_${key}"
+    pair="${2#repos/o/r/compare/}"; key="${pair//[^a-zA-Z0-9]/_}"; var="CMP_${key}"  # bash 5 drops env names with "-"
     [[ -n "${!var:-}" ]] || { echo "gh: compare failed (HTTP 502)" >&2; exit 1; }
     echo "${!var}"; exit 0 ;;
   api\ repos/o/r/commits/*)
@@ -259,7 +260,7 @@ def run_publish(source, *, notes="", record="", holds="yes", cmp=None, gone=""):
             "LEASE_OWNER": "run-1", "NOTES_SHA": notes, "RECORD_SHA": record, "HOLDS": holds, "GONE": gone,
         }
         for pair, status in (cmp or {}).items():
-            env["CMP_" + pair.replace(".", "_")] = status
+            env["CMP_" + re.sub(r"[^a-zA-Z0-9]", "_", pair)] = status
         result = subprocess.run(["bash", "-e", "-c", publish_script], env=env, capture_output=True, text=True, timeout=60)
         log = (tmp / "log").read_text() if (tmp / "log").exists() else ""
         return result.returncode, log
