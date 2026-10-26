@@ -21,6 +21,7 @@ public final class AttachSurfaceRequest implements WireValue {
     private final Field<Boolean> snapshotImages;
     private final Field<Boolean> snapshotLocalHistory;
     private final Field<Integer> snapshotVersion;
+    private final Field<Integer> stream;
     private final Field<UInt64> surface;
     private final Field<UInt64> viewerBacklogBytes;
 
@@ -34,6 +35,7 @@ public final class AttachSurfaceRequest implements WireValue {
         this.snapshotImages = builder.snapshotImages;
         this.snapshotLocalHistory = builder.snapshotLocalHistory;
         this.snapshotVersion = builder.snapshotVersion;
+        this.stream = builder.stream;
         this.surface = builder.surface;
         this.viewerBacklogBytes = builder.viewerBacklogBytes;
     }
@@ -49,6 +51,7 @@ public final class AttachSurfaceRequest implements WireValue {
     public Field<Boolean> snapshotImages() { return snapshotImages; }
     public Field<Boolean> snapshotLocalHistory() { return snapshotLocalHistory; }
     public Field<Integer> snapshotVersion() { return snapshotVersion; }
+    public Field<Integer> stream() { return stream; }
     public Field<UInt64> surface() { return surface; }
     public Field<UInt64> viewerBacklogBytes() { return viewerBacklogBytes; }
 
@@ -91,6 +94,10 @@ public final class AttachSurfaceRequest implements WireValue {
         if (!Wire.isMissing(rawSnapshotVersion)) {
             builder.snapshotVersion(rawSnapshotVersion == null ? null : Wire.uint16(rawSnapshotVersion, "AttachSurfaceRequest.snapshot_version"));
         }
+        Object rawStream = Wire.optional(object, "stream");
+        if (!Wire.isMissing(rawStream)) {
+            builder.stream(rawStream == null ? null : Wire.uint16(rawStream, "AttachSurfaceRequest.stream"));
+        }
         Object rawSurface = Wire.optional(object, "surface");
         if (!Wire.isMissing(rawSurface)) {
             builder.surface(rawSurface == null ? null : Wire.uint64(rawSurface, "AttachSurfaceRequest.surface"));
@@ -114,6 +121,7 @@ public final class AttachSurfaceRequest implements WireValue {
         Wire.put(object, "snapshot_images", snapshotImages);
         Wire.put(object, "snapshot_local_history", snapshotLocalHistory);
         Wire.put(object, "snapshot_version", snapshotVersion);
+        Wire.put(object, "stream", stream);
         Wire.put(object, "surface", surface);
         Wire.put(object, "viewer_backlog_bytes", viewerBacklogBytes);
         return Collections.unmodifiableMap(object);
@@ -122,11 +130,11 @@ public final class AttachSurfaceRequest implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof AttachSurfaceRequest that)) return false;
-        return Objects.equals(cols, that.cols) && Objects.equals(expectedGeneration, that.expectedGeneration) && Objects.equals(expectedTerminalId, that.expectedTerminalId) && Objects.equals(mode, that.mode) && Objects.equals(rows, that.rows) && Objects.equals(snapshot, that.snapshot) && Objects.equals(snapshotImages, that.snapshotImages) && Objects.equals(snapshotLocalHistory, that.snapshotLocalHistory) && Objects.equals(snapshotVersion, that.snapshotVersion) && Objects.equals(surface, that.surface) && Objects.equals(viewerBacklogBytes, that.viewerBacklogBytes);
+        return Objects.equals(cols, that.cols) && Objects.equals(expectedGeneration, that.expectedGeneration) && Objects.equals(expectedTerminalId, that.expectedTerminalId) && Objects.equals(mode, that.mode) && Objects.equals(rows, that.rows) && Objects.equals(snapshot, that.snapshot) && Objects.equals(snapshotImages, that.snapshotImages) && Objects.equals(snapshotLocalHistory, that.snapshotLocalHistory) && Objects.equals(snapshotVersion, that.snapshotVersion) && Objects.equals(stream, that.stream) && Objects.equals(surface, that.surface) && Objects.equals(viewerBacklogBytes, that.viewerBacklogBytes);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(cols, expectedGeneration, expectedTerminalId, mode, rows, snapshot, snapshotImages, snapshotLocalHistory, snapshotVersion, surface, viewerBacklogBytes); }
+    public int hashCode() { return Objects.hash(cols, expectedGeneration, expectedTerminalId, mode, rows, snapshot, snapshotImages, snapshotLocalHistory, snapshotVersion, stream, surface, viewerBacklogBytes); }
 
     @Override
     public String toString() { return "AttachSurfaceRequest" + toWire(); }
@@ -141,6 +149,7 @@ public final class AttachSurfaceRequest implements WireValue {
         private Field<Boolean> snapshotImages = Field.omitted();
         private Field<Boolean> snapshotLocalHistory = Field.omitted();
         private Field<Integer> snapshotVersion = Field.omitted();
+        private Field<Integer> stream = Field.omitted();
         private Field<UInt64> surface = Field.omitted();
         private Field<UInt64> viewerBacklogBytes = Field.omitted();
 
@@ -178,6 +187,10 @@ public final class AttachSurfaceRequest implements WireValue {
         }
         public Builder snapshotVersion(Integer value) {
             this.snapshotVersion = Field.ofNullable(value);
+            return this;
+        }
+        public Builder stream(Integer value) {
+            this.stream = Field.ofNullable(value);
             return this;
         }
         public Builder surface(UInt64 value) {

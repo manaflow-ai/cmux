@@ -15,6 +15,10 @@ use super::BudgetedText;
 use super::RenderService;
 use super::VtStateMessage;
 use super::api_revision_wire;
+use super::attach_streams::AttachStreamError;
+use super::attach_streams::ClientStreamId;
+use super::attach_streams::StreamEndReason;
+use super::attach_streams::stream_end_json;
 use super::conversation_tabs_wire;
 use super::frame_dispatch::FrameCall;
 use crate::AttachFrame;
@@ -47,6 +51,9 @@ pub(super) struct OutboundStream {
     pub(super) overflow_text: Arc<Mutex<Arc<BudgetedText>>>,
     /// Fired by `close`, so stream loops block instead of polling `is_open`.
     pub(super) closed: InterruptSet,
+    /// The id the client minted for this stream (attach-streams-v1): every
+    /// item carries it as `"stream"` and the terminal is `stream-end`.
+    pub(super) client_stream: Option<ClientStreamId>,
 }
 
 impl OutboundStream {
@@ -69,6 +76,7 @@ impl OutboundStream {
             terminal_enqueued: Arc::new(AtomicBool::new(false)),
             overflow_text: Arc::new(Mutex::new(overflow_text)),
             closed: InterruptSet::default(),
+            client_stream: None,
         }
     }
 
@@ -102,6 +110,15 @@ pub(super) trait MessageSink: Send + Sync {
         self.send_stream(text, stream)
     }
     fn send_control(&self, text: Arc<BudgetedText>) -> std::io::Result<()>;
+    /// Takes `stream`'s client-minted id on this connection until its
+    /// terminal is queued (attach-streams-v1).
+    fn claim_client_stream(&self, _stream: &OutboundStream) -> Result<(), AttachStreamError> {
+        Err(AttachStreamError::Unsupported)
+    }
+    /// The open stream holding client-minted `id` on this connection.
+    fn client_stream(&self, _id: ClientStreamId) -> Option<OutboundStream> {
+        None
+    }
     /// `text` as the payload of a frame with `header`, in the control FIFO
     /// with replies and control events. Only a local Unix connection that
     /// granted frames carries them.
@@ -281,6 +298,66 @@ impl MessageWriter {
         ))
     }
 
+    /// The stream of a view whose id the client minted (attach-streams-v1):
+    /// its items carry `"stream": id`, its overflow terminal is
+    /// `stream-end{overflow}`, and `id` is this connection's until
+    /// `end_client_stream` or that overflow queues its terminal.
+    pub(super) fn start_client_stream(&self, id: ClientStreamId) -> anyhow::Result<OutboundStream> {
+        let overflow = self
+            .render_service
+            .serialize_control(&stream_end_json(id, StreamEndReason::Overflow))?;
+        let mut stream = OutboundStream::with_sequence(
+            self.next_stream_id.fetch_add(1, Ordering::Relaxed),
+            overflow,
+            false,
+            StreamLane::Bulk,
+        );
+        stream.client_stream = Some(id);
+        self.sink.claim_client_stream(&stream)?;
+        Ok(stream)
+    }
+
+    /// The open stream holding client-minted `id` on this connection.
+    pub(super) fn client_stream(&self, id: ClientStreamId) -> Option<OutboundStream> {
+        self.sink.client_stream(id)
+    }
+
+    /// Queues `stream-end{reason}` as the last item of a client-minted
+    /// stream and frees its id. The end of a view (`detached`) keeps every
+    /// item admitted before it, waiting like any other item of the stream;
+    /// a cancel or a failed attach drops what the stream still queues and
+    /// never waits, so the request that ends it answers at once. A stream
+    /// that already has its terminal, or has no client id, is left as it
+    /// is. A terminal that cannot be queued closes the connection, which
+    /// ends every stream on it.
+    pub(super) fn end_client_stream(&self, stream: &OutboundStream, reason: StreamEndReason) {
+        let Some(id) = stream.client_stream else { return };
+        if stream.terminal_enqueued.load(Ordering::Acquire) {
+            return;
+        }
+        let Ok(text) = self.render_service.serialize_control(&stream_end_json(id, reason)) else {
+            self.close();
+            return;
+        };
+        let ordered = reason == StreamEndReason::Detached
+            && stream.is_open()
+            && self.sink.send_ordered_terminal(text.clone(), stream).is_ok();
+        if !ordered && self.sink.send_terminal(text, stream).is_err() {
+            self.close();
+        }
+    }
+
+    /// The stream's overflow terminal (`overflow`, or `stream-end{overflow}`
+    /// on a client-minted stream), dropping what the stream still queues.
+    pub(super) fn send_overflow_terminal(&self, stream: &OutboundStream) -> std::io::Result<()> {
+        let text = stream.overflow_text.lock().recover_poison().clone();
+        let result = self.sink.send_terminal(text, stream);
+        if result.is_err() {
+            self.close();
+        }
+        result
+    }
+
     pub(super) fn update_stream_overflow(
         &self,
         stream: &OutboundStream,
@@ -300,7 +377,7 @@ impl MessageWriter {
         }
         let result = self
             .render_service
-            .serialize(value)
+            .serialize_for(value, stream.client_stream)
             .and_then(|text| self.sink.send_stream(text, stream));
         if result.as_ref().is_err_and(|error| error.kind() != std::io::ErrorKind::WouldBlock) {
             stream.close();
@@ -344,7 +421,7 @@ impl MessageWriter {
         }
         let result = self
             .render_service
-            .serialize(value)
+            .serialize_for(value, stream.client_stream)
             .and_then(|text| self.sink.send_stream_backpressured(text, stream));
         if result.as_ref().is_err_and(|error| error.kind() != std::io::ErrorKind::WouldBlock) {
             stream.close();
@@ -362,7 +439,7 @@ impl MessageWriter {
         }
         let result = self
             .render_service
-            .serialize(value)
+            .serialize_for(value, stream.client_stream)
             .and_then(|text| self.sink.send_initial(text, stream));
         if result.as_ref().is_err_and(|error| error.kind() != std::io::ErrorKind::WouldBlock) {
             stream.close();
@@ -380,7 +457,7 @@ impl MessageWriter {
         }
         let result = self
             .render_service
-            .serialize_vt_state(value)
+            .serialize_vt_state_for(value, stream.client_stream)
             .and_then(|text| self.sink.send_initial(text, stream));
         if result.as_ref().is_err_and(|error| error.kind() != std::io::ErrorKind::WouldBlock) {
             stream.close();
@@ -400,7 +477,7 @@ impl MessageWriter {
         }
         let result = self
             .render_service
-            .serialize_attach_frame(surface, frame, shape)
+            .serialize_attach_frame_for(surface, frame, shape, stream.client_stream)
             .and_then(|text| self.sink.send_stream_backpressured(text, stream));
         if result.as_ref().is_err_and(|error| error.kind() != std::io::ErrorKind::WouldBlock) {
             stream.close();
@@ -418,7 +495,7 @@ impl MessageWriter {
         }
         let result = self
             .render_service
-            .serialize_control(value)
+            .serialize_control_for(value, stream.client_stream)
             .and_then(|text| self.sink.send_terminal(text, stream));
         if result.is_err() {
             self.close();
@@ -436,7 +513,7 @@ impl MessageWriter {
         }
         let result = self
             .render_service
-            .serialize_control(value)
+            .serialize_control_for(value, stream.client_stream)
             .and_then(|text| self.sink.send_ordered_terminal(text, stream));
         if result.is_err() {
             self.close();

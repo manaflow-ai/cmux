@@ -101,6 +101,8 @@ function browserAttachSubject(event: BrowserAttachEvent): Id | null | undefined 
       return event.surface;
     case "overflow":
       return event.surface;
+    case "stream-end":
+      return undefined;
     default: {
       const exhaustive: never = event;
       return exhaustive;
@@ -119,6 +121,8 @@ function browserStreamSubject(event: BrowserStreamEvent): Id | null | undefined 
     case "notification":
     case "overflow":
       return event.surface;
+    case "stream-end":
+      return undefined;
     case "unknown":
       return event.raw.surface as Id | undefined;
     default: {

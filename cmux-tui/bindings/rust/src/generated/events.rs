@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 92ea0b6da7b0bd288ec4e10c0f31751140797c17e8fcdbcb3a76d518df4b8499.
+// cmux-tui mux protocol 12, IR df10717146553dfa363854f65845a400d363319d750b9f1e04386389220171be.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -904,6 +904,26 @@ pub struct StatusEvent {
 }
 
 #[rustfmt::skip]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum StreamEndEventReason {
+    #[serde(rename = "canceled")]
+    Canceled,
+    #[serde(rename = "detached")]
+    Detached,
+    #[serde(rename = "overflow")]
+    Overflow,
+    #[serde(rename = "attach_failed")]
+    AttachFailed,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct StreamEndEvent {
+    pub reason: StreamEndEventReason,
+    pub stream: u16,
+}
+
+#[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SurfaceExitedEvent {
     /// What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing.
@@ -1246,6 +1266,7 @@ pub enum Event {
     SettingsChanged(SettingsChangedEvent),
     SizeState(SizeStateEvent),
     Status(StatusEvent),
+    StreamEnd(StreamEndEvent),
     SurfaceExited(SurfaceExitedEvent),
     SurfaceOutput(SurfaceOutputEvent),
     SurfaceResizeFailed(SurfaceResizeFailedEvent),
@@ -1345,6 +1366,7 @@ impl Event {
             Self::SettingsChanged(_) => Some("settings-changed"),
             Self::SizeState(_) => Some("size-state"),
             Self::Status(_) => Some("status"),
+            Self::StreamEnd(_) => Some("stream-end"),
             Self::SurfaceExited(_) => Some("surface-exited"),
             Self::SurfaceOutput(_) => Some("surface-output"),
             Self::SurfaceResizeFailed(_) => Some("surface-resize-failed"),
@@ -1443,6 +1465,7 @@ impl Event {
             Self::SettingsChanged(_) => Some(&SETTINGS_CHANGED_EVENT_METADATA),
             Self::SizeState(_) => Some(&SIZE_STATE_EVENT_METADATA),
             Self::Status(_) => Some(&STATUS_EVENT_METADATA),
+            Self::StreamEnd(_) => Some(&STREAM_END_EVENT_METADATA),
             Self::SurfaceExited(_) => Some(&SURFACE_EXITED_EVENT_METADATA),
             Self::SurfaceOutput(_) => Some(&SURFACE_OUTPUT_EVENT_METADATA),
             Self::SurfaceResizeFailed(_) => Some(&SURFACE_RESIZE_FAILED_EVENT_METADATA),
@@ -2021,6 +2044,14 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("status") => match serde_json::from_value::<StatusEvent>(raw.clone()) {
             Ok(event) => Event::Status(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("stream-end") => match serde_json::from_value::<StreamEndEvent>(raw.clone()) {
+            Ok(event) => Event::StreamEnd(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,

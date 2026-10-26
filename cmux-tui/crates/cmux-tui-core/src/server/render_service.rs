@@ -9,6 +9,8 @@ use super::OUTBOUND_GLOBAL_CONTROL_BYTE_CAPACITY;
 use super::RENDER_GRAPHIC_BASE64_CACHE_MAX_BYTES;
 use super::RENDER_GRAPHIC_BASE64_CACHE_MAX_ENTRIES;
 use super::VtStateMessage;
+use super::attach_streams::ClientStreamId;
+use super::attach_streams::StreamTagSplice;
 use super::terminal_colors_json;
 use super::{write_output_flow_json, write_pending_sequence_json};
 use crate::AttachFrame;
@@ -149,11 +151,48 @@ pub(super) struct BudgetedJsonWriter {
     pub(super) retained_bytes: usize,
     pub(super) reservation_bytes: usize,
     pub(super) budget: Arc<OutboundByteBudget>,
+    /// The client stream id spliced into the object this writer serializes.
+    tag: StreamTagSplice,
 }
 
 impl BudgetedJsonWriter {
     pub(super) fn new(budget: Arc<OutboundByteBudget>) -> Self {
-        Self { bytes: Vec::new(), retained_bytes: 0, reservation_bytes: 0, budget }
+        Self {
+            bytes: Vec::new(),
+            retained_bytes: 0,
+            reservation_bytes: 0,
+            budget,
+            tag: StreamTagSplice::Done,
+        }
+    }
+
+    /// A writer whose one JSON object gets `"stream": id` as its first
+    /// member when `stream` is set.
+    fn tagged(budget: Arc<OutboundByteBudget>, stream: Option<ClientStreamId>) -> Self {
+        let mut writer = Self::new(budget);
+        writer.tag = StreamTagSplice::of(stream);
+        writer
+    }
+
+    /// The finished text; an item whose tag was not spliced (nothing, or
+    /// not an object, was written) is refused.
+    fn finish_tagged(self) -> std::io::Result<Arc<BudgetedText>> {
+        if self.tag != StreamTagSplice::Done {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "a stream item must be one JSON object",
+            ));
+        }
+        Ok(self.finish())
+    }
+
+    fn append(&mut self, bytes: &[u8]) -> std::io::Result<()> {
+        let required_len = self.bytes.len().checked_add(bytes.len()).ok_or_else(|| {
+            std::io::Error::new(std::io::ErrorKind::InvalidData, "serialized message is too large")
+        })?;
+        self.ensure_capacity(required_len)?;
+        self.bytes.extend_from_slice(bytes);
+        Ok(())
     }
 
     pub(super) fn with_reservation(
@@ -231,12 +270,37 @@ impl BudgetedJsonWriter {
 
 impl Write for BudgetedJsonWriter {
     fn write(&mut self, bytes: &[u8]) -> std::io::Result<usize> {
-        let required_len = self.bytes.len().checked_add(bytes.len()).ok_or_else(|| {
-            std::io::Error::new(std::io::ErrorKind::InvalidData, "serialized message is too large")
-        })?;
-        self.ensure_capacity(required_len)?;
-        self.bytes.extend_from_slice(bytes);
-        Ok(bytes.len())
+        let mut rest = bytes;
+        loop {
+            match self.tag {
+                StreamTagSplice::Done => {
+                    self.append(rest)?;
+                    return Ok(bytes.len());
+                }
+                StreamTagSplice::Open(stream) => {
+                    let Some((&b'{', tail)) = rest.split_first() else {
+                        if rest.is_empty() {
+                            return Ok(bytes.len());
+                        }
+                        return Err(std::io::Error::new(
+                            std::io::ErrorKind::InvalidData,
+                            "a stream item must be one JSON object",
+                        ));
+                    };
+                    self.append(b"{\"stream\":")?;
+                    self.append(stream.0.to_string().as_bytes())?;
+                    self.tag = StreamTagSplice::Member;
+                    rest = tail;
+                }
+                StreamTagSplice::Member => {
+                    let Some(&next) = rest.first() else { return Ok(bytes.len()) };
+                    if next != b'}' {
+                        self.append(b",")?;
+                    }
+                    self.tag = StreamTagSplice::Done;
+                }
+            }
+        }
     }
 
     fn flush(&mut self) -> std::io::Result<()> {
@@ -286,29 +350,57 @@ impl RenderService {
         self.graphic_base64.lock().recover_poison().encode(data)
     }
 
+    #[cfg(test)]
     pub(super) fn serialize<T: Serialize + ?Sized>(
         &self,
         value: &T,
     ) -> std::io::Result<Arc<BudgetedText>> {
-        let mut writer = BudgetedJsonWriter::new(self.outbound_budget.clone());
+        self.serialize_for(value, None)
+    }
+
+    /// `value` as an item of a stream, tagged with `stream` when the client
+    /// minted the stream's id (attach-streams-v1).
+    pub(super) fn serialize_for<T: Serialize + ?Sized>(
+        &self,
+        value: &T,
+        stream: Option<ClientStreamId>,
+    ) -> std::io::Result<Arc<BudgetedText>> {
+        let mut writer = BudgetedJsonWriter::tagged(self.outbound_budget.clone(), stream);
         serde_json::to_writer(&mut writer, value).map_err(json_error_to_io)?;
-        Ok(writer.finish())
+        writer.finish_tagged()
     }
 
     pub(super) fn serialize_control<T: Serialize + ?Sized>(
         &self,
         value: &T,
     ) -> std::io::Result<Arc<BudgetedText>> {
-        let mut writer = BudgetedJsonWriter::new(self.control_budget.clone());
-        serde_json::to_writer(&mut writer, value).map_err(json_error_to_io)?;
-        Ok(writer.finish())
+        self.serialize_control_for(value, None)
     }
 
+    pub(super) fn serialize_control_for<T: Serialize + ?Sized>(
+        &self,
+        value: &T,
+        stream: Option<ClientStreamId>,
+    ) -> std::io::Result<Arc<BudgetedText>> {
+        let mut writer = BudgetedJsonWriter::tagged(self.control_budget.clone(), stream);
+        serde_json::to_writer(&mut writer, value).map_err(json_error_to_io)?;
+        writer.finish_tagged()
+    }
+
+    #[cfg(test)]
     pub(super) fn serialize_vt_state(
         &self,
         value: &VtStateMessage,
     ) -> std::io::Result<Arc<BudgetedText>> {
-        let mut writer = BudgetedJsonWriter::new(self.outbound_budget.clone());
+        self.serialize_vt_state_for(value, None)
+    }
+
+    pub(super) fn serialize_vt_state_for(
+        &self,
+        value: &VtStateMessage,
+        stream: Option<ClientStreamId>,
+    ) -> std::io::Result<Arc<BudgetedText>> {
+        let mut writer = BudgetedJsonWriter::tagged(self.outbound_budget.clone(), stream);
         write!(
             writer,
             "{{\"event\":\"vt-state\",\"surface\":{},\"cols\":{},\"rows\":{},\"data\":\"",
@@ -330,17 +422,28 @@ impl RenderService {
         serde_json::to_writer(&mut writer, &value.colors).map_err(json_error_to_io)?;
         write_pending_sequence_json(&mut writer, &value.pending_sequence)?;
         writer.write_all(b"}")?;
-        Ok(writer.finish())
+        writer.finish_tagged()
     }
 
+    #[cfg(test)]
     pub(super) fn serialize_attach_frame(
         &self,
         surface: SurfaceId,
         frame: &AttachFrame,
         shape: AttachWireShape,
     ) -> std::io::Result<Arc<BudgetedText>> {
+        self.serialize_attach_frame_for(surface, frame, shape, None)
+    }
+
+    pub(super) fn serialize_attach_frame_for(
+        &self,
+        surface: SurfaceId,
+        frame: &AttachFrame,
+        shape: AttachWireShape,
+        stream: Option<ClientStreamId>,
+    ) -> std::io::Result<Arc<BudgetedText>> {
         let include_color_overrides = shape.color_overrides;
-        let mut writer = BudgetedJsonWriter::new(self.outbound_budget.clone());
+        let mut writer = BudgetedJsonWriter::tagged(self.outbound_budget.clone(), stream);
         match frame {
             AttachFrame::Output(output) | AttachFrame::FlowOutput { output, .. } => {
                 write!(writer, "{{\"event\":\"output\",\"surface\":{surface},\"data\":\"")?;
@@ -419,7 +522,7 @@ impl RenderService {
                 serde_json::to_writer(&mut writer, &value).map_err(json_error_to_io)?;
             }
         }
-        Ok(writer.finish())
+        writer.finish_tagged()
     }
 
     pub(super) fn reserved_control_writer(&self) -> std::io::Result<BudgetedJsonWriter> {

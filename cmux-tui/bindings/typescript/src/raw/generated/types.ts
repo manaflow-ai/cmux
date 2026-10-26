@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 92ea0b6da7b0bd288ec4e10c0f31751140797c17e8fcdbcb3a76d518df4b8499. */
+/* cmux-tui mux protocol 12, IR df10717146553dfa363854f65845a400d363319d750b9f1e04386389220171be. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -422,6 +422,11 @@ export type BrowserRuntimeStatusResult = {
 
 export type BrowserRuntimeStopResult = {
   "stopped": true;
+};
+
+export type CancelStreamResult = {
+  "outcome": "applied" | "ended";
+  "stream": number;
 };
 
 export type CellPixelFailure = {

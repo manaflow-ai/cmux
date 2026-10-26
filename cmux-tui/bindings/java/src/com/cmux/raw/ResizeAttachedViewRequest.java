@@ -16,6 +16,7 @@ public final class ResizeAttachedViewRequest implements WireValue {
     private final Field<SizingIdentity> identity;
     private final Field<String> lease;
     private final int rows;
+    private final Field<Integer> stream;
     private final UInt64 surface;
     private final Field<String> view;
 
@@ -26,6 +27,7 @@ public final class ResizeAttachedViewRequest implements WireValue {
         this.lease = builder.lease;
         if (!builder.rowsSet) throw new IllegalArgumentException("rows is required");
         this.rows = builder.rows;
+        this.stream = builder.stream;
         if (!builder.surfaceSet) throw new IllegalArgumentException("surface is required");
         this.surface = Wire.nonNull(builder.surface, "surface");
         this.view = builder.view;
@@ -37,6 +39,7 @@ public final class ResizeAttachedViewRequest implements WireValue {
     public Field<SizingIdentity> identity() { return identity; }
     public Field<String> lease() { return lease; }
     public int rows() { return rows; }
+    public Field<Integer> stream() { return stream; }
     public UInt64 surface() { return surface; }
     public Field<String> view() { return view; }
 
@@ -55,6 +58,10 @@ public final class ResizeAttachedViewRequest implements WireValue {
         }
         Object rawRows = Wire.required(object, "rows");
         builder.rows(Wire.uint16(rawRows, "ResizeAttachedViewRequest.rows"));
+        Object rawStream = Wire.optional(object, "stream");
+        if (!Wire.isMissing(rawStream)) {
+            builder.stream(rawStream == null ? null : Wire.uint16(rawStream, "ResizeAttachedViewRequest.stream"));
+        }
         Object rawSurface = Wire.required(object, "surface");
         builder.surface(Wire.uint64(rawSurface, "ResizeAttachedViewRequest.surface"));
         Object rawView = Wire.optional(object, "view");
@@ -71,6 +78,7 @@ public final class ResizeAttachedViewRequest implements WireValue {
         Wire.put(object, "identity", identity);
         Wire.put(object, "lease", lease);
         Wire.put(object, "rows", rows);
+        Wire.put(object, "stream", stream);
         Wire.put(object, "surface", surface);
         Wire.put(object, "view", view);
         return Collections.unmodifiableMap(object);
@@ -79,11 +87,11 @@ public final class ResizeAttachedViewRequest implements WireValue {
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof ResizeAttachedViewRequest that)) return false;
-        return Objects.equals(cols, that.cols) && Objects.equals(identity, that.identity) && Objects.equals(lease, that.lease) && Objects.equals(rows, that.rows) && Objects.equals(surface, that.surface) && Objects.equals(view, that.view);
+        return Objects.equals(cols, that.cols) && Objects.equals(identity, that.identity) && Objects.equals(lease, that.lease) && Objects.equals(rows, that.rows) && Objects.equals(stream, that.stream) && Objects.equals(surface, that.surface) && Objects.equals(view, that.view);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(cols, identity, lease, rows, surface, view); }
+    public int hashCode() { return Objects.hash(cols, identity, lease, rows, stream, surface, view); }
 
     @Override
     public String toString() { return "ResizeAttachedViewRequest" + toWire(); }
@@ -95,6 +103,7 @@ public final class ResizeAttachedViewRequest implements WireValue {
         private Field<String> lease = Field.omitted();
         private Integer rows;
         private boolean rowsSet;
+        private Field<Integer> stream = Field.omitted();
         private UInt64 surface;
         private boolean surfaceSet;
         private Field<String> view = Field.omitted();
@@ -115,6 +124,10 @@ public final class ResizeAttachedViewRequest implements WireValue {
         public Builder rows(int value) {
             this.rows = value;
             this.rowsSet = true;
+            return this;
+        }
+        public Builder stream(Integer value) {
+            this.stream = Field.ofNullable(value);
             return this;
         }
         public Builder surface(UInt64 value) {

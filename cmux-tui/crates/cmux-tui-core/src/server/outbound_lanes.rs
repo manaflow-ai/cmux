@@ -21,6 +21,7 @@
 use super::BoundedOutbound;
 use super::BoundedOutboundState;
 use super::BudgetedText;
+use super::ClientStreams;
 use super::ControlOutbound;
 use super::OutboundItem;
 use super::OutboundStream;
@@ -414,6 +415,7 @@ impl BoundedOutboundState {
             stream_items: 0,
             regular_bytes: 0,
             closed: false,
+            client_streams: ClientStreams::default(),
         }
     }
 
@@ -524,6 +526,7 @@ impl BoundedOutboundState {
         self.lanes.clear();
         self.control.retain(|item| !matches!(item, ControlOutbound::Stream(_)));
         self.stream_usage.clear();
+        self.client_streams.clear();
         self.stream_items = 0;
         self.regular_bytes = 0;
     }
