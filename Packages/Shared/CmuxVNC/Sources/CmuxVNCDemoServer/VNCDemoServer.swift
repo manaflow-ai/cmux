@@ -1,3 +1,4 @@
+import CmuxThreading
 import CmuxVNC
 import CoreGraphics
 import Foundation
@@ -31,7 +32,7 @@ public final class VNCDemoServer: @unchecked Sendable {
     }
 
     public let configuration: Configuration
-    private let queue = DispatchQueue(label: "cmux.vnc.demo-server")
+    private let queue = DispatchQueue(label: "cmux.vnc.demo-server", qos: .utility)
     private var listener: NWListener?
     private var connections: [ObjectIdentifier: DemoConnection] = [:]
     private var timer: (any DispatchSourceTimer)?
@@ -120,17 +121,16 @@ public final class VNCDemoServer: @unchecked Sendable {
     }
 }
 
-// crash-allow: `done` is read and written only while `lock` is held.
-final class ResumeGuard: @unchecked Sendable {
-    private let lock = NSLock()
-    private var done = false
+/// Lets exactly one of the listener's state callbacks resume the start continuation.
+final class ResumeGuard: Sendable {
+    private let done = Mutex(false)
 
     func claim() -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        if done { return false }
-        done = true
-        return true
+        done.withLock { done in
+            if done { return false }
+            done = true
+            return true
+        }
     }
 }
 

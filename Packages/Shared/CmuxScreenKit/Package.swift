@@ -26,6 +26,8 @@ let package = Package(
     dependencies: [
         .package(path: "../CmuxVNC"),
         .package(path: "../CmuxVNCWebRTC"),
+        // blockingCall and Mutex of the app-linked packages (p02-threads-130, 146).
+        .package(path: "../CmuxThreading"),
         // Test-only: the seeded fuzz suites (p10-stability-023).
         .package(path: "../CmuxFuzzSupport"),
     ],
@@ -36,6 +38,7 @@ let package = Package(
                 .product(name: "CmuxVNC", package: "CmuxVNC"),
                 .product(name: "CmuxVNCDemoServer", package: "CmuxVNC"),
                 .product(name: "CmuxVNCWebRTC", package: "CmuxVNCWebRTC"),
+                .product(name: "CmuxThreading", package: "CmuxThreading"),
             ],
             swiftSettings: swiftSettings
         ),

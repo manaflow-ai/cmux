@@ -20,12 +20,16 @@ let package = Package(
         .library(name: "CmuxVNCDemoServer", targets: ["CmuxVNCDemoServer"]),
     ],
     dependencies: [
+        // The Mutex the transport and demo server keep their state in (p02-threads-146).
+        .package(path: "../CmuxThreading"),
         // Test-only: the seeded fuzz suites (p10-stability-023).
         .package(path: "../CmuxFuzzSupport"),
     ],
     targets: [
-        .target(name: "CmuxVNC", swiftSettings: swiftSettings, linkerSettings: [.linkedLibrary("z")]),
-        .target(name: "CmuxVNCDemoServer", dependencies: ["CmuxVNC"], swiftSettings: swiftSettings,
+        .target(name: "CmuxVNC", dependencies: [.product(name: "CmuxThreading", package: "CmuxThreading")],
+                swiftSettings: swiftSettings, linkerSettings: [.linkedLibrary("z")]),
+        .target(name: "CmuxVNCDemoServer", dependencies: ["CmuxVNC", .product(name: "CmuxThreading", package: "CmuxThreading")],
+                swiftSettings: swiftSettings,
                 linkerSettings: [.linkedLibrary("z")]),
         .testTarget(name: "CmuxVNCTests", dependencies: [
             "CmuxVNC", "CmuxVNCDemoServer", .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport"),

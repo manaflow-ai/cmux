@@ -1,3 +1,4 @@
+import CmuxThreading
 import CmuxVNC
 import Foundation
 import QuartzCore
@@ -10,16 +11,13 @@ import QuartzCore
 /// - input: what was sent, and the time until the next frame shows (input → frame).
 @MainActor
 public final class ScreenPerfLog {
-    private let handle: FileHandle?
+    private let file: ScreenPerfLogFile
     private let start = CACurrentMediaTime()
     private var lastBytes = 0
     private var pendingInput: (name: String, at: CFTimeInterval)?
 
     public init(file: URL = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0].appendingPathComponent("perf.log")) {
-        let url = file
-        if !FileManager.default.fileExists(atPath: url.path) { FileManager.default.createFile(atPath: url.path, contents: nil) }
-        handle = try? FileHandle(forWritingTo: url)
-        _ = try? handle?.seekToEnd()
+        self.file = ScreenPerfLogFile(url: file)
         write(["event": "session", "at": Date().ISO8601Format()])
     }
 
@@ -56,10 +54,50 @@ public final class ScreenPerfLog {
                "input_to_frame_ms": ms(CACurrentMediaTime() - input.at), "stream": true])
     }
 
+    /// Runs `body` once every line logged before it is in the file (tests).
+    func flushForTesting(_ body: @escaping @Sendable () -> Void) {
+        file.flush(body)
+    }
+
     private func ms(_ seconds: CFTimeInterval) -> Double { (seconds * 1000).rounded() }
 
     private func write(_ line: [String: Any]) {
         guard let data = try? JSONSerialization.data(withJSONObject: line, options: [.sortedKeys]) else { return }
-        handle?.write(data + Data("\n".utf8))
+        file.append(data + Data("\n".utf8))
+    }
+}
+
+/// The log's file, opened and appended to on a serial queue of its own: opening, seeking and writing a file block,
+/// so none of them runs on the main actor that records the timings. Lines keep their order (one serial queue).
+final class ScreenPerfLogFile: Sendable {
+    private let queue = DispatchQueue(label: "cmux.screen.perf-log", qos: .utility)
+    /// Set once the queue opened the file; read only on the queue.
+    private let handle = Mutex<FileHandle?>(nil)
+
+    init(url: URL) {
+        queue.async { [self] in
+            let opened = blockingCall(.fileIO) { () -> FileHandle? in
+                if !FileManager.default.fileExists(atPath: url.path) {
+                    _ = FileManager.default.createFile(atPath: url.path, contents: nil)
+                }
+                let handle = try? FileHandle(forWritingTo: url)
+                _ = try? handle?.seekToEnd()
+                return handle
+            }
+            handle.withLock { $0 = opened }
+        }
+    }
+
+    /// Appends `data` after every line appended before it; returns at once.
+    func append(_ data: Data) {
+        queue.async { [self] in
+            guard let handle = handle.withLock({ $0 }) else { return }
+            blockingCall(.fileIO) { handle.write(data) }
+        }
+    }
+
+    /// Runs `body` after every append queued before it (tests).
+    func flush(_ body: @escaping @Sendable () -> Void) {
+        queue.async(execute: body)
     }
 }
