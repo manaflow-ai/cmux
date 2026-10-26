@@ -106,9 +106,7 @@ export function SubagentDoneLine({ row }: { row: AcpmuxRow }) {
         <span className="cv-tool__text">{parts.join(" · ")}</span>
       </button>
       {inline}
-      {shown?.key && (
-<output className="cv-subagent-done__note">{t(shown.key)}</output>
-      )}
+      {shown?.key && <output className="cv-subagent-done__note">{t(shown.key)}</output>}
       {(restart || action) && (
         <span className="cv-subagent-done__actions">
           {restart && (
