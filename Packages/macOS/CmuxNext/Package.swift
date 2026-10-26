@@ -1315,6 +1315,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextTraceTests",
             // Compat: the black-box tests read the main-thread blocking detector's table.
             dependencies: ["CmuxNextCompat", "CmuxNextTrace"],
+            // The ring v1 golden file, shared with cmux-trace's Rust tests; read by path, not bundled.
+            exclude: ["Fixtures"],
             swiftSettings: daemonSwiftSettings
         ),
         // Field histograms (UMA): the HistogramID catalog and Metrics.record. Core: Compat and Trace only.
