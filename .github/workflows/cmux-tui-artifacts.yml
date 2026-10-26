@@ -128,7 +128,7 @@ jobs:
     steps:
       - name: Refuse the untrusted publisher path
         run: |
-          echo "::error title=cmux-tui pin ref rejected::cmux-tui-pin-* refs are not a publisher. Use a trusted feat-cmux-next publication or cmux-ci build cmux --ref <sha> --tag <tag> --workspace <PR URL>."
+          echo "::error title=cmux-tui pin ref rejected::cmux-tui-pin-* refs are not a publisher. Land the reviewed change, then re-run after a trusted feat-cmux-next publication. A fleet build can bundle its own daemon without publishing it."
           exit 1
 
   # Keep the common path cheap: a tree-addressed publication is complete when

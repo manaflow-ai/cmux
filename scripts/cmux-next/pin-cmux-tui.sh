@@ -280,7 +280,7 @@ require_target_in_tree() {
         echo "error: no Windows daemon published for tree $key ($(tree_asset)). A tree is published before its"
         echo "  Windows daemon: the same cmux-tui artifacts run adds it (publish-tree-windows) once its"
         echo "  Windows build ends, so retry a newly published tree in a few minutes. Otherwise republish"
-        echo "  This tree has no artifact yet; re-run after a trusted feat-cmux-next publication, or use cmux-ci build cmux --ref <merge SHA> --tag <tree tag> --workspace <PR URL>."
+        echo "  This tree has no artifact yet; re-run after a trusted feat-cmux-next publication. A fleet app build can bundle its own daemon without publishing it."
         echo "  or use a local build (CMUX2_TUI_BIN / CMUX_NEXT_TUI_BIN)."
       } >&2
       exit 1
@@ -424,7 +424,7 @@ for run in runs:
 # report a missing tree for a trusted feat-cmux-next publication. Synthetic
 # merge refs and helper branches are never created by this script.
 ensure_tree_publisher() {
-  local key="$1" sha="$2" current
+  local key="$1" sha="$2" current state
   tree_publisher_sha=""
   tree_publisher_action=none
   [[ "${CMUX_TUI_TREE_DISPATCH:-}" == 1 ]] || return 0
@@ -461,7 +461,7 @@ await_outside_publisher() {
   esac
   [[ "$wait" =~ ^[0-9]+$ && "$poll" =~ ^[0-9]+$ ]] || { echo "warning: CMUX_TUI_TREE_PUBLISHER_WAIT_SECONDS and _POLL_SECONDS must be whole seconds" >&2; return 0; }
   [[ "${GITHUB_EVENT_NAME:-}" != pull_request ]] \
-    || echo "cmux-tui tree $key: waiting up to ${wait}s for main's merge-tree publisher (cmux-next-pr-merge-tree.yml)" >&2
+    || echo "cmux-tui tree $key: waiting up to ${wait}s for an active trusted publisher" >&2
   # `date +%s`, not $SECONDS: the tests run this wait on a virtual clock (tests/lib/fake-clock.sh).
   started="$(date +%s)"
   while :; do
@@ -495,7 +495,7 @@ fail_unpublishable_tree() {
         echo "  The runs for $sha ended without publishing it: ${state#ended }." ;;
     esac
     echo "  A superseded commit needs no tree; the newest push publishes its own."
-    echo "  For a missing PR tree, use the trusted fleet: cmux-ci build cmux --ref $sha --tag tree-${sha:0:12} --workspace <PR URL>."
+    echo "  For a missing PR tree, land the reviewed change, then re-run after a trusted feat-cmux-next publication."
     echo "  Or bundle a local build with CMUX_NEXT_TUI_BIN=<path>."
   } >&2
   exit 1
@@ -638,7 +638,7 @@ wait_for_tree() {
         echo "  on a trusted pushed commit of feat-cmux-next or feat-cmux-next-acpmux."
         echo "  Check its runs: https://github.com/manaflow-ai/cmux/actions/workflows/cmux-tui-artifacts.yml"
         echo "  This tree has no artifact yet; re-run after a trusted feat-cmux-next publication."
-        echo "  For a missing PR tree, use: cmux-ci build cmux --ref <merge SHA> --tag <tree tag> --workspace <PR URL>."
+        echo "  A fleet app build can bundle its own daemon without publishing the PR tree."
         echo "  A pull request checks its merge with the base; do not publish a synthetic merge commit from the PR context."
         echo "  When the last trusted run for this tree failed, rerun it from feat-cmux-next."
         echo "  Or bundle a local build: CMUX_NEXT_TUI_BIN=<path>. No older binary is used instead."
@@ -687,8 +687,8 @@ refuse_unpushed_source() {
   on_origin_branch "$last" && return 0
   {
     echo "error: commit $last, the last change to cmux-tui or ghostty-next here, is on no remote branch,"
-    echo "  so no workflow will publish its cmux-tui. Use the trusted fleet: cmux-ci build cmux --ref $last"
-    echo "  --tag tree-${last:0:12} --workspace <PR URL>, or bundle a local build with CMUX_NEXT_TUI_BIN=<path>."
+    echo "  so no workflow will publish its cmux-tui. Land the reviewed change for trusted publication,"
+    echo "  or bundle a local build with CMUX_NEXT_TUI_BIN=<path>."
   } >&2
   exit 1
 }

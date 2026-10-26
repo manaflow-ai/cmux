@@ -297,7 +297,7 @@ def test_pin_refs_are_refused_before_claim_or_build() -> None:
     guard = workflow_job(artifacts, "reject-untrusted-pin-ref")
     assert "startsWith(github.ref, 'refs/heads/cmux-tui-pin-')" in guard
     assert "permissions: {}" in guard
-    assert "cmux-ci build cmux --ref" in guard
+    assert "re-run after a trusted feat-cmux-next publication" in guard
     preflight = workflow_job(artifacts, "tree-preflight")
     assert "!startsWith(github.ref, 'refs/heads/cmux-tui-pin-')" in preflight
     pin = (ROOT / "scripts/cmux-next/pin-cmux-tui.sh").read_text()
@@ -305,6 +305,7 @@ def test_pin_refs_are_refused_before_claim_or_build() -> None:
     assert "refs/heads/cmux-tui-pin-" not in pin
     request = workflow("cmux-tui-tree-request.yml")
     assert "startsWith(\"cmux-tui-pin-\")" not in request
+    assert '"workflow_dispatch" and .head_branch == "feat-cmux-next"' in request
 
 
 def test_ci_never_suggests_pushing_a_pr_merge_commit_to_a_pin_branch() -> None:
@@ -327,7 +328,7 @@ def test_ci_never_suggests_pushing_a_pr_merge_commit_to_a_pin_branch() -> None:
     tree_request = workflow("cmux-tui-tree-request.yml")
     pin = (ROOT / "scripts/cmux-next/pin-cmux-tui.sh").read_text()
     assert "This tree has no artifact yet; re-run after" in artifacts
-    assert "cmux-ci build cmux --ref $COMMIT" in tree_request
+    assert "This tree has no artifact yet; re-run after" in tree_request
     assert "This tree has no artifact yet; re-run after" in pin
 
 

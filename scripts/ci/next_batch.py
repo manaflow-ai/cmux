@@ -1595,7 +1595,7 @@ class Controller:
         changed = self.git("diff", "--name-only", base_sha, sha).splitlines()
         tree = touches_tree(changed, self.worktree)
         if tree:
-            log(f"{name}: cmux-tui tree will publish through the trusted fleet build")
+            log(f"{name}: no helper publisher ref; the fleet build bundles its own daemon")
         dispatched = now()
         self.gh.dispatch(HEAVY_WORKFLOW, branch)
         heavy = self.find_run(HEAVY_WORKFLOW, branch, lambda item: item["head_sha"] == sha, dispatched)
