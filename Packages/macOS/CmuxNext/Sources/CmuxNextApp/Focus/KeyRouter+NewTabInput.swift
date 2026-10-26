@@ -147,7 +147,7 @@ final class NewTabInputCoordinator {
                 view.focusChat()
                 return true
             }
-            return window.makeFirstResponder(view.webView)
+            return window.makeFirstResponder(view.focusTarget)
         }, deliver: deliver(in: window))
         let entry = Entry(buffer: buffer, limit: holdLimit, opened: pane.currentTabKey, pane: pane, window: window)
         install(entry, in: window)
@@ -179,7 +179,7 @@ final class NewTabInputCoordinator {
                 view.focusChat()
                 return true
             }
-            return shown.makeFirstResponder(view.webView)
+            return shown.makeFirstResponder(view.focusTarget)
         }, deliver: { [weak router, weak window] event in
             // Ready: the page's window. Not ready (the limit, a failed creation): the key window.
             guard let router, let to = target.pageWindow ?? (target.followsNewWindow ? NSApp.keyWindow : nil) ?? window else { return }

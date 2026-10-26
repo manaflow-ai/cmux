@@ -123,7 +123,7 @@ extension AgentPaneView {
             pathItems: { [weak self] path in self?.pathMenuItems(path) },
             search: { [weak self] text in self?.model.onSearchWeb?(text) },
             page: { [weak self] name, params in self?.runMessageAction(name, params) },
-            pasteTarget: webView,
+            pasteTarget: page.webKitEngine, // WebKit's Paste item only; a Chromium menu keeps its own
             inspectElement: AgentPaneTunables.pointerInspector.value ? {
                 NotificationCenter.default.post(name: .cmuxNextInspectUIElement, object: self)
             } : nil))

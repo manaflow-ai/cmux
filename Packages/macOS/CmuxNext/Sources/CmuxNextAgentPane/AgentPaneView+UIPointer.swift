@@ -1,4 +1,3 @@
-import CmuxNextDesign
 import CmuxNextPages
 
 /// The page-side half of the cmux NEXT own-window picker. It is deliberately
@@ -16,11 +15,7 @@ extension AgentPaneView {
     }
 
     /// View points per CSS pixel for the page currently drawing this pane.
-    public var uiPointerPageZoom: Double {
-        page.showsChromium
-            ? Double(DesignSettings.shared.uiScale) * page.additionalZoom
-            : page.webKitView.pageZoom * page.webKitView.magnification
-    }
+    public var uiPointerPageZoom: Double { page.pageZoom }
 
     private static let uiPointerStopScript = "globalThis.__cmuxUiPointer?.stop?.();"
     private static let uiPointerScript = #"""
