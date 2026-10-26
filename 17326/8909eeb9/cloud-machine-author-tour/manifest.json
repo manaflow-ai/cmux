@@ -1,0 +1,30 @@
+{
+  "tour": "cloud-machine-author-tour",
+  "head_sha": "8909eeb9c6ff71a530526b372d5d26d658500941",
+  "result": "failure",
+  "shots": [
+    {
+      "name": "02-failed",
+      "file": "02-failed.png"
+    },
+    {
+      "name": "04-10-right-sidebar-cloud",
+      "file": "04-10-right-sidebar-cloud.png"
+    },
+    {
+      "name": "09-failed",
+      "file": "09-failed.png"
+    },
+    {
+      "name": "15-30-lab-aero",
+      "file": "15-30-lab-aero.png"
+    }
+  ],
+  "gif": "tour.gif",
+  "tested_sha": "ded5b328aa63b63cd493d8b67eef7a473745abc3",
+  "run_url": "https://github.com/manaflow-ai/cmux/actions/runs/37256495826",
+  "failures": [
+    "DogfoodScenarioUITests.swift:115: failed - Dogfood steps failed:"
+  ],
+  "frames": 7
+}

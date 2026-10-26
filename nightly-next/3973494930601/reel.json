@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "build": "3973494930601",
+  "notes": "notes/3973494930601.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 23981,
+      "title": "cmux NEXT: no system caret bubble over native text fields",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23862,
+      "title": "agent pane: the Inspector floats beside the transcript, and pushes the chat when there is no room",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23861,
+      "title": "cmux NEXT: no system caret bubble over the composer + button",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24231,
+      "title": "ci(tests): the Mac canary coverage test skips test-support libraries under Tests/",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23983,
+      "title": "cmux-next: agents can screenshot the app again; browser pages are blacked out",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}

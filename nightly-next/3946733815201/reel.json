@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "build": "3946733815201",
+  "notes": "notes/3946733815201.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 22158,
+      "title": "test(acpmux): start-mode answers don't leak between test files",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22532,
+      "title": "cmux-next Settings: the Opacity floor follows a picture change",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/22532/8a1992a9/next-glass-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "8a1992a9",
+      "tour": "glass"
+    },
+    {
+      "pr": 22375,
+      "title": "fix(next): detect Codex and Claude Code configured through their own providers",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22159,
+      "title": "acpmux: a DEV build's harness profiles stay out of shipped builds' model picker",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}

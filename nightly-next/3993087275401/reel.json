@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "build": "3993087275401",
+  "notes": "notes/3993087275401.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 24508,
+      "title": "feat(cmux-next): host pressure indicator strings in all 21 locales",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/24508/8536eb13/next-core-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "8536eb13",
+      "tour": "core"
+    },
+    {
+      "pr": 24506,
+      "title": "refactor(cmux-next): split HostBudget.swift into the formula and the verdict",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "build": "4009978646601",
+  "notes": "notes/4009978646601.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 24776,
+      "title": "fix(files): bounds-check NSBrowser lookups in the column view",
+      "author": "lawrencecchen",
+      "clip": "no clip"
+    }
+  ]
+}

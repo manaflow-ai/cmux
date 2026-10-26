@@ -1,0 +1,30 @@
+{
+  "tour": "conversations-sidebar-tour",
+  "head_sha": "cc9339cd987358eee5a793cef808d267e2706fef",
+  "result": "failure",
+  "shots": [
+    {
+      "name": "09-failed",
+      "file": "09-failed.png"
+    },
+    {
+      "name": "10-failed",
+      "file": "10-failed.png"
+    },
+    {
+      "name": "13-conversations-all-providers",
+      "file": "13-conversations-all-providers.png"
+    },
+    {
+      "name": "23-conversations-dock-focused",
+      "file": "23-conversations-dock-focused.png"
+    }
+  ],
+  "gif": "tour.gif",
+  "tested_sha": "2790eb9b5b926c96d3ca23441f65c11bad85e372",
+  "run_url": "https://github.com/manaflow-ai/cmux/actions/runs/37847261380",
+  "failures": [
+    "DogfoodScenarioUITests.swift:115: failed - Dogfood steps failed:"
+  ],
+  "frames": 12
+}

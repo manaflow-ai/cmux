@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "build": "3952240756001",
+  "notes": "notes/3952240756001.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 22659,
+      "title": "cmux-next sidebar: a click never drags, a cancelled or lost drag leaves no stray fill, hidden rows or opened groups",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22628,
+      "title": "cmux-next settings: the Motion switches get a home on the Appearance page (Settings base reds)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22590,
+      "title": "cmux-next updates: Roll Back to Previous Version (palette, menu, CLI) and a safe rollback swap",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}

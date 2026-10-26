@@ -1,0 +1,20 @@
+{
+  "tour": "copy-actions-tour",
+  "head_sha": "03bcf16073ad4d76803fc01005f3cdf18948d27f",
+  "result": "passed",
+  "shots": [
+    {
+      "name": "07-copy-actions-palette",
+      "file": "07-copy-actions-palette.png"
+    },
+    {
+      "name": "13-copy-actions-pasted-path",
+      "file": "13-copy-actions-pasted-path.png"
+    }
+  ],
+  "gif": "tour.gif",
+  "tested_sha": "10d8484f4363998f571a3335726778c4069db1b8",
+  "run_url": "https://github.com/manaflow-ai/cmux/actions/runs/36750340274",
+  "failures": [],
+  "frames": 4
+}

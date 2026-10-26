@@ -1,0 +1,29 @@
+{
+  "tour": "checklist-popover-close-tour",
+  "head_sha": "eea9e7ed742a0aa59d396ac601adcd5acf148206",
+  "result": "failure",
+  "shots": [
+    {
+      "name": "05-checklist-summary",
+      "file": "05-checklist-summary.png"
+    },
+    {
+      "name": "10-failed",
+      "file": "10-failed.png"
+    },
+    {
+      "name": "18-failed",
+      "file": "18-failed.png"
+    },
+    {
+      "name": "31-end",
+      "file": "31-end.png"
+    }
+  ],
+  "gif": "tour.gif",
+  "run_url": "https://github.com/manaflow-ai/cmux/actions/runs/36701158472",
+  "failures": [
+    "DogfoodScenarioUITests.swift:113: failed - Dogfood steps failed:"
+  ],
+  "frames": 12
+}

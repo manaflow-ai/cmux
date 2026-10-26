@@ -1,0 +1,155 @@
+{
+  "version": 1,
+  "build": "3899481671301",
+  "notes": "notes/3899481671301.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 21176,
+      "title": "feat(agent-chat): fold older transcript turns",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21215,
+      "title": "ci: ship cmux NEXT with the app stapled inside the DMG",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21212,
+      "title": "nightly: one nightly-next writer, NIGHTLY_NEXT_WRITER (mac, linux, none) (cx-f76kf)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21211,
+      "title": "nightly: read NIGHTLY_NEXT_HOLD live before the first nightly-next write (cx-f76kf)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21173,
+      "title": "ci: the promote guard reads the whole range from the compare API",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21166,
+      "title": "ci: prepare trusted nightly-next pool rescue on main",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21129,
+      "title": "Fix iOS cmux-tui topology reconnect (#21001)",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 20944,
+      "title": "Fix Cloud workspace pane bounds after materialization",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 20404,
+      "title": "fix(ci): handle Testbox cleanup cancellation during bound startup",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 20346,
+      "title": "Keep Claude background subagents running after parent stop",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21151,
+      "title": "ci: the real signing import test carries the Developer ID G2 intermediate",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21128,
+      "title": "Fix Cmd+V image paste in forced-TTY SSH tmux sessions",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21049,
+      "title": "ci: promote guard for nightly-next",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21145,
+      "title": "ci: accept a Developer ID intermediate that the signing .p12 already added",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 20570,
+      "title": "Keep a Cloud terminal's cwd: parse kitty-shell-cwd and publish early reports",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21135,
+      "title": "ci: extend agent-inbox-quick-view flag reviewBy to 2026-11-12",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21142,
+      "title": "ci: real macOS import test for the signing keychain tool",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21024,
+      "title": "ci: run app checks in secret-free jobs for the nightly path",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21140,
+      "title": "release, nightly: resume a complete staged release; nightly publishes by id (stacked on #21137)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21043,
+      "title": "ci: import the signing certificate as a named .p12",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 18380,
+      "title": "Harden cmux browser repl security boundaries",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 20354,
+      "title": "Fix custom right-sidebar groups context",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 20347,
+      "title": "fix: avoid duplicating restored zsh prompts",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 18641,
+      "title": "Fix iOS terminal sizing priority across background resume",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    }
+  ]
+}

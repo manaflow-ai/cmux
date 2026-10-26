@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "build": "4016327741802",
+  "notes": "notes/4016327741802.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 25070,
+      "title": "fix(acpmux): remote_guard::check passes the device through hint::check (base compiles again)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25068,
+      "title": "fix(gallery): the settings page's host reports the Server card's servers",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24963,
+      "title": "ci(cmux-next): key the compiled DEV Release app by its content",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25038,
+      "title": "acpmux: a paired machine's Full-access setting (off by default) lets it drive a remote chat in Full access",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}

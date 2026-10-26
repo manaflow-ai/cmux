@@ -1,0 +1,11 @@
+{
+  "tour": "cloud-machine-author-tour",
+  "head_sha": "49d798e2b8f148d8d52168befc006c8bc1469033",
+  "result": "failure",
+  "shots": [],
+  "gif": null,
+  "compiled": true,
+  "run_url": "https://github.com/manaflow-ai/cmux/actions/runs/36958065338",
+  "failures": [],
+  "note": "the run left no frames (see the run log)"
+}

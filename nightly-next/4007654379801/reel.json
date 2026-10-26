@@ -1,0 +1,137 @@
+{
+  "version": 1,
+  "build": "4007654379801",
+  "notes": "notes/4007654379801.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 24847,
+      "title": "ci: fail closed when nightly tree key helper is unavailable",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24813,
+      "title": "acpmux: fix the base compile error from #24739 (images as a slice)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24795,
+      "title": "cmux NEXT: wait through acpmux socket restarts",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24810,
+      "title": "fix(next): make message actions direct and cancellable",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24224,
+      "title": "cmux NEXT model menu: four models, each once, the rest under More models; Effort and Fast name their state; submenus open up from the composer",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24713,
+      "title": "fix(cmux-next): keep context ring color neutral",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24774,
+      "title": "cmux NEXT: Home shows on the first click when its workspace is in another space",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23942,
+      "title": "acpmux: a chat start waits for a Claude Code binary that npm is reinstalling",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24766,
+      "title": "fix(gallery): rebase workflow detail onto current base",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24779,
+      "title": "feat(cmux-next): add expandable live tails to command tray rows",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24801,
+      "title": "ci(cmux-next): fast Release gate checks out the pushed commit before requesting nightly-next",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24812,
+      "title": "ci: admit nightly on Release fast checks",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24761,
+      "title": "fix(gallery): carry activity placement onto current base",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24762,
+      "title": "feat(cmux-next): add Labs workflow summary seam",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24764,
+      "title": "feat(gallery): add dynamic workflow summaries",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24778,
+      "title": "feat(gallery): add long command row variants",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24756,
+      "title": "feat(gallery): add background activity and workflow placements",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24765,
+      "title": "cmux NEXT: tighten transcript gap above composer",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24739,
+      "title": "acpmux: retain ordered prompt metadata for transcript reloads",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24787,
+      "title": "ci: print first 50 xcodebuild errors",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24781,
+      "title": "fix(next): sign-cef.sh exits 0 when the bundle has no Chromium host app",
+      "author": "Abdulaziz Albahar",
+      "clip": "no clip"
+    }
+  ]
+}

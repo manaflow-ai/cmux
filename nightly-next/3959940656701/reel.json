@@ -1,0 +1,47 @@
+{
+  "version": 1,
+  "build": "3959940656701",
+  "notes": "notes/3959940656701.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 23343,
+      "title": "acpmux: the agent chat's branch follows a checkout mid-session",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23015,
+      "title": "acpmux: agent messages waiting for a busy chat go in together as one turn, after the person's",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23356,
+      "title": "test(webviews): the composer grow-and-shrink cases sample their first frame at rest",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23320,
+      "title": "fix(next): drop the subtitle parameter #23286 made dead, and the comment that described it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23232,
+      "title": "cmux-next: a chat reopens where the reader left it on the host it actually opens on (cx-6bgzj)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23349,
+      "title": "tests: register test_guard_hooks_from_base.py",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "build": "4010241229101",
+  "notes": "notes/4010241229101.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 24877,
+      "title": "perf: fail gates on incomplete benchmark coverage",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24915,
+      "title": "fix(gallery): use kebab-case server card variant",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24892,
+      "title": "fix(cmux-next): use shared spinner for agent loading mark",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}

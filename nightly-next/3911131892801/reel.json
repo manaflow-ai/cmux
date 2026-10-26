@@ -1,0 +1,248 @@
+{
+  "version": 1,
+  "build": "3911131892801",
+  "notes": "notes/3911131892801.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 21538,
+      "title": "fix(cmux-next): avoid duplicate base archive pathspec",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21535,
+      "title": "perf(next): coalesce activity bridge state pushes",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21533,
+      "title": "ci(next): retire release-surface approval bottleneck",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21264,
+      "title": "test agent chat Codex parity stream",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21157,
+      "title": "fix(next): refresh static verification inputs",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21193,
+      "title": "ci: explain nightly-next safety holds in decision summary",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21391,
+      "title": "polish(cmux-next): round composer pills and highlights",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21522,
+      "title": "fix(cmux-next): fail closed for unsupported workspace name provenance",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21270,
+      "title": "ci(next): validate sidebar performance receipts",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21501,
+      "title": "perf(webviews): release completed list motion animations",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21321,
+      "title": "fix: bind review findings to exact run heads",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21500,
+      "title": "perf(cmux-next): avoid sorting lanes twice for sidebar badge",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21496,
+      "title": "fix: keep no-activate LaunchServices off main",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21493,
+      "title": "test(cmux-next): gate GUI motion checks on real display frames",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21395,
+      "title": "fix(cmux-next): show focus rings only for keyboard navigation",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21512,
+      "title": "Add sidebar preview and reasoning slider gallery foundation",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21511,
+      "title": "fix(cmux-next): split runtime motion and control fixes",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21510,
+      "title": "fix(cmux-next): split source-size guard tooling",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21509,
+      "title": "fix(composer): preserve draft hydration across relaunch",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21459,
+      "title": "fix(cmux-next): move focus after closing a tab group",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21504,
+      "title": "ci(cmux-next): broaden product path admission",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21461,
+      "title": "feat(gallery): add faithful effort track preview",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21441,
+      "title": "feat(next): carry workspace name provenance in Swift daemon client",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21494,
+      "title": "fix(cmux-next): preserve base measurements in god-file guard",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21476,
+      "title": "perf(webviews): harden list motion invalidation lifecycle",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21475,
+      "title": "perf(agent-activity): ignore stale priority events",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/21475/139f5a4c/next-core-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "139f5a4c",
+      "tour": "core"
+    },
+    {
+      "pr": 21471,
+      "title": "perf(cmux-next): avoid sorting lane IDs on updates",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21453,
+      "title": "ci(web): run React Doctor in parallel",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21440,
+      "title": "docs: make cmux-next ACPmux event ownership explicit",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21194,
+      "title": "rebase focused work onto current cmux-next",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21419,
+      "title": "test(web): await installed empty state",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21442,
+      "title": "Gallery: make current-composer handoff fast and shareable",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21450,
+      "title": "fix(setup): install hooks before toolchain checks",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21384,
+      "title": "perf(cmux-next): gate find highlight repaints by transcript changes",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21446,
+      "title": "test(apps): tolerate empty-state selector rename",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21383,
+      "title": "perf(acpmux): reserve prompt image slots during host load",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21422,
+      "title": "feat(cmux-next): wire ACPmux events into priority agent view",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21397,
+      "title": "feat(next): carry explicit session lifecycle receipts",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21438,
+      "title": "ci: route bot rescue attempt three to Blacksmith",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}

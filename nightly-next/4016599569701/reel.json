@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "build": "4016599569701",
+  "notes": "notes/4016599569701.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 24916,
+      "title": "fix(agent-chat): scope no-effort picker declarations",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25043,
+      "title": "Agent pane: an agent a shell call starts (codex exec, acpmux run) draws as a subagent",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25040,
+      "title": "Agent pane: read the agent a shell call starts (codex exec, claude -p, acpmux run)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25074,
+      "title": "AgentPeerSession: a case enum and a lane-collection extension (namespace-type convention)",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/25074/a3dd5351/next-core-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "a3dd5351",
+      "tour": "core"
+    },
+    {
+      "pr": 25059,
+      "title": "acpmux resolve: a PR footer's agent link finds its session, here or on a peer, with its metadata",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25067,
+      "title": "cmux NEXT: the tip app checks its feed every 5 minutes",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/25067/c959437f/next-core-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "c959437f",
+      "tour": "core"
+    },
+    {
+      "pr": 25039,
+      "title": "cmux-host: the Cloud agent mints GitHub tokens for its own machine",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}

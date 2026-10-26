@@ -1,0 +1,167 @@
+{
+  "version": 1,
+  "build": "3936775151801",
+  "notes": "notes/3936775151801.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 22277,
+      "title": "cmux NEXT: a two-finger swipe over a browser page goes back or forward",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22156,
+      "title": "ci(next): the PR autofix pushes only after it read the export areas",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22129,
+      "title": "ci(cmux-next): a feat-cmux-next push runs the checks job again",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22139,
+      "title": "acpmux: finished CLI sessions reopen directly, not behind a stale holder (hq#2569 item 7)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22268,
+      "title": "cmux NEXT: mouse buttons 4 and 5 go back and forward",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22270,
+      "title": "cmux NEXT Settings > Theme: one card, one theme picker everywhere, accent swatch popup",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21110,
+      "title": "acpmux: follow a session's branch per turn in the branches stats (hq#1920)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22191,
+      "title": "ci(cmux-next media): don't wait 37 min for an unpublished base cmux-tui tree",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22144,
+      "title": "ci(cmux-tui): run the Mac tests when macOS clippy fails",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22239,
+      "title": "cmux-next: Chief Settings as a glass popover under the name pill",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22131,
+      "title": "cmux-next: environment picker and New Worktree in the composer location row (preview)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22229,
+      "title": "cmux NEXT Home list: one-row header at every width, theme focus and selection, compact disc",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22167,
+      "title": "ci(next-batch): labeled groups land together on one combined run",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22193,
+      "title": "cmux-tui: line tables for workspace crates, no debuginfo for dependencies in dev builds",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22190,
+      "title": "test(ci): side-lane placement wiring test follows fast-tier and the web-bundles gate",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22267,
+      "title": "cmux-next Settings: sliders rest on the live value; floating Undo, Redo and Reset on Appearance",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22264,
+      "title": "agent pane: an action during a chat switch reaches the chat on screen",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22236,
+      "title": "browser.md: Widevine and H.264/AAC ship in cmux.28; Spotify loads in CEF tabs",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22162,
+      "title": "cmux-tui tree key: cover only the crates the published binaries link",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22187,
+      "title": "cmux-next: session continuity gate in the restore journey (agent chats, terminal agents; daemon crash, reboot)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22288,
+      "title": "cmux-next: Home message requests compile (public imports, a nonisolated request)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22163,
+      "title": "fix(server): keep pairing codes the backend may still accept; retry unsent begins",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22254,
+      "title": "cmux NEXT: Update Ready popup waits for the pointer, is menu-sized and scrolls; compact card",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22231,
+      "title": "cmux NEXT New Tab: paste and drop images and files, sent with the first prompt",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22197,
+      "title": "ci(web): lint and budget gates no longer skip the webview and sidecar tests",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22170,
+      "title": "ci(cmux-next media): a pin-change clear removes the whole build state, so tours stop failing on a missing .pcm",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}

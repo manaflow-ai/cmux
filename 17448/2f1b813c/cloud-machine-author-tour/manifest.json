@@ -1,0 +1,24 @@
+{
+  "tour": "cloud-machine-author-tour",
+  "head_sha": "2f1b813cba12cd1e735a007c8dc38efaf5acfdd0",
+  "result": "failure",
+  "shots": [
+    {
+      "name": "04-10-right-sidebar-cloud",
+      "file": "04-10-right-sidebar-cloud.png"
+    },
+    {
+      "name": "07-20-lab-compact",
+      "file": "07-20-lab-compact.png"
+    },
+    {
+      "name": "15-30-lab-aero",
+      "file": "15-30-lab-aero.png"
+    }
+  ],
+  "gif": "tour.gif",
+  "tested_sha": "5b17667815db11253bc4efda41b758384d2dcb90",
+  "run_url": "https://github.com/manaflow-ai/cmux/actions/runs/37381902956",
+  "failures": [],
+  "frames": 5
+}

@@ -1,0 +1,31 @@
+{
+  "version": 1,
+  "build": "3961849180901",
+  "notes": "notes/3961849180901.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 23094,
+      "title": "Agent chat: streaming replies grow by whole words, with room above the composer and no Markdown flips",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/23094/streaming-text-codex-webkit.mp4",
+      "source": "manual",
+      "note": "2 hand-posted clips; picked by name"
+    },
+    {
+      "pr": 23430,
+      "title": "test(webviews): the fake bun takes the test file from its last argument",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23157,
+      "title": "cmux NEXT environment picker: a started chat offers Move to Cloud, or Bring Back Local",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}

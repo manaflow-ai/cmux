@@ -1,0 +1,19 @@
+{
+  "tour": "modifier-clicks-tour",
+  "head_sha": "d5bcff63e049c0440f9ca7b2907997f104bb7793",
+  "result": "failure",
+  "shots": [
+    {
+      "name": "14-01-cmd-click-opens-example",
+      "file": "14-01-cmd-click-opens-example.png"
+    },
+    {
+      "name": "21-02-cmd-click-opens-github",
+      "file": "21-02-cmd-click-opens-github.png"
+    }
+  ],
+  "gif": "tour.gif",
+  "run_url": "https://github.com/manaflow-ai/cmux/actions/runs/37690190893",
+  "failures": [],
+  "frames": 4
+}

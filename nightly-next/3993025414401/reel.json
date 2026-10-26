@@ -1,0 +1,29 @@
+{
+  "version": 1,
+  "build": "3993025414401",
+  "notes": "notes/3993025414401.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 24485,
+      "title": "fix(next): make browser previews use real checkout state",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24501,
+      "title": "Agent pane tests: three transcript base reds pass again",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24491,
+      "title": "web(devbox): excuse the desktop source digest awaiting its rebake after b5f75830 (base red)",
+      "author": "Abdulaziz Albahar",
+      "clip": "no clip"
+    }
+  ]
+}

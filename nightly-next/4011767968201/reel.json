@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "build": "4011767968201",
+  "notes": "notes/4011767968201.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 24928,
+      "title": "fix(cmux-tui): add send's flow field to the SDK schema",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/24928/6999adff/next-core-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "6999adff",
+      "tour": "core"
+    },
+    {
+      "pr": 24918,
+      "title": "fix(acpmux): separate long requests from handler work",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24790,
+      "title": "acpmux: keep Claude's big workflow snapshots out of the raw event log",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}

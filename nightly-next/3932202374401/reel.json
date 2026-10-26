@@ -1,0 +1,189 @@
+{
+  "version": 1,
+  "build": "3932202374401",
+  "notes": "notes/3932202374401.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 21673,
+      "title": "cmux NEXT: New Tab suggestions end with New terminal, New browser tab and New chat",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22052,
+      "title": "cmux NEXT New Tab: review follow-ups for #21781, #21693, #21851",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/22052/ba474a3d/next-new-tab-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "ba474a3d",
+      "tour": "new-tab"
+    },
+    {
+      "pr": 22047,
+      "title": "fix(cmux-next): running spinners draw bare, with no disc or ring behind them",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22051,
+      "title": "cmux NEXT media tour: show loading and working spinners on sidebar rows",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/22051/ee8b5ec2/next-core-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "ee8b5ec2",
+      "tour": "core"
+    },
+    {
+      "pr": 21257,
+      "title": "ci: scope inherited webview ratchet findings",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21880,
+      "title": "cmux-next: project favicons in the project pickers",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21256,
+      "title": "docs: classify exact-head CI evidence",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22009,
+      "title": "docs: drop the retired suite-coverage note; debug CLI example uses workspace list",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21431,
+      "title": "fix(cmux-next): make Apps failures recoverable",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21940,
+      "title": "cmux-next sidebar: selected rows read as one selection in every theme",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21667,
+      "title": "cmux-next: Chief marks, the Home note and the memory inspector follow the theme",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/21667/ea63d34f/next-agent-pane-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "ea63d34f",
+      "tour": "agent-pane"
+    },
+    {
+      "pr": 21575,
+      "title": "fix(cmux-next): hide access grant count from pill",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21838,
+      "title": "cmux-next: closing a link tab goes back to its opener",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22100,
+      "title": "cmux-next: mark three reviewed Core Animation objects as motion exceptions",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21867,
+      "title": "ci: bead, review links, red checks and tour share the PR status comment; no comments as a person",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21813,
+      "title": "cmux-tui-hooks: status reports conflicting hook targets",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21950,
+      "title": "docs(cmux-tui): document agent_session.mode_conflict",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22003,
+      "title": "web: clear two feat-cmux-next Web tests base reds (devbox awaiting-rebake, docs shortcuts)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21919,
+      "title": "fix(next): macOS 15 launch check runs the probe with the runner's HOME",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21697,
+      "title": "Now Playing card: level bars and a filled Play/Pause",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/21697/dfc0aba8/next-now-playing-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "dfc0aba8",
+      "tour": "now-playing",
+      "note": "9 captures, head moved past every capture; picked dfc0aba8 by name, not by date"
+    },
+    {
+      "pr": 21872,
+      "title": "agent pane: a gallery stage in a chat loads live, at its own size",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21955,
+      "title": "fix(agent pane): a followed chat reaches the end under Reduce Motion",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21786,
+      "title": "cmux-next agent pane: the composer is glass over art, with a top-lit rim",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/21786/f27e7928/next-agent-pane-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "f27e7928",
+      "tour": "agent-pane"
+    },
+    {
+      "pr": 21960,
+      "title": "perf(cmux-next): keep transcript rows from re-rendering on every token (recut of #21724)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22012,
+      "title": "ci: the Swift fast-tier cache restores one directory per step",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21272,
+      "title": "fix(cmux-next): pending New Tab access chip is a live menu at the start mode",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21729,
+      "title": "cmux NEXT: click-through check for picks that stick and still chat switches",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}

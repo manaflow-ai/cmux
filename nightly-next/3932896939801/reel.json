@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "build": "3932896939801",
+  "notes": "notes/3932896939801.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 22042,
+      "title": "cmux-next: finish the strings-tables move",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21943,
+      "title": "Daemon: stash.restore is all or nothing (#20706)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21983,
+      "title": "acpmux: Stop right after an auto-resume fires still prevents it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21785,
+      "title": "cmux-next: overlays are themed Liquid Glass, and tooltips let more through",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/21785/a8d15d3c/next-glass-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "a8d15d3c",
+      "tour": "glass"
+    }
+  ]
+}

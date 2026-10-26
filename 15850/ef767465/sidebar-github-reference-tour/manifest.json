@@ -1,0 +1,24 @@
+{
+  "tour": "sidebar-github-reference-tour",
+  "head_sha": "ef767465208ea71e5b4413320acd1c716438d96e",
+  "result": "passed",
+  "shots": [
+    {
+      "name": "07-sidebar-reference",
+      "file": "07-sidebar-reference.png"
+    },
+    {
+      "name": "10-sidebar-reference-hover",
+      "file": "10-sidebar-reference-hover.png"
+    },
+    {
+      "name": "13-sidebar-reference-clicked",
+      "file": "13-sidebar-reference-clicked.png"
+    }
+  ],
+  "gif": "tour.gif",
+  "tested_sha": "fd5eeb905999eebb220d5644028640ce72b92253",
+  "run_url": "https://github.com/manaflow-ai/cmux/actions/runs/36742931221",
+  "failures": [],
+  "frames": 5
+}

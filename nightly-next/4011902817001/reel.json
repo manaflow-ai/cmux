@@ -1,0 +1,32 @@
+{
+  "version": 1,
+  "build": "4011902817001",
+  "notes": "notes/4011902817001.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 24898,
+      "title": "Add layout-aware shortcut regression coverage",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/24898/7ca1ed70/next-core-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "7ca1ed70",
+      "tour": "core"
+    },
+    {
+      "pr": 24900,
+      "title": "fix(cmux-tui): drain queued local PTY output before resizing (#16644)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24932,
+      "title": "fix(cmux-flow-trace): a monotonic clock on Windows (fix-forward of the Windows build)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}

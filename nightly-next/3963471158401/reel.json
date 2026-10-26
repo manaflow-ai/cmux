@@ -1,0 +1,101 @@
+{
+  "version": 1,
+  "build": "3963471158401",
+  "notes": "notes/3963471158401.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 23439,
+      "title": "cmux setup harness: never read the keychain to ask a sign-in",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23302,
+      "title": "Agent chat: new lines in the composer leave the transcript's scrollbar still",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23512,
+      "title": "cmux NEXT agent pane: a background task that starts while its list is open slides in at the top",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23361,
+      "title": "ci(next): check-concurrency refuses a generic main-actor class with no nonisolated deinit (the #23050 Release crash)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23133,
+      "title": "test(next): the accent is never orange and glass is never opaque",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/23133/eca6eb0f/next-core-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "eca6eb0f",
+      "tour": "core"
+    },
+    {
+      "pr": 23501,
+      "title": "cmux NEXT agent pane: the Inspector slides in from the right and back out",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23404,
+      "title": "cmux NEXT sidebar: workspaces as tabs prototype (Debug, off): one-line rows, Cmd-Shift-[ / ] step workspaces",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23471,
+      "title": "cmux NEXT App Store: Channels and five sidebar launchers as Features cards",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23456,
+      "title": "ci: every Python test runs on a feat-cmux-next pull request lane, or is a reviewed exemption",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23504,
+      "title": "cmux NEXT: the chat's top banners and Settings' read-only line drop in from the top",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23387,
+      "title": "[excursion] Clarify notification copy action",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/23387/aa935c1e/next-core-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "aa935c1e",
+      "tour": "core"
+    },
+    {
+      "pr": 23500,
+      "title": "cmux NEXT agent pane: a menu that flips below its chip drops out of it; the model picker opens with motion",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23367,
+      "title": "acpmux: a restart retells no branch, a purge forgets it, the schema documents gitBranch",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23209,
+      "title": "ci(web): react-apps-check fails a pull request only on webview tests it turns red",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}

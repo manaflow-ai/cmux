@@ -1,0 +1,107 @@
+{
+  "version": 1,
+  "build": "3937100371101",
+  "notes": "notes/3937100371101.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 22334,
+      "title": "cmux NEXT agent pane: the prompt editor's Send label is the opaque page color",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22245,
+      "title": "cmux-next: tab and session hover cards share one Codex-style row",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22174,
+      "title": "ci(cmux-next media): each concurrent tour on a Mac claims its own warm DerivedData slot",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22322,
+      "title": "fix(composer chips): the composer and New Tab chips draw #22107's pill again",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21382,
+      "title": "cmux-next: distinguish SSH visibility from Codex enrollment",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22321,
+      "title": "ci: run the pin-cmux-tui wait tests on a virtual clock",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22266,
+      "title": "ci: run the cmux-next checks job and gallery capture on 16 vCPU",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21774,
+      "title": "Cloud VM API: land reviewed stack #21723–#21774",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21590,
+      "title": "test(next): isolate process state in Swift suites",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21403,
+      "title": "ci: hand off cmux NEXT DEV builds immediately",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21240,
+      "title": "docs(next): specify conversation goal strip",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21101,
+      "title": "cmux-tui: unsend to a deleted session, pump mark failure, unsend spec (agent messaging 4c)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22283,
+      "title": "cmux NEXT tabs: Chrome-style multi-select (Cmd-click, Shift-click, drag, menu, Cmd-W act on the selection)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21074,
+      "title": "ACPMUX: redact remote spawn defaults",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 20982,
+      "title": "feat(acpmux): Codex background terminals in the process registry",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 20971,
+      "title": "docs: plan cmux Next personal orchestration",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}

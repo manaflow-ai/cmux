@@ -1,0 +1,29 @@
+{
+  "tour": "cloud-sidebar-audit-tour",
+  "head_sha": "7876bb9bc5b29d2c57926ac242fe65fe2d0523a3",
+  "result": "failure",
+  "shots": [
+    {
+      "name": "02-failed",
+      "file": "02-failed.png"
+    },
+    {
+      "name": "04-10-right-sidebar-files",
+      "file": "04-10-right-sidebar-files.png"
+    },
+    {
+      "name": "06-failed",
+      "file": "06-failed.png"
+    },
+    {
+      "name": "16-20-cloud-spacing-lab",
+      "file": "16-20-cloud-spacing-lab.png"
+    }
+  ],
+  "gif": "tour.gif",
+  "run_url": "https://github.com/manaflow-ai/cmux/actions/runs/37251099649",
+  "failures": [
+    "DogfoodScenarioUITests.swift:115: failed - Dogfood steps failed:"
+  ],
+  "frames": 9
+}

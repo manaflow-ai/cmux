@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "build": "3973389583201",
+  "notes": "notes/3973389583201.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 24191,
+      "title": "fix(coderouter): Codex on a team machine needs a team account, not rate limited",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24034,
+      "title": "Agent pane: Retry on a failed prompt works again (the host, not the page, marks it a resend)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23841,
+      "title": "cmux-next: browser toolbar cursor stops asking the window server on every pointer move",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23804,
+      "title": "fix(acpmux): a paused queue names its error and shows nothing running",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24142,
+      "title": "bookmarks: bookmark.list says loaded; bookmark.importSources names the source keys an import would use",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24219,
+      "title": "HomeChiefLinkInkTests: name NSView.display unambiguously (fix the base's test build)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23991,
+      "title": "Agent pane: a waiting steer's Send now sits at its bubble's left, on its row",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}

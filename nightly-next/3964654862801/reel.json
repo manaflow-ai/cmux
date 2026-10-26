@@ -1,0 +1,179 @@
+{
+  "version": 1,
+  "build": "3964654862801",
+  "notes": "notes/3964654862801.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 23496,
+      "title": "acpmux: every session gets its own TMPDIR on every host, removed when acpmux forgets it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23462,
+      "title": "test(webviews): B1 waits for conditions, not fixed times (119 waits)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23508,
+      "title": "test(webviews): the chat-open gate measures a loaded daemon, not only a long list",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23536,
+      "title": "base autofix: read since without grafting; stale settings stamp turns settings on; fail when exports stay stale after landing",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23557,
+      "title": "rows_tests: drop two redundant clones (clippy base red)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23562,
+      "title": "acpmux: refuse Windows device names (CON, NUL, COM1) for dropped files",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23506,
+      "title": "AccountsCmuxRowTests: a finished sign-in stops signing in",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23454,
+      "title": "test(webviews): B2 waits for conditions, not fixed times (110 waits)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23539,
+      "title": "agent pane: opening the Inspector renders the panel, not the whole chat pane five times",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23030,
+      "title": "cmux-next: a chat pane nobody can see gets frames at most 4 times a second",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/23030/5cd47ccc/next-agent-pane-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "5cd47ccc",
+      "tour": "agent-pane"
+    },
+    {
+      "pr": 23527,
+      "title": "cmux NEXT sidebar: Priority rows' mark read, pin, snooze and archive are actions (palette, menu)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23155,
+      "title": "cmux NEXT: Cloud machine actions from the CLI need --target and return their result",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23541,
+      "title": "cmux-mobile-link: take the TURN allocation a dial missed",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23559,
+      "title": "fix(next tests): read ChromeLabel text in the Home requests sheet test",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23548,
+      "title": "gallery health: drop changes-scope-menu#keyboard from the broken allowlist; it renders again",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23560,
+      "title": "test(cmux-next): a flat terminal capture shows no hover preview (#22653)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23558,
+      "title": "ci: cmux-next's queued side jobs are not cancelled and re-run into the same queue",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23507,
+      "title": "cmux NEXT agent chat: the caret's line stays clear of the composer's fade, and every paste path scrolls to the end",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23530,
+      "title": "cmux-tui-core: drop the two new expect calls (Crash safety base red)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23514,
+      "title": "cmux NEXT: the Priority View's App Store entry says it ranks agent chats",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22827,
+      "title": "acpmux: agent-to-agent messages show their sender; sub-sessions show in the transcript and summary",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23437,
+      "title": "cmux NEXT sidebar: multi-view prototype (navigate on release, drag without switching, on-screen rows lit)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23478,
+      "title": "cmux-next sidebar: pinned rows end where the other rows do (row trim)",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/23478/02b3b9ba/next-core-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "02b3b9ba",
+      "tour": "core"
+    },
+    {
+      "pr": 23529,
+      "title": "webviews tests: thread-minimap-motion samples after the frame paints",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23482,
+      "title": "cmux-next sidebar: an open pull request's badge is read again on its own",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23550,
+      "title": "test(cmux-next): resting in the hover slot needs no timer to show no card",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23492,
+      "title": "cmux NEXT: agents open a session's chat as a tab of a pane (app_agent_open_tab)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}

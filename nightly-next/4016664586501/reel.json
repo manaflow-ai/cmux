@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "build": "4016664586501",
+  "notes": "notes/4016664586501.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 25075,
+      "title": "fix(ci): an unset CI_NEXT_DEV_PRODUCT_REUSE leaves DEV product reuse on",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25031,
+      "title": "cmux NEXT feed: the Labs reports basket is AppKit (No new SwiftUI)",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/25031/35f75f1c/next-core-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "35f75f1c",
+      "tour": "core"
+    },
+    {
+      "pr": 25069,
+      "title": "Settings > Devices: a per-device Full access switch for acpmux-paired client machines",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/25069/d4d91be3/next-core-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "d4d91be3",
+      "tour": "core"
+    }
+  ]
+}

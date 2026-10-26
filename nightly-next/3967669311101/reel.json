@@ -1,0 +1,95 @@
+{
+  "version": 1,
+  "build": "3967669311101",
+  "notes": "notes/3967669311101.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 23626,
+      "title": "cmux NEXT composer: the attachment row fades at the sides it scrolls past",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23649,
+      "title": "Diff viewer: a kind reorder keeps the reader's line, not just their file",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23377,
+      "title": "cmux NEXT updates: channel tracks data (each ring's recent builds, verdict, pull, You are here)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23648,
+      "title": "debug.page hover: live check on a zoomed Chromium page (no multiply needed)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23679,
+      "title": "cmux NEXT: a window snapshot paints the app's menus, cards and popovers over the window",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23628,
+      "title": "Errno assertion lint: scan cmux-next-ios tests and refuse an unscanned test target",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23699,
+      "title": "VM image: record Freestyle's current ubuntu-sm base fingerprint",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23631,
+      "title": "cmux-next test: the picked-folder prompt tests reach the gesture rule (base red since #22622)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23669,
+      "title": "acpmux subsessions: mask a child's activity and question before cutting them",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23545,
+      "title": "cmux-next checks: the App size cap on a push compares with the commit before it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23674,
+      "title": "ci(pr-autofix): action exports fetch history without blobs and leave no repository behind",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23639,
+      "title": "acpmux: a narrower policy holds on presets, resume, asides, handoffs and a deny-all default",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23684,
+      "title": "cmux-next: folding the Chief group no longer drops the sidebar list",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23688,
+      "title": "ci(merge-compile-guard): a passed cmux-ci compile-check --app job on the exact head stands in",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}

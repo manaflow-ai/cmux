@@ -1,0 +1,77 @@
+{
+  "version": 1,
+  "build": "3938341062601",
+  "notes": "notes/3938341062601.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 22246,
+      "title": "cmux NEXT: a tab dragged to its own workspace keeps its name, and a moved New Tab page acts where it is",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22393,
+      "title": "test(history paging): opening a mid-turn tail may make one small opener read",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22369,
+      "title": "fix(next): Files, Screenshots and browser fields drop their focus ring; Files prompts show their keys (check base reds)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22349,
+      "title": "fix(find): a held Find match stays in view inside a command's capped output",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22332,
+      "title": "test(ui a11y): axe checks a popup after its open fade ends",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22331,
+      "title": "test(popup escape): ArrowDown's next row skips separators and disabled rows",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22269,
+      "title": "settings: the host shows Settings once its first screen is in (no flicker on open)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22347,
+      "title": "agent pane: answers during a switch's hold stay on the chat on screen",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22234,
+      "title": "agent pane: per-chat pieces keep their last value across a switch, reconnect or reload",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22305,
+      "title": "cmux NEXT: a Chromium page's resize gap shows the page's own color; probe for resize lag",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22289,
+      "title": "cmux-tui: reopening a closed workspace or screen restores its splits, selection, focus and presentation",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}

@@ -1,0 +1,119 @@
+{
+  "version": 1,
+  "build": "3956132659001",
+  "notes": "notes/3956132659001.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 23055,
+      "title": "cmux NEXT: setting for classic terminal-first Cmd-T / Cmd-D",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23079,
+      "title": "Pin the daemon-test job name the publisher check reads",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23063,
+      "title": "test(agent pane): measure the Chief context label as drawn, so a truncated one passes (base red)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23070,
+      "title": "agent pane: composer chip menus highlight with the theme's accent wash",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23017,
+      "title": "fix(cmux-next coderouter): provider and account rows are one height",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23012,
+      "title": "fix(cmux-next sidebar): the icon rail keeps its 48px column (it shared .acpmux-rail with the session rail)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23002,
+      "title": "fix(cmux-next sidebar): \"No matching chats\" no longer shows above a full project list",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23061,
+      "title": "ci(cmux-tui): stop deferring daemon tests to a publisher whose test job is stuck",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21807,
+      "title": "fix(acpmux): spec _acpmux/sessions paging fields",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22342,
+      "title": "Agent chat: no preview card for a setting's loopback address or an API route",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23044,
+      "title": "cmux NEXT: Ctrl-B runs work in the background; Summary shows live background tasks",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22957,
+      "title": "fix(acpmux): queued prompts keep their images when edited and name them for the row",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23041,
+      "title": "Chat: fit every attached image to 2000 px and 1.5 MiB instead of refusing it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22320,
+      "title": "Settings > Theme: search pickers draw the default swatch; Back to ?focus= reveals the row again",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23040,
+      "title": "fix(cmux-next tests): the row elapsed tests keep their windows",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23053,
+      "title": "webviews: tooltip-rules passes on base again (five allowed tooltips say why)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23056,
+      "title": "cmux-next guards: a stale settings export fails only the change that made it stale (defaults-snapshot base red)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23036,
+      "title": "fix(webviews gallery): the live gallery draws the diff page (its highlight worker 404ed)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}

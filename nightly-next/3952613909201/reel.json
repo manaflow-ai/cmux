@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "build": "3952613909201",
+  "notes": "notes/3952613909201.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 22686,
+      "title": "cmux-next: clear the CmuxNext crash-safety reds (unowned, IUO, assumeIsolated, unwraps, count ratchets)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22679,
+      "title": "chore(next): regenerate settings exports and defaults snapshot",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22668,
+      "title": "cmux-next: a New Tab page's pick replaces the page in its pane (split-right behind a Debug toggle)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22672,
+      "title": "cmux-next sidebar: groups made by automation take a palette color, not grey",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/22672/b168e7b2/next-core-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "b168e7b2",
+      "tour": "core"
+    }
+  ]
+}

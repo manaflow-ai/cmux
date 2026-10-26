@@ -1,0 +1,137 @@
+{
+  "version": 1,
+  "build": "3961101575901",
+  "notes": "notes/3961101575901.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 23368,
+      "title": "cmux-next perf: the source guard runs on every push and PR; the screenshot captures and popup flush on base pass it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23397,
+      "title": "fix(cmux-next): make app store tabs keyboard navigable",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23385,
+      "title": "cmux NEXT palette: Close Workspaces in Group, and Set Space Terminal Defaults asks instead of clearing",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23422,
+      "title": "fix(next perf gate): an unlit window skips the timed tab switch and new workspace counts",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23414,
+      "title": "test(webviews): mark the two 3 s frame-watch windows as fixed waits",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23403,
+      "title": "perf: avoid repeated transcript render scans",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23333,
+      "title": "gallery health: a check that fails when a gallery state stops rendering",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23305,
+      "title": "test(next layout): a row close's own frame takes the camera's first spring step",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23304,
+      "title": "test(next sidebar): the gutter test expects the pill's trailing trim from #22733",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23193,
+      "title": "cmux-next test: TerminalFirstNewTabTests counts the page Cmd-T adds, not every page",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23105,
+      "title": "cmux-next: main pane layout, an agent chat's opens land in one column on its right",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23383,
+      "title": "cmux NEXT: no Chromium browser is made once quit began to stop Chromium (crash on quit)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23395,
+      "title": "[excursion] docs: clarify native prerequisites",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23083,
+      "title": "cmux NEXT: measure and speed up browser tab hibernation",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23394,
+      "title": "fix(agent-pane): deduplicate persisted attachment ids",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23365,
+      "title": "webviews: a ratchet refuses new fixed-time waits in tests",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23412,
+      "title": "fix(next): the Find section's search field draws no focus ring (base text-focus red)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23372,
+      "title": "cmux setup machine: a default name never moves another peer",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23318,
+      "title": "cmux NEXT Chief pet: notices stay glass (the toasts' veil), not the opaque card fill",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23357,
+      "title": "cmux-next motion follow-ups to #22795: suggestion-lists-float opens its own gallery entries; the pane motion help names the content hold",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23328,
+      "title": "cmux NEXT App Store: the Chief Pet card links to Settings › Chief Pet",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}

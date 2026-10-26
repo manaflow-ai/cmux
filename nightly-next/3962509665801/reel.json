@@ -1,0 +1,188 @@
+{
+  "version": 1,
+  "build": "3962509665801",
+  "notes": "notes/3962509665801.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 23402,
+      "title": "ci(cmux-next): the swift test wrapper reads its log only once tee has written it (bash 3.2)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23491,
+      "title": "cmux NEXT: a split's confirmed overlay places only the daemon's pane, while the records hold it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23467,
+      "title": "cmux-next guards: baseline the Files tree's inline menu rows (base red defaults-snapshot)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23084,
+      "title": "cmux NEXT: a finished thought is one quiet 'Thought for 12s' row",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23459,
+      "title": "ci(cmux-tui): PRs lint the cmux-tui packages they touch with clippy --all-targets",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22979,
+      "title": "cmux NEXT sidebar: a slide does not resize every terminal's PTY on every frame",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23398,
+      "title": "Agent chat: a background task's end expands in place; Open in terminal shows its output",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23408,
+      "title": "Chief: a subagent stopped while starting is cancelled again as its task turn starts",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23104,
+      "title": "cmux NEXT: running subagents and background work sit in one tray above the composer; a finished subagent leaves one line",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23382,
+      "title": "cmux-next Cloud: an agent's machine create on the default link asks first in the sidebar card",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23451,
+      "title": "fix(next): a conversation split keeps its pane (and its controller) until the daemon's layout places it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23452,
+      "title": "test(webviews): base passes the fixed-wait ratchet again",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23473,
+      "title": "gallery health: drop agent-pane allowlist lines that render or no longer exist",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23441,
+      "title": "cmux NEXT theme: Grass and Hot Dog Stand cards stay translucent with AA text (ink takes the higher least contrast)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23427,
+      "title": "cmux-next: a folder opened from a lone chat slides its column in; the chat stays put",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23243,
+      "title": "Agent chat: the gutter beside every part of the floating stack scrolls the transcript",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23445,
+      "title": "cmux NEXT quit: close a Chromium browser made after quit closed every browser, so CefShutdown runs",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23257,
+      "title": "Agent chat: Jump to latest glides to the end after the composer grew",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23460,
+      "title": "fix(cmux-next): share RTL locale direction mapping",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22646,
+      "title": "cmux NEXT: Needs you list and the Needs your input pill",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23438,
+      "title": "fix(composer): align link dedupe across intake paths",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22698,
+      "title": "cmux NEXT Home composer: the emoji picker opens at its button, the mic dictates, attachments add without lag",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23450,
+      "title": "webviews: composer-type-scale reads its variants four pages at a time",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23415,
+      "title": "test(webviews): U2 waits for conditions, not fixed times (157 waits)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23376,
+      "title": "cmux NEXT App Store: sidebar density cards with row previews, and densities in the row and group ⋮ menus",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23154,
+      "title": "cmux-next: diff viewer paints big diffs fast and gets the cmux NEXT look",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22975,
+      "title": "Queued prompts show their images as thumbnails",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/22975/6b7cd276/next-agent-pane-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "6b7cd276",
+      "tour": "agent-pane"
+    },
+    {
+      "pr": 23339,
+      "title": "cmux-next: remove the dead SessionSidebar (not shipped since #17504)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23390,
+      "title": "cmux-next sidebar: each row says when its agent needs you, finished or failed (the Priority view's words)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "tour": "sidebar-template-gallery-light-tour",
+  "head_sha": "fa8ff4154d41257d9485f6a690e47b83156b3f24",
+  "result": "failure",
+  "shots": [
+    {
+      "name": "09-template-gallery-light",
+      "file": "09-template-gallery-light.png"
+    },
+    {
+      "name": "16-template-workspaces-light",
+      "file": "16-template-workspaces-light.png"
+    },
+    {
+      "name": "27-template-btop-agents-light",
+      "file": "27-template-btop-agents-light.png"
+    },
+    {
+      "name": "33-template-kept-light",
+      "file": "33-template-kept-light.png"
+    }
+  ],
+  "gif": "tour.gif",
+  "tested_sha": "e168e3c4e60983803608e9e765f9eb669c9e5dff",
+  "run_url": "https://github.com/manaflow-ai/cmux/actions/runs/37563839139",
+  "failures": [],
+  "frames": 10
+}

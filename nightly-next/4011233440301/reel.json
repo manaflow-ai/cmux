@@ -1,0 +1,89 @@
+{
+  "version": 1,
+  "build": "4011233440301",
+  "notes": "notes/4011233440301.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 24718,
+      "title": "fix(acpmux): smooth composer queue and tool-call fold cleanup",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24763,
+      "title": "ci: rescue jobs past the five-minute queue alarm",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24720,
+      "title": "cmux-next: smooth task starts and chat switches",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24725,
+      "title": "fix(agent-pane): stop old chat new-tab hero flash",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24775,
+      "title": "test(ci): preserve completed base-red evidence",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24773,
+      "title": "fix(ci): watch base-red classifier on pushes",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24769,
+      "title": "fix(ci): keep pending base reds warning-only",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24760,
+      "title": "cmux-next: failing test for rename sheet begun off main",
+      "author": "lawrencecchen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24757,
+      "title": "ci: grant checks job prior-tip log access",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24758,
+      "title": "fix(next): keep agent tools menu within row budget",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24729,
+      "title": "cmux NEXT: keep agent chrome lines and tool actions clear",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24715,
+      "title": "cmux NEXT transcript: move Send now into message actions",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24712,
+      "title": "fix(next): match Chrome rail end caps",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}

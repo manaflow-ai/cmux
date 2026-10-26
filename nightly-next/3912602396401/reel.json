@@ -1,0 +1,113 @@
+{
+  "version": 1,
+  "build": "3912602396401",
+  "notes": "notes/3912602396401.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 21566,
+      "title": "perf(acpmux): preserve normalized recent session entries",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21579,
+      "title": "ci(cmux-next): add advisory split-plan guard",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21574,
+      "title": "fix(cmux-next): align composer control chrome",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21591,
+      "title": "fix(ci): avoid dead GUI runner fallback",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21530,
+      "title": "ci: plan OR guard conditions without native routing",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21380,
+      "title": "acpmux: add host-qualified session receipts",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21543,
+      "title": "fix(cmux-next): keep sidebar close and hover state local",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21192,
+      "title": "ci: fetch only the nightly acpmux companion",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21189,
+      "title": "ci: reuse cmux-next web bundles across Linux and macOS",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21570,
+      "title": "ci: rebase rendered-state tour postconditions",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21557,
+      "title": "perf(acpmux): skip inactive sidebar grouping",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21548,
+      "title": "fix(cmux-next): keep no-activate watchdog evidence alive",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21532,
+      "title": "feat(gallery): add orchestration lab foundation",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21445,
+      "title": "feat(cmux-next): persist auto names across capable daemons",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21565,
+      "title": "ci: bound cmux-next ghostty initialization",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21562,
+      "title": "cmux-next tours: surface degraded visual coverage",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21286,
+      "title": "fix(cmux-next): stabilize tooltip and local browser restore tests",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}

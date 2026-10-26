@@ -1,0 +1,53 @@
+{
+  "version": 1,
+  "build": "4023940374302",
+  "notes": "notes/4023940374302.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 24975,
+      "title": "cmux NEXT composer: pasted screenshots never block typing; no image size cap",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25140,
+      "title": "Agent chat: keep reserved queue room through a touch tap",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25126,
+      "title": "cmux NEXT: chat tools share the glass without a pane outline",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25130,
+      "title": "fix(agent-chat): stop streaming follow after upward scroll",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25129,
+      "title": "fix(updater): keep nightly staged updates replaceable",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25117,
+      "title": "Permission card: short answer buttons of one size, the scope once under them",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25088,
+      "title": "Settings > Devices: each paired phone gets its own acpmux credential and the Full access switch (off by default)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}

@@ -1,0 +1,101 @@
+{
+  "version": 1,
+  "build": "3961563706401",
+  "notes": "notes/3961563706401.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 23442,
+      "title": "acpmux: a put-back agent message keeps its pasted ranges",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23407,
+      "title": "acpmux: name a sent prompt's pasted blocks (user_message.pasted)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21921,
+      "title": "cmux NEXT: view a Claude Code or Codex session without taking it over",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23400,
+      "title": "Settings: a font list opens on a click right after the page opens",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23426,
+      "title": "fix(next): a sidebar tile shows again after a press on the list ends its drag",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23429,
+      "title": "fix(next): a pane close in the key's frame redraws the layout instead of re-applying the store tree",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23419,
+      "title": "cmux NEXT: a Write whose old contents are unknown lists without counts, chevron or Undo",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22816,
+      "title": "cmux NEXT New Tab: open, ask or search from what you type, no switch",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23440,
+      "title": "fix(ci tests): run-webviews-tests-retry removes its staged-only file with git rm -f",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23399,
+      "title": "[excursion] Activate first-run rows with Space",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23424,
+      "title": "webviews tests: thread-minimap-feel measures the minimap, not the runner's frame rate",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23417,
+      "title": "cmux setup harness: check each harness is installed, signed in and current",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23436,
+      "title": "fix(next tests): CmuxNextAgentPaneTests compiles again (ChatDraftAttachmentsTests)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23421,
+      "title": "fix(composer): deduplicate repeated local link chips",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23350,
+      "title": "first-turn cost test: a passing run prints no FIRST-TURN-COST FAIL line",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}

@@ -1,0 +1,42 @@
+{
+  "version": 1,
+  "build": "3913514606901",
+  "notes": "notes/3913514606901.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 21645,
+      "title": "fix(cmux-next): restore composer row rhythm and open-chip wash",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21646,
+      "title": "ci(cmux-next): run the split guard's classifier from the base",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21640,
+      "title": "cmux NEXT: an agent page that never paints drops its loading spinner after 8 s (cx-txnr)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 20211,
+      "title": "cx-6so.49: respawn a terminal whose host ended at the orphan grace",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 20765,
+      "title": "cmux NEXT: Retry Now and Restart cmux-tui on the not-connected screens (cx-jniyz.1)",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/20765/pr20765-head-restart-flow.mp4",
+      "source": "manual"
+    }
+  ]
+}

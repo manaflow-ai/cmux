@@ -1,0 +1,675 @@
+{
+  "version": 1,
+  "build": "3958372135301",
+  "notes": "notes/3958372135301.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 23286,
+      "title": "fix(next): a workspace notification's banner compiles against the where/what banner (base compile red)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23024,
+      "title": "cmux-next: Debug toggle flashes the focus ring where focus moved without a click",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23251,
+      "title": "test(acpmux): bare-pr-refs gives the code block's highlighter customElements, so it never fails on a slow runner",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23250,
+      "title": "webviews: browser tests open a gallery frame for their own entry alone (galleryFrame helper and guard)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22998,
+      "title": "cmux-next: a window keeps its active look while its own browser page has the keyboard",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23248,
+      "title": "ci: every build-fleet client call checks the client is installed",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23263,
+      "title": "test(webviews): the narrow diff toolbar cases wait for jump-to-file before measuring it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23132,
+      "title": "fix(next): downloads popup, Stashed page and calm row tooltips go through themed tooltips (NativeTooltipGuardTests red on base)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23252,
+      "title": "cmux NEXT Inspector: background tasks the transcript knows, terminal links, and the chats the agent started",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23280,
+      "title": "ci(webviews): a string catalog key named twice is a hard error",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21116,
+      "title": "fix(cmux-next): keep censused shutdown failures visible",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23207,
+      "title": "cmux NEXT composer: the + tooltip is \"Add files and more\" (Codex style); fixes the base-red composer-claude-split test",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23249,
+      "title": "base autofix: regenerate the settings exports on the newest tip, so they land",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23270,
+      "title": "Agent chat: the Environment line and Inspector show the branch acpmux reports",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22773,
+      "title": "Agent chat: Claude's hover rows under every message (read receipts, Pin, Read aloud)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 20912,
+      "title": "acpmux protocol: serve the protocol IR over _acpmux/protocol",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23095,
+      "title": "Check errno assertions in cmux NEXT iOS tests",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23253,
+      "title": "web runs: answer 409, not a retryable 503, when promotion hits an attempt conflict",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23195,
+      "title": "cmux-next: the agent page WebKit warm-up waits for the first window frame",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22809,
+      "title": "acpmux new: one launcher for agents (worktree, prompt file, report-to, sidebar group, reuse)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23241,
+      "title": "test(gallery): ignore subpixel layout shift noise",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23233,
+      "title": "cmux-next: the Release compile no longer crashes on FirstMouseHostingView's deinit",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23259,
+      "title": "Agent chat header: the Environment line leaves a worktree's branch to its pill; / reads /",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23206,
+      "title": "cmux NEXT: a local chat's dropped or pasted folder or file goes as a link to its real path",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22994,
+      "title": "Agent pane: message cards say how far they got; shell rows drop the leading cd",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22900,
+      "title": "cmux NEXT: NIGHTLY's Chief runs on the app's acpmux, not a daemon of its own",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23221,
+      "title": "test(webviews): a fleet step without CMUX_BROWSER_TESTS=1 skips the browser lane",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23186,
+      "title": "Agent chat: a composer that grows never moves the transcript",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/23186/cap-79ff18fe-scrolled-up-shift-return.mp4",
+      "source": "manual",
+      "note": "2 hand-posted clips; picked by name"
+    },
+    {
+      "pr": 22798,
+      "title": "cmux NEXT composer: the caret stays put when the pane gets the keyboard back",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/22798/cap-ad3e9b65-caret-cropped.mp4",
+      "source": "manual"
+    },
+    {
+      "pr": 23171,
+      "title": "acpmux: lease a Cloud VM's acpmux as a peer over the remote tunnel (off by default)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22408,
+      "title": "cmux-next: Run board, run.attach bridge and retention reaper (rebuilt from #21305)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23162,
+      "title": "Gallery: the composer's paste states paste a real DataTransfer (no page error)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23218,
+      "title": "Gallery: a subagent's own pane, read only with its footer line (covers SubagentPaneFooter)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23106,
+      "title": "cmux NEXT menus: downloads, reload, history and device menus take the glass highlight and icons",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23226,
+      "title": "Agent chat test: the deleted-queue gap is read once the transcript is at rest (Chromium flake)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23212,
+      "title": "fix(acpmux): the saved environments panel draws its rounded rims one device pixel wide",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 20950,
+      "title": "cmux-next: render updates a page in place by id (cx-ncc.94)",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/20950/pr20950-clip-head-light-update-in-place.mp4",
+      "source": "manual"
+    },
+    {
+      "pr": 22848,
+      "title": "cmux NEXT Settings: a Chief page with every Chief setting; the Chief popover links to it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23240,
+      "title": "ci(fleet-compile-check): no client on the gateway is no verdict, not a compile failure",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23177,
+      "title": "ci(next): fix old feat guard reds: workflow shape",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23236,
+      "title": "Agent chat: the header says where the chat runs (machine · folder · branch)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22194,
+      "title": "ci(cmux-next media): tour a PR without the label when a specific tour covers its Swift UI change",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23147,
+      "title": "Cloud VM image: acpmux as another name of cmux-tui",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23225,
+      "title": "cmux-next: translate the selection menu titles into every catalog language",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23198,
+      "title": "cmux-next design: secondary text and icons read in a see-through window",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23194,
+      "title": "ci: fleet-compile-check runs-on falls back to a literal label",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23097,
+      "title": "fix(next): growing the composer never moves the transcript",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23224,
+      "title": "Agent chat: the pane's shell clips instead of hiding, so it never scrolls sideways",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22004,
+      "title": "base autofix: finish each run and land it on the newest tip",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23064,
+      "title": "Agent chat: a reopened chat shows its whole history, with no band above the composer",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22130,
+      "title": "cmux NEXT: a torn-off chat's window takes the chat's name, not workspace-N",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22487,
+      "title": "cmux NEXT: a click on a subagent whose pane is still opening focuses it",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/22487/a623d8d3/next-agent-pane-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "a623d8d3",
+      "tour": "agent-pane"
+    },
+    {
+      "pr": 23110,
+      "title": "feat(cmux-next): Chrome's menu for several selected sidebar workspaces",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23210,
+      "title": "webviews: the composer strip test loads its three entries alone, not the whole gallery (timeout flake)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22138,
+      "title": "cmux-next: a not-sent prompt says why, and a refused Retry says so (hq#2569 item 5)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23192,
+      "title": "test(settings): every-schema-row editors test runs one Settings page per test, so a slow runner can't fail the whole group",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23072,
+      "title": "acpmux: an ephemeral run always removes its session; a probe prompt (\"Reply with only: OK\") titles no chat and is no subagent",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22169,
+      "title": "agents: format every edited web and Rust file with CI's formatter, at edit and commit time",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23211,
+      "title": "fix(acpmux, agent pane): Ctrl-B works in the cmux model router's chats; acpmux says which chats it moves",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22643,
+      "title": "cmux NEXT: the Inspector, the chat's right-hand panel",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23219,
+      "title": "test(next): a reconnect restarts the agent update follow once on the new connection",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23208,
+      "title": "ci(cmux-next): the switch-fetches guard knows the kept attachments write, so cmux-next checks is green again",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22896,
+      "title": "cmux-next updates: pulled-build banner (Wait for the Fix / Roll Back) from pulled.json",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23143,
+      "title": "cmux-next: swift test log goes in the job's RUNNER_TEMP, not the shared /tmp",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23060,
+      "title": "Chief eval: arm L, cost from running totals, a spend cap and the full arm set",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22902,
+      "title": "webviews: six base-red composer tests pass (Send keeps its slot; three stale tests follow #22667)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23151,
+      "title": "cmux-next trust: one answer per repo (worktrees inherit it), and the question says what is trusted",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23172,
+      "title": "refactor(acpmux): one SelfCommand for every start of this binary",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 20812,
+      "title": "Agent pane: /btw opens a side session beside the chat",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23096,
+      "title": "cmux NEXT menus: Escape in a menu's name field keeps the old name",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22707,
+      "title": "cmux NEXT Home: plural step counts in every locale; the store keeps the thought's headline, not its text",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22701,
+      "title": "Post a Feed card for each installed update",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/22701/fd44725b/next-core-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "fd44725b",
+      "tour": "core"
+    },
+    {
+      "pr": 23077,
+      "title": "cmux NEXT menus: the agent chat message menu takes the glass highlight and icons",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23167,
+      "title": "cmux-next browser import: a removed page or site stays out of the saved imports",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23184,
+      "title": "ci(next): fix old feat guard reds: runner routing",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23049,
+      "title": "cmux-next bookmarks: the manager's more menu draws the shared ⋮ glyph",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23191,
+      "title": "fix(cmux-tui): resync SDK resource-api descriptors with the catalog",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23168,
+      "title": "ci(next): fix old feat guard reds: Xcode selection and shallow fetches",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23139,
+      "title": "cmux-next composer: a chat's unsent pictures and files come back when it is reopened or restored",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23078,
+      "title": "Agent chat in Chromium: Debug toggle spike (default off)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23076,
+      "title": "cmux-next sidebar: account chip and Search on one line above the bottom margin; profile picture in the avatar",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23153,
+      "title": "acpmux: a file link reaches Claude Code with its decoded path",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21618,
+      "title": "fix(gallery): make bare root open a real entry",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23101,
+      "title": "cmux NEXT: a background task finishes on its own Ran row; bottom notices are one quiet line",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22984,
+      "title": "Sidebar resize edge works while a browser tab has focus",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23178,
+      "title": "ci(next): fix old feat guard reds: package lane, rescue and build-state scripts",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22151,
+      "title": "ci(guards): a red guard no longer skips the rest of its group",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23164,
+      "title": "test(acpmux): peer-chat and working-counts read the working line #23090 draws",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23142,
+      "title": "cmux NEXT: a fresh profile's launch window shows its sidebar from its first frame",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23181,
+      "title": "cmux-next: the Priority bell says \"Needs attention\", and only the newest Undo toast shows ⌘Z",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23137,
+      "title": "ci: flag native UI changes whose description has no real capture",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23023,
+      "title": "fix(next): the browser profile menu keeps 12 top-level rows (color and icon under Appearance)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23100,
+      "title": "cmux NEXT composer: a pasted image is a chip only, never data: text in the prompt",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23169,
+      "title": "fix(ci guards): check out the base on pull requests too",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23170,
+      "title": "ci(ios): lock the INTERNAL upload keychain within the job timeout",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23148,
+      "title": "cmux-next: sidebar and tab-bar icons say what they mean",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22098,
+      "title": "cmux-next: Stash service and Stashed page (slice 4 of #20706)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23144,
+      "title": "webviews: the check is green again (three warnings it counts as a red)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23122,
+      "title": "acpmux: a cmux-tui daemon's sub-session MCP server runs under acp (cloud VMs)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22090,
+      "title": "fix(agents chat): stop a full read soon when a tool cannot settle",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23058,
+      "title": "cmux-next browser import: cleared history stays cleared across re-imports, and the fences merge",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23129,
+      "title": "Fix the flaky crash-report case in swift-test-summary.test.sh",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23149,
+      "title": "cmux-next chat: icon-only buttons say what they do (Add menu, Copy, Jump to latest, prompt Edit/versions, favorite)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23093,
+      "title": "cmux NEXT: expanding a tool call or thought animates and never moves your view",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23119,
+      "title": "cmux-next chat: the turn says \"Waiting for you\" while an ask waits on the person, never \"Thinking\"",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21897,
+      "title": "cmux-next: suggested follow-up tasks become a setting",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23116,
+      "title": "ci(merge-compile-guard): accept a verified fleet compile-check pass on the exact head",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23099,
+      "title": "cmux NEXT: Ctrl-B says so when nothing moved to the background",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23114,
+      "title": "Daemon: stash whole workspaces (stash-workspaces-v1)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}

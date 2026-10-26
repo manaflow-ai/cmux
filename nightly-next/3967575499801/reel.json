@@ -1,0 +1,129 @@
+{
+  "version": 1,
+  "build": "3967575499801",
+  "notes": "notes/3967575499801.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 23634,
+      "title": "test(cmux-next): frame budgets time the main thread's CPU, not the wall clock (toggle, palette, Extensions menu reds)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21818,
+      "title": "cmux-next: optional Agent integrations helper in Settings",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23612,
+      "title": "cmux NEXT: a subagent pane's owed focus yields to the person's latest action",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/23612/f11f923f/next-agent-pane-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "f11f923f",
+      "tour": "agent-pane"
+    },
+    {
+      "pr": 23650,
+      "title": "webviews: frame and event waits in the latency harness and wheel pass-through (fixed waits 75 → 26)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23677,
+      "title": "gallery(settings): Settings > Import shows its suggestion cards (pages.settings#import gallery reds)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23642,
+      "title": "acpmux: a turn is silent until its model speaks, not its agent's bookkeeping (Codex)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23675,
+      "title": "Cloud VM image: pin cmux-tui c2bab662bc80 (acpmux daemon prefix and session children)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23662,
+      "title": "ci: a merged pull request's pin skips its daemon tests, and a pin build of a tested tree does not test it again",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23638,
+      "title": "cmux-next: a DEBUG-only control that shows the Chief group in captures",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23651,
+      "title": "cmux NEXT: multi-view window, a row dropped on a pane edge shows its workspace beside the shown one (Debug toggle)",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/23651/mv-dogfood.mp4",
+      "source": "manual"
+    },
+    {
+      "pr": 23667,
+      "title": "ci(next): record NSSplitView viewDidMoveToWindow in the selector table",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23495,
+      "title": "cmux-next sidebar: every row shows its pull request badge, not only with the session tree on",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23606,
+      "title": "test(cmux-next): the hidden-pane pacing test asserts the exact wait on its fake clock",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23585,
+      "title": "test(webviews): B4 waits for conditions, not fixed times",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23656,
+      "title": "ci(next): same-tree trusts a tree's R2 completion.json over a cancelled artifacts run",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23640,
+      "title": "agent pane: a code card drawn plain still offers Open preview (artifact-panel gallery reds)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22471,
+      "title": "acpmux: a started subsession never asks less than the agent that started it",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23622,
+      "title": "webviews: test that a long paste round-trips composer to transcript as the same Pasted chip",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23654,
+      "title": "test(guards): guard-hook tests isolate git and start no background maintenance (maintenance.lock flake)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}

@@ -1,0 +1,299 @@
+{
+  "version": 1,
+  "build": "3907660300601",
+  "notes": "notes/3907660300601.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 21324,
+      "title": "test(cmux-next): audit sidebar and workspace switch motion",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21325,
+      "title": "fix(next): keep workspace list stable during switches",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/21325/36d1234a/next-agent-pane-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "36d1234a",
+      "tour": "agent-pane"
+    },
+    {
+      "pr": 21326,
+      "title": "ci: preserve trusted dev-build artifacts on current base",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21337,
+      "title": "feat: add durable Freestyle runtime promotion slice",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21330,
+      "title": "fix(cmux-next): reject stale deferred diff hydration",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/21330/12ea5e9c/next-core-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "12ea5e9c",
+      "tour": "core"
+    },
+    {
+      "pr": 21234,
+      "title": "feat(cmux-next): add priority agent sidebar projection",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/21234/4eb1d9a6/next-agent-pane-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "4eb1d9a6",
+      "tour": "agent-pane"
+    },
+    {
+      "pr": 21309,
+      "title": "fix: make merge freeze metadata auditable",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21319,
+      "title": "ci: notarize-nightly-dmg.sh parses under macOS /bin/bash 3.2 again",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21247,
+      "title": "ci(cmux-next): add advisory visual evidence receipt",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21308,
+      "title": "fix(cmux-next): guard stale session view state",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21311,
+      "title": "ci: export npm_config_prefix where create-dmg is installed for resumed DMGs",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21314,
+      "title": "ci(next): retain exact frame pacing receipts",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21178,
+      "title": "Fix Codex restore identity and recovery",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21279,
+      "title": "test(cloud): cover activation past stale rollout cache",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 20889,
+      "title": "Make Pro to Max upgrades work for every billing source",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21297,
+      "title": "Fix shared webview baseline gates",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/21297/a0931392/next-new-tab-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "a0931392",
+      "tour": "new-tab"
+    },
+    {
+      "pr": 21303,
+      "title": "ci: enable managed gallery PR evidence on base",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 20830,
+      "title": "Fix Claude Teams pane width and stale split recovery",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21242,
+      "title": "cmux-next: add opt-in animation variant lab",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21217,
+      "title": "ci: ship the app stapled inside the DMG (main, needs Lawrence)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21199,
+      "title": "feat(agent-chat): add safe URL chip hover cards",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21180,
+      "title": "Keep pasted HTML and JSX source editable in the composer",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21277,
+      "title": "fix(next): keep goal titles user-facing",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/21277/0cc69b71/next-core-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "0cc69b71",
+      "tour": "core"
+    },
+    {
+      "pr": 21196,
+      "title": "ci: disable per-PR gallery workflow",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21276,
+      "title": "web: company email accounts are Team with no Cloud machine cap",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21265,
+      "title": "ci(web): shard webview test files",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21250,
+      "title": "ci: paginate guard attribution commit pulls",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21252,
+      "title": "fix(acpmux): normalize null mailbox metadata",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21267,
+      "title": "fix(ci): accept guarded matrix conditions",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 20849,
+      "title": "Fix Codex memory worker session ownership",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21254,
+      "title": "feat(next): surface unresolved conversation goal",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21237,
+      "title": "fix(acpmux): close remote mailbox authorization boundary",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21266,
+      "title": "fix(ci): scope merged-head god-file audits",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 20850,
+      "title": "Fix blank Codex surface after tab reparenting",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 18442,
+      "title": "feat: opt in to trusted SSH OSC 52 clipboard writes",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21202,
+      "title": "ci(next): ratchet shared guard debt",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 20858,
+      "title": "ci: route high-volume bots through cmux-bot",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21255,
+      "title": "nightly: a refused nightly-next publication is an error and opens the failure issue",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 13742,
+      "title": "Chief hands: replacing an install's presence key needs the current key or a fresh sign-in",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21243,
+      "title": "ci: 6 h stapled-app fallback ships the accepted first DMG",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21149,
+      "title": "feat(agent-chat): persist mailbox delivery receipts",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21219,
+      "title": "ci: newest nightly-next promotion request wins the release-surface ack",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21235,
+      "title": "fix(agent-chat): respect reduced motion in history controls",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/21235/0034703d/next-core-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "0034703d",
+      "tour": "core"
+    },
+    {
+      "pr": 21220,
+      "title": "ci: newest nightly-next promotion request wins the release-surface ack (feat copy)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21216,
+      "title": "ci: nightly-sign.yml admits nightly runs from main in shadow mode (off by default)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    }
+  ]
+}

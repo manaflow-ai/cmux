@@ -1,0 +1,56 @@
+{
+  "version": 1,
+  "build": "4015912756102",
+  "notes": "notes/4015912756102.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 25060,
+      "title": "ci(cmux-next): the DEV Release compile builds the browser-data import out again, with no proof in that step",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24959,
+      "title": "ci(cmux-next): hand finished DEV builds to the publisher at once",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25057,
+      "title": "fix(cmux-next): base reds: CmuxNextApp as! cast, AgentLanes' CmuxNextIcons dependency",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/25057/ec62cffa/next-core-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "ec62cffa",
+      "tour": "core"
+    },
+    {
+      "pr": 25022,
+      "title": "cmux NEXT: a launch that loses the acpmux start race enrolls its person key (dead Allow until restart)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25018,
+      "title": "gallery: the pane's sheets come from dev.tsx, as build-agent-pane-web.sh derives them (base red: health 0-3)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24977,
+      "title": "Agent pane: sub-session calls render as live sub-session cards, not JSON",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25044,
+      "title": "cloud api: GitHub token endpoint with a sealed per-principal ledger, revoke and audit",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}

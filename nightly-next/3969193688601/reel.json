@@ -1,0 +1,36 @@
+{
+  "version": 1,
+  "build": "3969193688601",
+  "notes": "notes/3969193688601.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 23758,
+      "title": "test(sidebar): the hover card dwell test waits for the reshow window to end",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23709,
+      "title": "fix(cmux-vm): count locked apt packages the base already has as installed",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22815,
+      "title": "cmux-next: liquid glass lens primitive and Glass setting",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/22815/lens-scroll-stepped.mp4",
+      "source": "manual"
+    },
+    {
+      "pr": 23718,
+      "title": "webviews: judge the Jump to latest glide on the frames' own times",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}

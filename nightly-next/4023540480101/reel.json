@@ -1,0 +1,52 @@
+{
+  "version": 1,
+  "build": "4023540480101",
+  "notes": "notes/4023540480101.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 25113,
+      "title": "cmux NEXT: preserve transcript scroll anchor during streaming",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25114,
+      "title": "Agent chat: keep tool groups clear of following messages",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/25114/after-tool-group-overlap.mp4",
+      "source": "manual",
+      "note": "2 hand-posted clips; picked by name"
+    },
+    {
+      "pr": 25110,
+      "title": "cmux-next settings exports: a fleet run hands back every export in one patch (.patch OUT)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25112,
+      "title": "fix(agent-chat): stop transcript flicker after send",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25111,
+      "title": "acpmux: a read-only paired machine may resolve a session, reading no more than its session list shows",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24784,
+      "title": "cmux NEXT: the attention ring follows a tab or pane dragged by its strip (classic parity)",
+      "author": "Austin Wang",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/24784/2fd681ba/next-core-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "2fd681ba",
+      "tour": "core"
+    }
+  ]
+}

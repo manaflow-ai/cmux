@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "build": "4013100763701",
+  "notes": "notes/4013100763701.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 24937,
+      "title": "fix(cmux-next): gate first page on web update check",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/24937/980244fb/next-core-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "980244fb",
+      "tour": "core"
+    },
+    {
+      "pr": 24940,
+      "title": "ci(webviews): add headroom to eager JS budgets",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}

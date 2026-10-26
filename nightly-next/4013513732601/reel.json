@@ -1,0 +1,35 @@
+{
+  "version": 1,
+  "build": "4013513732601",
+  "notes": "notes/4013513732601.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 24945,
+      "title": "cmux NEXT Update Ready card: the Automatic Updates switch sits on the left of its label",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24958,
+      "title": "ci(cmux-next): the DEV Release compile builds the browser-data import out (notarizable tip app)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24954,
+      "title": "cmux NEXT: the tip app (DEV stamped with the tip feed) runs Sparkle",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24939,
+      "title": "acpmux: a remote agent's report names its sender, never reads as the person's",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}

@@ -1,0 +1,126 @@
+{
+  "version": 1,
+  "build": "3959785532701",
+  "notes": "notes/3959785532701.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 22949,
+      "title": "cmux-next: a link from a lone chat opens its split without re-animating the chat",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23331,
+      "title": "cmux-next fast gates: the crash-class rules are the fifth gate, red only for findings the PR adds",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23004,
+      "title": "cmux-next: Picture in Picture for browser tabs, and a media card like macOS's",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22795,
+      "title": "cmux-next: right-side panels slide in without lag or overflow; directional enter and exit in the agent pane",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23266,
+      "title": "Agent pane: a background task's note drops only the cd steps a Ran row drops",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23312,
+      "title": "acpmux: _acpmux/info answers while logs load",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23341,
+      "title": "cmux-next: name renamed palette actions by their new titles",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23330,
+      "title": "cmux-tui tests: mint launch credentials over the verified app; acpmux agents start without one",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23308,
+      "title": "Home thought headline: a String extension, not an all-static enum",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22175,
+      "title": "acpmux: cmux-forum MCP tools and acpmux forum CLI",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23124,
+      "title": "cmux NEXT: pane ⋮ menu rows in the theme's highlight; a lit control never fainter than at rest",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23140,
+      "title": "cmux setup: one entry point for agents to set up cmux (list, status, trust)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23107,
+      "title": "cmux-next tests: two base reds: TerminalFirstNewTabTests compile, NowPlaying artwork retry under the favicon guard",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23201,
+      "title": "acpmux: a forwarded peer detail meets the watch's rule for pending asks",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23288,
+      "title": "webviews: transcript, changes and markdown tests open their own gallery entry alone",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23163,
+      "title": "cmux NEXT: show and open a Cloud VM chat's child chats",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23287,
+      "title": "webviews: agent pane, New Tab and menu tests open their own gallery entry alone",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23182,
+      "title": "cmux-next sidebar: a group dropped past an empty group keeps its members' rail",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/23182/live-receipt-92c12bc5a859.mp4",
+      "source": "manual"
+    },
+    {
+      "pr": 23323,
+      "title": "test(webviews): the minimap preview's delay is read from when the card first shows",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}

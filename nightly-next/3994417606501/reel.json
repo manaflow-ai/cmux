@@ -1,0 +1,26 @@
+{
+  "version": 1,
+  "build": "3994417606501",
+  "notes": "notes/3994417606501.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 24452,
+      "title": "acpmux: daemon status reports host_pressure, and a send warns while the host is over budget (warn-only, part 2)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24237,
+      "title": "cmux NEXT: Open Agent Session waits for a terminal that starts late, then attaches",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/24237/9f4ce39e/next-core-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "9f4ce39e",
+      "tour": "core"
+    }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "build": "3937488754201",
+  "notes": "notes/3937488754201.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 21054,
+      "title": "perf: Settings opens at once the first time (perceived speed)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}

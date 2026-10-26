@@ -1,0 +1,117 @@
+{
+  "version": 1,
+  "build": "4014609062602",
+  "notes": "notes/4014609062602.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 24982,
+      "title": "refactor(next): extract favicon store leaf module",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/24982/98bdb203/next-core-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "98bdb203",
+      "tour": "core"
+    },
+    {
+      "pr": 25000,
+      "title": "acpmux: a remote caller's peer_status leaves out each peer's resources",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24987,
+      "title": "ci(nightly): overlap compatibility notarization and route pooled runners",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25001,
+      "title": "fix(cmux-next): the agent pane bundles WorkflowCard.css and workflowDots.css",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24992,
+      "title": "acpmux: tasks: give a session a task, end it with a typed result in one call, list a chat's tasks",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24996,
+      "title": "gallery: a Claude workflow in the whole pane, its card and Session Info together (Labs)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24978,
+      "title": "cmux NEXT: host real SwiftUI preview leaf",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/24978/p1-native-ui-layer.mp4",
+      "source": "manual"
+    },
+    {
+      "pr": 24983,
+      "title": "agent pane: a Claude workflow's card in the transcript where it started (Labs)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24284,
+      "title": "acpmux: host ls and peer status show each machine's RAM, load, disk and live agents",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24980,
+      "title": "cmux NEXT popovers and menus: open instantly, fade only on close",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24953,
+      "title": "agent pane: a Claude workflow's phases and agents in Session Info's Background tasks (Labs)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24986,
+      "title": "fix(agent-pane): keep tool-group wheel on transcript",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24969,
+      "title": "ci(next): check a push's generated files in daemon-test, on its build",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24984,
+      "title": "fix(next): a long draft grows the composer to 40% of the pane",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24952,
+      "title": "cmux NEXT: a link opened into a pane already showing Chromium draws its page (fix-forward)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24948,
+      "title": "cmux NEXT Session Info: it floats and never takes a column; no x band; composer glass",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24973,
+      "title": "cmux NEXT panes: a right-split pane beside a docked chat shows its full width again (fix-forward of 82dcbd3cd52)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}

@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "build": "3908291645501",
+  "notes": "notes/3908291645501.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 21359,
+      "title": "docs(cmux-next): define remote observation architecture",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21316,
+      "title": "perf: reduce sidebar and list layout scans",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/21316/6093928e/next-new-tab-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "6093928e",
+      "tour": "new-tab"
+    },
+    {
+      "pr": 21339,
+      "title": "feat(cmux-next): refresh Apps discover home",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21376,
+      "title": "perf(next): stabilize minimap tick callbacks",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/21376/64e809ae/next-agent-pane-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "64e809ae",
+      "tour": "agent-pane"
+    }
+  ]
+}

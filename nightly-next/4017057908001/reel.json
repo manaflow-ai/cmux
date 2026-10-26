@@ -1,0 +1,38 @@
+{
+  "version": 1,
+  "build": "4017057908001",
+  "notes": "notes/4017057908001.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 24921,
+      "title": "fix(media): preserve explicit playback on page interruptions",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25064,
+      "title": "cmux NEXT web updates: poll every minute in the front and swap once idle and every page is safe",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/25064/22efcee8/next-core-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "22efcee8",
+      "tour": "core"
+    },
+    {
+      "pr": 24955,
+      "title": "cmux NEXT web updates: pages answer whether a swap's reload keeps what they hold",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25077,
+      "title": "cmux github gh and setup: gh with a repo-scoped token; opt-in git wiring for the credential helper",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}

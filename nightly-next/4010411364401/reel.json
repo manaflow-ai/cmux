@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "build": "4010411364401",
+  "notes": "notes/4010411364401.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 24825,
+      "title": "acpmux: read one subagent's transcript, a page at a time (_acpmux/subagent_transcript)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}

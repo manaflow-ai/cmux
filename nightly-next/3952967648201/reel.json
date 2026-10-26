@@ -1,0 +1,83 @@
+{
+  "version": 1,
+  "build": "3952967648201",
+  "notes": "notes/3952967648201.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 22661,
+      "title": "ci(nightly-next): release train with durable canary verdicts, k-way bisection and promote guard G1'/G2'",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21687,
+      "title": "cmux-next agent pane: Sources' + attaches files or folders (cx-thur3 1/3)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22692,
+      "title": "test(next sidebar): the focus-loss drag test calls pointerFocusLost, not a global post (base red)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22687,
+      "title": "test(next): question-record and composer-still tests follow #21631 and #22119 (base red)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22644,
+      "title": "cmux NEXT Home: while the Chief works, show its steps, its thought and the step now",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22699,
+      "title": "acpmux: poison-tolerant lock on the adopted caller-token map (crash ratchet)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22695,
+      "title": "fix(next): webviews check and two theme tests pass again (base red)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22697,
+      "title": "crash ratchet: fix the Shared and Rust crate hits in code",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22682,
+      "title": "acpmux: running agents keep their sub-session tools across a daemon restart",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22655,
+      "title": "cmux NEXT: chat tools sit in the tab row; one Browser button opens the chat's page",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22673,
+      "title": "cmux NEXT Chief pet: Message the Chief no longer turns the pet on for good",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22680,
+      "title": "fix(acpmux): drop an unused import that stops the Linux lib tests compiling",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}

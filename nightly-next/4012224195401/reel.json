@@ -1,0 +1,17 @@
+{
+  "version": 1,
+  "build": "4012224195401",
+  "notes": "notes/4012224195401.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 24934,
+      "title": "fix(sdk codegen): Rust doc comments escape [ and ] so schema text cannot become a doc link",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}

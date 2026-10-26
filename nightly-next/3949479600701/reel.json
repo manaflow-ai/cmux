@@ -1,0 +1,60 @@
+{
+  "version": 1,
+  "build": "3949479600701",
+  "notes": "notes/3949479600701.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 22489,
+      "title": "cmux NEXT sidebar: tile and quiet-button hovers are neutral, not the accent",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22488,
+      "title": "cmux NEXT hover cards: the glass panels' rounder corners, and a real blur before macOS 26",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/22488/785a1007/next-glass-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "785a1007",
+      "tour": "glass",
+      "note": "2 captures, head moved past every capture; picked 785a1007 by name, not by date"
+    },
+    {
+      "pr": 22473,
+      "title": "cmux NEXT sidebar: an empty slot beside a workspace dismisses its hover card",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/22473/6675259d/next-core-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "6675259d",
+      "tour": "core"
+    },
+    {
+      "pr": 22569,
+      "title": "Sidebar: profile button shows avatar, name and a menu chevron",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22562,
+      "title": "cmux-next: the background aspect-fills the window, centered, with no framing logic",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22557,
+      "title": "cnx-ios INTERNAL builder: What to Test from PR Changelog lines, no signing secret",
+      "author": "Abdulaziz Albahar",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22453,
+      "title": "cmux-next: agents may turn the Chief pet on",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}

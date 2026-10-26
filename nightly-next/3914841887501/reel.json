@@ -1,0 +1,83 @@
+{
+  "version": 1,
+  "build": "3914841887501",
+  "notes": "notes/3914841887501.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 21677,
+      "title": "acpmux: a saved model or effort pick reaches open New Tab pages",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21699,
+      "title": "fix(cmux-next): restore the URL chip hover card styles lost in the Chief Dock squash",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21664,
+      "title": "cmux-next: the static status look everywhere; indicators name their state (cx-sya4n)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21666,
+      "title": "acpmux: no-ask start modes by inherit or an approved preset",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21690,
+      "title": "fix(cmux-next): restore #21369 and #21384, undone by the Chief Dock squash",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21648,
+      "title": "feat(next): workspace name source and revision, like tab names (hq#1957)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21717,
+      "title": "release-notes(next): fit app highlights to the What's New limits",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21716,
+      "title": "release-notes(next): fit browser highlights to the What's New limits",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21679,
+      "title": "cmux NEXT: no focus ring on the daemon recovery status label",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21707,
+      "title": "test(acpmux): run complete_rpc, session_mcp_servers and prompt_images hermetically (cx-5j26a)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21657,
+      "title": "webviews: Static status indicators and Reduce Motion stop every web loop (cx-sya4n)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21671,
+      "title": "cx-dgsp: retire the legacy bearer wire subprotocol",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}

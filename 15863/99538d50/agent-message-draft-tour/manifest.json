@@ -1,0 +1,23 @@
+{
+  "tour": "agent-message-draft-tour",
+  "head_sha": "99538d500d0fefb62e2e15f22860ee31ca5bcb4f",
+  "result": "failure",
+  "shots": [
+    {
+      "name": "05-draft-before-message",
+      "file": "05-draft-before-message.png"
+    },
+    {
+      "name": "13-draft-intact-message-queued",
+      "file": "13-draft-intact-message-queued.png"
+    },
+    {
+      "name": "15-end",
+      "file": "15-end.png"
+    }
+  ],
+  "gif": "tour.gif",
+  "run_url": "https://github.com/manaflow-ai/cmux/actions/runs/36758569462",
+  "failures": [],
+  "frames": 5
+}

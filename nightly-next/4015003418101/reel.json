@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "build": "4015003418101",
+  "notes": "notes/4015003418101.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 24985,
+      "title": "fix(cmux-next): persist first agent chat titles by default",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/24985/6bb92f75/next-core-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "6bb92f75",
+      "tour": "core"
+    }
+  ]
+}

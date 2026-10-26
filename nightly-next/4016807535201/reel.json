@@ -1,0 +1,20 @@
+{
+  "version": 1,
+  "build": "4016807535201",
+  "notes": "notes/4016807535201.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 25021,
+      "title": "cmux NEXT checks: No new SwiftUI and canary coverage pass again (re-point moved entries, lint keeps moved files, Sleepy shims)",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/25021/a6d7b9af/next-core-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "a6d7b9af",
+      "tour": "core"
+    }
+  ]
+}

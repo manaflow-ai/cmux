@@ -1,0 +1,28 @@
+{
+  "tour": "github-reference-click-tour",
+  "head_sha": "6f9b5358e1094c26f4671712f36b0efaf91fd114",
+  "result": "passed",
+  "shots": [
+    {
+      "name": "08-01-gitlab-remote-after-cmd-click",
+      "file": "08-01-gitlab-remote-after-cmd-click.png"
+    },
+    {
+      "name": "15-02-bare-ref-after-cmd-click",
+      "file": "15-02-bare-ref-after-cmd-click.png"
+    },
+    {
+      "name": "22-03-slug-ref-after-cmd-click",
+      "file": "22-03-slug-ref-after-cmd-click.png"
+    },
+    {
+      "name": "29-04-commit-ref-after-cmd-click",
+      "file": "29-04-commit-ref-after-cmd-click.png"
+    }
+  ],
+  "gif": "tour.gif",
+  "tested_sha": "69df38018c0ffc33cee00194fd8cd8bf10b00e52",
+  "run_url": "https://github.com/manaflow-ai/cmux/actions/runs/36726542401",
+  "failures": [],
+  "frames": 6
+}

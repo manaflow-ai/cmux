@@ -1,0 +1,104 @@
+{
+  "version": 1,
+  "build": "3964050095401",
+  "notes": "notes/3964050095401.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 23391,
+      "title": "cmux-next sidebar: the Chief's workspaces read like any workspace (no aN id, no Chief line)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23324,
+      "title": "Chat: a file dropped into an ssh peer's chat goes to that peer (_acpmux/file_put)",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/23324/460daf25/next-agent-pane-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "460daf25",
+      "tour": "agent-pane"
+    },
+    {
+      "pr": 23497,
+      "title": "ci: PR clippy --all-targets and cargo test for every Cargo workspace",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23413,
+      "title": "Agent chat: tool blocks wrap or fade at the right edge, preview fades, no resize cursor over a docked chat",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23431,
+      "title": "cmux NEXT agent chat: long prompts collapse to ten lines with Show more; pasted blocks are chips",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23515,
+      "title": "[excursion] Refresh palette eval copy fixture",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23483,
+      "title": "test(webviews): the chat-open perf gate says its margins out loud",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23513,
+      "title": "cmux-next: a popup with no screen keeps to its window (base red SidebarMenuAnchorTests)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23533,
+      "title": "cmux NEXT: a confirmed split whose pane closed settles instead of coming back",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22823,
+      "title": "cmux NEXT: one-click Add Machine (install, harness, peers both ways, doctor)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23416,
+      "title": "test(webviews): U1 waits for conditions, not fixed times (114 waits)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23526,
+      "title": "test(webviews): dock gutters covers the running-work tray, not the agents pill",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23453,
+      "title": "base autofix: make the action exports on the newest tip (base red: no action export since 02:14Z)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23433,
+      "title": "Markdown: a file with code in many languages no longer freezes the page",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 23520,
+      "title": "cmux NEXT agent pane: a background task enters once, in view, and not again on a chat switch",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}

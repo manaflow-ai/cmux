@@ -1,0 +1,257 @@
+{
+  "version": 1,
+  "build": "4015783372101",
+  "notes": "notes/4015783372101.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 23057,
+      "title": "cmux-next: pin CCmuxAppFFI to cmux-app-ffi-ecdb356418c355bbe8f16f883194748c47c28ebe",
+      "author": "manaflow-cmux-ffi-release[bot]",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25058,
+      "title": "fix(cmux-next): phase stamps fall back to TARGET_BUILD_DIR, and the screen-detection test follows #24979's no-source contract",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25002,
+      "title": "Agent pane: in Minimal Mode another agent's message is one line that opens in place",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25052,
+      "title": "fix(cmux-next): Embed CEF skip path exits 0 on a clean runner (restore base after #24979)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25046,
+      "title": "cmux-next debug: Reset Counts in the blocking submenu runs a registered action (defaults-snapshot red)",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/25046/cc60a219/next-core-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "cc60a219",
+      "tour": "core"
+    },
+    {
+      "pr": 25051,
+      "title": "fix(cmux-next scrollbars): the last SwiftUI scroll views take the thin scroller; two AppKit cards follow the system",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/25051/caa5183b/next-core-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "caa5183b",
+      "tour": "core"
+    },
+    {
+      "pr": 24994,
+      "title": "ci(cmux-next): DEV Release compile reuses a content-keyed compilation cache, not kept build products",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25032,
+      "title": "fix(cmux-next checks): pre-push gate fixture, manifest reader, Browser waivers, scrollbar List false positive (base reds)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24965,
+      "title": "feat(cmux-next): the tip app takes web updates too",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/24965/657cec23/next-core-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "657cec23",
+      "tour": "core"
+    },
+    {
+      "pr": 25016,
+      "title": "cmux NEXT: DEV builds attach to another app's acpmux (CMUX_NEXT_ACPMUX_ATTACH)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25019,
+      "title": "acpmux: acpmux new|run --parent starts a child of any harness under a chat",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25037,
+      "title": "cmux-next browser: BrowserEngineResolver is a value with its injected inputs (namespace-type lint)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25007,
+      "title": "cmux NEXT sidebar: each remote machine's group says its free RAM and busy cores",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/25007/67e4de4f/next-core-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "67e4de4f",
+      "tour": "core"
+    },
+    {
+      "pr": 25009,
+      "title": "cmux-next settings: New Tab clock, stopwatch, greeting and quote get an agent policy and strings (base red)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25041,
+      "title": "fix(cmux-next): restore base after #24979 (duplicate bin/acpmux output, doubled OTHER_SWIFT_FLAGS)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25050,
+      "title": "revert(ci): the DEV Release compile builds the browser-data import in again (undoes #24958's workflow step)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25025,
+      "title": "cmux-tui: origin gate reads its peer's executable through the peer authentication module (no-process-scan red)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25048,
+      "title": "cmux-next: add machine and registry core seams",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/25048/5ce4cf5b/next-core-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "5ce4cf5b",
+      "tour": "core"
+    },
+    {
+      "pr": 25027,
+      "title": "cmux NEXT: agent.openSessionTab --host <peer> opens that machine's chat (as this Mac's acpmux mirrors it)",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/25027/24f2a2e3/next-core-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "24f2a2e3",
+      "tour": "core"
+    },
+    {
+      "pr": 25028,
+      "title": "acpmux host update: restart a macOS daemon with bootout then bootstrap",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25042,
+      "title": "cmux-next: add window access core seam",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25020,
+      "title": "reload: never SIGKILL the tagged app mid-quit (second SIGTERM, then fail)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25017,
+      "title": "acpmux: a sub-session's host auto checks this machine has room with the placement engine, and says why",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25026,
+      "title": "perf(agent-chat): update scroll-edge observers incrementally",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25024,
+      "title": "test(webviews): add long transcript periodic tick harness",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25014,
+      "title": "Agent chat: a footnote link jumps to its note in one frame with Reduce Motion or cmux's animations off",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24991,
+      "title": "cmux NEXT New Tab: Return asks the agent; web search last, create actions in a strip",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24950,
+      "title": "cmux NEXT sidebar: one group per machine with the agent chats running there (cloud icon, live count, offline)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25013,
+      "title": "fix(updater): check nightly feeds every fifteen minutes",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25003,
+      "title": "ci: fall back when nightly preparation host is full",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24967,
+      "title": "cmux NEXT composer: add opt-in spell checking",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24942,
+      "title": "cmux NEXT model picker: keep machine profiles out of harness rail",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24938,
+      "title": "cmux NEXT composer: remove the bottom-left harness label",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25011,
+      "title": "fix(agent-chat): make hidden transcript layout linear",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24997,
+      "title": "cmux NEXT: keep attached Return sends person-proven",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25006,
+      "title": "acpmux: a working lane whose model went quiet with no tool call running says it has stalled (lane.stalledSince)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24979,
+      "title": "cmux-next: make script phases incremental and profile Swift planning",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24995,
+      "title": "fix(next): sidebar section menu keeps 12 top-level rows (Inspect Element under Options)",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}

@@ -1,0 +1,71 @@
+{
+  "version": 1,
+  "build": "3911762409401",
+  "notes": "notes/3911762409401.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 21312,
+      "title": "fix nested Swift Testing require",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21546,
+      "title": "ci: guard PR autofix ancestry",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21564,
+      "title": "fix(cmux-next): stabilize summary rail inline panel",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21553,
+      "title": "perf(acpmux): cache immutable chat find text",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21320,
+      "title": "perf(webviews): avoid redundant New Tab motion scans",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21421,
+      "title": "fix(cmux-next): keep restored page tabs readable",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21558,
+      "title": "Verify the selected daemon before reusing a remote sidecar",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21433,
+      "title": "test: cover workspace renamed event display name",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21536,
+      "title": "perf(next): index transcript row ids once per snapshot",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21555,
+      "title": "ci(next): skip cached web bundle rebuilds",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}

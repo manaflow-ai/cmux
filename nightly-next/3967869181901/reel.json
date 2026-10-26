@@ -1,0 +1,23 @@
+{
+  "version": 1,
+  "build": "3967869181901",
+  "notes": "notes/3967869181901.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 23696,
+      "title": "cmux NEXT tests: a hover card fading in counts as on screen (SidebarOneMorphingCardTests flake)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21497,
+      "title": "Preserve server configuration when signed installation fails",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}

@@ -1,0 +1,155 @@
+{
+  "version": 1,
+  "build": "3953614980201",
+  "notes": "notes/3953614980201.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": null,
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 22721,
+      "title": "acpmux, cmux docs: agent tool text says what the tools do, and a guide to showing work to the user",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22665,
+      "title": "ci(next): per-car fast guards and the source-path-to-focused-test map (nightly train PR 3)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22670,
+      "title": "cmux-next sidebar: the Updated card takes its own room and has an opaque fill",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22717,
+      "title": "ci(cmux-next media): a newer merge no longer replaces a waiting merge tour",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22654,
+      "title": "ci(cmux-next): web-bundles reds no longer skip swift test; fast-tier seed per pool so fast tiers start warm",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22723,
+      "title": "cmux-next: Cmd-N from a split workspace shows its page without a layout shift",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22684,
+      "title": "cmux-next Home: New Message lists the Chiefs under To: with avatar, full name and where each runs",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22685,
+      "title": "Agent chat: bigger sent image thumbnails, a failed state, and real names on hover",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22658,
+      "title": "Agent chat: list each tool call under Worked for, and name MCP calls in words",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22726,
+      "title": "gallery: the header's tab-row warning (ChatHeaderInlineStatus) has a state",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22594,
+      "title": "webviews: the React Compiler pass skips Vite's per-file dependency cache (gallery browser timeouts)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22681,
+      "title": "Agent question card: Next until every question is answered, Submit says what it waits for",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22693,
+      "title": "cmux-next tooltips: never break inside a word at the window's edge (\"Chat summar / y\")",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22649,
+      "title": "gen-strings: best-effort strings in the Mac export jobs, so a stale settings schema can regenerate",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22718,
+      "title": "acpmux: a purged session stays purged; Chief ends leftover compactor sessions",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22689,
+      "title": "ci(next): test that the base-relative crash ratchet still blocks new hits; drop dead allowlist citations",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22629,
+      "title": "ci(cmux-tui): focused runs build the macOS dogfood target on Linux runners",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22713,
+      "title": "cmux NEXT composer: dictation looks like Claude's: Listening…, a live waveform, a finish key and a lit mic",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22714,
+      "title": "ci(cmux-next): a side lane stays on its own class while its idle runners cover the run",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22711,
+      "title": "cmux NEXT keys: a focused text field keeps Return, Esc and ↑ from unscoped defaults",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22650,
+      "title": "acpmux: a sub-session is titled by its name, and a failed title request is retried",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22390,
+      "title": "cmux-next: Chief pet settings in the Chief Settings popover and on the pet",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22662,
+      "title": "cmux-next sidebar: the Lanes item (every agent and its state) shows without Labs",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 22657,
+      "title": "test(cmux-next): Next/Previous Sidebar Item walks group members and passes a collapsed group once",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}

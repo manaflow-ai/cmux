@@ -1,0 +1,309 @@
+{
+  "version": 1,
+  "build": "3886569630501",
+  "notes": "notes/3886569630501.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 20455,
+      "title": "ci(cx-g34i): resume deferred DEV builds after branch moves",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21143,
+      "title": "ci: accept a Developer ID intermediate that the signing .p12 already added",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21076,
+      "title": "feat(agent-chat): stream ACP tool progress",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/21076/ff91c7a1/next-core-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "ff91c7a1",
+      "tour": "core"
+    },
+    {
+      "pr": 21139,
+      "title": "release, nightly: publish the staged release by id, refuse duplicate drafts, resume a complete staged release",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21141,
+      "title": "pin-cmux-tui: on_origin_branch never looks up origin heads by id (lazy fetch per head in a partial clone)",
+      "author": "Lawrence Chen",
+      "clip": "no clip"
+    },
+    {
+      "pr": 20828,
+      "title": "Custom sidebar: expose workspace emoji in data context",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 20804,
+      "title": "Fix Claude Teams tmux shim with custom Claude path",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 17616,
+      "title": "fix(sidebar): refresh workspace names after rename",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 20352,
+      "title": "fix: keep Antigravity sessions attached after relaunch",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21108,
+      "title": "cmux-next control: name homeChannelsEnabled in the bridge context table (completes ea28ba31082e, base red)",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/21108/c9599185/next-core-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "c9599185",
+      "tour": "core"
+    },
+    {
+      "pr": 21040,
+      "title": "Channels: a real menu on selected message text, and Quote in Reply",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 20901,
+      "title": "cmux-next: session side rail behind Debug Settings (cx-ncc.101)",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/20901/rail-clip-light.mp4",
+      "source": "manual"
+    },
+    {
+      "pr": 21102,
+      "title": "cmux-tui: a reattached terminal keeps its prompt and activity (cx-6so.59)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21104,
+      "title": "acpmux: take the workspace from CMUX_WORKSPACE_ID and refuse a mismatch",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21057,
+      "title": "fix: the Channels live typing row has no tooltip over its own text",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/21057/71bd0b50/next-core-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "71bd0b50",
+      "tour": "core"
+    },
+    {
+      "pr": 21008,
+      "title": "Notifications: a finished turn's banner shows the agent's last message (cx-n9aa2)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 20991,
+      "title": "cmux-next composer: one shield family for access modes",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 20994,
+      "title": "Stats page: show permission waits, limit errors and steers per turn",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 20933,
+      "title": "Debug: chat header tools in the pane's tab row (no top bar prototype, hq-1d)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 20796,
+      "title": "Agent pane: opt-in reasoning slider in the composer's reasoning menu (Debug toggle agent.reasoningSlider)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 20832,
+      "title": "Agent pane: suggested tasks card, live child rows and received results (Labs, cx-lo9yf)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 20920,
+      "title": "cmux-tui: Update Everything updates a machine's agent CLIs and continues its chats (cx-1mbnu)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21009,
+      "title": "fix: a closed pane reopens in its own split",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21070,
+      "title": "cmux-tui: send the start surface's workspace to acpmux",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21031,
+      "title": "Agent composer: plain top strip leaves no stray hairline above the card's corners",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/21031/fefdc010/next-agent-pane-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "fefdc010",
+      "tour": "agent-pane"
+    },
+    {
+      "pr": 21100,
+      "title": "cmux-tui: cmux status wait (cx-6so.14)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21085,
+      "title": "acpmux: count a fork's copied turns once in the stats totals (hq#1920)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 20826,
+      "title": "cmux NEXT: /btw side sessions share one right pane; pane relay allows _acpmux/btw",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 20787,
+      "title": "CmuxNext: reasoning menu drawn as a native menu",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 20972,
+      "title": "cmux NEXT: Allow once / Deny on agent chat approval banners (cx-kz6m0.2)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21062,
+      "title": "webviews tests: stop the Vite a vp dev server started",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21032,
+      "title": "perf: add a browser engine bench for tagged builds",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 20976,
+      "title": "acpmux: one computer use display per workspace (cx-ncc.5)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21087,
+      "title": "cmux NEXT: Terminal adds toggle keeps the header's other buttons right",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21082,
+      "title": "cmux-tui tests: a status owner pid reused while the daemon was down clears only the old owner (cx-6so.13)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21058,
+      "title": "fix(acpmux): login env refresh never drops an edit or mislabels the cache (cx-6so.22)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21089,
+      "title": "fix: the suggested tasks tunable is nonisolated like its struct (cx-lo9yf)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 20932,
+      "title": "cmux-tui: archives keep a 2 GB byte budget, oldest screens first (cx-gzh.4.4)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 20863,
+      "title": "cmux NEXT: Debug toggle turns on suggested tasks for agents (cx-lo9yf)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21080,
+      "title": "test: SplitPaneGridFitTests waits for launch to land its first workspace",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21078,
+      "title": "web: say how to try each v0.65.2 changelog feature",
+      "author": "Austin Wang",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21045,
+      "title": "cmux-next: agents_events long-poll MCP tool and cmux agents events (cx-ncc.97)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21077,
+      "title": "test: font zoom debug test waits for launch to finish",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/21077/87be1c7c/next-core-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "87be1c7c",
+      "tour": "core"
+    },
+    {
+      "pr": 20516,
+      "title": "scripts(cmux-next): measure whether each surface paints its final layout on frame 1",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21023,
+      "title": "acpmux: stats roll spend and working time up by git branch (hq#1920)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 21067,
+      "title": "cmux-tui: agent message unsend and pump edge cases (agent messaging 4b)",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 20917,
+      "title": "feat(acpmux): _acpmux/process/tail for Claude Code background shells",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
