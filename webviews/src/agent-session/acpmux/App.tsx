@@ -103,7 +103,7 @@ import { isDefaultChoice } from "./defaultChoice";
 import { topModelsFor } from "./topModels";
 import { applySwitch, HarnessSwitch, lastOfferedModel, type SwitchPort } from "./harnessSwitch";
 import { harnessProfiles } from "./harnessProfiles";
-import { pickedMode, setStartModeSource, startModeChanged } from "./startMode";
+import { setStartModeSource } from "./startMode";
 import { setPromptSurfaces } from "./surfaces/promptSurface";
 import { MockAcpmuxSocket, mockHost, type MockScript } from "./mock";
 import { BridgeSocket } from "./bridgeSocket";
@@ -201,7 +201,7 @@ import { turnCounts, turnDisplay } from "./changes/turnCheckpoint";
 import { TurnCountsContext, type TurnCountsFor } from "./changes/TurnCountsContext";
 import { useTurnCheckpoints } from "./changes/useTurnCheckpoints";
 import { latestTurnCheckpointPair, readTurnFromRows, type CheckpointDiff } from "./changes/turnCheckpointSource";
-import { registerComposerHost } from "./composerSettings";
+import { registerAttachmentViewHost, registerComposerHost } from "./composerSettings";
 import { WHOLE_FILE_CONTEXT } from "./changes/wholeFile";
 import { restoredDecisions, type HunkDecision, type HunkReview } from "./changes/hunkReview";
 import {
@@ -350,6 +350,7 @@ import { ChatDisplaySettings } from "./ChatDisplaySettings";
 import { configureCodexToolRuns, useCodexToolRuns } from "./codexToolRuns";
 import { configureLiveLineBelow, useLiveLineBelow } from "./liveLineBelow";
 import { configureToolRunLook } from "./toolRunLook";
+import { configureSentLook } from "./conversation/SentMessageLine";
 import { configureNativeSidebarPreviewVariant, configureSidebarPreviewVariant } from "./sidebarPreview";
 import { configureTurnActionsPlacement } from "./turnActionsPlacement";
 import { archiveRow, markUnreadRow } from "./header/archiveRow";
@@ -369,6 +370,7 @@ import { type ForumRule, forumRules, RulesNotice } from "./RulesNotice";
 import { type SignIn, SignInContext, signedOutHarnesses, useSignIn } from "./signIn";
 import { type ChatAccounts, ChatAccountsContext, ownRouteOf, readChatAccounts } from "./chatAccounts";
 import { HostError } from "./HostError";
+import { AcpmuxRestartGate, offersAcpmuxRestart } from "./hostRetry";
 import { SHELL_ROW, ShellRuns, shellContextAttachments, withShellRows } from "./shell/shellRuns";
 import { SUBAGENTS, type Subagent } from "./subagents/subagentFold";
 import { AgentRunCard } from "./subagents/AgentRunCard";
@@ -860,6 +862,7 @@ const changesSource: ChangesSource = {
 // The composer's Hide and Show (composerChrome.tsx) persist through the host, which pushes the
 // setting back to every page and on the next launch.
 registerComposerHost((method, show) => void callNative(method, { show }).catch(() => undefined));
+registerAttachmentViewHost((view) => callNative("pane.setAttachmentView", { view }));
 registerChatDisplayHost((key, value) => void callNative("pane.setDisplay", { key, value }).catch(() => undefined));
 /// A folder's `git.status` from the native host, named by the folder: a new chat has no session to
 /// name it by (the header's worktree pill, cx-lyqio.3b).
@@ -4021,9 +4024,10 @@ export function VirtualTranscript({
   );
 }
 
-/// Answers `permission` with the option a button or key picked.
+/// Answers `permission` with the option a button or key picked; rejects when acpmux refused it, which
+/// the card shows.
 const answerPermission = (permission: AcpmuxPermission) => (optionId: string) =>
-  void callNative("chat.permission", { permissionId: permission.permissionId, optionId });
+  callNative("chat.permission", { permissionId: permission.permissionId, optionId });
 
 /// Sends a question card's reply: the harness's option (absent cancels) and its answers. The card
 /// shows a refusal (the promise rejects) and takes input again for a retry.
@@ -6322,6 +6326,14 @@ function AcpmuxPane() {
   const [retryQueued, setRetryQueued] = useState(false);
   /// Asks the host again now, after the user fixed what `hostError` says.
   const retryHost = useRef<(() => void) | undefined>(undefined);
+  /// Cancels the automatic retry waiting to run (Restart acpmux asks again itself when it ends).
+  const cancelRetry = useRef<(() => void) | undefined>(undefined);
+  /// The host refused a daemon another binary runs on this app's socket: the card offers Restart acpmux.
+  const [acpmuxRestartOffered, setAcpmuxRestartOffered] = useState(false);
+  /// A Restart acpmux in flight (state for the card; the gate keeps the retry loop from asking the
+  /// old daemon again while it stops, hostRetry.ts).
+  const [restartingAcpmux, setRestartingAcpmux] = useState(false);
+  const [restartGate] = useState(() => new AcpmuxRestartGate());
   // The host covers the pane with its loading state until this document first draws what it is:
   // the handshake's answer, or the host error when there is none (a failed start must show, not
   // stay behind the loading state). The frames before (no hero yet, "Connecting") stay hidden.
@@ -6605,6 +6617,7 @@ function AcpmuxPane() {
         configureCodexToolRuns(theme.codexToolRuns);
         configureLiveLineBelow(theme.liveLineBelow);
         configureToolRunLook(theme.toolRunLook);
+        configureSentLook(theme.sentLook);
         configureTurnActionsPlacement(theme.turnActionsPlacement);
         configureSubagentTray(theme.subagentTray);
         configureSubagentTrayPlacement(theme.subagentTrayPlacement);
@@ -6748,7 +6761,9 @@ function AcpmuxPane() {
       else heldBack.current = [...(heldBack.current ?? []), { text, attachments }];
     };
     const connectHost = async () => {
-      if (connecting) return;
+      // A Restart acpmux in flight: the old daemon is still there until it stops, and the restart
+      // asks again itself when it ends. A timer queued before it, or set while it runs, asks nothing.
+      if (connecting || !restartGate.mayAsk()) return;
       connecting = true;
       try {
         acpmuxPerf.markAgent("handshakeStart");
@@ -6956,6 +6971,7 @@ function AcpmuxPane() {
         };
         // Only a connected client clears the error, so a stale endpoint doesn't flicker it away.
         setHostError(undefined);
+        setAcpmuxRestartOffered(false);
         catalogClientId.current += 1;
         setCatalogSource({ id: catalogClientId.current, client });
         // A refreshed harness list or live model list re-reads the catalog (no polling).
@@ -6967,17 +6983,9 @@ function AcpmuxPane() {
             ? callNative("chat.persistSession", { sessionId }).catch(() => undefined)
             : Promise.resolve();
         /// Opens a chat this one made in a tab of its own (`chat.openTab`); false when the host opens none.
-        /// A mode pick on the shown chat. acpmux decides whether it is every new chat's start mode
-        /// (hub/start_mode.rs); a pending chat's kept answer follows it at once and then asks
-        /// acpmux again (startMode.ts), as older daemons send no `_acpmux/start_mode_changed`.
-        const setMode = async (modeId: string, ticket?: string) => {
-          await client.setMode(modeId, ticket);
-          const shown = snapshotRef.current;
-          if (shown?.origin === "remote" || shown?.origin === "peer" || shown?.summary?.host) return;
-          if (/^plan$/i.test(modeId)) return startModeChanged();
-          const name = shown?.summary?.modes?.availableModes.find((mode) => mode.id === modeId)?.name;
-          pickedMode(client.shownSession()?.harness ?? shown?.summary?.harness, modeId, name);
-        };
+        /// A mode pick on the shown chat: it holds for that chat only, never a new chat's start mode
+        /// (hub/start_mode.rs; Leo 2026-10-21).
+        const setMode = (modeId: string, ticket?: string) => client.setMode(modeId, ticket);
         /// `placement`: where the app opens it (AgentForkDestination: right, left, up, down, tab,
         /// workspace, window); none is a tab after this chat's.
         const openOwnTab = (sessionId: string, placement?: string) => {
@@ -7582,9 +7590,14 @@ function AcpmuxPane() {
           setHostError(errorMessage(error) || String(error));
           // A refused chat of another machine still names that machine on its chip (cx-k21v).
           setMachineName((current) => refusedMachine(error) ?? current);
-          // Back off so a host without a daemon is not asked four times a second.
-          retryTimer = window.setTimeout(() => void connectHost(), retryDelay);
-          retryDelay = Math.min(retryDelay * 2, reconnect ? RECONNECT_MAX_DELAY_MS : 30_000);
+          // Another binary's daemon on this app's socket: the card offers Restart acpmux.
+          setAcpmuxRestartOffered(offersAcpmuxRestart(error));
+          // Back off so a host without a daemon is not asked four times a second. A Restart acpmux
+          // in flight asks again itself when it ends.
+          if (restartGate.mayAsk()) {
+            retryTimer = window.setTimeout(() => void connectHost(), retryDelay);
+            retryDelay = Math.min(retryDelay * 2, reconnect ? RECONNECT_MAX_DELAY_MS : 30_000);
+          }
         }
       } finally {
         connecting = false;
@@ -7592,7 +7605,8 @@ function AcpmuxPane() {
           retryPending = false;
           setRetryQueued(false);
           // The attempt in flight may have connected; then there is nothing left to retry.
-          if (!cancelled && !directClient.current) retryNow();
+          // A Restart acpmux in flight asks again itself when it ends.
+          if (!cancelled && !directClient.current && restartGate.mayAsk()) retryNow();
         }
       }
     };
@@ -7604,8 +7618,14 @@ function AcpmuxPane() {
       retryDelay = 250;
       void connectHost();
     };
+    cancelRetry.current = () => {
+      if (retryTimer !== undefined) window.clearTimeout(retryTimer);
+      retryTimer = undefined;
+      retryPending = false;
+      setRetryQueued(false);
+    };
     retryHost.current = () => {
-      if (cancelled) return;
+      if (cancelled || !restartGate.mayAsk()) return;
       if (!connecting) return retryNow();
       // An attempt is in flight (perhaps a reconnect that may not start the daemon): run the
       // user's full attempt once it ends.
@@ -7619,6 +7639,7 @@ function AcpmuxPane() {
       harnessSwitch.disconnect();
       setStartModeSource(undefined);
       retryHost.current = undefined;
+      cancelRetry.current = undefined;
       if (retryTimer !== undefined) window.clearTimeout(retryTimer);
       directClient.current?.close();
       directClient.current = undefined;
@@ -7628,7 +7649,7 @@ function AcpmuxPane() {
     };
     // These are stable for the pane's life (state, provider client, a memoized bridge callback, and
     // the early New Tab flag, one object from a useState initializer).
-  }, [harnessSwitch, queryClient, toggleInspector, earlyNewTab]);
+  }, [harnessSwitch, queryClient, toggleInspector, earlyNewTab, restartGate]);
   const registryChips = (window.cmuxAcpmuxRegistry as unknown as Record<string, unknown> | undefined)?.composerChips as
     | React.ComponentType<{ snapshot: AcpmuxSnapshot; permissionAccess?: ComposerPermissionAccess }>
     | undefined;
@@ -8634,7 +8655,13 @@ function AcpmuxPane() {
   ) : (
     !reviewing && (
       <>
-        <PullRequestDock key={snapshot.sessionId} rows={snapshot.rows} sessionId={snapshot.sessionId} />
+        <PullRequestDock
+          key={snapshot.sessionId}
+          rows={snapshot.rows}
+          repository={githubRepository ?? undefined}
+          sessionId={snapshot.sessionId}
+          onOpenChanges={inspector.reveal ? () => inspector.reveal!("changes") : undefined}
+        />
         {recapCard.recap && (
           <RecapCard
             recap={recapCard.recap}
@@ -9082,7 +9109,27 @@ function AcpmuxPane() {
   );
   const hostErrorCard = (
     <Notice id="host-error" tier="error" when={hostError}>
-      <HostError message={hostError ?? ""} retrying={retryQueued} onRetry={() => retryHost.current?.()} />
+      <HostError
+        message={hostError ?? ""}
+        retrying={retryQueued}
+        onRetry={() => retryHost.current?.()}
+        restarting={restartingAcpmux}
+        onRestart={
+          acpmuxRestartOffered
+            ? () => {
+                // The person's click: the app stops the other binary's daemon (its chats are kept),
+                // and the next handshake starts this app's own acpmux.
+                // No handshake runs meanwhile: the old daemon is still there until it stops.
+                void restartGate.run(() => callNative("acpmux.restart"), {
+                  cancelRetries: () => cancelRetry.current?.(),
+                  changed: setRestartingAcpmux,
+                  connected: () => !!directClient.current,
+                  ask: () => retryHost.current?.(),
+                });
+              }
+            : undefined
+        }
+      />
     </Notice>
   );
   // The floating chat's compact bar shows whether the chat is working or waiting on the user, and

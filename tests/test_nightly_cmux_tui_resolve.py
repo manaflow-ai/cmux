@@ -139,13 +139,17 @@ for name in ("build-nightly-app", "build-sign-notarize-nightly", "publish-nightl
     check(name in shipping, f"{name} must check out the source (guard setup)")
 for name in shipping:
     body = blocks[name]
+    # A sole, narrowly validated scripts checkout builds and ships no source.
+    # Any second checkout still has to meet the resolver/build pin contract.
+    tooling = tooling_checkout(body)
+    if tooling and body.count("actions/checkout@") == 1:
+        continue
     needs = re.search(r"^    needs: (.*)$", body, re.MULTILINE)
     check(bool(needs) and RESOLVE in needs.group(1), f"{name} must need {RESOLVE}")
     allowed = {BUILD_SHA, SELECTED_SHA} if name == "publish-nightly" else {BUILD_SHA}
     # The publication tooling (not shipped source) comes from the workflow's own
     # commit, so a recovered older build runs this workflow's scripts. It is a
     # sparse checkout of scripts into .publish-tooling, never the build tree.
-    tooling = tooling_checkout(body)
     if name == "publish-nightly":
         check(tooling is not None, "publish-nightly must check out its publication tooling at github.sha into .publish-tooling")
     if tooling:
