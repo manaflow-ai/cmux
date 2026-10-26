@@ -145,7 +145,9 @@ class Builds:
 class PinpointWork:
     """One unit of Pinpoint work (task 016) that needs a host of its class: a bisect step or a verification.
 
-    `id` names one attempt. The scheduler starts an id once, so a retry of the same step needs a new id."""
+    `id` names one attempt. The scheduler starts an id once, so a retry of the same step needs a new id.
+    `build_only`: a Pinpoint Build step. Its builds are requested in Pinpoint order (after batch tips and tier
+    builds) and no job ever starts for it; the executor reads the answer from the build ledger."""
 
     id: str
     kind: str  # BISECT or VERIFY
@@ -153,7 +155,8 @@ class PinpointWork:
     story: str
     seconds: int
     builds: tuple[tuple[str, str], ...] = ()
-    prefer_host: str | None = None  # verify: the bisect's host
+    prefer_host: str | None = None  # bisect: the host its last story job ran on; verify: the bisect's host
+    build_only: bool = False
 
     def __post_init__(self) -> None:
         if self.kind not in PINPOINT_KINDS:
@@ -797,11 +800,14 @@ class _Planner:
             failed = sorted(f"{sha[:12]} {config}" for sha, config in work.builds
                             if (sha, config) in self.builds.failed)
             if failed:
-                self.problems.append(f"pinpoint work {work.id}: build {', '.join(failed)} failed; not started")
+                if not work.build_only:  # a failed build answers a Build step; the executor records it
+                    self.problems.append(f"pinpoint work {work.id}: build {', '.join(failed)} failed; not started")
                 continue
             if not all(pair in self.builds.ready for pair in work.builds):
                 for sha, config in work.builds:
                     self._request(sha, (config,), work.id)
+                continue
+            if work.build_only:
                 continue
             host = self._pinpoint_host(work)
             if host is None:
