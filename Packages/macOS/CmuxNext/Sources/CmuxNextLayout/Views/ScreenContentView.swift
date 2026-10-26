@@ -108,8 +108,6 @@ final class ScreenContentView: NSView {
     var panPresentedInFrame = false
     /// Strip pan events reduced but not shown yet: the next frame tick shows them in one presentation.
     var panPresentationPending = false
-    /// Frame ticks the pan still keeps after its last event (``displayFrameBegan()``).
-    var panTicksLeft = 0
     /// The strip's dividers sit in the strip container with its hosts (the last `ensureStacking`), so a
     /// pan on the container moves them (`ScreenContentView+StripPan.swift`).
     var stripDividersInContainer = false
@@ -128,6 +126,9 @@ final class ScreenContentView: NSView {
     /// The strip's panes sit in this view, which clips them to the strip's range by its bounds
     /// (`StripClipContainerView`); the docks stack above it.
     let stripContainer = StripClipContainerView(frame: .zero)
+    /// The strip panes' rings and dims while the strip pans on its container: the root puts it in the
+    /// overlay plane, and it takes the container's translation (`StripChromePlane`).
+    let stripChrome = StripChromePlane(frame: .zero)
     init(screenID: ScreenID, layout: ScreenLayout, context: LayoutViewContext,
          paneMotionVariant: @escaping () -> PaneMotionVariant = { LayoutTunables.paneMotionVariant.value }) {
         self.screenID = screenID
@@ -141,6 +142,8 @@ final class ScreenContentView: NSView {
         wantsLayer = true
         layer?.masksToBounds = true
         addSubview(stripContainer)
+        stripContainer.companion = stripChrome.layer
+        stripContainer.onShowsMovedChange = { [weak self] in self?.context.stripMovedDidChange() }
     }
     @available(*, unavailable)
     required init?(coder: NSCoder) {

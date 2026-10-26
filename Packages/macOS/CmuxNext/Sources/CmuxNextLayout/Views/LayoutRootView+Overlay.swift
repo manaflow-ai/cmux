@@ -61,47 +61,73 @@ extension LayoutRootView {
     /// view's place in the window, are what they were at the last sync keeps its ring, dim and
     /// window frame as they are (no conversion, no strip notice). The hosts that changed are
     /// ``panesMovedInLastOverlaySync`` for the observers (`observeOverlaySync`).
+    ///
+    /// While a screen's strip pans on its container, its hosts' rings and dims sit in its
+    /// `StripChromePlane` at the hosts' laid-out frames: the plane takes the container's translation,
+    /// so a pan event changes no key here and needs no sync.
     private func syncOverlay() {
         overlaySyncs += 1
         overlayIsStale = false
         let plane = overlayPlane
         let inWindow = window == nil ? nil : convert(bounds, to: nil)
         var shown: Set<ObjectIdentifier> = []
+        var stripPlanes: Set<ObjectIdentifier> = []
         var moved: Set<PaneID> = []
         for screen in screenViews.values where !screen.isHidden {
             let screenAlpha = screen.alphaValue
             let docks = screen.coverRects
             let above = screen.panesAbove()
+            let stripPlane = screen.stripDividersInContainer ? placeStripChrome(of: screen, in: plane) : nil
+            if let stripPlane { stripPlanes.insert(ObjectIdentifier(stripPlane)) }
             for host in screen.displayedHosts {
                 let chrome = host.chrome
                 shown.insert(ObjectIdentifier(chrome))
+                var parent: NSView = plane
+                if let stripPlane, host.superview === screen.stripContainer { parent = stripPlane }
                 // A ring never draws over a docked column (strip panes) or a pane in front of it.
                 let covers = screen.ringCovers(of: host, docks: docks, above: above)
                 let alpha = host.alphaValue * screenAlpha
-                // A strip pan on the motion container moves the host by its translation, which `convert` does not see.
-                let panned = screen.panTranslation(of: host)
-                let key = PaneOverlaySyncKey(hostFrame: host.frame.offsetBy(dx: panned, dy: 0), screenFrame: screen.frame,
-                                             screenBounds: screen.bounds,
+                let key = PaneOverlaySyncKey(hostFrame: host.frame, screenFrame: screen.frame, screenBounds: screen.bounds,
                                              rootInWindow: inWindow, covers: covers, alpha: alpha, hidden: host.isHidden)
-                if chrome.superview === plane, host.overlaySyncKey == key { continue }
+                if chrome.superview === parent, host.overlaySyncKey == key { continue }
                 host.overlaySyncKey = key
                 moved.insert(host.pane)
-                if chrome.superview !== plane { plane.addSubview(chrome, positioned: .below, relativeTo: highlight) }
-                let rect = convert(host.bounds, from: host).offsetBy(dx: panned, dy: 0)
+                if chrome.superview !== parent {
+                    if parent === plane { plane.addSubview(chrome, positioned: .below, relativeTo: highlight) } else { parent.addSubview(chrome) }
+                }
+                let rect = convert(host.bounds, from: host)
                 if chrome.frame != rect { chrome.frame = rect }
-                chrome.setExcluded(covers.map { convert($0, from: screen).offsetBy(dx: -rect.minX, dy: -rect.minY) })
+                // Covers are where they show; the strip plane shows its rings moved by the translation.
+                let shift = parent === plane ? 0 : screen.stripContainer.translation
+                chrome.setExcluded(covers.map { convert($0, from: screen).offsetBy(dx: -rect.minX - shift, dy: -rect.minY) })
                 if chrome.alphaValue != alpha { chrome.alphaValue = alpha }
                 if chrome.isHidden != host.isHidden { chrome.isHidden = host.isHidden }
                 host.noteWindowFrame()
                 overlayHostsPlaced += 1
             }
         }
-        for view in plane.subviews where view is PaneOverlayView && !shown.contains(ObjectIdentifier(view)) {
-            view.removeFromSuperview()
+        for view in plane.subviews {
+            if view is PaneOverlayView, !shown.contains(ObjectIdentifier(view)) {
+                view.removeFromSuperview()
+            } else if view is StripChromePlane {
+                guard stripPlanes.contains(ObjectIdentifier(view)) else {
+                    view.removeFromSuperview()
+                    continue
+                }
+                for chrome in view.subviews where !shown.contains(ObjectIdentifier(chrome)) { chrome.removeFromSuperview() }
+            }
         }
         panesMovedInLastOverlaySync = moved
         reportInteractiveRects()
         notifyOverlaySync()
+    }
+
+    /// `screen`'s strip rings' plane in `plane`, below every other overlay, covering it exactly.
+    private func placeStripChrome(of screen: ScreenContentView, in plane: OverlayPlane) -> StripChromePlane {
+        let stripPlane = screen.stripChrome
+        if stripPlane.superview !== plane { plane.addSubview(stripPlane, positioned: .below, relativeTo: nil) }
+        if stripPlane.frame != plane.bounds { stripPlane.frame = plane.bounds }
+        return stripPlane
     }
 
     /// Rects (this view's coordinates) where native overlays in the root

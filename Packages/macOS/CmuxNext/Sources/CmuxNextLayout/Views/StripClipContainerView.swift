@@ -21,18 +21,21 @@ import QuartzCore
 /// pan moves its hosts (and the strip's dividers, which then sit here too) with one property of its
 /// layer, the `sublayerTransform` translation, under the fixed clip of its bounds. Not their frames,
 /// and not its bounds: each of those makes AppKit recompute the visible rect, tracking areas and
-/// cursor rects of every view under it, on every pan event. Chrome scrolls the same way: the scroll
-/// offset is one transform node under the scroller's clip node (`cc/trees/transform_node.h`
-/// `scroll_offset`), which `cc/input/threaded_input_handler.cc` moves per input event; the main
-/// thread's geometry catches up at its commit. ``translation`` is where the strip shows minus where
-/// its views are laid out (x, points). AppKit does not know it: hit testing here applies it
-/// (``hitTest(_:)``), and a reader of a subview's geometry adds it (`ScreenContentView.placedFrame(of:)`).
+/// cursor rects of every view under it, on every pan event. The rings and dims of the strip's panes
+/// (the overlay plane's `StripChromePlane`, ``companion``) get the same translation in the same
+/// transaction. Chrome scrolls the same way: the scroll offset is one transform node under the
+/// scroller's clip node (`cc/trees/transform_node.h` `scroll_offset`), which
+/// `cc/input/threaded_input_handler.cc` moves per input event; the main thread's geometry catches up
+/// at its commit. ``translation`` is where the strip shows minus where its views are laid out (x,
+/// points). AppKit does not know it, so pointer input never reaches a view while it shows: a press,
+/// a pointer move or a new scroll gesture first lays the strip out where it shows
+/// (`ScreenContentView.landStripWhereItShows()`), as Chrome targets input on committed geometry.
 final class StripClipContainerView: NSView {
     /// The layer key path the pan sets and the fling springs.
     static let translationKeyPath = "sublayerTransform.translation.x"
 
-    /// A fling on the render server: one additive spring of the translation (and of the overlay
-    /// layers that show with the strip) from `displacement` to rest, started at `velocity`. Its
+    /// A fling on the render server: one additive spring of the translation (on this layer and on
+    /// ``companion``) from `displacement` to rest, started at `velocity`. Its
     /// record solves what shows at any time with the closed form the render server runs (Chrome
     /// keeps the same record for a compositor scroll animation:
     /// `cc/animation/scroll_offset_animation_curve.cc` `GetValue`).
@@ -41,9 +44,6 @@ final class StripClipContainerView: NSView {
         var velocity: CGFloat
         var begin: CFTimeInterval
         var spring: SpringParameters
-        /// The layers it springs: this view's (on ``translationKeyPath``), then the overlay layers
-        /// (on `position.x`).
-        var layers: [CALayer]
         var serial: Int
     }
 
@@ -57,6 +57,14 @@ final class StripClipContainerView: NSView {
     private(set) var fling: Fling?
     /// Model translation writes, cumulative (StripPanContainerTests: one per pan event).
     private(set) var translationSets = 0
+    /// The layer of the strip's rings and dims in the overlay plane (`StripChromePlane`): it takes
+    /// every translation this view takes, in the same transaction, and springs with its fling.
+    weak var companion: CALayer?
+    /// Whether the strip shows away from where its views are laid out (a translation or a fling).
+    private(set) var showsMoved = false
+    /// Called when ``showsMoved`` changes: pointer input then lands the strip first
+    /// (`LayoutRootView.updatePointerLanding()`).
+    var onShowsMovedChange: () -> Void = {}
     private var flingSerial = 0
     /// The media clock the fling's record reads (`CACurrentMediaTime`, the render server's timebase).
     private let now: () -> CFTimeInterval
@@ -109,14 +117,13 @@ final class StripClipContainerView: NSView {
         writeModel(value)
     }
 
-    /// Springs the strip from `displacement` (shown minus laid out) to rest on the render server,
-    /// starting at `velocity` (points per second), with `chrome`, the layers outside this view that
-    /// show with the strip (pane rings and dims), on the same spring from the same begin time.
-    /// `landed` runs once, when the fling rests; a fling ended first (``stopFling()``, a newer one)
-    /// never lands. Returns false, moving nothing, when `spring` does not animate here (Reduce Motion,
-    /// a display that draws no frames): the strip then shows at rest.
+    /// Springs the strip (and ``companion``) from `displacement` (shown minus laid out) to rest on the
+    /// render server, starting at `velocity` (points per second). `landed` runs once, when the fling
+    /// rests; a fling ended first (``stopFling()``, a newer one) never lands. Returns false, moving
+    /// nothing, when `spring` does not animate here (Reduce Motion, a display that draws no frames):
+    /// the strip then shows at rest.
     @discardableResult
-    func startFling(from displacement: CGFloat, velocity: CGFloat, spring: RenderSpring, with chrome: [CALayer],
+    func startFling(from displacement: CGFloat, velocity: CGFloat, spring: RenderSpring,
                     landed: @escaping @MainActor @Sendable () -> Void) -> Bool {
         if fling != nil { stopFling() }
         guard let layer, displacement != 0 || velocity != 0, spring.animates(Self.translationKeyPath, in: self) else {
@@ -125,60 +132,43 @@ final class StripClipContainerView: NSView {
         }
         flingSerial += 1
         let serial = flingSerial
-        let rests = chrome.map(\.position.x)
-        // Each model starts `displacement` from where it rests; the springs carry it back to zero.
+        let layers = [layer] + (companion.map { [$0] } ?? [])
+        // Each model starts `displacement` from rest; the springs carry it back to zero.
         CATransaction.begin()
         CATransaction.setDisableActions(true)
-        layer.setValue(NSNumber(value: Double(displacement)), forKeyPath: Self.translationKeyPath)
-        for (sublayer, rest) in zip(chrome, rests) { sublayer.position.x = rest + displacement }
+        for sublayer in layers { sublayer.setValue(NSNumber(value: Double(displacement)), forKeyPath: Self.translationKeyPath) }
         CATransaction.commit()
         translation = 0
         translationSets += 1
-        var moves = [RenderSpring.Move(layer, Self.translationKeyPath, to: CGFloat(0), velocity: velocity)]
-        for (sublayer, rest) in zip(chrome, rests) { moves.append(RenderSpring.Move(sublayer, "position.x", to: rest, velocity: velocity)) }
-        fling = Fling(displacement: displacement, velocity: velocity, begin: now(), spring: spring.parameters,
-                      layers: [layer] + chrome, serial: serial)
+        fling = Fling(displacement: displacement, velocity: velocity, begin: now(), spring: spring.parameters, serial: serial)
+        let moves = layers.map { RenderSpring.Move($0, Self.translationKeyPath, to: CGFloat(0), velocity: velocity) }
         spring.animateGroup(moves, in: self) { [weak self] finished in
             guard let self, finished, self.fling?.serial == serial else { return }
             self.fling = nil
+            self.updateShowsMoved()
             landed()
         }
+        updateShowsMoved()
         return true
     }
 
     /// Ends the fling where it shows: the model takes the shown translation, so nothing moves on
-    /// screen, and the overlay layers show their models (their next sync places them). Returns what
-    /// showed, with its velocity.
+    /// screen. Returns what showed, with its velocity.
     @discardableResult
     func stopFling() -> (translation: CGFloat, velocity: CGFloat) {
-        guard let fling else { return (translation, 0) }
+        guard fling != nil else { return (translation, 0) }
         let shown = self.shown
-        self.fling = nil
-        for sublayer in fling.layers {
-            RenderSpring.stop(sublayer, sublayer === layer ? Self.translationKeyPath : "position.x")
-        }
+        fling = nil
+        if let layer { RenderSpring.stop(layer, Self.translationKeyPath) }
+        if let companion { RenderSpring.stop(companion, Self.translationKeyPath) }
         writeModel(shown.translation)
         return shown
     }
 
-    /// `windowPoint` in the window's coordinates, moved to where the strip's views are laid out: a
-    /// subview's own `convert(_:from: nil)` of the result is the point over it on screen.
-    func laidOutWindowPoint(_ windowPoint: NSPoint) -> NSPoint {
-        NSPoint(x: windowPoint.x - shownTranslation, y: windowPoint.y)
-    }
-
-    /// Hits the subview that shows under `point` (the superview's coordinates): inside the clip, the
-    /// point moved by the translation that shows, a fling's included. Clicks outside every subview go
-    /// to the screen, as they do with no container.
+    /// Clicks outside every host go to the screen, as they do with no container.
     override func hitTest(_ point: NSPoint) -> NSView? {
-        guard !isHidden, let superview else { return nil }
-        let local = convert(point, from: superview)
-        guard bounds.contains(local) else { return nil }
-        let laidOut = NSPoint(x: local.x - shownTranslation, y: local.y)
-        for view in subviews.reversed() where !view.isHidden {
-            if let hit = view.hitTest(laidOut) { return hit }
-        }
-        return nil
+        let hit = super.hitTest(point)
+        return hit === self ? nil : hit
     }
 
     private func writeModel(_ value: CGFloat) {
@@ -187,6 +177,15 @@ final class StripClipContainerView: NSView {
         CATransaction.begin()
         CATransaction.setDisableActions(true)
         layer?.setValue(NSNumber(value: Double(value)), forKeyPath: Self.translationKeyPath)
+        companion?.setValue(NSNumber(value: Double(value)), forKeyPath: Self.translationKeyPath)
         CATransaction.commit()
+        updateShowsMoved()
+    }
+
+    private func updateShowsMoved() {
+        let moved = translation != 0 || fling != nil
+        guard moved != showsMoved else { return }
+        showsMoved = moved
+        onShowsMovedChange()
     }
 }

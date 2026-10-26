@@ -88,6 +88,8 @@ extension LayoutRootView: ScrollGestureOwning {
         guard event.window === window, window != nil else { return event }
         switch event.type {
         case .leftMouseDown, .rightMouseDown, .otherMouseDown:
+            // AppKit hit tests the press on the frames: a strip that shows moved lands where it shows first.
+            landStripsWhereTheyShow()
             let point = convert(event.locationInWindow, from: nil)
             guard bounds.contains(point), let active = model.activeScreenID, let view = screenViews[active] else { return event }
             // The strip scrollbar takes its own clicks.
@@ -273,6 +275,8 @@ extension LayoutRootView: ScrollGestureOwning {
     /// layout consumed it.
     private func routeScrollEvent(_ event: NSEvent, at locationInWindow: NSPoint, fromPageWindow: Bool) -> NSEvent? {
         let decides = decidesGestureOwner(event, at: locationInWindow)
+        // A new gesture or wheel notch is targeted on the frames: a strip that shows moved lands first.
+        if decides || (event.phase.isEmpty && event.momentumPhase.isEmpty) { landStripsWhereTheyShow() }
         if let consumed = handleCanvasScroll(event, at: locationInWindow, decides: decides, fromPageWindow: fromPageWindow) {
             return consumed ? nil : event
         }

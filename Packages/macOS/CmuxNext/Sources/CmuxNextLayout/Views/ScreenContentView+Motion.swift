@@ -136,18 +136,11 @@ extension ScreenContentView {
         return true
     }
 
-    /// Frame ticks a strip pan keeps after its last event: a trackpad sends about one event per
-    /// frame, and a gap of a frame or two must not drop the window's display link (an idle
-    /// scheduler drops its link, and the next event would make a new one). About 67 ms at 120 Hz.
-    /// A pan on the strip container (``presentPanOnContainer()``) asks for no frame and keeps none.
-    static let panTickTail = 8
-
     /// Shows a strip pan event: now when this display frame shows no pan yet, else at the frame's
     /// tick (``displayFrameBegan()``), so a burst of events costs one presentation (one layout
     /// pass and commit of the moved panes) per frame. The frame's first event still shows in its
     /// own turn, so a pan of about one event per frame shows each event as soon as before.
     func presentPan() {
-        panTicksLeft = Self.panTickTail
         if panPresentedInFrame {
             panPresentationPending = true
         } else {
@@ -159,17 +152,15 @@ extension ScreenContentView {
     }
 
     /// A display frame began (the layout's frame tick, before its springs step): the pan events
-    /// that waited in the last frame show now. Returns true while a pan in progress keeps the frame
-    /// ticks (``panTickTail`` frames after its last event).
+    /// that waited in the last frame show now. Returns true while a pan that moves the frames keeps
+    /// the frame ticks: until its finger lifts, so a gap of a frame or two between trackpad events
+    /// never drops the window's display link (an idle scheduler drops its link, and the next event
+    /// would make a new one). A pan on the strip container (``panBase``) shows each event in its own
+    /// turn and keeps none.
     func displayFrameBegan() -> Bool {
         panPresentedInFrame = false
         if panPresentationPending { applyPresentation() }
-        guard panTicksLeft > 0, isUserScrolling else {
-            panTicksLeft = 0
-            return false
-        }
-        panTicksLeft -= 1
-        return true
+        return isUserScrolling && panBase == nil
     }
 
     /// Sets `frame`'s target (opaque); without animation it snaps there. During a pointer gesture (a divider drag)

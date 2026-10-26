@@ -35,6 +35,15 @@ public final class OverlayPlane: NSView {
     /// Whether the plane lives in its home (not adopted by a window overlay).
     public var isHome: Bool { superview === home }
 
+    /// Called after the plane moved between its home and a window overlay (``isHome`` changed or may
+    /// have): the window shows content child windows exactly while it holds the plane.
+    var onHomeChange: (() -> Void)?
+
+    override public func viewDidMoveToSuperview() {
+        super.viewDidMoveToSuperview()
+        onHomeChange?()
+    }
+
     /// The home's bounds in window coordinates (nil outside a window).
     public var homeRectInWindow: CGRect? {
         guard let home, home.window != nil else { return nil }

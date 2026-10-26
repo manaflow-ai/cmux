@@ -47,6 +47,13 @@ final class LayoutViewContext {
     var userMotionStepped: () -> Void = {}
     /// A user gesture ended with nothing left to spring: the motion it started ends.
     var userMotionEnded: () -> Void = {}
+    /// Whether the window shows content in child windows placed from pane frames (Chromium pages,
+    /// R3): those windows follow host frames, not a layer translation, so a strip pan moves the
+    /// frames then (`ScreenContentView.pansOnContainer`).
+    var childWindowContentShows: () -> Bool = { false }
+    /// A screen's strip started or stopped showing away from where its views are laid out
+    /// (`StripClipContainerView.showsMoved`).
+    var stripMovedDidChange: () -> Void = {}
     /// A pane's clip changed (the strip container's range, an area mask, a zooming pane over it):
     /// Chromium pages re-read their clips.
     var stripClipsDidChange: () -> Void = {}
