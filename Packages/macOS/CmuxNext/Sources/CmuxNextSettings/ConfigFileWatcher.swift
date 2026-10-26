@@ -156,10 +156,14 @@ public final class ConfigFileWatcher: @unchecked Sendable {
     /// Whether the file changed (its status change time) or its watched folder gained, lost or
     /// renamed an entry (its modification time) at or after `time`.
     private func changed(since time: timespec) -> Bool {
-        var info = stat()
-        if stat(url.resolvingSymlinksInPath().path, &info) == 0, Self.isAtOrAfter(info.st_ctimespec, time) { return true }
-        guard let watchedDirectory, stat(watchedDirectory.path, &info) == 0 else { return false }
-        return Self.isAtOrAfter(info.st_mtimespec, time)
+        let file = url.resolvingSymlinksInPath().path
+        let folder = watchedDirectory?.path
+        return blockingCall(.fsMetadata) {
+            var info = stat()
+            if stat(file, &info) == 0, Self.isAtOrAfter(info.st_ctimespec, time) { return true }
+            guard let folder, stat(folder, &info) == 0 else { return false }
+            return Self.isAtOrAfter(info.st_mtimespec, time)
+        }
     }
 
     private func makeSource(
