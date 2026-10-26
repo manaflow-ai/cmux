@@ -187,18 +187,12 @@ final class WorkspaceContentController: LayoutPaneContentProvider {
         guard !isTornDown else { return }
         isTornDown = true
         for task in [observation, connectionObservation, attentionObservation, settlingObservation, canvasObservation] { task?.cancel() }
-        observation = nil
-        connectionObservation = nil
-        attentionObservation = nil
-        settlingObservation = nil
-        canvasObservation = nil
-        deferredApply = nil
         focus.topologySent(by: self)
         screenBar.teardown()
         for controller in panes.values { controller.teardown() }
         if !panes.isEmpty {
             panes.removeAll()
-            services.paneMounts.changed() // a wait for a pane here looks again and finds it gone
+            services.paneMounts.changed() // as `releaseContentView`: a pane left, its readers look again
         }
         contentView.removeFromSuperview()
     }

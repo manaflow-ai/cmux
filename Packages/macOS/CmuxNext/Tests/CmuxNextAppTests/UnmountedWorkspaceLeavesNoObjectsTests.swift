@@ -11,7 +11,8 @@ import Testing
 /// leaves no app object behind (p07-memory-034, MQ-LEAK classes Workspace|Pane|Strip|Tab|Layout):
 /// after `teardown` and one main-actor turn, the content controller, its layout and content views,
 /// its screen bar strip, every pane controller and every pane's tab strip are freed. A tree change
-/// or a repair that lands after the teardown mounts no pane again.
+/// or a repair that lands after the teardown mounts no pane and asks the window for no focus, and
+/// no topology of it stays queued in the window's focus coordinator.
 @MainActor struct UnmountedWorkspaceLeavesNoObjectsTests {
     /// Weak references to everything one mounted workspace made.
     final class Probes {
@@ -41,6 +42,18 @@ import Testing
         weak var object: Object?
     }
 
+    /// A flag a test closure sets (the repair's create runs in its own task).
+    final class Flag {
+        var value = false
+    }
+
+    private static var key: WorkspaceKey { WorkspaceKey(rawValue: "w1") }
+
+    /// The workspace with no pane: its terminal was lost.
+    private static var emptied: DaemonTree {
+        DaemonTree(workspaces: [WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 1), key: key, name: "w1", screens: [])])
+    }
+
     private static func tree(split: Bool) -> DaemonTree {
         let first = PaneSnapshot(id: PaneID(rawValue: 1), tabs: [TabSnapshot(surface: SurfaceID(rawValue: 1), title: "~")])
         let second = PaneSnapshot(id: PaneID(rawValue: 2), tabs: [TabSnapshot(surface: SurfaceID(rawValue: 2), title: "~")])
@@ -48,7 +61,7 @@ import Testing
             ? .split(id: nil, resourceID: nil, direction: .right, ratio: 0.5, a: .leaf(first.id), b: .leaf(second.id))
             : .leaf(first.id)
         let screen = ScreenSnapshot(id: ScreenID(rawValue: 1), layout: layout, panes: split ? [first, second] : [first])
-        return DaemonTree(workspaces: [WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 1), key: nil, name: "w1", screens: [screen])])
+        return DaemonTree(workspaces: [WorkspaceSnapshot(id: WorkspaceHandle(rawValue: 1), key: key, name: "w1", screens: [screen])])
     }
 
     private static func connected() throws -> DaemonIdentity {
@@ -131,7 +144,7 @@ import Testing
     }
 
     @Test(.timeLimit(.minutes(1)))
-    func aTreeChangeOrRepairAfterTeardownMountsNoPane() async throws {
+    func aTreeChangeAfterTeardownMountsNoPane() async throws {
         let world = try Self.world(split: false)
         defer { withExtendedLifetime(world.services) { world.window.close() } }
         let content = WorkspaceContentController(workspace: world.workspace, daemon: world.services.daemon,
@@ -142,10 +155,12 @@ import Testing
         content.contentView.layoutSubtreeIfNeeded()
         #expect(content.panes.count == 1)
 
+        let mounted = world.services.paneMounts.generation
         content.teardown()
         #expect(content.panes.isEmpty)
         #expect(content.contentView.superview == nil, "the torn-down content left the window")
         let mounts = world.services.paneMounts.generation
+        #expect(mounts != mounted, "the released panes tell the pane readers, as releaseContentView does")
         // The daemon's split lands after the teardown, then a command response re-applies and the
         // window unparks it by mistake: none of them mounts a pane or restarts an observation.
         world.services.daemon.store.apply(snapshot: Self.tree(split: true))
@@ -158,5 +173,74 @@ import Testing
         #expect(world.services.paneMounts.generation == mounts, "a pane mounted or released after teardown")
         content.teardown() // idempotent
         #expect(world.services.paneMounts.generation == mounts)
+    }
+
+    /// The repair of a lost terminal (`emptyWorkspaceRepair.check`) was asked while the workspace
+    /// was mounted and answers after its teardown, while something still holds the content (a
+    /// create's task did before): its new terminal mounts no pane and leaves no focus expectation
+    /// in the window's coordinator, which would take focus from the next workspace shown.
+    @Test(.timeLimit(.minutes(1)))
+    func aRepairThatLandsAfterTeardownMountsNoPaneAndExpectsNoFocus() async throws {
+        let world = try Self.world(split: false)
+        defer { withExtendedLifetime(world.services) { world.window.close() } }
+        let store = world.services.daemon.store
+        let repair = world.services.emptyWorkspaces
+        repair.canCreate = { true }
+        repair.isLive = { false } // the first pass sees the pane on no live connection: no close later
+        await Self.drainMain()
+        repair.isLive = { true }
+        let (gate, open) = AsyncStream<Void>.makeStream()
+        let asked = Flag(), answered = Flag()
+        repair.create = { _ in
+            asked.value = true
+            for await _ in gate { break }
+            store.apply(snapshot: Self.tree(split: false)) // the new terminal reaches the store first
+            answered.value = true
+            return SurfaceID(rawValue: 1)
+        }
+        store.apply(snapshot: Self.emptied)
+        await Self.drainMain()
+
+        let content = WorkspaceContentController(workspace: world.workspace, daemon: world.services.daemon,
+                                                 services: world.services, state: world.state)
+        content.contentView.frame = world.host.bounds
+        world.host.addSubview(content.contentView)
+        content.applyCurrent()
+        content.didShow()
+        await Self.drainMain()
+        try #require(asked.value, "the empty workspace asked for a new terminal")
+        #expect(content.panes.isEmpty)
+
+        content.teardown()
+        let mounts = world.services.paneMounts.generation
+        open.yield(())
+        await Self.drainMain()
+        try #require(answered.value, "the repair answered")
+        #expect(content.panes.isEmpty, "a repair after teardown mounted \(content.panes.count) panes")
+        #expect(world.services.paneMounts.generation == mounts, "a pane mounted after teardown")
+        #expect(world.state.focus.state.expectation == nil, "a torn-down workspace left a focus expectation")
+        open.finish()
+    }
+
+    /// A topology a pane queued (`setNeedsTopology`) before the teardown leaves the coordinator with
+    /// it: the coordinator keys it by object identity, which a later content can reuse, and would
+    /// then drop that content's own topology as a duplicate. A pane's late change queues none.
+    @Test(.timeLimit(.minutes(1)))
+    func aTopologyQueuedBeforeTeardownLeavesTheCoordinator() throws {
+        let world = try Self.world(split: false)
+        defer { withExtendedLifetime(world.services) { world.window.close() } }
+        let content = WorkspaceContentController(workspace: world.workspace, daemon: world.services.daemon,
+                                                 services: world.services, state: world.state)
+        content.contentView.frame = world.host.bounds
+        world.host.addSubview(content.contentView)
+        content.applyCurrent()
+        let focus = world.state.focus
+        content.setNeedsTopology()
+        try #require(focus.hasPendingTopology(for: content), "a pane's change queues the content's topology")
+
+        content.teardown()
+        #expect(!focus.hasPendingTopology(for: content), "the torn-down content's topology stayed queued")
+        content.setNeedsTopology()
+        #expect(!focus.hasPendingTopology(for: content), "a torn-down content queued a topology")
     }
 }
