@@ -20,7 +20,11 @@ How it is enforced:
   wait is always recorded only: it is measured on the wall clock). Bench builds (`reload.sh --config bench`,
   `-DCMUX_BLOCKING_CHECKS`): recorded for `debug.blocking`, never a trap. Nightly: to come with the
   `nightly.yml` flag and PL-telemetry's hang-report sink (kind + image UUID + offset frames only, no paths or
-  names); it will never trap and has no log or menu. Release: compiled out.
+  names); it will never trap and has no log or menu. Release: compiled out. Debug records on the main thread and
+  the pool until the every-action sweep (p02-threads-300, RUN-1) shows 0 main and 0 pool sites; then task 021 makes
+  both trap by default. Daemon (`cmux-threads::blocking`): a disallowed thread's blocking call records its site in
+  every build and, in Debug, panics at the caller's location (Chrome's `DCHECK`); `CMUX_DAEMON_BLOCKING=record`
+  turns the panic off. Release never panics.
   The same seam call on a shared pool thread (the Swift cooperative pool, `Task.detached`, an actor, a GCD root
   queue such as `DispatchQueue.global`) is a violation too, recorded at its own `pool` site (`debug.blocking`
   `context`, `contexts.pool`; not in the Debug menu); launch a Debug build with `CMUX_BLOCKING_TRAP_POOL=1` to
