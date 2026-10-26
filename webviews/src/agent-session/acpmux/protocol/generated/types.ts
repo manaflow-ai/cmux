@@ -45,6 +45,12 @@ export type AttachResult = {
   /** More records lie beyond this page. */
   hasMore: boolean;
   lastSeq: number;
+  /**
+   * The log's last seq, read before the page: every record of the kinds asked from the page's
+   * first one up to it is in the page (a peer's copy of the chat, `hub/peer_snapshot.rs`,
+   * covers that far; `lastSeq` may be read later).
+   */
+  pageThrough: number;
   /** Who has the chat open now, this attachment included (`hub/presence.rs`). */
   presence: PresenceNote;
   session: SessionDetail;
@@ -149,6 +155,11 @@ export type EventsResult = {
   events: SessionEvent[];
   hasMore: boolean;
   lastSeq: number;
+  /**
+   * The log's last seq, read before the page: unless `hasMore`, every record of the kinds
+   * asked after `afterSeq` up to it is in the page (`hub/peer_snapshot.rs`).
+   */
+  pageThrough: number;
 } & Record<string, unknown>;
 
 export interface HarnessUpdatePlanParams {

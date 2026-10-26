@@ -532,9 +532,10 @@ impl Hub {
                 {
                     self.peer_accepts.accepted(&peer, &params);
                 }
-                PeerNotice::Notification { method: m, params, .. } if m == "_acpmux/lagged" => {
-                    // Its live records have a hole now: none is kept until a page (`peer_snapshot.rs`).
-                    self.peer_snapshots.lagged(&peer);
+                PeerNotice::Notification { method: m, params, link } if m == "_acpmux/lagged" => {
+                    // This link's live records have a hole now: none of it is kept until a page
+                    // (`peer_snapshot.rs`). A copy a later link's page joined is not this link's.
+                    self.peer_snapshots.lagged(&peer, (generation, link));
                     let ids: Vec<String> = self
                         .remote_sessions
                         .lock()

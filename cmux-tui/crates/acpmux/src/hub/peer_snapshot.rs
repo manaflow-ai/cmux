@@ -1165,11 +1165,16 @@ impl Hub {
         params: &Value,
         result: &Value,
     ) {
+        // `kinds` is a name or a list of names (`EventKinds`): without `transcript`, the page
+        // leaves the chat out.
+        let transcript = |k: &Value| k.as_str() == Some("transcript");
+        let leaves_out = match params.get("kinds") {
+            None | Some(Value::Null) => false,
+            Some(Value::Array(kinds)) => !kinds.iter().any(transcript),
+            Some(kind) => !transcript(kind),
+        };
         if params.get("beforeSeq").is_some_and(|v| !v.is_null())
-            || params
-                .get("kinds")
-                .and_then(Value::as_array)
-                .is_some_and(|kinds| !kinds.iter().any(|k| k.as_str() == Some("transcript")))
+            || leaves_out
             || !self.capturing(peer, generation, link)
         {
             return;
@@ -1183,6 +1188,8 @@ impl Hub {
             after: params.get("afterSeq").and_then(Value::as_u64).or(events.then_some(0)),
             has_more: result.get("hasMore") != Some(&Value::Bool(false)),
             host_last_seq: result.get("lastSeq").and_then(Value::as_u64),
+            // Only a peer that says how far its page holds is taken past the page's last record.
+            through: result.get("pageThrough").and_then(Value::as_u64),
             row: self.resolve_remote(&format!("{peer}/{mux}")).map(|(_, _, row)| row),
             records: records.clone(),
         };

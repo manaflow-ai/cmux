@@ -91,6 +91,10 @@ pub struct AttachResult {
     /// More records lie beyond this page.
     pub has_more: bool,
     pub last_seq: u64,
+    /// The log's last seq, read before the page: every record of the kinds asked from the page's
+    /// first one up to it is in the page (a peer's copy of the chat, `hub/peer_snapshot.rs`,
+    /// covers that far; `lastSeq` may be read later).
+    pub page_through: u64,
     /// Who has the chat open now, this attachment included (`hub/presence.rs`).
     pub presence: super::presence::PresenceNote,
 }
@@ -117,6 +121,9 @@ pub struct EventsResult {
     pub events: Vec<SessionEvent>,
     pub has_more: bool,
     pub last_seq: u64,
+    /// The log's last seq, read before the page: unless `hasMore`, every record of the kinds
+    /// asked after `afterSeq` up to it is in the page (`hub/peer_snapshot.rs`).
+    pub page_through: u64,
 }
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, JsonSchema)]

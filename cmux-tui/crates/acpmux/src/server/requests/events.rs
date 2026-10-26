@@ -29,6 +29,8 @@ pub(super) fn handle(hub: &Arc<Hub>, m: &str, params: &Value) -> Result<Value, R
         "events": values(&s.id, page.events),
         "hasMore": page.has_more,
         "lastSeq": last,
+        // Read before the page: a peer's copy of the chat covers this far (`hub/peer_snapshot.rs`).
+        "pageThrough": last,
     }))
 }
 

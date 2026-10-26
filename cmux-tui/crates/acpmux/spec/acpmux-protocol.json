@@ -1522,6 +1522,12 @@
           "minimum": 0,
           "type": "integer"
         },
+        "pageThrough": {
+          "description": "The log's last seq, read before the page: every record of the kinds asked from the page's\nfirst one up to it is in the page (a peer's copy of the chat, `hub/peer_snapshot.rs`,\ncovers that far; `lastSeq` may be read later).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
         "presence": {
           "$ref": "#/types/PresenceNote",
           "description": "Who has the chat open now, this attachment included (`hub/presence.rs`)."
@@ -1534,6 +1540,7 @@
         "events",
         "hasMore",
         "lastSeq",
+        "pageThrough",
         "presence",
         "session"
       ],
@@ -1865,12 +1872,19 @@
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
+        },
+        "pageThrough": {
+          "description": "The log's last seq, read before the page: unless `hasMore`, every record of the kinds\nasked after `afterSeq` up to it is in the page (`hub/peer_snapshot.rs`).",
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
         }
       },
       "required": [
         "events",
         "hasMore",
-        "lastSeq"
+        "lastSeq",
+        "pageThrough"
       ],
       "type": "object"
     },

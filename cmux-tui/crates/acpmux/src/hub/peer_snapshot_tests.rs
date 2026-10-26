@@ -777,6 +777,7 @@ fn the_hub_keeps_a_down_peers_records_and_pages_and_purges_drop_them() {
     // Older history, and a page of some kinds that leaves the transcript out, are not kept.
     hub.capture_peer_page(on(0), ("m1", false), &json!({"beforeSeq": 1}), &page);
     hub.capture_peer_page(on(0), ("m1", false), &json!({"kinds": ["prompt"]}), &page);
+    hub.capture_peer_page(on(0), ("m1", false), &json!({"kinds": "prompt"}), &page);
     for seq in 3..=4 {
         hub.apply_peer_notice(PEER, peer.generation, notice(seq, 0));
     }
@@ -879,4 +880,50 @@ fn an_events_page_with_no_cursor_covers_only_what_it_holds() {
     let (head, seqs) =
         on_disk(&disk::path(&disk::root(&peers), &key("m1")).unwrap(), "m1").unwrap();
     assert_eq!((head.last_seq, seqs), (3, vec![1, 2, 3]));
+    // A page whose peer says how far it holds (`pageThrough`) covers that far; `lastSeq` alone,
+    // which an older peer reads after its page, never does.
+    let rest = json!({"events": recs(4..=5), "hasMore": false, "lastSeq": 9});
+    hub.capture_peer_page(on, ("m1", true), &json!({"afterSeq": 3}), &rest);
+    hub.peer_snapshots.flush_now();
+    let path = disk::path(&disk::root(&peers), &key("m1")).unwrap();
+    assert_eq!(on_disk(&path, "m1").unwrap().0.last_seq, 5);
+    let told = json!({"events": [], "hasMore": false, "lastSeq": 9, "pageThrough": 7});
+    hub.capture_peer_page(
+        on,
+        ("m1", true),
+        &json!({"afterSeq": 5, "kinds": ["transcript"]}),
+        &told,
+    );
+    hub.peer_snapshots.flush_now();
+    assert_eq!(on_disk(&path, "m1").unwrap().0.last_seq, 7);
+}
+
+#[test]
+fn a_listing_under_way_when_a_peer_is_removed_never_lets_its_copies_back() {
+    let dir = cmux_unix_socket::short_test_dir("acpmux-ps");
+    let hub = hub_at(dir.path());
+    let peers = hub.store.peer_cache_dir().unwrap();
+    let path = disk::path(&disk::root(&peers), &key("m1")).unwrap();
+    let peer = add_idle_peer(&hub, PEER);
+    // A listing that found the peer current holds the rows lock; the removal waits for it, so its
+    // op comes before the removal's.
+    let rows = hub.remote_sessions.lock().unwrap();
+    let remover = {
+        let hub = hub.clone();
+        std::thread::spawn(move || hub.forget_peer_cache(PEER))
+    };
+    std::thread::sleep(Duration::from_millis(50));
+    hub.peer_snapshots.listed(PEER, vec![("m1".into(), Some(42))], true);
+    drop(rows);
+    remover.join().unwrap();
+    // A page asked before the removal, answered after it.
+    let page = json!({"session": {"createdAt": 42}, "events": recs(1..=2), "hasMore": false, "lastSeq": 2});
+    hub.capture_peer_page(
+        (PEER, peer.generation, peer.link_epoch(), Some(42)),
+        ("m1", false),
+        &json!({}),
+        &page,
+    );
+    hub.peer_snapshots.flush_now();
+    assert!(!path.exists(), "a removed peer's copy came back");
 }
