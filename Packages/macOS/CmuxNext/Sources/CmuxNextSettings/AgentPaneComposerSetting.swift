@@ -110,6 +110,6 @@ nonisolated enum AgentPaneComposerSettingsSchema {
         ]
     }
 
-    /// Looks only: agents may change it.
+    /// Agents may change these: looks, and whether subagents open in splits (no data or access).
     static var agentSettableKeys: Set<String> { Set(descriptors.map(\.id)) }
 }
