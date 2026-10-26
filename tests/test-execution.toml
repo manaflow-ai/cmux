@@ -2008,3 +2008,7 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_ci_owned_pool_sources.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_rcodesign_sign_bundle_dev.py"
+lane = "linux-guard"
