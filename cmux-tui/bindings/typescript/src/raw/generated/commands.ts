@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 6ee91cefdca789ee18e94753ea8301875cf2019c96e0764ae99594b35cd42f61. */
+/* cmux-tui mux protocol 12, IR 74cc509ea3fb4e00dc98f2a155124e2984528b602bb54443ed2bfec9ab37bb8b. */
 
 
 import type * as T from "./types.js";
@@ -1658,6 +1658,12 @@ export interface CreateWorkspaceGroupRequest extends CmuxRequestBase {
   "name": string;
 }
 export type CreateWorkspaceGroupResult = T.JsonValue;
+
+/** Protocol v12; authority: local-admin. */
+export interface DebugDaemonLocksRequest extends CmuxRequestBase {
+  cmd: "debug-daemon-locks";
+}
+export type DebugDaemonLocksResult = T.JsonValue;
 
 /** Protocol v12; authority: control. */
 export interface DeleteBookmarkRequest extends CmuxRequestBase {
@@ -3780,6 +3786,7 @@ export type CmuxRequest =
   | CreateTerminalRequest
   | CreateWorkspaceRequest
   | CreateWorkspaceGroupRequest
+  | DebugDaemonLocksRequest
   | DeleteBookmarkRequest
   | DeleteBrowserProfileRequest
   | DeletePersonalGroupRequest
@@ -5176,6 +5183,14 @@ export interface CmuxCommandDefinitionMap {
     authority: "control";
     since: 12;
     capability: "workspace-groups-v1";
+    stream: null;
+  };
+  "debug-daemon-locks": {
+    request: DebugDaemonLocksRequest;
+    result: DebugDaemonLocksResult;
+    authority: "local-admin";
+    since: 12;
+    capability: null;
     stream: null;
   };
   "delete-bookmark": {
