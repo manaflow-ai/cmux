@@ -579,6 +579,20 @@ class PathRoutingStructure(unittest.TestCase):
         self.assertFalse([step for step in swift["steps"] if "pin-cmux-tui.sh" in step.get("run", "")])
         self.assertIn("SWIFT_FILTER", swift["env"])
 
+    def test_swift_test_prioritizes_changed_suites_before_the_broad_pass(self):
+        jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
+        route = jobs["path_route"]
+        self.assertIn("swift_priority_filter", route["outputs"])
+        swift = jobs["swift-test"]
+        self.assertIn("SWIFT_PRIORITY_FILTER", swift["env"])
+        run = next(step for step in swift["steps"] if step.get("name", "").startswith("Run package tests"))
+        script = run["run"]
+        self.assertIn("SWIFT_PRIORITY_FILTER", script)
+        self.assertIn("--skip", script)
+        self.assertIn("priority", script.lower())
+        cloud = next(step for step in swift["steps"] if step.get("name") == "Run CloudBringBack cases in fresh processes")
+        self.assertNotIn("!contains(env.SWIFT_PRIORITY_FILTER, 'CloudBringBackTests')", cloud["if"])
+
     def test_generated_files_are_checked_outside_the_package_tests(self):
         """a925bd9 went red when PRs that skipped swift test landed a stale export."""
         jobs = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))["jobs"]
@@ -682,7 +696,9 @@ class PathRoutingStructure(unittest.TestCase):
         guard = "(github.run_attempt == 1 || github.triggering_actor != 'github-actions[bot]') && "
         # The session-only jobs read `(session_runner || gui_runner)`, the rest one output
         # (the fast tier's fast_runner is attempt 1 only, so not counted here).
-        self.assertEqual(text.count(guard + "needs.macos-placement.outputs."), 9)
+        # The Release compile's owned-first PR route reads the placement output
+        # in both `runs-on` and `CMUX_NEXT_RUNNER`.
+        self.assertEqual(text.count(guard + "needs.macos-placement.outputs."), 11)
         self.assertEqual(text.count(guard + "(needs.macos-placement.outputs.session_runner || "
                                     "needs.macos-placement.outputs.gui_runner)"), 4)
         # 7242a82b4a8 (#24763): the rescue re-admits a queued run, a free owned Mac first, then Blacksmith.

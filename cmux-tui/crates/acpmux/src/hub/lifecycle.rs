@@ -220,6 +220,7 @@ impl Hub {
             // Read before the session is published: a stop from then on ends its first start.
             let stops = session.stops.load(Ordering::SeqCst);
             sessions.insert(id.clone(), session.clone());
+            super::admission::claim(&id);
             (session, stops)
         };
         let (session, created_stops) = session;
