@@ -1,6 +1,8 @@
 import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextTerminal
+import CmuxNextWakeups
+import GhosttyNextKit
 import Testing
 
 /// p07-memory-037: a paused terminal away from the viewport lets its GPU memory go after the pause
@@ -26,7 +28,7 @@ import Testing
     private func shownSession(_ residency: RecordingResidency) throws -> (TerminalSession, NSWindow, ScriptedTerminalIO) {
         _ = NSApplication.shared
         let io = ScriptedTerminalIO()
-        let session = TerminalSession(io: io, gpuResidency: residency)
+        let session = TerminalSession(io: io, mainWork: MainWorkScheduler(budget: MainFrameBudget()), gpuResidency: residency)
         try #require(session.surfaceView.surface != nil, "libghostty created no surface")
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 480, height: 240), styleMask: [.borderless],
                               backing: .buffered, defer: false)
@@ -79,6 +81,9 @@ import Testing
 
         // Off screen in the band: paused, never away; then scrolled back on screen.
         session.isRenderingSuspended = true
+        // The swap chain's two buffers besides the presented frame, which is volatile while paused.
+        let size = ghostty_surface_size(try #require(session.surfaceView.surface))
+        #expect(session.pausedNonvolatileIOSurfaceBytes == UInt64(size.width_px) * UInt64(size.height_px) * 4 * 2)
         #expect(session.pausedNonvolatileIOSurfaceBytes > 0, "a resident paused surface reports no swap chain")
         session.isRenderingSuspended = false
         #expect(session.pausedNonvolatileIOSurfaceBytes == 0, "a drawing surface counts as paused")
@@ -100,18 +105,32 @@ import Testing
         session.isRenderingSuspended = true
         session.releasesGPUWhilePaused = true
         #expect(residency.calls.isEmpty, "a forced-drawing surface let its GPU memory go: \(residency.calls)")
+
+        // A replay swaps in a fresh surface while the mirror still draws: it is never released, not even
+        // for one turn (the draw demand reaches it before the away state).
+        let first = session.surfaceView
+        try await swap(session, io, replays: ["one", "two"])
+        try #require(session.surfaceView !== first, "the replay did not swap the surface")
+        #expect(residency.calls.isEmpty, "a swap under a live mirror released or restored the fresh surface: \(residency.calls)")
+
         session.mirrorDemand = 0
         #expect(residency.calls == [.init(resident: false, drawing: false)], "mirror gone: \(residency.calls)")
 
-        // A second replay swaps in a fresh surface: it is away too and releases once paused.
-        let first = session.surfaceView
-        io.send(.replay(Data("one".utf8)))
-        io.send(.replay(Data("two".utf8)))
-        let swappedBy = ContinuousClock.now.advanced(by: .seconds(5))
-        while session.surfaceView === first, ContinuousClock.now < swappedBy { await Task.yield() }
-        try #require(session.surfaceView !== first, "the replay did not swap the surface")
+        // Another replay swaps in a fresh surface: it is away too and releases once paused.
+        let second = session.surfaceView
+        try await swap(session, io, replays: ["three"])
+        try #require(session.surfaceView !== second, "the replay did not swap the surface")
         #expect(session.surfaceView.releasesGPUWhilePaused, "the swapped-in surface lost the away state")
         #expect(residency.calls.filter { !$0.resident }.count == 2, "the fresh paused surface kept its GPU memory: \(residency.calls)")
+        #expect(!residency.calls.contains { $0.resident }, "a paused away surface was made resident: \(residency.calls)")
         #expect(session.pausedNonvolatileIOSurfaceBytes == 0)
+    }
+
+    /// Sends `replays` and waits (5 s at most) until the session swapped in a new surface.
+    private func swap(_ session: TerminalSession, _ io: ScriptedTerminalIO, replays: [String]) async throws {
+        let before = session.surfaceView
+        for replay in replays { io.send(.replay(Data(replay.utf8))) }
+        let swappedBy = ContinuousClock.now.advanced(by: .seconds(5))
+        while session.surfaceView === before, ContinuousClock.now < swappedBy { await Task.yield() }
     }
 }

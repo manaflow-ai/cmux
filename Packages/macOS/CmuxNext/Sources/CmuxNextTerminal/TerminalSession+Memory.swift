@@ -12,15 +12,19 @@ extension TerminalSession {
         return Self.drawableBytes(size) + cells * 64
     }
 
-    /// The non-volatile IOSurface bytes the surface holds while it does not draw: its swap chain while
-    /// it is GPU resident; 0 once it let that go, and 0 while it draws. Its presented frame is volatile
-    /// while paused (``TerminalFramePurgeability``) and not counted.
+    /// The estimated non-volatile IOSurface bytes the surface holds while it does not draw: the swap
+    /// chain's two buffers besides the presented frame while it is GPU resident; 0 once it let them
+    /// go, and 0 while it draws. The presented frame is volatile while paused
+    /// (``TerminalFramePurgeability``) and not counted.
     public var pausedNonvolatileIOSurfaceBytes: UInt64 {
         guard surfaceView.pause != nil, surfaceView.gpu.resident, let surface = surfaceView.surface else { return 0 }
-        return Self.drawableBytes(ghostty_surface_size(surface))
+        return Self.drawableBytes(ghostty_surface_size(surface), buffers: Self.swapChainBuffers - 1)
     }
 
-    private static func drawableBytes(_ size: ghostty_surface_size_s) -> UInt64 {
-        UInt64(size.width_px) * UInt64(size.height_px) * 4 * 3
+    /// Ghostty's swap chain: three BGRA buffers per surface.
+    static let swapChainBuffers: UInt64 = 3
+
+    static func drawableBytes(_ size: ghostty_surface_size_s, buffers: UInt64 = swapChainBuffers) -> UInt64 {
+        UInt64(size.width_px) * UInt64(size.height_px) * 4 * buffers
     }
 }

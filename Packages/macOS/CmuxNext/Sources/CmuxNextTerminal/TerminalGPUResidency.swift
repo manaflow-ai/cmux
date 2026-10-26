@@ -1,4 +1,3 @@
-import Foundation
 import GhosttyNextKit
 
 /// Releases and restores the GPU memory of a hidden Ghostty surface: its IOSurface swap chain,
@@ -14,25 +13,28 @@ public protocol TerminalGPUResidency: AnyObject {
     func setResident(_ resident: Bool, of view: TerminalSurfaceView)
 }
 
-/// The libghostty switch, looked up by name so that a libghostty pinned before ghostty-next added it
-/// still links. Chrome does the same for a hidden renderer: `LayerTreeHostImpl::SetVisible(false)`
+/// The libghostty switch, `ghostty_surface_set_gpu_resident`. libghostty is a static archive linked
+/// into the app, so whether the switch exists is fixed when the app is built, by the GhosttyNextKit
+/// pin: the `GHOSTTY_GPU_RESIDENT` condition (`ghosttyNextKitCapabilities` in Package.swift) is set by
+/// the pin bump that brings it, and a condition without the export fails the compile and the link.
+/// Chrome does the same for a hidden renderer: `LayerTreeHostImpl::SetVisible(false)`
 /// (`cc/trees/layer_tree_host_impl.cc`) gives its tiles no GPU memory, and showing it rasters again
 /// while the browser shows the saved frame.
 @MainActor
 public final class GhosttyGPUResidency: TerminalGPUResidency {
-    private typealias SetResident = @convention(c) (ghostty_surface_t, Bool) -> Void
-    private let setGPUResident: SetResident
-
-    /// Nil when this libghostty has no `ghostty_surface_set_gpu_resident`: surfaces stay resident and
-    /// the warm set keeps the size it has without the release (`SubsystemBudget`).
+    /// Nil when the pinned GhosttyNextKit has no `ghostty_surface_set_gpu_resident`: surfaces stay
+    /// resident and the warm set keeps the size it has without the release (`SubsystemBudget`).
     public init?() {
-        guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "ghostty_surface_set_gpu_resident") else { return nil }
-        setGPUResident = unsafeBitCast(symbol, to: SetResident.self)
+        #if !GHOSTTY_GPU_RESIDENT
+        return nil
+        #endif
     }
 
     public func setResident(_ resident: Bool, of view: TerminalSurfaceView) {
+        #if GHOSTTY_GPU_RESIDENT
         guard let surface = view.surface else { return }
-        setGPUResident(surface, resident)
+        ghostty_surface_set_gpu_resident(surface, resident)
+        #endif
     }
 }
 

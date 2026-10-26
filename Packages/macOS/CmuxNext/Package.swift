@@ -182,6 +182,15 @@ let daemonSwiftSettings: [SwiftSetting] = [
     .enableUpcomingFeature("InternalImportsByDefault"),
 ]
 
+/// Exports of the pinned GhosttyNextKit (Packages/Shared/CmuxGhosttyKit) beyond the API every pin has,
+/// as compile-time conditions of CmuxNextTerminal. libghostty links statically and Release exports no
+/// symbols, so the app never looks one up at run time: the pin bump that brings an export turns its
+/// condition on in the same commit, and a condition on without the export fails the compile and link.
+/// - GHOSTTY_GPU_RESIDENT: `ghostty_surface_set_gpu_resident` (ghostty-next cp/p07-memory-036, not in
+///   723c4ab93): `GhosttyGPUResidency`, so `terminalGPURelease` and the larger warm set.
+let ghosttyNextKitHasGPUResident = false
+let ghosttyNextKitCapabilities: [SwiftSetting] = ghosttyNextKitHasGPUResident ? [.define("GHOSTTY_GPU_RESIDENT")] : []
+
 /// The app's ONE Rust static library, CCmuxAppFFI (cmux-tui/crates/cmux-app-ffi):
 /// the remote desktop core C ABI (module CCmuxRdFFI), the sidebar layout
 /// reducer C ABI (module CCmuxLayoutReducerFFI) and the palette ranker C ABI
@@ -1712,7 +1721,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             resources: [
                 .process("Resources"),
             ],
-            swiftSettings: uiSwiftSettings
+            swiftSettings: uiSwiftSettings + ghosttyNextKitCapabilities
         ),
         // Terminal tests that need only TerminalSession (the TextBox composer), without the
         // whole App build. libghostty needs libc++, as in CmuxNextAppTests.
