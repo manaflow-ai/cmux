@@ -1,50 +1,72 @@
 // Leo 2026-10-18 (photo, "ff" typed in New Tab): the suggestions offered "Ask Claude Code", the web
 // search and the workspaces, but New terminal, New browser tab and New chat only as buttons under
-// the field, hidden behind the open list. Now the list ends with the same three create actions
-// (cx-ag5.7), so they are always one Down or one click away while the list shows.
+// the field, hidden behind the open list. Leo 2026-10-24 ("the new terminal, new browser tab, new
+// tab. Like is there a better sort of UI we can do for this where it's just less annoying?"): they
+// stay one click away while the list shows, as one quiet strip under the rows, and a row only when
+// the text names one ("new t"). The chat-first order keeps the three rows.
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
 import { act } from "react";
 import type { Root } from "react-dom/client";
 import { noChat } from "../src/gallery/fixtures/acpmux";
 import { EMPTY_OMNIBAR, type OmnibarContext } from "../src/agent-session/acpmux/omnibar";
-import { MAX_SUGGESTIONS, screenRows, type ScreenRow } from "../src/agent-session/acpmux/newtab/screenModel";
+import { inStrip, screenRows, type ScreenRow } from "../src/agent-session/acpmux/newtab/screenModel";
+import type { SuggestionOrder } from "../src/agent-session/acpmux/newtab/suggestionOrder";
 
 const ask = { harness: "claude", agent: "Claude Code", model: "Claude Opus 5.5" };
 const create = ["terminal", "browser", "chat"] as const;
-const context = (fields: Partial<OmnibarContext> = {}) => ({
+const context = (fields: Partial<OmnibarContext> = {}, order?: SuggestionOrder) => ({
   omnibar: { ...EMPTY_OMNIBAR, ...fields },
   ask,
   create,
+  ...(order ? { order } : {}),
 });
-const kinds = (rows: ScreenRow[]) => rows.map((row) => (row.type === "create" ? `create:${row.kind}` : row.type));
+const kinds = (rows: ScreenRow[]) =>
+  rows.filter((row) => !inStrip(row)).map((row) => (row.type === "create" ? `create:${row.kind}` : row.type));
+const createStrip = (rows: ScreenRow[]) =>
+  rows.flatMap((row) => (row.type === "create" && inStrip(row) ? [row.kind] : []));
+const scratch = { workspaces: [{ id: "ws", name: "ff-scratch" }] };
 
-test("a prompt's rows end with the three create actions", () => {
-  const rows = screenRows("ff", context({ workspaces: [{ id: "ws", name: "ff-scratch" }] }));
-  expect(kinds(rows)).toEqual(["search", "ask", "workspace", "create:terminal", "create:browser", "create:chat"]);
+test("a prompt's create actions are the strip under the rows, not three rows", () => {
+  const rows = screenRows("ff", context(scratch));
+  expect(kinds(rows)).toEqual(["ask", "workspace", "search"]);
+  expect(createStrip(rows)).toEqual(["terminal", "browser", "chat"]);
 });
 
-test("an address keeps its top hit, the web search and Ask, then the create actions", () => {
+test("an address keeps its top hit, Ask and the web search, and the strip", () => {
   const rows = screenRows("reddit.com", context());
-  expect(kinds(rows).slice(-5)).toEqual(["search", "ask", "create:terminal", "create:browser", "create:chat"]);
-  expect(rows[0]?.type).toBe("open");
+  expect(kinds(rows)).toEqual(["open", "ask", "search"]);
+  expect(createStrip(rows)).toEqual(["terminal", "browser", "chat"]);
 });
 
-test("a full list still ends with the create actions", () => {
-  const many = context({
-    history: Array.from({ length: 30 }, (_, index) => ({
-      url: `https://red${index}.example.com/`,
-      title: `Red ${index}`,
-    })),
-  });
-  const rows = screenRows("red", many);
-  expect(rows.length).toBe(MAX_SUGGESTIONS + create.length);
-  expect(kinds(rows).slice(-5)).toEqual(["search", "ask", "create:terminal", "create:browser", "create:chat"]);
+test("text that names a create action lists it as a row, and the strip keeps the rest", () => {
+  const rows = screenRows("term", context());
+  expect(kinds(rows)).toEqual(["ask", "search", "create:terminal"]);
+  expect(createStrip(rows)).toEqual(["browser", "chat"]);
+  expect(kinds(screenRows("new", context())).slice(-3)).toEqual(["create:terminal", "create:browser", "create:chat"]);
+  // One letter names nothing.
+  expect(kinds(screenRows("n", context()))).toEqual(["ask", "search"]);
 });
 
-test("an empty field and shell mode still show no rows", () => {
+test("the chat-first order ends with the three create rows; minimal shows none while typing", () => {
+  const chat = screenRows("ff", context(scratch, "chat"));
+  expect(kinds(chat)).toEqual(["ask", "workspace", "search", "create:terminal", "create:browser", "create:chat"]);
+  expect(createStrip(chat)).toEqual([]);
+  const minimal = screenRows("new", context({}, "minimal"));
+  expect(kinds(minimal).filter((kind) => kind.startsWith("create:"))).toEqual([]);
+  expect(createStrip(minimal)).toEqual([]);
+});
+
+test("the strip rows come last, so the arrow keys reach them after the rows", () => {
+  const rows = screenRows("ff", context(scratch));
+  expect(rows.slice(-3).map(inStrip)).toEqual([true, true, true]);
+  expect(rows.slice(0, -3).some(inStrip)).toBe(false);
+});
+
+test("an empty field and shell mode still show no rows and no strip", () => {
   expect(screenRows("", context())).toEqual([]);
   expect(screenRows("!ls", context())).toEqual([]);
+  expect(createStrip(screenRows("", context()))).toEqual([]);
 });
 
 const scope = globalThis as Record<string, unknown>;
@@ -136,33 +158,34 @@ async function type(text: string) {
 const rows = () => [...window.document.querySelectorAll<HTMLElement>('[role="option"]')];
 const label = (row: HTMLElement) => row.querySelector(".nt-row-title")?.textContent ?? "";
 
-test('typing "ff" lists the web search, Ask, the workspace and the three create actions', async () => {
+const strip = () => [...window.document.querySelectorAll<HTMLElement>(".nt-create-strip-item")];
+const listRows = () => rows().filter((row) => !row.classList.contains("nt-create-strip-item"));
+
+test('typing "ff" lists Ask, the workspace and the web search, with the create strip under them', async () => {
   await render([]);
   await type("ff");
-  expect(rows().map(label)).toEqual([
-    "Search the web for ff",
-    "Ask Claude Code",
-    "ff-scratch",
-    "New terminal",
-    "New browser tab",
-    "New chat",
-  ]);
+  expect(listRows().map(label)).toEqual(["Ask Claude Code", "ff-scratch", "Search the web for ff"]);
+  // The strip's actions are options too: the arrow keys and the native popup reach them.
+  expect(strip().map(label)).toEqual(["New terminal", "New browser tab", "New chat"]);
+  expect(strip().every((item) => item.getAttribute("role") === "option")).toBe(true);
 });
 
-test("a create row opens what its button opens", async () => {
+test("a create action opens what its button opens, from the strip or a named row", async () => {
   const calls: unknown[][] = [];
   await render(calls);
   await type("ff");
-  const terminal = rows().find((row) => label(row) === "New terminal")!;
+  const terminal = strip().find((item) => label(item) === "New terminal")!;
   await act(async () => terminal.dispatchEvent(new window.MouseEvent("mousedown", { bubbles: true, button: 0 })));
   expect(calls).toEqual([["create", "terminal"]]);
 
   calls.length = 0;
   await render(calls);
   await type("ff");
-  // Up from the top row wraps to the last one, New chat, which Return takes.
+  // Up from the top row goes back to the text; from there Up takes the last row, the strip's New
+  // chat, which Return takes.
   const field2 = host.querySelector<HTMLTextAreaElement>(".nt-field")!;
-  await act(async () => field2.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true })));
+  for (let press = 0; press < 2; press += 1)
+    await act(async () => field2.dispatchEvent(new window.KeyboardEvent("keydown", { key: "ArrowUp", bubbles: true })));
   const selected = rows().find((row) => row.getAttribute("aria-selected") === "true")!;
   expect(label(selected)).toBe("New chat");
   await act(async () => field2.dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true })));

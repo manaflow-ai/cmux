@@ -1,6 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
 import { JSDOM } from "jsdom";
-import { installMenuPressGuard } from "../src/agent-session/acpmux/menuPressGuard";
+import { installMenuPressGuard, swallowsPress } from "../src/agent-session/acpmux/menuPressGuard";
 
 let dom: JSDOM | undefined;
 let remove: (() => void) | undefined;
@@ -48,7 +48,7 @@ function fixture() {
     action.dispatchEvent(event);
     return event;
   };
-  return { view, trigger, action, received, pointer, mouse };
+  return { view, doc, trigger, action, received, pointer, mouse };
 }
 
 test("a completed outside press only dismisses the menu and the next press works", () => {
@@ -67,6 +67,21 @@ test("a completed outside press only dismisses the menu and the next press works
   f.mouse("mouseup");
   expect(f.mouse("click").defaultPrevented).toBe(false);
   expect(f.received).toEqual(["pointerdown", "mousedown", "pointerup", "mouseup", "click"]);
+});
+
+test("other press handlers can tell a press that only closes the menu (the transcript's margin drag)", () => {
+  const f = fixture();
+  expect(swallowsPress(f.doc)).toBe(false);
+  f.pointer("pointerdown");
+  expect(swallowsPress(f.doc)).toBe(true);
+  f.mouse("mousedown");
+  f.pointer("pointerup");
+  f.mouse("mouseup");
+  f.mouse("click");
+  expect(swallowsPress(f.doc)).toBe(false);
+  // The menu is closed now: the next press is the page's own.
+  f.pointer("pointerdown");
+  expect(swallowsPress(f.doc)).toBe(false);
 });
 
 test("a canceled outside gesture does not consume the next keyboard activation", () => {

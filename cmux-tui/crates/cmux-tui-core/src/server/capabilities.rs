@@ -31,6 +31,7 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
         capabilities.push(cloud_conversations::CLOUD_RUNS_CAPABILITY);
         capabilities.push(cloud_conversations::CLOUD_LIVE_CAPABILITY);
         capabilities.push(cloud_conversations::CLOUD_TYPING_CAPABILITY);
+        capabilities.push(cloud_conversations::CLOUD_PRESENCE_CAPABILITY);
         capabilities.push(cloud_attachments::CAPABILITY);
         capabilities.push(cloud_conversations::SELFHOST_CAPABILITY);
     }
@@ -47,6 +48,7 @@ pub(super) fn identify_capabilities(mux: &Mux) -> Vec<&'static str> {
     #[cfg(unix)]
     if mux.serves_agent_session_attach() {
         capabilities.push(AGENT_SESSION_ATTACH_CAPABILITY);
+        capabilities.push(agent_session_attach::AGENT_SESSION_PRESENCE_CAPABILITY);
         capabilities.push(agent_inventory::CAPABILITY);
         capabilities.push(agent_inventory::OWNER_CAPABILITY);
         capabilities.push(agent_inventory::REFRESH_CAPABILITY);
@@ -192,6 +194,7 @@ pub(super) fn advertised_capabilities(
         split_kind::SPLIT_CLIENT_SPLIT_ID_CAPABILITY,
         creating_input::TERMINAL_INPUT_WHILE_CREATING_CAPABILITY,
         cmd_terminal_io::SEND_EXPECT_FOREGROUND_CAPABILITY,
+        cmd_terminal_io::SEND_EXPECT_AGENT_CAPABILITY,
         WORKSPACE_REGISTRY_CAPABILITY,
         DAEMON_HANDOFF_FORCE_CAPABILITY,
         GUARDED_BROWSER_POINTER_CAPABILITY,
@@ -205,6 +208,7 @@ pub(super) fn advertised_capabilities(
         PINNED_DOCK_CAPABILITY,
         PINNED_DOCK_ALONE_CAPABILITY,
         ROWS_CAPABILITY,
+        rows::ROW_CLIENT_KEYS_CAPABILITY,
         COLUMN_MOVE_CAPABILITY,
         PANE_BROWSER_KIND_CAPABILITY,
         LAYOUT_UNDO_CAPABILITY,
@@ -218,6 +222,9 @@ pub(super) fn advertised_capabilities(
         VIEW_ATTACHMENT_DETACH_CAPABILITY,
         SHARED_SIZING_CAPABILITY,
         SIZING_VIEW_DETACH_CAPABILITY,
+        SIZE_LEASE_CAPABILITY,
+        crate::mux::host_policy::HOST_SIZE_POLICY_CAPABILITY,
+        HOST_GRID_VIEW_CAPABILITY,
         OPEN_DEVICE_KINDS_CAPABILITY,
         TERMINAL_COLOR_OVERRIDES_CAPABILITY,
         TERMINAL_PENDING_SEQUENCE_CAPABILITY,
@@ -250,6 +257,7 @@ pub(super) fn advertised_capabilities(
         WORKSPACE_PIN_CAPABILITY,
         NOTIFICATION_MARK_UNREAD_CAPABILITY,
         TAB_MARK_UNREAD_CAPABILITY,
+        TAB_ATTENTION_CAPABILITY,
         WORKSPACE_DESCRIPTION_CAPABILITY,
         WORKSPACE_STATUS_CAPABILITY,
         WORKSPACE_CREATE_FOCUS_CAPABILITY,
@@ -329,6 +337,7 @@ pub(super) fn advertised_capabilities(
         crate::state::tabs::TAB_GROUP_ICON_CAPABILITY,
         crate::state::sidebar_layout_store::CAPABILITY,
         crate::state::sidebar_doc_store::CAPABILITY,
+        crate::state::sidebar_doc_store::HOST_GROUP_OPTOUT_CAPABILITY,
         crate::state::placement_shift::CAPABILITY,
         crate::state::projects_store::CAPABILITY,
         crate::state::projects_store::SOURCES_CAPABILITY,

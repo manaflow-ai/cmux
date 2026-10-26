@@ -9,8 +9,9 @@ extension UpdaterService: UpdateActionDelegate {
     /// survive the relaunch. Sparkle's terminate goes through the normal
     /// `applicationShouldTerminate` path.
     public func updaterWillRelaunchApplication() {
-        log.append("relaunching for update")
-        #if DEBUG
+        let waited = installStartedAt.map { " after \(Int(now().timeIntervalSince($0))) s of install" } ?? ""
+        log.append("relaunching for update\(waited)")
+        #if DEBUG || CMUX_BENCH_HOOKS
         UpdateHarness.mark("will_relaunch")
         #endif
         willRelaunch?()

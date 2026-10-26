@@ -41,6 +41,10 @@ nonisolated enum UpdaterStrings {
     static var preparing: String { text("updater.title.preparing", "Preparing Update") }
     static var installing: String { text("updater.title.installing", "Installing…") }
     static var readyToInstall: String { text("updater.title.readyToInstall", "Update Ready") }
+    static var updateAvailableButton: String { text("updater.button.updateAvailable", "Update Available: Click to Download and Install") }
+    static func updateAvailableNamed(_ version: String) -> String {
+        format("updater.button.updateAvailableNamed", "Update Available (%@): Click to Download and Install", version)
+    }
 
     // Rollback
     static var rollbackNothingKept: String { text("updater.rollback.nothingKept", "No previous version is kept on this Mac.") }
@@ -127,6 +131,15 @@ nonisolated enum UpdaterStrings {
     static var installingUpdate: String { text("updater.notice.installingTitle", "Installing Update") }
     static var relaunchingDetail: String {
         text("updater.notice.relaunchingDetail", "cmux relaunches in a moment. Your terminals and agents keep running.")
+    }
+    static func checkingNewVersion(seconds: Int) -> String {
+        format("updater.notice.checkingNewVersion",
+               "The installer checks the new version (%lld s). cmux relaunches when it is done. Your terminals and agents keep running.",
+               seconds)
+    }
+    static var installStalled: String { text("updater.notice.stalledTitle", "Update Did Not Relaunch") }
+    static func installStalledDetail(minutes: Int) -> String {
+        format("updater.notice.stalledDetail", "cmux waited %lld min for the installer. Your windows are back. Details shows the update log.", minutes)
     }
     static var checkFailedDetail: String { text("updater.notice.checkFailedDetail", "Check your connection and try again.") }
     static var noticeDismiss: String { text("updater.notice.dismiss", "Dismiss") }

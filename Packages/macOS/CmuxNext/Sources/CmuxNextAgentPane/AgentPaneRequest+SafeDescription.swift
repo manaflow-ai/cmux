@@ -12,6 +12,8 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         switch self {
         case .ready: "ready"
         case .reconnect: "reconnect"
+        case .uiPointerReport: "uiPointerReport"
+        case .restartAcpmux: "restartAcpmux"
         case .persistSession: "persistSession"
         case .missingChat: "missingChat"
         case .unsentDraft: "unsentDraft"
@@ -45,6 +47,9 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .attachDropped: "attachDropped"
         case .listProjects: "listProjects"
         case .projectIcon: "projectIcon"
+        case .agentAvatar: "agentAvatar"
+        case .setAgentAvatar: "setAgentAvatar"
+        case .removeAgentAvatar: "removeAgentAvatar"
         case .nowPlaying: "nowPlaying"
         case .openChat: "openChat"
         case .openChatInTerminal: "openChatInTerminal"
@@ -52,7 +57,7 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .chatsPage: "chatsPage"
         case .environment: "environment"
         case .appAction: "appAction"
-        case .paneAction: "paneAction"
+        case .paneAction, .diffTurn: "paneAction"
         case .preview: "preview"
         case .setQuickActions: "setQuickActions"
         case .tabState: "tabState"
@@ -98,6 +103,7 @@ extension AgentPaneRequest: CustomStringConvertible, CustomDebugStringConvertibl
         case .displaySetting: "displaySetting"
         case .toolCard: "toolCard"
         case .upload: "upload"
+        case .uploadStage: "uploadStage"
         case .unsupported: "unsupported"
         }
     }
