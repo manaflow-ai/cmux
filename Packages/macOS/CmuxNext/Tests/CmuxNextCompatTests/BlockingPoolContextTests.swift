@@ -15,7 +15,7 @@ import Testing
 struct BlockingPoolContextTests {
     /// The names `debug.blocking` and the hang reports use never change.
     @Test func theContextsKeepTheirNames() {
-        #expect(BlockingContext.allCases.map(\.rawValue) == ["main", "pool", "lane", "dedicated"])
+        #expect(BlockingContext.allCases.map(\.rawValue) == ["main", "pool", "lane", "dedicated", "cpu-lane"])
     }
 
     /// GCD root queues (and the cooperative pool's queues, which share the prefix) are pools; a named queue (one
@@ -350,7 +350,7 @@ private nonisolated func checkedRead() -> UInt {
 @inline(never)
 private nonisolated func recordFromOneCaller(pool: Bool) {
     if pool {
-        BlockingViolationTable.poolBlocked(.fileIO, fileID: #fileID, line: 1)
+        BlockingViolationTable.offMainBlocked(.fileIO, in: .pool, fileID: #fileID, line: 1)
     } else {
         BlockingViolationTable.mainThreadBlocked(.fileIO, fileID: #fileID, line: 1)
     }

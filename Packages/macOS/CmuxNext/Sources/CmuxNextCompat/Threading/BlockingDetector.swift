@@ -70,7 +70,8 @@ public struct BlockingDetector: Sendable {
         #endif
     }
 
-    /// The call sites that blocked the main thread or a shared pool thread and reached the drain queue, in the order they
+    /// The call sites that blocked the main thread, a shared pool thread or a `.cpu` lane item and reached the drain
+    /// queue, in the order they
     /// first did, with their current counts.
     public var sites: [BlockingSite] {
         #if DEBUG || CMUX_BLOCKING_CHECKS
@@ -80,7 +81,7 @@ public struct BlockingDetector: Sendable {
         #endif
     }
 
-    /// Blocking calls, on the main thread or the pool, not recorded as a site (the sum of
+    /// Blocking calls, on the main thread, the pool or a `.cpu` lane item, not recorded as a site (the sum of
     /// ``overflow(in:)`` over the contexts).
     public var overflow: Int {
         #if DEBUG || CMUX_BLOCKING_CHECKS

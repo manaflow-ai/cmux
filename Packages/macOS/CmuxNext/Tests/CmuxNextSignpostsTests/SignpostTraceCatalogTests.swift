@@ -27,7 +27,8 @@ struct SignpostTraceCatalogTests {
             (.remoteInput, 58), (.remoteFrameDecoded, 59), (.remotePresent, 60), (.crashHelperExit, 61),
             (.crashWebContentEnd, 62), (.crashRendererUnresponsive, 63), (.crashChildExit, 64),
             (.crashDumpWithoutCrashing, 65), (.controlRequest, 66), (.ghosttyRender, 67), (.resizeFrame, 68),
-            (.webuiLifecycle, 69), (.webuiOpen, 70), (.webuiPreload, 71), (.webuiScheme, 72),
+            (.webuiLifecycle, 69), (.webuiOpen, 70), (.webuiPreload, 71), (.webuiScheme, 72), (.stallMainTurn, 73),
+            (.stallRenderStarved, 74), (.launchStartupTask, 75), (.launchStartupComplete, 76),
         ]
         for (name, id) in pinned { #expect(name.rawValue == id, "\(name)") }
         #expect(SignpostName.allCases.count == pinned.count)

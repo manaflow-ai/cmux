@@ -1,8 +1,8 @@
 //! Test-only helper for scripts that a test writes and then executes.
 
+use cmux_process::{Command, Stdio};
 use std::io::Write as _;
 use std::path::Path;
-use std::process::{Command, Stdio};
 
 /// Creates an executable (0755) script without this process ever holding a
 /// write descriptor for it.

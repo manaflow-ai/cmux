@@ -2,9 +2,10 @@
 public import CmuxNextCompat
 internal import CmuxNextSettings
 
-/// `debug.blocking`: the call sites that blocked the main thread or a shared pool thread since launch (the
-/// blocking detector, plans/cmux-next/threading-model.md), for the every-action sweep and the benches (Debug and
-/// bench-checks builds). Each site has its context (`main` or `pool`), its call count and, for calls timed by
+/// `debug.blocking`: the call sites that blocked the main thread, a shared pool thread or a `.cpu` lane item since
+/// launch (the blocking detector, plans/cmux-next/threading-model.md), for the every-action sweep and the benches
+/// (Debug and bench-checks builds). Each site has its context (`main`, `pool`, or `cpu-lane` with kind
+/// `wrong-lane`, whose `seam_kind` says what the seam waited on), its call count and, for calls timed by
 /// `blockingCall`, the wall time they blocked (`total_ms`, `max_ms`); `contexts` sums the sites per context,
 /// with each context's `overflow` (calls not recorded as a site; the top-level `overflow` is their sum).
 /// `{"reset": true}` zeroes the counts and times after the report; no other parameter is read (trap modes are set
@@ -29,7 +30,7 @@ public struct BlockingControl: Sendable {
     static func report(_ params: [String: JSONValue], detector: BlockingDetector) -> JSONValue {
         let sites = detector.sites
         var contexts: [String: JSONValue] = [:]
-        for context in [BlockingContext.main, .pool] {
+        for context in [BlockingContext.main, .pool, .cpuLane] {
             let inContext = sites.filter { $0.context == context }
             contexts[context.rawValue] = .object([
                 "sites": .number(Double(inContext.count)),
@@ -47,6 +48,7 @@ public struct BlockingControl: Sendable {
                 .object([
                     "context": .string(site.context.rawValue),
                     "kind": .string(site.kind.rawValue),
+                    "seam_kind": .string(site.seamKind.rawValue),
                     "location": .string(site.location),
                     "count": .number(Double(site.count)),
                     "total_ms": .number(Double(site.totalNanos) / 1_000_000),

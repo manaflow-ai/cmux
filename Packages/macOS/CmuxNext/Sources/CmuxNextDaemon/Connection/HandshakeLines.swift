@@ -36,14 +36,14 @@ enum HandshakeLines {
             PipelinedLine(IdentifyRequest()),
             PipelinedLine(ClientHelloRequest(role: .main, installID: hello.installKey?.installID)),
         ], timeout: configuration.requestTimeout)
-        let started = (try? first[1].get()).flatMap { try? WireCoding.decodeResponse(ClientHelloRequest.Response.self, from: $0.line) }
+        let started = (try? first[1].get()).flatMap { try? WireCoding.decodeResponse(ClientHelloRequest.Response.self, from: $0) }
         let proof = helloProof(hello, start: first[1])
         let metadata = servesMachineMetadata(first[0]) ? [PipelinedLine(IdentifyRequest(machineMetadata: true))] : []
         let rest = await transport.pipeline((proof.map { [PipelinedLine($0)] } ?? []) + metadata + setup,
                                             timeout: configuration.requestTimeout)
         var userOriginAllowed = started?.userOriginAllowed == true
         if proof != nil {
-            let proved = (try? rest[0].get()).flatMap { try? WireCoding.decodeResponse(ClientHelloProofRequest.Response.self, from: $0.line) }
+            let proved = (try? rest[0].get()).flatMap { try? WireCoding.decodeResponse(ClientHelloProofRequest.Response.self, from: $0) }
             logger.info("client-hello install-key proof \(proved?.verified == true ? "accepted" : "refused", privacy: .public)")
             userOriginAllowed = proved?.verified == true && proved?.userOriginAllowed == true
         }
@@ -59,17 +59,17 @@ enum HandshakeLines {
     }
 
     private static func servesMachineMetadata(_ reply: Result<LineTransport.Response, any Error>) -> Bool {
-        guard let line = try? reply.get().line,
-              let identity = try? WireCoding.decodeResponse(DaemonIdentity.self, from: line) else { return false }
+        guard let response = try? reply.get(),
+              let identity = try? WireCoding.decodeResponse(DaemonIdentity.self, from: response) else { return false }
         return identity.app == "cmux-tui" && identity.protocolVersion == 12 && identity.supports("machine-identity-v1")
     }
 
     private static func fencedMetadata(_ reply: Result<LineTransport.Response, any Error>,
                                        original: Result<LineTransport.Response, any Error>) -> Result<LineTransport.Response, any Error> {
         Result {
-            let first = try WireCoding.decodeResponse(DaemonIdentity.self, from: original.get().line)
+            let first = try WireCoding.decodeResponse(DaemonIdentity.self, from: original.get())
             let response = try reply.get()
-            let enriched = try WireCoding.decodeResponse(DaemonIdentity.self, from: response.line)
+            let enriched = try WireCoding.decodeResponse(DaemonIdentity.self, from: response)
             guard enriched.app == first.app, enriched.protocolVersion == first.protocolVersion,
                   enriched.generation == first.generation, enriched.sessionID == first.sessionID else {
                 throw DaemonError.malformedResponse("identity changed during owner metadata negotiation")
@@ -83,8 +83,8 @@ enum HandshakeLines {
     /// with an error, which only leaves the connection unverified).
     static func helloProof(_ hello: ClientHelloIdentity,
                            start: Result<LineTransport.Response, any Error>) -> ClientHelloProofRequest? {
-        guard let key = hello.installKey, let line = try? start.get().line,
-              let nonce = (try? WireCoding.decodeResponse(ClientHelloRequest.Response.self, from: line))?.nonce,
+        guard let key = hello.installKey, let response = try? start.get(),
+              let nonce = (try? WireCoding.decodeResponse(ClientHelloRequest.Response.self, from: response))?.nonce,
               let proof = key.proof(nonceHex: nonce) else { return nil }
         return ClientHelloProofRequest(installID: key.installID, proof: proof)
     }

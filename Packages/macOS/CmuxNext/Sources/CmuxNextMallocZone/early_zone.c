@@ -2,6 +2,7 @@
 
 #include <mach/mach.h>
 #include <malloc/malloc.h>
+#include <stdlib.h>
 #include <string.h>
 
 // Must match partition_alloc's kDelegatingZoneName: PartitionAlloc's zone
@@ -9,6 +10,7 @@
 // the process with no zone that owns system allocations.
 static const char kDelegatingZoneName[] = "DelegatingDefaultZoneForPartitionAlloc";
 static const char kPartitionAllocZoneName[] = "PartitionAlloc";
+static const char kSkipVariable[] = "CMUX_NEXT_SKIP_EARLY_MALLOC_ZONE";
 
 static malloc_zone_t g_delegating_zone;
 static malloc_introspection_t g_delegating_introspect;
@@ -94,6 +96,8 @@ static malloc_zone_t* default_zone(void) {
 }
 
 int cmux_early_malloc_zone_registration(void) {
+  // A Chromium-off diagnostic run (vm.sh --diag): the check's own zone stays zones[0].
+  if (getenv(kSkipVariable)) return 0;
   if (zone_registered(kDelegatingZoneName) || zone_registered(kPartitionAllocZoneName)) return 0;
   malloc_zone_t* purgeable = malloc_default_purgeable_zone();
   g_default_zone = default_zone();

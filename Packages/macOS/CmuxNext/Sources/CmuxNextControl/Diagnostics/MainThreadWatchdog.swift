@@ -102,6 +102,8 @@ public final class MainThreadWatchdog: Sendable {
         set { stallSink.withLock { $0 = newValue } }
     }
     private let stallSink = Mutex<(@Sendable (HangRecord) -> Void)?>(nil)
+    let mainTurnMinimumNanos = Atomic<UInt64>(.max), turnStartNanos = Atomic<UInt64>(0) // +MainTurns
+    let mainTurnSink = Mutex<(@Sendable (UInt64, UInt64) -> Void)?>(nil)
     let episodeSink = Mutex<HangEpisodeRecorder?>(nil) // ``episodes``
     /// Finished stalls of a hang's length by beat, the newest few, until their file takes one (+Episodes).
     let hangEnds = Mutex<[(beat: UInt64, nanos: UInt64)]>([])
@@ -137,6 +139,13 @@ public final class MainThreadWatchdog: Sendable {
     private let mainWakeCount = Atomic<UInt64>(0)
     private let gapMaxNanos = Atomic<UInt64>(0)
     static let frame120Nanos: UInt64 = 8_333_333
+    /// Work gaps of 100 ms and up (low 32 bits) and of 250 ms and up (high 32 bits) (``StallCounts``), counted on
+    /// the main thread. One word, so one add counts a gap in both and a read or a reset is never half done.
+    private let stallPair = Atomic<UInt64>(0)
+    static let stallPair100: UInt64 = 1
+    static let stallPair250: UInt64 = 1 | 1 << 32
+    static let count100Nanos = nanos(StallCounts.edge100)
+    static let count250Nanos = nanos(StallCounts.edge250)
     let mainAsleep = Atomic<Bool>(true)
     /// A decided quit is ending (``endHangAssertions()``).
     private let assertionsEnded = Atomic<Bool>(false)
@@ -221,6 +230,17 @@ public final class MainThreadWatchdog: Sendable {
         (Int(clamping: frames120.load(ordering: .relaxed)), .nanoseconds(Int64(clamping: gapMaxNanos.load(ordering: .relaxed))))
     }
 
+    /// Main-thread work gaps of 100 ms and up and of 250 ms and up since ``start()`` or the last
+    /// ``resetStallCounts()``, whatever the stall threshold (`debug.hangs` `count100` and `count250`).
+    public var stallCounts: StallCounts {
+        let pair = stallPair.load(ordering: .relaxed)
+        return StallCounts(count100: Int(clamping: pair & 0xFFFF_FFFF), count250: Int(clamping: pair >> 32))
+    }
+
+    public func resetStallCounts() {
+        stallPair.store(0, ordering: .relaxed)
+    }
+
     /// A decided quit is ending: from now on a hang is still reported, but
     /// never fails the debug assertion. The quit's own deadline bounds it
     /// (`QuitDeadline`), so a debug build ends as a release one does.
@@ -240,18 +260,21 @@ public final class MainThreadWatchdog: Sendable {
     public func start() {
         guard running.compareExchange(expected: false, desired: true, ordering: .acquiringAndReleasing).exchanged else { return }
         busy.watchCurrentThread()
-        beatNanos.store(uptime(), ordering: .releasing)
+        let started = uptime()
+        beatNanos.store(started, ordering: .releasing)
+        // The turn this call runs in is awake (mainAsleep false below) and began no later than now.
+        turnStartNanos.store(started, ordering: .relaxed)
         beatCPUNanos.store(clock_gettime_nsec_np(CLOCK_THREAD_CPUTIME_ID), ordering: .releasing)
         mainAsleep.store(false, ordering: .releasing)
         // Two observers: every activity but before-waiting stamps first
-        // (order CFIndex.min); before-waiting stamps last (CFIndex.max), so
+        // (order CFIndex.min); before-waiting stamps last (lastOrder), so
         // AppKit's layout, display and the Core Animation commit, which run
         // in before-waiting observers, count as main-thread work.
         let early = CFRunLoopActivity.allActivities.subtracting(.beforeWaiting).rawValue
         let earlyObserver = CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault, early, true, CFIndex.min) { [weak self] _, activity in
             self?.heartbeat(activity)
         }
-        let lateObserver = CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault, CFRunLoopActivity.beforeWaiting.rawValue, true, CFIndex.max) { [weak self] _, activity in
+        let lateObserver = CFRunLoopObserverCreateWithHandler(kCFAllocatorDefault, CFRunLoopActivity.beforeWaiting.rawValue, true, MainRunLoopObserver.lastOrder) { [weak self] _, activity in
             self?.heartbeat(activity)
         }
         CFRunLoopAddObserver(CFRunLoopGetMain(), earlyObserver, .commonModes)
@@ -304,6 +327,11 @@ public final class MainThreadWatchdog: Sendable {
                 longFrames.add(1, ordering: .relaxed)
                 Self.raise(longFrameMaxNanos, to: gap)
             }
+            if gap >= Self.count250Nanos {
+                stallPair.wrappingAdd(Self.stallPair250, ordering: .relaxed)
+            } else if gap >= Self.count100Nanos {
+                stallPair.wrappingAdd(Self.stallPair100, ordering: .relaxed)
+            }
         }
         if !wasAsleep, now > previous, now - previous >= thresholdNanos {
             let previousCPU = beatCPUNanos.load(ordering: .acquiring)
@@ -317,10 +345,12 @@ public final class MainThreadWatchdog: Sendable {
         if wasAsleep, !asleep {
             mainWakeCount.add(1, ordering: .relaxed)
             busy.noteAwake()
+            turnStartNanos.store(now, ordering: .relaxed)
             // The watchdog thread wakes only if this turn is still running when it is due to sample.
             alarm.arm(afterNanos: sampleAfterNanos)
         } else if asleep, !wasAsleep {
             alarm.disarm()
+            mainTurnEnded(start: turnStartNanos.load(ordering: .relaxed), end: now)
         }
     }
 
