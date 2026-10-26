@@ -286,12 +286,13 @@ extension ScreenContentView {
         pruneScrollerContainers()
     }
 
-    /// Moves `host` under `parent` (this view or the strip container), giving the window's first
-    /// responder back when it was in the host (a focused pane that docks keeps its keys).
-    func move(_ host: PaneHostView, to parent: NSView) {
+    /// Moves `view` (a host, or a row's or scroll area's container of hosts) under `parent`, giving the
+    /// window's first responder back when it was in `view` (a focused pane that docks, or whose area's
+    /// container changes parent, keeps its keys).
+    func move(_ view: NSView, to parent: NSView) {
         let responder = window?.firstResponder as? NSView
-        let focused = responder.map { $0.isDescendant(of: host) } ?? false
-        parent.addSubview(host)
+        let focused = responder.map { $0.isDescendant(of: view) } ?? false
+        parent.addSubview(view)
         if focused, let responder, window?.firstResponder !== responder { window?.makeFirstResponder(responder) }
     }
 

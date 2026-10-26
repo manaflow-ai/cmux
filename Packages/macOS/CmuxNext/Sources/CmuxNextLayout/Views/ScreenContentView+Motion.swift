@@ -308,14 +308,18 @@ extension ScreenContentView {
             let scrolls = self.scrolls(kind)
             let placed = shownRect(frame.rect, of: kind, strip: strip, scale: scale)
             let shownArea = areaWindow(of: kind, strip: strip), clips: [CGRect?] = [uncovered, shownArea]
-            guard force || view.frame != placed || view.alphaValue != frame.alpha.value || view.placedClips != clips else { continue }
+            // A strip divider under a docked column must not take its clicks, nor one scrolled out of its area.
+            // In its area's container the container's clip and frame stop it there instead, wherever a pan
+            // on the container (which lays nothing out) moves it.
+            let inAreaContainer = (view.superview as? ScrollerPanContainerView).map { $0.scroller.isArea && $0.clipsSubviews } ?? false
+            let hidden = (scrolls && !geometry.dock.isEmpty && placed.intersection(uncovered).width < 0.5)
+                || (!inAreaContainer && shownArea.map { !$0.contains(CGPoint(x: placed.midX, y: placed.midY)) } == true)
+            guard force || view.frame != placed || view.alphaValue != frame.alpha.value || view.placedClips != clips
+                || view.isHidden != hidden else { continue }
             dividersChanged = true
             if view.frame != placed { view.frame = placed }
             if view.alphaValue != frame.alpha.value { view.alphaValue = frame.alpha.value }
             view.placedClips = clips
-            // A strip divider under a docked column must not take its clicks, nor one scrolled out of its area.
-            let hidden = (scrolls && !geometry.dock.isEmpty && view.frame.intersection(uncovered).width < 0.5)
-                || shownArea.map { !$0.contains(CGPoint(x: view.frame.midX, y: view.frame.midY)) } == true
             if view.isHidden != hidden { view.isHidden = hidden }
             // Shown, its cursor and click catcher still stop at a dock and at its area's window.
             var pointerClip: CGRect? = scrolls && !geometry.dock.isEmpty ? uncovered : nil
@@ -329,7 +333,7 @@ extension ScreenContentView {
         if gesturing, changed {
             userMotionActive = true
             context.userMotionStepped()
-        } else if !gesturing, userMotionActive, renderSpringsInFlight == 0, stripContainer.fling == nil {
+        } else if !gesturing, userMotionActive, renderSpringsInFlight == 0, !panFlingsInFlight {
             // The gesture ended: a fling springs on (advanceFrame ends the motion when it lands), else it ends now.
             // Render-server springs still running end it at their landing (`renderSpringLanded`).
             userMotionActive = false

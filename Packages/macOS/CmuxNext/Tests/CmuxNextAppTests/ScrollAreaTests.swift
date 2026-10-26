@@ -14,22 +14,34 @@ import Testing
 /// the area where it shows; the gesture's end lays it out once where it shows.
 @MainActor @Suite(.serialized) struct ScrollAreaTests {
     /// Two half columns on a 1200 pt window (`LayoutScrollModifierTests.AreaWindow`): the first holds the
-    /// chain p1 | p2 | p3, too wide for its column, so it is a scroll area; the second holds `q`.
+    /// chain p1 | p2 | p3, too wide for its column, so it is a scroll area; the second holds `q`. With
+    /// `rows`, the chain is the first column's top row, above a row holding `below`.
     final class Window {
         let provider = LayoutScrollModifierTests.Panes()
         let model: LayoutModel
         let root: LayoutRootView
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.borderless],
                               backing: .buffered, defer: false)
+        /// The layout the window opened with.
+        let layout: ScreenLayout
 
-        init(renderServer: Bool, input: InputEventTap? = nil, make: ((PaneID) -> NSView)? = nil) throws {
+        static let chain: SplitNode = .split("s1", axis: .horizontal, ratio: 1.0 / 3, a: .leaf("p1"),
+                                             b: .split("s2", axis: .horizontal, ratio: 0.5, a: .leaf("p2"), b: .leaf("p3")))
+
+        /// The two columns; with `rowHeight` (permille), the first is the chain's row above `below`'s.
+        static func layout(rowHeight: Int?) -> ScreenLayout {
+            let first = rowHeight.map { height in
+                LayoutColumn(id: "c1", width: 0.5, root: .split("rows", axis: .vertical, ratio: 0.5, a: chain, b: .leaf("below")),
+                             rows: [LayoutRow(id: "r1", height: height, root: chain), LayoutRow(id: "r2", height: height, root: .leaf("below"))])
+            } ?? LayoutColumn(id: "c1", width: 0.5, root: chain)
+            return .columns([first, LayoutColumn(id: "c2", width: 0.5, root: .leaf("q"))])
+        }
+
+        init(renderServer: Bool, rows: Bool = false, input: InputEventTap? = nil, make: ((PaneID) -> NSView)? = nil) throws {
             _ = NSApplication.shared
-            let chain: SplitNode = .split("s1", axis: .horizontal, ratio: 1.0 / 3, a: .leaf("p1"),
-                                          b: .split("s2", axis: .horizontal, ratio: 0.5, a: .leaf("p2"), b: .leaf("p3")))
-            model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: .columns([
-                LayoutColumn(id: "c1", width: 0.5, root: chain),
-                LayoutColumn(id: "c2", width: 0.5, root: .leaf("q")),
-            ]))], activeScreenID: "s", focusedPane: "q")
+            layout = Self.layout(rowHeight: rows ? 500 : nil)
+            model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: layout)], activeScreenID: "s", focusedPane: "q")
+            if rows { model.rowsEnabledOverride = true }
             model.followsDesignMetrics = false
             model.baseStyle.minimumPaneContentSize = CGSize(width: 300, height: 64)
             model.baseStyle.scrollAreasEnabled = true
@@ -52,6 +64,13 @@ import Testing
         }
 
         func close() { window.orderOut(nil) }
+
+        /// Shows `layout` and lets it settle.
+        func show(_ layout: ScreenLayout, zoomed: Bool = false) {
+            model.apply(screens: [LayoutScreen(id: "s", name: "s", layout: layout, zoomed: zoomed)])
+            root.syncWithModel()
+            settle()
+        }
 
         var screen: ScreenContentView { root.screenViews["s"]! }
 
@@ -78,7 +97,7 @@ import Testing
         func pointer(_ type: NSEvent.EventType, at point: CGPoint) throws -> NSEvent {
             let event = try #require(NSEvent.mouseEvent(with: type, location: point, modifierFlags: [], timestamp: 1,
                                                         windowNumber: window.windowNumber, context: nil, eventNumber: 0,
-                                                        clickCount: 1, pressure: 1))
+                                                        clickCount: type == .mouseMoved ? 0 : 1, pressure: type == .mouseMoved ? 0 : 1))
             try #require(event.window === window, "the event does not name the layout's window")
             return event
         }
@@ -138,6 +157,8 @@ import Testing
         let containerFrame = container.frame
         let contents = Self.panes.compactMap { w.provider.views[$0] as? StripPanContainerTests.TrackedContent }
         try #require(contents.count == Self.panes.count)
+        let s2 = try #require(screen.dividerViews[.split("s2")], "the divider between p2 and p3")
+        try #require(s2.superview === container, "the area's dividers sit in its container")
         w.window.displayIfNeeded()
         let tracking = contents.map(\.trackingAreaUpdates), cursors = contents.map(\.cursorRectResets)
         let point = try w.center("p1")
@@ -163,7 +184,12 @@ import Testing
         #expect(abs(shownAfter.minX - (shownBefore.minX - 80)) < 0.5, "the area shows 80 pt further: \(shownBefore) -> \(shownAfter)")
         let placedP2 = w.root.convert(screen.placedFrame(of: hosts[1]), from: screen)
         #expect(abs(placedP2.minX - shownAfter.minX) < 0.5, "p2 is placed where it shows")
+        // The split line between p2 and p3 shows wherever the pan brings it: the container clips it, not a hide rule.
+        let shownS2 = screen.placedFrame(of: s2)
+        #expect(container.frame.contains(CGPoint(x: shownS2.midX, y: shownS2.midY)), "the pan brought s2 into the area's window: \(shownS2)")
+        #expect(!s2.isHidden, "s2 is hidden inside the area's window")
         w.scroll(at: point, phase: .ended)
+        screen.finishPanFling()
         w.settle()
     }
 
@@ -191,20 +217,129 @@ import Testing
         w.settle()
     }
 
-    @Test func theGestureEndLaysTheAreaOutOnceWhereItShows() throws {
+    @Test func theGestureEndLaysTheAreaOutOnceAtItsTarget() throws {
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
         let w = try Window(renderServer: true)
         let screen = w.screen
         let container = try #require(screen.scrollerContainer(.area(w.area)))
         let point = try w.center("p1")
         w.pan(at: point, events: 10, dx: -6)
         #expect(screen.areaScrolls[w.area]?.panBase != nil, "the pan holds the area where it was laid out")
+        let released = try #require(w.root.frame(of: "p2"))
         w.scroll(at: point, phase: .ended)
-        #expect(screen.areaScrolls[w.area]?.panBase == nil)
-        #expect(container.translation == .zero)
+        let scroll = try #require(screen.areaScrolls[w.area])
+        #expect(scroll.panBase == nil)
+        #expect(scroll.laidOutOffset == scroll.state.spring.value, "laid out at the offset the reducer holds")
+        #expect(container.translation == .zero, "the model rests at zero")
+        if container.fling != nil {
+            #expect(scroll.state.spring.value == scroll.state.spring.target && scroll.state.spring.velocity == 0,
+                    "the reducer rests on the fling's target")
+            #expect(!screen.hasMotion, "the CPU steps nothing")
+            let shown = try w.laidOut("p2").minX + container.shownPanTranslation.dx
+            #expect(abs(shown - released.minX) < 50, "the area shows where it was released, on its way")
+            screen.finishPanFling()
+        } else {
+            w.settle()
+        }
+        #expect(container.fling == nil && !container.showsMoved)
+        let rest = try #require(w.root.frame(of: "p2"))
+        let laidOutAtRest = try w.laidOut("p2")
+        #expect(abs(laidOutAtRest.minX - rest.minX) < 0.5, "at rest the area shows where it is laid out")
+        #expect(!w.root.isLayoutInMotion)
+    }
+
+    /// The fling after an area pan springs the container's translation on the render server: the views are
+    /// laid out once at its target, and its frames set no host, divider or ring frame and rebuild no
+    /// tracking area or cursor rect. A pointer move lands it where it shows; the CPU carries it on.
+    @Test func anAreaFlingSetsNoFrameAndAMoveLandsItWhereItShows() throws {
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
+        let tap = InputEventTap()
+        let w = try Window(renderServer: true, input: tap) { _ in StripPanContainerTests.TrackedContent() }
+        defer { w.close() }
+        let screen = w.screen
+        let container = try #require(screen.scrollerContainer(.area(w.area)))
+        let start = try w.center("p1")
+        w.pan(at: start, events: 10, dx: -12)
+        w.scroll(at: start, phase: .ended)
+        try #require(container.fling != nil, "the fling runs on the render server on this host")
+        let hosts = Self.panes.compactMap { w.root.context.hosts[$0] }
+        let dividers = screen.dividerViews.values.filter { $0.superview === container }
+        let contents = Self.panes.compactMap { w.provider.views[$0] as? StripPanContainerTests.TrackedContent }
+        let frames = hosts.map(\.frame), chromeFrames = hosts.map(\.chrome.frame), dividerFrames = dividers.map(\.frame)
+        w.window.displayIfNeeded()
+        let tracking = contents.map(\.trackingAreaUpdates), cursors = contents.map(\.cursorRectResets)
+        for _ in 0..<20 { _ = w.root.advanceFrame(1.0 / 120) }
+        w.root.flushOverlaySync()
+        w.window.displayIfNeeded()
+        #expect(hosts.map(\.frame) == frames, "no host frame set during the fling")
+        #expect(hosts.map(\.chrome.frame) == chromeFrames, "no ring or dim frame set during the fling")
+        #expect(dividers.map(\.frame) == dividerFrames, "no divider frame set during the fling")
+        #expect(contents.map(\.trackingAreaUpdates) == tracking, "no tracking area rebuilt during the fling")
+        #expect(contents.map(\.cursorRectResets) == cursors, "no cursor rect rebuilt during the fling")
+        #expect(w.root.isLayoutInMotion, "the fling is layout motion until it lands")
+        #expect(tap.subscriberCount(.pointerMove, stage: .intercept) == 1, "while the area flings, a move lands it")
+        let move = try w.pointer(.mouseMoved, at: start)
+        tap.dispatching { _ = tap.deliverIntercepts(move) }
+        #expect(container.fling == nil && container.translation == .zero, "the move landed the fling")
+        #expect(screen.hasMotion, "the CPU carries the fling on to its snap point")
         let shown = try #require(w.root.frame(of: "p2"))
         let laidOut = try w.laidOut("p2")
         #expect(abs(laidOut.minX - shown.minX) < 0.5, "laid out where it shows")
         w.settle()
-        #expect(container.translation == .zero && !w.root.isLayoutInMotion)
+        #expect(!w.root.isLayoutInMotion)
+    }
+
+    /// A zoom of a pane in a scroll area keeps its host in the area's container (no host changes parent
+    /// for a zoom), so the container covers what the zoomed pane covers: a click anywhere on it reaches
+    /// it, and AppKit sees all of it (its visible rect, tracking areas and cursor rects stop at the
+    /// container's frame). The unzoom puts the area's window back.
+    @Test func aZoomedAreaPaneTakesClicksOverAllOfItsFrame() throws {
+        Motion.reduceMotionOverride = true
+        defer { Motion.reduceMotionOverride = nil }
+        let w = try Window(renderServer: true)
+        w.root.context.reduceMotionOverride = true
+        let screen = w.screen
+        let container = try #require(screen.scrollerContainer(.area(w.area)))
+        let host = try #require(w.root.context.hosts["p1"])
+        let window = w.root.convert(container.frame, from: container.superview)
+        w.show(.splits(.leaf("p1")), zoomed: true)
+        try #require(screen.zoomMotion.pane == nil, "the zoom did not land")
+        #expect(host.superview === container, "the zoom moved p1's host")
+        let zoomed = try #require(w.root.frame(of: "p1"))
+        let local = CGPoint(x: (max(window.maxX, zoomed.minX) + zoomed.maxX) / 2, y: zoomed.midY)
+        try #require(zoomed.contains(local) && !window.contains(local), "the zoomed pane reaches past the area's window")
+        let hit = try #require(w.hit(at: w.root.convert(local, to: nil)), "a click on the zoomed pane reached nothing")
+        #expect(hit === host || hit.isDescendant(of: host), "hit \(hit)")
+        let visible = host.visibleRect
+        #expect(abs(visible.width - host.bounds.width) < 0.5 && abs(visible.height - host.bounds.height) < 0.5,
+                "AppKit sees \(visible) of the zoomed host \(host.bounds)")
+        w.show(w.layout)
+        try #require(screen.zoomMotion.pane == nil, "the unzoom did not land")
+        #expect(container.frame == screen.displayedAreaWindow(w.area), "the area's window is back: \(container.frame)")
+        #expect(container.clipsSubviews)
+    }
+
+    /// An area in a column's row moves between the strip container and its row's container when the rows
+    /// start or stop overflowing the column; the pane focused in it keeps the window's first responder.
+    @Test func aRowChangeThatMovesTheAreasContainerKeepsTheFocusedPanesKeys() throws {
+        let w = try Window(renderServer: true, rows: true) { _ in
+            StripClipLayerStructureTests.Responder(frame: CGRect(x: 0, y: 0, width: 20, height: 20))
+        }
+        let screen = w.screen
+        let container = try #require(screen.scrollerContainer(.area(w.area)))
+        try #require(screen.scrollerContainer(.row("c1")) == nil, "the rows fit their column")
+        #expect(container.superview === screen.stripContainer)
+        let responder = try #require(w.provider.views["p1"] as? StripClipLayerStructureTests.Responder)
+        try #require(w.window.makeFirstResponder(responder), "the test view did not take the keys")
+        w.show(Window.layout(rowHeight: 800))
+        let rows = try #require(screen.scrollerContainer(.row("c1")), "the rows do not overflow their column")
+        #expect(container.superview === rows, "the area's container is not in its row's")
+        #expect(w.window.firstResponder === responder, "the focused view lost the keys when the rows started to overflow")
+        w.show(Window.layout(rowHeight: 500))
+        #expect(screen.scrollerContainer(.row("c1")) == nil, "the rows still overflow")
+        #expect(container.superview === screen.stripContainer, "the area's container did not come back to the strip's")
+        #expect(w.window.firstResponder === responder, "the focused view lost the keys when the rows stopped overflowing")
     }
 }

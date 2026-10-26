@@ -259,8 +259,9 @@ final class ScreenContentView: NSView {
 
     @discardableResult
     func reconcile(animated: Bool, structural: Bool = false, unzooming: Bool = false, zooming: Bool = false) -> Bool {
-        // A layout change takes the camera from a fling on the render server: the CPU carries it on.
+        // A layout change takes the camera, rows and scroll areas from flings on the render server: the CPU carries them on.
         takeCameraFromServer()
+        takeScrollersFromServer()
         let shown = rowDragPreview.map { layout.settingRowHeights($0.heights, for: $0.column) } ?? layout
         let before = geometry
         // A new structure starts from what shows, render-server springs included (`takeRenderSpringsBack`).

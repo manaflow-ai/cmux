@@ -145,12 +145,13 @@ extension ScreenContentView {
         applyPresentation()
     }
 
-    /// The fling rested: the views are already there. What waits for the landing runs now: the
-    /// leading column report, the end of the user motion, divider hover, the overlay and a frame for
-    /// the visibility of where it landed.
-    func panFlingLanded() {
-        reportLeadingColumn()
-        if userMotionActive, !isGesturing, renderSpringsInFlight == 0 {
+    /// A fling rested: the views are already there. What waits for the landing runs now: the leading
+    /// column report (`strip`: the strip's fling, not a row's or scroll area's), the end of the user
+    /// motion once no fling runs, divider hover, the overlay and a frame for the visibility of where it
+    /// landed.
+    func panFlingLanded(strip: Bool = true) {
+        if strip { reportLeadingColumn() }
+        if userMotionActive, !isGesturing, renderSpringsInFlight == 0, !panFlingsInFlight {
             userMotionActive = false
             if !hasMotion { context.userMotionEnded() }
         }
@@ -159,11 +160,14 @@ extension ScreenContentView {
         context.requestFrames()
     }
 
-    /// Lands a fling at once (the workspace hides): the views are at its target already.
+    /// Lands every fling at once (the workspace hides): the views are at their targets already.
     func finishPanFling() {
-        guard stripContainer.fling != nil else { return }
-        stripContainer.setTranslation(0)
-        panFlingLanded()
+        let strip = stripContainer.fling != nil
+        let scrollers = scrollerContainers.values.filter { $0.fling != nil }
+        guard strip || !scrollers.isEmpty else { return }
+        if strip { stripContainer.setTranslation(0) }
+        for container in scrollers { container.setTranslation(.zero) }
+        panFlingLanded(strip: strip)
     }
 
     // MARK: Visibility

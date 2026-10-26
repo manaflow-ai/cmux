@@ -144,23 +144,76 @@ import Testing
         w.settle()
     }
 
-    @Test func theGestureEndLaysTheRowsOutOnceWhereTheyShow() throws {
+    @Test func theGestureEndLaysTheRowsOutOnceAtTheirTarget() throws {
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
         let w = Window(renderServer: true)
         let screen = w.screen
         let container = try #require(screen.scrollerContainer(.row("c1")))
         let point = try w.center("top")
         Self.pan(w, at: point, events: 10, dy: -6)
         #expect(screen.rowScrolls["c1"]?.panBase != nil, "the pan holds the rows where they were laid out")
+        let released = try #require(w.root.frame(of: "top"))
         Self.scroll(w, at: point, phase: .ended)
-        #expect(screen.rowScrolls["c1"]?.panBase == nil)
-        #expect(container.translation == .zero && Self.translationY(of: container.chromePlane) == 0)
-        let shown = try #require(w.root.frame(of: "top"))
-        let laidOut = try Self.laidOut(w, "top")
+        let scroll = try #require(screen.rowScrolls["c1"])
+        #expect(scroll.panBase == nil)
+        #expect(scroll.laidOutOffset == scroll.state.spring.value, "laid out at the offset the reducer holds")
+        #expect(container.translation == .zero && Self.translationY(of: container.chromePlane) == 0, "the models rest at zero")
+        if container.fling != nil {
+            #expect(scroll.state.spring.value == scroll.state.spring.target && scroll.state.spring.velocity == 0,
+                    "the reducer rests on the fling's target")
+            #expect(!screen.hasMotion, "the CPU steps nothing")
+            let shown = try Self.laidOut(w, "top").minY + container.shownPanTranslation.dy
+            #expect(abs(shown - released.minY) < 50, "the rows show where they were released, on their way")
+            screen.finishPanFling()
+        } else {
+            w.settle()
+        }
+        #expect(container.fling == nil && !container.showsMoved)
+        let rest = try #require(w.root.frame(of: "top")), laidOutAtRest = try Self.laidOut(w, "top")
+        #expect(abs(laidOutAtRest.minY - rest.minY) < 0.5, "at rest the rows show where they are laid out")
+        #expect(!w.root.isLayoutInMotion)
+    }
+
+    /// The fling after a row pan springs the container's translation on the render server: the rows are
+    /// laid out once at its target, and its frames set no host, divider or ring frame and rebuild no
+    /// tracking area or cursor rect. A pointer move lands it where it shows; the CPU carries it on.
+    @Test func aRowFlingSetsNoFrameAndAMoveLandsItWhereItShows() throws {
+        Motion.reduceMotionOverride = false
+        defer { Motion.reduceMotionOverride = nil }
+        let tap = InputEventTap()
+        let w = Window(renderServer: true, input: tap) { _ in StripPanContainerTests.TrackedContent() }
+        defer { w.close() }
+        let screen = w.screen
+        let container = try #require(screen.scrollerContainer(.row("c1")))
+        let point = try w.center("top")
+        Self.pan(w, at: point, events: 10, dy: -12)
+        Self.scroll(w, at: point, phase: .ended)
+        try #require(container.fling != nil, "the fling runs on the render server on this host")
+        let hosts = Self.rows.compactMap { w.root.context.hosts[$0] }
+        let dividers = screen.dividerViews.values.filter { $0.superview === container }
+        let contents = Self.rows.compactMap { w.provider.views[$0] as? StripPanContainerTests.TrackedContent }
+        let frames = hosts.map(\.frame), chromeFrames = hosts.map(\.chrome.frame), dividerFrames = dividers.map(\.frame)
+        w.window.displayIfNeeded()
+        let tracking = contents.map(\.trackingAreaUpdates) + dividers.map(\.trackingAreaUpdates)
+        let cursors = contents.map(\.cursorRectResets) + dividers.map(\.cursorRectResets)
+        for _ in 0..<20 { _ = w.root.advanceFrame(1.0 / 120) }
+        w.root.flushOverlaySync()
+        w.window.displayIfNeeded()
+        #expect(hosts.map(\.frame) == frames, "no host frame set during the fling")
+        #expect(hosts.map(\.chrome.frame) == chromeFrames, "no ring or dim frame set during the fling")
+        #expect(dividers.map(\.frame) == dividerFrames, "no divider frame set during the fling")
+        #expect(contents.map(\.trackingAreaUpdates) + dividers.map(\.trackingAreaUpdates) == tracking, "no tracking area rebuilt during the fling")
+        #expect(contents.map(\.cursorRectResets) + dividers.map(\.cursorRectResets) == cursors, "no cursor rect rebuilt during the fling")
+        #expect(w.root.isLayoutInMotion, "the fling is layout motion until it lands")
+        #expect(tap.subscriberCount(.pointerMove, stage: .intercept) == 1, "while the rows fling, a move lands them")
+        let move = try w.pointer(.mouseMoved, at: point)
+        tap.dispatching { _ = tap.deliverIntercepts(move) }
+        #expect(container.fling == nil && container.translation == .zero, "the move landed the fling")
+        #expect(screen.hasMotion, "the CPU carries the fling on to its snap point")
+        let shown = try #require(w.root.frame(of: "top")), laidOut = try Self.laidOut(w, "top")
         #expect(abs(laidOut.minY - shown.minY) < 0.5, "laid out where it shows")
         w.settle()
-        #expect(container.translation == .zero)
-        let rest = try #require(w.root.frame(of: "top")), laidOutAtRest = try Self.laidOut(w, "top")
-        #expect(abs(laidOutAtRest.minY - rest.minY) < 0.5)
         #expect(!w.root.isLayoutInMotion)
     }
 

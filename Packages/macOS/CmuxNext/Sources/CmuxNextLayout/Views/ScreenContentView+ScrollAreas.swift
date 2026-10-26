@@ -62,7 +62,12 @@ extension ScreenContentView {
         for (id, area) in baseGeometry.scrollAreas {
             var scroll = areaScrolls[id] ?? ScrollAreaScroll()
             if areaScrolls[id] == nil { scroll.state.pendingRestore = pendingScroll.areas.removeValue(forKey: id) }
-            let effects = scroll.state.reduce(.sync(scroll.strip(area), focused: focused, source: source, animated: animated, reveals: reveals))
+            let event = ColumnScrollEvent.sync(scroll.strip(area), focused: focused, source: source, animated: animated, reveals: reveals)
+            if scrollerFlingYields(.area(id), to: { _ = $0.reduce(event) }) {
+                takeScrollerFromServer(.area(id))
+                scroll = areaScrolls[id] ?? scroll
+            }
+            let effects = scroll.state.reduce(event)
             areaScrolls[id] = scroll
             if effects.needsFrames { needsFrames = true }
         }
@@ -98,6 +103,8 @@ extension ScreenContentView {
     }
 
     func beginAreaScroll(_ id: SplitID) {
+        // A touch takes the area from a fling on the render server, where it shows.
+        takeScrollerFromServer(.area(id))
         areaScrolls[id]?.state.reduce(.gestureBegan)
     }
 
@@ -109,17 +116,22 @@ extension ScreenContentView {
         if !presentScrollerPan(.area(id)) { applyPresentation() }
     }
 
+    /// Ends a trackpad gesture: projects the fling and springs to a snap point. After a pan on the area's
+    /// container the fling runs on the render server (``startScrollerFling(_:)``), else on the CPU.
     @discardableResult
     func endAreaScroll(_ id: SplitID, timestamp: TimeInterval) -> Bool {
         guard var scroll = areaScrolls[id] else { return false }
         let effects = scroll.state.reduce(.gestureEnded(time: timestamp, animated: !context.reduceMotion))
         areaScrolls[id] = scroll
-        return applyArea(effects)
+        guard effects.needsFrames, startScrollerFling(.area(id)) else { return applyArea(effects) }
+        if let pane = effects.focus { context.model.focus(pane, source: .scroll) }
+        return false
     }
 
     /// One mouse wheel notch (Shift-wheel) on an area.
     @discardableResult
     func discreteAreaScroll(_ id: SplitID, direction: Int) -> Bool {
+        takeScrollerFromServer(.area(id))
         guard var scroll = areaScrolls[id] else { return false }
         let effects = scroll.state.reduce(.wheel(direction: direction, animated: !context.reduceMotion))
         areaScrolls[id] = scroll

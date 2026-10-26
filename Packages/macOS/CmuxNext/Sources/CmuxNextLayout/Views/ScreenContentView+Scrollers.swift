@@ -10,11 +10,13 @@ typealias NestedScroller = ScrollerPanContainerView.Scroller
 /// and dividers, and a chrome plane that holds their rings and dims. A trackpad pan event of the scroller
 /// sets the translation of the two layers and nothing else: no host, divider or ring frame, no layout, no
 /// tracking area. The views stay laid out at the offset the pan started from (the scroller's `panBase`)
-/// until the gesture ends, when they are laid out once where the rows show and the fling moves them on the
-/// CPU. Pointer input lands a scroller that shows moved first (``landStripWhereItShows()``), so AppKit's
-/// hit test and `convert` read frames that agree with what shows. Chrome gives every nested scroller its
-/// own scroll transform node and moves it per input event (`cc/trees/transform_node.h` `scroll_offset`,
-/// `cc/input/threaded_input_handler.cc`).
+/// until the gesture ends, when they are laid out once at the offset the fling springs to, and the fling
+/// is a render-server spring of the container's translation from where they show, with the release
+/// velocity (``startScrollerFling(_:)``). Pointer input lands a scroller that shows moved first
+/// (``landStripWhereItShows()``), so AppKit's hit test and `convert` read frames that agree with what
+/// shows. Chrome gives every nested scroller its own scroll transform node and moves it per input event
+/// (`cc/trees/transform_node.h` `scroll_offset`, `cc/input/threaded_input_handler.cc`), and flings it as
+/// a compositor animation (`cc/input/scroll_offset_animations_impl.h`).
 extension ScreenContentView {
     // MARK: Containers
 
@@ -38,7 +40,9 @@ extension ScreenContentView {
 
     /// Makes the containers the layout needs and puts each in its parent (``scrollerPlan()``), before the
     /// hosts are placed (`reconcile`, ``ensureStacking()``). One the layout no longer needs stays until it
-    /// holds nothing (``pruneScrollerContainers()``): a zoom keeps its hosts where they are.
+    /// holds nothing (``pruneScrollerContainers()``): a zoom keeps its hosts where they are. An area's
+    /// container changes parent when its column's rows start or stop overflowing, keeping the window's
+    /// first responder (``move(_:to:)``).
     func reconcileScrollerContainers() {
         let plan = scrollerPlan()
         wantedScrollers = Set(plan.map { $0.scroller })
@@ -52,7 +56,7 @@ extension ScreenContentView {
             let parent = entry.parent.flatMap { scrollerContainers[$0] }
             let view: NSView = parent ?? stripContainer
             let plane: NSView = parent?.chromePlane ?? stripChrome
-            if container.superview !== view { view.addSubview(container) }
+            if container.superview !== view { move(container, to: view) }
             if container.chromePlane.superview !== plane { plane.addSubview(container.chromePlane) }
         }
     }
@@ -205,15 +209,22 @@ extension ScreenContentView {
         }
     }
 
-    /// Places each container in a layout pass, with the strip laid out at `strip`: a row's over the strip
-    /// container's bounds, an area's over its window as laid out, clipping there except during a zoom (the
-    /// zoomed layout has no area, and the zooming pane grows past it); and the translation from where the
-    /// views are laid out to where the scroller shows (zero once no pan holds a base).
+    /// The pane a zoom shows over the screen: the one zooming in or back, else the zoomed layout's one pane.
+    var zoomShownPane: PaneID? { zoomMotion.pane ?? (zoomed ? paneFrames.keys.first : nil) }
+
+    /// Places each container in a layout pass, with the strip laid out at `strip`: a row's over its parent's
+    /// bounds, an area's over its window as laid out, clipping there except during a zoom (the zoomed layout
+    /// has no area, and the zooming pane grows past it). During a zoom, an area's container that holds the
+    /// zooming or zoomed pane's host is over its parent's bounds, as a row's is: AppKit stops hit tests,
+    /// visible rects, tracking areas and cursor rects at a view's frame, whatever its layer draws. Then the
+    /// translation from where the views are laid out to where the scroller shows (zero once no pan holds a
+    /// base); a fling on the render server owns it until it lands.
     /// Returns true when a frame, clip or translation changed.
     func placeScrollerContainers(strip: CGFloat) -> Bool {
         guard !scrollerContainers.isEmpty else { return false }
         var changed = false, clipsChanged = false
         let clips = zoomMotion.pane == nil && !zoomed
+        let zoomHost = clips ? nil : zoomShownPane.flatMap { context.hosts[$0] }
         for (scroller, container) in scrollerContainers {
             let translation: CGVector
             switch scroller {
@@ -222,7 +233,9 @@ extension ScreenContentView {
                 let scroll = rowScrolls[column]
                 translation = CGVector(dx: 0, dy: (scroll?.laidOutOffset ?? 0) - (scroll?.state.spring.value ?? 0))
             case let .area(id):
-                if let window = laidOutAreaWindow(id, strip: strip), container.place(window) { changed = true }
+                let holdsZoom = zoomHost.map { $0.superview === container } ?? false
+                let rect = holdsZoom ? container.superview?.bounds : laidOutAreaWindow(id, strip: strip)
+                if let rect, container.place(rect) { changed = true }
                 container.setClips(clips)
                 let scroll = areaScrolls[id]
                 let placed = ScrollerPanContainerView.PlacedClip(size: container.frame.size, offset: scroll?.laidOutOffset ?? 0, clips: clips)
@@ -232,7 +245,7 @@ extension ScreenContentView {
                 }
                 translation = CGVector(dx: (scroll?.laidOutOffset ?? 0) - (scroll?.state.spring.value ?? 0), dy: 0)
             }
-            if container.translation != translation {
+            if container.fling == nil, container.translation != translation {
                 container.setTranslation(translation)
                 changed = true
             }
@@ -250,9 +263,121 @@ extension ScreenContentView {
         stripContainer.showsMoved || scrollerContainers.values.contains { $0.showsMoved }
     }
 
-    /// Drops every row and scroll area pan base: the next layout pass lays them out where they show.
+    /// A fling of the strip, a row column or a scroll area runs on the render server.
+    var panFlingsInFlight: Bool {
+        stripContainer.fling != nil || scrollerContainers.values.contains { $0.fling != nil }
+    }
+
+    /// Takes every row and scroll area fling back from the render server where it shows
+    /// (``takeScrollerFromServer(_:)``), and drops every pan base: the next layout pass lays them out
+    /// where they show.
     func landScrollerPans() {
+        takeScrollersFromServer()
         for (id, scroll) in rowScrolls where scroll.panBase != nil { rowScrolls[id]?.panBase = nil }
         for (id, scroll) in areaScrolls where scroll.panBase != nil { areaScrolls[id]?.panBase = nil }
+    }
+
+    // MARK: The fling
+
+    /// Ends a pan of `scroller` on its container at the gesture's end with a fling on the render server,
+    /// as ``startPanFling()`` does for the strip: the scroller's spring rests on the fling's target, its
+    /// views lay out there once, and the translation of its container and its rings' plane springs from
+    /// where it shows to zero with the release velocity. No view frame is set on the fling's frames.
+    /// Returns false, changing nothing, when the pan was not on the container or the spring would not
+    /// animate here; the CPU steps it then.
+    func startScrollerFling(_ scroller: NestedScroller) -> Bool {
+        guard let container = scrollerContainer(scroller), scrollersPanOnContainers else { return false }
+        let spring = Motion.panes.renderSpring(.scroll)
+        guard spring.animates(container.axisKeyPath, in: container) else { return false }
+        let released: SpringValue, base: CGFloat
+        switch scroller {
+        case let .row(column):
+            guard var scroll = rowScrolls[column], let panBase = scroll.panBase else { return false }
+            released = scroll.state.spring
+            base = panBase
+            scroll.state.spring.snap()
+            scroll.panBase = nil
+            rowScrolls[column] = scroll
+        case let .area(id):
+            guard var scroll = areaScrolls[id], let panBase = scroll.panBase else { return false }
+            released = scroll.state.spring
+            base = panBase
+            scroll.state.spring.snap()
+            scroll.panBase = nil
+            areaScrolls[id] = scroll
+        }
+        // A view at `p` laid out at offset `base` shows at `p - base + translation`; laid out at the target
+        // it is at `p - target`, so it shows `translation + target - base` away from there.
+        let displacement = container.alongAxis(container.translation) + released.target - base
+        // The fling first: the layout pass below then leaves the translation to it.
+        container.startFling(from: displacement, velocity: -released.velocity, spring: spring) { [weak self] in
+            self?.panFlingLanded(strip: false)
+        }
+        refreshRowShift()
+        applyPresentation()
+        return true
+    }
+
+    /// Takes `scroller`'s fling back from the render server where it shows, with its velocity: its spring
+    /// goes on from there toward the same target on the CPU. Its views stay laid out where the fling
+    /// started, held by the container's translation, until the next layout pass places them at the spring.
+    func takeScrollerFromServer(_ scroller: NestedScroller) {
+        guard let container = scrollerContainers[scroller], container.fling != nil else { return }
+        let shown = container.stopFling()
+        let moved = container.alongAxis(shown.translation), velocity = container.alongAxis(shown.velocity)
+        switch scroller {
+        case let .row(column):
+            guard var scroll = rowScrolls[column] else { return container.setTranslation(.zero) }
+            scroll.state.spring.value = scroll.laidOutOffset - moved
+            scroll.state.spring.velocity = -velocity
+            scroll.panBase = scroll.laidOutOffset
+            rowScrolls[column] = scroll
+        case let .area(id):
+            guard var scroll = areaScrolls[id] else { return container.setTranslation(.zero) }
+            scroll.state.spring.value = scroll.laidOutOffset - moved
+            scroll.state.spring.velocity = -velocity
+            scroll.panBase = scroll.laidOutOffset
+            areaScrolls[id] = scroll
+        }
+        refreshRowShift()
+        context.requestFrames()
+    }
+
+    /// Takes every row and scroll area fling back from the render server (``takeScrollerFromServer(_:)``).
+    func takeScrollersFromServer() {
+        for (scroller, container) in scrollerContainers where container.fling != nil { takeScrollerFromServer(scroller) }
+    }
+
+    /// Whether `scroller`'s reducer has to leave a fling on the render server before `reduce` runs: it
+    /// moves the spring the fling rests on. An event that leaves it where it rests (a focus sync that
+    /// reveals the row the fling lands on) lets the fling go on, as the strip's `reduceCamera` does.
+    func scrollerFlingYields(_ scroller: NestedScroller, to reduce: (inout ColumnScrollState) -> Void) -> Bool {
+        guard scrollerContainers[scroller]?.fling != nil else { return false }
+        let current: ColumnScrollState? = switch scroller {
+        case let .row(column): rowScrolls[column]?.state
+        case let .area(id): areaScrolls[id]?.state
+        }
+        guard var probe = current else { return false }
+        reduce(&probe)
+        return probe.spring != current?.spring
+    }
+
+    /// The translation a row or scroll area fling on the render server still shows of `pane` on its way,
+    /// nil when none carries it: the visibility pass sweeps the pane over it (as `visiblePanes` sweeps the
+    /// strip's viewport over the strip's fling).
+    func scrollerFlingLeft(of pane: PaneID) -> CGVector? {
+        guard let host = context.hosts[pane] else { return nil }
+        var left = CGVector.zero, flings = false
+        var current = host.superview
+        while let container = current as? ScrollerPanContainerView {
+            if container.fling != nil {
+                flings = true
+                let shown = container.shownPanTranslation
+                left.dx += shown.dx
+                left.dy += shown.dy
+            }
+            current = container.superview
+        }
+        return flings ? left : nil
     }
 }
