@@ -9612,6 +9612,19 @@ Result<Json> Codec<ServerStatsSlowRequest>::encode(const ServerStatsSlowRequest&
     auto encoded_method = encode_value(value.method);
     if (!encoded_method) return std::move(encoded_method).error();
     object.emplace("method", std::move(encoded_method).value());
+    auto encoded_stack = encode_value(value.stack);
+    if (!encoded_stack) return std::move(encoded_stack).error();
+    object.emplace("stack", std::move(encoded_stack).value());
+    if (value.stack_error) {
+        auto encoded = encode_value(*value.stack_error);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("stack_error", std::move(encoded).value());
+    } else {
+        object.emplace("stack_error", Json(nullptr));
+    }
+    auto encoded_stack_truncated = encode_value(value.stack_truncated);
+    if (!encoded_stack_truncated) return std::move(encoded_stack_truncated).error();
+    object.emplace("stack_truncated", std::move(encoded_stack_truncated).value());
     auto encoded_started_ms = encode_value(value.started_ms);
     if (!encoded_started_ms) return std::move(encoded_started_ms).error();
     object.emplace("started_ms", std::move(encoded_started_ms).value());
@@ -9662,6 +9675,37 @@ Result<ServerStatsSlowRequest> Codec<ServerStatsSlowRequest>::decode(const Json&
         if (!decoded) return std::move(decoded).error();
         result.method = std::move(decoded).value();
     }
+    const Json* field_stack = value.find("stack");
+    if (!field_stack) {
+        return make_error(ErrorCode::decode, "missing required field 'stack'");
+    }
+    if (field_stack) {
+        auto decoded = decode_value<std::vector<ServerStatsSlowRequestFrame>>(*field_stack);
+        if (!decoded) return std::move(decoded).error();
+        result.stack = std::move(decoded).value();
+    }
+    const Json* field_stack_error = value.find("stack_error");
+    if (!field_stack_error) {
+        return make_error(ErrorCode::decode, "missing required field 'stack_error'");
+    }
+    if (field_stack_error) {
+        if (field_stack_error->is_null()) {
+            result.stack_error.reset();
+        } else {
+            auto decoded = decode_value<std::string>(*field_stack_error);
+            if (!decoded) return std::move(decoded).error();
+            result.stack_error = std::move(decoded).value();
+        }
+    }
+    const Json* field_stack_truncated = value.find("stack_truncated");
+    if (!field_stack_truncated) {
+        return make_error(ErrorCode::decode, "missing required field 'stack_truncated'");
+    }
+    if (field_stack_truncated) {
+        auto decoded = decode_value<bool>(*field_stack_truncated);
+        if (!decoded) return std::move(decoded).error();
+        result.stack_truncated = std::move(decoded).value();
+    }
     const Json* field_started_ms = value.find("started_ms");
     if (!field_started_ms) {
         return make_error(ErrorCode::decode, "missing required field 'started_ms'");
@@ -9670,6 +9714,91 @@ Result<ServerStatsSlowRequest> Codec<ServerStatsSlowRequest>::decode(const Json&
         auto decoded = decode_value<std::uint64_t>(*field_started_ms);
         if (!decoded) return std::move(decoded).error();
         result.started_ms = std::move(decoded).value();
+    }
+    return result;
+}
+
+Result<Json> Codec<ServerStatsSlowRequestFrame>::encode(const ServerStatsSlowRequestFrame& value) {
+    (void)value;
+    Json::Object object;
+    if (value.image) {
+        auto encoded = encode_value(*value.image);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("image", std::move(encoded).value());
+    } else {
+        object.emplace("image", Json(nullptr));
+    }
+    if (value.image_id) {
+        auto encoded = encode_value(*value.image_id);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("image_id", std::move(encoded).value());
+    } else {
+        object.emplace("image_id", Json(nullptr));
+    }
+    auto encoded_offset = encode_value(value.offset);
+    if (!encoded_offset) return std::move(encoded_offset).error();
+    object.emplace("offset", std::move(encoded_offset).value());
+    if (value.symbol) {
+        auto encoded = encode_value(*value.symbol);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("symbol", std::move(encoded).value());
+    } else {
+        object.emplace("symbol", Json(nullptr));
+    }
+    return Json(std::move(object));
+}
+
+Result<ServerStatsSlowRequestFrame> Codec<ServerStatsSlowRequestFrame>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    ServerStatsSlowRequestFrame result{};
+    const Json* field_image = value.find("image");
+    if (!field_image) {
+        return make_error(ErrorCode::decode, "missing required field 'image'");
+    }
+    if (field_image) {
+        if (field_image->is_null()) {
+            result.image.reset();
+        } else {
+            auto decoded = decode_value<std::string>(*field_image);
+            if (!decoded) return std::move(decoded).error();
+            result.image = std::move(decoded).value();
+        }
+    }
+    const Json* field_image_id = value.find("image_id");
+    if (!field_image_id) {
+        return make_error(ErrorCode::decode, "missing required field 'image_id'");
+    }
+    if (field_image_id) {
+        if (field_image_id->is_null()) {
+            result.image_id.reset();
+        } else {
+            auto decoded = decode_value<std::string>(*field_image_id);
+            if (!decoded) return std::move(decoded).error();
+            result.image_id = std::move(decoded).value();
+        }
+    }
+    const Json* field_offset = value.find("offset");
+    if (!field_offset) {
+        return make_error(ErrorCode::decode, "missing required field 'offset'");
+    }
+    if (field_offset) {
+        auto decoded = decode_value<std::uint64_t>(*field_offset);
+        if (!decoded) return std::move(decoded).error();
+        result.offset = std::move(decoded).value();
+    }
+    const Json* field_symbol = value.find("symbol");
+    if (!field_symbol) {
+        return make_error(ErrorCode::decode, "missing required field 'symbol'");
+    }
+    if (field_symbol) {
+        if (field_symbol->is_null()) {
+            result.symbol.reset();
+        } else {
+            auto decoded = decode_value<std::string>(*field_symbol);
+            if (!decoded) return std::move(decoded).error();
+            result.symbol = std::move(decoded).value();
+        }
     }
     return result;
 }

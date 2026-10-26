@@ -141,6 +141,7 @@ MODEL_BY_PATH = {
     'types/ServerStatsResourceProjection': models.ServerStatsResourceProjection,
     'types/ServerStatsResult': models.ServerStatsResult,
     'types/ServerStatsSlowRequest': models.ServerStatsSlowRequest,
+    'types/ServerStatsSlowRequestFrame': models.ServerStatsSlowRequestFrame,
     'types/ServerStatsSlowRequests': models.ServerStatsSlowRequests,
     'types/ServerStatsWritePath': models.ServerStatsWritePath,
     'types/SetCellPixelsResult': models.SetCellPixelsResult,
