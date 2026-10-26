@@ -128,6 +128,79 @@ private final class StillClock: Clock, Sendable {
         #expect(ledger.count == 1)
     }
 
+    private func tabClosed(_ transaction: ClientTransactionID?) -> DaemonEvent {
+        let surface = SurfaceID(rawValue: 7)
+        return .tabClosed(TabDelta(workspace: WorkspaceHandle(rawValue: 1), screen: ScreenID(rawValue: 2), pane: PaneID(rawValue: 3),
+                                   surface: surface, index: nil, entity: TabSnapshot(surface: surface), clientTransactionID: transaction))
+    }
+
+    /// Records the transaction `request` sends, as the connection's request funnel does, inside `scope`.
+    private func send(_ request: some DaemonRequest, in scope: DaemonCommandScope?, on ledger: MutationCauseLedger) async {
+        await DaemonCommandScope.$current.withValue(scope) { () async in DaemonCommandScope.recordEchoTransaction(of: request, in: ledger) }
+    }
+
+    @Test func aTabEchoOfAPersonRunIsPersonAndOfASocketRunIsAutomation() async {
+        let ledger = MutationCauseLedger()
+        let person = ClientTransactionID.generate(), socket = ClientTransactionID.generate()
+        await send(CloseTabsRequest(surfaces: [SurfaceID(rawValue: 7)], endTerminals: true, transaction: person, mutation: nil),
+                   in: DaemonCommandScope.person(), on: ledger)
+        await send(CloseTabsRequest(surfaces: [SurfaceID(rawValue: 7)], endTerminals: true, transaction: socket, mutation: nil),
+                   in: DaemonCommandScope.automation(idempotencyKey: "k"), on: ledger)
+        #expect(tabClosed(person).cause(wire: "frontend", recorded: ledger) == .person)
+        // The app's connection sent it, so the daemon says `frontend`; the socket run is automation.
+        #expect(tabClosed(socket).cause(wire: "frontend", recorded: ledger) == .automation)
+        #expect(tabClosed(.generate()).cause(wire: "frontend", recorded: ledger) == .frontend)
+    }
+
+    @Test func aLayoutEchoMatchesTheDecimalTransactionTheCommandSent() async {
+        let ledger = MutationCauseLedger()
+        let screen = ScreenID(rawValue: 2)
+        await send(SetSplitRatioRequest(split: SplitID(rawValue: 5), ratio: 0.4, transaction: 41), in: DaemonCommandScope.person(), on: ledger)
+        await send(SetSplitRatioRequest(split: SplitID(rawValue: 5), ratio: 0.6, transaction: 42),
+                   in: DaemonCommandScope.automation(idempotencyKey: nil), on: ledger)
+        let echo = { (transaction: String) in DaemonEvent.layoutChanged(screen: screen, layout: nil, transaction: ClientTransactionID(rawValue: transaction)) }
+        #expect(echo("41").cause(wire: "frontend", recorded: ledger) == .person)
+        #expect(echo("42").cause(wire: "frontend", recorded: ledger) == .automation)
+        // A mutation id and a transaction with the same text are not the same record.
+        #expect(renamed("41").cause(wire: "program", recorded: ledger) == .program)
+    }
+
+    @Test func aRequestOutsideACausedScopeRecordsNoTransaction() async {
+        let ledger = MutationCauseLedger()
+        let transaction = ClientTransactionID.generate()
+        await send(MoveTabToSplitRequest(surface: SurfaceID(rawValue: 7), pane: PaneID(rawValue: 3), edge: .left, transaction: transaction),
+                   in: nil, on: ledger)
+        await send(MoveTabToSplitRequest(surface: SurfaceID(rawValue: 7), pane: PaneID(rawValue: 3), edge: .left, transaction: transaction),
+                   in: DaemonCommandScope(), on: ledger)
+        #expect(ledger.count == 0)
+    }
+
+    @Test func aStateMutationKeyIsRecordedAsTheEchoedMutationID() async {
+        let connection = makeConnection()
+        let key = await DaemonCommandScope.$current.withValue(DaemonCommandScope.person()) { () async in StateResourceClient.stateKey(on: connection) }
+        #expect(renamed(key).cause(wire: "frontend", recorded: connection.mutationCauses) == .person)
+    }
+
+    @Test func aPersonScopeCreditsOnlyWhatItSendsWithinItsLifespan() {
+        let clock = StillClock()
+        let ledger = MutationCauseLedger(clock: clock)
+        let scope = DaemonCommandScope.person(clock: clock)
+        scope.recordMutation("soon", in: ledger)
+        clock.advance(by: DaemonCommandScope.personLifespan)
+        // A task the person's run started sends after the gesture's span: an ordinary command.
+        scope.recordMutation("late", in: ledger)
+        scope.recordTransaction(ClientTransactionID(rawValue: "late"), in: ledger)
+        #expect(ledger.count == 1)
+        #expect(renamed("late").cause(wire: "frontend", recorded: ledger) == .frontend)
+        #expect(tabClosed(ClientTransactionID(rawValue: "late")).cause(wire: "automation", recorded: ledger) == .automation)
+    }
+
+    @Test func theAppAsksTheDaemonForTheEventCause() {
+        let configuration = DaemonConnectionConfiguration(terminalEnvironment: nil)
+        #expect(DaemonCapability.advertised.contains(DaemonCapability.eventCause.rawValue))
+        #expect(configuration.handshakeCapabilities.contains(DaemonCapability.eventCause.rawValue))
+    }
+
     @Test func aClosedScopeRecordsNothing() {
         let ledger = MutationCauseLedger()
         let scope = DaemonCommandScope.automation(idempotencyKey: nil)
@@ -176,7 +249,7 @@ private final class StillClock: Clock, Sendable {
             return
         }
         #expect(batch.first?.cause == .person)
-        // The next batch starts again from program.
+        // The next batch starts again from the lowest cause: an automation flood resyncs as automation.
         _ = inbox.append(DaemonEventEnvelope(sequence: 4, event: .treeChanged(transaction: nil), cause: .automation))
         _ = inbox.append(DaemonEventEnvelope(sequence: 5, event: .treeChanged(transaction: nil), cause: .automation))
         _ = inbox.append(DaemonEventEnvelope(sequence: 6, event: .treeChanged(transaction: nil), cause: .automation))

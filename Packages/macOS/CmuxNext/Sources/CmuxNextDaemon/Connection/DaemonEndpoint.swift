@@ -483,6 +483,9 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// one closed-history group, so one Reopen Closed brings all of them back
     /// (`StateResourceClient.closeBulk`).
     case layoutBulk = "layout-bulk-v1"
+    /// `cause` on each `subscribe` event line (cmux-tui/spec/events.md, "Event cause"): what set
+    /// the event off, so the app schedules a person's changes first (``DaemonEvent/cause(wire:recorded:)``).
+    case eventCause = "event-cause-v1"
 
     /// Which list a capability is in.
     public enum Tier: Sendable {
@@ -533,6 +536,8 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
              .terminalResources, .machineIdentity, .agentCLIAppProvider, .agentCLIAppInvalidation,
              .agentInventoryWatchAdmission, .stash, .stashWorkspaces, .layoutBulk:
             return .optional
+        case .eventCause:
+            return .unservedByBundledDaemon
         }
     }
 

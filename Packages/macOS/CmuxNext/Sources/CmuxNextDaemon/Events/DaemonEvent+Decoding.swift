@@ -3,7 +3,8 @@ public import CmuxNextWakeups
 
 extension DaemonEvent {
     /// The `mutation_id` this event echoes, if any: workspace deltas and frontend projection
-    /// changes carry the id of the mutation that caused them.
+    /// changes carry the id of the mutation that caused them. Tab, pane, screen and layout deltas
+    /// echo the request's `transaction` instead (``clientTransactionID``).
     public var echoedMutationID: String? {
         switch self {
         case .workspaceAdded(let d), .workspaceClosed(let d), .workspaceRenamed(let d), .workspaceMoved(let d),
@@ -14,15 +15,17 @@ extension DaemonEvent {
     }
 
     /// Who caused this event (plans/cmux-next/chrome-parity/p06-scheduler.md, "Person cause, app
-    /// side"): the cause of the scope that sent the mutation it echoes when `recorded` holds that
-    /// id (a person's run, the control socket's), else the envelope's `wire` cause. A missing or
-    /// unknown wire cause (an old daemon) is `program`; the wire never claims `person`.
+    /// side"): the cause of the scope that sent the mutation or transaction it echoes when
+    /// `recorded` holds that id (a person's run, the control socket's), else the envelope's `wire`
+    /// cause. A missing or unknown wire cause (an old daemon) is `program`; the wire never claims
+    /// `person`. A command that carries neither id (a plain `new-tab`) keeps the wire cause.
     ///
     /// - Parameters:
     ///   - wire: The envelope's `cause` field.
-    ///   - recorded: The receiving connection's sent mutation ids.
+    ///   - recorded: The receiving connection's sent mutation ids and transactions.
     public func cause(wire: String?, recorded: MutationCauseLedger) -> ObservationCause {
         if let id = echoedMutationID, let cause = recorded.cause(of: id) { return cause }
+        if let transaction = clientTransactionID, let cause = recorded.cause(ofTransaction: transaction) { return cause }
         return Self.cause(wire: wire)
     }
 

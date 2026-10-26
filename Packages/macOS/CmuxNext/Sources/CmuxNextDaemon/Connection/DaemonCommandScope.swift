@@ -19,10 +19,11 @@ public import CmuxNextWakeups
 /// derives nothing and records nothing: a task that outlives the action
 /// sends ordinary commands.
 ///
-/// With a ``cause`` the scope records each `mutation_id` it sends in the
-/// connection's ``MutationCauseLedger``, so the echo applies in that cause:
-/// ``person()`` for a person's action run, ``automation(idempotencyKey:)``
-/// for the control socket's.
+/// With a ``cause`` the scope records each `mutation_id` and client
+/// `transaction` it sends in the connection's ``MutationCauseLedger``, so the
+/// echo applies in that cause: ``person(clock:lifespan:)`` for a person's
+/// action run, ``automation(idempotencyKey:)`` for the control socket's. A
+/// person scope is never closed, so its credit ends with its lifespan.
 public final class DaemonCommandScope: Sendable {
     /// The scope of the action whose handler (or a task it started) is running.
     @TaskLocal public static var current: DaemonCommandScope?
@@ -74,28 +75,53 @@ public final class DaemonCommandScope: Sendable {
     /// False for a person's run: nothing waits for its commands, so it opens
     /// no tickets and records no barriers or created objects.
     private let tracksCommands: Bool
+    /// Whether a mutation sent now still gets ``cause``: past a person
+    /// scope's lifespan it does not.
+    private let credits: @Sendable () -> Bool
     private let state = Mutex(State())
 
+    /// How long after a person's input the commands of its run apply as
+    /// `person` (p06-scheduler.md, "Person cause, app side": 2 s).
+    public static let personLifespan: Duration = .seconds(2)
+
     public convenience init(idempotencyKey: String? = nil) {
-        self.init(idempotencyKey: idempotencyKey, cause: nil, tracksCommands: true)
+        self.init(idempotencyKey: idempotencyKey, cause: nil, tracksCommands: true, credits: { true })
     }
 
-    private init(idempotencyKey: String?, cause: ObservationCause?, tracksCommands: Bool) {
+    private init(idempotencyKey: String?, cause: ObservationCause?, tracksCommands: Bool, credits: @escaping @Sendable () -> Bool) {
         self.idempotencyKey = idempotencyKey.flatMap { $0.isEmpty ? nil : $0 }
         self.cause = cause
         self.tracksCommands = tracksCommands
+        self.credits = credits
     }
 
-    /// The scope of a person's action run (a key, a click, the palette): its
-    /// echoes apply as `person`. It tracks no commands; nothing waits for it.
+    /// The scope of a person's action run (a key, a click, the palette): the
+    /// echoes of what it sends within `lifespan` of opening apply as `person`;
+    /// a task it started that sends later sends ordinary commands. Chrome
+    /// bounds a gesture's credit the same way: transient user activation
+    /// expires a fixed span after the input
+    /// (third_party/blink/common/frame/user_activation_state.cc,
+    /// `kActivationLifespan`). It tracks no commands; nothing waits for it.
+    ///
+    /// - Parameters:
+    ///   - clock: The clock the lifespan runs on (a test clock moves only when the test says).
+    ///   - lifespan: How long after opening a sent mutation is the person's.
+    public static func person<C: Clock>(clock: C, lifespan: Duration = personLifespan) -> DaemonCommandScope
+        where C.Duration == Duration {
+        let opened = clock.now
+        return DaemonCommandScope(idempotencyKey: nil, cause: .person, tracksCommands: false,
+                                  credits: { opened.duration(to: clock.now) < lifespan })
+    }
+
+    /// ``person(clock:lifespan:)`` on the continuous clock.
     public static func person() -> DaemonCommandScope {
-        DaemonCommandScope(idempotencyKey: nil, cause: .person, tracksCommands: false)
+        person(clock: ContinuousClock())
     }
 
     /// The scope of a control-socket action run (the CLI, MCP, a script, an
-    /// agent): its echoes apply as `automation`.
+    /// agent): its echoes apply as `automation` until it is closed.
     public static func automation(idempotencyKey: String?) -> DaemonCommandScope {
-        DaemonCommandScope(idempotencyKey: idempotencyKey, cause: .automation, tracksCommands: true)
+        DaemonCommandScope(idempotencyKey: idempotencyKey, cause: .automation, tracksCommands: true, credits: { true })
     }
 
     // MARK: - Stage log
@@ -244,11 +270,24 @@ public final class DaemonCommandScope: Sendable {
     }
 
     /// Records that this scope sent `mutationID`, with its ``cause``, in
-    /// `ledger` (the sending connection's). Nothing without a cause or once
-    /// closed.
+    /// `ledger` (the sending connection's). Nothing without a cause, once
+    /// closed, or past a person scope's lifespan.
     public func recordMutation(_ mutationID: String, in ledger: MutationCauseLedger) {
-        guard let cause, !state.withLock({ $0.closed }) else { return }
+        guard let cause = creditedCause else { return }
         ledger.record(mutationID, cause: cause)
+    }
+
+    /// Records that this scope sent a request carrying `transaction`, like
+    /// ``recordMutation(_:in:)``.
+    public func recordTransaction(_ transaction: ClientTransactionID, in ledger: MutationCauseLedger) {
+        guard let cause = creditedCause else { return }
+        ledger.record(transaction: transaction, cause: cause)
+    }
+
+    /// ``cause`` while this scope still credits what it sends.
+    private var creditedCause: ObservationCause? {
+        guard let cause, credits(), !state.withLock({ $0.closed }) else { return nil }
+        return cause
     }
 
     /// The next generated id of `kind` (a new workspace key, a reserved

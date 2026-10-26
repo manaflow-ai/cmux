@@ -23,7 +23,8 @@ import CmuxNextCompat
 /// Cause (plans/cmux-next/chrome-parity/p06-scheduler.md, "Person cause, app side"): an event
 /// that replaces others carries the highest cause of them all (person > frontend > program >
 /// automation), so automation never hides a person's change behind it. The `.overflow` marker,
-/// which becomes one resync, carries the highest cause of everything the collapse dropped.
+/// which becomes one resync, carries the highest cause of everything the collapse dropped, with
+/// no floor: a flood of automation events resyncs as automation.
 final class EventInbox: Sendable {
     fileprivate struct State {
         /// Buffered events in order; nil where a newer event of the same coalescing key replaced one.
@@ -37,8 +38,8 @@ final class EventInbox: Sendable {
         var framePending = false
         /// Set once the buffer collapsed; cleared by `take()`.
         var collapsed = false
-        /// The highest cause of the events the collapse dropped: the resync's.
-        var collapseCause = ObservationCause.program
+        /// The highest cause of the events the collapse dropped (the resync's), from the lowest.
+        var collapseCause = ObservationCause.automation
         var echoes: Set<ClientTransactionID> = []
     }
 
@@ -59,8 +60,8 @@ final class EventInbox: Sendable {
                 Self.keep(envelope, in: &state)
             } else if let key = CoalesceKey(envelope.event), let old = state.latest[key] {
                 // The newest value of the same field of the same surface: the older one never applies.
-                var replaced = ObservationCause.program
-                state.events.modify(checked: old) { replaced = $0?.cause ?? .program; $0 = nil }
+                var replaced = envelope.cause
+                state.events.modify(checked: old) { replaced = $0?.cause ?? replaced; $0 = nil }
                 state.coalesced += 1
                 state.latest[key] = state.events.count
                 state.events.append(envelope.raisingCause(to: replaced))
@@ -70,7 +71,7 @@ final class EventInbox: Sendable {
                 state.live = 1
                 state.latest.removeAll(keepingCapacity: true)
                 state.collapsed = true
-                state.collapseCause = .program
+                state.collapseCause = .automation
                 for old in buffered { Self.keep(old, in: &state) }
                 Self.keep(envelope, in: &state)
             } else {
@@ -135,7 +136,7 @@ final class EventInbox: Sendable {
             let collapseCause = state.collapsed ? state.collapseCause : nil
             state.framePending = false
             state.collapsed = false
-            state.collapseCause = .program
+            state.collapseCause = .automation
             state.echoes.removeAll(keepingCapacity: true)
             state.latest.removeAll(keepingCapacity: true)
             state.live = 0
@@ -143,7 +144,8 @@ final class EventInbox: Sendable {
             guard let collapseCause else { return state.events.compactMap { $0 } }
             return state.events.compactMap { (envelope: DaemonEventEnvelope?) -> DaemonEventEnvelope? in
                 guard let envelope, case .overflow = envelope.event else { return envelope }
-                return envelope.raisingCause(to: collapseCause)
+                return DaemonEventEnvelope(sequence: envelope.sequence, event: envelope.event, sourceID: envelope.sourceID,
+                                           cause: collapseCause)
             }
         }
     }

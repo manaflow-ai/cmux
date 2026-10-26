@@ -1,15 +1,16 @@
 public import CmuxNextWakeups
 import CmuxNextCompat
 
-/// The `mutation_id`s this app sent recently, each with the cause of the scope that sent it
-/// (``DaemonCommandScope/cause``), so the echo of a person's own change applies as `person` and
-/// the echo of a socket-run change as `automation` (plans/cmux-next/chrome-parity/p06-scheduler.md,
-/// "Person cause, app side"). Nothing new goes on the wire: the app matches the ids it chose.
+/// The `mutation_id`s and client `transaction`s this app sent recently, each with the cause of the
+/// scope that sent it (``DaemonCommandScope/cause``), so the echo of a person's own change applies
+/// as `person` and the echo of a socket-run change as `automation`
+/// (plans/cmux-next/chrome-parity/p06-scheduler.md, "Person cause, app side"). Workspace deltas
+/// echo a `mutation_id`; tab, pane, screen and layout deltas echo the request's `transaction`.
+/// Nothing new goes on the wire: the app matches the ids it chose.
 ///
-/// Chrome credits work to a person's input the same way, for a fixed span after it: transient user
-/// activation expires after its lifespan (`third_party/blink/common/frame/user_activation_state.cc`,
-/// `kActivationLifespan`). An entry here lives 2 s after it was recorded (``lifetime``); past
-/// ``capacity`` live entries the oldest goes first.
+/// An entry lives 2 s after it was recorded (``lifetime``); past ``capacity`` live entries the
+/// oldest goes first. The person's credit itself is bounded where the scope opens
+/// (``DaemonCommandScope/person(clock:lifespan:)``).
 ///
 /// The connection records on its actor and looks up on its reader thread, so the table sits in a
 /// `Mutex` held only for one dictionary operation. Cause is for scheduling only; authorization
@@ -25,10 +26,16 @@ public final class MutationCauseLedger: Sendable {
         var recordedAt: Duration
     }
 
+    /// A `mutation_id` and a `transaction` are separate namespaces.
+    private enum Key: Hashable {
+        case mutation(String)
+        case transaction(ClientTransactionID)
+    }
+
     private struct State {
-        var causes: [String: Entry] = [:]
+        var causes: [Key: Entry] = [:]
         /// Ids in recording order; `head` is the oldest one still held.
-        var order: [String] = []
+        var order: [Key] = []
         var head = 0
     }
 
@@ -56,20 +63,38 @@ public final class MutationCauseLedger: Sendable {
 
     /// Records that `mutationID` was sent with `cause`.
     public func record(_ mutationID: String, cause: ObservationCause) {
-        let now = elapsed()
-        state.withLock { state in
-            evict(&state, now: now, room: 1)
-            if state.causes.updateValue(Entry(cause: cause, recordedAt: now), forKey: mutationID) == nil {
-                state.order.append(mutationID)
-            }
-        }
+        record(.mutation(mutationID), cause: cause)
+    }
+
+    /// Records that a request carrying `transaction` was sent with `cause`.
+    public func record(transaction: ClientTransactionID, cause: ObservationCause) {
+        record(.transaction(transaction), cause: cause)
     }
 
     /// The cause `mutationID` was recorded with, or nil when it was not recorded or expired.
     public func cause(of mutationID: String) -> ObservationCause? {
+        cause(of: .mutation(mutationID))
+    }
+
+    /// The cause `transaction` was recorded with, or nil when it was not recorded or expired.
+    public func cause(ofTransaction transaction: ClientTransactionID) -> ObservationCause? {
+        cause(of: .transaction(transaction))
+    }
+
+    private func record(_ key: Key, cause: ObservationCause) {
+        let now = elapsed()
+        state.withLock { state in
+            evict(&state, now: now, room: 1)
+            if state.causes.updateValue(Entry(cause: cause, recordedAt: now), forKey: key) == nil {
+                state.order.append(key)
+            }
+        }
+    }
+
+    private func cause(of key: Key) -> ObservationCause? {
         let now = elapsed()
         return state.withLock { state in
-            guard let entry = state.causes[mutationID], now - entry.recordedAt < lifetime else { return nil }
+            guard let entry = state.causes[key], now - entry.recordedAt < lifetime else { return nil }
             return entry.cause
         }
     }

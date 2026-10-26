@@ -161,6 +161,8 @@ public actor DaemonConnection {
         requestStarted()
         defer { requestEnded() }
         try R.requireServed(by: identity)
+        // Before the line goes out: the echo can arrive before the reply.
+        DaemonCommandScope.recordEchoTransaction(of: request, in: mutationCauses)
         let response = try await Self.perform(request, on: ready.transport, timeout: timeout)
         DaemonCommandScope.noteCreated(by: request, response: response)
         return response
