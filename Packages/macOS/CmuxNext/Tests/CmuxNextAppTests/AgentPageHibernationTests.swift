@@ -197,4 +197,89 @@ struct AgentPageHibernationTests {
         await rig.settle { rig.tabs.existingView("tab_unknown") == nil }
         #expect(rig.tabs.existingView("tab_unknown") == nil, "the watch came back and the idle chat kept its page")
     }
+
+    /// Hides chats `keys` one second apart, oldest first.
+    private func hideInOrder(_ keys: [String], on rig: Rig) throws -> [String: AgentPaneView] {
+        var pages: [String: AgentPaneView] = [:]
+        for key in keys {
+            pages[key] = try rig.hiddenChat(key, session: "s-\(key)")
+            rig.elapsed += .seconds(1)
+        }
+        return pages
+    }
+
+    /// p07-memory-031: past the Mac's budget of live hidden agent pages, the least recently shown
+    /// ones go at once, long before the timeout, but never one hidden less than `minimumHidden`.
+    /// Without a budget only the timeout lets pages go.
+    @Test func pastTheBudgetTheLeastRecentlyShownPagesGoAtOnce() async throws {
+        let rig = Rig()
+        let released = Asked()
+        rig.hibernation.onRelease = { released.count += 1 }
+        rig.hibernation.update(setting: BrowserHibernationSetting(mode: .moderate), pressure: .normal)
+        let keys = ["tab_a", "tab_b", "tab_c", "tab_d", "tab_e", "tab_f"]
+        let pages = try hideInOrder(keys, on: rig)
+
+        // No budget (the feature off): 15 s hidden, far inside the half hour, every page stays.
+        rig.elapsed += .seconds(AgentPageHibernation.minimumHidden)
+        rig.hibernation.replan()
+        await rig.settle { false }
+        for key in keys { #expect(rig.tabs.existingView(key) === pages[key], "\(key) went with no budget") }
+
+        // Budget 4 of 6: the two oldest go, without waiting for the timeout.
+        rig.hibernation.liveHiddenLimit = 4
+        await rig.settle { rig.tabs.existingView("tab_a") == nil && rig.tabs.existingView("tab_b") == nil }
+        #expect(rig.tabs.existingView("tab_a") == nil, "the least recently shown page stayed past the budget")
+        #expect(rig.tabs.existingView("tab_b") == nil, "the second least recently shown page stayed past the budget")
+        for key in keys.dropFirst(2) { #expect(rig.tabs.existingView(key) === pages[key], "\(key) went within the budget") }
+        #expect(Set(rig.displaced) == ["tab_a", "tab_b"])
+        #expect(released.count == 2)
+        #expect(rig.tabs.session(of: "tab_a") == "s-tab_a", "a released chat lost its session")
+
+        // Within the budget now: another plan lets nothing more go.
+        rig.hibernation.replan()
+        await rig.settle { false }
+        for key in keys.dropFirst(2) { #expect(rig.tabs.existingView(key) === pages[key], "\(key) went within the budget") }
+        #expect(released.count == 2)
+    }
+
+    /// The budget counts every live hidden page, the busy ones too, but a chat whose agent works
+    /// or waits on the person never goes: the oldest idle ones go in their place. A page hidden
+    /// less than `minimumHidden` waits, on a deadline. With the turn watch down nothing goes.
+    @Test func pastTheBudgetBusyChatsStayAndYoungPagesWait() async throws {
+        let rig = Rig()
+        rig.hibernation.update(setting: BrowserHibernationSetting(mode: .moderate), pressure: .normal)
+        rig.hibernation.liveHiddenLimit = 4
+        let keys = ["tab_working", "tab_asking", "tab_c", "tab_d", "tab_e", "tab_f"]
+        let pages = try hideInOrder(keys, on: rig)
+        rig.turns.setState(.working, session: "s-tab_working")
+        rig.turns.setState(.needsInput, session: "s-tab_asking")
+
+        // Hidden 1 to 6 s: over the budget, but every page is too young to go.
+        await rig.settle { false }
+        for key in keys { #expect(rig.tabs.existingView(key) === pages[key], "\(key) went before the composer's short wait") }
+        #expect(rig.hibernation.hasDeadline, "over the budget with young pages armed no deadline")
+
+        rig.elapsed += .seconds(AgentPageHibernation.minimumHidden)
+        rig.hibernation.replan()
+        await rig.settle { rig.tabs.existingView("tab_c") == nil && rig.tabs.existingView("tab_d") == nil }
+        #expect(rig.tabs.existingView("tab_working") === pages["tab_working"], "a chat whose agent works went for the budget")
+        #expect(rig.tabs.existingView("tab_asking") === pages["tab_asking"], "a chat waiting on the person went for the budget")
+        #expect(rig.hibernation.keepsPage("tab_working") == .agentBusy)
+        #expect(rig.hibernation.keepsPage("tab_asking") == .agentBusy)
+        #expect(rig.tabs.existingView("tab_c") == nil, "the oldest idle chat stayed past the budget")
+        #expect(rig.tabs.existingView("tab_d") == nil, "the second oldest idle chat stayed past the budget")
+        #expect(rig.tabs.existingView("tab_e") === pages["tab_e"])
+        #expect(rig.tabs.existingView("tab_f") === pages["tab_f"])
+        #expect(Set(rig.displaced) == ["tab_c", "tab_d"])
+
+        // With the turn watch down no turn is known: nothing more goes, even past the budget.
+        rig.turns.watching = false
+        _ = try hideInOrder(["tab_g", "tab_h"], on: rig)
+        rig.elapsed += .seconds(AgentPageHibernation.minimumHidden)
+        rig.hibernation.replan()
+        await rig.settle { false }
+        for key in ["tab_e", "tab_f", "tab_g", "tab_h"] {
+            #expect(rig.tabs.existingView(key) != nil, "\(key) went with no turn known")
+        }
+    }
 }
