@@ -23,6 +23,7 @@ extension AppServices: OracleHost {
                     OracleLayoutFacet.Shown(workspace: content.workspace.resourceID?.rawValue ?? content.workspace.id, model: content.layoutModel)
                 }
             },
+            OracleTabsFacet { [weak self] in self?.oracleTabPanes() ?? [] },
         ])
     }
 
