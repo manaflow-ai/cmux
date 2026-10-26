@@ -301,7 +301,18 @@ pub fn allow_blocking<R>(reason: AllowReason, f: impl FnOnce() -> R) -> R {
 #[track_caller]
 pub fn assert_blocking_allowed(kind: BlockingKind) {
     if !STATE.with(Cell::get).permits(kind) {
-        violation(kind);
+        violation(kind, Location::caller());
+    }
+}
+
+/// [`assert_blocking_allowed`] at a site the caller captured. The daemon's
+/// request-path notes (`cmux_tui_platform::request_path`) check each blocking
+/// primitive here with the site they record, so one note at a primitive
+/// feeds this detector and the request-path counters.
+#[inline]
+pub fn assert_blocking_allowed_at(kind: BlockingKind, location: &'static Location<'static>) {
+    if !STATE.with(Cell::get).permits(kind) {
+        violation(kind, location);
     }
 }
 
@@ -316,9 +327,7 @@ pub fn scoped_blocking_call<R>(kind: BlockingKind, f: impl FnOnce() -> R) -> R {
 
 #[cold]
 #[inline(never)]
-#[track_caller]
-fn violation(kind: BlockingKind) {
-    let location = Location::caller();
+fn violation(kind: BlockingKind, location: &'static Location<'static>) {
     SITES.record(location, kind);
     // Chrome's DCHECK: fails only in Panic mode, and Release compiles it out.
     debug_assert!(
@@ -379,7 +388,7 @@ impl Drop for OwnDescriptorToken<'_> {
 pub fn register_own_descriptor(fd: std::os::fd::BorrowedFd<'_>) -> OwnDescriptorToken<'_> {
     use std::os::fd::AsRawFd;
     let previous = if STATE.with(Cell::get).disallowed() {
-        violation(BlockingKind::FdRead);
+        violation(BlockingKind::FdRead, Location::caller());
         None
     } else {
         Some(OWN_FD.with(|own| own.replace(fd.as_raw_fd())))

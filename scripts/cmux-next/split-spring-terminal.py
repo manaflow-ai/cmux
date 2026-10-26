@@ -179,10 +179,12 @@ if "--suite=cef-idle" in sys.argv:
 if "--suite=automation-typing" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "automation-typing-bench.py")
     os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=automation-typing"])
-# `--suite=idle-budget`: threads and wakeups per process at idle, light and STRESS, scripts/cmux-next/idle-budget.py.
+# `--suite=idle-budget`: threads, wakeups, energy, power assertions, saver and thermal state per process at idle,
+# scripts/cmux-next/idle-budget.py. The suite's own args follow a `--` (`split-spring.sh --suite=idle-budget
+# --vdisplay=120 -- --sessions tabs-static,energy-saver --gate`); the separator is dropped so they reach its parser.
 if "--suite=idle-budget" in sys.argv:
     suite = os.path.join(os.path.dirname(os.path.abspath(__file__)), "idle-budget.py")
-    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a != "--suite=idle-budget"])
+    os.execv(sys.executable, [sys.executable, suite] + [a for a in sys.argv[1:] if a not in ("--suite=idle-budget", "--")])
 # `--suite=script-storm`: terminal typing and Cmd-D / Cmd-W while a script storms background workspaces (sidebar
 # reorders, tab moves, New Column/Row, renames, app-side renameTab), light and STRESS, scripts/cmux-next/script-storm-bench.py.
 if "--suite=script-storm" in sys.argv:

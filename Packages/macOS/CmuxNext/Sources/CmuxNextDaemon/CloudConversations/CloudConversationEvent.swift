@@ -83,7 +83,7 @@ public enum CloudConversationsEvent: Sendable, Hashable {
     }
 
     /// Decodes one `cloud-*` event line; throws on a malformed payload.
-    static func decode(name: String, line: Data, decoder: JSONDecoder) throws -> CloudConversationsEvent? {
+    static func decode(name: String, line: Data, decoder: WireDecoder) throws -> CloudConversationsEvent? {
         switch name {
         case "cloud-conversation-changed": .changed(try decoder.decode(CloudConversationChanged.self, from: line))
         case "cloud-conversation-resynced": .resynced(try decoder.decode(CloudConversationResynced.self, from: line))

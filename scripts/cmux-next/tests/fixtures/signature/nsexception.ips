@@ -1,0 +1,189 @@
+{"app_name": "cmux NEXT", "timestamp": "2026-10-24 10:11:12.00 -0700", "app_version": "0.9.1 (101)", "build_version": "0.9.1 (101)", "platform": 1, "bundleID": "com.cmuxterm.app.next", "share_with_app_devs": 0, "is_first_party": 0, "bug_type": "309", "os_version": "macOS 26.1 (25B78)", "roots_installed": 0, "name": "cmux NEXT", "incident_id": "E1"}
+{
+  "uptime": 1000,
+  "procRole": "Foreground",
+  "version": 2,
+  "userID": 501,
+  "modelCode": "Mac16,10",
+  "osVersion": {
+    "train": "macOS 26.1",
+    "build": "25B78",
+    "releaseType": "User"
+  },
+  "captureTime": "2026-10-24 10:11:12.0000 -0700",
+  "pid": 4242,
+  "cpuType": "ARM-64",
+  "procName": "cmux NEXT",
+  "procPath": "/Applications/cmux NEXT.app/Contents/MacOS/cmux NEXT",
+  "exception": {
+    "codes": "0x0000000000000000, 0x0000000000000000",
+    "type": "EXC_CRASH",
+    "signal": "SIGABRT"
+  },
+  "termination": {
+    "flags": 0,
+    "code": 5,
+    "namespace": "SIGNAL"
+  },
+  "faultingThread": 0,
+  "threads": [
+    {
+      "triggered": true,
+      "id": 5001,
+      "queue": "com.apple.main-thread",
+      "frames": [
+        {
+          "imageOffset": 4000,
+          "imageIndex": 2,
+          "symbol": "__pthread_kill",
+          "symbolLocation": 8
+        },
+        {
+          "imageOffset": 5000,
+          "imageIndex": 2,
+          "symbol": "pthread_kill",
+          "symbolLocation": 288
+        },
+        {
+          "imageOffset": 6000,
+          "imageIndex": 2,
+          "symbol": "abort",
+          "symbolLocation": 124
+        },
+        {
+          "imageOffset": 7000,
+          "imageIndex": 4,
+          "symbol": "_objc_terminate()",
+          "symbolLocation": 112
+        },
+        {
+          "imageOffset": 4000,
+          "imageIndex": 0,
+          "symbol": "main",
+          "symbolLocation": 64
+        }
+      ]
+    }
+  ],
+  "usedImages": [
+    {
+      "source": "P",
+      "arch": "arm64",
+      "base": 4294967296,
+      "size": 52428800,
+      "uuid": "aaaaaaaa-1111-4111-8111-aaaaaaaaaaaa",
+      "path": "/Applications/cmux NEXT.app/Contents/MacOS/cmux NEXT",
+      "name": "cmux NEXT",
+      "CFBundleIdentifier": "com.cmuxterm.app.next"
+    },
+    {
+      "source": "P",
+      "arch": "arm64e",
+      "base": 6000000000,
+      "size": 300000,
+      "uuid": "1d4a1d0a-0000-4000-8000-00000000c0de",
+      "path": "/usr/lib/swift/libswiftCore.dylib",
+      "name": "libswiftCore.dylib"
+    },
+    {
+      "source": "P",
+      "arch": "arm64e",
+      "base": 6100000000,
+      "size": 40000,
+      "uuid": "2d4a1d0a-0000-4000-8000-00000000c0de",
+      "path": "/usr/lib/system/libsystem_kernel.dylib",
+      "name": "libsystem_kernel.dylib"
+    },
+    {
+      "source": "P",
+      "arch": "arm64e",
+      "base": 6200000000,
+      "size": 40000,
+      "uuid": "3d4a1d0a-0000-4000-8000-00000000c0de",
+      "path": "/usr/lib/system/libdispatch.dylib",
+      "name": "libdispatch.dylib"
+    },
+    {
+      "source": "P",
+      "arch": "arm64e",
+      "base": 6300000000,
+      "size": 40000,
+      "uuid": "4d4a1d0a-0000-4000-8000-00000000c0de",
+      "path": "/usr/lib/libobjc.A.dylib",
+      "name": "libobjc.A.dylib"
+    },
+    {
+      "source": "P",
+      "arch": "arm64e",
+      "base": 6400000000,
+      "size": 40000,
+      "uuid": "5d4a1d0a-0000-4000-8000-00000000c0de",
+      "path": "/System/Library/Frameworks/CoreFoundation.framework/Versions/A/CoreFoundation",
+      "name": "CoreFoundation"
+    },
+    {
+      "source": "P",
+      "arch": "arm64e",
+      "base": 6500000000,
+      "size": 40000,
+      "uuid": "6d4a1d0a-0000-4000-8000-00000000c0de",
+      "path": "/System/Library/Frameworks/AppKit.framework/Versions/C/AppKit",
+      "name": "AppKit"
+    }
+  ],
+  "lastExceptionBacktrace": [
+    {
+      "imageOffset": 100000,
+      "imageIndex": 5,
+      "symbol": "__exceptionPreprocess",
+      "symbolLocation": 164
+    },
+    {
+      "imageOffset": 90000,
+      "imageIndex": 4,
+      "symbol": "objc_exception_throw",
+      "symbolLocation": 88
+    },
+    {
+      "imageOffset": 104000,
+      "imageIndex": 5,
+      "symbol": "_CFThrowFormattedException",
+      "symbolLocation": 200
+    },
+    {
+      "imageOffset": 108000,
+      "imageIndex": 5,
+      "symbol": "-[__NSArrayM objectAtIndexedSubscript:].cold.1",
+      "symbolLocation": 16
+    },
+    {
+      "imageOffset": 110000,
+      "imageIndex": 5,
+      "symbol": "-[__NSArrayM objectAtIndexedSubscript:]",
+      "symbolLocation": 1236
+    },
+    {
+      "imageOffset": 1500000,
+      "imageIndex": 0,
+      "symbol": "TabStripController.selectTab(at:)",
+      "symbolLocation": 180
+    },
+    {
+      "imageOffset": 1500600,
+      "imageIndex": 0,
+      "symbol": "@objc TabStripController.mouseDown(with:)",
+      "symbolLocation": 60
+    },
+    {
+      "imageOffset": 400000,
+      "imageIndex": 6,
+      "symbol": "-[NSWindow(NSEventRouting) _handleMouseDownEvent:isDelayedEvent:]",
+      "symbolLocation": 4000
+    }
+  ],
+  "asi": {
+    "CoreFoundation": [
+      "*** Terminating app due to uncaught exception 'NSRangeException', reason: '*** -[__NSArrayM objectAtIndexedSubscript:]: index 4 beyond bounds [0 .. 2]'"
+    ]
+  }
+}

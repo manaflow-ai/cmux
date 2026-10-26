@@ -52,7 +52,7 @@ public final class AgentCursorInputBridge {
     /// False when the person turned the agent cursor off: events are
     /// counted and dropped, nothing is drawn.
     public var isEnabled = true
-    private static let log = Logger(subsystem: "com.cmux.next", category: "agent-cursor-input")
+    private static let log = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-cursor-input")
 
     /// - Parameters:
     ///   - publisher: The publisher of the content that owns a target id, or nil.

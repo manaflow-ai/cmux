@@ -262,6 +262,11 @@ cmux-layout-reducer-ffi).
 
 The weight of the program with phase 1 (Lawrence, 2026-10-08).
 
+[stability-DESIGN.md](stability-DESIGN.md) (PL-stability, 2026-10-25) carries out this phase and replaces the
+table below as the plan of record: the continuous stability lab, the fuzz targets and corpus store, the Swift
+and Rust sanitizer lanes, and their done checks (section 5) and machine queues (section 6). Its lab
+runs these lanes per tip through `cmux-ci`, reports only, and adds no CI job.
+
 | Target | Method | Where |
 | --- | --- | --- |
 | Text layout (CmuxHomeRender TextLayout, after cx-qpqs) | property test: random strings with surrogate pairs, combining marks, emoji ZWJ, CRLF; random edits between measure and draw; every range the layout makes is valid for the string it draws | Swift Testing, seeded generator, in the package suite |

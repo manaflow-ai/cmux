@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextTerminal
 import CmuxNextFocusUI
+import CmuxNextLaunch
 
 /// The Ghostty config's keybinds as binding table entries (GHOSTTY-CONFIG,
 /// plans/cmux-next/ghostty-config.md "Keybinds"; PANE-FOCUS-RESIZE-KEYS-AND-
@@ -72,11 +73,11 @@ struct GhosttyKeyBindingLayer {
 
     /// Whether `event`'s chord is the user's own Ghostty keybind: a key their
     /// config claims from a cmux default (`ghosttyClaims`) or a `.ghostty`
-    /// entry, never a `.ghosttyFallback` default.
+    /// entry, never a `.ghosttyFallback` default. One set lookup per key the
+    /// event may mean (`KeyBindingLayers.usersGhosttyKeys`, built at load).
     static func isUsersKeybind(_ event: NSEvent, layers: KeyBindingLayers) -> Bool {
-        ActionRegistry.shortcuts(for: event).contains { key in
-            layers.ghosttyClaims.contains(key) || layers.ghostty.contains { $0.source == .ghostty && $0.keys == [key] }
-        }
+        let keys = layers.usersGhosttyKeys
+        return ActionRegistry.shortcuts(for: event).contains { keys.contains($0) }
     }
 
     /// The table key of a trigger: its codepoint, or the physical key's name.

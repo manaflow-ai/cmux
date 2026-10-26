@@ -68,6 +68,10 @@ public protocol TerminalSessionDelegate: AnyObject {
     /// Right-click menu for the terminal. Nil shows the built-in
     /// Copy/Paste/Select All menu.
     func terminalSession(_ session: TerminalSession, contextMenuFor event: NSEvent) -> NSMenu?
+    /// Ghostty took a key press of the key-down being dispatched (it encoded it for the program or ran a
+    /// binding), or the key changed the preedit or moved copy mode: the next frame shows its effect, whichever
+    /// entry point delivered the key (`sendEvent`, `debug.key` into a window that is not key, a replayed held key).
+    func terminalSessionTookKey(_ session: TerminalSession)
 }
 
 public extension TerminalSessionDelegate {
@@ -92,4 +96,5 @@ public extension TerminalSessionDelegate {
         GhosttyRuntime.shared.bellSettings.ring()
     }
     func terminalSessionDidRequestClose(_ session: TerminalSession) {}
+    func terminalSessionTookKey(_ session: TerminalSession) {}
 }

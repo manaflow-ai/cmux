@@ -1536,6 +1536,31 @@ class ServerStatsRegistryLock:
 
 
 @dataclass(frozen=True)
+class ServerStatsRequestPathIo:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsRequestPathIo'
+    child_process: int
+    fs_write: int
+    host_wait: int
+    journal_wait: int
+    network: int
+    proc_scan: int
+    process_spawn: int
+    recording: bool
+    scopes: int
+    sites: List[ServerStatsRequestPathSite]
+    sleep: int
+    sqlite: int
+    lock_hold_over_1ms: Union[int, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ServerStatsRequestPathSite:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsRequestPathSite'
+    kind: str
+    site: str
+
+
+@dataclass(frozen=True)
 class ServerStatsResourceProjection:
     __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsResourceProjection'
     commit_apply_us: ServerStatsHistogram
@@ -1565,6 +1590,7 @@ class ServerStatsResult:
     registry_lock: ServerStatsRegistryLock
     schema: int
     uptime_ms: int
+    request_path_io: Union[ServerStatsRequestPathIo, MissingType] = field(default=MISSING)
     resource_projection: Union[ServerStatsResourceProjection, MissingType] = field(default=MISSING)
     write_path: Union[ServerStatsWritePath, MissingType] = field(default=MISSING)
 
@@ -6109,6 +6135,8 @@ __all__ = [
     'ServerStatsLockSite',
     'ServerStatsLockStall',
     'ServerStatsRegistryLock',
+    'ServerStatsRequestPathIo',
+    'ServerStatsRequestPathSite',
     'ServerStatsResourceProjection',
     'ServerStatsResult',
     'ServerStatsWritePath',

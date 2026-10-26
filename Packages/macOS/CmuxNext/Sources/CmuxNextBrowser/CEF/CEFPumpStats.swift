@@ -28,6 +28,10 @@ public nonisolated struct CEFPumpStats: Equatable, Sendable {
     /// first (``CEFPumpCrossThreadGate``); the main thread merges them at its next pass or re-arm.
     /// They are not in ``delayedRequests``.
     public var keptCrossThreadRequests = 0
+    /// Timer fires held because a shown frame was late and the pump had run
+    /// its one pass for that frame (`RenderStarvationGuard`); each runs after
+    /// the late link's tick.
+    public var lateFrameHolds = 0
 
     public init() {}
 }
