@@ -220,3 +220,134 @@ fn a_chief_home_of_purged_leftovers_and_chats_stays_within_the_memory_budget() {
     drop(daemon);
     let _ = std::fs::remove_dir_all(&dir);
 }
+
+/// CPU time the process `pid` has used, in ms: `/proc/<pid>/stat` on Linux, `ps` elsewhere.
+fn cpu_ms(pid: u32) -> u64 {
+    if let Ok(stat) = std::fs::read_to_string(format!("/proc/{pid}/stat")) {
+        let fields: Vec<&str> = stat.rsplit(')').next().unwrap().split_whitespace().collect();
+        let ticks: u64 = fields[11].parse::<u64>().unwrap() + fields[12].parse::<u64>().unwrap();
+        return ticks * 1000 / 100;
+    }
+    // macOS: `[[dd-]hh:]mm:ss.cc`.
+    let out = std::process::Command::new("ps")
+        .args(["-o", "time=", "-p", &pid.to_string()])
+        .output()
+        .unwrap();
+    let text = String::from_utf8_lossy(&out.stdout);
+    let (days, clock) = text.trim().split_once('-').unwrap_or(("0", text.trim()));
+    let secs = clock.split(':').fold(0.0, |acc, part| acc * 60.0 + part.parse::<f64>().unwrap());
+    ((days.parse::<f64>().unwrap() * 86_400.0 + secs) * 1000.0) as u64
+}
+
+/// What the daemon spends while records land on one chat for `secs`, with `waiters`
+/// clients in `acpmux wait` on other chats: (records, CPU ms, RSS growth MB).
+fn under_waiters(daemon: &Daemon, chat: &str, waiting_on: &[String], secs: u64) -> (u64, u64, i64) {
+    let mut waits = Vec::new();
+    for id in waiting_on {
+        let mut w = Rpc::connect(&daemon.socket);
+        w.next += 1;
+        // Each wait times out just after the records: its timed-out answer then proves it
+        // stayed open through all of them.
+        let line = json!({"jsonrpc": "2.0", "id": w.next, "method": "_acpmux/wait",
+                          "params": {"sessions": [id], "until": ["closed"], "timeoutMs": secs * 1000 + 3_000}});
+        w.writer.write_all(format!("{line}\n").as_bytes()).unwrap();
+        waits.push(w);
+    }
+    let mut rpc = Rpc::connect(&daemon.socket);
+    rpc.call("_acpmux/tag", json!({"sessionId": chat, "set": {"warm": "1"}}));
+    std::thread::sleep(std::time::Duration::from_millis(500));
+    let rss0 = daemon.rss_bytes() as i64;
+    let cpu0 = cpu_ms(daemon.child.id());
+    let start = std::time::Instant::now();
+    let mut records = 0u64;
+    while start.elapsed().as_secs() < secs {
+        rpc.call("_acpmux/tag", json!({"sessionId": chat, "set": {"step": format!("{records}")}}));
+        records += 1;
+    }
+    let cpu = cpu_ms(daemon.child.id()) - cpu0;
+    let grew = (daemon.rss_bytes() as i64 - rss0) / (1024 * 1024);
+    for mut w in waits {
+        let mut text = String::new();
+        w.reader.read_line(&mut text).unwrap();
+        let v: Value = serde_json::from_str(&text).unwrap();
+        assert_eq!(v["result"]["timedOut"], true, "a wait ended before the records did: {v}");
+    }
+    (records, cpu, grew)
+}
+
+/// huge-blue, 2026-10-22: 13 `acpmux wait` clients on a daemon with 460 chats and 40
+/// running turns. Each wait summarized every chat on every record any chat logged, so
+/// the waits used 6 to 8 cores between them and the daemon grew about 65 MB a minute
+/// to 4.5 GB in 66 minutes, when acpmux-rss-guard restarted it. A wait now reads only
+/// the chats it waits on: the records cost about what they cost with no wait open.
+#[test]
+fn waits_on_some_chats_cost_nothing_extra_while_other_chats_log_records() {
+    // At least the 13 chats waited on plus the one that logs, and a second of records.
+    let chats = env_or("ACPMUX_MEMORY_BENCH_CHATS", 400).max(14);
+    let secs = env_or("ACPMUX_WAIT_BENCH_SECS", 8).max(1);
+    let dir = scratch("waits");
+    let home = dir.join("home");
+    private_dir(&home);
+    private_dir(&home.join("sessions"));
+    let id = |i: u64| format!("01a15903-0000-7000-8000-{i:012}");
+    for i in 0..chats {
+        write_session(&home, &id(i), "idle", true);
+    }
+    let daemon = Daemon::start(&dir, &home);
+    let mut rpc = Rpc::connect(&daemon.socket);
+    assert_eq!(listed(&mut rpc).len() as u64, chats);
+    let (n0, cpu0, grew0) = under_waiters(&daemon, &id(0), &[], secs);
+    let waiting_on: Vec<String> = (1..=13).map(id).collect();
+    let (n1, cpu1, grew1) = under_waiters(&daemon, &id(0), &waiting_on, secs);
+    assert!(n0 > 0 && n1 > 0, "no records landed ({n0} alone, {n1} with waits)");
+    // CPU per record, so a slower machine or a busier daemon compares like with like.
+    let per0 = cpu0 as f64 / n0.max(1) as f64;
+    let per1 = cpu1 as f64 / n1.max(1) as f64;
+    println!(
+        "acpmux-wait-cost: {}",
+        json!({"chats": chats, "secs": secs, "alone": {"records": n0, "cpu_ms": cpu0, "rss_grew_mb": grew0},
+               "waits13": {"records": n1, "cpu_ms": cpu1, "rss_grew_mb": grew1}})
+    );
+    assert!(
+        per1 <= per0 * 3.0 + 1.0,
+        "13 waits made each record cost {per1:.1} ms of daemon CPU (alone {per0:.1} ms)"
+    );
+    assert!(
+        grew1 <= grew0 + 16,
+        "the daemon grew {grew1} MB with 13 waits open (alone {grew0} MB)"
+    );
+    drop(daemon);
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// Two keys for one chat, its name and its id, are two rows of the same chat: neither
+/// reads as a missing, closed one, so `--all` resolves and `closed` does not.
+#[test]
+fn a_wait_on_one_chat_by_name_and_by_id_reads_it_twice() {
+    let dir = scratch("waitdup");
+    let home = dir.join("home");
+    private_dir(&home);
+    private_dir(&home.join("sessions"));
+    let id = "01a15904-0000-7000-8000-000000000001";
+    write_session(&home, id, "idle", true);
+    let daemon = Daemon::start(&dir, &home);
+    let mut rpc = Rpc::connect(&daemon.socket);
+    let name = format!("optchat-compact-{id}");
+    let ready = rpc.call(
+        "_acpmux/wait",
+        json!({"sessions": [name, id], "until": ["ready"], "all": true, "timeoutMs": 5_000}),
+    );
+    assert_eq!(ready["timedOut"], false, "{ready}");
+    assert_eq!(ready["resolved"].as_array().unwrap().len(), 2, "{ready}");
+    let closed = rpc.call(
+        "_acpmux/wait",
+        json!({"sessions": [name, id], "until": ["closed"], "timeoutMs": 1_500}),
+    );
+    assert_eq!(closed["timedOut"], true, "{closed}");
+    assert!(
+        closed["sessions"].as_array().unwrap().iter().all(|s| s["missing"].is_null()),
+        "{closed}"
+    );
+    drop(daemon);
+    let _ = std::fs::remove_dir_all(&dir);
+}

@@ -755,6 +755,11 @@ impl Hub {
     /// Every peer's sessions, each with its peer's current `peerState` and
     /// whether the row is `stale` (last-known while the peer is down).
     pub fn remote_sessions(&self) -> Vec<Value> {
+        self.remote_rows(|_| true)
+    }
+
+    /// [`Self::remote_sessions`] of the rows `keep` takes, cloning no other.
+    fn remote_rows(&self, keep: impl Fn(&Value) -> bool) -> Vec<Value> {
         let states: HashMap<String, &'static str> = self
             .peers
             .lock()
@@ -764,6 +769,7 @@ impl Hub {
             .collect();
         let map = self.remote_sessions.lock().unwrap_or_else(|e| e.into_inner());
         map.values()
+            .filter(|r| keep(&r.summary))
             .map(|r| {
                 let mut summary = r.summary.clone();
                 summary["stale"] = Value::Bool(summary["stale"] == true);
@@ -782,6 +788,31 @@ impl Hub {
         // Newest first, ties by sessionId: the order session list pages keep.
         super::session_pages::sort_session_summaries(&mut v);
         v
+    }
+
+    /// The rows of [`Self::all_session_summaries`] whose `sessionId` is one of `ids`, a
+    /// local chat's before a peer's, without summarizing any other chat: a wait reads
+    /// them on every record (`server/wait.rs`), and summarizing all 460 chats there kept
+    /// huge-blue's daemon at 6 to 8 cores and 4.5 GB (2026-10-22).
+    pub fn session_summaries_of(&self, ids: &[String]) -> HashMap<String, Value> {
+        let local: Vec<Arc<Session>> = {
+            let sessions = self.sessions.lock().unwrap_or_else(|e| e.into_inner());
+            ids.iter().filter_map(|id| sessions.get(id).cloned()).collect()
+        };
+        let mut out: HashMap<String, Value> =
+            local.iter().map(|s| (s.id.clone(), self.session_summary(s))).collect();
+        let wanted = |v: &Value| {
+            v.get("sessionId")
+                .and_then(Value::as_str)
+                .is_some_and(|id| ids.iter().any(|w| w == id) && !out.contains_key(id))
+        };
+        let remote = self.remote_rows(wanted);
+        for row in remote {
+            if let Some(id) = row.get("sessionId").and_then(Value::as_str) {
+                out.entry(id.to_owned()).or_insert(row);
+            }
+        }
+        out
     }
 }
 
