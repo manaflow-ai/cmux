@@ -100,6 +100,15 @@ fn resolve(task: RawFd, dir: i32, path: &str, flags: i32, nspid: &str) -> Result
     resolve_with_flags(task, dir, path, flags, nspid, &directory_flags)
 }
 
+// Red-test seam for the filesystem allowlist; implemented after runner confirmation.
+fn classify_directory(_magic: u64, _flags: Result<c_long>) -> std::result::Result<(), String> {
+    Ok(())
+}
+
+fn proc_fd_number(name: &str) -> Result<u32> {
+    name.parse().map_err(|_| EACCES)
+}
+
 // O_PATH descriptors cannot receive GETFLAGS; reopen the pinned directory.
 fn directory_flags(fd: RawFd) -> Result<c_long> {
     let readable = open_at(fd, ".", O_RDONLY | O_DIRECTORY | O_NONBLOCK, 0).map_err(|_| EACCES)?;
@@ -202,7 +211,7 @@ fn resolve_with_flags(
             {
                 return Err(EACCES);
             }
-            let number: u32 = queue[2].parse().map_err(|_| EACCES)?;
+            let number = proc_fd_number(&queue[2])?;
             let object = open_at(task, &format!("fd/{number}"), O_PATH, 0)?;
             let current = link_at(AT_FDCWD, &format!("/proc/self/fd/{}", object.as_raw_fd()))
                 .map_err(|_| EACCES)?;
@@ -293,6 +302,7 @@ pub(crate) fn run(_notify_fd: OwnedFd, _policy: WritePolicy, _stop: OwnedFd) -> 
     Err(io::Error::other("user-notify supervisor not implemented"))
 }
 
+/// Resolver regression loops terminate at the end of their fixed input tables.
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -338,6 +348,120 @@ mod tests {
             .find_map(|line| line.strip_prefix("NSpid:").and_then(|p| p.split_whitespace().last()))
             .expect("NSpid")
             .to_owned()
+    }
+
+    #[test]
+    fn review_filesystem_classifier_refuses_unverified_lookup_semantics() {
+        // FAT, exFAT, NTFS, SMB/CIFS, HFS+, unknown; proc/devpts must use only
+        // their existing narrowly scoped resolver routes, never a general walk.
+        for magic in [
+            0x4d44,
+            0x2011_bab0,
+            0x5346_544e,
+            0x517b,
+            0xff53_4d42,
+            0xfe53_4d42,
+            0x482b,
+            0,
+            0x1234_5678,
+            0x9fa0,
+            0x1cd1,
+        ] {
+            for flags in [Ok(0), Err(ENOTTY), Err(EOPNOTSUPP)] {
+                let reason =
+                    classify_directory(magic, flags).expect_err("unverified filesystem allowed");
+                assert!(
+                    reason.contains(&format!("{magic:#x}")),
+                    "missing filesystem magic: {reason}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn review_filesystem_classifier_requires_flags_for_casefold_capable_filesystems() {
+        // ext2/3/4, f2fs, tmpfs: unsupported GETFLAGS is not evidence of safety.
+        for magic in [0xef53, 0xf2f5_2010, 0x0102_1994] {
+            assert!(classify_directory(magic, Ok(0)).is_ok());
+            for flags in [Ok(0x4000_0000), Err(ENOTTY), Err(EOPNOTSUPP), Err(EIO), Err(EACCES)] {
+                let reason =
+                    classify_directory(magic, flags).expect_err("unverified flags allowed");
+                assert!(reason.contains(&format!("{magic:#x}")));
+            }
+        }
+        // XFS, Btrfs, overlayfs, ZFS, bcachefs have no supported per-directory
+        // casefold mode here. They must not require an unsupported flags ioctl.
+        for magic in [0x5846_5342, 0x9123_683e, 0x794c_7630, 0x2fc1_2fc1, 0xca45_1a4e] {
+            for flags in [Ok(0), Err(ENOTTY), Err(EOPNOTSUPP)] {
+                assert!(classify_directory(magic, flags).is_ok(), "supported magic {magic:#x}");
+            }
+        }
+    }
+
+    #[test]
+    fn review_filesystem_runner_directory_remains_supported() {
+        let fixture = Fixture::new();
+        let fd = open_at(AT_FDCWD, fixture.0.to_str().unwrap(), O_RDONLY | O_DIRECTORY, 0).unwrap();
+        let mut fs: statfs = unsafe { std::mem::zeroed() };
+        assert_eq!(unsafe { fstatfs(fd.as_raw_fd(), &mut fs) }, 0);
+        let mut flags: c_long = 0;
+        let flags = if unsafe { ioctl(fd.as_raw_fd(), FS_IOC_GETFLAGS, &mut flags) } == 0 {
+            Ok(flags)
+        } else {
+            Err(error())
+        };
+        classify_directory(fs.f_type as u64, flags)
+            .expect("runner fixture filesystem must be supported");
+        let path = format!("{}/ordinary", fixture.0.display());
+        let resolved =
+            resolve(task().as_raw_fd(), AT_FDCWD, &path, O_CREAT | O_WRONLY, &nspid()).unwrap();
+        assert_eq!(resolved.logical, path);
+    }
+
+    #[test]
+    fn review_proc_fd_number_requires_canonical_decimal() {
+        for (name, number) in [("0", 0), ("3", 3), ("2147483647", 2147483647)] {
+            assert_eq!(proc_fd_number(name), Ok(number));
+        }
+        for name in [
+            "03",
+            "+3",
+            "00",
+            "-1",
+            "",
+            " 3",
+            "3 ",
+            "3x",
+            "٣",
+            "2147483648",
+            "4294967295",
+            "00000000003",
+            "99999999999",
+        ] {
+            assert_eq!(proc_fd_number(name), Err(ENOENT), "noncanonical proc fd: {name:?}");
+        }
+    }
+
+    #[test]
+    fn review_proc_fd_aliases_reject_noncanonical_spelling() {
+        let fixture = Fixture::new();
+        let file = fs::File::create(fixture.0.join("output")).unwrap();
+        let number = file.as_raw_fd();
+        // Include the exact review examples, plus aliases of a known live fd.
+        for spelling in
+            ["03".to_owned(), "+3".to_owned(), format!("0{number}"), format!("+{number}")]
+        {
+            let path = format!("/proc/self/fd/{spelling}");
+            assert!(matches!(open_at(AT_FDCWD, &path, O_PATH, 0), Err(ENOENT)));
+            assert!(
+                matches!(
+                    resolve(task().as_raw_fd(), AT_FDCWD, &path, O_WRONLY | O_TRUNC, &nspid()),
+                    Err(ENOENT)
+                ),
+                "translated invalid alias: {path}"
+            );
+        }
+        assert_eq!(fs::metadata(fixture.0.join("output")).unwrap().len(), 0);
     }
 
     #[test]
