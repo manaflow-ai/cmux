@@ -34,6 +34,11 @@ extension CEFPaneHost {
         page.wireToken = runtime.mintPageViewToken()
         // The page's focus follows the view's first responder state (``CEFTab/applyFocus(_:browser:)``).
         page.onFocusChange = { [weak self] focused in self?.visibleTab?.hostedPageFocusChanged(focused) }
+        // The page's accessibility element comes from the host (CEFPaneHost+Accessibility.swift).
+        page.accessibilityTokenSource = { [weak self] request, answered in
+            guard let self else { return answered(nil) }
+            askPageAccessibility(request, answered: answered)
+        }
         hostView.addSubview(page, positioned: .below, relativeTo: nil)
         hostView.showOcclusion(in: page)
         hostedPageView = page
