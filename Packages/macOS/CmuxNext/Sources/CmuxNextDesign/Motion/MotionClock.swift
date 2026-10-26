@@ -1,13 +1,15 @@
 public import AppKit
-import CmuxNextWakeups
+public import CmuxNextWakeups
 
 /// Something whose springs a ``MotionClock`` steps: the tab strip, the
 /// layout's panes and dividers, the sidebar rows.
 @MainActor
 public protocol MotionAnimating: AnyObject {
-    /// Advances every spring by `dt` seconds and applies the presented
-    /// values (layer frames). Returns true while anything still moves.
-    func motionStep(_ dt: Double) -> Bool
+    /// One frame: advances every spring by `tick.elapsed` seconds (clamped) and applies the presented
+    /// values (layer frames). A sampler of presented values (a `MotionPath`, a render-server spring)
+    /// evaluates at `tick.targetTimestamp`, when the frame is shown, not at `CACurrentMediaTime()`.
+    /// Returns true while anything still moves.
+    func motionStep(_ tick: FrameTick) -> Bool
 }
 
 /// The one chrome animation clock of a window (motion.md, DESIGN P4): every
@@ -25,13 +27,11 @@ public final class MotionClock {
 
     private var entries: [ObjectIdentifier: Entry] = [:]
     private var order: [ObjectIdentifier] = []
-    private lazy var client = FrameClient(owner: "Motion.clock", scheduler: { [weak self] in
-        self?.window.map(FrameScheduler.forWindow) ?? .app
-    }) { [weak self] tick in
-        self?.tick(tick.elapsed) ?? false
+    private lazy var client = FrameClient(owner: "Motion.clock", scheduler: resolveScheduler) { [weak self] tick in
+        self?.tick(tick) ?? false
     }
-    /// The window whose scheduler the clock ticks on (nil: the app clock).
-    private weak var window: NSWindow?
+    /// The scheduler the clock ticks on: its window's (``FrameScheduler/app`` for the app clock).
+    private let resolveScheduler: @MainActor () -> FrameScheduler
     /// The animator whose `motionStep` runs now, and whether it called `run` on itself
     /// meanwhile (new targets): it stays on the clock even when that step reports rest.
     private var steppingID: ObjectIdentifier?
@@ -39,8 +39,13 @@ public final class MotionClock {
     /// Frames delivered while something moved (debug).
     public private(set) var frames: UInt64 = 0
 
-    init(window: NSWindow?) {
-        self.window = window
+    convenience init(window: NSWindow?) {
+        self.init(scheduler: { [weak window] in window.map(FrameScheduler.forWindow) ?? .app })
+    }
+
+    /// A clock on the scheduler `resolve` returns when it starts ticking (tests: a fake-link scheduler).
+    init(scheduler resolve: @escaping @MainActor () -> FrameScheduler) {
+        resolveScheduler = resolve
     }
 
     private static var associationKey: UInt8 = 0
@@ -96,18 +101,18 @@ public final class MotionClock {
 
     /// One frame. While `debug.motion` records, the main-thread work of the whole frame
     /// (`clock`) and of each animator (its trace name) is timed (`MotionTrace.measure`).
-    private func tick(_ dt: Double) -> Bool {
-        MotionTrace.measure("clock") { step(dt) }
+    private func tick(_ tick: FrameTick) -> Bool {
+        MotionTrace.measure("clock") { step(tick) }
     }
 
-    private func step(_ dt: Double) -> Bool {
+    private func step(_ tick: FrameTick) -> Bool {
         frames &+= 1
-        if MotionTrace.isEnabled { MotionTrace.sample("clock.dt_ms", dt * 1000) }
+        if MotionTrace.isEnabled { MotionTrace.sample("clock.dt_ms", tick.elapsed * 1000) }
         // Animators started during this frame step from the next one.
         for id in order {
             guard let entry = entries[id] else { continue }
             (steppingID, steppingRearmed) = (id, false)
-            let moving = entry.animator.map { animator in MotionTrace.measure(entry.trace) { animator.motionStep(dt) } }
+            let moving = entry.animator.map { animator in MotionTrace.measure(entry.trace) { animator.motionStep(tick) } }
             steppingID = nil
             // Rest, unless the step re-armed itself (`run` during its own step): its new targets move next frame.
             guard moving == true || (moving != nil && steppingRearmed) else {

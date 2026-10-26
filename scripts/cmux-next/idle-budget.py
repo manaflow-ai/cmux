@@ -36,20 +36,25 @@ Sessions (--sessions):
 A session that fails (STRESS refuses a window under the Dock, a launch fails) is recorded with its exit
 code (`session_exits` in the report) and the others still run; the script exits 0 unless --gate.
 
-Budget: scripts/cmux-next/idle-budget.json (per process kind; a missing value is reported, not judged).
-Over budget prints IDLE-BUDGET-OVER lines; the exit code is 0 unless --gate (no CI gate: the perf cron
-runs it and reports).
+Budget: scripts/cmux-next/idle-budget.json, schema v2 (its _doc): per process kind with per-session overrides,
+sums (app+daemon, tree), ratios to another session of the run and to chrome-static (judged once every session
+is measured, whatever the --sessions order), xbench rows (--xbench), allowed_periodic (wakeup-audit.py) and
+assertions_allowed_when. A missing or unknown value is reported, not judged (IDLE-BUDGET-NOT-JUDGED lines); a sum
+with one unknown part is unknown; a v1 file (kinds only) still loads. Every session runs with both keep-awake
+settings off. Over budget prints IDLE-BUDGET-OVER lines; the exit code is 0 unless --gate (no CI gate: the perf
+cron runs it and reports).
 
 Use (fleet only, a host with a GUI console session; never on a laptop in use):
   python3 scripts/cmux-next/idle-budget.py --app "<...>/cmux DEV <tag>.app" --out DIR \\
       [--sessions light,stress] [--settle 60] [--measure 60] [--json DIR/idle-budget.json]
+  D6 on an xbench.py result (any host): python3 scripts/cmux-next/idle-budget.py --xbench OUT/results.json [--gate]
   On the fleet through the allowlisted entry (STRESS needs the 1920 x 1080 virtual display):
     scripts/measure/split-spring.sh --suite=idle-budget --vdisplay=120 [...]
 
 Output: one `IDLE-BUDGET-MACHINE {json}` line, one `IDLE-BUDGET-ROW {json}` line per session and process
 kind, a Markdown table, and --json with every sample.
 """
-import argparse, ctypes, json, os, platform, re, shutil, subprocess, sys, time
+import argparse, ctypes, fnmatch, json, os, platform, re, shutil, subprocess, sys, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
@@ -79,7 +84,7 @@ def threads(pid):
     libproc = procs._darwin().libproc
     ids = (ctypes.c_uint64 * 8192)()
     size = libproc.proc_pidinfo(ctypes.c_int(pid), ctypes.c_int(PROC_PIDLISTTHREADIDS), ctypes.c_uint64(0),
-                                 ctypes.byref(ids), ctypes.c_int(ctypes.sizeof(ids)))
+                                ctypes.byref(ids), ctypes.c_int(ctypes.sizeof(ids)))
     out = {}
     for index in range(max(0, size) // 8):
         info = _ThreadInfo()
@@ -93,6 +98,12 @@ def threads(pid):
 # ---------------------------------------------------------------------------------------------------------
 # Process kinds (the budget's keys)
 
+# Chromium utility processes by service (content/browser/utility_process_host.cc names them by
+# --utility-sub-type, the mojo interface the process serves).
+UTILITY_KINDS = {"network.mojom.NetworkService": "cef-network", "storage.mojom.StorageService": "cef-storage",
+                 "audio.mojom.AudioService": "cef-audio"}
+
+
 def kind(cmd):
     """The budget kind of a process of the app's set."""
     if "__holder" in cmd:
@@ -103,7 +114,12 @@ def kind(cmd):
         return "daemon"
     if re.search(r"/bin/acpmux(\s|$)", cmd):
         return "acpmux"
+    if "--type=crashpad-handler" in cmd or "chrome_crashpad_handler" in cmd:
+        return "crashpad"
     chromium = tab_pages.chromium_kind(cmd)
+    if chromium == "cef-utility":
+        service = re.search(r"--utility-sub-type=(\S+)", cmd)
+        return UTILITY_KINDS.get(service.group(1) if service else "", "cef-utility")
     if chromium:
         return chromium
     if "com.apple.WebKit." in cmd:
@@ -307,11 +323,15 @@ def ledger_rates(before, after, elapsed):
 # makes the kind's sum None: an unknown is never a 0.
 SUMMED = {"wakeups_per_s": 3, "pkg_idle_wakeups_per_s": 3, "energy_mw_cpu": 3, "energy_mw_billed": 3,
           "gpu_ms_per_s": 3, "csw_per_s": 3, "cpu_pct": 4}
+# Recorded only by some runs (task 003 records disk and log): a kind whose rows have none has no value, so
+# all_kinds judges nothing that was not measured; a kind where some rows have it and others not is None (unknown).
+SUMMED_WHEN_PRESENT = {"disk_bytes_per_s": 3, "log_lines": 0}
 
 
 def aggregate(result):
-    """Per kind: count, threads (sum and max per process), interrupt wakeups/s (sum and max per process),
-    package-idle wakeups/s, CPU and billed energy (mW), GPU ms/s, context switches/s, CPU %."""
+    """Per kind: count, threads (sum and max per process), interrupt wakeups/s (sum and max per process, and the
+    max over the processes of hidden pages), package-idle wakeups/s, CPU and billed energy (mW), GPU ms/s, context
+    switches/s, CPU %, disk and log sums when the rows have them; the roles."""
     kinds = {}
     for row in result["processes"]:
         entry = kinds.setdefault(row["kind"], {"n": 0, "threads": 0, "threads_max": 0, "wakeups_max": 0.0,
@@ -320,60 +340,267 @@ def aggregate(result):
         entry["threads"] += row["threads"]
         entry["threads_max"] = max(entry["threads_max"], row["threads"])
         entry["wakeups_max"] = max(entry["wakeups_max"], row["wakeups_per_s"])
+        if row.get("hidden"):
+            entry["hidden_wakeups_max"] = max(entry.get("hidden_wakeups_max", 0.0), row["wakeups_per_s"])
         for field, digits in SUMMED.items():
             value = row.get(field, 0.0)
             entry[field] = None if entry[field] is None or value is None else round(entry[field] + value, digits)
         entry["threads_ran"] += row["threads_ran"]
+        if row.get("role"):
+            entry["roles"] = sorted(set(entry.get("roles", [])) | {row["role"]})
+    for name, entry in kinds.items():
+        rows = [row for row in result["processes"] if row["kind"] == name]
+        for field, digits in SUMMED_WHEN_PRESENT.items():
+            values = [row.get(field) for row in rows]
+            if all(isinstance(v, (int, float)) for v in values):
+                entry[field] = round(sum(values), digits)
+            elif any(isinstance(v, (int, float)) for v in values):
+                entry[field] = None  # some processes reported it, others did not: unknown, not their sum
     if "main_wakes_per_s" in result and "app" in kinds:
         kinds["app"]["main_wakes_per_s"] = result["main_wakes_per_s"]
     return kinds
 
 
-def over_budget(session, kinds, budget):
-    """[(kind, field, value, limit)] for every value over its budget. Limits are per process for
-    `wakeups_max` and `threads_max`, and per kind for the rest."""
+def session_budget(budget, session):
+    return (budget.get("sessions") or {}).get(session) or {}
+
+
+def busy_kind(own, name):
+    """Whether kind `name` takes only the session's own values: every kind of a reference session (Chrome) or of a
+    session with `busy: true` (an agent at work), else a kind that matches one of the session's `busy` patterns
+    (STRESS's animating pages: `cef-*`)."""
+    busy = own.get("busy")
+    if own.get("reference") or busy is True:
+        return True
+    return any(fnmatch.fnmatchcase(name, pattern) for pattern in busy or [])
+
+
+def limit_for(budget, session, name, field):
+    """The limit of `field` for kind `name` in `session`: the session's own value (an explicit null there means
+    not judged), else the kind's default (one number or {session: number}), else all_kinds. A busy kind
+    (busy_kind) takes only the session's own values."""
+    own = session_budget(budget, session)
+    kind_limits = (own.get("kinds") or {}).get(name) or {}
+    if field in kind_limits:
+        return kind_limits[field]
+    if busy_kind(own, name):
+        return None
+    defaults = (budget.get("kinds") or {}).get(name) or {}
+    if field in defaults:
+        limit = defaults[field]
+        return limit.get(session) if isinstance(limit, dict) else limit
+    return (budget.get("all_kinds") or {}).get(field)
+
+
+def limited_fields(budget, session, name):
+    own = session_budget(budget, session)
+    fields = set((own.get("kinds") or {}).get(name) or {})
+    if not busy_kind(own, name):
+        fields |= set((budget.get("kinds") or {}).get(name) or {}) | set(budget.get("all_kinds") or {})
+    return sorted(f for f in fields if not f.startswith("_"))
+
+
+def selected(kinds, selector):
+    """The kinds of `selector` that ran ('tree': every kind; 'app+daemon': those of app and daemon that ran)."""
+    return list(kinds) if selector == "tree" else [n for n in selector.split("+") if n in kinds]
+
+
+def selector_value(kinds, selector, field):
+    """`field` summed over the selected kinds that ran; None when none ran, or when one of them has the field None
+    or lacks it: an unknown is never a 0, so a partial sum is not a value."""
+    values = [(kinds[n] or {}).get(field) for n in selected(kinds, selector)]
+    if not values or not all(isinstance(v, (int, float)) for v in values):
+        return None
+    return round(sum(values), 4)
+
+
+def unknown_sum(kinds, selector, field):
+    """Whether `selector` ran but its sum of `field` is unknown."""
+    return bool(selected(kinds, selector)) and selector_value(kinds, selector, field) is None
+
+
+def setting_on(value):
+    return value not in (None, False, "off", "never", 0, "")
+
+
+def over_budget(session, kinds, budget, facts=None):
+    """[(subject, field, value, limit)] for every value of one session over its budget (or a role or expected state
+    that differs). `facts`: the session's measurements outside the kinds (page_raf_per_s, saver, saver_reason,
+    `assertions` held by cmux pids, the effective `settings`). cross_overs judges the rows that compare sessions."""
+    facts = facts or {}
+    own = session_budget(budget, session)
     out = []
-    for name, limits in (budget.get("kinds") or {}).items():
-        entry = kinds.get(name)
-        if not entry:
-            continue
-        for field, limit in limits.items():
-            if field.startswith("_") or limit is None:
+    for name in sorted(kinds):
+        entry = kinds[name]
+        for field in limited_fields(budget, session, name):
+            limit = limit_for(budget, session, name, field)
+            if limit is None:
                 continue
-            if isinstance(limit, dict):
-                limit = limit.get(session)
-                if limit is None:
-                    continue
+            if field == "role":
+                roles = entry.get("roles") or []
+                if roles and roles != [limit]:
+                    out.append((name, "role", ",".join(roles), limit))
+                continue
             value = entry.get(field)
             if isinstance(value, (int, float)) and value > limit:
                 out.append((name, field, value, limit))
+    for selector, limits in (own.get("sums") or {}).items():
+        for field, limit in limits.items():
+            value = selector_value(kinds, selector, field)
+            if limit is not None and value is not None and value > limit:
+                out.append((selector, field, value, limit))
+    for field, limit in (own.get("limits") or {}).items():
+        value = facts.get(field)
+        if limit is not None and isinstance(value, (int, float)) and value > limit:
+            out.append(("session", field, value, limit))
+    for field, expected in (own.get("expect") or {}).items():
+        if field in facts and facts[field] != expected:
+            out.append(("session", field, facts[field], expected))
+    return out + assertion_overs(own, budget, facts)
+
+
+def assertion_overs(own, budget, facts):
+    """D11: in an idle session every pmset assertion held by a cmux pid is an over, unless the session itself turns
+    on one of `assertions_allowed_when` in its `settings`. Every other session runs with them off (KEEP_AWAKE_OFF;
+    their shipping default pluggedIn holds an assertion while an agent works or a phone serves), and an effective
+    value in `facts.settings` other than the session's is an over too. Busy sessions (a working agent holds
+    keep-awake) and reference sessions are not judged."""
+    if own.get("reference") or own.get("busy") is True:
+        return []
+    keys = budget.get("assertions_allowed_when") or []
+    asked, effective = own.get("settings") or {}, facts.get("settings") or {}
+    out = [("session", key, effective[key], asked.get(key, "off")) for key in keys
+           if key in effective and setting_on(effective[key]) != setting_on(asked.get(key))]
+    held = facts.get("assertions") or []
+    if held and not any(setting_on(asked.get(key)) for key in keys):
+        out.append(("assertions", "held", len(held), 0))
     return out
+
+
+def cross_overs(budget, measured):
+    """The rows that compare sessions of one run, judged once after every session is measured, so the order of
+    --sessions does not matter: each session's `relative` rows and the ratio_to_chrome rows (against
+    chrome-static). `measured`: {session: kinds}. Returns ([(session, over)], [note]); a note names each row not
+    judged because its reference session was not measured or a sum is unknown."""
+    overs, notes = [], []
+
+    def judge(session, of, field, vs, to, max_ratio, suffix):
+        kinds, reference = measured[session], measured.get(to)
+        label = f"{session} {of} {field}{suffix}"
+        if reference is None:
+            notes.append(f"{label}: not judged: reference session {to} not measured")
+            return
+        for selector, rows in ((of, kinds), (vs, reference)):
+            if unknown_sum(rows, selector, field):
+                notes.append(f"{label}: not judged: {selector} {field} unknown")
+                return
+        overs.extend((session, over) for over in ratio_over(of, field, kinds, vs, reference, max_ratio, suffix))
+
+    for session in measured:
+        for rule in session_budget(budget, session).get("relative") or []:
+            judge(session, rule["of"], rule["field"], rule["of"], rule["to"], rule["max_ratio"], f"/{rule['to']}")
+    for rule in budget.get("ratio_to_chrome") or []:
+        if rule["session"] in measured:
+            judge(rule["session"], rule["of"], rule["field"], rule["vs"], "chrome-static", rule["max_ratio"],
+                  f"/chrome:{rule['vs']}")
+    return overs, notes
+
+
+def sum_notes(session, kinds, budget):
+    """The session's sum rows not judged because a selected kind's value is unknown."""
+    return [f"{session} {selector} {field}: not judged: unknown"
+            for selector, limits in (session_budget(budget, session).get("sums") or {}).items()
+            for field, limit in limits.items() if limit is not None and unknown_sum(kinds, selector, field)]
+
+
+def xbench_overs(budget, result):
+    """D6 on an xbench.py result (results.json: rows.<row>.<browser>.median). An `xbench` row with `max_ratio`
+    compares the browser's median with `vs` (default chrome); one with `max` is absolute. Returns ([over], [note])."""
+    rows = (result or {}).get("rows") or {}
+    overs, notes = [], []
+    for rule in budget.get("xbench") or []:
+        per = rows.get(rule["row"]) or {}
+        value = (per.get(rule["browser"]) or {}).get("median")
+        label = f"xbench {rule['browser']} {rule['row']}"
+        if not isinstance(value, (int, float)):
+            notes.append(f"{label}: not judged: not measured")
+        elif "max" in rule:
+            if value > rule["max"]:
+                overs.append((rule["browser"], rule["row"], value, rule["max"]))
+        else:
+            vs = rule.get("vs", "chrome")
+            base = (per.get(vs) or {}).get("median")
+            if not isinstance(base, (int, float)) or not base:
+                notes.append(f"{label}: not judged: {vs} not measured")
+            elif round(value / base, 3) > rule["max_ratio"]:
+                overs.append((rule["browser"], f"{rule['row']}/{vs}", round(value / base, 3), rule["max_ratio"]))
+    return overs, notes
+
+
+def ratio_over(of, field, kinds, vs, reference, max_ratio, suffix):
+    """[(of, field + suffix, ratio, max)] when `of` in `kinds` over `vs` in `reference` is above `max_ratio`; a
+    reference of 0 or one that was not measured judges nothing."""
+    value, base = selector_value(kinds, of, field), selector_value(reference, vs, field)
+    if value is None or not base:
+        return []
+    ratio = round(value / base, 3)
+    return [(of, field + suffix, ratio, max_ratio)] if ratio > max_ratio else []
+
+
+def over_line(session, over):
+    name, field, value, limit = over
+    relation = ">" if isinstance(limit, (int, float)) and not isinstance(limit, bool) else "!="
+    return f"IDLE-BUDGET-OVER {session} {name} {field} {value} {relation} {limit}"
+
+
+def load_budget(path):
+    """The budget file; a v1 file (kinds only) is read as v2 with no session overrides."""
+    with open(path) as handle:
+        budget = json.load(handle)
+    budget.setdefault("version", 1)
+    for key in ("kinds", "sessions", "all_kinds"):
+        budget.setdefault(key, {})
+    for key in ("ratio_to_chrome", "xbench", "allowed_periodic", "assertions_allowed_when"):
+        budget.setdefault(key, [])
+    return budget
 
 
 # Noise floors of the cron rows: one wakeup a second, two threads (a pool thread parks or exits late).
 CRON_FLOORS = {"wakeups_per_s": 0.5, "wakeups_max": 0.5, "main_wakes_per_s": 0.5, "threads_max": 2, "threads": 2,
                "energy_mw_billed": 1.0, "gpu_ms_per_s": 1.0}
-CRON_UNITS = {"threads_max": "threads", "threads": "threads", "energy_mw_billed": "mW", "gpu_ms_per_s": "ms/s"}
+CRON_UNITS = {"threads_max": "threads", "threads": "threads", "energy_mw_billed": "mW", "energy_mw_cpu": "mW",
+              "gpu_ms_per_s": "ms/s"}
+# The sums every session reports, plus the ones its budget names.
+CRON_SUMS = ("app+daemon", "tree")
+CRON_SUM_FLOORS = {"wakeups_per_s": 0.5, "energy_mw_billed": 1.0, "energy_mw_cpu": 1.0}
 
 
 def cron_rows(report, budget=None):
     """{row: {p50, p95, unit, budget, floor}} for the perf cron (scripts/cmux-next/perf-cron.py) from one
-    idle-budget report: `idle_budget.<session>.<kind>.<field>`, one value per run (p50 = p95)."""
-    budget = budget if budget is not None else json.load(open(BUDGET_FILE))
+    idle-budget report: `idle_budget.<session>.<kind>.<field>` and the sums `idle_budget.<session>.<selector>.<field>`,
+    one value per run (p50 = p95)."""
+    budget = budget if budget is not None else load_budget(BUDGET_FILE)
     out = {}
     for session, entry in ((report or {}).get("sessions") or {}).items():
-        for name, values in (entry.get("kinds") or {}).items():
-            limits = (budget.get("kinds") or {}).get(name) or {}
+        kinds = entry.get("kinds") or {}
+        for name, values in kinds.items():
             for field, floor in CRON_FLOORS.items():
                 value = values.get(field)
                 if not isinstance(value, (int, float)):
                     continue
-                limit = limits.get(field)
-                if isinstance(limit, dict):
-                    limit = limit.get(session)
                 unit = CRON_UNITS.get(field, "/s")
                 out[f"idle_budget.{session}.{name}.{field}"] = {"p50": value, "p95": value, "unit": unit,
-                                                                 "budget": limit, "floor": floor}
+                                                                 "budget": limit_for(budget, session, name, field),
+                                                                 "floor": floor}
+        sums = session_budget(budget, session).get("sums") or {}
+        for selector in dict.fromkeys([*CRON_SUMS, *sums]):
+            for field, floor in CRON_SUM_FLOORS.items():
+                value = selector_value(kinds, selector, field)
+                if value is None:
+                    continue
+                out[f"idle_budget.{session}.{selector}.{field}"] = {
+                    "p50": value, "p95": value, "unit": CRON_UNITS.get(field, "/s"),
+                    "budget": (sums.get(selector) or {}).get(field), "floor": floor}
     return out
 
 
@@ -404,17 +631,25 @@ def build_stress(app, static=False):
     return summary
 
 
-BASE_CONFIG = {"appearance": {"backgroundOpacity": 1}}  # BenchApp's default config
+# Both keep-awake settings off (D11): their shipping default is pluggedIn, and a session that asks for keep-awake
+# names them in its budget `settings`.
+KEEP_AWAKE_OFF = {"sessions": {"keepAwake": "off"}, "phone": {"keepAwake": "off"}}
+BASE_CONFIG = {"appearance": {"backgroundOpacity": 1}, **KEEP_AWAKE_OFF}  # BenchApp's default, keep-awake off
 # The sessions: light (the launch window: one terminal, Home's pages in Chromium by default), light-webkit (the
 # same with `browser.defaultEngine: webkit`, so no Chromium runs at all), light-hidden (the app hidden: no window
-# can be seen), stress (STRESS, its busy terminals stopped).
+# can be seen), stress (STRESS, its busy terminals stopped). `config` adds to BASE_CONFIG.
 SESSIONS = {
     "light": {},
-    "light-webkit": {"config": {**BASE_CONFIG, "browser": {"defaultEngine": "webkit"}}},
+    "light-webkit": {"config": {"browser": {"defaultEngine": "webkit"}}},
     "light-hidden": {"hide": True},
     "stress": {},
     "stress-static": {},
 }
+
+
+def session_config(session):
+    """The cmux-next.json of `session`: BASE_CONFIG with the session's own keys on top."""
+    return {**BASE_CONFIG, **(SESSIONS[session].get("config") or {})}
 
 
 def fresh_session(app):
@@ -467,7 +702,9 @@ def coalition_line(coalition):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument("--app", required=True, help='a tagged "cmux DEV <tag>.app" (not running)')
+    parser.add_argument("--app", help='a tagged "cmux DEV <tag>.app" (not running)')
+    parser.add_argument("--xbench", metavar="RESULTS_JSON",
+                        help="judge an xbench.py results.json against the budget's xbench rows (D6) and exit; no --app")
     parser.add_argument("--tag", help="ignored (split-spring passes it); the tag comes from the app")
     parser.add_argument("--out", default=None)
     parser.add_argument("--json", default=None)
@@ -479,8 +716,19 @@ def main():
     parser.add_argument("--sample", type=float, default=10,
                         help="seconds of /usr/bin/sample of the app after the window, to name the threads that woke (0: none)")
     opts, _unknown = parser.parse_known_args()
+    budget = load_budget(opts.budget)
+    if opts.xbench:
+        with open(opts.xbench) as handle:
+            overs, notes = xbench_overs(budget, json.load(handle))
+        for note in notes:
+            print(f"IDLE-BUDGET-NOT-JUDGED {note}", flush=True)
+        for over in overs:
+            print(over_line("xbench", over), flush=True)
+        print(f"IDLE-BUDGET over={len(overs)} xbench={opts.xbench}", flush=True)
+        sys.exit(1 if opts.gate and overs else 0)
+    if not opts.app:
+        parser.error("--app is required (or --xbench RESULTS_JSON)")
     from bench_launch import BenchApp
-    budget = json.load(open(opts.budget))
     out = opts.out or os.path.join(os.getcwd(), "artifacts", "idle-budget")
     os.makedirs(out, exist_ok=True)
     machine = host_facts()
@@ -491,7 +739,7 @@ def main():
     for session in [s for s in opts.sessions.split(",") if s]:
         if session not in SESSIONS:
             raise SystemExit(f"idle-budget: unknown session {session} (one of {', '.join(SESSIONS)})")
-        app = BenchApp(opts.app, out=os.path.join(out, session), config=SESSIONS[session].get("config"))
+        app = BenchApp(opts.app, out=os.path.join(out, session), config=session_config(session))
         try:
             entry = {"fresh_session": fresh_session(app)}
             app.launch()
@@ -510,7 +758,8 @@ def main():
                 result["sample"] = sample_threads(app.process.pid, opts.sample, os.path.join(out, session, "sample-app.txt"))
             kinds = aggregate(result)
             overs = over_budget(session, kinds, budget)
-            entry.update({"result": result, "kinds": kinds, "over": [list(o) for o in overs]})
+            notes = sum_notes(session, kinds, budget)
+            entry.update({"result": result, "kinds": kinds, "over": [list(o) for o in overs], "not_judged": notes})
             report["sessions"][session] = entry
             for name, values in kinds.items():
                 print("IDLE-BUDGET-ROW " + json.dumps({"session": session, "kind": name, **values}), flush=True)
@@ -525,12 +774,14 @@ def main():
             for timer in result.get("main_run_loop_timers") or []:
                 if timer["interval_s"] > 0:
                     print(f"IDLE-BUDGET-MAIN-TIMER {session} every {timer['interval_s']:g} s: {timer['callout']}", flush=True)
-            for name, entry in (result.get("sample") or {}).items():
-                top = "; ".join(f"{frame} x{count}" for frame, count in entry["frames"][:6])
+            for name, sampled in (result.get("sample") or {}).items():
+                top = "; ".join(f"{frame} x{count}" for frame, count in sampled["frames"][:6])
                 if top:
                     print(f"IDLE-BUDGET-SAMPLE {session} {name}: {top}", flush=True)
-            for name, field, value, limit in overs:
-                print(f"IDLE-BUDGET-OVER {session} {name} {field} {value} > {limit}", flush=True)
+            for note in notes:
+                print(f"IDLE-BUDGET-NOT-JUDGED {note}", flush=True)
+            for over in overs:
+                print(over_line(session, over), flush=True)
             all_overs += [(session, *o) for o in overs]
             markdown.append(table(session, kinds, overs) + "\n\n" + coalition_line(result.get("coalition")))
             print(f"IDLE-BUDGET-COALITION {session} " + json.dumps(result.get("coalition")), flush=True)
@@ -545,6 +796,18 @@ def main():
                 raise
         finally:
             app.stop()
+    measured = {name: done["kinds"] for name, done in report["sessions"].items() if done.get("kinds")}
+    cross, cross_notes = cross_overs(budget, measured)
+    for note in cross_notes:
+        print(f"IDLE-BUDGET-NOT-JUDGED {note}", flush=True)
+    for session, over in cross:
+        print(over_line(session, over), flush=True)
+        report["sessions"][session]["over"].append(list(over))
+    all_overs += [(session, *over) for session, over in cross]
+    report["not_judged"] = cross_notes
+    if cross or cross_notes:
+        markdown.append("\n### across sessions\n\n" + "\n".join(
+            [f"- {over_line(session, over)}" for session, over in cross] + [f"- {note}" for note in cross_notes]))
     report["over"] = [list(o) for o in all_overs]
     report["session_exits"] = {name: entry.get("exit") for name, entry in report["sessions"].items()}
     text = f"# cmux idle budget, {machine['host']} (macOS {machine['macos']}), settle {opts.settle:g} s, window {opts.measure:g} s\n" + "\n".join(markdown)

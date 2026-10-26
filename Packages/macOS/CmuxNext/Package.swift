@@ -27,6 +27,9 @@ import PackageDescription
 //   CmuxNextSignposts -> Compat, Trace, Metrics, system frameworks (always-on os_signpost intervals, the one name catalog,
 //     CommitBoundary, the opt-in MetricKit mirror for hang reports, the typed ring trace points; Metrics for the
 //     key.frame and input.frame histograms, p09-observability tasks 054 and 111)
+//   CmuxNextLaunch -> Compat, Signposts, Wakeups, Design (launch-only types: the launch image hold, and the
+//     startup trace, temperature and saved window picture to come; the App only wires them;
+//     plans/cmux-next/chrome-parity/p08-startup.md, task 073)
 //   CmuxNextTrace -> Compat (the process's TraceRuntime: category flags, Release trace rings, crash-key page,
 //     HangWatch slots and scopes; plans/cmux-next/chrome-parity/p09-observability.md)
 //   CmuxNextMetrics -> Compat, Trace (the field-histogram catalog HistogramID and Metrics.record)
@@ -250,6 +253,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextHomeEngine",
                 "CmuxNextHostPressure",
                 "CmuxNextHibernation",
+                "CmuxNextLaunch",
                 "CmuxNextChiefPetWiring",
                 "CmuxNextHostedChief",
                 "CmuxNextDaemonService",
@@ -703,7 +707,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         .testTarget(
             name: "CmuxNextPagesTests",
-            dependencies: ["CmuxNextCompat", "CmuxNextPages", "CmuxNextPagesTestSupport", "CmuxNextSettings", "CmuxNextDesign", "CmuxNextTrace", "CmuxNextMetrics"],
+            dependencies: ["CmuxNextCompat", "CmuxNextPages", "CmuxNextPagesTestSupport", "CmuxNextSettings", "CmuxNextDesign", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextSignposts"],
             swiftSettings: uiSwiftSettings
         ),
         // Settings > Agents > Agent integrations: the coding-agent hooks the bundled CLI
@@ -816,15 +820,16 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         // Host pressure (cmuxterm-hq#2995): the shared host budget's verdict (acpmux's
         // `host_pressure`, else the same formula locally) as a level that does not flicker.
-        // The memory pressure dispatch source, plus one 15 s timer for load and swap.
+        // Memory pressure from the app's one MemoryPressureEvents (Compat, injected as a subscription),
+        // plus one 15 s timer for load and swap.
         .target(
             name: "CmuxNextHostPressure",
-            dependencies: ["CmuxNextTrace", "CmuxNextMetrics"],
+            dependencies: ["CmuxNextCompat", "CmuxNextTrace", "CmuxNextMetrics"],
             swiftSettings: daemonSwiftSettings
         ),
         .testTarget(
             name: "CmuxNextHostPressureTests",
-            dependencies: ["CmuxNextHostPressure", "CmuxNextTrace", "CmuxNextMetrics"],
+            dependencies: ["CmuxNextHostPressure", "CmuxNextCompat", "CmuxNextTrace", "CmuxNextMetrics"],
             swiftSettings: daemonSwiftSettings
         ),
         // The memory coordinator (plans/cmux-next/chrome-parity/p07-memory.md section 3.A): one per
@@ -1283,6 +1288,19 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .testTarget(
             name: "CmuxNextSignpostsTests",
             dependencies: ["CmuxNextSignposts", "CmuxNextTrace", "CmuxNextMetrics"],
+            swiftSettings: uiSwiftSettings
+        ),
+        // Launch-only types (plans/cmux-next/chrome-parity/p08-startup.md, task 073): CmuxNextApp's size
+        // cap only goes down, so new launch code goes here and the App gets only the wiring. Never
+        // depends on CmuxNextApp.
+        .target(
+            name: "CmuxNextLaunch",
+            dependencies: ["CmuxNextCompat", "CmuxNextDesign", "CmuxNextSignposts", "CmuxNextWakeups"],
+            swiftSettings: daemonSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextLaunchTests",
+            dependencies: ["CmuxNextLaunch", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport"],
             swiftSettings: uiSwiftSettings
         ),
         // Release tracing, hang watch and crash keys (plans/cmux-next/chrome-parity/p09-observability.md):
