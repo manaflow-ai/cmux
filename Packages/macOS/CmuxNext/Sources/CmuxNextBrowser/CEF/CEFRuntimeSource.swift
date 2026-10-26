@@ -31,6 +31,10 @@ public final class CEFRuntimeSource {
     /// page's frame at the new size joins it, one display frame at most (feature `chromiumHostResizeFence`,
     /// set by the App; ``ChromiumHostResizeFence``). Read when the runtime adopts the source.
     public var fencesHostResizes = false
+    /// Host mode: a page's file chooser shows cmux's picker on the page's window, and the chosen files
+    /// go to the host as paths (feature `chromiumHostFileDialogs`, set by the App; ``ChromiumHostFiles``).
+    /// Nil leaves Chromium's own panel, which in host mode opens in the host. Read when the runtime adopts the source.
+    public var hostFileDialogs: (any ChromiumFileDialogAnswering)?
 
     /// Creates a source.
     ///

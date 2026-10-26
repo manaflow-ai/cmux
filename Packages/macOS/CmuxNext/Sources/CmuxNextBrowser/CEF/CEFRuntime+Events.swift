@@ -83,6 +83,7 @@ extension CEFRuntime {
             chromeWindowCommandBlocked(command, browser: browser)
         case .beforeClose(let browser):
             widgetHost?.ownerClosed(browser)
+            hostStart?.files?.browserClosed(browser)
             browserClosed(browser)
         case .beforeUnloadDialog(let browser, let token, let isReload):
             // A page with no tab to ask in never keeps its unload waiting: it leaves.
@@ -104,9 +105,8 @@ extension CEFRuntime {
             tabsByBrowser[browser]?.host.pageViewChanged(change, browser: browser)
         case .pageDragEnter(let browser, let pathsJSON):
             if let tab = tabsByBrowser[browser], let entered = tab.pageFilesDragged { entered(CEFTab.dragPaths(pathsJSON)) }
-        case .fileDialog(_, let dialogID, _, _, _):
-            // Only after the host turned choosers on (setFileDialogs): until a handler answers, cancel, so a page never waits.
-            _ = shim?.fileDialogAnswer(dialogID, 0, nil)
+        case .fileDialog(let browser, let dialogID, let mode, let acceptTypes, let defaultPath):
+            fileDialogAsked(dialogID, browser: browser, request: ChromiumFileDialogRequest(mode: mode, acceptTypes: acceptTypes, defaultPath: defaultPath))
         case .devToolsResult(let browser, let messageID, let success, let json):
             let key = CEFDevToolsKey(browser: browser, message: messageID)
             let result: Result<String, any Error> = success ? .success(json) : .failure(BrowserTabError.javaScript(json))

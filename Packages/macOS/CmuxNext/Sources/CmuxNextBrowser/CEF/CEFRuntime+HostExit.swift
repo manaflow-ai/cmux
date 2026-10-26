@@ -65,14 +65,14 @@ extension CEFRuntime {
         tab.host.recreateShown(tab)
     }
 
-    /// Puts a runtime that has not started in host mode (``adopt(stores:signInCallbacks:waitDeadlines:hostSupervisor:hostWidgets:hostDrags:hostResizeFence:)``):
+    /// Puts a runtime that has not started in host mode (``adopt(stores:signInCallbacks:waitDeadlines:hostSupervisor:hostWidgets:hostDrags:hostResizeFence:hostFileDialogs:)``):
     /// its start attaches through `supervisor` (host widgets in cmux with `showsWidgets`, drops with `takesDrags`, page
-    /// resizes fenced with `fencesResizes`), and the host's ends reach ``hostEnded(_:)`` when the supervisor reports
-    /// them (``ChromiumHostExitReporting``).
+    /// resizes fenced with `fencesResizes`, page file choosers answered by `fileDialogs`), and the host's ends reach
+    /// ``hostEnded(_:)`` when the supervisor reports them (``ChromiumHostExitReporting``).
     func adoptHost(_ supervisor: any ChromiumHostSupervising, showsWidgets: Bool = false, takesDrags: Bool = false,
-                   fencesResizes: Bool = false) {
+                   fencesResizes: Bool = false, fileDialogs: (any ChromiumFileDialogAnswering)? = nil) {
         hostStart = CEFHostStart(supervisor: supervisor, showsWidgets: showsWidgets, takesDrags: takesDrags,
-                                 fencesResizes: fencesResizes)
+                                 fencesResizes: fencesResizes, fileDialogs: fileDialogs)
         guard let reporting = supervisor as? any ChromiumHostExitReporting else { return }
         reporting.onHostEnded = { [weak self] exit in self?.hostEnded(exit) }
     }
