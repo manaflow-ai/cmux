@@ -504,7 +504,7 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
                 tokio::spawn(async move {
                     hub.load_logs_async().await;
                     // Once every log is read: a pass reads only chats whose log is loaded.
-                    hub.retention_worker();
+                    let _worker = hub.retention_worker();
                 });
             }
             // A chat a machine's Full-access setting moved out of its policy's mode goes back:
