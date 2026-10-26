@@ -49,14 +49,20 @@ public nonisolated struct AcpmuxSocketOwner: Equatable, Sendable {
     /// and only while the connection to that very process is still open: a process that exited
     /// closed it, so its pid, even reused by the same binary, is never booted out.
     ///
-    /// `bootOut` (the launchd bootout, given the pid and whether its connection is still open) and
-    /// `exited` (whether that pid exits in time) are the real ones but in tests.
+    @concurrent static func takeOver(environment: AcpmuxEnvironment, owner: AcpmuxSocketOwner) async -> Bool {
+        await takeOver(environment: environment, owner: owner,
+                       bootOut: { pid, stillRunning in
+                           await AcpmuxStrayDaemon.bootOutLaunchdJob(runningPID: pid, stillRunning: stillRunning)
+                       },
+                       exited: { pid in await AgentPaneProcessExit(pid: pid).event(within: .seconds(15)) })
+    }
+
+    /// ``takeOver(environment:owner:)`` with its launchd bootout (`bootOut`, given the pid and
+    /// whether its connection is still open) and exit wait (`exited`) passed in, for tests.
     @concurrent static func takeOver(
         environment: AcpmuxEnvironment, owner: AcpmuxSocketOwner,
-        bootOut: @Sendable (Int32, @escaping @Sendable () -> Bool) async -> Bool = { pid, stillRunning in
-            await AcpmuxStrayDaemon.bootOutLaunchdJob(runningPID: pid, stillRunning: stillRunning)
-        },
-        exited: @Sendable (Int32) async -> Bool = { pid in await AgentPaneProcessExit(pid: pid).event(within: .seconds(15)) }
+        bootOut: @Sendable (Int32, @escaping @Sendable () -> Bool) async -> Bool,
+        exited: @Sendable (Int32) async -> Bool
     ) async -> Bool {
         guard owner.socketPath == environment.socketPath else { return false }
         guard let descriptor = try? AcpmuxServerPeer.connect(environment.socketPath) else { return false }
