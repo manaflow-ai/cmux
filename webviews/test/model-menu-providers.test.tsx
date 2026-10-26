@@ -243,6 +243,12 @@ describe("groupVariants", () => {
       "together/qwen/coder-3",
     ]);
   });
+
+  test("provider labels follow the route when names carry an owner", async () => {
+    const { providerOf } = await variants();
+    expect(providerOf({ id: "openrouter/qwen/coder-3", name: "Qwen/Coder 3" }).provider).toBe("OpenRouter");
+    expect(providerOf({ id: "together/mistral/coder-3", name: "Mistral/Coder 3" }).provider).toBe("Together");
+  });
 });
 
 const openCode = [
@@ -419,6 +425,64 @@ test("fixed-harness filtering keeps bare owners in the right grouped model", asy
   await mount("openrouter/qwen/coder-3", false, catalog);
   const rows = modelRows(menus()[0]!);
   expect(rows.map(detailOf)).toEqual(["OpenRouter", "Mistral"]);
+});
+
+test("an unavailable current provider keeps its available grouped landing row", async () => {
+  const catalog = [
+    {
+      id: "opencode",
+      name: "OpenCode",
+      models: [
+        { id: "openrouter/qwen/coder-3", name: "Coder 3", unavailable: "OpenRouter is unavailable" },
+        { id: "together/qwen/coder-3", name: "Coder 3" },
+      ],
+    },
+  ];
+  await mount("openrouter/qwen/coder-3", false, catalog);
+  const rows = modelRows(menus()[0]!);
+  expect(rows).toHaveLength(1);
+  expect(detailOf(rows[0]!)).toBe("Together");
+  expect(rows[0]!.hasAttribute("data-disabled")).toBe(false);
+});
+
+test("duplicate catalog IDs retain the available current offer", async () => {
+  const catalog = [
+    {
+      id: "opencode",
+      name: "OpenCode",
+      models: [
+        { id: "openrouter/qwen/coder-3", name: "Coder 3", unavailable: "temporarily offline" },
+        { id: "openrouter/qwen/coder-3", name: "Coder 3" },
+      ],
+    },
+  ];
+  await mount("openrouter/qwen/coder-3", false, catalog);
+  const rows = modelRows(menus()[0]!);
+  expect(rows).toHaveLength(1);
+  expect(rows[0]!.hasAttribute("data-disabled")).toBe(false);
+});
+
+test("the Starred rail groups provider offers into one model row", async () => {
+  dom.window.localStorage.setItem("cmux.model-picker.favorites", JSON.stringify(["openrouter/qwen/coder-3"]));
+  const catalog = [
+    {
+      id: "opencode",
+      name: "OpenCode",
+      models: [
+        { id: "openrouter/qwen/coder-3", name: "Coder 3" },
+        { id: "together/qwen/coder-3", name: "Coder 3" },
+      ],
+    },
+  ];
+  await mount("openrouter/qwen/coder-3", true, catalog);
+  const starred = menus()[0]!.querySelector<HTMLElement>('[aria-label="Starred"]');
+  expect(starred).toBeDefined();
+  await act(async () => starred!.click());
+  await act(async () => await new Promise((resolve) => setTimeout(resolve, 0)));
+  const rows = modelRows(menus()[0]!);
+  expect(rows).toHaveLength(1);
+  expect(nameOf(rows[0]!)).toBe("Coder 3");
+  expect(detailOf(rows[0]!)).toBe("OpenRouter");
 });
 
 // Astra on #25175: the Provider row is a row of the chat's tab, so the held list height and width
