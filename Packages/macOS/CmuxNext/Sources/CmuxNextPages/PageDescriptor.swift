@@ -48,12 +48,17 @@ public nonisolated struct PageDescriptor: Sendable, Hashable {
     /// Push, Apply and Remove, an app page's own content; those also say false explicitly, so a
     /// later default change cannot turn them on). A page that is off keeps WebKit's answer.
     public let acceptsFirstMouse: Bool
+    /// The declared ops of some of ``namespaces`` (``PageOpTable``): under a namespace with a table
+    /// the page may call only the names the table lists. A namespace with none is undeclared, and
+    /// its page shares a renderer with no other page (``PageCapability``).
+    public let opTables: [PageOpTable]
 
     public init(id: String, resource: String, processGroup: PageProcessGroup, namespaces: [String], nativeOps: Set<String> = [],
                 denied: Set<String> = [],
                 actions: Set<String> = [], commands: Set<String> = PageNativeOp.commands,
                 confirmedOps: [String: PageConfirmation.Kind] = [:], csp: PageCSP = .strict, entry: String = "index.html",
-                dynamicPrefixes: Set<String> = [], ownsSearchField: Bool = false, acceptsFirstMouse: Bool = false) {
+                dynamicPrefixes: Set<String> = [], ownsSearchField: Bool = false, acceptsFirstMouse: Bool = false,
+                opTables: [PageOpTable] = []) {
         self.id = id
         self.resource = resource
         self.processGroup = processGroup
@@ -70,12 +75,22 @@ public nonisolated struct PageDescriptor: Sendable, Hashable {
         self.dynamicPrefixes = dynamicPrefixes
         self.ownsSearchField = ownsSearchField
         self.acceptsFirstMouse = acceptsFirstMouse
+        self.opTables = opTables
     }
 
-    /// Whether the page may call `op` (or subscribe to the stream `op`).
+    /// Whether the page may call `op` (or subscribe to the stream `op`): a native op it lists, or a
+    /// name under one of its namespaces that the namespace's ``PageOpTable``, when it has one, lists.
     public func admits(_ op: String) -> Bool {
         guard !denied.contains(op) else { return false }
-        return nativeOps.contains(op) || namespaces.contains { op.hasPrefix($0) && op.count > $0.count }
+        return nativeOps.contains(op) || namespaces.contains { namespace in
+            guard op.hasPrefix(namespace), op.count > namespace.count else { return false }
+            return opTable(for: namespace).map { $0.kind(of: op) != nil } ?? true
+        }
+    }
+
+    /// The declared ops of `namespace`, or nil when it is undeclared.
+    public func opTable(for namespace: String) -> PageOpTable? {
+        opTables.first { $0.namespace == namespace }
     }
 
     /// `cmux-page://<id>`.
@@ -156,7 +171,20 @@ public extension PageDescriptor {
             "cmux.cloud.publication.create": .custom, "cmux.cloud.firewall.create": .custom,
             "cmux.cloud.billing.open": .custom, "cmux.cloud.auth.sign_in": .custom,
             "cmux.cloud.auth.sign_out": .custom, "cmux.cloud.machine.connect": .custom,
-        ])
+        ],
+        opTables: [cloudOps])
+
+    /// The Cloud page's ops (webviews/src/pages/cloud/ops.ts, `CloudOps` and `AccountOps`). Its writes
+    /// act on Cloud machines, not this Mac; a file pull writes here only after the native file panel.
+    static let cloudOps = PageOpTable(
+        namespace: "cmux.cloud.",
+        read: ["auth.status", "machine.list", "machine.watch", "snapshot.list", "plan.get", "migration.status", "fs.list",
+               "fs.stat", "fs.read", "port.list", "file.transfer.changed", "team.list"],
+        act: ["auth.sign_in", "auth.sign_out", "team.select", "machine.create", "machine.rename", "machine.start",
+              "machine.pause", "machine.resize", "machine.delete", "machine.idle_policy.set", "machine.upgrade",
+              "machine.connect", "snapshot.create", "snapshot.restore", "snapshot.delete", "billing.checkout",
+              "migration.start", "fs.write", "fs.mkdir", "fs.remove", "file.push", "file.pull", "port.forward",
+              "port.close", "browser.open"])
 
     /// The Settings page (R82: the only Settings UI). Its `cmux.settings.` ops and the native
     /// preview and sound ops share the namespace; the page may run only its own actions and the
@@ -188,7 +216,11 @@ public extension PageDescriptor {
     /// Its icons are the host's drawings (``AppsPageNativeOps/glyphPrefix``).
     static let apps = PageDescriptor(
         id: "cmux.apps", resource: "apps", processGroup: .privileged, namespaces: ["cmux.apps."], nativeOps: [PageNativeOp.actionRun],
-        actions: ["app.open"], dynamicPrefixes: [AppsPageNativeOps.glyphPrefix])
+        actions: ["app.open"], dynamicPrefixes: [AppsPageNativeOps.glyphPrefix],
+        opTables: [PageOpTable(namespace: "cmux.apps.",
+                               read: ["catalog.list", "catalog.get", "asset.get", "installed.list", "grants.get", "updates.list",
+                                      "logs", "watch"],
+                               act: ["install", "uninstall", "set", "grant.set", "grant.revoke", "hidden.set", "update"])])
 
     /// The CodeRouter page (coordinator decision: a separate page for the CodeRouter dashboard;
     /// Settings > Accounts links to it). Its ops are the CodeRouter app's `coderouter.*` family;
@@ -196,7 +228,8 @@ public extension PageDescriptor {
     /// `cmux.coderouter.accounts.connect` behind the app's native sheet, never a plain action.
     static let coderouter = PageDescriptor(
         id: "cmux.coderouter", resource: "coderouter", processGroup: .privileged, namespaces: ["cmux.coderouter."], nativeOps: [PageNativeOp.actionRun],
-        actions: ["palette.auth.signIn", "accounts.reauthenticate", "accounts.refresh"])
+        actions: ["palette.auth.signIn", "accounts.reauthenticate", "accounts.refresh"],
+        opTables: [PageOpTable(namespace: "cmux.coderouter.", read: ["status", "detect", "keys.list"], act: ["accounts.connect"])])
 
     /// The buttons at the end of each Settings section (`SettingsSchema.actions(in:)`), which the
     /// page runs through cmux.app.action.run with origin page (the actions' own rules still apply).
@@ -226,12 +259,15 @@ public extension PageDescriptor {
     ]
 
     /// The Files tree beside a chat (cx-p4rt): one folder, read only. `cmux.files.` lists it and
-    /// opens a file; the only native op copies a path.
+    /// opens a file in a file page tab (an act); the only native op copies a path.
     static let files = PageDescriptor(
-        id: "cmux.files", resource: "files", processGroup: .viewer, namespaces: ["cmux.files."], nativeOps: [PageNativeOp.clipboardWrite])
+        id: "cmux.files", resource: "files", processGroup: .solo, namespaces: ["cmux.files."], nativeOps: [PageNativeOp.clipboardWrite],
+        opTables: [PageOpTable(namespace: "cmux.files.", read: ["root", "list"], act: ["open"])])
 
     /// The History page (react-pages.md 2).
     static let history = PageDescriptor(
         id: "cmux.history", resource: "history", processGroup: .privileged, namespaces: ["cmux.history."],
-        nativeOps: [PageNativeOp.actionRun, PageNativeOp.clipboardWrite], actions: ["history.open"])
+        nativeOps: [PageNativeOp.actionRun, PageNativeOp.clipboardWrite], actions: ["history.open"],
+        opTables: [PageOpTable(namespace: "cmux.history.", read: ["entries.list", "changed"],
+                               act: ["entries.remove", "site.remove", "clear"])])
 }
