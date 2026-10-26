@@ -58,7 +58,9 @@ struct ColdCmdNRowSlotTests {
                 return restored.allSatisfy { drawn.contains($0.id) }
             }
 
-            let current = restored[1]
+            let drawnOrder = Self.rows(list.displayed)
+            let ordered = restored.sorted { (drawnOrder.firstIndex(of: $0.id) ?? Int.max) < (drawnOrder.firstIndex(of: $1.id) ?? Int.max) }
+            let current = ordered[ordered.count / 2]
             services.windows.select(current.id, in: state)
             controller.showWorkspace(requested: state.workspaceID)
             await RapidWorkspaceCreateTests.wait(within: .seconds(10)) {
