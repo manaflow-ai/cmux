@@ -685,7 +685,7 @@ class IpcMetaTests(unittest.TestCase):
             "kind": "map",
             "values": {"kind": "scalar", "name": "uint16"},
         }
-        self.assert_rejected(document, "a map has no bounded binary layout")
+        self.assert_rejected(document, "map has no bounded binary layout")
 
     def test_rejects_open_object_in_a_binary_layout(self) -> None:
         document = _framed_document()
@@ -715,7 +715,7 @@ class IpcMetaTests(unittest.TestCase):
     def test_rejects_max_bytes_on_a_non_string_field(self) -> None:
         document = _framed_document()
         document["types"]["Size"]["fields"]["cols"]["max_bytes"] = 4
-        self.assert_rejected(document, "bounds string fields only")
+        self.assert_rejected(document, "bounds string fields and arrays of strings only")
 
     def test_rejects_coalesce_key_naming_an_unknown_field(self) -> None:
         document = _framed_document()
@@ -764,6 +764,176 @@ class IpcMetaTests(unittest.TestCase):
         document = _framed_document()
         document["families"]["core"]["ordinal_base"] = 0
         self.assert_rejected(document, "$.families.core.ordinal_base: unknown key")
+
+    def test_rejects_max_bytes_on_an_array_of_numbers(self) -> None:
+        document = _framed_document()
+        document["types"]["Size"]["fields"]["cols"] = {
+            "type": {
+                "kind": "array",
+                "items": {"kind": "scalar", "name": "uint16"},
+                "max_items": 4,
+            },
+            "presence": "required",
+            "nullable": False,
+            "max_bytes": 4,
+        }
+        self.assert_rejected(document, "bounds string fields and arrays of strings only")
+
+    def test_accepts_a_bounded_array_of_string_ids_in_a_binary_layout(self) -> None:
+        ir = load_ir_document(_with_name_list(_framed_document(), max_bytes=32))
+        names = ir.command("resize-view")["request"]["fields"]["names"]
+        self.assertEqual(names["max_bytes"], 32)
+
+    def test_rejects_an_array_of_string_ids_without_an_item_bound(self) -> None:
+        document = _with_name_list(_framed_document(), max_bytes=None)
+        self.assert_rejected(
+            document,
+            "$.commands.resize-view.request.fields.names.items: "
+            "a binary string field needs max_bytes",
+        )
+
+    def test_rejects_recursive_type_in_a_binary_layout(self) -> None:
+        document = _framed_document()
+        document["types"]["Node"] = {
+            "kind": "object",
+            "fields": {
+                "next": {
+                    "type": {"kind": "ref", "name": "Node"},
+                    "presence": "optional",
+                    "nullable": True,
+                }
+            },
+            "additional_properties": False,
+        }
+        document["commands"]["resize-view"]["result"] = {"kind": "ref", "name": "Node"}
+        self.assert_rejected(document, "recursive type 'Node' has no bounded binary layout")
+
+    def test_rejects_opaque_json_in_a_binary_layout(self) -> None:
+        document = _framed_document()
+        document["commands"]["resize-view"]["result"] = {
+            "kind": "opaque_json",
+            "reason": "free-form",
+        }
+        self.assert_rejected(document, "opaque_json has no bounded binary layout")
+
+    def test_rejects_untagged_union_in_a_binary_layout(self) -> None:
+        document = _framed_document()
+        document["commands"]["resize-view"]["result"] = {
+            "kind": "untagged_union",
+            "variants": [
+                {"kind": "scalar", "name": "uint16"},
+                {"kind": "scalar", "name": "boolean"},
+            ],
+        }
+        self.assert_rejected(document, "untagged_union has no bounded binary layout")
+
+    def test_rejects_coalesce_field_that_is_key_and_additive(self) -> None:
+        document = _framed_document()
+        document["commands"]["resize-view"]["coalesce"] = {
+            "key": ["view", "delta"],
+            "additive": ["delta"],
+        }
+        self.assert_rejected(document, "'delta' is also a key field")
+
+    def test_rejects_unknown_coalesce_key(self) -> None:
+        document = _framed_document()
+        document["commands"]["resize-view"]["coalesce"]["merge"] = ["delta"]
+        self.assert_rejected(document, "coalesce.merge: unknown key")
+
+    def test_rejects_family_name_that_is_not_kebab_case(self) -> None:
+        document = _framed_document()
+        document["families"]["Core_IO"] = {"id": 0x03, "description": "Bad name."}
+        self.assert_rejected(document, "family name must be kebab-case")
+
+    def test_rejects_family_without_a_description(self) -> None:
+        document = _framed_document()
+        del document["families"]["core"]["description"]
+        self.assert_rejected(document, "families.core.description: must be a non-empty string")
+
+    def test_rejects_duplicate_clients(self) -> None:
+        document = _framed_document()
+        document["commands"]["list-workspaces"]["clients"] = ["macos", "macos"]
+        self.assert_rejected(document, "clients: must contain unique values")
+
+    def test_rejects_independent_ordering_without_durability(self) -> None:
+        document = _framed_document()
+        del document["commands"]["list-workspaces"]["durability"]
+        self.assert_rejected(document, "independent ordering needs durability 'read_only'")
+
+    def test_rejects_null_default_on_a_non_nullable_field(self) -> None:
+        document = _framed_document()
+        fields = document["commands"]["resize-view"]["request"]["fields"]
+        fields["delta"]["default"] = None
+        self.assert_rejected(document, "delta.default: does not match the field type")
+
+    def test_accepts_null_default_on_a_nullable_field(self) -> None:
+        document = _framed_document()
+        delta = document["commands"]["resize-view"]["request"]["fields"]["delta"]
+        delta.update({"nullable": True, "default": None})
+        load_ir_document(document)
+
+    def test_malformed_types_are_issues_not_crashes(self) -> None:
+        """Bad input reaches the IPC rules before validate_type reports it."""
+
+        def broken_field(field_type: object, default: object) -> dict:
+            return {
+                "type": field_type,
+                "presence": "optional",
+                "nullable": False,
+                "default": default,
+            }
+
+        cases = {
+            "ref name is a list": broken_field({"kind": "ref", "name": ["Id"]}, 0),
+            "kind is a list": broken_field({"kind": ["scalar"], "name": "uint16"}, 0),
+            "enum values is not an array": broken_field({"kind": "ref", "name": "Mode"}, "a"),
+            "union variants is not an array": broken_field(
+                {"kind": "untagged_union", "variants": 5}, 0
+            ),
+        }
+        for label, field in cases.items():
+            for name, build in (("plain", schema_document), ("framed", _framed_document)):
+                with self.subTest(case=label, document=name):
+                    document = build()
+                    document["types"]["Mode"] = {"kind": "enum", "values": 5}
+                    document["types"]["Broken"] = {
+                        "kind": "object",
+                        "fields": {"value": field},
+                        "additional_properties": False,
+                    }
+                    with self.assertRaises(ValidationError):
+                        load_ir_document(document)
+
+    def test_malformed_ref_in_a_binary_layout_is_an_issue(self) -> None:
+        document = _framed_document()
+        fields = document["commands"]["resize-view"]["request"]["fields"]
+        fields["size"]["type"] = {"kind": "ref", "name": ["Size"]}
+        with self.assertRaises(ValidationError):
+            load_ir_document(document)
+
+    def test_malformed_coalesce_field_is_an_issue(self) -> None:
+        document = _framed_document()
+        document["commands"]["resize-view"]["request"]["fields"]["delta"] = "oops"
+        with self.assertRaises(ValidationError):
+            load_ir_document(document)
+
+
+def _with_name_list(document: dict, *, max_bytes: int | None) -> dict:
+    """Give resize-view a binary ``names`` member: an array of a string alias."""
+
+    document["types"]["Name"] = {
+        "kind": "alias",
+        "target": {"kind": "scalar", "name": "string"},
+    }
+    names: dict = {
+        "type": {"kind": "array", "items": {"kind": "ref", "name": "Name"}, "max_items": 4},
+        "presence": "optional",
+        "nullable": False,
+    }
+    if max_bytes is not None:
+        names["max_bytes"] = max_bytes
+    document["commands"]["resize-view"]["request"]["fields"]["names"] = names
+    return document
 
 
 if __name__ == "__main__":

@@ -93,6 +93,13 @@ def _is_int(value: Any) -> bool:
     return isinstance(value, int) and not isinstance(value, bool)
 
 
+def _text(node: JsonObject, key: str) -> str | None:
+    """Return ``node[key]`` when it is a string; malformed values are reported elsewhere."""
+
+    value = node.get(key)
+    return value if isinstance(value, str) else None
+
+
 class IpcMetaValidator:
     """Checks the IPC attributes of one decoded sdk-schema document."""
 
@@ -113,30 +120,37 @@ class IpcMetaValidator:
         for _ in range(_RESOLVE_DEPTH):
             if not isinstance(expression, Mapping):
                 return None
-            kind = expression.get("kind")
+            kind = _text(expression, "kind")
             if kind == "ref":
-                expression = self.types.get(expression.get("name"))
+                name = _text(expression, "name")
+                if name is None:
+                    return None
+                expression = self.types.get(name)
             elif kind == "alias":
                 expression = expression.get("target")
             else:
                 return expression
         return None
 
+    def _scalar_name(self, expression: Any) -> str | None:
+        resolved = self.resolve(expression)
+        if resolved is None or resolved.get("kind") != "scalar":
+            return None
+        return _text(resolved, "name")
+
     def _is_string(self, expression: Any) -> bool:
+        return self._scalar_name(expression) == "string"
+
+    def _is_string_array(self, expression: Any) -> bool:
         resolved = self.resolve(expression)
         return (
             resolved is not None
-            and resolved.get("kind") == "scalar"
-            and resolved.get("name") == "string"
+            and resolved.get("kind") == "array"
+            and self._is_string(resolved.get("items"))
         )
 
     def _is_numeric(self, expression: Any) -> bool:
-        resolved = self.resolve(expression)
-        return (
-            resolved is not None
-            and resolved.get("kind") == "scalar"
-            and resolved.get("name") in _NUMERIC_SCALARS
-        )
+        return self._scalar_name(expression) in _NUMERIC_SCALARS
 
     # Families --------------------------------------------------------------
 
@@ -272,7 +286,7 @@ class IpcMetaValidator:
                 f"targets a stream through {', '.join(targets)}: set stream_scoped "
                 "or crosses_stream_ok with a reason",
             )
-        if node.get("urgent") is True and node.get("priority") in {"bulk", "background"}:
+        if node.get("urgent") is True and node.get("priority") in ("bulk", "background"):
             self.issue(f"{path}.urgent", "urgent needs priority input or control")
         if node.get("spawns_terminal") is True and node.get("durability") == "read_only":
             self.issue(f"{path}.durability", "a terminal-spawning command is not read_only")
@@ -346,7 +360,10 @@ class IpcMetaValidator:
         for index, field in enumerate(names["additive"]):
             if field in names["key"]:
                 self.issue(f"{path}.additive[{index}]", f"{field!r} is also a key field")
-            elif field in fields and not self._is_numeric(fields[field].get("type")):
+            elif isinstance(fields.get(field), Mapping) and not self._is_numeric(
+                fields[field].get("type")
+            ):
+                # A field that is not an object is reported by validate_field.
                 self.issue(f"{path}.additive[{index}]", f"{field!r} is not numeric")
 
     # Fields ----------------------------------------------------------------
@@ -358,22 +375,27 @@ class IpcMetaValidator:
             elif field["omit_nil"] and field.get("presence") == "required":
                 self.issue(f"{path}.omit_nil", "a required field cannot be omitted")
         if "max_bytes" in field:
+            # On an array of strings the bound applies to each item.
             self._max_bytes(field["max_bytes"], f"{path}.max_bytes")
-            if not self._is_string(field.get("type")):
-                self.issue(f"{path}.max_bytes", "bounds string fields only")
+            field_type = field.get("type")
+            if not self._is_string(field_type) and not self._is_string_array(field_type):
+                self.issue(f"{path}.max_bytes", "bounds string fields and arrays of strings only")
         if "default" in field:
-            if field["default"] is not None and not self.conforms(
-                field["default"], field.get("type"), _RESOLVE_DEPTH
-            ):
+            default = field["default"]
+            if default is None:
+                matches = field.get("nullable") is True
+            else:
+                matches = self.conforms(default, field.get("type"), _RESOLVE_DEPTH)
+            if not matches:
                 self.issue(f"{path}.default", "does not match the field type")
 
     def conforms(self, value: Any, expression: Any, depth: int) -> bool:
         resolved = self.resolve(expression)
         if resolved is None or depth == 0:
             return True  # Unknown references are reported elsewhere.
-        kind = resolved.get("kind")
+        kind = _text(resolved, "kind")
         if kind == "scalar":
-            name = resolved.get("name")
+            name = _text(resolved, "name")
             if name == "string":
                 return isinstance(value, str)
             if name == "boolean":
@@ -385,10 +407,10 @@ class IpcMetaValidator:
         if kind == "literal":
             return value == resolved.get("value") and type(value) is type(resolved.get("value"))
         if kind == "enum":
-            return any(
-                value == option and type(value) is type(option)
-                for option in resolved.get("values", ())
-            )
+            options = resolved.get("values")
+            if not isinstance(options, list):
+                return True  # A malformed enum is reported by validate_type.
+            return any(value == option and type(value) is type(option) for option in options)
         if kind == "array":
             return isinstance(value, list) and all(
                 self.conforms(item, resolved.get("items"), depth - 1) for item in value
@@ -398,13 +420,13 @@ class IpcMetaValidator:
                 self.conforms(item, resolved.get("values"), depth - 1)
                 for item in value.values()
             )
-        if kind in {"object", "tagged_union"}:
+        if kind in ("object", "tagged_union"):
             return isinstance(value, Mapping)
         if kind == "untagged_union":
-            return any(
-                self.conforms(value, variant, depth - 1)
-                for variant in resolved.get("variants", ())
-            )
+            variants = resolved.get("variants")
+            if not isinstance(variants, list):
+                return True  # A malformed union is reported by validate_type.
+            return any(self.conforms(value, variant, depth - 1) for variant in variants)
         return True  # opaque_json
 
     # Binary layouts --------------------------------------------------------
@@ -419,11 +441,13 @@ class IpcMetaValidator:
     ) -> None:
         """Require every length-prefixed part of a binary layout to be bounded."""
 
-        while isinstance(expression, Mapping) and expression.get("kind") in {"ref", "alias"}:
+        while isinstance(expression, Mapping) and _text(expression, "kind") in ("ref", "alias"):
             if expression["kind"] == "alias":
                 expression = expression.get("target")
                 continue
-            name = expression.get("name")
+            name = _text(expression, "name")
+            if name is None:
+                return  # A malformed ref is reported by validate_type.
             if name in seen:
                 self.issue(path, f"recursive type {name!r} has no bounded binary layout")
                 return
@@ -431,7 +455,7 @@ class IpcMetaValidator:
             expression = self.types.get(name)
         if not isinstance(expression, Mapping):
             return  # Unknown references are reported elsewhere.
-        kind = expression.get("kind")
+        kind = _text(expression, "kind")
         if kind == "scalar":
             if expression.get("name") == "string" and bound is None:
                 self.issue(path, "a binary string field needs max_bytes")
@@ -451,10 +475,11 @@ class IpcMetaValidator:
         elif kind == "array":
             if "max_items" not in expression:
                 self.issue(path, "a binary array needs max_items")
-            self.binary_layout(expression.get("items"), f"{path}.items", seen=seen)
+            # A field max_bytes on an array of strings bounds each item.
+            self.binary_layout(expression.get("items"), f"{path}.items", bound=bound, seen=seen)
         elif kind == "tagged_union":
             variants = expression.get("variants")
             for variant in sorted(variants if isinstance(variants, Mapping) else {}):
                 self.binary_layout(variants[variant], f"{path}.variants.{variant}", seen=seen)
-        elif kind in {"map", "opaque_json", "untagged_union"}:
-            self.issue(path, f"a {kind} has no bounded binary layout")
+        elif kind in ("map", "opaque_json", "untagged_union"):
+            self.issue(path, f"{kind} has no bounded binary layout")
