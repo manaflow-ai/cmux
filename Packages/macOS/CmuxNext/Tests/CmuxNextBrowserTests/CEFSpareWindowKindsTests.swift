@@ -56,7 +56,7 @@ import Testing
         #expect(spares.prepare(.pages, runtime: runtime))
         try Self.comeUp(runtime, browser: 10)
         #expect(spares.state(of: .pages) == .live)
-        #expect(!runtime.hosts.values.contains(where: \.isCreatingWindow), "no window is being built")
+        #expect(!runtime.hosts.values.contains { $0.isCreatingWindow }, "no window is being built")
 
         #expect(!spares.prepare(.pages, runtime: runtime), "a second untaken pages spare")
         #expect(SpareSpyShim.createWindowCalls == 1)
