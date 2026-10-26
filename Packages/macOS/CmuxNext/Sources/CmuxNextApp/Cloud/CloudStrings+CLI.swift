@@ -45,10 +45,10 @@ extension CloudStrings {
                table: "Cloud", bundle: .module)
     }
 
-    /// `cloud new-machine --size` or `--persistent` on a Cloud backend whose create takes neither yet.
+    /// `cloud new-machine` with any option on a Cloud backend whose create takes none yet.
     static var machineOptionsUnavailable: String {
         String(localized: "cloud.cli.machineOptionsUnavailable",
-               defaultValue: "This Cloud backend can't set a new machine's size or idle pause yet. Create it without them, then use cloud resize-machine and cloud set-idle-pause.",
+               defaultValue: "This Cloud backend can't create a machine with a size, idle pause, name or bootstrap yet. Create it without them, then use cloud resize-machine, cloud set-idle-pause and cloud rename-machine.",
                table: "Cloud", bundle: .module)
     }
 

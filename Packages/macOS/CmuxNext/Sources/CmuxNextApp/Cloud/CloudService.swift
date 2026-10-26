@@ -440,7 +440,9 @@ final class CloudService {
         if let reason = unavailableReason { throw ActionFailure(message: reason) }
         guard auth.isSignedIn else { throw ActionFailure(message: CloudStrings.signInFirst) }
         let name = name ?? request.name
-        if configuration.linkSource == .appServer, request.size != nil || request.persistent {
+        // The app server's create takes none of them yet, and its machines have no `/api/vm` file
+        // or exec route for a bootstrap: refuse rather than make a machine without what was asked.
+        if configuration.linkSource == .appServer, !request.isDefault {
             throw ActionFailure(message: CloudStrings.machineOptionsUnavailable)
         }
         creating += 1

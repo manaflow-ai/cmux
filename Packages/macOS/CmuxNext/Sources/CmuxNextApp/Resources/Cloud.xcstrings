@@ -15654,15 +15654,15 @@
       "comment": "cmux cloud new-machine --size or --persistent on a backend that can't take them. Keep the command names as written.",
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "This Cloud backend can't set a new machine's size or idle pause yet. Create it without them, then use cloud resize-machine and cloud set-idle-pause."}},
-        "ja": {"stringUnit": {"state": "translated", "value": "この Cloud バックエンドでは、新しいマシンのサイズやアイドル時の一時停止をまだ設定できません。これらを指定せずに作成してから、cloud resize-machine と cloud set-idle-pause を使用してください。"}},
-        "de": {"stringUnit": {"state": "needs_review", "value": "Dieses Cloud-Backend kann Größe und Pause bei Inaktivität einer neuen Maschine noch nicht festlegen. Erstelle sie ohne diese Angaben und verwende dann cloud resize-machine und cloud set-idle-pause."}},
-        "fr": {"stringUnit": {"state": "needs_review", "value": "Ce backend Cloud ne peut pas encore définir la taille ni la pause en cas d’inactivité d’une nouvelle machine. Créez-la sans, puis utilisez cloud resize-machine et cloud set-idle-pause."}},
-        "es": {"stringUnit": {"state": "needs_review", "value": "Este backend de Cloud aún no puede fijar el tamaño ni la pausa por inactividad de una máquina nueva. Créala sin ellos y luego usa cloud resize-machine y cloud set-idle-pause."}},
-        "ar": {"stringUnit": {"state": "needs_review", "value": "لا تستطيع خلفية Cloud هذه بعدُ ضبط حجم جهاز جديد أو إيقافه المؤقت عند الخمول. أنشئه بدونهما، ثم استخدم cloud resize-machine وcloud set-idle-pause."}},
-        "ko": {"stringUnit": {"state": "needs_review", "value": "이 Cloud 백엔드는 아직 새 머신의 크기나 유휴 시 일시 정지를 설정할 수 없습니다. 이 옵션 없이 만든 다음 cloud resize-machine과 cloud set-idle-pause를 사용하세요."}},
-        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "此 Cloud 后端暂时无法设置新机器的大小或空闲暂停。请先不带这些选项创建，再使用 cloud resize-machine 和 cloud set-idle-pause。"}},
-        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "此 Cloud 後端暫時無法設定新機器的大小或閒置暫停。請先不帶這些選項建立，再使用 cloud resize-machine 和 cloud set-idle-pause。"}}
+        "en": {"stringUnit": {"state": "translated", "value": "This Cloud backend can't create a machine with a size, idle pause, name or bootstrap yet. Create it without them, then use cloud resize-machine, cloud set-idle-pause and cloud rename-machine."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "この Cloud バックエンドでは、サイズ、アイドル時の一時停止、名前、ブートストラップを指定したマシンをまだ作成できません。これらを指定せずに作成してから、cloud resize-machine、cloud set-idle-pause、cloud rename-machine を使用してください。"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Dieses Cloud-Backend kann noch keine Maschine mit Größe, Pause bei Inaktivität, Namen oder Bootstrap erstellen. Erstelle sie ohne diese Angaben und verwende dann cloud resize-machine, cloud set-idle-pause und cloud rename-machine."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Ce backend Cloud ne peut pas encore créer de machine avec une taille, une pause en cas d’inactivité, un nom ou un bootstrap. Créez-la sans, puis utilisez cloud resize-machine, cloud set-idle-pause et cloud rename-machine."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Este backend de Cloud aún no puede crear una máquina con tamaño, pausa por inactividad, nombre o bootstrap. Créala sin ellos y luego usa cloud resize-machine, cloud set-idle-pause y cloud rename-machine."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "لا تستطيع خلفية Cloud هذه بعدُ إنشاء جهاز بحجم أو إيقاف مؤقت عند الخمول أو اسم أو تمهيد. أنشئه بدونها، ثم استخدم cloud resize-machine وcloud set-idle-pause وcloud rename-machine."}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "이 Cloud 백엔드는 아직 크기, 유휴 시 일시 정지, 이름, 부트스트랩을 지정해 머신을 만들 수 없습니다. 이 옵션 없이 만든 다음 cloud resize-machine, cloud set-idle-pause, cloud rename-machine을 사용하세요."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "此 Cloud 后端暂时无法创建带有大小、空闲暂停、名称或引导的机器。请先不带这些选项创建，再使用 cloud resize-machine、cloud set-idle-pause 和 cloud rename-machine。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "此 Cloud 後端暫時無法建立帶有大小、閒置暫停、名稱或引導的機器。請先不帶這些選項建立，再使用 cloud resize-machine、cloud set-idle-pause 和 cloud rename-machine。"}}
       }
     },
     "cloud.cli.machineNameInvalid": {
