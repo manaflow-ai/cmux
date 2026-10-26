@@ -2,7 +2,7 @@ import { sandboxHourUsd, SANDBOX_LIST_USD } from "../billing/chiefPricing";
 import { findVmImageManifestEntry } from "../vms/images/resolver";
 import type { ProviderId } from "../vms/drivers";
 import type { RunSnapshotRow } from "./view";
-import type { RunStatus, SandboxRunOutcome, SandboxRunReceipt } from "./model";
+import { isArtifactDigest, type RunStatus, type SandboxRunOutcome, type SandboxRunReceipt } from "./model";
 
 /** Characters of terminal output a receipt keeps; the full output stays in the Run journal. */
 export const SANDBOX_REPLY_MAX_CHARS = 4_000;
@@ -44,8 +44,10 @@ const TOKEN_SHAPES = [
   // Credentials in query strings and connection strings: Azure SAS `sig=`, `AccountKey=`,
   // `SharedAccessKey=`, `SharedAccessSignature=`, and npm's `_auth=`.
   /(\b(?:sig|AccountKey|SharedAccessKey|SharedAccessSignature|_auth)=)[^&\s;"',]+/gi,
-  // npm's `_auth = …` / `"_auth": "…"` in any spacing or quoting (the key exactly: `my_author` is not one).
-  /((?<![A-Za-z0-9_])_auth["']?\s*[:=]\s*)(?:"(?:[^"\\]|\\.)*(?:"|$)|'(?:[^'\\]|\\.)*(?:'|$)|[^\s"',;}]{2,})/gi,
+  // npm's `_auth`, Azure SAS `sig`, and the signature and credential parameters of signed cloud URLs
+  // (`X-Amz-Signature`, `X-Goog-Signature`, …), in any spacing, quoting or JSON; the key exactly
+  // (`my_author` and `signal` are not one).
+  /((?<![A-Za-z0-9_-])(?:_auth|sig|x-(?:amz|goog)-(?:signature|credential|security-token))["']?\s*[:=]\s*)(?:"(?:[^"\\]|\\.)*(?:"|$)|'(?:[^'\\]|\\.)*(?:'|$)|[^\s"',;}]{2,})/gi,
   // `PASSWORD="…"`, `api_key: …`, `"clientSecret": "…"`, `MY_TOKEN=…`: a secret-named key, then its
   // value; a quoted value the output cut off before its closing quote runs to the end.
   /(\b[A-Za-z0-9_]*(?:token|password|passwd|pwd|secret|api[_-]?key|apikey|access[_-]?key|account[_-]?key|private[_-]?key|authorization|credential|shared[_-]?access[_-]?signature)[A-Za-z0-9_]*["']?\s*[:=]\s*)(?:"(?:[^"\\]|\\.)*(?:"|$)|'(?:[^'\\]|\\.)*(?:'|$)|[^\s"',;}]{2,})/gi,
@@ -132,7 +134,7 @@ export function sandboxReceiptFor(snapshot: RunSnapshotRow, provider: ProviderId
       // A bare `type/subtype`; parameters (`; token=…`) or anything else is not shown.
       mediaType: safeMediaType(artifact.mediaType, handles),
       sizeBytes: artifact.sizeBytes,
-      digest: artifact.digest,
+      digest: servedDigest(artifact.digest),
     })),
     ...receiptTimingsAndCost(snapshot, outcome, provider, run.imageId),
     cleanup: sandboxCleanupPending(snapshot) ? "pending" : "destroyed",
@@ -144,7 +146,7 @@ function sandboxCleanupPending(snapshot: RunSnapshotRow): boolean {
 }
 
 /** Keys whose value is a secret whatever it looks like. */
-const SECRET_KEY = /(?:token|password|passwd|pwd|secret|api[_-]?key|apikey|access[_-]?key|account[_-]?key|private[_-]?key|authorization|credential|cookie|session|shared[_-]?access|^_auth$|^sig$)/i;
+const SECRET_KEY = /(?:token|password|passwd|pwd|secret|api[_-]?key|apikey|access[_-]?key|account[_-]?key|private[_-]?key|authorization|credential|cookie|session|shared[_-]?access|signature|^_auth$|^sig$|^x-(?:amz|goog)-(?:credential|security-token)$)/i;
 
 /**
  * Every string inside `value` (any depth) redacted like the receipt: keys too, and the whole value
@@ -166,11 +168,23 @@ export function redactReceiptValue(value: unknown, handles: readonly (string | n
  * A sandboxed Run's artifact as the snapshot serves it: name, media type, URI and every string in
  * its metadata redacted like the receipt (with the attempt's handles while it still has them).
  */
-export function sandboxArtifactView<T extends { readonly name: string; readonly mediaType: string; readonly uri: string; readonly metadata: Record<string, unknown> }>(view: T, snapshot: RunSnapshotRow): T {
+/** A digest as served: a `sha256:` digest, or a placeholder for anything else a worker wrote. */
+function servedDigest(digest: string): string {
+  return isArtifactDigest(digest) ? digest : "[redacted]";
+}
+
+/** A sandboxed Run's run or attempt error as served: redacted like its receipt. */
+export function sandboxErrorView(error: string | null, snapshot: RunSnapshotRow): string | null {
+  const attempt = snapshot.attempts[0];
+  return error === null ? null : redactReceiptText(error, [attempt?.providerVmId, attempt?.providerWorkspaceId, attempt?.providerTerminalId]);
+}
+
+export function sandboxArtifactView<T extends { readonly name: string; readonly mediaType: string; readonly digest: string; readonly uri: string; readonly metadata: Record<string, unknown> }>(view: T, snapshot: RunSnapshotRow): T {
   const attempt = snapshot.attempts[0];
   const handles = [attempt?.providerVmId, attempt?.providerWorkspaceId, attempt?.providerTerminalId];
   return {
     ...view,
+    digest: servedDigest(view.digest),
     name: redactReceiptText(view.name, handles),
     mediaType: safeMediaType(view.mediaType, handles),
     uri: redactReceiptText(view.uri, handles),

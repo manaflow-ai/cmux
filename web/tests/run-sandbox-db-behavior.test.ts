@@ -516,6 +516,34 @@ describe("sandboxed Run lifecycle in the repository", () => {
     }
   });
 
+  dbTest("VM time runs until a strict destroy confirms the VM gone; a sandbox refuses a non-digest; cleanup scrubs the run's error", async () => {
+    const userId = `sandbox-${randomUUID()}`;
+    try {
+      const target = await startedAttempt(userId);
+      const vmId = `vm-${target.attemptId}`;
+      await insertSandboxVm(userId, `sandbox-run:${target.runId}:attempt:${target.attemptId}`, vmId);
+      // Reconciled to destroyed (with a destroyed_at) but never confirmed: still counting.
+      await sql!`update cloud_vms set status = 'destroyed', destroyed_at = now() where provider_vm_id = ${vmId}`;
+      expect((await repo().getRun(target.runId, userId)).sandboxVms?.[0]?.destroyedAt).toBeNull();
+      await repo().confirmSandboxVmDestroyed(vmId);
+      expect((await repo().getRun(target.runId, userId)).sandboxVms?.[0]?.destroyedAt).toBeInstanceOf(Date);
+
+      await expect(repo().recordRunArtifact({
+        runId: target.runId, attemptId: target.attemptId, ...target.lease, name: "out.txt", sizeBytes: 1, digest: vmId, uri: "artifact://x",
+      })).rejects.toThrow("artifact digest is invalid");
+
+      await sql!`update runs set error = ${`failed on ${vmId}`} where id = ${target.runId}`;
+      await finishAttempt(target, "attempt.failed");
+      const claims = await repo().claimExpiredAttemptCleanups({ runId: target.runId });
+      await repo().finishAttemptCleanup({ attemptId: target.attemptId, cleanupLeaseToken: claims[0]!.cleanupLeaseToken, succeeded: true });
+      const [run] = await sql!`select error from runs where id = ${target.runId}`;
+      expect(run?.error).toBe("failed on [redacted]");
+    } finally {
+      await sql!`delete from cloud_vms where user_id = ${userId}`;
+      await removeRuns(userId);
+    }
+  });
+
   dbTest("a sandbox key allocates one machine, ever: a destroyed or failed row is returned, never replaced", async () => {
     const userId = `sandbox-${randomUUID()}`;
     try {

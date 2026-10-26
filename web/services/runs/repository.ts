@@ -10,6 +10,7 @@ import {
   MAX_EVENT_PAYLOAD_BYTES,
   TERMINAL_CLEANUP_LEASE_MS,
   assertArtifactDigest,
+  isArtifactDigest,
   jsonByteLength,
   SANDBOX_ABANDONED_GRACE_MS,
   SANDBOX_HANDOFF_GRACE_MS,
@@ -175,13 +176,18 @@ async function readSnapshot(db: RunQueryDb, runId: string, userId: string): Prom
     sql`${cloudVms.providerMetadata}->>${SANDBOX_VM_MARKER_KEY} = ${cloudVms.idempotencyKey}`,
   )).limit(keys.length * 4);
   // A create that failed before the provider made a machine never ran: no VM time, nothing to clean.
-  const sandboxVms = rows.filter((row) => !(row.status === "failed" && !row.providerVmId)).map((row) => ({
-    createdAt: row.createdAt,
-    destroyedAt: row.destroyedAt ?? (row.status === "destroyed" ? row.createdAt : null),
+  const sandboxVms = rows.filter((row) => !(row.status === "failed" && !row.providerVmId)).map((row) => {
+    const confirmedAt = row.destroyConfirmed ? new Date(row.destroyConfirmed) : null;
+    const confirmed = !!confirmedAt && !Number.isNaN(confirmedAt.getTime());
     // A destroyed status alone is not proof: a machine the provider made is gone once a strict
-    // destroy confirmed it.
-    live: row.status !== "destroyed" || (!!row.providerVmId && !row.destroyConfirmed),
-  }));
+    // destroy confirmed it, and its VM time runs until then (to now while unconfirmed).
+    const live = row.status !== "destroyed" || (!!row.providerVmId && !confirmed);
+    return {
+      createdAt: row.createdAt,
+      destroyedAt: live ? null : (confirmed && row.providerVmId ? confirmedAt : row.destroyedAt ?? row.createdAt),
+      live,
+    };
+  });
   return { run, attempts, artifacts, sandboxVmLive: sandboxVms.some((vm) => vm.live), sandboxVms };
 }
 
@@ -902,10 +908,12 @@ export async function claimExpiredAttemptCleanups(input: { readonly limit?: numb
  * The name an artifact's event shows: as given for a persistent Run; for a sandboxed Run, redacted
  * like its receipt (token shapes and the attempt's own handles), since events are served as stored.
  */
-async function artifactEventName(tx: RunQueryDb, input: { readonly runId: string; readonly attemptId: string; readonly name: string }): Promise<string> {
+async function artifactEventName(tx: RunQueryDb, input: { readonly runId: string; readonly attemptId: string; readonly name: string; readonly digest: string }): Promise<string> {
   const row = (await tx.select({ environment: runs.environment, attempt: { providerVmId: runAttempts.providerVmId, providerWorkspaceId: runAttempts.providerWorkspaceId, providerTerminalId: runAttempts.providerTerminalId } })
     .from(runAttempts).innerJoin(runs, eq(runs.id, runAttempts.runId)).where(eq(runAttempts.id, input.attemptId)).limit(1))[0];
   if (row?.environment !== "sandboxed") return input.name;
+  // A sandbox's receipt serves the digest as is, so it must be one.
+  if (!isArtifactDigest(input.digest)) throw new RunArtifactConflictError("artifact digest is invalid");
   return redactReceiptText(input.name, [row.attempt.providerVmId, row.attempt.providerWorkspaceId, row.attempt.providerTerminalId]);
 }
 
@@ -936,6 +944,9 @@ async function scrubSandboxHandles(attemptId: string, cleanupLeaseToken: string)
     }
     if (row.attempt.error) {
       await tx.update(runAttempts).set({ error: redactReceiptText(row.attempt.error, handles) }).where(eq(runAttempts.id, attemptId));
+    }
+    if (row.run.error) {
+      await tx.update(runs).set({ error: redactReceiptText(row.run.error, handles) }).where(eq(runs.id, row.run.id));
     }
     for (const artifact of await tx.select({ id: runArtifacts.id, name: runArtifacts.name, mediaType: runArtifacts.mediaType, uri: runArtifacts.uri, metadata: runArtifacts.metadata }).from(runArtifacts).where(eq(runArtifacts.attemptId, attemptId))) {
       const scrubbed = redactReceiptText(artifact.name, handles);

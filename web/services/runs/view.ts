@@ -18,7 +18,7 @@ import {
   type AttemptStatus,
   type RunEnvironment,
 } from "./model";
-import { sandboxArtifactView, sandboxReceiptFor } from "./sandbox";
+import { sandboxArtifactView, sandboxErrorView, sandboxReceiptFor } from "./sandbox";
 
 export type RunSnapshotRow = {
   readonly run: typeof runs.$inferSelect;
@@ -194,6 +194,7 @@ export function toRunSnapshotView(snapshot: RunSnapshotRow, options: RunViewOpti
     checkedAt: options.checkedAt,
   });
   const executionProvider: ExecutionProvider = "cloud-vm";
+  const sandboxed = snapshot.run.environment === "sandboxed";
   const run: RunView = {
     id: snapshot.run.id,
     status: snapshot.run.status as RunStatus,
@@ -209,7 +210,7 @@ export function toRunSnapshotView(snapshot: RunSnapshotRow, options: RunViewOpti
     backendProvider,
     routing,
     admission,
-    error: snapshot.run.error,
+    error: sandboxed ? sandboxErrorView(snapshot.run.error, snapshot) : snapshot.run.error,
     cancelRequestedAt: iso(snapshot.run.cancelRequestedAt),
     completedAt: iso(snapshot.run.completedAt),
     createdAt: requiredIso(snapshot.run.createdAt),
@@ -217,7 +218,10 @@ export function toRunSnapshotView(snapshot: RunSnapshotRow, options: RunViewOpti
   };
   return {
     run,
-    attempts: snapshot.attempts.map((attempt) => attemptView(attempt, backendProvider)),
+    attempts: snapshot.attempts.map((attempt) => {
+      const view = attemptView(attempt, backendProvider);
+      return sandboxed ? { ...view, error: sandboxErrorView(view.error, snapshot) } : view;
+    }),
     artifacts: snapshot.run.environment === "sandboxed"
       ? snapshot.artifacts.map((artifact) => sandboxArtifactView(artifactView(artifact), snapshot))
       : snapshot.artifacts.map(artifactView),

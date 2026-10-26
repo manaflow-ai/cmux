@@ -217,6 +217,38 @@ describe("sandbox receipt", () => {
     expect(keyedView.artifacts[0]?.metadata).toEqual({ "[redacted]": 1, token: "[redacted]", nested: {} });
   });
 
+  test("signed cloud URL signatures and a JSON sig are redacted in text and metadata", () => {
+    for (const line of [
+      '{"sig":"c2lnbmF0dXJlMTIz"}', "sig = c2lnbmF0dXJlMTIz",
+      "https://b.s3.amazonaws.com/o?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Signature=c2lnbmF0dXJlMTIz&X-Amz-Expires=60",
+      "https://storage.googleapis.com/b/o?X-Goog-Algorithm=GOOG4-RSA-SHA256&X-Goog-Signature=c2lnbmF0dXJlMTIz",
+      '{"X-Amz-Security-Token": "c2lnbmF0dXJlMTIz"}',
+    ]) {
+      expect(sandboxReply(line)).not.toContain("c2lnbmF0dXJlMTIz");
+    }
+    expect(sandboxReply("signal: 9")).toBe("signal: 9");
+    expect(redactReceiptValue({ "X-Amz-Signature": "a", signature: "b", "X-Goog-Credential": "c", note: "ok" }, []))
+      .toEqual({ "X-Amz-Signature": "[redacted]", signature: "[redacted]", "X-Goog-Credential": "[redacted]", note: "ok" });
+  });
+
+  test("a sandboxed run's errors and artifact digests are served redacted; a persistent run's are untouched", () => {
+    const base = snapshot({ providerVmId: "vm-secret-1" });
+    const artifact = { id: "a1", runId: "run-1", attemptId: "attempt-1", name: "out.txt", mediaType: "text/plain", sizeBytes: 3, digest: "vm-secret-1", uri: "artifact://x", metadata: {}, createdAt, writerLeaseGeneration: null, writerLeaseTokenHash: null };
+    const failing = {
+      ...base,
+      run: { ...base.run, error: "boot failed on vm-secret-1 with sk-abcdefghijklmnopqrstuv" },
+      attempts: [{ ...base.attempts[0]!, error: "vm-secret-1 lost" }],
+      artifacts: [artifact],
+    } as RunSnapshotRow;
+    const view = toRunSnapshotView(failing);
+    const served = JSON.stringify({ run: view.run.error, attempt: view.attempts[0]?.error, artifacts: view.artifacts, receipt: view.receipt?.artifacts });
+    expect(served).not.toContain("vm-secret-1");
+    expect(served).not.toContain("abcdefghijklmnop");
+    const persistent = toRunSnapshotView({ ...failing, run: { ...failing.run, environment: "persistent" } } as RunSnapshotRow);
+    expect(persistent.run.error).toBe(failing.run.error);
+    expect(persistent.artifacts[0]?.digest).toBe("vm-secret-1");
+  });
+
   test("the value cleanup stores redacts secret-named values and keys at any depth", () => {
     expect(redactReceiptValue({ password: "hunter2", nested: { token: "x", "vm-1": "ok" } }, ["vm-1"]))
       .toEqual({ password: "[redacted]", nested: { token: "[redacted]", "[redacted]": "ok" } });
