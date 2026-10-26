@@ -97,35 +97,66 @@ nonisolated enum AcpmuxVersionHandoff {
     /// bundled one.
     static func handOffIfStale(_ status: AcpmuxStatus, environment: AcpmuxEnvironment) async -> Bool {
         let bundled = await bundledBuild(environment)
-        #if DEBUG
-        let swapped = status.pid.map { swapsOverride(runningPath: executablePath(pid: $0),
-                                                     override: AcpmuxEnvironment.debugExecutableOverride,
-                                                     executable: environment.executable) } ?? false
-        if swapped, let pid = status.pid {
-            logger.info("acpmux \(pid) runs another binary than \(AcpmuxEnvironment.executableOverrideKey, privacy: .public) \(environment.executable.path, privacy: .public)")
-        }
-        let isReplaced = swapped || (status.pid.map(Self.replaced(pid:)) ?? false)
-        #else
-        let isReplaced = status.pid.map(Self.replaced(pid:)) ?? false
-        #endif
+        let isReplaced = runsReplacedExecutable(status, environment: environment, log: true)
         guard decide(status.build, bundled, status.agentHosts, chatsOnDisk: status.chatsOnDisk, replaced: isReplaced) == .restart,
               let pid = status.pid else {
             return false
         }
-        let key = "\(environment.socketPath) \(bundled ?? "pid \(pid)")"
+        let key = handOffKey(environment, bundled: bundled, pid: pid)
         guard handedOff.withLock({ $0.insert(key).inserted }) else {
             logger.error("acpmux \(pid) at \(environment.socketPath, privacy: .public) still runs build \(status.build ?? "?", privacy: .public) after this app handed that socket off to \(bundled ?? "?", privacy: .public) once")
             return false
         }
         logger.info("acpmux \(pid) runs build \(status.build ?? "?", privacy: .public)\(isReplaced ? " from a replaced bundle" : "", privacy: .public)\(status.agentHosts ? "" : " without agent hosts; its chats resume from disk", privacy: .public); handing off to \(bundled ?? "?", privacy: .public)")
+        // Settings' daemon line says restarting until the lookup that starts the bundled one
+        // settles (AgentPaneHost.findOrStart), or until this handoff fails.
+        AcpmuxDaemonSummary.mark(home: environment.home, restarting: true)
         do {
             try await AcpmuxStatusClient.shutdown(socketPath: environment.socketPath, home: environment.home)
         } catch {
             logger.error("acpmux handoff request failed: \(String(describing: error), privacy: .public)")
+            AcpmuxDaemonSummary.mark(home: environment.home, restarting: false)
             return false
         }
         // The old daemon holds its lock until it exits; the new one needs it.
-        return await AgentPaneProcessExit(pid: pid).event(within: .seconds(15))
+        let exited = await AgentPaneProcessExit(pid: pid).event(within: .seconds(15))
+        if !exited { AcpmuxDaemonSummary.mark(home: environment.home, restarting: false) }
+        return exited
+    }
+
+    /// What a lookup would do with the daemon `status` describes (Settings' daemon line,
+    /// ``AcpmuxDaemonSummary``): whether it runs a replaced bundle's executable, and whether
+    /// ``handOffIfStale(_:environment:)`` would stop it now. An attached daemon is never
+    /// handed off (a lookup never starts or stops one), nor a socket this launch handed off once.
+    static func handsOff(_ status: AcpmuxStatus, environment: AcpmuxEnvironment,
+                         bundled: String?) -> (replaced: Bool, handsOff: Bool) {
+        let isReplaced = runsReplacedExecutable(status, environment: environment, log: false)
+        guard !environment.isAttached,
+              decide(status.build, bundled, status.agentHosts, chatsOnDisk: status.chatsOnDisk, replaced: isReplaced) == .restart,
+              let pid = status.pid else { return (isReplaced, false) }
+        let key = handOffKey(environment, bundled: bundled, pid: pid)
+        return (isReplaced, !handedOff.withLock { $0.contains(key) })
+    }
+
+    /// The once-per-socket key of a handoff (``handedOff``).
+    private static func handOffKey(_ environment: AcpmuxEnvironment, bundled: String?, pid: Int32) -> String {
+        "\(environment.socketPath) \(bundled ?? "pid \(pid)")"
+    }
+
+    /// Whether the daemon `status` describes runs an executable an update replaced, or (DEBUG)
+    /// another binary than the `CMUX_NEXT_ACPMUX_BIN` override.
+    private static func runsReplacedExecutable(_ status: AcpmuxStatus, environment: AcpmuxEnvironment, log: Bool) -> Bool {
+        #if DEBUG
+        let swapped = status.pid.map { swapsOverride(runningPath: executablePath(pid: $0),
+                                                     override: AcpmuxEnvironment.debugExecutableOverride,
+                                                     executable: environment.executable) } ?? false
+        if swapped, log, let pid = status.pid {
+            logger.info("acpmux \(pid) runs another binary than \(AcpmuxEnvironment.executableOverrideKey, privacy: .public) \(environment.executable.path, privacy: .public)")
+        }
+        return swapped || (status.pid.map(Self.replaced(pid:)) ?? false)
+        #else
+        return status.pid.map(Self.replaced(pid:)) ?? false
+        #endif
     }
 }
 
