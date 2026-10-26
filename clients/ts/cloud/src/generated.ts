@@ -60,6 +60,11 @@ export type Body = {
   readonly type: "steps"
   readonly steps: ReadonlyArray<Step>
 } | {
+  readonly type: "chief"
+  readonly chief: string
+  readonly conversation: ConversationId
+  readonly prompt: string
+} | {
   readonly type: "code"
   readonly ref: CodeRef
   readonly egress?: ReadonlyArray<EgressHost>
@@ -792,7 +797,7 @@ export type PolicyChange = {
 }
 
 /** A team policy key (spec/enterprise.md 4.2). */
-export type PolicyKey = "github.repoScope" | "github.requireOrgAdmin" | "github.repoAllowList" | "integrations.allowedProviders" | "mcp.server" | "mcp.remoteTransport" | "apps.install" | "apps.allowedTiers" | "apps.allowList" | "apps.forcedInstalls" | "computerUse.allowed" | "browserAutomation.rawCdp" | "cloud.sandboxes" | "cloud.connectServices" | "cloud.idlePause" | "telemetry.level" | "updates.channel" | "updates.minimumVersion" | "retention.cuaEventsDays" | "retention.cuaFramesDays" | "retention.transcriptDays" | "retention.auditDays" | "sso.enforce" | "sso.enforceForOwners" | "sso.allowGuests" | "sso.sessionMaxAgeHours" | "sso.idleTimeoutHours" | "agents.allowedClasses" | "device.settings"
+export type PolicyKey = "github.repoScope" | "github.requireOrgAdmin" | "github.repoAllowList" | "github.allowWorkflows" | "integrations.allowedProviders" | "mcp.server" | "mcp.remoteTransport" | "apps.install" | "apps.allowedTiers" | "apps.allowList" | "apps.forcedInstalls" | "computerUse.allowed" | "browserAutomation.rawCdp" | "cloud.sandboxes" | "cloud.connectServices" | "cloud.idlePause" | "telemetry.level" | "updates.channel" | "updates.minimumVersion" | "retention.cuaEventsDays" | "retention.cuaFramesDays" | "retention.transcriptDays" | "retention.auditDays" | "sso.enforce" | "sso.enforceForOwners" | "sso.allowGuests" | "sso.sessionMaxAgeHours" | "sso.idleTimeoutHours" | "agents.allowedClasses" | "device.settings"
 
 export type PolicyMode = "enforced" | "default"
 
@@ -1034,6 +1039,7 @@ export type TeamIntegrationPolicy = {
     readonly scope: "linking_user_repos" | "installation"
     readonly require_org_admin: boolean
     readonly repo_allowlist: ReadonlyArray<RepoPattern> | null
+    readonly allow_workflows?: boolean
   }
   readonly source: "default" | "admin" | "sso" | "mdm" | "team_policy"
   readonly locked: boolean
@@ -1068,6 +1074,10 @@ export type TeamPolicyValues = {
   }
   readonly "github.repoAllowList"?: {
     readonly value: "none" | ReadonlyArray<RepoPattern>
+    readonly mode: PolicyMode
+  }
+  readonly "github.allowWorkflows"?: {
+    readonly value: boolean
     readonly mode: PolicyMode
   }
   readonly "integrations.allowedProviders"?: {
@@ -1506,6 +1516,14 @@ export interface CloudOps {
       readonly display_name?: string
       readonly is_default?: boolean
       readonly brain_place?: ChiefBrainPlace
+    }
+    readonly result: HomeChief
+  }
+  /** Delete a chief (not the default; active or archived) for good: it stops waking, its tokens end, its sandboxes are deleted, and only a tombstone keeps its id; its conversation history stays read-only with its members. No restore. */
+  readonly "chief.delete": {
+    readonly params: {
+      readonly chief: ChiefId
+      readonly expected_rev: number | "Infinity" | "-Infinity" | "NaN"
     }
     readonly result: HomeChief
   }
@@ -2620,6 +2638,7 @@ export interface CloudOps {
         readonly scope?: "linking_user_repos" | "installation"
         readonly require_org_admin?: boolean
         readonly repo_allowlist?: ReadonlyArray<RepoPattern> | null
+        readonly allow_workflows?: boolean
       }
     }
     readonly result: TeamIntegrationPolicy
@@ -3663,6 +3682,7 @@ export const cloudOpMeta = {
   "calendar.events.list": { class: "read", owner: "cloud:ConnectionDO", risk: "read" },
   "chief.archive": { class: "mutation", owner: "cloud:UserDO", risk: "destructive" },
   "chief.create": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
+  "chief.delete": { class: "mutation", owner: "cloud:UserDO", risk: "destructive" },
   "chief.list": { class: "read", owner: "cloud:UserDO", risk: "read" },
   "chief.update": { class: "mutation", owner: "cloud:UserDO", risk: "mutate-own" },
   "cloud.billing.checkout": { class: "mutation", owner: "cloud:CloudDO", risk: "money" },

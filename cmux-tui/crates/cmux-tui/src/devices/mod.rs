@@ -20,7 +20,7 @@ use serde_json::{Value, json};
 
 use crate::remote_host::{audit, config as host_config, self_exe};
 use model::{Device, Listing, Role, Sources, State};
-use network::{Choice, DeviceNetwork as _, TailscaleNetwork, WeftNetwork};
+use network::{Choice, TailscaleNetwork, WeftNetwork};
 
 const USAGE: &str = "usage: cmux device list [--json] [--network auto|tailscale|weft]
        cmux device add HOST --yes [--name NAME] [--json]
@@ -180,7 +180,7 @@ fn read_sources(notes: &mut Vec<String>) -> Sources {
     };
     let peers = read(&["acp", "host", "ls", "--json"], "agent peers");
     let pairing = read(&["acp", "host", "ticket", "ls", "--json"], "paired devices");
-    let remote = match host_config::path().map(|p| p.exists()) {
+    let remote = match host_config::exists() {
         Ok(true) => match host_config::load() {
             Ok(c) => serde_json::to_value(&c).unwrap_or(Value::Null),
             Err(e) => {

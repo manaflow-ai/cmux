@@ -72,6 +72,24 @@ export const creditsNotice = async (env: Env, config: BrainConfig, conversation:
 export const TURN_FAILED_NOTICE = "I could not reach the model, so I stopped here. Please try again."
 
 /**
+ * A Cloud Chief turn (chief-brain-cc/turn.ts) that failed, by what happened (its reason `cc_<kind>: ...`): plain
+ * words, no vendor names, and "send it again" only when nothing ran.
+ */
+export const CC_NOTICES = {
+  timeout: "This turn ran out of time before I wrote a reply. Steps I started may have finished; ask me for the status.",
+  model: "The model stopped with an error partway through this turn. Steps I started may have finished; ask me for the status.",
+  stopped: "My turn machine stopped partway through this turn. Steps I started may have finished; ask me for the status.",
+  model_before: "The model returned an error twice before I did anything, so nothing ran on this turn. Send it again in a minute.",
+  machine: "My turn machine did not start after three tries, so nothing ran on this turn. Send it again in a minute."
+} as const
+/** The line before what a Cloud Chief turn that ended early had written, posted as its reply. */
+export const CC_PARTIAL = {
+  timeout: "I ran out of time on this turn; here is where I got to.",
+  model: "The model stopped with an error partway through this turn; here is where I got to.",
+  stopped: "My turn machine stopped partway through this turn; here is where I got to."
+} as const
+
+/**
  * A failed turn is never silent: one short notice as the chief in the turn's conversation (once per
  * run, by its idempotency key). Not for a credits refusal: that has its own notice (the gateway's).
  */
@@ -88,6 +106,9 @@ export const turnFailedNotice = async (env: Env, sql: SqlStorage, config: BrainC
   }
   // A paid model this owner may not use here (claude-auth.ts ownerTurn): say so, not "could not reach".
   if (/owner_not_allowed|model_not_offered/.test(reason)) return void (await postNotice(env, principal, conversation, MODEL_UNAVAILABLE_NOTICE, `turn-failed:${config.agent}:${run}`).catch(() => undefined))
+  // A Cloud Chief turn (chief-brain-cc/turn.ts): what happened, not "could not reach".
+  const cc = /^cc_(timeout|model_before|model|stopped|machine):/.exec(reason)?.[1] as keyof typeof CC_NOTICES | undefined
+  if (cc) return void (await postNotice(env, principal, conversation, CC_NOTICES[cc], `turn-failed:${config.agent}:${run}`).catch(() => undefined))
   await postNotice(env, principal, conversation, TURN_FAILED_NOTICE, `turn-failed:${config.agent}:${run}`).catch(() => undefined)
 }
 
