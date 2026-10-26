@@ -6,7 +6,7 @@ import { useFindReveal } from "./chatFind";
 import { useContext, useId, useMemo, useState } from "react";
 import { useT } from "../i18n";
 import type { AcpmuxActivity } from "../model";
-import { toolImages } from "../toolImages";
+import { stripsEnvelopeImages, toolImages } from "../toolImages";
 import { ChevronRight, Spinner, ToolGroup } from "./icons";
 import { menuPartRef } from "./menuParts";
 import { mcpCall, mcpLabel, McpNamesContext, mcpRawName, prettyOutput, prettyValue, type McpCall } from "./mcpCalls";
@@ -123,7 +123,14 @@ function McpCallRow({ item }: { item: AcpmuxActivity }) {
       {images.length > 0 && <ToolImages sources={images} />}
       {fold.present && (
         <div {...fold.bodyProps}>
-          <McpCallDetails id={detailsId} call={call} raw={raw} output={tool.output} reveal={reveal} />
+          <McpCallDetails
+            id={detailsId}
+            call={call}
+            raw={raw}
+            output={tool.output}
+            strip={stripsEnvelopeImages(tool)}
+            reveal={reveal}
+          />
         </div>
       )}
     </>
@@ -131,24 +138,27 @@ function McpCallRow({ item }: { item: AcpmuxActivity }) {
 }
 
 /// The opened call: its request, then its response (only its end while long), each as a tight
-/// block; a block with nothing in it is left out.
-function McpCallDetails({
+/// block; a block with nothing in it is left out. A sub-session card's Raw shows the same.
+export function McpCallDetails({
   id,
   call,
   raw,
   output,
+  strip,
   reveal,
 }: {
   id: string;
   call: McpCall;
   raw: string;
   output?: string;
+  /// Whether the call's strip shows its envelope's images, which its response then leaves out.
+  strip: boolean;
   reveal: number;
 }) {
   const t = useT();
   const request = useMemo(() => prettyValue(call.args), [call]);
   const response = useOutput(
-    useMemo(() => prettyOutput(output), [output]),
+    useMemo(() => prettyOutput(output, strip), [output, strip]),
     reveal,
   );
   return (

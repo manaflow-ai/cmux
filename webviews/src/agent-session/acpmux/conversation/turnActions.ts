@@ -3,11 +3,13 @@
 // turn's hunks, reaches memoized rows without changing their versions.
 import { createContext } from "react";
 import type { HunkReview } from "../changes/hunkReview";
+import type { ChatAccount } from "../chatAccounts";
 import type { HarnessHealth } from "../HarnessHealthNotice";
-import type { AcpmuxSnapshot } from "../model";
+import type { AcpmuxRow, AcpmuxSnapshot } from "../model";
 import type { Subagent } from "../subagents/subagentFold";
 import type { MessageBranch } from "./branches";
 import type { RetryModel } from "./retryModelSections";
+import type { QueuedMessageActionsValue } from "./QueuedMessageCard";
 
 export type TurnActions = {
   /// Fork the session through the turn whose summary event is `throughSeq`; absent when
@@ -29,6 +31,7 @@ export type TurnActions = {
   /// and the open that shows one of them in this pane.
   branches?: {
     of: ReadonlyMap<string, MessageBranch>;
+    running?: ReadonlySet<string>;
     open: (sessionId: string) => void;
   };
   /// The image `id` a prompt of this chat sent (its `images`), as a data URL; undefined when acpmux
@@ -60,6 +63,19 @@ export type TurnActions = {
   route?: { name?: string; harness?: string };
   /// Opens the model and harness picker (a failure's "Switch model" action).
   switchModel?: () => void;
+  /// cmux's own route for a key, sign-in or capacity failure (CodeRouterOffer.tsx): what the chat's
+  /// routes offer of CodeRouter (chatAccounts.ts codeRouterOffer), and the move onto a route, which
+  /// acpmux applies at once on an idle chat and resumes the same session. Only on this Mac's acpmux.
+  ownRoute?: {
+    find: () => Promise<ChatAccount | "on" | undefined>;
+    use: (routeId: string) => Promise<void>;
+  };
+  /// What another agent's waiting message's ⋯ menu does (conversation/QueuedMessageCard.tsx), as
+  /// the chat offers it now; undefined while the chat is not connected.
+  queuedMessages?: () => QueuedMessageActionsValue | undefined;
+  /// The X beside a steer the agent has not read yet: takes it back into the composer to edit
+  /// (PendingSteer.tsx `takeBackSteer`); false when the agent read it first.
+  unsteer?: (row: AcpmuxRow) => Promise<boolean>;
   /// The changes view's hunk decisions; a card's Undo asks for its turn's hunks through it, so
   /// the view shows them as requested too.
   review?: HunkReview;

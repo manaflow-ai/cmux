@@ -82,7 +82,7 @@ export function Composer() {
   useProviderFallback(providers, provider, setProvider);
   useProviderCatalogs(ready, connectionEpoch, providers, provider, committedCwd, requestProviderOptions, requestProviderCommands);
   useFileCatalog(ready, connectionEpoch, committedCwd, requestFiles);
-  useCwdValidation(ready, connectionEpoch, committedCwd, defaultCwd, cwdChecks, checkCwd, setCwd, setCommittedCwd);
+  useCwdValidation(ready, connectionEpoch, committedCwd, cwd, defaultCwd, cwdChecks, checkCwd, setCwd, setCommittedCwd);
   useCwdErrorFallback(lastError, defaultCwd, setCwd, setCommittedCwd);
 
   const setLocalOption = useCallback((id: string, value: OptionValue) => {
