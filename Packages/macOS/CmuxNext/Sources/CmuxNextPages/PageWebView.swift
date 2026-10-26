@@ -2,6 +2,7 @@ public import AppKit
 public import CmuxNextDesign
 public import CmuxNextSettings
 import CmuxNextCompat
+import CmuxNextHibernation
 import Observation
 import os
 import CmuxNextErrorJournal
@@ -68,8 +69,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     /// The open panel for a page's `<input type="file">`: a forwarder the app sets once at startup to its ``WebUIHost``'s
     /// (``WebUIHost/openPanel``); removed by p13-webui-010. Nil: a file input does nothing (tests).
     public static var openPanel: MadeAheadOpenPanel?
-    /// This page's file chooser (its web view holds the UI delegate weakly).
-    private var fileChooser: PageOpenPanel?
+    /// This page's UI delegate: its file chooser and Web Inspector's open and close (its web view
+    /// holds the UI delegate weakly).
+    let webKitUI: PageUIDelegate
     var loaded = false {
         didSet {
             loadState.set(loading: !loaded, page: self)
@@ -80,6 +82,10 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     }
     /// The document's load as the page lifecycle reads it (its `.loading`); each change tells the lifecycle.
     let loadState = PageLoadState()
+    /// The keep reasons its document set (`cmux.page.keepAlive`) and the host holds on it (a
+    /// confirmation sheet, a menu or popup, a drop it reads, Web Inspector, dictation); each change
+    /// tells the lifecycle.
+    package let keepReasons = PageKeepReasons()
     var loadWaiters: [CheckedContinuation<Void, Never>] = []
     var shouldFocusOnAttach = false
     /// The page's popup past the window's edge (PageWebView+Popup.swift), made on first use.
@@ -290,6 +296,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         themeSurface = surface
         self.dynamicResources = dynamicResources
         router = PageRouter(descriptor: descriptor, routes: routes)
+        webKitUI = PageUIDelegate(fileInputs: openPanel.map { PageOpenPanel(openPanel: $0) })
         self.inputReadiness = inputReadiness
         // webview-allow: the page host's WebKit engine; PageEnginePolicy picks it
         let make: (WKWebViewConfiguration) -> PageWKWebView = { PageWKWebView(frame: .zero, configuration: $0) }
@@ -322,8 +329,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         // Web Inspector in every build (Inspect Element, Cmd-Opt-I).
         webView.isInspectable = true
         webView.navigationDelegate = self
-        fileChooser = openPanel.map { PageOpenPanel(openPanel: $0) }
-        webView.uiDelegate = fileChooser
+        webView.uiDelegate = webKitUI
         webView.onUserEvent = { [weak self] in self?.noteTouch() }
         webView.pageAcceptsFirstMouse = { [weak self] in
             guard let self else { return false }
@@ -337,9 +343,19 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         let scripts = scripts
         router.send = { envelope in scripts.send(envelope) }
         router.sendWithDrop = { envelope, onDrop in scripts.send(envelope, onDrop: onDrop) }
+        keepReasons.owner = self
         router.didClose = { [weak self] in
             scripts.reset()
             self?.popupHost?.hide()
+            // A reload, a crash, a navigation or a rebind: the document's own reasons end with it.
+            self?.keepReasons.documentEnded()
+        }
+        router.keepAlive = { [weak self] reason, on in self?.keepReasons.setFromPage(reason, on: on) }
+        webView.keepReasons = keepReasons
+        // Web Inspector stays open across reloads, as its hold does (it is the host's, not the document's).
+        webKitUI.onInspector = { [weak self] open in
+            guard let keep = self?.keepReasons else { return }
+            if open { keep.begin(.inspector) } else { keep.end(.inspector) }
         }
         router.titleBarDoubleClick = { [weak self] in self?.performTitleBarDoubleClick() }
         router.popup = { [weak self] op, params in self?.popup(op, params: params) ?? .object(["shown": .bool(false)]) }
