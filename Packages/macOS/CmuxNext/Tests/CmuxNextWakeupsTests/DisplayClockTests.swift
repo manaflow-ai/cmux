@@ -22,7 +22,8 @@ import Testing
         #expect(links.made.count == 1)
         #expect(displays.liveLinks == 1)
         #expect(displays.subscribers(on: 1).count == 4)
-        #expect(fixture.schedulers.allSatisfy(\.hasLink))
+        let everyLinked = fixture.schedulers.allSatisfy { $0.hasLink }
+        #expect(everyLinked)
 
         for client in clients.dropLast() { client.deactivate() }
         #expect(displays.liveLinks == 1, "a client is still active")
@@ -30,7 +31,8 @@ import Testing
         #expect(displays.liveLinks == 0, "no client: no link")
         #expect(links.made.first?.invalidated == true)
         #expect(displays.subscribers(on: 1).isEmpty)
-        #expect(!fixture.schedulers.contains(where: \.hasLink))
+        let anyLinked = fixture.schedulers.contains { $0.hasLink }
+        #expect(!anyLinked)
     }
 
     /// One tick reaches the budget holder's frame-locked clients first, then the other schedulers
