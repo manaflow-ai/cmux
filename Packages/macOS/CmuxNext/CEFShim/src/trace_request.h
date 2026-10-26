@@ -45,6 +45,8 @@ class OnceTraceReply {
   void Run(Arg value) {
     if (Fn fn = std::exchange(fn_, nullptr)) fn(context_, value);
   }
+  void RunFallback() { Run(fallback_); }
+  bool armed() const { return fn_ != nullptr; }
   // The request was never sent: the caller learns that from the return value,
   // so the completion must not run.
   void Disarm() { fn_ = nullptr; }

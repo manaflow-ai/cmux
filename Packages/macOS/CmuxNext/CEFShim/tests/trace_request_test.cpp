@@ -1,9 +1,7 @@
 // Checks the request rules of the shim's Chromium tracing exports
 // (CEFShim/src/trace_request.h, no CEF needed): the output path rule and the
 // once-only completion that cmux_cef_begin_tracing and cmux_cef_end_tracing
-// promise. Run (one line):
-//   clang++ -std=c++17 -Wall -Werror -O1 -o /tmp/trace_request_test
-//   Packages/macOS/CmuxNext/CEFShim/tests/trace_request_test.cpp && /tmp/trace_request_test
+// promise. Run: scripts/cmux-next/test-shim-tracing-cpp.sh
 #include <cstdio>
 #include <string>
 #include <utility>
@@ -101,6 +99,28 @@ int main() {
       Check(calls.ints == std::vector<int>{0}, "callback dropped by CEF answers 0 at once");
     }
     Check(calls.ints == std::vector<int>{0}, "the task's moved-from reply adds nothing");
+  }
+  {  // A callback Chromium releases off the UI thread hands its reply to a task
+     // (AnswerFallbackOnUI); the task answers the failure value once.
+    Calls calls;
+    {
+      OnceTraceReply<const char*> callback_reply(&RecordPath, &calls, nullptr);
+      Check(callback_reply.armed(), "an unanswered reply is armed");
+      OnceTraceReply<const char*> task_reply(std::move(callback_reply));
+      Check(!callback_reply.armed(), "the moved-from reply is not armed");
+      task_reply.RunFallback();
+      Check(!task_reply.armed(), "an answered reply is not armed");
+    }
+    Check(calls.paths == std::vector<std::string>{"(null)"}, "the posted fallback answers once");
+  }
+  {  // An answered reply ignores a later fallback.
+    Calls calls;
+    {
+      OnceTraceReply<int> reply(&RecordInt, &calls, 0);
+      reply.Run(1);
+      reply.RunFallback();
+    }
+    Check(calls.ints == std::vector<int>{1}, "fallback after the answer adds nothing");
   }
   {  // No callback: nothing runs and nothing crashes.
     OnceTraceReply<int> reply(nullptr, nullptr, 0);

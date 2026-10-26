@@ -22,9 +22,38 @@ namespace {
 using StartedReply = OnceTraceReply<int>;
 using WrittenReply = OnceTraceReply<const char*>;
 
+template <typename Arg>
+class FallbackOnUI : public CefTask {
+ public:
+  explicit FallbackOnUI(OnceTraceReply<Arg> reply) : reply_(std::move(reply)) {}
+  void Execute() override { reply_.RunFallback(); }
+
+ private:
+  OnceTraceReply<Arg> reply_;
+  IMPLEMENT_REFCOUNTING(FallbackOnUI);
+};
+
+// An unanswered CEF callback answers its failure value on the UI thread, like
+// its answer. Chromium can release one elsewhere: FileTraceDataEndpoint's
+// CloseOnBlockingThread returns on a failed base::ReplaceFile without posting
+// FinalizeOnUIThread, so the end callback dies on a ThreadPool thread
+// (content/browser/tracing/tracing_controller_impl_data_endpoint.cc). When the
+// post fails (CEF shut down), the task drops here and its reply answers inline.
+template <typename Arg>
+void AnswerFallbackOnUI(OnceTraceReply<Arg>& reply) {
+  if (!reply.armed()) return;
+  if (CefCurrentlyOn(TID_UI)) {
+    reply.RunFallback();
+    return;
+  }
+  CefRefPtr<CefTask> task = new FallbackOnUI<Arg>(std::move(reply));
+  CefPostTask(TID_UI, task);
+}
+
 class TraceStarted : public CefCompletionCallback {
  public:
   explicit TraceStarted(StartedReply reply) : reply_(std::move(reply)) {}
+  ~TraceStarted() override { AnswerFallbackOnUI(reply_); }
   void OnComplete() override { reply_.Run(1); }
 
  private:
@@ -35,6 +64,7 @@ class TraceStarted : public CefCompletionCallback {
 class TraceWritten : public CefEndTracingCallback {
  public:
   explicit TraceWritten(WrittenReply reply) : reply_(std::move(reply)) {}
+  ~TraceWritten() override { AnswerFallbackOnUI(reply_); }
   void OnEndTracingComplete(const CefString& tracing_file) override {
     const std::string path = tracing_file.ToString();
     reply_.Run(path.c_str());
@@ -46,7 +76,7 @@ class TraceWritten : public CefEndTracingCallback {
 };
 
 // In both tasks, a request CEF refuses drops its callback object at once, and
-// that object's reply then answers with the failure value.
+// that object's reply then answers with the failure value (AnswerFallbackOnUI).
 class BeginTracingTask : public CefTask {
  public:
   BeginTracingTask(std::string categories, StartedReply reply)
