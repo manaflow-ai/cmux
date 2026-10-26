@@ -208,7 +208,9 @@ export function Combobox({
               const pressed = pressActivatedRef.current;
               pressActivatedRef.current = undefined;
               if (pressed === item && event.detail > 0) return;
-              if (event.detail === 0 && !isItemDisabled?.(item)) onSubmit(item);
+              // Base UI cancels pointerdown to retain input focus. Browsers then omit the
+              // compatibility mousedown, so a primary click must also activate on its own.
+              if (event.button === 0 && !isItemDisabled?.(item)) onSubmit(item);
             }}
           >
             {renderItemContent(item)}
