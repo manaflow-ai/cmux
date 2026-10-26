@@ -27393,7 +27393,19 @@
         "ar": {"stringUnit": {"state": "needs_review", "value": "مفتاح SSH العام"}},
         "ko": {"stringUnit": {"state": "needs_review", "value": "SSH 공개 키"}},
         "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "SSH 公钥"}},
-        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "SSH 公鑰"}}
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "SSH 公鑰"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Javni SSH ključ"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Offentlig SSH-nøgle"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Chiave pubblica SSH"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "សោសាធារណៈ SSH"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Offentlig SSH-nøkkel"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Klucz publiczny SSH"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Chave pública SSH"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Открытый ключ SSH"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "คีย์สาธารณะ SSH"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "SSH ortak anahtarı"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Відкритий ключ SSH"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Khóa công khai SSH"}}
       }
     },
     "action.chief.importMemories" : {

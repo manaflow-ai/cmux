@@ -17467,7 +17467,19 @@
         "ar": {"stringUnit": {"state": "needs_review", "value": "يجب أن يتكوّن اسم ssh للجهاز من حروف أو أرقام أو نقاط أو شرطات أو شرطات سفلية: مرّر ‎--name lane-vm-N."}},
         "ko": {"stringUnit": {"state": "needs_review", "value": "머신의 ssh 이름은 영문자, 숫자, 점, 하이픈, 밑줄만 쓸 수 있습니다. --name lane-vm-N을 지정하세요."}},
         "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "机器的 ssh 名称只能包含字母、数字、点、连字符或下划线：请传入 --name lane-vm-N。"}},
-        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "機器的 ssh 名稱只能包含字母、數字、點、連字號或底線：請傳入 --name lane-vm-N。"}}
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "機器的 ssh 名稱只能包含字母、數字、點、連字號或底線：請傳入 --name lane-vm-N。"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "SSH ime mašine smije sadržavati samo slova, cifre, tačke, crtice ili donje crte: proslijedi --name lane-vm-N."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Maskinens ssh-navn må kun bestå af bogstaver, cifre, punktummer, bindestreger eller understreger: angiv --name lane-vm-N."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Il nome ssh della macchina può contenere solo lettere, cifre, punti, trattini o trattini bassi: passa --name lane-vm-N."}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ឈ្មោះ ssh របស់ម៉ាស៊ីនត្រូវមានតែអក្សរ លេខ ចំណុច សញ្ញាដក ឬសញ្ញាគូសក្រោម៖ បញ្ជូន --name lane-vm-N។"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Maskinens ssh-navn kan bare inneholde bokstaver, sifre, punktum, bindestreker eller understreker: oppgi --name lane-vm-N."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Nazwa ssh maszyny może zawierać tylko litery, cyfry, kropki, myślniki lub podkreślenia: podaj --name lane-vm-N."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "O nome ssh da máquina só pode ter letras, dígitos, pontos, hífens ou sublinhados: passe --name lane-vm-N."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Имя ssh машины может содержать только буквы, цифры, точки, дефисы или подчёркивания: укажите --name lane-vm-N."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ชื่อ ssh ของเครื่องต้องมีเฉพาะตัวอักษร ตัวเลข จุด ขีดกลาง หรือขีดล่าง: ส่ง --name lane-vm-N"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Makinenin ssh adı yalnızca harf, rakam, nokta, tire veya alt çizgi içerebilir: --name lane-vm-N verin."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Ім'я ssh машини може містити лише літери, цифри, крапки, дефіси або підкреслення: вкажіть --name lane-vm-N."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Tên ssh của máy chỉ được gồm chữ cái, chữ số, dấu chấm, dấu gạch ngang hoặc dấu gạch dưới: truyền --name lane-vm-N."}}
       }
     },
     "cloud.cli.enrollNoAddress": {
@@ -17482,7 +17494,19 @@
         "ar": {"stringUnit": {"state": "needs_review", "value": "ليس لجهاز Cloud هذا عنوان خاص بعد، لذا لا يستطيع ssh الوصول إليه. أعد المحاولة بعد أن يعمل."}},
         "ko": {"stringUnit": {"state": "needs_review", "value": "이 Cloud 머신에는 아직 사설 주소가 없어 ssh로 연결할 수 없습니다. 실행 중이 되면 다시 시도하세요."}},
         "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "此 Cloud 机器还没有私有地址，ssh 无法连接。请在它运行后重试。"}},
-        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "此 Cloud 機器還沒有私有位址，ssh 無法連線。請在它執行後重試。"}}
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "此 Cloud 機器還沒有私有位址，ssh 無法連線。請在它執行後重試。"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Ova Cloud mašina još nema privatnu adresu, pa je ssh ne može dosegnuti. Pokušaj ponovo kada bude pokrenuta."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Denne Cloud-maskine har endnu ingen privat adresse, så ssh kan ikke nå den. Prøv igen, når den kører."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Questa macchina Cloud non ha ancora un indirizzo privato, quindi ssh non può raggiungerla. Riprova quando è in esecuzione."}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ម៉ាស៊ីន Cloud នេះមិនទាន់មានអាសយដ្ឋានឯកជននៅឡើយ ដូច្នេះ ssh មិនអាចភ្ជាប់ទៅវាបានទេ។ សូមព្យាយាមម្ដងទៀតនៅពេលវាកំពុងដំណើរការ។"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Denne Cloud-maskinen har ingen privat adresse ennå, så ssh kan ikke nå den. Prøv igjen når den kjører."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Ta maszyna Cloud nie ma jeszcze adresu prywatnego, więc ssh nie może się z nią połączyć. Spróbuj ponownie, gdy będzie działać."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Esta máquina do Cloud ainda não tem endereço privado, então o ssh não consegue alcançá-la. Tente de novo quando ela estiver em execução."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "У этой машины Cloud ещё нет частного адреса, поэтому ssh не может до неё достучаться. Повторите попытку, когда она запустится."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "เครื่อง Cloud นี้ยังไม่มีที่อยู่ส่วนตัว ssh จึงเข้าถึงไม่ได้ ลองอีกครั้งเมื่อเครื่องทำงานแล้ว"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Bu Cloud makinesinin henüz özel adresi yok, bu yüzden ssh ona ulaşamıyor. Çalışır duruma gelince tekrar deneyin."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Ця машина Cloud ще не має приватної адреси, тому ssh не може до неї дістатися. Спробуйте знову, коли вона запуститься."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Máy Cloud này chưa có địa chỉ riêng nên ssh không thể kết nối tới. Hãy thử lại khi máy đang chạy."}}
       }
     },
     "cloud.cli.enrollKeyUnreadable": {
@@ -17497,7 +17521,19 @@
         "ar": {"stringUnit": {"state": "needs_review", "value": "تعذّر استخدام مفتاح ssh ‏%@: يجب أن يكون مفتاحًا عامًا واحدًا من نوع ssh-ed25519. مرّر ‎--ssh-key بمسار مطلق."}},
         "ko": {"stringUnit": {"state": "needs_review", "value": "ssh 키 %@을(를) 사용할 수 없습니다. ssh-ed25519 공개 키 하나여야 합니다. --ssh-key에 절대 경로를 지정하세요."}},
         "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "无法使用 ssh 密钥 %@：它必须是一个 ssh-ed25519 公钥。请用绝对路径传入 --ssh-key。"}},
-        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "無法使用 ssh 金鑰 %@：它必須是一個 ssh-ed25519 公鑰。請用絕對路徑傳入 --ssh-key。"}}
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "無法使用 ssh 金鑰 %@：它必須是一個 ssh-ed25519 公鑰。請用絕對路徑傳入 --ssh-key。"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Nije moguće koristiti ssh ključ %@: mora biti jedan javni ključ ssh-ed25519. Proslijedi --ssh-key s apsolutnom putanjom."}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Kan ikke bruge ssh-nøglen %@: den skal være én offentlig ssh-ed25519-nøgle. Angiv --ssh-key med en absolut sti."}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Impossibile usare la chiave ssh %@: deve essere una sola chiave pubblica ssh-ed25519. Passa --ssh-key con un percorso assoluto."}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "មិនអាចប្រើសោ ssh %@ បានទេ៖ វាត្រូវតែជាសោសាធារណៈ ssh-ed25519 តែមួយ។ បញ្ជូន --ssh-key ជាមួយផ្លូវពេញ។"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Kan ikke bruke ssh-nøkkelen %@: den må være én offentlig ssh-ed25519-nøkkel. Oppgi --ssh-key med en absolutt sti."}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Nie można użyć klucza ssh %@: musi to być jeden klucz publiczny ssh-ed25519. Podaj --ssh-key ze ścieżką bezwzględną."}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Não é possível usar a chave ssh %@: ela precisa ser uma única chave pública ssh-ed25519. Passe --ssh-key com um caminho absoluto."}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Невозможно использовать ключ ssh %@: это должен быть один открытый ключ ssh-ed25519. Укажите --ssh-key с абсолютным путём."}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ใช้คีย์ ssh %@ ไม่ได้: ต้องเป็นคีย์สาธารณะ ssh-ed25519 เพียงหนึ่งคีย์ ส่ง --ssh-key พร้อมพาธแบบเต็ม"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "%@ ssh anahtarı kullanılamıyor: tek bir ssh-ed25519 ortak anahtarı olmalı. --ssh-key'i mutlak bir yolla verin."}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Неможливо використати ключ ssh %@: це має бути один відкритий ключ ssh-ed25519. Вкажіть --ssh-key з абсолютним шляхом."}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Không thể dùng khóa ssh %@: đây phải là một khóa công khai ssh-ed25519 duy nhất. Truyền --ssh-key với đường dẫn tuyệt đối."}}
       }
     },
     "cloud.cli.enrollAuthorizeFailed": {
@@ -17512,7 +17548,19 @@
         "ar": {"stringUnit": {"state": "needs_review", "value": "تعذّر إعداد ssh على الجهاز: %@"}},
         "ko": {"stringUnit": {"state": "needs_review", "value": "머신에서 ssh를 설정하지 못했습니다: %@"}},
         "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "无法在机器上设置 ssh：%@"}},
-        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "無法在機器上設定 ssh：%@"}}
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "無法在機器上設定 ssh：%@"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Nije moguće postaviti ssh na mašini: %@"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Kunne ikke konfigurere ssh på maskinen: %@"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Impossibile configurare ssh sulla macchina: %@"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "មិនអាចរៀបចំ ssh នៅលើម៉ាស៊ីនបានទេ៖ %@"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Kunne ikke sette opp ssh på maskinen: %@"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Nie udało się skonfigurować ssh na maszynie: %@"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Não foi possível configurar o ssh na máquina: %@"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Не удалось настроить ssh на машине: %@"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ตั้งค่า ssh บนเครื่องไม่ได้: %@"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Makinede ssh ayarlanamadı: %@"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Не вдалося налаштувати ssh на машині: %@"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Không thể thiết lập ssh trên máy: %@"}}
       }
     },
     "cloud.error.trace": {

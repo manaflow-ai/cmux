@@ -207,7 +207,7 @@ where
     let upload = async {
         copy(&mut input, &mut to_peer).await?;
         to_peer.shutdown().await?;
-        std::future::pending::<std::io::Result<()>>().await
+        std::future::pending::<io::Result<()>>().await
     };
     let download = async {
         copy(&mut from_peer, &mut output).await?;

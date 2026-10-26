@@ -94470,7 +94470,19 @@
         "ar": {"stringUnit": {"state": "needs_review", "value": "تسجيل الجهاز كمضيف للوكلاء"}},
         "ko": {"stringUnit": {"state": "needs_review", "value": "머신을 에이전트 호스트로 등록"}},
         "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "将机器登记为代理主机"}},
-        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "將機器登記為代理主機"}}
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "將機器登記為代理主機"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Upiši mašinu kao host za agente"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Tilmeld maskine som agentvært"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Registra la macchina come host degli agenti"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ចុះឈ្មោះម៉ាស៊ីនជាម៉ាស៊ីនមេសម្រាប់ភ្នាក់ងារ"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Registrer maskinen som agentvert"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Zarejestruj maszynę jako host agentów"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Registrar máquina como host de agentes"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Зарегистрировать машину как хост агентов"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ลงทะเบียนเครื่องเป็นโฮสต์ของเอเจนต์"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Makineyi ajan ana bilgisayarı olarak kaydet"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Зареєструвати машину як хост агентів"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Đăng ký máy làm máy chủ tác tử"}}
       }
     }
   },
