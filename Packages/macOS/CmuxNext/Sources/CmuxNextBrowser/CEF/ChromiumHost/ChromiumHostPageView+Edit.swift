@@ -7,7 +7,7 @@ import AVFoundation
 /// Blink's editor command name, which `cmux_shim_browser_edit_command` runs on the page's focused
 /// frame. Chrome's page view sends the same commands to its browser as RenderWidgetHostNSViewHost's
 /// Undo, Redo, Cut, Copy, Paste, PasteAndMatchStyle and SelectAll
-/// (content/common/render_widget_host_ns_view.mojom).
+/// (content/common/render_widget_host_ns_view.mojom), and Jump to Selection as its CenterSelection.
 nonisolated enum ChromiumHostEditCommand: String, CaseIterable, Sendable {
     case undo = "Undo"
     case redo = "Redo"
@@ -17,6 +17,19 @@ nonisolated enum ChromiumHostEditCommand: String, CaseIterable, Sendable {
     case pasteAndMatchStyle = "PasteAndMatchStyle"
     case delete = "Delete"
     case selectAll = "SelectAll"
+    /// Jump to Selection (`centerSelectionInVisibleArea:`): Chrome's `FrameInputHandler::CenterSelection`,
+    /// which the shim runs through the fork's `cmux_browser_center_selection` (task p01-process-242).
+    case centerSelection = "CenterSelection"
+
+    /// The first fork API with `cmux_browser_center_selection`: the one after embedder visibility
+    /// (``CEFLayerHosting/embedderVisibilityForkAPI``), which the fork task p01-process-242 sets with its pin.
+    static let centerSelectionForkAPI: Int32 = 35
+
+    /// Whether a page on fork API `forkAPI` runs the command: all of them, and center selection from
+    /// ``centerSelectionForkAPI`` (below it the shim has no fork call to run it with).
+    func runs(onForkAPI forkAPI: Int32) -> Bool {
+        self != .centerSelection || forkAPI >= Self.centerSelectionForkAPI
+    }
 
     /// The command as a kEdit frame (v0 0 copy, 1 cut, 2 paste, 3 select all, 4 undo, 5 redo), the
     /// form a hosted widget takes; nil for a command that frame has no code for.
@@ -28,9 +41,20 @@ nonisolated enum ChromiumHostEditCommand: String, CaseIterable, Sendable {
         case .selectAll: 3
         case .undo: 4
         case .redo: 5
-        case .pasteAndMatchStyle, .delete: nil
+        case .pasteAndMatchStyle, .delete, .centerSelection: nil
         }
         return code.map { ChromiumHostFrame(.edit, v: [$0]) }
+    }
+}
+
+extension ChromiumHostEditCommand {
+    /// Where a page view's Edit menu commands go, and which of them that route runs. The menu item
+    /// of a command the route does not run shows disabled, and its action sends nothing.
+    @MainActor struct Route {
+        /// Whether the route runs `command` now.
+        let runs: (ChromiumHostEditCommand) -> Bool
+        /// Sends a command ``runs`` took.
+        let send: (ChromiumHostEditCommand) -> Void
     }
 }
 
@@ -60,25 +84,55 @@ nonisolated enum ChromiumHostEditCommand: String, CaseIterable, Sendable {
 
 /// The Edit menu, Services, Start Speaking and Look Up of a hosted page (task 047), as Chrome's
 /// `RenderWidgetHostViewCocoa` has them (content/app_shim_remote_cocoa/render_widget_host_view_cocoa.mm).
-/// Edit commands go to ``editCommandSink`` (the session's ordered stream, or the host's
-/// `cmux_shim_browser_edit_command` post). Everything that reads the page's text reads the
-/// selection the host pushed ahead (``ChromiumHostTextInputState``, task 044) and asks the host
-/// nothing: Chrome keeps the same selection in its browser for Services and speech
+/// Edit commands go to ``editCommandRoute`` (the session's ordered stream, the host's
+/// `cmux_shim_browser_edit_command` post, or a hosted widget's kEdit frames). Everything that
+/// reads the page's text reads the selection the host pushed ahead (``ChromiumHostTextInputState``,
+/// task 044) and asks the host nothing: Chrome keeps the same selection in its browser for Services and speech
 /// (`TextInputManager::TextSelection`) and still asks the browser `SyncIsSpeaking`; cmux speaks in
 /// its own process, so whether it is speaking needs no message at all.
 extension ChromiumHostPageView {
     // MARK: Edit menu
 
-    @objc public func copy(_ sender: Any?) { editCommandSink?(.copy) }
-    @objc public func cut(_ sender: Any?) { editCommandSink?(.cut) }
-    @objc public func paste(_ sender: Any?) { editCommandSink?(.paste) }
-    @objc public func pasteAndMatchStyle(_ sender: Any?) { editCommandSink?(.pasteAndMatchStyle) }
+    @objc public func copy(_ sender: Any?) { runEditCommand(.copy) }
+    @objc public func cut(_ sender: Any?) { runEditCommand(.cut) }
+    @objc public func paste(_ sender: Any?) { runEditCommand(.paste) }
+    @objc public func pasteAndMatchStyle(_ sender: Any?) { runEditCommand(.pasteAndMatchStyle) }
     /// cmux's Paste and Match Style item (Cmd-Shift-V) sends NSTextView's selector.
-    @objc public func pasteAsPlainText(_ sender: Any?) { editCommandSink?(.pasteAndMatchStyle) }
-    @objc public func delete(_ sender: Any?) { editCommandSink?(.delete) }
-    @objc public override func selectAll(_ sender: Any?) { editCommandSink?(.selectAll) }
-    @objc public func undo(_ sender: Any?) { editCommandSink?(.undo) }
-    @objc public func redo(_ sender: Any?) { editCommandSink?(.redo) }
+    @objc public func pasteAsPlainText(_ sender: Any?) { runEditCommand(.pasteAndMatchStyle) }
+    @objc public func delete(_ sender: Any?) { runEditCommand(.delete) }
+    @objc public override func selectAll(_ sender: Any?) { runEditCommand(.selectAll) }
+    @objc public func undo(_ sender: Any?) { runEditCommand(.undo) }
+    @objc public func redo(_ sender: Any?) { runEditCommand(.redo) }
+    /// Edit > Find > Jump to Selection (Cmd-J), as
+    /// `-[RenderWidgetHostViewCocoa centerSelectionInVisibleArea:]`.
+    @objc public override func centerSelectionInVisibleArea(_ sender: Any?) { runEditCommand(.centerSelection) }
+
+    /// The Edit menu command an action selector names; nil for any other selector.
+    static func editCommand(for action: Selector?) -> ChromiumHostEditCommand? {
+        switch action {
+        case #selector(ChromiumHostPageView.copy(_:)): .copy
+        case #selector(ChromiumHostPageView.cut(_:)): .cut
+        case #selector(ChromiumHostPageView.paste(_:)): .paste
+        case #selector(ChromiumHostPageView.pasteAndMatchStyle(_:)),
+             #selector(ChromiumHostPageView.pasteAsPlainText(_:)): .pasteAndMatchStyle
+        case #selector(ChromiumHostPageView.delete(_:)): .delete
+        case #selector(ChromiumHostPageView.selectAll(_:)): .selectAll
+        case #selector(ChromiumHostPageView.undo(_:)): .undo
+        case #selector(ChromiumHostPageView.redo(_:)): .redo
+        case #selector(ChromiumHostPageView.centerSelectionInVisibleArea(_:)): .centerSelection
+        default: nil
+        }
+    }
+
+    /// Whether the page's route runs `command` now; false with no route.
+    func runsEditCommand(_ command: ChromiumHostEditCommand) -> Bool {
+        editCommandRoute?.runs(command) ?? false
+    }
+
+    private func runEditCommand(_ command: ChromiumHostEditCommand) {
+        guard let route = editCommandRoute, route.runs(command) else { return }
+        route.send(command)
+    }
 
     // MARK: Speech
 
@@ -124,6 +178,7 @@ extension ChromiumHostPageView {
 
 extension ChromiumHostPageView: NSMenuItemValidation {
     public func validateMenuItem(_ menuItem: NSMenuItem) -> Bool {
+        if let command = Self.editCommand(for: menuItem.action) { return runsEditCommand(command) }
         switch menuItem.action {
         case #selector(startSpeaking(_:)): selectedPageText != nil
         case #selector(stopSpeaking(_:)): speech.isSpeaking

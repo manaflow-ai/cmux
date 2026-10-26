@@ -41,11 +41,27 @@ import Testing
 
     // MARK: Edit menu
 
+    /// The Edit menu's selectors as cmux's main menu sends them, each with its command.
+    static let editActions: [(Selector, ChromiumHostEditCommand)] = [
+        (Selector(("undo:")), .undo), (Selector(("redo:")), .redo), (#selector(NSText.cut(_:)), .cut),
+        (#selector(NSText.copy(_:)), .copy), (#selector(NSText.paste(_:)), .paste),
+        (#selector(NSTextView.pasteAsPlainText(_:)), .pasteAndMatchStyle),
+        (Selector(("pasteAndMatchStyle:")), .pasteAndMatchStyle), (#selector(NSText.delete(_:)), .delete),
+        (#selector(NSText.selectAll(_:)), .selectAll),
+        (#selector(NSResponder.centerSelectionInVisibleArea(_:)), .centerSelection),
+    ]
+
+    /// A route that runs every command but `refused`, recording what it sends.
+    static func route(refusing refused: Set<ChromiumHostEditCommand> = [],
+                      _ sent: @escaping (ChromiumHostEditCommand) -> Void) -> ChromiumHostEditCommand.Route {
+        ChromiumHostEditCommand.Route(runs: { !refused.contains($0) }, send: sent)
+    }
+
     @Test func editMenuActionsSendBlinkEditCommands() {
         let (page, window) = makePage()
         defer { window.close() }
         var sent: [ChromiumHostEditCommand] = []
-        page.editCommandSink = { sent.append($0) }
+        page.editCommandRoute = Self.route { sent.append($0) }
         page.undo(nil)
         page.redo(nil)
         page.cut(nil)
@@ -55,26 +71,63 @@ import Testing
         page.pasteAndMatchStyle(nil)
         page.delete(nil)
         page.selectAll(nil)
-        #expect(sent == [.undo, .redo, .cut, .copy, .paste, .pasteAndMatchStyle, .pasteAndMatchStyle, .delete, .selectAll])
+        page.centerSelectionInVisibleArea(nil)
+        #expect(sent == [.undo, .redo, .cut, .copy, .paste, .pasteAndMatchStyle, .pasteAndMatchStyle, .delete,
+                         .selectAll, .centerSelection])
         #expect(sent.map(\.rawValue) == ["Undo", "Redo", "Cut", "Copy", "Paste", "PasteAndMatchStyle",
-                                         "PasteAndMatchStyle", "Delete", "SelectAll"])
+                                         "PasteAndMatchStyle", "Delete", "SelectAll", "CenterSelection"])
     }
 
-    /// cmux's own Edit menu items reach the page view through the responder chain.
+    /// cmux's own Edit menu items reach the page view through the responder chain, and validate.
     @Test func theMainMenuSelectorsReachThePageView() {
         let (page, window) = makePage()
         defer { window.close() }
-        for action in [#selector(NSText.copy(_:)), #selector(NSText.cut(_:)), #selector(NSText.paste(_:)),
-                       #selector(NSTextView.pasteAsPlainText(_:)), #selector(NSText.selectAll(_:)),
-                       Selector(("undo:")), Selector(("redo:"))] {
+        page.editCommandRoute = Self.route { _ in }
+        for (action, command) in Self.editActions {
+            #expect(ChromiumHostPageView.editCommand(for: action) == command, "\(action)")
             #expect(page.responds(to: action), "\(action)")
+            #expect(page.validateMenuItem(NSMenuItem(title: "", action: action, keyEquivalent: "")), "\(action)")
+        }
+    }
+
+    /// A command the route does not run validates false, and calling its action sends nothing.
+    /// With no route at all, every Edit menu item validates false.
+    @Test func aCommandTheRouteDoesNotRunIsDisabled() {
+        let (page, window) = makePage()
+        defer { window.close() }
+        for (action, _) in Self.editActions {
+            #expect(!page.validateMenuItem(NSMenuItem(title: "", action: action, keyEquivalent: "")), "\(action)")
+        }
+        var sent: [ChromiumHostEditCommand] = []
+        page.editCommandRoute = Self.route(refusing: [.delete, .centerSelection]) { sent.append($0) }
+        let delete = NSMenuItem(title: "Delete", action: #selector(NSText.delete(_:)), keyEquivalent: "")
+        let jump = NSMenuItem(title: "Jump to Selection",
+                              action: #selector(NSResponder.centerSelectionInVisibleArea(_:)), keyEquivalent: "j")
+        let copy = NSMenuItem(title: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        #expect(!page.validateMenuItem(delete))
+        #expect(!page.validateMenuItem(jump))
+        #expect(page.validateMenuItem(copy))
+        page.delete(nil)
+        page.centerSelectionInVisibleArea(nil)
+        page.copy(nil)
+        #expect(sent == [.copy])
+    }
+
+    /// Jump to Selection needs the fork's center selection call (API 35, task p01-process-242);
+    /// every other command runs on any fork.
+    @Test func centerSelectionRunsFromItsForkAPI() {
+        let below = ChromiumHostEditCommand.centerSelectionForkAPI - 1
+        #expect(!ChromiumHostEditCommand.centerSelection.runs(onForkAPI: below))
+        #expect(ChromiumHostEditCommand.centerSelection.runs(onForkAPI: ChromiumHostEditCommand.centerSelectionForkAPI))
+        for command in ChromiumHostEditCommand.allCases where command != .centerSelection {
+            #expect(command.runs(onForkAPI: 0), "\(command)")
         }
     }
 
     /// A hosted widget takes its commands as kEdit frames; commands that frame has no code for stay away.
     @Test func editFramesKeepTheirWireCodes() {
         let codes: [Int32?] = ChromiumHostEditCommand.allCases.map { $0.editFrame?.v[0] }
-        #expect(codes == [4, 5, 1, 0, 2, nil, nil, 3])
+        #expect(codes == [4, 5, 1, 0, 2, nil, nil, 3, nil])
         #expect(ChromiumHostEditCommand.copy.editFrame?.kind == .edit)
     }
 
@@ -129,7 +182,10 @@ import Testing
         page.stopSpeaking(nil)
         #expect(speech.stops == 1)
         #expect(!page.validateMenuItem(stop))
+        // No route: the Edit menu's items are not the page's.
         let copy = NSMenuItem(title: "Copy", action: #selector(NSText.copy(_:)), keyEquivalent: "c")
+        #expect(!page.validateMenuItem(copy))
+        page.editCommandRoute = Self.route { _ in }
         #expect(page.validateMenuItem(copy))
     }
 

@@ -218,6 +218,10 @@ void cmux_shim_browser_edit_command(int browser_id, const char* command) {
     frame->Delete();
   } else if (name == "SelectAll") {
     frame->SelectAll();
+  } else if (name == "CenterSelection" && fork_api().browser_center_selection) {
+    // CefFrame has no CenterSelection: the fork runs Chrome's
+    // FrameInputHandler::CenterSelection on the focused frame itself.
+    fork_api().browser_center_selection(browser_id);
   }
 }
 

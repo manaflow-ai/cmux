@@ -114,8 +114,9 @@ public final class ChromiumHostPageView: NSView {
     var textInputSink: ((ChromiumHostTextInputOp) -> Void)?
     /// The page's text input: the state the host pushed and the input method's marked text.
     var textInput = ChromiumHostTextInput()
-    /// Where the Edit menu's commands go (``InputTarget/view`` only; ChromiumHostPageView+Edit.swift).
-    var editCommandSink: ((ChromiumHostEditCommand) -> Void)?
+    /// Where the Edit menu's commands go and which ones run (``InputTarget/view`` only;
+    /// ChromiumHostPageView+Edit.swift). With none, the view takes no Edit menu command.
+    var editCommandRoute: ChromiumHostEditCommand.Route?
     /// Speaks the page's selection for Start Speaking; made on first use. Tests pass a recorder.
     lazy var speech: any ChromiumHostSpeaking = ChromiumHostSpeechSynthesizer()
     private var tracking: NSTrackingArea?

@@ -148,7 +148,7 @@ final class ChromiumHostWidgetHost {
         entry.view.onGeometry = nil
         #if DEBUG || CMUX_BENCH_HOOKS
         entry.view.sink = nil
-        entry.view.editCommandSink = nil
+        entry.view.editCommandRoute = nil
         #endif
         _ = entry.view.show(contextID: 0)
         entry.view.removeFromSuperview()
@@ -202,9 +202,12 @@ final class ChromiumHostWidgetHost {
             wire.widget(widget, input: frame)
             return nil
         }
-        entry.view.editCommandSink = { command in
-            if let frame = command.editFrame { wire.widget(widget, input: frame) }
-        }
+        // Only the commands kEdit has a code for: the others' menu items show disabled.
+        entry.view.editCommandRoute = ChromiumHostEditCommand.Route(
+            runs: { $0.editFrame != nil },
+            send: { command in
+                if let frame = command.editFrame { wire.widget(widget, input: frame) }
+            })
         #endif
         if entry.context.kind.placement.reportsGeometry {
             entry.view.onGeometry = { geometry in wire.widget(widget, movedTo: geometry) }

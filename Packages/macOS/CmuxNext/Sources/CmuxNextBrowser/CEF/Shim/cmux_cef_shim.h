@@ -1107,8 +1107,10 @@ CMUX_SHIM_EXPORT int cmux_shim_memory_pressure_vote(int level);
 CMUX_SHIM_EXPORT void cmux_shim_set_cursor_events(int enabled);
 // One Edit menu command on the page's focused frame (its main frame when no
 // frame has focus), by Blink's editor command name: "Undo", "Redo", "Cut",
-// "Copy", "Paste", "PasteAndMatchStyle", "Delete" or "SelectAll"; any other
-// name does nothing. Chrome's RenderWidgetHostNSViewHost Undo ... SelectAll
+// "Copy", "Paste", "PasteAndMatchStyle", "Delete", "SelectAll" or
+// "CenterSelection" (Jump to Selection; does nothing on a fork without
+// cmux_browser_center_selection); any other name does nothing. Chrome's
+// RenderWidgetHostNSViewHost Undo ... SelectAll and CenterSelection
 // (content/common/render_widget_host_ns_view.mojom), which its browser runs
 // on the focused frame's FrameInputHandler. The Chromium Host's page view in
 // cmux sends them (ChromiumHostPageView's Edit menu actions). UI thread.

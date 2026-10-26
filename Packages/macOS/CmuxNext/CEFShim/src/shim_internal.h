@@ -158,6 +158,9 @@ struct ForkApi {
   // No API number yet (p07-memory-051; the fork train p07-memory-074 numbers
   // it): cmux's voter in Chromium's MultiSourceMemoryPressureMonitor.
   int (*memory_pressure_vote)(int) = nullptr;
+  // No API number yet (p01-process-242 numbers it, cmux expects 35): Jump to
+  // Selection, FrameInputHandler::CenterSelection on the focused frame.
+  int (*browser_center_selection)(int) = nullptr;
 };
 
 struct Host {

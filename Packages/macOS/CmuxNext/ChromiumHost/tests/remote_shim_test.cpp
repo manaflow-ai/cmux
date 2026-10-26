@@ -719,6 +719,24 @@ int main() {
       CHECK(got[2].op == cmux_remote::kOpTabActivate && got[2].ctl_seq == 2 && got[2].after_input == 3);
     }
   }
+  // An Edit menu command (task 047) is ordered too: a paste lands after the keys typed before it,
+  // and the next key follows the paste.
+  {
+    uint32_t ctl = 99;
+    CHECK(cmux_remote_shim_order_input(&ctl) == 4 && ctl == 2);
+    CHECK(cmux_remote_shim_order_input(&ctl) == 5 && ctl == 2);
+    cmux_shim_browser_edit_command(browser, "Paste");
+    CHECK(cmux_remote_shim_order_input(&ctl) == 6 && ctl == 3);
+    const std::vector<Message> got = host.Read(1);
+    CHECK(got.size() == 1);
+    if (got.size() == 1) {
+      CHECK(got[0].op == cmux_remote::kOpBrowserEditCommand && got[0].ctl_seq == 3 && got[0].after_input == 5);
+      TlvReader edit(got[0].fields);
+      CHECK(edit.I32() == browser);
+      CHECK(edit.Str() == std::optional<std::string>("Paste"));
+      CHECK(edit.ok() && edit.AtEnd());
+    }
+  }
 
   // A host that never reads: posts still return at once, and the geometry of a page waits
   // coalesced to one frame.
