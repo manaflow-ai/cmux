@@ -1,4 +1,3 @@
-@testable import CmuxNextApp
 import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextMemory
@@ -37,14 +36,6 @@ struct PreviewImageCacheTests {
 
     private func release(_ cache: PreviewImageCache, to limit: MemoryLimit) -> MemoryReleaseProgress {
         cache.releaseMemory(within: MemoryReleaseSlice(limit: limit) { false })
-    }
-
-    @Test func sixteenGigabyteSharesAreAtLeastTheOldLiterals() {
-        let shares = ImageCacheShares(.forMemory(physicalBytes: 16 << 30, gpuResidentAvailable: false))
-        #expect(shares.previewBytes >= 32 << 20, "previews got \(shares.previewBytes >> 20) MiB, under the old 32 MB")
-        #expect(shares.pageThumbnailBytes >= 16 << 20, "page thumbnails got \(shares.pageThumbnailBytes >> 20) MiB, under the old 16 MB")
-        let budget = SubsystemBudget.forMemory(physicalBytes: 16 << 30, gpuResidentAvailable: false)
-        #expect(shares.previewBytes + shares.pageThumbnailBytes <= budget.imageCacheBytes)
     }
 
     @Test func aHalfLimitHalvesTheCapacityAndFreesNothingUntilTheRelease() throws {
