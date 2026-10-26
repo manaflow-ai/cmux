@@ -358,9 +358,6 @@ public final class SidebarModel {
         selection.count > 1 && selection.contains(id) ? orderedSelection : [id]
     }
 
-    /// What a close of `id` from its menu or a key closes (``actionTargets(for:)``).
-    public func closeTargets(for id: WorkspaceID) -> [WorkspaceID] { actionTargets(for: id) }
-
     // MARK: Intents
 
     /// Emits an intent to `onIntent`, or applies it locally when unset.

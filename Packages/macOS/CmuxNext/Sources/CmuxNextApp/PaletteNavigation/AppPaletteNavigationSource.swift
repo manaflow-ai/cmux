@@ -48,9 +48,8 @@ final class AppPaletteNavigationSource: PaletteNavigationSource {
     /// The groups the active window's sidebar draws, in its order.
     static func groups(_ services: AppServices) -> [PaletteNavigationGroup] {
         guard let sidebar = services.windows.active?.sidebar else { return [] }
-        return sidebar.model.sections.flatMap(\.nodes).compactMap { node in
-            guard case let .group(group) = node else { return nil }
-            return PaletteNavigationGroup(id: group.id.rawValue, name: group.name, color: group.custom == nil ? group.color : nil,
+        return SidebarEdits.groups(in: sidebar.model.sections).map { group in
+            PaletteNavigationGroup(id: group.id.rawValue, name: group.name, color: group.custom == nil ? group.color : nil,
                                           workspaceIDs: group.workspaces.map(\.id.rawValue))
         }
     }

@@ -38,8 +38,8 @@ enum DestructiveConfirmation {
     static func install(_ services: AppServices) {
         services.registry.confirmationPresenter = { id, invocation, proceed in
             // Close Workspace runs at the press and asks afterwards, so its row leaves before any
-            // process-info round trip (WorkspaceCloseFlow).
-            if id == "closeWorkspace" {
+            // process-info round trip (WorkspaceCloseFlow). A selection's close asks once first, as the bulk closes do.
+            if id == "closeWorkspace", !WorkspaceBulkClose.closesSelection(invocation, AppActionContext(services: services)) {
                 var run = invocation.confirmed()
                 run.asksIfRunning = true
                 services.registry.perform(id, invocation: run)
@@ -75,7 +75,7 @@ enum DestructiveConfirmation {
         case let id where StashHandlers.workspaceActions.contains(id):
             // Save and Close of workspaces asks as their close does: only while a program runs.
             return await StashHandlers.prompt(id, invocation, context, warn: warn)
-        case let id where WorkspaceBulkClose.ids.contains(id):
+        case let id where WorkspaceBulkClose.ids.contains(id) || id == "closeWorkspace":
             return await WorkspaceBulkClose.prompt(id, invocation, context, warn: warn)
         case "browserProfile.delete":
             return await BrowserProfileDeletePrompt.prompt(invocation, context)

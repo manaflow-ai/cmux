@@ -70,11 +70,10 @@ extension SidebarBridge {
             guard let (workspace, daemon) = services.machines.workspace(id: id.rawValue), let key = workspace.key else { return }
             command("rename-workspace", on: daemon, intent: .renameWorkspace(key: key, name: name)) { c in _ = try await c.renameWorkspace(key, to: name) }
         case .close(let ids):
-            // The row's close button is an entrypoint of `closeWorkspace`,
-            // so it asks the same confirmation and ends the terminals too.
-            for id in ids {
-                services.registry.perform("closeWorkspace", invocation: ActionInvocation(closingRow: id.rawValue))
-            }
+            // The row's close button is an entrypoint of `closeWorkspace` (the same question; the terminals end too). Delete
+            // on a multi-row selection is one Close Workspace of the selection, not one per row (one question, one Undo).
+            guard let first = ids.first(where: model.canClose) ?? ids.first else { return }
+            services.registry.perform("closeWorkspace", invocation: ids.count > 1 ? ActionInvocation(target: ActionTargetRef(kind: .workspace, id: first.rawValue)) : ActionInvocation(closingRow: first.rawValue))
         case .newWorkspace(let machine, let group):
             // A double-click in a group's empty part, or its "+": the end of that group.
             let daemon = machine.flatMap { services.machines.daemon(machine: $0.rawValue) }
