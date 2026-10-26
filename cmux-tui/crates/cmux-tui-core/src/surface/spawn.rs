@@ -426,7 +426,7 @@ impl Surface {
         // reaper when teardown drops the last external surface reference.
         let reaper_surface = surface.clone();
         let reaper_thread = match cmux_tui_platform::qos::spawn_outside_request(
-            std::thread::Builder::new().name(format!("surface-{id}-wait")),
+            format!("surface-{id}-wait"),
             move || {
                 let _reaper_completion = ReaderCompletionGuard(reaper_completion);
                 let end = wait();

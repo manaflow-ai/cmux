@@ -568,9 +568,11 @@ impl PersistenceCoordinator {
             changed: Condvar::new(),
         });
         let worker_shared = Arc::clone(&shared);
-        let worker = std::thread::Builder::new()
-            .name("cmux-auth-persistence".into())
-            .spawn(move || {
+        // Remote enrollment state on disk: remote daemon work, Utility.
+        let worker = cmux_threads::spawn(
+            "cmux-auth-persistence",
+            cmux_threads::ThreadQos::Utility,
+            move || {
                 if std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
                     worker_shared.drain();
                 }))
@@ -581,8 +583,9 @@ impl PersistenceCoordinator {
                     ));
                 }
                 state_lease
-            })
-            .map_err(IdentityError::Io)?;
+            },
+        )
+        .map_err(IdentityError::Io)?;
         Ok(Self { shared, worker: StdMutex::new(Some(worker)) })
     }
 
@@ -1613,13 +1616,15 @@ impl Drop for PendingDecisionCleanup {
         let synchronous_fallback = Arc::clone(&state);
         let fallback_invitation_id = invitation_id.clone();
         let fallback_token = Arc::clone(&token);
-        if std::thread::Builder::new()
-            .name("cmux-pending-enrollment-cleanup".into())
-            .spawn(move || {
+        if cmux_threads::spawn(
+            "cmux-pending-enrollment-cleanup",
+            cmux_threads::ThreadQos::Utility,
+            move || {
                 let mut locked = state.blocking_lock();
                 remove_pending_decision(&mut locked, &invitation_id, &token);
-            })
-            .is_err()
+            },
+        )
+        .is_err()
         {
             let mut locked = synchronous_fallback.blocking_lock();
             remove_pending_decision(&mut locked, &fallback_invitation_id, &fallback_token);

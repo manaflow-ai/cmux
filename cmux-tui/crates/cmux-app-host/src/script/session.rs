@@ -22,6 +22,10 @@ use crate::protocol::{
     SCRIPT_STEP_MS, ToHost,
 };
 
+/// A script session is automation (`cmux script run`, `cmux script repl`):
+/// its reader and call threads run at Utility.
+const SCRIPT_THREAD_QOS: cmux_threads::ThreadQos = cmux_threads::ThreadQos::Utility;
+
 /// Wall time of one cell when the caller gives none.
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(60);
 /// The longest wall time a caller may ask for.
@@ -233,15 +237,14 @@ impl Shared {
             return;
         }
         let me = self.clone();
-        let spawned =
-            std::thread::Builder::new().name("cmux-script-call".into()).spawn(move || {
-                let (ok, body) = match me.router.call(&name, params, options) {
-                    Ok(body) => (true, body),
-                    Err(body) => (false, body),
-                };
-                me.inflight.fetch_sub(1, Ordering::AcqRel);
-                me.send(&ToHost::Resolve { cb, ok, body });
-            });
+        let spawned = cmux_threads::spawn("cmux-script-call", SCRIPT_THREAD_QOS, move || {
+            let (ok, body) = match me.router.call(&name, params, options) {
+                Ok(body) => (true, body),
+                Err(body) => (false, body),
+            };
+            me.inflight.fetch_sub(1, Ordering::AcqRel);
+            me.send(&ToHost::Resolve { cb, ok, body });
+        });
         if let Err(error) = spawned {
             self.inflight.fetch_sub(1, Ordering::AcqRel);
             let body = json!({ "code": "operation.failed", "message": format!("no worker thread: {error}"), "retryable": true });
@@ -322,34 +325,29 @@ impl Session {
         });
         let (ready_tx, ready_rx) = mpsc::channel();
         let reader_shared = shared.clone();
-        let spawned =
-            std::thread::Builder::new().name("cmux-script-host".into()).spawn(move || {
-                let mut ready = Some(ready_tx);
-                let mut lines = BufReader::new(ours);
-                let mut line = Vec::new();
-                loop {
-                    line.clear();
-                    match lines
-                        .by_ref()
-                        .take(MAX_LINE_BYTES as u64 + 1)
-                        .read_until(b'\n', &mut line)
-                    {
-                        Ok(0) | Err(_) => break,
-                        Ok(_) if line.last() != Some(&b'\n') => break,
-                        Ok(_) => match serde_json::from_slice::<FromHost>(&line) {
-                            Ok(message) => reader_shared.handle(message, &mut ready),
-                            Err(_) => break,
-                        },
-                    }
+        let spawned = cmux_threads::spawn("cmux-script-host", SCRIPT_THREAD_QOS, move || {
+            let mut ready = Some(ready_tx);
+            let mut lines = BufReader::new(ours);
+            let mut line = Vec::new();
+            loop {
+                line.clear();
+                match lines.by_ref().take(MAX_LINE_BYTES as u64 + 1).read_until(b'\n', &mut line) {
+                    Ok(0) | Err(_) => break,
+                    Ok(_) if line.last() != Some(&b'\n') => break,
+                    Ok(_) => match serde_json::from_slice::<FromHost>(&line) {
+                        Ok(message) => reader_shared.handle(message, &mut ready),
+                        Err(_) => break,
+                    },
                 }
-                reader_shared.kill();
-                let _ = child.kill();
-                let _ = child.wait();
-                reader_shared.mark_dead();
-                if let Some(ready) = ready.take() {
-                    let _ = ready.send(Err("the script runtime exited".into()));
-                }
-            });
+            }
+            reader_shared.kill();
+            let _ = child.kill();
+            let _ = child.wait();
+            reader_shared.mark_dead();
+            if let Some(ready) = ready.take() {
+                let _ = ready.send(Err("the script runtime exited".into()));
+            }
+        });
         if let Err(e) = spawned {
             shared.kill();
             // The reader owned the child; end and reap it by pid.

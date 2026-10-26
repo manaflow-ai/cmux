@@ -18,8 +18,31 @@ where
     F: FnOnce() -> T + Send + 'static,
     T: Send + 'static,
 {
-    let name = name.into();
-    Builder::new().name(name.clone()).spawn(move || {
+    start(Builder::new(), name.into(), qos, f)
+}
+
+/// [`spawn`] with a stack of `stack_size` bytes instead of the platform
+/// default (`std::thread::Builder::stack_size`), for a long-lived thread
+/// whose stack need is known to be small.
+pub fn spawn_with_stack<F, T>(
+    name: impl Into<String>,
+    qos: ThreadQos,
+    stack_size: usize,
+    f: F,
+) -> io::Result<JoinHandle<T>>
+where
+    F: FnOnce() -> T + Send + 'static,
+    T: Send + 'static,
+{
+    start(Builder::new().stack_size(stack_size), name.into(), qos, f)
+}
+
+fn start<F, T>(builder: Builder, name: String, qos: ThreadQos, f: F) -> io::Result<JoinHandle<T>>
+where
+    F: FnOnce() -> T + Send + 'static,
+    T: Send + 'static,
+{
+    builder.name(name.clone()).spawn(move || {
         registry::register_current(name, qos);
         let _deregister = Deregister;
         f()
@@ -40,7 +63,7 @@ mod tests {
 
     use crate::{
         LiveQos, QosChange, ThreadInfo, ThreadQos, current, current_slot, refused_changes,
-        set_current, snapshot, spawn, with_qos,
+        set_current, snapshot, spawn, spawn_with_stack, with_qos,
     };
 
     fn row(name: &str) -> Option<ThreadInfo> {
@@ -141,6 +164,22 @@ mod tests {
 
         finish_tx.send(()).unwrap();
         handle.join().unwrap();
+        assert_eq!(row(NAME), None);
+    }
+
+    #[test]
+    fn spawn_with_stack_registers_the_thread_at_its_qos() {
+        const NAME: &str = "cmux-threads-test-stack";
+        let own = spawn_with_stack(NAME, ThreadQos::Utility, 256 * 1024, || {
+            // A frame well inside the requested stack runs.
+            let frame = std::hint::black_box([7_u8; 64 * 1024]);
+            (own_row(), frame.iter().map(|byte| usize::from(*byte)).sum::<usize>())
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+        assert_eq!((own.0.name.as_str(), own.0.declared), (NAME, ThreadQos::Utility));
+        assert_eq!(own.1, 7 * 64 * 1024);
         assert_eq!(row(NAME), None);
     }
 

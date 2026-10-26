@@ -39,5 +39,6 @@ name = "mux2-wrapcheck"
 path = "src/bin/mux2-wrapcheck.rs"
 
 [dependencies]
+cmux-threads.workspace = true
 ghostty-vt.workspace = true
 libc.workspace = true

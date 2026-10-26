@@ -968,6 +968,7 @@ dependencies = [
 name = "cmux-app-host"
 version = "0.1.0"
 dependencies = [
+ "cmux-threads",
  "libc",
  "rquickjs",
  "serde",
@@ -1058,6 +1059,7 @@ dependencies = [
  "cmux-link",
  "cmux-local-auth",
  "cmux-panic-log",
+ "cmux-threads",
  "fs4",
  "futures-util",
  "getrandom 0.3.4",
@@ -1328,6 +1330,7 @@ dependencies = [
 name = "cmux-mux2"
 version = "0.1.0"
 dependencies = [
+ "cmux-threads",
  "ghostty-vt",
  "libc",
 ]
@@ -1459,6 +1462,7 @@ dependencies = [
  "cmux-pty",
  "cmux-relay",
  "cmux-remote-protocol",
+ "cmux-threads",
  "cmux-tui-core",
  "cmux-unix-socket",
  "cmux-wg",
@@ -1543,6 +1547,7 @@ dependencies = [
  "cmux-blocking",
  "cmux-panic-log",
  "cmux-server-core",
+ "cmux-threads",
  "flate2",
  "futures-util",
  "getrandom 0.3.4",
@@ -1620,6 +1625,7 @@ dependencies = [
  "cmux-panic-log",
  "cmux-remote",
  "cmux-remote-protocol",
+ "cmux-threads",
  "cmux-tui-core",
  "cmux-wg",
  "getrandom 0.3.4",
@@ -1760,6 +1766,7 @@ version = "0.1.0"
 dependencies = [
  "base64",
  "cmux-cloud-wire",
+ "cmux-threads",
  "serde",
  "serde_json",
  "url",
@@ -1843,6 +1850,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "cmux-process",
+ "cmux-threads",
  "cmux-tui-platform",
  "getrandom 0.3.4",
  "libc",
@@ -1860,6 +1868,7 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "base64",
+ "cmux-threads",
  "getrandom 0.3.4",
  "libc",
  "serde",
@@ -1926,6 +1935,7 @@ version = "0.0.0"
 name = "cmux-tui-util"
 version = "0.1.0"
 dependencies = [
+ "cmux-threads",
  "cmux-trace",
  "cmux-tui-platform",
  "getrandom 0.3.4",
@@ -2004,6 +2014,7 @@ name = "cmux-worktree-care"
 version = "0.1.0"
 dependencies = [
  "cmux-git",
+ "cmux-threads",
  "libc",
  "serde",
  "serde_json",
