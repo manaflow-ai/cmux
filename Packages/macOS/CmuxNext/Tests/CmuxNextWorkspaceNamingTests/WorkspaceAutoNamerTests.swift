@@ -26,6 +26,7 @@ struct WorkspaceAutoNamerTests {
         var sent: [String] = []
         var defersSend = false
         var rejectsQueue = false
+        var cancelsFirstQueue = false
         var includesWorkspace = true
         var attempts: [String] = []
         var onAttempt: ((String) -> Void)?
@@ -81,6 +82,13 @@ struct WorkspaceAutoNamerTests {
                     attempts.append(name)
                     onAttempt?(name)
                     if rejectsQueue { return false }
+                    if cancelsFirstQueue {
+                        cancelsFirstQueue = false
+                        isNewTabPage = true
+                        _ = maySend()
+                        isNewTabPage = false
+                        return true
+                    }
                     if defersSend { queued.append((name, maySend)); return true }
                     guard maySend() else { return false }
                     sent.append(name)
@@ -227,6 +235,24 @@ struct WorkspaceAutoNamerTests {
         #expect(await iterator.next() == "Second title")
         try await Task.sleep(for: .milliseconds(30))
         #expect(fixture.attempts == ["First title", "Second title"])
+        worker.cancel()
+        await worker.value
+    }
+
+    @Test(.timeLimit(.minutes(1)))
+    func aCanceledSendRetriesWhenItsCandidateReturnsBeforeObservation() async {
+        let fixture = Fixture()
+        fixture.title("First title")
+        fixture.cancelsFirstQueue = true
+        let events = AsyncStream<String>.makeStream()
+        fixture.onAttempt = { events.continuation.yield($0) }
+        let worker = Task { await fixture.namer.run() }
+        defer { worker.cancel(); events.continuation.finish() }
+        var iterator = events.stream.makeAsyncIterator()
+        #expect(await iterator.next() == "First title")
+        #expect(await iterator.next() == "First title")
+        #expect(fixture.attempts == ["First title", "First title"])
+        #expect(fixture.sent == ["First title"])
         worker.cancel()
         await worker.value
     }
