@@ -51,6 +51,18 @@ import Testing
         #expect(otherPage.wireToken != 0 && otherPage.wireToken != page.wireToken)
     }
 
+    /// A tab's page is a child window only in process; in host mode it is the pane's page view, in
+    /// the view tree (task 028), so App code that reaches page windows leaves host pages alone.
+    @Test(arguments: [false, true])
+    func aTabIsAChildWindowPageOnlyInProcess(hostMode: Bool) throws {
+        let (runtime, root) = try Self.runtime(hostMode: hostMode)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let (host, tab) = Self.pane(runtime)
+        host.ensureCreated(tab)
+
+        #expect(tab.presentation == (hostMode ? .inView : .childWindow))
+    }
+
     /// Host mode: the window's page shows in the pane's page view, so the fork's layer hosting of a
     /// page window over the host view gets no fork; in process it does (fork API 27).
     @Test(arguments: [false, true])

@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextSignposts
 import CmuxNextWakeups
+import IOSurface
 
 /// Layer hosting (fork API 26) of the page window over one ``CEFHostView``:
 /// asks the fork for the page window's Core Animation context and shows it in
@@ -47,6 +48,13 @@ import CmuxNextWakeups
 /// Chrome shows a tab's saved frame in the switch's frame and its renderer
 /// catches up (`content/browser/renderer_host/delegated_frame_host.cc`,
 /// `WasShown`).
+///
+/// Past its grace (p03-rendering-055: the app-wide hidden frame list dropped a hidden page's kept
+/// frame) the page keeps one volatile snapshot instead of a layer host: the fork copies its last frame
+/// on its GPU thread, the app drops the `CALayerHost` and the renderer evicts its frame. A show puts
+/// the snapshot on screen in the switch's own commit and the live layer under it; the page window's
+/// next frame takes it away. A snapshot the system purged shows the page's background
+/// (``CEFHiddenPageSnapshot``).
 ///
 /// With the fork's attach call (feature `cefAttachedPages`, p03-rendering-045) a pane's tabs attach
 /// Chromium's own view in the host view instead (``attachedPages``): one attach per browser, at the end of
@@ -106,6 +114,8 @@ final class CEFLayerHosting {
     private(set) var fork: Fork?
     /// The fork work of a show or hide, after the switch's commit.
     let switchCommit: CEFSwitchCommit
+    /// The page's volatile snapshot while it is hidden past its grace.
+    let hiddenSnapshot: CEFHiddenPageSnapshot
     /// The fork hosts this view's page window (in process, fork API 26). False in host mode, where
     /// the pane's ``ChromiumHostPageView`` shows the context the Chromium Host gives (task 023).
     var isForkBacked: Bool { fork != nil }
@@ -143,11 +153,13 @@ final class CEFLayerHosting {
          afterCommit: @escaping Scheduler = { AfterFrameCommit().run($0) }) {
         self.isEnabled = isEnabled
         switchCommit = CEFSwitchCommit(afterCommit: afterCommit)
+        hiddenSnapshot = CEFHiddenPageSnapshot()
         self.resizeDeadlineMs = resizeDeadlineMs
         self.liveResizeDeadlineMs = liveResizeDeadlineMs
         self.refreshIntervals = refreshIntervals
         self.schedule = schedule
         self.makePage = makePage
+        switchCommit.pastGrace = { [weak self] browser, fork in self?.hiddenPastGrace(browser: browser, fork: fork) }
     }
 
     /// Whether a refused request waits for the tracker's next read.
@@ -184,6 +196,8 @@ final class CEFLayerHosting {
     func pageShown(browser: Int32, tabSwitch: TabSwitchSignpost.PageShow? = nil) { // perf-hot: 10ms tab-switch (every Chromium tab show)
         defer { tabSwitch?.pageShown() }
         guard let fork else { return }
+        // Another tab's page: a snapshot of the last one never covers it.
+        hiddenSnapshot.pageShown(browser: browser)
         self.browser = browser
         if Self.attaches(fork: fork, widget: widget) {
             attachedPages.show(browser)
@@ -380,6 +394,7 @@ final class CEFLayerHosting {
     private func dropPage() {
         // Not hosted any more: the fork follows the page window again, and no hidden frame is kept for it.
         switchCommit.reset()
+        hiddenSnapshot.reset()
         guard let page else { return }
         page.removeFromSuperview()
         self.page = nil

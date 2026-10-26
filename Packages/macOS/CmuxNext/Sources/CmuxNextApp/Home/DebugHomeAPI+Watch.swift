@@ -1,6 +1,7 @@
 import CmuxHomeCore
 import CmuxNextHomeEngine
 import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 
 /// `debug.home.api` `watch_start` / `watch_read` / `store`: a second front
@@ -11,27 +12,34 @@ import Foundation
 /// A write in either Home must show in both.
 @MainActor
 enum DebugHomeWatch {
-    private static var task: Task<Void, Never>?
+    private static var task: Task<Void, any Error>?
     private static var seen: [JSONValue] = []
     private static let capacity = 2_000
 
-    static func start(_ router: HomeSourceRouter) -> JSONValue {
+    /// Starts a watch: the stream is read off the main actor, and each message is recorded as
+    /// automation work (recipe R-hop, plans/cmux-next/chrome-parity/p06-scheduler.md).
+    static func start(_ router: HomeSourceRouter, work: BackgroundWork, mainWork: MainWorkScheduler) -> JSONValue {
         task?.cancel()
         seen.removeAll()
-        // task-owner: the debug watch; replaced by the next watch_start
-        task = Task { @MainActor in
+        // task-owner: the debug watch; replaced (cancelled) by the next watch_start
+        task = work.task(.bestEffort) {
             for await event in await router.events() {
-                guard case .message(let message, let rev) = event, seen.count < capacity else { continue }
-                var row = DebugHomeAPI.message(message)
-                if case .object(var fields) = row {
-                    fields["conversation"] = .string(message.conversation.rawValue)
-                    fields["rev"] = JSONValue(Int(rev))
-                    row = .object(fields)
-                }
-                seen.append(row)
+                guard case .message(let message, let rev) = event else { continue }
+                mainWork.postFromAnyThread(.automation, owner: "debug.home.watch") { DebugHomeWatch.record(message, rev: rev) }
             }
         }
         return .object(["ok": .bool(true)])
+    }
+
+    private static func record(_ message: Message, rev: Revision) {
+        guard seen.count < capacity else { return }
+        var row = DebugHomeAPI.message(message)
+        if case .object(var fields) = row {
+            fields["conversation"] = .string(message.conversation.rawValue)
+            fields["rev"] = JSONValue(Int(rev))
+            row = .object(fields)
+        }
+        seen.append(row)
     }
 
     static func read() -> JSONValue { .object(["ok": .bool(task != nil), "events": .array(seen)]) }

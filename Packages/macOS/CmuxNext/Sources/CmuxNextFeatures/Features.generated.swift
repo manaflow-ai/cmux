@@ -297,6 +297,23 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// The GitHub feed poll and the web-updates check book no next run while no cmux window shows, and run once when a window shows again if one came due.
+    public static let hiddenPollPause = Feature(
+        index: 16,
+        name: "hiddenPollPause",
+        owner: "Performance Lead",
+        description: "The GitHub feed poll and the web-updates check book no next run while no cmux window shows, and run once when a window shows again if one came due.",
+        kind: .perfPath,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: "2026-12-20",
+        params: [],
+        stories: ["home-idle"],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// Resting the pointer on a sidebar row or tab whose browser page is frozen or hibernated wakes that page in the background after a short dwell, at most two at once, never in Low Power Mode on battery or under memory pressure.
     public static let intentPrewarmHover = Feature(
         index: 17,
@@ -1113,6 +1130,7 @@ nonisolated extension Feature {
         .energySaver,
         .frameRateClasses,
         .frozenGrowthDiscard,
+        .hiddenPollPause,
         .intentPrewarmHover,
         .ipcMethodLatencyFieldData,
         .memoryAgentAndControlCaches,
@@ -1180,6 +1198,7 @@ nonisolated extension Feature {
         .energySaver,
         .frameRateClasses,
         .frozenGrowthDiscard,
+        .hiddenPollPause,
         .intentPrewarmHover,
         .ipcMethodLatencyFieldData,
         .memoryAgentAndControlCaches,
