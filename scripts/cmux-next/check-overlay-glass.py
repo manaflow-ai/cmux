@@ -148,7 +148,7 @@ ALLOWED: dict[str, dict[str, str]] = {
         "elevated-fill": "the drop target's label chip over the moving pane outline",
     },
     P + "CmuxNextSidebar/Views/DragLiftView.swift": {"elevated-fill": "the dragged row's lifted copy (85%), not a resting surface"},
-    P + "CmuxNextApp/TextBox/TextBoxView.swift": {"system-solid": "an editable text box's field fill (85%)"},
+    P + "CmuxNextTerminal/TextBox/TextBoxView.swift": {"system-solid": "an editable text box's field fill (85%)"},
 }
 
 

@@ -15,7 +15,7 @@
 import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
 import { chromium, webkit, type Browser, type BrowserType, type Locator, type Page } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
-import { papercutPane } from "./support/papercutChat";
+import { inspectorPushAlways, papercutPane } from "./support/papercutChat";
 
 await requireBrowserLane("chat-inspector-overlay-toggle.test.ts", async () => {
   setDefaultTimeout(300_000);
@@ -39,6 +39,8 @@ await requireBrowserLane("chat-inspector-overlay-toggle.test.ts", async () => {
 
   let current: Browser | undefined;
   let pane: Awaited<ReturnType<typeof papercutPane>> | undefined;
+  /// The same chat with its last turn still running: the composer shows Stop.
+  let running: Awaited<ReturnType<typeof papercutPane>> | undefined;
   beforeAll(async () => {
     // The context the harness holds, so the Context section sits under Environment, as in the gallery.
     const usage = { sessionUpdate: "usage_update", used: 52_000, size: 200_000 };
@@ -50,10 +52,13 @@ await requireBrowserLane("chat-inspector-overlay-toggle.test.ts", async () => {
     // The first load can run Vite's dependency optimizer and reload mid-compile.
     current = browsers.values().next().value;
     await (await pane.open()).close();
+    running = await papercutPane(() => current!, { turns: 4, running: true });
+    await (await running.open()).close();
   });
   afterAll(async () => {
     for (const browser of browsers.values()) await browser.close();
     await pane?.close();
+    await running?.close();
   });
 
   /// The tab row the App offers: height 0 is the header's own row.
@@ -63,8 +68,8 @@ await requireBrowserLane("chat-inspector-overlay-toggle.test.ts", async () => {
   ];
 
   /// The chat with the Inspector on (Debug Settings `agent.inspector`, pushed with the header
-  /// state) and the tab row offered, open in `placement` (over the chat by default: a 1600px pane's
-  /// gutter has room for it; a 700px pane's has none, so it pushes) and done entering.
+  /// state) and the tab row offered, open in `placement` (floating by default; pushing with Settings
+  /// Push always) and done entering.
   const openInspector = async (page: Page, tabRow: number, placement: "overlay" | "push" = "overlay") => {
     await page.evaluate((height) => {
       const bridge = (
@@ -75,6 +80,7 @@ await requireBrowserLane("chat-inspector-overlay-toggle.test.ts", async () => {
       bridge.applyTabRow({ height, trailingInset: 0 });
       bridge.applyHeaderState({ inspector: true, version: 2 });
     }, tabRow);
+    if (placement === "push") await inspectorPushAlways(page);
     const panel = page.locator("aside.acpmux-chat-inspector");
     const toggle = page.locator("button.acpmux-chat-inspector-toggle");
     await toggle.waitFor({ timeout: 10_000 });
@@ -308,29 +314,26 @@ await requireBrowserLane("chat-inspector-overlay-toggle.test.ts", async () => {
       }
     });
 
-  // Leo, 2026-10-22: "WHY DOES IT STAY ON IN THESE RANDOM SITUATIONS WITHOUT BEING CLOSABLE!?" Over a
-  // diff in place the chat header (with the toggle) is hidden, so the panel carries its own close
-  // button, and Esc closes it from anywhere but a text field (the composer keeps its own Esc).
+  // Leo, 2026-10-22: "WHY DOES IT STAY ON IN THESE RANDOM SITUATIONS WITHOUT BEING CLOSABLE!?" Its
+  // toggle closes it, and so does Esc while the keyboard is in it (not in a text field there). It
+  // steps aside while a diff in place hides the header (#24344), so it needs no close button of its
+  // own (Leo, 2026-10-24: "the top bit with the closing mark. It doesn't— it's not necessary").
   /// Two painted frames: an Esc that closes the panel has drawn by then.
   const frames = (page: Page) =>
     page.evaluate(() => new Promise<void>((done) => requestAnimationFrame(() => requestAnimationFrame(() => done()))));
   for (const name of browsers.keys())
-    test(`${name}: the Inspector's own close button and Esc close it; Esc in the composer or on a popover leaves it open`, async () => {
+    test(`${name}: no x and no band over its first row; Esc closes it from inside, not from the composer or a popover`, async () => {
       current = browsers.get(name)!;
       const page = await pane!.open({ width: 1600, height: 620 });
       try {
         const { panel, toggle } = await openInspector(page, 0);
-        // As over a diff in place: the header, and the toggle with it, out of reach.
-        await page.addStyleTag({ content: "header.acpmux-header { visibility: hidden; }" });
-        const close = page.locator("aside.acpmux-chat-inspector button.acpmux-chat-inspector__close");
-        await close.click({ timeout: 5_000 });
-        const byButton = await panel.waitFor({ state: "detached", timeout: 5_000 }).then(
-          () => true,
-          () => false,
-        );
-        // The header is hidden: the toggle opens it again through the DOM.
-        await toggle.evaluate((button: HTMLElement) => button.click());
-        await panel.waitFor({ timeout: 5_000 });
+        const { buttons, band } = await panel.evaluate((node) => {
+          const first = node.querySelector(".acpmux-chat-inspector__body [data-section]")!;
+          return {
+            buttons: node.querySelectorAll(".acpmux-chat-inspector__close").length,
+            band: first.getBoundingClientRect().top - node.getBoundingClientRect().top > 12,
+          };
+        });
         await page.locator("textarea, [contenteditable=true]").first().focus();
         await page.keyboard.press("Escape");
         await frames(page);
@@ -343,7 +346,8 @@ await requireBrowserLane("chat-inspector-overlay-toggle.test.ts", async () => {
           popover.open = true;
           popover.className = "ui-popup";
           popover.innerHTML = "<button>Item</button>";
-          document.body.append(popover);
+          // Inside the panel, where Esc would otherwise close it.
+          document.querySelector("aside.acpmux-chat-inspector")!.append(popover);
           popover.querySelector("button")!.focus();
         });
         await page.keyboard.press("Escape");
@@ -351,16 +355,97 @@ await requireBrowserLane("chat-inspector-overlay-toggle.test.ts", async () => {
         // Still open, not leaving (a leaving panel stays drawn while it slides out).
         const keptUnderPopover = (await toggle.getAttribute("aria-pressed")) === "true";
         await page.evaluate(() => document.querySelector("dialog.ui-popup")!.remove());
+        await panel.locator("button").first().focus();
         await page.keyboard.press("Escape");
         const byEscape = await panel.waitFor({ state: "detached", timeout: 5_000 }).then(
           () => true,
           () => false,
         );
-        expect({ byButton, keptInComposer, keptUnderPopover, byEscape }).toEqual({
-          byButton: true,
+        expect({ buttons, band, keptInComposer, keptUnderPopover, byEscape }).toEqual({
+          buttons: 0,
+          band: false,
           keptInComposer: true,
           keptUnderPopover: true,
           byEscape: true,
+        });
+      } finally {
+        await page.close();
+      }
+    });
+
+  // Follow-up to #24126: Esc closed the Inspector from anywhere, so with a turn running and nothing
+  // focused the first Esc closed the panel instead of arming the composer's double press that stops
+  // the turn (escapeStop.ts). Esc closes the Inspector only while the keyboard is in it or on its
+  // toggle; elsewhere Esc keeps its meaning. A close by Esc gives the keyboard to the toggle.
+  const onToggle = (page: Page) =>
+    page.evaluate(() => document.activeElement?.matches("button.acpmux-chat-inspector-toggle") ?? false);
+  /// Whether the daemon heard `method` after the first `from` calls, within about a second of frames.
+  const heard = async (page: Page, from: number, method: string) => {
+    for (let tries = 0; tries < 60; tries++) {
+      if (running!.methods.slice(from).includes(method)) return true;
+      await frames(page);
+    }
+    return false;
+  };
+  for (const name of browsers.keys())
+    test(`${name}: with nothing focused and a turn running, Esc arms and then stops the turn, and the Inspector stays open`, async () => {
+      current = browsers.get(name)!;
+      const page = await running!.open({ width: 1600, height: 620 });
+      try {
+        const { panel, toggle } = await openInspector(page, 0);
+        await page.evaluate(() => (document.activeElement as HTMLElement | null)?.blur());
+        await page.getByRole("button", { name: "Stop", exact: true }).waitFor({ timeout: 5_000 });
+        const sent = running!.methods.length;
+        await page.keyboard.press("Escape");
+        const armed = await page
+          .getByRole("button", { name: "Press Esc again to stop" })
+          .waitFor({ timeout: 2_000 })
+          .then(
+            () => true,
+            () => false,
+          );
+        await frames(page);
+        const openAfterFirst = (await toggle.getAttribute("aria-pressed")) === "true";
+        await page.keyboard.press("Escape");
+        const stopped = await heard(page, sent, "session/cancel");
+        const openAfterStop = (await toggle.getAttribute("aria-pressed")) === "true" && (await panel.count()) === 1;
+        expect({ armed, openAfterFirst, stopped, openAfterStop }).toEqual({
+          armed: true,
+          openAfterFirst: true,
+          stopped: true,
+          openAfterStop: true,
+        });
+      } finally {
+        await page.close();
+      }
+    });
+
+  for (const name of browsers.keys())
+    test(`${name}: Esc with the keyboard in the Inspector or on its toggle closes it and gives the keyboard to the toggle`, async () => {
+      current = browsers.get(name)!;
+      const page = await pane!.open({ width: 1600, height: 620 });
+      try {
+        const { panel, toggle } = await openInspector(page, 0);
+        await page.locator("aside.acpmux-chat-inspector [data-section] button").first().focus();
+        await page.keyboard.press("Escape");
+        const fromPanel = await panel.waitFor({ state: "detached", timeout: 5_000 }).then(
+          () => true,
+          () => false,
+        );
+        const focusFromPanel = await onToggle(page);
+        await toggle.click();
+        await panel.waitFor({ timeout: 5_000 });
+        await toggle.focus();
+        await page.keyboard.press("Escape");
+        const fromToggle = await panel.waitFor({ state: "detached", timeout: 5_000 }).then(
+          () => true,
+          () => false,
+        );
+        expect({ fromPanel, focusFromPanel, fromToggle, focusFromToggle: await onToggle(page) }).toEqual({
+          fromPanel: true,
+          focusFromPanel: true,
+          fromToggle: true,
+          focusFromToggle: true,
         });
       } finally {
         await page.close();

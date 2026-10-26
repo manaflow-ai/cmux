@@ -330,7 +330,7 @@ export class HomeSheets {
     }
   }
 
-  /** Archives a Chief (`chief.profile.delete` through the host: the person's click). */
+  /** Deletes a Chief for good (`chief.profile.delete` through the host: the person's click). */
   async archiveChief(id: string): Promise<boolean> {
     if (!this.host || !this.snapshot.chiefGrants) return false;
     try {

@@ -5,7 +5,7 @@ import type { Play } from "../../gallery/play";
 import type { AcpmuxSnapshot } from "./model";
 import { ComposerPickers, type ComposerPermissionGrant } from "./ComposerPickers";
 import { BUNDLED_MODEL_CATALOG, buildPickerCatalog } from "./modelCatalogData";
-import { ChatAccountsContext, type ChatAccounts } from "./chatAccounts";
+import { ChatAccountsContext, readChatAccounts, type ChatAccounts } from "./chatAccounts";
 
 /// The chat's accounts: its CLI login alone, as Leo's chat had (the Account row names it).
 const galleryAccounts: ChatAccounts = {
@@ -14,7 +14,24 @@ const galleryAccounts: ChatAccounts = {
 };
 
 /** `claude`: Leo's started claude-sr2 chat (2026-10-21), whose model menu listed nine models. */
-type Props = { claude?: boolean };
+type Props = { claude?: boolean; accounts?: boolean };
+
+const directAccounts: ChatAccounts = {
+  list: async () =>
+    readChatAccounts({
+      routes: [
+        { id: "personal", name: "Personal", kind: "direct-subscription", serves: true },
+        { id: "work", name: "Work API", kind: "direct-api-key", serves: true },
+        { id: "codex", name: "Codex account", kind: "direct-subscription", serves: false },
+        ...["subrouter", "cliproxyapi", "custom-anthropic", "custom-openai", "local-coderouter", "cmux-router"].map(
+          (kind) => ({ id: kind, name: kind, kind, serves: true }),
+        ),
+      ],
+      active: { routeId: "personal", scope: "chat" },
+      family: "claude",
+    }),
+  set: async () => undefined,
+};
 
 /// Claude Code's model list as Leo's chat reported it: its aliases named as the releases they run,
 /// its 1M and plan modes, and Fable 5.1 pinned. The chat runs the pinned release claude-opus-5-5
@@ -105,6 +122,7 @@ const codexSnapshot: AcpmuxSnapshot = {
           efforts: ["low", "medium", "high"],
           defaultEffort: "medium",
           fast: true,
+          inlineFast: true,
           contextWindow: 200_000,
         },
         { id: "gpt-6-astra", name: "GPT-6 Astra", efforts: ["low", "high"] },
@@ -151,11 +169,23 @@ const codexSnapshot: AcpmuxSnapshot = {
           { value: "on", name: "On" },
         ],
       },
+      // Codex still reports this option for its /plan command and mode paths; the footer leaves it
+      // out of the generic Options chip.
+      {
+        id: "collaboration_mode",
+        name: "Collaboration mode",
+        category: "collaboration_mode",
+        currentValue: "default",
+        options: [
+          { value: "default", name: "Default" },
+          { value: "plan", name: "Plan", description: "Write a plan before editing." },
+        ],
+      },
     ],
   },
 };
 
-function GalleryComposerPickers({ claude }: Props) {
+function GalleryComposerPickers({ claude, accounts }: Props) {
   const initialSnapshot = claude ? claudeSnapshot : codexSnapshot;
   const [model, setModel] = useState(initialSnapshot.summary!.model!);
   const [mode, setMode] = useState(initialSnapshot.summary!.modes!.currentModeId!);
@@ -197,7 +227,7 @@ function GalleryComposerPickers({ claude }: Props) {
     [claude, snapshot],
   );
   return (
-    <ChatAccountsContext.Provider value={galleryAccounts}>
+    <ChatAccountsContext.Provider value={accounts ? directAccounts : galleryAccounts}>
       <div className="acpmux-composer-gallery-shell">
         <div className="acpmux-composer-gallery-copy">
           <strong>Composer controls</strong>
@@ -225,8 +255,23 @@ const quickRows = '.acpmux-quick-menu [role="menuitemradio"]';
 const openModel: Play = async (ctx) => {
   await ctx.click(MODEL);
   await ctx.waitFor(() => ctx.document.querySelector(quickRows) !== null);
-  if (!ctx.document.querySelector(".acpmux-quick-menu .acpmux-quick-fast"))
-    throw new Error("the model menu has no Fast mode row");
+  if (!ctx.document.querySelector(".acpmux-model .acpmux-fast"))
+    throw new Error("the model picker has no inline Fast bolt");
+  const headers = [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-quick-menu .ui-menu-group-label")];
+  if (headers.some((node) => node.textContent?.trim()))
+    throw new Error("the compact model menu should not show a static session header");
+};
+
+const openAccounts: Play = async (ctx) => {
+  await ctx.click(MODEL);
+  await ctx.waitFor(() => ctx.document.querySelector(quickRows) !== null);
+  await ctx.focus({ role: "menuitem", name: /^Account/ });
+  await ctx.press("Enter");
+  await ctx.waitFor(() =>
+    [...ctx.document.querySelectorAll(".acpmux-quick-menu")].some(
+      (menu) => menu.textContent?.includes("Personal") && !menu.querySelector(".acpmux-quick-sub"),
+    ),
+  );
 };
 
 const modelFocus: Play = async (ctx) => {
@@ -309,13 +354,11 @@ const effortPick: Play = async (ctx) => {
 };
 
 const fastMode: Play = async (ctx) => {
-  await ctx.click(MODEL);
-  const fast = { selector: ".acpmux-quick-menu .acpmux-quick-fast" } as const;
+  const fast = { selector: ".acpmux-model .acpmux-fast" } as const;
   await ctx.waitFor(() => ctx.document.querySelector(fast.selector) !== null);
-  if (ctx.find(fast).getAttribute("aria-checked") !== "false") throw new Error("Fast mode must start off");
-  // A checkbox row keeps the menu open, so the row shows the confirmed state in place.
+  if (ctx.find(fast).getAttribute("aria-pressed") !== "false") throw new Error("Fast mode must start off");
   await ctx.click(fast);
-  await ctx.waitFor(() => ctx.document.querySelector(fast.selector)?.getAttribute("aria-checked") === "true");
+  await ctx.waitFor(() => ctx.document.querySelector(fast.selector)?.getAttribute("aria-pressed") === "true");
 };
 
 const morePicker: Play = async (ctx) => {
@@ -328,6 +371,8 @@ const morePicker: Play = async (ctx) => {
 const openMode: Play = async (ctx) => {
   await ctx.click({ role: "button", name: "Mode" });
   await ctx.waitFor(() => ctx.document.querySelector('[role="menuitemradio"][aria-checked="true"]') !== null);
+  if (ctx.document.querySelector(".acpmux-access-heading"))
+    throw new Error("the permission menu should not show a static header");
   const labels = [...ctx.document.querySelectorAll<HTMLElement>('[role="menuitemradio"] .acpmux-menu-label')].map(
     (node) => node.textContent?.trim(),
   );
@@ -391,7 +436,7 @@ export default componentEntry<Props>({
     longFrameFailMs: { value: 33, reason: "Composer picker actions should remain responsive on the gallery host." },
     settleMaxMs: { value: 250, reason: "Local picker opens and toggles should settle within a quarter second." },
   },
-  covers: ["agent-session/acpmux/ComposerPickers.tsx#ComposerPickers"],
+  covers: ["agent-session/acpmux/ComposerPickers.tsx#ComposerPickers", "agent-session/acpmux/QuickModelMenu.tsx"],
   load: async () => GalleryComposerPickers,
   styles: () =>
     Promise.all([
@@ -403,11 +448,11 @@ export default componentEntry<Props>({
   variants: {
     closed: { props: {} },
     "pill-rail": {
-      note: "The 400 px composer rail keeps the one model button (model and effort) and the access control quiet before any menu opens.",
+      note: "The 400 px Codex rail keeps model, effort and access quiet; its reported collaboration mode has no footer control.",
       props: {},
     },
     "model-menu": {
-      note: "The model button opens its one menu: this harness's models, numbered, then Effort, More models and Fast mode.",
+      note: "The model button opens its one menu: this harness's models, numbered, then Effort and More models; the free Fast bolt stays beside the model name.",
       props: {},
       play: openModel,
     },
@@ -447,13 +492,19 @@ export default componentEntry<Props>({
       props: { claude: true },
       play: openModel,
     },
+    "claude-direct-accounts": {
+      height: 580,
+      note: "Account lists the local harness login and its two direct accounts; compatible proxy and router transports stay out of the list.",
+      props: { claude: true, accounts: true },
+      play: openAccounts,
+    },
     "claude-effort-up": {
       note: "Opened from the composer at the window's foot, the Effort submenu grows up from its row, Medium checked (Leo 2026-10-21: it opened downward).",
       props: { claude: true },
       play: openEffort,
     },
     "fast-mode": {
-      note: "Fast mode is the model menu's last row, a checkbox (Leo 2026-10-20): a click turns it on, and the menu shows it checked.",
+      note: "The free Fast mode is the bolt beside the model name: a click turns it on while the model picker remains adjacent.",
       props: {},
       play: fastMode,
     },

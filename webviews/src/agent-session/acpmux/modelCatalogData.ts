@@ -38,6 +38,8 @@ export type HarnessModel = {
   efforts?: EffortValue[];
   defaultEffort?: EffortValue;
   fast?: boolean;
+  inlineFast?: boolean;
+  serviceTiers?: (string | { id: string; name?: string; description?: string })[];
   aliases?: string[];
   status?: ModelStatus;
   /** Context window for a user-added model with no feed ref. */
@@ -85,6 +87,8 @@ export type PickerModel = {
   efforts: EffortValue[];
   defaultEffort?: EffortValue;
   fast: boolean;
+  inlineFast?: boolean;
+  serviceTiers?: (string | { id: string; name?: string; description?: string })[];
   contextWindow?: number;
   reasoning?: boolean;
   input?: string[];
@@ -227,6 +231,7 @@ function modelFields(raw: Record<string, unknown>): Partial<HarnessModel> {
   if (typeof raw.defaultEffort === "string" && EFFORT_ORDER.includes(raw.defaultEffort as EffortValue))
     fields.defaultEffort = raw.defaultEffort as EffortValue;
   if (typeof raw.fast === "boolean") fields.fast = raw.fast;
+  if (typeof raw.inlineFast === "boolean") fields.inlineFast = raw.inlineFast;
   if (typeof raw.contextWindow === "number" && Number.isInteger(raw.contextWindow) && raw.contextWindow > 0)
     fields.contextWindow = raw.contextWindow;
   return fields;
@@ -486,9 +491,7 @@ const nameKey = (name: string | undefined) =>
 function reportedNames(probes: readonly AcpmuxModel[], options: ConfigOptions | undefined): Map<string, string> {
   const names = new Map<string, string>();
   for (const probe of probes) if (probe.name) names.set(probe.id, probe.name);
-  const option = options?.find(
-    (candidate) => candidate.category === "model" || candidate.id === "model",
-  );
+  const option = options?.find((candidate) => candidate.category === "model" || candidate.id === "model");
   for (const choice of option?.options ?? [])
     if (choice.name && !names.has(choice.value)) names.set(choice.value, choice.name);
   return names;
@@ -648,6 +651,8 @@ function pickerModel(model: HarnessModel & { own?: Own }, catalog: ModelCatalog,
     efforts: model.efforts ?? [],
     ...(model.defaultEffort ? { defaultEffort: model.defaultEffort } : {}),
     fast: model.fast === true,
+    ...(model.inlineFast === true ? { inlineFast: true } : {}),
+    ...(model.serviceTiers ? { serviceTiers: model.serviceTiers } : {}),
     ...(contextWindow ? { contextWindow } : {}),
     ...(info?.reasoning !== undefined ? { reasoning: info.reasoning } : {}),
     ...(info?.input ? { input: info.input } : {}),
@@ -696,9 +701,7 @@ function hiddenReleaseIds(
   const source = join.sourceCatalog.harnesses.find((harness) => harness.id === sourceHarnessId);
   const hidden = new Set<string>();
   for (const model of source?.models ?? []) {
-    const hiddenById = [...(model.aliases ?? []), model.id].some((id) =>
-      isHiddenByUser(harnessId, id, join),
-    );
+    const hiddenById = [...(model.aliases ?? []), model.id].some((id) => isHiddenByUser(harnessId, id, join));
     const hiddenByReportedAlias = [...reported].some(
       ([id, name]) => isHiddenByUser(harnessId, id, join) && namesRelease(name, model, join),
     );

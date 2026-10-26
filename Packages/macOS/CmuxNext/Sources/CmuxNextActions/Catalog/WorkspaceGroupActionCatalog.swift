@@ -129,7 +129,7 @@ nonisolated enum WorkspaceGroupActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "workspaceGroup.collapseOthers",
                 title: String(localized: "action.workspaceGroup.collapseOthers", defaultValue: "Collapse Other Groups", table: "WorkspaceActions", bundle: .module),
-                keywords: ["group", "collapse", "other", "others", "fold", "focus"], category: .workspace, symbol: "rectangle.compress.vertical",
+                keywords: ["group", "collapse", "other", "others", "fold", "focus"], category: .workspace, symbol: "arrow.down.forward.and.arrow.up.backward",
                 surfaces: [.palette, .keyboard, .contextMenu], targets: [.workspaceGroup], cliName: "workspace-group collapse-others"
             ),
             // Sorts the group's members only; the sidebar's Sort Workspaces verbs sort every container.
@@ -169,7 +169,7 @@ nonisolated enum WorkspaceGroupActionCatalog: ActionCatalogGroup {
             ActionDescriptor(
                 id: "workspaceGroup.closeOthers",
                 title: String(localized: "action.workspaceGroup.closeOthers", defaultValue: "Close Other Groups", bundle: .module),
-                keywords: ["group", "close", "other", "others", "remove"], category: .workspace, symbol: "xmark.square.fill",
+                keywords: ["group", "close", "other", "others", "remove"], category: .workspace, symbol: "xmark.circle",
                 surfaces: [.palette, .contextMenu], targets: [.workspaceGroup], cliName: "workspace-group close-others",
                 destructive: true
             ),

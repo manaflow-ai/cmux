@@ -114,6 +114,55 @@ async function admitted(github, owner, repo, sha, { attempts, delayMs, sleep, co
   return false;
 }
 
+// A tip can still be compiling while an older commit has already finished its
+// exact Release compile. Keep the safety gate, but promote the newest green
+// source commit instead of waiting for the tip. This scan is bounded by the
+// workflow-run API page and only accepts same-repository push runs on the
+// source branch with the exact gate job green.
+async function newestGreenSourceCommit(github, owner, repo, targetSha, excludeSha) {
+  const runs = await github.paginate(github.rest.actions.listWorkflowRuns, {
+    owner, repo, workflow_id: 'cmux-next.yml', event: 'push', branch: SOURCE, per_page: 100,
+  });
+  const ordered = [...runs].sort((a, b) => Date.parse(b.created_at || 0) - Date.parse(a.created_at || 0) || Number(b.id) - Number(a.id));
+  const green = [];
+  for (const run of ordered) {
+    const candidate = run.head_sha;
+    if (!candidate || candidate === excludeSha || run.event !== 'push' || run.head_branch !== SOURCE ||
+        run.path !== GATE_WORKFLOW || run.head_repository?.full_name !== `${owner}/${repo}`) continue;
+    let lineage;
+    try {
+      lineage = (await github.rest.repos.compareCommitsWithBasehead({
+        owner, repo, basehead: `${candidate}...${targetSha}`,
+      })).data.status;
+    } catch {
+      continue;
+    }
+    if (lineage !== 'ahead' && lineage !== 'identical') continue;
+    const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
+      owner, repo, run_id: run.id, filter: 'latest', per_page: 100,
+    });
+    if (jobs.some((job) => job.status === 'completed' && job.name === GATE_JOB && job.conclusion === 'success')) green.push(candidate);
+  }
+  if (green.length === 0) return null;
+  // Run creation time is not commit order: reruns and delayed workflow runs
+  // can make an older commit appear newer. Prefer the candidate that is a
+  // descendant of every other green candidate; keep the first candidate only
+  // when GitHub cannot relate two merge-shaped histories.
+  let newest = green[0];
+  for (const candidate of green.slice(1)) {
+    try {
+      const relation = (await github.rest.repos.compareCommitsWithBasehead({
+        owner, repo, basehead: `${newest}...${candidate}`,
+      })).data.status;
+      if (relation === 'ahead') newest = candidate;
+    } catch {
+      // The candidate was already proven on the source branch; leave the
+      // deterministic run-order winner when the pairwise comparison fails.
+    }
+  }
+  return newest;
+}
+
 // A train commit (scripts/ci/nightly_next_train.py): two parents, the
 // nightly-next head it was made on and a feat-cmux-next tip, and the
 // `Nightly-Train: v1` trailer. Anything else (or an unreadable commit) is not a
@@ -431,9 +480,18 @@ export async function decide({
       return refuse(`${sha} is not on ${SOURCE} (compare status ${onSource})`);
     }
 
-    // G2: the trusted gate.
+    // G2: the trusted gate. If the requested tip is still compiling, use the
+    // newest earlier source commit whose exact Release compile is already green.
     if (!(await admitted(github, owner, repo, sha, { attempts: admissionAttempts, delayMs: admissionDelayMs, sleep, core }))) {
-      return refuse(`${sha} has no ${GATE_WORKFLOW} push run on ${SOURCE} in ${owner}/${repo} with a successful "${GATE_JOB}" job`);
+      const fallback = await newestGreenSourceCommit(github, owner, repo, sha, sha);
+      if (!fallback) {
+        return refuse(`${sha} has no ${GATE_WORKFLOW} push run on ${SOURCE} in ${owner}/${repo} with a successful "${GATE_JOB}" job, and no earlier green source commit was found`);
+      }
+      core?.notice?.(`The requested tip ${sha} is not Release-green; promoting the newest green source commit ${fallback}.`);
+      sha = fallback;
+      if (!(await admitted(github, owner, repo, sha, { attempts: 1, delayMs: 0, sleep, core }))) {
+        return refuse(`${sha} lost its successful "${GATE_JOB}" result while promotion was being decided`);
+      }
     }
   }
 

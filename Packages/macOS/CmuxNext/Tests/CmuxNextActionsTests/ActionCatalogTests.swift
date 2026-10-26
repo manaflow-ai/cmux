@@ -109,6 +109,20 @@ import Testing
         }
     }
 
+    /// Session Info and the ACP event Inspector are separate panels and palette actions.
+    @Test func sessionInfoToggleUsesTheHeaderNameAndKeywords() throws {
+        let action = try #require(ActionCatalog.all.first { $0.id == "agentPane.toggleSessionInfo" })
+        #expect(action.title == "Toggle Session Info")
+        #expect(action.surfaces.contains(.palette))
+        #expect(action.keywords.contains("session info"))
+        #expect(action.keywords.contains("session"))
+        #expect(action.requires.contains(.agentPaneFocused))
+        let events = try #require(ActionCatalog.all.first { $0.id == "agentPane.toggleInspector" })
+        #expect(events.title == "Toggle Event Inspector")
+        #expect(events.surfaces.contains(.palette))
+        #expect(events.cliName == "agent toggle-acp-inspector")
+    }
+
     /// Palette and menu titles use title case (HIG): every word is capitalized except
     /// short articles, conjunctions and prepositions, and names spelled in lowercase.
     @Test func titlesUseTitleCase() {
@@ -163,5 +177,13 @@ import Testing
         for (legacy, canonical) in ActionCatalog.legacyAliases {
             #expect(ids.contains(canonical), "\(legacy) -> \(canonical)")
         }
+    }
+
+    @Test func completeConversationCopyIsReachableFromThePalette() throws {
+        let copy = try #require(ActionCatalog.all.first { $0.id == "agentChat.copyConversation" })
+        #expect(copy.surfaces.contains(.palette))
+        #expect(copy.requires.contains(.agentPaneFocused))
+        #expect(copy.keywords.contains("conversation"))
+        #expect(copy.keywords.contains("markdown"))
     }
 }
