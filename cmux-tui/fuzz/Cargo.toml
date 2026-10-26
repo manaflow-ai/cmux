@@ -1,0 +1,94 @@
+# Coverage-guided libFuzzer targets for cmux-tui decoders (p10-stability task
+# 017; plans/cmux-next/chrome-parity/p10-stability.md section 3.A). Chromium's
+# model (testing/libfuzzer/README.md): one small target per untrusted-input
+# parser, run continuously with a stored corpus, and every crash, leak, OOM or
+# timeout is a finding.
+#
+# Its own workspace and lock: the main cmux-tui Cargo.toml and Cargo.lock never
+# change for fuzzing. Cargo.lock started as a copy of cmux-tui/Cargo.lock, so
+# the targets build the dependency versions the product ships. The nightly
+# toolchain is pinned in rust-toolchain.toml beside this file.
+#
+# Run through scripts/cmux-next/rust-fuzz.sh (seeds, resource limits, finding
+# classification), or by hand: cd cmux-tui/fuzz && cargo fuzz run <target>.
+
+[package]
+name = "cmux-tui-fuzz"
+version = "0.0.0"
+edition = "2024"
+license = "GPL-3.0-or-later"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[workspace]
+members = ["."]
+
+[dependencies]
+libfuzzer-sys = "0.4"
+cmux-config = { path = "../crates/cmux-config" }
+cmux-holder = { path = "../crates/cmux-holder" }
+cmux-pane-protocol = { path = "../crates/cmux-pane-protocol" }
+cmux-remote-protocol = { path = "../crates/cmux-remote-protocol" }
+cmux-tui-core = { path = "../crates/cmux-tui-core" }
+ghostty-vt = { path = "../crates/ghostty-vt" }
+bytes = "1"
+serde = "1"
+serde_json = "1"
+
+# The same Crossterm patch as the main workspace, so any crate here that
+# reaches Crossterm builds the code cmux ships.
+[patch.crates-io]
+crossterm = { path = "../vendor/crossterm" }
+terminput-crossterm = { path = "../vendor/terminput-crossterm" }
+
+# cargo fuzz builds the release profile. Chromium fuzzes with DCHECKs on
+# (use_fuzzing_engine builds set dcheck_always_on): debug assertions and
+# overflow checks stay on, so an arithmetic overflow is a finding, not a wrap.
+[profile.release]
+debug-assertions = true
+overflow-checks = true
+debug = "line-tables-only"
+
+[[bin]]
+name = "ghostty_vt_output"
+path = "fuzz_targets/ghostty_vt_output.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "terminal_host_read_frame"
+path = "fuzz_targets/terminal_host_read_frame.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "pane_protocol_frame"
+path = "fuzz_targets/pane_protocol_frame.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "remote_protocol"
+path = "fuzz_targets/remote_protocol.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "config_jsonc"
+path = "fuzz_targets/config_jsonc.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "holder_decode"
+path = "fuzz_targets/holder_decode.rs"
+test = false
+doc = false
+bench = false

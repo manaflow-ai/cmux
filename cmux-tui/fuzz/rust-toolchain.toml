@@ -1,0 +1,9 @@
+# cargo-fuzz needs nightly (-Zsanitizer, SanitizerCoverage). Pinned here for
+# this folder only (p10-stability.md risk 7); the rest of cmux-tui stays on
+# the stable toolchain in ../rust-toolchain.toml. Keep the channel equal to
+# [nightly] in scripts/cmux-next/linux/tool-versions.toml, which the Linux VM
+# setup installs. scripts/cmux-next/rust-fuzz.sh reads the channel from here.
+[toolchain]
+channel = "nightly-2026-10-20"
+profile = "minimal"
+components = ["rust-src", "llvm-tools-preview"]
