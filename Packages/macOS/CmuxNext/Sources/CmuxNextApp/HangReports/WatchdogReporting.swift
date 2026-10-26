@@ -4,6 +4,7 @@ import CmuxNextControl
 import CmuxNextCrashReporting
 import CmuxNextDaemon
 import CmuxNextHangReports
+import CmuxNextWakeups
 
 /// Where the main-thread watchdog's findings go (moved out of `AppDelegate`): each hang still
 /// running after 2 s to crash reporting with its stack and to a file per hang; each finished lag
@@ -47,12 +48,14 @@ enum WatchdogReporting {
         return hangReports
     }
 
-    /// What is open now, as buckets: windows, local workspaces, their panes and tabs.
+    /// What is open now, as buckets: windows, local workspaces, their panes and tabs; and the background lanes'
+    /// user-blocking queue-wait p99 (relaxed atomic loads, no lock), which a schema-3 report carries.
     static func counts(_ services: AppServices) -> CoarseCounts {
         let workspaces = services.daemon.store.workspaces
         let panes = workspaces.flatMap(\.screens).flatMap(\.panes)
         return CoarseCounts(windows: services.windows.controllers.count, workspaces: workspaces.count, panes: panes.count,
-                            tabs: panes.reduce(0) { $0 + $1.tabs.count })
+                            tabs: panes.reduce(0) { $0 + $1.tabs.count },
+                            userBlockingWaitP99Nanos: services.work.userBlockingQueueWaitP99Nanos)
     }
 
     nonisolated static func nanos(_ duration: Duration) -> UInt64 {

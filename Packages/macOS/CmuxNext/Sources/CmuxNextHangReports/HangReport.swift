@@ -42,6 +42,9 @@ public nonisolated struct HangReport: Codable, Sendable, Equatable {
         public var carriesInputLatency: Bool { self == .v3 }
         /// Whether a report in this schema has blocking samples.
         public var carriesBlocking: Bool { self == .v3 }
+        /// Whether a report in this schema carries ``CoarseCounts/userBlockingWaitP99Ms`` (p02-threads-123; the
+        /// schema-3 decoder must list the key before a build sends schema 3).
+        public var carriesLaneWait: Bool { self == .v3 }
     }
 
     /// The wire schema a report is written in by default (``WireSchema/deployed``).
