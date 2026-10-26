@@ -45,6 +45,15 @@ import Testing
         return try await #require(run.results.first).value
     }
 
+    /// The CLI waits for these (`wait`, the 40 s result deadline), not the 2 s control deadline.
+    @Test func theUpdateActionsWaitForTheirResult() throws {
+        for id: ActionID in ["palette.checkForUpdates", "palette.applyUpdateIfAvailable", "palette.attemptUpdate"] {
+            let descriptor = try #require(ActionCatalog.all.first { $0.id == id })
+            #expect(descriptor.waitsForResult, "\(id) answers before its result")
+        }
+        #expect(UpdateHandlers.installAnswerLimit < ActionDescriptor.resultDeadline)
+    }
+
     @Test func aCheckAnswersTheRunningAndNewestBuilds() async throws {
         let fields = try await Self.run("palette.checkForUpdates", Self.updater(Self.newer)).get()
         #expect(fields["outcome"] == .string("update_available"))
