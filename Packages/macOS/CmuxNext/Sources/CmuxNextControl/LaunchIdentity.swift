@@ -152,7 +152,9 @@ public struct LaunchIdentity: Sendable, Equatable {
         let keys = inheritedKeys(processEnvironment: ProcessInfo.processInfo.environment,
                                  bundledEnvironment: bundledEnvironment(bundle))
         environmentGuard.write("LaunchIdentity.stripInheritedEnvironment") {
-            for key in keys { unsetenv(key) }
+            // SAFETY: unsetenv reads the NUL-terminated copy of `key` made for the call; it runs in `main` before
+            // any other thread starts, inside the environment guard's write, so no getenv reads `environ` meanwhile.
+            for key in keys { unsafe unsetenv(key) }
         }
         return keys.sorted()
     }

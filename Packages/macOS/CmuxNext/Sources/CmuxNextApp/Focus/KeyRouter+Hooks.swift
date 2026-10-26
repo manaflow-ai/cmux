@@ -149,9 +149,9 @@ extension KeyRouter {
         let context = keyContext(for: controller.focus.state, facts: Facts())
         let bits = context.bits
         let shortcut = Shortcut(key.character, modifiers: key.shift ? [.shift] : [])
-        guard let winner = RegistryKeyBindings(registry).table.resolve([shortcut], in: context, isRunnable: { [registry] in
+        guard let winner = RegistryKeyBindings(registry).table.resolveWinner(CollectionOfOne(shortcut), in: context, isRunnable: { [registry] in
             RegistryKeyBindings(registry).canPerform($0, in: bits)
-        }).winner, registry.descriptor(for: winner.command)?.requires.contains(.browserFocused) == true else { return }
+        }), registry.descriptor(for: winner.command)?.requires.contains(.browserFocused) == true else { return }
         RegistryKeyBindings(registry).run(winner, keyContext: bits)
     }
 

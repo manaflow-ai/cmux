@@ -31,7 +31,9 @@ public struct DaemonSocketMemory: Sendable {
     /// connection now. A stale file left by a killed daemon refuses at once.
     public static func acceptsConnections(_ path: String, wireStats: DaemonWireStats?) -> Bool {
         var info = stat()
-        guard lstat(path, &info) == 0, (info.st_mode & S_IFMT) == S_IFSOCK, info.st_uid == getuid() else { return false }
+        // SAFETY: lstat reads the NUL-terminated copy of `path` made for the call and writes one struct stat
+        // into `info`, a local live for the call.
+        guard unsafe lstat(path, &info) == 0, (info.st_mode & S_IFMT) == S_IFSOCK, info.st_uid == getuid() else { return false }
         guard let transport = try? LineTransport(path: path, role: .socketProbe, stats: wireStats) else { return false }
         transport.close()
         return true

@@ -64,17 +64,13 @@ final class RFBRectangleDecoder {
         case .zlib:
             let data = try await inflate(reader, stream: &zlibStream, limit: header.width * header.height * 4)
             guard data.count >= header.width * header.height * 4 else { throw RFBError.protocolViolation("short Zlib rectangle") }
-            data.withUnsafeBufferPointer { bytes in
-                framebuffer.blitBGRX(x: header.x, y: header.y, width: header.width, height: header.height, bytes: bytes)
-            }
+            framebuffer.blitBGRX(x: header.x, y: header.y, width: header.width, height: header.height, bytes: data[...])
         case .zrle:
             // ZRLE's worst case is raw tiles: one subencoding byte per tile plus 3 bytes a pixel.
             let tiles = ((header.width + 63) / 64) * ((header.height + 63) / 64)
             let data = try await inflate(reader, stream: &zrleStream, limit: header.width * header.height * 3 + tiles)
-            try data.withUnsafeBufferPointer { bytes in
-                var parser = ZRLEParser(bytes: bytes)
-                try parser.decode(header, into: framebuffer)
-            }
+            var parser = ZRLEParser(bytes: data)
+            try parser.decode(header, into: framebuffer)
         case .desktopSize:
             try RFBLimits.checkFramebuffer(width: header.width, height: header.height)
             framebuffer.resize(width: header.width, height: header.height)
@@ -201,11 +197,11 @@ final class RFBRectangleDecoder {
 /// 64x64 tiles of raw, solid, packed-palette, plain RLE or palette RLE
 /// pixels. CPIXELs are 3 bytes (B, G, R) for the negotiated format.
 struct ZRLEParser {
-    private let bytes: UnsafeBufferPointer<UInt8>
+    private let bytes: [UInt8]
     private var offset = 0
     private var tile = [UInt32](repeating: 0, count: 64 * 64)
 
-    init(bytes: UnsafeBufferPointer<UInt8>) {
+    init(bytes: [UInt8]) {
         self.bytes = bytes
     }
 
@@ -215,10 +211,7 @@ struct ZRLEParser {
             for tileX in stride(from: 0, to: header.width, by: 64) {
                 let w = min(64, header.width - tileX)
                 try decodeTile(width: w, height: h)
-                tile.withUnsafeBufferPointer { pixels in
-                    framebuffer.blit(x: header.x + tileX, y: header.y + tileY, width: w, height: h,
-                                     pixels: UnsafeBufferPointer(rebasing: pixels[0 ..< w * h]))
-                }
+                framebuffer.blit(x: header.x + tileX, y: header.y + tileY, width: w, height: h, pixels: tile[0 ..< w * h])
             }
         }
     }

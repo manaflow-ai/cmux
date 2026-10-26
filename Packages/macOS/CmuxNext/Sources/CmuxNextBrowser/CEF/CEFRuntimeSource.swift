@@ -31,7 +31,7 @@ public final class CEFRuntimeSource {
     ///   - layout: The embedded (or already installed) runtime, nil when none is available yet.
     ///   - pending: Why it is missing (`downloading`), nil for a build with no pack.
     ///   - hostSupervisor: The Chromium Host's supervisor for ``BrowserBackend/host``
-    ///     (`BrowserHostTunables.backend(in:)`), nil for ``BrowserBackend/inProcess``.
+    ///     (`BrowserHostTunables.backend(hostEnabled:)`), nil for ``BrowserBackend/inProcess``.
     public init(layout: CEFRuntimeLayout?, pending: CEFUnavailableReason? = nil,
                 hostSupervisor: (any ChromiumHostSupervising)? = nil) {
         self.layout = layout
