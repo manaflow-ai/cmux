@@ -215,7 +215,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             services?.crashRecovery.showRestartNotice(on: controller.window)
         }
         DebugTimings.markLaunch("dfl.daemon_cloud_updater")
-        services.windows.onFirstWindow = { [weak services] _ in
+        services.windows.onFirstWindow = { [weak services] first in
             #if DEBUG || CMUX_BENCH_HOOKS
             if let services, services.environment.showcase { _ = DebugShowcase.seed(["focus": .bool(false)], services: services) }
             #endif
@@ -225,8 +225,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             if let window = services?.windows.active?.window, let drafts = services?.recoveryDrafts {
                 Task { @MainActor in await RecoveryNotice.show(store: drafts, in: window) }
             }
-            CATransaction.setMainCompletion { [weak self] in
+            CATransaction.setMainCompletion { [weak self, weak services, weak first] in
                 DebugTimings.markLaunch("first_window_frame_committed")
+                #if DEBUG || CMUX_BENCH_HOOKS
+                // Before the gate: its later-tab warm-ups build panes. Structure only; the threads are read off main.
+                self?.control.startupReport.firstFrameCommitted(
+                    contentSubviews: first?.window?.contentView?.subviews,
+                    viewsBuilt: services?.windows.controllers.reduce(0) { built, controller in
+                        controller.mountedContents.reduce(built) { $0 + $1.panes.count }
+                    } ?? 0)
+                #endif
                 self?.order.startup.firstFrameCommitted()
             }
         }

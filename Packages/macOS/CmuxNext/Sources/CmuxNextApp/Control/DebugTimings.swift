@@ -51,6 +51,8 @@ enum DebugTimings {
     /// clock through it (``LaunchMarks/uptimeNanos(of:pairedWith:)``).
     private nonisolated static let processStart: LaunchClock.Instant = launchClock.processStart() ?? launchClock.now()
     private nonisolated static let processStartDate = Date(timeIntervalSince1970: Double(processStart.wallNanos) / 1e9)
+    /// ``processStart`` on the trace clock (`CLOCK_UPTIME_RAW` nanoseconds), the zero of `debug.startup`'s task times.
+    nonisolated static var processStartUptimeNanos: UInt64 { processStart.uptimeNanos }
 
     /// Records a launch mark (milliseconds since process start) once per
     /// name, from any thread. The first record of a name goes to
@@ -80,6 +82,9 @@ enum DebugTimings {
         }
         if let temperatureInstant = step.temperatureInstant { markLaunch(temperatureInstant, at: date) }
     }
+
+    /// The launch marks so far (`debug.startup`).
+    nonisolated static var launchMarksNow: LaunchMarks { launchMarks.withLock { $0.marks } }
 
     /// The startup trace `CMUX_TRACE_STARTUP` asks for, attached before the first mark (`main`).
     nonisolated static func makeStartupTrace() -> StartupTrace? {
