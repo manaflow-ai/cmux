@@ -293,6 +293,42 @@ public nonisolated struct Signposter: Sendable {
     /// Now on the clock ``SignpostInterval/beginUptimeNanos`` reads, so an end measures its interval with one read.
     public func nowNanos() -> UInt64 { clock.nowNanos() }
 
+    /// Records one late commit during motion (``SignpostName/motionLateCommits``), formatted by the log system only
+    /// when something reads it (`late_ms=<lateness, 3 decimals> turn_ms=<turn, 3 decimals>`). The ring record holds
+    /// both in microseconds.
+    ///
+    /// - Parameters:
+    ///   - lateMilliseconds: How long past its turn's deadline the commit ended.
+    ///   - turnMilliseconds: The run-loop turn's start to the commit's end.
+    public func lateCommit(lateMilliseconds: Double, turnMilliseconds: Double) {
+        assert(SignpostName.motionLateCommits.category == category, "motion.late_commits is not in category \(category)")
+        signposter.emitEvent(
+            SignpostName.motionLateCommits.staticName,
+            "late_ms=\(lateMilliseconds, format: .fixed(precision: 3), privacy: .public) turn_ms=\(turnMilliseconds, format: .fixed(precision: 3), privacy: .public)"
+        )
+        trace.event(.motionLateCommits, arg0: Self.microseconds(lateMilliseconds), arg1: Self.microseconds(turnMilliseconds))
+    }
+
+    /// Records an action run's estimated present (``SignpostName/actionPresentedEstimate``), formatted by the log
+    /// system only when something reads it (`id=<id> present_ms=<ms> commit_ms=<ms> input_age_ms=<age>
+    /// phase=<phase>`, 3 decimals; the age 2). The ring record is an instant with the "estimated" flag.
+    ///
+    /// - Parameter message: The run's fields.
+    public func presentEstimate(_ message: ActionPresentSignpostMessage) {
+        assert(SignpostName.actionPresentedEstimate.category == category, "action.presented_estimate is not in category \(category)")
+        signposter.emitEvent(
+            SignpostName.actionPresentedEstimate.staticName,
+            "id=\(message.id, privacy: .public) present_ms=\(message.presentMilliseconds, format: .fixed(precision: 3), privacy: .public) commit_ms=\(message.commitMilliseconds, format: .fixed(precision: 3), privacy: .public) input_age_ms=\(message.inputAgeMilliseconds, format: .fixed(precision: 2), privacy: .public) phase=\(message.phase.rawValue, privacy: .public)"
+        )
+        trace.event(.actionPresentedEstimate, arg0: message.traceArg0, arg1: message.estimateUptimeNanos, estimated: true)
+    }
+
+    /// Whole microseconds of a non-negative duration in milliseconds (0 for a negative or non-finite one).
+    static func microseconds(_ milliseconds: Double) -> UInt64 {
+        guard milliseconds.isFinite, milliseconds > 0 else { return 0 }
+        return UInt64(min(milliseconds * 1_000, Double(UInt64.max >> 1)))
+    }
+
     /// Begins the log system's interval with `beginInterval`, the MetricKit mirror's and, while the name's
     /// category is on, the ring's slice with `arg0` (and `arg1`, which only a thread slice has free: an async
     /// slice's `arg1` is its id). With `traced` false the ring takes no slice whatever the flags are (a name that

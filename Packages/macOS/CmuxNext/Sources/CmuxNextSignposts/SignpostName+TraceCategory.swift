@@ -4,8 +4,8 @@ nonisolated extension SignpostName {
     /// so a disabled trace point folds it to a constant and reads no `String`.
     @inlinable public var traceCategory: SignpostCategory {
         switch self {
-        case .actionPerform, .actionCommit, .actionGate: .action
-        case .motionFrame, .motionRun, .motionDragFrame: .motion
+        case .actionPerform, .actionCommit, .actionGate, .actionPresentedEstimate, .actionPresented: .action
+        case .motionFrame, .motionRun, .motionDragFrame, .motionLateCommits: .motion
         case .keyToFrame, .keyFlow, .scrollToFrame, .keyOmnibarSuggest, .keyPaletteSearch, .keyEchoHostPTYRead,
              .keyEchoHostClientWrite, .keyEchoDaemonFrames, .keyEchoSurfaceParse, .keyEchoAttachEncode, .keyEchoLineOut,
              .keyEchoAppTransportRead, .keyEchoMainActor, .keyEchoOutputLane, .keyEchoRenderer, .keyEchoGPUDone,
