@@ -230,6 +230,7 @@ final class QuitCoordinator {
                 deadline.arm(after: QuitDeadline.engineStopLimit)
                 self?.watchdog?.endHangAssertions()
                 self?.watchdog?.recordFieldMetricsAtQuit()
+                services.idleWakeups?.reportTriggered()  // a quit while inactive keeps its idle minutes
             },
             beginDrain: { services.work.beginShutdown() },
             stopBrowserEngines: {

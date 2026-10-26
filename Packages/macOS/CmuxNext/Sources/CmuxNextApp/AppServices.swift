@@ -27,6 +27,7 @@ import CmuxNextKeepAwake
 import CmuxNextLayout
 import CmuxNextLaunch
 import CmuxNextMemory
+import CmuxNextMetrics
 import CmuxNextPalette
 import CmuxNextPages
 import CmuxNextPopups
@@ -549,6 +550,8 @@ final class AppServices {
     private(set) lazy var energy = EnergyServices(source: mainWork.energy, isEnabled: features.isEnabled(.energySaver))
     /// Follows `energy.saver` into ``energy``'s policy driver (`followEnergySaver`).
     private var energySaverObservation: ServiceObservation<EnergySaverMode?>?
+    /// `idle.wakeups.*` of the app and the local daemon (p09-observability-059); nil until `startIdleWakeups`.
+    private(set) var idleWakeups: IdleWakeupSampler?
     /// Posts this launch's installed-update Feed card once (`UpdateFeedPosting.follow`).
     var updateFeedObservation: Task<Void, Never>?
     /// Page menus and the open-menu diagnostic shared by browser hosts.
@@ -853,6 +856,17 @@ final class AppServices {
             videos.setEnergy(lowPowerMode: inputs.lowPowerMode, thermal: inputs.thermal)
             self?.energy.driver.update(inputs: inputs)
         }
+    }
+    /// Builds ``idleWakeups``, which `AppDelegate`'s resign and become-active callbacks then feed (no observer, no
+    /// timer); an app that is inactive now opens its first period. `AppDelegate` calls it after startup, with the
+    /// watchdog that counts main run-loop wakes; a second call does nothing.
+    func startIdleWakeups(watchdog: MainThreadWatchdog) {
+        guard idleWakeups == nil else { return }
+        let sampler = IdleWakeupSampler(sources: .live(mainRunLoopWakes: { [weak watchdog] in watchdog?.mainRunLoopWakes },
+                                                       inputEvents: { ExpectedActivity.shared.count(.input) },
+                                                       daemonPID: { [weak daemon = self.daemon] in daemon?.identity?.pid }))
+        idleWakeups = sampler
+        if !NSApp.isActive { sampler.appResignedActive() }
     }
     /// Follows `energy.saver` into the policy driver once the settings have loaded, so the first policy it
     /// publishes already follows the setting. `AppDelegate` calls it at launch; a second call does nothing.

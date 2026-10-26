@@ -186,6 +186,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Hangs, lag spikes and opt-in hang reports (WatchdogReporting); the controller lives with the process.
         AppProcessRoot.shared.adopt(hangReports: WatchdogReporting.install(control.watchdog, services: services))
         services.quit.watchdog = control.watchdog
+        // Idle wakeups per inactive minute (p09-observability-059), once the launch's own work is done.
+        order.startup.post(.afterStartup, "AppServices.startIdleWakeups", on: .main) { [weak services, watchdog = control.watchdog] in
+            services?.startIdleWakeups(watchdog: watchdog)
+        }
         DebugTimings.markReveal(services.launchReveal)
         // Debug Settings overrides (DEV and NIGHTLY only) before any window lays out.
         services.debugSettings.start()
@@ -388,6 +392,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             _ = try? await settings.importClassicPreferences(marker: .standard)
             control.runAfterSettle(socket: controlSocket, services: services, settings: settings, launch: environment.launch, logger: logger)
         }
+    }
+
+    /// The app's own activation callbacks (Chrome's AppController, chrome/browser/app_controller_mac.mm): an
+    /// inactive period's idle wakeups are measured between them (`AppServices.idleWakeups`).
+    func applicationDidResignActive(_ notification: Notification) {
+        services?.idleWakeups?.appResignedActive()
+    }
+
+    func applicationDidBecomeActive(_ notification: Notification) {
+        services?.idleWakeups?.appBecameActive()
     }
 
     /// Every quit (Cmd-Q, the Quit menu, the Dock, `cmux app quit`, power
