@@ -1,0 +1,426 @@
+{
+  "sourceLanguage": "en",
+  "strings": {
+    "runs.error.agentInvalid": {
+      "comment": "cmux run --sandboxed refusal: unknown agent.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unknown agent. Use claude, codex, opencode or pi."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Unbekannter Agent. Verwende claude, codex, opencode oder pi."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agent inconnu. Utilisez claude, codex, opencode ou pi."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "وكيل غير معروف. استخدم claude أو codex أو opencode أو pi."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Agente desconocido. Usa claude, codex, opencode o pi."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知的代理。請使用 claude、codex、opencode 或 pi。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "未知的代理。请使用 claude、codex、opencode 或 pi。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "알 수 없는 에이전트입니다. claude, codex, opencode, pi 중 하나를 쓰세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "不明なエージェントです。claude、codex、opencode、pi のいずれかを使ってください。"
+          }
+        }
+      }
+    },
+    "runs.error.idRequired": {
+      "comment": "runs.wait or runs.cancel refusal when no Run id was given.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Name the run with `id`."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Gib den Lauf mit `id` an."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indiquez l’exécution avec `id`."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "حدّد التشغيل باستخدام `id`."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Indica la ejecución con `id`."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請用 `id` 指定執行。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请用 `id` 指定运行。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "`id`로 실행을 지정하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "`id` で実行を指定してください。"
+          }
+        }
+      }
+    },
+    "runs.error.imageInvalid": {
+      "comment": "cmux run --sandboxed refusal: the image is not a Cloud VM manifest image.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "That image isn't a cmux Cloud VM image. Leave out --image to use the base image."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dieses Image ist kein cmux-Cloud-VM-Image. Lass --image weg, um das Basis-Image zu verwenden."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cette image n’est pas une image de VM cmux Cloud. Omettez --image pour utiliser l’image de base."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "هذه الصورة ليست صورة آلة cmux Cloud. احذف ‎--image لاستخدام الصورة الأساسية."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Esa imagen no es una imagen de VM de cmux Cloud. Omite --image para usar la imagen base."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "該映像不是 cmux Cloud VM 映像。省略 --image 以使用基礎映像。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "该镜像不是 cmux Cloud VM 镜像。省略 --image 以使用基础镜像。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 이미지는 cmux Cloud VM 이미지가 아닙니다. 기본 이미지를 쓰려면 --image를 빼세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "そのイメージは cmux Cloud VM のイメージではありません。--image を省くとベースイメージを使います。"
+          }
+        }
+      }
+    },
+    "runs.error.labsOff": {
+      "comment": "cmux run --sandboxed refusal while the Labs preview flag is off.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sandboxed runs are a preview. Turn on Settings > Advanced > Labs > Show Preview Features."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sandbox-Läufe sind eine Vorschau. Aktiviere Einstellungen > Erweitert > Labs > Vorschaufunktionen anzeigen."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les exécutions isolées sont en aperçu. Activez Réglages > Avancé > Labs > Afficher les fonctions en aperçu."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التشغيلات المعزولة ميزة تجريبية. فعّل الإعدادات > متقدم > المختبرات > إظهار الميزات التجريبية."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las ejecuciones aisladas son una vista previa. Activa Ajustes > Avanzado > Labs > Mostrar funciones en vista previa."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沙箱執行仍為預覽功能。請開啟「設定 > 進階 > Labs > 顯示預覽功能」。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沙箱运行仍是预览功能。请打开“设置 > 高级 > Labs > 显示预览功能”。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "샌드박스 실행은 미리보기 기능입니다. 설정 > 고급 > Labs > 미리보기 기능 표시를 켜세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サンドボックス実行はプレビュー機能です。設定 > 詳細 > Labs > プレビュー機能を表示 をオンにしてください。"
+          }
+        }
+      }
+    },
+    "runs.error.notSignedIn": {
+      "comment": "cmux run --sandboxed refusal when the app is not signed in to cmux.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sign in to cmux in the cmux app first."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Melde dich zuerst in der cmux-App bei cmux an."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Connectez-vous d’abord à cmux dans l’app cmux."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "سجّل الدخول إلى cmux في تطبيق cmux أولًا."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Primero inicia sesión en cmux desde la app cmux."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "請先在 cmux App 中登入 cmux。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "请先在 cmux 应用中登录 cmux。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "먼저 cmux 앱에서 cmux에 로그인하세요."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "先に cmux アプリで cmux にサインインしてください。"
+          }
+        }
+      }
+    },
+    "runs.error.sandboxUnavailable": {
+      "comment": "cmux run --sandboxed refusal when the server has not enabled sandboxes for the account.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sandboxed runs are not enabled for this cmux Cloud account yet."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Sandbox-Läufe sind für dieses cmux-Cloud-Konto noch nicht aktiviert."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Les exécutions isolées ne sont pas encore activées pour ce compte cmux Cloud."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "التشغيلات المعزولة غير مفعّلة بعد لحساب cmux Cloud هذا."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Las ejecuciones aisladas aún no están activadas para esta cuenta de cmux Cloud."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 cmux Cloud 帳號尚未啟用沙箱執行。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此 cmux Cloud 账号尚未启用沙箱运行。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 cmux Cloud 계정에는 아직 샌드박스 실행이 활성화되지 않았습니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "この cmux Cloud アカウントではサンドボックス実行がまだ有効になっていません。"
+          }
+        }
+      }
+    },
+    "runs.error.taskRequired": {
+      "comment": "cmux run --sandboxed refusal when no task text was given.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A sandboxed run needs a task."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein Sandbox-Lauf braucht eine Aufgabe."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une exécution isolée a besoin d’une tâche."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يحتاج التشغيل المعزول إلى مهمة."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una ejecución aislada necesita una tarea."
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沙箱執行需要一項任務。"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "沙箱运行需要一个任务。"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "샌드박스 실행에는 작업이 필요합니다."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "サンドボックス実行にはタスクが必要です。"
+          }
+        }
+      }
+    }
+  },
+  "version": "1.0"
+}

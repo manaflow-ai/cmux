@@ -1,4 +1,5 @@
 import CmuxNextActions
+import CmuxNextCloud
 import Foundation
 import CmuxNextControl
 import CmuxNextSettings
@@ -32,6 +33,7 @@ extension AppControl {
                                        "last_error": services.cloud.lastError.map(JSONValue.string) ?? .null]))
             },
         ])
+        registerRunMethods(services)
         // Tagged DEV builds only (debug.* methods; a release build registers
         // none, and ControlRouter drops them too).
         #if DEBUG || CMUX_BENCH_HOOKS
@@ -100,5 +102,76 @@ extension AppControl {
             "missing_features": .array((compat?.missingOptional ?? []).map(JSONValue.string)),
             "workspaces": .array(store.workspaces.map { .object(["id": .string($0.id), "name": .string($0.displayName)]) }),
         ]
+    }
+}
+
+// `runs.sandbox.create|runs.wait|runs.cancel`: the methods `cmux run --sandboxed` sends
+// (hq#3367). The app holds the Stack session, so the CLI never sees a token: it asks the
+// app, the app asks cmux.com's Run API (messages in Resources/Runs.xcstrings), and the answer (the Run's view and its receipt,
+// which hold no secrets or provider handles) passes through as JSON. Behind Labs >
+// Show Preview Features while sandboxes are being shaped.
+extension AppControl {
+    private func registerRunMethods(_ services: AppServices) {
+        service?.router.register([
+            ControlMethod.async("runs.sandbox.create") { call in
+                let params = call.params
+                guard let task = params["task"]?.stringValue?.trimmingCharacters(in: .whitespacesAndNewlines), !task.isEmpty else {
+                    throw ControlError.invalidParams(String(localized: "runs.error.taskRequired", defaultValue: "A sandboxed run needs a task.", table: "Runs", bundle: .module))
+                }
+                let key = params["idempotencyKey"]?.stringValue.flatMap { $0.isEmpty ? nil : $0 } ?? UUID().uuidString
+                let api = try await Self.runsAPI(services)
+                return try await Self.runJSON {
+                    try await api.createSandboxRun(task: task, agent: params["agent"]?.stringValue, image: params["image"]?.stringValue,
+                                                   timeoutMs: params["timeoutMs"]?.intValue, idempotencyKey: key)
+                }
+            }.withDeadline(.fixed(.seconds(25))),
+            ControlMethod.async("runs.wait") { call in
+                let id = try Self.runID(call.params)
+                let wait = call.params["timeoutMs"]?.intValue ?? 10_000
+                let api = try await Self.runsAPI(services)
+                return try await Self.runJSON { try await api.waitRun(id, timeoutMs: wait) }
+            }.withDeadline(.fixed(.seconds(25))),
+            ControlMethod.async("runs.cancel") { call in
+                let id = try Self.runID(call.params)
+                let api = try await Self.runsAPI(services)
+                return try await Self.runJSON { try await api.cancelRun(id) }
+            }.withDeadline(.fixed(.seconds(65))),
+        ])
+    }
+
+    nonisolated private static func runID(_ params: [String: JSONValue]) throws -> String {
+        guard let id = params["id"]?.stringValue, !id.isEmpty else { throw ControlError.invalidParams(String(localized: "runs.error.idRequired", defaultValue: "Name the run with `id`.", table: "Runs", bundle: .module)) }
+        return id
+    }
+
+    /// The signed-in Cloud client, once Labs and the Cloud policy allow it.
+    nonisolated private static func runsAPI(_ services: AppServices) async throws -> CloudAPIClient {
+        try await MainActor.run {
+            if let refusal = Self.policyRefusal("runs.sandbox.create", disabled: services.registry.disabledFeatures) { throw refusal }
+            guard services.settings?.snapshot.previewFeatures == true else {
+                throw ControlError(code: "labs_off", message: String(localized: "runs.error.labsOff", defaultValue: "Sandboxed runs are a preview. Turn on Settings > Advanced > Labs > Show Preview Features.", table: "Runs", bundle: .module))
+            }
+            guard services.cloud.isSignedIn else { throw ControlError(code: "not_signed_in", message: String(localized: "runs.error.notSignedIn", defaultValue: "Sign in to cmux in the cmux app first.", table: "Runs", bundle: .module)) }
+            return services.cloud.api
+        }
+    }
+
+    /// One Run API call as JSON; the server's error code (`run_task_required`, …) passes through.
+    nonisolated private static func runJSON(_ call: @Sendable () async throws -> Data) async throws -> JSONValue {
+        do {
+            let data = try await call()
+            return data.isEmpty ? .object([:]) : try JSONValue.parse(data)
+        } catch let error as CloudAPIError {
+            switch error {
+            case .notSignedIn: throw ControlError(code: "not_signed_in", message: String(localized: "runs.error.notSignedIn", defaultValue: "Sign in to cmux in the cmux app first.", table: "Runs", bundle: .module))
+            case .timedOut: throw ControlError(code: "timeout", message: error.description)
+            case .http(_, "run_sandbox_unavailable", _): throw ControlError(code: "run_sandbox_unavailable", message: String(localized: "runs.error.sandboxUnavailable", defaultValue: "Sandboxed runs are not enabled for this cmux Cloud account yet.", table: "Runs", bundle: .module))
+            case .http(_, "run_image_invalid", _): throw ControlError(code: "run_image_invalid", message: String(localized: "runs.error.imageInvalid", defaultValue: "That image isn't a cmux Cloud VM image. Leave out --image to use the base image.", table: "Runs", bundle: .module))
+            case .http(_, "run_agent_invalid", _): throw ControlError(code: "run_agent_invalid", message: String(localized: "runs.error.agentInvalid", defaultValue: "Unknown agent. Use claude, codex, opencode or pi.", table: "Runs", bundle: .module))
+            case .http(let status, let code, _): throw ControlError(code: code ?? "http_\(status)", message: error.description)
+            case .noBackend, .transport: throw ControlError(code: "unavailable", message: error.description)
+            case .decoding: throw ControlError(code: "bad_response", message: error.description)
+            }
+        }
     }
 }

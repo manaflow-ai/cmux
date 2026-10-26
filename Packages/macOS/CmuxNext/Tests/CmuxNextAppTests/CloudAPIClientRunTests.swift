@@ -1,0 +1,57 @@
+import CmuxNextCloud
+import Foundation
+import Testing
+
+/// `cmux run --sandboxed` (hq#3367) goes through these: the create sends the
+/// Run API's required Idempotency-Key, and every call answers the raw JSON.
+@Suite(.serialized)
+struct CloudAPIClientRunTests {
+    nonisolated final class RunAPI: URLProtocol {
+        nonisolated(unsafe) static var seen: [(method: String, path: String, key: String?)] = []
+
+        override class func canInit(with _: URLRequest) -> Bool { true }
+        override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+
+        override func startLoading() {
+            guard let url = request.url else { return }
+            let path = url.path + (url.query.map { "?" + $0 } ?? "")
+            Self.seen.append((request.httpMethod ?? "", path, request.value(forHTTPHeaderField: "Idempotency-Key")))
+            let body = path.hasSuffix("/wait?timeoutMs=10000")
+                ? #"{"run":{"id":"run-1","status":"succeeded"},"receipt":{"schema":"cmux.run.receipt/v1"}}"#
+                : #"{"id":"run-1","status":"queued"}"#
+            guard let response = HTTPURLResponse(url: url, statusCode: path == "/api/runs" ? 202 : 200, httpVersion: nil,
+                                                 headerFields: ["Content-Type": "application/json"]) else { return }
+            client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+            client?.urlProtocol(self, didLoad: Data(body.utf8))
+            client?.urlProtocolDidFinishLoading(self)
+        }
+
+        override func stopLoading() {}
+    }
+
+    private func api() -> CloudAPIClient {
+        let configuration = CloudConfiguration.resolve(
+            bundleID: nil,
+            bundled: ["CMUX_VM_API_BASE_URL": "https://vm-api.standin.invalid"],
+            process: [:],
+            isDebugBuild: true
+        )
+        let sessionConfiguration = URLSessionConfiguration.ephemeral
+        sessionConfiguration.protocolClasses = [RunAPI.self]
+        return CloudAPIClient(configuration: configuration, tokens: { ("access", "refresh") }, teamID: { "team-1" },
+                              session: URLSession(configuration: sessionConfiguration))
+    }
+
+    @Test func createSendsTheKeyAndWaitIsCappedAtTheServerBound() async throws {
+        RunAPI.seen = []
+        let api = api()
+        let created = try JSONSerialization.jsonObject(with: try await api.createSandboxRun(task: "hi", agent: "claude",
+                                                                                            idempotencyKey: "key-1")) as? [String: Any]
+        #expect(created?["id"] as? String == "run-1")
+        let waited = try JSONSerialization.jsonObject(with: try await api.waitRun("run-1", timeoutMs: 60_000)) as? [String: Any]
+        #expect((waited?["receipt"] as? [String: Any])?["schema"] as? String == "cmux.run.receipt/v1")
+        #expect(RunAPI.seen.map(\.method) == ["POST", "GET"])
+        #expect(RunAPI.seen.map(\.path) == ["/api/runs", "/api/runs/run-1/wait?timeoutMs=10000"])
+        #expect(RunAPI.seen.first?.key == "key-1")
+    }
+}
