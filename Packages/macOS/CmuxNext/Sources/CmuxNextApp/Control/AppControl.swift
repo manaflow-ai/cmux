@@ -120,7 +120,7 @@ final class AppControl {
         router.register(ErrorJournalControl(journal: errors.journal, sources: errors.sources).methods)
     }
 
-    /// Resources, extensions, Ghostty diagnostics, `features.list` and `debug.memory` (release builds too).
+    /// Resources, extensions, Ghostty diagnostics, `features.list`, `energy.status` and `debug.memory` (release builds too).
     func registerResourceMethods(_ services: AppServices, on router: ControlRouter) {
         router.register([
             // CPU and memory per tab and workspace, two samples `interval_ms` apart.
@@ -136,6 +136,8 @@ final class AppControl {
             GhosttyDiagnosticsControl().method,
             // Every feature's value and source (`cmux settings feature-flags`), read-only.
             FeatureFlagsReport(features: services.features).method,
+            // Energy Saver's policy and inputs (`cmux energy status`, MCP `energy_status`).
+            EnergyReport.statusMethod(services: services),
         ])
         router.register(DebugHibernationControl.methods(services)) // debug.memory serves release builds too
     }
