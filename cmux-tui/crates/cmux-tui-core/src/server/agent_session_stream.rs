@@ -205,6 +205,13 @@ pub(super) fn deliver(attachment: &Attachment, inbound: Inbound) {
                 attachment.end(None);
             }
         }
+        // Who is in the chat: acpmux sends the whole set on every change, to a client that asked.
+        "_acpmux/presence" if same_session && attachment.wants_presence() => {
+            let event = json!({"event": "agent-session-presence", "surface": attachment.surface, "presence": params});
+            if attachment.writer.send_stream(&event, &attachment.outbound).is_err() {
+                attachment.end(None);
+            }
+        }
         "_acpmux/prompt_accepted" if same_session => {
             let prompt = params.get("promptId").and_then(Value::as_str).unwrap_or_default();
             let slot = attachment.prompts.lock().unwrap_or_else(|e| e.into_inner()).remove(prompt);

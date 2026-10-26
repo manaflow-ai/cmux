@@ -171,6 +171,7 @@ pub(super) fn bundle_path_kind(path: &str) -> Option<bool> {
     match parts.as_slice() {
         ["session.json"] | ["manifest.json"] => Some(false),
         ["events", f] if f.len() > ".ndjson".len() && f.ends_with(".ndjson") => Some(false),
+        ["harness", "journal.ndjson"] | ["harness", "session.jsonl"] => Some(false),
         ["native", "claude-project", ".claude", "projects", dir, f]
             if !dir.is_empty() && jsonl(f) =>
         {
@@ -188,7 +189,7 @@ pub(super) fn bundle_path_kind(path: &str) -> Option<bool> {
 }
 
 /// A plain agent session id: the only kind a guarded chat resumes or restores a file for.
-fn plain_agent_session(id: &str) -> bool {
+pub(super) fn plain_agent_session(id: &str) -> bool {
     (8..=128).contains(&id.len())
         && id.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-' || b == b'_')
 }
@@ -349,7 +350,7 @@ impl Hub {
             crate::native::guarded_plan(bundle, &meta).map_err(|e| guard_error("native", e))?;
         // The chat resumes only an agent session it brings: with no file of it, its agent starts
         // fresh (with its acpmux history), never on a session that happens to be here.
-        if plan.is_empty() {
+        if plan.is_empty() && meta.harness != "cmux-harness" {
             meta.agent_session_id = None;
         }
         // One that is here already is another chat's, or this chat's from before it moved away:
@@ -405,5 +406,18 @@ impl Hub {
             }
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod durable_harness_tests {
+    use super::bundle_path_kind;
+
+    #[test]
+    fn durable_harness_journal_is_a_bundle_file() {
+        assert_eq!(bundle_path_kind("harness/journal.ndjson"), Some(false));
+        assert_eq!(bundle_path_kind("harness/session.jsonl"), Some(false));
+        assert_eq!(bundle_path_kind("harness/owner.sqlite"), None);
+        assert_eq!(bundle_path_kind("harness/../journal.ndjson"), None);
     }
 }

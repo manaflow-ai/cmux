@@ -378,6 +378,26 @@ class GatewayRoute(unittest.TestCase):
         self.assertEqual(placement.gateway_taken({**values, "CASCADE_RUNS": " swift-canary "}, runners), {})
         self.assertEqual(placement.gateway_taken({**values, "CASCADE_RUNS": ""}, runners, FAST), {FAST: 1})
 
+    def test_a_running_fleet_fast_check_keeps_its_mac_fallback_out_of_the_cascade(self):
+        values = {"CASCADE_RUNS": " fast-tier release-compile ", "FIRST_JOBS": "release-compile"}
+        trimmed = placement.without_cascade(values, "release-compile")
+        self.assertEqual((trimmed["CASCADE_RUNS"], trimmed["FIRST_JOBS"]), (" fast-tier ", ""))
+        push = {"GATEWAY_LABEL": LIGHT_SIDE, "GATEWAY_JOBS": "release-compile-fast",
+                "CASCADE_RUNS": " release-compile ", "FIRST_JOBS": "release-compile"}
+        free = {placement.cascade.LARGE: 0, placement.cascade.SMALL: 0}
+        for runners, cascaded in ((self.light(False, False), False), (self.light(True, True), True)):
+            with self.subTest(idle=not cascaded), tempfile.TemporaryDirectory() as tmp:
+                output = Path(tmp) / "out"
+                values = env(SIDE_LABEL=LIGHT_SIDE, GITHUB_OUTPUT=str(output), ROUTE_TOKEN="t",
+                             GITHUB_REPOSITORY="manaflow-ai/cmux", **push)
+                with mock.patch.object(placement.pool, "GitHub") as github, \
+                        mock.patch.object(placement.cascade, "read", return_value=(free, dict(free), None)), \
+                        contextlib.redirect_stdout(io.StringIO()):
+                    github.return_value.runners.return_value = runners + self.std(True)
+                    placement.main(values)
+                lines = dict(line.split("=", 1) for line in output.read_text().splitlines())
+                self.assertEqual("release-compile" in lines["blacksmith_12_jobs"], cascaded)
+
     def test_without_the_variable_nothing_is_judged(self):
         lines = self.run_main(self.light(False))
         self.assertEqual((lines["gateway_runner"], lines["gateway_attempt"]), ("", ""))
