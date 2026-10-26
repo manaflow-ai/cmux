@@ -4,11 +4,13 @@ assertions), the perf cron rows, the session table, energy per kind and tree, po
 saver/thermal guard; procs.py's counters (interrupt and package-idle wakeups apart, billed energy, GPU time,
 the coalition); and the chrome-static reference (Chrome kinds, uBlock Origin parity, the reference browser
 refusal, ratio rows and their noise floor; xbench's Chrome switches); and the shipping measurement mode (launch
-env, Debug refusal under --gate, the five report fields). Runs on any host (libproc loads only to measure)."""
+env, Debug refusal under --gate, the five report fields); the role and App Nap audit (task 106: `ps` priorities, D16's
+expected roles, pooled acpmux agents). Runs on any host (libproc loads only to measure)."""
 
 from __future__ import annotations
 
 import contextlib
+import fcntl
 import importlib.util
 import io
 import json
@@ -34,8 +36,8 @@ CHROME = "/Applications/Chromium.app"
 CHROME_HELPERS = f"{CHROME}/Contents/Frameworks/Chromium Framework.framework/Versions/154.0.8037.58/Helpers"
 
 
-def row(kind, threads, wakeups, cpu=0.0, cpu_mw=0.0, billed_mw=0.0):
-    return {"kind": kind, "threads": threads, "threads_ran": 0, "wakeups_per_s": wakeups, "csw_per_s": 0.0, "cpu_pct": cpu,
+def row(kind, threads, wakeups, cpu=0.0, cpu_mw=0.0, billed_mw=0.0, pid=0):
+    return {"pid": pid, "kind": kind, "threads": threads, "threads_ran": 0, "wakeups_per_s": wakeups, "csw_per_s": 0.0, "cpu_pct": cpu,
             "energy_mw_cpu": cpu_mw, "energy_mw_billed": billed_mw}
 
 
@@ -693,8 +695,11 @@ class CountersTests(unittest.TestCase):
                          [("session", "saver_reason", "setting", "battery")])
         self.assertEqual(ib.over_line("x", ("session", "saver_reason", "setting", "battery")),
                          "IDLE-BUDGET-OVER x session saver_reason setting != battery")
-        napped = {"app": {"wakeups_per_s": 0.1, "main_wakes_per_s": 0.0, "roles": ["foreground"]}}
-        self.assertEqual(ib.over_budget("minimized", napped, budget), [("app", "role", "foreground", "napped")])
+        # A budget role is judged per process (role_audit), not per kind.
+        napped = {"app": {"wakeups_per_s": 0.1, "main_wakes_per_s": 0.0, "roles": ["default"]}}
+        self.assertEqual(ib.over_budget("minimized", napped, budget), [])
+        self.assertEqual(ib.role_audit("minimized", [{"pid": 7, "kind": "app", "role": "default"}], budget),
+                         ([{"kind": "app", "pids": [7], "observed": "default", "expected": "napped"}], []))
         # Idle sessions write nothing: all_kinds applies to every kind; busy and reference sessions take only
         # their own limits.
         self.assertEqual(ib.over_budget("light", {"cef-helper": {"disk_bytes_per_s": 12.0}}, budget),
@@ -835,6 +840,10 @@ class MeasureOrderTests(unittest.TestCase):
         procs.thermal_state = lambda: "nominal"
         procs.power_assertions = lambda _pids: calls.append("pmset") or []
         ib.time.sleep = lambda seconds: calls.append(f"sleep {seconds:g}")
+        roles_saved = (procs.priorities, procs.process_table, ib.acpmux_homes)
+        procs.priorities = lambda _pids: calls.append("roles") or {1: {"base": 4, "nice": 0, "darwinbg": True}}
+        procs.process_table = lambda: calls.append("ps") or []
+        ib.acpmux_homes = lambda _env: []
         d15 = ib.D15Readers(windowserver=lambda: calls.append("windowserver") or (157, 10, "rusage", len(calls)),
                             start_network=lambda seconds, workdir: calls.append(f"nettop start {seconds:g}") or "nettop",
                             network_pid=lambda started: 77,
@@ -846,6 +855,7 @@ class MeasureOrderTests(unittest.TestCase):
         finally:
             (ib.process_set, ib.threads, procs.usage, procs.overhead, procs.gpu_ns_by_pid, procs.coalition_of,
              procs.coalition_id, procs.thermal_state, procs.power_assertions, ib.time.sleep) = saved
+            (procs.priorities, procs.process_table, ib.acpmux_homes) = roles_saved
         probes = {"debug.energy", "pmset", "anim"}
         counters = [i for i, c in enumerate(calls) if c in ("debug.hangs", "debug.wakeups", "debug.cef", "debug.layers", "usage")]
         start_probes = [i for i, c in enumerate(calls) if c in probes and i < counters[0]]
@@ -861,6 +871,12 @@ class MeasureOrderTests(unittest.TestCase):
         self.assertEqual([(r["kind"], r["hidden"]) for r in result["processes"]], [("app", False)])
         self.assertEqual(result["ends"]["start"]["saver"], True)
         self.assertIn("anim", result["ends"]["end"])
+        # The roles are read once, after every counter and end read.
+        self.assertEqual(calls.count("roles"), 1)
+        self.assertGreater(calls.index("roles"), max(counters + end_probes))
+        self.assertEqual((result["processes"][0]["role"], result["processes"][0]["pooled"]), ("darwinbg", False))
+        # The pooled agents come from the set's own `ps` rows: no second `ps` read in the window.
+        self.assertNotIn("ps", calls)
         # D15: WindowServer is read outside the process counters; nettop starts before every bracket (no exec or
         # start-up of it inside one), samples its lead plus the window and ends after the last read; its own usage
         # is read right at the window's two ends (its coalition share is taken out); `log show` reads logd after.
@@ -925,6 +941,7 @@ class MeasureOrderTests(unittest.TestCase):
                     (procs, "overhead", lambda _pid: (0, 30, 0, 0, 0)), (procs, "gpu_ns_by_pid", lambda: {}),
                     (procs, "coalition_of", coalition), (procs, "coalition_id", lambda _pid: 7),
                     (procs, "thermal_state", lambda: "nominal"), (procs, "power_assertions", lambda _pids: []),
+                    (procs, "priorities", lambda _pids: {}), (ib, "acpmux_homes", lambda _env: []),
                     (ib.time, "sleep", lambda _seconds: None), (ib.time, "monotonic", lambda: next(clock))):
                 stack.enter_context(unittest.mock.patch.object(target, name, value))
             result = ib.measure(FakeApp([]), type("Instance", (), {"pid": 1})(), 60, attribute=True, d15=d15)
@@ -940,6 +957,231 @@ class MeasureOrderTests(unittest.TestCase):
         with unittest.mock.patch.object(procs, "coalition_id", lambda pid: {1: 7, 77: 8}.get(pid)):
             self.assertFalse(ib.same_coalition(77, 1))
             self.assertTrue(ib.same_coalition(1, 1))
+
+
+# The role reads of one window (procs.priorities' seams): each task's base priority (proc_pidinfo PROC_PIDTASKINFO
+# pti_priority) and its darwinbg bit and nice (PROC_PIDTBSDINFO). The app, daemon, terminal host and three renderers
+# at the default 31 (not lowered), the spare renderer 603 darwin background at 4, the extension process suppressed at
+# 28; 999 is not of the set and 700 is gone (neither read answers).
+TASK_BASE = {501: 31, 502: 31, 503: 31, 601: 31, 602: 31, 605: 31, 603: 4, 604: 28, 999: 20}
+BSD_STATE = {501: (False, 0), 502: (False, 0), 503: (False, 0), 601: (False, 0), 602: (False, 0), 605: (False, 0),
+             603: (True, 0), 604: (False, 0), 999: (False, 0)}
+
+
+def role_priorities(pids, base=None, bsd=None):
+    base, bsd = {**TASK_BASE, **(base or {})}, {**BSD_STATE, **(bsd or {})}
+    return procs.priorities(pids, task_priority_of=base.get, bsd_state_of=bsd.get)
+
+
+def role_rows(kinds, hidden=None, shown=None, base=None):
+    """Rows of `kinds` ({pid: kind}) with their roles from the fixture reads and the census's `hidden` / `shown`."""
+    rows = [{"pid": pid, "kind": kind} for pid, kind in kinds.items()]
+    for row_ in rows:
+        if hidden and row_["pid"] in hidden:
+            row_["hidden"] = hidden[row_["pid"]]
+        if shown and row_["pid"] in shown:
+            row_["shown"] = shown[row_["pid"]]
+    return ib.with_roles(rows, role_priorities(kinds, base), pooled=set())
+
+
+def census_rows_of(kinds, census, shown_tab=None, base=None):
+    """Rows marked as measure() marks them: WindowKinds' `hidden` and `shown` from a debug.webui census."""
+    window = ib.WindowKinds([], census, shown_tab)
+    rows = [{"pid": pid, "kind": kind, "hidden": window.hidden(pid, kind), "shown": window.shown(pid, kind)}
+            for pid, kind in kinds.items()]
+    return ib.with_roles(rows, role_priorities(kinds, base), pooled=set())
+
+
+TABS_KINDS = {501: "app", 502: "daemon", 503: "terminal-host", 601: "cef-renderer", 602: "cef-renderer",
+              605: "cef-renderer", 603: "cef-renderer", 604: "cef-extension"}
+# tabs-static as debug.webui reports it: Home visible in Chromium (601), the shown browser tab t1 (602), the hidden
+# tab t2 (605) and a spare (603).
+TABS_CENSUS = {"pages": [{"page": "cmux.home", "state": "visible", "webkit_pid": None, "renderer_pids": [601]}],
+               "spares": [{"spare": "cef_window", "renderer_pids": [603], "webkit_pid": None}],
+               "browser_tabs": [{"tab": "t1", "renderer_pids": [602]}, {"tab": "t2", "renderer_pids": [605]}]}
+TABS_SHOWN = {"engine": "chromium", "tabs": ["t1"]}
+
+
+class RoleAuditTests(unittest.TestCase):
+    """Task 106: each task's role from its base priority and darwinbg bit, checked against D16."""
+
+    def test_fixture_reads_give_a_role_per_process(self):
+        priority = role_priorities(list(TABS_KINDS) + [700])
+        self.assertEqual(sorted(priority), sorted(TABS_KINDS))  # 999 is not asked for; 700 is gone
+        self.assertEqual(priority[603], {"base": 4, "darwinbg": True, "nice": 0})
+        roles = {row_["pid"]: row_["role"] for row_ in role_rows(TABS_KINDS)}
+        self.assertEqual(roles, {501: "default", 502: "default", 503: "default", 601: "default", 602: "default",
+                                 605: "default", 603: "darwinbg", 604: "suppressed"})
+        self.assertIsNone(ib.observed_role(None))
+        self.assertIsNone(ib.observed_role({"base": None, "darwinbg": False}))
+        self.assertEqual(ib.observed_role({"base": None, "darwinbg": True}), "darwinbg")
+        # One unread half is None, the other still counts.
+        self.assertEqual(procs.priorities([1], task_priority_of=lambda _pid: 28, bsd_state_of=lambda _pid: None),
+                         {1: {"base": 28, "darwinbg": None, "nice": None}})
+
+    def test_the_task_base_priority_decides_not_the_busiest_thread(self):
+        """`ps -o pri` would print 97 for a napped app with one realtime thread (CVDisplayLink, audio) and 20 for a
+        daemon whose threads all idle at utility QoS: the task's base priority is what the role sets."""
+        napped_with_realtime_thread = {"base": 4, "darwinbg": False, "nice": 0}
+        self.assertEqual(ib.observed_role(napped_with_realtime_thread), "suppressed")
+        self.assertEqual(ib.observed_role({"base": 28, "darwinbg": False, "nice": 0}), "suppressed")
+        utility_qos_daemon = {"base": 31, "darwinbg": False, "nice": 0}
+        self.assertEqual(ib.observed_role(utility_qos_daemon), "default")
+        budget = ib.load_budget(ib.BUDGET_FILE)
+        app = role_rows({501: "app"}, base={501: 4})
+        self.assertEqual(ib.role_audit("minimized", app, budget), ([], []))
+        daemons = role_rows({502: "daemon", 503: "terminal-host"})
+        self.assertEqual(ib.role_audit("light", daemons, budget), ([], []))
+
+    def test_hidden_renderer_at_foreground_priority_is_flagged(self):
+        """With 104's census: Home's visible renderer and the shown tab's run above best-effort and are not judged;
+        the hidden tab's renderer at the default priority is the one mismatch."""
+        budget = ib.load_budget(ib.BUDGET_FILE)
+        rows = census_rows_of(TABS_KINDS, TABS_CENSUS, TABS_SHOWN)
+        for session in ("tabs-static", "energy-saver"):
+            mismatches, notes = ib.role_audit(session, rows, budget)
+            self.assertEqual(mismatches, [{"kind": "cef-renderer", "pids": [605], "observed": "default",
+                                           "expected": "best-effort"}])
+            self.assertEqual(notes, [])
+        self.assertEqual(ib.role_over_line("tabs-static", mismatches[0]),
+                         "IDLE-BUDGET-OVER tabs-static cef-renderer role owner=role pids=605 observed=default "
+                         "expected=best-effort")
+        # Suppressed, the hidden tab passes.
+        fixed = census_rows_of(TABS_KINDS, TABS_CENSUS, TABS_SHOWN, base={605: 4})
+        self.assertEqual(ib.role_audit("tabs-static", fixed, budget), ([], []))
+
+    def test_a_build_without_a_census_judges_no_renderer_of_a_shown_session(self):
+        """No debug.webui: every renderer is of unknown visibility. A shown session reports them not judged (no false
+        over for Home's or the shown tab's renderer); with no window shown each is still best-effort."""
+        budget = ib.load_budget(ib.BUDGET_FILE)
+        rows = census_rows_of(TABS_KINDS, {}, TABS_SHOWN)
+        self.assertEqual([(r["hidden"], r["shown"]) for r in rows if r["kind"] == "cef-renderer"], [(False, False)] * 4)
+        mismatches, notes = ib.role_audit("tabs-static", rows, budget)
+        self.assertEqual(mismatches, [])
+        self.assertEqual(notes, ["tabs-static cef-renderer role: not judged: visibility unknown pids=601,602,603,605"])
+        mismatches, _notes = ib.role_audit("minimized", rows, budget)
+        self.assertEqual([(m["kind"], m["pids"]) for m in mismatches if m["kind"] == "cef-renderer"],
+                         [("cef-renderer", [601]), ("cef-renderer", [602]), ("cef-renderer", [605])])
+
+    def test_minimized_app_must_nap_and_every_renderer_is_best_effort(self):
+        budget = ib.load_budget(ib.BUDGET_FILE)
+        mismatches, _notes = ib.role_audit("minimized", role_rows(TABS_KINDS), budget)
+        self.assertEqual([(m["kind"], m["pids"], m["observed"], m["expected"]) for m in mismatches],
+                         [("app", [501], "default", "napped"),
+                          ("cef-renderer", [601], "default", "best-effort"),
+                          ("cef-renderer", [602], "default", "best-effort"),
+                          ("cef-renderer", [605], "default", "best-effort")])
+        napped = role_rows({501: "app", 502: "daemon", 603: "cef-renderer"}, base={501: 28})
+        self.assertEqual(ib.role_audit("minimized", napped, budget), ([], []))
+
+    def test_an_unread_role_is_not_judged_and_says_so(self):
+        """A process whose role could not be read (gone at the window's end, the read failed) is a not-judged note,
+        never a silent pass."""
+        budget = ib.load_budget(ib.BUDGET_FILE)
+        rows = ib.with_roles([{"pid": 501, "kind": "app"}, {"pid": 502, "kind": "daemon"}], {}, pooled=set())
+        self.assertEqual(ib.role_audit("minimized", rows, budget), ([], ["minimized app role: not judged: unread pids=501"]))
+        entry = ib.summarize("minimized", {"processes": [{**row("app", 30, 0.1), "pid": 501, "role": None}],
+                                           "ends": ends(False, False)}, budget)
+        self.assertIn("minimized app role: not judged: unread pids=501", entry["not_judged"])
+        self.assertFalse([o for o in entry["over"] if o[1] == "role"])
+
+    def test_daemon_and_terminal_host_never_background_while_a_terminal_shows(self):
+        rows = role_rows({502: "daemon", 603: "terminal-host"})
+        budget = ib.load_budget(ib.BUDGET_FILE)
+        self.assertEqual(ib.role_audit("light", rows, budget)[0],
+                         [{"kind": "terminal-host", "pids": [603], "observed": "darwinbg", "expected": "not-background"}])
+        self.assertEqual(ib.role_audit("minimized", rows, budget), ([], []))
+
+    def test_pooled_agents_are_darwin_background(self):
+        rows = role_rows({502: "acpmux", 603: "acpmux"})
+        for row_ in rows:
+            row_["pooled"] = True
+        self.assertEqual(ib.role_audit("light", rows, ib.load_budget(ib.BUDGET_FILE))[0],
+                         [{"kind": "acpmux", "pids": [502], "observed": "default", "expected": "background"}])
+
+    def test_busy_and_reference_sessions_are_not_judged(self):
+        budget = ib.load_budget(ib.BUDGET_FILE)
+        rows = role_rows({601: "cef-renderer", 602: "cef-renderer"}, hidden={601: True, 602: True})
+        self.assertEqual(ib.role_audit("stress", rows, budget), ([], []))
+        self.assertEqual(ib.role_audit("chrome-static", rows, budget), ([], []))
+
+    def test_an_explicit_null_role_is_not_judged(self):
+        """`"role": null` means measured, not judged (limit_for's contract), not D16's default."""
+        rows = role_rows({501: "app"})  # the app at the default priority while minimized
+        own = {"kinds": {}, "sessions": {"minimized": {"kinds": {"app": {"role": None}}}}}
+        self.assertEqual(ib.role_audit("minimized", rows, own), ([], []))
+        per_session = {"kinds": {"app": {"role": {"minimized": None}}}}
+        self.assertEqual(ib.role_audit("minimized", rows, per_session), ([], []))
+        self.assertEqual(ib.role_audit("minimized", rows, {"kinds": {}})[0][0]["expected"], "napped")
+        renderers = census_rows_of({601: "cef-renderer"}, {}, None)
+        self.assertEqual(ib.role_audit("tabs-static", renderers, {"kinds": {"cef-renderer": {"role": None}}}), ([], []))
+        self.assertEqual(ib.role_budget_errors(own), [])
+
+    def test_budget_role_overrides_and_unknown_roles(self):
+        budget = {"kinds": {}, "sessions": {"minimized": {"kinds": {"app": {"role": "not-background"}}}}}
+        rows = role_rows({501: "app"})
+        self.assertEqual(ib.role_audit("minimized", rows, budget), ([], []))
+        rows[0]["role"] = "suppressed"
+        self.assertEqual(ib.role_audit("minimized", rows, budget)[0],
+                         [{"kind": "app", "pids": [501], "observed": "suppressed", "expected": "not-background"}])
+        self.assertEqual(ib.role_budget_errors(ib.load_budget(ib.BUDGET_FILE)), [])
+        typo = {"kinds": {"app": {"role": {"light": "naped"}}}, "sessions": {"x": {"kinds": {"daemon": {"role": "bg"}}}}}
+        self.assertEqual(len(ib.role_budget_errors(typo)), 2)
+        self.assertEqual(len(ib.role_budget_errors({"kinds": {"app": {"role": "foreground"}}})), 1)
+        with tempfile.TemporaryDirectory() as folder:
+            path = os.path.join(folder, "budget.json")
+            with open(path, "w") as handle:
+                json.dump(typo, handle)
+            with self.assertRaises(SystemExit) as raised:
+                ib.main(["--budget", path, "--app", APP])
+        self.assertIn("kinds.app.role.light", str(raised.exception))
+
+    def test_summarize_counts_role_mismatches_as_overs(self):
+        rows = [{**row("app", 30, 0.1), "pid": 501, "role": "default"}]
+        result = {"processes": rows, "ends": ends(False, False)}
+        entry = ib.summarize("minimized", result, ib.load_budget(ib.BUDGET_FILE))
+        self.assertIn(["app", "role", "default", "napped"], entry["over"])
+        self.assertEqual(entry["role_mismatches"][0]["pids"], [501])
+
+    def test_pool_pids_trusts_only_live_hosts(self):
+        with tempfile.TemporaryDirectory() as home:
+            pool = os.path.join(home, "hosts", "pool")
+            os.makedirs(pool)
+            records = {"live": {"session_id": "s1", "start_nonce": "ab12", "host_pid": 70},
+                       "stale": {"session_id": "s2", "start_nonce": "cd34", "host_pid": 80},
+                       "bad": {"session_id": "../x", "start_nonce": "ab", "host_pid": 90}}
+            for name, record in records.items():
+                with open(os.path.join(pool, f"{name}.json"), "w") as handle:
+                    json.dump(record, handle)
+            for record in records.values():
+                open(os.path.join(pool, f"{os.path.basename(record['session_id'])}.{record['start_nonce']}.live"), "w").close()
+            table = [(70, 1, "/x/bin/acpmux __agent-host s1"), (71, 70, "claude"), (72, 71, "node"),
+                     (80, 1, "/x/bin/acpmux __agent-host s2"), (90, 1, "/x/bin/acpmux __agent-host x"), (5, 1, "zsh")]
+            held = os.open(os.path.join(pool, "s1.ab12.live"), os.O_RDONLY)
+            try:
+                fcntl.flock(held, fcntl.LOCK_EX)
+                # flock locks belong to the open file: another open of it from this process is refused too.
+                self.assertTrue(ib.live_lock_held(os.path.join(pool, "s1.ab12.live")))
+                self.assertFalse(ib.live_lock_held(os.path.join(pool, "s2.cd34.live")))
+                found = ib.pool_pids({70, 71, 72, 80, 90, 5}, table, [home, os.path.join(home, "missing")])
+            finally:
+                os.close(held)
+        self.assertEqual(found, {70, 71, 72})
+
+    def test_acpmux_homes_resolve_as_the_app_does(self):
+        with tempfile.TemporaryDirectory() as home:
+            os.makedirs(os.path.join(home, ".acpmux", "builds", "k1"))
+            os.makedirs(os.path.join(home, ".cmux", "chief", "c1", "acpmux"))
+            homes = ib.acpmux_homes({"ACPMUX_HOME": "/e/acp", "CMUX_NEXT_CHIEF_HOME": "/chief"}, user_home=home)
+        self.assertEqual(homes, [os.path.join(home, ".acpmux"), os.path.join(home, ".acpmux", "builds", "k1"),
+                                 "/e/acp", "/chief/acpmux", os.path.join(home, ".cmux", "chief", "c1", "acpmux")])
+        self.assertEqual(ib.acpmux_homes({"CMUX_NEXT_ACPMUX_ROOT": "/r"}, user_home="/nohome")[0], "/r")
+
+    def test_table_shows_roles(self):
+        kinds = ib.aggregate({"processes": [{**row("app", 30, 0.1), **r} for r in role_rows({501: "app"})]})
+        text = ib.table("minimized", kinds, [("app", "role", "default", "napped")])
+        self.assertIn("| roles |", text)
+        self.assertTrue(text.rstrip().endswith("| **default** |"))
 
 
 class EnergyTests(unittest.TestCase):
