@@ -31,14 +31,14 @@ use crate::terminal_host_protocol::{
     CLEAR_HISTORY_ACK_AMBIGUOUS, CLEAR_HISTORY_ACK_FALLBACK_UNREPRESENTABLE,
     CLEAR_HISTORY_ACK_FALLBACK_WRITE_TIMEOUT, CLEAR_HISTORY_ACK_KNOWN_NOT_DELIVERED,
     CLEAR_HISTORY_ACK_OK, CLEAR_HISTORY_ACK_PRESERVATION_FAILED, CLEAR_HISTORY_ACK_STREAM_TIMEOUT,
-    FLAG_COLORS_FOLLOW, FLAG_LAUNCH_ACTIVATION_REQUIRED, FLAG_PROGRAM_STATUS, FLAG_PTY_CUSTODY,
-    FLAG_SHELL_ACTIVITY, FLAG_SMART_RENDERER, FLAG_TERMINAL_METADATA, FLAG_VIEWER_SIZE_ACKS,
-    FLAG_VIEWER_SIZE_PRIORITY, Frame, HostLaunchFailure, HostLaunchFailureKind,
-    KITTY_IMAGE_ALIAS_COUNT_LEN, KITTY_IMAGE_ALIAS_ENCODED_LEN, LAUNCH_ACTIVATION_PROTOCOL_VERSION,
-    MAX_FRAME_PAYLOAD, MAX_KITTY_IMAGE_ALIASES, MessageKind, PROTOCOL_VERSION,
-    RESIZE_ACK_CANONICAL_CHANGED, TerminalExit, decode_host_launch_failure, decode_terminal_exit,
-    encode_host_launch_failure, encode_terminal_exit, read_frame,
-    wait_for_native_child_status_with_reap_result, write_frame,
+    FLAG_COLORS_FOLLOW, FLAG_INPUT_FLOW, FLAG_LAUNCH_ACTIVATION_REQUIRED, FLAG_PROGRAM_STATUS,
+    FLAG_PTY_CUSTODY, FLAG_SHELL_ACTIVITY, FLAG_SMART_RENDERER, FLAG_TERMINAL_METADATA,
+    FLAG_VIEWER_SIZE_ACKS, FLAG_VIEWER_SIZE_PRIORITY, Frame, HostLaunchFailure,
+    HostLaunchFailureKind, KITTY_IMAGE_ALIAS_COUNT_LEN, KITTY_IMAGE_ALIAS_ENCODED_LEN,
+    LAUNCH_ACTIVATION_PROTOCOL_VERSION, MAX_FRAME_PAYLOAD, MAX_KITTY_IMAGE_ALIASES, MessageKind,
+    PROTOCOL_VERSION, RESIZE_ACK_CANONICAL_CHANGED, TerminalExit, decode_host_launch_failure,
+    decode_terminal_exit, encode_host_launch_failure, encode_terminal_exit, flow_trailer_payload,
+    read_frame, split_flow_trailer, wait_for_native_child_status_with_reap_result, write_frame,
 };
 
 mod grant_failure;
@@ -203,6 +203,16 @@ pub struct TerminalHostRecord {
     /// ClientHello carrying `FLAG_SHELL_ACTIVITY`.
     #[serde(default)]
     pub supports_shell_activity: bool,
+    /// Additive control capability (p09-observability-015). Missing/false
+    /// records belong to hosts that would end the connection on the unknown
+    /// TraceControl message, so the daemon never sends it to them.
+    #[serde(default)]
+    pub supports_trace_control: bool,
+    /// Additive handshake capability (p09-observability-018). Missing/false
+    /// records belong to hosts that take no key-press flow on input and
+    /// reject a ClientHello carrying `FLAG_INPUT_FLOW`.
+    #[serde(default)]
+    pub supports_input_flow: bool,
     /// The orphan grace this host runs with, in seconds (cx-t2sqm D1): it
     /// ends its terminal after this long with no client. `None` (normal
     /// installs, and hosts from before this field): it never does; only a
@@ -232,6 +242,8 @@ impl std::fmt::Debug for TerminalHostRecord {
             .field("supports_pty_custody", &self.supports_pty_custody)
             .field("supports_program_status", &self.supports_program_status)
             .field("supports_shell_activity", &self.supports_shell_activity)
+            .field("supports_trace_control", &self.supports_trace_control)
+            .field("supports_input_flow", &self.supports_input_flow)
             .field("orphan_grace_secs", &self.orphan_grace_secs)
             .finish()
     }
@@ -372,9 +384,12 @@ impl std::error::Error for CellPixelRequestDeadlineElapsed {}
 
 #[cfg(unix)]
 mod unix {
+    use cmux_process::Stdio;
     #[cfg(test)]
     use std::collections::HashMap;
-    use std::fs::{self, File, OpenOptions};
+    #[cfg(test)]
+    use std::fs::OpenOptions;
+    use std::fs::{self, File};
     use std::io as std_io;
     #[cfg(test)]
     use std::io::Read;
@@ -384,8 +399,6 @@ mod unix {
     #[cfg(test)]
     use std::os::unix::net::UnixListener;
     use std::os::unix::net::UnixStream;
-    use std::os::unix::process::CommandExt;
-    use std::process::{Command, Stdio};
     use std::sync::Arc;
     use std::sync::atomic::Ordering;
     #[cfg(test)]
@@ -394,6 +407,7 @@ mod unix {
     use std::sync::mpsc::{channel as mpsc_channel, sync_channel};
     #[cfg(test)]
     use std::sync::{Condvar, Mutex};
+    #[cfg(test)]
     use std::thread;
     use std::time::Duration;
     #[cfg(test)]
@@ -658,6 +672,13 @@ pub(crate) use shared::codec::{
 };
 #[cfg(any(unix, windows))]
 pub use shared::codec::{decode_host_snapshot_payload, encode_host_snapshot_payload};
+// The decoders the cmux-tui/fuzz targets drive (crate::fuzz_entry).
+#[cfg(all(any(unix, windows), feature = "fuzz"))]
+pub(crate) use shared::codec::{
+    HostLaunch, decode_default_colors_payload, decode_hex_array, decode_lower_hex_array,
+    decode_snapshot_with_program_status, encode_default_colors_payload, encode_hex,
+    encode_kitty_graphics_limits, encode_resize, encode_snapshot_for_version,
+};
 #[cfg(any(unix, windows))]
 pub(crate) use shared::control_responses::{ControlResponses, DeferredCellPixelResolution};
 #[cfg(any(unix, windows))]
@@ -666,6 +687,7 @@ pub(crate) use shared::host_state::HOST_TERMINATE_WAIT;
 pub use shared::host_state::set_dev_host_orphan_grace;
 #[cfg(unix)]
 pub(crate) use shared::host_state::spawned_orphan_grace;
+pub(crate) use shared::host_trace::PendingHostTrace;
 #[cfg(any(unix, windows))]
 pub(crate) use shared::records::live_successor_record;
 #[cfg(unix)]

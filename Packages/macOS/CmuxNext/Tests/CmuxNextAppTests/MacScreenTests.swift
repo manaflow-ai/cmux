@@ -31,7 +31,8 @@ private func makeStore(removeLinkPairings: @escaping @Sendable () -> Void = {}) 
 /// A device's screen pane, not asking the hub.
 @MainActor
 private func devicePane(_ name: String = "Studio") -> MacScreenPane {
-    MacScreenPane(hubDevice: MacScreenHubViewer(deviceID: deviceID) { nil }, name: name, preferences: ScreenPreferences())
+    MacScreenPane(hubDevice: MacScreenHubViewer(deviceID: deviceID) { nil }, name: name, preferences: ScreenPreferences(),
+                  node: shownNode(), on: linklessMainWork())
 }
 
 /// Mac Screen tabs: the record, scrolling.
@@ -195,7 +196,7 @@ struct MacScreenRightClickTests {
 @MainActor
 struct MacScreenPageTabTests {
     private func makePages() -> MacScreenPages {
-        MacScreenPages(store: makeStore().0)
+        MacScreenPages(store: makeStore().0, mainWork: linklessMainWork())
     }
 
     /// Makes `key`'s view and waits until its screen (or home page) is in.
@@ -306,7 +307,7 @@ struct MacScreenThemeTests {
         let root = try #require(window.contentView)
         scope.root(root)
 
-        let pages = MacScreenPages(store: makeStore().0)
+        let pages = MacScreenPages(store: makeStore().0, mainWork: linklessMainWork())
         pages.prepare("home", record: MacScreenRecord(macID: nil), byPerson: true)
         let tab = pages.makeView(for: "home")
         root.addSubview(tab)

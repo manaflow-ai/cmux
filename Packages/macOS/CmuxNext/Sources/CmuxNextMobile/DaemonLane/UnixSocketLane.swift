@@ -1,5 +1,6 @@
 public import Foundation
 import Network
+import CmuxNextWakeups
 
 /// A `MobileByteLane` over a Unix stream socket (the local cmux-tui daemon
 /// or a Cloud link socket). Network.framework keeps every read and write off
@@ -21,15 +22,15 @@ public final class UnixSocketLane: MobileByteLane {
 
     /// Connects to `path`, failing after `deadline`.
     public static func connect(path: String, deadline: Duration = .seconds(2)) async throws -> UnixSocketLane {
-        let queue = DispatchQueue(label: "cmux.next.mobile.unix-lane")
+        let queue = DispatchQueue(label: "cmux.next.mobile.unix-lane", qos: .userInitiated)
         let connection = NWConnection(to: .unix(path: path), using: .tcp)
         let lane = UnixSocketLane(connection: connection, queue: queue)
         // concurrency-allow: on timeout the catch cancels the NWConnection, which resumes waitUntilReady
         try await withThrowingTaskGroup(of: Void.self) { group in
             group.addTask { try await lane.waitUntilReady(path: path) }
             group.addTask {
-                // wakeup-allow: one-shot deadline (unix socket connect)
-                try await Task.sleep(for: deadline)
+                // wakeup-allow: deadline of one unix socket connect: a task-group race with the connect, not a DemandTimer
+                try await Task.sleep(for: deadline, tolerance: WakeLeeway.window(delay: deadline).tolerance)
                 throw Failure.connectTimedOut(path: path)
             }
             defer { group.cancelAll() }

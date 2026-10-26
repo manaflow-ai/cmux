@@ -2,6 +2,7 @@ public import AppKit
 public import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextDesign
+public import CmuxNextWakeups
 
 /// The window of one popup page (`window.open` with window features: OAuth
 /// sign-in, payment, an extension's popup window), built like Chrome's
@@ -69,13 +70,14 @@ public final class BrowserPopupWindow: NSWindow {
     ///   - readOnlyAddress: True for a system sign-in window, whose address
     ///     can be selected and copied but not edited (navigating away would
     ///     lose the sign-in).
+    ///   - mainWork: The app's one main-thread scheduler; the location bar follows the page on it.
     public init(page: any BrowserTab, frame: CGRect, suggestionEngine: OmniboxSuggestionEngine = OmniboxSuggestionEngine(),
-                readOnlyAddress: Bool = false) {
+                readOnlyAddress: Bool = false, mainWork: MainWorkScheduler) {
         self.page = page
-        locationBar = OmnibarToolbarView(suggestionEngine: suggestionEngine)
+        locationBar = OmnibarToolbarView(suggestionEngine: suggestionEngine, mainWork: mainWork)
         locationBar.addressBar.isReadOnly = readOnlyAddress
         locationBar.addressBar.setAccessibilityIdentifier(Self.omnibarIdentifier)
-        omnibar = OmnibarTabBinding(addressBar: locationBar.addressBar, tab: page)
+        omnibar = OmnibarTabBinding(addressBar: locationBar.addressBar, tab: page, mainWork: mainWork)
         super.init(contentRect: frame, styleMask: Self.styles, backing: .buffered, defer: false)
         setFrame(frame, display: false)
         isReleasedWhenClosed = false
@@ -206,6 +208,14 @@ public final class BrowserPopupWindow: NSWindow {
     public func focusAddressBar() {
         if isVisible, !isKeyWindow { makeKey() }
         addressBar.focus()
+    }
+
+    /// The Chromium fork adds the popup's page window as a child ordered above
+    /// everything, the overlay host's panel (omnibar suggestions, toasts) included:
+    /// the panel goes back above it in the same call, as on `ShellWindow`.
+    override public func addChildWindow(_ childWin: NSWindow, ordered place: NSWindow.OrderingMode) {
+        super.addChildWindow(childWin, ordered: place)
+        WindowOverlayHost.childWindowsDidChange(of: self)
     }
 
     /// Every close path (close button, Cmd-W, `window.close()`) ends here once.

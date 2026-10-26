@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CoreGraphics
 import Foundation
 import ImageIO
@@ -121,10 +122,10 @@ nonisolated struct AgentPaneReplyImages {
     /// `data` as a raster data URL: kept as it is when the page draws its type and `reencode` is
     /// false, else decoded (at most ``maximumSide``), converted to sRGB and written again as PNG.
     static func raster(_ data: Data, reencode: Bool) -> Result<String, AgentPaneReplyError> {
-        guard let source = CGImageSourceCreateWithData(data as CFData, [kCGImageSourceShouldCache: false] as CFDictionary),
-              let type = CGImageSourceGetType(source) as String?, CGImageSourceGetCount(source) > 0,
+        guard let source = CheckedImageSource(data, options: [kCGImageSourceShouldCache: false]),
+              let type = source.type, source.count > 0,
               nativeTypes[type] != nil || decodedTypes.contains(type),
-              let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any],
+              let properties = source.properties(at: 0),
               let width = properties[kCGImagePropertyPixelWidth] as? Int, let height = properties[kCGImagePropertyPixelHeight] as? Int,
               width > 0, height > 0,
               !width.multipliedReportingOverflow(by: height).overflow,
@@ -132,7 +133,7 @@ nonisolated struct AgentPaneReplyImages {
         else { return .failure(.imageFailed) }
         if !reencode, let mime = nativeTypes[type] {
             // Decode once, so a file that is not really this type is refused.
-            guard CGImageSourceCreateImageAtIndex(source, 0, [kCGImageSourceShouldCache: false] as CFDictionary) != nil
+            guard source.image(at: 0, options: [kCGImageSourceShouldCache: false]) != nil
             else { return .failure(.imageFailed) }
             return .success("data:\(mime);base64," + data.base64EncodedString())
         }
@@ -142,7 +143,7 @@ nonisolated struct AgentPaneReplyImages {
             kCGImageSourceThumbnailMaxPixelSize: maximumSide,
             kCGImageSourceShouldCacheImmediately: true,
         ]
-        guard let image = CGImageSourceCreateThumbnailAtIndex(source, 0, options as CFDictionary) else { return .failure(.imageFailed) }
+        guard let image = source.thumbnail(at: 0, options: options) else { return .failure(.imageFailed) }
         // Draw into an explicit sRGB bitmap so Display-P3/extended profiles and unusual source
         // bitmap layouts cannot turn the browser's image surface black. Preserve alpha; the
         // WebKit file preview supplies the page background when a PNG has transparent pixels.

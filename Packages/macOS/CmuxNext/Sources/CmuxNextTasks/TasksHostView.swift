@@ -20,6 +20,7 @@ public final class TasksHostView: NSView {
         self.model = model
         super.init(frame: .zero)
         wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
         let hosting = NSHostingView(rootView: TasksRoot(model: model, appearance: appearanceState, layout: layout))
         hosting.translatesAutoresizingMaskIntoConstraints = false
         addSubview(hosting)

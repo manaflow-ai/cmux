@@ -1,5 +1,5 @@
 {
-  "about": "p05-ipc queue targets (plans/cmux-next/chrome-parity/p05-ipc.md, section 6). scripts/cmux-next/ipc-census.py --record writes `base`; --check fails when a queue grows past it or an allowlist entry has no reason or matches no site. Allowlist entries are {queue, file, key (optional: the whole file), reason}. Task p05-ipc-106 adds the transient daemon connections of section 3.1.",
+  "about": "p05-ipc queue targets (plans/cmux-next/chrome-parity/p05-ipc.md, section 6). scripts/cmux-next/ipc-census.py --record writes `base`; --check fails when a queue grows past it or an allowlist entry has no reason or matches no site. Allowlist entries are {queue, file, key (optional: the whole file), reason}. Task p05-ipc-106 adds the transient daemon connections of section 3.1. `ipc5_ops` lists the IPC-5 ops; cmux-tui/scripts/bench-daemon-latency.py `--ops all` measures each of them and refuses to run when one has no plan. `runtime.Q16` (items {file, line, key, p95_ms, wire}) and `runtime.Q16_run` (command, scenario, threshold_ms, sha, host, daemon_version, skipped, failed) are written by `bench-daemon-latency.py --ops all --scenario scale --write-q16` on a macOS fleet host (p05-ipc-002); ipc-census.py reads Q16 from there.",
   "allowlist": [
     {
       "queue": "Q4",
@@ -63,6 +63,17 @@
       "file": "cmux-tui/crates/cmux-threads/src/spawn.rs",
       "key": "<unresolved>",
       "reason": "Not a Q8 thread: cmux_threads::spawn is the QoS helper itself; it registers the thread and sets its declared QoS before the closure runs."
+    },
+    {
+      "queue": "Q11",
+      "file": "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/ResourceRelay.swift",
+      "reason": "The relay forwards a page's runtime-named op unchanged (react-pages.md 1.1) and the daemon validates its params against the catalog, as Chromium routes WebUI chrome.send messages by name (content/browser/webui/web_ui_impl.cc); no generated type can name an op chosen at run time."
+    },
+    {
+      "queue": "Q11",
+      "file": "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/ResourceOperationClient.swift",
+      "key": "resourceRequest",
+      "reason": "The typed funnel itself: it sends a generated ResourceRequestLine through DaemonConnection's one resource request path (p05-ipc-045)."
     }
   ],
   "ipc5_ops": [
@@ -365,10 +376,11 @@
       },
       "Q14": {
         "title": "Rust CLI hand-built \"cmd\" requests",
-        "count": 190,
-        "found": 190,
+        "count": 183,
+        "found": 183,
         "raw": "git grep -n -E '\"cmd\"' -- 'cmux-tui/crates/cmux-tui/src' | wc -l",
-        "raw_count": 190,
+        "raw_count": 183,
+        "note": "p05-ipc-028 re-recorded only Q14: the pilot files cli/lifecycle.rs and cli/wire.rs build their requests with cmux_ipc::client (0 sites). Each remaining file group is one migration to the generated client types; --check refuses growth.",
         "groups": {
           "cmux-tui/crates/cmux-tui/src/agent_browser_provider.rs": 4,
           "cmux-tui/crates/cmux-tui/src/app/feed_dismissal.rs": 1,
@@ -379,14 +391,12 @@
           "cmux-tui/crates/cmux-tui/src/cli/command/browser.rs": 1,
           "cmux-tui/crates/cmux-tui/src/cli/command/state/tests.rs": 1,
           "cmux-tui/crates/cmux-tui/src/cli/launch_credential.rs": 1,
-          "cmux-tui/crates/cmux-tui/src/cli/lifecycle.rs": 6,
           "cmux-tui/crates/cmux-tui/src/cli/mcp/tests/machine_catalog.rs": 1,
           "cmux-tui/crates/cmux-tui/src/cli/raw.rs": 1,
           "cmux-tui/crates/cmux-tui/src/cli/script.rs": 6,
           "cmux-tui/crates/cmux-tui/src/cli/script/tests.rs": 3,
           "cmux-tui/crates/cmux-tui/src/cli/skew.rs": 1,
           "cmux-tui/crates/cmux-tui/src/cli/tests.rs": 1,
-          "cmux-tui/crates/cmux-tui/src/cli/wire.rs": 1,
           "cmux-tui/crates/cmux-tui/src/config/keys.rs": 1,
           "cmux-tui/crates/cmux-tui/src/config/tests/ghostty_defaults.rs": 1,
           "cmux-tui/crates/cmux-tui/src/link/agent_cli/daemon.rs": 1,

@@ -32,6 +32,7 @@
 //! so an idle session wakes nothing.
 
 mod memory_budget;
+pub(crate) use memory_budget::FEATURE as SCROLLBACK_PRESSURE_FEATURE;
 pub(crate) mod segments;
 pub(crate) mod snapshot;
 
@@ -114,15 +115,19 @@ pub(crate) struct PersistencePolicy {
     pub(crate) max_bytes_per_terminal: u64,
     pub(crate) max_total_bytes: u64,
     /// Total scrollback RAM across terminals
-    /// (`terminal.scrollback.maxTotalMemoryBytes`).
+    /// (`terminal.scrollback.maxTotalMemoryBytes`; unset, the daemon
+    /// budget's `scrollback_total`).
     pub(crate) memory_total_bytes: u64,
 }
 
 impl PersistencePolicy {
+    /// `memory_total_bytes` is the scrollback RAM total: the setting, else
+    /// the daemon budget's default.
     pub(crate) fn resolve(
         mode: Option<&str>,
         per_terminal: Option<u64>,
         total: Option<u64>,
+        memory_total_bytes: u64,
     ) -> Self {
         let mode = mode.and_then(PersistenceMode::parse).unwrap_or(PersistenceMode::Snapshot);
         let (default_per_terminal, default_total) = match mode {
@@ -134,7 +139,6 @@ impl PersistencePolicy {
                 (FULL_DEFAULT_MAX_PER_TERMINAL_BYTES, FULL_DEFAULT_MAX_TOTAL_BYTES)
             }
         };
-        let memory_total_bytes = memory_budget::DEFAULT_MEMORY_TOTAL_BYTES;
         if mode == PersistenceMode::Memory {
             return Self {
                 mode,
@@ -163,16 +167,18 @@ impl PersistencePolicy {
                 value(memory_budget::MEMORY_TOTAL_SETTING).as_ref().and_then(byte_count),
             )
         });
-        let mut policy =
-            Self::resolve(env_mode.as_deref().or(mode.as_deref()), per_terminal, total);
         let env_memory = std::env::var(memory_budget::MEMORY_TOTAL_ENV)
             .ok()
             .and_then(|value| value.parse::<u64>().ok());
-        if let Some(memory) = env_memory.or(memory) {
-            policy.memory_total_bytes = memory;
-        }
-        policy
+        let memory = env_memory.or(memory).unwrap_or_else(|| default_memory_total(mux));
+        Self::resolve(env_mode.as_deref().or(mode.as_deref()), per_terminal, total, memory)
     }
+}
+
+/// The scrollback RAM total when no setting names one: the daemon budget's,
+/// sized from installed RAM (`cmux_memory::DaemonBudget::scrollback_total`).
+fn default_memory_total(mux: &Mux) -> u64 {
+    mux.output_store.memory_budget.host_default_total()
 }
 
 /// A byte count setting: the schema stores a number, possibly fractional.
@@ -204,6 +210,9 @@ struct LogState {
     /// Content digest at the last stored segment frame.
     segment_digest: Option<u64>,
     last_output: Instant,
+    /// The cold-scrollback worker waits for this terminal's next output:
+    /// it refused to compress it, or (a new log) it has not seen it print.
+    wake_on_output: bool,
     /// Full mode: bytes not yet in a segment file, from `pending_start`.
     pending: Vec<u8>,
     pending_start: u64,
@@ -254,7 +263,9 @@ pub(crate) struct OutputStore {
 }
 
 impl OutputStore {
-    pub(crate) fn new(registry_directory: Option<&Path>) -> Self {
+    /// `scrollback_pressure`: the `memoryScrollbackPressure` feature (the
+    /// scrollback total from RAM, lowered under memory pressure).
+    pub(crate) fn new(registry_directory: Option<&Path>, scrollback_pressure: bool) -> Self {
         let snapshot_interval = std::env::var(SNAPSHOT_INTERVAL_ENV)
             .ok()
             .and_then(|value| value.parse::<u64>().ok())
@@ -268,7 +279,7 @@ impl OutputStore {
             policy: Mutex::new(None),
             pass: Mutex::new(()),
             prune_pending: std::sync::atomic::AtomicBool::new(false),
-            memory_budget: memory_budget::MemoryBudget::default(),
+            memory_budget: memory_budget::MemoryBudget::with_feature(scrollback_pressure),
             resume: Mutex::new(HashMap::new()),
         }
     }
@@ -295,6 +306,11 @@ impl OutputStore {
         );
         self.cache_policy(policy);
         self.full.set_enabled(policy.mode == PersistenceMode::Full);
+        // The scrollback total follows memory pressure: a level change wakes
+        // the writer for one budget pass.
+        if self.memory_budget.register(&mux.memory, self.writer.waker()) {
+            mux.memory.watch_system_pressure();
+        }
         {
             let _pass = self.lock_pass();
             snapshot::prune(mux, self, policy);
@@ -329,6 +345,7 @@ impl OutputStore {
                 snapshot_at: None,
                 segment_digest: None,
                 last_output: Instant::now(),
+                wake_on_output: true,
                 pending: Vec::new(),
                 pending_start: start,
             }),
@@ -338,15 +355,16 @@ impl OutputStore {
     }
 
     /// Record output the terminal's parser accepted. Memory only: no disk
-    /// IO and no syscall on this path.
+    /// IO and no syscall on this path. True when the cold-scrollback worker
+    /// asked to hear about this output ([`Self::wake_on_next_output`]).
     pub(crate) fn append(
         &self,
         terminal_id: &TerminalPublicId,
         generation: &Arc<str>,
         bytes: &[u8],
-    ) {
+    ) -> bool {
         if bytes.is_empty() {
-            return;
+            return false;
         }
         let log = self.log(terminal_id, generation);
         let mut state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
@@ -366,6 +384,7 @@ impl OutputStore {
         state.tail_start += overflow as u64 + skipped;
         state.tail.extend(bytes.get(bytes.len().saturating_sub(keep)..).unwrap_or_default());
         state.last_output = Instant::now();
+        let wake_cold = std::mem::take(&mut state.wake_on_output);
         if self.full.enabled() {
             if state.pending.is_empty() {
                 state.pending_start = state.next_offset() - bytes.len() as u64;
@@ -375,7 +394,7 @@ impl OutputStore {
                 state.dirty = true;
                 drop(state);
                 self.writer.mark_dirty(Duration::ZERO);
-                return;
+                return wake_cold;
             }
         }
         if !state.dirty {
@@ -383,6 +402,28 @@ impl OutputStore {
             drop(state);
             self.mark_dirty();
         }
+        wake_cold
+    }
+
+    /// Ask [`Self::append`] to report the terminal's next output. False and
+    /// armed when it last printed at `seen`; true when it printed since (the
+    /// caller acts now). A terminal with no log yet reports its first output.
+    pub(crate) fn wake_on_next_output(
+        &self,
+        terminal_id: &TerminalPublicId,
+        seen: Option<Instant>,
+    ) -> bool {
+        let Some(log) =
+            self.logs.lock().unwrap_or_else(PoisonError::into_inner).get(terminal_id).cloned()
+        else {
+            return false;
+        };
+        let mut state = log.state.lock().unwrap_or_else(PoisonError::into_inner);
+        if seen != Some(state.last_output) {
+            return true;
+        }
+        state.wake_on_output = true;
+        false
     }
 
     /// Ask the writer for a pass after the mode's interval.
@@ -563,6 +604,7 @@ impl OutputStore {
                 std::env::var(PERSISTENCE_MODE_ENV).ok().as_deref(),
                 None,
                 None,
+                default_memory_total(mux),
             )
         });
         snapshot::final_pass(mux, self, policy);
@@ -578,6 +620,18 @@ impl OutputStore {
 
     fn cached_policy(&self) -> Option<PersistencePolicy> {
         *self.policy.lock().unwrap_or_else(PoisonError::into_inner)
+    }
+
+    /// Full mode: segment files hold every byte (the cold store there).
+    pub(crate) fn full_mode(&self) -> bool {
+        self.full.enabled()
+    }
+
+    /// When the terminal last printed; `None` before its first output.
+    pub(crate) fn last_output(&self, terminal_id: &TerminalPublicId) -> Option<Instant> {
+        let log =
+            self.logs.lock().unwrap_or_else(PoisonError::into_inner).get(terminal_id)?.clone();
+        Some(log.state.lock().unwrap_or_else(PoisonError::into_inner).last_output)
     }
 
     /// True when `terminal.persistence.mode` is `memory`: no terminal screen

@@ -51,7 +51,7 @@ nonisolated struct SidebarSnapshotFile: Sendable {
         guard let size = (try? url.resourceValues(forKeys: [.fileSizeKey]))?.fileSize, size <= Self.maximumBytes,
               // concurrency-allow: one capped read of a small local file before the first window, replacing a wait for the daemon
               let data = try? Data(contentsOf: url),
-              let document = try? JSONDecoder().decode(SidebarSnapshotDocument.self, from: data),
+              let document = try? JSONDecoder().blockingDecode(SidebarSnapshotDocument.self, from: data),
               document.schemaVersion == SidebarSnapshotDocument.schemaVersion else { return nil }
         return document
     }

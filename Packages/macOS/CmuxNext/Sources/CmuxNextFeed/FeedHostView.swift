@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextDesign
+public import CmuxNextWakeups
 import SwiftUI
 
 /// Hosts the feed panel (variants `list` and `inbox`). The App creates it
@@ -31,21 +32,43 @@ public final class FeedHostView: NSView {
     ///   - model: The feed.
     ///   - layoutOverride: Pins a prototype (demos and screenshots); nil follows the Debug Settings switch `feed.layout`.
     ///   - surface: Where the feed is shown; a page tab by default.
+    ///   - mainWork: The app's one main-thread scheduler (the reports basket renders at its frames).
     ///   - onReportsReply: Sends a reply from the reports basket and answers whether it was sent
     ///     (nil: the basket has no Reply). A reply sent again keeps its ``ReportReply/promptID``.
-    public init(model: FeedModel, layoutOverride: FeedLayout? = nil, surface: Surface = .page,
+    public init(model: FeedModel, layoutOverride: FeedLayout? = nil, surface: Surface = .page, mainWork: MainWorkScheduler,
                 onReportsReply: (@MainActor (ReportReply) async -> Bool)? = nil) {
         self.model = model
         self.surface = surface
         super.init(frame: .zero)
         wantsLayer = true
-        let root = FeedRoot(model: model, appearance: appearanceState, layoutOverride: layoutOverride,
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
+        let root = FeedRoot(model: model, appearance: appearanceState, layoutOverride: layoutOverride, mainWork: mainWork,
                             onReportsReply: onReportsReply)
         embed(NSHostingView(rootView: root))
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    /// The reports basket holds a reply typed and not sent. It lives only in the basket's view; the
+    /// inbox's drafts live in the model and outlive this view.
+    public var hasTypedReply: Bool { reportsBasket.map { !$0.draft.isEmpty } ?? false }
+    /// The reports basket waits on a reply it sent: the retry of a reply that failed keeps its id in
+    /// the basket's view.
+    public var isSendingReply: Bool { reportsBasket.map { !$0.sending.isEmpty } ?? false }
+
+    /// The reports basket this host shows, if it shows one (first found, breadth first).
+    var reportsBasket: ReportsBasketView? {
+        var queue: [NSView] = [self]
+        var index = 0
+        while index < queue.count {
+            let next = queue[index]
+            index += 1
+            if let basket = next as? ReportsBasketView { return basket }
+            queue.append(contentsOf: next.subviews)
+        }
+        return nil
+    }
 
     nonisolated public override var wantsUpdateLayer: Bool { true }
 

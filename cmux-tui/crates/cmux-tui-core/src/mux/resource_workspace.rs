@@ -144,6 +144,7 @@ impl Mux {
     /// Report an agent state for a selected terminal resource and reconcile
     /// any durable hook projections waiting for that terminal.
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub(crate) fn commit_resource_mutation_plan(
         &self,
         mutation: &WorkspaceMutation,
@@ -238,6 +239,7 @@ impl Mux {
     /// the same change made through the resource API (`cmux workspace <id>
     /// rename|move`). Without it a `subscribe` client (the app's sidebar)
     /// saw the change only when a later one made it resync.
+    #[track_caller]
     fn resource_workspace_tree_delta(
         &self,
         state: &State,
@@ -269,6 +271,7 @@ impl Mux {
     }
 
     #[cfg(test)]
+    #[track_caller]
     pub(crate) fn resource_create_empty_workspace(
         &self,
         name: Option<String>,
@@ -394,6 +397,7 @@ impl Mux {
     }
 
     #[cfg(test)]
+    #[track_caller]
     pub(crate) fn resource_rename_workspace(
         &self,
         workspace_id: &WorkspacePublicId,
@@ -430,6 +434,7 @@ impl Mux {
         )
     }
 
+    #[track_caller]
     pub(crate) fn resource_rename_workspace_selected(
         &self,
         selectors: crate::ResourceSelectors,
@@ -488,6 +493,7 @@ impl Mux {
     }
 
     #[cfg(test)]
+    #[track_caller]
     pub(crate) fn resource_move_workspace(
         &self,
         workspace_id: &WorkspacePublicId,
@@ -636,6 +642,7 @@ impl Mux {
         )
     }
 
+    #[track_caller]
     pub(crate) fn resource_move_workspace_selected(
         &self,
         selectors: crate::ResourceSelectors,

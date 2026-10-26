@@ -6,10 +6,10 @@ import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextHomeEngine
 import CmuxNextPhoneAccess
+import CmuxNextWakeups
 import Foundation
 import Observation
 import os
-import CmuxNextWakeups
 
 /// Cloud orchestration: sign-in state, the machine list from `/api/vm`, and
 /// one `CloudMachineSession` per live machine in `MachineRegistry`. The
@@ -85,12 +85,14 @@ final class CloudService {
     /// batches run on it (one main thread, one budget).
     @ObservationIgnored private let mainWork: MainWorkScheduler
 
+    /// - Parameter auth: The app's sign-in (`AppServices.cloudAuth`); its configuration is this service's.
     /// - Parameter mainWork: The app's ``MainWorkScheduler`` (AppServices passes the one it was built with).
-    init(machines: MachineRegistry, isDebugBuild: Bool, mainWork: MainWorkScheduler) {
+    /// - Parameter work: The app's one ``BackgroundWork``: the install key's disk and Keychain calls run on its lanes.
+    init(machines: MachineRegistry, auth: CloudAuth, mainWork: MainWorkScheduler, work: BackgroundWork) {
         self.machines = machines
         self.mainWork = mainWork
-        configuration = CloudConfiguration.current(isDebugBuild: isDebugBuild)
-        auth = CloudAuth(configuration: configuration)
+        configuration = auth.configuration
+        self.auth = auth
         paths = CloudPaths.standard(bundleID: configuration.bundleID)
         let auth = auth
         api = CloudAPIClient(
@@ -101,7 +103,7 @@ final class CloudService {
         installIdentity = MacInstallIdentity(
             store: .forApp(directory: paths.root.appendingPathComponent("install", isDirectory: true),
                            service: "\(configuration.bundleID ?? "cmux").install-key.\(configuration.ownerAPIBaseURL().host ?? "unknown")",
-                           team: CodeSigningTeam.current(), isDebugBuild: configuration.isDebugBuild),
+                           team: CodeSigningTeam.current(), isDebugBuild: configuration.isDebugBuild, work: work),
             transport: InstallHTTPTransport(baseURL: configuration.ownerAPIBaseURL()),
             deviceName: Self.deviceName,
             clientVersion: Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String

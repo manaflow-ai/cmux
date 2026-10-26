@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextInput
 
 /// The one native host for the popups that open from the omnibar and the toolbar (Lawrence
 /// 2026-10-14: "omnibar stuff should be macos specific so it feels more native"; hq
@@ -29,10 +30,17 @@ public final class NativePopupHost {
     /// Bumped by every show and hide: a close whose fade ends after a new show keeps the panel.
     private var generation = 0
     private var observers: [NSObjectProtocol] = []
-    private var monitors: [Any] = []
+    /// While the popup shows: the tap observer of clicks (one outside the popup closes it) and the
+    /// Escape intercept (``InputEventTap/InterceptOrder/popup``, after a modal overlay's).
+    private var subscriptions: [InputSubscription] = []
+    /// The tap this popup subscribes to while it shows.
+    var inputTap: InputEventTap?
 
-    public init(panel: NSPanel) {
+    /// A host for `panel` that subscribes to `input` (nil: the overlay hosts' tap,
+    /// ``WindowOverlayHost/appInputTap``).
+    public init(panel: NSPanel, input: InputEventTap? = nil) {
         self.panel = panel
+        inputTap = input ?? WindowOverlayHost.appInputTap
         if let keyed = panel as? NativePopupPanel {
             keyed.onLostKeys = { [weak self, weak keyed] elsewhere in
                 guard let self, let keyed else { return }
@@ -43,7 +51,7 @@ public final class NativePopupHost {
                 // Shown without the keys, a window of the app took them without a press (Cmd-Tab
                 // into the app, a focus request): the popup takes them over, as a popup shown with
                 // the app active has them; it never takes them while the app is inactive
-                // (ActiveAppKeyPanel). A press elsewhere closes it through the click monitor.
+                // (ActiveAppKeyPanel). A press elsewhere closes it through the click observer.
                 if elsewhere, press == nil, isShown {
                     keyed.makeKey()
                     return
@@ -124,37 +132,53 @@ public final class NativePopupHost {
     }
 
     private func watch(_ window: NSWindow) {
-        guard observers.isEmpty else { return }
-        let center = NotificationCenter.default
-        let names: [(NSNotification.Name, AnyObject?)] = [
-            (NSApplication.didResignActiveNotification, nil), (NSWindow.willMoveNotification, window),
-            (NSWindow.didResizeNotification, window), (NSWindow.willCloseNotification, window),
-            (NSWindow.didMiniaturizeNotification, window),
-        ]
-        observers = names.map { name, object in
-            center.addObserver(forName: name, object: object, queue: .main) { [weak self] _ in
-                Task { @MainActor in self?.dismiss() }
+        if observers.isEmpty {
+            let center = NotificationCenter.default
+            let names: [(NSNotification.Name, AnyObject?)] = [
+                (NSApplication.didResignActiveNotification, nil), (NSWindow.willMoveNotification, window),
+                (NSWindow.didResizeNotification, window), (NSWindow.willCloseNotification, window),
+                (NSWindow.didMiniaturizeNotification, window),
+            ]
+            observers = names.map { name, object in
+                center.addObserver(forName: name, object: object, queue: .main) { [weak self] _ in
+                    Task { @MainActor in self?.dismiss() }
+                }
             }
         }
-        let clicks = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown, .otherMouseDown]) { [weak self] event in
-            guard let self, event.window !== self.panel, !self.keepsOpen(event) else { return event }
-            self.dismiss()
-            return event
+        guard subscriptions.isEmpty, let tap = requiredInputTap(inputTap, owner: "NativePopupHost") else { return }
+        let shows: @MainActor () -> Bool = { [weak self] in self?.isShown == true }
+        subscriptions = [
+            tap.subscribe(class: .button, while: shows) { [weak self] event in self?.clickEvent(event) },
+            tap.subscribe(class: .key, phase: .intercept(order: .popup), while: shows) { [weak self] event in
+                self?.escapeEvent(event) ?? .pass
+            },
+        ]
+    }
+
+    /// A button event seen by the click observer: a press outside the popup that does not keep it
+    /// open closes it (the press goes on to where it landed).
+    func clickEvent(_ event: NSEvent) {
+        switch event.type {
+        case .leftMouseDown, .rightMouseDown, .otherMouseDown:
+            guard event.window !== panel, !keepsOpen(event) else { return }
+            dismiss()
+        default:
+            break
         }
-        // Escape in the popup closes it (a text field in it would otherwise take it as cancel).
-        let escape = NSEvent.addLocalMonitorForEvents(matching: [.keyDown]) { [weak self] event in
-            guard let self, event.window === self.panel, event.keyCode == 53, self.isShown else { return event }
-            self.dismiss()
-            return nil
-        }
-        monitors = [clicks, escape].compactMap { $0 }
+    }
+
+    /// A key event of the Escape intercept: Escape in the popup closes it, and nothing else gets it
+    /// (a text field in it would otherwise take it as cancel).
+    func escapeEvent(_ event: NSEvent) -> InputEventTap.InterceptResult {
+        guard event.type == .keyDown, event.window === panel, event.keyCode == 53, isShown else { return .pass }
+        dismiss()
+        return .consume
     }
 
     private func unwatch() {
         observers.forEach(NotificationCenter.default.removeObserver)
         observers = []
-        monitors.forEach(NSEvent.removeMonitor)
-        monitors = []
+        subscriptions = []
     }
 }
 

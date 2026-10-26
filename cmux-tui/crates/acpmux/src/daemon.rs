@@ -19,6 +19,8 @@ pub(crate) use router_owner::open_router_owner;
 pub(crate) use router_owner::router_owner_path;
 use router_owner::{ensure_router, release_router};
 mod notify;
+#[cfg(all(tokio_unstable, feature = "cmux-stability"))]
+mod poll_watch_lab;
 #[cfg(windows)]
 mod windows;
 
@@ -132,6 +134,8 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // home with the process umask; narrow it before reading any of them.
     crate::config::private_state_dir(&home())?;
     install_panic_log();
+    #[cfg(all(tokio_unstable, feature = "cmux-stability"))]
+    poll_watch_lab::install();
     // Before the store, the sockets and any agent: launchd's soft limit is 256.
     #[cfg(unix)]
     open_file_limit::raise();

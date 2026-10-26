@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// The risk class of every app scope, read from `scope-classes.json`
@@ -31,7 +32,7 @@ public nonisolated struct AppScopeClassTable: Sendable {
     /// Compiling an ``NSRegularExpression`` is comparatively expensive and
     /// scope checks run on every app operation. Keep the immutable compiled
     /// form beside the public rule instead of rebuilding it per lookup.
-    private final class CompiledRule: @unchecked Sendable {
+    private nonisolated final class CompiledRule: Sendable {
         let rule: Rule
         let expression: NSRegularExpression?
 
@@ -59,7 +60,7 @@ public nonisolated struct AppScopeClassTable: Sendable {
     }
 
     public init(data: Data) {
-        let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+        let object = (try? JSONSerialization.blockingJSONObject(with: data)) as? [String: Any]
         let rows = object?["rules"] as? [[String: Any]] ?? []
         let rules: [Rule] = rows.compactMap { row in
             guard let pattern = row["pattern"] as? String,
@@ -73,7 +74,7 @@ public nonisolated struct AppScopeClassTable: Sendable {
     public func rule(for scope: String) -> Rule? {
         let range = NSRange(scope.startIndex..., in: scope)
         return compiledRules.first { rule in
-            rule.expression?.firstMatch(in: scope, range: range) != nil
+            rule.expression?.blockingRegexFirstMatch(in: scope, range: range) != nil
         }?.rule
     }
 

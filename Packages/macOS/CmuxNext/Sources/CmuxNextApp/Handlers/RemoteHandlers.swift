@@ -4,6 +4,25 @@ import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextRemote
 import CmuxNextServer
+import CmuxNextWakeups
+
+extension SSHService {
+    /// The app's SSH machines (`AppServices.ssh`), made on first use (the `SSH.start` post, a remote
+    /// action), never in init (p08-startup-021), as Chrome makes a keyed service on its first
+    /// GetServiceForBrowserContext (components/keyed_service/content/browser_context_keyed_service_factory.cc).
+    /// The install offer and the current remote-hosts policy are set before any reader gets it.
+    static func made(for services: AppServices) -> SSHService {
+        let made = SSHService(machines: services.machines, bundleID: services.environment.launch.bundleID, mainWork: services.mainWork,
+                              work: services.work)
+        services.madeSSH = made
+        made.offerInstall = { [weak registry = services.registry] session in
+            // Asks through the registry's confirmation sheet (remote.install is destructive).
+            _ = registry?.perform("remote.install", invocation: ActionInvocation(target: ActionTargetRef(kind: .machine, id: session.machineID)))
+        }
+        made.applyPolicy(disabled: services.registry.disabledFeatures.contains(.remoteHosts))
+        return made
+    }
+}
 
 /// SSH machine actions (`SSHService`). A machine is the invocation's
 /// `machine:` target (a section header's context menu, CLI `--machine`,
@@ -13,17 +32,13 @@ import CmuxNextServer
 /// refusal on the control socket.
 enum RemoteHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
-        let ssh = context.services.ssh
-        let available: @MainActor () -> String? = { ssh.unavailableReason }
-        let hasMachine: @MainActor () -> String? = { ssh.unavailableReason ?? (ssh.sessions.isEmpty ? RemoteStrings.noMachine : nil) }
-        ssh.offerInstall = { [weak registry] session in
-            // Asks through the registry's confirmation sheet (remote.install is destructive).
-            _ = registry?.perform("remote.install", invocation: ActionInvocation(target: ActionTargetRef(kind: .machine, id: session.machineID)))
-        }
+        // SSH is made on first use (a run, a menu's check), never at binding (p08-startup-021).
+        let available: @MainActor () -> String? = { context.services.ssh.unavailableReason }
+        let hasMachine: @MainActor () -> String? = { context.services.ssh.unavailableReason ?? (context.services.ssh.sessions.isEmpty ? RemoteStrings.noMachine : nil) }
         CloudHandlers.bind("remote.connect", registry, reason: available) { invocation in
             let interactive = !registry.isCapturingRefusal
             let connect = { (text: String) in
-                let session = try ssh.connect(destination: text, session: invocation["session"]?.stringValue,
+                let session = try context.services.ssh.connect(destination: text, session: invocation["session"]?.stringValue,
                                               binary: invocation["binary"]?.stringValue, stateDir: invocation["stateDir"]?.stringValue,
                                               offerInstall: interactive)
                 if interactive { showWhenConnected(session, context) }
@@ -71,10 +86,10 @@ enum RemoteHandlers {
             registry.track(work)
         }
         CloudHandlers.bind("remote.reconnect", registry, reason: hasMachine) { invocation in
-            ssh.reconnect(try machine(invocation, context))
+            context.services.ssh.reconnect(try machine(invocation, context))
         }
         CloudHandlers.bind("remote.disconnect", registry, reason: hasMachine) { invocation in
-            ssh.disconnect(try machine(invocation, context))
+            context.services.ssh.disconnect(try machine(invocation, context))
         }
         // Destructive: the registry confirmed it (sheet, or `confirm: true`).
         CloudHandlers.bind("remote.install", registry, reason: hasMachine) { invocation in
@@ -82,7 +97,7 @@ enum RemoteHandlers {
             let interactive = !registry.isCapturingRefusal
             let work: ActionWork = Task {
                 do {
-                    try await ssh.install(session)
+                    try await context.services.ssh.install(session)
                     return nil
                 } catch {
                     if interactive { CloudPresenter.failure(error, in: CloudHandlers.window(context)) }
@@ -103,10 +118,10 @@ enum RemoteHandlers {
         CloudHandlers.bind("remote.forget", registry, reason: hasMachine) { invocation in
             let session = try machine(invocation, context)
             if invocation.origin == .user, let window = CloudHandlers.window(context) {
-                return RemoteForgetUndo.forget(session, ssh: ssh, in: window)
+                return RemoteForgetUndo.forget(session, ssh: context.services.ssh, in: window)
             }
             let work: ActionWork = Task {
-                await ssh.forget(session)
+                await context.services.ssh.forget(session)
                 return nil
             }
             registry.track(work)

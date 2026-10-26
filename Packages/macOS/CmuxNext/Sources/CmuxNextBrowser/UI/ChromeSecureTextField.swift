@@ -20,7 +20,7 @@ final class ChromeSecureTextField: NSSecureTextField {
             font = BrowserMetrics.bodyFont
             applyColors()
         }
-        density.start()
+        density.start(in: self)
     }
 
     @available(*, unavailable)

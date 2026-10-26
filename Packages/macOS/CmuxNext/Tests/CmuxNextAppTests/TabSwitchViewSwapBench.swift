@@ -6,6 +6,7 @@ import CmuxNextDesign
 import QuartzCore
 import Testing
 import WebKit
+import CmuxNextWakeups
 
 /// tab-switch-fast: the main-thread cost of a warm tab switch's view swap (`PaneContentView.show`
 /// plus the layout and display of that frame) for content with a live web process, in a real
@@ -88,8 +89,8 @@ struct TabSwitchViewSwapBench {
                               backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         defer { window.orderOut(nil); window.close() }
-        let pane = PaneContentView(stripModel: TabStripModel(tabs: [TabItem(id: TabID("a"), title: "A"), TabItem(id: TabID("b"), title: "B")]),
-                                   reveal: LaunchReveal(deadline: .zero))
+        let pane = PaneContentView.testing(stripModel: TabStripModel(tabs: [TabItem(id: TabID("a"), title: "A"), TabItem(id: TabID("b"), title: "B")]),
+                                           reveal: LaunchReveal(deadline: .zero))
         pane.frame = window.contentLayoutRect
         window.contentView = pane
         window.orderFrontRegardless()
@@ -100,7 +101,7 @@ struct TabSwitchViewSwapBench {
         let unparked = wrap(await loadedWebView(), in: Unparked(frame: pane.contentHost.bounds))
         let browserTab = WebKitEngine(fileInput: NoFileInput(), stores: .inMemory()).makeWebKitTab()
         defer { browserTab.close() }
-        let browser = BrowserChromeView(tab: browserTab)
+        let browser = BrowserChromeView(tab: browserTab, mainWork: MainWorkScheduler(budget: MainFrameBudget()), node: nil)
 
         let before = time("page-unparked", view: unparked, other: plain, pane: pane, window: window)
         let after = time("page-parked", view: parked, other: plain, pane: pane, window: window)

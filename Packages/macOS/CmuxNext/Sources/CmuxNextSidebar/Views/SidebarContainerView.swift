@@ -1,7 +1,7 @@
 public import AppKit
 public import CmuxNextDesign
 import CmuxNextCompat
-import CmuxNextWakeups
+public import CmuxNextWakeups
 import Observation
 
 /// The sidebar: clear over the window's one backdrop (the solid surface
@@ -39,6 +39,8 @@ public final class SidebarContainerView: NSView {
     public let railView = SidebarRailView()
     let railCards = SidebarRailHoverCards()
     private var observation: Task<Void, Never>?
+    /// The sidebar's one watch of its Debug Settings looks (``SidebarLookWatch``), made in `init`.
+    private var lookWatch: SidebarLookWatch?
     /// Width the constraint is at or animating to. The animator reports
     /// intermediate constants, so compare against this instead. Internal for
     /// the same reason as `panelWidth`.
@@ -111,9 +113,14 @@ public final class SidebarContainerView: NSView {
     public static var hideThreshold: CGFloat { Metrics.sidebarMinWidth / 2 }
 
 
-    public init(model: SidebarModel) {
+    /// - Parameters:
+    ///   - model: What the sidebar shows.
+    ///   - mainWork: The app's main-thread scheduler: the rows' and headers' Debug Settings looks follow
+    ///     through it, once per frame.
+    ///   - newRows: Told which rows the list draws, so a new workspace's `create.workspace` interval ends there.
+    public init(model: SidebarModel, mainWork: MainWorkScheduler, newRows: SidebarNewRowTimer? = nil) {
         self.model = model
-        sidebarView = SidebarView(model: model)
+        sidebarView = SidebarView(model: model, newRows: newRows)
         handle = SidebarResizeHandle()
         targetWidth = model.displayWidth
         targetCollapseMotion = SidebarTunables.collapseMotion.value
@@ -150,6 +157,7 @@ public final class SidebarContainerView: NSView {
         handle.onDrag = { [weak self] phase in self?.handleDrag(phase) }
         mountRail()
         observe()
+        lookWatch = SidebarLookWatch(root: self, on: mainWork)
     }
 
     @available(*, unavailable)
@@ -302,7 +310,7 @@ public final class SidebarContainerView: NSView {
             refreshHover()
             return
         }
-        hoverRefresh.scheduleIfIdle(after: Self.hoverRefreshDelay) { @MainActor [weak self] in self?.refreshHover() }
+        hoverRefresh.scheduleOnMainIfIdle(after: Self.hoverRefreshDelay) { [weak self] in self?.refreshHover() }
     }
 
     /// Sets every constraint and visibility for the model without animating.

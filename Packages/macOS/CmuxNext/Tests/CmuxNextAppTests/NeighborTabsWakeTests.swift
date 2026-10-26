@@ -4,7 +4,11 @@ import CmuxNextBridge
 @testable import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextDesign
+import CmuxNextHibernation
+import CmuxNextInput
+import CmuxNextPages
 @testable import CmuxNextSettings
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -103,8 +107,9 @@ import Testing
         #expect(rig.hibernation.prewarmedCount >= 2)
     }
 
-    /// Memory pressure and Low Power Mode shrink the neighbor set to nothing.
-    @Test func pressureAndLowPowerModeKeepNoNeighborAwake() async throws {
+    /// Memory pressure and Energy Saver shrink the neighbor set to nothing; a policy change that
+    /// leaves the saver as it was (the power source) changes nothing.
+    @Test func pressureAndEnergySaverKeepNoNeighborAwake() async throws {
         let rig = try Rig()
         defer { rig.close() }
         let keys = try await rig.pages(["a", "b", "c"])
@@ -114,10 +119,30 @@ import Testing
         #expect(rig.hibernation.awakeNeighbors.isEmpty)
         rig.hibernation.pressureDidChange(.normal)
         #expect(rig.hibernation.awakeNeighbors.count == 2)
-        rig.lowPower.override = true
-        #expect(rig.hibernation.awakeNeighbors.isEmpty)
-        rig.lowPower.override = nil
-        #expect(rig.hibernation.awakeNeighbors.count == 2)
+        rig.energy.update(EnergyPolicy(onBattery: true))
+        #expect(rig.hibernation.awakeNeighbors.count == 2, "a policy change without the saver dropped the neighbors")
+        rig.energy.update(EnergyPolicy(saverReason: .battery, onBattery: true))
+        #expect(rig.hibernation.energySaver)
+        #expect(rig.hibernation.neighborRadius == 0)
+        #expect(rig.hibernation.awakeNeighbors.isEmpty, "Energy Saver kept neighbors awake")
+        rig.energy.update(.normal)
+        #expect(rig.hibernation.awakeNeighbors.count == 2, "the neighbors did not wake again after the saver")
+    }
+
+    /// The saver reaches the cmux pages' lifecycle too (a shorter recently visible window), and so does
+    /// Low Power Mode while the `energySaver` feature is off (the policy's fallback).
+    @Test func energySaverReachesThePageLifecycle() throws {
+        let rig = try Rig()
+        defer { rig.close() }
+        let lifecycle = PageLifecycle(deadlines: rig.services.mainDeadlines)
+        rig.services.cache.pageLifecycle = lifecycle
+        defer { rig.services.cache.pageLifecycle = nil }
+        rig.energy.update(EnergyPolicy(saverReason: .setting))
+        #expect(lifecycle.conditions.energySaver, "the page lifecycle did not take the saver")
+        rig.energy.update(.normal)
+        #expect(!lifecycle.conditions.energySaver, "the page lifecycle kept the saver after it ended")
+        rig.energy.update(EnergyPolicy(lowPowerFallback: true))
+        #expect(lifecycle.conditions.energySaver, "the page lifecycle ignored Low Power Mode with the feature off")
     }
 
     @Test func zeroTurnsItOff() async throws {
@@ -129,6 +154,42 @@ import Testing
         let keys = try await rig.pages(["a", "b", "c"])
         rig.show(keys[1], order: keys)
         #expect(rig.hibernation.awakeNeighbors.isEmpty)
+    }
+
+    /// Intent prewarm (`intentPrewarmHover`, p04-input-043) with the hibernation as its warmer: a frozen hidden
+    /// page is cold, a strip hover reaches the service through `noteHover`, its dwell thaws the page, and the
+    /// switch that shows it is the commit (used, not cancelled). Neighbors are off, so only the dwell thaws.
+    @Test func theHoverDwellPrewarmThawsAFrozenTabAndTheSwitchUsesIt() async throws {
+        let rig = try Rig()
+        defer { rig.close() }
+        var setting = rig.hibernation.setting
+        setting.neighborRadius = 0
+        rig.hibernation.apply(setting)
+        let keys = try await rig.pages(["a", "b", "c"])
+        try await rig.until("every hidden page freezes") { keys.allSatisfy(rig.hibernation.frozen.contains) }
+        rig.show(keys[0], order: keys)
+        #expect(!rig.hibernation.isCold(keys[0]), "the shown page has nothing to prewarm")
+        #expect(rig.hibernation.isCold(keys[2]))
+        #expect(!rig.hibernation.isCold("not-a-page"))
+
+        let deadlines = MainDeadlineRig()
+        let service = IntentPrewarmService<String>(
+            warmer: rig.hibernation, memoryPressure: MemoryPressureEvents(source: ManualMemoryPressureSource()),
+            dwellTimer: MainDeadline(owner: "IntentPrewarm.hoverDwell", workClass: .background, scheduler: deadlines.deadlines),
+            pressStart: MainDeadline(owner: "IntentPrewarm.pressStart", workClass: .background, scheduler: deadlines.deadlines))
+        rig.hibernation.intentPrewarm = (service, rig.services.energyMonitor.follow { _ in })
+
+        rig.hibernation.noteHover(keys[2])
+        #expect(service.isDwelling)
+        #expect(rig.hibernation.frozen.contains(keys[2]), "nothing thaws before the dwell")
+        deadlines.fireAndRun()
+        #expect(!rig.hibernation.frozen.contains(keys[2]))
+        #expect(service.queue.held == [keys[2]])
+        #expect(service.counters.started[.hoverDwell] == 1)
+
+        rig.show(keys[2], order: keys)
+        #expect(service.queue.held.isEmpty)
+        #expect(service.counters.used == 1)
     }
 
     // MARK: Rig
@@ -143,17 +204,18 @@ import Testing
     @MainActor final class Rig {
         let services: AppServices
         let hibernation: BrowserHibernation
-        let lowPower = LowPowerMode(enabled: false)
+        let energy = EnergyPolicySource()
         let pane = Pane()
         let folder: URL
         var keys: [String] = []
         var recorders: [String: Recorder] = [:]
         private var shown: String?
 
-        init(freezes: Bool = true) throws {
+        /// - Parameter audible: The pages' sound history (`recentlyAudibleProtection` on); nil leaves it off.
+        init(freezes: Bool = true, audible: AudibleHistory? = nil) throws {
             _ = NSApplication.shared
             services = AppServices(environment: AppEnvironment.current([:]))
-            hibernation = BrowserHibernation(cache: services.cache, memoryPressure: MemoryPressureEvents(source: ManualMemoryPressureSource()), lowPower: lowPower)
+            hibernation = BrowserHibernation(cache: services.cache, memory: ManualMemoryLevelRegistry(), deadlines: services.mainDeadlines, energy: energy, audible: audible)
             services.cache.hibernation = hibernation
             hibernation.apply(BrowserHibernationSetting(mode: .off, freezeSeconds: freezes ? 0.05 : nil))
             hibernation.start()

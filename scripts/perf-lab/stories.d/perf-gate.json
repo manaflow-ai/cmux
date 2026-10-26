@@ -1,0 +1,18 @@
+{
+  "id": "perf-gate",
+  "tier": "T1",
+  "description": "perf-gate.py scenarios: failed checks per scenario (the perf cron's perf-gate part).",
+  "command": ["scripts/cmux-next/perf-gate.py", "--frames=auto"],
+  "session": "light",
+  "engine": "none",
+  "config": "bench",
+  "metrics": [
+    {"name": "perf_gate\\.[^.]+\\.failed_checks", "unit": "count", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 900,
+  "needs": [],
+  "owner": "Performance Lead",
+  "component": "PerfGate",
+  "perf_cron_part": "perf-gate"
+}

@@ -312,8 +312,8 @@ pub(super) struct ClientRegistryState {
 
 pub(crate) struct ClientRegistry {
     /// Called when a surface loses its last attached client (the idle-close
-    /// reaper starts that terminal's unattached period).
-    pub(super) detach_waker: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
+    /// reaper and the cold-scrollback worker start that terminal's period).
+    pub(super) detach_wakers: Mutex<Vec<Box<dyn Fn() + Send + Sync>>>,
     /// Called after any client connects or leaves (orphan_shutdown.rs).
     pub(super) client_presence_observer: Mutex<Option<Box<dyn Fn() + Send + Sync>>>,
     pub(super) url_opens: url_open::URLRequests,
@@ -323,6 +323,8 @@ pub(crate) struct ClientRegistry {
     /// Connection-scoped browser hosts (`browser-runtime-v1`).
     #[cfg(unix)]
     pub(super) browser_runtimes: super::browser_runtime::BrowserRuntimes,
+    /// Chief engine-file writes queued by registry commits (chief_engine_mirror.rs).
+    pub(super) engine_mirror: super::chief_engine_mirror::EngineMirror,
     /// Size leases of connections with `size-lease-v1` (size_lease.rs).
     pub(super) size_leases: Arc<super::size_lease::SizeLeases>,
     /// Connection-scoped agent session attachments (`agent-session-attach-v1`).
@@ -340,6 +342,8 @@ pub(crate) struct ClientRegistry {
     pub(super) next_id: AtomicU64,
     pub(super) resource_stream_admission: Arc<ResourceWorkerAdmission>,
     pub(super) resource_wait_admission: Arc<ResourceWorkerAdmission>,
+    /// The framed IPC transports this daemon serves (capabilities.rs).
+    pub(super) ipc_transports: super::capabilities::IpcTransports,
     pub(super) state: Mutex<ClientRegistryState>,
 }
 
@@ -381,7 +385,7 @@ fn validate_resource_client_label(
 impl ClientRegistry {
     pub(crate) fn new() -> Self {
         Self {
-            detach_waker: Mutex::new(None),
+            detach_wakers: Mutex::new(Vec::new()),
             client_presence_observer: Mutex::new(None),
             next_id: AtomicU64::new(1),
             url_opens: url_open::URLRequests::default(),
@@ -389,6 +393,7 @@ impl ClientRegistry {
             loopback: loopback_forward::LoopbackForwarder::default(),
             #[cfg(unix)]
             browser_runtimes: Default::default(),
+            engine_mirror: Default::default(),
             size_leases: Default::default(),
             #[cfg(unix)]
             agent_sessions: Default::default(),
@@ -407,6 +412,7 @@ impl ClientRegistry {
                 RESOURCE_WAITS_PER_CLIENT_CAPACITY,
                 RESOURCE_WAITS_SERVER_CAPACITY,
             ),
+            ipc_transports: super::capabilities::IpcTransports::default(),
             state: Mutex::new(ClientRegistryState::default()),
         }
     }
@@ -644,9 +650,15 @@ impl ClientRegistry {
         if let Some(kind) = kind {
             record.kind = Some(clamp_client_label(kind));
         }
+        // A new revision may have ended framed IPC grants: remove them before
+        // anything counts them as held.
+        super::capabilities::revoke_lapsed_ipc_grants(record, &self.ipc_transports);
         if let Some(capabilities) = capabilities {
+            let ipc =
+                super::capabilities::IpcGrant::of(record, &capabilities, &self.ipc_transports);
             record.capabilities.extend(capabilities.into_iter().filter(|capability| {
-                capability == GUARDED_BROWSER_POINTER_CAPABILITY
+                ipc.allows(capability)
+                    || capability == GUARDED_BROWSER_POINTER_CAPABILITY
                     || capability == VIEW_ATTACHMENT_LEASE_CAPABILITY
                     || capability == VIEW_ATTACHMENT_DETACH_CAPABILITY
                     || capability == SHARED_SIZING_CAPABILITY
@@ -674,6 +686,7 @@ impl ClientRegistry {
                     || capability == crate::state::sidebar_doc_store::CAPABILITY
                     || capability == super::participant_avatars::PARTICIPANT_AVATARS_CAPABILITY
                     || capability == super::chief_registry_resource::CHIEF_EVENTS_CAPABILITY
+                    || capability == crate::event_cause::CAPABILITY
             }));
             record.writer.negotiate_conversation_tabs(record.capabilities.iter());
         }
@@ -897,12 +910,9 @@ impl ClientRegistry {
     }
 
     pub(crate) fn supports_capability(&self, client: u64, capability: &str) -> bool {
-        self.state
-            .lock()
-            .recover_poison()
-            .clients
-            .get(&client)
-            .is_some_and(|record| record.capabilities.contains(capability))
+        self.state.lock().recover_poison().clients.get(&client).is_some_and(|record| {
+            super::capabilities::holds(record, &self.ipc_transports, capability)
+        })
     }
 
     pub(super) fn surface_attachment_is_current_or_retired(

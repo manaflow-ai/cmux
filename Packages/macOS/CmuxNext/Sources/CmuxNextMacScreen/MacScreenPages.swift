@@ -1,6 +1,7 @@
 public import AppKit
 import CmuxNextCompat
 public import CmuxNextDevices
+public import CmuxNextWakeups
 import CmuxScreenKit
 import Foundation
 
@@ -43,7 +44,9 @@ public final class MacScreenPages {
     /// This Mac as a device hub host (Allow Mac Screen on this Mac, approved sessions).
     public let hubHost: MacScreenHubHost
     /// The host's approval prompt for device hub requests.
-    public let approval = MacScreenApprovalPrompt()
+    public let approval: MacScreenApprovalPrompt
+    /// The app's main-thread scheduler: the tabs' views apply model changes on its frames.
+    private let mainWork: MainWorkScheduler
     /// The device hub while this app is signed in to one (the app sets it on
     /// sign-in and clears it on sign-out): the user's devices, and the session
     /// pushes Mac Screen follows.
@@ -71,6 +74,9 @@ public final class MacScreenPages {
     public var events = MacScreenTabEvents()
     /// The app's shortcut matcher: true keeps a key down in cmux.
     public var isLocalShortcut: (NSEvent) -> Bool = { _ in false }
+    /// The windows' frame-aligned pointer input for device screens (feature `pointerFrameRemoteInput`,
+    /// ``RemoteInputSurface/pointerFrames``), read when a screen is made; nil sends each event at once.
+    public var pointerFrames: @MainActor () -> FrameInputCoalescers? = { nil }
     /// Settings > Development > Relay Only (`macScreen.debug.relayOnly`):
     /// sessions use the TURN relay only. Only DEV builds apply it; the app
     /// feeds it from the setting there.
@@ -86,12 +92,19 @@ public final class MacScreenPages {
     private var confirmed: [String: MacScreenRecord] = [:]
     /// Tab key -> the record it shows, set before its view is made.
     private var records: [String: MacScreenRecord] = [:]
+    /// Tab key -> the device and scope a discarded tab streamed, which its next view asks for
+    /// again. Never another tab's: ``pendingScopes`` is what a person chose on the home page.
+    private(set) var resumeScopes: [String: (deviceID: String, scope: SessionScope)] = [:]
     /// Open tabs (made views), by key.
     private(set) var tabs: [String: MacScreenTab] = [:]
     private var termination: (any NSObjectProtocol)?
 
-    public init(store: MacScreenStore) {
+    /// - Parameter mainWork: The app's one main-thread scheduler (``FrameObservation`` deliveries of
+    ///   the tabs' views and the approval prompt).
+    public init(store: MacScreenStore, mainWork: MainWorkScheduler) {
         self.store = store
+        self.mainWork = mainWork
+        approval = MacScreenApprovalPrompt(mainWork: mainWork)
         host = MacScreenShareHost()
         hubHost = MacScreenHubHost(share: host)
         systemShortcuts = MacScreenSystemShortcuts(host: host)
@@ -306,7 +319,29 @@ public final class MacScreenPages {
         tabs.removeValue(forKey: key)?.clear()
         records[key] = nil
         confirmed[key] = nil
+        resumeScopes[key] = nil
         systemShortcuts.update()
+    }
+
+    /// Tab `key`'s view was released and the tab stays (`memoryDiscardInternalPages`): its session
+    /// ends now, as at ``tabClosed(_:)``, and its record stays for the view its next show makes. A
+    /// tab that streamed, or whose stream ended for being hidden, asks again for the same scope
+    /// when shown, as a hidden pane does (``MacScreenPane/resume()``).
+    public func viewDiscarded(_ key: String) {
+        guard let tab = tabs.removeValue(forKey: key) else { return }
+        records[key] = tab.record
+        if let device = tab.record.deviceID, let hub = tab.pane?.model.hub,
+           let scope = hub.phase.streamingScope ?? hub.resumeScope {
+            resumeScopes[key] = (device, scope)
+        }
+        tab.clear()
+        systemShortcuts.update()
+    }
+
+    /// Whether tab `key` asked a Mac for its screen and waits on the answer (the other Mac's
+    /// approval): ending the tab's view would withdraw the request.
+    public func isRequesting(_ key: String) -> Bool {
+        tabs[key]?.pane?.model.hub?.phase.isPending == true
     }
 
     /// The tab `key` (debug and tests).
@@ -332,36 +367,42 @@ public final class MacScreenPages {
         tab.record = record
         let key = tab.key
         if let device = record.deviceID {
-            tab.install(makeHubPane(deviceID: device, record: record, key: key))
+            tab.install(makeHubPane(deviceID: device, record: record, tab: tab))
             events.titleChanged(key)
             return
         }
         guard record.macID == nil else {
             // An old link record (link pairing is gone): it says so, with Close Tab.
-            let pane = MacScreenPane(unsupportedLink: ())
+            let pane = MacScreenPane(unsupportedLinkIn: tab.node, on: mainWork)
             pane.handlers.closeTab = { [weak self] in self?.events.closeTab(key) }
             pane.handlers.openHome = { [weak self] in self?.replace(key, with: MacScreenRecord(macID: nil)) }
             tab.install(pane)
             return
         }
-        tab.showHome(makeHome(key: key))
+        tab.showHome(makeHome(key: key, node: tab.node))
         tab.loading = Task { [weak self] in await self?.store.load() }
     }
 
-    private func makeHome(key: String) -> NSView {
+    private func makeHome(key: String, node: VisibilityNode) -> NSView {
         var actions = MacScreenHomeActions()
         actions.openDevice = { [weak self] id, scope in self?.openDeviceFromHome(id, scope: scope, in: key) }
         actions.openDeviceInNewTab = { [weak self] id, scope in self?.openDeviceInNewTab(id, scope: scope, from: key) }
         // In the tab's theme scope: Settings > Appearance changes show at once. The page fills the tab.
-        return MacScreenHomeView(host: host, actions: actions, systemShortcuts: systemShortcuts, devices: MacScreenHomeDevices(pages: self))
+        return MacScreenHomeView(host: host, actions: actions, node: node, on: mainWork, systemShortcuts: systemShortcuts,
+                                 devices: MacScreenHomeDevices(pages: self))
     }
 
     /// A device hub device's screen. A tab a person opened with a scope asks
     /// the hub when shown; any other waits at the Connect card.
-    private func makeHubPane(deviceID: String, record: MacScreenRecord, key: String) -> MacScreenPane {
+    private func makeHubPane(deviceID: String, record: MacScreenRecord, tab: MacScreenTab) -> MacScreenPane {
+        let key = tab.key
         let viewer = MacScreenHubViewer(deviceID: deviceID) { [weak self] in self?.hub }
-        let pane = MacScreenPane(hubDevice: viewer, name: deviceName(deviceID), preferences: ScreenPreferences())
-        if confirmed[key] == record, let scope = pendingScopes.removeValue(forKey: deviceID) { viewer.resumeScope = scope }
+        let pane = MacScreenPane(hubDevice: viewer, name: deviceName(deviceID), preferences: ScreenPreferences(), node: tab.node, on: mainWork)
+        if let resume = resumeScopes.removeValue(forKey: key), resume.deviceID == deviceID {
+            viewer.resumeScope = resume.scope
+        } else if confirmed[key] == record, let scope = pendingScopes.removeValue(forKey: deviceID) {
+            viewer.resumeScope = scope
+        }
         #if DEBUG
         if relayOnly { pane.setRelayOnly(true) }
         #endif
@@ -370,6 +411,7 @@ public final class MacScreenPages {
         pane.handlers.isLocalShortcut = { [weak self] event in self?.isLocalShortcut(event) ?? false }
         pane.handlers.keyboardChanged = { [weak self] in self?.systemShortcuts.update() }
         pane.model.systemShortcuts = systemShortcuts
+        pane.view.input.pointerFrames = pointerFrames()
         return pane
     }
 }

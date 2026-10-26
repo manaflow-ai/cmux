@@ -796,8 +796,11 @@ every task that changes behavior or performance and is not repeated per row.
 - Change: protocol with `cpuStep` (today's step/applyPresentation) and `renderServer` backends, one entry point per
   motion kind (split/close, zoom, arrival, camera, rows, areas, screens, canvas, drop highlight, sidebar slide).
   Tunable `motion.renderServer`, default off.
-- Acceptance: tunable off = unchanged behavior (PaneMotionWorkTests pass); tasks 022a-033 edit
-  ScreenContentView+Motion.swift only to register a kind.
+- Acceptance: tunable off = unchanged behavior (PaneMotionWorkTests pass); tasks 022a-033 edit a host's
+  registration file only to register a kind: `ScreenContentView+Motion.swift` (split/close, zoom, arrival,
+  camera, rows, areas, canvas) or `LayoutRootView+Motion.swift` (screens, drop highlight). The seam
+  (`RenderMotionKind`, `RenderServerMotion<Host>`, `MotionBackends<Host>`) is in CmuxNextDesign, so task 100
+  registers the sidebar slide on `SidebarContainerView` with its own begin site.
 - Test phase: swift test --filter 'PaneMotion'.
 - Size M. Start hour 0. Queue: MQ-springs.
 
@@ -1047,6 +1050,24 @@ every task that changes behavior or performance and is not repeated per row.
   header documents the API version; fence released on every path.
 - Test phase: cmux-ci build cef (incremental); cef-resize-sync-bench.py main wait p99 = 0.
 - Size L. Depends: 041.
+- Landed in the fork at API 32: manaflow-ai/cef `cp/p03-rendering-042` (`741a509a`, on `cp/p01-process-173`,
+  the API 31 train line). `cmux_browser_set_resize_fence(id, port, deadline_frames)` replaces API 31's
+  `cmux_browser_resize_fence` (a deadline in ms that held the commit): the fork takes its own send right and
+  joins the page's context (hosting context, or the page window's own) for the call's turn and for the commit
+  that shows the first frame at the new size (`SetCALayerParams` tells the window,
+  `-cmuxEmbedderDidReceiveFrame`), then drops it; also at the deadline (display frames, at most 30; 0 after
+  the turn's commit), with no resize, and on hide, hosting off and close. An embedded page window never calls
+  `Synchronize()` and never waits in pre-commit, so `cmux_browser_set_resize_sync` has no effect from API 32.
+  App shim: `cmux_shim_browser_set_resize_fence` (`shim_windows.mm`). From API 32 the shim's
+  `cmux_shim_browser_set_resize_sync` makes no call and returns 0, and `CEFLayerHosting` sends the resize deadline
+  only to API 27 to 31 (`CEFLayerHosting.hasResizeSync(apiVersion:)`, `resizeFenceForkAPI = 32`). The remote shim
+  (host mode) sends no fence op: its `cmux_shim_browser_set_resize_fence` is a local export that returns 0, because a
+  Mach port name means nothing in the host; host mode's fence is a port right over XPC (task 052). Task 043's fork
+  check is `>= 32` (`resizeFenceForkAPI`; its branch had 31). Embedder case `helper-resize-fence` (not run here: no
+  Chromium tree).
+- Pin rule: the CEF pin must not move to API 32 until task 043's fence path is the default. At API 32 the resize
+  deadline is gone, so with `cefResizeFence` off every page resize shows stale-size frames again (splits, column
+  springs, window live resize).
 
 #### p03-rendering-043 App fence transactions
 - Files: `.../CmuxNextBrowser/CEF/CEFLayerHosting.swift`, `.../CmuxNextRemoteLayer/include/CmuxNextRemoteLayer.h`,
@@ -1095,13 +1116,17 @@ every task that changes behavior or performance and is not repeated per row.
 - Size M. Depends: 045.
 
 #### p03-rendering-050 Layer hosting on by default (Track A)
-- Files: `.../CmuxNextBrowser/Core/BrowserResizeTunables.swift`, `plans/cmux-next/cef-layer-hosting-DESIGN.md`.
+- Files: `.../CmuxNextBrowser/Core/BrowserResizeTunables.swift`, `plans/cmux-next/cef-layer-hosting-DESIGN.md`,
+  `plans/cmux-next/rendering-DESIGN.md`.
 - Change: `browserResize.layerHosting` default true when the fork is >= 27 with fence and embedder visibility (API 26/27
   transparent input window). Per-widget fallback to the page window where hosting is refused (DevTools, popups until
   056). Update the section 3 feature table.
 - Acceptance: one default change plus the doc table; cef-layer-verify.py all checks pass with no tunable; drag and
   drop, AX and docked DevTools work through the input window or the per-widget fallback (e2e list in the PR).
-- Test phase: cef-layer-ab.py full run on 26 and 27; DC8a, DC9, DC10.
+  Before the default flips, rendering-DESIGN.md difference 2 records the measured IOSurface and GPU bytes for each
+  hosted page (bench_memory.py) and the wakeups for each visible page (bench_idle.py).
+- Test phase: cef-layer-ab.py full run on 26 and 27; DC8a, DC9, DC10; bench_memory.py (IOSurface and GPU bytes for
+  each hosted page); bench_idle.py (wakeups for each visible page).
 - Size S. Depends: 041, 043, 058.
 
 #### p03-rendering-051 Delete divider catcher panels
@@ -1168,6 +1193,22 @@ every task that changes behavior or performance and is not repeated per row.
   stops them.
 - Test phase: cmux-ci build cef; cef-layer-verify.py hosted with the input window off screen.
 - Size M. Depends: 041.
+- Landed in the fork at API 34 (33 is p14-energy-029's): manaflow-ai/cef `cp/p03-rendering-058` (`e9d12702`, on
+  `cp/p03-rendering-042`). `cmux_browser_set_embedder_visibility(id, window|visible|occluded|hidden)` applies while
+  the page is layer hosted: the tracker stores it on the `CefNSWindow` and the Views bridge's `OnVisibilityChanged`
+  reads it instead of the window's order (visible and occluded keep the compositor running, hidden suspends it);
+  occluded sets content's `-setOccluded:` (Chrome's one second of coalescing), and `WebContentsOcclusionCheckerMac`
+  leaves the window alone (`cmux_embedder_visibility.patch`). The page window is then the input target only and its
+  order changes nothing for the page; `window` (0, the default) gives the decision back to the order. App shim:
+  `cmux_shim_browser_set_embedder_visibility` (`shim_browser.mm`, `cmux_shim_embedder_visibility_t`), a `post` op in
+  host mode. Only the fork call and this shim export landed: no app code calls
+  `cmux_shim_browser_set_embedder_visibility` yet, and the `.embedderVisibility` bit in `CEFLayerHosting.TrackA` is
+  older base code that nothing sets. p03-rendering-050 owns the app side: the Swift binding, an
+  `embedderVisibilityForkAPI = 34` constant, and inserting `.embedderVisibility` into TrackA only when
+  `forkAPIVersion >= 34`, with a CEFLayerHostingDefaultTests case. 050 must not turn layer hosting on before that
+  caller sends visibility, or a never-ordered-in page window reads as occluded and stops drawing. p03-rendering-097
+  then sends `occluded` from WindowOcclusionFamily. Embedder case `helper-embedder-visibility` (not run here: no
+  Chromium tree).
 
 #### p03-rendering-060 / 061 Redraw policy (Sidebar 28 files; the rest 31 files)
 - Files: the MQ-redraw-policy files (060: CmuxNextSidebar; 061: all others).
@@ -1429,6 +1470,11 @@ every task that changes behavior or performance and is not repeated per row.
 - Acceptance: locked never evicted; oldest unlocked first; pressure purges all unlocked; no per-pane limit remains.
 - Test phase: bench_memory.py 30 hidden tabs and terminals; show.again for the 4 most recent tabs.
 - Size M.
+- Gap (review of 099): pages are not in the list yet. A hosted page view is only a `CALayerHost` of the page
+  window's remote context, and `setLayerHosting(false)` frees no Chromium surface, so evicting it freed nothing
+  while it took slots from terminal frames that hold real IOSurfaces. Pages join when the fork has a call that
+  drops a hidden widget's compositor surface (Chrome's `DelegatedFrameHost::EvictDelegatedFrame`), with a lock
+  per page window, not per tab.
 
 #### p03-rendering-100 Sidebar slide on the render server
 - Files: `.../CmuxNextSidebar/Views/SidebarContainerView.swift`, `.../CmuxNextApp/WindowRootView.swift`,

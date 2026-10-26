@@ -20,16 +20,16 @@
 //!   output pipes does not hold the reply: the pipes are read for a short
 //!   grace after git exits.
 
+use cmux_threads::checked::sync as waits;
 use std::collections::{BTreeMap, VecDeque};
 use std::ffi::{OsStr, OsString};
 use std::io::{ErrorKind, Read};
 use std::path::Path;
-use std::process::{Child, Command, Stdio};
 use std::sync::{Arc, Mutex, PoisonError, mpsc};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use wait_timeout::ChildExt;
+use cmux_process::{Child, Command, Stdio};
 
 use super::run::GitFailure;
 
@@ -93,8 +93,18 @@ impl UserGit<'_> {
         self.run_with(arguments, &[])
     }
 
-    /// Runs `git <arguments>` with `extra` set in its environment.
+    /// Runs `git <arguments>` with `extra` set in its environment. The run
+    /// may wait minutes on the user's hooks and remotes, so its work item
+    /// gives back its lane slot meanwhile (`will_block`).
     pub(super) fn run_with<S: AsRef<OsStr>>(
+        &self,
+        arguments: &[S],
+        extra: &[(&str, &str)],
+    ) -> Result<UserRun, GitFailure> {
+        cmux_threads::work::will_block(|| self.run_child(arguments, extra))
+    }
+
+    fn run_child<S: AsRef<OsStr>>(
         &self,
         arguments: &[S],
         extra: &[(&str, &str)],
@@ -112,20 +122,13 @@ impl UserGit<'_> {
             .envs(extra.iter().copied())
             .stdin(Stdio::null())
             .stdout(Stdio::piped())
-            .stderr(Stdio::piped());
+            .stderr(Stdio::piped())
+            .qos_ceiling(cmux_threads::HELPER_CHILD);
+        // A new session has no controlling terminal, so ssh and git cannot
+        // prompt, and git leads the group the deadline stops.
         #[cfg(unix)]
-        {
-            use std::os::unix::process::CommandExt;
-            // SAFETY: setsid(2) is async-signal-safe and touches no Rust state
-            // in the post-fork child. A new session has no controlling
-            // terminal, so ssh and git cannot prompt, and git leads the group
-            // the deadline stops.
-            unsafe {
-                command.pre_exec(|| {
-                    if libc::setsid() < 0 { Err(std::io::Error::last_os_error()) } else { Ok(()) }
-                });
-            }
-        }
+        command.new_session();
+        crate::request_path::note(crate::request_path::BlockingKind::ProcessSpawn);
         let mut child =
             command.spawn().map_err(|error| GitFailure::Unavailable(error.to_string()))?;
         let (Some(stdout), Some(stderr)) = (child.stdout.take(), child.stderr.take()) else {
@@ -269,7 +272,7 @@ impl Pipe {
 
     /// What was kept by the time the pipe closed, or by `grace`.
     fn collect(self, grace: Instant) -> Vec<u8> {
-        let _ = self.done.recv_timeout(grace.saturating_duration_since(Instant::now()));
+        let _ = waits::recv_timeout(&self.done, grace.saturating_duration_since(Instant::now()));
         let kept = self.kept.lock().unwrap_or_else(PoisonError::into_inner);
         let mut bytes = kept.head.clone();
         if kept.dropped {

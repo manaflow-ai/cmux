@@ -17,6 +17,8 @@ final class KeybindingsPageProvider: PageProvider {
     /// The page's window: only its key-downs are recorded.
     var pageWindow: () -> NSWindow? = { nil }
     private var recorder: KeyRecorder?
+    /// True between `record.start` and the recorder's end: the page takes the next key presses.
+    var isRecording: Bool { recorder != nil }
     private var recordedListeners: [UUID: @MainActor (JSONValue) -> Void] = [:]
     private var changedListeners: [UUID: @MainActor (JSONValue) -> Void] = [:]
     private var fileListener: UUID?
@@ -56,7 +58,10 @@ final class KeybindingsPageProvider: PageProvider {
         case "cmux.keybindings.recorded":
             let id = UUID()
             recordedListeners[id] = onEvent
-            return PageSubscription { [weak self] in _ = self?.recordedListeners.removeValue(forKey: id) }
+            // Each event carries every key recorded so far and whether recording ended: the newest says it all.
+            return PageSubscription(frozenDelivery: .latest) { [weak self] in
+                _ = self?.recordedListeners.removeValue(forKey: id)
+            }
         case "cmux.keybindings.changed":
             // Fires after a keymap import, an edit (the page's or the socket's) and whenever keybindings.json loads.
             let id = UUID()
@@ -66,7 +71,8 @@ final class KeybindingsPageProvider: PageProvider {
                     for listener in self?.changedListeners.values.map({ $0 }) ?? [] { listener([:]) }
                 }
             }
-            return PageSubscription { [weak self] in
+            // Each event is an empty "re-read the list" signal: the newest one says all the dropped ones did.
+            return PageSubscription(frozenDelivery: .latest) { [weak self] in
                 guard let self else { return }
                 changedListeners[id] = nil
                 if changedListeners.isEmpty, let fileListener {

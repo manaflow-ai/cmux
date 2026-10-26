@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 
 extension AgentPaneModel {
@@ -5,7 +6,7 @@ extension AgentPaneModel {
     /// when the bytes are not JSON.
     @concurrent
     nonisolated static func parseGitReply(_ data: Data) async -> GitReplyValue? {
-        (try? JSONSerialization.jsonObject(with: data, options: [.fragmentsAllowed])).map(GitReplyValue.init)
+        (try? JSONSerialization.blockingJSONObject(with: data, options: [.fragmentsAllowed])).map(GitReplyValue.init)
     }
 
     /// A parsed JSON value (Foundation containers nobody mutates after the
@@ -18,7 +19,7 @@ extension AgentPaneModel {
     /// The page's reply for a failed git read: the failure's code, origin,
     /// details and retryable under the localized text.
     static func gitFailure(_ failure: AgentPaneGitFailure, message: String = gitFailedMessage) -> [String: Any] {
-        let details = failure.details.flatMap { try? JSONSerialization.jsonObject(with: $0, options: [.fragmentsAllowed]) }
+        let details = failure.details.flatMap { try? JSONSerialization.blockingJSONObject(with: $0, options: [.fragmentsAllowed]) }
         return AgentPaneReply.failure(
             code: failure.code, message: message, details: details,
             retryable: failure.retryable, origin: failure.origin.rawValue)

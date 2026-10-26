@@ -51,7 +51,7 @@ final class ChromeIconButton: NSButton {
             layer?.cornerRadius = isToolbar ? OmnibarStyle.buttonCornerRadius : BrowserMetrics.controlCornerRadius
             applyIcon()
         }
-        density.start()
+        density.start(in: self)
         hover = PointerHover(self) { [weak self] _ in self?.updateFill(animated: true) }
         hover?.isHoverable = { [weak self] in self?.isEnabled ?? false }
     }
@@ -197,7 +197,7 @@ final class ChromeIconButton: NSButton {
     override func mouseDown(with event: NSEvent) {
         showedHoldMenu = false
         if menuProvider != nil, isEnabled {
-            holdTimer.schedule(after: .milliseconds(400)) { @MainActor [weak self] in self?.showHoldMenu() }
+            holdTimer.scheduleOnMain(after: .milliseconds(400)) { [weak self] in self?.showHoldMenu() }
         }
         super.mouseDown(with: event)
         holdTimer.cancel()
@@ -273,7 +273,7 @@ class ChromeTextButton: NSButton {
             applyTitle()
             invalidateIntrinsicContentSize()
         }
-        density.start()
+        density.start(in: self)
         hover = PointerHover(self) { [weak self] _ in self?.updateFill(animated: true) }
         updateFill()
     }
@@ -362,7 +362,7 @@ class ChromeTextField: NSTextField {
             font = BrowserMetrics.bodyFont
             applyPlaceholder()
         }
-        density.start()
+        density.start(in: self)
     }
 
     @available(*, unavailable)

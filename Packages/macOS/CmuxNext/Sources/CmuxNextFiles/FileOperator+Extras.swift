@@ -1,3 +1,4 @@
+import CmuxNextWakeups
 public import Foundation
 
 /// Make Alias, Delete Immediately, Compress and Expand on the real file system.
@@ -48,7 +49,7 @@ extension FileOperator {
             // --keepParent names the archive's top folder after a folder source;
             // for a file it would wrap the file in its containing folder.
             let keepParent = first.hasDirectoryPath || (try? first.resourceValues(forKeys: [.isDirectoryKey]))?.isDirectory == true
-            try await Self.ditto(["-c", "-k", "--sequesterRsrc"] + (keepParent ? ["--keepParent"] : []) + [first.path, target.path])
+            try await ditto(["-c", "-k", "--sequesterRsrc"] + (keepParent ? ["--keepParent"] : []) + [first.path], archive: target)
             return target
         }
         // ditto archives one source: clone the items (metadata-only on APFS)
@@ -58,7 +59,7 @@ extension FileOperator {
         for url in urls {
             try Self.copy(url, to: staging.appendingPathComponent(url.lastPathComponent), progress: { _ in true })
         }
-        try await Self.ditto(["-c", "-k", "--sequesterRsrc", staging.path, target.path])
+        try await ditto(["-c", "-k", "--sequesterRsrc", staging.path], archive: target)
         return target
     }
 
@@ -67,7 +68,7 @@ extension FileOperator {
         let folder = archive.deletingLastPathComponent()
         let staging = try Self.stagingFolder(near: folder)
         defer { try? FileManager.default.removeItem(at: staging) }
-        try await Self.ditto(["-x", "-k", archive.path, staging.path])
+        try await ditto(["-x", "-k", archive.path, staging.path])
         let items = ((try? FileManager.default.contentsOfDirectory(atPath: staging.path)) ?? [])
             .filter { $0 != "__MACOSX" }
         let taken = Self.names(in: folder)
@@ -102,29 +103,35 @@ extension FileOperator {
         }
     }
 
-    /// Runs `/usr/bin/ditto` (the tool Finder's Compress uses) and waits for it.
-    @concurrent
-    static func ditto(_ arguments: [String]) async throws {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/ditto")
-        process.arguments = arguments
-        process.standardOutput = FileHandle.nullDevice
-        let errors = Pipe()
-        process.standardError = errors
-        let status: Int32 = try await withCheckedThrowingContinuation { continuation in
-            // The handler runs once, after exit; it is the only resume after a successful run().
-            process.terminationHandler = { continuation.resume(returning: $0.terminationStatus) }
-            do {
-                try process.run()
-            } catch {
-                process.terminationHandler = nil
-                continuation.resume(throwing: FileBrowserError.failed(error.localizedDescription))
-            }
+    /// ditto with `archive`, a name nothing had, as its last argument: a run that failed or was stopped
+    /// leaves no partial archive there.
+    private func ditto(_ arguments: [String], archive: URL) async throws {
+        do {
+            try await ditto(arguments + [archive.path])
+        } catch {
+            try? FileManager.default.removeItem(at: archive)
+            throw error
         }
-        guard status == 0 else {
-            // concurrency-allow: @concurrent, after ditto exited; ditto starts no children, so EOF is immediate.
-            let message = String(decoding: errors.fileHandleForReading.readDataToEndOfFile(), as: UTF8.self)
-            throw FileBrowserError.failed(message.isEmpty ? "ditto exited with \(status)" : message)
+    }
+
+    /// Runs `/usr/bin/ditto` (the tool Finder's Compress uses) to its exit; no thread waits for it.
+    /// The person watches the archive appear, so it runs at userVisible. A cancel stops it (the person
+    /// gave up on the archive); ``compress(_:archiveName:)`` then removes the partial archive, and
+    /// ``expand(_:)`` its staging folder.
+    func ditto(_ arguments: [String]) async throws {
+        let request = ProcessRequest(URL(fileURLWithPath: "/usr/bin/ditto"), arguments, errorOutput: .separate, onCancel: .stop,
+                                     priority: .userVisible)
+        let outcome: ProcessOutcome
+        do {
+            outcome = try await processes.outcome(of: request)
+        } catch ProcessFailure.launch(let message) {
+            throw FileBrowserError.failed(message)
+        } catch {
+            throw FileBrowserError.failed(error.localizedDescription)
+        }
+        guard outcome.succeeded else {
+            let message = String(decoding: outcome.errorOutput, as: UTF8.self)
+            throw FileBrowserError.failed(message.isEmpty ? "ditto exited with \(outcome.status)" : message)
         }
     }
 }

@@ -4,11 +4,12 @@ import CmuxNextControl
 import CmuxNextSettings
 import Foundation
 
-// `debug.browser.external_opens`, `debug.browser.prompts` and `debug.browser.page_status`
-// (DEBUG builds), for the scripts/cmux-next live checks: the links a recording build sent
-// to other apps (`BrowserExternalApps`), a browser tab's pending prompts, and the cmux
-// pages over a tab's page (error page, certificate warning, sad tab, Page unresponsive;
-// `press` presses Proceed, Wait or Exit page).
+// `debug.browser.external_opens` and `debug.browser.prompts` (DEBUG builds) and
+// `debug.browser.page_status` (DEBUG and bench builds), for the scripts/cmux-next live checks
+// and the crash and restore stories: the links a recording build sent to other apps
+// (`BrowserExternalApps`), a browser tab's pending prompts, and the cmux pages over a tab's
+// page (error page, certificate warning, sad tab, Page unresponsive; `press` presses Proceed,
+// Wait or Exit page).
 enum DebugBrowserExternal {
     static func register(on router: ControlRouter?, services: AppServices) {
         #if DEBUG
@@ -18,6 +19,10 @@ enum DebugBrowserExternal {
                 guard let services else { return .value(.null) }
                 return .value(prompts(call.params, services: services))
             },
+        ])
+        #endif
+        #if DEBUG || CMUX_BENCH_HOOKS
+        router?.register([
             .mainActor("debug.browser.page_status") { [weak services] call in
                 guard let services else { return .value(.null) }
                 guard let chrome = entry(call.params, services: services)?.chrome else {
@@ -71,7 +76,11 @@ extension DebugBrowserExternal {
         })
         return .object(result)
     }
+}
+#endif
 
+#if DEBUG || CMUX_BENCH_HOOKS
+extension DebugBrowserExternal {
     /// The `tab` param's browser (a layout tab id), else the focused one.
     static func entry(_ params: [String: JSONValue], services: AppServices) -> BrowserEntry? {
         if let id = params["tab"]?.stringValue { return services.cache.existingBrowser(id) }

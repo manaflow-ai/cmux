@@ -18,11 +18,13 @@ final class PagePooledOwner {
 }
 
 extension PageWebView {
+    /// `dataStore` is the store of the page's process group (``WebProcessGroups/dataStore``); nil
+    /// gives the page a store of its own.
     static func hostConfiguration(handler: PageSchemeHandler, documentAttributes: [String: String],
-                                  options: PageEngineOptions) -> (configuration: WKWebViewConfiguration,
-                                                                   inputReadiness: PageInputReadiness) {
+                                  options: PageEngineOptions, dataStore: WKWebsiteDataStore? = nil)
+        -> (configuration: WKWebViewConfiguration, inputReadiness: PageInputReadiness) {
         let configuration = WKWebViewConfiguration()
-        configuration.websiteDataStore = .nonPersistent()
+        configuration.websiteDataStore = dataStore ?? .nonPersistent()
         configuration.processPool = PageProcessPool.forNewView
         if options.fullFrameRate { WebKitRenderRate.apply(fullRate: true, to: configuration.preferences) }
         configuration.setURLSchemeHandler(handler, forURLScheme: PageDescriptor.scheme)
@@ -70,6 +72,7 @@ extension PageWebView {
     /// Starts the served bundle document after the pooled view has been parked.
     func startLoading() {
         guard !loaded, webView.url == nil else { return }
+        traceOpenRequested(.spare)
         webView.load(URLRequest(url: descriptor.url()))
     }
 
@@ -79,10 +82,18 @@ extension PageWebView {
                                                forMainFrameOnly: true, in: .page))
         var attributes = documentAttributes
         if attributes["scrollers"] == nil { attributes["scrollers"] = SystemScrollers.pageValue }
+        // `data-engine="webkit"`: only this engine serves a framed document its own sandboxed policy
+        // (``PageResource/sandboxedPolicy``), so a page frames one only here (the agent page's render cards).
+        attributes["engine"] = "webkit"
         if let script = attributesScript(attributes) {
             controller.addUserScript(WKUserScript(source: script, injectionTime: .atDocumentStart,
                                                    forMainFrameOnly: true, in: .page))
         }
+        #if DEBUG || CMUX_BENCH_HOOKS
+        // The refactor oracle's page state (p15-oracle-215): pages serve it only in DEV and bench builds.
+        controller.addUserScript(WKUserScript(source: oracleStateScript, injectionTime: .atDocumentStart,
+                                               forMainFrameOnly: true, in: .page))
+        #endif
     }
 
     /// Reinstalls document-start scripts after a pooled host changes its page origin.

@@ -9,58 +9,55 @@ import Foundation
 /// decides their engine as it does for browser tabs. Made once at the composition root
 /// (`AppDelegate`) and handed to ``PageWebView/chromiumHosting``.
 ///
-/// Every page shares one off-the-record profile: like the WebKit pages' non-persistent store, a
-/// page keeps nothing on disk, and no profile of the person's (their extensions, cookies) touches a
-/// cmux page.
+/// Every page shares one off-the-record profile (``CEFEngine/beginPagesProfile()``): like the WebKit pages'
+/// non-persistent store, a page keeps nothing on disk, and no profile of the person's (their
+/// extensions, cookies) touches a cmux page. Each page's key is a key of that profile, so it takes
+/// the pages spare window the warm start built (`ChromiumWarmup`, p13-webui-016) instead of building
+/// a window in the turn that opened it.
 @MainActor
 final class ChromiumPageHost: PageChromiumHosting {
     enum Failure: Error {
-        /// The engine made a tab that is not a CEF tab.
-        case notChromium
         /// The Chromium browser was not created (CEF failed to start, or the tab closed).
         case browserNotCreated
     }
 
-    private let cef: CEFEngine
+    private let chromium: ChromiumEngineSlot
     private let enginePreference: @MainActor () -> BrowserDefaultEngine
     private weak var keyRouter: KeyRouter?
-    private var pageProfile: BrowserProfileID?
+    /// The app's lanes: a page's screenshot reply is decoded on their `.cpu` lane.
+    let work: BackgroundWork
 
     /// - Parameters:
-    ///   - cef: The app's Chromium engine.
+    ///   - chromium: The app's Chromium engine slot: the engine is built when the first page opens in Chromium.
     ///   - preference: Reads `browser.defaultEngine` now (the settings snapshot, so pages made while
     ///     windows restore already follow the file).
     ///   - keyRouter: Gets the app's shortcuts from a focused Chromium page.
-    init(cef: CEFEngine, preference: @escaping @MainActor () -> BrowserDefaultEngine, keyRouter: KeyRouter?) {
-        self.cef = cef
+    ///   - work: The app's lanes (``PageChromiumHosting/work``).
+    init(chromium: ChromiumEngineSlot, preference: @escaping @MainActor () -> BrowserDefaultEngine, keyRouter: KeyRouter?,
+         work: BackgroundWork) {
+        self.chromium = chromium
         enginePreference = preference
         self.keyRouter = keyRouter
+        self.work = work
     }
 
     var preference: BrowserDefaultEngine { enginePreference() }
 
-    var isAvailable: Bool { cef.unavailableReason == nil }
+    var isAvailable: Bool { chromium.unavailableReason == nil }
 
     func serves(_ page: PageDescriptor) -> Bool { CEFPageSchemes.firstParty[page.id] != nil }
 
-    func makePage(_ page: PageDescriptor) async throws -> any PageChromiumPage {
+    func makePage(_ page: PageDescriptor, chatOpen: ChatOpenStages?) async throws -> any PageChromiumPage {
         #if DEBUG || CMUX_BENCH_HOOKS
         // Taken before any suspension: set by the traced chat's own page in this turn (``ChatOpenTrace``).
         let traced = ChatOpenTrace.shared.takeMakingTracedPage()
         #endif
-        let profile = pageProfile ?? cef.stores.offTheRecord.begin()
-        pageProfile = profile
-        // Its own pane id: a page is never a tab of a browser pane's Chromium window.
-        let configuration = BrowserTabConfiguration(profile: profile, pane: BrowserPaneID(rawValue: "cmux-page-" + UUID().uuidString))
+        let cef = chromium.engine
+        let configuration = cef.pagesTabConfiguration(chatOpen: chatOpen)
         #if DEBUG || CMUX_BENCH_HOOKS
         if traced, ChatOpenTrace.shared.chromiumPane == nil { ChatOpenTrace.shared.chromiumPane = configuration.pane?.rawValue }
         #endif
-        let made = try await cef.makeTab(configuration)
-        guard let tab = made as? CEFTab else {
-            made.close()
-            throw Failure.notChromium
-        }
-        tab.pageThemeSurface = .internalPage
+        let tab = try await cef.makePagesTab(configuration)
         tab.keyRouter = keyRouter
         let chromiumPage = CEFPageChromiumPage(tab: tab, pageID: page.id)
         tab.delegate = chromiumPage

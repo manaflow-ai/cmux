@@ -16,7 +16,7 @@
 	<key>Label</key>
 	<string>com.cmuxterm.app.debug.testtag.server</string>
 	<key>ProcessType</key>
-	<string>Standard</string>
+	<string>Interactive</string>
 	<key>ProgramArguments</key>
 	<array>
 		<string>Contents/Resources/bin/cmux</string>

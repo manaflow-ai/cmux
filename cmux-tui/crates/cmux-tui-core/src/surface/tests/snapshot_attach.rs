@@ -85,6 +85,7 @@ fn stream_position_counts_output_and_grid_generations() {
     position.observe_frame(&AttachFrame::OutputWithColors {
         output: vec![0; 7],
         colors: Box::default(),
+        flow: 0,
     });
     position.observe_frame(&AttachFrame::ColorsChanged(Arc::new(TerminalColors::default())));
     assert_eq!(position.load(), (0, 12));

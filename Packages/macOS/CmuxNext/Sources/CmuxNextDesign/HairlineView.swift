@@ -8,6 +8,7 @@ public final class HairlineView: NSView {
     public override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
     }
 
     @available(*, unavailable)

@@ -6,7 +6,7 @@ import Foundation
 /// routes there). `tab` is not sent.
 public struct SplitRequest: TerminalSpawningRequest {
     public typealias Response = SurfaceCreated
-    public static let command = "split"
+    public static let commandName: DaemonCommandName = "split"
     public var pane: PaneID
     public var direction: SplitDirection
     public var tab: SurfaceID?
@@ -29,7 +29,7 @@ public struct SplitRequest: TerminalSpawningRequest {
 /// Adds a pane to the pane's column (vertical stack inside a column).
 public struct NewPaneRequest: TerminalSpawningRequest {
     public typealias Response = SurfaceCreated
-    public static let command = "new-pane"
+    public static let commandName: DaemonCommandName = "new-pane"
     public var pane: PaneID
     public var options: SpawnOptions
     public init(pane: PaneID, options: SpawnOptions = SpawnOptions()) {
@@ -47,7 +47,7 @@ public struct NewPaneRequest: TerminalSpawningRequest {
 /// Adds a new scrolling column to the right (`viewport-splits-v1`).
 public struct NewColumnRequest: TerminalSpawningRequest {
     public typealias Response = SurfaceCreated
-    public static let command = "new-pane-right"
+    public static let commandName: DaemonCommandName = "new-pane-right"
     public var pane: PaneID
     /// Fraction of the viewport, 0.1...1.0. Daemon default 2/3.
     public var width: Double?

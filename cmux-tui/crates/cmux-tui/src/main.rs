@@ -33,6 +33,8 @@ mod coderouter_usage;
 mod codex_wrapper;
 mod config;
 mod daemon_build;
+#[cfg(feature = "fuzzing")]
+pub mod fuzzing;
 mod headless;
 #[cfg(unix)]
 mod host_orphan_policy;
@@ -49,6 +51,9 @@ mod hook_helper;
 mod host_colors;
 mod keys;
 mod layout_undo;
+// Tests build it everywhere so the upgrade checks run on Linux CI too.
+#[cfg(any(target_os = "macos", all(unix, test)))]
+mod launchd_role;
 #[cfg(unix)]
 mod link;
 mod local_owner;
@@ -2446,6 +2451,13 @@ fn run_server(
     // interactive client attaches. Install the non-terminal sink as soon as
     // the owner mux exists, before serving or adopting clients.
     app::install_mux_diagnostic_logger(&mux);
+    // After restore and adoption: a terminal that joins the catalog later
+    // wakes the worker itself.
+    if let Err(error) = mux.start_cold_scrollback(&feature_flags::daemon_features()) {
+        eprintln!("cmux-tui: cold scrollback worker did not start: {error}");
+    }
+    #[cfg(debug_assertions)]
+    owner_start::hang_for_test(args.headless);
     local_owner::install_key_from_launcher(&mux, args.owner_install_key_fd);
     // Headless sessions have no host terminal to query. The first
     // interactive client may provide a private host-color handoff; use it

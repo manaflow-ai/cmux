@@ -1,0 +1,247 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://cmux.com/schemas/debug-memory/debug-memory",
+  "title": "debug.memory",
+  "description": "The answer of the debug.memory control method (p07-memory-010; MemoryDiagnosticsReport.swift writes it). Every key is required: an unknown count is null, never 0 and never a missing key. mode, budget and consumers are MemoryReport's own encoding (MemoryReport.swift), the one memory-report.py reads. No value is a URL, a title or a path.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["pressure", "mode", "budget", "consumers", "processes", "tabs", "workspaces", "terminal", "spares", "pressure_history", "histograms"],
+  "$defs": {
+    "level": { "enum": ["normal", "warning", "critical"] },
+    "levelOrNull": { "enum": ["normal", "warning", "critical", null] },
+    "count": { "type": "integer" },
+    "countOrNull": { "type": ["integer", "null"] },
+    "token": {
+      "type": "string",
+      "description": "An opaque token (letters, digits, -, _, ., :, at most 64 bytes) or \"redacted\"; never a URL, title or path."
+    },
+    "processKind": { "enum": ["app", "chromium_renderer", "chromium_gpu", "chromium_utility", "webkit_webcontent", "other"] },
+    "histogram": {
+      "description": "A bucketed local histogram (MemoryHistogram): the sample count, their sum and the non-empty buckets, lowest first. No sample is kept.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["count", "sum", "buckets"],
+      "properties": {
+        "count": { "$ref": "#/$defs/count" },
+        "sum": { "$ref": "#/$defs/count" },
+        "buckets": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["min", "max", "count"],
+            "properties": {
+              "min": { "$ref": "#/$defs/count", "description": "The bucket's lower bound, included." },
+              "max": { "$ref": "#/$defs/countOrNull", "description": "The next bucket's lower bound, excluded; null for the last bucket." },
+              "count": { "$ref": "#/$defs/count" }
+            }
+          }
+        }
+      }
+    }
+  },
+  "properties": {
+    "pressure": {
+      "description": "The level the memory limits come from now.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["level", "kernel_level", "override", "since_ms"],
+      "properties": {
+        "level": { "$ref": "#/$defs/level", "description": "The applied level: the override when set, else the kernel's." },
+        "kernel_level": { "$ref": "#/$defs/level" },
+        "override": { "$ref": "#/$defs/levelOrNull", "description": "The debug.hibernation.pressure override; null when none holds." },
+        "since_ms": { "$ref": "#/$defs/count", "description": "When the applied level last changed, in ms since the control socket started." }
+      }
+    },
+    "mode": { "enum": ["off", "conservative", "medium", "aggressive"], "description": "The memory.saver mode (MemorySaverMode)." },
+    "budget": {
+      "description": "SubsystemBudget at normal pressure, sized from physical memory: the planned caps until each subsystem reads its own.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "physical_mib", "gpu_resident_available", "chromium_renderer_limit", "warm_terminal_surfaces", "parked_workspaces",
+        "parked_idle_timeout_seconds", "image_cache_bytes", "home_render_bitmap_bytes", "hibernation_snapshot_bytes",
+        "live_hidden_agent_pages", "live_hidden_internal_pages", "kitty_image_bytes_per_surface", "web_process_pages_per_group"
+      ],
+      "properties": {
+        "physical_mib": { "$ref": "#/$defs/count" },
+        "gpu_resident_available": { "type": "boolean" },
+        "chromium_renderer_limit": { "$ref": "#/$defs/count" },
+        "warm_terminal_surfaces": { "$ref": "#/$defs/count" },
+        "parked_workspaces": { "$ref": "#/$defs/count" },
+        "parked_idle_timeout_seconds": { "$ref": "#/$defs/count" },
+        "image_cache_bytes": { "$ref": "#/$defs/count" },
+        "home_render_bitmap_bytes": { "$ref": "#/$defs/count" },
+        "hibernation_snapshot_bytes": { "$ref": "#/$defs/count" },
+        "live_hidden_agent_pages": { "$ref": "#/$defs/count" },
+        "live_hidden_internal_pages": { "$ref": "#/$defs/count" },
+        "kitty_image_bytes_per_surface": { "$ref": "#/$defs/count" },
+        "web_process_pages_per_group": { "$ref": "#/$defs/count" }
+      }
+    },
+    "consumers": {
+      "description": "Every registered memory consumer, in release order (MemoryReport.Consumer).",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["name", "traits", "limit", "footprint_bytes", "volatile_bytes", "entries"],
+        "properties": {
+          "name": { "$ref": "#/$defs/token" },
+          "traits": {
+            "description": "MemoryConsumerTraits.",
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["estimatedUsage", "dataAccess", "retention", "recreateCost", "releaseCPUCost", "isStateful", "supportsMemoryLimit"],
+            "properties": {
+              "estimatedUsage": { "type": "string" },
+              "dataAccess": { "type": "string" },
+              "retention": { "type": "string" },
+              "recreateCost": { "type": "string" },
+              "releaseCPUCost": { "type": "string" },
+              "isStateful": { "type": "boolean" },
+              "supportsMemoryLimit": { "type": "boolean" }
+            }
+          },
+          "limit": {
+            "description": "MemoryLimit.",
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["percent"],
+            "properties": { "percent": { "$ref": "#/$defs/count" } }
+          },
+          "footprint_bytes": { "$ref": "#/$defs/countOrNull" },
+          "volatile_bytes": { "$ref": "#/$defs/countOrNull" },
+          "entries": { "$ref": "#/$defs/countOrNull" }
+        }
+      }
+    },
+    "processes": {
+      "description": "The app process, its Chromium helpers and the WebContent processes of the tabs and spares.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "pid", "phys_footprint_bytes"],
+        "properties": {
+          "kind": { "$ref": "#/$defs/processKind" },
+          "pid": { "$ref": "#/$defs/count" },
+          "phys_footprint_bytes": { "$ref": "#/$defs/countOrNull" }
+        }
+      }
+    },
+    "tabs": {
+      "description": "Every tab, once (in its first workspace).",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["key", "kind", "engine", "state", "visible", "pids", "bytes"],
+        "properties": {
+          "key": { "$ref": "#/$defs/token" },
+          "kind": { "enum": ["terminal", "browser", "agent", "other"] },
+          "engine": { "enum": ["cef", "webkit", null] },
+          "state": { "enum": ["unmounted", "live", "discarded", "restoring", "crashed"] },
+          "visible": { "type": "boolean" },
+          "pids": { "type": "array", "items": { "$ref": "#/$defs/count" } },
+          "bytes": {
+            "$ref": "#/$defs/countOrNull",
+            "description": "Its own processes' phys_footprint plus its app-side bytes; null when a process is shared with another tab or not sampled, or the tab holds nothing it can count."
+          }
+        }
+      }
+    },
+    "workspaces": {
+      "description": "Every workspace, in store order.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "state", "panes", "terminal_surfaces", "rendering_surfaces", "tabs", "bytes", "unknown_tabs"],
+        "properties": {
+          "id": { "$ref": "#/$defs/token" },
+          "state": {
+            "enum": ["mounted", "parked", "unmounted"],
+            "description": "mounted: a window shows it; parked: a window keeps it mounted off screen; unmounted: no window holds its views."
+          },
+          "panes": { "$ref": "#/$defs/count" },
+          "terminal_surfaces": { "$ref": "#/$defs/count" },
+          "rendering_surfaces": { "$ref": "#/$defs/count" },
+          "tabs": { "$ref": "#/$defs/count" },
+          "bytes": { "$ref": "#/$defs/count", "description": "The sum of its tabs' known bytes." },
+          "unknown_tabs": { "$ref": "#/$defs/count", "description": "Its tabs whose bytes are null; they are not in bytes." }
+        }
+      }
+    },
+    "terminal": {
+      "description": "The terminal surface cache.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["warm_capacity", "surfaces", "rendering", "hidden_nonvolatile_iosurface_bytes", "last_frames"],
+      "properties": {
+        "warm_capacity": { "$ref": "#/$defs/count" },
+        "surfaces": { "$ref": "#/$defs/count" },
+        "rendering": { "$ref": "#/$defs/count" },
+        "hidden_nonvolatile_iosurface_bytes": {
+          "$ref": "#/$defs/countOrNull",
+          "description": "Estimated non-volatile IOSurface bytes of the hidden terminal surfaces (away, outside the keep-alive band): the two swap-chain buffers besides the volatile presented frame while GPU resident, 0 once released (terminalGPURelease, p07-memory-037). Null when unknown."
+        },
+        "last_frames": { "$ref": "#/$defs/count" }
+      }
+    },
+    "spares": {
+      "description": "Prewarmed pages that wait for a tab.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["pool", "process_kind", "pid", "bytes"],
+        "properties": {
+          "pool": { "enum": ["new_tab", "page_host"] },
+          "process_kind": { "$ref": "#/$defs/processKind" },
+          "pid": { "$ref": "#/$defs/countOrNull" },
+          "bytes": { "$ref": "#/$defs/countOrNull" }
+        }
+      }
+    },
+    "pressure_history": {
+      "description": "The last 32 changes of the kernel level or the override, oldest first.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["at_ms", "level", "kernel_level", "override", "source"],
+        "properties": {
+          "at_ms": { "$ref": "#/$defs/count" },
+          "level": { "$ref": "#/$defs/level" },
+          "kernel_level": { "$ref": "#/$defs/level" },
+          "override": { "$ref": "#/$defs/levelOrNull" },
+          "source": { "enum": ["kernel", "override"] }
+        }
+      }
+    },
+    "histograms": {
+      "description": "Local memory histograms (MemoryHistograms, p07-memory-016), never uploaded. Per-hour histograms hold one sample per completed hour on the suspend-aware clock; footprints are sampled once per hour of awake time (MemoryFootprintEmitter), never by a pressure change or a debug.memory read, which records nothing.",
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "hours", "app_pmf_mb", "renderer_pmf_mb", "wake_latency_ms", "discards_per_hour", "warning_minutes_per_hour",
+        "critical_minutes_per_hour", "warn_events_per_hour"
+      ],
+      "properties": {
+        "hours": { "$ref": "#/$defs/count", "description": "Completed hours since the histograms started." },
+        "app_pmf_mb": { "$ref": "#/$defs/histogram", "description": "The app process's phys_footprint, MiB." },
+        "renderer_pmf_mb": { "$ref": "#/$defs/histogram", "description": "The sum of the Chromium renderers' and WebKit WebContent processes' phys_footprint, MiB." },
+        "wake_latency_ms": { "$ref": "#/$defs/histogram", "description": "From a hibernated page's wake to its page being back." },
+        "discards_per_hour": {
+          "description": "Discards per completed hour, one histogram per content kind whose discards are counted (ContentKind raw values: browser, agent_page). A kind that is not counted is absent, never 0.",
+          "type": "object",
+          "additionalProperties": { "$ref": "#/$defs/histogram" }
+        },
+        "warning_minutes_per_hour": { "$ref": "#/$defs/histogram", "description": "Minutes of each completed hour at the applied warning level." },
+        "critical_minutes_per_hour": { "$ref": "#/$defs/histogram", "description": "Minutes of each completed hour at the applied critical level." },
+        "warn_events_per_hour": { "$ref": "#/$defs/histogram", "description": "Kernel WARN deliveries per completed hour." }
+      }
+    }
+  }
+}

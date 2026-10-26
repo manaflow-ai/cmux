@@ -9,7 +9,6 @@
 //! aborted connection (`ECONNABORTED`) is retried at once, like `EINTR`.
 
 use std::sync::Arc;
-use std::thread;
 use std::time::{Duration, Instant};
 
 use super::super::sys::HostStream;
@@ -61,7 +60,7 @@ impl AcceptBackoff {
                 Err(error) if error.kind() != std::io::ErrorKind::Interrupted => {
                     // `poll` itself failed: wait out the backoff without the waker,
                     // so a lasting failure cannot spin.
-                    thread::sleep(remaining);
+                    crate::request_path::sleep(remaining);
                     break;
                 }
                 Err(_) => {}
@@ -78,7 +77,10 @@ pub(crate) fn serve_accepted(shared: &Arc<HostShared>, stream: HostStream) -> st
     // protocol threads use blocking framed reads, so normalize it here.
     stream.set_nonblocking(false)?;
     let host = shared.clone();
-    thread::Builder::new().name("terminal-host-client".into()).spawn(move || {
+    // Echo path class from the start; blocking is disallowed only for the
+    // output loop (serve_client), after the handshake's waits.
+    let qos = crate::echo_thread::ECHO_PATH_QOS;
+    cmux_threads::spawn("terminal-host-client", qos, move || {
         let _ = serve_client(host, stream);
     })?;
     Ok(())

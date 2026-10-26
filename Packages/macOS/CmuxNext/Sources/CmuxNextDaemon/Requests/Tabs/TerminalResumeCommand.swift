@@ -30,7 +30,7 @@ public struct TerminalResumeCommandRequest: DaemonRequest {
         case clear
     }
 
-    public static let command = "terminal-resume-command"
+    public static let commandName: DaemonCommandName = "terminal-resume-command"
     public static let requiredCapability: String? = DaemonCapability.resumeCommand.rawValue
     public var target: SetTerminalKeepRequest.Target
     public var change: Change
@@ -43,7 +43,7 @@ public struct TerminalResumeCommandRequest: DaemonRequest {
         self.change = change
     }
 
-    enum CodingKeys: String, CodingKey { case surface, terminalID, command }
+    enum CodingKeys: String, CodingKey { case surface, terminalID = "terminal_id", command }
     public func encode(to encoder: any Encoder) throws {
         var c = encoder.container(keyedBy: CodingKeys.self)
         switch target {

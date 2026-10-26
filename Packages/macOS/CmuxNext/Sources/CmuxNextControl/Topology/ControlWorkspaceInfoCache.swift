@@ -2,6 +2,9 @@ public import CmuxNextDaemon
 import Observation
 import CmuxNextCompat
 
+// memory: fixed one entry per workspace the store lists now (`retain` drops the rest on each publish)
+// and one memo per open window's slot plus closed tabs (`retainMemos`). The values are the ones the
+// published snapshot holds, sharing their copy-on-write storage, so dropping them frees nothing.
 /// Keeps each workspace's control value between snapshot publishes
 /// (plans/cmux-next/control-snapshot-topology.md, step 1). A publish maps
 /// only the workspaces that changed since the last one, instead of every
@@ -58,6 +61,11 @@ public final class ControlWorkspaceInfoCache {
     /// Runs after an entry went stale: cached entries are not re-read by the
     /// publisher's own tracking, so their changes must schedule the publish.
     public var onStale: @MainActor () -> Void = {}
+    /// An entry, list or memo whose tracking fired and that no publish has rebuilt yet. Set inside the mutation, so
+    /// code later in the same turn sees it before ``onStale`` runs.
+    public var hasStaleEntries: Bool {
+        !stale.withLock { $0.isEmpty } || !memoGenerations.withLock { $0.stale.isEmpty }
+    }
     /// Workspaces a topology pass looked up, rebuilt or applied app facts
     /// to, since the cache was made (tests read the per-publish delta).
     private(set) var workspaceVisits = 0

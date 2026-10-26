@@ -23,6 +23,7 @@
 //! `CanLowerNiceTo` test passes (base/threading/platform_thread_internal_posix.cc:
 //! root, or a target inside RLIMIT_NICE); otherwise it is refused and counted.
 
+use std::marker::PhantomData;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::registry;
@@ -35,9 +36,8 @@ pub enum ThreadQos {
     Background = 0,
     /// Automation, watchers, best-effort lanes (Chromium kUtility).
     Utility = 1,
-    /// The class a user shell or agent child process starts at, set around
-    /// its fork (p02-threads tasks 207 and 223: `with_qos(Default, ...)`).
-    /// Not a class for daemon threads.
+    /// The class a user shell or agent child process starts at (see
+    /// [`crate::process`]). Not a class for daemon threads.
     Default = 2,
     /// Request dispatch the person waits on (Chromium kDefault).
     UserInitiated = 3,
@@ -171,26 +171,69 @@ pub fn current() -> LiveQos {
     sys::live_self()
 }
 
+/// True when a thread at the process's base class (macOS: any class in the
+/// table; Linux: nice 0) can change to `qos` and take the change back. A
+/// process property, so a caller can ask once and skip a change it cannot
+/// make instead of having every attempt refused and counted. Linux: root,
+/// a class at nice 0, or an RLIMIT_NICE that allows nice 0 again (Chromium's
+/// `CanLowerNiceTo`).
+pub fn reversible(qos: ThreadQos) -> bool {
+    sys::reversible(qos)
+}
+
 /// Runs `f` at `qos` and restores the calling thread's QoS after, also when
-/// `f` panics.
-///
-/// A change the thread could not undo is not made: `f` runs at the current
-/// QoS and the refusal is counted. On Linux that is a demotion (raising nice
-/// above a value it may not lower back to); on macOS a thread whose class is
-/// outside the table (QOS_CLASS_MAINTENANCE), which the kernel takes no
-/// request for. A macOS thread with no class (QOS_CLASS_UNSPECIFIED) comes
-/// back at [`ThreadQos::Default`], the class with the same base priority
-/// (31), and its registry row records Default as its effective QoS.
+/// `f` panics. [`QosScope`] is the same rule as a guard.
 pub fn with_qos<R>(qos: ThreadQos, f: impl FnOnce() -> R) -> R {
-    let saved = sys::save();
-    let effective = registry::with_current(registry::Row::effective);
-    if !sys::can_restore(qos, &saved) {
-        record_refusal();
-        return f();
-    }
-    let _restore = Restore { saved, effective };
-    set_current(qos);
+    let _scope = QosScope::enter(qos);
     f()
+}
+
+/// The calling thread runs at a QoS until the scope drops, then gets back
+/// the QoS it had (Chromium's `ScopedBoostPriority`,
+/// base/threading/scoped_thread_priority.h). Scopes nest; it is not `Send`,
+/// so it ends on the thread it began.
+///
+/// A change the thread could not undo is not made: the thread stays at its
+/// current QoS and the refusal is counted. On Linux that is a demotion
+/// (raising nice above a value it may not lower back to); on macOS a thread
+/// whose class is outside the table (QOS_CLASS_MAINTENANCE), which the
+/// kernel takes no request for. A macOS thread with no class
+/// (QOS_CLASS_UNSPECIFIED) comes back at [`ThreadQos::Default`], the class
+/// with the same base priority (31), and its registry row records Default
+/// as its effective QoS.
+#[must_use = "the QoS holds only while the scope lives"]
+pub struct QosScope {
+    /// Dropped with the scope: puts the saved QoS back.
+    _restore: Option<Restore>,
+    applied: bool,
+    _not_send: PhantomData<*const ()>,
+}
+
+impl QosScope {
+    /// Runs the calling thread at `qos` until the scope drops.
+    pub fn enter(qos: ThreadQos) -> Self {
+        let saved = sys::save();
+        let effective = registry::with_current(registry::Row::effective);
+        if !sys::can_restore(qos, &saved) {
+            record_refusal();
+            return Self { _restore: None, applied: false, _not_send: PhantomData };
+        }
+        let restore = Restore { saved, effective };
+        let applied = set_current(qos) == QosChange::Applied;
+        Self { _restore: Some(restore), applied, _not_send: PhantomData }
+    }
+
+    /// True when the thread runs at the scope's QoS; false when the change
+    /// was refused (counted) or the platform has none.
+    pub fn applied(&self) -> bool {
+        self.applied
+    }
+}
+
+impl std::fmt::Debug for QosScope {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("QosScope").field("applied", &self.applied).finish()
+    }
 }
 
 struct Restore {
@@ -307,6 +350,10 @@ mod sys {
         restore_class(saved).is_some()
     }
 
+    pub(super) fn reversible(_qos: ThreadQos) -> bool {
+        true
+    }
+
     pub(super) fn restore(saved: &Saved) -> Restored {
         let Some((qos, relative_priority)) = restore_class(saved) else {
             return Err(());
@@ -323,7 +370,7 @@ mod sys {
     use crate::registry::NativeThread;
 
     pub(super) struct Saved {
-        nice: Option<i32>,
+        pub(super) nice: Option<i32>,
     }
 
     fn self_tid() -> u64 {
@@ -393,6 +440,10 @@ mod sys {
         saved.nice.is_some_and(|nice| qos.linux_nice() <= nice || may_lower_nice_to(nice))
     }
 
+    pub(super) fn reversible(qos: ThreadQos) -> bool {
+        qos.linux_nice() <= 0 || may_lower_nice_to(0)
+    }
+
     pub(super) fn restore(saved: &Saved) -> Restored {
         if saved.nice.is_some_and(set_nice) { Ok(None) } else { Err(()) }
     }
@@ -425,6 +476,10 @@ mod sys {
         true
     }
 
+    pub(super) fn reversible(_qos: ThreadQos) -> bool {
+        true
+    }
+
     pub(super) fn restore(_saved: &Saved) -> Restored {
         Ok(None)
     }
@@ -438,6 +493,20 @@ mod tests {
     fn linux_nice_table_matches_spec_capped_at_zero() {
         let nice: Vec<i32> = ThreadQos::ALL.iter().map(|qos| qos.linux_nice()).collect();
         assert_eq!(nice, [10, 5, 0, 0, 0]);
+    }
+
+    #[test]
+    fn classes_at_the_base_nice_are_always_reversible() {
+        for qos in [ThreadQos::Default, ThreadQos::UserInitiated, ThreadQos::UserInteractive] {
+            assert!(reversible(qos), "{qos}");
+        }
+        // A lowering is reversible exactly when a thread at the base class
+        // could take it back: the rule a QosScope applies per change.
+        #[cfg(any(target_os = "linux", target_os = "android"))]
+        assert_eq!(
+            reversible(ThreadQos::Utility),
+            sys::can_restore(ThreadQos::Utility, &sys::Saved { nice: Some(0) })
+        );
     }
 
     #[test]

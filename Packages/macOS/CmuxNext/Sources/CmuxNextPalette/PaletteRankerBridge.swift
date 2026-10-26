@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 import CCmuxPaletteRankerFFI
 
@@ -63,7 +64,7 @@ public final class PaletteRankerBridge {
     ) throws -> [PaletteRankedSection] {
         if let version, version != installedVersion { try install(index.entries, version: version) }
         return try invoke(PaletteRankerBridgeRequest(
-            operation: "rank",
+            operation: .rank,
             entries: version == nil ? index.entries.map(PaletteRankerBridgeEntry.init) : nil,
             version: version,
             query: query,
@@ -100,7 +101,7 @@ public final class PaletteRankerBridge {
     ) throws -> [PaletteRankedSection] {
         if let version, version != installedVersion { try install(entries, version: version) }
         return try invoke(PaletteRankerBridgeRequest(
-            operation: "rankEmpty",
+            operation: .rankEmpty,
             entries: version == nil ? entries.map(PaletteRankerBridgeEntry.init) : nil,
             version: version,
             query: nil,
@@ -146,7 +147,7 @@ public final class PaletteRankerBridge {
             throw PaletteRankerBridgeError.runtimeFailed(String(decoding: body, as: UTF8.self))
         }
         do {
-            let sections = try JSONDecoder().decode([PaletteRankerBridgeSection].self, from: body)
+            let sections = try JSONDecoder().blockingDecode([PaletteRankerBridgeSection].self, from: body)
             return sections.map { section in
                 PaletteRankedSection(
                     sectionIndex: section.sectionIndex,

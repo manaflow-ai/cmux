@@ -71,7 +71,7 @@ public nonisolated struct PinnedTLSTransport: RemoteFetchTransport {
         private let connection: NWConnection
         private var reader: RemoteFetchReplyReader
         // carve-out: NWConnection delivers its callbacks on a dispatch queue.
-        private let queue = DispatchQueue(label: "com.cmuxterm.next.remote-fetch")
+        private let queue = DispatchQueue(label: "com.cmuxterm.next.remote-fetch", qos: .userInitiated)
         // Queue-confined.
         private var continuation: CheckedContinuation<RemoteFetchResponse, any Error>?
         private var cancelled = false

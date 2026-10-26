@@ -8,10 +8,11 @@
 //! `cmux_exec` script calls them through `Server::call`, under the same
 //! allowlist as every other tool.
 
+use cmux_process::{Child, Command, Stdio};
 use std::collections::BTreeSet;
 use std::io::{BufRead, BufReader, Write};
 use std::path::PathBuf;
-use std::process::{Child, ChildStdin, Command, Stdio};
+use std::process::ChildStdin;
 use std::sync::mpsc;
 use std::time::{Duration, Instant};
 

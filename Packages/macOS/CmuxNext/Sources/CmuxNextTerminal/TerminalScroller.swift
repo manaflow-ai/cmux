@@ -13,11 +13,27 @@ import CmuxNextDesign
 ///
 /// It is an NSScrollView over an empty document whose height stands for the scrollback, so the
 /// knob tracks the scrollback as any scroll view's does.
+///
+/// The knob is placed at most once per display frame for output (p04-input-051), as Chrome places
+/// scrollbars from the scroll tree once per frame (`LayerTreeImpl::UpdateScrollbarGeometries`,
+/// cc/trees/layer_tree_impl.cc): the host feeds ``update(_:)`` from one `.visible` FrameObservation,
+/// the frame-phase owner that applies the latest scrollbar once per frame, and a person's scroll in
+/// that input's own response pass. The scroller places each bar it gets at once and keeps no frame
+/// client, so it never lags the content it describes and wakes no frame of its own. A layout places
+/// the knob only for a new clip size.
 @MainActor
-final class TerminalScroller: NSScrollView {
+final class TerminalScroller: NSScrollView, ScrollGeometryClient {
     private let document = TerminalScrollerDocument()
     private var applying = false
-    private var shown: TerminalScrollbar?
+    /// The scrollbar the knob shows (Ghostty's last one).
+    private(set) var shown: TerminalScrollbar?
+    /// The row the last knob-drag report asked Ghostty for, until Ghostty's next scrollbar comes: the
+    /// row the terminal will be at, which a later drag move is compared with.
+    private var requestedRow: UInt64?
+    /// The clip size the document was last laid out for.
+    private var placedViewport: CGSize = .zero
+    /// Knob placements made (tests: one per scrollbar the host delivers).
+    private(set) var knobPlacements = 0
     /// The user dragged the legacy scroller: show this row at the top.
     var onScrollToRow: ((UInt64) -> Void)?
     /// A wheel event over the legacy scroller belongs to the terminal.
@@ -34,8 +50,9 @@ final class TerminalScroller: NSScrollView {
         verticalScrollElasticity = .none
         horizontalScrollElasticity = .none
         automaticallyAdjustsContentInsets = false
+        // A scroller drag moves the clip; it pushes each move here, in order (`scrollGeometryDidChange`).
+        ScrollGeometryClipView.install(in: self).addClient(self)
         contentView.drawsBackground = false
-        contentView.postsBoundsChangedNotifications = true
         documentView = document
         let thin = ThinScroller()
         thin.showsOnScroll = false // only a move through the scrollback shows it (`update`)
@@ -47,27 +64,11 @@ final class TerminalScroller: NSScrollView {
             self?.apply(SystemScrollers.nativeStyle)
             self?.onStyleChange?()
         }
-        // queue: .main runs inline for the clip view's post on main (a drag scrolls in order).
-        clipObserver = NotificationCenter.default.addObserver(
-            forName: NSView.boundsDidChangeNotification, object: contentView, queue: .main
-        ) { [weak self] _ in
-            MainActor.assumeIsolated { self?.clipMoved() } // main-proof: observer on queue: .main
-        }
     }
 
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) is not supported")
-    }
-
-    private var clipObserver: (any NSObjectProtocol)?
-
-    // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
-    nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            if let clipObserver { NotificationCenter.default.removeObserver(clipObserver) }
-        }
     }
 
     /// Pinned to ``SystemScrollers/nativeStyle``, AppKit's own reset on a setting change included.
@@ -93,11 +94,13 @@ final class TerminalScroller: NSScrollView {
         return CGRect(x: bounds.maxX - width, y: bounds.minY, width: width, height: bounds.height)
     }
 
-    /// Shows `bar` (nil: nothing to scroll).
+    /// Shows `bar` (nil: nothing to scroll) at once, flashing the overlay knob for a move through the
+    /// scrollback. It answers the last knob-drag report.
     func update(_ bar: TerminalScrollbar?) {
+        requestedRow = nil
         let previous = shown
         shown = bar
-        layoutDocument()
+        placeKnob()
         if scrollerStyle == .overlay, TerminalScrollerGeometry.isUserMove(from: previous, to: bar) {
             (verticalScroller as? ThinScroller)?.flash()
         }
@@ -105,11 +108,19 @@ final class TerminalScroller: NSScrollView {
 
     override func layout() {
         super.layout()
+        // Only a new clip size moves the knob; the scroller's own document change lays out again.
+        guard contentView.bounds.size != placedViewport else { return }
+        placeKnob()
+    }
+
+    private func placeKnob() {
+        knobPlacements += 1
         layoutDocument()
     }
 
     private func layoutDocument() {
-        let viewport = contentView.bounds.height
+        placedViewport = contentView.bounds.size
+        let viewport = placedViewport.height
         guard viewport > 0 else { return }
         let geometry = TerminalScrollerGeometry(bar: shown, viewportHeight: viewport)
         applying = true
@@ -122,11 +133,14 @@ final class TerminalScroller: NSScrollView {
         }
     }
 
-    private func clipMoved() {
-        guard !applying, let shown else { return }
+    /// A knob drag: every clip move reports its row at once, in order, unless the terminal is already
+    /// going to be at it (the row last asked for while Ghostty has not answered, else Ghostty's own).
+    func scrollGeometryDidChange(_ change: ScrollGeometryChange) {
+        guard change.contains(.scrolled), !applying, let shown else { return }
         let geometry = TerminalScrollerGeometry(bar: shown, viewportHeight: contentView.bounds.height)
         let row = geometry.row(forOriginY: contentView.bounds.origin.y)
-        guard row != shown.offsetRows else { return }
+        guard row != (requestedRow ?? shown.offsetRows) else { return }
+        requestedRow = row
         onScrollToRow?(row)
     }
 

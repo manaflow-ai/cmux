@@ -66,7 +66,7 @@ public actor V2URLSessionSocket: V2ControlSocket {
     }
 
     /// Serializes the synchronous callback/cancellation race at the URLSession seam.
-    private final class V2URLSessionPingCompletion: @unchecked Sendable {
+    private final class V2URLSessionPingCompletion: Sendable {
         deinit {}
 
         private struct State: Sendable {

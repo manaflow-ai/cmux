@@ -10,7 +10,7 @@ public struct SetSessionIconRequest: DaemonRequest {
         public var session: SessionRecord
         public var changed: Bool
     }
-    public static let command = "set-session-icon"
+    public static let commandName: DaemonCommandName = "set-session-icon"
     public static let requiredCapability: String? = DaemonCapability.sessionIcon.rawValue
     public var sessionID: String
     /// The icon to set, or nil to clear it.

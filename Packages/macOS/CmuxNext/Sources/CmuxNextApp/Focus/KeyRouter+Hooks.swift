@@ -116,7 +116,10 @@ extension KeyRouter {
     func focus(for window: NSWindow?) -> (WindowController?, KeyWindowKind) {
         guard let services, let window else { return (nil, .other) }
         let controllers = services.windows.controllers
-        if let controller = controllers.first(where: { $0.window === window }) { return (controller, .content) }
+        if let controller = controllers.first(where: { $0.window === window }) {
+            // An overlay of the window's top layer has the keyboard: it gates keys as its panel did.
+            return (controller, (window as? ShellWindow)?.overlayHasKeyboard == true ? .textPanel : .content)
+        }
         // A popup window (or the Chromium page window in it) gates menu
         // chords like a panel over the window that opened it.
         if let popup = services.popups.window(containing: window) {
@@ -146,9 +149,9 @@ extension KeyRouter {
         let context = keyContext(for: controller.focus.state, facts: Facts())
         let bits = context.bits
         let shortcut = Shortcut(key.character, modifiers: key.shift ? [.shift] : [])
-        guard let winner = RegistryKeyBindings(registry).table.resolve([shortcut], in: context, isRunnable: { [registry] in
+        guard let winner = RegistryKeyBindings(registry).table.resolveWinner(CollectionOfOne(shortcut), in: context, isRunnable: { [registry] in
             RegistryKeyBindings(registry).canPerform($0, in: bits)
-        }).winner, registry.descriptor(for: winner.command)?.requires.contains(.browserFocused) == true else { return }
+        }), registry.descriptor(for: winner.command)?.requires.contains(.browserFocused) == true else { return }
         RegistryKeyBindings(registry).run(winner, keyContext: bits)
     }
 

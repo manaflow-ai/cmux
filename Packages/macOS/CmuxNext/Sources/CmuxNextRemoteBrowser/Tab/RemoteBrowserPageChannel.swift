@@ -1,6 +1,7 @@
 public import AppKit
+public import CmuxNextInputCore
 
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 /// History commands a remote tab sends to its host (`rb.history`).
 public nonisolated enum RemoteBrowserHistoryOp: String, Sendable, Hashable {
     case back
@@ -20,6 +21,10 @@ public protocol RemoteBrowserPageChannel: AnyObject {
     /// Sends a pointer event (modifiers and click count included) at
     /// `point`, in the page's CSS pixels.
     func sendPointer(_ event: NSEvent, at point: CGPoint)
+    /// Sends one frame delivery of merged moves, drags, mid-gesture scrolls or wheel notches at
+    /// `point`: the latest point, or the summed scroll. Newer input supersedes it as it does the
+    /// single events (`RemoteBrowserInputEncoder.mustDeliver`: wheel notches must arrive).
+    func sendPointerFrame(_ input: PointerCoalescedInput, clickCount: Int, at point: CGPoint)
     func history(_ op: RemoteBrowserHistoryOp)
     func setVisible(_ visible: Bool)
     /// Navigates the page to a typed or opened address.

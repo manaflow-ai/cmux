@@ -1,5 +1,6 @@
 import CmuxNextAgentActivity
 import CmuxNextAgentPane
+import CmuxNextCompat
 import CmuxNextWakeups
 import Foundation
 
@@ -90,7 +91,7 @@ final class ChatsFeed {
         case lagged
 
         init?(line: Data) {
-            guard let message = try? JSONSerialization.jsonObject(with: line) as? [String: Any] else { return nil }
+            guard let message = try? JSONSerialization.blockingJSONObject(with: line) as? [String: Any] else { return nil }
             if let id = (message["id"] as? NSNumber)?.intValue, id == 2 || id >= 3,
                let result = message["result"] as? [String: Any] {
                 var store = AcpmuxChatsStore()

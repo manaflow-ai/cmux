@@ -9,20 +9,29 @@ import CmuxNextWakeups
 final class GhosttyConfigLiveReload {
     private let files: @MainActor () -> [String]
     private let reload: @MainActor () -> Void
-    private let notifications: NotificationCenter
-    private let reloadTimer = DemandTimer(owner: "GhosttyConfigLiveReload.reload")
+    /// Coalesces a save's burst of file events into one reload. `visible`: terminals repaint with the new config.
+    private let reloadTimer: MainDeadline
+    private let mainWork: MainWorkScheduler
     private var watchers: [ConfigFileWatcher] = []
-    private var observer: (any NSObjectProtocol)?
     private var started = false
 
+    /// - Parameters:
+    ///   - deadlines: The app's deadline scheduler (`AppServices.mainDeadlines`): the reload debounce and each
+    ///     file event's hop to main run on its scheduler.
+    ///   - onConfigChange: Registers a handler for every config change
+    ///     (``GhosttyRuntime/addConfigChangeHandler(_:)``). A service: the loaded file graph can change
+    ///     with any config change (a new `config-file` include, another theme), with or without a
+    ///     terminal on screen; `rearm` does nothing while stopped.
     init(
+        deadlines: MainDeadlineScheduler,
         files: @escaping @MainActor () -> [String] = { GhosttyRuntime.shared.liveReloadConfigFiles },
         reload: @escaping @MainActor () -> Void = { GhosttyRuntime.shared.reloadConfig() },
-        notifications: NotificationCenter = .default
+        onConfigChange: @MainActor (@escaping @MainActor () -> Void) -> Void = { GhosttyRuntime.shared.addConfigChangeHandler($0) }
     ) {
         self.files = files
         self.reload = reload
-        self.notifications = notifications
+        (reloadTimer, mainWork) = (MainDeadline(owner: "GhosttyConfigLiveReload.reload", workClass: .visible, scheduler: deadlines), deadlines.work)
+        onConfigChange { [weak self] in self?.rearm() }
     }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
@@ -30,7 +39,6 @@ final class GhosttyConfigLiveReload {
         guard Thread.isMainThread else { return } // main-proof: returns off the main thread
         MainActor.assumeIsolated {
             reloadTimer.cancel()
-            if let observer { notifications.removeObserver(observer) }
             watchers.forEach { $0.stop() }
         }
     }
@@ -38,9 +46,6 @@ final class GhosttyConfigLiveReload {
     func start() {
         guard !started else { return }
         started = true
-        observer = notifications.addObserver(forName: GhosttyRuntime.configDidChange, object: nil, queue: .main) { [weak self] _ in
-            Task { @MainActor in self?.rearm() }
-        }
         rearm()
     }
 
@@ -49,18 +54,14 @@ final class GhosttyConfigLiveReload {
         reloadTimer.cancel()
         watchers.forEach { $0.stop() }
         watchers.removeAll()
-        if let observer {
-            notifications.removeObserver(observer)
-            self.observer = nil
-        }
     }
 
     private func rearm() {
         guard started else { return }
         watchers.forEach { $0.stop() }
         watchers = files().map { path in
-            let watcher = ConfigFileWatcher(url: URL(fileURLWithPath: path)) { [weak self] in
-                Task { @MainActor in self?.requestReload() }
+            let watcher = ConfigFileWatcher(url: URL(fileURLWithPath: path)) { [weak self, mainWork] in
+                mainWork.postFromAnyThread(.visible, owner: "GhosttyConfigLiveReload.fileChanged") { [weak self] in self?.requestReload() }
             }
             watcher.start(reportInitialChange: false)
             return watcher
@@ -71,7 +72,7 @@ final class GhosttyConfigLiveReload {
         guard started, !reloadTimer.isScheduled else { return }
         // Atomic saves touch the file and its include directory. Coalesce the
         // burst, then let libghostty resolve the complete latest file graph.
-        reloadTimer.scheduleIfIdle(after: .milliseconds(75)) { @MainActor [weak self] in
+        reloadTimer.scheduleIfIdle(after: .milliseconds(75)) { [weak self] in
             guard let self, self.started else { return }
             self.reload()
         }

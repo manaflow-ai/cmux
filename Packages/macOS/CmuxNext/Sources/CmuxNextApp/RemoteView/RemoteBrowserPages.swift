@@ -5,7 +5,7 @@ import CmuxNextControl
 import CmuxNextDesign
 import CmuxNextSettings
 import Foundation
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 import CmuxNextRemoteBrowser
 #endif
 
@@ -37,7 +37,7 @@ enum RemoteBrowserPages {
         })
     }
 
-    #if DEBUG
+    #if DEBUG || CMUX_BENCH_HOOKS
     /// Live sessions by tab key, for the debug socket (weak: tabs own them).
     @MainActor static var sessions: [String: WeakSession] = [:]
 
@@ -136,6 +136,7 @@ enum RemoteBrowserPages {
         guard let tab = RemoteBrowserSession.makeTab(record: record, id: BrowserTabID(rawValue: key), profile: profile,
                                                      viewer: "cmux-next", token: try? credential.get(), carrier: carrier),
               let session = RemoteBrowserSession.session(of: tab) else { return nil }
+        tab.pane.view.pointerFrames = services.remotePointerFrames
         let localHost = record.machine == nil ? localHosts[record.endpoint.port] : nil
         session.openTab = { [weak services] target, disposition, answer in
             // A page's new tab is a remote tab on the same runtime host (RT1).
@@ -161,6 +162,13 @@ enum RemoteBrowserPages {
             session.onClose = { [weak localHost] in
                 localHost?.stop()
                 if localHosts[port] === localHost { localHosts[port] = nil }
+            }
+        }
+        // A host this app started for the tab ends with it: such a tab cannot be built again.
+        if localHost == nil {
+            tab.wakeRecord = { page in
+                let first = page.flatMap { ["http", "https"].contains($0.scheme?.lowercased() ?? "") ? $0 : nil } ?? record.initialURL
+                return RemoteBrowserTabRecord(endpoint: record.endpoint, initialURL: first, secretFile: record.secretFile, machine: record.machine).url
             }
         }
         sessions = sessions.filter { $0.value.value != nil }
@@ -393,7 +401,7 @@ enum RemoteBrowserPages {
 
 extension AppControl {
     func registerRemoteBrowserDebugMethods(_ services: AppServices) {
-        #if DEBUG
+        #if DEBUG || CMUX_BENCH_HOOKS
         service?.router.register([
             .mainActor("debug.remote_browser") { [weak services] call in
                 guard let services else { return .value(.null) }

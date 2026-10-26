@@ -53,7 +53,7 @@ extension PageHostPool {
             parking.autoresizingMask = [.width, .height]
             content.addSubview(parking, positioned: .below, relativeTo: nil)
         }
-        if host.window?.firstResponder === host.webKitView { host.window?.makeFirstResponder(nil) }
+        if let view = host.webKitPieces?.view, host.window?.firstResponder === view { host.window?.makeFirstResponder(nil) }
         host.frame = parking.bounds
         host.autoresizingMask = [.width, .height]
         if host.superview !== parking { parking.addSubview(host) }
@@ -74,4 +74,17 @@ final class PageHostParking: NSView {
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
     override var acceptsFirstResponder: Bool { false }
     override func accessibilityChildren() -> [Any]? { [] }
+
+    #if DEBUG || CMUX_BENCH_HOOKS
+    // `debug.webui`: a parked spare is hidden to the person, whatever its engine was told.
+    override func didAddSubview(_ subview: NSView) {
+        super.didAddSubview(subview)
+        PageWebView.noteCensusParked(true, in: subview)
+    }
+
+    override func willRemoveSubview(_ subview: NSView) {
+        super.willRemoveSubview(subview)
+        PageWebView.noteCensusParked(false, in: subview)
+    }
+    #endif
 }

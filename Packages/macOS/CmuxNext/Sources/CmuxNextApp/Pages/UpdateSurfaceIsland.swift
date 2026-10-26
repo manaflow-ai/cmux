@@ -47,10 +47,9 @@ final class UpdateSurfaceIsland: SidebarSurfaceIsland {
     }
 
     /// `height` is in CSS px; the page is zoomed (the interface scale), so
-    /// one CSS px is `pageZoom * magnification` points.
+    /// one CSS px is ``PageWebView/pageZoom`` points, in either engine.
     private func setHeight(_ height: CGFloat) {
-        let web = (view as? PageWebView)?.webKitView
-        let zoom = (web?.pageZoom ?? 1) * (web?.magnification ?? 1)
+        let zoom = CGFloat((view as? PageWebView)?.pageZoom ?? 1)
         let height = max(0, ceil(height * zoom))
         guard height != contentHeight else { return }
         contentHeight = height
@@ -124,7 +123,8 @@ final class UpdateSurfaceProvider: PageProvider {
                 onEvent(value)
             }
         }
-        return PageSubscription { task.cancel() }
+        // Each event carries the whole highlights value: the newest replaces the rest.
+        return PageSubscription(frozenDelivery: .latest) { task.cancel() }
     }
 }
 
@@ -140,8 +140,9 @@ extension PageFactory {
         let routes = [PageRoute(prefix: "cmux.changelog.surface.", provider: provider), PageRoute(prefix: "cmux.changelog.", provider: notes), PageRoute(prefix: "cmux.app.", provider: native)]
         // The island floats over the window's backdrop: a Chromium page cannot be transparent.
         // Window chrome: a first click on See What's New acts while a Chromium page's window has the key.
-        let page = PageWebView(descriptor: .changelog, routes: routes, route: "#/surface/\(kind.rawValue)",
-                               options: PageEngineOptions(requiresWebKit: .transparentOverlay, acceptsFirstMouse: true))
+        let page = services.webUI.open(PageOpenRequest(descriptor: .changelog, routes: routes, route: "#/surface/\(kind.rawValue)",
+                                                       options: PageEngineOptions(requiresWebKit: .transparentOverlay,
+                                                                                  acceptsFirstMouse: true)))
         native.anchor = { [weak page] in page }
         notes.anchor = { [weak page] in page }
         return page

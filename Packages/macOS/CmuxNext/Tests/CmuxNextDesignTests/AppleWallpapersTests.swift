@@ -131,6 +131,23 @@ import UniformTypeIdentifiers
         #expect(BackdropSelection.system(path: "/x/Desktop Pictures/sub/../y.jpg").thumbnailURL?.path == "/x/Desktop Pictures/sub/../y.jpg")
     }
 
+    /// The downloaded pictures are listed with the list's lock free (no I/O under a lock): a
+    /// listing that reads the list again would otherwise wait on the lock its own caller holds.
+    @Test func recentAssetsAreListedWithTheLockFree() throws {
+        let fixture = try Fixture()
+        defer { try? FileManager.default.removeItem(at: fixture.root) }
+        // A moment no other caller passes, so no list kept by another test is fresh for it.
+        let now = Date(timeIntervalSinceReferenceDate: 4_000_000_000)
+        var listings = 0
+        let listed = AppleWallpaperAssets.recent(now: now) {
+            listings += 1
+            _ = AppleWallpaperAssets.recent(now: now) { .none }
+            return AppleWallpaperAssets(folders: [fixture.assets])
+        }
+        #expect(listings == 1)
+        #expect(listed.file(named: "Coast")?.lastPathComponent == "Coast.heic")
+    }
+
     @Test func aDynamicPictureFollowsTheAppearance() async throws {
         let fixture = try Fixture()
         defer { try? FileManager.default.removeItem(at: fixture.root) }

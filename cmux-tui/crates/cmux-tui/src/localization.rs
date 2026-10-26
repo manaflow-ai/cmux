@@ -31,6 +31,7 @@ mod startup;
 mod terminal;
 mod terminal_input;
 pub(crate) mod terminal_respawn;
+mod trace;
 mod update_notice;
 
 pub(crate) use agent_wrapper::AgentWrapperMessages;
@@ -61,6 +62,7 @@ pub(crate) use skew::SkewMessages;
 pub(crate) use startup::StartupMessages;
 pub(crate) use terminal::TerminalMessages;
 pub(crate) use terminal_input::TerminalInputMessages;
+pub(crate) use trace::TraceMessages;
 pub(crate) use update_notice::UpdateNoticeMessages;
 
 const FOREIGN_VIEWPORT_HINT_CAPACITY: usize = 64;
@@ -152,6 +154,7 @@ pub(crate) struct Catalog {
     pub app_control: AppControlMessages,
     pub coderouter: CodeRouterMessages,
     pub billing: BillingMessages,
+    pub trace: TraceMessages,
     pub update_notice: UpdateNoticeMessages,
 }
 
@@ -166,6 +169,7 @@ static ENGLISH: Catalog = Catalog {
     japanese: false,
     coderouter: coderouter::ENGLISH,
     billing: billing::ENGLISH,
+    trace: trace::ENGLISH,
     update_notice: update_notice::ENGLISH,
     app_control: app_control::ENGLISH,
     agent_wrapper: agent_wrapper::ENGLISH,
@@ -198,6 +202,7 @@ static JAPANESE: Catalog = Catalog {
     japanese: true,
     coderouter: coderouter::JAPANESE,
     billing: billing::JAPANESE,
+    trace: trace::JAPANESE,
     update_notice: update_notice::JAPANESE,
     app_control: app_control::JAPANESE,
     agent_wrapper: agent_wrapper::JAPANESE,

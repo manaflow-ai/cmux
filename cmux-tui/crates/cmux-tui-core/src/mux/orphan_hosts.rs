@@ -47,6 +47,7 @@ impl Mux {
     /// terminal of the recovery workspace (`workspace`, created on first
     /// use). The ordinary adoption handshake follows.
     #[cfg(any(unix, windows))]
+    #[track_caller]
     pub(super) fn recover_orphan_terminal(
         &self,
         record: &crate::terminal_host_runtime::TerminalHostRecord,

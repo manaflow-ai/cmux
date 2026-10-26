@@ -335,6 +335,7 @@ extension AppOnboardingServices {
 
     fileprivate func save(_ ledger: ClassicMigrationLedger, to repository: ClassicMigrationRepository) async throws {
         var ledger = ledger
+        // wall-clock: the ledger file keeps Unix seconds.
         ledger.updatedAt = Date().timeIntervalSince1970
         try await repository.save(ledger)
     }
@@ -450,6 +451,7 @@ extension AppOnboardingServices {
         guard let source else { return false }
         let root = owner.classicStateRoot ?? ClassicRunningProbe.defaultStateRoot(
             home: FileManager.default.homeDirectoryForCurrentUser, environment: ProcessInfo.processInfo.environment)
+        // wall-clock: the probe compares classic's file save dates.
         return ClassicRunningProbe(stateRoot: root).isRunning(source, now: Date().timeIntervalSince1970)
     }
 

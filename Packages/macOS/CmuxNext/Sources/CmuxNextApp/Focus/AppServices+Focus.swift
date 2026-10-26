@@ -1,15 +1,30 @@
 import CmuxNextBrowser
 import CmuxNextActions
+import CmuxNextAgentPane
 import CmuxNextDaemon
+import CmuxNextEnergy
 import CmuxNextFocus
+import CmuxNextPalette
 
 // App-wide inputs to the per-window focus coordinators.
 extension AppServices {
-    /// The palette is a panel above the active window: an overlay of that
+    /// The palette's hooks once it is built (`PaletteOnDemand`): hidden rows, open timings, the shortcut
+    /// editor, and the focus overlay. The palette is a panel above the active window: an overlay of that
     /// window's focus while it is open. Reported synchronously by the
     /// palette, before the key-window change it causes, so a click that
     /// closes it is judged with the overlay already gone (input-spec.md B7).
-    func observePaletteForFocus() {
+    func paletteBuilt(_ palette: PaletteController) {
+        // Energy Saver's session rows show only while they can act (neither while its feature is off).
+        palette.hiddenActionIDs = { [energy] in
+            energy.driver.paletteHiddenActionIDs.union(AgentPaneTunables.pointerInspector.value ? [] : ["agentPane.togglePointerInspector"])
+        }
+        palette.onPresented = { DebugTimings.palettePresented($0) }
+        // The key-down that opens the palette (a synthesized one under `debug.key`), for its input stage.
+        palette.openingEventTimestamp = { [inputDispatch] in
+            let event = inputDispatch.event
+            return event?.type == .keyDown ? event?.timestamp : nil
+        }
+        palette.shortcutRecorder.editor = paletteShortcutEditor
         palette.onVisibilityChange = { [weak self] open in
             guard let self else { return }
             if open {

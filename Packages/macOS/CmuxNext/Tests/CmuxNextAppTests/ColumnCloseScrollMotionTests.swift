@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextLayout
 import CmuxNextDesign
+import CmuxNextWakeups
 import Testing
 
 /// Closing the last column or row of a scrolling strip (Lawrence 2026-10-20: "the pane closes
@@ -26,7 +27,7 @@ struct ColumnCloseScrollMotionTests {
         init(_ layout: ScreenLayout, focused: PaneID, reduceMotion: Bool = false) {
             model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: layout)], activeScreenID: "s", focusedPane: focused)
             model.rowsEnabledOverride = true
-            root = LayoutRootView(model: model, contentProvider: provider)
+            root = LayoutRootView(model: model, contentProvider: provider, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
             root.context.reduceMotionOverride = reduceMotion
             window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.borderless],
                               backing: .buffered, defer: true)

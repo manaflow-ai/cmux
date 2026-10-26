@@ -11,10 +11,15 @@ edge shows in full in its own child panel (cx-3nbw), follows a window move, neve
 takes a click, and goes with its tab; a <select> there opens a native menu.)
 (--stats: only the media numbers, read from the host log's `serve: stats` lines (host
 cx-mpk or later): frame rate and bitrate of an animated page, frames sent by a still page,
-and input to frame sent for clicks that repaint the page; written to stats.json.)
+and input to frame sent for clicks that repaint the page; written to stats.json, with
+percentiles (p50/p95/p99) from scripts/perf-lab/perf_stats.py. Each number is also one
+cmux-perf-result/v1 file in --out through BenchApp.record (browser_engine_bench_report.py,
+`remote_browser.*`, story remote-browser-media).)
+(--app: the tagged app to run; default the tag's Debug, else Release, DerivedData product.)
 
-Fleet GUI host only (cmux-lawrence-2), never a developer laptop. Launches the tagged app
-(no activation, automation socket, CMUX_NEXT_RB_HOST=--host-app), serves a local test page,
+Fleet GUI host only (cmux-lawrence-2), never a developer laptop. Launches the tagged app through
+bench_launch.BenchApp (the lab's bench env: no activation, automation socket; CMUX_NEXT_RB_HOST=--host-app),
+serves a local test page,
 and drives the shared open path through `debug.remote_browser` `open_local`. Checks, each with
 an in-process window snapshot: the page renders and its title arrives (rb.page); a typed URL
 loads (the omnibar path) and Back returns (rb.history); hover reports a pointer cursor
@@ -22,15 +27,21 @@ loads (the omnibar path) and Back returns (rb.history); hover reports a pointer 
 bottom edge opens a native menu and the chosen item reaches the page; a date input opens a
 popup surface; a target=_blank link opens a second remote tab on its own host (rb.open_tab);
 closing a tab stops its host; an <input list> shows its datalist suggestions as an autofill
-surface (CEF API 21) and a click on a suggestion fills the field. Ends with quitEndSessions and the tag teardown.
+surface (CEF API 21) and a click on a suggestion fills the field. Ends with BenchApp.stop (debug.quit ending
+the sessions) and the tag teardown.
 """
-import argparse, glob, http.server, json, os, plistlib, signal, socket, subprocess, sys, tempfile, threading, time
+import argparse, glob, http.server, json, os, socket, subprocess, sys, tempfile, threading, time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from tag_teardown import TagTeardown  # noqa: E402
+from bench_launch import BenchApp, LaunchError, tag_of  # noqa: E402
+import browser_engine_bench_report as results  # noqa: E402
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--tag", required=True)
+parser.add_argument("--app", help="the tagged app (the lab runner's); default the tag's DerivedData product")
+parser.add_argument("--session", choices=["light"], default="light", help="result-v1 session (--stats)")
+parser.add_argument("--build-config", choices=["bench", "bench-checks", "release", "debug"],
+                    help="result-v1 build config of a bench-hooks bundle that does not stamp it (BenchApp.record)")
 host_source = parser.add_mutually_exclusive_group(required=True)
 host_source.add_argument("--host-app")
 host_source.add_argument("--bundled", action="store_true")
@@ -39,18 +50,21 @@ mode.add_argument("--edge", action="store_true")
 mode.add_argument("--stats", action="store_true")
 parser.add_argument("--out", default=os.environ.get("NX_ARTIFACTS") or tempfile.mkdtemp(prefix="rb-local-live-"))
 opts = parser.parse_args()
+if opts.app and tag_of(f"cmux DEV {opts.tag}.app") != tag_of(opts.app):
+    parser.error(f"--tag {opts.tag!r} is not the tag of --app {opts.app!r}")
 os.makedirs(opts.out, exist_ok=True)
-APP = next(iter(glob.glob(os.path.expanduser(
-    f"~/Library/Developer/Xcode/DerivedData/cmux-{opts.tag}/Build/Products/Debug/cmux DEV {opts.tag}.app"))), None)
-if not APP:
+# A Debug build, or a bench build (reload.sh --config bench, Release products) for --stats.
+APP = os.path.realpath(opts.app) if opts.app else next(iter(glob.glob(os.path.expanduser(
+    f"~/Library/Developer/Xcode/DerivedData/cmux-{opts.tag}/Build/Products/Debug/cmux DEV {opts.tag}.app"))
+    + glob.glob(os.path.expanduser(
+    f"~/Library/Developer/Xcode/DerivedData/cmux-{opts.tag}/Build/Products/Release/cmux DEV {opts.tag}.app"))), None)
+if not APP or not os.path.isdir(APP):
     sys.exit(f"no tagged app for {opts.tag}")
-with open(os.path.join(APP, "Contents/Info.plist"), "rb") as f:
-    BINARY = os.path.join(APP, "Contents/MacOS", plistlib.load(f)["CFBundleExecutable"])
 if opts.bundled:
     opts.host_app = os.path.join(APP, "Contents/Helpers/cmux-remote-browser-host.app")
     if not os.path.isdir(opts.host_app):
         sys.exit(f"{APP} embeds no remote browser host")
-SOCKET = f"/tmp/cmux-debug-{opts.tag}.sock"
+SOCKET = None  # the launched app's control socket (BenchApp.launch finds it)
 
 # Page 1: a pointer link, a long body (wheel), a select near the bottom edge, a date input,
 # and a target=_blank link. The title reports what happened, so rb.page carries the result.
@@ -279,7 +293,7 @@ def edge(opened):
          {"reopened": reopened, "gone": gone})
 
 
-def stats(opened):
+def media_run(opened):
     """cx-mpk: frame rate, bitrate and input to frame sent, from the host's `serve: stats` lines."""
     if not opened:
         step("a local host tab opens for the stats run", False, {"open": report.get("open")})
@@ -309,10 +323,6 @@ def stats(opened):
     def on_tab(prefix):
         return lambda: session_where(lambda s: s["tab"] == tab and (s.get("title") or "") == prefix)
 
-    def pct(values, q):
-        values = sorted(values)
-        return values[min(len(values) - 1, int(round(q * (len(values) - 1))))] if values else None
-
     def summary(windows):
         ms = sum(w["ms"] for w in windows)
         frames = sum(w["frames"] for w in windows)
@@ -323,10 +333,12 @@ def stats(opened):
         return {"windows": len(windows), "ms": ms, "frames": frames, "keyframes": sum(w["keyframes"] for w in windows),
                 "bytes": nbytes, "fps": round(frames / secs, 1), "kbps": round(nbytes * 8 / 1000 / secs, 1),
                 "target_kbps": windows[-1]["target_kbps"] if windows else None,
-                "encode_ms": {"n": sum(e["n"] for e in enc), "p50_median": pct([e["p50"] for e in enc], 0.5),
+                "encode_ms": {"n": sum(e["n"] for e in enc), "p50_median": results.pct([e["p50"] for e in enc], 0.5),
                               "p95_max": max((e["p95"] for e in enc), default=None),
                               "max": max((e["max"] for e in enc), default=None)},
-                "input_to_frame_ms": {"n": len(lat), "p50": pct(lat, 0.5), "p95": pct(lat, 0.95), "max": max(lat, default=None)}}
+                "input_to_frame_ms": {"n": len(lat), "p50": results.pct(lat, 0.5), "p95": results.pct(lat, 0.95),
+                                      "p99": results.pct(lat, 0.99), "max": max(lat, default=None),
+                                      "samples": lat}}
 
     numbers = {"host_log": host_log}
     # An animated page: the capture runs at the page's frame rate, capped at 60.
@@ -361,6 +373,10 @@ def stats(opened):
         json.dump(numbers, f, indent=1)
     report["stats"] = numbers
     motion, still, tap = numbers["motion"], numbers["still"], numbers["tap"]
+    # result-v1 only from a host that logged stats: none at all is a host without them (before cx-mpk).
+    if motion["windows"] or still["windows"] or tap["windows"]:
+        report["results_v1"] = results.record_all(bench, results.remote_browser_series(
+            numbers, tap["input_to_frame_ms"]["samples"], clicks, session=opts.session))
     step("an animated page streams at a real frame rate (host stats)",
          motion["windows"] > 0 and motion["fps"] >= 20 and motion["kbps"] > 0, motion)
     step("a still page sends no frames", still["frames"] == 0, still)
@@ -368,26 +384,22 @@ def stats(opened):
          bool(tapped) and tap["input_to_frame_ms"]["n"] >= clicks * 3 // 4, tap)
 
 
-if os.path.exists(SOCKET):
-    os.unlink(SOCKET)
-config = os.path.join(opts.out, "cmux.json")
-with open(config, "w") as f:
-    f.write("{}\n")
-env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
-       "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
-       "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": config,
-       # --edge: a short window, so the page is shorter than a date picker.
-       "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1000,330" if opts.edge else "40,40,1200,820"}
-if not opts.bundled:
-    env["CMUX_NEXT_RB_HOST"] = os.path.abspath(opts.host_app)
-teardown = TagTeardown(APP)
-teardown.install()
-log = open(os.path.join(opts.out, "app.log"), "a")
-app = subprocess.Popen([BINARY], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
-report["pid"] = app.pid
+env = {} if opts.bundled else {"CMUX_NEXT_RB_HOST": os.path.abspath(opts.host_app)}
+# --edge: a short window, so the page is shorter than a date picker.
+bench = BenchApp(APP, out=opts.out, env=env, config={}, screen="last", log_name="app.log",
+                 window=(40, 40, 1000, 330) if opts.edge else (40, 40, 1200, 820),
+                 build_config=opts.build_config, perf_session=opts.session)
 try:
-    if not wait(lambda: os.path.exists(SOCKET) and "error" not in rpc("debug.focus"), 120):
-        sys.exit("app did not come up")
+    bench.launch(timeout=120)
+except LaunchError as error:
+    bench.stop()
+    sys.exit(f"app did not come up: {error.reason}")
+except BaseException:  # SIGTERM (the teardown's SystemExit), Ctrl-C: the spawned app and its tag end too
+    bench.stop()
+    raise
+SOCKET = bench.socket
+report["pid"] = bench.process.pid
+try:
     # The palette's registry path (`action.run`), the same one the palette runs.
     # A fresh app shows Home, which has no pane: select the window's workspaces by number until
     # the palette's registry path (`action.run`, no arguments) finds a focused pane.
@@ -395,6 +407,9 @@ try:
         report["select"] = rpc("action.run", {"action": "selectWorkspaceByNumber", "args": {"index": index}})
         time.sleep(1)
         report["open"] = rpc("action.run", {"action": "remote.openLocalBrowserTab", "focus": True})
+        if "error" in report["open"]:
+            # A bench build has no Debug-only actions (DevTools): the same openLocal through the debug socket.
+            report["open"] = rb("open_local")
         if "error" not in report["open"]:
             report["workspace_index"] = index
             break
@@ -411,7 +426,7 @@ try:
     if opts.edge:
         edge(opened)
     elif opts.stats:
-        stats(opened)
+        media_run(opened)
     else:
         first = wait(title_is("rb one"), 60)
         state = rb("state")
@@ -567,17 +582,7 @@ finally:
     report["final_state"] = rb("state")
     host_pids = [h["pid"] for h in (report["final_state"].get("local_hosts") or [])] \
         if isinstance(report["final_state"], dict) else []
-    print("quit", rpc("action.run", {"id": "quitEndSessions"}), flush=True)
-    try:
-        app.wait(30)
-    except subprocess.TimeoutExpired:
-        app.send_signal(signal.SIGTERM)
-        try:
-            app.wait(20)
-        except subprocess.TimeoutExpired:
-            app.kill()
-            app.wait()
-    teardown.end()
+    bench.stop()  # debug.quit ending the sessions, then TERM and KILL of the app, then the tag teardown
     server.shutdown()
     # The app's exit closes every lifeline, so no host outlives it.
     alive = [pid for pid in host_pids if not wait(lambda pid=pid: subprocess.run(

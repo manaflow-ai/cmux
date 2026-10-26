@@ -5,7 +5,8 @@
 //! Locks belong to the file handle: a second handle, even in the same
 //! process, conflicts like another process would.
 
-use std::fs::{File, OpenOptions};
+use cmux_threads::checked::fs as files;
+use files::File;
 use std::io;
 use std::os::windows::fs::OpenOptionsExt;
 use std::os::windows::io::AsRawHandle;
@@ -55,13 +56,15 @@ pub enum LeaseProbe {
 }
 
 fn open(path: &Path, create: bool) -> io::Result<File> {
-    OpenOptions::new()
-        .read(true)
-        .write(true)
-        .create(create)
-        // Others may open it to probe; the lock, not the share mode, is the lease.
-        .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE)
-        .open(path)
+    files::open_with(
+        File::options()
+            .read(true)
+            .write(true)
+            .create(create)
+            // Others may open it to probe; the lock, not the share mode, is the lease.
+            .share_mode(FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE),
+        path,
+    )
 }
 
 /// Locks the whole file (created if missing). `wait`: block until free;

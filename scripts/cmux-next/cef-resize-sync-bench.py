@@ -23,28 +23,51 @@ frames and the display refresh (`refresh_ms`: judge drops in frames, a fleet min
 
 API 26 against API 27: run it once per build (--label names the run; summary.json records each mode's fork_api).
 
+Each row also has `frames_p99_ms`. Every round of every mode and bench is also written as cmux-perf-result/v1 in
+--out (stories cef-resize-sync and cef-resize-sync-stress: `cef_resize_sync.<mode>.<layout>.<action>.<metric>` and
+`cef_resize_sync.<mode>.failed`, drag_layout_bench_report.py), with the --app bundle's build and this host.
+
 Run on a GUI fleet host, never a laptop:
   nx-remote --needs gui --app-from-fleet cmux --tag T --ref SHA -- \\
     python3 scripts/cmux-next/cef-resize-sync-bench.py --app "$NX_APP" --tag "$NX_APP_TAG" --out "$NX_ARTIFACTS"
-Not a gate: it never fails on a number. Exit 1 when a mode is not what it says or a bench left no report.
+Not a gate: it never fails on a number. Exit 1 when a mode is not what it says, a bench left no report or the
+result-v1 file could not be written.
 """
 import argparse, json, os, subprocess, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, HERE)  # its siblings, also under `python3 -I`
+import drag_layout_bench_report as results  # noqa: E402
+from bench_launch import RecordError  # noqa: E402
+from new_tab_bench_report import perf_result, write_all  # noqa: E402
+from sidebar_drag_bench_report import measured_build  # noqa: E402
+
 HOSTING_KEY = "browserResize.layerHosting"
 DEADLINE_KEY = "browserResize.syncDeadline"
 MODES = {"off": ("off", None), "on": ("on", None), "on0": ("on", 0.0)}
 
-parser = argparse.ArgumentParser()
-parser.add_argument("--app", required=True)
-parser.add_argument("--tag", required=True)
-parser.add_argument("--out", required=True)
-parser.add_argument("--label", default="", help="names this build's run in summary.json (api26, api27)")
-parser.add_argument("--modes", default="off,on,on0")
-parser.add_argument("--benches", default="light,stress")
-parser.add_argument("--actions", default="split,close,column,drag")
-parser.add_argument("--rounds", type=int, default=3)
-opts = parser.parse_args()
+
+def parse(argv=None):
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--app", required=True)
+    parser.add_argument("--tag", required=True)
+    parser.add_argument("--out", required=True)
+    parser.add_argument("--label", default="", help="names this build's run in summary.json (api26, api27)")
+    parser.add_argument("--modes", default="off,on,on0")
+    parser.add_argument("--benches", default="light,stress")
+    parser.add_argument("--actions", default="split,close,column,drag")
+    parser.add_argument("--rounds", type=int, default=3)
+    parser.add_argument("--build-config", choices=["bench", "bench-checks", "release", "debug"],
+                        help="result-v1 build config of a bench-hooks bundle that does not stamp it")
+    opts = parser.parse_args(argv)
+    unknown = [m for m in opts.modes.split(",") if m not in MODES] + \
+        [b for b in opts.benches.split(",") if b not in results.CEF_RESIZE_SESSIONS]
+    if unknown:
+        parser.error(f"unknown mode or bench: {', '.join(unknown)}")
+    return opts
+
+
+opts = None  # set by main()
 
 
 def load(path):
@@ -101,51 +124,82 @@ def stress_session(log_path):
     return None
 
 
-KEYS = ("commit_p95_ms", "commit_max_ms", "missed", "frames_p95_ms", "frames_max_ms", "layout_p95_ms", "refresh_ms")
-failures = 0
-summary = {"tag": opts.tag, "app": opts.app, "label": opts.label, "validity": {}, "modes": {}}
-tunables_file = None
-for mode in opts.modes.split(","):
-    hosting, deadline = MODES[mode]
-    ok, facts = check_mode(mode, hosting)
-    summary["validity"][mode] = {"ok": ok, **facts}
-    summary["modes"][mode] = {}
-    tunables_file = facts.get("tunables_file") or tunables_file
-    if not ok or not facts.get("tunables_file"):
-        print(f"== {mode}: not a valid {mode} run, no benches: {json.dumps(facts)[:400]}", flush=True)
-        failures += 1
-        continue
-    set_deadline(facts["tunables_file"], deadline)
-    for bench in opts.benches.split(","):
-        out = os.path.join(opts.out, mode, bench)
-        os.makedirs(out, exist_ok=True)
-        command = bench_command(bench, out)
-        print(f"== {mode} {bench}: {' '.join(command)}", flush=True)
-        with open(os.path.join(out, "log.txt"), "w") as log:
-            code = subprocess.call(command, stdout=log, stderr=subprocess.STDOUT)
-        report = load(os.path.join(out, "report.json")) or {}
-        rows = [{"layout": r.get("layout"), "action": r.get("action"), **{k: r.get(k) for k in KEYS}}
-                for r in report.get("summary") or []]
-        if not rows:
-            failures += 1
-        summary["modes"][mode][bench] = {"exit": code, "stress_session": stress_session(os.path.join(out, "log.txt")),
-                                         "macos": report.get("macos"), "host": report.get("host"),
-                                         "rows": rows or {"error": "no report"}}
-if tunables_file:
-    data = load(tunables_file) or {}
-    for key in (HOSTING_KEY, DEADLINE_KEY):
-        data.setdefault("values", {}).pop(key, None)
+KEYS = ("commit_p95_ms", "commit_max_ms", "missed", "frames_p95_ms", "frames_p99_ms", "frames_max_ms", "layout_p95_ms",
+        "refresh_ms")
+
+
+def record_results(series):
+    """Every mode and bench's rounds as cmux-perf-result/v1 in --out (one file, each session its own run). False when
+    they could not be written (no build sha, an unknown config, an invalid result), with the reason printed."""
     try:
-        with open(tunables_file, "w") as f:
-            json.dump(data, f, indent=2, sort_keys=True)
-    except OSError:
-        pass
-with open(os.path.join(opts.out, "summary.json"), "w") as f:
-    json.dump(summary, f, indent=2, sort_keys=True)
-for mode, benches in summary["modes"].items():
-    for bench, result in benches.items():
-        for r in result["rows"] if isinstance(result["rows"], list) else []:
-            print(f"{opts.label or '-'} {mode:<4} {bench:<6} {r['layout']:<6} {r['action']:<13} commit p95 {r['commit_p95_ms']} "
-                  f"max {r['commit_max_ms']} ms  missed {r['missed']} (refresh {r['refresh_ms']} ms)  "
-                  f"frame p95 {r['frames_p95_ms']} max {r['frames_max_ms']}  layout p95 {r['layout_p95_ms']}", flush=True)
-sys.exit(1 if failures else 0)
+        build, host = measured_build(opts.app, opts.build_config)
+        path = write_all(opts.out, series, build, host)
+    except (RecordError, perf_result.ResultError) as error:
+        print(f"result-v1: not recorded: {error}", flush=True)
+        return False
+    print(f"result-v1: {len(series)} series in {path}", flush=True)
+    return True
+
+
+def main(argv=None):
+    global opts
+    opts = parse(argv)
+    failures = 0
+    summary = {"tag": opts.tag, "app": opts.app, "label": opts.label, "validity": {}, "modes": {}}
+    series = []
+    tunables_file = None
+    for mode in opts.modes.split(","):
+        hosting, deadline = MODES[mode]
+        ok, facts = check_mode(mode, hosting)
+        summary["validity"][mode] = {"ok": ok, **facts}
+        summary["modes"][mode] = {}
+        tunables_file = facts.get("tunables_file") or tunables_file
+        if not ok or not facts.get("tunables_file"):
+            print(f"== {mode}: not a valid {mode} run, no benches: {json.dumps(facts)[:400]}", flush=True)
+            failures += 1
+            for bench in opts.benches.split(","):
+                series += results.cef_resize_series(mode, bench, [], valid=False)
+            continue
+        set_deadline(facts["tunables_file"], deadline)
+        for bench in opts.benches.split(","):
+            out = os.path.join(opts.out, mode, bench)
+            os.makedirs(out, exist_ok=True)
+            command = bench_command(bench, out)
+            print(f"== {mode} {bench}: {' '.join(command)}", flush=True)
+            with open(os.path.join(out, "log.txt"), "w") as log:
+                code = subprocess.call(command, stdout=log, stderr=subprocess.STDOUT)
+            report = load(os.path.join(out, "report.json")) or {}
+            rows = [{"layout": r.get("layout"), "action": r.get("action"), **{k: r.get(k) for k in KEYS}}
+                    for r in report.get("summary") or []]
+            if not rows:
+                failures += 1
+            series += results.cef_resize_series(mode, bench, (report.get("runs") or []) if rows else [], valid=True)
+            summary["modes"][mode][bench] = {"exit": code,
+                                             "stress_session": stress_session(os.path.join(out, "log.txt")),
+                                             "macos": report.get("macos"), "host": report.get("host"),
+                                             "rows": rows or {"error": "no report"}}
+    if tunables_file:
+        data = load(tunables_file) or {}
+        for key in (HOSTING_KEY, DEADLINE_KEY):
+            data.setdefault("values", {}).pop(key, None)
+        try:
+            with open(tunables_file, "w") as f:
+                json.dump(data, f, indent=2, sort_keys=True)
+        except OSError:
+            pass
+    with open(os.path.join(opts.out, "summary.json"), "w") as f:
+        json.dump(summary, f, indent=2, sort_keys=True)
+    for mode, benches in summary["modes"].items():
+        for bench, result in benches.items():
+            for r in result["rows"] if isinstance(result["rows"], list) else []:
+                print(f"{opts.label or '-'} {mode:<4} {bench:<6} {r['layout']:<6} {r['action']:<13} commit p95 "
+                      f"{r['commit_p95_ms']} max {r['commit_max_ms']} ms  missed {r['missed']} (refresh "
+                      f"{r['refresh_ms']} ms)  frame p95 {r['frames_p95_ms']} p99 {r['frames_p99_ms']} max "
+                      f"{r['frames_max_ms']}  layout p95 {r['layout_p95_ms']}", flush=True)
+    if not record_results(series):
+        failures += 1
+    return 1 if failures else 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

@@ -5,7 +5,7 @@ import Testing
 struct MachineIdentityHandshakeTests {
     private struct CaptureRequest: DaemonRequest {
         typealias Response = JSONValue
-        static let command = "test-identity-attempts"
+        static let commandName: DaemonCommandName = "test-identity-attempts"
     }
 
     @Test(arguments: ["legacy", "modern", "changed-boot"], ["none", "role", "proof"])

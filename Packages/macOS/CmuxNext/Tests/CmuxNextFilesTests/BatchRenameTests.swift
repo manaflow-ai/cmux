@@ -91,6 +91,20 @@ struct BatchRenameTests {
         #expect(temp.names() == ["a.txt", "b.txt"])
     }
 
+    /// A Start at number whose later items do not fit in an `Int` is the error, not the name of
+    /// the item that kept its old name ("b.txt" is a valid name).
+    @MainActor
+    @Test func modelSaysTheStartNumberIsTooLarge() async throws {
+        let temp = try TempFolder()
+        for name in ["a.txt", "b.txt"] { try temp.file(name) }
+        let model = FileBrowserModel(folder: temp.url, watcher: NeverWatcher())
+        await model.reload()
+        model.selection = ["a.txt", "b.txt"]
+        await model.batchRename(BatchRename(rule: .format(base: "n", style: .counter, position: .afterName, start: .max)))
+        #expect(model.lastError == .renameNumberTooLarge)
+        #expect(temp.names() == ["a.txt", "b.txt"])
+    }
+
     @MainActor
     @Test func modelSwapsNamesThroughATemporaryName() async throws {
         let temp = try TempFolder()

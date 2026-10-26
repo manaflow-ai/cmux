@@ -19,7 +19,7 @@ final class OnboardingService {
     let defaultApps: any DefaultAppRegistering
     let importStore: ImportedDataStore
     /// The one tool window (set up in `init`).
-    private let presenter = OnboardingWindowPresenter()
+    private let presenter: OnboardingWindowPresenter
     var controller: OnboardingWindowController? { presenter.controller }
     /// The browser-data import offer on the first browser tab of a launch.
     private(set) lazy var browserImportOffer = BrowserImportOfferService(services: services)
@@ -65,9 +65,10 @@ final class OnboardingService {
 
     init(services: AppServices) {
         self.services = services
+        presenter = OnboardingWindowPresenter(mainWork: services.mainWork)
         let environment = ProcessInfo.processInfo.environment
         // Test launches never change the Mac's real default browser.
-        defaultApps = environment[RecordingDefaultApps.environmentKey] == "1" ? RecordingDefaultApps() : SystemDefaultApps()
+        defaultApps = environment[RecordingDefaultApps.environmentKey] == "1" ? RecordingDefaultApps() : SystemDefaultApps(runner: services.work)
         let support = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
         importStore = ImportedDataStore(directory: support.appending(path: services.environment.launch.bundleID ?? "com.cmuxterm.app.next")
             .appending(path: "BrowserImport", directoryHint: .isDirectory))

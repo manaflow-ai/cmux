@@ -8,7 +8,7 @@ import Testing
 @MainActor
 struct PageWebViewChromiumTests {
     private let root: URL
-    private let descriptor = PageDescriptor(id: "test.chromium-page", resource: "chromium-page", namespaces: [])
+    private let descriptor = PageDescriptor(id: "test.chromium-page", resource: "chromium-page", processGroup: .solo, namespaces: [])
 
     init() throws {
         root = FileManager.default.temporaryDirectory.appendingPathComponent("page-chromium-\(UUID().uuidString)", isDirectory: true)
@@ -35,7 +35,8 @@ struct PageWebViewChromiumTests {
         #expect(page.loaded == [descriptor.url(route: "#/start")])
         #expect(view.focusView === page.contentView)
         #expect(page.contentView.superview === view)
-        #expect(view.webKitView.isHidden)
+        #expect(view.webKitPieces == nil)
+        #expect(PageWebKitAbsenceTests.webKitViews(in: view) == 0)
         #expect(view.chromiumSession != nil)
 
         // The paint probe's message reaches the host through the binding.
@@ -83,8 +84,10 @@ struct PageWebViewChromiumTests {
         #expect(view.engineDecision == .webKit(.chromiumFailed))
         #expect(hosting.made.first?.closed == true)
         #expect(view.chromiumSession == nil)
-        #expect(!view.webKitView.isHidden)
-        #expect(view.focusView === view.webKitView)
+        let engine = try #require(view.webKitPieces)
+        #expect(!engine.view.isHidden)
+        #expect(engine.view.superview === view)
+        #expect(view.focusView === engine.view)
     }
 
     @Test func aChromiumThatCannotMakeThePageFallsBackAtOnce() async throws {
@@ -95,7 +98,10 @@ struct PageWebViewChromiumTests {
         let start = try #require(view.chromiumStart)
         await start.value
         #expect(view.engineDecision == .webKit(.chromiumFailed))
-        #expect(!view.webKitView.isHidden)
+        let engine = try #require(view.webKitPieces)
+        #expect(!engine.view.isHidden)
+        // The fallback loads the route in WebKit in the turn it happens.
+        #expect(engine.view.url == descriptor.url(route: "#/start"))
     }
 
     @Test func theWebKitChoiceNeverStartsChromium() throws {
@@ -134,7 +140,7 @@ struct PageWebViewChromiumTests {
     /// reaches the source.
     @Test func aChromiumPageGetsItsDynamicPathsFromTheHost() async throws {
         defer { try? FileManager.default.removeItem(at: root) }
-        let dynamic = PageDescriptor(id: "test.chromium-dynamic", resource: "chromium-page", namespaces: [], dynamicPrefixes: ["asset"])
+        let dynamic = PageDescriptor(id: "test.chromium-dynamic", resource: "chromium-page", processGroup: .solo, namespaces: [], dynamicPrefixes: ["asset"])
         let hosting = FakeChromiumHosting()
         let source = OneResource()
         let view = try #require(PageWebView(descriptor: dynamic, root: root, routes: [], dynamicResources: source, chromium: hosting))
@@ -290,6 +296,7 @@ extension PageWebViewChromiumTests {
         #expect(call.params["expression"] as? String == "(async function(selector, text) {\nreturn text + selector;\n}).apply(null, [null,\"a\\\"b\"])")
         #expect(call.params["awaitPromise"] as? Bool == true)
         #expect(call.params["returnByValue"] as? Bool == true)
+        #expect(page.evaluations.last == call.params["expression"] as? String)
         view.close()
     }
 }

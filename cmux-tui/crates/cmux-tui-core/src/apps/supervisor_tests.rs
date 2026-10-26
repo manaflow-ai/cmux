@@ -971,3 +971,47 @@ mod subscriptions;
 
 #[path = "supervisor_run_lifecycle_tests.rs"]
 mod run_lifecycle;
+
+/// A wait of 2 ms or more behind the app storage lock is recorded at the
+/// waiter's caller with the holder's thread name.
+#[test]
+fn a_long_app_storage_wait_names_the_holder() {
+    const WAITER: &str = "apps-storage-waiter-test";
+    cmux_threads::set_holder_tracking(true);
+    let f = fixture();
+    let (held_tx, held_rx) = channel();
+    let holder = {
+        let supervisor = Arc::clone(&f.supervisor);
+        std::thread::Builder::new()
+            .name("apps-storage-holder-test".into())
+            .spawn(move || {
+                let storage = supervisor.storage();
+                held_tx.send(()).unwrap();
+                while supervisor.storage_waiting() == 0 {
+                    std::thread::yield_now();
+                }
+                std::thread::sleep(Duration::from_millis(20));
+                drop(storage);
+            })
+            .unwrap()
+    };
+    held_rx.recv().unwrap();
+    let supervisor = Arc::clone(&f.supervisor);
+    let line = std::thread::Builder::new()
+        .name(WAITER.into())
+        .spawn(move || {
+            let line = line!() + 1;
+            drop(supervisor.storage());
+            line
+        })
+        .unwrap()
+        .join()
+        .unwrap();
+    holder.join().unwrap();
+    let waits = cmux_threads::lock_waits();
+    let wait = waits.recent.iter().find(|wait| wait.waiter == WAITER).expect("recorded");
+    assert_eq!(wait.lock, "apps.storage");
+    assert_eq!(wait.holder.as_deref(), Some("apps-storage-holder-test"));
+    assert!(wait.waited >= Duration::from_millis(20), "{wait:?}");
+    assert_eq!((wait.file, wait.line), (file!(), line));
+}

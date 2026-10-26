@@ -57,6 +57,7 @@
 
 use crate::panic_free::JsonFields;
 use crate::panic_free::RecoverPoison;
+use cmux_threads::checked::sync as waits;
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use std::time::Instant;
@@ -65,6 +66,7 @@ use base64::Engine as _;
 use serde::Deserialize;
 use serde_json::{Value, json};
 
+use super::terminal_io_wire::{AttachSurfaceParams, SnapshotRequestParams, wire_usize};
 use super::{
     AttachWorkerCommit, MarkedClientAttach, MessageWriter, OutboundStream,
     commit_client_attach_and_start_worker, detach_committed_attach, get_surface,
@@ -97,25 +99,21 @@ pub(crate) const HISTORY_CHUNK_BYTES: usize = 1 << 20;
 /// The only snapshot encoding the host speaks.
 pub const SNAPSHOT_ENCODING_GHOSTSNP: &str = "ghostsnp";
 
-/// Snapshot fields of `attach-surface`.
-#[derive(Debug, Default, Deserialize)]
+/// Snapshot fields of `attach-surface` (its generated
+/// [`AttachSurfaceParams`]).
+#[derive(Debug, Default)]
 pub(crate) struct SnapshotAttachParams {
-    #[serde(default)]
     snapshot: Option<String>,
-    #[serde(default)]
     snapshot_version: Option<u16>,
     /// The viewer's backlog cap (default 8 MiB, no daemon setting), clamped to
     /// [`MIN_VIEWER_BACKLOG_BYTES`, `MAX_VIEWER_BACKLOG_BYTES`].
-    #[serde(default)]
     viewer_backlog_bytes: Option<usize>,
     /// The viewer reflows its own history at a resize
     /// (`terminal-snapshot-local-history-v1`). Only meaningful with
     /// `snapshot`.
-    #[serde(default)]
     snapshot_local_history: bool,
     /// Every READY with history is followed by its Kitty images
     /// (`terminal-snapshot-images-v1`). Only meaningful with `snapshot`.
-    #[serde(default)]
     snapshot_images: bool,
 }
 
@@ -125,6 +123,17 @@ pub(crate) const MIN_VIEWER_BACKLOG_BYTES: usize = 64 * 1024;
 pub(crate) const MAX_VIEWER_BACKLOG_BYTES: usize = 8 * 1024 * 1024;
 
 impl SnapshotAttachParams {
+    /// The snapshot fields of one `attach-surface` request.
+    pub(crate) fn of(params: &AttachSurfaceParams) -> Self {
+        Self {
+            snapshot: params.snapshot.clone(),
+            snapshot_version: params.snapshot_version,
+            viewer_backlog_bytes: params.viewer_backlog_bytes.map(wire_usize),
+            snapshot_local_history: params.snapshot_local_history,
+            snapshot_images: params.snapshot_images,
+        }
+    }
+
     /// The images cap of this viewer, or `None` when it did not opt in.
     pub(crate) fn images_cap(&self) -> Option<u64> {
         self.snapshot_images.then_some(SNAPSHOT_IMAGES_MAX_BYTES)
@@ -152,6 +161,7 @@ impl SnapshotAttachParams {
 
 /// What the viewer already holds (`have` in `snapshot_request`).
 #[derive(Debug, Default, Deserialize)]
+#[cfg_attr(test, derive(serde::Serialize))]
 pub(crate) struct SnapshotHave {
     #[serde(default)]
     #[allow(dead_code)]
@@ -161,21 +171,6 @@ pub(crate) struct SnapshotHave {
     offset: Option<u64>,
     #[serde(default)]
     snapshot_version: Option<u16>,
-}
-
-/// `snapshot-request` (raw v12) and channel `snapshot_request`.
-#[derive(Debug, Deserialize)]
-pub(crate) struct SnapshotRequestParams {
-    surface: SurfaceId,
-    /// `digest_mismatch | gap | generation_mismatch | attach`; informational.
-    #[serde(default)]
-    reason: Option<String>,
-    #[serde(default)]
-    have: Option<SnapshotHave>,
-    /// Idempotency per viewer connection: a repeat while a snapshot is
-    /// pending collapses into it.
-    #[serde(default)]
-    request_id: Option<String>,
 }
 
 #[derive(Clone)]
@@ -506,15 +501,12 @@ fn frame_json(
     offset: u64,
 ) -> Option<Value> {
     match frame {
-        AttachFrame::Output(output) => Some(json!({
-            "event": "output", "surface": surface, "data": base64(output),
-            "generation": generation, "offset": offset,
-        })),
-        AttachFrame::OutputWithColors { output, colors } => Some(json!({
-            "event": "output", "surface": surface, "data": base64(output),
-            "generation": generation, "offset": offset,
-            "colors": terminal_colors_json(**colors, true),
-        })),
+        AttachFrame::Output(output) | AttachFrame::FlowOutput { output, .. } => {
+            Some(output_json(surface, output, generation, offset, frame.flow(), None))
+        }
+        AttachFrame::OutputWithColors { output, colors, flow } => {
+            Some(output_json(surface, output, generation, offset, *flow, Some(colors)))
+        }
         AttachFrame::ColorsChanged(colors) => {
             let mut value = terminal_colors_json(**colors, true);
             value.insert("event", json!("colors-changed"));
@@ -525,11 +517,31 @@ fn frame_json(
     }
 }
 
-fn frame_output_len(frame: &AttachFrame) -> usize {
-    match frame {
-        AttachFrame::Output(output) | AttachFrame::OutputWithColors { output, .. } => output.len(),
-        _ => 0,
+/// One `output` event; `flow` (the key press it echoes,
+/// p09-observability-018) only when it is not 0.
+fn output_json(
+    surface: SurfaceId,
+    output: &[u8],
+    generation: u64,
+    offset: u64,
+    flow: u64,
+    colors: Option<&crate::TerminalColors>,
+) -> Value {
+    let mut value = json!({
+        "event": "output", "surface": surface, "data": base64(output),
+        "generation": generation, "offset": offset,
+    });
+    if let Some(colors) = colors {
+        value.insert("colors", terminal_colors_json(*colors, true));
     }
+    if flow != 0 {
+        value.insert("flow", json!(flow));
+    }
+    value
+}
+
+fn frame_output_len(frame: &AttachFrame) -> usize {
+    frame.output().map_or(0, <[u8]>::len)
 }
 
 /// Everything the attach worker needs.
@@ -829,7 +841,7 @@ fn attach(
     let (worker_start, worker_committed) = std::sync::mpsc::sync_channel(1);
     let spawned =
         std::thread::Builder::new().name("mux-snapshot-attach-out".into()).spawn(move || {
-            if worker_committed.recv().is_ok() {
+            if waits::recv(&worker_committed).is_ok() {
                 worker.run();
             } else {
                 worker.mux.control_clients.snapshot_viewers.unregister(
@@ -967,26 +979,22 @@ mod tests {
 
     #[test]
     fn snapshot_attach_params_fall_back_on_another_version() {
+        let attach = |value: Value| -> SnapshotAttachParams {
+            SnapshotAttachParams::of(&serde_json::from_value(value).unwrap())
+        };
         let ours = ghostty_vt::snapshot_version();
-        let params: SnapshotAttachParams =
-            serde_json::from_value(json!({"snapshot": "ghostsnp", "snapshot_version": ours}))
-                .unwrap();
+        let params = attach(json!({"snapshot": "ghostsnp", "snapshot_version": ours}));
         assert!(params.wants_snapshot().unwrap());
         assert_eq!(params.backlog_bytes(), DEFAULT_VIEWER_BACKLOG_BYTES);
-        let other: SnapshotAttachParams = serde_json::from_value(
-            json!({"snapshot": "ghostsnp", "snapshot_version": ours.wrapping_add(1)}),
-        )
-        .unwrap();
+        let other =
+            attach(json!({"snapshot": "ghostsnp", "snapshot_version": ours.wrapping_add(1)}));
         assert!(!other.wants_snapshot().unwrap());
-        let unknown: SnapshotAttachParams =
-            serde_json::from_value(json!({"snapshot": "png"})).unwrap();
+        let unknown = attach(json!({"snapshot": "png"}));
         assert!(unknown.wants_snapshot().is_err());
-        let tiny: SnapshotAttachParams =
-            serde_json::from_value(json!({"viewer_backlog_bytes": 1})).unwrap();
+        let tiny = attach(json!({"viewer_backlog_bytes": 1}));
         assert_eq!(tiny.backlog_bytes(), MIN_VIEWER_BACKLOG_BYTES);
         assert_eq!(tiny.images_cap(), None, "images are opt-in");
-        let images: SnapshotAttachParams =
-            serde_json::from_value(json!({"snapshot_images": true})).unwrap();
+        let images = attach(json!({"snapshot_images": true}));
         assert_eq!(images.images_cap(), Some(SNAPSHOT_IMAGES_MAX_BYTES));
     }
 }

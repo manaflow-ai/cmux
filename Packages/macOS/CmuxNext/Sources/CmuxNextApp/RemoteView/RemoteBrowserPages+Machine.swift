@@ -28,6 +28,7 @@ extension RemoteBrowserPages {
                                                      viewer: "cmux-next", token: runtime.secret, carrier: carrier,
                                                      machineName: services.machines.machineName(machine) ?? machine),
               let session = RemoteBrowserSession.session(of: tab) else { return nil }
+        tab.pane.view.pointerFrames = services.remotePointerFrames
         let hosts = services.machineBrowserHosts
         session.onClose = {
             machineKeys.remove(key)
@@ -41,6 +42,8 @@ extension RemoteBrowserPages {
                 answer(String(describing: surface))
             }
         }
+        // A discard stops this runtime; the wake starts the machine's browser again at the page shown.
+        tab.wakeRecord = { page in MachineBrowserRecord(machine: machine, initialURL: page ?? initialURL).url }
         machineKeys.insert(key)
         sessions = sessions.filter { $0.value.value != nil }
         sessions[key] = WeakSession(value: session)

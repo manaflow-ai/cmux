@@ -1,4 +1,5 @@
 use crate::panic_free::RecoverPoison;
+use cmux_threads::checked::sync as waits;
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::{Arc, Condvar, Mutex, OnceLock, RwLock, Weak};
@@ -391,7 +392,7 @@ impl JournalKernel {
             self.changed.notify_all();
         }
         if let Some(tailer) = self.tailer.lock().recover_poison().take()
-            && tailer.join().is_err()
+            && waits::join(tailer).is_err()
         {
             eprintln!("cmux-tui: session journal tailer panicked during shutdown");
         }

@@ -1,6 +1,7 @@
 import AppKit
 @testable import CmuxNextDesign
 @testable import CmuxNextTerminal
+import CmuxNextWakeups
 import GhosttyNextKit
 import Testing
 
@@ -14,7 +15,7 @@ import Testing
         WindowDrawPolicy.drawsWhenOccluded = true
         defer { WindowDrawPolicy.drawsWhenOccluded = drew }
         let io = ScriptedTerminalIO()
-        let session = TerminalSession(io: io)
+        let session = TerminalSession(io: io, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         let surface = try #require(session.surfaceView.surface, "libghostty created no surface")
         let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 480, height: 240), styleMask: [.borderless],
                               backing: .buffered, defer: false)

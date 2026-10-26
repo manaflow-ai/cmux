@@ -414,6 +414,7 @@
         "CmuxNextRemoteLocalhostService",
         "CmuxNextRemoteViewSessions",
         "CmuxNextScreenshots",
+        "CmuxNextServerHelper",
         "CmuxNextSignposts",
         "CmuxNextStash",
         "CmuxNextTabs",
@@ -953,7 +954,8 @@
         "CmuxNextCompat",
         "CmuxNextDaemonService",
         "CmuxNextPages",
-        "CmuxNextSettings"
+        "CmuxNextSettings",
+        "CmuxNextWakeups"
       ],
       "packages": []
     },
@@ -996,7 +998,9 @@
     "CmuxNextFileGrid": {
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextFileGrid",
-      "targets": [],
+      "targets": [
+        "CmuxNextCompat"
+      ],
       "packages": []
     },
     "CmuxNextFiles": {
@@ -1599,6 +1603,7 @@
       "kind": "test",
       "path": "Packages/macOS/CmuxNext/Tests/CmuxNextScreenshotsTests",
       "targets": [
+        "CmuxNextCompat",
         "CmuxNextFileGrid",
         "CmuxNextFiles",
         "CmuxNextScreenshots"
@@ -1832,6 +1837,7 @@
       "kind": "regular",
       "path": "Packages/macOS/CmuxNext/Sources/CmuxNextVSCodeServer",
       "targets": [
+        "CmuxNextCompat",
         "CmuxNextWakeups"
       ],
       "packages": []

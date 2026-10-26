@@ -1,6 +1,12 @@
 //! The `Command` router: one arm per command, each calling its family's handler
 //! (`cmd_*` modules). Moved out of server.rs unchanged (cx-6so.3).
 
+use super::terminal_io_wire::{
+    self, AttachSurfaceParams, ClearHistoryParams, CopyParams,
+    MintTerminalRendererByTerminalParams, MintTerminalRendererParams, PasteImageParams,
+    ReadScreenParams, ReadScrollbackParams, ScrollSurfaceParams, SendKeyParams, SubscribeParams,
+    TerminalEventsParams, WaitForParams,
+};
 use super::*;
 
 pub(super) fn handle_command_with_cancellation(
@@ -17,20 +23,22 @@ pub(super) fn handle_command_with_cancellation(
     }
     match cmd {
         Command::SubscribeActivity => cmd_subscribe::subscribe_activity(mux, client, writer),
-        cmd @ (Command::UrlOpenSubscribe { .. }
-        | Command::UrlOpenClaim { .. }
-        | Command::UrlOpenResult { .. }) => url_open::handle(mux, client, cmd, writer),
-        cmd @ (Command::TerminalClipboardSubscribe { .. }
-        | Command::TerminalClipboardReply { .. }) => {
+        cmd @ (Command::UrlOpenSubscribe(_)
+        | Command::UrlOpenClaim(_)
+        | Command::UrlOpenResult(_)) => url_open::handle(mux, client, cmd, writer),
+        cmd @ (Command::TerminalClipboardSubscribe(_) | Command::TerminalClipboardReply(_)) => {
             clipboard_read::handle(mux, client, cmd, writer)
         }
-        Command::UrlOpen { .. } => {
+        Command::UrlOpen(_) => {
             anyhow::bail!("URL opening requires the asynchronous request path")
         }
         Command::ChiefInspect(_) => {
             anyhow::bail!("chief-inspect requires the asynchronous request path")
         }
-        Command::PasteImage {
+        Command::DeleteTerminalCommands(_) | Command::SetCellPixels(_) => {
+            anyhow::bail!("this command requires the asynchronous request path")
+        }
+        Command::PasteImage(PasteImageParams {
             surface,
             terminal_id,
             lease,
@@ -40,7 +48,7 @@ pub(super) fn handle_command_with_cancellation(
             size,
             offset,
             data,
-        } => cmd_terminal_io::paste_image(
+        }) => cmd_terminal_io::paste_image(
             mux,
             client,
             surface,
@@ -49,17 +57,27 @@ pub(super) fn handle_command_with_cancellation(
             upload_id,
             op,
             mime,
-            size,
-            offset,
+            size.map(terminal_io_wire::wire_usize),
+            offset.map(terminal_io_wire::wire_usize),
             data,
         ),
-        command @ (Command::SetTerminalCommandHistory(_)
-        | Command::ListTerminalCommands(_)
-        | Command::DeleteTerminalCommands(_)) => command_history::handle(mux, client, command),
+        command @ (Command::SetTerminalCommandHistory(_) | Command::ListTerminalCommands(_)) => {
+            command_history::handle(mux, client, command)
+        }
         Command::ServerStats { include } => cmd_server::server_stats(mux, client, include),
+        Command::DebugDaemonLocks => cmd_server::daemon_locks(mux, client),
+        Command::TraceStart(params) => {
+            cmd_server::trace_control(mux, client, || trace_control::start_call(&params))
+        }
+        Command::TraceStop => {
+            cmd_server::trace_control(mux, client, || Ok(trace_control::Call::Stop))
+        }
+        Command::TraceStatus => {
+            cmd_server::trace_control(mux, client, || Ok(trace_control::Call::Status))
+        }
         Command::BrowserHostProvider => cmd_browser::browser_host_provider(mux, client),
         Command::Identify { machine_metadata, revisions } => {
-            cmd_server::identify(mux, machine_metadata, revisions)
+            cmd_server::identify(mux, client, machine_metadata, revisions)
         }
         Command::ShutdownDaemon { pid, generation, force, end_terminals, keep_layout } => {
             cmd_server::shutdown_daemon(
@@ -104,7 +122,9 @@ pub(super) fn handle_command_with_cancellation(
         ),
         Command::ListClients => cmd_server::list_clients(mux, client),
         Command::MachineUsage => cmd_server::machine_usage(mux),
-        Command::MachineListeningTcp => cmd_server::machine_listening_tcp(),
+        Command::MachineListeningTcp => {
+            anyhow::bail!("machine-listening-tcp requires the asynchronous request path")
+        }
         Command::RegisterBrowserProvider {
             provider_id,
             endpoint,
@@ -127,7 +147,7 @@ pub(super) fn handle_command_with_cancellation(
         Command::GetBrowserProvider => cmd_browser::get_browser_provider(mux, client),
         Command::UnregisterBrowserProvider => cmd_browser::unregister_browser_provider(mux, client),
         Command::ListTerminals => cmd_terminals::list_terminals(mux),
-        Command::TerminalEvents { after_revision } => {
+        Command::TerminalEvents(TerminalEventsParams { after_revision }) => {
             cmd_terminals::terminal_events(mux, after_revision)
         }
         Command::SetClientSizing { surface, client: target, enabled, exclusive } => {
@@ -199,17 +219,19 @@ pub(super) fn handle_command_with_cancellation(
             cmd_panes::apply_layout(mux, actor, workspace, name, layout, cols, rows)
         }
         Command::Send(params) => cmd_terminal_io::send(mux, client, writer, params),
-        Command::ReadScreen { surface } => cmd_terminal_io::read_screen(mux, surface),
-        Command::ClearHistory { surface, fallback_key } => {
+        Command::ReadScreen(ReadScreenParams { surface }) => {
+            cmd_terminal_io::read_screen(mux, surface)
+        }
+        Command::ClearHistory(ClearHistoryParams { surface, fallback_key }) => {
             cmd_terminal_io::clear_history(mux, surface, fallback_key)
         }
-        Command::ReadScrollback { surface, start, count } => {
+        Command::ReadScrollback(ReadScrollbackParams { surface, start, count }) => {
             cmd_terminal_io::read_scrollback(mux, surface, start, count)
         }
         Command::SidebarPlugin { cols, rows, relaunch } => {
             cmd_frontend::sidebar_plugin(mux, cols, rows, relaunch)
         }
-        Command::WaitFor { surface, pattern, timeout_ms } => {
+        Command::WaitFor(WaitForParams { surface, pattern, timeout_ms }) => {
             cmd_terminal_io::wait_for(mux, cancellation, surface, pattern, timeout_ms)
         }
         Command::Run { argv, command, cwd, pane, new_workspace, key, name, cols, rows } => {
@@ -230,8 +252,10 @@ pub(super) fn handle_command_with_cancellation(
         Command::CreateSurfaceWithReceipt(request) => {
             cmd_frontend::create_surface_with_receipt_command(mux, client, request)
         }
-        Command::SendKey { surface, keys } => cmd_terminal_io::send_key(mux, client, surface, keys),
-        Command::Copy { surface, mode } => cmd_terminal_io::copy(mux, surface, mode),
+        Command::SendKey(SendKeyParams { surface, keys }) => {
+            cmd_terminal_io::send_key(mux, client, surface, keys)
+        }
+        Command::Copy(CopyParams { surface, mode }) => cmd_terminal_io::copy(mux, surface, mode),
         Command::Ids { kind } => cmd_frontend::ids(mux, kind),
         Command::Notify { title, body, level, surface, source } => {
             cmd_frontend::notify(mux, actor, title, body, level, surface, source)
@@ -240,15 +264,16 @@ pub(super) fn handle_command_with_cancellation(
         Command::ReportAgent { surface, state, source, session } => {
             cmd_frontend::report_agent(mux, surface, state, source, session)
         }
-        Command::VtState { .. } => {
+        Command::VtState(_) => {
             anyhow::bail!("vt-state is served by its streaming response path")
         }
-        Command::MintTerminalRenderer { surface, ttl_ms } => {
+        Command::MintTerminalRenderer(MintTerminalRendererParams { surface, ttl_ms }) => {
             cmd_terminals::mint_terminal_renderer(mux, client, surface, ttl_ms)
         }
-        Command::MintTerminalRendererByTerminal { terminal, ttl_ms } => {
-            cmd_terminals::mint_terminal_renderer_by_terminal(mux, client, terminal, ttl_ms)
-        }
+        Command::MintTerminalRendererByTerminal(MintTerminalRendererByTerminalParams {
+            terminal,
+            ttl_ms,
+        }) => cmd_terminals::mint_terminal_renderer_by_terminal(mux, client, terminal, ttl_ms),
         Command::ResolveTerminal { terminal_id } => {
             cmd_terminals::resolve_terminal(mux, terminal_id)
         }
@@ -300,9 +325,6 @@ pub(super) fn handle_command_with_cancellation(
             cmd_tabs::new_browser_tab(mux, actor, url, pane, cols, rows)
         }
         Command::GetCellPixels => cmd_sizing::get_cell_pixels(mux),
-        Command::SetCellPixels { width_px, height_px } => {
-            cmd_sizing::set_cell_pixels(mux, width_px, height_px)
-        }
         Command::BrowserFramePresented { surface, frame_seq } => {
             cmd_browser::browser_frame_presented(mux, client, surface, frame_seq)
         }
@@ -889,21 +911,23 @@ pub(super) fn handle_command_with_cancellation(
         Command::SnapshotRequest(params) => cmd_terminal_io::snapshot_request(mux, client, params),
         Command::TerminalHistory(params) => cmd_terminals::terminal_history(mux, params),
         Command::TerminalReadRange(params) => cmd_terminals::terminal_read_range(mux, params),
-        Command::ScrollSurface { surface, delta } => {
-            cmd_terminal_io::scroll_surface(mux, surface, delta)
+        Command::ScrollSurface(ScrollSurfaceParams { surface, delta }) => {
+            cmd_terminal_io::scroll_surface(mux, surface, terminal_io_wire::wire_isize(delta))
         }
-        Command::Subscribe { tree_events, surface } => {
+        Command::Subscribe(SubscribeParams { tree_events, surface }) => {
             cmd_subscribe::subscribe_command(mux, client, writer, tree_events, surface)
         }
-        Command::AttachSurface {
-            surface: surface_id,
-            mode,
-            cols,
-            rows,
-            expected_generation,
-            expected_terminal_id,
-            snapshot,
-        } => {
+        Command::AttachSurface(params) => {
+            let snapshot = terminal_snapshot::SnapshotAttachParams::of(&params);
+            let AttachSurfaceParams {
+                surface: surface_id,
+                mode,
+                cols,
+                rows,
+                expected_generation,
+                expected_terminal_id,
+                ..
+            } = params;
             // A sized attach is a size report: it starts (or renews) the
             // lease before the size applies.
             if let Some(surface) = surface_id.filter(|_| cols.is_some() && rows.is_some()) {

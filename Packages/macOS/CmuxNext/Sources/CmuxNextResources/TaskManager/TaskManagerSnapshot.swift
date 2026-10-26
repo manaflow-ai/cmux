@@ -10,10 +10,21 @@ public struct TaskManagerSnapshot: Sendable, Equatable {
     public var rows: [TaskManagerRow]
     /// The sum over the rows; CPU is nil until a second sample.
     public var total: ResourceUsage
+    /// The items Memory Saver discarded, with the memory each saved (``TaskManagerModel`` fills it
+    /// while `taskManagerMemorySaved` is on; empty otherwise).
+    public private(set) var discarded: [TaskManagerDiscardedItem] = []
+    /// What Memory Saver freed: the sum of the known `savedBytes` of `discarded`.
+    public private(set) var freedBytes: UInt64 = 0
 
     public init(rows: [TaskManagerRow] = [], total: ResourceUsage = .zero) {
         self.rows = rows
         self.total = total
+    }
+
+    /// Lists `items` as the discarded items and sums what they saved.
+    public mutating func setDiscarded(_ items: [TaskManagerDiscardedItem]) {
+        discarded = items
+        freedBytes = items.reduce(0) { $0 &+ ($1.savedBytes ?? 0) }
     }
 
     public static let empty = TaskManagerSnapshot()

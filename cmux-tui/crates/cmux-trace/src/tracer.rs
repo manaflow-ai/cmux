@@ -57,8 +57,6 @@ pub struct TracerConfig {
     pub role: Role,
     /// Where the black-box and recording files go.
     pub dir: PathBuf,
-    /// The fixed names every ring of the process starts with.
-    pub catalog: &'static [CatalogName],
     pub blackbox: RingSizes,
     pub recording: RingSizes,
     /// The categories on while no recording runs.
@@ -74,15 +72,10 @@ pub struct TracerConfig {
 
 impl TracerConfig {
     /// This process as `role`: the role's sizes, the system clocks and identity.
-    pub fn for_process(
-        dir: impl Into<PathBuf>,
-        role: Role,
-        catalog: &'static [CatalogName],
-    ) -> TracerConfig {
+    pub fn for_process(dir: impl Into<PathBuf>, role: Role) -> TracerConfig {
         TracerConfig {
             role,
             dir: dir.into(),
-            catalog,
             blackbox: role.blackbox_sizes(),
             recording: role.recording_sizes(),
             blackbox_categories: crate::category::BLACKBOX,
@@ -127,6 +120,24 @@ impl InternedName {
     }
 }
 
+/// The ring a record went into: the black box (the heap ring and the file it is copied into are
+/// one), or one recording, named by the epoch its start set. A scope's end goes only into the ring
+/// its begin went into.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct RingId(u64);
+
+impl RingId {
+    const BLACKBOX: RingId = RingId(0);
+
+    fn of(word: u64) -> RingId {
+        if (word & SLOT_MASK) as usize == SLOT_RECORDING {
+            RingId(word & !(EPOCH_ONE - 1) | SLOT_RECORDING as u64)
+        } else {
+            RingId::BLACKBOX
+        }
+    }
+}
+
 /// The chunk a writer owns.
 #[derive(Clone, Copy, Debug)]
 struct Owned {
@@ -166,6 +177,8 @@ impl WriterState {
 /// and tools make their own.
 pub struct Tracer {
     config: TracerConfig,
+    /// The fixed names every ring of the tracer starts with.
+    catalog: &'static [CatalogName],
     heap: Ring,
     file: OnceLock<Ring>,
     recording: OnceLock<Ring>,
@@ -182,12 +195,24 @@ pub struct Tracer {
 }
 
 impl Tracer {
-    /// A tracer whose heap ring is active at once. Makes no system call but the heap allocation.
+    /// A tracer whose heap ring is active at once, its rings naming the shared catalog
+    /// ([`crate::names::CATALOG`]) the trace macros resolve their ids from. Makes no system call
+    /// but the heap allocation.
     pub fn new(config: TracerConfig) -> Tracer {
-        Tracer::with_mirror(config, None)
+        Tracer::with_catalog(config, crate::names::CATALOG)
     }
 
-    pub(crate) fn with_mirror(config: TracerConfig, mirror: Option<&'static AtomicU64>) -> Tracer {
+    /// [`Tracer::new`] whose rings start with `catalog` instead: for a tracer the trace macros
+    /// never write to (the process's tracer always names the shared catalog).
+    pub fn with_catalog(config: TracerConfig, catalog: &'static [CatalogName]) -> Tracer {
+        Tracer::with_mirror(config, catalog, None)
+    }
+
+    pub(crate) fn with_mirror(
+        config: TracerConfig,
+        catalog: &'static [CatalogName],
+        mirror: Option<&'static AtomicU64>,
+    ) -> Tracer {
         let heap = Ring::on_heap(RingLayout::of(config.blackbox));
         let tracer = Tracer {
             heap,
@@ -203,9 +228,10 @@ impl Tracer {
             blackbox_path: OnceLock::new(),
             recording_path: OnceLock::new(),
             config,
+            catalog,
         };
         let fields = tracer.header_fields(RingKind::BlackBox, &tracer.config.identity);
-        tracer.heap.init(&fields, tracer.config.catalog);
+        tracer.heap.init(&fields, tracer.catalog);
         if let Some(mirror) = mirror {
             mirror.store(tracer.config.blackbox_categories, Ordering::Release);
         }
@@ -274,18 +300,24 @@ impl Tracer {
     }
 
     /// Writes `record` as the thread whose place is `state`, into the active ring; with
-    /// `interned`, under that name's id in the ring. No lock or allocation; the read-modify-writes
-    /// are the chunk claim's, once per 31 records.
+    /// `interned`, under that name's id in the ring; with `only_in`, only while that ring is the
+    /// active one. The ring it went into, if it was written. No lock or allocation; the
+    /// read-modify-writes are the chunk claim's, once per 31 records.
     #[inline]
     pub(crate) fn write(
         &self,
         state: &mut WriterState,
         mut record: Record,
         interned: Option<&InternedName>,
-    ) {
+        only_in: Option<RingId>,
+    ) -> Option<RingId> {
         let word = self.active.load(Ordering::Acquire);
+        let ring_id = RingId::of(word);
+        if only_in.is_some_and(|only_in| only_in != ring_id) {
+            return None;
+        }
         let (slot, epoch) = ((word & SLOT_MASK) as usize, word >> 8);
-        let Some(ring) = self.ring(slot) else { return };
+        let ring = self.ring(slot)?;
         if let Some(owned) = state.chunk.filter(|owned| owned.epoch != epoch) {
             if let Some(old) = self.ring(owned.slot) {
                 old.complete(owned.chunk, owned.lap);
@@ -299,7 +331,7 @@ impl Tracer {
         let mut owned = match state.chunk {
             Some(owned) => owned,
             None => {
-                let Some((chunk, lap)) = ring.claim(index, generation) else { return };
+                let (chunk, lap) = ring.claim(index, generation)?;
                 Owned { slot, epoch, chunk, lap, next_slot: 1 }
             }
         };
@@ -311,6 +343,7 @@ impl Tracer {
             owned.next_slot += 1;
             state.chunk = Some(owned);
         }
+        Some(ring_id)
     }
 
     /// A thread's exit (its TLS destructor): completes its chunk and marks each of its entries
@@ -340,7 +373,7 @@ impl Tracer {
         let identity = *self.full_identity();
         let path = self.config.dir.join(crate::blackbox_file_name(self.config.role, identity.pid));
         let layout = *self.heap.layout();
-        let mapped = std::fs::create_dir_all(&self.config.dir)
+        let mapped = map::create_private_dir(&self.config.dir)
             .and_then(|()| map::map_file(&path, layout.total_bytes, self.config.reserve));
         let mapping = mapped.inspect_err(|_| {
             self.map_failures.fetch_add(1, Ordering::Relaxed);
@@ -374,7 +407,7 @@ impl Tracer {
             let layout = RingLayout::of(self.config.recording);
             let path =
                 self.config.dir.join(crate::recording_file_name(self.config.role, identity.pid));
-            let mapped = std::fs::create_dir_all(&self.config.dir)
+            let mapped = map::create_private_dir(&self.config.dir)
                 .and_then(|()| map::map_file(&path, layout.total_bytes, self.config.reserve));
             let ring = match mapped {
                 Ok(mapping) => {
@@ -386,9 +419,15 @@ impl Tracer {
                     Ring::on_heap(layout)
                 }
             };
-            ring.init(&self.header_fields(RingKind::Recording, &identity), self.config.catalog);
+            ring.init(&self.header_fields(RingKind::Recording, &identity), self.catalog);
             ring
         })
+    }
+
+    /// Maps the recording ring now, so a later [`Tracer::start_recording`] does no disk I/O: its
+    /// size in bytes. Blocking: call it off any loop that serves input. Idempotent.
+    pub fn prepare_recording(&self) -> u64 {
+        self.recording_ring().layout().total_bytes as u64
     }
 
     /// `trace.start`: the black-box categories plus `categories`, written into the recording
@@ -421,6 +460,11 @@ impl Tracer {
         });
         self.control.store(IDLE, Ordering::Release);
         Ok(self.status())
+    }
+
+    /// Whether a recording runs now (between a `start_recording` and its `stop`): one load.
+    pub fn recording(&self) -> bool {
+        self.control.load(Ordering::Relaxed) == RECORDING
     }
 
     pub fn status(&self) -> Status {
@@ -463,13 +507,13 @@ impl<'a> Writer<'a> {
 
     #[inline]
     pub fn write(&mut self, record: Record) {
-        self.tracer.write(&mut self.state, record, None);
+        self.tracer.write(&mut self.state, record, None, None);
     }
 
     /// `record` under `name`'s id in the active ring (`record.name` is ignored).
     #[inline]
     pub fn write_interned(&mut self, name: &InternedName, record: Record) {
-        self.tracer.write(&mut self.state, record, Some(name));
+        self.tracer.write(&mut self.state, record, Some(name), None);
     }
 }
 

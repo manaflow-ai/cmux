@@ -16,6 +16,7 @@ use super::get_surface;
 use super::image_paste;
 use super::optional_surface_size;
 use super::require_pty;
+use super::terminal_io_wire::{SendParams, SnapshotRequestParams};
 use super::terminal_snapshot;
 use crate::Actor;
 use crate::DefaultColors;
@@ -75,47 +76,14 @@ pub(super) const SEND_EXPECT_AGENT_CAPABILITY: &str = "send-expect-agent-v1";
 
 /// `send` `expect_agent`: the terminal's agent must wait at its prompt (`idle`, never `working`,
 /// `blocked` on an approval or a question, or `done`), in this harness session.
-#[derive(serde::Deserialize)]
-pub(super) struct ExpectAgent {
+#[derive(Debug, serde::Deserialize)]
+#[cfg_attr(test, derive(serde::Serialize))]
+pub(crate) struct ExpectAgent {
     /// The harness's own session id (`list-agents` `agent_session_id`, the `notification`
     /// event's `session`): a restarted agent in the same terminal is another session. Required:
     /// a send without it is refused.
     #[serde(default)]
     pub(super) session: Option<String>,
-}
-
-/// The params of `send`.
-#[derive(serde::Deserialize)]
-pub(super) struct SendParams {
-    /// The terminal surface; or `terminal_id` (exactly one).
-    #[serde(default)]
-    pub(super) surface: Option<SurfaceId>,
-    /// `terminal-input-while-creating-v1`: the host terminal id, also of a terminal still
-    /// being created (the input is queued for it, `mux::creating_input`).
-    #[serde(default)]
-    pub(super) terminal_id: Option<String>,
-    #[serde(default)]
-    pub(super) text: Option<String>,
-    /// Base64-encoded raw bytes, written verbatim to the pty.
-    #[serde(default)]
-    pub(super) bytes: Option<String>,
-    #[serde(default)]
-    pub(super) paste: bool,
-    /// `send-expect-foreground-v1`: write only while the terminal's foreground executable is
-    /// still this one (`process-info`'s `foreground_executable`), checked just before the write.
-    #[serde(default)]
-    pub(super) expect_foreground: Option<String>,
-    /// `send-expect-agent-v1`: write only while the terminal's agent waits at its prompt,
-    /// checked just before the write with `expect_foreground`.
-    #[serde(default)]
-    pub(super) expect_agent: Option<ExpectAgent>,
-    /// `send-expect-agent-v1`: Return as its own key right after the text, under the same checks.
-    #[serde(default)]
-    pub(super) submit: bool,
-    /// The app's id of the key press this input carries (`CMUX_TRACE_FLOWS`, trace.py key-press
-    /// flows); only recorded, never acted on. An older daemon ignores it.
-    #[serde(default)]
-    pub(super) flow: Option<u64>,
 }
 
 pub(super) fn send(
@@ -199,22 +167,18 @@ pub(super) fn send(
         }
         surface.write_paste(&payload)?;
     } else {
+        // The key press's flow goes with its first write, so one echo carries it.
+        let flow = flow.unwrap_or(0);
+        let mut echo_flow = flow;
         if let Some(text) = text {
-            surface.write_bytes(text.as_bytes())?;
+            let text_flow = if text.is_empty() { 0 } else { std::mem::take(&mut echo_flow) };
+            surface.write_bytes_flow(text.as_bytes(), text_flow)?;
         }
         if let Some(b64) = bytes {
             let raw = base64::engine::general_purpose::STANDARD.decode(b64)?;
-            cmux_flow_trace::hop(
-                "daemon.send.write",
-                flow.unwrap_or(0),
-                surface.flow_terminal_id(),
-            );
-            surface.write_bytes(&raw)?;
-            cmux_flow_trace::hop(
-                "daemon.send.written",
-                flow.unwrap_or(0),
-                surface.flow_terminal_id(),
-            );
+            cmux_flow_trace::hop("daemon.send.write", flow, surface.flow_terminal_id());
+            surface.write_bytes_flow(&raw, echo_flow)?;
+            cmux_flow_trace::hop("daemon.send.written", flow, surface.flow_terminal_id());
         }
     }
     if submit {
@@ -294,7 +258,7 @@ pub(super) fn wait_for(
 ) -> anyhow::Result<Value> {
     let cancelled = || cancellation.is_some_and(ConnectionCancellation::is_cancelled);
     if cancelled() {
-        anyhow::bail!("connection closed while waiting for pattern");
+        anyhow::bail!("cancelled while waiting for pattern");
     }
     let surface = get_surface(mux, surface)?;
     require_pty(&surface)?;
@@ -332,7 +296,7 @@ pub(super) fn wait_for(
     }
     loop {
         if cancelled() {
-            anyhow::bail!("connection closed while waiting for pattern");
+            anyhow::bail!("cancelled while waiting for pattern");
         }
         let now = Instant::now();
         if now >= deadline {
@@ -529,7 +493,7 @@ pub(super) fn set_default_colors(
 pub(super) fn snapshot_request(
     mux: &Arc<Mux>,
     client: u64,
-    params: terminal_snapshot::SnapshotRequestParams,
+    params: SnapshotRequestParams,
 ) -> anyhow::Result<Value> {
     terminal_snapshot::handle_request(mux, client, params)
 }

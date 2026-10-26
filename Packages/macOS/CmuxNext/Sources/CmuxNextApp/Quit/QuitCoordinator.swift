@@ -4,8 +4,10 @@ import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextHomeEngine
+import CmuxNextLaunch
 import CmuxNextSettings
 import CmuxNextTerminal
+import CmuxNextWakeups
 import os
 
 /// Runs a quit (user decision 2026-09-30). `applicationShouldTerminate`
@@ -25,11 +27,14 @@ final class QuitCoordinator {
     private(set) var isQuitting = false
     /// The last dialog brought the app forward (`debug.quit`).
     private(set) var lastAskActivated = false
+    /// The browser tabs that held Secure Input as this quit began, before any dialog took the keyboard: they leave
+    /// no launch picture (`TabContentCache.secureInputPages`).
+    private var secureInputPages: Set<String> = []
     private unowned let services: AppServices
     /// The quit hook's participants (`AppServices.quitUnsaved`; tests replace it).
     var unsaved: QuitUnsavedRegistry
     /// The app's main-thread watchdog (AppDelegate): a quit that is ending
-    /// stops its debug hang assertion.
+    /// stops its debug hang assertion and records its open field interval.
     weak var watchdog: MainThreadWatchdog?
     /// Ends the process if the engine stop never returns (cx-ccjnn).
     let deadline = QuitDeadline()
@@ -78,6 +83,7 @@ final class QuitCoordinator {
             return .terminateLater
         }
         isQuitting = true
+        secureInputPages = services.cache.secureInputPages()
         // Quit (menu, Cmd-Q, socket) never waits on another open sheet.
         SheetDismissal.endAll()
         let origin = origins.consume(appleEventReason: Self.quitReason())
@@ -143,7 +149,7 @@ final class QuitCoordinator {
 
     private func complete(_ choice: QuitSessionsChoice, remember: Bool, _ sender: NSApplication) async {
         logger.info("quit choice=\(choice.rawValue, privacy: .public) remember=\(remember)")
-        let services = services
+        let services = services, secureInputPages = secureInputPages
         // Sparkle installs a staged update as the app exits unless
         // `updates.installOnQuit` is off (then its installer is cancelled now).
         services.updater.prepareForQuit()
@@ -153,6 +159,13 @@ final class QuitCoordinator {
         // Awaited (bounded) so `quitting` is on disk before the quit can end
         // the process; the write itself runs off the main thread.
         await services.crashRecovery.quitBegan()
+        #if DEBUG || CMUX_BENCH_HOOKS
+        let wedgeIfAsked: @MainActor () -> Void = { [weak self] in
+            if let self, wedgesEngineStop { deadline.wedgeMainThread(watchdog) }
+        }
+        #else
+        let wedgeIfAsked: @MainActor () -> Void = {}
+        #endif
         await QuitCompletion.run(choice, remember: remember, QuitSteps(
             remember: { behavior in
                 guard let settings = services.settings,
@@ -165,17 +178,27 @@ final class QuitCoordinator {
             prepareWindows: {
                 // Remote-terminal tabs keep their last screen for the
                 // placeholder after relaunch (data-model.md 1.4).
-                await services.remoteTerminals.saveSnapshots()
+                await services.madeRemoteTerminals?.saveSnapshots()
                 // Agent chats get their composer's chips, shell command and place back at the next
                 // launch (pages are asked at once, each within a second).
                 await services.agentTabs.relaunchWake.save(services.agentTabs.relaunchWakeStates())
                 // Agent panes on screen draw their last page at the next launch.
                 await services.agentTabs.launchImages.save(services.agentTabs.shownPageImages())
                 await TerminalLaunchFrames.beside(services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent()).save(services.cache.terminals.mapValues(\.session))  // and terminals their last frame
+                // And browser pages theirs (`browserLaunchPictures`; with it off, the last quit's pictures go).
+                if let pictures = services.environment.browserLaunchPictures {
+                    var shots: [BrowserLaunchPictures.Shot] = []
+                    if services.cache.launchPictures != nil {
+                        shots = await services.cache.launchPictureShots(Self.launchPicturePanes(services), secureInput: secureInputPages)
+                    }
+                    await pictures.save(shots)
+                }
                 // Browser tabs reopen at their recorded page (before any
                 // session ends, while the daemon still answers).
                 await services.cache.browserTabs.flushRecords()
                 await services.windows.prepareForTermination()
+                // A sidebar change whose idle task has not run yet is saved too.
+                await services.windows.flushSidebarSnapshots()
                 await services.sidebarSnapshots.flush()
                 // Home's drafts, scroll places and unsent sends (its cache's last batch).
                 await services.home.flushCacheForQuit()
@@ -196,23 +219,39 @@ final class QuitCoordinator {
                 let keep = ChiefHostStop.appAcpmuxEndKeep(chiefUsesAppAcpmux: services.home.chief.home.usesAppAcpmux)
                 return await QuitAgents.end(acpmux, keep: keep, waitForShutdown: attempts.isRetry())
             },
-            stopBrowserEngines: { [weak self, deadline = self.deadline] in
-                // Drafts typed after the save step (while "Some sessions did not end" waited) reach disk
-                // before the engines stop: nothing the user asked for comes after that (QuitSteps).
-                // Nothing is written when nothing changed.
-                await services.home.flushCacheForQuit()
+            // Drafts typed after the save step (while "Some sessions did not end" waited) reach disk
+            // before the engines stop: nothing the user asked for comes after that (QuitSteps).
+            // Nothing is written when nothing changed.
+            lastSave: { await services.home.flushCacheForQuit() },
+            armDeadline: { [weak self, deadline = self.deadline] in
                 // CefShutdown runs on the main thread and can block it for
                 // good: from here the quit ends by a deadline whatever it
                 // does, and a debug build reports that hang, never asserts it.
                 deadline.arm(after: QuitDeadline.engineStopLimit)
                 self?.watchdog?.endHangAssertions()
-                #if DEBUG || CMUX_BENCH_HOOKS
-                if self?.wedgesEngineStop == true { deadline.wedgeMainThread(self?.watchdog) }
-                #endif
-                await services.cache.cef.shutdown()
-            }
+                self?.watchdog?.recordFieldMetricsAtQuit()
+            },
+            beginDrain: { services.work.beginShutdown() },
+            stopBrowserEngines: {
+                wedgeIfAsked()
+                await services.cache.chromium.shutdown()  // a never-built engine started no Chromium: none is built here
+            },
+            finishDrain: { await services.work.shutdown() }
         ))
         sender.reply(toApplicationShouldTerminate: true)
+    }
+
+    /// The panes on screen that show a tab, with their content area: in windows ordered in, not minimized, on the
+    /// active Space and not full screen (a window's picture is never taken there either, p08-startup 3C).
+    private static func launchPicturePanes(_ services: AppServices) -> [(key: String, host: NSView)] {
+        services.windows.controllers.flatMap { controller -> [(key: String, host: NSView)] in
+            guard let window = controller.window, VisiblePaneRefs.Window.isOnScreen(window), window.isOnActiveSpace,
+                  !window.styleMask.contains(.fullScreen), let content = controller.content, !content.isParked else { return [] }
+            return content.panes.values.compactMap { pane in
+                guard let key = pane.currentTabKey, VisiblePaneRefs.Window.isOnScreen(pane.view) else { return nil }
+                return (key, pane.view.contentHost)
+            }
+        }
     }
 
     /// Shows "Some sessions did not end" and waits for the answer.

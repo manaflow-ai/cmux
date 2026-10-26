@@ -14,9 +14,14 @@ public typealias TerminalLinkCheck = @Sendable (_ text: String, _ cwd: String?) 
 /// ``TerminalSession/linkCheck`` runs off the main thread, then the pointer
 /// position goes to Ghostty again and the underline appears. An answer is
 /// kept a few seconds, so a file a program writes after printing its path
-/// becomes a link on the next hover.
+/// becomes a link on the next hover. A check started before ``setCheck(_:)`` answers for the
+/// check it ran, so its answer is dropped, as Chromium drops a reply bound to a
+/// `WeakPtrFactory` that was invalidated (base/memory/weak_ptr.h); the view still hears of it
+/// when the new check has not asked about that text, so Ghostty asks again under the new check.
 nonisolated final class TerminalLinkFilter: Sendable {
     typealias Check = TerminalLinkCheck
+    /// Runs one check off the caller's thread.
+    typealias Schedule = @Sendable (_ work: @escaping @Sendable () -> Void) -> Void
 
     private struct Key: Hashable {
         var text: String
@@ -34,11 +39,28 @@ nonisolated final class TerminalLinkFilter: Sendable {
         var cwd: String?
         var answers: [Key: Answer] = [:]
         var pending: Set<Key> = []
+        /// Counts ``setCheck(_:)`` calls: a check whose count is not the current one is stale.
+        var generation = 0
     }
 
     static let lifetime: Duration = .seconds(3)
     private static let capacity = 512
     private let state = Mutex(State())
+    private let schedule: Schedule
+
+    /// The checks run on this filter's own concurrent queue; a test passes its own `schedule` to run them itself.
+    init(schedule: @escaping Schedule = TerminalLinkFilter.ownQueue()) {
+        self.schedule = schedule
+    }
+
+    /// A named concurrent queue per filter (per surface), at the QoS of a person waiting on the pointer. A check
+    /// is a stat that can hang on a sleeping disk or a network mount, so the checks run side by side: one stalled
+    /// check holds no later one, in this terminal or another. A concurrent queue targets GCD's width-limited root
+    /// queue, as the unnamed root queue these checks used before, so a burst of stalled checks parks no more threads.
+    static func ownQueue() -> Schedule {
+        let queue = DispatchQueue(label: "com.cmuxterm.next.terminal.link-check", qos: .userInitiated, attributes: .concurrent)
+        return { work in queue.async(execute: work) }
+    }
 
     /// `changed` runs on any thread after an answer changed (the view sends the pointer again).
     func onChange(_ changed: @escaping @Sendable () -> Void) {
@@ -49,7 +71,9 @@ nonisolated final class TerminalLinkFilter: Sendable {
     func setCheck(_ check: Check?) {
         state.withLock {
             $0.check = check
+            $0.generation += 1
             $0.answers.removeAll()
+            $0.pending.removeAll()
         }
     }
 
@@ -62,20 +86,23 @@ nonisolated final class TerminalLinkFilter: Sendable {
     /// The cached answer for `text`; starts a check when there is none or it is old.
     func isLink(_ text: String) -> Bool {
         let now = ContinuousClock.now
-        let (answer, start): (Bool, (Key, Check)?) = state.withLock { state in
+        let (answer, start): (Bool, (Key, Check, Int)?) = state.withLock { state in
             guard let check = state.check else { return (true, nil) }
             let key = Key(text: text, cwd: state.cwd)
             let known = state.answers[key]
             if let known, known.at.duration(to: now) < Self.lifetime { return (known.isLink, nil) }
             guard state.pending.insert(key).inserted else { return (known?.isLink ?? false, nil) }
-            return (known?.isLink ?? false, (key, check))
+            return (known?.isLink ?? false, (key, check, state.generation))
         }
         if let start {
-            let (key, check) = start
-            // task-owner: one bounded file check per hovered text; its answer lands in the cache
-            DispatchQueue.global(qos: .userInitiated).async { [self] in
+            let (key, check, generation) = start
+            schedule { [self] in
                 let isLink = check(key.text, key.cwd)
                 let changed: (@Sendable () -> Void)? = state.withLock { state in
+                    guard state.generation == generation else {
+                        let unasked = state.answers[key] == nil && !state.pending.contains(key)
+                        return unasked ? state.changed : nil
+                    }
                     let before = state.answers[key]?.isLink
                     if state.answers.count >= Self.capacity { state.answers.removeAll() }
                     state.answers[key] = Answer(isLink: isLink, at: .now)

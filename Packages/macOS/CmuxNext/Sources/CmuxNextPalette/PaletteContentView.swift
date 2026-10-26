@@ -1,7 +1,7 @@
 import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
-import Observation
+import CmuxNextWakeups
 import QuartzCore
 
 /// The palette surface: a Liquid Glass panel with the search bar, result
@@ -10,6 +10,9 @@ import QuartzCore
 /// applies only what changed, so an idle palette does no work.
 final class PaletteContentView: NSView {
     let model: PaletteModel
+    private let mainWork: MainWorkScheduler
+    /// Renders the model at the scheduler's frames (``observe()``).
+    private var renderLoop: ObservationLoop?
     /// Called when Design tokens change the palette's size while it is open.
     var onPreferredSizeChange: ((CGSize) -> Void)?
 
@@ -37,6 +40,15 @@ final class PaletteContentView: NSView {
         get { recorderView.onChoose }
         set { recorderView.onChoose = newValue }
     }
+    /// The windows' frame-aligned pointer input (feature `pointerFrameHover`): the result list and the
+    /// Actions menu hover on a frame interval's first move and once more at its frame. Nil: each move.
+    var hoverFrameInput: FrameInputCoalescers? {
+        get { list.hoverFrameInput }
+        set {
+            list.hoverFrameInput = newValue
+            actionsMenuView.hoverFrameInput = newValue
+        }
+    }
 
     private var appliedResults = -1
     private var appliedScroll = -1
@@ -45,8 +57,10 @@ final class PaletteContentView: NSView {
     private var menuHeight: CGFloat = 0
     private var actionsMenuFadingOut = false
 
-    init(model: PaletteModel) {
+    /// `mainWork` is the app's one main-thread scheduler (a private one in tests that only draw).
+    init(model: PaletteModel, mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget())) {
         self.model = model
+        self.mainWork = mainWork
         super.init(frame: NSRect(origin: .zero, size: PaletteLayout.windowSize))
         wantsLayer = true
         layer?.masksToBounds = false
@@ -112,12 +126,11 @@ final class PaletteContentView: NSView {
 
     // MARK: Rendering
 
+    /// Renders now, then once at the next frame after a value it read changes (a person's change
+    /// in that input's response pass).
     private func observe() {
-        withObservationTracking {
-            render()
-        } onChange: { [weak self] in
-            Task { @MainActor [weak self] in self?.observe() }
-        }
+        // node-free: the palette is its own panel, over every tab, and shows only while open
+        renderLoop = ObservationLoop(owner: "palette.content", delivery: .visible(nil), on: mainWork) { [weak self] in self?.render() }
     }
 
     private func render() {

@@ -1,0 +1,23 @@
+{
+  "id": "sidebar-drag-stress",
+  "tier": "T2",
+  "description": "Sidebar document drag feel per display frame with 1000 extra empty workspaces (sidebar-v2-drag-record.py --stress, debug.mouse moves at 120 Hz): the same scenarios and series as sidebar-drag, STRESS session.",
+  "command": ["scripts/cmux-next/sidebar-v2-drag-record.py", "--stress", "1000"],
+  "session": "stress",
+  "engine": "none",
+  "config": "bench",
+  "metrics": [
+    {"name": "sidebar_drag\\.stress\\.[0-9]-[a-z-]+\\.work", "unit": "ms", "better": "lower",
+     "target_ref": {"path": "scripts/cmux-next/sidebar_v2_motion_checks.py", "key": "WORK_P95_MS"}},
+    {"name": "sidebar_drag\\.stress\\.[0-9]-[a-z-]+\\.max_step", "unit": "unitless", "better": "lower",
+     "target_ref": {"path": "scripts/cmux-next/sidebar_v2_motion_checks.py", "key": "JUMP_PT"}},
+    {"name": "sidebar_drag\\.stress\\.[0-9]-[a-z-]+\\.(jumps|late_frames|failed)", "unit": "count", "better": "lower"},
+    {"name": "sidebar_drag\\.stress\\.harness\\.failed", "unit": "count", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 900,
+  "needs": ["debug:debug.sidebar_rows", "debug:debug.mouse", "debug:debug.window_record", "debug:debug.toast",
+            "debug:debug.sidebar_wheel", "debug:debug.key"],
+  "owner": "a590",
+  "component": "Sidebar>Drag"
+}

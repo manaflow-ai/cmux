@@ -4,7 +4,7 @@ public struct ReleaseAttachedViewSizeRequest: DaemonRequest {
     public struct Response: Decodable, Sendable, Equatable {
         public var outcome: LeaseOutcome
     }
-    public static let command = "release-attached-view-size"
+    public static let commandName: DaemonCommandName = "release-attached-view-size"
     public var surface: SurfaceID
     public var lease: String
     public init(surface: SurfaceID, lease: String) {
@@ -19,7 +19,7 @@ public struct SetSizeCountsRequest: DaemonRequest {
     public struct Response: Decodable, Sendable, Equatable {
         public var outcome: LeaseOutcome
     }
-    public static let command = "set-size-counts"
+    public static let commandName: DaemonCommandName = "set-size-counts"
     public var surface: SurfaceID
     public var lease: String
     public var counts: Bool?
@@ -34,7 +34,7 @@ public struct DetachAttachedViewRequest: DaemonRequest {
     public struct Response: Decodable, Sendable, Equatable {
         public var outcome: LeaseOutcome
     }
-    public static let command = "detach-attached-view"
+    public static let commandName: DaemonCommandName = "detach-attached-view"
     public var surface: SurfaceID
     public var lease: String
     public init(surface: SurfaceID, lease: String) {
@@ -46,7 +46,7 @@ public struct DetachAttachedViewRequest: DaemonRequest {
 /// Claims (`enabled && exclusive`) or releases canonical geometry.
 public struct SetClientSizingRequest: DaemonRequest {
     public typealias Response = EmptyResponse
-    public static let command = "set-client-sizing"
+    public static let commandName: DaemonCommandName = "set-client-sizing"
     public var surface: SurfaceID
     public var enabled: Bool
     public var exclusive: Bool?
@@ -69,7 +69,7 @@ public struct SetSizePolicyRequest: DaemonRequest {
         public var mode: String
         public init(mode: String) { self.mode = mode }
     }
-    public static let command = "set-size-policy"
+    public static let commandName: DaemonCommandName = "set-size-policy"
     public var surface: SurfaceID
     public var policy: Policy
     public init(surface: SurfaceID, policy: Policy) {

@@ -37,6 +37,12 @@ pub(crate) enum EffectSend {
 pub(crate) struct PendingRegistryReceipt(Receiver<Result<RegistryReceipt, String>>);
 
 impl PendingRegistryReceipt {
+    /// A receipt whose answer arrives on `receiver` (registry tests).
+    #[cfg(test)]
+    pub(crate) fn for_test(receiver: Receiver<Result<RegistryReceipt, String>>) -> Self {
+        Self(receiver)
+    }
+
     /// The receipt once the writer answered, `None` while it has not. A
     /// writer that dropped the channel without an answer reports an error.
     pub(crate) fn try_take(&self) -> Option<Result<RegistryReceipt, String>> {
@@ -49,12 +55,15 @@ impl PendingRegistryReceipt {
         }
     }
 
-    /// [`Self::try_take`], waiting at most `timeout` for the answer.
+    /// [`Self::try_take`], waiting at most `timeout` for the answer: a
+    /// `journal_wait` (`request_path`) at `site`.
     pub(crate) fn wait_take(
         &self,
         timeout: std::time::Duration,
+        site: &'static std::panic::Location<'static>,
     ) -> Option<Result<RegistryReceipt, String>> {
-        match self.0.recv_timeout(timeout) {
+        crate::request_path::note_at(crate::request_path::BlockingKind::JournalWait, site);
+        match cmux_threads::checked::sync::recv_timeout(&self.0, timeout) {
             Ok(result) => Some(result),
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => None,
             Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
@@ -79,7 +88,14 @@ impl JournalIngressSender {
             })
     }
 
-    pub(crate) fn send_effect(&self, intent: RegistryIntent) -> EffectSend {
+    /// Offer `intent` to the writer and wait for its receipt. The waits are
+    /// `journal_wait` notes (`request_path`) at `site`: the registry call
+    /// that committed it, which reaches here through the dyn intent sink.
+    pub(crate) fn send_effect(
+        &self,
+        intent: RegistryIntent,
+        site: &'static std::panic::Location<'static>,
+    ) -> EffectSend {
         let intent = Box::new(intent);
         let Some(sender) = &self.durable_sender else { return EffectSend::NotQueued(intent) };
         if !self.accepts_effects() {
@@ -99,6 +115,7 @@ impl JournalIngressSender {
                 }),
             },
             deadline,
+            site,
         ) {
             // Not queued (deadline, admission closed, writer gone): hand the
             // intent back so a caller without state can commit it locally,
@@ -117,6 +134,7 @@ impl JournalIngressSender {
             deadline,
             &commit_fence,
             "waiting for a session journal registry commit receipt",
+            site,
         );
         self.state.stats.receipt_waited(waited.elapsed());
         match outcome {

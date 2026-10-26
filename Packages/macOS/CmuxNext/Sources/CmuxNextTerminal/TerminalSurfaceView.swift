@@ -1,6 +1,7 @@
 public import AppKit
 public import CmuxNextDesign
 import CmuxNextTerminalGeometry
+import CmuxNextTrace
 import CmuxNextWakeups
 import GhosttyNextKit
 import IOSurface
@@ -25,6 +26,10 @@ public final class TerminalSurfaceView: NSView {
     let bridge: Unmanaged<SurfaceBridge>
     /// Serial lane for output and other process_output-ordered calls.
     private(set) var lane: TerminalOutputLane?
+    /// Watches each output chunk's parse on ``lane`` (``TerminalOutputLane``); nil watches nothing.
+    private let hangWatch: (any HangWatchScoping)?
+    /// Where Ghostty's secure keyboard entry requests for this view go (``TerminalSecureInput``).
+    let secureInput: TerminalSecureInput
     weak var session: TerminalSession?
 
     /// Which grid the surface renders and reports (``TerminalGridPolicy``):
@@ -84,6 +89,12 @@ public final class TerminalSurfaceView: NSView {
     }
 
     private(set) var lastOcclusionVisible: Bool?
+    /// When the paused surface lets its GPU memory go (``TerminalGPUResidencyGate``).
+    private(set) var gpu: TerminalGPUResidencyGate
+    /// Away, outside the keep-alive band: paused, the surface lets its GPU memory go.
+    var releasesGPUWhilePaused = false {
+        didSet { if releasesGPUWhilePaused != oldValue { updateOcclusion() } }
+    }
     private(set) var pause: SurfacePause? = .notInWindow // why it does not draw (nil: draws)
     /// The presented frame made volatile while the surface does not draw (`holdPresentedFrame`).
     private var volatileFrame: IOSurface?
@@ -111,17 +122,39 @@ public final class TerminalSurfaceView: NSView {
     /// Ghostty's clipboard reads and confirmations (``TerminalClipboardRequests``).
     private(set) lazy var clipboardRequests = TerminalClipboardRequests(view: self)
     /// Cmd-hover and Cmd-click on links beyond Ghostty's own (``TerminalLinkPointer``).
-    private(set) lazy var linkPointer = TerminalLinkPointer(view: self)
+    private(set) lazy var linkPointer = TerminalLinkPointer(view: self, modifiers: modifierWatch)
+    /// The terminals' one modifier watch (``TerminalModifierWatch``), from the session.
+    let modifierWatch: TerminalModifierWatch?
+    /// The windows' frame-aligned pointer input (feature `terminalPointerFrames`), from the session; nil:
+    /// every pointer event reaches Ghostty at once.
+    private let frameCoalescers: FrameInputCoalescers?
+    /// Moves, drags and mouse-reporting trackpad scrolls on this view's window's coalescer
+    /// (``TerminalPointerFrames``); nil while ``frameCoalescers`` is.
+    private(set) lazy var pointerFrames: TerminalPointerFrames? = frameCoalescers.map { coalescers in
+        TerminalPointerFrames(coalescers: coalescers) { [weak self] input in self?.deliverPointer(input) }
+    }
+    /// Whether the program has the mouse, read without the terminal's lock (``TerminalMouseCapture``).
+    lazy var mouseCapture = TerminalMouseCapture(lane: lane)
+    /// Where this view's pointer positions, buttons and scrolls go: its Ghostty surface, or a test's counter.
+    lazy var mouse: any TerminalMouseSink = GhosttyMouseSink(surface: surface)
 
     // MARK: Lifecycle
 
-    init(io mode: ghostty_surface_io_mode_e, input: TerminalInputSink, session: TerminalSession?) {
+    init(io mode: ghostty_surface_io_mode_e, input: TerminalInputSink, session: TerminalSession?,
+         echoStages: TerminalEchoStages, hangWatch: (any HangWatchScoping)? = nil, secureInput: TerminalSecureInput,
+         modifiers: TerminalModifierWatch? = nil, pointerFrames: FrameInputCoalescers? = nil,
+         gpuResidency: (any TerminalGPUResidency)? = nil) {
         let bridge = SurfaceBridge(input: input)
         self.bridge = Unmanaged.passRetained(bridge)
         self.session = session
+        self.hangWatch = hangWatch
+        self.secureInput = secureInput
+        modifierWatch = modifiers
+        frameCoalescers = pointerFrames
+        gpu = TerminalGPUResidencyGate(seam: gpuResidency)
         super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         bridge.view = self
-        createSurface(mode: mode)
+        createSurface(mode: mode, echoStages: echoStages)
     }
 
     @available(*, unavailable)
@@ -134,7 +167,7 @@ public final class TerminalSurfaceView: NSView {
         guard Thread.isMainThread else { return } // main-proof: returns off the main thread
         MainActor.assumeIsolated {
             for observer in windowObservers { NotificationCenter.default.removeObserver(observer) }
-            TerminalSecureInput.release(self)
+            secureInput.release(ObjectIdentifier(self))
             if let surface {
                 lane?.close()
                 ghostty_surface_free(surface)
@@ -147,13 +180,10 @@ public final class TerminalSurfaceView: NSView {
     /// `ghostty_surface_new` with embedder-owned IO (ghostty.h:548-559,
     /// :627-629). `GHOSTTY_SURFACE_IO_MANUAL_MIRROR` for the daemon,
     /// `GHOSTTY_SURFACE_IO_MANUAL` for a bare PTY.
-    private func createSurface(mode: ghostty_surface_io_mode_e) {
-        let started = ContinuousClock.now
-        let signpost = TerminalTimings.signposter.beginInterval("createSurface")
-        defer {
-            TerminalTimings.signposter.endInterval("createSurface", signpost)
-            TerminalTimings.surfaceCreated(started.duration(to: .now))
-        }
+    private func createSurface(mode: ghostty_surface_io_mode_e, echoStages: TerminalEchoStages) {
+        let timings = TerminalTimings()
+        let signpost = timings.surfaceCreateBegan()
+        defer { timings.surfaceCreated(signpost) }
         guard let app = GhosttyRuntime.shared.app else { return }
         let userdata = bridge.toOpaque()
         var config = ghostty_surface_config_new()
@@ -177,8 +207,13 @@ public final class TerminalSurfaceView: NSView {
         TerminalFontScale(self).installCallback()
         // Light/dark themes (default Apple System Colors) follow the app.
         GhosttyRuntime.shared.registerColorScheme(of: self)
-        lane = TerminalOutputLane(surface: surface, label: "com.cmuxterm.next.terminal.output")
-        if TypingLatencyProbe.isEnabled, let layer { TypingFrameProbe.install(on: layer) }
+        let echoStage = echoStages.makeStage()
+        lane = TerminalOutputLane(surface: surface, label: "com.cmuxterm.next.terminal.output", echoStage: echoStage,
+                                  keyFlows: bridge.takeUnretainedValue().typingSurface, hangs: hangWatch)
+        if let layer {
+            echoStage?.attach(to: layer)
+            TypingFrameProbe.install(on: layer, gate: echoStages.contentsGate, keyFlows: bridge.takeUnretainedValue().typingSurface)
+        }
         registerForDraggedTypes([.fileURL, .URL, .string])
         updateContentScale()
         updateSurfaceSize(forceReport: true)
@@ -198,6 +233,8 @@ public final class TerminalSurfaceView: NSView {
         observeWindow(false)
         // Leaving its window gets no mouseExited: the modifier watcher and underlines go here.
         if newWindow == nil { linkPointer.exited() }
+        // Pending pointer input is in the old window's coordinates: it never reaches the surface.
+        if newWindow !== window { pointerFrames?.cancel() }
     }
 
     public override func viewDidMoveToWindow() {
@@ -416,18 +453,6 @@ public final class TerminalSurfaceView: NSView {
         if model.cellPixelSize != cell { model.cellPixelSize = cell }
     }
 
-    /// A rough app-side memory cost of this surface for the resource hover
-    /// card: its drawable (three BGRA buffers) plus the GPU cell buffers
-    /// (about 64 bytes per cell). Ghostty does not report its own
-    /// allocations (font atlas, parser state), so this is a lower bound.
-    public var memoryEstimateBytes: UInt64 {
-        guard let surface else { return 0 }
-        let size = ghostty_surface_size(surface)
-        let pixels = UInt64(size.width_px) * UInt64(size.height_px)
-        let cells = UInt64(size.columns) * UInt64(size.rows)
-        return pixels * 4 * 3 + cells * 64
-    }
-
     /// The grid the surface renders now: the locked grid, or what fits the
     /// view before a lock.
     var currentGrid: TerminalGridSize? {
@@ -449,10 +474,14 @@ public final class TerminalSurfaceView: NSView {
     // MARK: Occlusion
 
     /// `ghostty_surface_set_occlusion` (ghostty.h:1442) per ``WindowDrawPolicy``. Paused surfaces
-    /// keep parsing output; Ghostty draws the current content on its `.visible` message.
+    /// keep parsing output; Ghostty draws the current content on its `.visible` message. GPU memory
+    /// comes back before that draw and goes after a pause (``TerminalGPUResidencyGate``).
     func updateOcclusion() {
         guard let surface else { return }
         pause = WindowDrawPolicy.inputs(for: self, suspended: isRenderingSuspended, forced: mirrorDemand > 0).pause
+        let releases = pause != nil && releasesGPUWhilePaused
+        gpu.acquire(releases: releases)?.setResident(true, of: self)
+        defer { gpu.release(releases: releases)?.setResident(false, of: self) }
         guard (pause == nil) != lastOcclusionVisible else { return }
         lastOcclusionVisible = pause == nil
         holdPresentedFrame(volatile: pause != nil)

@@ -8,6 +8,7 @@
 //! submodule; a symlink is never one). Directories come first, then names
 //! case-insensitively.
 
+use cmux_threads::checked::fs as checked_fs;
 use std::collections::BTreeMap;
 use std::path::Path;
 
@@ -26,6 +27,8 @@ pub(super) fn list(
     directory: &Path,
     fields: &serde_json::Map<String, Value>,
 ) -> Result<Value, ResourceError> {
+    // git runs to completion here, on a work item (`answer`).
+    crate::request_path::note(crate::request_path::BlockingKind::ChildProcess);
     let limit = fields
         .get("limit")
         .and_then(Value::as_u64)
@@ -47,8 +50,9 @@ pub(super) fn list(
         let directory = children.entry(name).or_insert(false);
         // A symlink is a leaf, as git records it: following one could list a folder
         // outside the repository. Only a real folder (a submodule) is a directory.
-        let real_folder =
-            || std::fs::symlink_metadata(listed_folder.join(name)).is_ok_and(|meta| meta.is_dir());
+        let real_folder = || {
+            checked_fs::symlink_metadata(listed_folder.join(name)).is_ok_and(|meta| meta.is_dir())
+        };
         if nested || (!*directory && real_folder()) {
             *directory = true;
         }

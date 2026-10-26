@@ -1,4 +1,5 @@
 public import Foundation
+import CmuxNextWakeups
 
 /// A host fetch for page content whose URL is untrusted (markdown remote images; agent pane reply
 /// images and media). Every hop: https only, no URL credentials, no `localhost`, `.local` or
@@ -37,7 +38,7 @@ public nonisolated struct GuardedRemoteFetch: Sendable {
     /// (``isListed(_:in:)``); a hop anywhere else fails the fetch before it connects.
     public var hosts: Set<String>?
 
-    public init(maximumBytes: Int, timeout: Duration, accept: String, resolver: any RemoteAddressResolving = SystemRemoteResolver(),
+    public init(maximumBytes: Int, timeout: Duration, accept: String, resolver: any RemoteAddressResolving,
                 transport: any RemoteFetchTransport = PinnedTLSTransport(), clock: any Clock<Duration> = ContinuousClock()) {
         self.maximumBytes = maximumBytes
         self.timeout = timeout
@@ -88,7 +89,8 @@ public nonisolated struct GuardedRemoteFetch: Sendable {
                 let work = Task { race.finish(await follow(url)) }
                 // task-owner: the deadline; it cancels the fetch when it fires first
                 let deadline = Task {
-                    do { try await clock.sleep(for: timeout) } catch { return } // wakeup-allow: bounded remote fetch deadline
+                    // wakeup-allow: deadline of one remote fetch: one side of the fetch's race (`race` owns both tasks), not a DemandTimer
+                    do { try await clock.sleep(for: timeout, tolerance: WakeLeeway.window(delay: timeout).tolerance) } catch { return }
                     race.finish(.failure(.failed))
                 }
                 race.own(work, deadline)

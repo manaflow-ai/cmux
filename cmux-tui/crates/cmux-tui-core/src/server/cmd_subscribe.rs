@@ -6,6 +6,7 @@
 use super::MessageWriter;
 use super::OPEN_DEVICE_KINDS_CAPABILITY;
 use super::SHARED_SIZING_CAPABILITY;
+use super::connection_scheduler::REQUEST_THREAD_QOS;
 use super::machine_usage_json;
 use super::size_state_event_json;
 use super::tree_delta_json;
@@ -63,9 +64,14 @@ pub(super) fn subscribe_command(
     } else {
         Vec::new()
     };
+    // `event-cause-v1`, echoed in set-client-info before this subscribe:
+    // each event says what set it off (spec/events.md "Event cause").
+    let caused_events =
+        mux.control_clients.supports_capability(client, crate::event_cause::CAPABILITY);
     let writer = writer.clone();
-    let outbound_stream = writer.start_stream(&subscription_overflow_json())?;
-    std::thread::Builder::new().name("mux-events-out".into()).spawn(move || {
+    // Its events share the reply FIFO (spec/transports.md "Reply and event order").
+    let outbound_stream = writer.start_control_stream(&subscription_overflow_json())?;
+    cmux_threads::spawn("mux-events-out", REQUEST_THREAD_QOS, move || {
         let mut transport_overflow = false;
         for challenge in pending_pairings {
             let value = json!({
@@ -85,12 +91,12 @@ pub(super) fn subscribe_command(
         outbound_stream.register_interrupt(&interrupt);
         events.wake_on(&interrupt);
         while writer.is_open() && outbound_stream.is_open() {
-            let event = match events.recv_until_interrupted(&interrupt) {
-                Ok(event) => event,
+            let (event, cause) = match events.recv_caused_until_interrupted(&interrupt) {
+                Ok(caused) => caused,
                 Err(std::sync::mpsc::RecvTimeoutError::Timeout) => continue,
                 Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => break,
             };
-            let value = match &event {
+            let mut value = match &event {
                 MuxEvent::PairingRequested(_) | MuxEvent::PairingResolved { .. }
                     if !trusted_pairing_client =>
                 {
@@ -279,6 +285,9 @@ pub(super) fn subscribe_command(
                     .is_some_and(|name| events.iter().any(|e| e == name))
             {
                 continue;
+            }
+            if caused_events {
+                stamp_cause(&mut value, cause);
             }
             if let Err(error) = writer.send_stream_backpressured(&value, &outbound_stream) {
                 transport_overflow = error.kind() == std::io::ErrorKind::WouldBlock;
@@ -530,6 +539,17 @@ pub(super) fn subscribed_event_json(event: &MuxEvent) -> Value {
             json!({"event": "pairing-resolved", "request": request})
         }
         MuxEvent::Empty => json!({"event": "empty"}),
+    }
+}
+
+/// Adds `cause` to an event line for an `event-cause-v1` subscriber. A
+/// program cause is left out: a missing field means it.
+pub(super) fn stamp_cause(value: &mut Value, cause: crate::event_cause::EventCause) {
+    if cause == crate::event_cause::EventCause::Program {
+        return;
+    }
+    if let Some(fields) = value.as_object_mut() {
+        fields.insert("cause".to_string(), Value::from(cause.wire_name()));
     }
 }
 

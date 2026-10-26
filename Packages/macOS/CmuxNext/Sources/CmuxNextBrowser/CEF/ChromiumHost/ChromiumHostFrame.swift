@@ -1,7 +1,9 @@
+#if DEBUG || CMUX_BENCH_HOOKS
+// The Chromium host app ships in Debug builds only (embed-cef.sh), and so does its Swift side.
 /// One frame of the wire between cmux and the Chromium host app (prototype
-/// behind `browserHost.helperPrototype`; plans/cmux-next/cef-helper-app-DESIGN.md).
+/// behind `browserHost.helper`; plans/cmux-next/cef-helper-app-DESIGN.md).
 ///
-/// The C++ side is `CEFShim/src/chromium_host_wire.h`: a 64-byte
+/// The C++ side is `ChromiumHost/src/chromium_host_wire.h`: a 64-byte
 /// little-endian header and `payload` bytes after it. Both sides check the
 /// same golden frame (`ChromiumHostFrameTests`, `chromium_host_wire_test.cpp`).
 /// Field meanings by kind are listed in the header.
@@ -9,14 +11,21 @@ nonisolated struct ChromiumHostFrame: Equatable, Sendable {
     enum Kind: UInt32, Sendable {
         // cmux -> host
         case navigate = 1, geometry = 2, mouse = 3, wheel = 4, key = 5, focus = 6, ping = 7, stats = 8, quit = 9, edit = 10
+        case ime = 11, textInputWatch = 12
         // host -> cmux
         case ready = 101, context = 102, address = 103, title = 104, pong = 105, statsReply = 106, error = 107
-        case rendererGone = 108
+        case rendererGone = 108, textInputState = 109
     }
 
     static let headerSize = 64
     /// Longer payloads end the connection: no kind carries more than a URL.
     static let maxPayload = 64 * 1024
+    /// How long a host may take to end after `quit` or EOF before it is
+    /// ended by force (`kQuitLimitSeconds` in the header: the host `_exit`s
+    /// itself; cmux SIGKILLs it). The same reasoning as the app's own
+    /// `QuitDeadline.engineStopLimit`: CEF's 3 s browser close plus
+    /// Chromium's 10 s shutdown watchdog, with room for a loaded machine.
+    static let quitLimit: Duration = .seconds(15)
 
     /// The raw kind, so a frame of a kind this side does not know still decodes.
     var rawKind: UInt32
@@ -40,6 +49,17 @@ nonisolated struct ChromiumHostFrame: Equatable, Sendable {
     init(rawKind: UInt32) { self.rawKind = rawKind }
 
     var kind: Kind? { Kind(rawValue: rawKind) }
+
+    /// The control seq an input ring frame was written after (task 092,
+    /// "One ordered input stream" in the header): the high 32 bits of `t1`
+    /// (`CtlSeqOf`/`SetCtlSeq`); the low 32 bits name the page (task 041).
+    /// The host dispatches the frame only once that control message is
+    /// applied. The ring's writer stamps it, and `seq`, from
+    /// `cmux_remote_shim_order_input` in write order.
+    var ctlSeq: UInt32 {
+        get { UInt32(truncatingIfNeeded: t1 >> 32) }
+        set { t1 = (t1 & 0xffff_ffff) | UInt64(newValue) << 32 }
+    }
     var text: String { String(decoding: payload, as: UTF8.self) }
 
     /// The header and payload as sent.
@@ -97,3 +117,4 @@ nonisolated struct ChromiumHostFrame: Equatable, Sendable {
         return .frame(frame, consumed: headerSize + length)
     }
 }
+#endif

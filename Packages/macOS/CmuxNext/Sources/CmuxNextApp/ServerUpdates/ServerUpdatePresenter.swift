@@ -32,11 +32,16 @@ final class ServerUpdatePresenter {
                                           snoozes: ServerUpdateSnoozeStore(defaults: defaults))
     }
 
-    /// Follows the daemon's handshakes and the notices until the app quits, and binds
-    /// Restart cmux-tui… (palette, `cmux settings restart-server`, MCP) to the same confirm.
-    func start(registry: ActionRegistry) {
-        guard observers.isEmpty else { return }
+    /// Binds Restart cmux-tui… (palette, `cmux settings restart-server`, MCP) to the toast's
+    /// confirm, in `AppServices.init`: the action works before the observers start.
+    func bind(registry: ActionRegistry) {
         registry.bind("palette.restartServer", run: { [weak self] _ in self?.confirmRestart() })
+    }
+
+    /// Follows the daemon's handshakes and the notices until the app quits (the
+    /// `ServerUpdates.start` launch post, p08-startup-031). Once.
+    func start() {
+        guard observers.isEmpty else { return }
         let daemon = daemon
         let servers = servers
         observers.append(Task { [weak self] in

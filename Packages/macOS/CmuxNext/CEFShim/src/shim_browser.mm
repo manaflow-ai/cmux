@@ -16,12 +16,11 @@ CefRefPtr<CefBrowserHost> HostOf(int browser_id) {
   return browser ? browser->GetHost() : nullptr;
 }
 
-}  // namespace
-
-extern "C" {
-
-int cmux_shim_create_window(int request, void* parent_view, int width, int height, const char* url,
-                            const char* profile_cache_path) {
+// The one way the shim builds a Chromium window: a pane's (cmux_shim_create_window) and a spare's
+// renderer-less placeholder window (cmux_shim_create_placeholder_window) differ only in `url` and
+// `extra_info`.
+int CreateWindowWith(int request, void* parent_view, int width, int height, const char* url,
+                     const char* profile_cache_path, CefRefPtr<CefDictionaryValue> extra_info) {
   if (!parent_view || stopping()) {
     return 0;
   }
@@ -31,7 +30,51 @@ int cmux_shim_create_window(int request, void* parent_view, int width, int heigh
   CefBrowserSettings settings;
   settings.background_color = BackgroundColor();
   CefRefPtr<CefRequestContext> context = RequestContextFor(profile_cache_path ? profile_cache_path : "");
-  return CefBrowserHost::CreateBrowser(info, MakeClient(request), url ? url : "", settings, nullptr, context) ? 1 : 0;
+  return CefBrowserHost::CreateBrowser(info, MakeClient(request), url ? url : "", settings, extra_info, context) ? 1 : 0;
+}
+
+}  // namespace
+
+namespace cmux_shim {
+
+// Chromium asks to focus a page: after every navigation it starts (a new
+// browser's first load, LoadURL), and inside cmux's own SetFocus and
+// embedder-active calls. In process cmux's handler answers (CEFTab+Focus.swift:
+// a page window that took focus would take the keys from the omnibar). The
+// Chromium Host installs none: a page cmux marked embedder-active, one its
+// window's first responder shows, may take focus, also after its own load;
+// any other page (a background pane, a page not adopted yet) may not.
+bool RefusesFocus(int browser_id, int source) {
+  const Host& h = host();
+  return h.embedder_focus.Refuses(h.focus_request, h.ctx, browser_id, source);
+}
+
+void NoteEmbedderActive(int browser_id, bool active) {
+  host().embedder_focus.SetActive(browser_id, active);
+}
+
+}  // namespace cmux_shim
+
+extern "C" {
+
+int cmux_shim_create_window(int request, void* parent_view, int width, int height, const char* url,
+                            const char* profile_cache_path) {
+  return CreateWindowWith(request, parent_view, width, height, url, profile_cache_path, nullptr);
+}
+
+int cmux_shim_placeholder_supported(void) {
+  return fork_api().tab_renderer_state ? 1 : 0;
+}
+
+int cmux_shim_create_placeholder_window(int request, void* parent_view, int width, int height,
+                                        const char* profile_cache_path) {
+  if (!cmux_shim_placeholder_supported()) {
+    return 0;
+  }
+  // CMUX_EXTRA_INFO_NO_RENDERER (include/cef_cmux.h): honored with an empty URL only.
+  CefRefPtr<CefDictionaryValue> extra_info = CefDictionaryValue::Create();
+  extra_info->SetBool("cmux_no_renderer", true);
+  return CreateWindowWith(request, parent_view, width, height, "", profile_cache_path, extra_info);
 }
 
 int cmux_shim_tab_add(int window_browser_id, const char* url, int index, int activate) {
@@ -123,6 +166,10 @@ int cmux_shim_renderer_client_ids(int browser_id, int* out, int capacity) {
   return count;
 }
 
+int cmux_shim_renderer_pid(int browser_id) {
+  return fork_api().browser_renderer_pid ? fork_api().browser_renderer_pid(browser_id) : 0;
+}
+
 void cmux_shim_stop(int browser_id) {
   if (CefRefPtr<CefBrowser> browser = BrowserById(browser_id)) browser->StopLoad();
 }
@@ -146,6 +193,11 @@ void cmux_shim_set_zoom_level(int browser_id, double level) {
 void cmux_shim_set_accessibility(int browser_id, int enabled) {
   if (CefRefPtr<CefBrowserHost> host = HostOf(browser_id))
     host->SetAccessibilityState(enabled != 0 ? STATE_ENABLED : STATE_DISABLED);
+}
+
+int cmux_shim_browser_set_embedder_visibility(int browser_id, int visibility) {
+  if (!fork_api().browser_set_embedder_visibility) return 0;
+  return fork_api().browser_set_embedder_visibility(browser_id, visibility);
 }
 
 int cmux_shim_print(int browser_id) {

@@ -11,6 +11,10 @@ import CmuxNextCompat
 /// enqueued off the main thread: ``MainFrameBudget`` makes every budgeted class yield while the
 /// count is above zero.
 ///
+/// Every finished task also goes to the board's ``ledger`` (one fixed slot, no lock): its owner,
+/// class, run time and, for a posted task (``MainFrameBudget/run(_:owner:posted:_:)``), its wait,
+/// posting location and node state. ``ownerSnapshot()`` reads the per-owner percentiles.
+///
 /// ```swift
 /// let board = scheduler.budget.board
 /// if let task = board.running { print(task.owner, task.workClass) }
@@ -28,6 +32,25 @@ public final class MainTaskBoard: Sendable {
         public var startNanos: UInt64
         /// Its class's per-frame budget in nanoseconds (0: unbudgeted).
         public var budgetNanos: UInt64
+        /// Where it was posted (``MainWorkScheduler/post(_:owner:file:line:_:)``); nil for a batch
+        /// tick, an action span, or an outer task while a posted task nested in it ran.
+        public var postedFrom: PostedFrom?
+    }
+
+    /// The source location a task was posted from: Chrome's `posted_from` (`FROM_HERE`,
+    /// base/location.h), built from the ``MainPostSite`` only when a reader asks.
+    public struct PostedFrom: Sendable, Equatable, CustomStringConvertible {
+        /// The posting file's `#fileID` (`Module/File.swift`).
+        public var file: String
+        /// The posting line.
+        public var line: UInt
+
+        public init(file: String, line: UInt) {
+            self.file = file
+            self.line = line
+        }
+
+        public var description: String { "\(file):\(line)" }
     }
 
     /// Packed `class << 56 | owner << 32 | sequence`; 0 while no task runs.
@@ -35,6 +58,12 @@ public final class MainTaskBoard: Sendable {
     private let startNanos = Atomic<UInt64>(0)
     private let budgetNanos = Atomic<UInt64>(0)
     private let pendingInput = Atomic<Int>(0)
+    /// The posting site of the task whose packed identity is in ``postedFor`` (0: none): the
+    /// `#fileID` literal's address, its length `<< 32 | line`. A site is the running task's only
+    /// while `postedFor == current`, so a later task never shows an earlier task's site.
+    private let postedFor = Atomic<UInt64>(0)
+    private let postedFile = Atomic<UInt>(0)
+    private let postedLengthLine = Atomic<UInt64>(0)
     /// Owner names by index (index 0 is reserved for "no task").
     private let owners = Mutex<(names: [String], indices: [String: UInt32])>(([""], [:]))
     /// Called on the main thread at every task and span start once installed (the watchdog's wake,
@@ -49,8 +78,13 @@ public final class MainTaskBoard: Sendable {
     private let spanSequence = Atomic<UInt32>(0)
     /// Receives each finished task that ran past its budget, on the main thread.
     private let overBudgetSink = Mutex<(@Sendable (Task, _ durationNanos: UInt64) -> Void)?>(nil)
+    /// Per-owner wait and run time of the finished tasks.
+    public let ledger: MainOwnerLedger
 
-    public init() {}
+    /// - Parameter ledger: Where finished tasks are recorded (default: one that folds in the background).
+    public init(ledger: MainOwnerLedger = MainOwnerLedger()) {
+        self.ledger = ledger
+    }
 
     /// `name` interned on this board (takes the owners lock: call it when the queue or method is
     /// built, or off the main thread, never per task on the main thread).
@@ -69,6 +103,14 @@ public final class MainTaskBoard: Sendable {
         }
     }
 
+    /// Per owner and class, the wait and run percentiles, node states and posting locations of the
+    /// finished tasks. It folds what the main thread wrote since the last fold on the caller's
+    /// thread, under the ledger's lock: call it off the main thread (`debug.main_budget` does).
+    public func ownerSnapshot() -> MainOwnerLedger.Snapshot {
+        ledger.fold()
+        return ledger.snapshot(name: name(of:))
+    }
+
     /// Publishes a task start (main thread).
     func begin(_ workClass: MainWorkClass, owner: UInt32, sequence: UInt32, startNanos start: UInt64, budgetNanos budget: UInt64,
                notify: Bool = true) {
@@ -79,11 +121,47 @@ public final class MainTaskBoard: Sendable {
         if notify, hookState.load(ordering: .acquiring) == 2 { taskStartHook.withLock { $0 }?() }
     }
 
-    /// Publishes the end of the running task (main thread); reports it when it ran past its budget.
+    /// The running task waits in a nested run loop it ran (main thread): no task runs until the
+    /// budget publishes one again (``begin(_:owner:sequence:startNanos:budgetNanos:notify:)``).
+    func endParked() {
+        current.store(0, ordering: .releasing)
+    }
+
+    /// Publishes the end of the running task (main thread); reports it when it ran past its budget,
+    /// with the site it was posted from.
     func end(_ task: @autoclosure () -> Task, durationNanos: UInt64, overBudget: Bool) {
+        let ending = current.load(ordering: .relaxed)
         current.store(0, ordering: .releasing)
         guard overBudget, let sink = overBudgetSink.withLock({ $0 }) else { return }
-        sink(task(), durationNanos)
+        var finished = task()
+        if ending != 0, postedFor.load(ordering: .relaxed) == ending {
+            finished.postedFrom = Self.postedFrom(file: postedFile.load(ordering: .relaxed),
+                                                  lengthLine: postedLengthLine.load(ordering: .relaxed))
+        }
+        sink(finished, durationNanos)
+    }
+
+    /// Records where the running task was posted (main thread, inside the task, right after
+    /// ``MainFrameBudget/run(_:owner:posted:_:)`` published it). Atomic stores only, no allocation: the
+    /// site's `#fileID` is a static literal, kept by address.
+    func notePostedFrom(_ site: MainPostSite) {
+        let packed = current.load(ordering: .relaxed)
+        guard packed != 0 else { return }
+        let file = site.file
+        let address = file.hasPointerRepresentation ? UInt(bitPattern: file.utf8Start) : 0
+        let length = file.hasPointerRepresentation ? UInt64(UInt32(truncatingIfNeeded: file.utf8CodeUnitCount)) : 0
+        // Releasing stores: a reader that sees any of these also sees the task they belong to in
+        // `current`, so its identity check rejects a site written for a newer task.
+        postedFile.store(address, ordering: .releasing)
+        postedLengthLine.store(length << 32 | UInt64(UInt32(truncatingIfNeeded: site.line)), ordering: .releasing)
+        postedFor.store(packed, ordering: .releasing)
+    }
+
+    /// The site a raw record names (nil when it holds none).
+    private static func postedFrom(file: UInt, lengthLine: UInt64) -> PostedFrom? {
+        guard let start = UnsafePointer<UInt8>(bitPattern: file) else { return nil }
+        let name = String(decoding: UnsafeBufferPointer(start: start, count: Int(lengthLine >> 32)), as: UTF8.self)
+        return PostedFrom(file: name, line: UInt(UInt32(truncatingIfNeeded: lengthLine)))
     }
 
     /// The task running now, or nil between tasks. Safe on any thread; the owner name is looked
@@ -93,9 +171,14 @@ public final class MainTaskBoard: Sendable {
         guard packed != 0 else { return nil }
         let start = startNanos.load(ordering: .relaxed)
         let budget = budgetNanos.load(ordering: .relaxed)
+        let siteOwner = postedFor.load(ordering: .acquiring)
+        let file = postedFile.load(ordering: .acquiring)
+        let lengthLine = postedLengthLine.load(ordering: .acquiring)
         // A newer task replaced it between the loads: report the newer one's identity only.
         guard current.load(ordering: .acquiring) == packed else { return nil }
-        return Self.unpack(packed, start: start, budget: budget, name: name(of:))
+        var task = Self.unpack(packed, start: start, budget: budget, name: name(of:))
+        if siteOwner == packed { task?.postedFrom = Self.postedFrom(file: file, lengthLine: lengthLine) }
+        return task
     }
 
     /// The packed identity of the running task (0 when none), for a reader that must not take a

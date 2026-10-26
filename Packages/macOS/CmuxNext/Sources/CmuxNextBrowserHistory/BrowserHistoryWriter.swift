@@ -107,7 +107,7 @@ public final class BrowserHistoryWriter {
         }
         let delay = delay, sleep = sleep
         pending = Task { [weak self] in
-            do { try await sleep(delay) } catch { return } // wakeup-allow: one `delay` per page change; the next change and cancel() cancel it
+            do { try await sleep(delay) } catch { return } // wakeup-allow: deadline of one `delay` per page change; the next change and cancel() cancel it
             guard let session = await self?.page?.savedSession(measuringScroll: false) else { return }
             await self?.write(session)
         }
@@ -195,7 +195,8 @@ public final class BrowserHistoryWriter {
         switch (page as? any BrowserHibernationSource)?.hibernationState() {
         case .webKit(let data)?: data.isEmpty ? nil : .init(engine: webKitTag, data: data.base64EncodedString())
         case .chromium(let state)?: state.isEmpty ? nil : .init(engine: chromiumTag, data: state)
-        case nil: nil
+        // A cmux page has no engine history: its record's URL opens it again.
+        case .appPage?, nil: nil
         }
     }
 
@@ -228,7 +229,7 @@ public final class BrowserHistoryWriter {
         return await withCheckedContinuation { continuation in
             once.continuation = continuation
             let timer = Task { @MainActor in
-                try? await sleep(budget) // wakeup-allow: the one `budget` deadline for `work`, cancelled when the work finishes first
+                try? await sleep(budget) // wakeup-allow: deadline of `budget` for `work`, cancelled when the work finishes first
                 once.resume(nil)
             }
             Task { @MainActor in

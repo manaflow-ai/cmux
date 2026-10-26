@@ -2,9 +2,9 @@
 
 use cmux_server_core::layout::{Layout, LayoutEnv, layout};
 use cmux_server_core::units::{
-    UnitError, app_service_agent_plist, host_run_argv, host_run_argv_with_mode, launch_agent_plist,
-    launch_daemon_plist, scheduled_task_xml, systemd_app_server_template, systemd_system_unit,
-    systemd_update_path_unit, systemd_update_service_unit, systemd_user_unit,
+    LaunchdJob, UnitError, app_service_agent_plist, host_run_argv, host_run_argv_with_mode,
+    launch_agent_plist, launch_daemon_plist, scheduled_task_xml, systemd_app_server_template,
+    systemd_system_unit, systemd_update_path_unit, systemd_update_service_unit, systemd_user_unit,
     windows_service_create_argv, windows_service_failure_argv,
 };
 use cmux_server_core::{InstallMode, Platform};
@@ -196,7 +196,7 @@ fn launch_agent_plist_golden() {
 \t<key>Label</key>
 \t<string>com.cmux.server</string>
 \t<key>ProcessType</key>
-\t<string>Standard</string>
+\t<string>Interactive</string>
 \t<key>ProgramArguments</key>
 \t<array>
 \t\t<string>/Users/ana/Library/Application Support/cmux/current/bin/cmux</string>
@@ -289,6 +289,30 @@ fn launchd_plists_carry_the_mode_as_an_argument() {
     assert_eq!(mode(&plists[1]), "<string>user</string>");
     assert_eq!(mode(&plists[2]), "<string>system</string>");
     assert_eq!(mode(&plists[3]), "<string>user</string>");
+}
+
+#[test]
+fn every_server_plist_runs_at_the_process_roles_table_value() {
+    // threading-model.md "Process roles": a person's input passes through
+    // every cmux launchd job, so none may be Background.
+    for job in LaunchdJob::ALL {
+        assert_eq!(job.process_type(), "Interactive", "{job:?}");
+    }
+    let user = unix(InstallMode::User, Platform::MacOs, "/Users/ana");
+    let system = unix(InstallMode::System, Platform::MacOs, "/var/root");
+    let plists = [
+        launch_agent_plist(&user).unwrap(),
+        launch_daemon_plist(&user, "ana").unwrap(),
+        launch_daemon_plist(&system, "_cmux").unwrap(),
+        app_service_agent_plist(&app_layout(), "com.cmuxterm.app.nightly").unwrap(),
+    ];
+    let expected = format!(
+        "\t<key>ProcessType</key>\n\t<string>{}</string>\n",
+        LaunchdJob::Server.process_type()
+    );
+    for plist in &plists {
+        assert!(plist.contains(&expected), "{plist}");
+    }
 }
 
 #[test]

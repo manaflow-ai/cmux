@@ -63,6 +63,7 @@ pub(crate) struct ConversationTabOutcome {
 }
 
 impl Mux {
+    #[track_caller]
     pub(crate) fn new_conversation_tab_as(
         self: &Arc<Self>,
         actor: &Actor,
@@ -192,6 +193,7 @@ impl Mux {
 
     /// A conversation tab in `workspace`'s active pane, or in a new first
     /// pane of an empty workspace.
+    #[track_caller]
     fn new_conversation_tab_in(
         self: &Arc<Self>,
         actor: &Actor,
@@ -244,6 +246,7 @@ impl Mux {
     /// and its harness to `harness` when given ([`swap_agent_session`]).
     /// Returns the record and whether the call was a replay (the tab already
     /// had `session` and that harness).
+    #[track_caller]
     pub(crate) fn bind_conversation_tab_session_as(
         &self,
         actor: &Actor,
@@ -293,6 +296,7 @@ impl Mux {
     }
 
     /// The conversation record of a tab surface, if it is a conversation tab.
+    #[track_caller]
     pub(crate) fn conversation_tab_of(&self, surface: &Surface) -> Option<ConversationTabRecord> {
         let identity = surface.resource_identity()?;
         let ContentPublicId::Browser(id) = &identity.content_id else { return None };
@@ -300,6 +304,7 @@ impl Mux {
     }
 
     /// Drop conversation contents from a `browser.list` result.
+    #[track_caller]
     pub(crate) fn retain_browser_pages(&self, browsers: &mut Value) {
         let presentation = self.presentation_snapshot();
         if let Some(items) = browsers.as_array_mut() {
@@ -312,6 +317,7 @@ impl Mux {
     }
 
     /// `browser.get` of a conversation content is refused (`validation.invalid`).
+    #[track_caller]
     pub(crate) fn refuse_conversation_content(&self, browser: &Value) -> Result<(), ResourceError> {
         let conversation = browser["id"]
             .as_str()
@@ -326,6 +332,7 @@ impl Mux {
     }
 
     /// v2 browser operations refuse a conversation tab (`validation.invalid`).
+    #[track_caller]
     pub(crate) fn refuse_conversation_browser(
         &self,
         surface: &Surface,
@@ -346,6 +353,7 @@ impl Mux {
     }
 
     /// Raw browser commands refuse a conversation tab (`validation.invalid`).
+    #[track_caller]
     pub(crate) fn refuse_conversation_tab(&self, surface: &Surface) -> anyhow::Result<()> {
         anyhow::ensure!(
             self.conversation_tab_of(surface).is_none(),
@@ -363,6 +371,7 @@ impl Mux {
 #[cfg(test)]
 #[allow(dead_code, reason = "test convenience")]
 impl Mux {
+    #[track_caller]
     pub(crate) fn new_conversation_tab(
         self: &Arc<Self>,
         target: ConversationTabTarget,

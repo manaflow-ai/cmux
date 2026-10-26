@@ -1,6 +1,7 @@
 // Video and audio in replies and tool output. The page loads no file itself: the host checks the
-// path like a reply image (`media.load`) and answers a `cmux-agent://pane/__media/` URL that the
-// pane's scheme handler serves in byte ranges (CSP `media-src 'self'`). A player mounts only
+// path like a reply image (`media.load`) and answers a `cmux-page://cmux.agent/__media/` URL on the
+// page's own origin that the page host serves in byte ranges (AgentPageResources.swift, CSP
+// `media-src 'self'`). A player mounts only
 // once it nears the viewport and asks for metadata only, so a long transcript loads no media it
 // does not show. A video first draws as its thumbnail (Leo 2026-10-21: "id like to be able to watch
 // .mp4s direclty in cmux next"): its poster frame, a play button and its length. The pointer
@@ -85,7 +86,7 @@ function useMediaLoad(source: string, auto: boolean) {
     void callChipHost("media.load", { src: source }).then((reply) => {
       const url = (reply as { src?: unknown } | undefined)?.src;
       // The gallery's fixture answers a data URL; the pane's CSP plays only its own media URLs.
-      if (typeof url === "string" && /^(cmux-agent:\/\/pane\/__media\/|data:(video|audio)\/)/.test(url)) {
+      if (typeof url === "string" && /^(cmux-page:\/\/cmux\.agent\/__media\/|data:(video|audio)\/)/.test(url)) {
         granted.set(source, url);
         setSrc(url);
         setState("idle");

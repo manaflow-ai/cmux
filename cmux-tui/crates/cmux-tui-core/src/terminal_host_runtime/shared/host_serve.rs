@@ -5,6 +5,7 @@
 //! connection loop (`serve_client*`) over `HostStream`.
 
 use crate::panic_free::RecoverPoison;
+use std::borrow::Cow;
 use std::io::Write;
 use std::sync::atomic::Ordering;
 use std::sync::mpsc::channel as mpsc_channel;
@@ -195,10 +196,12 @@ pub(crate) fn serve_client_with_snapshot_timeout(
                 | FLAG_VIEWER_SIZE_PRIORITY
                 | FLAG_PTY_CUSTODY
                 | FLAG_PROGRAM_STATUS
-                | FLAG_SHELL_ACTIVITY)
+                | FLAG_SHELL_ACTIVITY
+                | FLAG_INPUT_FLOW)
             != 0
         || (hello_frame.flags & FLAG_TERMINAL_METADATA != 0
             && hello_frame.version != PROTOCOL_VERSION)
+        || (hello_frame.flags & FLAG_INPUT_FLOW != 0 && hello_frame.version != PROTOCOL_VERSION)
         || (hello_frame.flags & FLAG_PROGRAM_STATUS != 0
             && hello_frame.flags & FLAG_TERMINAL_METADATA == 0)
         || (hello_frame.flags & FLAG_SHELL_ACTIVITY != 0
@@ -258,6 +261,15 @@ pub(crate) fn serve_client_with_snapshot_timeout(
     }
     if shell_activity_negotiated {
         hello_response.flags |= FLAG_SHELL_ACTIVITY;
+    }
+    // Key-press flows (p09-observability-018): only a client that may write input, and on the
+    // smart stream, whose Output frames carry the flow of the read they come from.
+    let input_flow = hello_frame.flags & FLAG_INPUT_FLOW != 0
+        && selected_version == PROTOCOL_VERSION
+        && smart_renderer
+        && granted_rights.contains(CapabilityRights::INPUT);
+    if input_flow {
+        hello_response.flags |= FLAG_INPUT_FLOW;
     }
     hello_response.request_id = hello_frame.request_id;
     write_frame(&mut stream, &hello_response)?;
@@ -435,14 +447,20 @@ pub(crate) fn serve_client_with_snapshot_timeout(
         write_frame(&mut stream, &ready)?;
     }
 
-    let mut command_stream = stream.try_clone()?;
+    let command_stream = stream.try_clone()?;
     let command_host = host.clone();
-    thread::Builder::new().name("terminal-host-client-input".into()).spawn(move || {
+    let serve_input = move |command_stream: &mut crate::echo_thread::OwnHostStream<'_>| {
         let mut detached = false;
-        while let Ok(Some(frame)) = read_frame(&mut command_stream, MAX_FRAME_PAYLOAD) {
-            // Client-to-host messages currently define no flags and never
-            // participate in the host live-stream sequence.
-            if frame.version != selected_version || frame.flags != 0 || frame.sequence != 0 {
+        while let Ok(Some(frame)) = read_frame(command_stream, MAX_FRAME_PAYLOAD) {
+            // Client-to-host messages define one flag (a negotiated
+            // FLAG_INPUT_FLOW on interactive Input) and never participate
+            // in the host live-stream sequence.
+            let flags_valid = frame.flags == 0
+                || (input_flow
+                    && frame.flags == FLAG_INPUT_FLOW
+                    && frame.kind == MessageKind::Input
+                    && frame.request_id == 0);
+            if frame.version != selected_version || !flags_valid || frame.sequence != 0 {
                 break;
             }
             match frame.kind {
@@ -457,13 +475,13 @@ pub(crate) fn serve_client_with_snapshot_timeout(
                     command_host.mark_launch_owner_stream_ready();
                 }
                 MessageKind::Input => {
+                    let Some((input, flow)) = split_flow_trailer(frame.flags, &frame.payload)
+                    else {
+                        break;
+                    };
                     if !granted_rights.contains(CapabilityRights::INPUT)
                         || !input_request_is_supported(selected_version, frame.request_id)
-                        || !command_host.write_input(
-                            &frame.payload,
-                            frame.request_id,
-                            &command_sender,
-                        )
+                        || !command_host.write_input(input, frame.request_id, flow, &command_sender)
                     {
                         break;
                     }
@@ -664,6 +682,23 @@ pub(crate) fn serve_client_with_snapshot_timeout(
                         break;
                     }
                 }
+                MessageKind::TraceControl => {
+                    if !granted_rights.contains(CapabilityRights::ADMIN) || frame.request_id == 0 {
+                        break;
+                    }
+                    let Some(op) = super::host_trace::decode_request(&frame.payload) else {
+                        break;
+                    };
+                    if !super::host_trace::answer(
+                        command_host.clone(),
+                        command_sender.clone(),
+                        op,
+                        frame.request_id,
+                        selected_version,
+                    ) {
+                        break;
+                    }
+                }
                 MessageKind::ClipboardReadReply => {
                     if !command_host.apply_clipboard_read_reply(
                         client,
@@ -684,23 +719,44 @@ pub(crate) fn serve_client_with_snapshot_timeout(
             command_sender.close_and_wake_writer();
         }
         command_host.remove_client(client);
-    })?;
+    };
+    let client_input = "terminal-host-client-input";
+    crate::echo_thread::spawn_host_stream_reader(client_input, command_stream, serve_input)?;
     client_setup.disarm();
 
-    while let Ok(frame) = receiver.recv() {
-        if frame.kind == MessageKind::ResyncRequired && frame.sequence == 0 {
+    // The output loop is echo path: every PTY byte the client sees crosses
+    // it, so it writes its own socket only and blocks on nothing else.
+    crate::echo_thread::with_own_host_stream(&stream, |output| {
+        while let Ok(frame) = receiver.recv() {
+            if frame.kind == MessageKind::ResyncRequired && frame.sequence == 0 {
+                tap.release(&frame);
+                break;
+            }
+            let write_result = write_frame(output, &client_wire_frame(&frame, input_flow));
             tap.release(&frame);
-            break;
+            if write_result.is_err() {
+                break;
+            }
+            if frame.kind == MessageKind::Exit {
+                break;
+            }
         }
-        let write_result = write_frame(&mut stream, &frame);
-        tap.release(&frame);
-        if write_result.is_err() {
-            break;
-        }
-        if frame.kind == MessageKind::Exit {
-            break;
-        }
-    }
+    });
     host.remove_client(client);
     Ok(())
+}
+
+/// `frame` as this client may read it: an `Output` that carries a key
+/// press's flow ([`FLAG_INPUT_FLOW`]) loses the trailer toward a client that
+/// did not negotiate it. Every other frame goes as it is.
+pub(crate) fn client_wire_frame(frame: &Frame, input_flow: bool) -> Cow<'_, Frame> {
+    if input_flow || frame.kind != MessageKind::Output || frame.flags & FLAG_INPUT_FLOW == 0 {
+        return Cow::Borrowed(frame);
+    }
+    let mut plain = frame.clone();
+    plain.flags &= !FLAG_INPUT_FLOW;
+    if let Some((bytes, _)) = split_flow_trailer(frame.flags, &frame.payload) {
+        plain.payload.truncate(bytes.len());
+    }
+    Cow::Owned(plain)
 }

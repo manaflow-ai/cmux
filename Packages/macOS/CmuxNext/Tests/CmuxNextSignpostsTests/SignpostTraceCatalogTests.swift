@@ -27,6 +27,12 @@ struct SignpostTraceCatalogTests {
             (.remoteInput, 58), (.remoteFrameDecoded, 59), (.remotePresent, 60), (.crashHelperExit, 61),
             (.crashWebContentEnd, 62), (.crashRendererUnresponsive, 63), (.crashChildExit, 64),
             (.crashDumpWithoutCrashing, 65), (.controlRequest, 66), (.ghosttyRender, 67), (.resizeFrame, 68),
+            (.webuiLifecycle, 69), (.webuiOpen, 70), (.webuiPreload, 71), (.webuiScheme, 72), (.stallMainTurn, 73),
+            (.stallRenderStarved, 74), (.launchStartupTask, 75), (.launchStartupComplete, 76), (.daemonStep, 77),
+            (.webuiAgentPaneStep, 78), (.stallGhosttyRuntimePhase, 79), (.launchReadDone, 80), (.burstEvent, 81),
+            (.motionLateCommits, 82), (.actionPresentedEstimate, 83), (.actionPresented, 84),
+            (.inputLatency, 85),
+            (.cefMemoryPressureVote, 86),
         ]
         for (name, id) in pinned { #expect(name.rawValue == id, "\(name)") }
         #expect(SignpostName.allCases.count == pinned.count)
@@ -58,9 +64,10 @@ struct SignpostTraceCatalogTests {
                          "launch.process_to_main", "launch.first_window", "launch.first_frame", "launch.daemon_ready",
                          "launch.first_terminal_output", "stall.create_surface", "stall.palette_open",
                          "stall.icon_picker_open", "cef.geometry", "cef.host_input", "motion.drag_frame",
-                         "switch.app_activation", "key.omnibar_suggest", "key.palette_search", "input.frame",
+                         "switch.app_activation", "key.omnibar_suggest", "key.palette_search", "input.frame", "input.latency",
                          "resize.frame", "remote.input", "remote.frame_decoded", "remote.present", "webview.inp",
-                         "webview.loaf"] {
+                         "webview.loaf", "webui.lifecycle", "webui.open", "webui.preload", "webui.scheme",
+                         "motion.late_commits", "action.presented_estimate", "action.presented"] {
             #expect(names.contains(required), "\(required)")
         }
         #expect(names.filter { $0.hasPrefix("key.echo.") }.count == 12)
@@ -74,7 +81,8 @@ struct SignpostTraceCatalogTests {
         let pinned: [(SignpostCategory, UInt8)] = [
             (.action, 0), (.key, 1), (.switch, 2), (.create, 3), (.cef, 4), (.launch, 5), (.daemon, 6), (.hang, 7),
             (.crash, 8), (.motion, 9), (.frame, 10), (.stall, 11), (.task, 12), (.burst, 13), (.input, 14),
-            (.webview, 15), (.remote, 16), (.control, 17), (.ghostty, 18), (.resize, 19),
+            (.webview, 15), (.remote, 16), (.control, 17), (.ghostty, 18), (.resize, 19), (.webui, 20),
+            (.log, 21),
         ]
         for (category, bit) in pinned { #expect(category.traceBit == bit, "\(category)") }
         #expect(SignpostCategory.allCases.count == pinned.count)
@@ -85,6 +93,28 @@ struct SignpostTraceCatalogTests {
         let on = SignpostCategory.allCases.filter(\.isBlackBoxDefault)
         #expect(Set(on) == [.action, .key, .switch, .create, .cef, .launch, .daemon, .hang, .crash])
         #expect(Set(on.map(\.traceBit)) == Set(0...8))
+    }
+
+    @Test("The webui names record under the webui bit only, outside the black box and MetricKit")
+    func webuiNamesGateOnTheirBit() {
+        let webui: [SignpostName] = [.webuiLifecycle, .webuiOpen, .webuiPreload, .webuiScheme]
+        #expect(SignpostName.allCases.filter { $0.traceCategory == .webui } == webui)
+        #expect(!SignpostCategory.webui.isBlackBoxDefault)
+        #expect(!webui.contains(where: SignpostMetricKitMirror.mirrors))
+        let runtime = TraceRuntime(role: .app)
+        func recorded() -> UInt64 { runtime.stubRecordCount.load(ordering: .relaxed) }
+        runtime.setCategoryMask(1 << UInt64(SignpostCategory.webview.traceBit))
+        runtime.asyncBegin(.webuiOpen, id: 1, arg0: 1)
+        runtime.begin(.webuiScheme, arg0: 0)
+        #expect(recorded() == 0)
+        runtime.setCategoryMask(1 << UInt64(SignpostCategory.webui.traceBit))
+        runtime.asyncBegin(.webuiOpen, id: 1, arg0: 1)
+        runtime.asyncEnd(.webuiOpen, id: 1)
+        runtime.begin(.webuiScheme, arg0: 1)
+        runtime.end(.webuiScheme, arg0: 0, arg1: 512)
+        runtime.event(.webuiLifecycle, arg0: 1, arg1: 2)
+        runtime.event(.webuiPreload, arg0: 1, arg1: 0)
+        #expect(recorded() == 6)
     }
 
     @Test("A typed trace point records only while its name's category is on")

@@ -3,6 +3,7 @@ import CmuxNextBridge
 import CmuxNextDesign
 import CmuxNextPages
 import CmuxNextSidebar
+import CmuxNextSignposts
 
 /// Shows the one icon picker (R94) in a floating panel beside its anchor and
 /// reports the outcome. One warm picker (S3 d): the first open loads the page
@@ -52,8 +53,12 @@ final class IconPickerService {
     /// Opens and closes the panel like every native popup (POLISH: calm motion).
     private let fade = PopupFade()
 
-    init(services: AppServices?) {
+    /// Makes the picker's page (the app's one ``WebUIHost``).
+    private let webUI: WebUIHost
+
+    init(services: AppServices?, webUI: WebUIHost) {
         self.services = services
+        self.webUI = webUI
     }
 
     /// Whether the panel, page and provider exist, so an open reuses them.
@@ -61,6 +66,8 @@ final class IconPickerService {
 
     /// Each open's timing (`debug.timings` lists them as `icon_picker_opens`).
     var onOpened: ((IconPickerOpenTiming) -> Void)?
+    /// Where each open's `stall.icon_picker_open` slice goes (tests pass one over their own trace runtime).
+    var stallSignposter: Signposter = .stall
 
     /// Makes the warm picker ahead of the first open (the app calls it at an idle moment after
     /// launch); `then` runs when it is ready.
@@ -89,6 +96,10 @@ final class IconPickerService {
             }
             return
         }
+        // The open's main-thread work, from the catalog in hand to the panel shown, is one thread slice (B/E):
+        // a first open's catalog load runs off the main actor, before it.
+        let slice = stallSignposter.begin(.stallIconPickerOpen)
+        defer { stallSignposter.end(.stallIconPickerOpen, slice) }
         let catalogReady = ContinuousClock.now
         open?.provider.finish(.cancel)
         prefs.load()
@@ -142,8 +153,8 @@ final class IconPickerService {
         var routes = [PageRoute(prefix: "cmux.iconPicker.", provider: provider)]
         // Copy in the Actions menu: the shared clipboard op (the descriptor allows only that one).
         if let services { routes.append(PageRoute(prefix: "cmux.app.", provider: AppPageNativeProvider(services: services, page: .iconPicker))) }
-        guard let page = PageWebView(descriptor: .iconPicker, routes: routes, options: Self.engineOptions,
-                                     dynamicResources: symbols) else { return nil }
+        guard let page = webUI.open(PageOpenRequest(descriptor: .iconPicker, routes: routes, options: Self.engineOptions,
+                                                    dynamicResources: symbols)) else { return nil }
         symbols.appearanceView = page
         let made = Warm(panel: IconPickerPanel(content: page, size: Self.size), page: page, provider: provider)
         warm = made

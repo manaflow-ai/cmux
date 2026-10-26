@@ -1,14 +1,15 @@
 public import AppKit
 
 public extension WindowOverlayHost {
-    /// Shows `content` above every page of the window. `content` keeps its
+    /// Shows `content` above the window's content and every page of the window. `content` keeps its
     /// frame size (its fitting size when it has none); the kind and anchor
-    /// decide where it goes.
+    /// decide where it goes. A content that later changes size by Auto Layout is read in its holder's
+    /// `layout()`; one that sets its own frame tells its handle (``OverlayHandle/contentDidResize()``).
     func present(_ content: NSView, options: OverlayOptions) -> OverlayHandle {
         let handle = OverlayHandle(id: nextID, content: content, options: options, host: self)
         nextID += 1
         if content.frame.size == .zero { content.setFrameSize(content.fittingSize) }
-        let container = panel.container(for: options.effectiveLayer)
+        let container = topLayer.container(for: options.effectiveLayer)
         var scrim: OverlayScrimView?
         if options.dimsContent, !isAppHost {
             let view = OverlayScrimView(frame: container.bounds)
@@ -21,6 +22,7 @@ public extension WindowOverlayHost {
         content.alphaValue = 1
         if case .pane(let clip) = options.effectiveLayer, !isAppHost {
             let clipView = OverlayClipView(frame: clip)
+            clipView.onLayout = { [weak self] in self?.containerDidLayout() }
             clipView.addSubview(content)
             container.addSubview(clipView)
             handle.clipView = clipView
@@ -29,25 +31,14 @@ public extension WindowOverlayHost {
         }
         handles.append(handle)
         cachedRegions = nil
-        // A content that grows or shrinks on its own (a SwiftUI popover) changes the regions.
-        handle.contentPostedFrameChanges = content.postsFrameChangedNotifications
-        content.postsFrameChangedNotifications = true
-        handle.frameObserver = NotificationCenter.default.addObserver(
-            forName: NSView.frameDidChangeNotification, object: content, queue: .main
-        ) { [weak self] _ in
-            // main-proof: observer on queue: .main
-            MainActor.assumeIsolated {
-                self?.cachedRegions = nil
-                self?.updateMouseRouting()
-            }
-        }
         syncPanel()
         layout(handle)
         if options.kind == .dialog { fadeIn([scrim, content].compactMap(\.self)) }
         if options.isModal { beginModal(handle) }
         updateMouseRouting()
-        updateEscapeMonitor()
+        updateEscapeIntercept()
         onBlockingChange?()
+        changes?.signal()
         return handle
     }
 
@@ -102,23 +93,44 @@ public extension WindowOverlayHost {
         return pieces
     }
 
-    /// Whether the panel takes the mouse at `point` (window coordinates):
+    /// Whether the overlays take the mouse at `point` (window coordinates; the top layer's hit test in the
+    /// window, the panel's routing in the panel):
     /// over a modal or dimming overlay's window, a modal region, or an
     /// overlay that does not pass clicks through.
     func acceptsMouse(at point: NSPoint) -> Bool {
         interactiveRegions().contains { $0.contains(point) } || agentCursorTag(atPanelPoint: point) != nil
     }
 
-    /// Input-blocking rects, window coordinates (cached until something changes).
+    /// Input-blocking rects, window coordinates (cached until something changes). The cache is
+    /// also checked against the frames it was built from, so a content that grows or shrinks on its
+    /// own (a SwiftUI popover) is hit-tested at its new size.
     func interactiveRegions() -> [NSRect] {
-        if let cachedRegions { return cachedRegions }
+        if let cachedRegions, regionsFramesAreCurrent() { return cachedRegions }
         let regions = buildInteractiveRegions()
         cachedRegions = regions
+        cachedRegionsFrames = [topLayer.overlayContainer.bounds] + handles.map { frameInWindow($0) }
         return regions
     }
 
+    /// The container bounds and every overlay frame still equal those the cached regions were built from.
+    private func regionsFramesAreCurrent() -> Bool {
+        guard cachedRegionsFrames.count == handles.count + 1,
+              cachedRegionsFrames[0] == topLayer.overlayContainer.bounds else { return false }
+        for (index, handle) in handles.enumerated() where cachedRegionsFrames[index + 1] != frameInWindow(handle) {
+            return false
+        }
+        return true
+    }
+
+    /// The panel laid out its overlays (a window resize, a content Auto Layout resized): the panel takes or
+    /// lets go of the mouse under a pointer that did not move, read from the frames now.
+    func containerDidLayout() {
+        guard cachedRegions != nil, !regionsFramesAreCurrent() else { return }
+        updateMouseRouting()
+    }
+
     private func buildInteractiveRegions() -> [NSRect] {
-        let bounds = panel.overlayContainer.bounds
+        let bounds = topLayer.overlayContainer.bounds
         return handles.flatMap { handle -> [NSRect] in
             let options = handle.options
             if options.dimsContent || (options.isModal && options.modalRegion == nil) { return [bounds] }
@@ -134,18 +146,15 @@ extension WindowOverlayHost {
     func remove(_ handle: OverlayHandle) {
         handles.removeAll { $0 === handle }
         cachedRegions = nil
-        if let observer = handle.frameObserver { NotificationCenter.default.removeObserver(observer) }
-        handle.frameObserver = nil
-        handle.content.postsFrameChangedNotifications = handle.contentPostedFrameChanges
-        let scrims = [panel.paneContainer, panel.windowContainer, panel.modalContainer].flatMap { container in
+        let scrims = [topLayer.paneContainer, topLayer.windowContainer, topLayer.modalContainer].flatMap { container in
             container.subviews.filter { $0.identifier?.rawValue == "overlay-scrim-\(handle.id)" }
         }
         let shown = (handle.clipView.map { [$0] } ?? [handle.content]) + scrims
         handle.clipView = nil
         if handle.options.kind == .dialog, !isTearingDown {
             // The fading dialog keeps no keyboard focus: a Return in the fade would press it again.
-            if let responder = panel.firstResponder as? NSView, responder.isDescendant(of: handle.content) {
-                panel.makeFirstResponder(nil)
+            if let overlayWindow, let responder = overlayWindow.firstResponder as? NSView, responder.isDescendant(of: handle.content) {
+                overlayWindow.makeFirstResponder(nil)
             }
             fadeOut(shown, content: handle.content)
         } else {
@@ -154,9 +163,10 @@ extension WindowOverlayHost {
         }
         if handle.options.isModal { endModal() }
         updateMouseRouting()
-        updateEscapeMonitor()
+        updateEscapeIntercept()
         syncPanel()
         onBlockingChange?()
+        changes?.signal()
     }
 
     /// A dialog and its scrim fade out (POLISH: no flash) where they were. The dialog is already
@@ -180,11 +190,11 @@ extension WindowOverlayHost {
         })
     }
 
-    /// Places `handle` in panel coordinates, which are the window's own.
+    /// Places `handle` in top layer coordinates, which are the window's own.
     func layout(_ handle: OverlayHandle) {
         cachedRegions = nil
         if isAppHost { return layoutAppPanel() }
-        let bounds = panel.overlayContainer.bounds.isEmpty ? (window?.contentView?.bounds ?? .zero) : panel.overlayContainer.bounds
+        let bounds = topLayer.overlayContainer.bounds.isEmpty ? (window?.contentView?.bounds ?? .zero) : topLayer.overlayContainer.bounds
         guard case .pane(let clip) = handle.options.effectiveLayer, let clipView = handle.clipView else {
             handle.content.setFrameOrigin(Self.origin(for: handle.content.frame.size, options: handle.options, in: bounds))
             return updateMouseRouting()

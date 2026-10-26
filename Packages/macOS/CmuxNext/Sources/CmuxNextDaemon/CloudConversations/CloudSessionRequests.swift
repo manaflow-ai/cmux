@@ -11,7 +11,7 @@ import Foundation
 /// only and never returns it.
 public struct CloudSessionSetRequest: DaemonRequest, CustomStringConvertible {
     public typealias Response = CloudSessionState
-    public static let command = "cloud-session-set"
+    public static let commandName: DaemonCommandName = "cloud-session-set"
     /// An https origin, or http with a loopback host; no path. A self-hosted
     /// server: http or https on a `*.ts.net` name or a tailnet address.
     public var apiBaseURL: String
@@ -46,19 +46,24 @@ public struct CloudSessionSetRequest: DaemonRequest, CustomStringConvertible {
         if let auth { return "cloud-session-set(\(apiBaseURL), auth: \(auth))" }
         return "cloud-session-set(\(apiBaseURL), expires_at: \(expiresAt ?? 0))"
     }
+
+    enum CodingKeys: String, CodingKey {
+        case apiBaseURL = "api_base_url", auth, accessToken = "access_token", expiresAt = "expires_at"
+        case clientVersion = "client_version"
+    }
 }
 
 /// `cloud-session-clear`: ends the lease (sign-out, account switch).
 public struct CloudSessionClearRequest: DaemonRequest {
     public typealias Response = CloudSessionState
-    public static let command = "cloud-session-clear"
+    public static let commandName: DaemonCommandName = "cloud-session-clear"
     public init() {}
 }
 
 /// `cloud-session-status`.
 public struct CloudSessionStatusRequest: DaemonRequest {
     public typealias Response = CloudSessionState
-    public static let command = "cloud-session-status"
+    public static let commandName: DaemonCommandName = "cloud-session-status"
     public init() {}
 }
 
@@ -67,7 +72,7 @@ public struct CloudSessionStatusRequest: DaemonRequest {
 /// daemon without a token). Refused (`not_selfhost`) under a bearer lease.
 public struct CloudSelfHostInfoRequest: DaemonRequest {
     public typealias Response = CloudSelfHostInfo
-    public static let command = "cloud-selfhost-info"
+    public static let commandName: DaemonCommandName = "cloud-selfhost-info"
     public static let requiredCapability: String? = DaemonCapability.cloudSelfHost.rawValue
     public init() {}
 }

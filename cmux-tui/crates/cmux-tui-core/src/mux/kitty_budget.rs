@@ -514,7 +514,7 @@ impl Mux {
                 .saturating_mul(multiplier)
                 .min(KITTY_IMAGE_BUDGET_RETRY_MAX);
             drop(mux);
-            std::thread::sleep(delay);
+            crate::request_path::sleep(delay);
         }
     }
 
@@ -555,8 +555,12 @@ impl Mux {
             if remaining.is_zero() {
                 return false;
             }
-            let (next, timed_out) =
-                self.kitty_image_budget_changed.wait_timeout(budget, remaining).unwrap();
+            let (next, timed_out) = cmux_threads::checked::sync::wait_timeout(
+                &self.kitty_image_budget_changed,
+                budget,
+                remaining,
+            )
+            .unwrap();
             budget = next;
             if timed_out.timed_out() && Instant::now() >= deadline {
                 return false;

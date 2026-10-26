@@ -1,0 +1,23 @@
+{
+  "id": "terminal-resize",
+  "tier": "T1",
+  "description": "Terminal live resize, light session (bench-terminal-resize.py, ghostty-integration-DESIGN.md G1/G2): a divider between two terminals full of reflowing history dragged one debug.mouse move per display frame (frame intervals, main-thread busy ms per frame, main-thread ms in Ghostty's display passes, missed vsyncs, terminals left with unsettled grids), Cmd-D, Cmd-W, Cmd-Shift-D, Cmd-W over less (key to the first and final grid sent, the owner's final grid and the first frame at it) and the frames a resting hidden cursor draws.",
+  "command": ["scripts/cmux-next/bench-terminal-resize.py", "--layouts", "idle-cursor,light,split-resize",
+              "--story", "terminal-resize"],
+  "session": "light",
+  "engine": "none",
+  "config": "bench",
+  "metrics": [
+    {"name": "terminal_resize\\.light\\.(frame_interval|main_busy|display_main)", "unit": "ms", "better": "lower"},
+    {"name": "terminal_resize\\.light\\.(missed|unsettled|failed)", "unit": "count", "better": "lower"},
+    {"name": "terminal_resize\\.idle_cursor\\.(frames|failed)", "unit": "count", "better": "lower"},
+    {"name": "terminal_split_resize\\.light\\.key_to_[a-z_]+", "unit": "ms", "better": "lower"},
+    {"name": "terminal_split_resize\\.light\\.problems", "unit": "count", "better": "lower"}
+  ],
+  "repeats": 1,
+  "seconds": 180,
+  "needs": ["debug:debug.focus", "debug:debug.layers", "debug:debug.mouse", "debug:debug.frames",
+            "debug:debug.surfaces", "debug:debug.terminal_display", "debug:debug.terminal_final_grid"],
+  "owner": "PL-ghostty",
+  "component": "Terminal>Resize"
+}

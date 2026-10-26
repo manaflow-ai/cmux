@@ -12,8 +12,10 @@ final class SampleBufferPresenter: RemoteFramePresenter {
     private let displayLayer = AVSampleBufferDisplayLayer()
     var layer: CALayer { displayLayer }
     var onFrameSize: ((CGSize) -> Void)?
+    var onFrameShown: (() -> Void)?
     private nonisolated let mailbox = LatestFrameMailbox<RemoteDecodedFrame>()
     private var frameSize: CGSize = .zero
+    private(set) var shownFrame: RemoteDecodedFrame?
 
     init() {
         displayLayer.videoGravity = .resize
@@ -37,30 +39,33 @@ final class SampleBufferPresenter: RemoteFramePresenter {
         let renderer = displayLayer.sampleBufferRenderer
         if renderer.status == .failed { renderer.flush() }
         renderer.enqueue(sample)
+        shownFrame = frame
         if frame.pixelSize != frameSize {
             frameSize = frame.pixelSize
             onFrameSize?(frame.pixelSize)
         }
+        onFrameShown?()
     }
 
     /// A sample around the decoded picture, marked to display at once.
-    private static func immediateSample(_ pixelBuffer: CVPixelBuffer) -> CMSampleBuffer? {
+    static func immediateSample(_ pixelBuffer: CVPixelBuffer) -> CMSampleBuffer? {
         var format: CMVideoFormatDescription?
-        guard CMVideoFormatDescriptionCreateForImageBuffer(
+        // SAFETY: Core Media writes one +1 description to the local `format`, live for the call.
+        guard unsafe CMVideoFormatDescriptionCreateForImageBuffer(
             allocator: kCFAllocatorDefault, imageBuffer: pixelBuffer, formatDescriptionOut: &format) == noErr,
             let format else { return nil }
         var timing = CMSampleTimingInfo(duration: .invalid, presentationTimeStamp: .zero, decodeTimeStamp: .invalid)
         var sample: CMSampleBuffer?
-        guard CMSampleBufferCreateReadyWithImageBuffer(
+        // SAFETY: Core Media copies the one timing entry from the local `timing` and writes one
+        // +1 sample to the local `sample`; both are live for the call.
+        guard unsafe CMSampleBufferCreateReadyWithImageBuffer(
             allocator: kCFAllocatorDefault, imageBuffer: pixelBuffer, formatDescription: format,
             sampleTiming: &timing, sampleBufferOut: &sample) == noErr, let sample else { return nil }
+        // The attachments array holds the sample's own mutable dictionaries (toll-free
+        // bridged), so setting the key on the first one marks the sample itself.
         if let attachments = CMSampleBufferGetSampleAttachmentsArray(sample, createIfNecessary: true),
-           CFArrayGetCount(attachments) > 0 {
-            let dictionary = unsafeBitCast(CFArrayGetValueAtIndex(attachments, 0), to: CFMutableDictionary.self)
-            CFDictionarySetValue(
-                dictionary,
-                Unmanaged.passUnretained(kCMSampleAttachmentKey_DisplayImmediately).toOpaque(),
-                Unmanaged.passUnretained(kCFBooleanTrue).toOpaque())
+           let first = (attachments as NSArray).firstObject as? NSMutableDictionary {
+            first[kCMSampleAttachmentKey_DisplayImmediately] = true
         }
         return sample
     }

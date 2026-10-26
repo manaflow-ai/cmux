@@ -99,7 +99,7 @@ extension PageWebView {
             }
             self?.finishClaim(generation, path)
         }
-        state.deadline.schedule(after: state.budget) { @MainActor [weak self] in
+        state.deadline.scheduleOnMain(after: state.budget) { [weak self] in
             self?.finishClaim(generation, .timedOut)
         }
     }
@@ -132,6 +132,7 @@ extension PageWebView {
     /// Loads the current page URL again (a plain load of the same URL with another fragment is only
     /// a fragment navigation in WebKit, so this reloads from script).
     func reloadDocument() {
+        traceOpenLoadStarted(.reload)
         let fragment = route ?? "/"
         webView.evaluateJavaScript("history.replaceState(null, \"\", \(JSONValue.string(fragment).compactText)); location.reload();",
                                    completionHandler: nil)

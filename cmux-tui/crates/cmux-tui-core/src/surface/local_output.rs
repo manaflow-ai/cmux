@@ -67,6 +67,17 @@ impl LocalOutput {
         }
     }
 
+    /// The key press the read just done echoes (0: none): a holder
+    /// terminal's reader took it from the holder's read, a direct PTY's
+    /// from the terminal's own slot.
+    fn take_echo_flow(&self, pty: &PtySurface) -> u64 {
+        #[cfg(unix)]
+        if let Some(sink) = self.parsed_sink.as_ref() {
+            return sink.take_echo_flow();
+        }
+        pty.last_input_flow.take()
+    }
+
     /// Reserve journal capture before reading and retain parser state across
     /// chunks, whether the reader or a geometry transaction supplies them.
     pub(super) fn read(
@@ -83,6 +94,8 @@ impl LocalOutput {
         }
         let mut buf = [0u8; 64 * 1024];
         let n = read(&mut buf)?;
+        // The key press this read echoes, taken with the read so it stamps no later one.
+        let flow = self.take_echo_flow(pty);
         let read = buf.get(..n).unwrap_or(&buf);
         let output = self.kitty_media.rewrite_borrowed(read, &mut self.kitty_scratch);
         if output.is_empty() {
@@ -120,7 +133,7 @@ impl LocalOutput {
                     != cursor_activity;
             pty.mouse_encoders.lock().unwrap().sync_from_terminal(&term);
             let after = terminal_scroll_position(&term);
-            let has_attach_taps = pty.broadcast_attach_output(normalized.as_ref());
+            let has_attach_taps = pty.broadcast_attach_output_flow(normalized.as_ref(), flow);
             if has_attach_taps && (term.color_revision() != color_revision || cursor_changed) {
                 pty.attach_colors_pending.store(true, Ordering::Release);
                 if term.color_reapply_revision() != color_reapply_revision || cursor_changed {

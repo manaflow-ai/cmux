@@ -3,6 +3,7 @@ import CmuxNextActions
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextLayout
+import CmuxNextWakeups
 import Observation
 
 // Window membership transitions. Every change goes through `transition`,
@@ -127,11 +128,12 @@ extension WindowManager {
     func show(workspaceID: String, in state: WindowState, from origin: ShowOrigin = .anywhere) {
         guard ActionRunScope.viewChangeAllowed() else { return }
         let value = registry.value
-        if DebugWorkspaceSwitch.timer.isRecording, let timed = controller(for: value.owner(of: workspaceID) ?? state.id) ?? controller(for: state.id) {
-            DebugWorkspaceSwitch.began(timed)
-        }
-        if origin == .anywhere, let owner = value.owner(of: workspaceID), owner != state.id, value.window(owner)?.isOpen == true,
-           let target = controller(for: owner) {
+        // The window that shows it (the open one listing it, for a request from elsewhere) is the one timed.
+        let elsewhere = origin == .anywhere ? value.owner(of: workspaceID).flatMap { owner in
+            owner != state.id && value.window(owner)?.isOpen == true ? controller(for: owner) : nil
+        } : nil
+        if let timed = elsewhere ?? controller(for: state.id) { DebugWorkspaceSwitch.began(timed) }
+        if let target = elsewhere {
             select(workspaceID, in: target.state)
             target.showWorkspace(requested: target.state.workspaceID)
             bringToFront(target)
@@ -318,14 +320,13 @@ extension WindowManager {
         let machines = services.machines
         let cloud = services.cloud
         membershipObservation?.cancel()
-        membershipObservation = Task { [weak self] in
-            for await _ in ObservationStream({ () -> [String] in
-                [String(cloud.hasLoadedMachines), String(cloud.isSignedIn)]
-                    + machines.daemons.map { "\($0.machineID):\($0.store.isLoaded)" }
-                    + [Self.profileTags(of: machines.local)]
-            }) {
-                self?.reconcileMembership()
-            }
+        // Windows open and close on it, hidden or not: a service observation, `visible` (it shows).
+        membershipObservation = ServiceObservation(.visible, owner: "WindowManager.membership", on: services.mainWork) { () -> [String] in
+            [String(cloud.hasLoadedMachines), String(cloud.isSignedIn)]
+                + machines.daemons.map { "\($0.machineID):\($0.store.isLoaded)" }
+                + [Self.profileTags(of: machines.local)]
+        } apply: { [weak self] _ in
+            self?.reconcileMembership()
         }
     }
 

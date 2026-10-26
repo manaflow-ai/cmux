@@ -22,7 +22,7 @@ public final class ObservationDeadline {
                 for await done in ObservationStream(condition) where done { break }
                 self?.finish()
             }
-            timer.schedule(after: limit) { @MainActor [weak self] in self?.finish() }
+            timer.scheduleOnMain(after: limit) { [weak self] in self?.finish() }
         }
     }
 

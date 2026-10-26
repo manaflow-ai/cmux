@@ -23,6 +23,9 @@
    path, and every bench that imports bench_launch still loads under `python3 -I`.
 9. bench_env.py names a Swift read site for every switch the bench app gets, the launch passes exactly its fixed
    switches and config keys, and no switch is one the app strips at launch.
+10. The control socket probe (p08-startup-019) times the first answer, not the first accept: a request sent into a
+   listener that answers late is timed at its answer; the verdict is the p50 of answer minus first frame against
+   the budget, and a run with no answer or no frame fails it.
 
 Runs on any Mac, no GUI session or build needed (the session read is injected or the check is `--socket-only`, and a
 copy of /bin/sleep stands in for the app's executable). Signals only the processes it starts. On Linux, 8 and 9 and
@@ -34,6 +37,7 @@ the tests that need no macOS tool run; the rest are skipped.
 from __future__ import annotations
 
 import contextlib
+import io
 import json
 import os
 import resource
@@ -241,6 +245,22 @@ class FinderLimitsTests(unittest.TestCase):
             self.assertEqual(f.read().strip(), str(self.launchd))
         self.assertIn(f"maxfiles {self.launchd} (caller {self.raised})", bench.limits)
         self.assertEqual(resource.getrlimit(resource.RLIMIT_NOFILE)[0], self.raised)
+
+    def test_launch_arguments_reach_the_app_and_only_its_process(self):
+        """BenchApp(args=...) appends to the app's argv (NSArgumentDomain), no defaults domain is written."""
+        app = os.path.join(os.path.realpath(self.folder), f"cmux DEV bl-args-{os.getpid()}.app")
+        os.makedirs(os.path.join(app, "Contents/MacOS"))
+        seen = os.path.join(self.folder, "argv")
+        main = os.path.join(app, "Contents/MacOS/cmux DEV")
+        with open(main, "w") as f:
+            f.write(f"#!/bin/sh\nprintf '%s\\n' \"$@\" > '{seen}'\n")  # records its argv, then exits
+        os.chmod(main, 0o755)
+        bench = bl.BenchApp(app, out=os.path.join(self.folder, "out"), teardown=False, session=lambda: OK_SESSION,
+                            args=["-AppleShowScrollBars", "Always"])
+        with self.assertRaises(bl.LaunchError):
+            bench.launch(timeout=5)
+        with open(seen) as f:
+            self.assertEqual(f.read().splitlines(), ["-AppleShowScrollBars", "Always"])
 
     def test_inherit_and_a_silent_launchctl_apply_nothing_and_say_so(self):
         with bl.finder_limits("") as changed:
@@ -659,6 +679,63 @@ class FreshStateTests(unittest.TestCase):
         self.assertTrue(os.path.exists(os.path.join(self.root, "tui", "session.json")))
 
 
+class LeftDaemonTests(unittest.TestCase):
+    """A daemon an earlier run of the tag left (no app of it runs) refuses a fresh-state launch: moving the state
+    aside would not make the session empty, the app would adopt that daemon and its workspaces."""
+
+    def setUp(self):
+        self.folder = os.path.realpath(tempfile.mkdtemp(prefix="bench-launch-left-"))
+        self.tag = f"bl-left-{os.getpid()}"
+        self.app = record_bundle(self.folder, self.tag, main="#!/bin/sh\nexit 0\n")
+        tui = os.path.join(self.app, "Contents/Resources/bin/cmux-tui")
+        os.makedirs(os.path.dirname(tui))
+        shutil.copy("/bin/sleep", tui)
+        self.daemon = subprocess.Popen([tui, "300"])
+        self.root = os.path.join(self.folder, "appsupport-cmux", "tags", self.tag)
+        os.makedirs(os.path.join(self.root, "tui"))
+        self.patches = [mock.patch.dict(os.environ, {"BENCH_LAUNCH_STATE_BASE": os.path.join(self.folder,
+                                                                                            "appsupport-cmux")}),
+                        mock.patch.object(bl, "lpm_switch_problem", return_value=None),
+                        mock.patch.object(bl, "low_power_mode", return_value=False),
+                        mock.patch.object(bl, "mute_output", return_value="muted"),
+                        mock.patch.object(bl, "host_facts", return_value={}),
+                        mock.patch.object(bl, "note")]
+        for patch in self.patches:
+            patch.start()
+        os.environ.pop("BENCH_LAUNCH_KEEP_STATE", None)
+
+    def tearDown(self):
+        for patch in reversed(self.patches):
+            patch.stop()
+        if self.daemon.poll() is None:
+            self.daemon.kill()  # the exact process this test started
+        self.daemon.wait()
+        shutil.rmtree(self.folder, ignore_errors=True)
+
+    def bench(self, **kwargs):
+        return bl.BenchApp(self.app, out=os.path.join(self.folder, "out"), session=lambda: OK_SESSION, **kwargs)
+
+    def test_a_fresh_launch_beside_a_left_daemon_is_refused_and_moves_nothing(self):
+        for teardown in (False, True):
+            with self.subTest(teardown=teardown), contextlib.redirect_stdout(io.StringIO()):
+                bench = self.bench(teardown=teardown)
+                with self.assertRaises(bl.LaunchError) as refused:
+                    bench.launch(timeout=5)
+                bench.stop()  # what every bench's finally runs: the left daemon is another run's
+            self.assertEqual(refused.exception.reason, "tag-in-use")
+            self.assertEqual(refused.exception.report.get("pids"), [self.daemon.pid])
+            self.assertIsNone(bench.process)
+            self.assertTrue(os.path.isdir(self.root), "the left daemon's state moved out from under it")
+            self.assertIsNone(self.daemon.poll())
+
+    def test_a_relaunch_on_the_kept_state_adopts_the_daemon(self):
+        bench = self.bench(teardown=False, fresh_state=False)
+        with contextlib.redirect_stdout(io.StringIO()), self.assertRaises(bl.LaunchError) as failed:
+            bench.launch(timeout=5)  # the stand-in app exits at once: launched, then app-exited
+        self.assertNotEqual(failed.exception.reason, "tag-in-use")
+        self.assertIsNotNone(bench.process)
+
+
 PERF_RESULT_PATH = ROOT / "scripts/perf-lab/perf_result.py"
 perf_result = bl.load_by_path("perf_result", str(PERF_RESULT_PATH))  # the real writer (p12-perf-process-001)
 store = bl.load_by_path("perf_lab_store", str(ROOT / "scripts/perf-lab/store.py"))
@@ -667,15 +744,18 @@ FEATURES = ({"perfLabKillProbe": {"state": "off", "source": "remote"},
              "tabSwitchFastPath": {"state": "on", "source": "default"}}, "fh-1", "off")
 
 
-def record_bundle(folder: str, tag: str, commit=None, marker=False, debug_dylib=False, main=None) -> str:
+def record_bundle(folder: str, tag: str, commit=None, marker=False, debug_dylib=False, main=None,
+                  stamped=None) -> str:
     """A `cmux DEV <tag>.app` with an Info.plist and a main executable that may carry the bench-hooks marker, or
-    `main` as its executable's text (a script the launch can start)."""
+    `main` as its executable's text (a script the launch can start). `stamped` is its reload.sh --config name."""
     import plistlib
     app = os.path.join(os.path.realpath(folder), f"cmux DEV {tag}.app")
     os.makedirs(os.path.join(app, "Contents/MacOS"))
     info = {"CFBundleIdentifier": f"com.cmuxterm.app.debug.{tag}", "CFBundleExecutable": "cmux DEV"}
     if commit:
         info["CMUXCommit"] = commit
+    if stamped:
+        info[bl.BUILD_CONFIG_KEY] = stamped
     with open(os.path.join(app, "Contents/Info.plist"), "wb") as f:
         plistlib.dump(info, f)
     executable = os.path.join(app, "Contents/MacOS/cmux DEV")
@@ -834,6 +914,21 @@ class RecordTests(unittest.TestCase):
             config("lie", "bench", debug_dylib=True)
         with self.assertRaises(bl.RecordError):
             config("lie2", "release", marker=True)
+
+    def test_a_tagged_bench_build_names_its_own_config(self):
+        # p12-perf-process-147: bench and bench-checks executables look alike; reload.sh stamps the config.
+        def config(want, stated=None, **kwargs):
+            app = record_bundle(os.path.join(self.folder, f"{want}-{stated}"), "cfg", commit="b" * 40, **kwargs)
+            return bl.build_config(app, os.path.join(app, "Contents/MacOS/cmux DEV"), stated)
+        self.assertEqual(config("bench", marker=True, stamped="bench"), "bench")
+        self.assertEqual(config("checks", marker=True, stamped="bench-checks"), "bench-checks")
+        self.assertEqual(config("agree", "bench-checks", marker=True, stamped="bench-checks"), "bench-checks")
+        self.assertEqual(config("release", stamped="release"), "release")
+        for want, stated, kwargs in (("disagree", "bench", {"marker": True, "stamped": "bench-checks"}),
+                                     ("stamp-lies", None, {"marker": True, "stamped": "release"}),
+                                     ("stamp-lies2", None, {"stamped": "bench"})):
+            with self.assertRaises(bl.RecordError, msg=want):
+                config(want, stated, **kwargs)
 
     def test_the_build_sha_is_the_bundles_or_the_fleet_steps_never_this_checkouts_head(self):
         app = record_bundle(self.folder, "sha")
@@ -1053,6 +1148,94 @@ class BenchEnvTests(unittest.TestCase):
         with open(app.environment()["CMUX_NEXT_CONFIG_FILE"]) as f:
             config = json.load(f)
         self.assertEqual(config["updates"], {"checkAutomatically": True, "channel": "nightly"})
+
+
+class SocketProbeTests(unittest.TestCase):
+    """10. The control socket probe (bench_launch.first_answer, socket_probe_summary, socket-probe)."""
+
+    def setUp(self):
+        self.folder = tempfile.mkdtemp(prefix="cnp-", dir="/tmp")
+        self.addCleanup(shutil.rmtree, self.folder, True)
+        self.path = os.path.join(self.folder, "s.sock")
+
+    def serve_late(self, bind_after, answer_after):
+        """A listener that binds after `bind_after` s, then accepts one request and answers it `answer_after` s
+        after it arrived (the app binds in main() and reads requests once its methods are registered)."""
+        def run():
+            time.sleep(bind_after)  # test: the app's main() has not bound yet
+            server = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
+            server.bind(self.path)
+            server.listen(8)
+            conn, _ = server.accept()
+            buf = b""
+            while not buf.endswith(b"\n"):
+                buf += conn.recv(4096)
+            time.sleep(answer_after)  # test: the method groups register after the first frame
+            request = json.loads(buf)
+            conn.sendall((json.dumps({"id": request["id"], "ok": True, "result": {"pong": True}}) + "\n").encode())
+            conn.close()
+            server.close()
+
+        thread = threading.Thread(target=run, daemon=True)
+        thread.start()
+        self.addCleanup(thread.join, 5)
+
+    def paths(self):
+        return [self.path] if os.path.exists(self.path) else []
+
+    def test_the_first_answer_is_timed_at_the_answer_not_the_accept(self):
+        self.serve_late(bind_after=0.05, answer_after=0.2)
+        start = time.monotonic()
+        took = bl.first_answer(self.paths, start, start + 5)
+        self.assertIsNotNone(took)
+        self.assertGreaterEqual(took, 0.25)
+        self.assertLess(took, 5)
+
+    def test_no_answer_when_the_app_ends_or_the_deadline_passes(self):
+        start = time.monotonic()
+        self.assertIsNone(bl.first_answer(self.paths, start, start + 5, alive=lambda: False))
+        start = time.monotonic()
+        self.assertIsNone(bl.first_answer(self.paths, start, start + 0.05))
+
+    def test_the_verdict_is_the_p50_of_answer_after_frame_against_the_budget(self):
+        runs = [{"first_answer_ms": 210, "first_frame_ms": 180}, {"first_answer_ms": 260, "first_frame_ms": 200},
+                {"first_answer_ms": 400, "first_frame_ms": 220}]
+        summary = bl.socket_probe_summary(runs, budget_ms=50)
+        self.assertEqual(summary["answer_after_frame_p50_ms"], 60)
+        self.assertFalse(summary["ok"])
+        self.assertTrue(bl.socket_probe_summary(runs, budget_ms=60)["ok"])
+        missing = runs + [{"first_answer_ms": None, "first_frame_ms": 190}]
+        self.assertFalse(bl.socket_probe_summary(missing, budget_ms=500)["ok"], "a run with no answer fails")
+        self.assertFalse(bl.socket_probe_summary([], budget_ms=500)["ok"])
+
+    def test_the_command_reads_each_launchs_first_frame_and_stops_every_app(self):
+        stopped = []
+
+        class StubApp:
+            def __init__(self, app, out=None):
+                self.first_answer_ms = None
+
+            def launch(self, timeout, probe_first_answer):
+                assert probe_first_answer
+                self.first_answer_ms = 230.0
+
+            def rpc(self, method, params=None, timeout=60):
+                assert method == "debug.timings"
+                return {"launch_ms_since_process_start": {"first_window_frame_committed": 200.0}}
+
+            def stop(self):
+                stopped.append(True)
+
+        opts = mock.Mock(app="/x/cmux DEV t.app", out=None, runs=3, timeout=10, budget_ms=50,
+                         json=os.path.join(self.folder, "out.json"))
+        with contextlib.redirect_stdout(io.StringIO()):
+            code = bl.socket_probe(opts, make_app=StubApp)
+        self.assertEqual(code, 0)
+        self.assertEqual(len(stopped), 3)
+        with open(opts.json) as f:
+            result = json.loads(f.read())
+        self.assertEqual(result["answer_after_frame_p50_ms"], 30)
+        self.assertEqual(len(result["per_run"]), 3)
 
 
 if __name__ == "__main__":

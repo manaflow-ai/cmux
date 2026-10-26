@@ -27,10 +27,12 @@ final class SocketWriter: Sendable {
     private let queue: DispatchQueue
     private let state = Mutex(State())
 
-    init(fd: Int32, label: String, limit: Int = 64 << 20) {
+    /// - Parameter qos: The drain queue's class, chosen by the owner from what the connection
+    ///   carries (``DaemonWireStats/Role/writerQoS``).
+    init(fd: Int32, label: String, qos: DispatchQoS, limit: Int = 64 << 20) {
         self.fd = fd
         self.limit = limit
-        self.queue = DispatchQueue(label: label)
+        self.queue = DispatchQueue(label: label, qos: qos)
         // A write to a closed peer must fail with EPIPE, not raise SIGPIPE
         // (whose default action ends the process), whatever the caller set.
         // The option fails (EINVAL) once the peer is gone, so writes also
@@ -57,6 +59,9 @@ final class SocketWriter: Sendable {
         return error
     }
 
+    /// The drain queue's QoS (tests).
+    var queueQoS: DispatchQoS { queue.qos }
+
     /// Bytes waiting for the socket (diagnostics, tests).
     var queuedBytes: Int { state.withLock { $0.pending.count } }
 
@@ -72,7 +77,7 @@ final class SocketWriter: Sendable {
     // MARK: - Private (serial queue)
 
     private func drain() {
-        // wakeup-allow: drains queued bytes and stops when the queue is empty, closed, or a write fails or makes no progress
+        // wakeup-allow: bounded: drains queued bytes and stops when the queue is empty, closed, or a write fails or makes no progress
         while true {
             let chunk = state.withLock { state -> Data? in
                 guard !state.closed, !state.pending.isEmpty else {
@@ -136,6 +141,29 @@ enum SocketWriteFailure: Error, Equatable, Sendable, CustomStringConvertible {
         case .backlog(let queued): "cmux-tui is not reading its socket (\(queued) bytes queued)"
         case .noProgress: "write: no progress"
         case .errno(let code): "write: \(String(cString: strerror(code)))"
+        }
+    }
+}
+
+extension DaemonWireStats.Role {
+    /// The class of this connection's ``SocketWriter`` queue, by what it carries
+    /// (threading-model.md, QoS table). Only the connections that carry typed keys run at
+    /// user-interactive, so a bulk loopback forward never shares the class of a keystroke.
+    var writerQoS: DispatchQoS {
+        switch self {
+        case .control, .terminalAttach:
+            // qos-allow: key echo path: typed keys reach the daemon on these connections and the echo frame waits for them
+            .userInteractive
+        case .pageRelay, .agentSessionAttach, .journalRead, .sessionEnding, .shutdown:
+            // userBlocking: a person waits now for the result of a click, an open or quit.
+            .userInitiated
+        case .loopbackForward:
+            // Bulk forwarded page bytes: one class below the roles a person waits for, so a large stream never
+            // crowds them out (not the userVisible lane mapping, which is user-initiated; threading-model.md).
+            .default
+        case .socketProbe:
+            // bestEffort: a liveness probe nobody watches.
+            .utility
         }
     }
 }

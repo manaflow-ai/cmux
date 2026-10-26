@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextIcons
+import CmuxNextWakeups
 
 /// The shared notice card above the footer (BOTTOM-LEFT-CARDS K1; Lawrence
 /// 2026-10-09): every message to the user in this slot (the "Did you know"
@@ -38,19 +39,32 @@ final class SidebarNoticeCardView: NSView {
     /// The notice whose `shownAction` was sent (once per notice id), and its
     /// `hiddenAction` (sent when that notice leaves the card).
     private var reportedShown: (id: String, hiddenAction: String?)?
-    private var occlusionObserver: NSObjectProtocol?
+    /// The window node's flips (``WindowVisibilitySource``): a window that comes into view
+    /// (unhidden app, restored, another window moved away) shows the card now.
+    private var windowVisibility: VisibilitySubscription?
     /// Shows and hides the card with its entrance and exit (``SidebarCardTransition``).
     private(set) lazy var presence = SidebarCardPresence(self, policy: motionPolicy)
     private let motionPolicy: @MainActor () -> MotionPolicy
+    /// A change of the motion settings (Energy Saver, Reduce Motion, the speed) lays the progress
+    /// row out again: a running sweep stops, or a still one starts, with no new notice.
+    private var motionWatch: AppearanceSignals.Subscription?
     /// The card plays its exit: the slot keeps it in place until it has gone.
     var isLeaving: Bool { presence.isLeaving }
 
-    /// - Parameter motionPolicy: The motion settings the card's transitions follow (`Motion.overlays.policy`).
+    /// - Parameters:
+    ///   - motionPolicy: The motion settings the card's transitions follow (`Motion.overlays.policy`).
+    ///   - motionSignals: Where a change of those settings is announced (``AppearanceSignals/Signal/motion``).
     init(frame: NSRect = .zero, reduceTransparency: ReduceTransparency = .shared,
-         motionPolicy: @escaping @MainActor () -> MotionPolicy = { Motion.overlays.policy }) {
+         motionPolicy: @escaping @MainActor () -> MotionPolicy = { Motion.overlays.policy },
+         motionSignals: AppearanceSignals = DesignSettings.shared.signals) {
         surface = CardSurfaceView(cornerRadius: Metrics.space3, reduceTransparency: reduceTransparency)
         self.motionPolicy = motionPolicy
         super.init(frame: frame)
+        // One card per sidebar; the layout it asks for runs only when the card draws.
+        motionWatch = motionSignals.subscribe([.motion], owner: "SidebarNoticeCard") { [weak self] in
+            guard let self, notice?.progress == .indeterminate else { return }
+            needsLayout = true
+        }
         wantsLayer = true
         addSubview(surface)
         addSubview(content)
@@ -148,7 +162,7 @@ final class SidebarNoticeCardView: NSView {
     /// sidebar shows nothing) and a real size.
     private func reportShownIfOnScreen() {
         guard let notice, let action = notice.shownAction, reportedShown?.id != notice.id,
-              window?.occlusionState.contains(.visible) == true, !isHiddenOrHasHiddenAncestor, !bounds.isEmpty else { return }
+              window.map({ WindowVisibilitySource.of($0).node.isVisible }) == true, !isHiddenOrHasHiddenAncestor, !bounds.isEmpty else { return }
         reportedShown = (notice.id, notice.hiddenAction)
         onAction?(notice.id, action)
     }
@@ -430,12 +444,8 @@ final class SidebarNoticeCardView: NSView {
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
         applyColors()
-        if let occlusionObserver { NotificationCenter.default.removeObserver(occlusionObserver) }
-        occlusionObserver = window.map { window in
-            // A window that comes into view (unhidden app, restored, another window moved away) shows the card now.
-            NotificationCenter.default.addObserver(forName: NSWindow.didChangeOcclusionStateNotification, object: window, queue: .main) { [weak self] _ in
-                MainActor.assumeIsolated { self?.reportShownIfOnScreen() } // main-proof: observer on queue: .main
-            }
+        windowVisibility = window.map { window in
+            WindowVisibilitySource.of(window).node.subscribe(owner: "SidebarNoticeCard") { [weak self] _ in self?.reportShownIfOnScreen() }
         }
         reportShownIfOnScreen()
     }

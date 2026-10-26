@@ -12,11 +12,11 @@ import CmuxNextSidebar
 @MainActor
 enum RemoteGroupHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
-        let ssh = context.services.ssh
-        CloudHandlers.bind("remote.newGroup", registry, reason: { ssh.unavailableReason }) { invocation in
+        // SSH is made on first use (a run, a menu's check), never at binding (p08-startup-021).
+        CloudHandlers.bind("remote.newGroup", registry, reason: { context.services.ssh.unavailableReason }) { invocation in
             let interactive = !registry.isCapturingRefusal
             let make = { (text: String) throws in
-                let session = try ssh.connect(destination: text, session: nil, offerInstall: interactive)
+                let session = try context.services.ssh.connect(destination: text, session: nil, offerInstall: interactive)
                 markWhenNamed(session)
                 if interactive { RemoteHandlers.showWhenConnected(session, context) }
             }

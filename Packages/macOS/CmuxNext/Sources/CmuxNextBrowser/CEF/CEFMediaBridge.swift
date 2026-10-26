@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 import os
 
@@ -17,7 +18,6 @@ import os
 final class CEFMediaBridge {
     /// Weak: the tab owns this bridge; after it is gone every entry point returns.
     private weak var tab: CEFTab?
-    private var observation: ObservationLoop?
     /// The committed document the binding was last added for.
     private var boundDocument: (url: URL?, phase: BrowserLoadPhase)?
 
@@ -36,7 +36,7 @@ final class CEFMediaBridge {
         }
         let calls: [(String, [String: Any])] = [("Page.enable", [:])] + scripts + Self.bindings
         run(calls, browser)
-        observation = ObservationLoop { [weak self] in self?.documentChanged() }
+        documentChanged()
     }
 
     /// The media world's bindings: the media report and the protected-media refusal.
@@ -46,8 +46,9 @@ final class CEFMediaBridge {
         }
     }
 
-    /// A document committed or finished: its world exists now.
-    private func documentChanged() {
+    /// After attach, each shim event of the tab (`CEFAgentRelay.documentStateChanged`): a document
+    /// that committed or finished has its world now.
+    func documentChanged() {
         guard let tab else { return }
         let state = tab.state
         guard state.phase == .committed || state.phase == .finished, let browser = tab.browserID else { return }
@@ -79,7 +80,7 @@ final class CEFMediaBridge {
         }
         guard json.contains("\"Runtime.bindingCalled\""), json.contains("\"\(BrowserMediaState.channel)\""),
               let data = json.data(using: .utf8),
-              let message = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let message = try? JSONSerialization.blockingJSONObject(with: data) as? [String: Any],
               message["method"] as? String == "Runtime.bindingCalled",
               let params = message["params"] as? [String: Any], params["name"] as? String == BrowserMediaState.channel
         else { return false }
@@ -92,6 +93,7 @@ final class CEFMediaBridge {
     func report(_ payload: String) {
         guard let tab, let report = BrowserMediaState.frameReport(json: payload) else { return }
         tab.machine.apply(.mediaChanged(report.media, frame: report.frame))
+        tab.noteAudible()
         tab.keepAudioMute(after: report.media)
     }
 
@@ -99,6 +101,15 @@ final class CEFMediaBridge {
     func refused(_ payload: String) {
         guard let refused = BrowserProtectedMedia(reported: payload) else { return }
         tab?.emit(.protectedMediaUnavailable(refused))
+    }
+}
+
+extension CEFTab: BrowserAudibleReporting {
+    /// Copies `state.media?.isAudible` into `isAudible` when it flipped. Each event that changes
+    /// `media` calls it: a media report, a commit, a renderer exit.
+    func noteAudible() {
+        let audible = state.media?.isAudible == true
+        if audible != isAudible { isAudible = audible }
     }
 }
 

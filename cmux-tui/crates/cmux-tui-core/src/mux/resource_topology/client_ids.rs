@@ -6,21 +6,16 @@ use super::*;
 
 /// Whether `public_id` names a live or deleted resource: a client-minted id
 /// is never reused (`split-client-keys-v1`).
+#[track_caller]
 fn resource_public_id_known(registry: &WorkspaceRegistry, public_id: &str) -> anyhow::Result<bool> {
-    use rusqlite::OptionalExtension;
-    Ok(registry
-        .connection
-        .get()
-        .query_row(
-            "SELECT 1 FROM resource_identities WHERE public_id = ?1",
-            [public_id],
-            |_| Ok(()),
-        )
-        .optional()?
-        .is_some())
+    crate::workspace_registry::resource_identity_queries::resource_public_id_known(
+        &registry.connection.get(),
+        public_id,
+    )
 }
 
 /// The caller-minted pane id of a pane creation, validated and unused.
+#[track_caller]
 pub(super) fn requested_client_pane_id(
     fields: &Map<String, Value>,
     state: &State,
@@ -39,6 +34,7 @@ pub(super) fn requested_client_pane_id(
 }
 
 /// The caller-minted tab id of a terminal creation, validated and unused.
+#[track_caller]
 pub(super) fn requested_client_tab_id(
     fields: &Map<String, Value>,
     state: &State,
@@ -58,6 +54,7 @@ pub(super) fn requested_client_tab_id(
 
 /// The caller-minted id of the split a `split` makes
 /// (`split-client-split-id-v1`), validated and unused.
+#[track_caller]
 pub(super) fn requested_client_split_id(
     fields: &Map<String, Value>,
     state: &State,
@@ -79,6 +76,7 @@ pub(super) fn requested_client_split_id(
 /// (`tab_strip::reopen_identity`, plans/cmux-next/durable-links-DESIGN.md):
 /// it must name a closed tab, never a live or unknown one, so a retired id
 /// only comes back for the same tab.
+#[track_caller]
 pub(super) fn requested_reopen_tab_id(
     fields: &Map<String, Value>,
     state: &State,

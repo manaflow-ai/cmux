@@ -26,7 +26,7 @@ public final class AcpmuxPersonLine {
     public static func open(_ environment: AcpmuxEnvironment, deadline: Duration = .seconds(5)) async -> AcpmuxPersonLine? {
         guard FileManager.default.fileExists(atPath: environment.socketPath) else { return nil }
         let connection = AcpmuxPersonLine(environment: environment)
-        connection.timer.schedule(after: deadline) { @MainActor [weak connection] in connection?.close() }
+        connection.timer.scheduleOnMain(after: deadline) { [weak connection] in connection?.close() }
         guard let initialized = await connection.start() else {
             connection.close()
             return nil
@@ -96,7 +96,7 @@ public final class AcpmuxPersonLine {
 
     /// Decodes one line on the line's queue; nil for a line that is not a reply.
     nonisolated static func decode(_ data: Data) -> Reply? {
-        guard let message = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+        guard let message = (try? JSONSerialization.blockingJSONObject(with: data)) as? [String: Any],
               let id = (message["id"] as? NSNumber)?.intValue else { return nil }
         return Reply(id: id, result: message["error"] == nil ? ResultBox(message["result"] as? [String: Any] ?? [:]) : nil)
     }

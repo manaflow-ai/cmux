@@ -7,7 +7,7 @@ import Testing
 struct AgentInventoryRefreshConnectionTests {
     private struct CapturedRefreshCalls: DaemonRequest {
         typealias Response = JSONValue
-        static let command = "test-refresh-calls"
+        static let commandName: DaemonCommandName = "test-refresh-calls"
     }
 
     @Test(arguments: ["good", "foreign", "missing", "invalid", "old"])

@@ -44,7 +44,7 @@ final class PageGoneView: NSView {
             symbol.image = NSImage.icon(.statusWarning, size: .iconRowSize(forLabelPointSize: BrowserMetrics.errorTitleFont.pointSize * 1.6))
             stack.spacing = BrowserMetrics.overlayPadding
         }
-        density.start()
+        density.start(in: self)
     }
 
     @available(*, unavailable)
@@ -82,7 +82,7 @@ final class PageGoneView: NSView {
 
     @objc private func reload() { onReload?() }
 
-    #if DEBUG
+    #if DEBUG || CMUX_BENCH_HOOKS
     /// `debug.browser.page_status`: the title, the message and the button the sad tab shows.
     var debugText: String { "\(titleLabel.stringValue)\n\(messageLabel.stringValue)\n\(reloadButton.isHidden ? "" : reloadButton.title)" }
 

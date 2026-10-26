@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 
 /// A `cmux_shim_tab_evaluate` answer (EVALUATE_RESULT, fork API 29), before it is parsed.
@@ -16,7 +17,7 @@ nonisolated struct CEFEvaluationResult: Equatable, Sendable {
         switch status {
         case 1:
             guard !text.isEmpty else { return .null }
-            guard let object = try? JSONSerialization.jsonObject(with: Data(text.utf8), options: .fragmentsAllowed) else {
+            guard let object = try? JSONSerialization.blockingJSONObject(with: Data(text.utf8), options: .fragmentsAllowed) else {
                 throw .javaScript("invalid script result")
             }
             return BrowserJSValue(foundation: object)

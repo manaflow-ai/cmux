@@ -78,9 +78,10 @@ enum AgentPaneTheme {
                 "fadeOut": motion.duration(MotionFade.fadeOut),
                 "move": motion.duration(MotionSpring.move),
             ],
-            // Static status indicators, or Reduce Motion (cx-sya4n): the page stops its status
-            // loops and draws a shape per state (`data-status-indicators`).
-            "statusIndicators": motion.reduceMotion || DesignSettings.shared.statusIndicator.animation == .static ? "static" : "animated",
+            // Static status indicators, Reduce Motion (cx-sya4n) or Energy Saver (p14-energy-027):
+            // the page stops its status loops and draws a shape per state (`data-status-indicators`).
+            "statusIndicators": motion.reduceMotion || motion.energySaver
+                || DesignSettings.shared.statusIndicator.animation == .static ? "static" : "animated",
             // How agent work shows on the transcript's running rows (`data-working-look`).
             "workingLook": StatusWorkingLook.tunable.value.rawValue,
         ]
@@ -112,15 +113,6 @@ enum AgentPaneTheme {
         func channel(_ value: Double) -> Int { Int((value * 255).rounded()) }
         let alpha = (color.alpha * 1000).rounded() / 1000
         return "rgba(\(channel(color.red)), \(channel(color.green)), \(channel(color.blue)), \(alpha))"
-    }
-
-    /// The script that applies `tokens` to a loaded page.
-    static func script(_ tokens: ThemeTokens, surface: SurfaceKind = .agentPane) -> String? {
-        guard let data = try? JSONSerialization.data(withJSONObject: values(tokens, surface: surface), options: [.sortedKeys]),
-              let json = String(data: data, encoding: .utf8) else { return nil }
-        // The shared web theme first (`--cmux-*`, the page background), then
-        // the pane's own bridge.
-        return webTheme(tokens, surface: surface).applyScript + "window.cmuxAcpmuxBridge?.applyTheme(\(json));"
     }
 
     /// The shared web theme of `surface`. The New Tab page is transparent (the page background

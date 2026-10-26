@@ -13,6 +13,8 @@ import java.util.Objects;
 /** Immutable cloud-conversation-changed event. Protocol v12; streams: subscribe. */
 public final class CloudConversationChangedEvent implements WireValue, DeltaStreamEvent, ProtocolEvent, SubscribeEvent {
     private final Field<String> account;
+    /** What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing. */
+    private final Field<EventCause> cause;
     private final Object change;
     private final String conversation;
     private final UInt64 rev;
@@ -21,6 +23,7 @@ public final class CloudConversationChangedEvent implements WireValue, DeltaStre
 
     private CloudConversationChangedEvent(Builder builder) {
         this.account = builder.account;
+        this.cause = builder.cause;
         if (!builder.changeSet) throw new IllegalArgumentException("change is required");
         this.change = builder.change == null ? null : Wire.immutableJson(builder.change);
         if (!builder.conversationSet) throw new IllegalArgumentException("conversation is required");
@@ -36,6 +39,7 @@ public final class CloudConversationChangedEvent implements WireValue, DeltaStre
     public static Builder builder() { return new Builder(); }
 
     public Field<String> account() { return account; }
+    public Field<EventCause> cause() { return cause; }
     public Object change() { return change; }
     public String conversation() { return conversation; }
     public UInt64 rev() { return rev; }
@@ -50,6 +54,10 @@ public final class CloudConversationChangedEvent implements WireValue, DeltaStre
         Object rawAccount = Wire.optional(object, "account");
         if (!Wire.isMissing(rawAccount)) {
             builder.account(Wire.string(rawAccount, "CloudConversationChangedEvent.account"));
+        }
+        Object rawCause = Wire.optional(object, "cause");
+        if (!Wire.isMissing(rawCause)) {
+            builder.cause(EventCause.fromWire(rawCause));
         }
         Object rawChange = Wire.required(object, "change");
         builder.change(rawChange == null ? null : Wire.immutableJson(rawChange));
@@ -69,6 +77,7 @@ public final class CloudConversationChangedEvent implements WireValue, DeltaStre
         LinkedHashMap<String, Object> object = new LinkedHashMap<>();
         object.put("event", "cloud-conversation-changed");
         Wire.put(object, "account", account);
+        Wire.put(object, "cause", cause);
         Wire.put(object, "change", change);
         Wire.put(object, "conversation", conversation);
         Wire.put(object, "rev", rev);
@@ -80,17 +89,18 @@ public final class CloudConversationChangedEvent implements WireValue, DeltaStre
     @Override
     public boolean equals(Object other) {
         if (!(other instanceof CloudConversationChangedEvent that)) return false;
-        return Objects.equals(account, that.account) && Objects.equals(change, that.change) && Objects.equals(conversation, that.conversation) && Objects.equals(rev, that.rev) && Objects.equals(seq, that.seq) && Objects.equals(transaction, that.transaction);
+        return Objects.equals(account, that.account) && Objects.equals(cause, that.cause) && Objects.equals(change, that.change) && Objects.equals(conversation, that.conversation) && Objects.equals(rev, that.rev) && Objects.equals(seq, that.seq) && Objects.equals(transaction, that.transaction);
     }
 
     @Override
-    public int hashCode() { return Objects.hash(account, change, conversation, rev, seq, transaction); }
+    public int hashCode() { return Objects.hash(account, cause, change, conversation, rev, seq, transaction); }
 
     @Override
     public String toString() { return "CloudConversationChangedEvent" + toWire(); }
 
     public static final class Builder {
         private Field<String> account = Field.omitted();
+        private Field<EventCause> cause = Field.omitted();
         private Object change;
         private boolean changeSet;
         private String conversation;
@@ -104,6 +114,10 @@ public final class CloudConversationChangedEvent implements WireValue, DeltaStre
 
         public Builder account(String value) {
             this.account = Field.of(value);
+            return this;
+        }
+        public Builder cause(EventCause value) {
+            this.cause = Field.of(value);
             return this;
         }
         public Builder change(Object value) {

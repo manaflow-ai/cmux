@@ -1,6 +1,11 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 
+// memory: fixed: one entry per menu icon: the SF Symbol names of the page menu (a fixed catalog;
+// symbols are vector templates) and one per enabled extension with menu rows, whose 1x and 2x files
+// are the manifest's smallest icons of at least 16 and 32 px (BrowserExtensionMenuSource), about
+// 5 KB of pixels each; the builder that owns it is one per process.
 /// The 16 pt images of page menu rows (``BrowserContextMenuIcon``), made
 /// once per icon. Main thread, like the menus that show them.
 final class BrowserContextMenuImages {
@@ -22,7 +27,8 @@ final class BrowserContextMenuImages {
         switch icon {
         case .image(let oneX, let twoX):
             let reps = [oneX, twoX].compactMap { $0 }.reduce(into: [String]()) { if !$0.contains($1) { $0.append($1) } }
-                .compactMap { NSImage(contentsOfFile: $0)?.representations.max { $0.pixelsWide < $1.pixelsWide } }
+                .compactMap { try? Data(blockingContentsOf: URL(fileURLWithPath: $0)) }
+                .compactMap { blockingNSImage($0)?.representations.max { $0.pixelsWide < $1.pixelsWide } }
             guard !reps.isEmpty else { return make(.defaultExtension) }
             let image = NSImage(size: size)
             for rep in reps {

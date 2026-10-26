@@ -3,6 +3,7 @@
 use super::*;
 
 impl Mux {
+    #[track_caller]
     pub(crate) fn resource_creation_resolution(
         self: &Arc<Self>,
         correlation_key: &str,
@@ -11,6 +12,7 @@ impl Mux {
         self.workspace_registry.lock().unwrap().resolve_resource_creation(correlation_key)
     }
 
+    #[track_caller]
     pub(in crate::mux) fn reconcile_interrupted_resource_creations(&self) -> anyhow::Result<bool> {
         let recoveries =
             self.workspace_registry.lock().unwrap().interrupted_resource_creation_recoveries()?;
@@ -24,6 +26,7 @@ impl Mux {
         Ok(pending)
     }
 
+    #[track_caller]
     pub(super) fn reconcile_interrupted_resource_creation(
         &self,
         correlation_key: &str,
@@ -37,6 +40,7 @@ impl Mux {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub(crate) fn resource_create_empty_workspace_selected(
         self: &Arc<Self>,
         selectors: ResourceSelectors,
@@ -237,7 +241,9 @@ impl Mux {
         }
         let marked = public_id.as_str().to_string();
         let writes = mark.writes();
-        let write_mark = move |tx: &rusqlite::Transaction<'_>| mark.write(tx, &marked, &marked_key);
+        let write_mark = move |tx: &crate::workspace_registry::RegistryTransaction<'_>| {
+            mark.write(tx, &marked, &marked_key)
+        };
         let (commit, workspace_revision) = registry.commit_resource_creation_patch(
             correlation_key,
             mutation,
@@ -284,6 +290,7 @@ impl Mux {
         Ok(commit)
     }
 
+    #[track_caller]
     pub(crate) fn resource_pane_neighbor_selected(
         &self,
         selectors: &ResourceSelectors,
@@ -314,6 +321,7 @@ impl Mux {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub(crate) fn resource_topology_operation(
         self: &Arc<Self>,
         operation: ResourceOperation,
@@ -341,6 +349,7 @@ impl Mux {
     /// correlation engine. Selector candidates are ordered by the frontend's
     /// local focus projection; the first still-live path is captured in the
     /// durable intent while holding the creation lifecycle fence.
+    #[track_caller]
     pub fn receipted_surface_creation(
         self: &Arc<Self>,
         operation: ResourceOperation,
@@ -392,6 +401,7 @@ impl Mux {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub(in crate::mux) fn commit_resource_topology_operation(
         self: &Arc<Self>,
         operation: ResourceOperation,

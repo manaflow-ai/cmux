@@ -14,6 +14,7 @@ use std::path::{Path, PathBuf};
 use std::process::Command;
 
 use cmux_tui_core::fs_ops::{FsService, Roots, stream};
+use cmux_tui_core::server::answer_fs_request;
 use serde_json::Value;
 
 /// Serves `fs.*` lines on `socket` with the real owner over `home`, one
@@ -31,8 +32,7 @@ fn serve_fs(socket: &Path, home: &Path) {
                     let Ok(line) = line else { return };
                     let request: Value = serde_json::from_str(&line).unwrap();
                     let id = request["id"].clone();
-                    let cmd = request["cmd"].as_str().unwrap_or_default().to_string();
-                    let reply = stream::answer(&id, service.call("local", &cmd, request));
+                    let reply = stream::answer(&id, answer_fs_request(service, "local", request));
                     let mut text = reply.to_string();
                     text.push('\n');
                     if writer.write_all(text.as_bytes()).is_err() {

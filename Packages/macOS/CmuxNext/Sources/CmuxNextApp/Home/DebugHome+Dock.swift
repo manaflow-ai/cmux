@@ -21,13 +21,13 @@ extension DebugHome {
         return .object([
             "mode": .string(view.mode.rawValue),
             "dock_frame": dockFrame.map(box) ?? .null,
-            "visible": .bool(view.window != nil && !view.isHiddenOrHasHiddenAncestor),
+            "visible": .bool(isOnScreen(view)),
             "messages_shown": view.messages?.shown.map { .string($0.rawValue) } ?? .null,
-            "messages_visible": .bool(view.messages.map { !$0.isHiddenOrHasHiddenAncestor && $0.window != nil } ?? false),
+            "messages_visible": .bool(isOnScreen(view.messages)),
             "open_thread": transcript?.openThreadRoot.map { .string($0) } ?? .null,
             "transcript_tail": .array((transcript?.debugMessageTexts() ?? []).map { .string($0) }),
             "channels_route": view.channels?.route.map { .string($0) } ?? .null,
-            "channels_visible": .bool(view.channels.map { !$0.isHiddenOrHasHiddenAncestor && $0.window != nil } ?? false),
+            "channels_visible": .bool(isOnScreen(view.channels)),
             "channels_enabled": .bool(HomeDockMode.channels.isEnabled),
             // The Messages list as drawn: the pinned grid, then the rows (id, title, pinned, unread).
             "messages_list": .array(((view.messages?.list.model).map { $0.pinned + $0.rows } ?? []).map { item in

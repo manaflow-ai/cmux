@@ -226,6 +226,7 @@ fn validate_screen_group(group: &ScreenGroupRecord) -> anyhow::Result<()> {
 
 /// Replace every screen presentation, group, and membership row in the
 /// caller's transaction.
+#[track_caller]
 pub(crate) fn write_screen_state(
     transaction: &Transaction<'_>,
     state: &ScreenPresentationState,
@@ -289,6 +290,7 @@ pub(crate) fn write_screen_state(
 /// Every screen and screen group icon this write adds must name a stored
 /// asset. Icons the tables already hold are not checked again: the whole
 /// tables are rewritten.
+#[track_caller]
 fn require_new_screen_icons(
     transaction: &Transaction<'_>,
     state: &ScreenPresentationState,
@@ -425,6 +427,7 @@ pub(crate) fn read_saved_screen_groups(
 impl WorkspaceRegistry {
     /// Public ids of a workspace's live screens in stored order (tests).
     #[cfg(test)]
+    #[track_caller]
     pub(crate) fn live_screen_order(
         &self,
         workspace_public_id: &str,
@@ -440,6 +443,7 @@ impl WorkspaceRegistry {
 
     /// Replace every screen presentation row (metadata-only changes that
     /// leave screen order alone).
+    #[track_caller]
     pub fn replace_screen_state(&mut self, state: &ScreenPresentationState) -> anyhow::Result<()> {
         let db = self.connection.get();
         let tx = db.unchecked_transaction()?;
@@ -450,6 +454,7 @@ impl WorkspaceRegistry {
 
     /// Create or replace a saved screen group, keeping its position (new
     /// records go last).
+    #[track_caller]
     pub fn put_saved_screen_group(
         &mut self,
         record: &SavedScreenGroupRecord,
@@ -507,6 +512,7 @@ impl WorkspaceRegistry {
 
     /// Delete a saved screen group and unlink its live group. Returns
     /// whether it existed.
+    #[track_caller]
     pub fn delete_saved_screen_group(&mut self, saved_id: &str) -> anyhow::Result<bool> {
         let db = self.connection.get();
         let tx = db.unchecked_transaction()?;

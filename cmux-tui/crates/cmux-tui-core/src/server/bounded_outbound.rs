@@ -2,6 +2,18 @@
 //! queues with their item and byte budgets, connection permits, the writer
 //! thread loop that frames JSON lines or WebSocket text frames, and the
 //! queued message sink over a synchronized TCP stream.
+//!
+//! Write order: `initial` stream state, then the control FIFO, then the
+//! regular FIFO. The control FIFO holds replies, stream terminals and the
+//! items of control-sequence streams in enqueue order, so a reply is never
+//! written before a control event enqueued ahead of it (spec/transports.md
+//! "Reply and event order"). Like Mojo's associated interfaces
+//! (mojo/public/cpp/bindings/associated_receiver.h), events and replies that
+//! must stay ordered share one pipe; unrelated streams do not. The control
+//! FIFO's priority is bounded: after `CONTROL_STREAM_BURST` control-sequence
+//! items in a row, a waiting regular item goes first, so an event flood never
+//! starves attach output (the starvation bound of Chromium's
+//! base/task/sequence_manager/task_queue_selector.cc).
 
 use super::BACKPRESSURE_RECHECK;
 use super::BudgetedText;
@@ -18,6 +30,8 @@ use super::OutboundStream;
 use super::RENDER_ATTACH_MAX_BYTES;
 use crate::panic_free::RecoverPoison;
 use crate::platform::transport;
+use cmux_ipc::FrameHeader;
+use cmux_threads::checked::sync as waits;
 use std::collections::HashMap;
 use std::collections::VecDeque;
 use std::io::Read;
@@ -29,6 +43,10 @@ use std::sync::Condvar;
 use std::sync::Mutex;
 use std::sync::atomic::Ordering;
 use std::time::Duration;
+
+/// Control-sequence stream items the writer pops in a row while a regular
+/// item waits; then it writes that regular item (`pop_locked`).
+pub(super) const CONTROL_STREAM_BURST: usize = 8;
 
 #[derive(Default)]
 pub(super) struct BoundedOutbound {
@@ -42,10 +60,37 @@ pub(super) struct BoundedOutboundState {
     pub(super) control: VecDeque<ControlOutbound>,
     pub(super) regular: VecDeque<RegularOutbound>,
     pub(super) stream_usage: HashMap<u64, StreamOutboundUsage>,
+    /// Replies and terminals in `control`: the control reserve's use.
     pub(super) control_messages: usize,
     pub(super) control_bytes: usize,
+    /// Control-sequence stream items in `control`; counted, like the
+    /// `initial` and `regular` items, in their stream and connection budgets.
+    pub(super) control_stream_items: usize,
+    /// Control-sequence items popped since the last regular item.
+    control_stream_run: usize,
     pub(super) regular_bytes: usize,
     pub(super) closed: bool,
+}
+
+impl BoundedOutboundState {
+    /// Stream items queued on this connection, wherever their sequence puts them.
+    fn queued_stream_items(&self) -> usize {
+        self.initial.len() + self.regular.len() + self.control_stream_items
+    }
+
+    /// Queues an admitted stream item: a control-sequence stream's item goes
+    /// to the control FIFO behind every reply enqueued before it, `initial`
+    /// state of another stream ahead of everything, the rest to `regular`.
+    fn enqueue_stream_item(&mut self, message: RegularOutbound, initial: bool) {
+        if message.stream.control_sequence {
+            self.control_stream_items += 1;
+            self.control.push_back(ControlOutbound::Stream(message));
+        } else if initial {
+            self.initial.push_back(message);
+        } else {
+            self.regular.push_back(message);
+        }
+    }
 }
 
 pub(super) struct StreamOutboundUsage {
@@ -61,11 +106,17 @@ pub(super) struct RegularOutbound {
 
 pub(super) enum ControlOutbound {
     Text(Arc<BudgetedText>),
+    /// A framed request's REPLY or ERROR: counted like `Text`.
+    Frame(FrameHeader, Arc<BudgetedText>),
+    /// An item of a control-sequence stream, in FIFO order with replies.
+    Stream(RegularOutbound),
     Flush(std::sync::mpsc::SyncSender<()>),
 }
 
 pub(super) enum OutboundItem {
     Text(Arc<BudgetedText>),
+    /// A frame: `header`, then the text as its payload, with no delimiter.
+    Frame(FrameHeader, Arc<BudgetedText>),
     Flush(std::sync::mpsc::SyncSender<()>),
 }
 
@@ -186,8 +237,7 @@ impl BoundedOutbound {
         loop {
             let byte_full =
                 bytes > OUTBOUND_CONNECTION_BYTE_CAPACITY.saturating_sub(state.regular_bytes);
-            let count_full =
-                state.initial.len() + state.regular.len() >= OUTBOUND_CONNECTION_CAPACITY;
+            let count_full = state.queued_stream_items() >= OUTBOUND_CONNECTION_CAPACITY;
             if !byte_full && !count_full {
                 break;
             }
@@ -215,12 +265,7 @@ impl BoundedOutbound {
         });
         usage.messages += 1;
         usage.bytes += bytes;
-        let message = RegularOutbound { text, stream: stream.clone() };
-        if initial {
-            state.initial.push_back(message);
-        } else {
-            state.regular.push_back(message);
-        }
+        state.enqueue_stream_item(RegularOutbound { text, stream: stream.clone() }, initial);
         Ok(())
     }
 
@@ -240,7 +285,7 @@ impl BoundedOutbound {
         state.control.push_back(ControlOutbound::Flush(flushed_tx));
         drop(state);
         self.changed.notify_one();
-        match flushed_rx.recv_timeout(timeout) {
+        match waits::recv_timeout(&flushed_rx, timeout) {
             Ok(()) => Ok(()),
             Err(std::sync::mpsc::RecvTimeoutError::Timeout) => Err(std::io::Error::new(
                 std::io::ErrorKind::TimedOut,
@@ -306,8 +351,7 @@ impl BoundedOutbound {
                 .unwrap_or_default();
             let stream_full = stream_messages >= OUTBOUND_CAPACITY
                 || bytes > OUTBOUND_BYTE_CAPACITY.saturating_sub(stream_bytes);
-            let connection_full = state.initial.len() + state.regular.len()
-                >= OUTBOUND_CONNECTION_CAPACITY
+            let connection_full = state.queued_stream_items() >= OUTBOUND_CONNECTION_CAPACITY
                 || bytes > OUTBOUND_CONNECTION_BYTE_CAPACITY.saturating_sub(state.regular_bytes);
             if !stream_full && !connection_full {
                 state.regular_bytes += bytes;
@@ -316,7 +360,7 @@ impl BoundedOutbound {
                 });
                 usage.messages += 1;
                 usage.bytes += bytes;
-                state.regular.push_back(RegularOutbound { text, stream: stream.clone() });
+                state.enqueue_stream_item(RegularOutbound { text, stream: stream.clone() }, false);
                 stream.terminal_enqueued.store(true, Ordering::Release);
                 stream.close();
                 drop(state);
@@ -351,6 +395,11 @@ impl BoundedOutbound {
     pub(super) fn purge_stream_locked(state: &mut BoundedOutboundState, stream_id: u64) {
         state.initial.retain(|message| message.stream.id != stream_id);
         state.regular.retain(|message| message.stream.id != stream_id);
+        let before = state.control.len();
+        state.control.retain(
+            |item| !matches!(item, ControlOutbound::Stream(message) if message.stream.id == stream_id),
+        );
+        state.control_stream_items -= before - state.control.len();
         if let Some(usage) = state.stream_usage.remove(&stream_id) {
             state.regular_bytes = state.regular_bytes.saturating_sub(usage.bytes);
         }
@@ -368,14 +417,35 @@ impl BoundedOutbound {
             .map(|usage| usage.stream.clone())
     }
 
+    /// Queues a framed request's reply in the control FIFO, under the same
+    /// reserve as a reply line.
+    pub(super) fn push_frame(
+        &self,
+        header: FrameHeader,
+        text: Arc<BudgetedText>,
+    ) -> std::io::Result<()> {
+        let mut state = self.state.lock().recover_poison();
+        Self::admit_control_locked(&mut state, text.len())?;
+        state.control.push_back(ControlOutbound::Frame(header, text));
+        drop(state);
+        self.changed.notify_one();
+        Ok(())
+    }
+
     pub(super) fn push_control_locked(
         state: &mut BoundedOutboundState,
         text: Arc<BudgetedText>,
     ) -> std::io::Result<()> {
+        Self::admit_control_locked(state, text.len())?;
+        state.control.push_back(ControlOutbound::Text(text));
+        Ok(())
+    }
+
+    /// Counts one control message of `bytes` against the control reserve.
+    fn admit_control_locked(state: &mut BoundedOutboundState, bytes: usize) -> std::io::Result<()> {
         if state.closed {
             return Err(std::io::Error::new(std::io::ErrorKind::BrokenPipe, "connection closed"));
         }
-        let bytes = text.len();
         if state.control_messages >= OUTBOUND_CONTROL_RESERVE
             || bytes > OUTBOUND_CONTROL_BYTE_RESERVE.saturating_sub(state.control_bytes)
         {
@@ -386,16 +456,16 @@ impl BoundedOutbound {
         }
         state.control_messages += 1;
         state.control_bytes += bytes;
-        state.control.push_back(ControlOutbound::Text(text));
         Ok(())
     }
 
+    /// The next item's text (a frame's payload), in write order.
     #[cfg(test)]
     pub(super) fn try_pop(&self) -> Option<String> {
         let mut state = self.state.lock().recover_poison();
         loop {
             match Self::pop_locked(&mut state) {
-                Some(OutboundItem::Text(text)) => {
+                Some(OutboundItem::Text(text) | OutboundItem::Frame(_, text)) => {
                     drop(state);
                     self.changed.notify_all();
                     return Some(text.to_string());
@@ -422,7 +492,7 @@ impl BoundedOutbound {
             if state.closed {
                 return None;
             }
-            state = self.changed.wait(state).recover_poison();
+            state = waits::wait(&self.changed, state).recover_poison();
         }
     }
 
@@ -431,17 +501,35 @@ impl BoundedOutbound {
             Self::record_stream_pop(state, &message);
             return Some(OutboundItem::Text(message.text));
         }
-        if let Some(control) = state.control.pop_front() {
+        // A control-sequence item yields to one waiting regular item after a
+        // burst; a reply or terminal never does, and nothing in the control
+        // FIFO changes its order.
+        let yields = state.control_stream_run >= CONTROL_STREAM_BURST
+            && !state.regular.is_empty()
+            && matches!(state.control.front(), Some(ControlOutbound::Stream(_)));
+        if !yields && let Some(control) = state.control.pop_front() {
             return Some(match control {
                 ControlOutbound::Text(text) => {
                     state.control_messages = state.control_messages.saturating_sub(1);
                     state.control_bytes = state.control_bytes.saturating_sub(text.len());
                     OutboundItem::Text(text)
                 }
+                ControlOutbound::Frame(header, text) => {
+                    state.control_messages = state.control_messages.saturating_sub(1);
+                    state.control_bytes = state.control_bytes.saturating_sub(text.len());
+                    OutboundItem::Frame(header, text)
+                }
+                ControlOutbound::Stream(message) => {
+                    state.control_stream_items = state.control_stream_items.saturating_sub(1);
+                    state.control_stream_run += 1;
+                    Self::record_stream_pop(state, &message);
+                    OutboundItem::Text(message.text)
+                }
                 ControlOutbound::Flush(flushed) => OutboundItem::Flush(flushed),
             });
         }
         let message = state.regular.pop_front()?;
+        state.control_stream_run = 0;
         Self::record_stream_pop(state, &message);
         Some(OutboundItem::Text(message.text))
     }
@@ -466,7 +554,7 @@ impl BoundedOutbound {
     pub(super) fn close(&self) {
         let mut state = self.state.lock().recover_poison();
         state.closed = true;
-        state.control.retain(|item| matches!(item, ControlOutbound::Text(_)));
+        state.control.retain(|item| !matches!(item, ControlOutbound::Flush(_)));
         drop(state);
         self.changed.notify_all();
     }
@@ -483,6 +571,7 @@ impl BoundedOutbound {
         state.stream_usage.clear();
         state.control_messages = 0;
         state.control_bytes = 0;
+        state.control_stream_items = 0;
         state.regular_bytes = 0;
         drop(state);
         self.changed.notify_all();
@@ -495,6 +584,8 @@ impl BoundedOutbound {
         }
         state.initial.clear();
         state.regular.clear();
+        state.control.retain(|item| !matches!(item, ControlOutbound::Stream(_)));
+        state.control_stream_items = 0;
         state.stream_usage.clear();
         state.regular_bytes = 0;
         state.closed = true;
@@ -511,6 +602,10 @@ pub(super) fn write_line_outbound_item<W: Write + ?Sized>(
         OutboundItem::Text(text) => {
             writer.write_all(text.as_bytes())?;
             writer.write_all(b"\n")
+        }
+        OutboundItem::Frame(header, text) => {
+            writer.write_all(&header.encode())?;
+            writer.write_all(text.as_bytes())
         }
         OutboundItem::Flush(flushed) => {
             writer.flush()?;
@@ -581,14 +676,20 @@ impl SynchronizedTcpStream {
         self.stream.set_write_timeout(timeout)
     }
 
-    pub(super) fn write_websocket_text(&mut self, text: &str) -> std::io::Result<()> {
+    /// One text message; its write calls count in `ipc` (`server-stats`).
+    pub(super) fn write_websocket_text(
+        &mut self,
+        text: &str,
+        ipc: &crate::diagnostics::IpcStats,
+    ) -> std::io::Result<()> {
         if text.len() > RENDER_ATTACH_MAX_BYTES {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
                 "WebSocket outbound message exceeds the protocol limit",
             ));
         }
-        self.write_websocket_frame(0x1, text.as_bytes())
+        let _guard = self.write_lock.lock().recover_poison();
+        write_websocket_frame_to(&mut ipc.counted(&mut self.stream), 0x1, text.as_bytes())
     }
 
     pub(super) fn write_websocket_close(&mut self) -> std::io::Result<()> {
@@ -606,13 +707,22 @@ impl SynchronizedTcpStream {
         opcode: u8,
         payload: &[u8],
     ) -> std::io::Result<()> {
-        let (header, header_len) = websocket_server_frame_header(opcode, payload.len());
         let _guard = self.write_lock.lock().recover_poison();
-        let header = header.get(..header_len).ok_or(std::io::ErrorKind::InvalidData)?;
-        self.stream.write_all(header)?;
-        self.stream.write_all(payload)?;
-        self.stream.flush()
+        write_websocket_frame_to(&mut self.stream, opcode, payload)
     }
+}
+
+/// One whole server frame; the caller holds the stream's write lock.
+fn write_websocket_frame_to<W: Write + ?Sized>(
+    out: &mut W,
+    opcode: u8,
+    payload: &[u8],
+) -> std::io::Result<()> {
+    let (header, header_len) = websocket_server_frame_header(opcode, payload.len());
+    let header = header.get(..header_len).ok_or(std::io::ErrorKind::InvalidData)?;
+    out.write_all(header)?;
+    out.write_all(payload)?;
+    out.flush()
 }
 
 pub(super) fn websocket_server_frame_header(opcode: u8, payload_len: usize) -> ([u8; 10], usize) {
@@ -699,6 +809,17 @@ impl MessageSink for QueuedSink {
 
     fn send_control(&self, text: Arc<BudgetedText>) -> std::io::Result<()> {
         self.outbound.push_control(text)
+    }
+
+    fn send_frame(&self, header: FrameHeader, text: Arc<BudgetedText>) -> std::io::Result<()> {
+        match self.control {
+            Some(SinkControl::Unix(_)) => self.outbound.push_frame(header, text),
+            // Frames are granted only to local Unix peers (p05-ipc-060).
+            Some(SinkControl::WebSocket(_)) | None => Err(std::io::Error::new(
+                std::io::ErrorKind::Unsupported,
+                "frames ride only a local Unix connection",
+            )),
+        }
     }
 
     fn send_terminal(

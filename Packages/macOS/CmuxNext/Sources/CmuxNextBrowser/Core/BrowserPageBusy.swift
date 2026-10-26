@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 
 /// What a page does that no element shows (cx-d0d.9): Web Audio and media capture, and form
@@ -81,14 +82,14 @@ public nonisolated struct BrowserPageBusy: Equatable, Sendable {
     }
 
     /// Unmuted media playing or a video in Picture in Picture (it plays on in
-    /// its floating window), a running Web Audio context, a live camera,
-    /// microphone or screen capture, or form fields whose value differs from the
-    /// page's default (form interaction): the fallback for a page without the recorder.
+    /// its floating window; `media`), unmuted media playing alone (`sound`), or
+    /// form fields whose value differs from the page's default (form interaction):
+    /// the fallback for a page without the recorder.
     /// A page that does not answer within the deadline is treated as busy and kept.
     package static let fieldProbeScript = """
     (() => {
-      const media = [...document.querySelectorAll('audio,video')].some(m => !m.paused && !m.ended && !m.muted && m.volume > 0)
-        || !!document.pictureInPictureElement
+      const sound = [...document.querySelectorAll('audio,video')].some(m => !m.paused && !m.ended && !m.muted && m.volume > 0);
+      const media = sound || !!document.pictureInPictureElement
         || [...document.querySelectorAll('video')].some(v => v.webkitPresentationMode === 'picture-in-picture');
       const form = [...document.querySelectorAll('input,textarea,select')].some(e => {
         if (e.disabled || e.type === 'hidden' || e.type === 'submit' || e.type === 'button') return false;
@@ -96,7 +97,7 @@ public nonisolated struct BrowserPageBusy: Equatable, Sendable {
         if (e.type === 'checkbox' || e.type === 'radio') return e.checked !== e.defaultChecked;
         return e.value !== e.defaultValue;
       });
-      return JSON.stringify({media, form});
+      return JSON.stringify({media, sound, form});
     })()
     """
 
@@ -394,7 +395,7 @@ extension BrowserTab {
     public func pageBusy() async throws -> BrowserPageBusy {
         let value = try await evaluate(BrowserPageBusy.probeScript, world: .page, gesture: .cmux)
         guard case .string(let json) = value, let data = json.data(using: .utf8),
-              let object = try JSONSerialization.jsonObject(with: data) as? [String: Any] else {
+              let object = try JSONSerialization.blockingJSONObject(with: data) as? [String: Any] else {
             throw CocoaError(.coderReadCorrupt)
         }
         return BrowserPageBusy(audio: object["audio"] as? Bool ?? false, capturing: object["capturing"] as? Bool ?? false,

@@ -17,7 +17,7 @@
 public nonisolated struct MachineAgentInventoryRequest: DaemonRequest {
     public typealias Response = AcpmuxHarnessInventory
     /// The cache-only native daemon command.
-    public static let command = "agent-inventory"
+    public static let commandName: DaemonCommandName = "agent-inventory"
     /// Separate negotiation prevents sending the fence to an unfenced legacy owner.
     public static let requiredCapability: String? = "agent-inventory-owner-v1"
     /// The canonical machine ID selected from the catalog, preserved exactly.
@@ -27,5 +27,9 @@ public nonisolated struct MachineAgentInventoryRequest: DaemonRequest {
     /// - Parameter expectedMachineID: The opaque catalog ID, never a hostname or UI route.
     public init(expectedMachineID: ResourceID) {
         self.expectedMachineID = expectedMachineID
+    }
+
+    enum CodingKeys: String, CodingKey {
+        case expectedMachineID = "expected_machine_id"
     }
 }

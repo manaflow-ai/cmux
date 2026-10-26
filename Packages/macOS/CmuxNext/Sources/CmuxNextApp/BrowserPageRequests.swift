@@ -45,9 +45,11 @@ final class BrowserPageRequests: BrowserTabDelegate {
             // marked before its page exists (no rebuild on the agent's first
             // touch, no saved password filled), as its adopted pages are.
             openers.inheritsFromOpener = { [weak self] child, opener in
+                // view-observation-allow: the tab on a surface is one read of the store's surface index (R-index's target), not an observation
                 guard let services = self?.services, let tab = services.locateTab(surface: opener),
                       services.cache.agentDrivenTabs.contains(tab.id) else { return }
                 services.cache.markAgentDriven(surface: child)
+                // view-observation-allow: the tab on a surface is one read of the store's surface index (R-index's target), not an observation
                 if let key = services.locateTab(surface: child)?.id, services.cache.existingBrowser(key) != nil {
                     services.cache.markAgentDriven(key)
                 }
@@ -64,16 +66,12 @@ final class BrowserPageRequests: BrowserTabDelegate {
     let sidebarNowPlaying = BrowserTabsNowPlaying()
     /// cmux's own music player (cx-imt2i, a preview feature).
     let music = MusicPlayer()
-    /// What the Now Playing card shows and drives: the player while it plays, else the playing tab,
-    /// else another app that plays (Spotify, Music: macOS Now Playing, cmux's own entries left out)
-    /// while `sidebar.nowPlaying.otherApps` is on (off by default: only what plays in cmux).
-    private(set) lazy var sidebarSources = NowPlayingSources(
-        player: music, tabs: sidebarNowPlaying, system: SystemNowPlaying.bundled(),
-        otherApps: { [weak self] in self?.services?.settings?.snapshot.nowPlaying.otherApps ?? NowPlayingSettings.otherAppsDefault })
     /// Whether the Now Playing card is put away (its x, Hide, Hide Until Relaunch; u2437), for every window's sidebar.
     let nowPlayingCard = NowPlayingCardDismissal()
     /// Where a page's new tab goes next to its opener.
     let openers = BrowserTabOpeners()
+    /// Which page opened which with a live `window.opener` (the frozen growth discard's group).
+    let scriptOpeners = BrowserScriptOpeners()
     /// Background tabs whose title changed (the strip's unread dot).
     let titleAttention = BrowserTitleAttention()
     /// Closed tabs' histories, for Reopen Closed Tab.
@@ -85,7 +83,7 @@ final class BrowserPageRequests: BrowserTabDelegate {
     /// extension's chrome.tabs.remove right after chrome.tabs.create).
     /// Weak: a page closed by its user (already uninstalled) lands here too
     /// and must not be kept alive.
-    private var closedBeforeAdoption: [WeakPage] = []
+    private var closedBeforeAdoption: [WeakBrowserTab] = []
     /// Daemon tabs to close when they appear: their page closed first.
     private var closeOnArrival: Set<SurfaceID> = []
     /// Tabs whose Chromium store is a Cloud machine's proxy (`browser.tab.open`).
@@ -115,6 +113,7 @@ final class BrowserPageRequests: BrowserTabDelegate {
             return pageClosedBeforeAdoption(page)
         }
         guard let services, let key = services.cache.key(of: page) ?? services.popups.openerKey(of: page),
+              // view-observation-allow: the tab lookup is one MachineTabIndex read (R-index's target), not an observation
               let (openerTab, pane) = services.locateTab(key) else {
             // The opener is gone: nowhere to show a new page.
             switch intent {
@@ -131,6 +130,8 @@ final class BrowserPageRequests: BrowserTabDelegate {
             default: break
             }
         }
+        // An engine-made tab keeps `window.opener`: the two pages share a browsing instance.
+        if case .adoptTab(let child, _) = intent { scriptOpeners.record(child: child, opener: page) }
         // Chromium's password manager asked for as a new tab (an omnibar
         // modified commit) is cmux's Passwords page (ChromiumPageRoute). A tab
         // Chromium makes itself (`.adoptTab`) has no URL yet here.
@@ -260,6 +261,7 @@ final class BrowserPageRequests: BrowserTabDelegate {
     /// `page` shows a New Tab page and is the last tab of its pane.
     private func isNewTabPageAtEnd(_ page: any BrowserTab) -> Bool {
         guard BrowserNewTabPage.isNewTabPage(page.state.url), let services, let key = services.cache.key(of: page),
+              // view-observation-allow: the tab lookup is one MachineTabIndex read (R-index's target), not an observation
               let (_, pane) = services.locateTab(key) else { return false }
         return pane.tabs.last?.id == key
     }
@@ -392,6 +394,7 @@ final class BrowserPageRequests: BrowserTabDelegate {
             closedBeforeAdoption.remove(at: index)
             return closeDaemonTab(on: surface)
         }
+        // view-observation-allow: the tab on a surface is one read of the store's surface index (R-index's target), not an observation
         if let tab = services.locateTab(surface: surface), services.cache.existingBrowser(tab.id) != nil {
             services.cache.replacePage(of: tab, with: page)
         } else {
@@ -428,20 +431,16 @@ final class BrowserPageRequests: BrowserTabDelegate {
             closeDaemonTab(on: surface)
         } else {
             closedBeforeAdoption.removeAll { $0.page == nil || $0.page === page }
-            closedBeforeAdoption.append(WeakPage(page: page))
+            closedBeforeAdoption.append(WeakBrowserTab(page: page))
         }
     }
 
     private func closeDaemonTab(on surface: SurfaceID) {
+        // view-observation-allow: the tab on a surface is one read of the store's surface index (R-index's target), not an observation
         if let tab = services?.locateTab(surface: surface) {
             closeTab(tab.id)
         } else {
             closeOnArrival.insert(surface)
         }
     }
-}
-
-/// A page reference that does not keep the page alive.
-struct WeakPage {
-    weak var page: (any BrowserTab)?
 }

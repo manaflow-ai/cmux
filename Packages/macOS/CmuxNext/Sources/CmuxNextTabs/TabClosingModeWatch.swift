@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextInput
 import CmuxNextWakeups
 
 // Chrome's mouse closing mode exit (tab_container_impl.cc L1418-1474, mouse_watcher.cc L26): after a
@@ -7,13 +8,18 @@ import CmuxNextWakeups
 // `closingModeBelowPad` below and `closingModeTrailingPad` past its trailing edge, then
 // `closingModeExitDelay` passes (a return cancels it), or the mouse is pressed outside the strip. Then
 // the tabs resize on the close tween. The strip holds one watch while it is in closing mode.
+//
+// Outside the strip the watch hears, through the app's input tap and only until it ends: moves in the
+// strip's window, presses in every window of the app (Chrome's MouseWatcher is an application monitor,
+// views::EventMonitor::CreateApplicationMonitor), and other apps' moves and presses (`globalObserve`).
 @MainActor final class TabClosingModeWatch {
     private weak var strip: TabStripView?
     /// Mouse closing mode ends `closingModeExitDelay` after the pointer leaves the strip's extended
-    /// area; the monitor follows it outside the strip meanwhile.
+    /// area; the subscriptions follow it outside the strip meanwhile.
     private let exitTimer = DemandTimer(owner: "TabStrip.closingModeExit")
-    private var exitMonitor: Any?
-    private var exitGlobalMonitor: Any?
+    private var exitMoves: InputSubscription?
+    private var exitPresses: InputSubscription?
+    private var exitOtherApps: InputSubscription?
     /// The extended closing-mode area while the pointer is outside the strip, on the window's content
     /// view (AppKit clips a tracking area to its view's bounds, and the pad lies outside the strip).
     private var trackingArea: NSTrackingArea?
@@ -31,23 +37,35 @@ import CmuxNextWakeups
 
     /// The pointer left the strip in closing mode: follow it until it leaves the extended area.
     func pointerLeft() {
-        if exitMonitor == nil {
-            exitMonitor = NSEvent.addLocalMonitorForEvents(matching: [.mouseMoved, .leftMouseDown, .rightMouseDown]) { [weak self] event in
-                self?.pointerEvent(event)
-                return event
-            }
-        }
-        // Moves over other apps' windows or the desktop never reach a local monitor.
-        if exitGlobalMonitor == nil {
-            exitGlobalMonitor = NSEvent.addGlobalMonitorForEvents(matching: [.mouseMoved, .leftMouseDown, .rightMouseDown]) { [weak self] event in
-                MainActor.assumeIsolated { // main-proof: NSEvent.h: monitor handlers are called on the main thread
-                    self?.pointerEvent(event, outsideApp: true)
-                }
-            }
-        }
+        if let strip, let window = strip.window { subscribe(strip.inputTap, window: window) }
         installTracking()
         pointerMoved(to: pointerInStrip)
     }
+
+    private func subscribe(_ input: InputEventTap, window: NSWindow) {
+        if exitMoves == nil {
+            exitMoves = input.subscribe(class: .pointerMove, window: .window(window)) { [weak self] event in self?.pointerEvent(event) }
+        }
+        if exitPresses == nil {
+            exitPresses = input.subscribe(class: .button) { [weak self] event in
+                if Self.endsOnPress(event.type) { self?.pointerEvent(event) }
+            }
+        }
+        // Moves and presses over other apps' windows or the desktop never pass this app's sendEvent.
+        if exitOtherApps == nil {
+            exitOtherApps = input.globalObserve([.mouseMoved, .leftMouseDown, .rightMouseDown]) { [weak self] event in
+                self?.pointerEvent(event, outsideApp: true)
+            }
+        }
+    }
+
+    /// Whether a button event of `type` is a press the watch acts on (a left or right press).
+    static func endsOnPress(_ type: NSEvent.EventType) -> Bool {
+        type == .leftMouseDown || type == .rightMouseDown
+    }
+
+    /// Whether the watch follows the pointer outside the strip now.
+    var isFollowingPointer: Bool { exitMoves != nil || exitPresses != nil || exitOtherApps != nil }
 
     /// The strip's tracking areas changed: the extended rect follows while it is installed.
     func updateTracking() {
@@ -55,7 +73,7 @@ import CmuxNextWakeups
     }
 
     /// A tracking area on the extended rect: leaving it starts the exit delay even when the pointer
-    /// goes into a view that does not track movement (no mouseMoved reaches the monitor there). It lives
+    /// goes into a view that does not track movement (no mouseMoved reaches the watch there). It lives
     /// on the window's content view, because AppKit clips a tracking area to its view's bounds and the
     /// pad (below and past the strip) lies outside the strip; the strip owns its events.
     private func installTracking() {
@@ -104,7 +122,7 @@ import CmuxNextWakeups
             exitTimer.cancel()
         } else {
             let delay = strip.metrics.chrome.closingModeExitDelay
-            exitTimer.scheduleIfIdle(after: .milliseconds(Int((delay * 1000).rounded()))) { @MainActor [weak self] in
+            exitTimer.scheduleOnMainIfIdle(after: .milliseconds(Int((delay * 1000).rounded()))) { [weak self] in
                 self?.exit()
             }
         }
@@ -125,10 +143,10 @@ import CmuxNextWakeups
 
     func end() {
         exitTimer.cancel()
-        if let exitMonitor { NSEvent.removeMonitor(exitMonitor) }
-        if let exitGlobalMonitor { NSEvent.removeMonitor(exitGlobalMonitor) }
-        exitMonitor = nil
-        exitGlobalMonitor = nil
+        for subscription in [exitMoves, exitPresses, exitOtherApps] { subscription?.cancel() }
+        exitMoves = nil
+        exitPresses = nil
+        exitOtherApps = nil
         removeTracking()
     }
 }

@@ -88,6 +88,54 @@ fn hosted_receipted_input_requests_pipeline_through_surface_reader() {
     });
 }
 
+/// p02-threads task 210: a hosted surface's reader and its host-frames
+/// demultiplexer are echo path threads.
+#[cfg(unix)]
+#[test]
+fn hosted_reader_threads_are_echo_path_threads() {
+    let mux = Mux::new_for_test("hosted-echo-rows", SurfaceOptions::default());
+    let workspace = mux.create_empty_workspace(None, None, None).unwrap();
+    let (mut attachment, _host) = crate::terminal_host_runtime::input_ack_surface_fixture();
+    let terminal_id = attachment.record.terminal_id.clone();
+    attachment.record.workspace_key = workspace.key.clone();
+    mux.seed_launching_terminal_for_test(&terminal_id, &workspace.key).unwrap();
+    let id = 9_212;
+    let _surface = Surface::spawn_hosted(
+        id,
+        SurfaceOptions::default(),
+        Arc::downgrade(&mux),
+        HostedSurfaceLaunch {
+            adopted: false,
+            attachment,
+            kitty_reservation: None,
+            terminate_on_error: false,
+            defer_launch_activation: false,
+            lifetime: PtyLifetime::SessionOwned,
+            terminal_public_id: None,
+            resource_identity: None,
+        },
+    )
+    .unwrap();
+
+    for name in [format!("surface-{id}-host"), format!("surface-{id}-host-frames")] {
+        let deadline = Instant::now() + Duration::from_secs(5);
+        let rows = loop {
+            let rows: Vec<_> = cmux_threads::snapshot()
+                .into_iter()
+                .filter(|row| row.name == name)
+                .map(|row| row.declared)
+                .collect();
+            if !rows.is_empty() || Instant::now() >= deadline {
+                break rows;
+            }
+            std::thread::yield_now();
+        };
+        assert!(!rows.is_empty(), "{name} is registered while it runs");
+        let echo = crate::echo_thread::ECHO_PATH_QOS;
+        assert!(rows.iter().all(|qos| *qos == echo), "{name}: {rows:?}");
+    }
+}
+
 #[cfg(unix)]
 #[test]
 fn hosted_stager_exposes_coupled_state_only_after_colors() {
@@ -269,6 +317,38 @@ fn smart_hosted_stager_orders_raw_output_and_incremental_resize() {
         stager.push(suffix).unwrap(),
         Some(HostedTransition::Output(bytes)) if bytes == vec![0xbb]
     ));
+}
+
+/// p09-observability-018: the host's echo frame names the key press the
+/// host's PTY read took, and the daemon applies that flow, not a guess of
+/// its own. A connection that did not negotiate the flag refuses it.
+#[cfg(unix)]
+#[test]
+fn echo_flow_hosted_stager_takes_the_flow_from_the_host_frame() {
+    let flagged = |sequence| {
+        let mut frame = Frame::new(
+            MessageKind::Output,
+            crate::terminal_host_protocol::flow_trailer_payload(b"ls", 42),
+        );
+        frame.flags = FLAG_INPUT_FLOW;
+        frame.sequence = sequence;
+        frame
+    };
+    let mut stager = HostedFrameStager::new(0, true).with_input_flow(true);
+    assert!(matches!(
+        stager.push(flagged(1)).unwrap(),
+        Some(HostedTransition::FlowOutput { output, flow: 42 }) if output == b"ls"
+    ));
+    let mut plain = Frame::new(MessageKind::Output, b"$ ".to_vec());
+    plain.sequence = 2;
+    assert!(matches!(stager.push(plain).unwrap(), Some(HostedTransition::Output(_))));
+    let mut short = Frame::new(MessageKind::Output, vec![1, 2, 3]);
+    short.flags = FLAG_INPUT_FLOW;
+    short.sequence = 3;
+    assert!(stager.push(short).is_err(), "a short trailer fails closed");
+
+    let mut unnegotiated = HostedFrameStager::new(0, true);
+    assert!(unnegotiated.push(flagged(1)).is_err(), "an unnegotiated flow fails closed");
 }
 
 #[cfg(unix)]
