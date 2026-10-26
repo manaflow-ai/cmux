@@ -167,7 +167,12 @@ public final class DesktopWallpaperWatch {
     func refresh() {
         // A store that could not be watched again (macOS had not made it yet) is tried on each event.
         if storeSource == nil, !observers.isEmpty { watchStore() }
-        guard !isHidden(), let reading = read(), reading != current else { return }
+        guard !isHidden(), let reading = read() else { return }
+        // The same picture: nothing moved, but a color that landed while nothing showed shows now.
+        guard reading != current else {
+            sampleIfNeeded()
+            return
+        }
         if current != nil { generation += 1 }
         current = reading
         // The Desktop Wallpaper art reloads now, not only once the color lands.
