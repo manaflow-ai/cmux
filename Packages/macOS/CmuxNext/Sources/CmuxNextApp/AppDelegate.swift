@@ -197,7 +197,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         GhosttyRuntime.shared.inputSources.start(runner: services.work)
         DebugTimings.markLaunch("dfl.bind")
         startSettingsAndControl(services: services, launch: settingsRead)
-        services.newTabSpares.prewarm() // the first agent page loads while the windows build (cx-z9kz0)
         DebugTimings.markLaunch("dfl.settings")
         NSApp.mainMenu = MainMenu.make(registry: services.registry, blocking: services.blocking)
         DebugTimings.markLaunch("dfl.menu")

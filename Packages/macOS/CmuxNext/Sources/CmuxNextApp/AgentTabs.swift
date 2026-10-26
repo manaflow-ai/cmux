@@ -6,6 +6,7 @@ import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextInput
+import CmuxNextLaunch
 import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextSignposts
@@ -104,8 +105,8 @@ final class AgentTabStore {
     /// prewarmed spare is not shown until adopted). The launch's New Tab feeds start right after the first frame
     /// (`HomeService.postLaunchFeeds`, p08-startup-027).
     var pageShown: @MainActor () -> Void = {}
-    /// Agent tabs whose view waits for the launch's first pane content (`deferAtLaunch`).
-    var launchDeferred: Set<String> = []
+    /// Agent tabs whose view waits for the launch's first frame (`deferAtLaunch`).
+    let launchDeferred = LaunchViewQueue()
     /// The tabs' pages from the last quit, drawn at launch (`AgentPaneLaunchImages`).
     var launchImages = AgentPaneLaunchImages(directory: nil)
     /// New chats' typed text from before they have a session, kept across a relaunch (cx-z5vd).

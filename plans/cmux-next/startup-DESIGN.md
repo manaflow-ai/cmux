@@ -193,7 +193,7 @@ awk '/func applicationDidFinishLaunching/,/^    func applicationShouldTerminate/
 | 62 | `services.locationTrail.watchScope(` | afterFirstFrame | main | 028 | Location trail scope. |
 | 63 | `services.macScreenPages.activate(` | afterStartup | main | 029 | Share This Mac resumes. Done (029): post `MacScreen.activate` (`LaunchServicePosts.platform`). It used to run in the control socket's served callback; it reads no socket. |
 | 64 | `services.mobile.follow(` | afterStartup | main | 029 | Phone access listener. Done (029): post `Mobile.follow` (`LaunchServicePosts.platform`). |
-| 65 | `services.newTabSpares.prewarm(` | afterStartup | main | 017 | Spare agent page; one service per post. |
+| 65 | `services.newTabSpares.prewarm(` | afterStartup | main | 017, 042 | Spare agent page; one service per post. Done (042): post `NewTabSpares.probe` before `NewTabSpares.warm` (`LaunchServicePosts.laterTabs`). |
 | 66 | `services.notifications.follow(` | afterStartup | main | 029 | Notification settings follow. Done (029): post `Notifications.follow` (`LaunchServicePosts.platform`). The launch sets the preferences from the launch read at once, so the first frame's attention marks and mutes are right, and starts the Chief pet at once (`followChiefPet`), so an arrival before startup completes reaches it. |
 | 67 | `services.observeBorders(` | afterFirstFrame | main | 029 | Window border style follow. Done (029): post `Borders.observe` (`LaunchServicePosts.platform`). |
 | 68 | `services.observeGlass(` | afterFirstFrame | main | 029 | Glass style follow. Done (029): post `Glass.observe` (`LaunchServicePosts.platform`). The launch sets the resolved mode at once (`seedGlass`), so the first frame draws it and the follow repaints only on a change. |
@@ -245,7 +245,7 @@ source order through O41; O42 to O46 were found later and follow at the end.
 | O23 | `TerminalHooks(services:).install()` | afterFirstFrame | main | 079 | App-scoped Ghostty actions; they need a live terminal. |
 | O24 | `GhosttyKeybindSync(...)`, `GhosttyConfigLiveReload()` | afterFirstFrame | main | 026 | Built with their starts (Q2 43, 44). |
 | O25 | `services.windows.restoreWhenLoaded()` | critical: `WindowManager.restoreWhenLoaded` | main | 059, 060 | See the allowlist. |
-| O26 | `order.startup.post(.afterFirstFrame, "AppServices.startLaterTabWarmups")` (was `firstFrame.whenOpen`, 016) | afterStartup | main | 017 | Later tab warm-ups; WKProcessPool warm-up first afterFirstFrame only when a WebKit agent pane shows (017). |
+| O26 | `order.startup.post(.afterFirstFrame, "AppServices.startLaterTabWarmups")` (was `firstFrame.whenOpen`, 016) | afterStartup | main | 017, 042 | Later tab warm-ups. No WebKit view before completion but the shown agent tabs', each an afterFirstFrame `AgentTabs.launchView` post after its picture, the focused pane's first (`LaunchViewQueue`, 042); the agent pages' WebKit warm-up is the afterStartup post `AgentPane.webKitWarmup`. |
 | O27 | `WebAuthSessionWindows(...)`, `WebAuthSessionHandler(broker:)` | critical: `WebAuthSessionHandler.install` | main | 029 | Built inside the install post. |
 | O28 | `NSAppleEventManager.shared().setEventHandler(... kAEGetURL)` | critical: `AppleEvents.getURL` | main | 029 | See the allowlist. |
 | O29 | `firstFrame.armBackstop(after: .seconds(3))` | deleted | - | 016 | Deleted with FirstFrameGate: the first window is made in the launch turn, so its commit ends the first-frame ref; the scheduler's failsafe and the `noWindow` reason replace the backstop (095). |
