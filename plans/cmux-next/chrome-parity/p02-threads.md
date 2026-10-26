@@ -1537,3 +1537,18 @@ Chromium open number committed. Test: T0 + T1 release compile.
 every-action-sweep.py. Change: trigger launch cold/warm, quit, debug.simulate.wake, debug.simulate.display,
 appearance toggle, kill -9 daemon and Chromium host, update install, with traps; read debug.blocking and
 debug.hangs; file sites with the MQ-1 recipe. Depends 300, 128, 129. Acceptance: RUN-12 exit 0. Test: T2.
+
+**308 mux-line-out's idle wait.** Found by p15-oracle-069 on the VM: a debug daemon panics on every Unix line
+connection at `bounded_outbound.rs` `recv` (condvar-wait on thread mux-line-out, an echo thread with blocking
+disallowed), so the oracle's daemon cases need `CMUX_DAEMON_BLOCKING=record`. The writer waits for its own queue
+when idle; that is not blocking work. Chromium: `WaitableEvent::declare_only_used_while_idle()`
+(base/synchronization/waitable_event.h), which MessagePumpDefault's event uses, so a thread idle at the bottom
+of its stack is not a ScopedBlockingCall. Change: an idle-wait primitive in cmux_threads::checked that records no
+violation, used by the outbound queue's recv only. Acceptance: a debug daemon under CMUX_DAEMON_BLOCKING=panic
+serves `cmux raw operation session.snapshot` with no panic. Test: cmux-threads tests; T1r.
+
+**309 origin_gate on mux-conn.** Found by p15-oracle-069: a debug daemon panics on every accepted Unix connection
+at `origin_gate.rs` `is_bundled_mobile_host_path` (fs: canonicalize of the peer executable on thread mux-conn,
+blocking disallowed). Chromium does file work in a MayBlock task (base/task/task_traits.h), never on an IO
+thread. Change: resolve the peer executable on a may-block worker before the connection dispatches, or compare
+without a file-system call. Acceptance: as 308, no fs site on mux-conn in `server.blocking`. Test: T1r.

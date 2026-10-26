@@ -1154,7 +1154,7 @@ dependencies = [
 name = "cmux-flow-trace"
 version = "0.1.0"
 dependencies = [
- "libc",
+ "cmux-trace",
 ]
 
 [[package]]

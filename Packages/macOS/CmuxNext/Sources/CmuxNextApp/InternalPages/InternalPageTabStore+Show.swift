@@ -174,7 +174,7 @@ extension InternalPageTabStore {
     /// tab's latest transition and the tab still has this view.
     private func takePicture(of tab: String, provider: any InternalPageProvider, token: ContentLifecycle<String>.Token) {
         let key = providerKey(ofTab: tab)
-        guard discards != nil, let cache, provider.discardPolicy(for: key) != .never,
+        guard discards != nil, let cache, provider.discardPolicy(for: key) != .never, provider.keepsDiscardPicture(for: key),
               let view = existingView(tab), let page = view.content as? PageWebView, page.hasPainted else { return }
         let version = Self.pictureVersion(page)
         let records = discardRecords
@@ -251,14 +251,18 @@ extension InternalPageTabStore: ContentDiscardHost {
         existingView(key).map { $0.window != nil && !$0.isHiddenOrHasHiddenAncestor } ?? false
     }
 
-    /// Saves hidden page tab `key`'s state, once the picture its hide took has landed. It stays (nil)
-    /// when anything changed meanwhile: a show or hide (the lifecycle's generation), a new view, or a
-    /// reason to keep it.
+    /// Saves hidden page tab `key`'s state, once the picture its hide took has landed (a provider
+    /// that keeps no picture has none, and any older one is dropped). It stays (nil) when anything
+    /// changed meanwhile: a show or hide (the lifecycle's generation), a new view, or a reason to keep it.
     func prepareDiscard(_ key: String) async -> ContentViewState? {
         guard let view = existingView(key), let provider = self.provider(ofTab: key), let cache,
               let record = cache.lifecycle.record(key), record.phase == .mountedHidden else { return nil }
         let pageKey = providerKey(ofTab: key)
-        await discardRecords.pictures[pageKey]?.task?.value
+        if provider.keepsDiscardPicture(for: pageKey) {
+            await discardRecords.pictures[pageKey]?.task?.value
+        } else {
+            cache.internalPagePictures.remove(key)
+        }
         let state = await provider.saveViewState(for: pageKey, content: view.content)
         guard cache.lifecycle.record(key)?.generation == record.generation, existingView(key) === view,
               provider.keepReasons(for: pageKey).isEmpty else { return nil }

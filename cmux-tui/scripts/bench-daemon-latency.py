@@ -94,6 +94,16 @@ Keys of result["scenarios"][SCENARIO]:
                alone), windows_match (both automation rows cover their window);
                or error when echo or split samples are missing.
 
+  daemon_locks  read after every other section: `debug-daemon-locks`
+               (p06-scheduler-226), cumulative since daemon start (so scale
+               includes small). locks.LOCK.CALLER.{wait_us, hold_us}: count,
+               p50, p95, p99, max in microseconds, per lock (mux.state,
+               workspace.registry) for callers frontend and automation;
+               `skipped` on a daemon that does not serve it. frontend counts
+               only the signed, verified cmux app: the bench's own app
+               handshake is unsigned, so its requests count as automation and
+               frontend stays at count 0 unless the app is connected.
+
 Top level: host (hostname, os, os_version, macos, arch, cpu, cores, load,
 python), source (sha, dirty: the script checkout), daemon (version, protocol,
 build_commit, pid, capabilities, bin, binary {path, sha256, mtime}), args,
@@ -1568,6 +1578,18 @@ class Bench:
             res[key] = {**(res.get(key) or {}), "error": repr(e)}
             self.failed = True
 
+    def daemon_locks(self):
+        """`debug-daemon-locks` after the scenario's load: the frontend and automation wait and
+        hold percentiles of each daemon lock, or `skipped` when the daemon does not serve it."""
+        c = Conn(self.sock_path)
+        try:
+            resp = c.call("debug-daemon-locks")
+        finally:
+            c.close()
+        if not resp.get("ok"):
+            return {"skipped": f"debug-daemon-locks not served: {resp.get('error')}"}
+        return {"since": "daemon start", "locks": daemon_lock_rows(must(resp, "debug-daemon-locks"))}
+
     def scenario(self, name, workspaces, terminals, busy):
         log("scenario", name, workspaces, terminals)
         res = self.result["scenarios"][name] = {}
@@ -1588,6 +1610,7 @@ class Bench:
         if a.automation_storm:
             self.section(res, "automation_storm",
                          lambda: self.automation_storm(a.automation_storm, a.storm_seconds, a.n // 3 or 1, create_n))
+        self.section(res, "daemon_locks", self.daemon_locks)
         report(name, res)
 
 
@@ -1657,6 +1680,24 @@ class EchoProbe(OutputView):
 FLAT_SECTIONS = ("ops", "concurrent", "cli", "bulk_interference")
 
 
+LOCK_CALLERS = ("frontend", "automation")
+LOCK_FIELDS = ("count", "p50", "p95", "p99", "max")
+
+
+def daemon_lock_rows(data):
+    """{lock: {caller: {wait_us, hold_us}}} of a `debug-daemon-locks` result for LOCK_CALLERS; a
+    caller the daemon did not report has zeros."""
+    out = {}
+    for table in data.get("locks") or []:
+        callers = {row.get("caller"): row for row in table.get("callers") or []}
+        out[table["lock"]] = {
+            caller: {kind: {field: (callers.get(caller) or {}).get(kind, {}).get(field, 0) for field in LOCK_FIELDS}
+                     for kind in ("wait_us", "hold_us")}
+            for caller in LOCK_CALLERS
+        }
+    return out
+
+
 def rows(res, prefix=""):
     """(metric, row) for every latency row and every skipped mode of a scenario result."""
     for key, value in res.items():
@@ -1687,6 +1728,11 @@ def report(name, res):
                   f"ctx/msg={s['ctx_per_msg']} idle_syscalls/s={s.get('syscalls_idle_per_s', 'n/a')}"
                   + (f" ipc/msg={json.dumps(s['server_stats_ipc_per_msg'])}" if "server_stats_ipc_per_msg" in s else ""),
                   flush=True)
+    for lock, callers in ((res.get("daemon_locks") or {}).get("locks") or {}).items():
+        for caller, row in callers.items():
+            print(f"PERF-DAEMON-LOCKS {name} {lock} {caller} " + " ".join(
+                f"{kind}.{field}={row[kind][field]}" for kind in ("wait_us", "hold_us")
+                for field in ("count", "p95", "p99", "max")), flush=True)
     storm = res.get("automation_storm")
     if storm and "ipc16" in storm:
         print(f"PERF-DAEMON-IPC16 {name} " + " ".join(f"{k}={v}" for k, v in storm["ipc16"].items()), flush=True)

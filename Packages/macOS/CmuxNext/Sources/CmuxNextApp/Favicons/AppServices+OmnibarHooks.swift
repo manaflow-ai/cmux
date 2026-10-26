@@ -10,6 +10,7 @@ import Foundation
 extension AppServices {
     func installOmnibarHooks(on entry: BrowserEntry) {
         let bar = entry.chrome.addressBar
+        bar.hoverFrameInput = hoverFrameInput  // suggestion rows hover once per frame (`pointerFrameHover`)
         let display = bar.suggestionEngine.display
         display.setShowsFullURLs = { [weak self] full in
             guard let settings = self?.settings else { return }

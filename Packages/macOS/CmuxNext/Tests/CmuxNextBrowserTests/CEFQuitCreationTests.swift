@@ -23,7 +23,7 @@ import Testing
         SpyShim.reset()
         let root = FileManager.default.temporaryDirectory.appending(path: "cef-quit-\(UUID().uuidString)", directoryHint: .isDirectory)
         defer { try? FileManager.default.removeItem(at: root) }
-        let runtime = CEFRuntime(shim: try SpyShim.library(), storage: CEFProfileStorage(root: root))
+        let runtime = CEFRuntime.spy(shim: try SpyShim.library(), storage: CEFProfileStorage(root: root))
         // Chromium running: the tab gets its browser.
         #expect(try unhideParkedTab(runtime) == 1)
         runtime.state = .shutDown
@@ -56,7 +56,7 @@ import Testing
         SpyShim.reset()
         let root = FileManager.default.temporaryDirectory.appending(path: "cef-quit-\(UUID().uuidString)", directoryHint: .isDirectory)
         defer { try? FileManager.default.removeItem(at: root) }
-        let runtime = CEFRuntime(shim: try SpyShim.library(), storage: CEFProfileStorage(root: root))
+        let runtime = CEFRuntime.spy(shim: try SpyShim.library(), storage: CEFProfileStorage(root: root))
         let host = CEFPaneHost(key: CEFPaneKey(pane: BrowserPaneID(rawValue: UUID().uuidString), profile: .default), runtime: runtime)
         let tab = CEFTab(id: .random(), profile: .default, host: host, runtime: runtime)
         host.add(tab)
@@ -127,7 +127,7 @@ import Testing
 
     private static func spyRuntime() throws -> (CEFRuntime, URL) {
         let root = FileManager.default.temporaryDirectory.appending(path: "cef-quit-\(UUID().uuidString)", directoryHint: .isDirectory)
-        return (CEFRuntime(shim: try SpyShim.library(), storage: CEFProfileStorage(root: root)), root)
+        return (CEFRuntime.spy(shim: try SpyShim.library(), storage: CEFProfileStorage(root: root)), root)
     }
 
     /// A new pane's tab whose browser is being made: its pending window's request.
