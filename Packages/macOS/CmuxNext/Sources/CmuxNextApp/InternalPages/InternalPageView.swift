@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextControl
 import CmuxNextDesign
 import CmuxNextPages
 
@@ -85,6 +86,61 @@ final class InternalPageView: NSView {
     }
 
     override var acceptsFirstResponder: Bool { false }
+
+    // MARK: Rebuilt after a discard
+
+    /// The page's last picture over its rebuilt content until the document paints, so a
+    /// discarded tab shows in its first frame (Chrome shows a discarded tab's last frame while it
+    /// reloads, `TabLoader`). Nil once the page painted, or for native content (it draws at once).
+    private(set) var picture: NSView?
+    /// Runs once the view has a size (a restored scroll position needs the document laid out).
+    private var afterLayout: (() -> Void)?
+
+    /// Covers the content with `image` until it paints (a page that painted, or native content, gets no cover).
+    func showPicture(_ image: CGImage) {
+        guard let page = content as? PageWebView, !page.hasPainted, picture == nil else { return }
+        let cover = NSView()
+        cover.wantsLayer = true
+        cover.layer?.contents = image
+        cover.layer?.contentsGravity = .resizeAspectFill
+        cover.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(cover, positioned: .above, relativeTo: content)
+        NSLayoutConstraint.activate([
+            cover.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            cover.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+            cover.topAnchor.constraint(equalTo: content.topAnchor),
+            cover.bottomAnchor.constraint(equalTo: content.bottomAnchor),
+        ])
+        picture = cover
+        page.whenPainted { [weak self, weak cover] in
+            guard let self, let cover, picture === cover else { return }
+            cover.removeFromSuperview()
+            picture = nil
+        }
+    }
+
+    /// The page as it draws now; nil for native content (it draws again at once), a page that has
+    /// not painted, or an engine that does not answer within 2 s.
+    func lastPicture() async -> CGImage? {
+        guard let page = content as? PageWebView, page.hasPainted else { return nil }
+        return try? await ControlDeadline.shared.run(method: "pages.discard.picture", deadline: .now + .seconds(2)) { @MainActor in
+            await page.snapshot()?.cgImage(forProposedRect: nil, context: nil, hints: nil)
+        }
+    }
+
+    /// Runs `body` at the next layout with a size: now when the view has one.
+    func whenLaidOut(_ body: @escaping () -> Void) {
+        guard bounds.isEmpty else { return body() }
+        afterLayout = body
+        needsLayout = true
+    }
+
+    override func layout() {
+        super.layout()
+        guard !bounds.isEmpty, let body = afterLayout else { return }
+        afterLayout = nil
+        body()
+    }
 
     /// Runs Go Back (true) or Go Forward (false): the mouse side buttons and a
     /// swipe over the page (history.md 4.2b). Set by the page's host.
