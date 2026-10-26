@@ -69,6 +69,48 @@
         "settled"
       ],
       "note": "every required field from its catalog type"
+    },
+    {
+      "id": "retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "session.journal.producer.put",
+        "params": {
+          "manifest": {
+            "producer_id": "oracle",
+            "namespace": "oracle00",
+            "manifest_version": 1,
+            "max_sensitivity": "public",
+            "permissions": [
+              "oracle"
+            ],
+            "events": [
+              {
+                "kind": "oracle",
+                "schema_version": 1,
+                "class": "state",
+                "replay": "required",
+                "sensitivity": "public",
+                "payload_schema": {}
+              }
+            ]
+          }
+        },
+        "idempotencyKey": "session-journal-producer-put-ok.call"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "checkpoint": [
+        "before",
+        "settled"
+      ],
+      "note": "I10: step call again with its idempotency key; the daemon replays its reply, adds no journal record and changes no facet"
     }
   ],
   "invariants": [

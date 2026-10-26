@@ -72,6 +72,32 @@
         "settled"
       ],
       "note": "a 1x1 PNG on the fixture Chief; the record's avatar is its sha256, type and size"
+    },
+    {
+      "id": "retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "chief.profile.avatar.set",
+        "params": {
+          "chief": "$step:fx-chief#/value/id",
+          "media_type": "image/png",
+          "data": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="
+        },
+        "idempotencyKey": "chief-profile-avatar-set-ok.call"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "checkpoint": [
+        "before",
+        "settled"
+      ],
+      "note": "I10: step call again with its idempotency key; the daemon replays its reply, adds no journal record and changes no facet"
     }
   ],
   "invariants": [

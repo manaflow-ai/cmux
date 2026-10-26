@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
-"""Oracle invariants I1-I7 (p15-oracle-110) and I17-I18 (p15-oracle-188) over one case trace.
+"""Oracle invariants I1-I7 (p15-oracle-110), I10 (p15-oracle-206) and I17-I18 (p15-oracle-188) over one case trace.
 
 Spec: plans/cmux-next/chrome-parity/p15-oracle.md section 3F ("Invariants at every checkpoint") and
 plans/cmux-next/oracle-DESIGN.md. Stdlib only, Python 3.9+, safe under `python3 -I`. Later tasks add
-I8 (204), I9 (205), I10 (206), I11-I15 (217) and I16 (236) to INVARIANTS and CHECKS.
+I8 (204), I9 (205), I11-I15 (217) and I16 (236) to INVARIANTS and Checker.run.
 
 | Id | Rule                                                                  | Reads                          |
 | I1 | each mutation gives exactly one receipt or one typed error            | step replies                   |
@@ -13,6 +13,7 @@ I8 (204), I9 (205), I10 (206), I11-I15 (217) and I16 (236) to INVARIANTS and CHE
 | I5 | 0 `debug.desync` violations                                           | invariants facet               |
 | I6 | no orphan processes or sockets at teardown                            | teardown record                |
 | I7 | a hidden-workspace change does no view work                           | step layoutCounters + topology |
+| I10| a same-key retry: equal result, same journal head, same facets        | replies + retry before/settled |
 | I17| 0 unexpected child exits unless `allow_crashes` covers the kind       | crashes facet + case            |
 | I18| live-object counts return to the fixture baseline after teardown      | liveObjects + daemon.oracle    |
 
@@ -23,7 +24,18 @@ process of a test as a failure of that test (I6). NoRendererCrashesAssertion fai
 crash that no ScopedAllowRendererCrashes covers (I17, the case's `allow_crashes`), and Blink's leak
 detector compares InstanceCounters after a web test with the counts before it
 (third_party/blink/renderer/core/testing/internals.cc; I18). A failed check names its value, as gtest's
-EXPECT_EQ prints both sides; here every violation names its JSON pointer.
+EXPECT_EQ prints both sides; here every violation names its JSON pointer. I10 is the contract of
+net/http/http_request_info.h `idempotency`: HttpNetworkTransaction::ShouldResendRequest
+(net/http/http_network_transaction.cc) resends a request on a reset connection only when it is idempotent,
+because sending it twice must have the effect of sending it once.
+
+I10 finds a retry by its key: a mutating resource.call whose idempotencyKey, method, params and target equal
+an earlier step's (gen_daemon_ops.py adds one, step `retry`, to each operation's success case). The same key
+with another request is idempotency.conflict's case, not a retry. When the first call got a receipt, the
+retry's reply equals the first reply, result included; the daemon journal head (raw `daemon.journalHead`,
+volatile in the canonical form) is the same at the retry's settled checkpoint as at its before checkpoint (no
+new record); and every model facet of the two checkpoints is equal under I3's projection. A refused first call
+recorded no effect to replay: its retry is not checked.
 
 I17 reads `crashes.counts`, totals since the app launched (holder: since the owner started): an exit is
 a rise of a kind's total from one comparable reading to the next. A rise first seen at a step's turn or
@@ -160,6 +172,9 @@ INVARIANTS: Tuple[Invariant, ...] = (
               "teardown: /processes/<n> or /sockets/<n>", "p15-oracle-110"),
     Invariant("I7", "a hidden-workspace change does no view work (debug.layout_counters)",
               "step: /layoutCounters/after/<counter>", "p15-oracle-110"),
+    Invariant("I10", "a same-key retry gives the first call's result, no new journal record and no facet change",
+              "step: /replies/0/... of the retry; snapshot: /daemon/journalHead or the first facet value that differs",
+              "p15-oracle-206"),
     Invariant("I17", "0 unexpected child exits unless allow_crashes covers the kind",
               "snapshot: /crashes/exits/<n> (an exit the app saw) or /crashes/counts/<kind>", "p15-oracle-188"),
     Invariant("I18", "live-object counts return to the fixture baseline after teardown",
@@ -879,6 +894,64 @@ class Checker:
                     self.violate("I7", step, None, f"/layoutCounters/after/{name}",
                                  f"{name} +{delta} while the step changed hidden workspace {workspace}", "step")
 
+    # I10 ----------------------------------------------------------------------------------------------
+    @staticmethod
+    def request(step: Step) -> Tuple[Any, ...]:
+        args = step.record.get("args") or {}
+        return args.get("method"), args.get("params") or {}, dict(step.target)
+
+    def retries(self) -> Iterator[Tuple[Step, Step]]:
+        """(first call, retry) for each mutating resource.call that repeats an earlier step's key and request."""
+        first: Dict[str, Step] = {}
+        for step in self.trace.steps:
+            key = (step.record.get("args") or {}).get("idempotencyKey")
+            if step.op != "resource.call" or not step.mutating or not isinstance(key, str):
+                continue
+            original = first.setdefault(key, step)
+            if original is not step and self.request(original) == self.request(step):
+                yield original, step
+
+    def i10(self) -> None:
+        for original, retry in self.retries():
+            replies, again = original.record.get("replies"), retry.record.get("replies")
+            if not (isinstance(replies, list) and replies and isinstance(again, list) and again):
+                self.skip("I10", retry, f"the trace has no reply for {original.id} or its retry (I1 holds that)")
+                continue
+            if not (isinstance(replies[0], Mapping) and "receipt" in replies[0]):
+                self.skip("I10", retry, f"{original.id} was refused ({replies[0]!r:.80}): no effect to replay")
+                continue
+            self.checked("I10")
+            found = first_difference(replies[0], again[0], "/replies/0")
+            if found is not None:
+                at, was, now = found
+                self.violate("I10", retry, None, at, f"retry of {original.id} with its key replied "
+                             f"{json.dumps(now)[:120]}, the first call {json.dumps(was)[:120]}", "step")
+            elif "result" not in replies[0]:
+                self.skip("I10", retry,
+                          f"the replies of {original.id} carry no result: only the receipt kind is compared")
+            before, after = self.before_state(retry), self.after_state(retry)
+            if before is None or after is None:
+                self.skip("I10", retry, "the retry has no settled checkpoint or no checkpoint before it")
+                continue
+            heads = [(facet(state.snapshot, "daemon") or {}).get("journalHead") for state in (before, after)]
+            if not all(isinstance(head, int) for head in heads):
+                self.skip("I10", retry, "no daemon journalHead at both the retry's before and settled checkpoints")
+            elif heads[0] != heads[1]:
+                self.violate("I10", retry, after.checkpoint, pointer("daemon", "journalHead"),
+                             f"journal head {heads[0]} -> {heads[1]}: the retry of {original.id} added "
+                             f"{heads[1] - heads[0]} record(s)")
+            names = sorted(n for n in (after.snapshot.get("facets") or {})
+                           if n not in BOOKKEEPING_FACETS and facet(before.snapshot, n) is not None
+                           and facet(after.snapshot, n) is not None)
+            if not names:
+                self.skip("I10", retry, "the retry's before and settled checkpoints share no model facet")
+                continue
+            found = first_difference(self.projection(before.snapshot, names), self.projection(after.snapshot, names))
+            if found is not None:
+                at, was, now = found
+                self.violate("I10", retry, after.checkpoint, at, f"{json.dumps(was)[:120]} -> {json.dumps(now)[:120]}: "
+                             f"the retry of {original.id} changed the state")
+
     # I17 ----------------------------------------------------------------------------------------------
     def exit_step(self, state: State) -> Optional[Step]:
         """The step during which an exit first seen at `state` happened (None: before the first step)."""
@@ -1004,7 +1077,7 @@ class Checker:
                 self.violate("I18", None, "teardown", pointer(*path, kind), message)
 
     def run(self) -> Report:
-        for check in (self.i1, self.i2, self.i3, self.i4, self.i5, self.i6, self.i7, self.i17, self.i18):
+        for check in (self.i1, self.i2, self.i3, self.i4, self.i5, self.i6, self.i7, self.i10, self.i17, self.i18):
             check()
         return self.report
 
@@ -1091,7 +1164,7 @@ def load_schema(path: Path = SNAPSHOT_SCHEMA) -> Dict[str, Any]:
 
 def check_trace(document: Any, case: Optional[Mapping[str, Any]] = None,
                 schema: Optional[Mapping[str, Any]] = None) -> Report:
-    """I1-I7 and I17-I18 over one cmux.oracle.trace/v1 document. Raises TraceError on a malformed trace."""
+    """I1-I7, I10 and I17-I18 over one cmux.oracle.trace/v1 document. Raises TraceError on a malformed trace."""
     trace = load_trace(document, case)
     return Checker(trace, Projector(schema if schema is not None else load_schema())).run()
 
@@ -1120,6 +1193,7 @@ WIN = "win_000000000000000000000000000000a1"
 PANE3 = "pane_000000000000000000000000000000d3"
 TAB3 = "tab_000000000000000000000000000000e3"
 TERM3 = "term_000000000000000000000000000000f3"
+REOPEN_ARGS = {"method": "closed.reopen", "params": {}, "idempotencyKey": "selftest.reopen"}
 
 
 def _add_tab(snapshot: Dict[str, Any], pane_id: str, tab_id: str, terminal: str) -> Dict[str, Any]:
@@ -1216,7 +1290,7 @@ class InvariantsSelfTest(unittest.TestCase):
         return [n for n in report.not_checked if BY_ID[n.invariant].task == "p15-oracle-110"]
 
     def test_every_invariant_has_an_id_a_rule_and_a_pointer(self) -> None:
-        self.assertEqual([inv.id for inv in INVARIANTS], [*(f"I{n}" for n in range(1, 8)), "I17", "I18"])
+        self.assertEqual([inv.id for inv in INVARIANTS], [*(f"I{n}" for n in range(1, 8)), "I10", "I17", "I18"])
         for inv in INVARIANTS:
             self.assertTrue(inv.rule and inv.pointer.split(":")[0] in {"step", "snapshot", "teardown"}, inv)
 
@@ -1233,9 +1307,12 @@ class InvariantsSelfTest(unittest.TestCase):
              "checkpoints": {"before": self.base, "turn": turn, "settled": closed}},
             {"id": "read", "op": "resource.call", "readOnly": True, "replies": [],
              "checkpoints": {"settled": closed}},
-            {"id": "reopen", "op": "resource.call", "target": {"pane": PANE1},
+            {"id": "reopen", "op": "resource.call", "target": {"pane": PANE1}, "args": REOPEN_ARGS,
              "replies": [{"receipt": "mutation_result", "result": {"tab": TAB2}}],
              "checkpoints": {"settled": _bump_sequences(self.base, 1)}},
+            {"id": "reopen-retry", "op": "resource.call", "target": {"pane": PANE1}, "args": REOPEN_ARGS,
+             "replies": [{"receipt": "mutation_result", "result": {"tab": TAB2}}],
+             "checkpoints": {"before": _bump_sequences(self.base, 1), "settled": _bump_sequences(self.base, 1)}},
             {"id": "new-hidden", "op": "resource.call", "target": {"session": "session_00000000000000000000000000000002"},
              "replies": [{"receipt": "mutation_result", "result": {"workspace": HIDDEN_WS}}],
              "checkpoints": {"settled": hidden_before}},
@@ -1534,6 +1611,66 @@ class InvariantsSelfTest(unittest.TestCase):
         del step["layoutCounters"]
         report = self.check(_trace(step))
         self.assertEqual([(n.invariant, n.step) for n in self.core(report)], [("I7", "tab-in-hidden")])
+
+    # I10
+    def retry_trace(self, retry_reply: Dict[str, Any], retry_settled: Dict[str, Any], **change: Any) -> Dict[str, Any]:
+        """tab.create_terminal makes TAB3, then its same-key retry, recorded before and settled."""
+        args = {"method": "tab.create_terminal", "params": {}, "idempotencyKey": "selftest.call"}
+        created = _bump_sequences(_add_tab(self.base, PANE1, TAB3, TERM3), 1)
+        call = {"id": "call", "op": "resource.call", "target": {"pane": PANE1}, "args": args,
+                "replies": [{"receipt": "mutation_result", "result": {"tab": TAB3}}],
+                "checkpoints": {"before": self.base, "settled": created}}
+        retry = {**call, "id": "retry", "replies": [retry_reply],
+                 "checkpoints": {"before": created, "settled": retry_settled}, **change}
+        return _trace(call, retry)
+
+    def i10(self, report: Report) -> Tuple[List[Tuple[str, str]], List[str]]:
+        return ([(v.invariant, v.pointer) for v in report.violations if v.invariant == "I10"],
+                [n.reason for n in report.not_checked if n.invariant == "I10"])
+
+    def test_i10_a_replayed_retry_holds(self) -> None:
+        doc = self.retry_trace({"receipt": "mutation_result", "result": {"tab": TAB3}},
+                               _bump_sequences(_add_tab(self.base, PANE1, TAB3, TERM3), 1))
+        report = self.check(doc)
+        self.assertEqual(self.i10(report), ([], []))
+        self.assertEqual(report.checked["I10"], 1)
+
+    def test_i10_a_double_create_breaks_the_result_the_journal_and_the_facets(self) -> None:
+        # The double-create mutant: the retry runs the handler again, so a second tab, a new id and a new record.
+        tab4, term4 = "tab_000000000000000000000000000000e4", "term_000000000000000000000000000000f4"
+        twice = _bump_sequences(_add_tab(_add_tab(self.base, PANE1, TAB3, TERM3), PANE1, tab4, term4), 2)
+        report = self.check(self.retry_trace({"receipt": "mutation_result", "result": {"tab": tab4}}, twice))
+        violations, _ = self.i10(report)
+        self.assertEqual([at for _, at in violations[:2]], ["/replies/0/result/tab", "/daemon/journalHead"])
+        self.assertEqual(len(violations), 3, violations)
+        self.assertTrue(violations[2][1].startswith("/"), violations)
+        journal = next(v.message for v in report.violations if v.pointer == "/daemon/journalHead")
+        self.assertIn("added 1 record(s)", journal)
+
+    def test_i10_skips_a_refused_first_call_and_missing_inputs(self) -> None:
+        created = _bump_sequences(_add_tab(self.base, PANE1, TAB3, TERM3), 1)
+        doc = self.retry_trace({"error": "validation.invalid"}, created)
+        doc["steps"][0]["replies"] = [{"error": "validation.invalid"}]
+        self.assertEqual(self.i10(self.check(doc))[0], [])
+        self.assertIn("no effect to replay", self.i10(self.check(doc))[1][0])
+        bare = self.retry_trace({"receipt": "mutation_result"}, created)
+        bare["steps"][0]["replies"] = [{"receipt": "mutation_result"}]
+        del bare["steps"][1]["checkpoints"]["settled"]
+        self.assertEqual(self.i10(self.check(bare)),
+                         ([], ["the replies of call carry no result: only the receipt kind is compared",
+                               "the retry has no settled checkpoint or no checkpoint before it"]))
+        headless = self.retry_trace({"receipt": "mutation_result", "result": {"tab": TAB3}}, created)
+        for state in (headless["steps"][1]["checkpoints"]["before"], headless["steps"][1]["checkpoints"]["settled"]):
+            state["facets"]["daemon"].pop("journalHead")
+        self.assertEqual(self.i10(self.check(headless)),
+                         ([], ["no daemon journalHead at both the retry's before and settled checkpoints"]))
+
+    def test_i10_another_request_under_the_same_key_is_not_a_retry(self) -> None:
+        twice = _bump_sequences(_add_tab(self.base, PANE1, TAB3, TERM3), 2)
+        doc = self.retry_trace({"error": "idempotency.conflict"}, twice, target={"pane": PANE2})
+        report = self.check(doc)
+        self.assertEqual(self.i10(report), ([], []))
+        self.assertEqual(report.checked["I10"], 0)
 
     # I17
     def crash_trace(self, *rises: Tuple[str, str, Optional[Dict[str, int]]], allow: Optional[List[Dict[str, Any]]] = None,
