@@ -3294,8 +3294,6 @@ RAW_EXT_SCAN = Prefiltered(RAW_BLOCKING_EXT, tuple(name + "(" for name in POSIX_
     "sqlite3_", "proc_", "canEvaluatePolicy(", "Host.current", "hostName", "FileManager()"))
 # Where a match names a declaration, not a call: `func rename(`, `case stat(`.
 DECLARED_AT = re.compile(r"\b(func|case)\s+$")
-# An argument that starts with a label: C functions take none, so `rename(id, to: name)` is a Swift method.
-ARGUMENT_LABEL = re.compile(r"\s*\w+\s*:(?!:)")
 O_FLAG = re.compile(r"\bO_[A-Z]")
 BRACE = re.compile(r"[{}]")
 ARGUMENT_TOKENS = re.compile(r"[()\[\]{},]")
@@ -3521,7 +3519,7 @@ def posix_call(version: Version, index: int, match: re.Match) -> bool:
     arguments = call_arguments(version, index, match.end() - 1)
     if arguments is None:
         return not match.group("open")
-    if any(ARGUMENT_LABEL.match(argument) for argument in arguments):
+    if any(ARGUMENT_LABEL.match(argument) for argument in arguments):  # C functions take no labels
         return False
     if C_ARITY.get(name, len(arguments)) != len(arguments):
         return False

@@ -46,18 +46,19 @@ public final class MainThreadWatchdog: Sendable {
             return .milliseconds(min(max(raw, 4), 1_000))
         }
 
-        /// The debug assertion is useful for interactive launches, but a
-        /// `CMUX_NEXT_NO_ACTIVATE=1` diagnostic launch must stay alive long
-        /// enough to preserve its watchdog evidence after reporting a hang.
+        /// The debug assertion is useful for interactive launches, but an
+        /// isolated diagnostic or bench launch (``LaunchIsolation/isolated``)
+        /// must stay alive long enough to preserve its watchdog evidence after
+        /// reporting a hang.
         public static var defaultHangAssertThreshold: Duration? {
             hangAssertThreshold(debugBuild: ControlService.isDebugBuild,
-                                noActivate: ProcessInfo.processInfo.environment["CMUX_NEXT_NO_ACTIVATE"] == "1")
+                                isolatedLaunch: LaunchIsolation(environment: ProcessInfo.processInfo.environment).isolated)
         }
 
         /// Policy seam kept explicit so diagnostic-launch behavior is tested
         /// without mutating the process environment.
-        public static func hangAssertThreshold(debugBuild: Bool, noActivate: Bool) -> Duration? {
-            debugBuild && !noActivate ? .seconds(10) : nil
+        public static func hangAssertThreshold(debugBuild: Bool, isolatedLaunch: Bool) -> Duration? {
+            debugBuild && !isolatedLaunch ? .seconds(10) : nil
         }
 
         public init(threshold: Duration = Configuration.environmentThreshold, capacity: Int = 128, sampleStacks: Bool = true,

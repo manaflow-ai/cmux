@@ -152,6 +152,7 @@ pub(crate) fn start_host_runtime(
         #[cfg(unix)]
         session_cleanup: session_cleanup::SessionCleanup::new(),
         adopted_session: child.adopted_session(),
+        trace_control: super::host_trace::HostTraceQueue::default(),
         #[cfg(test)]
         fail_next_resize_publication: AtomicBool::new(false),
     });

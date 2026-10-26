@@ -47,6 +47,8 @@ final class CEFRuntime {
     var tabBeingAdded: CEFTab?
     /// Tabs Chromium created itself, until a pane adopts them.
     private(set) lazy var orphans = CEFOrphanTabs(runtime: self)
+    /// The spare windows a pane's first tab joins (one per store kind, `CEFSpareWindow`).
+    let spareWindow = CEFSpareWindow()
     /// How the next tabs inserted into a window open, by window id, from the
     /// window requests that sent them there (oldest first).
     var placements = CEFPlacementQueue()
@@ -137,6 +139,9 @@ final class CEFRuntime {
     private(set) var preloaded = false
     /// The preload finished mapping the framework (CEF not started yet).
     private(set) var libraryLoaded = false
+    /// The ended framework load, kept by ``libraryLoadEnded()`` so ``startLoaded(environment:trigger:)``
+    /// runs `CefInitialize` on its caller's turn with no await.
+    private var loadedLibrary: Result<CEFLoadedLibrary, BootError>?
     private(set) var trigger: String?
     private(set) var loadDuration: Duration?
     private(set) var initializeDuration: Duration?
@@ -156,6 +161,9 @@ final class CEFRuntime {
         self.signInCallbacks = signInCallbacks
         guard stores !== self.stores else { return }
         self.stores = stores
+        // The pages profile belonged to the old stores: no key of these takes its spare.
+        spareWindow.pagesProfile = nil
+        spareWindow.drop(.pages, runtime: self)
         // An incognito session ended: drop its in-memory contexts, so
         // Chromium destroys their profiles (and data) once no browser uses
         // them.
@@ -257,6 +265,30 @@ final class CEFRuntime {
             _ = await task.value
             self?.libraryLoaded = true
         }
+    }
+
+    /// Returns once the framework load ended (at once when none runs), and keeps its result for
+    /// ``startLoaded(environment:trigger:)``.
+    func libraryLoadEnded() async {
+        guard let loadTask else { return }
+        loadedLibrary = await loadTask.value
+    }
+
+    /// The main-thread part of ``start(layout:environment:trigger:)``, on this turn: once
+    /// ``libraryLoadEnded()`` returned, `CefInitialize` runs here, so a caller that picked an idle moment
+    /// gets it in that moment and not on a later, unscheduled turn. Idempotent.
+    ///
+    /// - Returns: True when CEF runs; false when no load has ended yet, or CEF failed or shut down.
+    @discardableResult
+    func startLoaded(environment: [String: String] = ProcessInfo.processInfo.environment, trigger: String) -> Bool {
+        if state == .ready { return true }
+        guard startError() == nil, let loadedLibrary else { return false }
+        do {
+            try finishStart(loadedLibrary, environment: environment, trigger: trigger)
+        } catch {
+            return false
+        }
+        return true
     }
 
     /// Synchronous start for the debug window (loads on the main thread).
@@ -493,7 +525,7 @@ final class CEFRuntime {
     }
 
     func host(for key: CEFPaneKey, lifecycleTrace: BrowserLifecycleTrace = .shared, contextMenus: BrowserContextMenuBuilder = .shared) -> CEFPaneHost {
-        if let host = hosts[key] ?? CEFSpareWindow.shared.take(for: key, runtime: self) { return host }
+        if let host = hosts[key] ?? spareWindow.take(for: key, runtime: self) { return host }
         usedProfiles.insert(key.profile)
         let host = CEFPaneHost(key: key, runtime: self, lifecycleTrace: lifecycleTrace, contextMenus: contextMenus)
         hosts[key] = host

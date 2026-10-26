@@ -19,14 +19,14 @@ import CmuxNextCompat
 ///   checks again; the failsafe completes it with reason `failsafe` whatever is still held. The
 ///   completion never fires after ``beginQuit()``.
 /// - One launch, one completion: the scheduler reads the ``StartupPhase`` of its `mainWork`
-///   (p06-scheduler). While that phase is not settled, its settle is one more ref (released with
-///   ``StartupInProgressRef/Reason/launchPhaseSettled``), and the phase's settle failsafe (10 s from
-///   launch) is the scheduler's failsafe: no afterStartup task runs before the classes the settle
-///   opens, and one deadline and one reason end the launch. Only a scheduler whose phase is already
-///   settled (made after launch, tests) arms its own failsafe (``failsafeTimeout``, a ``DemandTimer``),
-///   which exists only until completion or ``beginQuit()``. The phase's own references (first
-///   snapshot, restore, visible page) stay the phase's until task 013 replaces them with refs of this
-///   scheduler (the restore ref and one ref per visible pane).
+///   (p06-scheduler). While that phase is not settled, its settle is one more ref, and the phase's
+///   settle failsafe (10 s from launch) is the scheduler's failsafe: no afterStartup task runs before
+///   the classes the settle opens, and one deadline and one reason end the launch. The settle is no
+///   reason of its own: its ref ends with the reason of the ref released before it (a pane's, the
+///   restore's, the daemon's), or `failsafe`. The phase's restore and visible-page references are
+///   marked by the owner of this scheduler's restore and pane refs (`VisiblePaneRefs`, task 013).
+///   Only a scheduler whose phase is already settled (made after launch, tests) arms its own failsafe
+///   (``failsafeTimeout``, a ``DemandTimer``), which exists only until completion or ``beginQuit()``.
 /// - A post from another thread hops to main at ``WorkPriority/userVisible`` and is queued once there;
 ///   a lane post after completion goes straight to its lane.
 /// - After completion a post goes straight to its class. After ``beginQuit()`` nothing runs.
@@ -115,6 +115,8 @@ public final class StartupScheduler {
     private var idleTasks: [Pending?] = []
     private var idleHead = 0
     private var observers: [@MainActor (Completion) -> Void] = []
+    /// ``afterFirstFrame()`` callers, resumed when the afterFirstFrame tasks are released or quit begins.
+    private var firstFrameWaiters: [CheckedContinuation<Void, Never>] = []
     /// Built in init (lazy because its callback captures self).
     private lazy var idleClient: FrameClient = FrameClient(owner: "Startup.afterStartup", budgeted: .background, on: mainWork) { [weak self] _, budget in
         self?.runIdleTask(budget) ?? false
@@ -263,6 +265,7 @@ public final class StartupScheduler {
         idleHead = 0
         idleClient.deactivate()
         observers = []
+        resumeFirstFrameWaiters()
     }
 
     /// Calls `body` with the completion: now when startup already completed, never after quit.
@@ -270,6 +273,15 @@ public final class StartupScheduler {
         if let completion { return body(completion) }
         guard !isQuitting else { return }
         observers.append(body)
+    }
+
+    /// Returns once the afterFirstFrame tasks are released (the first frame, ``firstFrameMissed(_:)``
+    /// or completion): at once when they were, and at once after ``beginQuit()``. For async launch
+    /// work that goes on after the first frame (a question shown once a window drew); a post is the
+    /// way for work that fits in one main turn.
+    public func afterFirstFrame() async {
+        guard !firstFrameDone, !isQuitting else { return }
+        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in firstFrameWaiters.append(done) }
     }
 
     /// Whether the scheduler's own failsafe deadline is pending (never while its launch phase owns the deadline).
@@ -294,10 +306,11 @@ public final class StartupScheduler {
         complete(failsafePassed ? .failsafe : lastReason)
     }
 
-    /// The launch phase settled: its ref ends, and a failsafe settle ends the launch whatever is held.
+    /// The launch phase settled: its ref ends with the last reason (the settle names no reason of its own),
+    /// and a failsafe settle ends the launch whatever is held.
     private func launchPhaseSettled(_ cause: StartupPhase.SettleCause?) {
         if cause == .failsafe { failsafePassed = true }
-        launchPhase?.release(cause == .failsafe ? .failsafe : .launchPhaseSettled)
+        launchPhase?.release(cause == .failsafe ? .failsafe : lastReason)
         launchPhase = nil
     }
 
@@ -362,6 +375,13 @@ public final class StartupScheduler {
         let held = heldAfterFirstFrame
         heldAfterFirstFrame = []
         for task in held { dispatch(task) }
+        resumeFirstFrameWaiters()
+    }
+
+    private func resumeFirstFrameWaiters() {
+        let waiting = firstFrameWaiters
+        firstFrameWaiters = []
+        for waiter in waiting { waiter.resume() }
     }
 
     /// Runs `task` now (critical), or hands it to its main class or its lane.

@@ -49,8 +49,7 @@ fn corpus_hello() -> Vec<u8> {
 }
 /// WELCOME, version 5, no terminal, granted TRACE_CONTROL | WRITE_FLOW.
 const CORPUS_WELCOME: &str = "434d4858 0200 0000 00000000 0a000000 0500 00000000 03000000";
-/// WELCOME of a holder without a tracer (the shipped binary until it
-/// starts one): granted WRITE_FLOW only.
+/// WELCOME of a holder whose tracer does not run: granted WRITE_FLOW only.
 const CORPUS_WELCOME_UNTRACED: &str = "434d4858 0200 0000 00000000 0a000000 0500 00000000 02000000";
 /// WELCOME to a daemon that asked for nothing: granted 0.
 const CORPUS_WELCOME_NONE: &str = "434d4858 0200 0000 00000000 0a000000 0500 00000000 00000000";
@@ -130,10 +129,11 @@ fn refused(stream: &UnixStream, reader: &mut wire::Reader) -> (u16, u16) {
     (input.u16().unwrap(), input.u16().unwrap())
 }
 
-/// The shipped holder binary, whose tracer does not run, answers the
-/// corpus HELLO granting only WRITE_FLOW, and a TRACE_START from that link
-/// is an unknown kind. The HELLO of a daemon older than the bits (no
-/// `wanted` field) is granted nothing: a TRACE_START there is unknown too.
+/// The shipped holder binary starts its black box (p09-observability-015),
+/// so it answers the corpus HELLO granting both bits and takes the corpus
+/// TRACE_START and TRACE_STOP. The HELLO of a daemon older than the bits
+/// (no `wanted` field) is granted nothing: a TRACE_START there is an
+/// unknown kind.
 #[test]
 fn the_holder_grants_what_was_asked_and_an_older_daemon_gets_nothing() {
     let dir = support::unique_dir("cmhc");
@@ -143,12 +143,18 @@ fn the_holder_grants_what_was_asked_and_an_older_daemon_gets_nothing() {
     let asking = UnixStream::connect(&socket).unwrap();
     let mut reader = wire::Reader::default();
     wire::send_all(asking.as_raw_fd(), &corpus_hello(), &[]).unwrap();
-    assert_eq!(raw_frame(&read_frame(&asking, &mut reader)), hex(CORPUS_WELCOME_UNTRACED));
+    assert_eq!(raw_frame(&read_frame(&asking, &mut reader)), hex(CORPUS_WELCOME));
     wire::send_all(asking.as_raw_fd(), &hex(CORPUS_TRACE_START), &[]).unwrap();
+    wire::send_all(asking.as_raw_fd(), &hex(CORPUS_TRACE_STOP), &[]).unwrap();
+    // A PING behind them: its PONG comes with no ERROR before it only when
+    // the holder took both.
+    let ping = wire::encode(Kind::Ping, 0, b"after-trace");
+    wire::send_all(asking.as_raw_fd(), &ping, &[]).unwrap();
+    let answer = read_frame(&asking, &mut reader);
     assert_eq!(
-        refused(&asking, &mut reader),
-        (Kind::TraceStart as u16, error_code::UNKNOWN_KIND),
-        "a holder that cannot trace never takes TRACE_START"
+        (answer.kind, answer.payload.as_slice()),
+        (Kind::Pong as u16, &b"after-trace"[..]),
+        "the holder refused its granted trace control: {answer:?}"
     );
     drop(asking);
 
@@ -168,7 +174,7 @@ fn the_holder_grants_what_was_asked_and_an_older_daemon_gets_nothing() {
     // The client of this build asks for every bit and gets what this
     // holder serves; one that offers an older daemon's HELLO gets none.
     let (client, _) = HolderClient::connect(&socket, &TOKEN).unwrap();
-    assert_eq!(client.granted(), capability::WRITE_FLOW);
+    assert_eq!(client.granted(), capability::SUPPORTED);
     drop(client);
     let (client, _) = HolderClient::connect_as(&socket, &TOKEN, 5).unwrap();
     assert_eq!(client.granted(), 0);
@@ -185,18 +191,22 @@ enum TraceCall {
     Stop,
 }
 
-struct FakeTrace(Sender<TraceCall>);
+struct FakeTrace {
+    calls: Sender<TraceCall>,
+    /// Whether the fake tracer runs.
+    available: bool,
+}
 
 impl TraceControl for FakeTrace {
     fn available(&self) -> bool {
-        true
+        self.available
     }
     fn start(&mut self, request: TraceStart) -> Result<(), String> {
-        let _ = self.0.send(TraceCall::Start(request));
+        let _ = self.calls.send(TraceCall::Start(request));
         if request.budget_bytes == 1 { Err("no room".to_string()) } else { Ok(()) }
     }
     fn stop(&mut self) -> Result<(), String> {
-        let _ = self.0.send(TraceCall::Stop);
+        let _ = self.calls.send(TraceCall::Stop);
         Ok(())
     }
 }
@@ -222,7 +232,7 @@ fn a_granted_link_starts_and_stops_the_holders_trace() {
     let (calls_tx, calls) = channel();
     let serving = std::thread::spawn(move || {
         let mut holder = Holder::new(listener, TOKEN).unwrap();
-        holder.set_trace_control(Box::new(FakeTrace(calls_tx)));
+        holder.set_trace_control(Box::new(FakeTrace { calls: calls_tx, available: true }));
         holder.set_idle_exit(Duration::from_secs(2));
         holder.run().unwrap();
     });
@@ -265,6 +275,38 @@ fn a_granted_link_starts_and_stops_the_holders_trace() {
     taker.end();
     drop(link);
     serving.join().unwrap();
+    let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// A holder whose tracer does not run grants only WRITE_FLOW, and a
+/// TRACE_START from that link is an unknown kind that never reaches the
+/// tracer. (In process: the tracer is the test's.)
+#[test]
+fn a_holder_without_a_tracer_grants_write_flow_only() {
+    let dir = support::unique_dir("cmhu");
+    let socket = dir.join("h.sock");
+    let listener = UnixListener::bind(&socket).unwrap();
+    let (calls_tx, calls) = channel();
+    let serving = std::thread::spawn(move || {
+        let mut holder = Holder::new(listener, TOKEN).unwrap();
+        holder.set_trace_control(Box::new(FakeTrace { calls: calls_tx, available: false }));
+        holder.set_idle_exit(Duration::from_secs(2));
+        holder.run().unwrap();
+    });
+
+    let asking = UnixStream::connect(&socket).unwrap();
+    let mut reader = wire::Reader::default();
+    wire::send_all(asking.as_raw_fd(), &corpus_hello(), &[]).unwrap();
+    assert_eq!(raw_frame(&read_frame(&asking, &mut reader)), hex(CORPUS_WELCOME_UNTRACED));
+    wire::send_all(asking.as_raw_fd(), &hex(CORPUS_TRACE_START), &[]).unwrap();
+    assert_eq!(
+        refused(&asking, &mut reader),
+        (Kind::TraceStart as u16, error_code::UNKNOWN_KIND),
+        "a holder that cannot trace never takes TRACE_START"
+    );
+    drop(asking);
+    serving.join().unwrap();
+    assert!(calls.try_recv().is_err(), "the tracer got a call");
     let _ = std::fs::remove_dir_all(&dir);
 }
 
