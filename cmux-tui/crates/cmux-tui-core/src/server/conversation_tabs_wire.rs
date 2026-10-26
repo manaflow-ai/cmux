@@ -481,7 +481,9 @@ fn downgrade_closed_tabs(value: &mut Value) -> bool {
                 object.insert("kind".into(), json!("browser"));
                 changed = true;
             }
-            if object.get("closed_kind").and_then(Value::as_str) == Some("conversation_tab") {
+            if object.get("kind").and_then(Value::as_str) == Some("closed")
+                && object.get("closed_kind").and_then(Value::as_str) == Some("conversation_tab")
+            {
                 object.insert("closed_kind".into(), json!("browser_tab"));
                 changed = true;
             }
