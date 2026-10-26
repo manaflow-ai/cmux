@@ -46,6 +46,16 @@ final class DividerHandleView: NSView {
     /// still pointer.
     var onPointerChange: ((NSEvent) -> Void)?
 
+    /// Render-server spring calls on the handle's layer that have not landed yet (``springOnRenderServer``).
+    private(set) var renderSpringsInFlight = 0
+    /// The handle's frame is at rest and Core Animation shows it springing there: it takes no hover and
+    /// shows no resize cursor until it lands (``ScreenDividers/refreshHover(at:)``).
+    var isOnRenderSpring: Bool { renderSpringsInFlight > 0 }
+    /// Frame assignments since the handle was made (tests: a render-server spring sets none between its
+    /// start and its landing, p03-rendering-024).
+    private(set) var frameSetCount = 0
+    override var frame: NSRect { didSet { frameSetCount += 1 } }
+
     private let line = CALayer()
     private(set) var isHovered = false { didSet { if isHovered != oldValue { applyColors() } } }
     private var isDragging = false { didSet { applyColors() } }
@@ -136,7 +146,8 @@ final class DividerHandleView: NSView {
 
     override func resetCursorRects() {
         let rect = cursorRectInBounds
-        guard !rect.isEmpty else { return }
+        // Mid-spring the frame is at rest but the handle shows elsewhere: its landing brings the cursor back.
+        guard !rect.isEmpty, !isOnRenderSpring else { return }
         if #available(macOS 15, *) {
             addCursorRect(rect, cursor: axis == .horizontal ? .columnResize : .rowResize)
         } else {
@@ -193,7 +204,45 @@ final class DividerHandleView: NSView {
         if newSuperview == nil {
             isDragging = false
             isHovered = false
+            // Its render-server springs end now; their landings still run (``springOnRenderServer``).
+            if let layer, isOnRenderSpring { for keyPath in Self.renderSpringKeyPaths { RenderSpring.stop(layer, keyPath) } }
         }
+    }
+
+    /// The key paths a render-server spring of the handle animates on its backing layer.
+    static let renderSpringKeyPaths = ["position", "bounds.size", "opacity"]
+
+    /// Moves the handle to `rest` (its superview's coordinates, alpha `restAlpha`) in this turn, its one frame
+    /// set until it lands, and lets the render server show it springing there from `from` (alpha `fromAlpha`)
+    /// on `spring`, the token of the panes beside it: additive springs of its backing layer's position, size
+    /// and opacity, as Chromium's compositor runs a transform animation off the main thread
+    /// (`cc/animation/animation_host.h`). A spring on a handle already springing retargets; the springs still
+    /// running keep their velocity. `landed` runs once, when this call's springs ended or a newer call took
+    /// over (`RenderSpring.Completion`), after the handle's cursor rects follow its rest frame again.
+    func springOnRenderServer(from: CGRect, alpha fromAlpha: CGFloat, to rest: CGRect, alpha restAlpha: CGFloat,
+                              spring: RenderSpring, landed: @escaping @MainActor @Sendable () -> Void) {
+        renderSpringsInFlight += 1
+        // AppKit maps the frame to the layer: the springs start from the layer geometry it writes for `from`.
+        frame = from
+        let start = (position: layer?.position ?? .zero, size: layer?.bounds.size ?? .zero)
+        frame = rest
+        alphaValue = restAlpha
+        window?.invalidateCursorRects(for: self)
+        let finish: RenderSpring.Completion = { [weak self] _ in
+            self?.renderSpringLanded()
+            landed()
+        }
+        guard let layer else { return finish(true) }
+        var moves = [RenderSpring.Move(layer, "position", from: start.position, to: layer.position),
+                     RenderSpring.Move(layer, "bounds.size", from: start.size, to: layer.bounds.size)]
+        if fromAlpha != restAlpha { moves.append(RenderSpring.Move(layer, "opacity", from: fromAlpha, to: restAlpha)) }
+        spring.animateGroup(moves, in: self, completion: finish)
+    }
+
+    /// One render-server spring call landed: after the last, the resize cursor shows at the rest frame.
+    private func renderSpringLanded() {
+        renderSpringsInFlight -= 1
+        if renderSpringsInFlight == 0 { window?.invalidateCursorRects(for: self) }
     }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }

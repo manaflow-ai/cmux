@@ -47,36 +47,28 @@ extension ScreenContentView {
             host.springOnRenderServer(from: move.from, alpha: move.fromAlpha, to: move.to, alpha: move.toAlpha, spring: spring,
                                       laysOut: laysOut && move.to.width >= 1 && move.to.height >= 1, landed: landed)
         }
+        // Each divider is a layer on the panes' spring (p03-rendering-024): its frame is set to rest here, once,
+        // and nothing sets it again before it lands. The change turn's presentation pass places its clips.
         for (kind, move) in dividers {
             guard let view = dividerViews[kind] else { continue }
             renderSpringsInFlight += 1
-            springDivider(view, move, on: spring, landed: landed)
+            view.springOnRenderServer(from: move.from, alpha: move.fromAlpha, to: move.to, alpha: move.toAlpha,
+                                      spring: spring, landed: landed)
         }
         renderSpringLanded()
         return true
     }
 
-    /// Moves a divider handle to its rest in this turn and springs its layer there from where it showed.
-    private func springDivider(_ view: DividerHandleView, _ move: SplitMotion.RenderMove, on spring: RenderSpring,
-                               landed: @escaping @MainActor @Sendable () -> Void) {
-        // AppKit maps the frame to the layer: the spring starts from the layer geometry it writes for `from`.
-        view.frame = move.from
-        let start = (position: view.layer?.position ?? .zero, size: view.layer?.bounds.size ?? .zero)
-        view.frame = move.to
-        view.alphaValue = move.toAlpha
-        guard let layer = view.layer else { return landed() }
-        spring.animateGroup([RenderSpring.Move(layer, "position", from: start.position, to: layer.position),
-                             RenderSpring.Move(layer, "bounds.size", from: start.size, to: layer.bounds.size)],
-                            in: view) { _ in landed() }
-    }
-
-    /// One render-server spring call of this screen landed. After the last, divider hover follows the rest
-    /// frames once and the layout motion ends, unless a pan holds it (``isGesturing``) or CPU springs still
-    /// run (the root ends it when they land).
+    /// One render-server spring call of this screen landed. After the last, the dividers' clips follow the
+    /// screen as it is now (a dock or a scroll area may have moved meanwhile), divider hover is a fresh hit
+    /// test at the rest frames and the overlay takes their click areas back, and the layout motion ends,
+    /// unless a pan holds it (``isGesturing``) or CPU springs still run (the root ends it when they land).
     func renderSpringLanded() {
         renderSpringsInFlight -= 1
         guard renderSpringsInFlight == 0 else { return }
+        ScreenDividers(screen: self).place(strip: stripShift, scale: scale, uncovered: uncoveredRect, force: false)
         refreshDividerHover()
+        context.overlayNeedsSync()
         guard userMotionActive, !isGesturing else { return }
         userMotionActive = false
         if !hasMotion { context.userMotionEnded() }
