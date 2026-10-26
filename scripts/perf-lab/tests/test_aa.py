@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import argparse
+import contextlib
 import importlib.util
 import io
 import json
@@ -13,7 +14,6 @@ import math
 import sys
 import tempfile
 import unittest
-import unittest.mock
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -22,6 +22,8 @@ LAB = Path(__file__).resolve().parent.parent
 
 
 def _load(name: str, filename: str):
+    if name in sys.modules:
+        return sys.modules[name]
     spec = importlib.util.spec_from_file_location(name, LAB / filename)
     module = importlib.util.module_from_spec(spec)
     sys.modules[name] = module
@@ -31,6 +33,7 @@ def _load(name: str, filename: str):
 
 store = _load("perf_lab_store", "store.py")
 aa = _load("perf_lab_aa", "aa.py")
+lab = _load("perf_lab_lab", "lab.py")
 
 NOW = datetime(2026, 10, 25, 12, 0, tzinfo=timezone.utc)
 HOST_A = store.Host(name="cmux15", chip="Apple M4 Pro", memory_gb=24, display_hz=120, fingerprint="fp-15")
@@ -40,29 +43,48 @@ STEADY = [10.0, 10.1, 9.9, 10.0, 10.2, 9.8, 10.0, 10.1, 9.9, 10.0]
 
 @dataclass(frozen=True)
 class FakeChangePoint:
-    x_value: int
+    extended_start: int
+    extended_end: int
+    median_before: float
+    median_after: float
 
 
-def no_change_points(series):
-    return []
-
-
-class ThresholdDetector:
-    """Flags the first ratio over 1.2 (or under 1/1.2) once it is in the series, like a step detector."""
-
-    def __init__(self):
-        self.calls = 0
-
-    def __call__(self, series):
-        self.calls += 1
-        for x, ratio in series:
-            if ratio > 1.2 or ratio < 1 / 1.2:
-                return [FakeChangePoint(x)]
+class NoChangePoints:
+    def change_points(self, values, config):
         return []
 
 
+class ThresholdDetector:
+    """Flags the first value more than 20 % away from the first one, like a step detector; records configs."""
+
+    def __init__(self):
+        self.calls = 0
+        self.configs = []
+
+    def change_points(self, values, config):
+        self.calls += 1
+        self.configs.append(dict(config))
+        for index, value in enumerate(values):
+            if abs(value / values[0] - 1) > 0.2:
+                return [FakeChangePoint(index, index, values[0], value)]
+        return []
+
+
+class ScriptedDetector:
+    """Returns the scripted change points for each prefix length."""
+
+    def __init__(self, by_length):
+        self.by_length = by_length
+
+    def change_points(self, values, config):
+        return self.by_length.get(len(values), [])
+
+
+MONITORED_CONFIG = {"min_relative_change": 0.1}
+
+
 def monitor_all_but_unmonitored(series):
-    return series.story != "unmonitored.story"
+    return None if series.story == "unmonitored.story" else MONITORED_CONFIG
 
 
 class Fixture:
@@ -109,6 +131,12 @@ def _args(db, **overrides):
     return argparse.Namespace(**values)
 
 
+def _series(story="home-idle", metric="home.typing.key_dispatch", build_config="bench"):
+    return aa.SeriesInfo(id=1, key=f"{story}/{metric}", story=story, metric=metric, engine="webkit",
+                         host_class="m4pro-24g-120hz", macos_major=26, build_config=build_config, unit="ms",
+                         better="lower")
+
+
 class DuplicateCVTests(unittest.TestCase):
     def test_root_mean_square_cv_of_pairs(self):
         pairs = [(100.0, 110.0), (100.0, 100.0), (50.0, 45.0)]
@@ -121,11 +149,31 @@ class DuplicateCVTests(unittest.TestCase):
         self.assertIsNone(aa.duplicate_cv([]))
         self.assertIsNone(aa.duplicate_cv([(1.0, -1.0)]))
 
-    def test_change_points_counted_once_over_prefixes(self):
-        series = [(0, 1.0), (1, 1.0), (2, 1.5), (3, 1.0), (4, 1.0)]
+    def test_level_series_puts_b_at_a_level(self):
+        self.assertEqual(aa.level_series([(10.0, 11.0), (20.0, 20.0), (0.0, 5.0), (30.0, 15.0)]),
+                         [22.0, 20.0, 10.0])
+        self.assertEqual(aa.level_series([(0.0, 1.0)]), [])
+
+
+class ChangePointCountTests(unittest.TestCase):
+    def test_one_step_counted_once_over_prefixes(self):
+        values = [1.0, 1.0, 1.5, 1.0, 1.0]
         detector = ThresholdDetector()
-        self.assertEqual(aa.change_points(series, detector), 1)
-        self.assertEqual(detector.calls, len(series))
+        self.assertEqual(aa.change_points(values, detector, MONITORED_CONFIG), 1)
+        self.assertEqual(detector.calls, len(values))
+        self.assertEqual(detector.configs, [MONITORED_CONFIG] * len(values))
+
+    def test_overlapping_ranges_are_one_alert_and_disjoint_ones_two(self):
+        detector = ScriptedDetector({
+            3: [FakeChangePoint(1, 2, 1.0, 2.0)],
+            4: [FakeChangePoint(2, 3, 1.0, 2.0)],  # overlaps 1..2: the same alert, as alerts._record drops it
+            6: [FakeChangePoint(5, 5, 2.0, 1.0), FakeChangePoint(1, 1, 1.0, 2.0)],
+        })
+        self.assertEqual(aa.change_points([1.0] * 6, detector, {}), 2)
+
+    def test_a_step_with_equal_medians_is_not_an_alert(self):
+        detector = ScriptedDetector({4: [FakeChangePoint(2, 2, 1.0, 1.0)]})
+        self.assertEqual(aa.change_points([1.0] * 4, detector, {}), 0)
 
 
 class ReportTests(unittest.TestCase):
@@ -137,10 +185,10 @@ class ReportTests(unittest.TestCase):
         self.fixture.close()
         self.tmp.cleanup()
 
-    def report(self, detector=no_change_points, **overrides):
+    def report(self, detector=None, **overrides):
         out = io.StringIO()
-        code = aa.run(_args(self.fixture.path, **overrides), clock=lambda: NOW, detector=detector,
-                      monitored=monitor_all_but_unmonitored, out=out)
+        code = aa.aa_report(_args(self.fixture.path, **overrides), clock=lambda: NOW,
+                            detector=detector or NoChangePoints(), configs=monitor_all_but_unmonitored, out=out)
         self.assertEqual(code, 0)
         return json.loads(out.getvalue())
 
@@ -188,22 +236,24 @@ class ReportTests(unittest.TestCase):
         self.assertEqual([(p.a[0], round(p.b[0], 6)) for p in pairs], [(10.0, 11.0), (10.0, 13.0)])
 
     def test_false_alert_rate_counts_compare_and_anomaly(self):
-        # Night 2 is a real difference between A and B; the ratio detector also sees it in the median and p99.
+        # Night 2 is a real difference between A and B; the detector also sees it in the median series.
         shifted = _scaled(STEADY, 1.5)
         for night in range(1, 11):
             self.fixture.pair(night=night, a=STEADY, b=shifted if night == 2 else list(STEADY))
-        result = self.report(detector=ThresholdDetector(), days=30)
+        detector = ThresholdDetector()
+        result = self.report(detector=detector, days=30)
         (row,) = result["series"]
         comparison = aa.perf_stats.compare(STEADY, shifted)
         self.assertEqual(comparison.original.result, aa.perf_stats.DIFFERENT)
         self.assertEqual(row["compare_different_strict"], 1)
         self.assertEqual(row["compare_different_bisect"], 1)
-        self.assertEqual(row["anomaly_alerts_median"], 1)
-        self.assertEqual(row["anomaly_alerts_p99"], 1)
-        self.assertEqual(row["false_alerts"], 3)
-        self.assertAlmostEqual(row["false_alerts_per_100"], 30.0)
+        self.assertEqual(row["anomaly_alerts"], 1)
+        self.assertEqual(row["false_alerts"], 2)
+        self.assertAlmostEqual(row["false_alerts_per_100"], 20.0)
+        self.assertEqual({json.dumps(c, sort_keys=True) for c in detector.configs},
+                         {json.dumps(MONITORED_CONFIG, sort_keys=True)})
         summary = result["summary"]
-        self.assertAlmostEqual(summary["false_alerts_per_100_series_days"], 30.0)
+        self.assertAlmostEqual(summary["false_alerts_per_100_series_days"], 20.0)
         self.assertFalse(summary["checks"]["false_alerts"])
 
     def test_identical_samples_are_never_a_compare_alert(self):
@@ -220,6 +270,7 @@ class ReportTests(unittest.TestCase):
         result = self.report(days=30)
         self.assertEqual([row["story"] for row in result["series"]], ["terminal.key-frame.light"])
         self.assertEqual(result["summary"]["series_days"], 3)
+        self.assertEqual(result["summary"]["unmonitored_series"], 1)
 
     def test_noisy_series_listed_by_median_or_p99_cv(self):
         quiet, noisy_median, noisy_tail = "quiet_ms", "noisy_ms", "tail_ms"
@@ -276,36 +327,94 @@ class ReportTests(unittest.TestCase):
         for night in range(1, 4):
             self.fixture.pair(night=night, a=STEADY, b=list(STEADY))
         out = io.StringIO()
-        aa.run(_args(self.fixture.path, days=30, json=False), clock=lambda: NOW, detector=no_change_points,
-               monitored=monitor_all_but_unmonitored, out=out)
+        aa.aa_report(_args(self.fixture.path, days=30, json=False), clock=lambda: NOW, detector=NoChangePoints(),
+                     configs=monitor_all_but_unmonitored, out=out)
         text = out.getvalue()
         self.assertIn("false alerts: 0 (0.00 per 100 series-days, limit 1) ok", text)
         self.assertIn("host cmux15: 3 A/A runs", text)
+
+    def test_catapult_detector_finds_no_step_in_steady_a_a_and_one_in_a_shift(self):
+        detector = aa.catapult_detector()
+        steady = [10.0 * (1 + 0.01 * ((i * 7) % 5 - 2)) for i in range(20)]
+        self.assertEqual(aa.change_points(steady, detector, {}), 0)
+        stepped = steady[:10] + [value * 1.5 for value in steady[10:]]
+        self.assertEqual(aa.change_points(stepped, detector, {}), 1)
+        floored = {"min_absolute_change": 100.0}
+        self.assertEqual(aa.change_points(stepped, detector, floored), 0)
+
+
+class SubscriptionConfigTests(unittest.TestCase):
+    def configs(self, entry):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "subscriptions.json"
+            path.write_text(json.dumps({"build_configs": ["bench"], "subscriptions": [entry]}))
+            return aa.subscription_configs(path)
+
+    def test_matching_series_gets_its_override_raised_to_the_catalog_floor(self):
+        entry = {"name": "home", "kind": "family", "owner": "PL-typing", "match": {"story": "home-idle"},
+                 "anomaly_config": {"min_absolute_change": 0.5, "min_relative_change": 0.2}}
+        config = self.configs(entry)
+        # home-idle's home.typing.key_dispatch floor is 1.0 in stories.d; a subscription never goes below it.
+        self.assertEqual(config(_series()), {"min_absolute_change": 1.0, "min_relative_change": 0.2})
+        entry["anomaly_config"]["min_absolute_change"] = 2.0
+        self.assertEqual(self.configs(entry)(_series())["min_absolute_change"], 2.0)
+
+    def test_unmatched_series_or_build_config_is_unmonitored(self):
+        config = self.configs({"name": "home", "kind": "family", "owner": "PL-typing",
+                               "match": {"story": "home-idle"}})
+        self.assertIsNone(config(_series(story="other-story")))
+        self.assertIsNone(config(_series(build_config="debug")))
+        self.assertEqual(config(_series(metric="no.floor.metric")), {})
+
+    def test_bad_subscriptions_file_is_a_typed_error(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "subscriptions.json"
+            path.write_text("{")
+            with self.assertRaises(aa.AAError):
+                aa.subscription_configs(path)
+
+    def test_the_checked_in_subscriptions_load(self):
+        self.assertTrue(callable(aa.subscription_configs()))
 
 
 class CLITests(unittest.TestCase):
     def test_missing_store_is_a_typed_error(self):
         with self.assertRaises(aa.AAError):
-            aa.run(_args("/nonexistent/lab.db", days=1), detector=no_change_points,
-                   monitored=monitor_all_but_unmonitored, out=io.StringIO())
+            aa.aa_report(_args("/nonexistent/lab.db", days=1), detector=NoChangePoints(),
+                         configs=monitor_all_but_unmonitored, out=io.StringIO())
 
     def test_main_reports_errors_with_exit_2(self):
         stderr = io.StringIO()
-        real = sys.stderr
-        sys.stderr = stderr
-        try:
-            self.assertEqual(aa.main(["--days", "1"]), 2)
-        finally:
-            sys.stderr = real
+        with contextlib.redirect_stderr(stderr):
+            self.assertEqual(aa.main(["--days", "1", "--db", ""]), 2)
         self.assertIn("lab.py aa: no lab store", stderr.getvalue())
 
-    def test_register_adds_the_aa_subcommand(self):
-        parser = argparse.ArgumentParser()
-        aa.register(parser.add_subparsers())
-        args = parser.parse_args(["aa", "--db", "x.db", "--cv-over", "0.05", "--json"])
-        self.assertEqual((args.db, args.cv_over, args.json), ("x.db", 0.05, True))
-        with self.assertRaises(SystemExit), unittest.mock.patch("sys.stderr", io.StringIO()):
-            parser.parse_args(["aa", "--since-live", "--days", "3"])
+    def test_lab_py_dispatches_aa(self):
+        self.assertIn("aa", lab.discover(LAB))
+        stderr = io.StringIO()
+        with contextlib.redirect_stderr(stderr):
+            self.assertEqual(lab.main(["aa", "--db", "/nonexistent/lab.db", "--days", "1"]), 2)
+        self.assertIn("lab.py aa: /nonexistent/lab.db: no lab store", stderr.getvalue())
+
+    def test_lab_py_rejects_both_windows(self):
+        with self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+            lab.main(["aa", "--since-live", "--days", "3"])
+
+    def test_lab_py_runs_the_report_end_to_end(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            fixture = Fixture(Path(tmp))
+            try:
+                for night in range(1, 4):
+                    fixture.pair(night=night, a=STEADY, b=list(STEADY), story="home-idle",
+                                 metric="home.typing.key_dispatch")
+            finally:
+                fixture.close()
+            out = io.StringIO()
+            with contextlib.redirect_stdout(out):
+                self.assertEqual(lab.main(["aa", "--db", str(fixture.path), "--days", "30", "--json"]), 0)
+        result = json.loads(out.getvalue())
+        self.assertEqual(result["summary"]["series_days"], 3)
+        self.assertEqual(result["summary"]["false_alerts"], 0)
 
 
 if __name__ == "__main__":
