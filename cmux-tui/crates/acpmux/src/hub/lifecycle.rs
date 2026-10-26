@@ -559,6 +559,11 @@ impl Hub {
             }
         }
 
+        // Every start below (pooled, cold, resumed, a fork or sub-session) runs this profile.
+        if let Err(e) = self.refuse_pinned_full_access(profile) {
+            self.append(session, "mux", "full_access_refused", json!({}));
+            return Err(e);
+        }
         let current = self.opencode_ask_now(session, profile).await;
         let profile = current.as_ref().unwrap_or(profile);
         self.record_spawn_inputs(session, profile).await;
@@ -720,7 +725,7 @@ impl Hub {
             let mode = if super::start_mode::profile_sets_mode(profile) {
                 mode
             } else {
-                super::start_mode::resumable_mode(mode, "default")
+                super::start_mode::resumable_mode(mode, "default", self.full_access_allowed())
             };
             if mode != saved_mode {
                 tracing::info!(session = %session.id, "resume: full access is off; {saved_mode} runs as {mode}");
@@ -1023,9 +1028,7 @@ impl Hub {
             .as_ref()
             .and_then(|m| m.get("currentModeId"))
             .and_then(Value::as_str)
-            .filter(|mode| {
-                !super::start_mode::is_full_access(mode) || super::start_mode::full_access_allowed()
-            })
+            .filter(|mode| !super::start_mode::is_full_access(mode) || self.full_access_allowed())
         {
             if let Err(e) = child
                 .request(method::SESSION_SET_MODE, json!({"sessionId": sid, "modeId": mode}))
@@ -1061,7 +1064,7 @@ impl Hub {
                 continue;
             }
             if value.as_str().is_some_and(super::start_mode::is_full_access)
-                && !super::start_mode::full_access_allowed()
+                && !self.full_access_allowed()
             {
                 tracing::info!(session = %session.id, "replay {id}: full access is off; kept the harness's own mode");
                 continue;
@@ -1230,6 +1233,10 @@ impl Hub {
         name: &str,
         profile: &HarnessProfile,
     ) -> anyhow::Result<usize> {
+        // MDM forces full access off (#23322): a profile pinning it is never started to probe.
+        if self.refuse_pinned_full_access(profile).is_err() {
+            anyhow::bail!("{name} pins full access, which MDM forces off");
+        }
         let (tx, mut rx) = tokio::sync::mpsc::channel(64);
         let tap: crate::agent::Tap = Arc::new(|_, _, _| true);
         // Never the home folder: the agent scans its folder at start (LAUNCH-NO-TCC-PROMPTS).

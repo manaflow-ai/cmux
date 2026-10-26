@@ -508,7 +508,7 @@ impl Hub {
             };
         // Read before the locks (it reads the settings file); the mode is read again under them.
         let full_access_on =
-            full_access_mode(&session.meta()).is_some() && super::start_mode::full_access_allowed();
+            full_access_mode(&session.meta()).is_some() && self.full_access_allowed();
         let (rx, prev, grouping, permission_id) = {
             let cfg = self.config.read().await;
             let mut state = session.permissions.lock().unwrap();
