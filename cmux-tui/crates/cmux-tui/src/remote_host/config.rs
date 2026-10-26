@@ -37,6 +37,8 @@ pub(crate) struct Config {
     /// Scoped, consented grants for allowlisted logins (`cmux host grant`).
     #[serde(default)]
     pub grants: Vec<super::grant::Grant>,
+    #[serde(default)]
+    pub shares: Vec<super::shares::Share>,
 }
 
 fn default_port() -> u16 {
@@ -59,6 +61,7 @@ impl Default for Config {
             spawn: true,
             teammate_access: false,
             grants: Vec::new(),
+            shares: Vec::new(),
         }
     }
 }
@@ -101,8 +104,9 @@ pub(crate) fn load_from(path: &Path) -> anyhow::Result<Config> {
     }
 }
 
-/// Writes the file atomically (temp file + rename), owner-only.
-pub(crate) fn save(config: &Config) -> anyhow::Result<()> {
+/// Writes the file atomically (temp file + rename), owner-only. The caller holds
+/// [`ConfigLock`] from before its load, so no two read-modify-writes interleave.
+pub(crate) fn save(config: &Config, _held: &ConfigLock) -> anyhow::Result<()> {
     let dir = ensure_dir()?;
     let path = dir.join("remote.json");
     let tmp = dir.join(format!(".remote.json.{}", std::process::id()));
@@ -118,6 +122,26 @@ pub(crate) fn save(config: &Config) -> anyhow::Result<()> {
     cmux_tui_core::platform::restrict_file(&tmp)?;
     std::fs::rename(&tmp, &path).with_context(|| format!("cannot write {}", path.display()))?;
     Ok(())
+}
+
+/// An exclusive lock on the config for one read-check-write (released when the file closes),
+/// so a change confirmed at a prompt applies to the config as it is then. `File::lock` is
+/// `flock` on Unix and `LockFileEx` on Windows, so every platform that hosts takes it.
+pub(crate) struct ConfigLock {
+    _file: std::fs::File,
+}
+
+/// Takes [`ConfigLock`], waiting for another holder.
+pub(crate) fn lock() -> anyhow::Result<ConfigLock> {
+    let mut options = std::fs::OpenOptions::new();
+    options.read(true).write(true).create(true).truncate(false);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    let file = options
+        .open(ensure_dir()?.join("remote.json.lock"))
+        .context(crate::localization::catalog().host_share.lock)?;
+    file.lock().context(crate::localization::catalog().host_share.lock)?;
+    Ok(ConfigLock { _file: file })
 }
 
 /// Creates the state directory owner-only (config, pid lock and log).
