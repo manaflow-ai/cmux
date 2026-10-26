@@ -8107,6 +8107,8 @@ extension SessionPersistenceTests {
         }
     }
 
+    /// A Dock with one panel past the cap keeps the first panels, leaves the
+    /// last one out of `panels` and the layout, and records `omittedPanelCount`.
     @MainActor
     func testDockSnapshotRecordsPanelsOmittedPastTheCap() throws {
         let dock = DockSplitStore(workspaceId: UUID(), baseDirectoryProvider: { nil })
@@ -8184,6 +8186,8 @@ extension SessionPersistenceTests {
         XCTAssertFalse(resaved.logEntries.contains { $0.source == Workspace.sessionPersistenceOmissionLogSource })
     }
 
+    /// Under the cap the snapshot writes no `omittedPanelCount`, and restoring
+    /// it adds no omission warning to the workspace log.
     @MainActor
     func testWorkspaceSnapshotUnderThePanelCapDoesNotRecordAnOmission() throws {
         let workspace = Workspace()
@@ -8202,6 +8206,8 @@ extension SessionPersistenceTests {
         XCTAssertFalse(restored.logEntries.contains { $0.source == Workspace.sessionPersistenceOmissionLogSource })
     }
 
+    /// Repeated restores of the same omission log one warning, and a zero or
+    /// missing count logs none.
     @MainActor
     func testWindowDockOmissionWarningIsRecordedOnTheSelectedWorkspace() {
         let workspace = Workspace()
@@ -8270,6 +8276,8 @@ extension SessionPersistenceTests {
         )
     }
 
+    /// Snapshots written before `omittedPanelCount` existed still decode, with
+    /// the field read as nil.
     @MainActor
     func testLegacyWorkspaceSnapshotWithoutOmittedPanelCountDecodes() throws {
         let workspace = Workspace()
@@ -8285,6 +8293,8 @@ extension SessionPersistenceTests {
         XCTAssertNil(decoded.omittedPanelCount)
     }
 
+    /// Adds `count` image file-preview panels as tabs in `paneId`. File
+    /// previews skip terminal start-up, so a test can pass the cap cheaply.
     @MainActor
     private func seedFilePreviewPanels(
         count: Int,
@@ -8311,6 +8321,7 @@ extension SessionPersistenceTests {
         }
     }
 
+    /// Closes every panel in `workspace` so seeded panels do not outlive the test.
     @MainActor
     private func closePanels(in workspace: Workspace) {
         for panel in workspace.panels.values {
@@ -8318,16 +8329,20 @@ extension SessionPersistenceTests {
         }
     }
 
+    /// Encodes `value` and returns it as a top-level JSON object.
     private func jsonObject(encoding value: some Encodable) throws -> [String: Any] {
         let data = try JSONEncoder().encode(value)
         return try XCTUnwrap(JSONSerialization.jsonObject(with: data) as? [String: Any])
     }
 
+    /// Reads `omittedPanelCount` from encoded snapshot JSON. Nil when the key
+    /// is absent or null.
     private func omittedPanelCount(in json: [String: Any]) -> Int? {
         guard let value = json["omittedPanelCount"], !(value is NSNull) else { return nil }
         return (value as? NSNumber)?.intValue
     }
 
+    /// Every panel id the layout tree references, in tree order.
     private func layoutPanelIds(_ layout: SessionWorkspaceLayoutSnapshot) -> [UUID] {
         switch layout {
         case .pane(let pane):
