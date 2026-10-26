@@ -14,6 +14,7 @@ import CmuxNextHibernation
 import CmuxNextHome
 import CmuxNextMemory
 import CmuxNextPages
+import CmuxNextSidebar
 import CmuxNextTerminal
 import CmuxNextWakeups
 
@@ -58,7 +59,14 @@ struct AppMemoryConsumers {
         registerInternalPageDiscards()  // CmuxNextApp
         registerConversationDiscards()  // CmuxNextHibernation, CmuxNextHome
         registerPageLifecycle()  // CmuxNextPages
+        // registerSidebarDoc(_:)  // CmuxNextSidebar: SidebarDocWiring.start calls it when it makes the store
         registerTerminalLastFrames()  // CmuxNextTerminal
+    }
+
+    /// The sidebar document store's projection memo: one lossless entry, dropped at critical
+    /// (p07-memory-054). The store is made lazily with the sidebar layout, so `SidebarDocWiring.start` calls this.
+    func registerSidebarDoc(_ store: SidebarDocStore) {
+        store.registerMemoryConsumer(with: services.memoryCoordinator)
     }
 
     /// `memoryTerminalLastFrames` (default off): evicted terminals' last frames are one lossless

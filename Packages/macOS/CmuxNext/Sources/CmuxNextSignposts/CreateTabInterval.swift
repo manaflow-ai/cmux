@@ -125,29 +125,26 @@ extension Signposter {
     /// while the `create` category is on, the ring's async begin keyed by the intent id (the begin's
     /// `OSSignpostID`, as every async ring slice is keyed, ``asyncID(_:beginNanos:)``).
     func beginCreateTab(_ kind: CreateTabInterval.Kind) -> (interval: SignpostInterval, id: OSSignpostID, intentID: UInt64) {
-        let name = SignpostName.createTab
-        assert(name.category == category, "\(name) is not in category \(category)")
+        assert(SignpostName.createTab.category == category, "create.tab is not in category \(category)")
         let id = signposter.makeSignpostID()
         let beginNanos = clock.nowNanos()
-        let state = signposter.beginInterval(name.staticName, id: id, "kind=\(kind.name, privacy: .public)")
-        let ring = traceBegin(name, id: id, beginNanos: beginNanos, arg0: kind.traceCode)
-        let interval = SignpostInterval(state: state, metricKitID: mirror.begin(name), beginUptimeNanos: beginNanos, ring: ring)
+        let state = signposter.beginInterval(SignpostName.createTab.staticName, id: id, "kind=\(kind.name, privacy: .public)")
+        let ring = traceBegin(.createTab, id: id, beginNanos: beginNanos, arg0: kind.traceCode)
+        let interval = SignpostInterval(state: state, metricKitID: mirror.begin(.createTab), beginUptimeNanos: beginNanos, ring: ring)
         return (interval, id, Self.asyncID(id, beginNanos: beginNanos))
     }
 
     /// Ends a ``SignpostName/createTab`` interval with `outcome=<outcome>`; the ring's AE holds the outcome.
     func endCreateTab(_ interval: SignpostInterval, outcome: CreateTabInterval.Outcome) {
-        let name = SignpostName.createTab
-        signposter.endInterval(name.staticName, interval.state, "outcome=\(outcome.name, privacy: .public)")
-        if outcome == .shown, let id = interval.metricKitID { mirror.end(name, id: id) } // closed, hidden, missed: no sample
-        closeInterval(name, interval, arg0: outcome.rawValue)
+        signposter.endInterval(SignpostName.createTab.staticName, interval.state, "outcome=\(outcome.name, privacy: .public)")
+        if outcome == .shown, let id = interval.metricKitID { mirror.end(.createTab, id: id) } // closed, hidden, missed: no sample
+        closeInterval(.createTab, interval, arg0: outcome.rawValue)
     }
 
     /// The stand-in commit of an open ``SignpostName/createTab`` interval: a log event on the interval's id and, when
     /// its begin wrote a ring record, a ring instant with the kind in `arg0` and the intent id in `arg1`.
     func createTabStandIn(_ kind: CreateTabInterval.Kind, interval: SignpostInterval, signpostID: OSSignpostID, intentID: UInt64) {
-        let name = SignpostName.createTab
-        signposter.emitEvent(name.staticName, id: signpostID, "stand_in kind=\(kind.name, privacy: .public)")
-        if interval.isTraced { trace.event(name, arg0: kind.traceCode, arg1: intentID) }
+        signposter.emitEvent(SignpostName.createTab.staticName, id: signpostID, "stand_in kind=\(kind.name, privacy: .public)")
+        if interval.isTraced { trace.event(.createTab, arg0: kind.traceCode, arg1: intentID) }
     }
 }
