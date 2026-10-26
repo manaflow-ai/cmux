@@ -94,7 +94,9 @@ pub(crate) enum TlsCommand {
     Get(TlsRuleArg),
     /// Create a TLS rule: --host H --vm VM --port N routes a public name to a VM, or --file for any rule
     Create(TlsRuleArgs),
-    /// Replace a TLS rule with a whole new one; omitted headers clear the rule's headers
+    /// Replace a TLS rule with a whole new one. Header values are write-only, so
+    /// a rule that sets headers needs them again (--header, --headers-file or a
+    /// `headers` field in the file) or --clear-headers to drop them
     Update(TlsUpdateArgs),
     /// Delete a TLS rule (asks to type the rule id, or needs --yes)
     Delete(TlsDeleteArgs),
@@ -163,6 +165,9 @@ pub(crate) struct TlsUpdateArgs {
     rule_id: String,
     #[command(flatten)]
     rule: TlsRuleArgs,
+    /// Remove the headers the rule sets (the update names none)
+    #[arg(long, conflicts_with_all = ["headers", "headers_file"])]
+    clear_headers: bool,
 }
 
 #[derive(Subcommand, Debug)]
@@ -173,7 +178,8 @@ pub(crate) enum ForwardAuthCommand {
     Get(ForwardAuthArg),
     /// Create a forward-auth check from a JSON file (url, headers, authResponseHeaders, protectedCookies, timeoutMs)
     Create(ForwardAuthFileArgs),
-    /// Replace a forward-auth check from a JSON file; omitted headers clear them
+    /// Replace a forward-auth check from a JSON file. A check that sends headers
+    /// needs them again in the file's `headers`, or --clear-headers to drop them
     Update(ForwardAuthUpdateArgs),
     /// Delete a forward-auth check (asks to type its id, or needs --yes)
     Delete(ForwardAuthDeleteArgs),
@@ -199,6 +205,9 @@ pub(crate) struct ForwardAuthUpdateArgs {
     /// JSON file with the whole check
     #[arg(long, value_name = "FILE")]
     file: PathBuf,
+    /// Remove the headers the check sends (the file names none)
+    #[arg(long)]
+    clear_headers: bool,
 }
 
 #[derive(Args, Debug)]
@@ -384,7 +393,14 @@ pub(crate) async fn tls(
         }
         TlsCommand::Update(args) => {
             let id = checked_id(&args.rule_id, "tlsr_", "TLS rule id")?;
-            let body: types::TlsRuleRequest = request_body(tls_rule_body(&args.rule)?)?;
+            let body = tls_rule_body(&args.rule)?;
+            // The API clears the headers of a rule replaced without them, and
+            // their values cannot be read back: refuse to drop them silently.
+            if needs_current_headers(&body, args.clear_headers, "TLS rule")? {
+                let current = fetch_body(client.tls_rules_get_tls_rule(id, None)).await?;
+                keep_or_refuse_headers(&decode(&current)?, id, "--header, --headers-file")?;
+            }
+            let body: types::TlsRuleRequest = request_body(body)?;
             out.tls_rule(&fetch_body(client.tls_rules_update_tls_rule(id, None, &body)).await?)
         }
         TlsCommand::Delete(args) => {
@@ -442,7 +458,13 @@ async fn forward_auth(
         }
         ForwardAuthCommand::Update(args) => {
             let id = checked_id(&args.forward_auth_id, "fwa_", "forward-auth id")?;
-            let body: types::TlsForwardAuthRequest = request_body(forward_auth_body(&args.file)?)?;
+            let body = forward_auth_body(&args.file)?;
+            if needs_current_headers(&body, args.clear_headers, "forward-auth check")? {
+                let current =
+                    fetch_body(client.tls_forward_auth_get_tls_forward_auth(id, None)).await?;
+                keep_or_refuse_headers(&decode(&current)?, id, "the file's `headers`")?;
+            }
+            let body: types::TlsForwardAuthRequest = request_body(body)?;
             out.forward_auth(
                 &fetch_body(client.tls_forward_auth_update_tls_forward_auth(id, None, &body))
                     .await?,
@@ -457,6 +479,41 @@ async fn forward_auth(
             out.deleted(id)
         }
     }
+}
+
+/// Whether an update body leaves the headers out, so the current ones must be
+/// checked before the API clears them. `--clear-headers` with headers in the
+/// body is a contradiction.
+pub(crate) fn needs_current_headers(
+    body: &Value,
+    clear_headers: bool,
+    what: &str,
+) -> Result<bool, CliError> {
+    let names_headers = body
+        .get("headers")
+        .is_some_and(|headers| !headers.is_null());
+    if clear_headers && names_headers {
+        return Err(CliError::usage(format!(
+            "--clear-headers removes the {what}'s headers; the update also sets headers"
+        )));
+    }
+    Ok(!clear_headers && !names_headers)
+}
+
+/// Refuses an update that names no headers when the current rule or check
+/// sets some (`headerNames`): the API would clear them.
+pub(crate) fn keep_or_refuse_headers(current: &Value, id: &str, how: &str) -> Result<(), CliError> {
+    let names: Vec<&str> = current["headerNames"]
+        .as_array()
+        .map(|names| names.iter().filter_map(Value::as_str).collect())
+        .unwrap_or_default();
+    if names.is_empty() {
+        return Ok(());
+    }
+    Err(CliError::usage(format!(
+        "{id} sets the headers {}; their values are write-only and this update names none, so it would clear them. Send them again ({how}), or pass --clear-headers to remove them",
+        names.join(", ").escape_debug()
+    )))
 }
 
 /// Fields a rule or check has in a response but not in a request.
@@ -769,5 +826,22 @@ mod tests {
         );
         assert_eq!(destination(&json!({"public": true})), "public");
         assert_eq!(destination(&json!({})), "-");
+    }
+
+    #[test]
+    fn an_update_without_headers_is_refused_while_the_rule_sets_some() {
+        let current = json!({"headerNames": ["x-secret", "x-other"]});
+        // No headers in the update: the current rule is checked.
+        assert!(needs_current_headers(&json!({"domain": "a"}), false, "TLS rule").unwrap());
+        let refused = keep_or_refuse_headers(&current, "tlsr_x", "--header").unwrap_err();
+        assert_eq!(refused.exit_code(), crate::exit::USAGE);
+        assert!(keep_or_refuse_headers(&json!({"headerNames": []}), "tlsr_x", "--header").is_ok());
+        // Headers sent again, or an explicit clear: no check needed.
+        assert!(
+            !needs_current_headers(&json!({"headers": {"x-secret": "v"}}), false, "TLS rule")
+                .unwrap()
+        );
+        assert!(!needs_current_headers(&json!({}), true, "TLS rule").unwrap());
+        assert!(needs_current_headers(&json!({"headers": {"a": "b"}}), true, "TLS rule").is_err());
     }
 }

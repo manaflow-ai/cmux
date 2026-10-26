@@ -284,6 +284,11 @@ async fn file_mkdir_rm_and_exists_use_their_routes() {
     );
 }
 
+/// Matches a JSON request body without a `headers` field.
+fn without_headers(request: &wiremock::Request) -> bool {
+    serde_json::from_slice::<Value>(&request.body).is_ok_and(|body| body.get("headers").is_none())
+}
+
 fn upload_state(received: u64) -> Value {
     json!({"uploadId": "upl_1", "path": "/root/big.bin", "size": 10, "receivedBytes": received, "maxChunkBytes": 4})
 }
@@ -426,6 +431,201 @@ async fn a_rejected_chunk_abandons_the_upload() {
     .await;
     assert_eq!(out.code, exit::USAGE, "stdin cannot resume");
     std::fs::remove_dir_all(dir).unwrap();
+}
+
+/// One-chunk upload state (the whole 10-byte file fits in a chunk).
+fn whole_upload_state(received: u64) -> Value {
+    json!({"uploadId": "upl_1", "path": "/root/big.bin", "size": 10, "receivedBytes": received, "maxChunkBytes": 16})
+}
+
+/// Mounts begin and the one chunk of a 10-byte resumable upload, and returns
+/// the local file and the upload's path.
+async fn mount_sent_upload(server: &MockServer, name: &str) -> (std::path::PathBuf, String) {
+    let dir = temp_dir(name);
+    let local = dir.join("big.bin");
+    std::fs::write(&local, b"0123456789").unwrap();
+    let uploads = format!("/v1/vms/{VM_ID}/files/uploads");
+    Mock::given(method("POST"))
+        .and(path(uploads.clone()))
+        .respond_with(ResponseTemplate::new(201).set_body_json(whole_upload_state(0)))
+        .expect(1)
+        .mount(server)
+        .await;
+    let chunk = format!("{uploads}/upl_1");
+    Mock::given(method("PUT"))
+        .and(path(chunk.clone()))
+        .and(query_param("offset", "0"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(whole_upload_state(10)))
+        .expect(1)
+        .mount(server)
+        .await;
+    (local, chunk)
+}
+
+async fn write_resumable(server: &MockServer, local: &std::path::Path) -> Output {
+    cli(
+        server,
+        &[
+            "--json",
+            "file",
+            "write",
+            VM_ID,
+            "/root/big.bin",
+            local.to_str().unwrap(),
+            "--resumable",
+        ],
+    )
+    .await
+}
+
+#[tokio::test]
+async fn a_commit_already_running_after_a_lost_answer_is_polled_until_it_settles() {
+    let server = MockServer::start().await;
+    let (local, upload) = mount_sent_upload(&server, "routes-commit-409").await;
+    // The first commit's answer was lost upstream; the retry finds it running.
+    Mock::given(method("POST"))
+        .and(path(format!("{upload}/commit")))
+        .respond_with(
+            ResponseTemplate::new(409).set_body_json(
+                json!({"_tag": "Conflict", "message": "A commit is already running"}),
+            ),
+        )
+        .up_to_n_times(1)
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path(upload.clone()))
+        .respond_with(ResponseTemplate::new(200).set_body_json(whole_upload_state(10)))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path(format!("{upload}/commit")))
+        .respond_with(ResponseTemplate::new(204))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("DELETE"))
+        .and(path(upload.clone()))
+        .respond_with(ResponseTemplate::new(204))
+        .expect(0)
+        .mount(&server)
+        .await;
+    let out = write_resumable(&server, &local).await;
+    assert_eq!(out.code, exit::OK, "{}", out.stderr);
+    assert_eq!(json_stdout(&out)["bytes"], 10);
+}
+
+#[tokio::test]
+async fn a_lost_commit_answer_then_upload_not_found_is_success_only_when_the_file_is_there() {
+    for (stat, expected) in [
+        // The commit finished: the target is the uploaded file.
+        (
+            Some(
+                json!({"kind": "file", "size": 10, "mode": 420, "mtime": null, "owner": "root", "group": "root"}),
+            ),
+            exit::OK,
+        ),
+        // The upload expired: an older, different file is there.
+        (
+            Some(
+                json!({"kind": "file", "size": 3, "mode": 420, "mtime": null, "owner": "root", "group": "root"}),
+            ),
+            exit::UNEXPECTED,
+        ),
+        // The upload expired and nothing was ever written.
+        (None, exit::UNEXPECTED),
+    ] {
+        let server = MockServer::start().await;
+        let (local, upload) = mount_sent_upload(&server, "routes-commit-lost").await;
+        Mock::given(method("POST"))
+            .and(path(format!("{upload}/commit")))
+            .respond_with(
+                ResponseTemplate::new(503)
+                    .set_body_json(json!({"_tag": "Unavailable", "message": "lost"})),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path(upload.clone()))
+            .respond_with(
+                ResponseTemplate::new(404)
+                    .set_body_json(json!({"_tag": "NotFound", "message": "Upload not found"})),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+        let stat_response = match &stat {
+            Some(body) => ResponseTemplate::new(200).set_body_json(body),
+            None => ResponseTemplate::new(404)
+                .set_body_json(json!({"_tag": "NotFound", "message": "No such file"})),
+        };
+        Mock::given(method("GET"))
+            .and(path(format!("/v1/vms/{VM_ID}/files/stat")))
+            .and(query_param("path", "/root/big.bin"))
+            .respond_with(stat_response)
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("DELETE"))
+            .and(path(upload.clone()))
+            .respond_with(ResponseTemplate::new(404))
+            .mount(&server)
+            .await;
+        let out = write_resumable(&server, &local).await;
+        assert_eq!(out.code, expected, "stat {stat:?}: {}", out.stderr);
+        if expected != exit::OK {
+            assert!(
+                out.stderr.contains("without a confirmed commit"),
+                "{}",
+                out.stderr
+            );
+        }
+    }
+}
+
+#[tokio::test]
+async fn a_rate_limited_chunk_waits_for_retry_after_before_resuming() {
+    let server = MockServer::start().await;
+    let (local, upload) = mount_sent_upload(&server, "routes-retry-after").await;
+    // The chunk mount above answers the resend; this one answers first.
+    Mock::given(method("PUT"))
+        .and(path(upload.clone()))
+        .and(query_param("offset", "0"))
+        .respond_with(
+            ResponseTemplate::new(429)
+                .insert_header("retry-after", "1")
+                .set_body_json(
+                    json!({"_tag": "QuotaExceeded", "message": "slow down", "budget": "rate"}),
+                ),
+        )
+        .up_to_n_times(1)
+        .expect(1)
+        .with_priority(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path(upload.clone()))
+        .respond_with(ResponseTemplate::new(200).set_body_json(whole_upload_state(0)))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("POST"))
+        .and(path(format!("{upload}/commit")))
+        .respond_with(ResponseTemplate::new(204))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let started = std::time::Instant::now();
+    let out = write_resumable(&server, &local).await;
+    assert_eq!(out.code, exit::OK, "{}", out.stderr);
+    assert!(
+        started.elapsed() >= std::time::Duration::from_secs(1),
+        "the retry waited only {:?}",
+        started.elapsed()
+    );
 }
 
 #[tokio::test]
@@ -838,12 +1038,21 @@ async fn tls_rules_build_from_flags_or_a_file_and_hide_header_values() {
         .expect(1)
         .mount(&server)
         .await;
+    // An update sends the headers again, or (with --clear-headers) none.
     Mock::given(method("PUT"))
         .and(path(format!("/v1/tls-rules/{RULE}")))
         .and(body_partial_json(
             json!({"domain": "app.example.com", "protocol": "tcp",
-            "destination": {"vmId": VM_ID, "port": 8080}}),
+            "destination": {"vmId": VM_ID, "port": 8080}, "headers": {"x-secret": "s3cret"}}),
         ))
+        .respond_with(ResponseTemplate::new(200).set_body_json(&rule))
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("PUT"))
+        .and(path(format!("/v1/tls-rules/{RULE}")))
+        .and(body_partial_json(json!({"protocol": "tcp"})))
+        .and(without_headers)
         .respond_with(ResponseTemplate::new(200).set_body_json(&rule))
         .expect(1)
         .mount(&server)
@@ -855,10 +1064,11 @@ async fn tls_rules_build_from_flags_or_a_file_and_hide_header_values() {
         .expect(1)
         .mount(&server)
         .await;
+    // Read once by the refused update, once by `tls get`.
     Mock::given(method("GET"))
         .and(path(format!("/v1/tls-rules/{RULE}")))
         .respond_with(ResponseTemplate::new(200).set_body_json(&rule))
-        .expect(1)
+        .expect(2)
         .mount(&server)
         .await;
     Mock::given(method("DELETE"))
@@ -897,12 +1107,65 @@ async fn tls_rules_build_from_flags_or_a_file_and_hide_header_values() {
     let mut file_rule = rule.clone();
     file_rule["protocol"] = json!("tcp");
     std::fs::write(&edited, serde_json::to_vec(&file_rule).unwrap()).unwrap();
+    // The file has headerNames but no header values: sending it as is would
+    // clear the rule's secret header, so it is refused.
     let out = cli(
         &server,
         &["tls", "update", RULE, "--file", edited.to_str().unwrap()],
     )
     .await;
+    assert_eq!(out.code, exit::USAGE, "{}", out.stderr);
+    assert!(
+        out.stderr.contains("x-secret") && out.stderr.contains("--clear-headers"),
+        "{}",
+        out.stderr
+    );
+    let out = cli(
+        &server,
+        &[
+            "tls",
+            "update",
+            RULE,
+            "--file",
+            edited.to_str().unwrap(),
+            "--headers-file",
+            headers.to_str().unwrap(),
+        ],
+    )
+    .await;
     assert_eq!(out.code, exit::OK, "{}", out.stderr);
+    let out = cli(
+        &server,
+        &[
+            "tls",
+            "update",
+            RULE,
+            "--file",
+            edited.to_str().unwrap(),
+            "--clear-headers",
+        ],
+    )
+    .await;
+    assert_eq!(out.code, exit::OK, "{}", out.stderr);
+    let out = cli(
+        &server,
+        &[
+            "tls",
+            "update",
+            RULE,
+            "--file",
+            edited.to_str().unwrap(),
+            "--clear-headers",
+            "--headers-file",
+            headers.to_str().unwrap(),
+        ],
+    )
+    .await;
+    assert_eq!(
+        out.code,
+        exit::USAGE,
+        "--clear-headers contradicts new headers"
+    );
     let out = cli(&server, &["tls", "list", "--vm", VM_ID]).await;
     assert!(
         out.stdout.contains(RULE) && out.stdout.contains(":8080"),
@@ -939,6 +1202,7 @@ async fn tls_forward_auth_round_trips_through_a_file() {
             json!({"url": "https://auth.example.com/check", "authResponseHeaders": ["x-user"],
             "timeoutMs": 2000}),
         ))
+        .and(without_headers)
         .respond_with(ResponseTemplate::new(200).set_body_json(&check))
         .expect(1)
         .mount(&server)
@@ -949,10 +1213,11 @@ async fn tls_forward_auth_round_trips_through_a_file() {
         .expect(1)
         .mount(&server)
         .await;
+    // Read once by the refused update, once by `get`.
     Mock::given(method("GET"))
         .and(path(format!("/v1/tls-forward-auths/{FWA}")))
         .respond_with(ResponseTemplate::new(200).set_body_json(&check))
-        .expect(1)
+        .expect(2)
         .mount(&server)
         .await;
     Mock::given(method("DELETE"))
@@ -983,6 +1248,8 @@ async fn tls_forward_auth_round_trips_through_a_file() {
     assert!(!out.stdout.contains("Bearer t"), "{}", out.stdout);
     let update = dir.join("update.json");
     std::fs::write(&update, serde_json::to_vec(&check).unwrap()).unwrap();
+    // `get --json` output names the header but not its value: refused, so
+    // the check's authorization header is not cleared by accident.
     let out = cli(
         &server,
         &[
@@ -992,6 +1259,21 @@ async fn tls_forward_auth_round_trips_through_a_file() {
             FWA,
             "--file",
             update.to_str().unwrap(),
+        ],
+    )
+    .await;
+    assert_eq!(out.code, exit::USAGE, "{}", out.stderr);
+    assert!(out.stderr.contains("authorization"), "{}", out.stderr);
+    let out = cli(
+        &server,
+        &[
+            "tls",
+            "forward-auth",
+            "update",
+            FWA,
+            "--file",
+            update.to_str().unwrap(),
+            "--clear-headers",
         ],
     )
     .await;

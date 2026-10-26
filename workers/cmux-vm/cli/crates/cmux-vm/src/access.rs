@@ -230,9 +230,18 @@ pub fn askpass(
     }
 }
 
+/// The environment variable that names the ssh client to run instead of
+/// `ssh` from PATH (an OpenSSH-compatible program).
+pub(crate) const SSH_PROGRAM_ENV: &str = "CMUX_VM_SSH";
+
+/// How long `ssh` may take to exit after a SIGHUP or SIGTERM revoked its
+/// session before it is killed.
+const SSH_EXIT_GRACE: std::time::Duration = std::time::Duration::from_secs(2);
+
 pub(crate) async fn ssh(
     client: &Client,
     args: SshArgs,
+    ssh_program: &str,
     json: bool,
     stderr: &mut dyn Write,
 ) -> Result<(), CliError> {
@@ -253,12 +262,44 @@ pub(crate) async fn ssh(
             .and_then(Value::as_str)
             .map(str::to_owned)
     };
-    let (Some(session_id), Some(token), Some(host), Some(login)) = (
-        field("/id"),
-        field("/token"),
-        field("/ssh/host"),
-        field("/ssh/user"),
-    ) else {
+    let Some(session_id) = field("/id") else {
+        return Err(CliError::unexpected(
+            "the cmux VM API sent a client session without an id",
+        ));
+    };
+    // From here on the session is revoked on every way out: the normal end,
+    // an error, a signal, or (best effort) an unwinding panic.
+    let mut guard = SessionGuard::new(client, id.as_str(), &session_id, args.keep_session);
+    let result = connect(&session, &args, ssh_program, &mut guard).await;
+    if !guard.revoke().await {
+        error::report_warning(
+            &format!(
+                "could not revoke client session {session_id}; run `cmux-vm session revoke {} {session_id} --yes`",
+                id.as_str()
+            ),
+            false,
+            stderr,
+        );
+    }
+    result
+}
+
+/// Runs `ssh` for one session and maps how it ended.
+async fn connect(
+    session: &Value,
+    args: &SshArgs,
+    ssh_program: &str,
+    guard: &mut SessionGuard<'_>,
+) -> Result<(), CliError> {
+    let field = |pointer: &str| {
+        session
+            .pointer(pointer)
+            .and_then(Value::as_str)
+            .map(str::to_owned)
+    };
+    let (Some(token), Some(host), Some(login)) =
+        (field("/token"), field("/ssh/host"), field("/ssh/user"))
+    else {
         return Err(CliError::unexpected(
             "the client session has no SSH login; nothing to connect to",
         ));
@@ -266,34 +307,191 @@ pub(crate) async fn ssh(
     let askpass_program = std::env::current_exe()
         .map_err(|e| CliError::unexpected(format!("cannot locate cmux-vm for ssh: {e}")))?;
     let plan = ssh_plan(&host, &login, &token, &askpass_program, &args.command);
-    let status = std::process::Command::new("ssh")
+    // Listen before ssh starts: from now on SIGINT and SIGQUIT no longer end
+    // this process (ssh gets them from the terminal and decides), and SIGHUP
+    // or SIGTERM end it only after the session is revoked.
+    let signals = ParentSignals::listen()?;
+    let child = tokio::process::Command::new(ssh_program)
         .args(&plan.args)
         .envs(plan.env.iter().map(|(k, v)| (k.as_str(), v.as_os_str())))
-        .status();
-    if !args.keep_session {
-        let revoked =
-            call(client.agents_revoke_client_session(id.as_str(), &session_id, None)).await;
-        if revoked.is_err() {
-            error::report_warning(
-                &format!(
-                    "could not revoke client session {session_id}; run `cmux-vm session revoke {} {session_id} --yes`",
-                    id.as_str()
-                ),
-                false,
-                stderr,
-            );
+        .spawn();
+    let mut child = match child {
+        Ok(child) => child,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return Err(CliError::unexpected(
+                "the ssh client was not found; install OpenSSH and put `ssh` on PATH",
+            ));
         }
-    }
-    match status {
-        Ok(status) if status.success() => Ok(()),
-        Ok(status) => Err(CliError::child_exit(
+        Err(e) => return Err(CliError::unexpected(format!("could not start ssh: {e}"))),
+    };
+    let end = supervise(child.wait(), signals.terminate()).await;
+    match end {
+        SshEnd::Exited(Ok(status)) if status.success() => Ok(()),
+        SshEnd::Exited(Ok(status)) => Err(CliError::child_exit(
             status.code().unwrap_or(1),
             format!("ssh exited with {status}"),
         )),
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => Err(CliError::unexpected(
-            "the ssh client was not found; install OpenSSH and put `ssh` on PATH",
-        )),
-        Err(e) => Err(CliError::unexpected(format!("could not start ssh: {e}"))),
+        SshEnd::Exited(Err(e)) => Err(CliError::unexpected(format!("could not wait for ssh: {e}"))),
+        SshEnd::Signalled(signal) => {
+            // Revoke first (it ends the connection), give ssh a moment to
+            // restore the terminal, then stop it.
+            let revoked = guard.revoke().await;
+            if tokio::time::timeout(SSH_EXIT_GRACE, child.wait())
+                .await
+                .is_err()
+            {
+                let _ = child.kill().await;
+            }
+            let outcome = if revoked {
+                "the client session was revoked"
+            } else {
+                "the client session could not be revoked"
+            };
+            Err(CliError::child_exit(
+                128 + signal,
+                format!("cmux-vm ssh was ended by signal {signal}; {outcome}"),
+            ))
+        }
+    }
+}
+
+/// How an `ssh` run ended: ssh exited, or this process was told to stop.
+#[derive(Debug)]
+pub(crate) enum SshEnd {
+    Exited(std::io::Result<std::process::ExitStatus>),
+    /// SIGHUP or SIGTERM (the signal number) arrived first.
+    Signalled(i32),
+}
+
+/// Waits for ssh to exit or for a terminating signal, whichever comes first.
+pub(crate) async fn supervise(
+    exited: impl std::future::Future<Output = std::io::Result<std::process::ExitStatus>>,
+    terminate: impl std::future::Future<Output = i32>,
+) -> SshEnd {
+    tokio::select! {
+        status = exited => SshEnd::Exited(status),
+        signal = terminate => SshEnd::Signalled(signal),
+    }
+}
+
+/// The parent's signal handling while ssh runs. Registering a listener
+/// replaces the default action, so SIGINT and SIGQUIT (listened to and never
+/// acted on) no longer end this process; the terminal still delivers them to
+/// ssh, which shares its process group. SIGHUP and SIGTERM end the wait.
+struct ParentSignals {
+    #[cfg(unix)]
+    _interrupt: tokio::signal::unix::Signal,
+    #[cfg(unix)]
+    _quit: tokio::signal::unix::Signal,
+    #[cfg(unix)]
+    hangup: tokio::signal::unix::Signal,
+    #[cfg(unix)]
+    terminate: tokio::signal::unix::Signal,
+}
+
+impl ParentSignals {
+    fn listen() -> Result<Self, CliError> {
+        #[cfg(unix)]
+        {
+            use tokio::signal::unix::{SignalKind, signal};
+            let listen = |kind| {
+                signal(kind).map_err(|e| {
+                    CliError::unexpected(format!("could not set up signal handling for ssh: {e}"))
+                })
+            };
+            Ok(Self {
+                _interrupt: listen(SignalKind::interrupt())?,
+                _quit: listen(SignalKind::quit())?,
+                hangup: listen(SignalKind::hangup())?,
+                terminate: listen(SignalKind::terminate())?,
+            })
+        }
+        #[cfg(not(unix))]
+        {
+            Ok(Self {})
+        }
+    }
+
+    /// Resolves with the signal number of the first SIGHUP or SIGTERM.
+    async fn terminate(mut self) -> i32 {
+        #[cfg(unix)]
+        {
+            const SIGHUP: i32 = 1;
+            const SIGTERM: i32 = 15;
+            tokio::select! {
+                _ = self.hangup.recv() => SIGHUP,
+                _ = self.terminate.recv() => SIGTERM,
+            }
+        }
+        #[cfg(not(unix))]
+        {
+            // Ctrl-C reaches ssh through the console; nothing ends the wait.
+            std::future::pending().await
+        }
+    }
+}
+
+/// Revokes a client session when its `ssh` run ends. [`SessionGuard::revoke`]
+/// is the normal path; if the guard is dropped without it (an unwinding
+/// panic), `Drop` revokes it synchronously on the multi-threaded runtime.
+pub(crate) struct SessionGuard<'a> {
+    client: &'a Client,
+    vm_id: String,
+    session_id: String,
+    /// `Some(true)` once revoked or kept (`--keep-session`), `Some(false)`
+    /// once a revoke failed; `None` while the session is live.
+    outcome: Option<bool>,
+}
+
+impl<'a> SessionGuard<'a> {
+    pub(crate) fn new(client: &'a Client, vm_id: &str, session_id: &str, keep: bool) -> Self {
+        Self {
+            client,
+            vm_id: vm_id.to_owned(),
+            session_id: session_id.to_owned(),
+            outcome: keep.then_some(true),
+        }
+    }
+
+    /// Revokes the session once; later calls repeat the first answer. False
+    /// when the revoke failed.
+    pub(crate) async fn revoke(&mut self) -> bool {
+        if let Some(outcome) = self.outcome {
+            return outcome;
+        }
+        let outcome = call(self.client.agents_revoke_client_session(
+            &self.vm_id,
+            &self.session_id,
+            None,
+        ))
+        .await
+        .is_ok();
+        self.outcome = Some(outcome);
+        outcome
+    }
+}
+
+impl Drop for SessionGuard<'_> {
+    fn drop(&mut self) {
+        if self.outcome.is_some() {
+            return;
+        }
+        self.outcome = Some(false);
+        let revoke = self
+            .client
+            .agents_revoke_client_session(&self.vm_id, &self.session_id, None);
+        let revoked = match tokio::runtime::Handle::try_current() {
+            Ok(handle) if handle.runtime_flavor() == tokio::runtime::RuntimeFlavor::MultiThread => {
+                tokio::task::block_in_place(|| handle.block_on(revoke)).is_ok()
+            }
+            _ => false,
+        };
+        if !revoked {
+            eprintln!(
+                "cmux-vm: warning: could not revoke client session {}; run `cmux-vm session revoke {} {} --yes`",
+                self.session_id, self.vm_id, self.session_id
+            );
+        }
     }
 }
 
