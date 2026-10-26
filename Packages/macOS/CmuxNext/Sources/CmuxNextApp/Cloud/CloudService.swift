@@ -76,6 +76,10 @@ final class CloudService {
     /// Agents' asks to move their chats, and the cards they raise in chats.
     @ObservationIgnored let moveAsks = CloudMoveAsks()
     @ObservationIgnored let toolCards = AgentToolCards()
+    /// Agents' asks to start a session on a Cloud machine (``CloudStartSessionAsks``).
+    @ObservationIgnored let startSessionAsks = CloudStartSessionAsks()
+    /// `cmux cloud start-session` runs, joined by a repeat of the same ask (``CloudStartSessionRuns``).
+    @ObservationIgnored let startSessionRuns = CloudStartSessionRuns()
     /// Moved chats' file requests for this Mac, asked in their chats.
     @ObservationIgnored let accessAsks = CloudAccessAsks()
     /// Files the person drops or pastes into a moved chat, sent to its machine (``CloudUploads``).
@@ -148,6 +152,7 @@ final class CloudService {
         CloudMovedChats.app = movedChats
         link.isAvailable = { [weak self] in self.map { $0.mayCallCloud && !$0.policyDisabled && $0.auth.isSignedIn } ?? false }
         link.isSignedIn = { [weak self] in self?.auth.isSignedIn ?? false }
+        startSessionAsks.toolCards = toolCards
     }
 
     static var deviceName: String { MacName().linkDeviceName() }
@@ -238,6 +243,17 @@ final class CloudService {
         observers.append(Task { [weak self] in
             for await _ in NSWorkspace.shared.notificationCenter.notifications(named: NSWorkspace.didWakeNotification) {
                 await self?.refresh(ifOlderThan: .seconds(30))
+            }
+        })
+        // A sign-out or a team switch (the user signed in may stay) ends start-session asks and
+        // runs: none goes on in the account signed in after.
+        observers.append(Task { [weak self] in
+            guard let self else { return }
+            var last = account
+            for await account in ObservationStream({ self.account }) where account != last {
+                last = account
+                startSessionRuns.forgetAll()
+                startSessionAsks.endAll()
             }
         })
     }
@@ -363,6 +379,10 @@ final class CloudService {
     /// Whom a machine list is for: the signed-in user and the team the API
     /// client sends (``CloudAuth/teamID``).
     private var listAccount: [String?] { [auth.user?.id, auth.teamID] }
+
+    /// The user and team signed in now (observable: ``CloudAuth``). Start-session asks and runs
+    /// belong to the one they were asked in.
+    var account: [String?] { listAccount }
 
     private func reconcile(_ list: [CloudMachine]) {
         // A list that arrives after Cloud was turned off connects nothing.
