@@ -626,8 +626,8 @@ fn install(r: &dyn Remote, name: &str, bin: &str, fix: bool) -> StepResult {
             format!("Run the check with --fix to install this build on {host}."),
         );
     }
-    // Every change below holds the host's update lock, so no other update
-    // of the host finds its binary replaced under it.
+    // Every change below holds the host's update lock, so the host's
+    // self-update timer never finds its binary replaced under it.
     let lock = match hosts::lock_to_install(r) {
         Ok(lock) => lock,
         Err(e) => {

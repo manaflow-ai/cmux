@@ -4,8 +4,9 @@
 //! and a host without a user systemd manager a detached start. The update's
 //! checks and rollback are in `host_update.rs`; the scripts both run are here,
 //! the move of a daemon from a hand-written unit to `acpmux.service` is in
-//! `host_migrate.rs`, and the lock that keeps two updates of one host apart
-//! in `host_lock.rs`.
+//! `host_migrate.rs`, the timer that keeps a Linux host updated by itself
+//! (`host self-update`) is in `host_auto_update.rs`, and the lock that keeps
+//! two updates of one host apart in `host_lock.rs`.
 
 use crate::cli::output::print_json;
 use crate::client::Client;
@@ -16,6 +17,8 @@ use std::path::Path;
 use std::process::{Child, Command, Stdio};
 use std::sync::Arc;
 
+#[path = "host_auto_update.rs"]
+mod host_auto_update;
 #[path = "host_lock.rs"]
 mod host_lock;
 #[path = "host_migrate.rs"]
@@ -26,7 +29,7 @@ mod host_update;
 pub(crate) use host_lock::unfence;
 pub(crate) use host_lock::{LockLost, lock_to_install, lock_updates};
 use host_migrate::{MIGRATING, REFUSED, migrate, migrate_back};
-pub(crate) use host_update::{Caller, UpdateOptions, update};
+pub(crate) use host_update::{Caller, UpdateOptions, self_update, update};
 
 /// Where `host setup` installs acpmux and what its daemon runs.
 pub(crate) const DAEMON_BIN: &str = "~/.local/bin/acpmux";
@@ -447,10 +450,12 @@ const SYSTEMD_STARTED: &str = "ACPMUX_SYSTEMD_STARTED";
 
 /// Sets `$p` to the running daemon's pid (from `daemon status`) and `$u` to
 /// the acpmux systemd unit it runs under, if any. A daemon some other service
-/// started (`ssh.service`, a CI runner, `tmux.service`) has no `$u`: it is
-/// shut down keeping its agents like a detached one.
+/// started (`ssh.service`, a CI runner, `tmux.service`, or
+/// `acpmux-update.service` when the self-update had to start it detached) has
+/// no `$u`: it is shut down keeping its agents like a detached one.
 const DAEMON_UNIT: &str = r#"p=$(~/.local/bin/acpmux --json daemon status 2>/dev/null | sed -n 's/^ *"pid": *\([0-9][0-9]*\).*/\1/p' | head -1); u=
 if [ -n "$p" ] && [ -r "/proc/$p/cgroup" ]; then u=$(sed -n 's|.*/\(acpmux[^/]*\.service\)$|\1|p' "/proc/$p/cgroup" | head -1); fi
+if [ "$u" = acpmux-update.service ]; then u=; fi
 "#;
 
 /// Setup refuses (exit 3, the unit named on stderr) a daemon under an acpmux
@@ -483,7 +488,8 @@ const STILL_RUNNING_CHECK: &str = r#"if ~/.local/bin/acpmux --json daemon status
 /// and the unit starts, so one daemon serves the home; a unit that fails to
 /// start falls back to the detached start. A daemon under another acpmux unit
 /// is refused first at setup ([`FOREIGN_UNIT_REFUSAL`]) and moved to
-/// `acpmux.service` by an update ([`migrate`]).
+/// `acpmux.service` by an update ([`migrate`]). Once the unit (re)started, the
+/// self-update timer is installed beside it ([`host_auto_update`]).
 fn linux_restart(install: bool, json: bool) -> String {
     let unit = if install {
         format!(
@@ -503,11 +509,14 @@ fn linux_restart(install: bool, json: bool) -> String {
     let detached = restart_detached(json);
     let foreign = if install { FOREIGN_UNIT_REFUSAL.to_owned() } else { migrate(false) };
     let refresh = if install { String::new() } else { unit_refresh() };
+    let auto_update = host_auto_update::install_script();
     format!(
         "{refresh}{DAEMON_UNIT}{foreign}if {usable}; then
-if systemctl --user is-active --quiet acpmux.service; then systemctl --user restart acpmux.service && echo {SYSTEMD_STARTED}
+acpmux_auto_update() {{
+{auto_update}}}
+if systemctl --user is-active --quiet acpmux.service; then systemctl --user restart acpmux.service && acpmux_auto_update && echo {SYSTEMD_STARTED}
 else {SHUTDOWN_KEEPING_AGENTS}; {STILL_RUNNING_CHECK}
-if systemctl --user enable --now acpmux.service; then echo {SYSTEMD_STARTED}; else {detached}; fi; fi
+if systemctl --user enable --now acpmux.service; then acpmux_auto_update; echo {SYSTEMD_STARTED}; else {detached}; fi; fi
 else {detached}; fi"
     )
 }
@@ -550,12 +559,14 @@ pub(crate) fn short_name(host: &str) -> String {
     host.split('@').next_back().unwrap_or(host).split('.').next().unwrap_or(host).to_owned()
 }
 
-/// `host setup`, holding the host's update lock while it installs.
+/// `host setup`; `auto_update` false (`--no-auto-update`) leaves the
+/// marker that keeps the host off the self-update timer.
 pub(crate) async fn setup(
     client: Arc<Client>,
     host: &str,
     name: Option<String>,
     port: u16,
+    auto_update: bool,
     json_out: bool,
 ) -> Result<()> {
     let name = name.unwrap_or_else(|| short_name(host));
@@ -563,6 +574,10 @@ pub(crate) async fn setup(
     let lock = lock_to_install(&ssh)?;
     let remote = lock.fence(&ssh);
     let version = push_binary(&remote, DAEMON_BIN)?;
+    if !auto_update {
+        let mark = host_auto_update::NO_AUTO_UPDATE;
+        run(&remote, &format!("mkdir -p {REMOTE_HOME} && touch {REMOTE_HOME}/{mark}"))?;
+    }
     let status = install_daemon(&remote, port, false)?;
     drop(lock);
     // Register (or re-register) the peer.
@@ -917,7 +932,7 @@ mod tests {
         fake(
             "systemctl",
             &format!(
-                "case \"$2\" in show-environment) {};; cat) test -f \"$HOME/.config/systemd/user/$3\";; is-active) {};; enable) {};; restart) {};; daemon-reload) {};; show) echo {};; *) exit 0;; esac",
+                "case \"$2\" in show-environment) {};; cat) test -f \"$HOME/.config/systemd/user/$3\";; is-active) {};; enable) {};; restart) {};; daemon-reload) {};; show) case \"$5\" in LoadState) echo not-found;; *) echo {};; esac;; *) exit 0;; esac",
                 code(host.manager),
                 if host.active { "exit 0" } else { "exit 3" },
                 code(host.enables),
@@ -967,9 +982,10 @@ mod tests {
         let calls = std::fs::read_to_string(home.join("calls")).unwrap_or_default();
         let unit = std::fs::read_to_string(home.join(".config/systemd/user/acpmux.service"))
             .unwrap_or_default();
-        let units: Vec<String> = std::fs::read_dir(home.join(".config/systemd/user"))
+        let mut units: Vec<String> = std::fs::read_dir(home.join(".config/systemd/user"))
             .map(|dir| dir.filter_map(|e| e.ok()?.file_name().into_string().ok()).collect())
             .unwrap_or_default();
+        units.sort();
         let _ = std::fs::remove_dir_all(&home);
         LinuxRun {
             calls: calls.lines().map(str::to_owned).collect(),
@@ -980,6 +996,10 @@ mod tests {
             code: out.status.code(),
         }
     }
+
+    /// The daemon's unit and, beside it, `host_auto_update`'s timer and its service.
+    const WITH_TIMER: [&str; 3] =
+        ["acpmux-update.service", "acpmux-update.timer", "acpmux.service"];
 
     impl LinuxRun {
         fn started_by_systemd(&self) -> bool {
@@ -995,7 +1015,7 @@ mod tests {
     fn linux_setup_installs_the_unit_and_hands_a_detached_daemon_to_it() {
         let run = linux_restart_run("setup", true, LINGERING);
         assert_eq!(run.unit, SYSTEMD_UNIT);
-        assert_eq!(run.units, ["acpmux.service"], "written beside and renamed, nothing left");
+        assert_eq!(run.units, WITH_TIMER, "written beside and renamed, nothing left");
         assert!(run.unit.contains("KillMode=process"), "a restart must keep the agent hosts");
         assert_never_gives_up(&run.unit);
         let steps: Vec<&str> = run
@@ -1003,7 +1023,8 @@ mod tests {
             .iter()
             .map(String::as_str)
             .filter(|c| {
-                !c.starts_with("systemctl --user show-environment")
+                // `show`: the timer install asks the manager about its units.
+                !c.starts_with("systemctl --user show")
                     && !c.starts_with("loginctl")
                     && *c != "acpmux --json daemon status"
             })
@@ -1016,6 +1037,9 @@ mod tests {
                 "systemctl --user is-active --quiet acpmux.service",
                 "acpmux daemon shutdown --keep-agents",
                 "systemctl --user enable --now acpmux.service",
+                // The self-update timer (host_auto_update.rs), once the unit runs.
+                "systemctl --user daemon-reload",
+                "systemctl --user enable --now acpmux-update.timer",
             ]
         );
         assert!(run.started_by_systemd());
@@ -1080,18 +1104,22 @@ mod tests {
                 LinuxHost { installed_text: Some(old), ..host },
             );
             assert_eq!(run.unit, SYSTEMD_UNIT, "{}", run.err);
-            assert_eq!(run.units, ["acpmux.service"], "no temporary unit file is left");
+            assert_eq!(run.units, WITH_TIMER, "no temporary unit file is left");
             let reload = run.calls.iter().position(|c| c == "systemctl --user daemon-reload");
             let restart =
                 run.calls.iter().position(|c| c == "systemctl --user restart acpmux.service");
             assert!(reload.is_some() && reload < restart, "reload, then restart: {:?}", run.calls);
             assert!(run.started_by_systemd());
         }
-        // Already this build's text: not rewritten, no reload.
+        // Already this build's text: not rewritten, no reload before the
+        // restart (the one after it reads the update timer's new units).
         let run = linux_restart_run("refresh-same", false, host);
         assert_eq!(run.unit, SYSTEMD_UNIT);
+        let restart = run.calls.iter().position(|c| c == "systemctl --user restart acpmux.service");
         assert!(
-            !run.calls.iter().any(|c| c == "systemctl --user daemon-reload"),
+            !run.calls[..restart.unwrap_or(run.calls.len())]
+                .iter()
+                .any(|c| c == "systemctl --user daemon-reload"),
             "{:?}",
             run.calls
         );
@@ -1114,7 +1142,7 @@ mod tests {
         assert_eq!(run.unit, OLD_SYSTEMD_UNITS[0]);
         assert!(run.err.contains("did not reload"), "{}", run.err);
         assert!(run.started_by_systemd(), "{:?}", run.calls);
-        assert_eq!(run.units, ["acpmux.service"], "no temporary unit file is left");
+        assert_eq!(run.units, WITH_TIMER, "no temporary unit file is left");
         // Current text that systemd has not read: read before the restart;
         // when that read fails, no restart.
         let run = linux_restart_run("need-reload", false, LinuxHost { need_reload: true, ..host });
@@ -1202,6 +1230,7 @@ mod tests {
         // service that merely started it: no refusal; it is handed to the unit.
         for unit in [
             "acpmux.service",
+            "acpmux-update.service",
             "session-4.scope",
             "tmux.service",
             "/system.slice/ssh.service",
