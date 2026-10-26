@@ -1,7 +1,7 @@
 import Foundation
 
 /// The Chief Settings card's Automations block (issue 25573).
-extension HomeEngineStrings {
+nonisolated extension HomeEngineStrings {
     static var automationsSection: String {
         String(localized: "home.engine.automations", defaultValue: "Automations", table: "Home", bundle: .module)
     }
