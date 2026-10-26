@@ -126,9 +126,11 @@ Per mode:
            apart from one that never arrived. In host mode a pinch that never reaches the page (the page view's
            magnify route is p01-process-042's input route with p01-process-054's PinchEvent) says not_measurable.
 
---native-ui runs instead the hosted widget rows (chromium_host_native_ui.py, p01-process-066): date, datalist,
-popup window, DevTools docked and in a window, an extension popup and a side panel, each shown by cmux from the
-host's layer context (`debug.cef` `host_widgets`), with feature chromiumHostWidgets on and two test extensions.
+--native-ui [ROWS] runs instead the native UI rows (chromium_host_native_ui.py), all or the comma-separated ROWS: a
+<select> as a cmux menu while the host is never frontmost (p01-process-060, feature chromiumHostPopupMenus), and the
+hosted widget rows (p01-process-066): date, datalist, popup window, DevTools docked and in a window, an extension
+popup and a side panel, each shown by cmux from the host's layer context (`debug.cef` `host_widgets`), with feature
+chromiumHostWidgets on and two test extensions.
 
 --find runs instead the find rows (chromium_host_find.py, p01-process-048): Cmd-F, a typed query, Cmd-G, Cmd-Shift-G
 and Escape through cmux's find pill on a Chromium page in the host (`debug.cef` backend `host`), the pill's match
@@ -173,7 +175,9 @@ def parse(argv=None):
     parser.add_argument("--pump-seconds", type=float, default=10.0)
     parser.add_argument("--host-switches", default="", help="more Chromium switches for the host, comma-separated (diagnosis)")
     parser.add_argument("--ime", action="store_true", help="helper: TEXT_INPUT_STATE pushes per keystroke (ime_row)")
-    parser.add_argument("--native-ui", action="store_true", help="only the hosted widget rows (chromium_host_native_ui.py)")
+    parser.add_argument("--native-ui", nargs="?", const="", default=None, metavar="ROWS",
+                        help="only the native UI rows (chromium_host_native_ui.py): all, or the comma-separated ROWS "
+                             f"({', '.join(chromium_host_native_ui.ROWS)})")
     parser.add_argument("--find", action="store_true", help="only the find rows (chromium_host_find.py)")
     parser.add_argument("--baseline", action="store_true", help="task p01-process-005: stall 9a, 10-tab idle wakes, census, rows")
     parser.add_argument("--idle-settle-seconds", type=float, default=35.0, help="wait before the 10-tab idle sample")
@@ -184,8 +188,13 @@ def parse(argv=None):
     parser.add_argument("--build-config", choices=["bench", "bench-checks", "release", "debug"],
                         help="result-v1 build config of a bench-hooks bundle that does not stamp it (BenchApp.record)")
     args = parser.parse_args(argv)
-    if args.native_ui and args.find:
+    if args.native_ui is not None and args.find:
         parser.error("--native-ui and --find each run instead of the modes: pick one")
+    if args.native_ui is not None:
+        try:
+            args.native_ui = chromium_host_native_ui.rows_named(args.native_ui)
+        except ValueError as error:
+            parser.error(str(error))
     if args.tag is not None and tag_of(f"cmux DEV {args.tag}.app") != tag_of(args.app):
         parser.error(f"--tag {args.tag!r} is not the tag of --app {args.app!r}")
     return args
@@ -675,7 +684,9 @@ def main():
         DEFAULTS["launch"] = defaults_snapshot(app_bundle_id())
         modes = [] if opts.native_ui or opts.find else opts.modes.split(",")
         if opts.native_ui:
-            RESULT["modes"]["native_ui"], ok = chromium_host_native_ui.run(rpc, wait, lambda script: page_eval(rpc, script, None), url)
+            RESULT["modes"]["native_ui"], ok = chromium_host_native_ui.run(
+                rpc, wait, lambda script: page_eval(rpc, script, None), url, rows_to_run=opts.native_ui, front=front_pid,
+                app_pid=app.process.pid if app.process else None)
         if opts.find:
             RESULT["modes"]["find"], ok = chromium_host_find.run(rpc, wait, lambda script: page_eval(rpc, script, None), url)
         inproc_tab = None

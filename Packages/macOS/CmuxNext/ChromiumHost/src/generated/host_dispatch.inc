@@ -187,31 +187,33 @@ enum Op : uint16_t {
   kOpTabSetVisibility = 177,
   kOpExtLoadLaterSupported = 178,
   kOpExtLoadCommandLine = 179,
-  kOpAddDocumentScript = 180,  // optional
-  kOpAddPageChannel = 181,  // optional
-  kOpTabEvaluate = 182,  // optional
-  kOpTabSetFrozen = 183,  // optional
-  kOpTabSendClick = 184,  // optional
-  kOpTabSetColorScheme = 185,  // optional
-  kOpPageSchemeSetGroup = 186,  // optional
-  kOpTabDiscard = 187,  // optional
-  kOpWidgetSetGeometry = 188,  // optional
-  kOpWidgetDismiss = 189,  // optional
-  kOpWidgetSendInput = 190,  // optional
-  kOpBrowserImeSetComposition = 191,  // optional
-  kOpBrowserImeCommitText = 192,  // optional
-  kOpBrowserImeFinishComposing = 193,  // optional
-  kOpBrowserImeCancelComposition = 194,  // optional
+  kOpSetPopupMenus = 180,
+  kOpBrowserPopupMenuReply = 181,
+  kOpAddDocumentScript = 182,  // optional
+  kOpAddPageChannel = 183,  // optional
+  kOpTabEvaluate = 184,  // optional
+  kOpTabSetFrozen = 185,  // optional
+  kOpTabSendClick = 186,  // optional
+  kOpTabSetColorScheme = 187,  // optional
+  kOpPageSchemeSetGroup = 188,  // optional
+  kOpTabDiscard = 189,  // optional
+  kOpWidgetSetGeometry = 190,  // optional
+  kOpWidgetDismiss = 191,  // optional
+  kOpWidgetSendInput = 192,  // optional
+  kOpBrowserImeSetComposition = 193,  // optional
+  kOpBrowserImeCommitText = 194,  // optional
+  kOpBrowserImeFinishComposing = 195,  // optional
+  kOpBrowserImeCancelComposition = 196,  // optional
 };
-inline constexpr uint16_t kOpCount = 194;
+inline constexpr uint16_t kOpCount = 196;
 inline constexpr uint16_t kOpEvent = 0x8001;  // host -> cmux: one shim event
 inline constexpr uint16_t kOpReply = 0x8002;  // host -> cmux: an async op's result
 inline constexpr uint16_t kOpMirror = 0x8003;  // host -> cmux: a mirror value
 inline constexpr uint16_t kOpAck = 0x8004;  // host -> cmux: a token's op ran
-inline constexpr int kEventKindCount = 57;
-inline constexpr char kShimAbiID[] = "5a6ccb9d8232fc689eeca3d51504bec9befa6927903297b164c0decf64e9a6c3";
+inline constexpr int kEventKindCount = 59;
+inline constexpr char kShimAbiID[] = "2e659abcbecdf614e8c41bac0937289fc0f5dbf7fa658194dddb01be942edb89";
 // Both sides' HELLO carries it: the op ids, classes and wire types of this generation.
-inline constexpr char kWireID[] = "7acc679f09b6f5619d31a04593ab272c281a9132db6214aa3f527ab1303f9001";
+inline constexpr char kWireID[] = "613d8297536e1c41987a2df797e1c3abbfe04d752c8a77babcc19e971e86e8b6";
 inline constexpr int32_t kMaxRecords = 65536;
 inline constexpr int32_t kMaxOutCapacity = 65536;
 
@@ -1699,6 +1701,22 @@ inline bool DispatchOp(HostContext& ctx, uint16_t op, uint32_t wire_token, TlvRe
       TlvWriter reply_w;
       reply_w.I32(call_result);
       ctx.Reply(wire_token, reply_w);
+      return true;
+    }
+    case kOpSetPopupMenus: {
+      const auto arg_enabled = r.I32();
+      if (!r.ok() || !r.AtEnd()) return false;
+      cmux_shim_set_popup_menus(arg_enabled);
+      ctx.Ack(wire_token);
+      return true;
+    }
+    case kOpBrowserPopupMenuReply: {
+      const auto arg_browser_id = r.I32();
+      const auto arg_token = r.I64();
+      const auto arg_index = r.I32();
+      if (!r.ok() || !r.AtEnd()) return false;
+      cmux_shim_browser_popup_menu_reply(ctx.Browser(arg_browser_id), arg_token, arg_index);
+      ctx.Ack(wire_token);
       return true;
     }
     case kOpAddDocumentScript: {

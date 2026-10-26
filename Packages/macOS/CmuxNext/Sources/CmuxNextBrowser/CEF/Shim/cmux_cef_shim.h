@@ -209,6 +209,19 @@ typedef enum {
   // cmux_shim_set_cursor_events(1): s1 = the text, UTF-8; "" hides it.
   // Chromium shows no tooltip of its own then.
   CMUX_SHIM_TOOLTIP = 57,
+  // A page opened a <select> popup, only after cmux_shim_set_popup_menus(1):
+  // a = the popup's token; s1 = JSON {"x", "y", "width", "height": the
+  // <select>'s rect in the page view's DIPs from its top left; "fontSize":
+  // the items' size in points; "selected": the selected item's index, -1 for
+  // none; "rightAligned"; "items": [{"label", "toolTip", "type" (0 option,
+  // 1 checkable option, 2 group label, 3 separator, 4 submenu), "enabled",
+  // "checked", "rtl", "directionOverride"}]}. The page has at most one open
+  // popup. Answer it once with cmux_shim_browser_popup_menu_reply.
+  CMUX_SHIM_POPUP_MENU = 58,
+  // Chromium closed popup a (the token) before cmux answered it (the page
+  // removed or closed the <select>, navigated, was hidden or closed): close
+  // its menu with no answer (Chrome's PopupMenuRunner.Hide).
+  CMUX_SHIM_POPUP_MENU_HIDE = 59,
 } cmux_shim_event_kind_t;
 
 typedef enum {
@@ -1227,6 +1240,19 @@ CMUX_SHIM_EXPORT int cmux_shim_ext_load_later_supported(void);
 // cmux_shim_initialize. Returns 1 when the load started, 0 for an
 // off-the-record key, an empty path or a fork without the call (no reply).
 CMUX_SHIM_EXPORT int cmux_shim_ext_load_command_line(const char* profile_cache_path, int reply, const char* path);
+// <select> popups (fork API 31's cmux_browser_set_popup_menu_handler, task
+// p01-process-171). 1: every browser's popups, now and later, come to the
+// host as CMUX_SHIM_POPUP_MENU, and Chromium shows no NSMenu of its own (the
+// Chromium Host, which is never the active app: cmux shows the menu). 0 (the
+// default): Chromium shows its own menu. Nothing changes without the fork
+// call. UI thread.
+CMUX_SHIM_EXPORT void cmux_shim_set_popup_menus(int enabled);
+// Answers a CMUX_SHIM_POPUP_MENU of browser_id once: index = the chosen
+// item, -1 when the menu closed with no choice (the page gets a change event
+// for a choice, as with Chrome's menu). An item the page cannot take (a
+// group label, a separator, a disabled option) closes the popup as -1 does.
+// An answered or hidden token does nothing. UI thread.
+CMUX_SHIM_EXPORT void cmux_shim_browser_popup_menu_reply(int browser_id, int64_t token, int index);
 
 // Chromium tracing through stock CEF (include/cef_trace.h, CEFShim/src/shim_tracing.mm; task
 // p09-observability-050). These are not cmux_shim_* exports, so the Chromium Host wire does not
