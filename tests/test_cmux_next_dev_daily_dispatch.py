@@ -52,6 +52,38 @@ check("GH_TOKEN: ${{ github.token }}" not in sign_text,
       "every signer source-run read must try the App token before GITHUB_TOKEN")
 check("- name: Wait for the API budget before publishing" in publish_text,
       "the release writes must wait for the shared budget instead of failing on it")
+for call in ("ghw release upload", "ghw release edit", 'ghw api "repos/$GH_REPO/compare/'):
+    check(call in publish_text, f"the release write path must retry through a rate limit: {call}")
+check(re.search(r"^\s+gh release (upload|edit) ", publish_text, re.MULTILINE) is None,
+      "a release upload or edit must not call gh without the rate-limit retry")
+check("ghw release create" not in publish_text,
+      "release create makes several requests and must not be replayed")
+
+# ghw itself: a refused attempt's stdout must never reach a capture, and a
+# failure that is not the rate limit returns at once.
+ghw_src = re.search(r"^          waited_file=.*?^          }$", publish_text, re.MULTILINE | re.DOTALL)
+check(bool(ghw_src), "the publish step must define ghw")
+if ghw_src and shutil.which("bash"):
+    body = "\n".join(line[10:] for line in ghw_src.group(0).splitlines())
+    with tempfile.TemporaryDirectory() as tmp:
+        stub = Path(tmp) / "gh"
+        stub.write_text(
+            "#!/bin/bash\n"
+            "if [ \"$1\" = api ] && [ \"$2\" = rate_limit ]; then echo $(( $(date +%s) + 1 )); exit 0; fi\n"
+            "n=$(cat \"$STUB_DIR/count\" 2>/dev/null || echo 0); echo $((n+1)) > \"$STUB_DIR/count\"\n"
+            "if [ \"$n\" -lt 1 ]; then echo '{\"message\":\"API rate limit exceeded\"}'; "
+            "echo 'gh: API rate limit exceeded for installation (HTTP 403)' >&2; exit 1; fi\n"
+            "if [ \"$1\" = fail ]; then echo other >&2; exit 4; fi\n"
+            "echo ahead\n")
+        stub.chmod(0o755)
+        (Path(tmp) / "fn.sh").write_text(body + "\n")
+        script = ('set -euo pipefail; source "$STUB_DIR/fn.sh"; '
+                  'status="$(ghw api compare 2>/dev/null)"; printf "%s|" "$status"; '
+                  'rm -f "$STUB_DIR/count"; echo 1 > "$STUB_DIR/count"; ghw fail x 2>/dev/null || echo "rc=$?"')
+        env = {"PATH": f"{tmp}:/usr/bin:/bin", "STUB_DIR": tmp, "RUNNER_TEMP": tmp}
+        result = subprocess.run(["bash", "-c", script], capture_output=True, text=True, env=env, timeout=120)
+        check(result.stdout.strip() == "ahead|rc=4",
+              f"ghw must print only the successful attempt's stdout and pass other failures through: {result.stdout!r} {result.stderr!r}")
 check("workflow_run:" not in publish_text,
       "the publisher must be dispatch-only; unrelated cmux-next completions are not DEV artifacts")
 check("SOURCE_RUN_ID: ${{ inputs.source_run_id }}" in publish_text,

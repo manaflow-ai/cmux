@@ -546,15 +546,51 @@ jobs:
           This channel is Developer ID signed and intentionally not notarized; download with curl or gh so macOS does not add quarantine.
           EOF
           )"
+          # The budget check above is not enough: other workflows spend the shared
+          # budget between it and these calls (run 40350641729's asset upload was
+          # refused a second after the check passed). A call refused for the rate
+          # limit waits for the reset and runs again: at most 3 tries, and at most
+          # an hour of waiting in this step (one ledger file, subshells included).
+          # A refused request did nothing on GitHub's side, so retrying a one-request
+          # call (view, compare, upload --clobber, edit) is safe; any other failure
+          # fails as before. Each attempt's stdout is held back and only a
+          # successful attempt's is printed: gh api prints a refused response's body
+          # on stdout, which would otherwise precede the real answer in a capture.
+          waited_file="$RUNNER_TEMP/gh-budget-waited"
+          ghw() {
+            local try rc out err now reset wait waited
+            for try in 1 2 3; do
+              out="$(mktemp)"
+              err="$(mktemp)"
+              gh "$@" >"$out" 2>"$err" && { cat "$out"; cat "$err" >&2; rm -f "$out" "$err"; return 0; }
+              rc=$?
+              cat "$err" >&2
+              if (( try == 3 )) || ! grep -qiE 'rate limit exceeded|secondary rate limit|too many requests|HTTP 429' "$err" "$out"; then
+                rm -f "$out" "$err"
+                return "$rc"
+              fi
+              rm -f "$out" "$err"
+              waited="$(cat "$waited_file" 2>/dev/null || echo 0)"
+              now="$(date +%s)"
+              reset="$(gh api rate_limit --jq '.resources.core.reset' 2>/dev/null || echo 0)"
+              [[ "$reset" =~ ^[0-9]+$ ]] || reset=0
+              wait=$(( reset > now ? reset - now + 5 : 60 ))
+              (( wait > 3600 - waited )) && wait=$(( 3600 - waited ))
+              (( wait > 0 )) || return "$rc"
+              echo "::notice title=GitHub API budget::gh $1 $2 refused for the rate limit (try $try of 3); waiting ${wait}s for the reset" >&2
+              sleep "$wait"
+              echo $(( waited + wait )) > "$waited_file"
+            done
+          }
           # Never roll the channel back: skip when the release already holds this
           # commit or a newer one (the commit its notes name). feat-cmux-next
           # usually moves while a source run builds, so requiring the current
           # tip would publish almost nothing.
           not_newer() {
-            published="$(gh release view "$RELEASE_TAG" --repo "$GH_REPO" --json body --jq '.body' 2>/dev/null \
+            published="$(ghw release view "$RELEASE_TAG" --repo "$GH_REPO" --json body --jq '.body' 2>/dev/null \
               | grep -oE 'commit [0-9a-f]{40}' | head -n 1 | cut -d' ' -f2)" || published=""
             [[ -n "$published" ]] || return 1
-            status="$(gh api "repos/$GH_REPO/compare/$SOURCE_SHA...$published" --jq '.status')"
+            status="$(ghw api "repos/$GH_REPO/compare/$SOURCE_SHA...$published" --jq '.status')"
             if [[ "$status" == ahead || "$status" == identical ]]; then
               echo "::notice::cmux NEXT DEV already publishes $published, which is not older than $SOURCE_SHA; skipping"
               return 0
@@ -567,12 +603,14 @@ jobs:
           # the source commit; consumers read only the assets.
           # The notes change last, so they never name a commit whose assets did
           # not upload.
-          if ! gh release view "$RELEASE_TAG" --repo "$GH_REPO" >/dev/null 2>&1; then
+          # Create (once, when the release does not exist yet) makes several requests,
+          # so it is not replayed: a refusal fails the job and the dispatcher retries.
+          if ! ghw release view "$RELEASE_TAG" --repo "$GH_REPO" >/dev/null 2>&1; then
             gh release create "$RELEASE_TAG" --repo "$GH_REPO" --target "$GITHUB_SHA" --title 'cmux NEXT DEV' --notes "$notes" --prerelease --latest=false \
               "$archive" "$archive.sha256"
           else
-            gh release upload "$RELEASE_TAG" --repo "$GH_REPO" "$archive" "$archive.sha256" --clobber
-            gh release edit "$RELEASE_TAG" --repo "$GH_REPO" --title 'cmux NEXT DEV' --notes "$notes" --prerelease --latest=false
+            ghw release upload "$RELEASE_TAG" --repo "$GH_REPO" "$archive" "$archive.sha256" --clobber
+            ghw release edit "$RELEASE_TAG" --repo "$GH_REPO" --title 'cmux NEXT DEV' --notes "$notes" --prerelease --latest=false
           fi
           echo "Published $RELEASE_TAG for $SOURCE_SHA"
 
