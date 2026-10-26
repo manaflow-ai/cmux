@@ -8,6 +8,7 @@ import CmuxNextCrashReporting
 import CmuxNextDaemon
 import CmuxNextDesign
 import CmuxNextKeepAwake
+import CmuxNextLaunch
 import CmuxNextPages
 import CmuxNextWebUpdates
 import CmuxNextPalette
@@ -27,6 +28,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let launchReveal: LaunchReveal
     /// The first live terminal frame (or no daemon): deferrable warm-up waits for it.
     private let launchSettle: LaunchSettle
+    /// The startup phase's settle references (first snapshot, restore, visible page).
+    private let startupReferences: StartupReferences
     /// Launch work that starts after the first window frame (perf-launch-memory).
     let firstFrame = FirstFrameGate()
     /// Cleanup deferred until the launch settles (injected; tests pass their own).
@@ -74,10 +77,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         startup.whenReached(.settled) { DebugTimings.markLaunch("launch.settled") }
         let reveal = LaunchReveal(onRevealed: { [startup] in startup.noteFirstFrame() })
         launchReveal = reveal
-        // No daemon: no snapshot, restore or page load will come, so startup settles without the failsafe.
-        launchSettle = LaunchSettle(reveal: reveal, onUnavailable: { [startup] in
-            for reference in [StartupPhase.Reference.firstSnapshot, .restoreDone, .visiblePageIdle] { startup.markDone(reference) }
-        })
+        launchSettle = LaunchSettle(reveal: reveal)
+        startupReferences = StartupReferences(startup: startup, reveal: reveal)
         let mainWork = MainWorkScheduler(budget: MainFrameBudget(input: SessionInputPending(), signposts: true), startup: startup)
         self.mainWork = mainWork
         control = AppControl(mainWork: mainWork)
@@ -130,15 +131,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         AppProcessRoot.shared.adopt(services)
         self.services = services
         // The settle references, one closure each, before the daemon starts and the windows restore
-        // (Chrome's StartupObserver, after_startup_task_utils.cc). A hidden launch reveals at once.
+        // (Chrome's StartupObserver, after_startup_task_utils.cc). A hidden launch (no window on
+        // screen) reveals at once.
         let startup = mainWork.startup
         startup.noteLaunch(NSApp.isHidden ? .hidden : .window)
         services.daemon.store.whenFirstSnapshotApplied { startup.markDone(.firstSnapshot) }
-        services.windows.onRestored = { [weak services] in
-            startup.markDone(.restoreDone)
-            services?.launchReveal.whenReady(.pane) { [weak services] in
-                services?.windows.whenVisiblePageIdle { startup.markDone(.visiblePageIdle) }
-            }
+        let references = startupReferences
+        references.watchUnavailable { [daemon = services.daemon] in daemon.startup.isUnavailable }
+        services.cache.presentationChanges.subscribe("startup-references") { [weak references] in references?.noteContentChange() }
+        let windows = services.windows
+        windows.onRestored = { [weak references, weak windows] in
+            references?.restored { [weak windows] in windows?.visiblePageLoad() ?? .idle }
         }
         // Hangs, lag spikes and opt-in hang reports (WatchdogReporting); the controller lives with the process.
         AppProcessRoot.shared.adopt(hangReports: WatchdogReporting.install(control.watchdog, services: services))

@@ -25,16 +25,10 @@ final class LaunchSettle {
     /// The launch load-in: the pane region comes in on the first terminal
     /// frame, and everything shows if the daemon is unavailable.
     private let reveal: LaunchReveal
-    /// Runs once when the local daemon is unavailable: no snapshot and no
-    /// restore will come (the startup phase's settle references).
-    private let onUnavailable: @MainActor () -> Void
 
-    /// - Parameters:
-    ///   - reveal: The app's launch load-in (`AppServices.launchReveal`).
-    ///   - onUnavailable: Runs once, before the settle, when the local daemon is unavailable.
-    init(reveal: LaunchReveal, onUnavailable: @escaping @MainActor () -> Void = {}) {
+    /// - Parameter reveal: The app's launch load-in (`AppServices.launchReveal`).
+    init(reveal: LaunchReveal) {
         self.reveal = reveal
-        self.onUnavailable = onUnavailable
     }
 
     /// Runs `work` once the launch settled and no agent page waits behind
@@ -90,7 +84,6 @@ final class LaunchSettle {
         unavailableWatch = Task { [weak self] in
             for await unavailable in ObservationStream({ daemon.startup.isUnavailable }) where unavailable {
                 // No region will get its data: show everything as it is.
-                self?.onUnavailable()
                 self?.reveal.markAllReady()
                 self?.settle()
                 return

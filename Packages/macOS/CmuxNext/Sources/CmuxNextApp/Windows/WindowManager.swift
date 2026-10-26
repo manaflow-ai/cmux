@@ -5,6 +5,7 @@ import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextBridge
 import CmuxNextDaemon
+import CmuxNextLaunch
 import CmuxNextWakeups
 import Observation
 
@@ -261,17 +262,21 @@ final class WindowManager {
         Task { await onboarding.migrateClassicAtLaunch(firstWorkspace: firstWorkspace) }
     }
 
-    /// Runs `idle` once the front window's focused browser page is not loading (at once when it is
-    /// not, or when no browser page is in front): the startup phase's visible-page reference.
-    func whenVisiblePageIdle(_ idle: @escaping @MainActor () -> Void) {
-        guard let controller = active, let pane = controller.focus.state.pane,
-              case .browser(let entry)? = controller.content?.paneController(key: pane)?.currentContent,
-              entry.tab.state.isLoading else { return idle() }
-        let tab = entry.tab
-        // task-owner: ends at the page's first load-idle or when the page goes; one that never stops loading leaves the settle to the 10 s failsafe
-        Task {
-            for await loading in ObservationStream({ [weak tab] in tab?.state.isLoading ?? false }) where !loading { break }
-            idle()
+    /// The front window's visible page, for the startup phase's visible-page reference
+    /// (`StartupReferences`): waiting until the focused pane shows its content and, for a browser
+    /// page, until the page's first load ended. A window with no workspace content shows no page.
+    /// It reads the page's load state and the selection (observable); what a pane shows is not, so
+    /// the caller reads it again on every content change.
+    func visiblePageLoad() -> StartupReferences.VisiblePage {
+        _ = services.cache.pageInstalls.revision
+        guard let controller = active, let content = controller.content else { return .idle }
+        guard let key = controller.focus.state.pane, let pane = content.paneController(key: key) else { return .waiting }
+        let selected = pane.stripModel.selectedID
+        switch pane.currentContent {
+        case .browser(let entry)?:
+            return StartupReferences.VisiblePage(page: entry.tab.state, loadsNothing: entry.tab is DeferredBrowserTab || entry.tab is HibernatedBrowserTab)
+        case nil: return selected == nil ? .idle : .waiting
+        case _?: return .idle
         }
     }
 
@@ -429,5 +434,13 @@ final class WindowManager {
                 return WindowRegistry.Changes()
             }
         }
+    }
+}
+
+extension StartupReferences.VisiblePage {
+    /// A shown page: idle once a load ended in it (finished, stopped or failed) or its process
+    /// ended, or when it is a stand-in that loads nothing until the person starts it.
+    init(page state: BrowserTabState, loadsNothing: Bool) {
+        self = loadsNothing || state.hasEndedLoad || state.processExit != nil ? .idle : .waiting
     }
 }
