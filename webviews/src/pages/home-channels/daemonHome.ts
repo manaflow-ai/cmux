@@ -72,7 +72,6 @@ const CLOUD_LIVE_CAPABILITY = "cloud-chief-live-v1";
 /** The daemon passes a cloud conversation's typing (`cloud-conversation-typing`) to a connection that
  *  echoes this. */
 const CLOUD_TYPING_CAPABILITY = "cloud-conversation-typing-v1";
-const CLOUD_PRESENCE_CAPABILITY = "cloud-conversation-presence-v1";
 /** Participants' pictures (`participant.avatar.get`, `cloud-participant-avatar-get`, the
  * `participant-avatar-changed` event for a page that asks). */
 const AVATARS_CAPABILITY = "participant-avatars-v1";
@@ -528,7 +527,6 @@ export class DaemonHomeClient implements PageClient {
             AVATARS_CAPABILITY,
             LIVE_CAPABILITY,
             CLOUD_TYPING_CAPABILITY,
-            CLOUD_PRESENCE_CAPABILITY,
           ],
         });
         await socket.request("subscribe");

@@ -306,6 +306,10 @@ export class CloudHome {
       case "cloud-subscription-state":
         // The inbox socket closed for good (the owner refused it): list again on the next read.
         if (event.scope === "inbox" && event.state === "closed") this.listed = false;
+        // A conversation's socket that is not live hears no presence: its viewers go until the
+        // owner's next `conversation-presence` (it sends one after each subscribe).
+        if (event.scope === "conversation" && event.state !== "live" && typeof event.conversation === "string")
+          return { presence: { conversation: event.conversation, participants: [] } };
         return null;
       case "cloud-session-needed":
         // The app renews the lease; the page waits for it (a relist now would only fail again).

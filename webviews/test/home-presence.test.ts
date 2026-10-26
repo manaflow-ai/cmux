@@ -69,6 +69,9 @@ test("viewing presence follows the owner's frames, per conversation, and ends on
   // Another conversation's presence does not show in the open one.
   deliver?.({ presence: [{ conversation: "other", participants: [{ participant: "sam", viewing: true }] }] });
   expect(store.getSnapshot().viewing).toEqual(["tailnet:ana@example.com"]);
+  // An inbox refetch keeps the set; a lost connection ends it.
+  deliver?.({ inboxStale: true });
+  expect(store.getSnapshot().viewing).toEqual(["tailnet:ana@example.com"]);
   deliver?.({ connection: "connecting" });
   expect(store.getSnapshot().viewing).toEqual([]);
   stop();

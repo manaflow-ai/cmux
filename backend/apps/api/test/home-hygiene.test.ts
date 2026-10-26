@@ -157,10 +157,11 @@ describe("Home viewing presence: ephemeral per-socket broadcast", { timeout: 20_
     const b = await connect(id, bob.token)
     expect(a.frames.filter(isPresence).at(-1)).toEqual({ t: "conversation-presence", conversation: id, participants: [] })
     a.send({ t: "presence.set", conversation: id, viewing: true })
-    const on = b.frames[await b.until((f) => isPresence(f) && f.participants.some((p: any) => p.participant === alice.user && p.viewing))]
-    expect(on.participants).toEqual([{ participant: alice.user, viewing: true }])
+    const onAt = await b.until((f) => isPresence(f) && f.participants.some((p: any) => p.participant === alice.user && p.viewing))
+    expect(b.frames[onAt].participants).toEqual([{ participant: alice.user, viewing: true }])
     a.ws.close(1000, "bye")
-    const off = b.frames[await b.until((f) => isPresence(f) && f.participants.length === 0)]
+    // After the viewing frame: the empty set Bob got on subscribe does not count.
+    const off = b.frames[await b.until((f) => isPresence(f) && f.participants.length === 0, onAt + 1)]
     expect(off).toEqual({ t: "conversation-presence", conversation: id, participants: [] })
     b.ws.close()
   })

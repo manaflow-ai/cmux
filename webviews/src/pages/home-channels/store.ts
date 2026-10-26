@@ -766,7 +766,9 @@ export class HomeChannelsStore {
     if (batch.connection) patch.connection = batch.connection;
     // Typing is ephemeral: a reconnect or an inbox refetch ends every indicator.
     if (batch.connection || batch.inboxStale) patch.typing = [];
-    if (batch.connection || batch.inboxStale) {
+    // Each presence frame is the whole set, so only a lost connection makes it stale (an inbox
+    // refetch keeps it: the conversation sockets stay subscribed and send no new set).
+    if (batch.connection) {
       this.viewingBy.clear();
       patch.viewing = [];
     }
