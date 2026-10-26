@@ -48,13 +48,62 @@ pub fn main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
     if let Some(home) = invocation.home.clone() {
         crate::config::set_home_override(home);
     }
-    tokio::runtime::Builder::new_multi_thread()
-        .enable_all()
-        .build()?
-        .block_on(async_main(args, invocation))
+    let mut runtime = tokio::runtime::Builder::new_multi_thread();
+    runtime.enable_all();
+    let poll_watch = DaemonPollWatch::instrument(&args, &mut runtime);
+    runtime.build()?.block_on(async_main(args, invocation, poll_watch))
 }
 
-async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
+/// Lab builds only (cmux-tui/lab/stability.env): the daemon's poll watch
+/// (cmux-blocking `poll_watch`) times every task poll of its runtime and
+/// writes to the hang log the daemon installs. Other commands install no
+/// hang log, so they get no watch. Empty in other builds.
+struct DaemonPollWatch {
+    #[cfg(all(tokio_unstable, feature = "cmux-stability"))]
+    watch: Option<cmux_blocking::poll_watch::PollWatch>,
+}
+
+impl DaemonPollWatch {
+    fn instrument(args: &[OsString], runtime: &mut tokio::runtime::Builder) -> Self {
+        #[cfg(all(tokio_unstable, feature = "cmux-stability"))]
+        {
+            let watch = runs_daemon(args).then(|| {
+                let watch = cmux_blocking::poll_watch::PollWatch::lab();
+                watch.instrument(runtime);
+                watch
+            });
+            Self { watch }
+        }
+        #[cfg(not(all(tokio_unstable, feature = "cmux-stability")))]
+        {
+            let _ = (args, runtime);
+            Self {}
+        }
+    }
+
+    /// The daemon exits without dropping its runtime: write the totals now.
+    fn finish(&self) {
+        #[cfg(all(tokio_unstable, feature = "cmux-stability"))]
+        if let Some(watch) = &self.watch {
+            watch.finish();
+        }
+    }
+}
+
+/// `args` (without the program name) run `daemon run`, the way
+/// `async_main` reads them: past the global flags, `daemon` alone means
+/// `daemon run`.
+#[cfg(all(tokio_unstable, feature = "cmux-stability"))]
+fn runs_daemon(args: &[OsString]) -> bool {
+    let mut words = args.iter().skip_while(|arg| is_global_flag(arg));
+    words.next().is_some_and(|arg| arg == "daemon") && words.next().is_none_or(|arg| arg == "run")
+}
+
+async fn async_main(
+    args: Vec<OsString>,
+    invocation: Invocation,
+    poll_watch: DaemonPollWatch,
+) -> Result<()> {
     // `acpmux ls | head` must end quietly, not panic on a closed pipe.
     #[cfg(unix)]
     unsafe {
@@ -139,6 +188,7 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
             // The daemon has stopped its agents and synced its store. Exit
             // now rather than wait for the runtime to drain blocking tasks
             // (a launcher `--version` check can take 20 s).
+            poll_watch.finish();
             std::process::exit(0)
         }
         Some(Command::CliAgent {
@@ -249,9 +299,29 @@ async fn async_main(args: Vec<OsString>, invocation: Invocation) -> Result<()> {
 /// Index of the first argument after the program name that is not a global
 /// flag (`--json`, `--suppress-reads`); `argv.len()` when there is none.
 fn command_index(argv: &[OsString]) -> usize {
-    argv.iter()
-        .skip(1)
-        .position(|a| a != "--json" && a != "--suppress-reads")
-        .map(|i| i + 1)
-        .unwrap_or(argv.len())
+    argv.iter().skip(1).position(|a| !is_global_flag(a)).map(|i| i + 1).unwrap_or(argv.len())
+}
+
+/// A flag that may come before the command word.
+fn is_global_flag(arg: &OsString) -> bool {
+    arg == "--json" || arg == "--suppress-reads"
+}
+
+#[cfg(all(test, tokio_unstable, feature = "cmux-stability"))]
+mod tests {
+    use super::*;
+
+    fn args(words: &[&str]) -> Vec<OsString> {
+        words.iter().map(OsString::from).collect()
+    }
+
+    #[test]
+    fn only_daemon_run_gets_the_poll_watch() {
+        assert!(runs_daemon(&args(&["daemon", "run", "--memory"])));
+        assert!(runs_daemon(&args(&["daemon"])));
+        assert!(runs_daemon(&args(&["--json", "daemon", "run"])));
+        assert!(!runs_daemon(&args(&["daemon", "status"])));
+        assert!(!runs_daemon(&args(&["ls"])));
+        assert!(!runs_daemon(&args(&[])));
+    }
 }

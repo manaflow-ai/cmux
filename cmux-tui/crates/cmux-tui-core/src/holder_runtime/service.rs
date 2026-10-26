@@ -3,6 +3,7 @@
 //! holder crash.
 
 use cmux_process::Stdio;
+use cmux_threads::checked::fs as files;
 use std::collections::HashMap;
 use std::io::{self, Write};
 use std::os::fd::OwnedFd;
@@ -560,6 +561,8 @@ impl HolderService {
             if std::env::var_os(crate::host_exe::HOLDER_ENV).is_none_or(|value| value.is_empty()) {
                 command.args(crate::terminal_host_runtime::host_owner_args());
             }
+            // The spawn and the holder's handshake reply.
+            crate::request_path::note(crate::request_path::BlockingKind::HostWait);
             let started = command.spawn().and_then(|child| self.handshake(child));
             match started {
                 Ok(()) => return Ok(()),
@@ -666,12 +669,12 @@ fn socket_path(host_root: &Path) -> io::Result<PathBuf> {
     // SAFETY: getuid cannot fail.
     let uid = unsafe { libc::getuid() };
     let dir = PathBuf::from(format!("/tmp/cmux-hd-{uid}"));
-    match std::fs::DirBuilder::new().mode(0o700).create(&dir) {
+    match files::create_dir_with(files::DirBuilder::new().mode(0o700), &dir) {
         Ok(()) => {}
         Err(error) if error.kind() == io::ErrorKind::AlreadyExists => {}
         Err(error) => return Err(error),
     }
-    let meta = std::fs::symlink_metadata(&dir)?;
+    let meta = files::symlink_metadata(&dir)?;
     if !meta.is_dir() || meta.uid() != uid || meta.permissions().mode() & 0o077 != 0 {
         return Err(io::Error::other(format!("{} is not a private directory", dir.display())));
     }
@@ -688,9 +691,9 @@ fn fnv1a(bytes: &[u8]) -> u64 {
 /// A restarted daemon of the session reads it to reach the same holder.
 fn load_or_create_token(host_root: &Path) -> io::Result<[u8; 32]> {
     use std::os::unix::fs::OpenOptionsExt;
-    std::fs::create_dir_all(host_root)?;
+    files::create_dir_all(host_root)?;
     let path = host_root.join("holder.token");
-    if let Ok(text) = std::fs::read_to_string(&path)
+    if let Ok(text) = files::read_to_string(&path)
         && let Some(token) = parse_hex(text.trim())
     {
         return Ok(token);
@@ -700,15 +703,13 @@ fn load_or_create_token(host_root: &Path) -> io::Result<[u8; 32]> {
         .as_bytes();
     let hex: String = token.iter().map(|byte| format!("{byte:02x}")).collect();
     let temporary = path.with_extension("tmp");
-    let mut file = std::fs::OpenOptions::new()
-        .write(true)
-        .create(true)
-        .truncate(true)
-        .mode(0o600)
-        .open(&temporary)?;
+    let mut file = files::open_with(
+        files::File::options().write(true).create(true).truncate(true).mode(0o600),
+        &temporary,
+    )?;
     file.write_all(hex.as_bytes())?;
-    file.sync_all()?;
-    std::fs::rename(&temporary, &path)?;
+    files::sync_all(&file)?;
+    files::rename(&temporary, &path)?;
     Ok(token)
 }
 

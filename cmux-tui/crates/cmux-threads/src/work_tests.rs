@@ -445,3 +445,60 @@ fn a_background_caller_starts_user_blocking_work_at_base_nice() {
     assert_eq!(caller_nice, base.max(10));
     assert_eq!(fg_nice, base, "UserBlocking ran at nice {fg_nice}, base {base}");
 }
+
+/// Items waiting inside `will_block` hold no slot: six of them on the System lane (its whole size)
+/// leave room for a UserVisible item. Out of `will_block` they count again.
+#[test]
+fn will_block_items_do_not_hold_their_slots() {
+    let work = work("t-willblock", 1, Duration::from_secs(30), 0);
+    let (leave, left) = channel::<()>();
+    let left = Arc::new(Mutex::new(left));
+    let (out_tx, out) = channel::<()>();
+    let mut gates = Vec::new();
+    for _ in 0..6 {
+        let (release, hold) = channel::<()>();
+        let (started_tx, started) = channel();
+        let (left, out_tx) = (Arc::clone(&left), out_tx.clone());
+        work.post(Priority::UserBlocking, Lane::System, Shutdown::SkipOnShutdown, move || {
+            will_block(|| {
+                started_tx.send(()).unwrap();
+                let _ = hold.recv();
+            });
+            out_tx.send(()).unwrap();
+            let _ = left.lock().unwrap().recv();
+        })
+        .unwrap();
+        started.recv_timeout(WAIT).unwrap();
+        gates.push(release);
+    }
+    let stats = lane_stats(&work, Lane::System);
+    assert_eq!((stats.running, stats.blocked), (6, 6));
+    let visible =
+        work.run(Priority::UserVisible, Lane::System, Shutdown::SkipOnShutdown, || "visible");
+    assert_eq!(visible.wait(), Ok("visible"));
+    drop(gates);
+    for _ in 0..6 {
+        out.recv_timeout(WAIT).unwrap();
+    }
+    let stats = lane_stats(&work, Lane::System);
+    assert_eq!((stats.running, stats.blocked), (6, 0), "out of will_block they count again");
+    let user_blocking =
+        work.run(Priority::UserBlocking, Lane::System, Shutdown::SkipOnShutdown, || "blocking");
+    assert_eq!(user_blocking.try_wait(), None, "the lane is full again");
+    drop(leave);
+    assert_eq!(user_blocking.wait(), Ok("blocking"));
+}
+
+/// Off a work item, and nested inside one, `will_block` only runs its body.
+#[test]
+fn will_block_off_a_worker_or_nested_counts_nothing() {
+    assert_eq!(will_block(|| 7), 7);
+    let work = work("t-willnest", 1, Duration::from_secs(30), 0);
+    let nested = work
+        .run(Priority::UserVisible, Lane::System, Shutdown::SkipOnShutdown, || {
+            will_block(|| will_block(|| CURRENT_LANE.with(|lane| lane.borrow().is_none())))
+        })
+        .wait();
+    assert_eq!(nested, Ok(true));
+    assert_eq!(lane_stats(&work, Lane::System).blocked, 0);
+}

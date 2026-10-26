@@ -4,6 +4,8 @@
 
 use std::path::{Path, PathBuf};
 
+use cmux_threads::checked::fs as files;
+
 use cmux_agent_pane_policy::build_identity::{BuildIdentity, NIGHTLY_BUNDLE_ID};
 
 use super::account_home;
@@ -13,11 +15,11 @@ use super::account_home;
 pub(super) fn lock_held(lock: &Path) -> bool {
     #[cfg(unix)]
     {
-        use std::os::fd::AsRawFd;
-        let Ok(file) = std::fs::OpenOptions::new().read(true).open(lock) else { return false };
-        // SAFETY: flock on a descriptor this function owns; it is released
-        // when `file` drops.
-        unsafe { libc::flock(file.as_raw_fd(), libc::LOCK_EX | libc::LOCK_NB) != 0 }
+        let Ok(file) = files::open_with(files::File::options().read(true), lock) else {
+            return false;
+        };
+        // The probe lock is released when `file` drops.
+        files::advisory_lock(&file, libc::LOCK_EX | libc::LOCK_NB).is_err()
     }
     #[cfg(not(unix))]
     {
@@ -31,14 +33,14 @@ pub(super) fn lock_held(lock: &Path) -> bool {
 /// and never while a brain still holds its lock (a stale holder that has not exited yet keeps
 /// it; the folder then stays).
 pub(super) fn remove_brain_home(dir: &Path, chief: &str) {
-    let owner = std::fs::read_to_string(dir.join("chief-id")).unwrap_or_default();
-    if !std::fs::symlink_metadata(dir).is_ok_and(|m| m.is_dir())
+    let owner = files::read_to_string(dir.join("chief-id")).unwrap_or_default();
+    if !files::symlink_metadata(dir).is_ok_and(|m| m.is_dir())
         || owner.trim() != chief
         || lock_held(&dir.join("state/host.lock"))
     {
         return;
     }
-    if let Err(error) = std::fs::remove_dir_all(dir) {
+    if let Err(error) = files::remove_dir_all(dir) {
         eprintln!("cmux-tui: removing {}: {error}", dir.display());
     }
 }
@@ -48,7 +50,7 @@ pub(super) fn remove_brain_home(dir: &Path, chief: &str) {
 pub(super) fn stop_lock_holder(lock: &Path) {
     #[cfg(unix)]
     if lock_held(lock)
-        && let Some(pid) = std::fs::read_to_string(lock)
+        && let Some(pid) = files::read_to_string(lock)
             .ok()
             .and_then(|text| text.split_whitespace().next()?.parse::<i32>().ok())
             .filter(|pid| *pid > 1)
@@ -77,23 +79,23 @@ pub(super) fn remove_old_acpmux_homes(home: &Path, acpmux_bin: Option<&Path>) {
     let Some(user) = std::env::var_os("HOME").filter(|h| !h.is_empty()) else { return };
     // NIGHTLY's Chief home, named by the build identity resolver.
     let nightly = BuildIdentity::new(Some(NIGHTLY_BUNDLE_ID), None);
-    let Ok(canonical) = std::fs::canonicalize(home) else { return };
+    let Ok(canonical) = files::canonicalize(home) else { return };
     // NIGHTLY's home under the inherited HOME and under the account's home
     // (a job runner's HOME differs from it).
     let defaults = [Some(PathBuf::from(user)), account_home().map(PathBuf::from)];
     if defaults.into_iter().flatten().any(|user| {
-        std::fs::canonicalize(nightly.chief_home(&user, "default")).ok().as_deref()
+        files::canonicalize(nightly.chief_home(&user, "default")).ok().as_deref()
             == Some(canonical.as_path())
     }) {
         return;
     }
-    let Ok(entries) = std::fs::read_dir(home.join("c")) else { return };
+    let Ok(entries) = files::read_dir(home.join("c")) else { return };
     for entry in entries.flatten() {
         let chief_dir = home.join("c").join(entry.file_name());
         let old = chief_dir.join("a");
         // A real folder only: never follow a link out of the Chief home.
-        let is_dir = std::fs::symlink_metadata(&chief_dir).is_ok_and(|m| m.is_dir())
-            && std::fs::symlink_metadata(&old).is_ok_and(|m| m.is_dir());
+        let is_dir = files::symlink_metadata(&chief_dir).is_ok_and(|m| m.is_dir())
+            && files::symlink_metadata(&old).is_ok_and(|m| m.is_dir());
         if !is_dir || lock_held(&chief_dir.join("state/host.lock")) {
             continue;
         }
@@ -116,6 +118,7 @@ pub(super) fn remove_old_acpmux_homes(home: &Path, acpmux_bin: Option<&Path>) {
                     command.env(key, value);
                 }
             }
+            crate::request_path::note(crate::request_path::BlockingKind::ChildProcess);
             command.status().ok()
         };
         // On this thread only: `daemon shutdown --end-agents` ends that daemon's agents
@@ -130,7 +133,7 @@ pub(super) fn remove_old_acpmux_homes(home: &Path, acpmux_bin: Option<&Path>) {
         if !stopped.is_some_and(|status| status.success()) && lock_held(&old.join("daemon.lock")) {
             continue;
         }
-        if let Err(error) = std::fs::remove_dir_all(&old) {
+        if let Err(error) = files::remove_dir_all(&old) {
             eprintln!("cmux-tui: removing {}: {error}", old.display());
         }
     }

@@ -4,6 +4,7 @@ mod background_checks;
 mod crash_forward;
 mod memory_guard;
 mod owner_panic;
+pub(crate) mod poll_watch_lab;
 
 /// Debug builds only: the owner's hang log test trigger, once its mux
 /// exists (tests/owner_panic.rs).
@@ -27,6 +28,8 @@ pub(crate) fn hang_for_test(headless: bool) {
 pub(crate) fn prepare(args: &crate::Args) -> anyhow::Result<()> {
     if args.headless {
         owner_panic::install(&args.session);
+        #[cfg(all(tokio_unstable, feature = "cmux-stability"))]
+        poll_watch_lab::install(&args.session);
         // Earlier panics and memory alerts not sent yet (tester rollout #7),
         // then the memory guard (#9), which sends its alerts as they happen.
         let panic_log = owner_panic::log_path(&args.session);

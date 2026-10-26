@@ -25,9 +25,30 @@ import Testing
         rig.drain()
         #expect(rig.log == ["cmux", "pass"])
         #expect(rig.count(MainWakeUpQueue.ledgerOwner, reason: "fire") == 1, "one wake for both")
-        #expect(rig.count("CEFMessagePump", reason: "deadline") == 1)
-        #expect(rig.count("CEFMessagePump", reason: "scheduled") == 1, "only the start's pass; the queue counted the delayed one")
+        #expect(rig.count("DemandTimer", reason: "deadline") == 1)
+        #expect(rig.count(CEFMessagePump.ledgerOwner, reason: "now") == 1, "the start's pass")
+        #expect(rig.count(CEFMessagePump.ledgerOwner, reason: "delayed") == 1, "CEF's 100 ms request")
+        #expect(rig.records(of: CEFMessagePump.ledgerOwner) == 2, "one record per pump wake, no `deadline` beside it")
         #expect(rig.queue.count == 0)
+    }
+
+    /// A Chromium thread's request the gate kept fires at its own deadline, filed as `kept`.
+    @Test func aKeptDeadlineFiresAsKeptOnTheQueue() {
+        let rig = PumpRig()
+        rig.startAndRunFirstPass()
+        rig.pump.request(milliseconds: 10)
+        #expect(!rig.pump.gate.admit(delayMilliseconds: 50, nowNanos: rig.uptime.now), "kept: the armed +10 ms comes first")
+        rig.fire()
+        rig.drain()
+        #expect(rig.count(CEFMessagePump.ledgerOwner, reason: "delayed") == 1, "the +10 ms fire is CEF's own request")
+        #expect(rig.queue.count == 1, "the pass armed the kept deadline")
+        rig.fire()
+        rig.drain()
+        #expect(rig.uptime.now >= 50 * Self.ms)
+        #expect(rig.count(CEFMessagePump.ledgerOwner, reason: "kept") == 1)
+        #expect(rig.count(CEFMessagePump.ledgerOwner, reason: "delayed") == 1)
+        #expect(rig.records(of: CEFMessagePump.ledgerOwner) == 3, "start, +10 ms, +50 ms: one record each")
+        #expect(rig.log == ["pass", "pass"])
     }
 
     @Test func aNestedRunLoopInACEFPassDoesNotHoldACmuxDeadline() {
@@ -210,6 +231,11 @@ private final class PumpRig {
 
     func count(_ owner: String, reason: String) -> UInt64 {
         ledger.snapshot().first { $0.owner == owner && $0.reason == reason }?.count ?? 0
+    }
+
+    /// Every ledger record of `owner`, whatever its reason.
+    func records(of owner: String) -> UInt64 {
+        ledger.snapshot().filter { $0.owner == owner }.reduce(0) { $0 + $1.count }
     }
 }
 

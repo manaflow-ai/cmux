@@ -1,4 +1,5 @@
 use crate::panic_free::RecoverPoison;
+use cmux_threads::checked::sync as waits;
 use std::collections::{BTreeMap, HashMap, HashSet};
 #[cfg(all(test, target_os = "linux"))]
 use std::io::Read;
@@ -389,7 +390,7 @@ fn run_delivery_worker(
     runtime: &JournalHookRuntime,
 ) {
     loop {
-        let job = match jobs.lock().recover_poison().recv() {
+        let job = match waits::recv(&jobs.lock().recover_poison()) {
             Ok(job) => job,
             Err(_) => return,
         };
@@ -592,7 +593,7 @@ impl DeliveryWorkers {
         let sender = std::mem::replace(&mut self.sender, closed);
         drop(sender);
         for handle in self.handles.drain(..) {
-            if handle.join().is_err() {
+            if waits::join(handle).is_err() {
                 eprintln!("cmux-tui: journal hook worker panicked during shutdown");
             }
         }
@@ -1155,18 +1156,19 @@ fn execute_hook_child_portable(
     loop {
         if cancelled.load(Ordering::Acquire) {
             job.terminate_and_wait(child);
-            let _ = writer.join();
+            let _ = waits::join(writer);
             return hook_shutdown_result();
         }
         let remaining = deadline.saturating_duration_since(Instant::now());
         if remaining.is_zero() {
             job.terminate_and_wait(child);
-            let _ = writer.join();
+            let _ = waits::join(writer);
             return (None, Some(format!("hook timed out after {} ms", timeout.as_millis())));
         }
-        match write_result_receiver.recv_timeout(remaining.min(Duration::from_millis(10))) {
+        match waits::recv_timeout(&write_result_receiver, remaining.min(Duration::from_millis(10)))
+        {
             Ok(Ok(())) => {
-                let _ = writer.join();
+                let _ = waits::join(writer);
                 return wait_for_hook_exit_windows(
                     child,
                     process_group,
@@ -1177,25 +1179,25 @@ fn execute_hook_child_portable(
                 );
             }
             Ok(Err(error)) => {
-                let _ = writer.join();
+                let _ = waits::join(writer);
                 job.terminate_and_wait(child);
                 return (None, Some(format!("write hook event: {error}")));
             }
             Err(mpsc::RecvTimeoutError::Disconnected) => {
                 job.terminate_and_wait(child);
-                let _ = writer.join();
+                let _ = waits::join(writer);
                 return (None, Some("hook stdin writer stopped without a result".into()));
             }
             Err(mpsc::RecvTimeoutError::Timeout) => match child.try_wait() {
                 Ok(Some(status)) => {
                     job.terminate_descendants();
-                    let _ = writer.join();
+                    let _ = waits::join(writer);
                     return hook_exit_result(status, process_group);
                 }
                 Ok(None) => {}
                 Err(error) => {
                     job.terminate_and_wait(child);
-                    let _ = writer.join();
+                    let _ = waits::join(writer);
                     return (None, Some(format!("wait for hook executable: {error}")));
                 }
             },

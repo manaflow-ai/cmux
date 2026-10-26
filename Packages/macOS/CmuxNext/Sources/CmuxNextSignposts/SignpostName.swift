@@ -126,8 +126,13 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// Reserved (task 027, PL-switch). A workspace switch: the intent to the commit that shows the new
     /// workspace. Ring: AB/AE; begin arg0 the input age in us.
     case switchWorkspace = 9
-    /// Reserved (task 028, PL-switch). A tab switch: the intent to the commit that shows the tab's content.
-    /// Ring: AB/AE; begin arg0 the kind (0 cold, 1 warm, 2 page).
+    /// A tab switch (``TabSwitchSignpost``, every build): the intent to the app's commit that shows the destination
+    /// tab's content. Begin message `kind=<cold|warm|page>`. A switch to a live Chromium page ends at the commit after
+    /// its page window's show (`tab_activate`), before Chromium presents the tab: that end says `end=page_activated`
+    /// and is not mirrored to MetricKit. A superseded switch, or one whose pane went away or hid, ends `commit=missed`.
+    /// Ring: AB/AE keyed by its `OSSignpostID`; begin arg0 the kind (0 cold, 1 warm, 2 page) in bits 0-7 and the
+    /// input age in us in the top 24 (all ones without an input event); end arg0 the end code (0 ended, 1 missed,
+    /// 3 page activated).
     case switchTab = 10
     /// Reserved (task 029, PL-switch). A pane focus move: the intent to the settled focus. Ring: AB/AE.
     case switchPaneFocus = 11

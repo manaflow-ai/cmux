@@ -22,7 +22,7 @@ public nonisolated final class RemoteRdStreamTransport: RemoteViewStreamSource, 
     private let control: Bool
     private let nowMicros: @Sendable () -> UInt64
     // internal for the +Service extension file
-    let queue = DispatchQueue(label: "cmux.remote-view.rd-transport")
+    let queue = DispatchQueue(label: "cmux.remote-view.rd-transport", qos: .userInitiated)
     private let timer = DemandTimer(owner: "RemoteRdStreamTransport.deadline")
     // internal for the +Service extension file
     let state: Mutex<Continuations>
