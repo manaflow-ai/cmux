@@ -44,14 +44,11 @@ extension PageWebView {
         openTracePending = false
         trace.asyncEnd(.webuiOpen, id: traceID, arg0: outcome.rawValue)
     }
-}
 
-#if DEBUG || CMUX_BENCH_HOOKS
-extension PageWebView {
-    /// A ``ChatOpenTrace`` mark of this page, when it is an agent chat's page.
+    /// A ``ChatOpenTrace`` mark of this page, when it is an agent chat's page: its `create.tab` instant carries
+    /// ``traceID``, so it lines up with this page's `webui.open`.
     func traceMark(_ mark: ChatOpenTrace.Mark) {
-        guard ChatOpenTrace.shared.isArmed, descriptor.id == ChatOpenTrace.agentPageID else { return }
+        guard descriptor.id == ChatOpenTrace.agentPageID else { return }
         ChatOpenTrace.shared.mark(mark, page: self)
     }
 }
-#endif

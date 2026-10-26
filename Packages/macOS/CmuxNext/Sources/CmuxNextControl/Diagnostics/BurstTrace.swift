@@ -1,8 +1,11 @@
 import CmuxNextCompat
+import CmuxNextSignposts
+public import CmuxNextTrace
 import Foundation
 
-/// What the burst bench (scripts/cmux-next/burst-bench.py) reads besides the action signposts, through
-/// `debug.burst` (``control(_:facts:)``, DEBUG and bench builds).
+/// What the burst bench (scripts/cmux-next/burst-bench.py) reads besides the action signposts: each mark is a
+/// ``SignpostName/burstEvent`` ring instant in every build while the `burst` trace category records, and
+/// `debug.burst` (``control(_:facts:)``, DEBUG and bench builds) also keeps the marks it records as a list.
 ///
 /// It records what each press of a person did, keyed by the timestamp of the key event that ran it
 /// (`event_s`, the press time the bench gave that key): a refusal they saw, a Cmd-W that closed tabs
@@ -11,12 +14,13 @@ import Foundation
 /// grid that went to a PTY (the attach driver's claim, never a resize the driver dropped), the
 /// stream's echo of that grid (the daemon applied it), and the terminal's first output after the echo.
 ///
-/// Only `debug.burst start` arms it, so a mark outside a bench's burst costs one relaxed atomic load and
-/// records nothing. A Release build compiles every mark out: what ships makes no log system call and
-/// takes no lock, per pane or per frame. Times are `CLOCK_UPTIME_RAW` nanoseconds, the clock of
-/// `NSEvent.timestamp` and of the signposts' `machTimestamp`, so marks from any thread compare with the
-/// presses. A recording keeps at most ``capacity`` events and counts the rest as dropped. The app makes
-/// one and passes it to its mark sites; tests make their own:
+/// A mark while neither records costs two relaxed atomic loads and records nothing: no log system call and
+/// no lock, per pane or per frame. The ring takes no lock either (Chrome's `TRACE_EVENT_INSTANT` under a
+/// disabled-by-default category, base/trace_event/trace_event.h); the echo matching takes the state lock
+/// only while one records. Times are `CLOCK_UPTIME_RAW` nanoseconds, the clock of `NSEvent.timestamp` and
+/// of the signposts' `machTimestamp`, so marks from any thread compare with the presses. A `debug.burst`
+/// recording keeps at most ``capacity`` events and counts the rest as dropped. The app makes one and passes
+/// it to its mark sites; tests make their own:
 ///
 /// ```swift
 /// let trace = BurstTrace()
@@ -47,6 +51,20 @@ public nonisolated final class BurstTrace: Sendable {
         case gridEcho = "grid_echo"
         /// The first output of a terminal after the echo of a grid it sent (``BurstTrace/output(surface:)``).
         case firstOutput = "first_output"
+
+        /// The kind's number in bits 0-7 of a ``SignpostName/burstEvent`` record's `arg0`. Fixed: rings written by
+        /// an older build decode with the same numbers, and a new kind takes the next one.
+        public var traceCode: UInt64 {
+            switch self {
+            case .refusal: 1
+            case .closeSwallowed: 2
+            case .creationCancelled: 3
+            case .closed: 4
+            case .ptyGrid: 5
+            case .gridEcho: 6
+            case .firstOutput: 7
+            }
+        }
     }
 
     /// One mark.
@@ -88,22 +106,36 @@ public nonisolated final class BurstTrace: Sendable {
         /// Surfaces whose sent grid the stream echoed and whose first output after it has not come yet.
         var awaitingOutput: Set<UInt64> = []
 
-        mutating func append(_ event: Event) {
+        /// Keeps `event` for `debug.burst` while it records (`keep`), up to ``BurstTrace/capacity``.
+        mutating func append(_ event: Event, keep: Bool) {
+            guard keep else { return }
             if events.count < BurstTrace.capacity { events.append(event) } else { dropped += 1 }
         }
     }
 
+    /// Whether `debug.burst` records (only its `start` sets it, in DEBUG and bench builds).
     private let armed = Atomic<Bool>(false)
+    /// Where each mark's ring instant goes.
+    private let trace: TraceRuntime
     // A lock, not an actor: marks come synchronously from the main actor, from each attach driver's
     // effect applier and from every terminal's output stream, where an actor would add a Task hop per
     // mark and reorder them (lock carve-out).
     private let state = Mutex(State())
 
-    /// A trace that records nothing until `debug.burst start` (``control(_:facts:)``).
-    public init() {}
+    /// A trace that records nothing until `debug.burst start` (``control(_:facts:)``) or a trace recording turns
+    /// the `burst` category on.
+    ///
+    /// - Parameter trace: The runtime the ``SignpostName/burstEvent`` instants go to (tests pass their own).
+    public init(trace: TraceRuntime = .shared) {
+        self.trace = trace
+    }
 
-    /// Whether a recording runs (always false in a Release build). Mark sites check it before anything else.
-    public var isArmed: Bool {
+    /// Whether a recording runs: `debug.burst` (DEBUG and bench builds) or a trace recording with the `burst`
+    /// category on (every build). Mark sites check it before anything else.
+    public var isArmed: Bool { isListing || trace.isEnabled(categoryBit: SignpostCategory.burst.traceBit) }
+
+    /// Whether `debug.burst` keeps the marks as a list (always false in a Release build).
+    private var isListing: Bool {
         #if DEBUG || CMUX_BENCH_HOOKS
         armed.load(ordering: .relaxed)
         #else
@@ -119,11 +151,8 @@ public nonisolated final class BurstTrace: Sendable {
     ///   - input: The timestamp of the person's input event that ran the press (`NSEvent.timestamp`),
     ///     nil when none is known: the bench matches the mark to its press by it.
     public func mark(_ kind: Kind, input: Double?) {
-        #if DEBUG || CMUX_BENCH_HOOKS
         guard isArmed else { return }
-        let event = Event(kind: kind, at: Self.now(), input: input)
-        state.withLock { $0.append(event) }
-        #endif
+        record(Event(kind: kind, at: Self.now(), input: input))
     }
 
     /// A person's Cmd-W closed `tabs`, while a recording runs.
@@ -133,11 +162,8 @@ public nonisolated final class BurstTrace: Sendable {
     ///   - emptiesPane: Whether the close left the pane with no tab, so the pane closes too.
     ///   - input: The timestamp of the key event that ran it, as for ``mark(_:input:)``.
     public func closed(tabs: [String], emptiesPane: Bool, input: Double?) {
-        #if DEBUG || CMUX_BENCH_HOOKS
         guard isArmed else { return }
-        let event = Event(kind: .closed, at: Self.now(), input: input, tabs: tabs, emptiesPane: emptiesPane)
-        state.withLock { $0.append(event) }
-        #endif
+        record(Event(kind: .closed, at: Self.now(), input: input, tabs: tabs, emptiesPane: emptiesPane))
     }
 
     /// A grid of `cols` x `rows` went to the PTY of `surface` (the attach driver sent a claim or a
@@ -150,16 +176,16 @@ public nonisolated final class BurstTrace: Sendable {
     ///   - expectsEcho: Whether the daemon will echo it; a grid the PTY already has changes nothing and
     ///     is never echoed, so no ``Kind/gridEcho`` is looked for.
     public func gridSent(surface: UInt64, cols: Int, rows: Int, expectsEcho: Bool) {
-        #if DEBUG || CMUX_BENCH_HOOKS
         guard isArmed else { return }
         let event = Event(kind: .ptyGrid, at: Self.now(), surface: surface, cols: cols, rows: rows, expectsEcho: expectsEcho)
+        emit(event)
         let grid = Grid(cols: cols, rows: rows)
+        let keep = isListing
         state.withLock { state in
-            state.append(event)
+            state.append(event, keep: keep)
             guard expectsEcho else { return }
             state.unechoed[surface] = Array((state.unechoed[surface, default: []] + [grid]).suffix(Self.pendingEchoes))
         }
-        #endif
     }
 
     /// Surfaces whose sent grid the stream echoed and whose first output after it has not come yet
@@ -175,17 +201,19 @@ public nonisolated final class BurstTrace: Sendable {
     ///   - cols: The announced grid's columns.
     ///   - rows: The announced grid's rows.
     public func gridAnnounced(surface: UInt64, cols: Int, rows: Int) {
-        #if DEBUG || CMUX_BENCH_HOOKS
         guard isArmed else { return }
         let at = Self.now()
         let grid = Grid(cols: cols, rows: rows)
-        state.withLock { state in
-            guard let sent = state.unechoed[surface], let index = sent.firstIndex(of: grid) else { return }
+        let keep = isListing
+        let echo: Event? = state.withLock { state in
+            guard let sent = state.unechoed[surface], let index = sent.firstIndex(of: grid) else { return nil }
             state.unechoed[surface] = Array(sent.dropFirst(index + 1))
-            state.append(Event(kind: .gridEcho, at: at, surface: surface, cols: cols, rows: rows))
+            let event = Event(kind: .gridEcho, at: at, surface: surface, cols: cols, rows: rows)
+            state.append(event, keep: keep)
             state.awaitingOutput.insert(surface)
+            return event
         }
-        #endif
+        if let echo { emit(echo) }
     }
 
     /// `surface` printed, while a recording runs: marked as ``Kind/firstOutput`` when it is the first
@@ -194,14 +222,28 @@ public nonisolated final class BurstTrace: Sendable {
     ///
     /// - Parameter surface: The daemon surface of the terminal.
     public func output(surface: UInt64) {
-        #if DEBUG || CMUX_BENCH_HOOKS
         guard isArmed else { return }
         let at = Self.now()
-        state.withLock { state in
-            guard state.awaitingOutput.remove(surface) != nil else { return }
-            state.append(Event(kind: .firstOutput, at: at, surface: surface))
+        let keep = isListing
+        let first: Event? = state.withLock { state in
+            guard state.awaitingOutput.remove(surface) != nil else { return nil }
+            let event = Event(kind: .firstOutput, at: at, surface: surface)
+            state.append(event, keep: keep)
+            return event
         }
-        #endif
+        if let first { emit(first) }
+    }
+
+    /// Writes `event`'s ring instant and keeps it for `debug.burst` while that records.
+    private func record(_ event: Event) {
+        emit(event)
+        guard isListing else { return }
+        state.withLock { $0.append(event, keep: true) }
+    }
+
+    /// The ``SignpostName/burstEvent`` instant of `event`, while the `burst` category records.
+    private func emit(_ event: Event) {
+        trace.event(.burstEvent, arg0: event.traceArg0, arg1: event.traceArg1)
     }
 
     private static func now() -> UInt64 { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) }
@@ -222,4 +264,35 @@ public nonisolated final class BurstTrace: Sendable {
         }
     }
     #endif
+}
+
+extension BurstTrace.Event {
+    /// The ring record's `arg0` (``SignpostName/burstEvent``): the kind's code in bits 0-7; a grid's columns in bits
+    /// 8-23, its rows in bits 24-39 and, on a sent one, bit 40 when the daemon will echo it; a close's tab count in
+    /// bits 8-23 and bit 24 when it empties the pane. Each count saturates at its field.
+    var traceArg0: UInt64 {
+        var arg0 = kind.traceCode
+        if let cols, let rows {
+            arg0 |= Self.field(cols, bits: 16) << 8 | Self.field(rows, bits: 16) << 24
+            if expectsEcho == true { arg0 |= 1 << 40 }
+        }
+        if let tabs {
+            arg0 |= Self.field(tabs.count, bits: 16) << 8
+            if emptiesPane == true { arg0 |= 1 << 24 }
+        }
+        return arg0
+    }
+
+    /// The ring record's `arg1`: the PTY surface of a grid or an output mark, else the input event's time in
+    /// `CLOCK_UPTIME_RAW` nanoseconds (0 without one).
+    var traceArg1: UInt64 {
+        if let surface { return surface }
+        guard let input, input > 0 else { return 0 }
+        return UInt64(exactly: (input * 1e9).rounded()) ?? 0
+    }
+
+    /// `value` in a field of `bits` bits: 0 below 0, the field's largest value above it.
+    private static func field(_ value: Int, bits: UInt64) -> UInt64 {
+        min(UInt64(clamping: value), (1 << bits) - 1)
+    }
 }

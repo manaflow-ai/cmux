@@ -385,18 +385,14 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         if engineDecision.engine == .cef, let hosting = chromium {
             startChromium(hosting: hosting)
         } else {
-            #if DEBUG || CMUX_BENCH_HOOKS
             traceMark(.navigationStart)
-            #endif
             webView.load(URLRequest(url: descriptor.url(route: route)))
         }
     }
 
     /// The current document painted its first frame (``PagePaintProbe``, either engine).
     func notePainted() {
-        #if DEBUG || CMUX_BENCH_HOOKS
         traceMark(.pagePainted)
-        #endif
         paintedUptime = ProcessInfo.processInfo.systemUptime
         traceOpenEnd(showsChromium ? .paintedInChromium : .paintedInWebKit)
         let waiters = paintWaiters

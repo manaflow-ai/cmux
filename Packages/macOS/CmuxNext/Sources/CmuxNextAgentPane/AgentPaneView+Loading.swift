@@ -155,10 +155,8 @@ public final class AgentPaneLoadingView: NSView {
     private func left(_ page: NSView?) {
         page?.alphaValue = 1
         leaving = false
-        #if DEBUG || CMUX_BENCH_HOOKS
         // Still in its pane: the pane's trace takes it.
         ChatOpenTrace.shared.mark(.loadingLeft, view: self)
-        #endif
         removeFromSuperview()
         alphaValue = 1
         let waiters = revealWaiters
@@ -201,11 +199,9 @@ extension AgentPaneView {
 
     /// The page shows and the loading state goes (``AgentPaneLoadingView/leave(over:fades:)``).
     func endLoadingState() {
-        #if DEBUG || CMUX_BENCH_HOOKS
         // The handshake's painted answer ends the loading state in the same turn.
         ChatOpenTrace.shared.mark(.panePainted, view: self)
         ChatOpenTrace.shared.mark(.loadingLeave, view: self)
-        #endif
         loadingView.leave(over: pageContent,
                           fades: Self.pageFades(hasNewTab: model.newTab != nil, isVisible: alphaValue > 0,
                                                 fromKeptTail: model.paintedFromKeptTail))
