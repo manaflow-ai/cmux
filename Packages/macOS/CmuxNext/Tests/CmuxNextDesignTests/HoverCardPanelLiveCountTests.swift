@@ -48,16 +48,19 @@ private nonisolated final class WindowCount: Sendable {
 
 /// Hands the one strong reference to a background task, which drops it there.
 private nonisolated final class PanelBox: Sendable {
-    private nonisolated struct Slot: Sendable {
+    /// Not Sendable (`HoverCardPanel` is not): only the mutex reaches it, from one thread at a time.
+    private nonisolated struct Slot {
         var panel: HoverCardPanel?
         weak var watched: HoverCardPanel?
     }
 
     private let slot: Mutex<Slot>
 
-    /// Makes the panel here, so it starts in a region of its own that the box can take.
+    /// Makes the panel here and keeps the only strong reference in the box.
     @MainActor init(countWindow: @escaping @Sendable (Int) -> Void) {
-        let panel = HoverCardPanel(countWindow: countWindow)
+        // The panel is main-actor made, so the checker keeps it in main's region; the escape hands it to the box.
+        // crash-allow: the box takes the only strong reference, main never touches it again, release() drops it under the lock
+        nonisolated(unsafe) let panel = HoverCardPanel(countWindow: countWindow)
         slot = Mutex(Slot(panel: panel, watched: panel))
     }
 

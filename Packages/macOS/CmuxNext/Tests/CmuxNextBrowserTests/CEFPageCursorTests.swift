@@ -113,9 +113,10 @@ import Testing
             #expect(!holes.contains { $0.intersects(rect) }, "\(rect) reaches into a hole")
             #expect(!rects.enumerated().contains { $0.offset != index && $0.element.intersects(rect) }, "\(rect) overlaps")
         }
-        let area = rects.reduce(0) { $0 + $1.width * $1.height }
+        let area: CGFloat = rects.reduce(0) { $0 + $1.width * $1.height }
         // 300 x 200, less the grab (6 x 176 above the prompt bar), the prompt bar (300 x 24) and the find bar (110 x 30).
-        #expect(area == 300 * 200 - 6 * 176 - 300 * 24 - 110 * 30)
+        let expected: CGFloat = 300 * 200 - 6 * 176 - 300 * 24 - 110 * 30
+        #expect(area == expected)
     }
 
     /// Host mode: the page view's cursor holes follow its host view's occlusion rects (the find bar and
