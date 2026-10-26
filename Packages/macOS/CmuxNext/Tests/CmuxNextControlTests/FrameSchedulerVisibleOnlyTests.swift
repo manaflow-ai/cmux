@@ -113,6 +113,56 @@ import Testing
         #expect(ticks == 1)
     }
 
+    /// A client parked by another client's tick in the same frame does not run, and the ledger counts
+    /// no frame wakeup for it: of two clients that each hide their window when they tick, only the
+    /// first one ticks and is counted.
+    @Test func aClientParkedEarlierInTheFrameIsNotTickedOrCounted() {
+        let ledger = WakeupLedger()
+        let scheduler = FrameScheduler.testing(ledger: ledger, mediaTime: { 500 }) { _ in VisibleOnlyFakeLink(links: nil) }
+        let window = VisibilityNode(root: "window", own: .visible)
+        var ticks: [String] = []
+        let clients = ["glass.a", "glass.b"].map { owner in
+            FrameClient(owner: owner, visibleOnly: window, on: scheduler) { _ in
+                ticks.append(owner)
+                window.set(.hidden)
+                return true
+            }
+        }
+        for client in clients { client.activate() }
+        scheduler.frameDidFire(timestamp: 1, refreshInterval: 1.0 / 60)
+        #expect(ticks.count == 1, "a client parked earlier in the frame ticked: \(ticks)")
+        let counted = ledger.snapshot().filter { $0.reason == "frame" }
+        #expect(counted.map(\.owner) == ticks, "the ledger counted \(counted.map(\.owner)), not the client that ran \(ticks)")
+        #expect(counted.map(\.count) == [1])
+        for client in clients { client.deactivate() }
+    }
+
+    /// A one-shot client re-activated every frame keeps the one watch of its node it made on its first
+    /// activation: activation, firing and deactivation do no subscription work, and an idle client
+    /// ignores flips. Releasing the client ends the watch.
+    @Test func aOneShotClientWatchesItsNodeOnceForItsLife() {
+        let scheduler = FrameScheduler.testing(mediaTime: { 500 }) { _ in VisibleOnlyFakeLink(links: nil) }
+        let window = VisibilityNode(root: "window", own: .visible)
+        var ticks = 0
+        var client: FrameClient? = FrameClient(owner: "glass", visibleOnly: window, on: scheduler) { _ in ticks += 1; return false }
+        for frame in 1...5 {
+            client?.activate()
+            let watching = window.subscriberCounts
+            #expect(watching.flips == 1 && watching.exemptions == 1, "frame \(frame) watches the node \(watching) times")
+            scheduler.frameDidFire(timestamp: Double(frame), refreshInterval: 1.0 / 60)
+            let afterFire = window.subscriberCounts
+            #expect(afterFire.flips == 1 && afterFire.exemptions == 1, "a one-shot fire dropped its watch: \(afterFire)")
+        }
+        #expect(ticks == 5)
+        window.set(.hidden)
+        window.set(.visible)
+        #expect(client?.isActive == false && !scheduler.hasLink, "an idle client came back on a flip")
+        client?.deactivate()
+        client = nil
+        let released = window.subscriberCounts
+        #expect(released.flips == 0 && released.exemptions == 0, "a released client still watches its node: \(released)")
+    }
+
     /// A client with no node ticks whatever anyone sees (today's behavior).
     @Test func aClientWithoutANodeIgnoresVisibility() {
         let scheduler = FrameScheduler.testing(mediaTime: { 500 }) { _ in VisibleOnlyFakeLink(links: nil) }

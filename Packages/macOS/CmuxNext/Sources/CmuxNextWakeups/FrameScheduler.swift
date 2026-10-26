@@ -456,9 +456,13 @@ public final class FrameScheduler: NSObject {
         if clients.isEmpty { pause() }
     }
 
+    /// Ticks `client` and records its wakeup, unless an earlier tick of this frame stopped or parked it
+    /// (it left ``clients``): a client that does not run is not counted.
     private func fire(_ client: FrameClient, _ tick: FrameTick) {
+        let id = ObjectIdentifier(client)
+        guard clients[id] === client, client.isActive else { return }
         ledger.record(client.owner, reason: "frame")
-        if !client.fire(tick) { drop(ObjectIdentifier(client)) }
+        if !client.fire(tick) { drop(id) }
     }
 
     private struct WeakScheduler {

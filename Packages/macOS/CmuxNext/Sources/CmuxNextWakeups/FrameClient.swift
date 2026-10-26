@@ -74,7 +74,9 @@ public final class FrameClient {
     private let startup: StartupPhase?
     /// True while an active client waits for the phase that opens its class.
     private var waitingForStartup = false
-    /// The flips of ``visibleOnly`` and its capture votes, held only while active.
+    /// The flips of ``visibleOnly`` and its capture votes: made on the first activation and kept for
+    /// the client's life, so a one-shot client activated every frame does no subscription work.
+    /// An idle client ignores them.
     private var visibilityWatch: [VisibilitySubscription] = []
     public private(set) var isActive = false
 
@@ -172,11 +174,6 @@ public final class FrameClient {
         ]
     }
 
-    private func unwatchVisibility() {
-        for subscription in visibilityWatch { subscription.cancel() }
-        visibilityWatch = []
-    }
-
     /// Its node flipped or a capture vote came or went: an unseen client leaves its scheduler (whose
     /// link drops with its last client), a seen one joins its window's scheduler again.
     private func visibilityDidChange() {
@@ -209,7 +206,6 @@ public final class FrameClient {
     public func deactivate() {
         guard isActive else { return }
         isActive = false
-        unwatchVisibility()
         scheduler?.deactivate(self)
         scheduler = nil
     }
@@ -217,27 +213,22 @@ public final class FrameClient {
     /// The scheduler went away: idle without calling back.
     func detach() {
         isActive = false
-        unwatchVisibility()
         scheduler = nil
     }
 
-    /// Delivers a frame; false when the client went idle or is off its scheduler (parked earlier in
-    /// this frame, when another client's tick hid its node).
+    /// Delivers a frame (its scheduler fires only active clients it still holds); false when the
+    /// client went idle.
     func fire(_ tick: FrameTick) -> Bool {
-        guard isActive, scheduler != nil else { return false }
         if onFrame(tick) && isActive { return true }
-        if isActive {
-            isActive = false
-            unwatchVisibility()
-        }
+        isActive = false
         scheduler = nil
         return false
     }
 
     // No deinit. An active client is held by its scheduler, so a client is only released once it
-    // is idle or parked (its visibility subscriptions go with it), and owners deactivate before they
-    // let go. An `isolated deinit` here hopped through the Swift runtime on every release and trapped
-    // when a layout view left its window (cx-t7hu).
+    // is idle or parked (its visibility subscriptions, held only by it, go with it), and owners
+    // deactivate before they let go. An `isolated deinit` here hopped through the Swift runtime on
+    // every release and trapped when a layout view left its window (cx-t7hu).
 }
 
 extension VisibilityNode {
