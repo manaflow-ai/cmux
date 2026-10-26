@@ -264,6 +264,12 @@ public final class BackgroundWork: Sendable {
     ///   - shutdown: what ``shutdown()`` does with it.
     ///   - body: the off-main work; return a `Result` for work that can fail.
     /// - Returns: the work, queued by its ``Pending/reply(on:class:owner:file:line:_:)``.
+    ///
+    /// Disfavored: a non-throwing closure matches this `() -> T` exactly, so without it
+    /// `try await work.run(.x, mayBlock: .y) { ... }` picked this overload, built a `Pending` and ran nothing.
+    /// The async ``run(_:mayBlock:shutdown:fileID:line:_:)`` wins wherever both fit; this one is chosen where
+    /// only it fits (a sync caller, or a call followed by `.reply`).
+    @_disfavoredOverload
     public func run<T: Sendable>(_ priority: WorkPriority, mayBlock lane: BlockingLane, shutdown: ShutdownBehavior = .skipOnShutdown,
                                  _ body: @escaping @Sendable () -> T) -> Pending<T> {
         Pending(work: self, priority: priority, lane: lane, shutdown: shutdown, body: body)

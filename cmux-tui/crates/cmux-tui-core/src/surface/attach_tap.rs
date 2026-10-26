@@ -139,12 +139,17 @@ impl AttachFrame {
         next: AttachFrame,
         max_retained_bytes: usize,
     ) -> AttachFrameMerge {
-        let mut next = match next {
-            AttachFrame::Output(next) => next,
+        let (mut next, next_flow) = match next {
+            AttachFrame::Output(next) => (next, 0),
+            AttachFrame::FlowOutput { output, flow } => (output, flow),
             other => return AttachFrameMerge::Unmerged(other),
         };
-        let AttachFrame::Output(pending) = self else {
-            return AttachFrameMerge::Unmerged(AttachFrame::Output(next));
+        // Each key press keeps its own output event: two echoes of two
+        // flows never merge into one.
+        let (pending, pending_flow) = match self {
+            AttachFrame::Output(pending) => (pending, 0),
+            AttachFrame::FlowOutput { output, flow } if next_flow == 0 => (output, *flow),
+            _ => return AttachFrameMerge::Unmerged(AttachFrame::with_flow(next, next_flow)),
         };
         let Some(max_capacity) = max_retained_bytes.checked_sub(size_of::<Self>()) else {
             return AttachFrameMerge::Overflow;
@@ -167,13 +172,39 @@ impl AttachFrame {
         } else {
             pending.append(&mut next);
         }
+        if pending_flow == 0 && next_flow != 0 {
+            *self = AttachFrame::with_flow(std::mem::take(pending), next_flow);
+        }
         AttachFrameMerge::Merged
+    }
+
+    /// Output bytes as one frame, echoing `flow` when it is not 0.
+    pub(crate) fn with_flow(output: Vec<u8>, flow: u64) -> Self {
+        if flow == 0 { Self::Output(output) } else { Self::FlowOutput { output, flow } }
+    }
+
+    /// The key press this frame's output echoes (0: none).
+    pub(crate) fn flow(&self) -> u64 {
+        match self {
+            Self::FlowOutput { flow, .. } | Self::OutputWithColors { flow, .. } => *flow,
+            _ => 0,
+        }
+    }
+
+    /// The PTY output this frame carries, if it is an output frame.
+    pub(crate) fn output(&self) -> Option<&[u8]> {
+        match self {
+            Self::Output(output)
+            | Self::FlowOutput { output, .. }
+            | Self::OutputWithColors { output, .. } => Some(output),
+            _ => None,
+        }
     }
 
     pub(super) fn retained_bytes(&self) -> usize {
         size_of::<Self>()
             + match self {
-                Self::Output(bytes) => bytes.capacity(),
+                Self::Output(bytes) | Self::FlowOutput { output: bytes, .. } => bytes.capacity(),
                 Self::Resized { replay, kitty_image_aliases, .. } => {
                     replay.len()
                         + kitty_image_aliases.capacity() * size_of::<ghostty_vt::KittyImageAlias>()

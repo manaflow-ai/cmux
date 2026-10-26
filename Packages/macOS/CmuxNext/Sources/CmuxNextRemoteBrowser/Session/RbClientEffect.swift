@@ -1,7 +1,7 @@
 public import CmuxNextRemoteView
 public import Foundation
 
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 /// The reducer's answer to one input (`{"effects", "note", "reject"}`).
 public nonisolated struct RbClientOutcome: Sendable, Equatable, Decodable {
     public var effects: [RbClientEffect]

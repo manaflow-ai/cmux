@@ -71,10 +71,7 @@ public struct FuzzRun: Sendable {
         let deadline = self.deadline()
         var iteration = 0
         while continues(after: iteration, deadline: deadline) {
-            var rng = generator(for: iteration)
-            let base = inputs.isEmpty || rng.oneIn(8) ? rng.bytes(256) : inputs[rng.below(inputs.count)]
-            let partner = inputs.isEmpty ? nil : inputs[rng.below(inputs.count)]
-            let input = mutator.mutate(base, crossingWith: partner, using: &rng)
+            let input = mutatedInput(iteration: iteration, inputs: inputs, mutator: mutator)
             try note(iteration: iteration, input: input, artifacts: artifacts)
             try attempt(iteration: iteration, input: input, artifacts: artifacts) { try body(input) }
             iteration += 1
@@ -117,13 +114,86 @@ public struct FuzzRun: Sendable {
         do {
             try body()
         } catch {
-            var failure = FuzzFailure(
-                name: name, seed: seed, iteration: iteration, input: input,
-                reason: String(describing: error), artifact: nil, corpus: environment.corpus
-            )
-            failure.artifact = try artifacts?.keep(failure)
-            throw FuzzError.failed(failure)
+            throw try failed(error, iteration: iteration, input: input, artifacts: artifacts)
         }
+    }
+
+    /// The run's failure for `error` at `iteration`, its input kept under `CMUX_FUZZ_ARTIFACTS`.
+    private func failed(_ error: any Error, iteration: Int, input: Data?, artifacts: FuzzArtifacts?) throws(FuzzError) -> FuzzError {
+        var failure = FuzzFailure(
+            name: name, seed: seed, iteration: iteration, input: input,
+            reason: String(describing: error), artifact: nil, corpus: environment.corpus
+        )
+        failure.artifact = try artifacts?.keep(failure)
+        return FuzzError.failed(failure)
+    }
+
+    /// Iteration `iteration`'s input of an input run: a corpus input, or random bytes one time in eight and
+    /// whenever the corpus is empty, after a mutation pass that may cross it with another corpus input.
+    private func mutatedInput(iteration: Int, inputs: [Data], mutator: FuzzMutator) -> Data {
+        var rng = generator(for: iteration)
+        let base = inputs.isEmpty || rng.oneIn(8) ? rng.bytes(256) : inputs[rng.below(inputs.count)]
+        let partner = inputs.isEmpty ? nil : inputs[rng.below(inputs.count)]
+        return mutator.mutate(base, crossingWith: partner, using: &rng)
+    }
+
+    // MARK: - Awaiting bodies
+
+    /// ``forEach(_:)`` for a body that awaits (a socket loop, an actor, URLSession): the same iterations,
+    /// generators, artifacts and replay lines, each iteration awaited to its end before the next, on the
+    /// caller's isolation. The test's time limit cancels the awaiting task, so a case that hangs ends with it.
+    @discardableResult
+    public func forEachAwaiting(
+        isolation: isolated (any Actor)? = #isolation, _ body: (inout FuzzRNG) async throws -> Void
+    ) async throws(FuzzError) -> Int {
+        let artifacts = try openArtifacts()
+        defer { artifacts?.finish() }
+        let deadline = self.deadline()
+        var iteration = 0
+        while continues(after: iteration, deadline: deadline) {
+            var rng = generator(for: iteration)
+            try note(iteration: iteration, input: nil, artifacts: artifacts)
+            do {
+                try await body(&rng)
+            } catch {
+                throw try failed(error, iteration: iteration, input: nil, artifacts: artifacts)
+            }
+            iteration += 1
+        }
+        return iteration
+    }
+
+    /// ``forEachInput(_:mutator:_:)`` for a body that awaits: the same inputs in the same order, each
+    /// awaited to its end before the next, on the caller's isolation.
+    @discardableResult
+    public func forEachInputAwaiting(
+        _ corpus: FuzzCorpus, mutator: FuzzMutator = FuzzMutator(), isolation: isolated (any Actor)? = #isolation,
+        _ body: (Data) async throws -> Void
+    ) async throws(FuzzError) -> Int {
+        let artifacts = try openArtifacts()
+        defer { artifacts?.finish() }
+        let inputs = corpus.inputs
+        for (index, input) in inputs.enumerated() {
+            try note(iteration: -1 - index, input: input, artifacts: artifacts)
+            do {
+                try await body(input)
+            } catch {
+                throw try failed(error, iteration: -1 - index, input: input, artifacts: artifacts)
+            }
+        }
+        let deadline = self.deadline()
+        var iteration = 0
+        while continues(after: iteration, deadline: deadline) {
+            let input = mutatedInput(iteration: iteration, inputs: inputs, mutator: mutator)
+            try note(iteration: iteration, input: input, artifacts: artifacts)
+            do {
+                try await body(input)
+            } catch {
+                throw try failed(error, iteration: iteration, input: input, artifacts: artifacts)
+            }
+            iteration += 1
+        }
+        return inputs.count + iteration
     }
 }
 

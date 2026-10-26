@@ -30,6 +30,8 @@ public final class ConfirmingPageProvider: PageProvider {
         return try await inner.call(op, params: params, context: PageCallContext(page: context.page, origin: "user", confirmed: true, opid: context.opid))
     }
 
+    /// Frozen delivery: the wrapped provider's own policy, unchanged (a confirmation gates calls,
+    /// never what a stream keeps while the page is frozen).
     public func subscribe(_ stream: String, filter: JSONValue, context: PageCallContext,
                           onEvent: @escaping @MainActor (JSONValue) -> Void) async throws -> PageSubscription {
         try await inner.subscribe(stream, filter: filter, context: context, onEvent: onEvent)

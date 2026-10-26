@@ -1,4 +1,5 @@
 @testable import CmuxNextBrowser
+import CmuxNextInput
 import Foundation
 import Testing
 
@@ -56,7 +57,7 @@ import Testing
         #expect(spares.prepare(.pages, runtime: runtime))
         try Self.comeUp(runtime, browser: 10)
         #expect(spares.state(of: .pages) == .live)
-        #expect(!runtime.hosts.values.contains(where: \.isCreatingWindow), "no window is being built")
+        #expect(!runtime.hosts.values.contains { $0.isCreatingWindow }, "no window is being built")
 
         #expect(!spares.prepare(.pages, runtime: runtime), "a second untaken pages spare")
         #expect(SpareSpyShim.createWindowCalls == 1)
@@ -199,7 +200,7 @@ import Testing
     /// Only the engine's own profile: beginning it touches no process-wide Chromium state.
     @Test func theEnginesPagesProfileIsOneOffTheRecordProfile() {
         let stores = BrowserSharedStores.inMemory()
-        let engine = CEFEngine(layout: nil, stores: stores, signInCallbacks: CEFSignInCallbacks())
+        let engine = CEFEngine(layout: nil, stores: stores, signInCallbacks: CEFSignInCallbacks(), input: InputEventTap())
         let profile = engine.beginPagesProfile()
         #expect(engine.beginPagesProfile() == profile, "begun once")
         #expect(stores.offTheRecord.isOffTheRecord(profile), "a page keeps nothing on disk")

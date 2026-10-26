@@ -85,12 +85,13 @@ final class CloudService {
     /// batches run on it (one main thread, one budget).
     @ObservationIgnored private let mainWork: MainWorkScheduler
 
+    /// - Parameter auth: The app's sign-in (`AppServices.cloudAuth`); its configuration is this service's.
     /// - Parameter mainWork: The app's ``MainWorkScheduler`` (AppServices passes the one it was built with).
-    init(machines: MachineRegistry, isDebugBuild: Bool, mainWork: MainWorkScheduler) {
+    init(machines: MachineRegistry, auth: CloudAuth, mainWork: MainWorkScheduler) {
         self.machines = machines
         self.mainWork = mainWork
-        configuration = CloudConfiguration.current(isDebugBuild: isDebugBuild)
-        auth = CloudAuth(configuration: configuration)
+        configuration = auth.configuration
+        self.auth = auth
         paths = CloudPaths.standard(bundleID: configuration.bundleID)
         let auth = auth
         api = CloudAPIClient(

@@ -95,6 +95,221 @@ class IdleBudgetTests(unittest.TestCase):
         for name in ("cef-gpu", "cef-renderer", "cef-extension", "cef-utility", "cef-host"):
             self.assertIn(name, budget["kinds"])
 
+    def test_every_process_of_the_tree_has_a_kind(self):
+        """p14-energy-104: fixture command lines map to each kind; the tree and the census tell what the command
+        cannot."""
+        frameworks = f"{APP}/Contents/Frameworks"
+        helper = f"{frameworks}/cmux Helper.app/Contents/MacOS/cmux Helper"
+        renderer = f"{frameworks}/cmux Helper (Renderer).app/Contents/MacOS/cmux Helper (Renderer)"
+        webcontent = ("/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/"
+                      "com.apple.WebKit.WebContent.xpc/Contents/MacOS/com.apple.WebKit.WebContent")
+        bin_ = f"{APP}/Contents/Resources/bin"
+        cua = f"{APP}/Contents/Library/cmux Computer Use.app/Contents/MacOS/cmux-cua-helper"
+        watcher = ("/bin/zsh -f -c zmodload zsh/system || exit 0\npid=$1 out=$2 seconds=$3\n"
+                   "sysread -i 3 -s 1 byte || exit 0 cmux-crash-watcher 501 /tmp/x/sample.txt 15")
+        adapter = f"{APP}/Contents/Resources/MediaRemoteAdapter/mediaremote-adapter.pl"
+        framework = f"{frameworks}/MediaRemoteAdapter.framework"
+        watch = (f"/bin/sh -c exec 3<&0\nchild= watch=\n\"$0\" \"$@\" </dev/null &\nwait \"$child\" /usr/bin/perl "
+                 f"{adapter} {framework} stream --micros --debounce=150")
+        table = [
+            (501, 1, f"{APP}/Contents/MacOS/cmux DEV"),
+            (502, 501, f"{renderer} --type=renderer --extension-process"),
+            (503, 501, f"{helper} --type=utility --utility-sub-type=network.mojom.NetworkService"),
+            (504, 501, f"{helper} --type=utility --utility-sub-type=storage.mojom.StorageService"),
+            (505, 501, f"{helper} --type=utility --utility-sub-type=audio.mojom.AudioService"),
+            (506, 501, watcher),
+            (507, 1, f"{cua} serve --socket /tmp/s --no-permissions-gate --owner-pid 501"),
+            (508, 501, f"{helper} --type=crashpad-handler --database=/tmp/c"),
+            (509, 501, f"{APP}/Contents/MacOS/cmux Chromium Host --framework=/x"),
+            (510, 1, webcontent),
+            (511, 1, webcontent),
+            (512, 501, f"{bin_}/cmux-tui server --socket s"),
+            (513, 512, f"{bin_}/cmux-tui __terminal-host --owner a@512"),
+            (514, 513, "-zsh"),
+            (515, 514, "/opt/homebrew/bin/node build.js"),
+            (516, 512, f"{bin_}/acpmux daemon"),
+            (517, 516, f"{bin_}/acpmux __agent-host --session s1"),
+            (518, 517, "/Users/x/.local/bin/claude --acp"),
+            (519, 1, "/System/Library/Frameworks/WebKit.framework/Versions/A/XPCServices/com.apple.WebKit.GPU.xpc/"
+                     "Contents/MacOS/com.apple.WebKit.GPU"),
+            # The holder model (CMUX_TUI_TERMINAL_HOST_MODEL=holder): the built-in holder and the standalone one
+            # (argv[0] cmux-holder, no `__holder`), each with a shell and its job.
+            (530, 1, f"{bin_}/cmux-tui-host __holder --socket h1 --owner a@512"),
+            (531, 530, "-zsh"),
+            (532, 531, "/usr/bin/make -j8"),
+            (533, 1, "cmux-holder --socket h2 --owner a@512"),
+            (534, 533, "/bin/bash -l"),
+            (535, 534, "/usr/bin/git status"),
+            # The Now Playing stream: the watch shell, its `{ while read }` subshell (the same argv) and the adapter.
+            (540, 501, watch),
+            (541, 540, watch),
+            (542, 540, f"/usr/bin/perl {adapter} {framework} stream --micros --debounce=150"),
+            # The app's one-shot tools, and what they run.
+            (550, 501, "gh api --include -X GET /notifications"),
+            (551, 501, "/usr/bin/git -C /Users/x/repo status --porcelain"),
+            (552, 551, "/Library/Developer/CommandLineTools/usr/libexec/git-core/git-remote-https origin"),
+            (553, 501, "/opt/homebrew/bin/rg --json needle /Users/x/repo"),
+            (554, 501, f"{bin_}/cmux-diff-sidecar rpc --root /tmp/r --cmux {bin_}/cmux --process-group-ready"),
+            (555, 554, f"{bin_}/cmux __diff --resource-scheme page"),
+            # A foreign executable the app runs and no rule names.
+            (560, 501, "/usr/local/libexec/mystery-agent --serve"),
+        ]
+        census = {"pages": [{"page": "cmux.home", "engine": "webkit", "state": "visible", "webkit_pid": 510},
+                            {"page": "cmux.agent", "engine": "chromium", "webkit_pid": None}],
+                  "spares": [{"spare": "cef_window", "webkit_pid": None}]}
+        window = ib.WindowKinds(table, census)
+        got = {pid: window(cmd, pid) for pid, _ppid, cmd in table}
+        self.assertEqual(got, {
+            501: "app", 502: "cef-extension", 503: "cef-network", 504: "cef-storage", 505: "cef-audio",
+            506: "crash-watcher", 507: "cua-helper", 508: "crashpad", 509: "cef-host", 510: "webkit-app-page",
+            511: "webkit-browser-tab", 512: "daemon", 513: "terminal-host", 514: "terminal-job", 515: "terminal-job",
+            516: "acpmux", 517: "acpmux", 518: "agent-harness", 519: "webkit-gpu",
+            530: "holder", 531: "terminal-job", 532: "terminal-job", 533: "holder", 534: "terminal-job",
+            535: "terminal-job", 540: "now-playing", 541: "now-playing", 542: "now-playing",
+            550: "app-tool", 551: "app-tool", 552: "app-tool", 553: "app-tool", 554: "app-tool", 555: "app-tool",
+            560: "other:mystery-agent"})
+        # Every kind but the foreign executable has a budget row.
+        budget = ib.load_budget(ib.BUDGET_FILE)
+        self.assertEqual({k for k in got.values() if k not in budget["kinds"]}, {"other:mystery-agent"})
+        # A build with no census (no debug.webui) cannot split WebKit: unsplit, not a guess.
+        self.assertIsNone(ib.webkit_app_pages({}))
+        self.assertEqual(ib.WindowKinds(table, {})(webcontent, 510), "webkit-webcontent")
+        self.assertEqual(ib.kind(webcontent), "webkit-webcontent")
+        # The command alone still names what it can.
+        self.assertEqual(ib.kind(watcher), "crash-watcher")
+        self.assertEqual(ib.kind(f"{cua} serve --socket /tmp/s"), "cua-helper")
+        self.assertEqual(ib.kind("cmux-holder --socket h2 --owner a@512"), "holder")
+        self.assertEqual(ib.kind("/opt/homebrew/bin/node build.js"), "other:node")
+        self.assertEqual(ib.kind("/Applications/Other App.app/Contents/Resources/bin/thing --x"), "other:thing")
+        # The tree is the app's set alone: a bench started in a cmux terminal does not make the app a terminal job.
+        app_only = [(501, 901, f"{APP}/Contents/MacOS/cmux DEV")]
+        self.assertEqual(ib.WindowKinds(app_only)(app_only[0][2], 501), "app")
+
+    def test_the_set_and_its_tree_come_from_one_ps_read(self):
+        """process_set's rows are the `ps` read it walked: a job that exits before a later read keeps its kind."""
+        bin_ = f"{APP}/Contents/Resources/bin"
+        table = [(501, 1, f"{APP}/Contents/MacOS/cmux DEV"), (512, 501, f"{bin_}/cmux-tui server --socket s"),
+                 (513, 1, f"{bin_}/cmux-tui __terminal-host --owner a@512"), (514, 513, "-zsh"),
+                 (515, 514, "/usr/bin/git status"), (900, 1, "/usr/sbin/sshd"), (901, 900, "-zsh")]
+        reads = []
+
+        def process_table():
+            reads.append(1)
+            return table
+
+        instance = procs.Instance(APP + "/", 501)
+        with unittest.mock.patch.object(procs, "process_table", process_table), \
+                unittest.mock.patch.object(procs, "_darwin", return_value=types.SimpleNamespace(responsible=None)):
+            found = ib.process_set(instance)
+        self.assertEqual(len(reads), 1)
+        self.assertEqual(sorted(found), [501, 512, 513, 514, 515])
+        self.assertEqual(sorted(found.rows), sorted(r for r in table if r[0] in found))
+        classify = ib.WindowKinds(found.rows)
+        self.assertEqual(classify(found[515], 515), "terminal-job")
+
+    def test_holders_join_the_set_by_their_owner(self):
+        table = [(501, 1, f"{APP}/Contents/MacOS/cmux DEV"),
+                 (512, 501, f"{APP}/Contents/Resources/bin/cmux-tui server --socket s"),
+                 (533, 1, "cmux-holder --socket h2 --owner a@512"),
+                 (534, 533, "-zsh"),
+                 (535, 1, "cmux-holder --socket h3 --owner a@9999")]
+        instance = procs.Instance(APP + "/", 501)
+        with unittest.mock.patch.object(procs, "process_table", return_value=table), \
+                unittest.mock.patch.object(procs, "_darwin", return_value=types.SimpleNamespace(responsible=None)):
+            found = ib.process_set(instance)
+        self.assertEqual(sorted(found), [501, 512, 533, 534])
+
+    def test_hidden_pages_mark_their_rows(self):
+        """A row is hidden when every page its process runs is hidden: debug.webui pages and spares, and in a tab
+        session every browser tab but the shown one (WebKit tabs all, behind a shown Chromium tab)."""
+        census = {"pages": [{"page": "cmux.home", "state": "visible", "webkit_pid": 10, "renderer_pids": []},
+                            {"page": "cmux.agent", "state": "hidden", "webkit_pid": 11, "renderer_pids": [20]},
+                            {"page": "cmux.notes", "state": "hidden", "webkit_pid": None, "renderer_pids": [21]},
+                            {"page": "cmux.files", "state": "visible", "webkit_pid": None, "renderer_pids": [21]}],
+                  "spares": [{"spare": "cef_window", "renderer_pids": [22], "webkit_pid": None},
+                             {"spare": "new_tab", "state": None, "webkit_pid": 12.0}],
+                  "browser_tabs": [{"tab": "t1", "renderer_pids": [30]}, {"tab": "t2", "renderer_pids": [31]}]}
+        # 21 runs a visible page too: not hidden. Browser tabs have no state without the session's shown tab.
+        self.assertEqual(ib.hidden_pids(census), {11, 20, 12, 22})
+        shown = {"engine": "chromium", "tabs": ["t2"]}
+        self.assertEqual(ib.hidden_pids(census, shown), {11, 20, 12, 22, 30})
+        window = ib.WindowKinds([], census, shown)
+        self.assertTrue(window.hidden(99, "webkit-browser-tab"))
+        self.assertFalse(window.hidden(31, "cef-renderer"))
+        self.assertFalse(ib.WindowKinds([], census).hidden(99, "webkit-browser-tab"))
+        self.assertFalse(ib.WindowKinds([], census, {"engine": "webkit", "tabs": []}).hidden(99, "webkit-browser-tab"))
+        # A hidden WebKit browser tab at 1.0/s is over tabs-static's 0.5 per hidden process; a shown one is not judged.
+        budget = ib.load_budget(ib.BUDGET_FILE)
+        tab = {**row("webkit-browser-tab", 10, 1.0), "hidden": True}
+        over = ("webkit-browser-tab", "hidden_wakeups_max", 1.0, 0.5)
+        self.assertIn(over, ib.over_budget("tabs-static", ib.aggregate({"processes": [tab]}), budget))
+        tab["hidden"] = False
+        self.assertNotIn(over, ib.over_budget("tabs-static", ib.aggregate({"processes": [tab]}), budget))
+
+    def test_an_unclassified_child_is_an_over_with_kind_other(self):
+        budget = ib.load_budget(ib.BUDGET_FILE)
+        kinds = ib.aggregate({"processes": [row("app", 30, 0.1), row("other:mystery-agent", 1, 0.0)],
+                              "main_wakes_per_s": 0})
+        over = ("other:mystery-agent", "kind", "other", "classified")
+        for session in ("light", "tabs-static", "stress", "busy-hidden"):
+            self.assertIn(over, ib.over_budget(session, kinds, budget))
+        self.assertEqual(ib.over_line("light", over),
+                         "IDLE-BUDGET-OVER light other:mystery-agent kind other != classified")
+        # A reference browser's kinds are Chrome's own (chrome_kind), never judged.
+        self.assertEqual(ib.over_budget("chrome-static", kinds, budget), [])
+        self.assertEqual(ib.exit_code(True, [("light", *over)], []), 1)
+        self.assertEqual(ib.exit_code(False, [("light", *over)], []), 0)
+
+    def test_every_cef_kind_is_judged(self):
+        """No cef-* kind goes unjudged: each has task 104's number or a ratio_to_chrome row against Chrome; none has
+        an explicit null wakeup limit. cef-gpu's absolute 1.0/s is D4's goal: reported, never an over."""
+        budget = ib.load_budget(ib.BUDGET_FILE)
+        fields = ("wakeups_per_s", "wakeups_max")
+        cef = [name for name in budget["kinds"] if name.startswith("cef-")]
+        self.assertEqual(set(cef), {"cef-host", "cef-gpu", "cef-renderer", "cef-extension", "cef-network",
+                                    "cef-storage", "cef-audio", "cef-utility", "cef-helper"})
+        against_chrome = {part for rule in budget["ratio_to_chrome"] if rule["field"] == "wakeups_per_s"
+                          for part in rule["of"].split("+")}
+        for name in cef:
+            limits = budget["kinds"][name]
+            self.assertFalse(any(f in limits and limits[f] is None for f in fields), name)
+            numbered = any(isinstance(limits.get(f), (int, float)) for f in fields)
+            self.assertTrue(numbered or name in against_chrome, name)
+        for own in budget["sessions"].values():
+            for name, limits in (own.get("kinds") or {}).items():
+                if name.startswith("cef-"):
+                    self.assertFalse(any(f in limits and limits[f] is None for f in fields), name)
+        # The plan's numbers, and nothing invented beside them.
+        self.assertEqual(ib.limit_for(budget, "light", "cef-extension", "wakeups_max"), 0.1)
+        self.assertEqual(ib.limit_for(budget, "light", "cef-network", "wakeups_per_s"), 0.2)
+        for name in ("crash-watcher", "cua-helper"):
+            self.assertEqual(ib.limit_for(budget, "light", name, "wakeups_max"), 0)
+        for name in ("cef-host", "cef-gpu", "cef-renderer", "cef-storage", "cef-audio", "cef-utility", "cef-helper"):
+            for field in fields:
+                self.assertIsNone(ib.limit_for(budget, "light", name, field), (name, field))
+        # D4: cef-gpu at 3/s in tabs-static is no over (its check is the ratio), and its goal reports it unmet.
+        kinds = ib.aggregate({"processes": [row("cef-gpu", 10, 3.0)]})
+        self.assertEqual(ib.over_budget("tabs-static", kinds, budget), [])
+        self.assertEqual(ib.goal_rows(budget, "tabs-static", kinds),
+                         [{"of": "cef-gpu", "field": "wakeups_per_s", "max": 1.0, "value": 3.0, "met": False}])
+        self.assertEqual(ib.goal_rows(budget, "light", kinds), [])
+        # A terminal's jobs are the person's and the app's tools are reported: never judged.
+        self.assertEqual(ib.over_budget("light", {"terminal-job": {"wakeups_max": 9.0, "disk_bytes_per_s": 9.0},
+                                                  "app-tool": {"wakeups_max": 9.0, "disk_bytes_per_s": 9.0}}, budget), [])
+
+    def test_the_cua_helper_joins_the_set_by_its_owner_pid(self):
+        cua = "/Applications/cmux.app/Contents/Library/cmux Computer Use.app/Contents/MacOS/cmux-cua-helper"
+        table = [(501, 1, f"{APP}/Contents/MacOS/cmux DEV"),
+                 (600, 1, f"{cua} serve --socket /tmp/s --owner-pid 501"),
+                 (601, 1, f"{cua} serve --socket /tmp/t --owner-pid 5010"),
+                 (602, 1, f"{cua} serve --socket /tmp/u")]
+        instance = procs.Instance(APP + "/", 501)
+        with unittest.mock.patch.object(procs, "process_table", return_value=table), \
+                unittest.mock.patch.object(procs, "_darwin", return_value=types.SimpleNamespace(responsible=None)):
+            self.assertEqual(sorted(instance.pids()), [501, 600])
+        self.assertEqual(procs.kind_of(f"{cua} serve --socket /tmp/s"), "cua-helper")
+        self.assertEqual(procs.kind_of("/bin/zsh -f -c x cmux-crash-watcher 501 /tmp/s 15"), "crash-watcher")
+
     def test_aggregate_sums_and_maxes_per_kind(self):
         kinds = ib.aggregate({"processes": [row("terminal-host", 3, 0.0), row("terminal-host", 5, 0.5), row("app", 40, 2.0)],
                               "main_wakes_per_s": 1.5})
@@ -316,7 +531,7 @@ class CountersTests(unittest.TestCase):
         self.assertEqual(limit("tabs-static", "cef-renderer", "hidden_wakeups_max"), 0.1)
         self.assertEqual(limit("tabs-static", "cef-extension", "wakeups_max"), 0.1)
         self.assertEqual(limit("tabs-static", "cef-network", "wakeups_per_s"), 0.2)
-        self.assertEqual(limit("tabs-static", "webkit-webcontent", "hidden_wakeups_max"), 0.5)
+        self.assertEqual(limit("tabs-static", "webkit-browser-tab", "hidden_wakeups_max"), 0.5)
         # D5 stress-static.
         self.assertEqual(sessions["stress-static"]["sums"]["app+daemon"]["wakeups_per_s"], 1.0)
         self.assertEqual(limit("stress-static", "app", "main_wakes_per_s"), 0.5)
@@ -383,16 +598,27 @@ class CountersTests(unittest.TestCase):
         self.assertIn("light-hidden app wakeups_per_s/light: not judged: reference session light not measured", notes)
         # 40/s vs Chrome's 63.5/s at 0.5 (task 004's fixture) and a Chromium Host above Chrome's browser process,
         # with tabs-static measured before chrome-static (task 004's --sessions tabs-static,chrome-static).
-        cmux = {"app": {"wakeups_per_s": 30.0, "main_wakes_per_s": 0.4, "energy_mw_billed": 5.0},
+        cmux = {"app": {"wakeups_per_s": 26.7, "main_wakes_per_s": 0.4, "energy_mw_billed": 5.0},
                 "daemon": {"wakeups_per_s": 0.0, "energy_mw_billed": 1.0},
                 "cef-gpu": {"wakeups_per_s": 6.0, "energy_mw_billed": 2.0},
-                "cef-host": {"wakeups_per_s": 4.0, "energy_mw_billed": 1.0}}
+                "cef-host": {"wakeups_per_s": 4.0, "energy_mw_billed": 1.0},
+                "cef-renderer": {"wakeups_per_s": 3.0, "energy_mw_billed": 0.0},
+                "cef-network": {"wakeups_per_s": 0.2, "energy_mw_billed": 0.0},
+                "cef-storage": {"wakeups_per_s": 0.1, "energy_mw_billed": 0.0},
+                "cef-helper": {"wakeups_per_s": 0.0, "energy_mw_billed": 0.0}}
         chrome = {"browser": {"wakeups_per_s": 3.5, "energy_mw_billed": 20.0},
-                  "gpu": {"wakeups_per_s": 60.0, "energy_mw_billed": 20.0}}
+                  "gpu": {"wakeups_per_s": 57.0, "energy_mw_billed": 20.0},
+                  "renderer": {"wakeups_per_s": 2.0, "energy_mw_billed": 1.0},
+                  "utility": {"wakeups_per_s": 1.0, "energy_mw_billed": 1.0},
+                  "other": {"wakeups_per_s": 0.0, "energy_mw_billed": 0.0}}
         overs, notes = ib.cross_overs(budget, {"tabs-static": cmux, "chrome-static": chrome})
         got = [over for session, over in overs if session == "tabs-static"]
         self.assertIn(("tree", "wakeups_per_s/chrome:tree", 0.63, 0.5), got)
         self.assertIn(("cef-host", "wakeups_per_s/chrome:browser", 1.143, 1.0), got)
+        # The cef-* kinds with no number of their own are judged against Chrome's same role.
+        self.assertIn(("cef-renderer", "wakeups_per_s/chrome:renderer", 1.5, 1.0), got)
+        self.assertNotIn("cef-network+cef-storage+cef-audio+cef-utility", [o[0] for o in got])
+        self.assertNotIn("cef-helper", [o[0] for o in got])
         self.assertNotIn("cef-gpu", [o[0] for o in got])
         self.assertEqual(notes, [])
         # Without chrome-static, every ratio_to_chrome row says it was not judged.
@@ -471,8 +697,8 @@ class CountersTests(unittest.TestCase):
         self.assertEqual(ib.over_budget("minimized", napped, budget), [("app", "role", "foreground", "napped")])
         # Idle sessions write nothing: all_kinds applies to every kind; busy and reference sessions take only
         # their own limits.
-        self.assertEqual(ib.over_budget("light", {"other:zsh": {"disk_bytes_per_s": 12.0}}, budget),
-                         [("other:zsh", "disk_bytes_per_s", 12.0, 0)])
+        self.assertEqual(ib.over_budget("light", {"cef-helper": {"disk_bytes_per_s": 12.0}}, budget),
+                         [("cef-helper", "disk_bytes_per_s", 12.0, 0)])
         busy = {"app": {"wakeups_per_s": 1.5, "main_wakes_per_s": 30.0, "disk_bytes_per_s": 100.0}}
         self.assertEqual(ib.over_budget("busy-hidden", busy, budget), [])
         self.assertEqual(ib.over_budget("chrome-static", busy, budget), [])
@@ -597,7 +823,8 @@ class MeasureOrderTests(unittest.TestCase):
         instance = type("Instance", (), {"pid": 1})()
         saved = (ib.process_set, ib.threads, procs.usage, procs.overhead, procs.gpu_ns_by_pid, procs.coalition_of,
                  procs.thermal_state, procs.power_assertions, ib.time.sleep)
-        ib.process_set = lambda _instance: {1: f"{APP}/Contents/MacOS/cmux DEV"}
+        ib.process_set = lambda _instance: ib.ProcessSet({1: f"{APP}/Contents/MacOS/cmux DEV"},
+                                                         [(1, 0, f"{APP}/Contents/MacOS/cmux DEV")])
         ib.threads = lambda _pid: {}
         procs.usage = lambda _pid: calls.append("usage") or procs.usage_from_words(rusage_words(), 1, 1)
         procs.overhead = lambda _pid: (0, 30, 0, 0, 0)
@@ -618,6 +845,10 @@ class MeasureOrderTests(unittest.TestCase):
         self.assertEqual(len(start_probes) + len(end_probes), sum(1 for c in calls if c in probes))
         self.assertEqual((len(start_probes), len(end_probes)), (3, 3))
         self.assertEqual(calls[start_probes[-1] + 1], f"sleep {ib.QUIET_GAP_S:g}")  # a quiet gap before the counters
+        # debug.webui runs on the app's main actor: the census the kinds need is read after every counter.
+        self.assertGreater(calls.index("debug.webui"), counters[-1])
+        self.assertEqual(calls.count("debug.webui"), 1)
+        self.assertEqual([(r["kind"], r["hidden"]) for r in result["processes"]], [("app", False)])
         self.assertEqual(result["ends"]["start"]["saver"], True)
         self.assertIn("anim", result["ends"]["end"])
 

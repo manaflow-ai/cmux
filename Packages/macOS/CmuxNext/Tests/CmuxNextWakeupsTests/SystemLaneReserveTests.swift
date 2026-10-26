@@ -49,7 +49,7 @@ import Testing
         await started.wait(BackgroundWork.hostResolutionCap)
         await queued.wait(6 - BackgroundWork.hostResolutionCap)
         // A keychain-class item starts on a free slot and returns while every lookup still hangs.
-        let answer = try await work.run(.userBlocking, mayBlock: .system) { 42 }
+        let answer = try await work.run(.userBlocking, mayBlock: .system) { () throws -> Int in 42 }
         #expect(answer == 42)
         for _ in 0..<6 { release.signal() }
         for lookup in lookups { try await lookup.value }
@@ -69,7 +69,7 @@ import Testing
         // Best effort fills every slot but the reserved one; the last item waits.
         await started.wait(width - BackgroundWork.systemReserved)
         await queued.wait(1)
-        let answer = try await work.run(.userBlocking, mayBlock: .system) { 7 }
+        let answer = try await work.run(.userBlocking, mayBlock: .system) { () throws -> Int in 7 }
         #expect(answer == 7)
         for _ in 0..<width { release.signal() }
         await started.wait(1)
@@ -95,7 +95,7 @@ import Testing
         }
         await started.wait(1)
         await queued.wait(1)
-        let answer = try await work.run(.userBlocking, mayBlock: .system) { 11 }
+        let answer = try await work.run(.userBlocking, mayBlock: .system) { () throws -> Int in 11 }
         #expect(answer == 11)
         for _ in 0..<(cap + 2) { release.signal() }
         for lookup in lookups { try await lookup.value }
@@ -118,7 +118,7 @@ import Testing
         await started.wait(open)
         let lookup = Task { try await work.resolveHost(.userBlocking) { started.signal(); release.wait() } }
         await queued.wait(1)
-        let answer = try await work.run(.userBlocking, mayBlock: .system) { 13 }
+        let answer = try await work.run(.userBlocking, mayBlock: .system) { () throws -> Int in 13 }
         #expect(answer == 13)
         for _ in 0...open { release.signal() }
         try await lookup.value

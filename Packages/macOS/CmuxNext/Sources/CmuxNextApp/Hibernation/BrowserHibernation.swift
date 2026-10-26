@@ -85,6 +85,12 @@ final class BrowserHibernation {
     /// A frozen page whose memory grows goes with its opener group (`FrozenGrowthRule`, feature
     /// `frozenGrowthDiscard`, set by the App); `growthDeadline` is its next one-shot reading.
     var discardsGrowingFrozenPages = false
+    /// cmux pages in browser tabs (`BrowserAppPage`) hibernate as web pages do (feature
+    /// `memoryDiscardPageTabs`, set by the App); off, they count as pages that cannot restore.
+    var discardsAppPages = false
+    /// Remote desktop and remote browser tabs (`BrowserStreamedPage`) hibernate to their last frame
+    /// (feature `memoryDiscardRemoteTabs`, set by the App); off, they count as pages that cannot restore.
+    var discardsStreamedPages = false
     var frozenGrowth = FrozenGrowthRule()
     let growthDeadline = DemandTimer(owner: "BrowserFrozenGrowth")
     /// Tab `key`'s opener group (its openers and the tabs they opened), itself included; injected by the App.
@@ -664,8 +670,9 @@ final class BrowserHibernation {
                                                             doubted: doubted) }
                 mayAsk = probe.unloadHandler
             }
-            // A page that stays needs no picture (each replan probes it again).
-            let snapshot = exemption == nil ? await self?.snapshot(tab, key: key) : nil
+            // A page that stays needs no picture (each replan probes it again); a cmux page saves its view state too.
+            let (snapshot, viewState): (HibernationSnapshots.Picture?, BrowserAppPageState?) = exemption == nil
+                ? (await self?.snapshot(tab, key: key), await (tab as? any BrowserAppPage)?.saveViewState()) : (nil, nil)
             guard let self else { return }
             // The page's beforeunload handlers run last, only when nothing else keeps it, still hidden
             // and about to go, and at most once while it stays hidden (`askedBeforeUnload`).
@@ -689,7 +696,7 @@ final class BrowserHibernation {
                 self.probeKeptAt[key] = .now
                 return
             }
-            guard let state = source.hibernationState() else {
+            guard let state = viewState.map(BrowserRestoreState.appPage) ?? source.hibernationState() else {
                 self.exemptions[key] = .unsupported
                 return
             }
@@ -750,8 +757,4 @@ final class BrowserHibernation {
         case go, stale
         case keep(HibernationPlanner.Exemption)
     }
-}
-
-private extension Duration {
-    var seconds: Double { Double(components.seconds) + Double(components.attoseconds) / 1e18 }
 }

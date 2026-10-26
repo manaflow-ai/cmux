@@ -5,7 +5,7 @@
 #   Contents/Frameworks/Chromium Embedded Framework.framework   (artifact)
 #   Contents/Frameworks/libcmux_cef_shim.dylib                  (CEFShim)
 #   Contents/Frameworks/<PRODUCT_NAME> Helper.app               (+ GPU, Renderer, Plugin, Alerts)
-#   Contents/MacOS/<PRODUCT_NAME> Chromium Host                  (Debug builds only, prototype;
+#   Contents/MacOS/<PRODUCT_NAME> Chromium Host                  (Debug and bench builds only, prototype;
 #                                                                build-chromium-host.sh)
 #   Contents/Frameworks/libcmux_cef_shim_remote.dylib           (with the host: the shim ABI
 #                                                                cmux loads in host mode)
@@ -150,12 +150,12 @@ else
   arch_dists=("$cef_dir")
 fi
 
-# 1b. The Chromium host's executable (Debug builds only; see 3b), cached by
+# 1b. The Chromium host's executable (Debug and bench builds only; see 3b), cached by
 # build-chromium-host.sh apart from the shim, so a host edit changes neither
 # the shim's key nor the runtime pack's.
 #
 # The host is a prototype that is off by default (browserHost.helper).
-# A host that does not build costs this Debug build the host app only: a
+# A host that does not build costs this Debug or bench build the host app only: a
 # warning, and the app then reports that it has none. It never fails the
 # build, the way a missing CEF artifact does not. CMUX_NEXT_REQUIRE_CHROMIUM_HOST=1
 # makes it a build failure (the prototype's own verification builds).
@@ -191,14 +191,20 @@ build_chromium_host() {
   host_out="$dir"
   host_key="$key"
 }
-if [[ "${CONFIGURATION:-}" == "Debug" ]] && ! build_chromium_host; then
+# A bench build (reload.sh --config bench: Release with -DCMUX_BENCH_HOOKS) compiles the host's
+# Swift side and `debug.chromium_host` in, so chromium-host-bench.py measures it there too.
+host_build=0
+if [[ "${CONFIGURATION:-}" == "Debug" || " ${OTHER_SWIFT_FLAGS:-} " == *" -DCMUX_BENCH_HOOKS "* ]]; then
+  host_build=1
+fi
+if (( host_build )) && ! build_chromium_host; then
   host_out=""
   host_key=""
   if [[ "${CMUX_NEXT_REQUIRE_CHROMIUM_HOST:-0}" == "1" ]]; then
     echo "error: the Chromium host app did not build (build-chromium-host.sh)" >&2
     exit 1
   fi
-  echo "warning: the Chromium host app did not build (build-chromium-host.sh); this Debug build has none"
+  echo "warning: the Chromium host app did not build (build-chromium-host.sh); this build has none"
 fi
 
 # 2. Framework and shim.
@@ -336,7 +342,7 @@ done
 # which CEF's main_bundle_path does not change), and only the outer app holds
 # the framework and the helpers. From its own Frameworks/<Product> Chromium
 # Host.app every helper failed to load the framework and the host aborted
-# (2026-10-24). Debug builds only, so Release, RC and NIGHTLY bundles do not
+# (2026-10-24). Debug and bench builds only, so Release, RC and NIGHTLY bundles do not
 # change.
 rm -rf "$frameworks/$product Chromium Host.app"  # the earlier layout
 # The remote shim goes with it: the shim ABI cmux loads instead of
