@@ -160,7 +160,11 @@ export const makeFileOps = (
         ...(spec.sha256 === undefined ? {} : { sha256: spec.sha256.toLowerCase() }),
         ...(spec.mode === undefined ? {} : { mode: spec.mode }),
       }, { timeoutMs: FS_TIMEOUT_MS }).pipe(
-        Effect.flatMap((body) => Schema.decodeUnknown(UploadStatus)(body).pipe(Effect.mapError(() => new UpstreamError({ operation: "beginUpload", status: null })))),
+        Effect.flatMap((body) => Schema.decodeUnknown(UploadStatus)(body).pipe(Effect.mapError(() => new UpstreamError({ operation: "beginUpload", status: null })), Effect.tapError(() => {
+          // An unreadable answer may still name a session: free it rather than leave it holding spool space.
+          const id: unknown = typeof body === "object" && body !== null ? Reflect.get(body, "uploadId") : undefined;
+          return typeof id === "string" && id.length > 0 && id.length <= 256 ? http.json("abortUpload", "DELETE", uploadPath(owns, id)).pipe(Effect.ignore) : Effect.void;
+        }))),
         Effect.flatMap((status) =>
           seal(owns, vm.value, status.uploadId).pipe(
             Effect.map((uploadId) => ({ uploadId, path: status.path, size: status.size, receivedBytes: status.receivedBytes })),

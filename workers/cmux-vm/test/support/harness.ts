@@ -191,12 +191,14 @@ export async function makeHarness(options: HarnessOptions = {}) {
       Effect.sync(() =>
         Option.fromNullable(resources.find((row) => row.tenantId === tenantId && row.kind === kind && row.cmuxId === cmuxId && !live(row))),
       ),
-    // Mirrors the SQL: only the tenant's live committed row of that kind.
-    updateMetadata: (tenantId, kind, cmuxId, metadata) =>
+    // Mirrors the SQL: only the tenant's live committed row of that kind, and only while it holds `expected`.
+    updateMetadata: (tenantId, kind, cmuxId, expected, metadata) =>
       Effect.sync(() => {
         const index = resources.findIndex((row) => row.tenantId === tenantId && row.kind === kind && row.cmuxId === cmuxId && live(row) && row.committed !== false);
         const row = resources[index];
-        if (row === undefined) return false;
+        if (row === undefined || row.displayName !== expected.displayName) return false;
+        const same = Object.keys(row.labels).length === Object.keys(expected.labels).length && Object.entries(expected.labels).every(([key, value]) => row.labels[key] === value);
+        if (!same) return false;
         resources[index] = { ...row, displayName: metadata.displayName, labels: metadata.labels };
         return true;
       }),

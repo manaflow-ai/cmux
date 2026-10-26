@@ -88,11 +88,11 @@ export const removePathEndpoint = HttpApiEndpoint.del("removePath", "/v1/vms/:vm
 export const beginFileUploadEndpoint = HttpApiEndpoint.post("beginFileUpload", "/v1/vms/:vmId/files/uploads")
   .setPath(VmPath).setPayload(BeginFileUploadRequest).setHeaders(TeamHeaders).addSuccess(FileUpload, { status: 201 })
   .addError(BadRequest).addError(NotFound).addError(Conflict).addError(PayloadTooLarge).addError(QuotaExceeded).addError(ServiceUnavailable)
-  .annotateContext(describe("Start a resumable file upload into a VM", "For files larger than one PUT /files/content allows. Send the bytes in order with PUT /files/uploads/{uploadId}?offset=N, each chunk at most maxChunkBytes, then POST .../commit. The file appears at path only on commit, atomically. A size over the deployment's limit is 413; too many open uploads on the VM is 409. Audited."));
+  .annotateContext(describe("Start a resumable file upload into a VM", "For files larger than one PUT /files/content allows. Send the bytes in order with PUT /files/uploads/{uploadId}?offset=N, each chunk at most maxChunkBytes, then POST .../commit. The file appears at path only on commit, atomically. A size over 16 GiB is 400; a size over a lower deployment limit is 413; too many open uploads on the VM is 409. Audited."));
 
 export const getFileUploadEndpoint = HttpApiEndpoint.get("getFileUpload", "/v1/vms/:vmId/files/uploads/:uploadId")
   .setPath(UploadPath).setHeaders(TeamHeaders).addSuccess(FileUpload)
-  .addError(NotFound).addError(QuotaExceeded).addError(ServiceUnavailable)
+  .addError(NotFound).addError(Conflict).addError(QuotaExceeded).addError(ServiceUnavailable)
   .annotateContext(describe("Read a resumable upload's progress", "After a failed chunk, resume at receivedBytes. An unknown, expired or foreign upload id is 404 Upload not found."));
 
 export const uploadFileChunkEndpoint = HttpApiEndpoint.put("uploadFileChunk", "/v1/vms/:vmId/files/uploads/:uploadId")
@@ -104,7 +104,7 @@ export const uploadFileChunkEndpoint = HttpApiEndpoint.put("uploadFileChunk", "/
 export const commitFileUploadEndpoint = HttpApiEndpoint.post("commitFileUpload", "/v1/vms/:vmId/files/uploads/:uploadId/commit")
   .setPath(UploadPath).setHeaders(TeamHeaders).addSuccess(HttpApiSchema.NoContent)
   .addError(BadRequest).addError(NotFound).addError(Conflict).addError(QuotaExceeded).addError(ServiceUnavailable)
-  .annotateContext(describe("Finish a resumable upload", "Verifies the size (and sha256 when given) and renames the file into place atomically; the target never holds a partial file. Missing bytes or a sha256 mismatch is 400 and the upload stays open, so commit can be retried. A commit already running is 409. Audited as a file write."));
+  .annotateContext(describe("Finish a resumable upload", "Verifies the size (and sha256 when given) and renames the file into place atomically; the target never holds a partial file. Missing bytes or a sha256 mismatch is 400 and the upload stays open, so commit can be retried. A commit already running is 409. A commit whose answer was lost (503) may still complete: a later 404 Upload not found then means it finished, so check the path. Audited (vm.files.upload.commit)."));
 
 export const abortFileUploadEndpoint = HttpApiEndpoint.del("abortFileUpload", "/v1/vms/:vmId/files/uploads/:uploadId")
   .setPath(UploadPath).setHeaders(TeamHeaders).addSuccess(HttpApiSchema.NoContent)

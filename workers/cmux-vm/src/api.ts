@@ -407,7 +407,7 @@ export class VmsGroup extends HttpApiGroup.make("vms")
     HttpApiEndpoint.patch("updateVm", "/v1/vms/:vmId")
       .setPath(VmPath).setHeaders(TeamHeaders).setPayload(UpdateVmRequest).addSuccess(Vm)
       .addError(BadRequest).addError(Forbidden).addError(NotFound).addError(Conflict).addError(QuotaExceeded).addError(ServiceUnavailable)
-      .annotateContext(describe("Update a VM's name, labels or limits", "vm:write", "Name and labels are stored by cmux; idleTimeoutSeconds, maxRunSeconds and autoDeleteSeconds are applied to the VM (-1 removes a limit; dev/test tenants keep the 1 to 300 second idle rule). Labels replace the whole set; labels starting with cmux. cannot be added, removed or changed, and a service or agent key cannot drop the labels it is limited to (403). The provider's slug, metadata, tenant tagging and the lifetime run budget (which keeps a retired VM retired) cannot be changed. A VM whose create has not finished is 409. Audited.")),
+      .annotateContext(describe("Update a VM's name, labels or limits", "vm:write", "Name and labels are stored by cmux; idleTimeoutSeconds, maxRunSeconds and autoDeleteSeconds are applied to the VM (-1 removes a limit; dev/test tenants keep the 1 to 300 second idle rule). Labels replace the whole set; labels starting with cmux. cannot be added, removed or changed, and a service or agent key cannot drop the labels it is limited to (403). The provider's slug, metadata, tenant tagging and the lifetime run budget (which keeps a retired VM retired) cannot be changed. A VM whose create has not finished is 409, and so is a concurrent change of its name or labels (read and retry). Audited.")),
   )
   .add(
     HttpApiEndpoint.get("getVm", "/v1/vms/:vmId")

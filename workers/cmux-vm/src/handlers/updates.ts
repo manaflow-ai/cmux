@@ -10,6 +10,7 @@ import { Effect, Option } from "effect";
 import type { UpdateVmRequest } from "../api.ts";
 import { Snapshot, type UpdateSnapshotRequest } from "../api/snapshots.ts";
 import { SnapshotStore } from "../db/snapshots.ts";
+import { TenantLimits } from "../limits/service.ts";
 import { OwnershipStore } from "../db/stores.ts";
 import { carriesRequiredLabels, type Principal } from "../domain/principal.ts";
 import { badRequest, conflict, Forbidden, unavailable, vmNotFound } from "../errors.ts";
@@ -20,6 +21,7 @@ import { snapshotNotFound, withOwnedSnapshot } from "./owned.ts";
 import { toVm } from "./vm-view.ts";
 
 const RESERVED_PREFIX = "cmux.";
+const CHANGED = "It changed or was deleted while this update ran; read it again and retry";
 
 const describeLabels = (labels: Readonly<Record<string, string>>) =>
   Object.entries(labels).map(([key, value]) => `${key}=${value}`).join(", ");
@@ -72,8 +74,9 @@ export const updateVm = (rawId: string, payload: UpdateVmRequest) =>
         );
         if (displayName !== proofs.owns.displayName || !sameLabels(labels, proofs.owns.labels)) {
           const store = yield* OwnershipStore;
-          const updated = yield* store.updateMetadata(caller.value.tenantId, "vm", vm.value, { displayName, labels }).pipe(Effect.mapError(() => unavailable()));
-          if (!updated) return yield* Effect.fail(vmNotFound());
+          const expected = { displayName: proofs.owns.displayName, labels: proofs.owns.labels };
+          const updated = yield* store.updateMetadata(caller.value.tenantId, "vm", vm.value, expected, { displayName, labels }).pipe(Effect.mapError(() => unavailable()));
+          if (!updated) return yield* Effect.fail(conflict(CHANGED));
         }
         return toVm(vm.value, { displayName, labels }, current);
       }),
@@ -90,6 +93,11 @@ export const updateSnapshot = (rawId: string, payload: UpdateSnapshotRequest) =>
         const store = yield* SnapshotStore;
         const row = yield* store.describe(caller.value.tenantId, snapshot.value).pipe(Effect.mapError(() => unavailable()));
         if (Option.isNone(row)) return yield* Effect.fail(snapshotNotFound());
+        // A capture that has not settled re-records its row with the original name and labels; renaming it first would wedge it.
+        const capture = yield* (yield* TenantLimits).snapshotCapture(caller.value.tenantId, { op: "get", id: snapshot.value }).pipe(Effect.mapError(() => unavailable()));
+        if (capture.state === "record" && capture.record.state !== "committed") {
+          return yield* Effect.fail(conflict("This snapshot's capture has not finished; reconcile it first"));
+        }
         const labels = payload.labels === undefined ? row.value.labels : yield* replacementLabels(caller.value, row.value.labels, payload.labels);
         const displayName = payload.displayName === undefined ? row.value.displayName : payload.displayName;
         const upstream = yield* UpstreamClient;
@@ -108,8 +116,9 @@ export const updateSnapshot = (rawId: string, payload: UpdateSnapshotRequest) =>
           );
         if (displayName !== row.value.displayName || !sameLabels(labels, row.value.labels)) {
           const ownership = yield* OwnershipStore;
-          const updated = yield* ownership.updateMetadata(caller.value.tenantId, "snapshot", snapshot.value, { displayName, labels }).pipe(Effect.mapError(() => unavailable()));
-          if (!updated) return yield* Effect.fail(snapshotNotFound());
+          const expected = { displayName: row.value.displayName, labels: row.value.labels };
+          const updated = yield* ownership.updateMetadata(caller.value.tenantId, "snapshot", snapshot.value, expected, { displayName, labels }).pipe(Effect.mapError(() => unavailable()));
+          if (!updated) return yield* Effect.fail(conflict(CHANGED));
         }
         return new Snapshot({
           id: row.value.id,

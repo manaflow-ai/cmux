@@ -91,7 +91,9 @@ export const getFileUpload = (rawId: string, uploadId: string) =>
     Effect.gen(function* () {
       const policy = yield* TenantPolicy;
       const upstream = yield* UpstreamClient;
-      const record = yield* upstream.uploadStatus(vm, proofs, uploadId).pipe(Effect.mapError((error) => (error.status === 404 ? uploadNotFound() : unavailable())));
+      const record = yield* upstream.uploadStatus(vm, proofs, uploadId).pipe(Effect.mapError((error) =>
+        error.status === 404 ? uploadNotFound() : error.status === 409 ? conflict(NOT_RUNNING) : unavailable(),
+      ));
       return toUpload(policy, record);
     }),
   );
