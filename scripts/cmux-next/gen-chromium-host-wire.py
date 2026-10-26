@@ -1796,7 +1796,9 @@ def shim_properties(root: Path) -> dict[str, str]:
     if not path.exists():
         raise Failure(f"{SHIM_LIBRARY} is missing: it maps Swift names to exports")
     text = path.read_text(encoding="utf-8")
-    return dict(re.findall(r'\b(\w+)\s*=\s*(?:try\s+)?r(?:\.optional)?\(\s*"(cmux_shim_\w+)"\s*\)', text))
+    # `name = cond == x ? r.optional("...") : nil` binds in one backend only (tabDiscard).
+    return dict(re.findall(r'\b(\w+)\s*=\s*(?:[^"\n?=]+==[^"\n?]*\?\s*)?(?:try\s+)?r(?:\.optional)?\(\s*"(cmux_shim_\w+)"\s*\)',
+                           text))
 
 
 # The head of a brace block that is a statement, not a closure (the text before `{` on its line).
