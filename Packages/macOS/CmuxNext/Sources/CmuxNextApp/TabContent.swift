@@ -6,6 +6,7 @@ import CmuxNextDesign
 import CmuxNextHibernation
 import CmuxNextPages
 import CmuxNextTerminal
+import CmuxNextWakeups
 
 /// What a pane shows for its selected tab.
 enum TabContent {
@@ -145,9 +146,11 @@ final class BrowserEntry {
     /// Owns the chrome's (weak) Extensions menu handler.
     var extensionMenuHandler: (any ExtensionMenuHandling)?
 
-    init(tab: any BrowserTab, suggestionEngine: OmniboxSuggestionEngine = OmniboxSuggestionEngine(), history: (any BrowserHistoryStore)? = nil) {
+    /// `mainWork` is the app's one main-thread scheduler; `node` the tab's (`TabContentCache.node(for:)`).
+    init(tab: any BrowserTab, suggestionEngine: OmniboxSuggestionEngine = OmniboxSuggestionEngine(), history: (any BrowserHistoryStore)? = nil,
+         mainWork: MainWorkScheduler, node: VisibilityNode?) {
         self.tab = tab
-        chrome = BrowserChromeView(tab: tab, suggestionEngine: suggestionEngine)
+        chrome = BrowserChromeView(tab: tab, suggestionEngine: suggestionEngine, mainWork: mainWork, node: node)
         chrome.history = history
         // Shortcuts route through the action registry (browser* actions).
         chrome.handlesDefaultShortcuts = false

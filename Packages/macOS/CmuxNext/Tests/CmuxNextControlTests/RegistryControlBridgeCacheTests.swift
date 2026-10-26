@@ -289,19 +289,28 @@ import Testing
         #expect(router.catalog.resolve("splitRight")?.isBound == true)
         #expect(bridge.structureBuilds == builds + 1)
     }
-}
 
-/// Main run loop passes (where the scheduler's posts from the observation callbacks arrive).
-@MainActor
-private func spinMainRunLoop(passes: Int) {
-    for _ in 0..<passes { _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.001)) }
-}
+    /// No automation site needs a display link (p04-input-029): with a link that never fires and
+    /// no frame client running (an occluded window), a binding and a context change reach the
+    /// published catalog in run loop turns alone.
+    @Test func theCatalogAndContextMaskApplyWithNoDisplayLink() {
+        let clock = BridgeClock()
+        let work = MainWorkScheduler.testing(budget: MainFrameBudget(input: BridgeInput(), uptimeNanos: clock.read)) { _ in BridgeLink() }
+        let registry = ActionRegistry.standard()
+        let bridge = RegistryControlBridge(registry: registry, work: work)
+        let router = ControlRouter(identity: testIdentity(), executor: bridge, configuration: .loadTolerant)
+        bridge.attach(to: router)
+        defer { bridge.detach() }
+        #expect(router.catalog.resolve("splitRight")?.isBound == false)
 
-/// Main run loop passes until `done` or 5 s.
-@MainActor
-private func spinMainRunLoop(until done: () -> Bool) {
-    let end = Date(timeIntervalSinceNow: 5)
-    while !done(), Date() < end { spinMainRunLoop(passes: 1) }
+        registry.bind("splitRight") {}
+        registry.context = [.browserFocused]
+        spinMainRunLoop(until: {
+            router.catalog.resolve("splitRight")?.isBound == true && router.catalog.contextMask == ActionContext.browserFocused.rawValue
+        })
+        #expect(router.catalog.resolve("splitRight")?.isBound == true, "the catalog refresh waited for a frame")
+        #expect(router.catalog.contextMask == ActionContext.browserFocused.rawValue, "the context mask waited for a frame")
+    }
 }
 
 /// A clock the test moves (`CLOCK_UPTIME_RAW` nanoseconds).

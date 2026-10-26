@@ -19,7 +19,7 @@ extension AppServices {
     /// parked workspaces (a lossy one) register there too; the coordinator releases them one surface or
     /// one workspace per frame.
     func startHibernation(settings: SettingsController) {
-        let audible = features.isEnabled(.recentlyAudibleProtection) ? AudibleHistory() : nil
+        let audible = features.isEnabled(.recentlyAudibleProtection) ? AudibleHistory(mainWork: mainWork) : nil
         let hibernation = BrowserHibernation(cache: cache, memory: memoryCoordinator, lowPower: energyMonitor.lowPowerMode, audible: audible)
         cache.hibernation = hibernation
         hibernation.isPinned = { [weak self] key in self?.locateTab(key)?.0.pinned ?? false }

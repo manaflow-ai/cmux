@@ -1,5 +1,6 @@
 public import AppKit
 import CmuxNextDesign
+public import CmuxNextWakeups
 import SwiftUI
 
 /// Hosts the feed panel (variants `list` and `inbox`). The App creates it
@@ -31,15 +32,16 @@ public final class FeedHostView: NSView {
     ///   - model: The feed.
     ///   - layoutOverride: Pins a prototype (demos and screenshots); nil follows the Debug Settings switch `feed.layout`.
     ///   - surface: Where the feed is shown; a page tab by default.
+    ///   - mainWork: The app's one main-thread scheduler (the reports basket renders at its frames).
     ///   - onReportsReply: Sends a reply from the reports basket and answers whether it was sent
     ///     (nil: the basket has no Reply). A reply sent again keeps its ``ReportReply/promptID``.
-    public init(model: FeedModel, layoutOverride: FeedLayout? = nil, surface: Surface = .page,
+    public init(model: FeedModel, layoutOverride: FeedLayout? = nil, surface: Surface = .page, mainWork: MainWorkScheduler,
                 onReportsReply: (@MainActor (ReportReply) async -> Bool)? = nil) {
         self.model = model
         self.surface = surface
         super.init(frame: .zero)
         wantsLayer = true
-        let root = FeedRoot(model: model, appearance: appearanceState, layoutOverride: layoutOverride,
+        let root = FeedRoot(model: model, appearance: appearanceState, layoutOverride: layoutOverride, mainWork: mainWork,
                             onReportsReply: onReportsReply)
         embed(NSHostingView(rootView: root))
     }

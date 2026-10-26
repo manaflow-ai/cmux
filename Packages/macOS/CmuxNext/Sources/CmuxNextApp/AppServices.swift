@@ -111,7 +111,7 @@ final class AppServices {
     /// Add Machine and Check Machine (plans/cmux-next/add-machine-DESIGN.md); each machine's last check.
     private(set) lazy var addMachine = AddMachineCard(services: .app(self))
     /// Add Device and Settings > Devices (plans/cmux-next/add-device-DESIGN.md): one entry, one list, one remove.
-    private(set) lazy var addDevice = AddDeviceCard(services: .app(self))
+    private(set) lazy var addDevice = AddDeviceCard(services: .app(self), mainWork: mainWork)
     private(set) lazy var devices = DeviceDirectory.app(self)
     let machineHealth = MachineHealthStore()
     /// The app's one fan-out of app-wide notices (`AppEvents`, p06-scheduler-021): every window's
@@ -178,8 +178,8 @@ final class AppServices {
     private(set) lazy var dragSession: TabDragSession = TabDragSession(services: self)  // built by the first drag
     /// The command palette on demand (p08-startup-023): launch builds none; it is built after the first frame
     /// (`postBuild`) or by the first palette key, in that key's turn. Handlers add pages to `palettes.sources`.
-    private(set) lazy var palettes = PaletteOnDemand(registry: registry, sources: { [weak self] in self.map(PaletteSourcesBridge.make(services:)) ?? PaletteSources() }) { [registry, weak self] sources in
-        PaletteController(registry: registry, sources: sources, usage: self.map { DaemonPaletteUsageStore(services: $0) })
+    private(set) lazy var palettes = PaletteOnDemand(registry: registry, sources: { [weak self] in self.map(PaletteSourcesBridge.make(services:)) ?? PaletteSources() }) { [registry, mainWork, weak self] sources in
+        PaletteController(registry: registry, sources: sources, usage: self.map { DaemonPaletteUsageStore(services: $0) }, mainWork: mainWork)
     }
     var palette: PaletteController { palettes.controller }
     private(set) lazy var previews: TabPreviewSource = TabPreviewSource(cache: cache)  // built by the first tab card
@@ -561,7 +561,7 @@ final class AppServices {
         sidebarSnapshots = SidebarSnapshotStore(file: environment.sidebarSnapshotFile)
         let contextMenus = BrowserContextMenuBuilder.shared
         self.contextMenus = contextMenus
-        popups = BrowserPopupWindows(contextMenus: contextMenus)
+        popups = BrowserPopupWindows(contextMenus: contextMenus, mainWork: mainWork)
         self.environment = environment; self.agentPaneEnvironment = agentPaneEnvironment
         crashRecovery = CrashRecoveryService(bundleID: environment.launch.bundleID, marksRun: environment.marksRun, crashKeys: crashKeys)
         // After the run marker's handlers: Sentry calls them after its report.

@@ -1,4 +1,5 @@
 import CmuxNextDesign
+import CmuxNextWakeups
 import SwiftUI
 
 /// Reads the layout tunable and the resolved colors in a tracked scope, so a
@@ -7,10 +8,11 @@ struct FeedRoot: View {
     let model: FeedModel
     let appearance: FeedAppearance
     var layoutOverride: FeedLayout?
+    let mainWork: MainWorkScheduler
     var onReportsReply: (@MainActor (ReportReply) async -> Bool)?
 
     var body: some View {
-        FeedView(model: model, layout: layoutOverride ?? FeedTunables.layout.value, onReportsReply: onReportsReply)
+        FeedView(model: model, layout: layoutOverride ?? FeedTunables.layout.value, mainWork: mainWork, onReportsReply: onReportsReply)
             .environment(\.feedColors, appearance.colors)
             .tint(appearance.colors.primary)
     }
@@ -21,6 +23,7 @@ struct FeedRoot: View {
 struct FeedView: View {
     let model: FeedModel
     let layout: FeedLayout
+    let mainWork: MainWorkScheduler
     var onReportsReply: (@MainActor (ReportReply) async -> Bool)?
     @Environment(\.feedColors) private var colors
 
@@ -32,7 +35,7 @@ struct FeedView: View {
             switch layout {
             case .list: FeedListView(model: model)
             case .inbox: FeedInboxView(model: model)
-            case .reportsBasket: ReportsBasketHost(model: model, onReply: onReportsReply)
+            case .reportsBasket: ReportsBasketHost(model: model, mainWork: mainWork, onReply: onReportsReply)
             }
         }
         .background(colors.background)

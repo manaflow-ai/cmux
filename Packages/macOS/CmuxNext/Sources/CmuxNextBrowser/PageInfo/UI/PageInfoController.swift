@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextWakeups
 
 /// Owns one browser pane's page info bubble (Chromium's `PageInfoBubbleView`)
 /// and the windows it opens (certificate viewer, site settings, on-device
@@ -32,11 +33,15 @@ public final class PageInfoController {
     private var pageHadFocus = false
     /// Card size for the rendered page.
     private var cardSize = CGSize.zero
-    var windows = PageInfoWindows()
+    var windows: PageInfoWindows
+    /// The app's one main-thread scheduler: the open bubble's live rows follow on it.
+    let mainWork: MainWorkScheduler
 
-    init(tab: @escaping () -> (any BrowserTab)?, anchor: @escaping () -> NSView?) {
+    init(tab: @escaping () -> (any BrowserTab)?, anchor: @escaping () -> NSView?, mainWork: MainWorkScheduler) {
         tabSource = tab
         anchorSource = anchor
+        self.mainWork = mainWork
+        windows = PageInfoWindows(mainWork: mainWork)
         let panel = PageInfoPanel()
         popup = NativePopupHost(panel: panel)
         panel.adoptPopupStyle(card: card)

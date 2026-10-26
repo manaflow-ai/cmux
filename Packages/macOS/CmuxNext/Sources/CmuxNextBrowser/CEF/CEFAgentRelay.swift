@@ -33,6 +33,8 @@ public final class CEFAgentRelay {
     /// Design mode's binding posts (`CEFDesignModeBridge`), on the same events once the user turned it on.
     private lazy var designMode = tab.map { CEFDesignModeBridge(tab: $0) }
     var designModeListens = false { didSet { updateWatch() } }
+    /// The media and verification bridges run on the tab's DevTools session (before fork API 29).
+    private var bridgesAttached = false
 
     init(tab: CEFTab) { self.tab = tab }
 
@@ -133,11 +135,21 @@ public final class CEFAgentRelay {
         // From fork API 29 the runtime installs the document scripts for every browser in the
         // renderer (`CEFDocumentScripts`): the tab opens no DevTools session for them.
         if let tab, let browser = tab.browserID, !tab.runtime.forkFeatures.rendererPaths {
+            bridgesAttached = true
             media?.attach(browser)
             verification?.attach(browser)
             firstPaint?.attach(browser)
         }
         if sink != nil || mediaListens || designModeListens { updateWatch() }
+    }
+
+    /// The tab handled a shim event (`CEFTab.handle`): a document that committed or finished gets
+    /// its bindings again. Chrome's `WebContentsObserver` hears navigations as callbacks the same way
+    /// (content/public/browser/web_contents_observer.h), with no observation of the tab's state.
+    func documentStateChanged() {
+        guard bridgesAttached else { return }
+        media?.documentChanged()
+        verification?.documentChanged()
     }
 
     func resumeWaiters(_ created: Bool) {
@@ -149,6 +161,7 @@ public final class CEFAgentRelay {
     /// The browser closed: waiters fail and the relay hears the end once.
     func browserEnded() {
         resumeWaiters(false)
+        bridgesAttached = false
         let end = onEnd
         sink = nil
         onEnd = nil

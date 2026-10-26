@@ -25,7 +25,7 @@ import Observation
 public final class RegistryControlBridge: ControlActionExecutor {
     public let registry: ActionRegistry
     private let work: MainWorkScheduler
-    /// The board owner of a fired observation's hop and of the refresh it schedules.
+    /// The board owner of the coalesced refresh.
     private let refreshOwner: MainTaskOwner
     private var router: ControlRouter?
     /// The context mask, followed while attached.
@@ -118,13 +118,14 @@ public final class RegistryControlBridge: ControlActionExecutor {
         router?.updateCatalog(current.catalog(contextMask: registry.context.rawValue))
     }
 
-    /// One coalesced refresh; it does nothing once detached (isObserving). Posted the way the
-    /// fired observations' hops are, so it runs after the hop of every observation the same
-    /// change fired.
+    /// One coalesced refresh; it does nothing once detached (isObserving). Both observations mark
+    /// themselves stale in the change's own turn (on main, inline), so every mark of one change is
+    /// in before the one automation task runs: one scheduler stage, no hop between the mark and
+    /// the refresh. A change after the refresh ran schedules its own.
     private func scheduleRefresh() {
         guard !refreshIsScheduled else { return }
         refreshIsScheduled = true
-        work.postFromAnyThread(.automation, owner: refreshOwner) { [weak self] in self?.refresh() }
+        work.post(.automation, owner: refreshOwner) { [weak self] in self?.refresh() }
     }
 
     /// Builds the per-action info under observation: whatever the build
@@ -135,12 +136,12 @@ public final class RegistryControlBridge: ControlActionExecutor {
         structureArming += 1
         structureBuilds += 1
         let (epoch, arming) = (epoch, structureArming)
-        let (work, owner) = (work, refreshOwner)
         return withObservationTracking {
             BuiltCatalog(registry: registry)
-        } onChange: { [weak self] in
-            // onChange runs before the new value is stored; refresh after.
-            work.postFromAnyThread(.automation, owner: owner) { [weak self] in self?.structureChanged(epoch: epoch, arming: arming) }
+        } onChange: { @Sendable [weak self] in
+            // onChange runs before the new value is stored: mark now, refresh in the posted task.
+            // main-hop-allow: the registry changes on main, so this runs inline in the change's turn and only marks
+            MainDelivery().run { [weak self] in self?.structureChanged(epoch: epoch, arming: arming) }
         }
     }
 
@@ -160,13 +161,13 @@ public final class RegistryControlBridge: ControlActionExecutor {
         reasonsArming += 1
         reasonReads += 1
         let (epoch, arming) = (epoch, reasonsArming)
-        let (work, owner) = (work, refreshOwner)
         return withObservationTracking {
             _ = registry.descriptors
             _ = registry.actions
             return ids.map { registry.unavailableReason(for: $0) }
-        } onChange: { [weak self] in
-            work.postFromAnyThread(.automation, owner: owner) { [weak self] in self?.reasonsChanged(epoch: epoch, arming: arming) }
+        } onChange: { @Sendable [weak self] in
+            // main-hop-allow: app state changes on main, so this runs inline in the change's turn and only marks
+            MainDelivery().run { [weak self] in self?.reasonsChanged(epoch: epoch, arming: arming) }
         }
     }
 

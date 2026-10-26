@@ -3,6 +3,7 @@ import AppKit
 @testable import CmuxNextDesign
 import Foundation
 import Testing
+import CmuxNextWakeups
 
 /// Toolbar buttons return to normal when their menu closes, the media button is not lit while a
 /// tab plays, and pinning animates, as in Chrome (u2426: "after clicking the Extensions button
@@ -21,8 +22,8 @@ import Testing
         return window
     }
 
-    /// Lets the observation loops render: each renders before waiting in a main run loop pass
-    /// (`ObservationLoop`).
+    /// Lets the observation loops render: each renders on its scheduler's next main run loop turn
+    /// (`ObservationLoop`; no display link runs in these tests).
     static func settle() async {
         for _ in 0..<8 { await Task.yield() }
         spinRunLoop()
@@ -89,7 +90,7 @@ import Testing
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }
         let tab = Self.chromiumTab([Self.action("a", pinned: true), Self.action("b", pinned: true)])
-        let chrome = BrowserChromeView(tab: tab)
+        let chrome = BrowserChromeView(tab: tab, mainWork: MainWorkScheduler(budget: MainFrameBudget()), node: nil)
         let window = Self.window(chrome)
         defer { window.close() }
         await Self.settle()
@@ -107,7 +108,7 @@ import Testing
           arguments: ["close", "toggle", "manage", "dismiss"])
     func theExtensionsButtonIsPressedOnlyWhileItsBubbleIsOpen(_ path: String) async throws {
         let tab = Self.chromiumTab([Self.action("a", pinned: false)])
-        let chrome = BrowserChromeView(tab: tab)
+        let chrome = BrowserChromeView(tab: tab, mainWork: MainWorkScheduler(budget: MainFrameBudget()), node: nil)
         let window = Self.window(chrome)
         defer { window.close() }
         await Self.settle()
@@ -130,7 +131,7 @@ import Testing
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }
         let tab = Self.chromiumTab([Self.action("a", pinned: true), Self.action("b", pinned: false)])
-        let chrome = BrowserChromeView(tab: tab)
+        let chrome = BrowserChromeView(tab: tab, mainWork: MainWorkScheduler(budget: MainFrameBudget()), node: nil)
         let window = Self.window(chrome)
         defer { window.close() }
         await Self.settle()
@@ -145,7 +146,7 @@ import Testing
         Motion.reduceMotionOverride = true
         defer { Motion.reduceMotionOverride = nil }
         let tab = Self.chromiumTab([Self.action("a", pinned: true), Self.action("b", pinned: true)])
-        let chrome = BrowserChromeView(tab: tab)
+        let chrome = BrowserChromeView(tab: tab, mainWork: MainWorkScheduler(budget: MainFrameBudget()), node: nil)
         let window = Self.window(chrome)
         defer { window.close() }
         await Self.settle()
@@ -160,7 +161,7 @@ import Testing
     @Test func aPinToggleRendersWithinAFrame() async throws {
         let pinned = (0..<6).map { Self.action("e\($0)", pinned: true) }
         let tab = Self.chromiumTab(pinned + [Self.action("x", pinned: false)])
-        let chrome = BrowserChromeView(tab: tab)
+        let chrome = BrowserChromeView(tab: tab, mainWork: MainWorkScheduler(budget: MainFrameBudget()), node: nil)
         let window = Self.window(chrome)
         defer { window.close() }
         await Self.settle()
