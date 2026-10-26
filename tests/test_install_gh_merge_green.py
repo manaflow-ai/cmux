@@ -31,6 +31,37 @@ class Stub(unittest.TestCase):
         self.assertTrue({ok})
 """
 
+# `glaeda-gh checks REPO SHA... --json`: the main push's "CI fast guards" result
+# for every SHA, from the verdict file next to it (success, failure or pending).
+FAKE_GLAEDA = """#!/usr/bin/env python3
+import json, pathlib, sys
+here = pathlib.Path(sys.argv[0]).parent
+with open(here / "calls", "a") as log:
+    log.write(" ".join(sys.argv[1:]) + "\\n")
+verdict = (here / "verdict").read_text().strip()
+shas = [a for a in sys.argv[1:] if len(a) == 40]
+if verdict == "pending":
+    print(json.dumps({"heads": {}, "unread": {s: "not read yet" for s in shas}}))
+else:
+    found = {"CI fast guards / CI fast guards": ["completed", verdict]}
+    print(json.dumps({"heads": {s: {"found": found} for s in shas}, "unread": {}}))
+"""
+
+
+class DefaultTestsCoverTheHelpersTests(unittest.TestCase):
+    """An install runs DEFAULT_TESTS before it trusts a new main. Every scripts/ci helper gh-merge-green runs whose
+    tests/test_<helper>.py exists must be among them: cmux#23516 added merge_check_paths.py and its tests, but not
+    the module here, so an install never ran them."""
+
+    def test_every_helper_with_tests_is_in_default_tests(self):
+        import re
+        helper = (SOURCE / "scripts" / "gh-merge-green").read_text()
+        installer = (SOURCE / INSTALLER).read_text()
+        listed = set(re.search(r'^DEFAULT_TESTS="([^"]*)"', installer, re.M).group(1).split())
+        missing = sorted(f"tests.test_{name}" for name in set(re.findall(r"\bci/([a-z_]+)\.py", helper))
+                         if (SOURCE / "tests" / f"test_{name}.py").is_file() and f"tests.test_{name}" not in listed)
+        self.assertEqual(missing, [], "add these to DEFAULT_TESTS in " + INSTALLER)
+
 
 class InstallGhMergeGreenTests(unittest.TestCase):
     def setUp(self):
@@ -115,6 +146,18 @@ class InstallGhMergeGreenTests(unittest.TestCase):
         result = self.gh_merge_green("owner/repo#1")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout, "v1 owner/repo#1\n")
+
+    def test_install_keeps_spotlights_marker_out_of_git_status(self):
+        """Spotlight's .metadata_never_index marker is not a change: the managed clone's
+        info/exclude lists it, so git status stays clean for every worktree of the clone."""
+        self.assert_ok(self.install())
+        (self.clone / ".metadata_never_index").touch()
+        status = self.run_ok("git", "status", "--porcelain", "--untracked-files=all", cwd=self.clone).stdout
+        self.assertEqual(status, "")
+        self.assert_ok(self.install())  # a second install does not list it twice
+        exclude = Path(self.run_ok("git", "rev-parse", "--path-format=absolute", "--git-common-dir",
+                                   cwd=self.clone).stdout.strip()) / "info" / "exclude"
+        self.assertEqual(exclude.read_text().splitlines().count(".metadata_never_index"), 1)
 
     def test_an_in_place_edit_of_the_snapshot_is_restored_before_running(self):
         self.assert_ok(self.install())
@@ -208,6 +251,70 @@ class InstallGhMergeGreenTests(unittest.TestCase):
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("cannot verify the pinned install", result.stderr)
         self.assertEqual(result.stdout, "")
+
+    def submitter_only_mac(self, verdict):
+        """This HOME is one of Leo's Macs (no local test suites); CI reads come from a fake glaeda-gh."""
+        role = self.root / ".local" / "lib" / "cmux-local-build-guards" / "build-role"
+        role.parent.mkdir(parents=True, exist_ok=True)
+        role.write_text("submitter-only\n")
+        fake = self.root / "fakebin" / "glaeda-gh"
+        fake.parent.mkdir(exist_ok=True)
+        fake.write_text(FAKE_GLAEDA)
+        fake.chmod(0o755)
+        self.env["GH_MERGE_GREEN_GLAEDA"] = str(fake)
+        self.set_ci(verdict)
+
+    def set_ci(self, verdict):
+        (self.root / "fakebin" / "verdict").write_text(verdict)
+
+    def ci_reads(self):
+        log = self.root / "fakebin" / "calls"
+        return log.read_text().splitlines() if log.exists() else []
+
+    def test_a_submitter_only_mac_installs_a_ci_green_commit_without_running_its_tests(self):
+        self.assert_ok(self.install())
+        self.submitter_only_mac("success")
+        # Its local tests would fail, so a v2 install proves they did not run here.
+        green = self.commit_version("v2", tests_pass=False)
+        result = self.assert_ok(self.installer("update"))
+        self.assertIn("CI fast guards", result.stderr)
+        self.assertNotIn("running", result.stderr)
+        self.assertEqual(self.gh_merge_green("x#7").stdout, "v2 x#7\n")
+        self.assertEqual((self.home / "checked").read_text().strip(), green)
+        self.assertTrue(any(green in call for call in self.ci_reads()), self.ci_reads())
+
+    def test_a_submitter_only_mac_waits_for_ci_that_has_not_finished(self):
+        self.assert_ok(self.install())
+        self.submitter_only_mac("pending")
+        pending = self.commit_version("v2", tests_pass=False)
+        result = self.assert_ok(self.installer("update"))
+        self.assertIn("not passed", result.stderr)
+        self.assertEqual(self.gh_merge_green("x#8").stdout, "v1 x#8\n")
+        self.assertFalse((self.home / "failed").exists())
+        self.assertNotEqual((self.home / "checked").read_text().strip(), pending)
+
+        self.set_ci("success")  # the next update installs it
+        self.assert_ok(self.installer("update"))
+        self.assertEqual(self.gh_merge_green("x#9").stdout, "v2 x#9\n")
+
+    def test_a_submitter_only_mac_keeps_its_install_when_ci_failed(self):
+        self.assert_ok(self.install())
+        self.submitter_only_mac("failure")
+        red = self.commit_version("v2", tests_pass=True)
+        result = self.installer("update")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("CI fast guards", result.stderr)
+        self.assertEqual((self.home / "failed").read_text().strip(), red)
+        self.assertEqual(self.gh_merge_green("x#10").stdout, "v1 x#10\n")
+
+    def test_a_submitter_only_mac_waits_when_glaeda_gh_is_missing(self):
+        self.assert_ok(self.install())
+        self.submitter_only_mac("success")
+        self.env["GH_MERGE_GREEN_GLAEDA"] = str(self.root / "fakebin" / "no-such-glaeda-gh")
+        self.commit_version("v2", tests_pass=False)
+        result = self.assert_ok(self.installer("update"))
+        self.assertIn("not passed", result.stderr)
+        self.assertEqual(self.gh_merge_green("x#11").stdout, "v1 x#11\n")
 
     def test_replaces_the_old_checkout_symlink(self):
         self.bin.mkdir()

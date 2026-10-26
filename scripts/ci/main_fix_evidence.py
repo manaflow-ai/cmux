@@ -97,14 +97,35 @@ class GitHub:
         return json_documents(self.run(["api", route, "--paginate"]))
 
     def log(self, repo: str, job: dict) -> str:
-        log = self.run(["run", "view", str(job["run_id"]), "--repo", repo,
-                        "--job", str(job["id"]), "--log"])
+        try:
+            log = self.run(["run", "view", str(job["run_id"]), "--repo", repo,
+                            "--job", str(job["id"]), "--log"])
+        except RateLimited:
+            raise
+        except Refused as error:
+            # A job that finished while its run goes on: gh serves no run log until the whole run
+            # completes (2026-10-24: the base tip's checks job, its run still compiling).
+            if "still in progress" not in str(error):
+                raise
+            log = ""
         if log.strip():
             return log
         # gh 2.45 prints nothing here for today's log archives. The job's raw log has no step
         # names; base_red_excuse.step_lines splits a log under UNKNOWN STEP by its `Run` groups.
-        raw = self.run(["api", f"repos/{repo}/actions/jobs/{job['id']}/logs"])
+        raw = self.raw_log(repo, job)
         return "".join(f"{job.get('name', '')}\tUNKNOWN STEP\t{line}\n" for line in raw.splitlines())
+
+    def raw_log(self, repo: str, job: dict) -> str:
+        route = f"repos/{repo}/actions/jobs/{job['id']}/logs"
+        try:
+            # gh 2.70+ refuses to print a log's colour codes without this flag; older gh lacks it.
+            return self.run(["api", route, "--allow-escape-sequences"])
+        except RateLimited:
+            raise
+        except Refused as error:
+            if "unknown flag" not in str(error):
+                raise
+        return self.run(["api", route])
 
 
 def latest_checks(repo: str, sha: str, github: GitHub) -> dict:
