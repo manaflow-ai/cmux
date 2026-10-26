@@ -206,6 +206,27 @@ await requireBrowserLane("agent-pane-paste-large-screenshots.test.ts", async () 
     await page.close();
   });
 
+  // Austin, 2026-10-25: Backspace takes a loading screenshot away at once, as its × does, instead
+  // of waiting for it to finish loading.
+  test("Backspace takes back a tile that is still loading", async () => {
+    const page = await newChat({ "chat.upload.begin": "hang" });
+    const prompt = page.locator(".acpmux-composer-prompt [contenteditable]");
+    await prompt.click();
+    // A file whose upload never answers stays a loading tile.
+    await page.evaluate(() => {
+      const data = new DataTransfer();
+      data.items.add(new File([new Uint8Array(4096)], "notes.bin", { type: "application/octet-stream" }));
+      const target = document.querySelector(".acpmux-composer-prompt [contenteditable]")!;
+      target.dispatchEvent(new ClipboardEvent("paste", { clipboardData: data, bubbles: true, cancelable: true }));
+    });
+    const loading = page.locator(".acpmux-attachment-pending");
+    await loading.waitFor();
+    await page.keyboard.press("Backspace");
+    expect(await loading.count()).toBe(0);
+    expect(await page.locator(".acpmux-attachment").count()).toBe(0);
+    await page.close();
+  });
+
   test("a file whose upload failed says why, and Retry attaches it", async () => {
     const page = await newChat({ "chat.upload.begin": "fail", "chat.upload.chunk": "ok", "chat.upload.finish": "ok" });
     await page.locator(".acpmux-composer-prompt [contenteditable]").click();
