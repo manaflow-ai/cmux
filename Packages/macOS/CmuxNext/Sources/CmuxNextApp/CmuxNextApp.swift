@@ -1,11 +1,14 @@
 import AppKit
 import CmuxNextAgentPane
+import CmuxNextBrowser
 import CmuxNextCloud
 import CmuxNextControl
 import CmuxNextDaemon
+import CmuxNextDesign
 import CmuxNextInput
 import CmuxNextLaunch
 import CmuxNextMallocZone
+import CmuxNextRemoteFetch
 import CmuxNextSidebar
 import CmuxNextTerminal
 import CmuxNextCompat
@@ -66,6 +69,10 @@ public struct CmuxNextApp {
         launchImages.prefetch(on: work) { DebugTimings.markLaunch($0) }
         TerminalLaunchFrames.beside(state).prefetch(on: work) { DebugTimings.markLaunch($0) }
         relaunchWake.begin(on: work)
+        // Tab favicons resolve their hosts on work's host-resolution slots (system lane), never on the pool;
+        // video wallpapers list the windows above theirs on its system lane, never on main.
+        BrowserFaviconLoader.shared.useResolver(SystemRemoteResolver(runner: work))
+        BackdropVideoPlayers.shared.lanes = work
         let wireStats = DaemonWireStats.forBuild()  // `debug.daemon.wire`'s counters; nil in a release build
         // The daemon connect overlaps AppKit's start (off the main thread).
         let prestart = DaemonService.prestart(launch: environment.launch, terminalEnvironment: environment.terminalEnvironment,

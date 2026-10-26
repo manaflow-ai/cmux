@@ -68,6 +68,7 @@ one move pool per push with the new-file rule (move_pools).
 from __future__ import annotations
 
 import argparse
+import bisect
 import collections
 import concurrent.futures
 import dataclasses
@@ -2369,7 +2370,7 @@ AWAITABLE = ("wait", "unregister")
 SEAM_BLOCKING = re.compile(
     r"\bFileManager\.checked\.|\bblockingContentsOf(File)?:|\.blockingResourceValues\(|\.blocking(ReadToEnd|Read|Write|"
     r"AvailableData|ReadDataToEndOfFile|Wait|WaitUntilExit|Sync|Run)\b|\bblocking(Read|Recv|Write|Send|XPCSendWithReply|"
-    r"PosixSpawn)\("
+    r"PosixSpawn)\(|\bblockingCall\("
     # the system-call seams (p02-threads-003)
     r"|\bblocking(SecItem(CopyMatching|Add|Update|Delete)|SecTrustEvaluate|SecStaticCodeCheckValidity|SecCodeCopy\w+"
     r"|AX(CopyAttributeValue|SetAttributeValue|PerformAction)|Getaddrinfo|WindowList(CopyWindowInfo|CreateImage\w*)"
@@ -2946,6 +2947,342 @@ def raw_blocking(changes: list[FileChange], moved: collections.Counter) -> list[
     return changed_debt(outside_seams(changes), judge)
 
 
+# raw-blocking-ext: the blocking primitives RAW_BLOCKING does not name (Chromium marks the same classes with a
+# ScopedBlockingCall: base/files/file_util_posix.cc, base/process/kill_posix.cc, sql/database.cc,
+# base/system/sys_info_mac.mm). Free functions need a `(?<![\w.])` lookbehind (or `Darwin.`), an argument, no
+# argument label and their C arity, so a method (`menu.removeItem(at:)`, `rename(id, to:)`), a one-argument
+# `stat(resolved)` or the `stat()` initializer is not one. A bare `open(` counts only with an `O_*` flag among its
+# arguments. LAContext's `evaluatePolicy` has no synchronous form (a `reply:` closure or `await`), so only
+# `canEvaluatePolicy` is refused.
+POSIX_CALLS = (r"fsync|flock|ftruncate|rename|unlink|mkdir|rmdir|lstat|stat|realpath|access|chmod|symlink|readlink|"
+               r"opendir|readdir|pread|pwrite|waitpid|wait4|waitid|sysctl|sysctlbyname|getpw\w*")
+# Each fixed-arity C function's argument count (getpw* varies: getpwuid 1, getpwuid_r 5; open takes 2 or 3).
+C_ARITY = {"fsync": 1, "flock": 2, "ftruncate": 2, "rename": 2, "unlink": 1, "mkdir": 2, "rmdir": 1, "lstat": 2,
+           "stat": 2, "realpath": 2, "access": 2, "chmod": 2, "symlink": 2, "readlink": 3, "opendir": 1, "readdir": 1,
+           "pread": 4, "pwrite": 4, "waitpid": 3, "wait4": 4, "waitid": 4, "sysctl": 6, "sysctlbyname": 5}
+RAW_BLOCKING_EXT = re.compile(
+    r"(?:\bDarwin\.|(?<![\w.]))(?P<free>" + POSIX_CALLS + r"|(?P<open>open))\((?!\s*\))|\bDarwin\.(read|write)\("
+    r"|\bFileHandle(\.init)?\(\s*for(Reading|Writing|Updating)"
+    r"|\.write\(contentsOf:|\.read\(upToCount:|\.seekToEnd(OfFile)?\(\)|\.synchronize(File)?\(\)"
+    r"|\bCGImage(SourceCreateWithURL|DestinationCreateWithURL|DestinationFinalize)\("
+    r"|\bsqlite3_(open|open_v2|prepare_v2|prepare_v3|step|exec|close|close_v2)\("
+    r"|\bproc_(pidinfo|pidpath|listpids)\(|\.canEvaluatePolicy\("
+    r"|\bHost\.current\(\)|\bprocessInfo\.hostName\b|\bFileManager\(\)\.(" + FILE_OPS + r")\(")
+RAW_EXT_SCAN = Prefiltered(RAW_BLOCKING_EXT, tuple(name + "(" for name in POSIX_CALLS.split("|") if "\\" not in name) + (
+    "getpw", "open(", "Darwin.", "FileHandle", "write(contentsOf:", "upToCount:", "seekToEnd", "synchronize", "CGImage",
+    "sqlite3_", "proc_", "canEvaluatePolicy(", "Host.current", "hostName", "FileManager()"))
+# Where a match names a declaration, not a call: `func rename(`, `case stat(`.
+DECLARED_AT = re.compile(r"\b(func|case)\s+$")
+# An argument that starts with a label: C functions take none, so `rename(id, to: name)` is a Swift method.
+ARGUMENT_LABEL = re.compile(r"\s*\w+\s*:(?!:)")
+O_FLAG = re.compile(r"\bO_[A-Z]")
+BRACE = re.compile(r"[{}]")
+ARGUMENT_TOKENS = re.compile(r"[()\[\]{},]")
+# The seam scopes: a call in a `blockingCall(.kind) { ... }` or `allowBlocking(.reason) { ... }` closure is marked.
+SEAM_SCOPE = re.compile(r"\b(blockingCall|allowBlocking)\s*\(")
+SIGNATURE = re.compile(r"\b(func|init[?!]?|subscript)\b")
+TYPE_NAME = re.compile(r"\b(?:class|struct|enum|actor|extension|protocol)\s+(?!(?:func|var|let)\b)(?P<name>[A-Za-z_]\w*)")
+# A declaration of a POSIX name that a bare call in its scope resolves to: a function, a local or member bound to a
+# value (`guard let rename = onRename`, `let stat = { ... }`), a function-typed property or a function-typed
+# parameter (`rename: @escaping (Target) -> Void`). `var stat: Bool` and `access: AccessLevel` call nothing; `open`
+# is never shadowed, because its `O_*` flag is the C signature.
+FUNCTION_TYPE = r"\s*:\s*(?:@\w+(?:\([^)]*\))?\s+|inout\s+)*\("
+POSIX_DECLARATION = re.compile(r"\bfunc\s+(?P<function>" + POSIX_CALLS + r")\b"
+                               r"|\b(?:let|var)\s+(?P<bound>" + POSIX_CALLS + r")\b(?=\s*=|" + FUNCTION_TYPE + r")"
+                               r"|[(,]\s*(?:\w+\s+)?(?P<parameter>" + POSIX_CALLS + r")(?=" + FUNCTION_TYPE + r")")
+# A name a file binds to a FileManager (`let fm = FileManager.default`, `fileManager: FileManager? = .default`,
+# `let files = FileManager()`); `FileManager.default.urls(` and `FileManager.SearchPathDirectory` bind nothing.
+FILE_MANAGER_BINDING = re.compile(
+    r"\b(?:let|var)\s+(?P<value>\w+)\s*(?::\s*FileManager\s*)?=\s*FileManager(?:\.default|\(\))(?![\w.(])"
+    r"|(?<![\w.])(?P<typed>\w+)\s*:\s*FileManager(?![\w.(])")
+
+
+class BraceBlocks:
+    """The brace blocks of one Version's code, read once: the block that holds a position, each block's parent and
+    header, and the blocks of each type name. A declaration is visible only in its scope (declaration_scope), so a
+    local in one function hides nothing in another."""
+
+    def __init__(self, lines: list[str], codes: list[str]) -> None:
+        self.lines, self.codes = lines, codes
+        self.parent: list[int] = []  # block -> enclosing block (-1: the file)
+        self.opened: list[tuple[int, int]] = []  # block -> (0-based line, column) of its `{`, in file order
+        self.starts: list[int] = []  # line -> the block open at the line's start
+        self.events: list[list[tuple[int, int]] | None] = []  # line -> [(brace column, block open after it)]
+        self.headers: dict[int, str] = {}
+        self.types: dict[str, list[int]] | None = None
+        stack = [-1]
+        for index, code in enumerate(codes):
+            self.starts.append(stack[-1])
+            if "{" not in code and "}" not in code:
+                self.events.append(None)
+                continue
+            events = []
+            for brace in BRACE.finditer(code):
+                if brace.group() == "{":
+                    stack.append(len(self.parent))
+                    self.parent.append(stack[-2])
+                    self.opened.append((index, brace.start()))
+                elif len(stack) > 1:
+                    stack.pop()
+                events.append((brace.start(), stack[-1]))
+            self.events.append(events)
+
+    def at(self, index: int, column: int) -> int:
+        """The innermost block open at COLUMN of line INDEX (-1: the file)."""
+        block = self.starts[index]
+        for position, after in self.events[index] or ():
+            if position >= column:
+                break
+            block = after
+        return block
+
+    def chain(self, block: int) -> list[int]:
+        """BLOCK and the blocks around it, innermost first, ending with the file (-1)."""
+        out = [block]
+        while block != -1:
+            block = self.parent[block]
+            out.append(block)
+        return out
+
+    def header(self, block: int) -> str:
+        """BLOCK's whole header up to its `{` (block_header)."""
+        if block not in self.headers:
+            index, column = self.opened[block]
+            self.headers[block] = block_header(self.lines, index + 1, self.codes[index][:column + 1])
+        return self.headers[block]
+
+    def declaration_scope(self, index: int, column: int, owner: str | None) -> tuple[int, ...]:
+        """The blocks a declaration at COLUMN of line INDEX is visible in: a function parameter's body (OWNER
+        "function"), a closure parameter's closure (OWNER "closure"), a local's block, or a member's type body and
+        the file's extensions of that type."""
+        block = self.at(index, column)
+        if owner == "function":
+            body = bisect.bisect_right(self.opened, (index, column))
+            if (body < len(self.opened) and self.opened[body][0] - index <= HEADER_LINES and self.parent[body] == block
+                    and SIGNATURE.search(self.header(body))):
+                return (body,)
+            return ()  # a protocol requirement or a function type: no body to see it
+        if owner == "closure":
+            return (block,)
+        named = TYPE_NAME.search(self.header(block)) if block != -1 else None
+        if named is None:
+            return (block,)
+        if self.types is None:
+            self.types = {}
+            for other, (line, at) in enumerate(self.opened):
+                found = TYPE_NAME.search(self.codes[line][:at + 1])
+                if found:
+                    self.types.setdefault(found.group("name"), []).append(other)
+        return (block, *self.types.get(named.group("name"), ()))
+
+
+def codes_of(version: Version) -> list[str]:
+    """code_of of each line of VERSION, read once."""
+    if "codes" not in version.memo:
+        version.memo["codes"] = [code_of(line) for line in version.lines]
+    return version.memo["codes"]
+
+
+def blocks_of(version: Version) -> BraceBlocks:
+    if "brace_blocks" not in version.memo:
+        version.memo["brace_blocks"] = BraceBlocks(version.lines, codes_of(version))
+    return version.memo["brace_blocks"]
+
+
+def declarations_in_scope(version: Version, pattern: re.Pattern, groups: tuple[str, ...],
+                          manager: bool) -> dict[tuple[str, int], list[tuple[int, int, bool]]]:
+    """Each PATTERN match in VERSION's code, by (the name in its matched group of GROUPS, each block of its scope):
+    [(line, column, whether it binds a FileManager)] in file order. A group named `parameter` is a parameter;
+    MANAGER says whether to judge the FileManager binding."""
+    codes = codes_of(version)
+    if "text" not in version.memo:
+        version.memo["text"] = "\n".join(codes)
+        version.memo["offsets"] = list(itertools.accumulate((len(code) + 1 for code in codes[:-1]), initial=0))
+    text, offsets = version.memo["text"], version.memo["offsets"]
+    found: dict[tuple[str, int], list[tuple[int, int, bool]]] = {}
+    if pattern.search(text) is None:
+        return found
+    scopes = blocks_of(version)
+    for match in pattern.finditer(text):
+        group = next(g for g in groups if match.group(g))
+        owner = parameter_owner(text, match.start(group)) if group == "parameter" else None
+        if group == "parameter" and owner is None:
+            continue  # a call's argument label (`list(fileManager: fileManager)`) declares nothing
+        line = bisect.bisect_right(offsets, match.start(group)) - 1
+        column = match.start(group) - offsets[line]
+        binds = False
+        if manager:
+            binding = (FILE_MANAGER_BINDING.match(text, match.start()) if group != "parameter" else None) \
+                or FILE_MANAGER_BINDING.match(text, match.start(group))
+            binds = binding is not None and not (binding.group("value") and line + 1 < len(codes)
+                                                 and codes[line + 1].lstrip().startswith("."))
+        for block in scopes.declaration_scope(line, column, owner):
+            found.setdefault((match.group(group), block), []).append((line, column, binds))
+    return found
+
+
+PARAMETER_LIST_REACH = 4000  # the most characters one parameter list is read back across
+SIGNATURE_BEFORE = re.compile(r"\b(?:func\s+[^\s(]+|init[?!]?|subscript)\s*(?:<[^()]*>)?\s*$")
+CLOSURE_BEFORE = re.compile(r"\{\s*(?:(?:\[[^\]]*\]|@\w+)\s*)*$")
+
+
+def parameter_owner(text: str, offset: int) -> str | None:
+    """Whether the `name:` at OFFSET of TEXT is a parameter of a function signature ("function"), of a closure
+    (`{ (name: T) in`, "closure"), or neither (a call's argument label: None): what comes before the innermost
+    `(` it is in."""
+    depth = 0
+    for position in range(offset - 1, max(-1, offset - PARAMETER_LIST_REACH), -1):
+        char = text[position]
+        if char == ")":
+            depth += 1
+        elif char == "(":
+            if depth == 0:
+                before = text[max(0, position - 200):position]
+                if SIGNATURE_BEFORE.search(before):
+                    return "function"
+                return "closure" if CLOSURE_BEFORE.search(before) else None
+            depth -= 1
+        elif char in "{}" and depth == 0:
+            return None
+    return None
+
+
+def nearest_declaration(version: Version, found: dict, name: str, index: int,
+                        column: int) -> tuple[int, int, bool] | None:
+    """The declaration of NAME that a use at COLUMN of line INDEX reads: in the innermost scope that declares it, the
+    latest one before the use (or that scope's first)."""
+    if not found:
+        return None
+    scopes = blocks_of(version)
+    for block in scopes.chain(scopes.at(index, column)):
+        candidates = found.get((name, block))
+        if candidates:
+            before = [c for c in candidates if (c[0], c[1]) <= (index, column)]
+            return before[-1] if before else candidates[0]
+    return None
+
+
+def call_arguments(version: Version, index: int, open_paren: int) -> list[str] | None:
+    """The arguments of the call whose `(` is at OPEN_PAREN of line INDEX, read across lines to its `)` and split at
+    its own commas; None when the list does not close within one header's reach."""
+    codes = codes_of(version)
+    arguments: list[str] = []
+    current: list[str] = []
+    depth = 0
+    for line in range(index, min(len(codes), index + HEADER_LINES)):
+        code = codes[line]
+        start = open_paren + 1 if line == index else 0
+        for token in ARGUMENT_TOKENS.finditer(code, open_paren if line == index else 0):
+            char = token.group()
+            if char in "([{":
+                depth += 1
+            elif char in ")]}":
+                depth -= 1
+                if depth == 0:
+                    current.append(code[start:token.start()])
+                    last = " ".join(current)
+                    if arguments or last.strip():
+                        arguments.append(last)
+                    return arguments
+            elif depth == 1:
+                current.append(code[start:token.start()])
+                arguments.append(" ".join(current))
+                current, start = [], token.end()
+        current.append(code[start:])
+    return None
+
+
+def posix_call(version: Version, index: int, match: re.Match) -> bool:
+    """Whether MATCH, a free-function match on line INDEX, is the C function: its arguments (read to the call's `)`)
+    carry no label and number its C arity, a bare `open` has an `O_*` flag, a `wait*` has no WNOHANG, and no
+    declaration in scope shadows the name (`Darwin.` and `open` never are)."""
+    name = match.group("free")
+    arguments = call_arguments(version, index, match.end() - 1)
+    if arguments is None:
+        return not match.group("open")
+    if any(ARGUMENT_LABEL.match(argument) for argument in arguments):
+        return False
+    if C_ARITY.get(name, len(arguments)) != len(arguments):
+        return False
+    joined = " ".join(arguments)
+    if match.group("open"):
+        return match.group(0).startswith("Darwin.") or O_FLAG.search(joined) is not None
+    if name in ("waitpid", "wait4", "waitid") and "WNOHANG" in joined:
+        return False
+    if match.group(0).startswith("Darwin."):
+        return True
+    if "posix_shadows" not in version.memo:
+        version.memo["posix_shadows"] = declarations_in_scope(version, POSIX_DECLARATION,
+                                                              ("function", "bound", "parameter"), False)
+    return nearest_declaration(version, version.memo["posix_shadows"], name, index, match.start("free")) is None
+
+
+def file_manager_calls(version: Version) -> tuple[re.Pattern, dict] | None:
+    """`<name>[?!]?.<FILE_OPS>(` for each name VERSION binds to a FileManager, with every declaration of those names
+    by scope (declarations_in_scope), or None when it binds none. A `let x = FileManager.default` whose next line
+    starts with `.` is a chained call, not a binding."""
+    if "file_manager_calls" not in version.memo:
+        lines, codes = version.lines, codes_of(version)
+        names = set()
+        for index, line in enumerate(lines):
+            if "FileManager" not in line:
+                continue
+            for match in FILE_MANAGER_BINDING.finditer(codes[index]):
+                if match.group("value") and index + 1 < len(lines) and codes[index + 1].lstrip().startswith("."):
+                    continue
+                names.add(match.group("value") or match.group("typed"))
+        result = None
+        if names:
+            alternatives = "|".join(sorted(names))
+            declared = re.compile(r"\b(?:let|var)\s+(?P<bound>" + alternatives + r")\b"
+                                  r"|[(,]\s*(?:\w+\s+)?(?P<parameter>" + alternatives + r")\s*:(?!:)")
+            result = (re.compile(r"(?<![\w$])(" + alternatives + r")[?!]?\.(" + FILE_OPS + r")\("),
+                      declarations_in_scope(version, declared, ("bound", "parameter"), True))
+        version.memo["file_manager_calls"] = result
+    return version.memo["file_manager_calls"]
+
+
+def in_seam_scope(version: Version, index: int, column: int) -> bool:
+    """Whether COLUMN of line INDEX runs in a `blockingCall(...) {` or `allowBlocking(...) {` closure of its own
+    function: the seam marks the call there, as Chrome's ScopedBlockingCall does."""
+    scopes = blocks_of(version)
+    for block in scopes.chain(scopes.at(index, column))[:-1]:
+        header = scopes.header(block)
+        if SEAM_SCOPE.search(header):
+            return True
+        if OPENER_STOP.search(header):
+            return False
+    return False
+
+
+def blocking_ext_match(version: Version, index: int, code: str) -> bool:
+    """Whether CODE, line INDEX of VERSION, holds a raw-blocking-ext primitive outside a seam scope: a
+    RAW_BLOCKING_EXT call (not a declaration; a free function only as posix_call reads it), or a FileManager disk op
+    through a name whose nearest declaration in scope binds a FileManager."""
+    if RAW_EXT_SCAN.search(code):
+        for match in RAW_BLOCKING_EXT.finditer(code):
+            if DECLARED_AT.search(code[:match.start()]):
+                continue
+            if match.group("free") and not posix_call(version, index, match):
+                continue
+            if not in_seam_scope(version, index, match.start()):
+                return True
+    found = file_manager_calls(version) if "." in code else None
+    if found is None:
+        return False
+    calls, declarations = found
+    for call in calls.finditer(code):
+        declaration = nearest_declaration(version, declarations, call.group(1), index, call.start())
+        if declaration is not None and declaration[2] and not in_seam_scope(version, index, call.start()):
+            return True
+    return False
+
+
+def raw_blocking_ext(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
+    """Added raw-blocking-ext primitives, on any thread: main-blocking and raw-blocking do not see them."""
+    return changed_debt(outside_seams(changes), blocking_ext_match)
+
+
 def doc_labels(doc: str) -> list[re.Pattern]:
     """The thread and queue labels the threading doc's "Registered threads and queues" section lists in
     backticks, each `<x>` inside a label a wildcard (a token that is only a placeholder lists nothing)."""
@@ -3052,6 +3389,17 @@ BLOCKING_RULES = (
          "queue at its QoS (`nonisolated var unownedExecutor`, the HomeCache pattern; a comment is no executor)",
          "// blocking-allow: <why this blocking call may hold a pool thread>",
          blocking_on_pool),
+    Rule("raw-blocking-ext", "A blocking primitive raw-blocking does not name: a FileManager disk op through a "
+         "variable or `FileManager()`, POSIX file calls (`open(..., O_*)`, `stat(path, &st)`, `rename`, `unlink`, "
+         "`fsync`, `flock`, `realpath`, ...), `waitpid` without WNOHANG, FileHandle open/write/read/seek/synchronize, "
+         "ImageIO URL I/O, `sqlite3_*`, `sysctl`, `proc_pid*`, `canEvaluatePolicy`, `getpw*`, `Host.current()`",
+         "each is disk, kernel or daemon I/O the runtime detector cannot see: on the main thread it drops frames "
+         "unseen, and off it nobody knows the thread blocks",
+         "from code that runs off the main thread, use `FileManager.checked.<op>` instead of a FileManager variable, "
+         "`handle.blockingRead(upToCount:)` / `handle.blockingWrite(contentsOf:)` for a FileHandle, and wrap any "
+         "other call in `blockingCall(.fileIO | .systemCall | .processWait) { ... }` (CmuxNextCompat/Threading)",
+         "// blocking-allow: <why the seam does not fit>",
+         raw_blocking_ext),
     Rule("maybe-main-blocking", "A blocking call in a caller-isolated async function (warning only)",
          "under NonisolatedNonsendingByDefault a non-@concurrent async function outside an actor runs on its caller's "
          "executor, so a main-actor caller runs the blocking call on main (AsyncProcess.run: 807 ms, 2026-10-24)",

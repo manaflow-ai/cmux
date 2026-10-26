@@ -1,6 +1,6 @@
 public import AppKit
 public import Foundation
-import CmuxNextRemoteFetch
+public import CmuxNextRemoteFetch
 
 /// Loads favicons for tabs.
 public protocol BrowserFaviconLoading: AnyObject {
@@ -33,14 +33,21 @@ public final class BrowserFaviconLoader: BrowserFaviconLoading {
         var url: URL
     }
 
-    private let fetcher: GuardedRemoteFetch
+    private var fetcher: GuardedRemoteFetch
     private var caches: [BrowserProfileID: LRUCache<URL, NSImage>] = [:]
     private var inFlight: [Key: Task<NSImage?, Never>] = [:]
 
+    /// A loader that fetches nothing until ``useResolver(_:)``.
     public init() {
         fetcher = GuardedRemoteFetch(
-            maximumBytes: Self.maximumBytes, timeout: .seconds(30), accept: GuardedRemoteFetch.imageAccept
+            maximumBytes: Self.maximumBytes, timeout: .seconds(30), accept: GuardedRemoteFetch.imageAccept,
+            resolver: UnwiredRemoteResolver()
         )
+    }
+
+    /// Gives the fetch the App's resolver (`SystemRemoteResolver` on its lanes); AppServices wires ``shared``.
+    public func useResolver(_ resolver: any RemoteAddressResolving) {
+        fetcher.resolver = resolver
     }
 
     init(resolver: any RemoteAddressResolving, transport: any RemoteFetchTransport) {

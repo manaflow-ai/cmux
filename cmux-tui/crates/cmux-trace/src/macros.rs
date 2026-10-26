@@ -73,6 +73,7 @@ category_table! {
     ghostty: GHOSTTY,
     resize: RESIZE,
     webui: WEBUI,
+    log: LOG,
 }
 
 // Every bit below the table's length names a category.
