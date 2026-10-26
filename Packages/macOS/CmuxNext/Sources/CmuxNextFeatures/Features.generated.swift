@@ -592,12 +592,12 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
-    /// The sidebar list, rail and space bar, the tab strips, the saved groups bar, agent cursor tags, shown hover cards, hover reveals and thin scrollers hover on the first pointer move of a display frame and once more at the frame, to the latest point; entering, leaving and clicking still act at once.
+    /// The sidebar, tab strips, saved groups bar, palette, address bar suggestions, page menus, agent cursor tags, hover cards, hover reveals and thin scrollers hover on a display frame's first pointer move and once more at the frame, to the latest point; entering, leaving, clicking and keys act at once.
     public static let pointerFrameHover = Feature(
         index: 34,
         name: "pointerFrameHover",
         owner: "PL-motion-cef",
-        description: "The sidebar list, rail and space bar, the tab strips, the saved groups bar, agent cursor tags, shown hover cards, hover reveals and thin scrollers hover on the first pointer move of a display frame and once more at the frame, to the latest point; entering, leaving and clicking still act at once.",
+        description: "The sidebar, tab strips, saved groups bar, palette, address bar suggestions, page menus, agent cursor tags, hover cards, hover reveals and thin scrollers hover on a display frame's first pointer move and once more at the frame, to the latest point; entering, leaving, clicking and keys act at once.",
         kind: .perfPath,
         process: .app,
         chromiumFeature: nil,

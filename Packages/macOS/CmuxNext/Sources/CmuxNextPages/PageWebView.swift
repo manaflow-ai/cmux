@@ -90,6 +90,12 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     var shouldFocusOnAttach = false
     /// The page's popup past the window's edge (PageWebView+Popup.swift), made on first use.
     var popupHost: WebPopupHost?
+    /// The windows' frame-aligned pointer input for the page's popup (feature `pointerFrameHover`, the
+    /// App's `hoverFrameInput`; ``WebUIHost/open(_:)`` and ``PageHostPool`` claims set it): the popup's
+    /// rows hover at most twice a frame. Nil: each move.
+    public var popupHoverFrameInput: FrameInputCoalescers? {
+        didSet { popupHost?.hoverFrameInput = popupHoverFrameInput }
+    }
     /// The last theme payload sent, so a redraw that changes nothing sends nothing.
     private var appliedTheme: String?
     /// Pushes every color change of this view's scope to the page, shown or hidden, so a page
