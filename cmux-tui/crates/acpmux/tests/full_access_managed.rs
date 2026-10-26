@@ -33,6 +33,7 @@ const KEY: &str = "5e1f0c2a9b8d7e6f5a4b3c2d1e0f9a8b7c6d5e4f3a2b1c0d9e8f7a6b5c4d3
 const FAKE_APP_SERVER: &str =
     concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_codex_app_server.py");
 const FAKE_AGENT: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+const FAKE_CLAUDE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_claude.py");
 
 /// Where case `name` keeps its home.
 fn home_path(name: &str) -> PathBuf {
@@ -78,6 +79,9 @@ fn home(name: &str) -> PathBuf {
             // A harness with a full-access mode whose mode changes take 1.5 s to answer.
             "slow-switcher": {"argv": ["python3", FAKE_AGENT], "env": {"FAKE_PLAN_MODE": "1",
                               "FAKE_FULL_ACCESS": "1", "FAKE_SET_MODE_DELAY_MS": "1500"}},
+            // Claude Code pinned to bypassPermissions, whose start takes 1.5 s to answer.
+            "claude-pinned-slow": {"argv": ["python3", FAKE_CLAUDE, "--permission-mode=bypassPermissions"],
+                                   "kind": "claude-stdio", "env": {"FAKE_CLAUDE_INIT_DELAY_MS": "1500"}},
         },
         "defaultHarness": "codex",
         "permissionPolicy": "ask",
@@ -358,6 +362,20 @@ const BOUND: &[Case] = &[
             app.push(off()).await;
             let r = app.reply(id).await;
             assert_eq!(r["error"]["data"]["reason"], "full_access_off", "the switch ran on: {r}");
+        })
+    }),
+    ("round 10: a cold Claude start that the push overtakes does not run in full access", |name| {
+        Box::pin(async move {
+            let (dir, _daemon, mut app) = daemon(name, true).await;
+            // The start passes the pinned check, spawns Claude Code in bypassPermissions, then
+            // waits 1.5 s on its initialize; the push lands then.
+            let params = json!({"cwd": dir.join("work"), "mcpServers": [],
+                                "_meta": {"acpmux": {"harness": "claude-pinned-slow"}}});
+            let id = app.send("session/new", params).await;
+            tokio::time::sleep(Duration::from_millis(400)).await;
+            app.push(off()).await;
+            let r = app.reply(id).await;
+            assert_eq!(r["error"]["data"]["reason"], "full_access_off", "Claude ran on: {r}");
         })
     }),
 ];
