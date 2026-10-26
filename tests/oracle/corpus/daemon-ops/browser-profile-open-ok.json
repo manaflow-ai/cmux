@@ -94,6 +94,34 @@
         "settled"
       ],
       "note": "an app-drawn tab in the fixture pane whose record names the fixture profile; the daemon never loads the URL"
+    },
+    {
+      "id": "retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current",
+        "workspace": "$step:fx-workspace#/value/workspace_id",
+        "screen": "$step:fx-workspace#/value/screen_id",
+        "pane": "$step:fx-workspace#/value/pane_id"
+      },
+      "args": {
+        "method": "browser.profile.open",
+        "params": {
+          "url": "http://127.0.0.1:9/",
+          "profile": "$step:fx-browser-profile#/value/browser_profile/id"
+        },
+        "idempotencyKey": "browser-profile-open-ok.call"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "checkpoint": [
+        "before",
+        "settled"
+      ],
+      "note": "I10: step call again with its idempotency key; the daemon replays its reply, adds no journal record and changes no facet"
     }
   ],
   "invariants": [

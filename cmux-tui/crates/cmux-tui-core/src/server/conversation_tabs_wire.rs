@@ -24,9 +24,10 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use serde::Deserialize;
 use serde_json::{Value, json};
 
-use super::{
-    BudgetedText, MessageWriter, Mux, PaneId, SurfaceId, WorkspaceId, paired_surface_size,
+use super::tabs_wire::{
+    BindConversationTabSessionParams as BindSessionParams, NewConversationTabParams,
 };
+use super::{BudgetedText, MessageWriter, Mux, PaneId, paired_surface_size};
 use crate::Actor;
 use crate::state::conversation_tabs::ConversationTabTarget;
 use crate::state::conversation_tabs_store::{
@@ -35,48 +36,6 @@ use crate::state::conversation_tabs_store::{
     conversation_tabs_present, downgrade_conversation_tabs,
 };
 use crate::workspace_registry::WorkspaceMutation;
-
-/// `new-conversation-tab`: a tab showing `conversation` of the `local` or
-/// `cloud` conversation owner, an acpmux `agent_session`
-/// (`agent-session-tabs-v1`), or one of the app's own pages, by `page` id
-/// (`page-tabs-v1`). With `origin` and
-/// `mutation_id` a retry returns the tab the first request created. With
-/// `transaction` (`conversation-tab-transaction-v1`) the raw `tab-added`
-/// delta of the new tab and the result carry it; a replay echoes it in the
-/// result only.
-#[derive(Deserialize)]
-pub(super) struct NewConversationTabParams {
-    #[serde(default)]
-    pane: Option<PaneId>,
-    /// A workspace to put the tab in (its first pane when it is empty).
-    #[serde(default)]
-    workspace: Option<WorkspaceId>,
-    #[serde(default)]
-    conversation: Option<String>,
-    #[serde(default)]
-    owner: Option<String>,
-    #[serde(default)]
-    agent_session: Option<AgentSessionParams>,
-    #[serde(default)]
-    page: Option<String>,
-    /// What the page shows (`page-tab-route-v1`); only with `page`.
-    #[serde(default)]
-    route: Option<String>,
-    #[serde(default)]
-    origin: Option<String>,
-    #[serde(default)]
-    mutation_id: Option<String>,
-    #[serde(default)]
-    cols: Option<u16>,
-    #[serde(default)]
-    rows: Option<u16>,
-    #[serde(default)]
-    transaction: Option<String>,
-    /// With `pane`: the tab goes in a new pane split from it
-    /// (`conversation-tab-split-v1`).
-    #[serde(default)]
-    split: Option<ConversationTabSplitParams>,
-}
 
 /// The client transaction echo on `new-conversation-tab`.
 pub(crate) const CONVERSATION_TAB_TRANSACTION_CAPABILITY: &str = "conversation-tab-transaction-v1";
@@ -89,7 +48,8 @@ pub(crate) const CONVERSATION_TAB_SPLIT_CAPABILITY: &str = "conversation-tab-spl
 
 /// The new pane of a conversation tab's split: its side of the source pane
 /// and, as `split-client-keys-v1`, the caller-minted public id of the pane.
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
+#[cfg_attr(test, derive(serde::Serialize))]
 #[serde(deny_unknown_fields)]
 pub(super) struct ConversationTabSplitParams {
     direction: String,
@@ -134,7 +94,8 @@ impl ConversationTabSplitParams {
 /// The acpmux session an agent tab shows: the install that runs it, the
 /// session (absent for a new chat), the agent kind and the display name of
 /// the host machine.
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
+#[cfg_attr(test, derive(serde::Serialize))]
 #[serde(deny_unknown_fields)]
 pub(super) struct AgentSessionParams {
     host: String,
@@ -308,31 +269,6 @@ pub(super) fn create(
         result.insert("transaction", json!(transaction));
     }
     Ok(result)
-}
-
-/// `bind-conversation-tab-session`: set an agent tab's session to `session`
-/// when its current session is `expected_session` (null: unbound), and its
-/// harness to `harness` when given.
-#[derive(Deserialize)]
-pub(super) struct BindSessionParams {
-    surface: SurfaceId,
-    session: String,
-    /// Required; JSON null names an unbound tab.
-    #[serde(deserialize_with = "required_nullable")]
-    expected_session: Option<String>,
-    /// The agent the session runs, as its machine's acpmux reports it; set
-    /// in the same commit (a bind of the tab's own session with another
-    /// harness updates the harness alone).
-    #[serde(default)]
-    harness: Option<String>,
-}
-
-/// A field that must be present and may be null (serde treats a missing
-/// `Option` field as null unless the field has its own deserializer).
-fn required_nullable<'de, D: serde::Deserializer<'de>>(
-    deserializer: D,
-) -> Result<Option<String>, D::Error> {
-    Option::deserialize(deserializer)
 }
 
 pub(super) fn bind(

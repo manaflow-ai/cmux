@@ -13,7 +13,8 @@ final class FindBarView: NSView {
     let model: BrowserFindModel
 
     let pill: FindPillView
-    private var findTask: Task<Void, Never>?
+    /// The current search; tests await it.
+    private(set) var findTask: Task<Void, Never>?
 
     /// The pill's material: glass, or opaque under Reduce Transparency.
     var glass: OverlaySurfaceView? { pill.surface }
@@ -65,6 +66,8 @@ final class FindBarView: NSView {
         onClose?()
     }
 
+    /// One search. An engine that reports every result (``BrowserFindUpdating``: Chromium's
+    /// FIND_RESULT events) updates the pill with each, else the pill shows the answer.
     private func run(_ direction: BrowserFindDirection) {
         findTask?.cancel()
         guard let tab else { return }
@@ -72,11 +75,30 @@ final class FindBarView: NSView {
         let caseSensitive = pill.matchCase
         model.setQuery(text)
         findTask = Task { [weak self] in
-            let result = await tab.find(text, direction: direction, caseSensitive: caseSensitive)
+            let result: BrowserFindResult
+            if let updating = tab as? any BrowserFindUpdating {
+                var updated = false
+                result = await updating.find(text, direction: direction, caseSensitive: caseSensitive) { [weak self] update in
+                    updated = true
+                    self?.apply(update, for: text, caseSensitive: caseSensitive)
+                }
+                // The updates are the only writer once one came: the answer is the first final
+                // result, and a later one of the same search may already have corrected it.
+                guard !updated else { return }
+            } else {
+                result = await tab.find(text, direction: direction, caseSensitive: caseSensitive)
+            }
             guard !Task.isCancelled, let self else { return }
-            model.record(result, for: text)
-            show(result, for: text)
+            apply(result, for: text, caseSensitive: caseSensitive)
         }
+    }
+
+    /// Shows a result of the search for `text`; one of an earlier search (the query or the case
+    /// toggle changed since) shows nothing.
+    private func apply(_ result: BrowserFindResult, for text: String, caseSensitive: Bool) {
+        guard text == pill.query, caseSensitive == pill.matchCase else { return }
+        model.record(result, for: text)
+        show(result, for: text)
     }
 
     private func show(_ result: BrowserFindResult, for text: String) {

@@ -7,6 +7,7 @@ import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextSettings
 import CmuxNextWakeups
+import CmuxNextWorkspaceRepair
 import Foundation
 import enum CmuxNextLayout.ChatColumnPlacement
 import enum CmuxNextLayout.NewChatPlacement
@@ -36,10 +37,11 @@ enum TabLifecycle {
             let selected = ctx.services.paneController(for: focused)?.selectedTab
             let start = cwd ?? NewTerminalStart.uninherited(.window, services: ctx.services, daemon: daemon, besides: selected)
                 ?? NewTerminalStart.inherited(besides: selected, in: focused, services: ctx.services) ?? selected?.cwd ?? focused.tabs.first?.cwd
-            ctx.registry.track(Task {
-                _ = try? await windows.createWorkspace(WorkspaceSpawn(cwd: start, keep: keep == true), on: daemon, into: windowID)
-                return nil
-            })
+            let spawn = WorkspaceSpawn(cwd: start, keep: keep == true)
+            // The create is awaited off main (WindowManager shows the workspace); nothing is left for main after it.
+            ctx.registry.trackWork(owner: "TabLifecycle.newTerminalWorkspace", on: ctx.services.mainWork) {
+                _ = try? await windows.createWorkspace(spawn, on: daemon, into: windowID)
+            } then: { _ in nil }
             return
         }
         // `layout.newPanePlacement: split`: a new pane like New Pane (Auto Layout) (PanePlacementRouting).
@@ -80,6 +82,15 @@ enum TabLifecycle {
         }
     }
 
+    /// An empty workspace's first tab through its repair owner: the New Tab page (`page`), else a terminal.
+    private static func fillFirstTab(_ key: WorkspaceKey, of workspace: WorkspaceModel, page: Bool, repair: EmptyWorkspaceRepair,
+                                     on daemon: DaemonService, _ connection: DaemonConnection, _ services: AppServices) async throws {
+        _ = try await repair.fillFirstTab(key) {
+            if page { return try await services.agentTabs.openFirstPage(in: workspace, on: daemon, services: services) }
+            return try await connection.createTerminal(in: key, cwd: daemon.defaultCwd).surface
+        }
+    }
+
     /// `newTab.default` (Cmd-T, the strip's +): a person always gets the New
     /// Tab page, where a terminal, browser or chat is picked; nothing is
     /// opened for them (Leo 2026-10-12), unless `tabs.terminalFirst` asks
@@ -112,17 +123,13 @@ enum TabLifecycle {
             let services = ctx.services
             let page = invocation.origin == .user && followsSetting && !NewTabKind.terminalFirst(services)
                 && services.agentTabs.opensFirstPage(on: daemon)
-            ctx.registry.track(Task { @MainActor in
-                do {
-                    _ = try await repair.fillFirstTab(key) {
-                        if page { return try await services.agentTabs.openFirstPage(in: workspace, on: daemon, services: services) }
-                        return try await connection.createTerminal(in: key, cwd: daemon.defaultCwd).surface
-                    }
-                    return nil
-                } catch {
-                    return ActionWorkFailure("new terminal", mayHaveApplied: true, terminalMayAppear: true)
-                }
-            })
+            // The first tab's create is awaited off main; the repair owner runs it on main.
+            ctx.registry.trackWork(owner: "TabLifecycle.fillFirstTab", on: services.mainWork) {
+                try await fillFirstTab(key, of: workspace, page: page, repair: repair, on: daemon, connection, services)
+            } then: { result in
+                guard case .failure = result else { return nil }
+                return ActionWorkFailure("new terminal", mayHaveApplied: true, terminalMayAppear: true)
+            }
             return
         }
         let controller = ctx.services.paneController(for: pane)
@@ -278,16 +285,19 @@ enum TabLifecycle {
         case .explicit(let id):
             return openInProfile(ctx, pane: pane, url: url, engine: engine, profile: id, background: background, then: agentTab)
         case .agent:
-            let profiles = ctx.services.browserProfiles
-            ctx.registry.track(Task { @MainActor in
-                do {
-                    let id = try await AgentBrowserProfile.ensure(profiles)
-                    openInProfile(ctx, pane: pane, url: url, engine: engine, profile: id, background: background, then: agentTab)
+            let profiles = ctx.services.browserProfiles, placed = agentTab
+            // The agent profile is made off main if needed; the tab opens in it in one task on main.
+            ctx.registry.trackWork(owner: "TabLifecycle.agentProfile", on: ctx.services.mainWork) {
+                try await AgentBrowserProfile.ensure(profiles)
+            } then: { result in
+                switch result {
+                case .success(let id):
+                    openInProfile(ctx, pane: pane, url: url, engine: engine, profile: id, background: background, then: placed)
                     return nil
-                } catch {
+                case .failure(let error):
                     return "agent-browser-profile: \(error)"
                 }
-            })
+            }
             return
         }
         // `layout.newPanePlacement: split` with `layout.tileBrowsers`: a person's browser opens
@@ -355,16 +365,19 @@ enum TabLifecycle {
         }
         let address = url?.absoluteString ?? ctx.services.newTabAddress(for: choice)
         let logger = ctx.services.daemon.logger
-        ctx.registry.track(Task {
-            do {
-                let surface = try await browserTabs.open(choice, in: pane, url: address, profile: profile)
+        // The open is awaited off main; the caller's placement of the new tab is the run's completion.
+        ctx.registry.trackWork(owner: "TabLifecycle.openOffscreen", on: ctx.services.mainWork) {
+            try await browserTabs.open(choice, in: pane, url: address, profile: profile)
+        } then: { result in
+            switch result {
+            case .success(let surface):
                 agentTab?(surface)
                 return nil
-            } catch {
+            case .failure(let error):
                 logger.error("new-frontend-browser-tab failed: \(String(describing: error), privacy: .public)")
                 return "new-frontend-browser-tab: \(error)"
             }
-        })
+        }
     }
 
     /// With an explicit tab target the tab may be in any workspace; without

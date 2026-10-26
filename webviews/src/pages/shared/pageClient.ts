@@ -91,6 +91,8 @@ export interface ReplyHandler {
 }
 
 export const RECEIVE_NAME = "__cmuxPageReceive";
+/** The batch form: the host sends one frame's envelopes as one script (PageScriptPipeline). */
+export const RECEIVE_MANY_NAME = "__cmuxPageReceiveMany";
 
 /** The parked-document flag (pageLifecycle.ts); the client holds calls until the claim. */
 export { PARKED_NAME };
@@ -189,7 +191,8 @@ interface ClaimLocation {
 
 /**
  * The bridge client: the page posts envelopes and awaits the reply; the host pushes events and its
- * own calls through `window.__cmuxPageReceive(envelope)`. Every page that boots through it serves
+ * own calls through `window.__cmuxPageReceive(envelope)`, or one frame's envelopes through
+ * `window.__cmuxPageReceiveMany(envelopes)`. Every page that boots through it serves
  * the pooled host's claim (`CLAIM_OP`); no page code takes part.
  */
 export class BridgePageClient implements PageClient {
@@ -210,6 +213,7 @@ export class BridgePageClient implements PageClient {
     private readonly target: Record<string, unknown> = globalThis as unknown as Record<string, unknown>,
   ) {
     target[RECEIVE_NAME] = (message: unknown) => this.receive(message);
+    target[RECEIVE_MANY_NAME] = (messages: unknown) => this.receiveMany(messages);
     this.parked = target[PARKED_NAME] === true;
     this.restore = takePageRestore(target);
     this.location = target.location as ClaimLocation | undefined;
@@ -365,6 +369,21 @@ export class BridgePageClient implements PageClient {
     if (held.length >= EARLY_EVENTS) held.shift();
     held.push(event);
     this.early.set(sub, held);
+  }
+
+  /**
+   * Host to page, one frame's envelopes in send order (`window.__cmuxPageReceiveMany`). A listener
+   * that throws does not stop the envelopes after it, as when each was its own script.
+   */
+  receiveMany(messages: unknown): void {
+    if (!Array.isArray(messages)) return;
+    for (const message of messages) {
+      try {
+        this.receive(message);
+      } catch (error) {
+        console.error(error);
+      }
+    }
   }
 
   /** Host to page. Exposed for tests; the host calls it through `window.__cmuxPageReceive`. */

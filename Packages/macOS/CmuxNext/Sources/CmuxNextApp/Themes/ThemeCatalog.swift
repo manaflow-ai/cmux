@@ -47,7 +47,7 @@ final class ThemeCatalog {
     }
 
     private func refresh() async {
-        let listed = await Task.detached(priority: .utility) {
+        let listed = await Task.detached(priority: Task.currentPriority) {
             Self.list(resources: GhosttyRuntime.resourcesDirectory(), home: FileManager.default.homeDirectoryForCurrentUser,
                       environment: ProcessInfo.processInfo.environment)
         }.value
@@ -55,7 +55,7 @@ final class ThemeCatalog {
         known = Set(listed)
         // The strips after the names, so pickers list themes first; a
         // strip-less row draws its symbol until then.
-        let read = await Task.detached(priority: .utility) {
+        let read = await Task.detached(priority: Task.currentPriority) {
             Self.read(resources: GhosttyRuntime.resourcesDirectory(), home: FileManager.default.homeDirectoryForCurrentUser,
                       environment: ProcessInfo.processInfo.environment)
         }.value

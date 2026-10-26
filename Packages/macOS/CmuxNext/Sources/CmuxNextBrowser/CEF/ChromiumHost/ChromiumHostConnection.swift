@@ -70,10 +70,12 @@ nonisolated final class ChromiumHostConnection: Sendable {
         self.signposter = signposter
         _ = fcntl(writeFD, F_SETFL, fcntl(writeFD, F_GETFL) | O_NONBLOCK)
         var size = Self.sendBuffer
-        _ = setsockopt(writeFD, SOL_SOCKET, SO_SNDBUF, &size, socklen_t(MemoryLayout<Int32>.size))
+        // SAFETY: setsockopt reads the one Int32 `size` holds, the length given, during the call.
+        _ = unsafe setsockopt(writeFD, SOL_SOCKET, SO_SNDBUF, &size, socklen_t(MemoryLayout<Int32>.size))
         for fd in [readFD, writeFD] {
             var noSigPipe: Int32 = 1
-            _ = setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size))
+            // SAFETY: as above, for `noSigPipe`.
+            _ = unsafe setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &noSigPipe, socklen_t(MemoryLayout<Int32>.size))
             _ = fcntl(fd, F_SETFD, FD_CLOEXEC)
         }
         let state = ChromiumHostWireState(readFD: readFD, writeFD: writeFD, clock: clock)

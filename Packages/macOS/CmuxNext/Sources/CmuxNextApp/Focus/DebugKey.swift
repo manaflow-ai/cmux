@@ -133,10 +133,10 @@ enum DebugKey {
                 DebugNativeInput.sendThroughApp([event])
             } else {
                 // Off the app's sendEvent (a window that is not key), the typing probe opens its sample here.
-                if TypingLatencyProbe.isEnabled { TypingLatencyProbe.shared.keyDown(eventTimestamp: event.timestamp) }
+                let probed = TypingLatencyProbe.shared.keyDown(eventTimestamp: event.timestamp)
                 DebugNativeInput.runPaneMonitors(event, in: window, services: services)
                 window.sendEvent(event)
-                if TypingLatencyProbe.isEnabled { TypingLatencyProbe.shared.mark(.dispatchEnd) }
+                if probed { TypingLatencyProbe.shared.mark(.dispatchEnd) }
             }
             // `probe: "commit"`: the key went to a text view (Home's composer, the omnibar), so the
             // typing probe writes its row at the frame that commits the edit, not at a terminal echo.

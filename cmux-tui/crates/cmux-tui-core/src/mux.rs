@@ -773,6 +773,9 @@ pub struct Mux {
     pub(crate) access_requests: crate::server::agent_transfer::access_requests::AccessRequests,
     /// VM activity facts for `subscribe-activity` (server/activity.rs).
     pub(crate) activity: crate::server::activity::ActivityStream,
+    /// This process's Energy Saver: the app's `energy.set` override over the
+    /// daemon's own reading (server/energy_op.rs).
+    pub(crate) energy: crate::server::energy_op::DaemonEnergy,
     idle_close: Mutex<idle_close::IdleCloseTracker>,
     /// Wakes the idle-close reaper when a policy changes.
     idle_close_waker: Mutex<Option<std::sync::mpsc::Sender<idle_close::ReaperMessage>>>,

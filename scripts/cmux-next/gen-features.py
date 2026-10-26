@@ -545,7 +545,7 @@ def swift(features):
         params: {params},
         stories: [{stories}],
         sticky: {sticky},
-        runtimeMutable: {runtime_mutable}
+        runtimeMutable: {runtime_mutable}{replaces}
     )
 """.format(
             description=feature["description"], name=feature["name"], index=index, name_literal=_string(feature["name"]),
@@ -554,7 +554,9 @@ def swift(features):
             dev=_bool(defaults["dev"]), nightly=_bool(defaults["nightly"]), release=_bool(defaults["release"]),
             expires=_string(expires) if expires else "nil", params=params,
             stories=", ".join(_string(story) for story in feature["stories"]),
-            sticky=_bool(feature["sticky"]), runtime_mutable=_bool(feature["runtimeMutable"])))
+            sticky=_bool(feature["sticky"]), runtime_mutable=_bool(feature["runtimeMutable"]),
+            replaces=",\n        replaces: [%s]" % ", ".join(_string(key) for key in feature["replaces"])
+            if feature.get("replaces") else ""))
     body = "\n".join(blocks[:len(shipped)]) + ("\n" if shipped else "")
     registered = _swift_registered(features)
     if len(shipped) < len(features):

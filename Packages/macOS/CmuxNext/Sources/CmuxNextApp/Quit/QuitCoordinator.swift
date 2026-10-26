@@ -3,6 +3,7 @@ import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextFeatures
 import CmuxNextHomeEngine
 import CmuxNextLaunch
 import CmuxNextSettings
@@ -19,7 +20,7 @@ import os
 /// `QuitFailureAlert` (Retry or Quit Anyway). Remote sessions are never ended.
 @MainActor
 final class QuitCoordinator {
-    let origins = QuitOriginTracker()
+    let origins: QuitOriginTracker
     private(set) var sheet: QuitAlert?
     /// "Some sessions did not end", while it shows.
     private(set) var failureAlert: QuitFailureAlert?
@@ -48,6 +49,7 @@ final class QuitCoordinator {
     init(services: AppServices) {
         self.services = services
         unsaved = services.quitUnsaved
+        origins = QuitOriginTracker(workspaceEvents: services.workspaceEvents)
     }
 
     /// Records the origin, then starts AppKit's termination. A second Cmd-Q
@@ -89,8 +91,9 @@ final class QuitCoordinator {
         let origin = origins.consume(appleEventReason: Self.quitReason())
         let behavior = services.settings?.snapshot.quitBehavior ?? QuitBehaviorSetting.fallback
         logger.info("quit origin=\(String(describing: origin), privacy: .public) behavior=\(behavior.rawValue, privacy: .public)")
-        // [services]: the quit task pins the app's services until it ends (cx-6so P1b).
-        Task { @MainActor [services] in
+        // [services]: the quit task pins the app's services until it ends (cx-6so P1b). The rest of the quit a person
+        // (or the system) asked for, at user-blocking priority; it drains BackgroundWork itself, so shutdown lets it run on.
+        services.work.task(.userBlocking, shutdown: .continueOnShutdown) { @MainActor [self, services] in
             // Unsaved documents come first (R96 quit hook). Answering that
             // question is the quit's one dialog: the sessions are not asked
             // about after it (#17501).
@@ -115,7 +118,7 @@ final class QuitCoordinator {
     /// The unsaved step for `origin` (`QuitUnsavedStep.resolve`).
     private func resolveUnsaved(_ origin: QuitOrigin) async -> Bool {
         let window = sheetWindow()
-        return await QuitUnsavedStep.resolve(origin, registry: unsaved, scope: window.map { .window($0) } ?? .app,
+        return await QuitUnsavedStep.resolve(origin, registry: unsaved, scope: window.map { .window($0) } ?? .app, work: services.work,
                                              writeDrafts: { [drafts = services.recoveryDrafts] in await drafts.writePending() })
     }
 
@@ -137,7 +140,8 @@ final class QuitCoordinator {
                 self.isQuitting = false
                 sender.reply(toApplicationShouldTerminate: false)
             case .quit(let choice, let remember):
-                Task { @MainActor [services] in
+                // The rest of the person's answer, as above: it drains BackgroundWork itself.
+                self.services.work.task(.userBlocking, shutdown: .continueOnShutdown) { @MainActor [services = self.services] in
                     await self.complete(choice, remember: remember, sender)
                     withExtendedLifetime(services) {} // pins the app's services until the quit ends
                 }
@@ -156,6 +160,8 @@ final class QuitCoordinator {
         // From here the quit is decided: an end before AppKit's reply (a
         // SIGKILL after a bounded wait, a slow Chromium shutdown) is still
         // a quit the user asked for, not a crash.
+        // A quit while inactive records its idle period now, before any quit work or the daemon's stop is in it.
+        services.idleWakeups?.reportTriggered()
         // Awaited (bounded) so `quitting` is on disk before the quit can end
         // the process; the write itself runs off the main thread.
         await services.crashRecovery.quitBegan()
@@ -183,15 +189,24 @@ final class QuitCoordinator {
                 // launch (pages are asked at once, each within a second).
                 await services.agentTabs.relaunchWake.save(services.agentTabs.relaunchWakeStates())
                 // Agent panes on screen draw their last page at the next launch.
-                await services.agentTabs.launchImages.save(services.agentTabs.shownPageImages())
-                await TerminalLaunchFrames.beside(services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent()).save(services.cache.terminals.mapValues(\.session))  // and terminals their last frame
+                let agentPages = await services.agentTabs.shownPageImages()
+                await services.agentTabs.launchImages.save(agentPages)
+                let terminalStore = TerminalLaunchFrames.beside(services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent())
+                let terminalFrames = await terminalStore.frames(of: services.cache.terminals.mapValues(\.session))
+                await terminalStore.save(images: terminalFrames)  // and terminals their last frame
                 // And browser pages theirs (`browserLaunchPictures`; with it off, the last quit's pictures go).
+                var pageShots: [BrowserLaunchPictures.Shot] = []
                 if let pictures = services.environment.browserLaunchPictures {
-                    var shots: [BrowserLaunchPictures.Shot] = []
                     if services.cache.launchPictures != nil {
-                        shots = await services.cache.launchPictureShots(Self.launchPicturePanes(services), secureInput: secureInputPages)
+                        pageShots = await services.cache.launchPictureShots(Self.launchPicturePanes(services), secureInput: secureInputPages)
                     }
-                    await pictures.save(shots)
+                    await pictures.save(pageShots)
+                }
+                // And each window one picture of all of it, from those (`savedWindowPicture`; off, the last quit's go).
+                if let windowPictures = services.environment.windowPictures {
+                    let pages = Dictionary(pageShots.map { ($0.key, $0.picture) }, uniquingKeysWith: { first, _ in first })
+                    await windowPictures.save(services.features.isEnabled(.savedWindowPicture)
+                        ? Self.windowPictureShots(services, terminals: terminalFrames, agents: agentPages, pages: pages) : [])
                 }
                 // Browser tabs reopen at their recorded page (before any
                 // session ends, while the daemon still answers).
@@ -254,6 +269,60 @@ final class QuitCoordinator {
         }
     }
 
+    /// Each open window's picture (p08-startup-057), from the pane pictures this quit took already, so nothing is
+    /// captured twice. Side-by-side windows show panes of other workspaces than `content`'s: they leave none. A
+    /// window showing a top page or the empty state leaves one with no pane (`WindowPictureMeta.ContentArea`).
+    private static func windowPictureShots(_ services: AppServices, terminals: [String: NSImage], agents: [String: NSImage],
+                                           pages: [String: BrowserLaunchPictures.Picture]) -> [WindowPictureStore.Shot] {
+        let input = services.themeStore.input, build = WindowPictureMeta.build(of: .main)
+        let theme = WindowPictureMeta.themeFingerprint(input: input, app: services.themeStore.appTheme)
+        let background = WindowPictureStore.Color(red: input.background.red, green: input.background.green, blue: input.background.blue)
+        return services.windows.controllers.compactMap { controller -> WindowPictureStore.Shot? in
+            let state = controller.state, root = controller.root
+            let content = controller.content.flatMap { $0.isParked ? nil : $0 }
+            guard let window = controller.window, state.viewSet == nil,
+                  let area = WindowPictureMeta.ContentArea(page: state.page?.rawValue, workspaceID: state.workspaceID,
+                                                           cloudCreating: state.cloudCreation != nil, contentShown: content != nil) else { return nil }
+            var panes: [WindowPictureStore.Pane] = [], screens: [WindowPictureMeta.Screen] = []
+            if case .workspace = area, let content {
+                panes = content.panes.values.compactMap { pane in
+                    pane.currentTabKey.map { key in
+                        WindowPictureStore.Pane(key: key, area: pane.view.contentHost,
+                                                content: windowPictureContent(key, services, terminals: terminals, agents: agents, pages: pages))
+                    }
+                }
+                screens = content.workspace.screens.map { WindowPictureMeta.Screen(id: $0.id, tree: .init($0.layout), zoomed: $0.zoomedPane?.description) }
+            }
+            let layout = area.layout(workspaces: services.windows.registry.members(of: state.id), screens: screens)
+            let facts = WindowPictureStore.Window(id: state.id, profile: state.profileID.rawValue, incognito: services.windows.isIncognito(window: state.id),
+                                                  theme: theme, background: background, build: build, layout: layout,
+                                                  screen: window.screen.flatMap(WindowPlacementFallback.displayID(of:)))
+            return WindowPictureStore.shot(of: window, root: root, backdrop: root.backdropView, sidebar: root.sidebarHidden ? nil : root.sidebar,
+                                           panes: panes, facts: facts)
+        }
+    }
+
+    /// Tab `key`'s pane in its window's picture: a terminal's frame at its surface (filled while it holds Secure
+    /// Input), an agent's page over the pane, a browser page at its page frame (filled with no picture of its own:
+    /// withheld or not captured). AppKit draws the rest (cmux pages).
+    private static func windowPictureContent(_ key: String, _ services: AppServices, terminals: [String: NSImage], agents: [String: NSImage],
+                                             pages: [String: BrowserLaunchPictures.Picture]) -> WindowPictureStore.Pane.Content {
+        func cgImage(_ image: NSImage?) -> CGImage? { image?.cgImage(forProposedRect: nil, context: nil, hints: nil) }
+        if let session = services.cache.terminals[key]?.session {
+            guard !session.holdsSecureInput else { return .fill(session.surfaceView) }
+            guard let frame = cgImage(terminals[key]) else { return .drawn }
+            return .picture(frame, of: session.surfaceView)
+        }
+        if services.agentTabs.existingView(key) != nil, let page = agents[key], let image = cgImage(page) {
+            return .placed(image, at: CGRect(origin: .zero, size: page.size))
+        }
+        if let page = services.cache.existingBrowser(key)?.tab {
+            guard let picture = pages[key] else { return .fill(page.contentView) }
+            return .placed(picture.image, at: picture.pageFrame)
+        }
+        return .drawn
+    }
+
     /// Shows "Some sessions did not end" and waits for the answer.
     private func confirm(_ failures: [EndSessionsFailure]) async -> QuitFailureAnswer {
         await withCheckedContinuation { continuation in
@@ -280,5 +349,22 @@ final class QuitCoordinator {
               let reason = event.attributeDescriptor(forKeyword: AEKeyword(kAEQuitReason)) ?? event.paramDescriptor(forKeyword: AEKeyword(kAEQuitReason))
         else { return nil }
         return reason.enumCodeValue
+    }
+}
+
+extension WindowPictureMeta.PaneTree {
+    /// The daemon's split tree, by pane handle (valid while the daemon that made them runs: a daemon started again
+    /// renumbers its panes, and the picture's layout then does not match).
+    nonisolated init(_ node: LayoutNode) {
+        switch node {
+        case .leaf(let pane):
+            self = .leaf(pane.description)
+        case .split(_, _, let direction, let ratio, let a, let b):
+            self = .split(vertical: direction == .down, ratio: ratio, a: Self(a), b: Self(b))
+        case .stack(let panes, let expanded):
+            self = .stack(panes: panes.map(\.description), expanded: expanded.description)
+        case .unknown:
+            self = .unknown
+        }
     }
 }

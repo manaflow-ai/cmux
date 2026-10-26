@@ -21,6 +21,9 @@ pub(crate) struct TranscriptCache {
     /// tool loop do not need highlighting again when a new chunk arrives.
     markdown: std::collections::HashMap<usize, Vec<Row>>,
     pub rows: Vec<Row>,
+    /// The heap bytes of `rows`' text and spans, kept as rows come and go so
+    /// [`Self::approx_bytes`] never walks the document.
+    row_heap_bytes: u64,
 }
 
 impl TranscriptCache {
@@ -66,9 +69,13 @@ impl TranscriptCache {
         let changed_row = if rebuild_prefix { 0 } else { self.prefix_rows };
         if rebuild_prefix {
             self.rows.clear();
+            self.row_heap_bytes = 0;
             self.prefix_items = 0;
             self.prefix_rows = 0;
         } else {
+            let removed: u64 =
+                self.rows[self.prefix_rows.min(self.rows.len())..].iter().map(row_heap_bytes).sum();
+            self.row_heap_bytes = self.row_heap_bytes.saturating_sub(removed);
             self.rows.truncate(self.prefix_rows);
         }
         if split > self.prefix_items {
@@ -112,13 +119,44 @@ impl TranscriptCache {
     }
 
     fn append(&mut self, rows: Vec<Row>) {
+        let from = self.rows.len();
         if let Some(first) = rows.first()
             && !self.rows.is_empty()
         {
             plain("", Style::default(), first.item, &mut self.rows);
         }
         self.rows.extend(rows);
+        self.row_heap_bytes += self.rows[from..].iter().map(row_heap_bytes).sum::<u64>();
     }
+
+    /// What the cache keeps, estimated in O(parsed items): the rows and their
+    /// text, and the parsed markdown of the turn that is still changing.
+    pub fn approx_bytes(&self) -> u64 {
+        use crate::memory::inline_bytes;
+        let markdown: u64 = self
+            .markdown
+            .values()
+            .map(|rows| {
+                inline_bytes::<Row>(rows.capacity()) + rows.iter().map(row_heap_bytes).sum::<u64>()
+            })
+            .sum();
+        inline_bytes::<Row>(self.rows.capacity()) + self.row_heap_bytes + markdown
+    }
+
+    /// Empties the cache (memory pressure). Lossless: the next draw lays the
+    /// document out again from the transcript.
+    pub fn release(&mut self) {
+        let dropped = std::mem::take(self);
+        drop(dropped);
+    }
+}
+
+/// The heap bytes of one row: its copy text and its styled spans.
+fn row_heap_bytes(row: &Row) -> u64 {
+    let spans: u64 = row.line.spans.iter().map(|span| span.content.len() as u64).sum();
+    row.text.capacity() as u64
+        + crate::memory::inline_bytes::<Span<'static>>(row.line.spans.capacity())
+        + spans
 }
 
 /// Animation changes paint, never document layout or scroll geometry.

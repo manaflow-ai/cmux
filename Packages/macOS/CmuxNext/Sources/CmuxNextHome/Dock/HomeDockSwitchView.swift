@@ -88,7 +88,7 @@ open class HomeDockSwitchView: NSView {
     public var rowTools: [HomeDockMode: NSView] = [:] {
         didSet {
             for (_, tools) in oldValue where !rowTools.values.contains(where: { $0 === tools }) { tools.removeFromSuperview() }
-            needsLayout = true
+            if rowTools.count != oldValue.count || rowTools.contains(where: { oldValue[$0.key] !== $0.value }) { needsLayout = true }
         }
     }
     /// The row the pane last offered (`setTabRow`).
@@ -198,7 +198,7 @@ open class HomeDockSwitchView: NSView {
 
     private func show(_ target: HomeDockMode) {
         mode = target
-        needsLayout = true // the shown view's row tools (HomeDockSwitchView+TabRow)
+        needsLayout = true // invalidate: another view shows, and its row tools with it (HomeDockSwitchView+TabRow)
         let view = made[target] ?? makeContent(for: target)
         made[target] = view
         for subview in content.subviews where subview !== view { subview.isHidden = true }

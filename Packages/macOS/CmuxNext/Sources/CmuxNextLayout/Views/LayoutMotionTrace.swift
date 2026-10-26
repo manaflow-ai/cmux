@@ -1,4 +1,5 @@
 import CmuxNextSignposts
+import CmuxNextWakeups
 
 /// One window's layout motion signposts (one ``LayoutRootView``): a ``SignpostName/motionFrame`` interval per
 /// display tick, and a ``SignpostName/motionRun`` interval from the structural change that starts the motion (a
@@ -8,7 +9,8 @@ import CmuxNextSignposts
 /// cc/trees/proxy_main.cc) and an async slice per animation sequence (cc/metrics/frame_sequence_tracker.cc), which
 /// also tracks compositor-driven animations. Both go through the injected ``Signposter``, so each is one
 /// `OSSignposter` interval (Instruments), the MetricKit mirror's for `motion.run`, and a trace ring slice while the
-/// `motion` category is on.
+/// `motion` category is on. A run is also its window's motion frame sequence (``FrameScheduler/beginMotionSequence()``,
+/// Chrome's `FrameSequenceTracker` of the animation), so `smoothness.dropped_pct.motion` counts exactly the run.
 final class LayoutMotionTrace {
     private let signposter: Signposter
     private var run: Run?
@@ -16,6 +18,8 @@ final class LayoutMotionTrace {
     /// The open run's interval and what its CPU frames measured so far.
     private struct Run {
         let interval: SignpostInterval
+        /// The scheduler of the window the run began in, whose motion sequence it holds open.
+        weak var scheduler: FrameScheduler?
         var frames: UInt32 = 0
         var longestFrameNanos: UInt64 = 0
     }
@@ -30,10 +34,12 @@ final class LayoutMotionTrace {
     var openRun: SignpostInterval? { run?.interval }
 
     /// A structural change started motion, on the CPU step or the render server: opens a run unless one is open
-    /// (a change during a motion retargets the same springs, so the run goes on until they rest).
-    func beginRun() {
+    /// (a change during a motion retargets the same springs, so the run goes on until they rest). `scheduler`, the
+    /// window's (nil without one), counts the run's frames as its motion sequence.
+    func beginRun(on scheduler: FrameScheduler?) {
         guard run == nil else { return }
-        run = Run(interval: signposter.begin(.motionRun))
+        scheduler?.beginMotionSequence()
+        run = Run(interval: signposter.begin(.motionRun), scheduler: scheduler)
     }
 
     /// One display tick of the window: `body` steps its springs and presents the frame inside a `motion.frame`
@@ -61,6 +67,7 @@ final class LayoutMotionTrace {
     func endRun() {
         guard let open = run else { return }
         run = nil
+        open.scheduler?.endMotionSequence()
         signposter.endMotionRun(open.interval, frames: open.frames,
                                 longestFrameMicros: UInt32(min(open.longestFrameNanos / 1_000, UInt64(UInt32.max))))
     }

@@ -24,20 +24,16 @@ public struct FirefoxSessionReader {
     }
 
     public func decompress(_ data: Data) -> Data? {
-        let bytes = [UInt8](data)
-        guard bytes.count > 12, Array(bytes[0..<8]) == magic else { return nil }
-        let size = Int(PickleReader.uint32(bytes, at: 8))
+        guard data.count > 12, data.prefix(8).elementsEqual(magic) else { return nil }
+        let size = Int(PickleReader.uint32([UInt8](data.prefix(12)), at: 8))
+        let block = [UInt8](data.dropFirst(12))
         // One LZ4 block byte yields at most 255 bytes (a match-length byte), so a larger size is a lie
         // that would only allocate.
-        guard size > 0, size <= maximumSize, size / 255 <= bytes.count - 12 else { return nil }
+        guard size > 0, size <= maximumSize, size / 255 <= block.count else { return nil }
         var output = [UInt8](repeating: 0, count: size)
-        let written = bytes.withUnsafeBufferPointer { source in
-            output.withUnsafeMutableBufferPointer { destination -> Int in
-                // Both buffers are non-empty (checked above); without a base address nothing decodes.
-                guard let target = destination.baseAddress, let input = source.baseAddress else { return 0 }
-                return compression_decode_buffer(target, size, input + 12, bytes.count - 12, nil, COMPRESSION_LZ4_RAW)
-            }
-        }
+        // SAFETY: the decoder reads at most block.count bytes of `block` and writes at most `size`
+        // (output.count) bytes into `output`, the counts passed; Swift lends both arrays for the call.
+        let written = unsafe compression_decode_buffer(&output, size, block, block.count, nil, COMPRESSION_LZ4_RAW)
         return written == size ? Data(output) : nil
     }
 

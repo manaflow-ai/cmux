@@ -14,21 +14,21 @@ import CoreGraphics
 // Browser hibernation and the memory-budgeted warm sets
 // (plans/cmux-next/tab-lifecycle.md).
 extension AppServices {
-    /// Creates the browser and agent page hibernation and follows `browser.hibernation`. It registers with
-    /// the app's one memory coordinator (`memoryCoordinator`) as a lossy consumer, which hands it each
-    /// level. The terminal warm set (the one budget of hidden GPU surfaces, a lossless consumer) and the
-    /// parked workspaces (a lossy one) register there too; the coordinator releases them one surface or
-    /// one workspace per frame. It runs before the restore mounts a page, so the cache hands it every hide,
-    /// show and screen change; its measurements start after startup (``startHibernationMeasurements()``).
+    /// Creates the browser and agent page hibernation and follows `browser.hibernation`. It registers with the app's
+    /// one memory coordinator (`memoryCoordinator`) as a lossy consumer, which hands it each level. The terminal warm
+    /// set (the one budget of hidden GPU surfaces, a lossless consumer) and the parked workspaces (a lossy one) register
+    /// there too; the coordinator releases them one surface or one workspace per frame. It runs before the restore mounts
+    /// a page, so the cache hands it every hide, show and screen change; its measurements start after startup (``startHibernationMeasurements()``).
     func startHibernation(settings: SettingsController) {
         let audible = features.isEnabled(.recentlyAudibleProtection) ? AudibleHistory(mainWork: mainWork) : nil
         let hibernation = BrowserHibernation(cache: cache, memory: memoryCoordinator, deadlines: mainDeadlines, energy: mainWork.energy, audible: audible)
         cache.hibernation = hibernation
         hibernation.isPinned = { [weak self] key in self?.locateTab(key)?.0.pinned ?? false }
         hibernation.isDownloading = { [weak self] key in self?.cache.pageRequests.downloads.isDownloading(tab: key) ?? false }
-        hibernation.measureMemory = { [weak self] in
-            guard let self else { return [:] }
-            return await self.resources.sample(.everything).browserPageMemory
+        hibernation.measureMemory = { [weak self] in await self?.resources.sample(.everything).browserPageMemory ?? [:] }
+        hibernation.measureCPU = { [work = self.work, mainWork = self.mainWork, renderers = cache.tabRenderers] keys, landed in
+            work.run(.bestEffort, mayBlock: .system) { SaverCPUFreeze.reading(of: Set(keys), tabs: renderers.snapshot(), renderers: ChromiumHelperProcess.tabRendererUsage()) }
+                .reply(on: mainWork, class: .background, owner: "SaverCPUFreeze", landed)
         }
         hibernation.activity.isEnabled = features.isEnabled(.memorySaverBackgroundActivity)
         hibernation.discardsGrowingFrozenPages = features.isEnabled(.frozenGrowthDiscard)
@@ -36,6 +36,7 @@ extension AppServices {
         hibernation.discardsStreamedPages = features.isEnabled(.memoryDiscardRemoteTabs)
         hibernation.openerGroup = { [weak self] key in self?.openerGroup(of: key) ?? [key] }
         hibernation.ranksUrgentDiscards = features.isEnabled(.memoryUrgentDiscardRanking)
+        hibernation.snapshots.keepsCompressed = features.isEnabled(.compressedSnapshots)
         let agentPages = AgentPageHibernation(services: self)
         memoryHistograms.follow(hibernation, agentPages: agentPages)
         hibernation.agentPages = agentPages
@@ -53,8 +54,7 @@ extension AppServices {
     /// p04-input-042; no warmer work on a press's input turn). The app's memory pressure, the feature's dwell
     /// and Energy Saver's inputs as its power. No feature on: no service.
     private func startIntentPrewarm(over hibernation: BrowserHibernation) {
-        let hovers = features.isEnabled(.intentPrewarmHover), steps = features.isEnabled(.directionalPrewarm)
-        let presses = features.isEnabled(.intentPrewarmPress)
+        let hovers = features.isEnabled(.intentPrewarmHover), steps = features.isEnabled(.directionalPrewarm), presses = features.isEnabled(.intentPrewarmPress)
         guard hovers || steps || presses else { return }
         let service = IntentPrewarmService<String>(
             warmer: hibernation, memoryPressure: memoryPressure,

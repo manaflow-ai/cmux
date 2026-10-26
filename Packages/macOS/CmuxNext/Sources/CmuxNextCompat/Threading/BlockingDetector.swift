@@ -22,14 +22,16 @@ public struct BlockingDetector: Sendable {
     #endif
 
     /// The process's detector. Call it once, in the composition root (AppServices), and pass the value on;
-    /// no other code makes one (P1, plans/cmux-next/PATTERNS.md).
+    /// no other code makes one (P1, plans/cmux-next/PATTERNS.md). It also installs the detector as the shared
+    /// packages' blocking-call hook (``SharedThreadingBridge``), once per process, in every build.
     ///
     /// - Returns: The handle to this process's detector.
     public static func forProcess() -> BlockingDetector {
+        SharedThreadingBridge.installForProcess()
         #if DEBUG || CMUX_BLOCKING_CHECKS
-        BlockingDetector(table: .shared)
+        return BlockingDetector(table: .shared)
         #else
-        BlockingDetector()
+        return BlockingDetector()
         #endif
     }
 
@@ -71,9 +73,8 @@ public struct BlockingDetector: Sendable {
         #endif
     }
 
-    /// The call sites that blocked the main thread, a shared pool thread or a `.cpu` lane item and reached the drain
-    /// queue, in the order they
-    /// first did, with their current counts.
+    /// The call sites that blocked the main thread, a shared pool thread or a `.cpu` lane item, or waited on a sync
+    /// primitive in a lane item, and reached the drain queue, in the order they first did, with their current counts.
     public var sites: [BlockingSite] {
         #if DEBUG || CMUX_BLOCKING_CHECKS
         table.sites
@@ -82,7 +83,8 @@ public struct BlockingDetector: Sendable {
         #endif
     }
 
-    /// Blocking calls, on the main thread, the pool or a `.cpu` lane item, not recorded as a site (the sum of
+    /// Blocking calls, on the main thread, the pool, a `.cpu` lane item or a lane item's sync primitive, not recorded
+    /// as a site (the sum of
     /// ``overflow(in:)`` over the contexts).
     public var overflow: Int {
         #if DEBUG || CMUX_BLOCKING_CHECKS

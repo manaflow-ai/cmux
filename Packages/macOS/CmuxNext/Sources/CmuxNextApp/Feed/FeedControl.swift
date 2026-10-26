@@ -25,14 +25,16 @@ enum FeedControl {
 
     static func methods(services: AppServices, dialogs: AgentDialogDesk? = nil) -> [ControlMethod] {
         let dialogs = dialogs ?? liveDialogs(services)
+        // A hook's or the CLI's request: its main-thread read is automation work (p06-scheduler.md section D).
+        let work = services.mainWork
         return [
             .async("feed.request") { [weak services] call in
-                let feed = await MainActor.run { services?.feed }
+                let feed = await work.apply(.automation, owner: "feed.request") { services?.feed }
                 guard let feed else { throw ControlError(code: "unavailable", message: "feed is not available") }
                 return try await request(feed, call.params)
             }.withDeadline(.fixed(.seconds(maxWait + 15))),
             .async("feed.cancel") { [weak services] call in
-                let feed = await MainActor.run { services?.feed }
+                let feed = await work.apply(.automation, owner: "feed.cancel") { services?.feed }
                 guard let feed else { throw ControlError(code: "unavailable", message: "feed is not available") }
                 return try await cancel(feed, call.params)
             }.withDeadline(.fixed(.seconds(20))),

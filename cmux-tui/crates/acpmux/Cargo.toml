@@ -27,6 +27,10 @@ cmux-stability = ["cmux-blocking/cmux-stability"]
 [dependencies]
 cmux-blocking.workspace = true
 cmux-lock-rank.workspace = true
+# Memory pressure and the consumer registry (`src/memory.rs`); a leaf crate, no tokio.
+cmux-memory.workspace = true
+# The daemon's feature lists (CMUX_ENABLE_FEATURES): `memoryAcpmuxPressure`.
+cmux-features.workspace = true
 cmux-chat-index.workspace = true
 cmux-coderouter.workspace = true
 cmux-local-auth.workspace = true
@@ -110,3 +114,7 @@ cmux-unix-socket = { workspace = true, features = ["test-support"] }
 # `log` crate events in tests/trace_layer.rs, forwarded by tracing-log's LogTracer.
 log = "0.4"
 tracing-log = "0.2"
+
+[lints.clippy]
+# cmux-tui/clippy.toml disallows std thread spawns and sleep; this package has not opted in.
+disallowed_methods = "allow"
