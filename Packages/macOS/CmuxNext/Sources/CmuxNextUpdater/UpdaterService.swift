@@ -183,6 +183,11 @@ public final class UpdaterService {
     @ObservationIgnored public internal(set) var idleInstallQuiet: Duration = UpdateRelaunchBlockers.quietInputPeriod
     /// The install in flight started by itself (the idle policy): a failure opens nothing.
     @ObservationIgnored var automaticInstallInFlight = false
+    /// The build Sparkle said it installs (`updaterWillInstallUpdate`): the relaunch's focus record names it.
+    @ObservationIgnored var installingBuild: String?
+    /// Whether this app is the frontmost one, and the app that is (``UpdateRelaunchFocus``); AppKit in
+    /// the app, a fake in tests.
+    @ObservationIgnored public var frontmost: () -> UpdateFrontmostApp = { UpdateFrontmostApp.current() }
     /// Whether a window shows the update notice (the sidebar footer's
     /// pill). Without it, checks and installs open the update sheet.
     @ObservationIgnored public var showsIndicator: () -> Bool = { true }
