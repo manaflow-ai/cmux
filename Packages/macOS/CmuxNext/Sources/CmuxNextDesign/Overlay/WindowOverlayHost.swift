@@ -98,6 +98,8 @@ public final class WindowOverlayHost {
     var occluders: [String: NSRect] = [:]
     /// `interactiveRegions()`, rebuilt on present, layout, dismiss, occluder and content frame changes.
     var cachedRegions: [NSRect]?
+    /// The container bounds, then each overlay's frame in window coordinates, `cachedRegions` was built from.
+    var cachedRegionsFrames: [NSRect] = []
     /// The window that gets the rest of a click the panel passed on.
     weak var forwardTarget: NSWindow?
     /// The button of that click (`NSEvent.buttonNumber`).
@@ -131,6 +133,9 @@ public final class WindowOverlayHost {
         panel.onMouseEvent = { [weak self] event in self?.panelMouseEvent(event) ?? false }
         hoverFrames = (window as? HoverFrameInputHosting)?.hoverFrameInput
         panel.hoverFrameInput = hoverFrames
+        for container in [panel.paneContainer, panel.windowContainer, panel.modalContainer] {
+            container.onLayout = { [weak self] in self?.containerDidLayout() }
+        }
         if isAppHost {
             // Above the app's own windows while cmux is active; hidden while
             // another app is active, so it never covers other apps.
