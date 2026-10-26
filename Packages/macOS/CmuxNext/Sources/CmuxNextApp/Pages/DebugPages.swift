@@ -19,8 +19,10 @@ import Foundation
 //   html/body backgrounds (the one-backdrop check), `painted` (the document's first frame, with
 //   `painted_uptime` in host systemUptime seconds and `painted_ms` on the page clock), `instance`,
 //   `parked`, `window_number` and `claim` (how a pooled host took its last claim: `path`
-//   acknowledged / refused / timedOut / loaded, `ms`) and `in_flight` (the page's calls still
-//   running: id, op, age_ms);
+//   acknowledged / refused / timedOut / loaded, `ms`), `in_flight` (the page's calls still
+//   running: id, op, age_ms), `discarded` and `restore` (the last restore after a discard, host
+//   uptime seconds: `started` in the show's turn, `covered` when the snapshot went over the page,
+//   `painted` at the restored document's first frame; null before one);
 // - `snapshot` (`path`, default /tmp/cmux-page-<id>.png): the page as WebKit rendered it;
 // - `command` (`command`, `text`): a dispatcher command (`find`, `focusSearch`, `back`, `forward`,
 //   `reset`) on the page's command stream, as the key dispatcher sends it;
@@ -65,7 +67,7 @@ extension AppControl {
         let registry = services.webUI.registry, pages = registry.pages()
         let cef = services.cache.cef
         let census = WebUICensus(
-            pages: pages, registry: registry, newTabSpare: services.newTabSpares.spare?.view.webView,
+            pages: pages, registry: registry, newTabSpare: services.newTabSpares.spare?.view.page,
             spareWindows: [
                 WebUICensus.Host(name: "cef_window", state: cef.spareWindowState, rendererClients: cef.spareWindowRendererClients),
                 WebUICensus.Host(name: "cef_pages_window", state: cef.pagesSpareWindowState, rendererClients: cef.pagesSpareWindowRendererClients),
@@ -114,6 +116,11 @@ enum DebugPages {
                 // The first frame of this document (preflights wait on it with a deadline).
                 members["painted"] = .bool(page.hasPainted)
                 members["painted_uptime"] = page.paintedUptime.map { .number($0) } ?? .null
+                members["discarded"] = .bool(page.isDiscarded)
+                members["restore"] = page.lastRestoreTimes.map { times -> JSONValue in
+                    ["started": .number(times.started), "covered": times.covered.map { .number($0) } ?? .null,
+                     "painted": times.painted.map { .number($0) } ?? .null]
+                } ?? .null
                 // Why a page may not paint: no window, a hidden view, or a window macOS reports
                 // as occluded (WebKit stops rendering updates for an occluded window).
                 members["in_window"] = .bool(page.window != nil)

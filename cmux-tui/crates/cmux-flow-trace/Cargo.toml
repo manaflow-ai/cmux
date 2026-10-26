@@ -5,10 +5,10 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "Key-press flow marks for scripts/cmux-next/trace.py (CMUX_TRACE_FLOWS): std and libc only, off by default"
+description = "Key-press flow hops (CMUX_TRACE_FLOWS) as cmux-trace ring records: std and libc only, off by default"
 
 [lints]
 workspace = true
 
 [dependencies]
-libc.workspace = true
+cmux-trace.workspace = true

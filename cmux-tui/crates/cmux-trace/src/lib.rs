@@ -381,6 +381,13 @@ pub fn stop() -> Result<Status, TraceError> {
     PROCESS.get().ok_or(TraceError::NotInitialized)?.stop()
 }
 
+/// Whether a recording runs in this process now ([`Tracer::recording`]): two loads, no
+/// allocation. False before [`init_blackbox`].
+#[inline]
+pub fn recording() -> bool {
+    PROCESS.get().is_some_and(Tracer::recording)
+}
+
 /// This process's trace state; None before [`init_blackbox`].
 pub fn status() -> Option<Status> {
     PROCESS.get().map(Tracer::status)

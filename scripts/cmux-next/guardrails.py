@@ -4,7 +4,8 @@
 Run by the pre-push hook through `prepush-gate.py --pre-push` (and by a plain local `prepush-gate.py`),
 never by CI (Lawrence 2026-10-23: no new CI gates). Only Swift lines the push ADDS under
 Packages/macOS/CmuxNext/Sources count (wakeup-ext also reads the app-linked Shared packages, CmuxUpdater,
-the cmux-tui crates' src, webviews/src and the CEF shim with wakeup-audit.py's rules), plus unchanged lines that
+the cmux-tui crates' src, webviews/src and the CEF shim with wakeup-audit.py's rules; safety-todo reads every
+package's Sources and Tests), plus unchanged lines that
 become debt because the push changed the line that gives them their context (`struct` -> `class` around a
 static, a view renamed to a `...Row`, an edited or deleted deinit in a generic class's body, or a type made generic
 around the classes in its extensions, read in every Sources and Tests file that extends it:
@@ -64,7 +65,7 @@ one move pool per push with the new-file rule (move_pools).
   scripts/cmux-next/guardrails.py                    # what HEAD adds over origin/feat-cmux-next
   scripts/cmux-next/guardrails.py --base A --head B   # exactly what B adds over A
   scripts/cmux-next/guardrails.py --list
-  scripts/cmux-next/guardrails.py --self-test        # the input-monitor and target-settings refuse and escape cases
+  scripts/cmux-next/guardrails.py --self-test        # the input-monitor, target-settings and safety-todo cases
 """
 from __future__ import annotations
 
@@ -590,9 +591,9 @@ def lex_cache_dir(repo: Path) -> Path | None:
 
 def in_diff_scope(path: str) -> bool:
     """PATH is one of check()'s diff pathspecs (SWIFT_SOURCES, SWIFT_TESTS, SHIPPED_BUILD_SPECS, WAKEUP_EXT_SPECS,
-    PACKAGE_MANIFEST_SPEC), so its blobs are read while the content diff runs. A path this misses is read after the
-    diff (check()'s late read)."""
-    return in_swift_scope(path) or in_wakeup_ext_specs(path) or is_package_manifest(path)
+    PACKAGE_MANIFEST_SPEC, PACKAGE_SWIFT_SPECS), so its blobs are read while the content diff runs. A path this misses
+    is read after the diff (check()'s late read)."""
+    return in_swift_scope(path) or in_wakeup_ext_specs(path) or is_package_manifest(path) or is_package_swift(path)
 
 
 def in_swift_scope(path: str) -> bool:
@@ -2239,6 +2240,138 @@ RULES += TARGET_SETTINGS_RULES
 # ---------------------------------------------------------------- end of target-settings (p10-stability-037)
 
 
+# ---------------------------------------------------------------- safety-todo (p10-stability-211)
+# `// SAFETY-TODO(p10)` marks an old unsafe site that the strict-memory-safety pass (apply-unsafe-fixits.py) found
+# when the check went on; the marks are the Q04 queue that module tasks 063-078 empty. Chromium's order
+# (docs/unsafe_buffers.md): UNSAFE_TODO() wraps only code that predates the check, and new code writes
+# UNSAFE_BUFFERS() with a `// SAFETY:` argument. So a mark the push adds is refused unless it sits where the pass
+# puts one: directly above a statement (the line below it, or every line of the multi-line string that line opens)
+# holding a changed line that is a removed line of the same hunk with only `unsafe ` / `@unsafe ` inserted. A mark
+# the push removes pays only for an added mark over the same code (a moved or re-indented site); a fixed or deleted
+# site never pays for a mark on new code. Local only (prepush-gate runs the guardrails never under --commits or
+# GitHub Actions; Lawrence 2026-10-23: no new CI gates). The block owns its lines from here to
+# `RULES += SAFETY_TODO_RULES`.
+SAFETY_TODO_MARK = re.compile(r"//\s*SAFETY-TODO\(p10\)")
+UNSAFE_INSERTIONS = ("unsafe ", "@unsafe ")  # apply-unsafe-fixits.py INSERTION
+INSERTION_AFTER_WORD = re.compile(r"[A-Za-z0-9_]")  # apply-unsafe-fixits.py WORD: never inside a word
+PACKAGE_SWIFT_SPECS = (":(glob)Packages/**/Sources/**/*.swift", ":(glob)Packages/**/Tests/**/*.swift")
+
+
+def is_package_swift(path: str) -> bool:
+    """PATH is in PACKAGE_SWIFT_SPECS: a Swift file of any package's Sources or Tests."""
+    return path.startswith("Packages/") and path.endswith(".swift") and ("/Sources/" in path or "/Tests/" in path)
+
+
+def squashed(text: str) -> str:
+    return " ".join(text.split())
+
+
+def gained_only_unsafe(old: str, new: str) -> bool:
+    """NEW is OLD (whitespace squashed on both) with at least one `unsafe ` / `@unsafe ` inserted at a point with no
+    word character before it: the fix-it pass's edit, matched by characters, so `print(unsafe "\\(p)")`,
+    `\\(unsafe p)` in a string and `#expect(unsafe p == 3)` count like `return unsafe p`."""
+    old, new = squashed(old), squashed(new)
+    if old == new:
+        return False
+    seen = {(0, 0)}
+    todo = [(0, 0)]
+    while todo:
+        i, j = todo.pop()
+        if i == len(old) and j == len(new):
+            return True
+        steps = [(i + 1, j + 1)] if i < len(old) and j < len(new) and old[i] == new[j] else []
+        if j == 0 or not INSERTION_AFTER_WORD.match(new[j - 1]):
+            steps += [(i, j + len(word)) for word in UNSAFE_INSERTIONS if new.startswith(word, j)]
+        for step in steps:
+            if step not in seen:
+                seen.add(step)
+                todo.append(step)
+    return False
+
+
+def marked_statement(lines: list[str], index: int) -> range:
+    """The 0-based lines a mark at LINES[INDEX] covers: the line below it and, when that line opens a multi-line
+    string (an odd number of `\"\"\"`), every line through the one that closes it. apply-unsafe-fixits.py marks the
+    line that opens the literal when the site is inside one."""
+    start = end = index + 1
+    if start < len(lines):
+        end = start + 1
+        if lines[start].count('"""') % 2:
+            while end < len(lines) and lines[end].count('"""') % 2 == 0:
+                end += 1
+            end = min(end + 1, len(lines))
+    return range(start, end)
+
+
+def hunk_keys(numbers: list[int]) -> Callable[[int], int]:
+    """Per changed line number of one side, the count of unchanged lines before it: a removed and an added line
+    are in the same hunk exactly when their counts agree (both sides share the unchanged lines, in order)."""
+    ordered = sorted(numbers)
+    return lambda number: number - 1 - bisect.bisect_left(ordered, number)
+
+
+def safety_todo(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
+    changes = [c for c in changes if is_package_swift(c.path)]
+    # A removed mark, keyed by the code line under it: it pays for an added mark over the same code.
+    moved_marks: collections.Counter = collections.Counter()
+    for change in changes:
+        for removed in change.removed:
+            if SAFETY_TODO_MARK.search(removed.text):
+                below = marked_statement(change.base_lines, removed.number - 1)
+                moved_marks[squashed(change.base_lines[below.start]) if below else ""] += 1
+    unpaid: list[tuple[FileChange, Added]] = []
+    for change in changes:
+        marks = [a for a in change.added if SAFETY_TODO_MARK.search(a.text)]
+        if not marks:
+            continue
+        base_key = hunk_keys([r.number for r in change.removed])
+        head_key = hunk_keys([a.number for a in change.added])
+        old: dict[int, list[Added]] = collections.defaultdict(list)
+        for removed in change.removed:
+            if not SAFETY_TODO_MARK.search(removed.text):
+                old[base_key(removed.number)].append(removed)
+        added = {a.number - 1: a for a in change.added if not SAFETY_TODO_MARK.search(a.text)}
+        for mark in marks:
+            paid = False
+            for index in marked_statement(change.head_lines, mark.number - 1):
+                line = added.get(index)
+                pool = old[head_key(line.number)] if line else []
+                match = next((r for r in pool if gained_only_unsafe(r.text, line.text)), None)
+                if match is not None:
+                    pool.remove(match)
+                    del added[index]
+                    paid = True
+                    break
+            if not paid:
+                unpaid.append((change, mark))
+    hits: list[Added] = []
+    for change, mark in unpaid:
+        below = marked_statement(change.head_lines, mark.number - 1)
+        key = squashed(change.head_lines[below.start]) if below else ""
+        if moved_marks[key] > 0:
+            moved_marks[key] -= 1
+        else:
+            hits.append(mark)
+    return hits
+
+
+SAFETY_TODO_RULES = (
+    Rule("safety-todo", "A new `// SAFETY-TODO(p10)` mark on code that is not an old line marked by the "
+         "strict-memory-safety pass",
+         "the marks are the queue of old unsafe sites (Q04, p10-stability-211); a mark on new code adds to the queue "
+         "instead of stating why the code is safe (Chromium: UNSAFE_TODO only for code that predates the check, "
+         "docs/unsafe_buffers.md)",
+         "use a safe API (Span, Array, Data, a typed wrapper), or write `unsafe` with a `// SAFETY: <why the "
+         "pointer, bounds and lifetime are valid>` line above it; old sites get their marks only from "
+         "scripts/cmux-next/apply-unsafe-fixits.py",
+         None,
+         safety_todo,
+         scope=("Packages/",)),
+)
+RULES += SAFETY_TODO_RULES
+# ---------------------------------------------------------------- end of safety-todo (p10-stability-211)
+
+
 # ---------------------------------------------------------------- main-thread classes (p06-scheduler)
 # Main-thread work has a class and an owner, and hidden things do no view work
 # (plans/cmux-next/chrome-parity/p06-scheduler.md, section F). Chrome posts every UI-thread task to a typed queue
@@ -3036,18 +3169,20 @@ def ui_targets() -> set[str]:
     return BLOCKING_CONTEXT["ui_targets"]
 
 
+def header_start(lines: list[str], number: int) -> int:
+    """The 1-based first line of the header of the block that opens on 1-based line NUMBER: the line after the
+    previous statement's end, at most HEADER_LINES lines up."""
+    j = number - 2
+    while j >= 0 and number - 1 - j <= HEADER_LINES and not STATEMENT_END.search(code_of(lines[j])):
+        j -= 1
+    return j + 2
+
+
 def block_header(lines: list[str], number: int, code: str) -> str:
     """The whole header of the block that opens on 1-based line NUMBER (whose code up to its `{` is CODE): the
     lines back to the previous statement's end, joined, so `func f(\n a: A\n) async throws {` and
     `if a,\n b {` read as one header."""
-    parts = [code]
-    j = number - 2
-    while j >= 0 and number - 1 - j <= HEADER_LINES:
-        text = code_of(lines[j])
-        if STATEMENT_END.search(text):
-            break
-        parts.insert(0, text)
-        j -= 1
+    parts = [code_of(lines[j]) for j in range(header_start(lines, number) - 1, number - 1)] + [code]
     return " ".join(part.strip() for part in parts)
 
 
@@ -3892,6 +4027,114 @@ def undocumented_threads(changes: list[FileChange], moved: collections.Counter) 
     return changed_debt(changes, judge)
 
 
+# once-blocking (p02-threads-122): a blocking call in a static, lazy or global initializer. Swift runs such an
+# initializer once (swift_once), on whichever thread reads the value first, while every other first reader waits
+# on the once guard: its disk, kernel or process wait lands on an unknown thread, often the main thread, and no
+# seam can say which. Chromium keeps blocking work out of lazy singletons and static initializers for the same
+# reason (base/memory/singleton.h, base/lazy_instance.h, ScopedDisallowSingleton in
+# base/threading/thread_restrictions.h). The value is loaded on a lane at warm-up and injected, or its accessor
+# becomes async. An initializer is a `static`/`class`/`lazy` stored member's or a file-scope `let`/`var`'s value
+# expression, through the closures that run inside it: an immediately called `= { ... }()`, the inline calls
+# (`map {`, `flatMap {`, `withLock {`) and control flow. A literal blocks nothing; an instance member's
+# initializer, a static closure value that is not called (`static let load = { ... }`) and a computed property
+# run on every read, where the other blocking rules judge them.
+ASSIGNED_CLOSURE_OPENER = re.compile(r"(?<![=!<>])=\s*\{$")
+ONCE_DECLARATION = re.compile(r"^\s*(?:" + ATTRIBUTE + r"\s+)*(?P<modifiers>(?:\w+(?:\([^)]*\))?\s+)*?)"
+                              r"(?:let|var)\s+`?\w+`?\s*(?::[^=]*)?=(?!=)")
+ONCE_MODIFIER = re.compile(r"\b(static|class|lazy)\b")
+# A file that may hold one: a `static`, `lazy` or `class let/var` member, or a `let`/`var` at column 0 (file scope;
+# the repo's formatter indents every member). Only a prefilter: once_initializer decides.
+ONCE_HINT = re.compile(r"\b(?:static|lazy)\s|\bclass\s+(?:let|var)\b|^(?:[@\w][\w()@.]*\s+)*(?:let|var)\s", re.M)
+TYPE_BODY_OPENER = re.compile(r"(?:^|[\s)])(?:(?:distributed\s+)?actor|class|struct|enum|extension)\s+"
+                              r"(?!(?:func|var|let|subscript|init|deinit|override|static)\b)[A-Za-z_]")
+INVOKED_LINES = 400  # how far an assigned closure is followed to its `}()`
+
+
+def closure_invoked(codes: list[str], index: int, column: int) -> bool:
+    """Whether the closure whose `{` is at COLUMN of line INDEX is called where it closes (`}()`)."""
+    depth = 0
+    for j in range(index, min(len(codes), index + INVOKED_LINES)):
+        code = codes[j]
+        for pos in range(column if j == index else 0, len(code)):
+            if code[pos] == "{":
+                depth += 1
+            elif code[pos] == "}":
+                depth -= 1
+                if depth == 0:
+                    return code[pos + 1:].lstrip().startswith("(")
+    return False
+
+
+def once_statement(statement: str, holder: str) -> bool:
+    """Whether STATEMENT declares a value Swift initializes once, directly in HOLDER (`file`, `type` or `other`): a
+    `static`/`class`/`lazy` stored member of a type, or a `let`/`var` at file scope."""
+    match = ONCE_DECLARATION.match(statement) if holder != "other" else None
+    return bool(match and (holder == "file" or ONCE_MODIFIER.search(match.group("modifiers"))))
+
+
+def once_initializer(version: Version, index: int, column: int) -> bool:
+    """Whether COLUMN of line INDEX runs in a static, lazy or global initializer (once-blocking's reading): the
+    blocks around it, innermost first, are control flow, inline-call closures and immediately called `= { }()`
+    closures (each runs inside the statement that opens it) up to a type body or the file, whose statement there
+    declares a once-initialized value. Each block's answer is kept on VERSION, so a file's lines cost one walk."""
+    blocks, codes = blocks_of(version), codes_of(version)
+    kinds: dict[int, tuple[str, str]] = version.memo.setdefault("once_kinds", {})
+    answers: dict[int, bool] = version.memo.setdefault("once_blocks", {})
+
+    def kind(block: int) -> tuple[str, str]:
+        """(`file` | `type` | `inline` | `other`, the statement that opens BLOCK)."""
+        if block == -1:
+            return "file", ""
+        if block not in kinds:
+            line, at = blocks.opened[block]
+            opener = codes[line][:at + 1]
+            if TYPE_BODY_OPENER.search(opener) and not DECLARATION_KEYWORD.search(opener):
+                kinds[block] = ("type", "")  # its members' statements are read, not its own
+                return kinds[block]
+            header = statement_header(version.lines, line + 1, opener)[0]
+            if (CONTROL_OPENER.search(header) or INLINE_CLOSURE_CALL.search(opener)
+                  or (ASSIGNED_CLOSURE_OPENER.search(opener) and closure_invoked(codes, line, at))):
+                kinds[block] = ("inline", header)
+            else:
+                kinds[block] = ("other", header)  # a function, accessor or closure body: it runs on every call
+        return kinds[block]
+
+    def runs_once(block: int) -> bool:
+        """Whether code directly in BLOCK's body runs inside a once initializer (BLOCK is `inline`)."""
+        if block not in answers:
+            holder = blocks.parent[block]
+            holder_kind = kind(holder)[0]
+            statement = kind(block)[1]
+            answers[block] = runs_once(holder) if holder_kind == "inline" else once_statement(statement, holder_kind)
+        return answers[block]
+
+    block = blocks.at(index, column)
+    block_kind = kind(block)[0]
+    if block_kind == "inline":
+        return runs_once(block)
+    statement = statement_header(version.lines, index + 1, codes[index][:column])[0]
+    return once_statement(statement, block_kind)
+
+
+def may_initialize_once(version: Version) -> bool:
+    """Whether VERSION declares anything Swift initializes once (ONCE_HINT), so most files skip the walk."""
+    if "once_possible" not in version.memo:
+        version.memo["once_possible"] = ONCE_HINT.search("\n".join(codes_of(version))) is not None
+    return version.memo["once_possible"]
+
+
+def blocking_once(changes: list[FileChange], moved: collections.Counter) -> list[Added]:
+    """Added blocking calls (raw, seam or raw-blocking-ext) in a static, lazy or global initializer."""
+    def judge(version: Version, index: int, code: str) -> bool:
+        if index >= len(version.lines) or not may_initialize_once(version):
+            return False
+        columns = [m.start() for m in MAIN_SCAN.pattern.finditer(code)] if blocking_match(MAIN_SCAN, code) else []
+        if not columns and blocking_ext_match(version, index, code):
+            columns = [m.start() for m in RAW_BLOCKING_EXT.finditer(code)] or [len(code)]
+        return any(once_initializer(version, index, column) for column in columns)
+    return changed_debt(outside_seams(changes), judge)
+
+
 def load_blocking_context(texts: dict[tuple[str, str], str], head: str, repo: Path | None = None) -> None:
     """Keeps HEAD's threading doc and package manifest for the rules above (a missing doc fails thread-doc open),
     and, given REPO, names HEAD's tree for pool-blocking's actor index (repo_actor_index reads it on demand)."""
@@ -3957,6 +4200,14 @@ BLOCKING_RULES = (
          "mark the function `@concurrent` (or move the work into an actor) so it never runs on the caller's main thread",
          "// blocking-allow: <why every caller is off the main thread>",
          maybe_blocking_on_main),
+    Rule("once-blocking", "A blocking call (raw, seam or raw-blocking-ext) in a static, lazy or global initializer",
+         "Swift runs the initializer once, on whichever thread reads the value first, and every other first reader "
+         "waits for it: its disk, kernel or process wait lands on an unknown thread, often the main thread "
+         "(Chromium keeps blocking work out of lazy singletons: base/memory/singleton.h, base/lazy_instance.h)",
+         "load the value on a lane at warm-up (`work.run(.userVisible, mayBlock: .files) { ... }`) and inject it "
+         "where it is read, or make its accessor `async`; a literal value needs no load",
+         "// blocking-allow: <why no reader can be the main thread or wait on it>",
+         blocking_once),
     Rule("thread-doc", "A new thread, queue or blocking allowance that plans/cmux-next/threading-model.md does not list",
          "every thread and queue has an owner, a QoS, a bound and a back-pressure rule written down, and every "
          "main-thread blocking allowance is reviewed (Chrome's ScopedAllowBlocking friend list)",
@@ -3967,6 +4218,136 @@ BLOCKING_RULES = (
 )
 RULES += BLOCKING_RULES
 # ---------------------------------------------------------------- end of main-blocking / thread-doc (PL-blocking)
+
+
+# ---- awaited-low-priority (PL-qos, p02-threads-113)
+# A task started below the person's priority (`Task(priority: .low|.utility|.background)`, `Task.detached(priority:`
+# the same, `work.task(.bestEffort|.idle)`) whose `.value` or `.result` main-actor code awaits is a latency inversion:
+# the task waits behind work nobody waits for until the await, and Swift's escalation only raises it from the await on
+# (WorkPriority.idle's doc). Chrome posts work a person waits for at USER_BLOCKING (base/task/task_traits.h) and raises
+# a queued sequence when that changes (base/task/updateable_sequenced_task_runner.h); cmux's recipe is the same: start
+# the work at the waiter's priority, or keep a `work.runHandle` and raise it (task 117). Judged lexically, on the
+# creation line: awaited at once (`await Task.detached(priority: .utility) { ... }.value`), through a local the same
+# function awaits, or through a stored property (`self.x =`, a property initializer) that a method of the same type
+# in the file awaits; the await must run on main (main-actor code, a `Task {` or inline closure in it, or
+# `MainActor.run {`). A fire-and-forget task, a handle returned or passed on, and an await off main pass.
+LOW_TASK = re.compile(r"(?<![\w$])Task(?:\s*<[^>{}]*>)?(?:\.detached)?\s*\(\s*priority:\s*(?:TaskPriority)?\."
+                      r"(?:low|utility|background)\b"
+                      r"|(?:(?<![\w$.])(?:\w+[?!]?\s*\.\s*)*\w+[?!]?\s*)?\.task\(\s*(?:WorkPriority)?\.(?:bestEffort|idle)\b")
+PRIORITY_ALLOW = re.compile(r"//\s*priority-allow:\s*\S")
+AWAIT_BEFORE = re.compile(r"\bawait\s*\(?\s*$")
+LOCAL_BINDING = re.compile(r"\b(?:let|var)\s+`?(\w+)`?\s*(?::[^=]+)?=\s*(?:try[?!]?\s+)?$")
+ASSIGNED_TO = re.compile(r"(?:^|[^\w.$])(self\s*\.\s*)?`?(\w+)`?\s*=\s*$")
+
+
+NO_STOP = re.compile(r"(?!)")  # enclosing_openers to the file's top level
+
+
+def awaits_on_main(version: Version, index: int, prefix: str) -> tuple[bool, list[int]]:
+    """(whether the await at PREFIX's end on VERSION's line INDEX runs on the main actor: directly in main-actor code,
+    in a `Task {` or an inline closure (`map`, `withLock`, ...) that keeps that isolation, or in a main opener; the
+    1-based lines that decided it: each opener walked, its whole header, and the line that set the declaration's
+    isolation). A detached, queue or escaping closure, an actor and a nonisolated function are off main. The
+    isolation is the declaration's, read on its opener line: the await's own line may open a `Task.detached` after
+    it."""
+    default_main = module_of(version.path) in ui_targets()
+    if "main_scopes" not in version.memo:
+        version.memo["main_scopes"] = main_actor_scope().main_actor_scopes(version.lines, default_main)
+    read: list[int] = []
+    for opener, number in enclosing_openers(version.lines, index, OPENER_STOP, prefix):
+        header = block_header(version.lines, number, opener) if number - 1 != index else opener
+        read.extend(range(header_start(version.lines, number), number + 1) if number - 1 != index else (number,))
+        if MAIN_OPENER.search(opener) or MAIN_OPENER.search(code_of(version.lines[number - 1])):
+            return True, read
+        if DECLARATION_OPENER.search(header):
+            # The headers of the types around it too: `nonisolated final class S {` -> `final class S {` moves it.
+            for _, outer in enclosing_openers(version.lines, number - 1, NO_STOP):
+                read.extend(range(header_start(version.lines, outer), outer + 1))
+            main, source = version.memo["main_scopes"][number - 1]
+            return main, read + ([source] if source else [])
+        # The opener alone too: block_header joins a statement that ends in `)` to the `if ... {` below it.
+        if not any(p.search(text) for p in (CONTROL_OPENER, TASK_INHERITS, INLINE_CLOSURE_CALL) for text in (header, opener)):
+            return False, read
+    return default_main, read
+
+
+def handle_scope(version: Version, index: int, column: int, prefix: str) -> tuple[str, tuple[int, ...]] | None:
+    """(name, blocks) of the handle that the task created at COLUMN of line INDEX (PREFIX: the code before it) is
+    stored in: a local's declaring block, or a stored property's type body and that type's extensions in the file.
+    None when nothing in this file keeps it (fire-and-forget, `return`, an argument, a member of another value)."""
+    local = LOCAL_BINDING.search(prefix)
+    assigned = None if local else ASSIGNED_TO.search(prefix)
+    if local is None and assigned is None:
+        return None
+    name = local.group(1) if local else assigned.group(2)
+    blocks, codes = blocks_of(version), codes_of(version)
+    chain = blocks.chain(blocks.at(index, column))[:-1]
+    types = [b for b in chain if TYPE_NAME.search(blocks.header(b)) and not CONTROL_OPENER.search(blocks.header(b))]
+    if local is not None and chain[:1] != types[:1]:
+        return name, (chain[0],)
+    if assigned is not None and not assigned.group(1):
+        # `name =`: a `var name` declared in the enclosing function keeps the handle local.
+        function = next((b for b in chain if b not in types and DECLARATION_OPENER.search(blocks.header(b))), None)
+        declared = re.compile(r"\b(?:var|let)\s+`?" + re.escape(name) + r"`?\b")
+        if function is not None:
+            inside = chain[:chain.index(function) + 1]
+            for j in range(blocks.opened[function][0], index + 1):
+                found = declared.search(codes[j])
+                if found and blocks.at(j, found.start()) in inside:
+                    return name, (blocks.at(j, found.start()),)
+    if not types:
+        return None
+    line, at = blocks.opened[types[0]]
+    return name, blocks.declaration_scope(line, at + 1, None)
+
+
+def awaited_low_task(version: Version, index: int) -> tuple[bool, list[int]]:
+    """(a low-priority task created on line INDEX is awaited on main (the section comment), the 1-based lines that
+    judgement read: each await of its handle and the openers, headers and isolation lines that place that await on
+    or off main. A push that touches one rejudges the unchanged creation line: it adds an await, or drops the
+    `nonisolated`, `@concurrent`, `actor` or `Task.detached {` that kept an old await off main)."""
+    code = code_of(version.lines[index])
+    blocks, codes = blocks_of(version), codes_of(version)
+    debt, lines = False, []
+    for match in LOW_TASK.finditer(code):
+        prefix, at = code[:match.start()], index
+        if not prefix.strip() and index > 0:  # `let page =` / `await` ends the line above
+            prefix, at = codes[index - 1], index - 1
+        if AWAIT_BEFORE.search(prefix[max((m.end() for m in STATEMENT_START.finditer(prefix)), default=0):]):
+            main, read = awaits_on_main(version, at, prefix)
+            debt, lines = debt or main, lines + read
+            continue
+        scope = handle_scope(version, index, match.start(), prefix)
+        if scope is None:
+            continue
+        name, kept_in = scope
+        site = re.compile(r"(?<![\w$.])(?:self\s*\.\s*)?`?" + re.escape(name) + r"`?\s*[?!]?\s*\.\s*(?:value|result)\b")
+        for j, line in enumerate(codes):
+            if j == index or name not in line:
+                continue
+            for found in site.finditer(line):
+                head = line[:found.start()]
+                if not AWAIT.search(head[max((m.end() for m in STATEMENT_START.finditer(head)), default=0):]):
+                    continue
+                if not set(kept_in) & set(blocks.chain(blocks.at(j, found.start()))):
+                    continue
+                main, read = awaits_on_main(version, j, head)
+                debt, lines = debt or main, lines + [j + 1] + read
+    return debt, lines
+
+
+AWAITED_LOW_PRIORITY_RULES = (
+    Rule("awaited-low-priority", "A task started at `.low`/`.utility`/`.background` (or `work.task(.bestEffort|.idle)`) "
+         "whose `.value` or `.result` main-actor code awaits: at once, through a local or through a stored property",
+         "the task queues behind work nobody waits for until main awaits it, and the await raises it only from then on: "
+         "the person waits for best-effort work (priority inversion; plans/cmux-next/chrome-parity/p02-threads.md D, R8)",
+         "start the task at the waiter's priority (`work.task(.userBlocking)` for an input's result, `.userVisible` for "
+         "what shows soon), or keep a `work.runHandle` and raise it when main awaits (task 117); fire-and-forget work "
+         "keeps its low priority and nothing awaits it",
+         "// priority-allow: <why main may wait for this low-priority work>",
+         matcher_rule(Matcher(LOW_TASK, PRIORITY_ALLOW, awaited_low_task))),
+)
+RULES += AWAITED_LOW_PRIORITY_RULES
 
 
 # ---------------------------------------------------------------- diff
@@ -4272,7 +4653,8 @@ def measure(repo: Path, base: str, head: str) -> tuple[list[tuple[Rule, list[Add
     """([(rule, every hit, measurements and warning hits included)], warnings) for what HEAD adds over BASE."""
     # Fixed prefixes: a user's diff.noprefix / diff.srcPrefix would otherwise drop every file from the parse. No
     # inter-hunk context: a user's diff.interHunkContext would join nearby hunks with unchanged lines between them.
-    specs = ["--", SWIFT_SOURCES, SWIFT_TESTS, *SHIPPED_BUILD_SPECS, *WAKEUP_EXT_SPECS, PACKAGE_MANIFEST_SPEC]
+    specs = ["--", SWIFT_SOURCES, SWIFT_TESTS, *SHIPPED_BUILD_SPECS, *WAKEUP_EXT_SPECS, PACKAGE_MANIFEST_SPEC,
+             *PACKAGE_SWIFT_SPECS]
     env = {k: v for k, v in os.environ.items() if k not in ("GIT_INDEX_FILE", "GIT_WORK_TREE")}
     # The content diff and the blob read each decompress the same objects: on the slowest real pushes (242 files,
     # load 37) each took 0.7-1 s one after the other. The changed paths come first from a cheap name-only diff, so
@@ -4787,10 +5169,103 @@ TARGET_SETTINGS_CASES = (
       **_manifest_edit(SELF_TEST_SHARED, "    ]\n)", "        .target(name: \"OldC\"),\n    ]\n)")}, False),
 )
 
+# safety-todo: an old file of a Shared package and one of the app's tests, before the strict-memory-safety pass.
+SELF_TEST_SHARED_SOURCE = "Packages/Shared/Linked/Sources/Linked/Buffer.swift"
+SELF_TEST_APP_TEST = TESTS + "CmuxNextTests/BufferTests.swift"
+SELF_TEST_MARKED = "Packages/Shared/Linked/Sources/Linked/Zero.swift"
+SELF_TEST_ARGUMENTS = "Packages/Shared/Linked/Sources/Linked/Describe.swift"
+SELF_TEST_EXPECT = "Packages/Shared/Linked/Tests/LinkedTests/ReadTests.swift"
+SELF_TEST_SAFETY_BASE = {
+    SELF_TEST_SHARED_SOURCE: "func fill(_ p: UnsafeMutablePointer<UInt8>, count: Int) {\n"
+                             "    for i in 0..<count {\n        p[i] = 0\n    }\n}\n",
+    SELF_TEST_APP_TEST: "func check(_ p: UnsafePointer<UInt8>) -> UInt8 {\n    return p.pointee\n}\n",
+    SELF_TEST_MARKED: "func zero(_ p: UnsafeMutablePointer<UInt8>) {\n"
+                      "    // SAFETY-TODO(p10)\n    unsafe p.pointee = 0\n}\n",
+    # The shapes swiftc 6.2.4 puts its fix-it in that sit after `(`: a call argument, a string literal argument
+    # with a pointer interpolated, an interpolation inside a multi-line string, a macro argument.
+    SELF_TEST_ARGUMENTS: "func describe(_ p: UnsafePointer<Int>) -> String {\n    use(p.pointee)\n"
+                         "    print(\"v: \\(p.pointee)\")\n    return \"\"\"\n    \\(p.pointee)\n    \"\"\"\n}\n",
+    SELF_TEST_EXPECT: "@Test func reads(_ p: UnsafePointer<Int>) {\n    #expect(p.pointee == 3)\n}\n",
+}
+
+
+def _safety_edit(path: str, old: str, new: str) -> dict[str, str]:
+    text = SELF_TEST_SAFETY_BASE[path]
+    if old not in text:
+        raise ValueError(f"self-test fixture: {old!r} is not in {path}")
+    return {path: text.replace(old, new, 1)}
+
+
+SAFETY_TODO_CASES = (
+    ("the fix-it pass marks an old line",
+     _safety_edit(SELF_TEST_SHARED_SOURCE, "        p[i] = 0\n",
+                  "        // SAFETY-TODO(p10)\n        unsafe p[i] = 0\n"), False),
+    ("the fix-it pass marks an old test line",
+     _safety_edit(SELF_TEST_APP_TEST, "    return p.pointee\n",
+                  "    // SAFETY-TODO(p10)\n    return unsafe p.pointee\n"),
+     False),
+    ("a mark on a new line",
+     _safety_edit(SELF_TEST_SHARED_SOURCE, "    }\n}\n",
+                  "    }\n    // SAFETY-TODO(p10)\n    unsafe p[count] = 0\n}\n"), True),
+    ("a mark on a new file",
+     {"Packages/iOS/Mobile/Sources/Mobile/Raw.swift": "func raw(_ p: UnsafeRawPointer) -> UInt8 {\n"
+                                                      "    // SAFETY-TODO(p10)\n"
+                                                      "    return unsafe p.load(as: UInt8.self)\n}\n"}, True),
+    ("two marks for one old line",
+     _safety_edit(SELF_TEST_SHARED_SOURCE, "        p[i] = 0\n",
+                  "        // SAFETY-TODO(p10)\n        // SAFETY-TODO(p10)\n        unsafe p[i] = 0\n"), True),
+    ("a mark on an old line edited beyond `unsafe`",
+     _safety_edit(SELF_TEST_SHARED_SOURCE, "        p[i] = 0\n",
+                  "        // SAFETY-TODO(p10)\n        unsafe p[i] = 1\n"), True),
+    ("new unsafe code with a SAFETY argument",
+     _safety_edit(SELF_TEST_SHARED_SOURCE, "    }\n}\n",
+                  "    }\n    // SAFETY: p has count + 1 bytes (the caller's contract)\n    unsafe p[count] = 0\n}\n"),
+     False),
+    ("a marked site moved to another file",
+     {SELF_TEST_MARKED: "",
+      "Packages/Shared/Linked/Sources/Linked/Moved.swift": SELF_TEST_SAFETY_BASE[SELF_TEST_MARKED]},
+     False),
+    ("a marked site copied to another file",
+     {"Packages/Shared/Linked/Sources/Linked/Copy.swift": SELF_TEST_SAFETY_BASE[SELF_TEST_MARKED]}, True),
+    ("an old mark re-indented",
+     {SELF_TEST_MARKED: SELF_TEST_SAFETY_BASE[SELF_TEST_MARKED].replace("    // SAFETY", "  // SAFETY")}, False),
+    ("the fix-it pass marks a call argument",
+     _safety_edit(SELF_TEST_ARGUMENTS, "    use(p.pointee)\n", "    // SAFETY-TODO(p10)\n    use(unsafe p.pointee)\n"),
+     False),
+    ("the fix-it pass marks a string argument with a pointer interpolated",
+     _safety_edit(SELF_TEST_ARGUMENTS, '    print("v: \\(p.pointee)")\n',
+                  '    // SAFETY-TODO(p10)\n    print(unsafe "v: \\(p.pointee)")\n'), False),
+    ("the fix-it pass marks the line that opens a multi-line string",
+     _safety_edit(SELF_TEST_ARGUMENTS, '    return """\n    \\(p.pointee)\n',
+                  '    // SAFETY-TODO(p10)\n    return """\n    \\(unsafe p.pointee)\n'), False),
+    ("the fix-it pass marks a macro argument in a test",
+     _safety_edit(SELF_TEST_EXPECT, "    #expect(p.pointee == 3)\n",
+                  "    // SAFETY-TODO(p10)\n    #expect(unsafe p.pointee == 3)\n"), False),
+    ("fix one old site, mark new code",
+     {**_safety_edit(SELF_TEST_MARKED, "    // SAFETY-TODO(p10)\n    unsafe p.pointee = 0\n",
+                     "    p.initialize(to: 0)\n"),
+      **_safety_edit(SELF_TEST_SHARED_SOURCE, "    }\n}\n",
+                     "    }\n    // SAFETY-TODO(p10)\n    unsafe p[count] = 0\n}\n")}, True),
+    ("unsafe on an old line, mark on a new line in the same file",
+     _safety_edit(SELF_TEST_SHARED_SOURCE, "        p[i] = 0\n    }\n}\n",
+                  "        unsafe p[i] = 0\n    }\n    // SAFETY-TODO(p10)\n    unsafe p[count] = 0\n}\n"), True),
+    ("unsafe on an old line, a mark on a new copy of it",
+     _safety_edit(SELF_TEST_SHARED_SOURCE, "        p[i] = 0\n    }\n}\n",
+                  "        unsafe p[i] = 0\n    }\n    // SAFETY-TODO(p10)\n    unsafe p[i] = 0\n}\n"), True),
+    ("a mark above an old line the push did not change",
+     _safety_edit(SELF_TEST_SHARED_SOURCE, "        p[i] = 0\n", "        // SAFETY-TODO(p10)\n        p[i] = 0\n"),
+     True),
+    ("a parameter label named unsafe",
+     _safety_edit(SELF_TEST_ARGUMENTS, "    use(p.pointee)\n", "    // SAFETY-TODO(p10)\n    use(unsafe: p.pointee)\n"),
+     True),
+)
+
+
 # (rule, base files, cases): each case is one commit over its suite's base.
 SELF_TEST_SUITES = (
     ("input-monitor", SELF_TEST_BASE, SELF_TEST_CASES),
     ("target-settings", SELF_TEST_MANIFEST_BASE, TARGET_SETTINGS_CASES),
+    ("safety-todo", SELF_TEST_SAFETY_BASE, SAFETY_TODO_CASES),
 )
 
 
@@ -4856,8 +5331,8 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--head", default="HEAD")
     parser.add_argument("--list", action="store_true", help="print the rules")
     parser.add_argument("--self-test", action="store_true",
-                        help="judge the input-monitor and target-settings rules' refuse and escape cases in a "
-                             "scratch repository")
+                        help="judge the input-monitor, target-settings and safety-todo rules' refuse and escape "
+                             "cases in a scratch repository")
     args = parser.parse_args(argv)
     if args.self_test:
         return self_test()

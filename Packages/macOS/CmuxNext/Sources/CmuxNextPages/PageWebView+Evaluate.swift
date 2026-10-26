@@ -28,7 +28,7 @@ extension PageWebView {
         // No document yet: WebKit would launch the page's WebContent process to run it.
         if awaitsFirstShow { throw PageScriptError.notStarted }
         guard let page = chromiumSession?.page else {
-            guard let view = webKitEngine?.view else { throw PageScriptError.notStarted }
+            guard let view = webKitPieces?.view else { throw PageScriptError.notStarted }
             return try await view.callAsyncJavaScript(body, arguments: arguments, in: nil, contentWorld: .page)
         }
         let names = arguments.keys.sorted()

@@ -19,36 +19,62 @@ one step: no frame of the page laid out at the old pane's size.
 with no wait for a ready spare, and its content area must never turn flat (the person sees the
 New Tab page's frame, never an empty pane, while its page loads). Start this script before the app.
 
-The app runs already (a capture slot: `capture-host launch`), with its debug socket; or `--app` and
-`--tag` launch a tagged DEV build here (no activation, scratch config, as instant-new-surfaces-bench.py
-does) and quit it at the end, for CI's GUI runners (cmux-next-frame-pacing.yml, `instant`).
+The app runs already (a capture slot: `capture-host launch`), with its debug socket (`--socket`); or `--app`
+launches a tagged DEV build here through bench_launch.BenchApp (the bench env, no activation, a scratch config, a
+fresh saved session, the tag's teardown at the end), for the lab story and for CI's GUI runners
+(cmux-next-frame-pacing.yml, `instant`). `--tag` is accepted for the story runner; the bundle carries its tag.
 
-Usage: cmd-n-paint-e2e.py (--socket <path> | --app PATH --tag TAG) [--runs 3] [--keys n,t] [--out DIR] [--cold] [--split N]
+With `--story` (default none; needs `--app`) every opening's bad frames and the warm openings that adopted no spare
+are written as cmux-perf-result/v1 next to the frame strips (paint_typing_report.cmd_n_paint_series), failing runs
+included: the bad-frame count is the measurement. An attached app (`--socket`) never records: its launch env is
+unknown.
+
+Usage: cmd-n-paint-e2e.py (--socket <path> | --app PATH [--tag TAG]) [--runs 3] [--keys n,t] [--out DIR] [--cold]
+       [--split N] [--story cmd-n-paint]
 """
-import argparse, atexit, glob, json, os, signal, socket, subprocess, sys, tempfile, time
+import argparse, json, os, socket, sys, time
 
-parser = argparse.ArgumentParser()
-parser.add_argument("--socket")
-parser.add_argument("--app", help="a tagged DEV app to launch (with --tag) instead of one already running")
-parser.add_argument("--tag")
-parser.add_argument("--runs", type=int, default=3)
-parser.add_argument("--keys", default="n,t", help="Command-<key> openings to check, comma separated")
-parser.add_argument("--out", default="/tmp/cmd-n-paint", help="where the app writes each run's frames")
-parser.add_argument("--duration-ms", type=float, default=700)
-parser.add_argument("--cold", action="store_true", help="the first Cmd-N right after launch: no ready spare, no blank frame")
-parser.add_argument("--split", type=int, default=1, help="split the workspace into this many panes before the openings")
-opts = parser.parse_args()
-if bool(opts.app) != bool(opts.tag) or bool(opts.socket) == bool(opts.app):
-    parser.error("pass --socket, or --app with --tag")
-if opts.app:
-    opts.socket = f"/tmp/cmux-debug-{opts.tag}.sock"
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))  # the bench modules, also under `python3 -I`
+import paint_typing_report as report  # noqa: E402
+from bench_launch import BenchApp  # noqa: E402
+from bench_story import story_problem  # noqa: E402
+
+ENGINE = report.ENGINES[report.CMD_N_PAINT_STORY]
+SOCKET = None
+
+
+def parse(argv=None):
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--socket")
+    parser.add_argument("--app", help="a tagged DEV app to launch instead of one already running")
+    parser.add_argument("--tag", help="the story runner passes it; the bundle carries the tag")
+    parser.add_argument("--runs", type=int, default=3)
+    parser.add_argument("--keys", default="n,t", help="Command-<key> openings to check, comma separated")
+    parser.add_argument("--out", default="/tmp/cmd-n-paint", help="where the app writes each run's frames")
+    parser.add_argument("--duration-ms", type=float, default=700)
+    parser.add_argument("--cold", action="store_true", help="the first Cmd-N right after launch: no ready spare, no blank frame")
+    parser.add_argument("--split", type=int, default=1, help="split the workspace into this many panes before the openings")
+    parser.add_argument("--story", help="write the openings as cmux-perf-result/v1 under this story (needs --app)")
+    parser.add_argument("--session", choices=["light"], default="light", help="result-v1 session (the story runner's)")
+    parser.add_argument("--build-config", choices=["bench", "bench-checks"],
+                        help="result-v1 build config of a bench-hooks bundle that does not stamp it")
+    opts = parser.parse_args(argv)
+    if bool(opts.socket) == bool(opts.app):
+        parser.error("pass --socket, or --app")
+    if opts.story:
+        if not opts.app:
+            parser.error("--story needs --app: an attached app's launch env is unknown")
+        problem = story_problem(opts.story, ENGINE)
+        if problem:
+            parser.error(problem)
+    return opts
 
 
 def rpc(method, params=None, timeout=30):
     try:
         conn = socket.socket(socket.AF_UNIX, socket.SOCK_STREAM)
         conn.settimeout(timeout)
-        conn.connect(opts.socket)
+        conn.connect(SOCKET)
         conn.sendall((json.dumps({"id": 1, "method": method, "params": params or {}}) + "\n").encode())
         buf = b""
         while not buf.endswith(b"\n"):
@@ -80,93 +106,87 @@ def spare_ready():
     return any(s.get("ready") for s in state.get("spares") or [])
 
 
-def launch(app_path, tag):
-    """Starts the tagged app on its debug socket with a scratch config; it quits at exit."""
-    app_path = os.path.abspath(app_path.rstrip("/"))
-    binary = next((p for p in sorted(glob.glob(os.path.join(app_path, "Contents/MacOS/*"))) if not p.endswith(".dylib")), None)
-    if not binary:
-        sys.exit(f"no executable in {app_path}")
-    if os.path.exists(opts.socket):
-        os.remove(opts.socket)
-    scratch = tempfile.mkdtemp(prefix=f"cmd-n-paint-{tag}-")
-    open(os.path.join(scratch, "ghostty"), "w").close()
-    config = os.path.join(scratch, "cmux.json")
-    open(config, "w").write("{}\n")
-    env = {"HOME": os.environ["HOME"], "USER": os.environ.get("USER", ""), "TMPDIR": os.environ.get("TMPDIR", "/tmp"),
-           "PATH": "/usr/bin:/bin:/usr/sbin:/sbin", "CMUX_NEXT_NO_ACTIVATE": "1", "CMUX_NEXT_SOCKET_MODE": "automation",
-           "CMUX_NEXT_TEST_WINDOW_SCREEN": "last", "CMUX_NEXT_CONFIG_FILE": config,
-           "CMUX_NEXT_GHOSTTY_CONFIG": os.path.join(scratch, "ghostty"), "CMUX_NEXT_TEST_WINDOW_FRAME": "40,40,1200,900"}
-    os.makedirs(opts.out, exist_ok=True)
-    log = open(os.path.join(opts.out, f"app-{tag}.log"), "a")
-    process = subprocess.Popen([binary], env=env, stdout=log, stderr=log, stdin=subprocess.DEVNULL)
+def check(opts):
+    """Every opening of the run; returns (openings, failures). An opening is {key, split, cold, bad, spare}."""
+    failures, openings = [], []
+    if opts.split > 1:
+        wait("a ready spare before the splits", spare_ready, 60)
+        for index in range(opts.split - 1):
+            # Split Right, then Split Down: each opens a New Tab page in the new pane (NewTabPage.split).
+            rpc("debug.key", {"key": "d", "modifiers": ["command"] + (["shift"] if index else [])})
+            time.sleep(1.0)  # test harness wait: the split's pane shows
+        # The spare follows the focused pane's size once that settles (NewTabPreload.fitSettle).
+        time.sleep(1.0)  # test harness wait
+    for run in range(opts.runs):
+        for key in opts.keys.split(","):
+            if key == "t":
+                # Cmd-T on a New Tab page only focuses it: open from a terminal tab (Control-`).
+                rpc("debug.key", {"key": "`", "modifiers": ["control"]})
+                time.sleep(1.0)  # test harness wait: the terminal tab shows
+            cold = opts.cold and run == 0
+            if cold:
+                wait("the app's socket", lambda: "error" not in (rpc("debug.new_tab", {"action": "state"}, timeout=5) or {"error": "no reply"}), 60)
+                rpc("debug.new_tab", {"action": "retarget"})
+            else:
+                wait(f"a ready spare before Cmd-{key.upper()}", spare_ready, 30)
+                time.sleep(0.5)  # test harness wait: the window settles (caret, hover) before the strip
+            known = len((rpc("debug.new_tab", {"action": "state"}) or {}).get("openings") or [])
+            out = f"{opts.out}/cmd-{key}-{run}"
+            reply = rpc("debug.new_tab", {"action": "frame_strip", "key": key, "dir": out, "duration_ms": opts.duration_ms}) or {}
+            if "error" in reply:
+                sys.exit(f"FAIL frame_strip Cmd-{key.upper()}: {reply}")
+            # Right after launch the sidebar may lead the content by a frame; the pane must never be empty.
+            bad = report.bad_frames(reply["frames"], cold)
+            # The page is the prewarmed spare, handed over, not a page loaded for this opening.
+            recorded = (rpc("debug.new_tab", {"action": "state"}) or {}).get("openings") or []
+            opening = recorded[-1] if len(recorded) > known else {}
+            if not opening.get("spare") and not cold:
+                failures.append(f"Cmd-{key.upper()} run {run} (no spare adopted: {opening or 'no opening'})")
+            openings.append({"key": key, "split": opts.split, "cold": cold, "bad": len(bad), "spare": bool(opening.get("spare"))})
+            print(f"Cmd-{key.upper()} run {run}{' (cold)' if cold else ''}: spare={bool(opening.get('spare'))} {reply['frame_count']} frames every {reply['mean_interval_ms']:.1f} ms, "
+                  f"intermediate={reply['intermediate']:.0f} content_intermediate={reply.get('content_intermediate', 0):.0f} "
+                  f"strip_motion={reply.get('strip_intermediate', 0):.0f} "
+                  f"blank={reply['blank']:.0f} strip={out}/strip.png", flush=True)
+            if reply.get("spans"):
+                print("  marks: " + ", ".join(f"{span['name']} {span['ms']:+.0f} ms" for span in reply["spans"]), flush=True)
+            for frame in bad:
+                print(f"  {frame['file']} at {frame['ms']:+.0f} ms: outside differs {frame['outside_vs_before']:.3f} from before, "
+                      f"{frame['outside_vs_final']:.3f} from final, content between={frame.get('content_intermediate')}, blank={frame['blank']}", flush=True)
+            if bad:
+                failures.append(f"Cmd-{key.upper()} run {run}")
+            # Back to one workspace and tab: Cmd-W closes the new tab (and with it a new workspace).
+            rpc("debug.key", {"key": "w", "modifiers": ["command"]})
+            time.sleep(0.5)  # test harness wait
+    return openings, failures
 
-    def quit_app():
-        rpc("action.run", {"action": "quitEndSessions"}, timeout=10)
-        try:
-            process.wait(timeout=20)
-        except subprocess.TimeoutExpired:
-            os.kill(process.pid, signal.SIGKILL)
-        cli = os.path.join(app_path, "Contents/Resources/bin/cmux")
-        subprocess.run([cli, "server", "stop", "--session", f"cmux-app-{tag}", "--end-terminals"],
-                       env={k: v for k, v in os.environ.items() if not k.startswith("CMUX_")}, capture_output=True, timeout=30)
-        if os.path.exists(opts.socket):
-            os.remove(opts.socket)
-    atexit.register(quit_app)
-    wait("the tagged app's socket", lambda: os.path.exists(opts.socket) and (rpc("debug.windows") or {}).get("windows"), 120)
-    time.sleep(2)  # test harness wait: the first workspace settles
+
+def main(argv=None):
+    global SOCKET
+    opts = parse(argv)
+    app = None
+    if opts.app:
+        os.makedirs(opts.out, exist_ok=True)
+        app = BenchApp(opts.app, out=opts.out, config={}, window=(40, 40, 1200, 900), screen="last",
+                       perf_session=opts.session, build_config=opts.build_config)
+    SOCKET = opts.socket
+    try:
+        if app:
+            app.launch(timeout=120)
+            SOCKET = app.socket
+            time.sleep(2)  # test harness wait: the first workspace settles
+        openings, failures = check(opts)
+    finally:
+        if app:
+            app.stop()
+    recorded = True
+    if opts.story:
+        recorded = report.any_written(report.record_all(app, opts.story, ENGINE, report.cmd_n_paint_series(openings)))
+    if failures:
+        sys.exit(f"FAIL blank or intermediate frames: {', '.join(failures)}")
+    if not recorded:
+        sys.exit(f"FAIL no result-v1 written for --story {opts.story}")
+    print("PASS no blank or intermediate frame")
 
 
-if opts.app:
-    launch(opts.app, opts.tag)
-failures = []
-if opts.split > 1:
-    wait("a ready spare before the splits", spare_ready, 60)
-    for index in range(opts.split - 1):
-        # Split Right, then Split Down: each opens a New Tab page in the new pane (NewTabPage.split).
-        rpc("debug.key", {"key": "d", "modifiers": ["command"] + (["shift"] if index else [])})
-        time.sleep(1.0)  # test harness wait: the split's pane shows
-    # The spare follows the focused pane's size once that settles (NewTabPreload.fitSettle).
-    time.sleep(1.0)  # test harness wait
-for run in range(opts.runs):
-    for key in opts.keys.split(","):
-        if key == "t":
-            # Cmd-T on a New Tab page only focuses it: open from a terminal tab (Control-`).
-            rpc("debug.key", {"key": "`", "modifiers": ["control"]})
-            time.sleep(1.0)  # test harness wait: the terminal tab shows
-        cold = opts.cold and run == 0
-        if cold:
-            wait("the app's socket", lambda: "error" not in (rpc("debug.new_tab", {"action": "state"}, timeout=5) or {"error": "no reply"}), 60)
-            rpc("debug.new_tab", {"action": "retarget"})
-        else:
-            wait(f"a ready spare before Cmd-{key.upper()}", spare_ready, 30)
-            time.sleep(0.5)  # test harness wait: the window settles (caret, hover) before the strip
-        openings = len((rpc("debug.new_tab", {"action": "state"}) or {}).get("openings") or [])
-        out = f"{opts.out}/cmd-{key}-{run}"
-        reply = rpc("debug.new_tab", {"action": "frame_strip", "key": key, "dir": out, "duration_ms": opts.duration_ms}) or {}
-        if "error" in reply:
-            sys.exit(f"FAIL frame_strip Cmd-{key.upper()}: {reply}")
-        # Right after launch the sidebar may lead the content by a frame; the pane must never be empty.
-        bad = [f for f in reply["frames"] if f["blank"] or ((f["intermediate"] or f.get("content_intermediate")) and not cold)]
-        # The page is the prewarmed spare, handed over, not a page loaded for this opening.
-        recorded = (rpc("debug.new_tab", {"action": "state"}) or {}).get("openings") or []
-        opening = recorded[-1] if len(recorded) > openings else {}
-        if not opening.get("spare") and not cold:
-            failures.append(f"Cmd-{key.upper()} run {run} (no spare adopted: {opening or 'no opening'})")
-        print(f"Cmd-{key.upper()} run {run}{' (cold)' if cold else ''}: spare={bool(opening.get('spare'))} {reply['frame_count']} frames every {reply['mean_interval_ms']:.1f} ms, "
-              f"intermediate={reply['intermediate']:.0f} content_intermediate={reply.get('content_intermediate', 0):.0f} "
-              f"strip_motion={reply.get('strip_intermediate', 0):.0f} "
-              f"blank={reply['blank']:.0f} strip={out}/strip.png", flush=True)
-        if reply.get("spans"):
-            print("  marks: " + ", ".join(f"{span['name']} {span['ms']:+.0f} ms" for span in reply["spans"]), flush=True)
-        for frame in bad:
-            print(f"  {frame['file']} at {frame['ms']:+.0f} ms: outside differs {frame['outside_vs_before']:.3f} from before, "
-                  f"{frame['outside_vs_final']:.3f} from final, content between={frame.get('content_intermediate')}, blank={frame['blank']}", flush=True)
-        if bad:
-            failures.append(f"Cmd-{key.upper()} run {run}")
-        # Back to one workspace and tab: Cmd-W closes the new tab (and with it a new workspace).
-        rpc("debug.key", {"key": "w", "modifiers": ["command"]})
-        time.sleep(0.5)  # test harness wait
-
-if failures:
-    sys.exit(f"FAIL blank or intermediate frames: {', '.join(failures)}")
-print("PASS no blank or intermediate frame")
+if __name__ == "__main__":
+    main()

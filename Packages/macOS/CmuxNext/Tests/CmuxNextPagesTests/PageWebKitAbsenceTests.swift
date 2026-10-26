@@ -21,6 +21,20 @@ struct PageWebKitAbsenceTests {
         try Data("<!doctype html><title>Page</title>".utf8).write(to: root.appendingPathComponent("index.html"))
     }
 
+    /// The agent page's root for this process. The first registration wins for the life of the
+    /// process (`PageID.registerBundledRoot`) and every package test target shares it, so this is the
+    /// registered root when there is one, else a fixture registered here and never deleted.
+    static let agentRoot: URL? = {
+        let id = "cmux.agent"
+        if let registered = PageID.bundledRoot(for: id) { return registered }
+        let directory = FileManager.default.temporaryDirectory.appending(path: "agent-page-webkit-absence-\(UUID().uuidString)")
+        guard (try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)) != nil,
+              (try? Data("<!doctype html><title>Agent</title>".utf8).write(to: directory.appending(path: "index.html"))) != nil
+        else { return nil }
+        PageID.registerBundledRoot(directory, for: id)
+        return PageID.bundledRoot(for: id)
+    }()
+
     /// How many WKWebViews are in `view`'s subtree, `view` included.
     static func webKitViews(in view: NSView) -> Int {
         (view is WKWebView ? 1 : 0) + view.subviews.reduce(0) { $0 + webKitViews(in: $1) }
@@ -37,13 +51,13 @@ struct PageWebKitAbsenceTests {
         let view = try #require(host.open(PageOpenRequest(descriptor: descriptor, root: root, routes: [], route: "#/a")))
         defer { host.close(view) }
         #expect(view.engineDecision == .chromium)
-        #expect(view.webKitEngine == nil)
+        #expect(view.webKitPieces == nil)
         #expect(Self.webKitViews(in: view) == 0)
         await view.chromiumStart?.value
         let page = try #require(hosting.made.first)
         #expect(page.loaded == [descriptor.url(route: "#/a")])
         #expect(view.showsChromium)
-        #expect(view.webKitEngine == nil)
+        #expect(view.webKitPieces == nil)
         #expect(Self.webKitViews(in: view) == 0)
     }
 
@@ -51,9 +65,7 @@ struct PageWebKitAbsenceTests {
     /// and makes no WKWebView in Chromium.
     @Test func anAgentPageInChromiumHasNoWebKitView() async throws {
         defer { try? FileManager.default.removeItem(at: root) }
-        // The first registration wins: use whichever root the process has for the agent page.
-        PageID.registerBundledRoot(root, for: agent.id)
-        let agentRoot = try #require(PageID.bundledRoot(for: agent.id))
+        let agentRoot = try #require(Self.agentRoot)
         let hosting = FakeChromiumHosting()
         let groups = WebProcessGroups()
         let host = WebUIHost(chromium: hosting, openPanel: nil, memory: QuietMemoryRegistry(), clock: PageTestClock.never,
@@ -64,7 +76,7 @@ struct PageWebKitAbsenceTests {
         #expect(view.engineDecision == .chromium)
         await view.chromiumStart?.value
         #expect(view.showsChromium)
-        #expect(view.webKitEngine == nil)
+        #expect(view.webKitPieces == nil)
         #expect(Self.webKitViews(in: view) == 0)
     }
 
@@ -86,7 +98,7 @@ struct PageWebKitAbsenceTests {
         #expect(view.focusView === view)
         #expect(view.acceptsFirstResponder)
         #expect(view.lastUserEventUptime == nil)
-        #expect(view.webKitEngine == nil)
+        #expect(view.webKitPieces == nil)
         await view.chromiumStart?.value
         let page = try #require(hosting.made.first)
         // The route asked for meanwhile is the one Chromium loads; the dropped script never ran.
@@ -95,7 +107,7 @@ struct PageWebKitAbsenceTests {
         #expect(!page.calls.contains { ($0.params["expression"] as? String) == "window.x = 1" })
         #expect(view.focusView === page.contentView)
         #expect(!view.acceptsFirstResponder)
-        #expect(view.webKitEngine == nil)
+        #expect(view.webKitPieces == nil)
     }
 
     /// A fallback builds the WebKit engine in its own turn, hands it what the host set while there
@@ -115,12 +127,13 @@ struct PageWebKitAbsenceTests {
         #expect(window.firstResponder === view)
         await view.chromiumStart?.value
         #expect(view.engineDecision == .webKit(.chromiumFailed))
-        let engine = try #require(view.webKitEngine)
+        let engine = try #require(view.webKitPieces)
+        #expect(view.webKitEngine === engine.view, "a host sees the WebKit engine once it shows the page")
         #expect(Self.webKitViews(in: view) == 1)
-        #expect(!engine.webView.isHidden)
-        #expect(engine.webView.url == descriptor.url(route: "#/c"))
+        #expect(!engine.view.isHidden)
+        #expect(engine.view.url == descriptor.url(route: "#/c"))
         #expect(engine.view.fileDrop != nil, "the host's file drop reaches the WebKit view built later")
-        #expect(window.firstResponder === engine.webView)
+        #expect(window.firstResponder === engine.view)
         #expect(!view.acceptsFirstResponder)
     }
 
@@ -132,9 +145,9 @@ struct PageWebKitAbsenceTests {
         let host = makeHost(hosting)
         let view = try #require(host.open(PageOpenRequest(descriptor: descriptor, root: root, routes: [])))
         defer { host.close(view) }
-        let engine = try #require(view.webKitEngine)
-        #expect(engine.webView.superview === view)
-        #expect(!engine.webView.isHidden)
-        #expect(view.focusView === engine.webView)
+        let engine = try #require(view.webKitPieces)
+        #expect(engine.view.superview === view)
+        #expect(!engine.view.isHidden)
+        #expect(view.focusView === engine.view)
     }
 }

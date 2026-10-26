@@ -1,0 +1,31 @@
+{
+  "id": "idle-tabs",
+  "tier": "T1",
+  "description": "Idle wakeups with 10 static Chromium tabs over 3 workspaces, 1 shown, each page reporting Chromium as its engine (bench_idle.py tabs-10, Chromium arm): app main run loop wakes/s, app, daemon and helper interrupt wakeups/s over 60 s, read only at the window's ends. The WebKit arm is idle-tabs-webkit.",
+  "command": ["scripts/cmux-next/bench_idle.py", "--fresh", "--scenarios", "tabs-10", "--engine", "chromium"],
+  "session": "light",
+  "engine": "chromium",
+  "config": "bench",
+  "metrics": [
+    {"name": "idle\\.tabs-10\\.app_daemon_wakeups_per_s", "unit": "per_s", "better": "lower",
+     "target_ref": {"target": "idle-wakeups.chromium"},
+     "floor_ref": {"path": "scripts/cmux-next/idle-budget.py", "key": "CRON_FLOORS/wakeups_per_s"}},
+    {"name": "idle\\.tabs-10\\.main_wakes_per_s", "unit": "per_s", "better": "lower",
+     "target_ref": {"target": "idle-wakeups.chromium"},
+     "floor_ref": {"path": "scripts/cmux-next/idle-budget.py", "key": "CRON_FLOORS/main_wakes_per_s"}},
+    {"name": "idle\\.tabs-10\\.app_wakeups_per_s", "unit": "per_s", "better": "lower",
+     "target_ref": {"path": "scripts/cmux-next/idle-budget.json", "key": "/kinds/app/wakeups_per_s"},
+     "floor_ref": {"path": "scripts/cmux-next/idle-budget.py", "key": "CRON_FLOORS/wakeups_per_s"}},
+    {"name": "idle\\.tabs-10\\.daemon_wakeups_per_s", "unit": "per_s", "better": "lower",
+     "target_ref": {"path": "scripts/cmux-next/idle-budget.json", "key": "/kinds/daemon/wakeups_per_s"},
+     "floor_ref": {"path": "scripts/cmux-next/idle-budget.py", "key": "CRON_FLOORS/wakeups_per_s"}},
+    {"name": "idle\\.tabs-10\\.helper_wakeups_per_s", "unit": "per_s", "better": "lower",
+     "floor_ref": {"path": "scripts/cmux-next/idle-budget.py", "key": "CRON_FLOORS/wakeups_per_s"}}
+  ],
+  "repeats": 1,
+  "seconds": 180,
+  "needs": ["debug:debug.hangs", "debug:debug.cef"],
+  "hot_paths": [],
+  "owner": "Performance Lead",
+  "component": "Energy>Idle"
+}

@@ -84,12 +84,12 @@ struct WebUIHostTests {
         defer { try? FileManager.default.removeItem(at: root) }
         let withPanel = makeHost(nil, openPanel: MadeAheadOpenPanel())
         let answered = try #require(withPanel.open(PageOpenRequest(descriptor: descriptor, root: root, routes: [])))
-        #expect((answered.webKitView.uiDelegate as? PageUIDelegate)?.fileInputs != nil)
+        #expect((answered.webView.uiDelegate as? PageUIDelegate)?.fileInputs != nil)
         let withoutPanel = makeHost(nil)
         let unanswered = try #require(withoutPanel.open(PageOpenRequest(descriptor: descriptor, root: root, routes: [])))
         // Its UI delegate still hears Web Inspector; a file input gets no chooser.
-        #expect(unanswered.webKitView.uiDelegate is PageUIDelegate)
-        #expect((unanswered.webKitView.uiDelegate as? PageUIDelegate)?.fileInputs == nil)
+        #expect(unanswered.webView.uiDelegate is PageUIDelegate)
+        #expect((unanswered.webView.uiDelegate as? PageUIDelegate)?.fileInputs == nil)
         withPanel.close(answered)
         withoutPanel.close(unanswered)
     }
@@ -106,13 +106,13 @@ struct WebUIHostTests {
         let second = try #require(host.open(PageOpenRequest(descriptor: descriptor, root: root, routes: [], options: shared)))
         let alone = try #require(host.open(PageOpenRequest(descriptor: descriptor, root: root, routes: [])))
         let store = host.processGroups.dataStore
-        #expect(first.webKitView.configuration.websiteDataStore === store)
-        #expect(second.webKitView.configuration.websiteDataStore === store)
-        #expect(second.webKitView.configuration.value(forKey: "_relatedWebView") as? WKWebView === first.webKitView)
-        #expect(alone.webKitView.configuration.websiteDataStore !== store)
+        #expect(first.webView.configuration.websiteDataStore === store)
+        #expect(second.webView.configuration.websiteDataStore === store)
+        #expect(second.webView.configuration.value(forKey: "_relatedWebView") as? WKWebView === first.webView)
+        #expect(alone.webView.configuration.websiteDataStore !== store)
         let warmup = host.groupedWebKitConfiguration()
         #expect(warmup.websiteDataStore === store)
-        #expect(warmup.processPool === first.webKitView.configuration.processPool)
+        #expect(warmup.processPool === first.webView.configuration.processPool)
         for view in [first, second, alone] { host.close(view) }
     }
 
@@ -125,10 +125,10 @@ struct WebUIHostTests {
         let view = try #require(host.open(PageOpenRequest(descriptor: descriptor, root: root, routes: [],
                                                           options: PageEngineOptions(sharesWebKitProcess: true))))
         #expect(view.engineDecision == .chromium)
-        #expect(view.webKitEngine == nil)
+        #expect(view.webKitPieces == nil)
         await view.chromiumStart?.value
-        #expect(view.webKitEngine == nil)
-        #expect(view.webKitView.configuration.websiteDataStore !== host.processGroups.dataStore)
+        #expect(view.webKitPieces == nil)
+        #expect(view.webView.configuration.websiteDataStore !== host.processGroups.dataStore)
         host.close(view)
     }
 }

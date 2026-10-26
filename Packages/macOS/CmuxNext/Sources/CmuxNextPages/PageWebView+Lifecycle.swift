@@ -1,14 +1,86 @@
+import CmuxNextDesign
 public import WebKit
+
+/// What the page lifecycle froze a page in (``PageWebView/freezePage()``).
+enum PageFrozenEngine {
+    /// The Chromium page with this identity, frozen through ``PageChromiumPage/setFrozen(_:)``.
+    case chromium(ObjectIdentifier)
+    /// The WebKit view, hidden in its window with all of WebKit's hidden-page throttling on; the
+    /// thaw sets back `restoring`, the throttling it had before (nil: this WebKit could not read it).
+    case webKit(restoring: WebKitHiddenPageThrottling?)
+}
 
 @MainActor
 extension PageWebView {
+    // MARK: Freeze and thaw (p13-webui.md 3.C)
+
+    /// Whether the page shows now: in a window, with no hidden view above it, the AppKit state both
+    /// engines take their visibility from (WebKit itself, ``setEngineVisible(_:)`` for Chromium).
+    // visibility-walk-allow: the freeze guard must read the AppKit state the engines read (PageWebView has no VisibilityNode); one walk per freeze, at most once per pass
+    var isShownInWindow: Bool { window != nil && !isHiddenOrHasHiddenAncestor }
+
+    /// Freezes the hidden page for the page lifecycle: its timers, tasks and frames stop, its memory
+    /// and state stay. Hidden comes first, then the freeze, as Chrome freezes only hidden pages
+    /// (`WebContents::SetPageFrozen`, content/public/browser/web_contents.h): the page is not shown in
+    /// its window, so AppKit's hide already reached the engine (``setEngineVisible(_:)`` from
+    /// `viewDidHide` or `viewDidMoveToWindow`). Chromium: the page is frozen once. WebKit stays in its
+    /// window (no detach; p13-webui-029 measures one): its view is hidden, which stops its frames,
+    /// and all of WebKit's hidden-page throttling is on until the thaw.
+    ///
+    /// - Returns: True when the page is frozen (a second call makes no second engine call); false
+    ///   when refused: the page shows, its Chromium page is still starting, or the engine did not
+    ///   freeze it (it still counts the page visible). The lifecycle asks a refused page again later.
+    @discardableResult
+    func freezePage() -> Bool {
+        if frozenEngine != nil { return true }
+        guard !isShownInWindow else { return false }
+        if engineDecision.engine == .webKit, chromiumSession == nil {
+            let preferences = webView.configuration.preferences
+            let restoring = preferences.hiddenPageThrottling
+            webView.isHidden = true
+            preferences.setHiddenPageThrottling(.full)
+            frozenEngine = .webKit(restoring: restoring)
+            return true
+        }
+        guard let page = chromiumSession?.page, page.setFrozen(true) else { return false }
+        frozenEngine = .chromium(ObjectIdentifier(page))
+        return true
+    }
+
+    /// Thaws a frozen page, in the turn of its show and before it is visible (``setEngineVisible(_:)``
+    /// thaws first too). Chromium: the page thaws, and is shown only after. WebKit: the view is
+    /// shown in its window again with the hidden-page throttling it had before the freeze, so a page
+    /// the lifecycle keeps running while hidden is throttled no more than WebKit's own default.
+    /// Does nothing on a running page.
+    func thawPage() {
+        guard let engine = frozenEngine else { return }
+        frozenEngine = nil
+        switch engine {
+        case .chromium(let identity):
+            guard let page = chromiumSession?.page, ObjectIdentifier(page) == identity else { return }
+            page.setFrozen(false)
+        case .webKit(let restoring):
+            if let restoring { webView.configuration.preferences.setHiddenPageThrottling(restoring) }
+            if chromiumSession == nil { webView.isHidden = false }
+        }
+    }
+
+    /// The frozen Chromium page ended and the page reopens in WebKit (``fallBackToWebKit(_:detail:)``):
+    /// the WebKit page takes its place in the frozen state, so the lifecycle's `.frozen` stays true
+    /// and its next pass (the reload's load reason) thaws it the usual way. A page that shows runs.
+    func carryFreezeToWebKit() {
+        guard case .chromium? = frozenEngine else { return }
+        frozenEngine = nil
+        freezePage()
+    }
+
     /// The tab closed: cancels subscriptions and stops the bridge.
     public func close() {
         _ = claimState.end()
         firstShowStart = nil // a page closed before it showed never starts
         firstShowWatch = nil
         router.close()
-        webKitEngine?.bridge.uninstall()
+        webKitPieces?.bridge.uninstall()
         endChromium()
         userContent.removeScriptMessageHandler(forName: PagePaintProbe.handlerName, contentWorld: .page)
         resumeLoadWaiters()
@@ -45,23 +117,14 @@ extension PageWebView {
         contentProcessTerminated()
     }
 
-    /// The page's web content process ended (either engine): reload unless it keeps crashing.
+    /// The page's web content process ended (either engine): ``PageCrashRecovery`` reloads it now,
+    /// when it shows, or not at all once it keeps crashing.
     func contentProcessTerminated() {
-        loaded = false
-        router.reset()
-        let reloading = crashReloads.shouldReload(at: now())
-        if reloading {
-            reloadPage()
-        } else {
-            loadState.set(loading: false, page: self) // no load follows
-            logger.error("page \(self.descriptor.id, privacy: .public) keeps crashing; not reloaded")
-        }
-        onCrash?(self, reloading)
+        crash.crashed(self)
     }
 
     /// Reloads a page that stopped reloading after crashes, and forgets those crashes (the crash notice's Reload button).
     public func reloadAfterCrashes() {
-        crashReloads = PageCrashReloads()
-        reloadPage()
+        crash.reloadAfterCrashes(self)
     }
 }

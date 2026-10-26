@@ -1,6 +1,6 @@
-public import AppKit
+import AppKit
 import CmuxNextDesign
-public import WebKit
+import WebKit
 
 /// What a page view needs to build its WebKit engine when it first needs one: the configuration its
 /// scripts and handlers were installed in, the process group a shared WebKit page joins, and the
@@ -19,16 +19,13 @@ struct PageWebKitRecipe {
 /// (`WebContentsImpl::CreateRenderWidgetHostViewForRenderManager`,
 /// content/browser/web_contents/web_contents_impl.cc), never a spare one per engine.
 @MainActor
-public final class PageWebKitEngine {
+final class PageWebKitEngine {
     /// The page's WebKit view.
     let view: PageWKWebView
     /// Page messages and the script FIFO's scripts in WebKit.
     let bridge: WebKitPageHostBridge
     /// The file chooser and Web Inspector's open and close (the view holds its UI delegate weakly).
     let ui: PageUIDelegate
-
-    /// The engine's web view, for a host that needs WebKit itself (Web Inspector, its process id).
-    public var webView: WKWebView { view }
 
     init(recipe: PageWebKitRecipe) {
         ui = PageUIDelegate(fileInputs: recipe.openPanel.map { PageOpenPanel(openPanel: $0) })
@@ -45,7 +42,6 @@ public final class PageWebKitEngine {
         if view.responds(to: NSSelectorFromString("_setDrawsBackground:")) {
             view.setValue(false, forKey: "drawsBackground")
         }
-        view.underPageBackgroundColor = .clear
         // Web Inspector in every build (Inspect Element, Cmd-Opt-I).
         view.isInspectable = true
         view.uiDelegate = ui
@@ -88,9 +84,9 @@ public final class PageWebKitEngine {
 }
 
 /// What a host sets on a page for its WebKit view (``PageWebView/fileDrop``, ``PageWebView/onFilesDropped``,
-/// ``PageWebView/onPaste``, ``PageWebView/contextMenuEditor``): kept here, so a page with no WebKit
-/// engine keeps them (a Chromium page reads ``fileDrop`` and ``contextMenuEditor`` itself), and handed
-/// to the view when the engine is built.
+/// ``PageWebView/onPaste``, ``PageWebView/contextMenuEditor``, ``PageWebView/underPageColor``): kept
+/// here, so a page with no WebKit engine keeps them (a Chromium page reads ``fileDrop`` and
+/// ``contextMenuEditor`` itself), and handed to the view when the engine is built.
 @MainActor
 final class PageWebKitHooks {
     private weak var view: PageWKWebView?
@@ -98,6 +94,11 @@ final class PageWebKitHooks {
     var onFilesDropped: (@MainActor ([URL]) -> Void)? { didSet { view?.onFilesDropped = onFilesDropped } }
     var onPaste: (@MainActor () -> Void)? { didSet { view?.onPaste = onPaste } }
     var contextMenuEditor: (@MainActor (NSMenu) -> Void)? { didSet { view?.contextMenuEditor = contextMenuEditor } }
+    /// WebKit's under-page color; clear, so the transparent page shows the window's backdrop.
+    var underPageColor: NSColor = .clear {
+        // glass-opaque-allow: WKWebView's under-page color property, not the NSColor system fill; it holds the caller's theme color, clear by default
+        didSet { view?.underPageBackgroundColor = underPageColor }
+    }
 
     /// Hands every hook to `view` and keeps it current from now on.
     func attach(_ view: PageWKWebView) {
@@ -106,17 +107,20 @@ final class PageWebKitHooks {
         view.onFilesDropped = onFilesDropped
         view.onPaste = onPaste
         view.contextMenuEditor = contextMenuEditor
+        // glass-opaque-allow: WKWebView's under-page color property, not the NSColor system fill; it holds the caller's theme color, clear by default
+        view.underPageBackgroundColor = underPageColor
     }
 }
 
 extension PageWebView {
-    /// The WebKit engine, built now when the page has none: only WebKit's own paths read it. A call
-    /// any engine may take reads ``webKitEngine`` and does nothing in WebKit without one.
+    /// The WebKit engine, built now when the page has none: only WebKit's own paths read it (a WebKit
+    /// page's init and ``fallBackToWebKit(_:detail:)``). A call any engine may take reads
+    /// ``webKitPieces`` and does nothing in WebKit without one; a host reads ``webKitEngine``.
     var webKit: PageWebKitEngine {
-        if let webKitEngine { return webKitEngine }
+        if let webKitPieces { return webKitPieces }
         let engine = PageWebKitEngine(recipe: webKitRecipe)
-        webKitEngine = engine
-        // Built behind a Chromium page (a host read ``webKitView``): hidden until a fallback.
+        webKitPieces = engine
+        // Built behind a Chromium page that still shows (a WebKit-only path ran): hidden until a fallback.
         let shown = engineDecision.engine != .cef
         if shown { scriptTarget.bridge = engine.bridge }
         engine.attach(to: self, shown: shown)
@@ -125,9 +129,6 @@ extension PageWebView {
 
     /// The WebKit view; builds the engine (``webKit``).
     var webView: PageWKWebView { webKit.view }
-
-    /// The WebKit view, built now when the page has none; ``webKitEngine`` keeps a Chromium page without one.
-    public var webKitView: WKWebView { webView }
 
     /// The page's document-start scripts and handlers, also what a Chromium page installs (``PageChromiumDocumentScripts``).
     var userContent: WKUserContentController { webKitRecipe.configuration.userContentController }

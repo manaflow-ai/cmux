@@ -84,20 +84,25 @@ nonisolated struct CEFBuiltInExtensions: Equatable, Sendable {
     /// UBLOCK_MANIFEST_SHA256 pins the same value; change both with a version).
     static let adBlockerManifestSHA256 = "8736fdbd889f05a37c62b98da88ad3e9e2ae72a067f0909e18bc051792ab161d"
 
-    /// The running app's own built-in uBlock Origin folder (symlinks
-    /// resolved) when its manifest matches the pin; nil otherwise.
-    static let trustedAdBlockerFolder: String? = {
-        guard let resources = Bundle.main.resourceURL else { return nil }
+    /// The built-in uBlock Origin folder under `resources` (the running app's
+    /// Contents/Resources; symlinks resolved) when its manifest matches the
+    /// pin; nil otherwise. Reads the manifest: the extension access owner
+    /// preloads it once on the files lane
+    /// (``AgentExtensionAccess/readTrustedBuiltInFolder(resources:)``), never
+    /// from a static initializer on whichever thread asks first (p02-threads-122).
+    static func trustedAdBlockerFolder(resources: URL?) -> String? {
+        guard let resources else { return nil }
         let folder = resources.appendingPathComponent(adBlockerFolder).resolvingSymlinksInPath().standardizedFileURL
-        guard let manifest = try? Data(contentsOf: folder.appendingPathComponent("manifest.json")) else { return nil }
+        guard let manifest = try? Data(blockingContentsOf: folder.appendingPathComponent("manifest.json")) else { return nil }
         let digest = SHA256.hash(data: manifest).map { String(format: "%02x", $0) }.joined()
         return digest == adBlockerManifestSHA256 ? folder.path : nil
-    }()
+    }
 
     /// The cmux-shipped uBlock Origin: its id, loaded from exactly this app's
-    /// pinned built-in folder. A copy the person installed or loaded (another
-    /// path) and every other extension are not.
-    static func isTrustedBuiltIn(_ info: BrowserExtensionInfo, trustedFolder: String? = trustedAdBlockerFolder) -> Bool {
+    /// pinned built-in folder (``trustedAdBlockerFolder(resources:)``). A copy
+    /// the person installed or loaded (another path) and every other extension
+    /// are not.
+    static func isTrustedBuiltIn(_ info: BrowserExtensionInfo, trustedFolder: String?) -> Bool {
         guard info.id == adBlockerID, let trustedFolder, !info.path.isEmpty else { return false }
         return URL(fileURLWithPath: info.path).resolvingSymlinksInPath().standardizedFileURL.path == trustedFolder
     }

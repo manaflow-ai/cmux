@@ -91,6 +91,9 @@ int cmux_shim_browser_set_detached_hosting(int browser_id, int enabled) {
 }
 
 int cmux_shim_browser_set_embedder_active(int browser_id, int active) {
+  // cmux's mark decides focus requests in host mode even on a fork without
+  // the call (RefusesFocus); first, as the fork focuses the page inside it.
+  NoteEmbedderActive(browser_id, active != 0);
   if (!fork_api().browser_set_embedder_active) return 0;
   return fork_api().browser_set_embedder_active(browser_id, active ? 1 : 0);
 }

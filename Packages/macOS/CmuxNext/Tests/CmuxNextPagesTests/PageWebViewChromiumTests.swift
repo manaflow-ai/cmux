@@ -35,7 +35,7 @@ struct PageWebViewChromiumTests {
         #expect(page.loaded == [descriptor.url(route: "#/start")])
         #expect(view.focusView === page.contentView)
         #expect(page.contentView.superview === view)
-        #expect(view.webKitEngine == nil)
+        #expect(view.webKitPieces == nil)
         #expect(PageWebKitAbsenceTests.webKitViews(in: view) == 0)
         #expect(view.chromiumSession != nil)
 
@@ -84,10 +84,10 @@ struct PageWebViewChromiumTests {
         #expect(view.engineDecision == .webKit(.chromiumFailed))
         #expect(hosting.made.first?.closed == true)
         #expect(view.chromiumSession == nil)
-        let engine = try #require(view.webKitEngine)
-        #expect(!engine.webView.isHidden)
-        #expect(engine.webView.superview === view)
-        #expect(view.focusView === engine.webView)
+        let engine = try #require(view.webKitPieces)
+        #expect(!engine.view.isHidden)
+        #expect(engine.view.superview === view)
+        #expect(view.focusView === engine.view)
     }
 
     @Test func aChromiumThatCannotMakeThePageFallsBackAtOnce() async throws {
@@ -98,10 +98,10 @@ struct PageWebViewChromiumTests {
         let start = try #require(view.chromiumStart)
         await start.value
         #expect(view.engineDecision == .webKit(.chromiumFailed))
-        let engine = try #require(view.webKitEngine)
-        #expect(!engine.webView.isHidden)
+        let engine = try #require(view.webKitPieces)
+        #expect(!engine.view.isHidden)
         // The fallback loads the route in WebKit in the turn it happens.
-        #expect(engine.webView.url == descriptor.url(route: "#/start"))
+        #expect(engine.view.url == descriptor.url(route: "#/start"))
     }
 
     @Test func theWebKitChoiceNeverStartsChromium() throws {

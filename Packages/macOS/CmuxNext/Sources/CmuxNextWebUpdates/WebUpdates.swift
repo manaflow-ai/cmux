@@ -4,7 +4,7 @@ import CmuxNextDesign
 import CmuxNextPages
 public import CmuxNextSettings
 public import CmuxNextUpdater
-import CmuxNextWakeups
+public import CmuxNextWakeups
 public import Foundation
 import Observation
 
@@ -15,7 +15,7 @@ import Observation
 /// touched cmux for a while (or it has been behind other apps for a moment) and every page answers
 /// that a reload keeps what it holds, then reloads every page and agent pane in place. Until then
 /// open pages keep the files they started with, so a page never mixes two builds' chunks.
-/// The App calls ``follow(_:bundle:)`` with each `updates.*` read; the first call starts it.
+/// The App starts it with ``prepare(_:bundle:files:)`` and calls ``follow(_:bundle:)`` with each `updates.*` read.
 /// Observable, so the Settings card (``pageJSON``) follows the updater and the pending swap.
 @Observable
 public final class WebUpdates {
@@ -52,17 +52,23 @@ public final class WebUpdates {
         WebUpdater.takesUpdates(UpdateBuildIdentity(infoDictionary: bundle.infoDictionary ?? [:]))
     }
 
+    /// The lanes the updater reads its trusted keys on (``WebUpdater/KeySource/bundled(_:)``), from the
+    /// composition root's ``prepare(_:bundle:files:)``; web updates start only once it is set.
+    @ObservationIgnored private var files: BackgroundWork?
+
     /// Starts the launch check with the launch settings before any restored or prewarmed page can
     /// request its entry document. Applying the channel first keeps `updates.web: off` on the
-    /// bundled web even while the settings observer is still starting.
-    public func prepare(_ settings: UpdatesSettings, bundle: Bundle = .main) {
+    /// bundled web even while the settings observer is still starting. `files` is the app's
+    /// blocking-work lanes (its one `BackgroundWork`).
+    public func prepare(_ settings: UpdatesSettings, bundle: Bundle = .main, files: BackgroundWork) {
+        self.files = files
         start(bundle: bundle, settings: settings)
     }
 
     /// Starts once. Before the first page loads, pages wait for the kept update's check; after,
     /// the kept update waits for a safe point.
     private func start(bundle: Bundle, settings: UpdatesSettings? = nil) {
-        guard !started else { return }
+        guard !started, let files else { return }
         started = true
         guard Self.isAvailable(bundle),
               let pages = WebBundleOverlay.bundledPages,
@@ -76,7 +82,7 @@ public final class WebUpdates {
         if let resources = bundle.resourceURL {
             overlay.register(bundled: PageDescriptor.diffRoot(inAppResources: resources), output: WebUpdateTree.outputs[4])
         }
-        let updater = WebUpdater(store: store, app: app)
+        let updater = WebUpdater(store: store, app: app, keys: .bundled(files))
         updater.onReady = { [weak self] tree, pointer in
             self?.handedOver = true
             self?.ready(tree, version: pointer)
@@ -117,7 +123,7 @@ public final class WebUpdates {
         })
     }
 
-    /// `updates.*`: the channel and what downloads may use. The first call starts web updates.
+    /// `updates.*`: the channel and what downloads may use. Starts web updates once ``prepare(_:bundle:files:)`` gave the lanes.
     public func follow(_ settings: UpdatesSettings, bundle: Bundle = .main) {
         start(bundle: bundle)
         guard let updater else { return }

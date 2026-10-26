@@ -44,13 +44,14 @@ extension PageWebView {
 
     /// The view that takes the keyboard when the page is focused: Chromium's view or the WebKit view;
     /// this view while its Chromium page is on its way (the page's attach hands the keyboard on).
-    public var focusView: NSView { chromiumSession?.page.contentView ?? webKitEngine?.view ?? self }
+    public var focusView: NSView { chromiumSession?.page.contentView ?? webKitPieces?.view ?? self }
 
     /// The Chromium page that shows the page now; nil on WebKit.
     public var chromiumPage: (any PageChromiumPage)? { chromiumSession?.page }
 
-    /// The page zoom both engines show: `uiScale` times ``additionalZoom``.
-    var pageZoom: Double { Double(DesignSettings.shared.uiScale) * additionalZoom }
+    /// The page zoom both engines show: `uiScale` times ``additionalZoom``, the view points per CSS
+    /// pixel (WebKit pages take no pinch or smart magnification, ``PageWKWebView``).
+    public var pageZoom: Double { Double(DesignSettings.shared.uiScale) * additionalZoom }
 
     // MARK: Engine-neutral document calls
 
@@ -62,25 +63,33 @@ extension PageWebView {
         scriptTarget.evaluate(script)
     }
 
-    /// Tells a Chromium page whether it shows (a hidden one stops drawing), and the census.
+    /// Tells a Chromium page whether it shows (a hidden one stops drawing), and the census. A frozen
+    /// page thaws before it shows, whichever path showed it (``thawPage()``); a page whose renderer died
+    /// while hidden reloads as it shows (``PageCrashRecovery/engineVisibilityChanged(_:page:)``).
     func setEngineVisible(_ visible: Bool) {
+        if visible { thawPage() }
         chromiumSession?.page.setVisible(visible)
+        crash.engineVisibilityChanged(visible, page: self)
         #if DEBUG || CMUX_BENCH_HOOKS
         noteCensusVisibility(visible)
         #endif
     }
 
     /// Loads `url` (a document of this page) in whichever engine shows it; a Chromium page on its way
-    /// loads ``route`` when it attaches.
+    /// loads ``route`` when it attaches, and a page waiting to show after a crash loads it as it shows
+    /// (``PageCrashRecovery/mayLoad(_:)``).
     func loadDocument(_ url: URL) {
+        guard crash.mayLoad(url) else { return }
         traceOpenLoadStarted(.load)
-        if let chromiumSession { chromiumSession.page.load(url) } else { webKitEngine?.view.load(URLRequest(url: url)) }
+        if let chromiumSession { chromiumSession.page.load(url) } else { webKitPieces?.view.load(URLRequest(url: url)) }
     }
 
-    /// Reloads the document in whichever engine shows it; a Chromium page on its way loads fresh when it attaches.
+    /// Reloads the document in whichever engine shows it; a Chromium page on its way loads fresh when it
+    /// attaches, and a page waiting after a crash after its show.
     func reloadPage() {
+        guard crash.mayLoad(nil) else { return }
         traceOpenLoadStarted(.reload)
-        if let chromiumSession { chromiumSession.page.reload() } else { _ = webKitEngine?.view.reload() }
+        if let chromiumSession { chromiumSession.page.reload() } else { _ = webKitPieces?.view.reload() }
     }
 
     // MARK: Start
@@ -90,7 +99,7 @@ extension PageWebView {
     /// page does not reach the host in time.
     func startChromium(hosting: any PageChromiumHosting) {
         traceMark(.chromiumStart)
-        webKitEngine?.view.isHidden = true
+        webKitPieces?.view.isHidden = true
         let scripts = PageChromiumDocumentScripts(controller: userContent)
         let descriptor = descriptor
         let chatOpen = chatOpen
@@ -160,13 +169,13 @@ extension PageWebView {
         page.load(descriptor.url(route: route))
         let wait = chromiumDeadline
         // The page's first message cancels the deadline (onFirstMessage); ending the session too.
-        session.deadline.schedule(after: wait) { @MainActor [weak self, weak session] in
+        session.deadline.scheduleOnMain(after: wait) { [weak self, weak session] in
             guard let self, let session, self.chromiumSession === session else { return }
             self.fallBackToWebKit(.chromiumFailed, detail: "no message from the page within \(wait)")
         }
         // The keyboard went to the page while Chromium started: this view held it.
         if shouldFocusOnAttach == false, let responder = window?.firstResponder,
-           responder === self || responder === webKitEngine?.view { focusPage() }
+           responder === self || responder === webKitPieces?.view { focusPage() }
     }
 
     /// Chromium failed for this page: it builds its WebKit engine and reopens there, in this turn, at
@@ -190,6 +199,7 @@ extension PageWebView {
         loaded = false
         traceOpenLoadStarted(.reload)
         engine.view.load(URLRequest(url: descriptor.url(route: route)))
+        carryFreezeToWebKit()
     }
 
     /// Ends Chromium mode for good (the page closed).
@@ -199,6 +209,7 @@ extension PageWebView {
         chromiumSession?.end()
         chromiumSession = nil
         inputReadiness.editor = nil
+        if case .chromium? = frozenEngine { frozenEngine = nil }
     }
 
     // MARK: Events
@@ -312,7 +323,7 @@ extension PageWebView {
         guard !awaitsFirstShow else { return nil } // no document yet; WebKit would launch its process for it
         guard let page = chromiumSession?.page else {
             // No engine view yet: a Chromium page on its way has no document to call.
-            return try? await webKitEngine?.view.callAsyncJavaScript(body, arguments: arguments, contentWorld: .page)
+            return try? await webKitPieces?.view.callAsyncJavaScript(body, arguments: arguments, contentWorld: .page)
         }
         let names = arguments.keys.sorted()
         guard let values = try? JSONSerialization.data(withJSONObject: names.map { arguments[$0] ?? NSNull() }, options: [.fragmentsAllowed]),

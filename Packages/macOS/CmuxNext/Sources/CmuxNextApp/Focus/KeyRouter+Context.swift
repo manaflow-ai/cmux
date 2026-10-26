@@ -155,12 +155,13 @@ extension KeyRouter {
     /// The focused live Chromium tab's page window is `window`, the key window: the key reaches
     /// the page, and Chromium reports it if the page leaves it unhandled. While the shell window
     /// itself is key (a page the model names but Chromium has not been handed the keyboard), the
-    /// key would reach no page, so cmux runs its action first as before.
+    /// key would reach no page, so cmux runs its action first as before. With the Chromium Host the
+    /// shell window stays key and the tab's page view is its first responder.
     private func chromiumPageHasKeys(_ window: NSWindow, controller: WindowController) -> Bool {
         guard case .browserPage = controller.focus.state.resolved, let pane = controller.focus.state.resolved.pane,
               case .browser(let entry)? = controller.content?.paneController(key: pane)?.currentContent,
               let tab = entry.tab as? CEFTab else { return false }
-        return tab.isPageWindow(window)
+        return tab.isPageWindow(window) || tab.hostedPageHasKeys(in: window)
     }
 
     /// The page id of the focused internal page tab.
