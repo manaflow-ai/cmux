@@ -57,14 +57,16 @@ affects only the current shell. Keep the WebSocket listener on
 loopback. The peer connection below tunnels it through SSH.
 
 `--listen` applies to that run only. If you use a port other than 47811 (for
-example because another daemon already holds it), also set `"websocket":
-{"listen": "127.0.0.1:PORT"}` in `~/.acpmux/config.json` so `acpmux daemon
-start` and later restarts keep it, and give the same port in the peer URL below.
+example because another daemon already holds it), also merge `"listen":
+"127.0.0.1:PORT"` into the `websocket` object of `~/.acpmux/config.json`,
+keeping its token and the file's other fields, so `acpmux daemon start` and
+later restarts keep it, and give the same port in the peer URL below.
 
 The daemon refuses a home or log that other users can write. If your umask
-makes new files group-writable, run `chmod 700 ~/.acpmux` and
-`chmod 600 ~/.acpmux/daemon.log` before starting it, and keep the log
-owner-only in your service supervisor.
+makes new files group-writable, run `chmod 700 ~/.acpmux` before starting it;
+if `~/.acpmux/daemon.log` already exists and is group-writable, also run
+`chmod 600 ~/.acpmux/daemon.log`. Keep the log owner-only in your service
+supervisor.
 
 Back on your Mac, use an SSH alias that reaches your own remote account:
 
@@ -116,11 +118,13 @@ can run. Its `--harness ID` option checks a named harness profile, not the
 PATH-discovered harness alone. Verify the remote harness with
 `acpmux daemon harnesses` on that host and a real session prompt.
 
-`host enroll`, `host setup` and `host update` install the invoking binary. Use
-them only for a compatible remote OS and architecture. For a Linux host reached
-from a Mac, use the Linux installation and `host add` steps above instead, and
-update that host by rebuilding there, even when `host ls` or `host doctor`
-reports a different build and suggests `acpmux host update`.
+`host enroll` and `host setup` install the invoking binary. Use them only for a
+compatible remote OS and architecture. For a Linux host reached from a Mac, use
+the Linux installation and `host add` steps above instead. `host update`
+refuses a peer of another OS or architecture unless you pass `--binary-dir DIR`
+with a build named `acpmux-<target>` there (for example
+`acpmux-x86_64-unknown-linux-musl`); otherwise update that host by rebuilding
+it there.
 
 ## Work with a remote session
 
@@ -139,10 +143,12 @@ share one daemon and the app shows the remote chat; open it with
 `acpmux new --host`.
 `acpmux session allow` is refused for remote sessions; `acpmux pending` and
 `acpmux send` point to the app's card for an allow, and `session deny` and
-`session cancel` work from the CLI. Starting on the
-host with a mode that never asks (`--mode read-only`) is refused too unless a
-person starts it in cmux NEXT there or approves a preset for it. A prompt that
-needs no tools completes from the CLI alone.
+`session cancel` work from the CLI. From a bare CLI on the host, starting with a
+mode that never asks (`--mode read-only`) is refused too unless a person starts
+it in cmux NEXT there or approves a preset for it; a session started by an agent
+that already runs in such a mode inherits it. A prompt that needs no tools
+completes from the CLI alone. A host whose config sets `vmHost` (below) runs your
+peer's sessions without asking.
 
 `--tag` and `--host` with `--group` need an acpmux built from feat-cmux-next on
 2026-10-26 or later; check that `acpmux new --help` lists them.
@@ -179,7 +185,11 @@ the file does not need to exist on the remote host.
 
 Replace `codex` with an installed harness, such as `claude`. A remote-started
 Claude session needs the host's sandbox, which acpmux has only on macOS so far:
-on a Linux host, `acpmux new --host` refuses `-m claude`. Ctrl-Q detaches
+on a Linux host, `acpmux new --host` refuses `-m claude`. The exception is a
+dedicated agent VM whose `~/.acpmux/config.json` sets `"vmHost": true`: the VM
+is the sandbox, so Claude runs there, and sessions your peer daemon starts with
+no policy run approve-all. Set it only on a machine that holds nothing but agent
+work. Ctrl-Q detaches
 the TUI; the agent remains on the host. You can use that TUI in a cmux terminal.
 To view a remote session as a native cmux NEXT chat tab, select a local pane,
 wait for the app's peer inventory to load, and run:
