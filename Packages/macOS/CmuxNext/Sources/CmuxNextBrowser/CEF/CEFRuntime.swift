@@ -226,12 +226,12 @@ final class CEFRuntime {
 
     /// Takes the engine's stores, sign-in tabs and wait deadlines (the process has one Chromium, so the
     /// App's one engine hands them over before its first start or tab), and its host supervisor, which
-    /// puts a runtime that has not started in host mode. Without `waitDeadlines` the runtime keeps its
-    /// own queue; the pump made at the start runs on the queue adopted before it. Idempotent for the
-    /// same stores.
+    /// puts a runtime that has not started in host mode (with the host's widgets in cmux when `hostWidgets`).
+    /// Without `waitDeadlines` the runtime keeps its own queue; the pump made at the start runs on the queue
+    /// adopted before it. Idempotent for the same stores.
     func adopt(stores: BrowserSharedStores, signInCallbacks: CEFSignInCallbacks, waitDeadlines: MainWakeUpQueue? = nil,
-               hostSupervisor: (any ChromiumHostSupervising)? = nil) {
-        if let hostSupervisor, hostStart == nil, state == .idle { hostStart = CEFHostStart(supervisor: hostSupervisor) }
+               hostSupervisor: (any ChromiumHostSupervising)? = nil, hostWidgets: Bool = false) {
+        if let hostSupervisor, hostStart == nil, state == .idle { hostStart = CEFHostStart(supervisor: hostSupervisor, showsWidgets: hostWidgets) }
         self.signInCallbacks = signInCallbacks
         if let waitDeadlines { wakeUps = waitDeadlines }
         guard stores !== self.stores else { return }
@@ -474,6 +474,7 @@ final class CEFRuntime {
         if case .inProcess = library, shim.prepareApplication() != 1 { throw .application }
         hostReplies = try CEFHostReplyRoute.route(for: library)
         self.shim = shim
+        if case .host = library { showHostWidgets(shim) }
         if case .inProcess(let loaded) = library {
             layout = loaded.layout
             startInProcessPump(shim)

@@ -110,9 +110,26 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// In host mode, Chromium's extension popups, side panel, DevTools, popup windows and date and datalist popups show in cmux panels and panes from their layer contexts, with input sent to the host.
+    public static let chromiumHostWidgets = Feature(
+        index: 6,
+        name: "chromiumHostWidgets",
+        owner: "PL-cef-layer",
+        description: "In host mode, Chromium's extension popups, side panel, DevTools, popup windows and date and datalist popups show in cmux panels and panes from their layer contexts, with input sent to the host.",
+        kind: .labs,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: nil,
+        params: [],
+        stories: [],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// Chromium keeps its spare renderer only for a profile whose browser tab opened a web page, so Home with no browser tab and cmux pages start no spare renderer.
     public static let chromiumSpareAfterFirstTab = Feature(
-        index: 6,
+        index: 7,
         name: "chromiumSpareAfterFirstTab",
         owner: "PL-webui",
         description: "Chromium keeps its spare renderer only for a profile whose browser tab opened a web page, so Home with no browser tab and cmux pages start no spare renderer.",
@@ -898,6 +915,7 @@ nonisolated extension Feature {
         .cefPrefetchBehindFence,
         .cefPumpInputPolicy,
         .cefTimerSlack,
+        .chromiumHostWidgets,
         .chromiumSpareAfterFirstTab,
         .cmuxPageRendererSharing,
         .coldScrollbackCompression,
@@ -953,6 +971,7 @@ nonisolated extension Feature {
         .cefPrefetchBehindFence,
         .cefPumpInputPolicy,
         .cefTimerSlack,
+        .chromiumHostWidgets,
         .chromiumSpareAfterFirstTab,
         .cmuxPageRendererSharing,
         .coldScrollbackCompression,
