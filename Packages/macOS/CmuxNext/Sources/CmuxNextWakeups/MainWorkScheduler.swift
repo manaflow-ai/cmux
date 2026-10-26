@@ -1,16 +1,18 @@
 public import QuartzCore
 
 /// The app's one main-thread scheduler for budgeted work (plans/cmux-next/main-thread-budget.md):
-/// the per-frame ``MainFrameBudget`` and the one display link its batches tick on.
+/// the per-frame ``MainFrameBudget`` and the scheduler its batches tick on, on the main display's
+/// shared link (``DisplayClock``).
 ///
 /// The app builds one at its composition root and passes it by init to everything that runs a
 /// budgeted batch (the control work queue, the watchdog's board) and to the daemon services, whose
 /// store drain is a frame client on its link (it ticks first, whole, every frame): there
 /// is no shared instance. Budgeted clients exist only here (``FrameClient/init(owner:budgeted:on:onFrame:)``,
 /// ``FrameBatchQueue/init(owner:budgeted:on:)``), so the budget's window opens once per real frame
-/// on this one link, never once per tick of each window's link (two displays at 60 and 120 Hz
-/// would otherwise roll it several times a frame). Its link exists only while one of its clients
-/// has work; an idle app has no frame wakeups from it.
+/// on the main display's link, never once per tick of each display (two displays at 60 and 120 Hz
+/// would otherwise roll it several times a frame). It ticks on that link only while one of its
+/// clients has work; an idle app has no frame wakeups from it. On each tick its frame-locked
+/// clients go first, then the window schedulers on that display, then its budgeted classes.
 ///
 /// Main-thread work that is not a batch is posted in a class with an owner
 /// (``post(_:owner:file:line:_:)``, ``postFromAnyThread(_:owner:file:line:_:)``, ``apply(_:owner:file:line:_:)``,
@@ -20,7 +22,9 @@ public import QuartzCore
 ///
 /// ```swift
 /// // The composition root:
-/// let mainWork = MainWorkScheduler(budget: MainFrameBudget(input: SessionInputPending(), signposts: true))
+/// let displays = DisplayClock()
+/// FrameScheduler.attach(displays)
+/// let mainWork = MainWorkScheduler(budget: MainFrameBudget(input: SessionInputPending(), signposts: true), displays: displays)
 /// let requests = FrameBatchQueue(owner: "Control.frames", budgeted: .automation, on: mainWork)
 /// mainWork.post(.automation, owner: "browser-host.open") { host.open(url) }
 ///
@@ -35,8 +39,8 @@ public final class MainWorkScheduler {
     /// The budget's board, readable from any thread (``postFromAnyThread(_:owner:file:line:_:)``
     /// interns owners on it off the main thread).
     public nonisolated let board: MainTaskBoard
-    /// The display-link scheduler the budgeted clients tick on (the main screen's); the daemon
-    /// services' drains are frame clients on it, so they tick before the budgeted classes.
+    /// The scheduler the budgeted clients tick on (on the main display); the daemon services'
+    /// drains are frame clients on it, so they tick before the window schedulers and the budgeted classes.
     public let frames: FrameScheduler
 
     /// Times the render pass after each frame's scheduled work while the link runs (nil in tests).
@@ -44,12 +48,21 @@ public final class MainWorkScheduler {
     /// The posted work's class queues (MainWorkScheduler+Post.swift).
     var posting = Posting()
 
-    /// - Parameter budget: The app's budget (the app: ``SessionInputPending`` input and signposts on).
-    ///   The render pass (layout, display, the Core Animation commit) is timed on the main run loop
-    ///   while the link runs and charged to the next frame (``MainFrameBudget/noteRenderPass(nanos:)``).
-    public convenience init(budget: MainFrameBudget) {
+    /// - Parameters:
+    ///   - budget: The app's budget (the app: ``SessionInputPending`` input and signposts on).
+    ///     The render pass (layout, display, the Core Animation commit) is timed on the main run loop
+    ///     while it ticks and charged to the next frame (``MainFrameBudget/noteRenderPass(nanos:)``).
+    ///   - displays: The display clock it shares with ``FrameScheduler/app`` and the windows (the
+    ///     composition root's, ``FrameScheduler/attach(_:)``).
+    public convenience init(budget: MainFrameBudget, displays: DisplayClock) {
         let meter = RenderPassMeter { [weak budget] nanos in budget?.noteRenderPass(nanos: nanos) }
-        self.init(budget: budget, frames: FrameScheduler(name: "budgeted", host: .screen, budget: budget), renderPasses: meter)
+        self.init(budget: budget, frames: FrameScheduler(name: "budgeted", host: .screen, displays: displays, budget: budget),
+                  renderPasses: meter)
+    }
+
+    /// A scheduler on ``FrameScheduler/appDisplays`` (tests and tools without a composition root).
+    public convenience init(budget: MainFrameBudget) {
+        self.init(budget: budget, displays: FrameScheduler.appDisplays)
     }
 
     private init(budget: MainFrameBudget, frames: FrameScheduler, renderPasses: RenderPassMeter?) {
@@ -57,7 +70,7 @@ public final class MainWorkScheduler {
         board = budget.board
         self.frames = frames
         self.renderPasses = renderPasses
-        // The link's ticks own the budget's window while it exists; an idle app times no pass.
+        // Its display's ticks own the budget's window while it is subscribed; an idle app times no pass.
         frames.onLinkChange = { [weak self] exists in
             guard let self else { return }
             self.budget.tickOwnsWindow = exists
@@ -65,7 +78,7 @@ public final class MainWorkScheduler {
         }
     }
 
-    /// A scheduler on a fake link (tests): frames fire only through ``frameDidFire(timestamp:refreshInterval:)``,
+    /// A scheduler on a fake link of its own display clock (tests): frames fire only through ``frameDidFire(timestamp:refreshInterval:)``,
     /// and render passes reach the budget only through ``MainFrameBudget/noteRenderPass(nanos:)``.
     ///
     /// - Parameters:
@@ -75,12 +88,13 @@ public final class MainWorkScheduler {
     ///   - makeLink: Makes the fake link.
     public static func testing(budget: MainFrameBudget = MainFrameBudget(), clock: any Clock<Duration> = ContinuousClock(),
                                ledger: WakeupLedger = .shared, makeLink: @escaping FrameScheduler.LinkFactory) -> MainWorkScheduler {
-        MainWorkScheduler(budget: budget, frames: FrameScheduler(name: "budgeted test", host: .screen, clock: clock, ledger: ledger,
-                                                                 makeLink: makeLink, budget: budget),
+        MainWorkScheduler(budget: budget, frames: FrameScheduler.testing(name: "budgeted test", clock: clock, ledger: ledger,
+                                                                         mediaTime: { CACurrentMediaTime() }, budget: budget,
+                                                                         makeLink: makeLink),
                           renderPasses: nil)
     }
 
-    /// One display frame (the link's tick; tests call it directly).
+    /// One display frame (tests call it directly; in the app the display's link ticks).
     public func frameDidFire(timestamp: CFTimeInterval? = nil, refreshInterval: Double? = nil) {
         frames.frameDidFire(timestamp: timestamp, refreshInterval: refreshInterval)
     }
