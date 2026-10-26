@@ -4,14 +4,17 @@ import Foundation
 import os
 
 /// Drives `CefDoMessageLoopWork` on the main thread when CEF asks for it
-/// (`OnScheduleMessagePumpWork`), from one timer on the main run loop in
-/// common modes, so it keeps running during menu tracking, live resize and
-/// modal panels. `CEFPumpSchedule` decides each fire date; see there for
-/// the safety net CEF's pump needs.
+/// (`OnScheduleMessagePumpWork`), in common modes, so it keeps running during
+/// menu tracking, live resize and modal panels. `CEFPumpSchedule` decides each
+/// fire date; see there for the safety net CEF's pump needs.
 ///
-/// A request for "now" runs on the next run loop pass, never synchronously
-/// inside the CEF call that made it. The timer is owned, re-armed for each
-/// request and invalidated by `stop()`; there is no `asyncAfter`.
+/// A delayed fire date is an entry on the main thread's one deadline queue
+/// (`CEFWakeUpQueuePumpTimer`): it shares wakes with the cmux deadlines near
+/// it, and the pass runs after them, in a run-loop block of its own. A
+/// request for "now" runs on the next run loop pass, never synchronously
+/// inside the CEF call that made it, and never waits for the queue's timer.
+/// The timer is owned, re-armed for each request and invalidated by
+/// `stop()`; there is no `asyncAfter`.
 ///
 /// While a shown frame is late (`RenderStarvationGuard`, Chrome's
 /// `kRenderingStarved`) a pump with the guard runs one pass per late frame;
@@ -42,13 +45,14 @@ final class CEFMessagePump {
         return stats
     }
 
-    /// `clock` is monotonic seconds (tests inject one). `starvation`: the app's
-    /// rendering starvation guard; `CEFRuntime` passes none until the pump is
-    /// on the main-thread board (p06-scheduler task 048).
+    /// `timer`: a `CEFWakeUpQueuePumpTimer` on the app's deadline queue (tests
+    /// fire a fake by hand). `clock` is monotonic seconds (tests inject one).
+    /// `starvation`: the app's rendering starvation guard; `CEFRuntime` passes
+    /// none until the pump is on the main-thread board (p06-scheduler task 048).
     init(
         work: @escaping () -> Void,
         safetyNet: CEFPumpSchedule.SafetyNet = CEFPumpSchedule.standard,
-        timer: any CEFPumpTimer = CEFRunLoopPumpTimer(),
+        timer: any CEFPumpTimer,
         clock: @escaping () -> TimeInterval = CEFMessagePump.uptime,
         ledger: WakeupLedger = .shared,
         gate: CEFPumpCrossThreadGate = CEFPumpCrossThreadGate(),
@@ -105,7 +109,8 @@ final class CEFMessagePump {
 
     private func timerFired() {
         guard isRunning else { return }
-        ledger.record("CEFMessagePump", reason: armedReason.rawValue)
+        // A queue fire already counted this pass under the same owner (reason `deadline`).
+        if !timer.fireIsCountedByQueue { ledger.record("CEFMessagePump", reason: armedReason.rawValue) }
         if armedReason == .fallback { counters.followUpRuns += 1 }
         if let starvation, !starvation.admitsSlice(&slices) {
             waitForLateFrame(starvation)
