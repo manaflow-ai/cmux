@@ -56,6 +56,28 @@ use serde_json::json;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
 
+/// `browser.attach`: attaches, answers, then starts the attach stream.
+fn browser_attach(
+    mux: &Arc<Mux>,
+    client: u64,
+    request: crate::resource_router::ParsedResourceRequest,
+    id: ResourceRequestId,
+    writer: &MessageWriter,
+) -> bool {
+    let operation = ResourceOperation::BrowserAttach;
+    match prepare_browser_resource_attach(mux, client, writer, &request) {
+        Ok((result, start)) => {
+            if !send_resource_response(writer, id, operation, Ok(result)) {
+                cleanup_resource_attach(mux, client, &start.common);
+                return false;
+            }
+            start_browser_resource_attach(mux.clone(), client, writer.clone(), start);
+            true
+        }
+        Err(error) => send_resource_response(writer, id, operation, Err(error)),
+    }
+}
+
 fn handle_resource_session_shutdown(
     mux: &Arc<Mux>,
     client: u64,
@@ -212,17 +234,36 @@ pub(super) fn handle_resource_connection_message(
             }
         }
         ResourceOperation::BrowserAttach => {
-            match prepare_browser_resource_attach(mux, client, writer, &request) {
-                Ok((result, start)) => {
-                    if !send_resource_response(writer, id, operation, Ok(result)) {
-                        cleanup_resource_attach(mux, client, &start.common);
-                        return false;
-                    }
-                    start_browser_resource_attach(mux.clone(), client, writer.clone(), start);
-                    true
-                }
-                Err(error) => send_resource_response(writer, id, operation, Err(error)),
+            let sized =
+                super::wire_values::paired_attach_size::<u32>(&request, "width_px", "height_px")
+                    .is_ok_and(|size| size.is_some());
+            if !sized {
+                return browser_attach(mux, client, request, id, writer);
             }
+            // A sized attach waits for the browser host's resize, another
+            // process: a work item attaches and answers, so this request
+            // thread answers the next line at once (Chrome's MayBlock task
+            // runner, base/task/task_traits.h). Shutdown does not wait for it.
+            let (worker_mux, worker_writer, worker_id) = (mux.clone(), writer.clone(), id.clone());
+            let posted = mux.work.post(
+                cmux_threads::work::Priority::UserBlocking,
+                cmux_threads::work::Lane::System,
+                cmux_threads::work::Shutdown::ContinueOnShutdown,
+                move || {
+                    browser_attach(&worker_mux, client, request, worker_id, &worker_writer);
+                },
+            );
+            posted.is_ok()
+                || send_resource_response(
+                    writer,
+                    id,
+                    operation,
+                    Err(ResourceError::operation_failed(
+                        "browser.attach",
+                        "the daemon is shutting down",
+                        json!({}),
+                    )),
+                )
         }
         ResourceOperation::SidebarViewAttach => {
             match prepare_sidebar_resource_attach(mux, client, writer, &request) {

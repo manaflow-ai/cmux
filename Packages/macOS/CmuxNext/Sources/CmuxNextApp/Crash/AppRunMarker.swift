@@ -22,7 +22,8 @@ nonisolated(unsafe) private var fatalSignalDescriptor: Int32 = -1
 ///
 /// First `fatalSignalBegan` gives back Sentry's Mach exception ports (the
 /// fault that runs again must reach the system's handler) and starts the
-/// crash deadline (2026-10-20 freezes).
+/// crash deadline (2026-10-20 freezes). The crash keys (`run.crashkeys`)
+/// are written after the signal number.
 private let fatalSignalHandler: @convention(c) (Int32, UnsafeMutablePointer<__siginfo>?, UnsafeMutableRawPointer?) -> Void = { signal, info, context in
     CrashReporter.fatalSignalBegan()
     var bytes: (UInt8, UInt8, UInt8) = (UInt8(48 + (signal / 10) % 10), UInt8(48 + signal % 10), 10)
@@ -33,6 +34,8 @@ private let fatalSignalHandler: @convention(c) (Int32, UnsafeMutablePointer<__si
         // concurrency-allow: signal handler context (the process is ending), one 3-byte write to a local file.
         _ = withUnsafeBytes(of: &bytes) { Darwin.write(descriptor, $0.baseAddress, 3) }
     }
+    // After run.signal: a fault in here re-runs under SIG_DFL and still leaves the signal recorded.
+    CrashReporter.recordCrashKeys()
     _ = Darwin.signal(signal, SIG_DFL)
     let sentBySoftware = info.map { $0.pointee.si_code == SI_USER || $0.pointee.si_code == SI_QUEUE } ?? true
         || arrivedOnASystemCall(context)
@@ -84,9 +87,12 @@ final class AppRunMarker {
 
     /// How this launch follows the previous run.
     let recovery: LaunchRecovery
-
     private var signalFile: URL { directory.appending(path: "run.signal") }
     private var exceptionFile: URL { directory.appending(path: "run.exception") }
+    private var crashKeysFile: URL { directory.appending(path: "run.crashkeys") }
+    /// The previous run's `run.crashkeys`, moved aside at launch so this run's crash path gets an empty file;
+    /// read off the main thread (``readCrashKeys(_:)``).
+    var previousCrashKeysFile: URL { directory.appending(path: "run.crashkeys.previous") }
 
     /// The app's marker folder for `bundleID`.
     static func standardDirectory(bundleID: String?) -> URL {
@@ -124,6 +130,16 @@ final class AppRunMarker {
         let descriptor = open(signalFile.path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0o600)
         guard descriptor >= 0 else { return }
         fatalSignalDescriptor = descriptor
+        // The crash path writes this run's crash keys here (CrashKeys); the previous run's move aside, to be read
+        // off the main thread (CrashRecoveryService). No previous file: an older one aside is not this launch's.
+        // concurrency-allow: once at launch, as run.signal's open above; a rename in one folder, no fsync.
+        // blocking-allow: the crash path needs this run's file open before the handlers are installed, at launch
+        // on main like run.signal's open above; no seam runs earlier.
+        if rename(crashKeysFile.path, previousCrashKeysFile.path) != 0 { unlink(previousCrashKeysFile.path) }
+        // concurrency-allow: once at launch, as run.signal's open above; creates an empty file, no fsync.
+        // blocking-allow: as the rename above (the descriptor the crash path writes to, before its handlers).
+        let keysDescriptor = open(crashKeysFile.path, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0o600)
+        if keysDescriptor >= 0 { CrashReporter.prepareCrashKeysRecord(descriptor: keysDescriptor) }
         CrashReporter.installCrashDeadline()
         CrashReporter.installCrashWatcher(sampleFile: directory.appending(path: "crash-watcher-sample.txt").path)
         installHandlers()
@@ -204,6 +220,12 @@ final class AppRunMarker {
         do { lastTicket = file.submit(try encoder.encode(marker)) } catch {
             logger.error("run marker encode failed: \(String(describing: error), privacy: .public)")
         }
+    }
+
+    /// The crash keys a run's crash path wrote (`url`: ``previousCrashKeysFile``); nil when that run ended with no
+    /// crash path (a normal quit, SIGKILL, power loss). Off the main thread.
+    nonisolated static func readCrashKeys(_ url: URL) -> CrashKeys? {
+        (try? String(blockingContentsOf: url, encoding: .utf8)).flatMap { CrashKeys(record: $0) }
     }
 
     nonisolated static func readPrevious(marker: URL, signal: URL, exception: URL? = nil) -> PreviousRun? {

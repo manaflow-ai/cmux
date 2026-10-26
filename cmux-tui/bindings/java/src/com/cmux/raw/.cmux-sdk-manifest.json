@@ -2472,7 +2472,7 @@
     },
     {
       "path": "Protocol.java",
-      "sha256": "0d755e43aaecf193946acb998b13bff8da089e6b6763936847b7862ccbd009ac",
+      "sha256": "e9037e6d99d5324161320a298dd69084e85044cfc004c518bae964c3a360d1bd",
       "size": 7486
     },
     {
@@ -2876,6 +2876,16 @@
       "size": 3388
     },
     {
+      "path": "ServerStatsLockWait.java",
+      "sha256": "b1cab114e31e044aa438c9ccfe7014a5aed6715cbbb18f8be5058aeceb80e7fa",
+      "size": 4530
+    },
+    {
+      "path": "ServerStatsLockWaits.java",
+      "sha256": "882e01c2d4c2e9947a19583600afb775a64b69ba5a247dc4f9190dbbe1e396c3",
+      "size": 3540
+    },
+    {
       "path": "ServerStatsRegistryLock.java",
       "sha256": "bfb12e2be0cf00703c5d6a7fdae49e0854f534c2afb42f19ce92f3aa2a2817a2",
       "size": 6841
@@ -2892,8 +2902,8 @@
     },
     {
       "path": "ServerStatsRequestPathIo.java",
-      "sha256": "093c00faaed377225f3369ce45f20062ba7eb17cbcaf8b11e1c9e577ba498acb",
-      "size": 10980
+      "sha256": "126639b1c24b8b8f7c103d75211e7968d35c7db1dcf2242802100532c5d0f795",
+      "size": 11676
     },
     {
       "path": "ServerStatsRequestPathSite.java",
@@ -3817,7 +3827,7 @@
     }
   ],
   "format": 1,
-  "ir_sha256": "07f25cd97f355ba0c33e4e9958a84c274851a8c72048a29a69edad5286828785",
+  "ir_sha256": "2b7eb48372c3df8cc72e67889a80d49f239b8b46a4d55c94efb165fb7882cb97",
   "language": "java",
   "mux_protocol": 12,
   "schema_version": 2

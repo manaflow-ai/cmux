@@ -44,6 +44,7 @@ extension ScreenContentView {
     /// springing back over the panes it uncovers, a zoom's growing over the
     /// others) and under docked columns. Read by the overlay sync (rings and
     /// dims), not by the clip: panes in front are above in the layer tree.
+    /// A pane in front covers its ``coverFrame(_:)``.
     func panesAbove() -> [ObjectIdentifier: [CGRect]] {
         var covers: [ObjectIdentifier: [CGRect]] = [:]
         var front: [CGRect] = []
@@ -52,7 +53,7 @@ extension ScreenContentView {
             let overlapping = front.filter { $0.intersection(frame).width > 0.5 && $0.intersection(frame).height > 0.5 }
             if !overlapping.isEmpty { covers[ObjectIdentifier(host)] = overlapping.reversed() }
             guard !host.isHidden && host.alphaValue > 0.99 else { continue }
-            let shown = shownFrame(host)
+            let shown = coverFrame(host)
             if !shown.isNull { front.append(shown) }
         }
         return covers
@@ -72,7 +73,7 @@ extension ScreenContentView {
                 return
             }
             guard inFront, !other.isHidden, other.alphaValue > 0.99 else { return }
-            let shown = shownFrame(other), shared = shown.intersection(frame)
+            let shown = coverFrame(other), shared = shown.intersection(frame)
             if !shared.isNull, shared.width > 0.5, shared.height > 0.5 { result.append(shown) }
         }
         for view in subviews {
@@ -176,10 +177,12 @@ extension ScreenContentView {
     }
 
     /// Clips the strip container to the strip's range (`clip`, `PaneArrival.stripClip`, which follows
-    /// a dock growing in; the whole screen without docked columns): one frame for every strip pane, set
-    /// only when the range moved. A zoom keeps the range it found (the zoomed layout has no docks, and
-    /// the panes it covers stay as they were) and, when the zooming pane is in the container, lifts the
-    /// container to the screen's bounds. Returns true when the container's frame moved.
+    /// a dock the CPU grows in; the whole screen without docked columns): one frame for every strip pane,
+    /// set only when the range moved. A dock on the render server springs the container's bounds instead
+    /// (``springStripContainer(from:velocity:on:landed:)``), which leaves it at the rest range this places. A zoom
+    /// keeps the range it found (the zoomed layout has no docks, and the panes it covers stay as they
+    /// were) and, when the zooming pane is in the container, lifts the container to the screen's bounds.
+    /// Returns true when the container's frame moved.
     func placeStripContainer(_ clip: CGRect?) -> Bool {
         guard !isCanvas else { return false }
         let range = clip ?? (zoomMotion.pane != nil ? stripContainer.range : bounds)

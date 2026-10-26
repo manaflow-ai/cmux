@@ -19,6 +19,8 @@ public final class LayoutRootView: NSView {
     var screenFrames: [ScreenID: AnimatedFrame] = [:]
     /// The screen switch the render server still slides (`LayoutRootView+Screens.swift`).
     var screenSwitch = ScreenSwitchFlight()
+    /// Saved cameras of screens not built yet (`restoreScroll`), taken when each is.
+    var pendingScreenScrolls: [ScreenID: LayoutScreenScroll] = [:]
     let highlight = DropHighlightView()
     /// The root's render-server motion variants (screen switches, the drop highlight) and the
     /// `motion.renderServer` switch (`LayoutRootView+Motion.swift`).
@@ -359,6 +361,7 @@ public final class LayoutRootView: NSView {
                 }
                 screenViews[screen.id] = view
                 screenFrames[screen.id] = AnimatedFrame(bounds, alpha: isActive ? 1 : 0)
+                if let saved = pendingScreenScrolls.removeValue(forKey: screen.id) { view.restoreScroll(saved) }
             }
             // One change turn per screen: every motion this change starts on it (layout, chrome, scroll,
             // center and reveal) starts before its render-server kinds take theirs and it lays out once.

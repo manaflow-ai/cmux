@@ -7,7 +7,7 @@ extension ScreenContentView {
     /// (the screen's kinds: ``RenderMotionKind``). A task that moves a kind to the render server writes
     /// its variant in its own file and adds its one line here; a kind not listed, or every kind while
     /// `motion.renderServer` is off (the default), steps on the main thread in ``step(_:policy:)``.
-    static var renderServerMotions: [any RenderServerMotion<ScreenContentView>] { [SplitRenderMotion()] }
+    static var renderServerMotions: [any RenderServerMotion<ScreenContentView>] { [SplitRenderMotion(), ZoomRenderMotion()] }
 
     /// What an open change turn held back from ``applyPresentation(force:)``.
     struct HeldPresentation {
@@ -199,7 +199,10 @@ extension ScreenContentView {
         // Every presentation shows the latest pan: no pan event waits after it.
         panPresentationPending = false
         let strip = stripShift, restStrip = geometry.viewShift(offset: isUserScrolling ? scroll.value : scroll.target)
-        let uncovered = uncoveredRect, clip = PaneArrival.stripClip(geometry, docks: growingDocks), zooming = zoomMotion.pane
+        // Only a dock the CPU grows in moves the strip's range: with none, the range is the rest one.
+        let docks = growingDocks
+        let uncovered = uncoveredRect, clip = docks.isEmpty ? restStripRange : stripRange(in: geometry, beside: docks)
+        let zooming = zoomMotion.pane
         var placedHosts: [PaneHostView] = []
         var changed = force
         let scale = self.scale

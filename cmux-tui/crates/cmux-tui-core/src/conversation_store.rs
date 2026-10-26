@@ -927,7 +927,11 @@ impl ConversationEvent {
 /// `store`, then the workspace registry.
 #[derive(Default)]
 pub(crate) struct ConversationHost {
-    pub(crate) store: Mutex<Option<ConversationStore>>,
+    /// Taken only through [`Self::lock_store`] and
+    /// [`Self::lock_store_for_sqlite`], so every holder names itself.
+    store: Mutex<Option<ConversationStore>>,
+    /// The thread that last took `store` (lock waits name it).
+    store_holder: cmux_threads::LockHolder,
     /// `conversation.draft` replay and rate state (memory only).
     pub(crate) drafts: Mutex<crate::conversation_drafts::DraftGate>,
     /// The live text of running runs (`chief-live-v1`, memory only).
@@ -943,3 +947,34 @@ pub(crate) struct ConversationHost {
     /// Remote-relay peers, pairing records and revocation limits.
     pub(crate) remote: crate::remote_relay_state::RemoteRelayState,
 }
+
+/// The conversation store lock's name in `cmux_threads::lock_waits`.
+const STORE_LOCK_NAME: &str = "conversation.store";
+
+impl ConversationHost {
+    /// The store, for SQLite work: the checked scope (`sqlite` noted at the
+    /// caller, Chrome's `ScopedBlockingCall`), then the store lock, a wait of
+    /// 2 ms or more recorded with the holder's thread name.
+    #[track_caller]
+    pub(crate) fn lock_store_for_sqlite(
+        &self,
+    ) -> std::sync::LockResult<std::sync::MutexGuard<'_, Option<ConversationStore>>> {
+        let site = std::panic::Location::caller();
+        crate::request_path::note_at(crate::request_path::BlockingKind::Sqlite, site);
+        self.store_holder.lock_mutex(STORE_LOCK_NAME, site, &self.store)
+    }
+
+    /// The store lock for work that runs no SQL and no file I/O: in-memory
+    /// upload state. Work that removes files under it hands them out and
+    /// removes them after the release (`ClosedUploads`).
+    #[track_caller]
+    pub(crate) fn lock_store(
+        &self,
+    ) -> std::sync::LockResult<std::sync::MutexGuard<'_, Option<ConversationStore>>> {
+        self.store_holder.lock_mutex(STORE_LOCK_NAME, std::panic::Location::caller(), &self.store)
+    }
+}
+
+#[cfg(test)]
+#[path = "store_lock_blocking_tests.rs"]
+mod store_lock_blocking_tests;

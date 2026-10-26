@@ -13,6 +13,11 @@ nonisolated extension ColumnScrollState {
         var effects = ColumnScrollEffects()
         switch event {
         case let .sync(strip, focused, source, animated, reveals, anchor):
+            if let saved = pendingRestore, strip.viewportWidth > 0, gesture == nil {
+                pendingRestore = nil
+                restoreCamera(at: saved, strip: strip, focused: focused)
+                return effects
+            }
             let before = spring.target
             let shift = sync(strip, focused: focused, source: source, reveals: reveals, anchor: anchor)
             // A sync that leaves the target where the camera shift put it never snaps: a fling or
