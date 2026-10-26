@@ -82,9 +82,9 @@ public final class CrashReporter: Sendable {
         _ = Locale.current
         _ = NSLocale.preferredLanguages
         let appOwned = SignalActions(capturing: Self.appOwnedSignals)
-        TaskExceptionPorts.captureBeforeSentry()
+        let exceptionPorts = TaskExceptionPorts.captureBeforeSentry()
         SentrySDK.start(options: options())
-        TaskExceptionPorts.noteSentryStarted()
+        TaskExceptionPorts.noteSentryStarted(exceptionPorts)
         appOwned.restore()
         let handlers = SignalActions(capturing: Self.fatalSignals)
         sentryHandlers.withLock { $0 = handlers }

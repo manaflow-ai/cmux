@@ -161,7 +161,7 @@
     "CmuxNextCloud": 1,
     "CmuxNextCompat": 12,
     "CmuxNextControl": 1,
-    "CmuxNextCrashReporting": 12,
+    "CmuxNextCrashReporting": 4,
     "CmuxNextDaemon": 1,
     "CmuxNextDesign": 4,
     "CmuxNextFiles": 2,
@@ -181,7 +181,7 @@
     "CmuxNextWakeups": 1,
     "CmuxVNC": 2,
     "CmuxVNCDemoServer": 3,
-    "CmuxVNCWebRTC": 19,
+    "CmuxVNCWebRTC": 7,
     "MessagesLabHome": 4
    }
   }

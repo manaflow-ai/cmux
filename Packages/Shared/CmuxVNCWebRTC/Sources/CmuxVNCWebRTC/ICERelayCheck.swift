@@ -1,3 +1,4 @@
+import CmuxSafeConcurrency
 import Foundation
 
 /// Checks a TURN relay the way a session uses it: a relay-only peer
@@ -63,14 +64,11 @@ public struct ICERelayCheck: Sendable {
         return .unreachable
     }
 
-    /// Errors from WebRTC's threads.
-    // crash-allow: `errors` is read and written only inside `lock.withLock`.
-    private final class ErrorLog: @unchecked Sendable {
-        // @unchecked: `errors` is behind `lock`.
-        private let lock = NSLock()
-        private var errors: [ICECandidateError] = []
-        func add(_ error: ICECandidateError) { lock.withLock { errors.append(error) } }
-        var all: [ICECandidateError] { lock.withLock { errors } }
+    /// Errors from WebRTC's signaling thread, read by the check's task.
+    private final class ErrorLog: Sendable {
+        private let errors = Mutex<[ICECandidateError]>([])
+        func add(_ error: ICECandidateError) { errors.withLock { $0.append(error) } }
+        var all: [ICECandidateError] { errors.withLock { $0 } }
     }
 
     /// Whether an ICE candidate line is a relay (TURN) candidate.

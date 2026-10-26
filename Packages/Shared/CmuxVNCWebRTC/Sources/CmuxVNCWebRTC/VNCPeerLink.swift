@@ -5,7 +5,12 @@ import WebRTC
 /// carries the RFB byte stream. The viewer offers and opens the channel; the
 /// host answers. Every callback lands on libwebrtc's threads; state is behind
 /// a lock and surfaced through `events`.
-// crash-allow: mutable state (channel, pending candidates, waiters, sinks) is read and written only under `lock`; libwebrtc objects are thread-safe.
+// Threads: libwebrtc's signaling thread calls the delegate methods; the owner's tasks negotiate, send and close. Not a
+// Mutex<State>: the guarded state holds libwebrtc objects (RTCDataChannel, RTCRtpSender, RTCRtpTransceiver,
+// RTCIceCandidate), which its Objective-C SDK does not declare Sendable, so a checked Mutex could not hand the channel
+// or the sender out to the send and encode calls that use it after the lock is released. Those objects are proxies that
+// marshal every call to libwebrtc's own threads (webrtc/pc/peer_connection_proxy.h, pc/rtp_sender_proxy.h).
+// crash-allow: every mutable field is read and written only under `lock` (threads and why not a Mutex: above).
 final class VNCPeerLink: NSObject, @unchecked Sendable, RTCPeerConnectionDelegate, RTCDataChannelDelegate {
     enum Event: Sendable {
         /// A local ICE candidate to send to the other side.
@@ -19,8 +24,10 @@ final class VNCPeerLink: NSObject, @unchecked Sendable, RTCPeerConnectionDelegat
         case video(VideoTrackBox)
     }
 
-    // libwebrtc's factory is thread-safe and owns its threads; one per process.
-    // crash-allow: a `let` made once (lazy static init is atomic); libwebrtc's factory is thread-safe.
+    // One per process, made by Swift's one-time static initialization on whichever task first creates a link, then
+    // never changed. No lock: nothing is written after init, and the factory marshals every call to its own signaling
+    // thread (webrtc/api/peer_connection_factory_proxy.h). Unchecked only because the SDK does not declare it Sendable.
+    // crash-allow: an immutable static `let` whose object is libwebrtc's thread-safe factory proxy: nothing to lock.
     nonisolated(unsafe) private static let factory: RTCPeerConnectionFactory = {
         RTCInitializeSSL()
         // Hardware H.264 (VideoToolbox) first, then VP8/VP9/AV1 software.
@@ -392,9 +399,13 @@ final class VNCPeerLink: NSObject, @unchecked Sendable, RTCPeerConnectionDelegat
 
 /// The host's screen as a WebRTC video source. Frames are pushed by
 /// `ScreenStreamHost`; libwebrtc encodes (hardware H.264), paces and adapts.
-// crash-allow: both fields are `let`; libwebrtc's video source and capturer are thread-safe.
+// Threads: `push` runs on the capture source's thread (ScreenCaptureKit's sample-handler queue or the VNC frames task)
+// and on the host's idle-refresh task, sometimes at once. No lock here: both fields are `let`, and libwebrtc serializes
+// the frames itself (its VideoAdapter and VideoBroadcaster each hold their own mutex,
+// webrtc/media/base/adapted_video_track_source.cc, media/base/video_broadcaster.cc). Unchecked only because the SDK does
+// not declare RTCVideoSource Sendable.
+// crash-allow: two immutable `let`s to libwebrtc objects that synchronize internally: nothing to lock here.
 public final class ScreenVideoSource: @unchecked Sendable {
-    // @unchecked: libwebrtc's source and capturer are thread-safe.
     let source: RTCVideoSource
     private let capturer: RTCVideoCapturer
 
@@ -414,8 +425,12 @@ public final class ScreenVideoSource: @unchecked Sendable {
     }
 }
 
-/// A received video track (libwebrtc objects are thread-safe; not Sendable-annotated).
-// crash-allow: one `let` libwebrtc track; libwebrtc objects are thread-safe.
+/// A received video track.
+// Threads: made on libwebrtc's signaling thread (a delegate callback) or the viewer's negotiate task, handed through
+// `events` to the app, which adds renderers on the main thread. No lock: the box is immutable, and the track is a proxy
+// that marshals each call to libwebrtc's own thread (webrtc/api/media_stream_track_proxy.h). Unchecked only because
+// the SDK does not declare RTCVideoTrack Sendable.
+// crash-allow: one immutable `let` to libwebrtc's thread-safe track proxy: nothing to lock.
 public struct VideoTrackBox: @unchecked Sendable {
     public let track: RTCVideoTrack
 }
