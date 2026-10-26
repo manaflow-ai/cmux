@@ -138,9 +138,14 @@ public nonisolated enum LayoutTunables {
     // terminal and page shows its content at exactly that frame's size, no frozen content, no
     // snapshot and no resize once at landing. Off by default; on brings back Leo's 2026-10-20 hold
     // (content keeps the larger of its starting and final size until the spring lands) to compare.
+    /// The developer's local override of the feature `paneHoldsContentInMotion`
+    /// (`schemas/features/features.d/paneHoldsContentInMotion.json`, which `replaces` this key):
+    /// nothing in the layout reads it. The App's bridge (`FeatureList.isEnabled(_:overriddenBy:)`)
+    /// gives it the feature's local-override place, under managed policy and
+    /// `CMUX_DISABLE_FEATURES`/`CMUX_ENABLE_FEATURES`, on DEV and NIGHTLY, at each spring's start.
     public static let holdsContentInMotion = Tunable<Bool>.toggle(
         "motion.pane.holdContent", .springs, "Hold content size in pane motion",
-        help: "While a split, close or zoom springs, each pane's page or terminal keeps the larger of its starting and final size, clipped, and lays out once when the spring lands. Off (default): content resizes live on every frame.",
+        help: "Overrides the feature paneHoldsContentInMotion: while a split, close or zoom springs, each pane's page or terminal keeps the larger of its starting and final size, clipped, and lays out once when the spring lands. Off (the feature's default): content resizes live on every frame.",
         default: false, code: "LayoutTunables.holdsContentInMotion")
     /// Layout motion on the render server (`MotionBackends`): each motion kind with a render-server
     /// variant sets its views at rest once and lets Core Animation run its springs. Off (default): every
