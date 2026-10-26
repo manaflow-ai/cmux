@@ -38,4 +38,19 @@ public nonisolated struct HangSample: Codable, Sendable, Equatable {
         self.cpuMs = cpuMs.map { max(0, $0) }
         self.frames = Array(frames.prefix(Self.maxFrames))
     }
+
+    private enum CodingKeys: String, CodingKey {
+        case source, kind, durationMs, cpuMs, frames
+    }
+
+    /// Decodes through ``init(source:kind:durationMs:cpuMs:frames:)``, so a saved pending file is
+    /// bounded too (nonnegative times, at most ``maxFrames`` frames).
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(source: try container.decode(Source.self, forKey: .source),
+                  kind: try container.decode(Kind.self, forKey: .kind),
+                  durationMs: try container.decode(Int.self, forKey: .durationMs),
+                  cpuMs: try container.decodeIfPresent(Int.self, forKey: .cpuMs),
+                  frames: try container.decode([HangReportFrame].self, forKey: .frames))
+    }
 }
