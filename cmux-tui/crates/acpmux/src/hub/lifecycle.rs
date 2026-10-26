@@ -1256,21 +1256,18 @@ impl Hub {
         profile: &HarnessProfile,
     ) -> anyhow::Result<usize> {
         let (tx, mut rx) = tokio::sync::mpsc::channel(64);
-        // The harness's own `session/update`s, kept until it answers `session/new`: a mode or
-        // option it reports while its session starts counts there (review 41 of #23322). The tap
-        // sees each line before its answer is handed back, so none sent before that answer is
-        // missed. Bounded: a probe keeps at most 256.
-        let updates = Arc::new(std::sync::Mutex::new(Vec::<Value>::new()));
-        let seen = updates.clone();
+        // What the harness reports while its session starts (`StartReports`, reviews 41 and 46 of
+        // #23322). The tap sees each line before its answer is handed back, so none sent before
+        // that answer is missed.
+        let reports =
+            Arc::new(std::sync::Mutex::new(super::full_access_bound::StartReports::default()));
+        let seen = reports.clone();
         let tap: crate::agent::Tap = Arc::new(move |dir, msg, _| {
             if let (Direction::In, Message::Notification { method: m, params: Some(params) }) =
                 (dir, msg)
                 && m == method::SESSION_UPDATE
             {
-                let mut seen = seen.lock().unwrap_or_else(|e| e.into_inner());
-                if seen.len() < 256 {
-                    seen.push(params.clone());
-                }
+                seen.lock().unwrap_or_else(|e| e.into_inner()).note(params);
             }
             true
         });
@@ -1301,11 +1298,8 @@ impl Hub {
             // once it answered, so an off that landed during the handshake counts.
             let mut view =
                 super::full_access_bound::FullAccessView::of_session_new(&profile.argv, Some(&res));
-            let declared = res["modes"].is_object();
-            let harness_session = res["sessionId"].as_str();
-            for params in updates.lock().unwrap_or_else(|e| e.into_inner()).iter() {
-                view.fold_update(declared, harness_session, params);
-            }
+            view.reported =
+                reports.lock().unwrap_or_else(|e| e.into_inner()).of(res["sessionId"].as_str());
             if self.full_access_managed_off()
                 && super::full_access_bound::runs_full_access(&view).is_some()
             {

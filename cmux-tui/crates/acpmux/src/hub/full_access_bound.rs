@@ -15,7 +15,8 @@
 //! - undeclared mode: a mode its harness reported without declaring modes
 //!   (`RemoteFloor::undeclared_mode`);
 //! - option: any config option holds a full-access value, the `mode` one included (a harness can
-//!   keep `modes.currentModeId` at an asking mode while its `mode` option says full access).
+//!   keep `modes.currentModeId` at an asking mode while its `mode` option says full access);
+//! - reported: its harness reported full access while nothing watched it (`StartReports`).
 //!
 //! Each form is judged by the shared rule (`start_mode::is_full_access`). A start whose profile
 //! pins full access is refused (`refuse_pinned_full_access`), and so is one that comes up in it
@@ -34,6 +35,8 @@ pub(crate) enum FullAccessForm {
     UndeclaredMode,
     /// A config option holds a full-access value.
     Option,
+    /// Its harness reported full access while nothing watched it (`StartReports`).
+    Reported,
 }
 
 /// What acpmux knows of one agent that can put it in full access.
@@ -44,6 +47,8 @@ pub(crate) struct FullAccessView {
     pub undeclared_mode: Option<String>,
     /// Its config options, the `mode` one included.
     pub options: Vec<Value>,
+    /// Whether its harness reported full access while nothing watched it (`StartReports`).
+    pub reported: bool,
 }
 
 impl FullAccessView {
@@ -60,39 +65,7 @@ impl FullAccessView {
             mode: res.and_then(|r| r["modes"]["currentModeId"].as_str()).map(str::to_owned),
             undeclared_mode: None,
             options: res.and_then(|r| r["configOptions"].as_array()).cloned().unwrap_or_default(),
-        }
-    }
-
-    /// Folds one `session/update` notification's `params` into the view: a mode or config option
-    /// update of the harness session `harness_session` itself (a subagent's are not its own,
-    /// `on_update`). A harness that declared no modes (`declared` false) reports an undeclared
-    /// mode (review 32 and 41 of #23322).
-    pub(crate) fn fold_update(
-        &mut self,
-        declared: bool,
-        harness_session: Option<&str>,
-        params: &Value,
-    ) {
-        if harness_session.is_some_and(|sid| params["sessionId"].as_str().is_some_and(|s| s != sid))
-        {
-            return;
-        }
-        let update = &params["update"];
-        match update["sessionUpdate"].as_str() {
-            Some("current_mode_update") => {
-                let mode = update["currentModeId"].as_str().map(str::to_owned);
-                if declared {
-                    self.mode = mode;
-                } else {
-                    self.undeclared_mode = mode;
-                }
-            }
-            Some("config_option_update") => {
-                if let Some(options) = update["configOptions"].as_array() {
-                    self.options = options.clone();
-                }
-            }
-            _ => {}
+            reported: false,
         }
     }
 
@@ -106,7 +79,67 @@ impl FullAccessView {
             undeclared_mode,
             options: config_options(&meta).cloned().collect(),
             argv: meta.harness_argv,
+            reported: false,
         }
+    }
+}
+
+/// The sessions whose mode or a config option a harness reported in full access while nothing
+/// watched it: a probe, or a pooled agent no chat took yet (reviews 32, 41 and 46 of #23322). Any
+/// such report counts, whatever the harness reported after it or answered `session/new` with, in
+/// either order. Bounded: past `CAP` sessions, or for a report that names none, every session
+/// counts.
+#[derive(Default)]
+pub(crate) struct StartReports {
+    sessions: Vec<String>,
+    all: bool,
+}
+
+impl StartReports {
+    const CAP: usize = 16;
+
+    /// Whether one `session/update` notification's `params` reports full access: a mode, declared
+    /// or not, or a config option.
+    pub(crate) fn reports_full_access(params: &Value) -> bool {
+        use super::start_mode::is_full_access;
+        let update = &params["update"];
+        match update["sessionUpdate"].as_str() {
+            Some("current_mode_update") => {
+                update["currentModeId"].as_str().is_some_and(is_full_access)
+            }
+            Some("config_option_update") => update["configOptions"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .any(|o| o["currentValue"].as_str().is_some_and(is_full_access)),
+            _ => false,
+        }
+    }
+
+    /// Notes one `session/update` notification's `params`.
+    pub(crate) fn note(&mut self, params: &Value) {
+        if self.all || !Self::reports_full_access(params) {
+            return;
+        }
+        let Some(sid) = params["sessionId"].as_str() else {
+            self.all = true;
+            return;
+        };
+        if !self.sessions.iter().any(|s| s == sid) {
+            if self.sessions.len() == Self::CAP {
+                self.all = true;
+            } else {
+                self.sessions.push(sid.to_owned());
+            }
+        }
+    }
+
+    /// Whether the harness reported full access for its session `harness_session` (a subagent's
+    /// are not its own, `on_update`); for any session when it is not known.
+    pub(crate) fn of(&self, harness_session: Option<&str>) -> bool {
+        self.all
+            || harness_session
+                .map_or(!self.sessions.is_empty(), |sid| self.sessions.iter().any(|s| s == sid))
     }
 }
 
@@ -122,6 +155,8 @@ pub(crate) fn runs_full_access(view: &FullAccessView) -> Option<FullAccessForm> 
         Some(FullAccessForm::UndeclaredMode)
     } else if view.options.iter().any(|o| o["currentValue"].as_str().is_some_and(is_full_access)) {
         Some(FullAccessForm::Option)
+    } else if view.reported {
+        Some(FullAccessForm::Reported)
     } else {
         None
     }
@@ -195,16 +230,20 @@ impl Hub {
     /// For an agent started outside any session (a model probe) from `argv`: refused while MDM
     /// forces full access off and `argv` pins it, else what `full_access_forced_off` waits on
     /// (none when `argv` does not pin it). Review 25 of #23322: the probe holds it from before its
-    /// start, so an off that lands while it starts or runs ends it.
+    /// start, so an off that lands while it starts or runs ends it, an unset after it too (review
+    /// 46).
     pub(super) fn probe_bound(&self, argv: &[String]) -> anyhow::Result<Option<OffWatch>> {
         if runs_full_access(&FullAccessView::of_argv(argv)).is_none() {
             return Ok(None);
         }
-        let off = self.full_access_off_watch();
-        if *off.borrow() {
+        // The count before the state: an off counted after this is the probe's to end on, and one
+        // counted before it is seen here (both change under the state lock).
+        let mut offs = self.full_access_off_watch();
+        let seen = *offs.borrow_and_update();
+        if self.full_access_managed_off() {
             anyhow::bail!("its profile pins full access, which MDM forces off");
         }
-        Ok(Some(off))
+        Ok(Some(OffWatch { offs, seen }))
     }
 
     /// MDM has just forced full access off (`apply_full_access_push`).
@@ -215,14 +254,19 @@ impl Hub {
     }
 }
 
-/// Turns true when MDM forces full access off (`Hub::full_access_off_watch`).
-pub(super) type OffWatch = tokio::sync::watch::Receiver<bool>;
+/// The times MDM forced full access off (`Hub::full_access_off_watch`), and the count a probe
+/// started under (`probe_bound`).
+pub(super) struct OffWatch {
+    offs: tokio::sync::watch::Receiver<u64>,
+    seen: u64,
+}
 
 /// Resolves once MDM forces full access off, for a probe that holds `bound` (`probe_bound`); never
-/// for one that does not pin full access. An off that came before this call counts too.
+/// for one that does not pin full access. An off that came before this call counts too, though
+/// an unset followed it.
 pub(super) async fn full_access_forced_off(bound: Option<&mut OffWatch>) {
-    if let Some(off) = bound
-        && off.wait_for(|off| *off).await.is_ok()
+    if let Some(OffWatch { offs, seen }) = bound
+        && offs.wait_for(|n| *n != *seen).await.is_ok()
     {
         return;
     }

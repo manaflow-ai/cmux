@@ -4,25 +4,25 @@ use super::*;
 
 impl Pooled {
     /// Whether this agent, started from `argv`, runs in full access (`runs_full_access`): its
-    /// argv, the mode and config options its harness session came up in, and the mode and option
-    /// updates it sent since, held until a chat takes it (`held.rs`), a mode reported by a harness
-    /// that declares none included (review 32 of #23322).
+    /// argv, the mode and config options its harness session came up in, and what it reported
+    /// for that session since it started (`StartReports`), held until a chat takes it
+    /// (`held.rs`; reviews 32 and 46 of #23322).
     pub(super) fn runs_full_access(&self, argv: &[String]) -> bool {
-        use crate::hub::full_access_bound::{FullAccessView, runs_full_access};
+        use crate::hub::full_access_bound::{FullAccessView, StartReports, runs_full_access};
         let new = self.new_result.as_ref();
         let mut view = FullAccessView::of_session_new(argv, new);
-        let declared = new.is_some_and(|r| r["modes"].is_object());
-        let harness_session = new.and_then(|r| r["sessionId"].as_str());
-        let slot = self.tap.lock().unwrap_or_else(|e| e.into_inner());
-        let TapSlot::Held(held) = &*slot else { return runs_full_access(&view).is_some() };
-        for (dir, msg, _) in held {
-            let Message::Notification { method: name, params: Some(params) } = msg else {
-                continue;
-            };
-            if *dir == Direction::In && name == crate::rpc::method::SESSION_UPDATE {
-                view.fold_update(declared, harness_session, params);
+        let mut reports = StartReports::default();
+        if let TapSlot::Held(held) = &*self.tap.lock().unwrap_or_else(|e| e.into_inner()) {
+            for (dir, msg, _) in held {
+                if let (Direction::In, Message::Notification { method: m, params: Some(p) }) =
+                    (dir, msg)
+                    && m == crate::rpc::method::SESSION_UPDATE
+                {
+                    reports.note(p);
+                }
             }
         }
+        view.reported = reports.of(new.and_then(|r| r["sessionId"].as_str()));
         runs_full_access(&view).is_some()
     }
 }
@@ -30,7 +30,7 @@ impl Pooled {
 impl Hub {
     /// Start one hidden session for `spec` under a fresh reserved id: its
     /// host in the pool directory, `initialize`, then the harness session.
-    pub(super) async fn spawn_pooled(&self, spec: &PoolSpec) -> anyhow::Result<Pooled> {
+    pub(super) async fn spawn_pooled(self: &Arc<Self>, spec: &PoolSpec) -> anyhow::Result<Pooled> {
         let session_id = uuid::Uuid::now_v7().to_string();
         let draft = &spec.draft;
         let name = self.unique_name(&draft.harness);
@@ -118,7 +118,7 @@ impl Hub {
     /// the harness session, all within `START_BUDGET`. On failure the host
     /// is ended.
     async fn start_pooled(
-        &self,
+        self: &Arc<Self>,
         session_id: String,
         name: String,
         record: HostRecord,
@@ -130,7 +130,13 @@ impl Hub {
             end_pooled_host(&record).await;
             anyhow::bail!("the daemon is stopping");
         }
-        let (tap, slot) = holding_tap();
+        let hub = Arc::downgrade(self);
+        let id = session_id.clone();
+        let (tap, slot) = holding_tap(move || {
+            if let Some(hub) = hub.upgrade() {
+                hub.pool_end_reported(&id);
+            }
+        });
         let (inbound, target) = holding_inbound();
         let attach =
             ChildAgent::attach_hosted(&draft.harness, record.clone(), 0, Vec::new(), inbound, tap);

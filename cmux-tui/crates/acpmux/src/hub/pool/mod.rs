@@ -526,6 +526,28 @@ impl Hub {
         }
     }
 
+    /// A pooled agent no chat took yet reported full access (`holding_tap`). Under MDM's off it
+    /// ends now, ready or claimed, where nothing caps it until a chat takes it (review 46 of
+    /// #23322); one still starting is judged when it completes (`pool_want`). Its argv was
+    /// judged before it started (`spawn_pooled`).
+    fn pool_end_reported(&self, id: &str) {
+        if !self.full_access_managed_off() {
+            return;
+        }
+        let ready =
+            lock(&self.pool.pool).remove_ready(|p| p.session_id == id && p.runs_full_access(&[]));
+        let claimed = {
+            let mut claimed = lock(&self.pool.claimed);
+            let reported = claimed.get(id).is_some_and(|p| p.runs_full_access(&[]));
+            if reported { claimed.remove(id) } else { None }
+        };
+        let ended: Vec<Pooled> = ready.into_iter().chain(claimed).collect();
+        if !ended.is_empty() {
+            tracing::info!(session = %id, "a pooled session reported full access, which MDM forces off: it ends");
+        }
+        self.pool_discard(ended);
+    }
+
     /// `session/new` for `meta`: claim the pooled session of exactly this
     /// shape, waiting for one that is starting. Returns its reserved id,
     /// which the new session takes; None starts cold.

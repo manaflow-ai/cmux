@@ -115,17 +115,16 @@ impl StartModeState {
 
 /// The state, loaded from `start-mode.json` when the hub is built (`StartModeCell::load`), so a
 /// forced `sessions.allowFullAccess` off holds from the first request after a daemon restart;
-/// a daemon with no config file loads it at first use. Beside it, whether that off holds, set
-/// with the state under its lock: what runs outside any session watches it (`probe_bound`).
-pub(crate) struct StartModeCell(StdMutex<Option<StartModeState>>, tokio::sync::watch::Sender<bool>);
+/// a daemon with no config file loads it at first use. Beside it, the times that off began,
+/// counted with the state under its lock: what runs outside any session watches it (`probe_bound`).
+pub(crate) struct StartModeCell(StdMutex<Option<StartModeState>>, tokio::sync::watch::Sender<u64>);
 
 impl StartModeCell {
     /// The state saved beside config.json (`state_file`), read now. Nothing is written until the
     /// first update.
     pub(super) fn load(path: Option<&Path>) -> Self {
         let state = path.map(|p| StartModeState::load(Some(p)));
-        let off = state.as_ref().is_some_and(StartModeState::full_access_off);
-        Self(StdMutex::new(state), tokio::sync::watch::channel(off).0)
+        Self(StdMutex::new(state), tokio::sync::watch::channel(0).0)
     }
 }
 
@@ -149,7 +148,9 @@ impl Hub {
         let before = state.clone();
         change(state);
         state.observe();
-        self.start_mode_state.1.send_replace(state.full_access_off());
+        if state.full_access_off() && !before.full_access_off() {
+            self.start_mode_state.1.send_modify(|n| *n += 1);
+        }
         if (loaded || *state != before)
             && let Some(path) = path
             && let Err(e) = state.save(path)
@@ -159,8 +160,10 @@ impl Hub {
         (before, state.clone())
     }
 
-    /// Turns true when MDM or the team policy forces `sessions.allowFullAccess` off.
-    pub(super) fn full_access_off_watch(&self) -> tokio::sync::watch::Receiver<bool> {
+    /// The times MDM or the team policy forced `sessions.allowFullAccess` off: a count, so an
+    /// unset after an off does not hide it from a watcher that has not looked yet (review 46 of
+    /// #23322).
+    pub(super) fn full_access_off_watch(&self) -> tokio::sync::watch::Receiver<u64> {
         self.start_mode_state.1.subscribe()
     }
 
