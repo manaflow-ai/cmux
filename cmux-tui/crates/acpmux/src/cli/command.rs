@@ -1315,6 +1315,30 @@ mod help_contract_tests {
         assert!(parsed.is_ok(), "peer alias stopped working");
     }
 
+    /// remote-ergo's fifth walk: "`acpmux daemon stop` fails with "unrecognized subcommand" and
+    /// no hint, but the command is `daemon shutdown`. Anyone who knows `session stop` will guess
+    /// "stop"."
+    #[test]
+    fn daemon_stop_is_daemon_shutdown_and_help_says_so() {
+        use super::{Command, flatten};
+        for (argv, want_end_agents) in [
+            (&["acpmux", "daemon", "stop"][..], false),
+            (&["acpmux", "daemon", "stop", "--end-agents"][..], true),
+            (&["acpmux", "--json", "daemon", "stop", "--keep-agents"][..], false),
+        ] {
+            let cli = Cli::try_parse_from(argv).unwrap_or_else(|e| panic!("{argv:?}: {e}"));
+            match cli.command.map(flatten) {
+                Some(Command::Shutdown { end_agents, .. }) => {
+                    assert_eq!(end_agents, want_end_agents, "{argv:?}")
+                }
+                _ => panic!("{argv:?} is not daemon shutdown"),
+            }
+        }
+        let help = Cli::command().find_subcommand_mut("daemon").unwrap().render_help().to_string();
+        let line = help.lines().find(|l| l.trim_start().starts_with("shutdown")).unwrap();
+        assert!(line.contains("stop"), "daemon --help does not list the stop alias:\n{help}");
+    }
+
     #[test]
     fn stale_nested_command_is_rejected() {
         let shapes = command_shapes();
