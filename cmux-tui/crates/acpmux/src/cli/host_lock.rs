@@ -18,7 +18,7 @@
 //! another update runs between that check and the step's end. Its uploads
 //! go to names of its own and are moved in place by a fenced step.
 
-use super::{REMOTE_HOME, Remote, RemoteOut};
+use super::{MAKE_REMOTE_HOME, REMOTE_HOME, Remote, RemoteOut};
 use anyhow::{Context, Result, anyhow};
 use std::fs::File;
 use std::path::{Path, PathBuf};
@@ -47,10 +47,12 @@ command -v flock >/dev/null 2>&1 || command -v perl >/dev/null 2>&1 || { echo "t
 "#;
 
 /// Opens `update.lock` as descriptor 9 (held by a step, or while the lease
-/// is taken) and `update.lease` as 8 (held by the lease's process).
+/// is taken) and `update.lease` as 8 (held by the lease's process). The home
+/// and the two files are made owner-only whatever the host's umask; the
+/// script's later commands keep that umask.
 fn open_locks() -> String {
     format!(
-        "mkdir -p {REMOTE_HOME} && exec 9>>{REMOTE_HOME}/update.lock 8>>{REMOTE_HOME}/update.lease"
+        "{MAKE_REMOTE_HOME} && acpmux_um=$(umask) && umask 077 && exec 9>>{REMOTE_HOME}/update.lock 8>>{REMOTE_HOME}/update.lease && umask \"$acpmux_um\""
     )
 }
 

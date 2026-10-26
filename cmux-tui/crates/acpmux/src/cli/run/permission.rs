@@ -59,7 +59,7 @@ fn explain_person_required(e: anyhow::Error, session: &str) -> anyhow::Error {
         crate::cli::errors::Code::Runtime,
         "person_required",
         format!(
-            "the CLI cannot allow a permission: only the cmux app may. Approve this in cmux NEXT on the machine whose app shows the chat; `{deny}` still denies it. The prompt is still pending. A session that should not ask gets its policy when it starts, on the machine that runs it: `acpmux new --policy approve-edits ...` (for a peer: `ssh HOST 'acpmux new ... -d'`)."
+            "the CLI cannot allow a permission: only the cmux app may. Approve this in cmux NEXT on the machine whose app shows the chat; `{deny}` still denies it. The prompt is still pending. A session gets its policy when it starts, on the machine that runs it. Only `acpmux new --policy approve-all ...` (for a peer: `ssh HOST 'acpmux new --policy approve-all ... -d'`) runs every tool call without asking, shell commands included; approve-reads and approve-edits still ask before each shell command, and Codex reads files with shell commands, so under them each of those needs an approval in the cmux app."
         ),
     );
     app.data = Some(json!({"reason": crate::hub::person::REASON, "try": deny}));

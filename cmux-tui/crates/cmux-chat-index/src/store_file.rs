@@ -23,7 +23,12 @@ pub(crate) fn read_json_bounded<T: DeserializeOwned>(path: &Path, max: u64) -> O
 
 pub(crate) fn write_json_private<T: Serialize>(path: &Path, value: &T) -> io::Result<()> {
     if let Some(dir) = path.parent() {
-        fs::create_dir_all(dir)?;
+        // Owner-only whatever the umask: under 002 it would be group-writable.
+        let mut made = fs::DirBuilder::new();
+        made.recursive(true);
+        #[cfg(unix)]
+        std::os::unix::fs::DirBuilderExt::mode(&mut made, 0o700);
+        made.create(dir)?;
     }
     let bytes = serde_json::to_vec(value).map_err(io::Error::other)?;
     let tmp = path.with_extension(format!("tmp-{}", std::process::id()));

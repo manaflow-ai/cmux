@@ -56,8 +56,8 @@ pub(crate) fn private_state_dir(dir: &Path) -> Result<()> {
     );
     anyhow::ensure!(
         metadata.mode() & 0o022 == 0,
-        "{} is writable by another user; inspect it before removing group/other write permission",
-        dir.display()
+        "{}",
+        writable_refusal(dir, metadata.mode(), "700")
     );
     refuse_extended_acl(&opened, dir)?;
     if metadata.mode() & 0o077 != 0 {
@@ -77,6 +77,24 @@ pub(crate) fn private_state_dir(dir: &Path) -> Result<()> {
         dir.display()
     );
     Ok(())
+}
+
+/// Why a state path another account may write is refused, and the exact
+/// `chmod` (to `owner_only`, 700 or 600) that fixes it. Such a path is never
+/// narrowed here: another account may have changed what is in it, and it came
+/// from elsewhere (a `mkdir` or a shell redirect under umask 002), since acpmux
+/// makes its own state owner-only whatever the umask.
+#[cfg(unix)]
+fn writable_refusal(path: &Path, mode: u32, owner_only: &str) -> String {
+    let text = path.display().to_string();
+    let plain = !text.is_empty()
+        && text.bytes().all(|b| b.is_ascii_alphanumeric() || b"/._-+,:@%".contains(&b));
+    let word = if plain { text } else { format!("'{}'", text.replace('\'', r"'\''")) };
+    format!(
+        "{} is writable by another user (mode {:o}): check that nothing in it was changed, then make it owner-only with `chmod {owner_only} {word}`",
+        path.display(),
+        mode & 0o777
+    )
 }
 
 /// Every namespace owner above an acpmux state directory must be this user
@@ -157,8 +175,8 @@ fn validate_private_state_file(file: &std::fs::File, path: &Path) -> Result<()> 
     );
     anyhow::ensure!(
         metadata.mode() & 0o022 == 0,
-        "{} is writable by another user; inspect it before removing group/other write permission",
-        path.display()
+        "{}",
+        writable_refusal(path, metadata.mode(), "600")
     );
     refuse_extended_acl(file, path)?;
     if metadata.mode() & 0o077 != 0 {

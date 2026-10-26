@@ -39,6 +39,11 @@ pub(crate) const DAEMON_BIN: &str = "~/.local/bin/acpmux";
 /// machine's own home comes from its resolver, `config.rs`).
 pub(crate) const REMOTE_HOME: &str = "~/.acpmux";
 
+/// Makes [`REMOTE_HOME`] when it is missing, owner-only whatever the host's
+/// umask: one made under umask 002 is group-writable, and the daemon refuses
+/// it (ergo-walk2, 2026-10-25). An existing home is left as it is.
+pub(crate) const MAKE_REMOTE_HOME: &str = "mkdir -p -m 700 ~/.acpmux";
+
 /// What a remote command answered.
 #[derive(Debug, Clone, Default)]
 pub(crate) struct RemoteOut {
@@ -219,7 +224,7 @@ pub(crate) fn push_binary(r: &dyn Remote, bin: &str) -> Result<String> {
     }
     let exe = crate::self_command::SelfCommand::current()?.exe;
     let dir = bin.rsplit_once('/').map(|(d, _)| d).filter(|d| !d.is_empty()).unwrap_or("/");
-    run(r, &format!("mkdir -p {dir} {REMOTE_HOME}"))?;
+    run(r, &format!("mkdir -p {dir} && {MAKE_REMOTE_HOME}"))?;
     r.push(&exe, &format!("{bin}.new"))?;
     run(r, &format!("rm -f {bin} && mv {bin}.new {bin} && chmod +x {bin} && {}", version_cmd(bin)))
 }
@@ -233,7 +238,7 @@ pub(crate) fn push_binary(r: &dyn Remote, bin: &str) -> Result<String> {
 fn push_update(r: &dyn Remote, local: &Path, running: Option<&str>) -> Result<String> {
     run(
         r,
-        "mkdir -p ~/.local/bin ~/.acpmux && rm -rf ~/.local/bin/.acpmux-new ~/.local/bin/acpmux.new && mkdir ~/.local/bin/.acpmux-new",
+        &format!("mkdir -p ~/.local/bin && {MAKE_REMOTE_HOME} && rm -rf ~/.local/bin/.acpmux-new ~/.local/bin/acpmux.new && mkdir ~/.local/bin/.acpmux-new"),
     )?;
     r.push(local, "~/.local/bin/.acpmux-new/acpmux")?;
     let running = running.filter(|c| c.bytes().all(|b| b.is_ascii_hexdigit())).unwrap_or("");

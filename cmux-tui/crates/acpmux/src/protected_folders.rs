@@ -88,7 +88,12 @@ pub fn unattended_cwd_in(acpmux_home: &Path, home: Option<&Path>) -> PathBuf {
     } else {
         std::env::temp_dir().join("acpmux-unattended")
     };
-    if let Err(e) = std::fs::create_dir_all(&dir) {
+    // Owner-only whatever the umask: under 002 it would be group-writable.
+    let mut made = std::fs::DirBuilder::new();
+    made.recursive(true);
+    #[cfg(unix)]
+    std::os::unix::fs::DirBuilderExt::mode(&mut made, 0o700);
+    if let Err(e) = made.create(&dir) {
         tracing::warn!(dir = %dir.display(), "unattended agent folder: {e}");
     }
     dir
