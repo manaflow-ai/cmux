@@ -2181,6 +2181,7 @@
           "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
         },
         "app": {
+          "equalizeSplitsOnDividerDoubleClick": "Si está activado, al hacer doble clic en un divisor, los paneles de su fila o columna pasan a tener el mismo tamaño. Las demás filas y columnas mantienen sus tamaños.",
           "confirmQuit": "Controla cuándo cmux pide confirmación antes de salir. Las compilaciones DEV siempre se cierran inmediatamente sin importar esta opción. El app.warnBeforeQuit heredado aún se acepta como alternativa booleana.",
           "windowTitleTemplate": "Plantilla opcional para el título de NSWindow. En blanco conserva el comportamiento de título predeterminado existente de cmux, incluida la alternativa del directorio actual. Marcadores admitidos: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
           "devWindowDisplay": "Nombre de pantalla usado solo en compilaciones DEBUG al abrir ventanas nuevas. Un valor vacío usa el valor predeterminado del sistema.",
@@ -2265,6 +2266,13 @@
               "enabled": "Con un espacio de trabajo tmux remoto seleccionado, «Nuevo espacio de trabajo» inicia una sesión de tmux en el host de ese espacio."
             }
           }
+        },
+        "chief": {
+          "description": "Chief, el agente de Inicio: si se muestra y qué entorno, modelo y esfuerzo usa.",
+          "enabled": "Muestra la fila de Inicio y los accesos a Chief. Si es false, se ocultan la fila de Inicio, el atajo Abrir Chief, el elemento de menú y las entradas de la paleta de comandos.",
+          "harness": "Entorno de agente en el que se ejecuta Chief: claude (Claude Code) o codex (Codex).",
+          "model": "Modelo que se pasa al entorno. Déjalo vacío para usar el predeterminado del entorno.",
+          "effort": "Esfuerzo de razonamiento que se pasa al entorno, como low, medium o high. Déjalo vacío para usar el predeterminado del entorno."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
@@ -3443,6 +3451,7 @@
     "unsupportedParams": "Este enlace incluye parámetros no admitidos que cmux rechazará: {params}",
     "conflictingParams": "Este enlace incluye parámetros que no se pueden usar juntos: {params}",
     "invalidParams": "Este enlace incluye valores de parámetros no válidos: {params}",
+    "ignoredParams": "cmux ignora los parámetros que no utiliza: {params}. La sesión se abre igualmente.",
     "fixParams": "Corrija los parámetros de la URL y luego vuelva a cargar esta página.",
     "examplePrefix": "Ver un",
     "exampleLink": "enlace de ejemplo",
@@ -5514,6 +5523,8 @@
     "errorInvalidCode": "Ese código no es válido. Revisa tu correo e inténtalo de nuevo.",
     "errorInvalidTotp": "Ese código de dos factores no es válido.",
     "errorSignUpNotAllowed": "No se pueden crear cuentas nuevas en este momento.",
+    "errorEmailUnverified": "Este correo ya tiene una cuenta, pero la dirección aún no está verificada. Inicia sesión con el método con el que te registraste y luego verifica tu correo para usar códigos de inicio de sesión.",
+    "useEmailPasswordInstead": "Iniciar sesión con correo y contraseña",
     "errorPasskey": "El inicio de sesión con llave de acceso no terminó. Inténtalo de nuevo o usa otro método.",
     "errorGeneric": "Algo salió mal. Inténtalo de nuevo."
   },

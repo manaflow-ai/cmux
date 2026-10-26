@@ -202,6 +202,8 @@ extension TerminalController {
             return .simulator
         case "agentsession":
             return .agentSession
+        case "chief":
+            return .chief
         default:
             return nil
         }

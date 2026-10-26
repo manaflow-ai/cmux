@@ -1133,13 +1133,14 @@ class WorkflowTests(unittest.TestCase):
     def test_follows_ci(self) -> None:
         on = self.workflow.get("on", self.workflow.get(True))
         self.assertEqual(on["workflow_run"]["workflows"], ["CI"])
-        # `requested` marks an older head's comment pending as soon as a new head's CI starts.
-        self.assertEqual(on["workflow_run"]["types"], ["completed", "requested"])
+        # One run per completion: `requested` doubled the runs and spent the
+        # GITHUB_TOKEN budget (2026-10-26). An older head's comment goes pending
+        # when the newer head's run completes.
+        self.assertEqual(on["workflow_run"]["types"], ["completed"])
         (only,) = self.workflow["jobs"].values()
-        self.assertIn("github.event.action == 'requested'", only["if"])
-        # A start must never replace a pending completed report (its machine re-run) in one group.
-        self.assertTrue(self.workflow["concurrency"]["group"].endswith(
-            "${{ github.event.action == 'requested' && '-requested' || '' }}"))
+        self.assertNotIn("requested", only["if"])
+        self.assertIn("vars.CI_QUOTA_HOLD != '1'", only["if"])
+        self.assertNotIn("requested", self.workflow["concurrency"]["group"])
 
     def test_runs_mains_script_and_never_checks_out_the_pull_request(self) -> None:
         text = WORKFLOW.read_text(encoding="utf-8")

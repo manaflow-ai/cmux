@@ -14,7 +14,7 @@ const cleanupRunIds: string[] = [];
 mock.module("../services/runs/cloudClient", () => ({
   runCloudOrigin: () => "https://cmux-staging.vercel.app",
   runCloudClient: async () => {
-    throw new Error("Run worker session unavailable");
+    throw Object.assign(new Error("Run worker setup failed at session-create"), { stage: "session-create" });
   },
 }));
 
@@ -64,7 +64,7 @@ describe("Run queue worker", () => {
 
     const [attempt] = await db`select status::text, error, lease_id from run_attempts where id = ${attemptId}::uuid`;
     expect(attempt?.status).toBe("failed");
-    expect(String(attempt?.error)).toContain("session");
+    expect(attempt?.error).toBe("Run worker could not open the owner's Cloud session (session-create)");
     const [run] = await db`select status::text from runs where id = ${runId}::uuid`;
     expect(run?.status).toBe("failed");
     const events = await db`select kind::text as kind from run_events where run_id = ${runId}::uuid order by sequence`;

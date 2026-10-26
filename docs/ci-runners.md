@@ -4,6 +4,13 @@
 
 ## Rules that must never be broken
 
+- Nightlies never use Blacksmith (user decision 2026-10-19). Every
+  `*nightly*.yml` and `*notarization*.yml` job compiles on the trusted minis
+  (`build-nightly-app` on cmux15) or runs on an ephemeral GitHub-hosted image
+  (`ubuntu-24.04`, `macos-26`, `macos-15`): signing, notarization and
+  publishing stay ephemeral. These workflows read no shared runner variable
+  (`LINUX_RUNNER`, `MACOS_RUNNER_*`, ...) and never reach the benchmark mini
+  cmux11s. `tests/test_ci_nightly_off_blacksmith.py` enforces it.
 - CI is minis first. Blacksmith is overflow; do not disable an owned lane to
   make room for a dev build.
 - Every mini must have every pinned Xcode from
@@ -560,7 +567,20 @@ The queue janitor treats an owned label as one more macOS pool. A stale pull
 request run (category b: closed, merged or superseded) is cancelled there on
 every sweep whatever the queue, which frees minis for current work. The other
 categories cancel only while more than `CI_JANITOR_QUEUE_THRESHOLD` jobs queue
-on a pool the run holds, owned pools included. With `CI_PR_POOL_OWNED=1` the
+on a pool the run holds, owned pools included. A lost runner assignment
+(category e: a job queued with no runner for 30 minutes while a newer job on
+exactly its labels was taken, read from GitHub alone, and no other job of its
+run is still unfinished unless lost itself) is cancelled whatever the queue.
+Two cases on 2026-10-21 set the pattern: job 119450713364 (run
+39631559018, glaeda-side-std-xcode-26.6) and job 119458409272 (PR #23694's
+run 39667716636, `cmux-next swift test` on glaeda-gui-std-xcode-26.6), each
+queued for hours with no runner while newer jobs on its labels started. At an
+open pull request's head, a later sweep re-runs the run's failed jobs once
+(and, for ci.yml, dispatches ci-ui-tests.yml for the new attempt), unless a
+newer run of the workflow at that head took over. The janitor leaves an
+attempt a bot started alone at an open pull request's head, so it never
+preempts or extends the owned-pool rescue's attempts, and it never touches
+pushes to main, `rc/*` or feat-cmux-next. With `CI_PR_POOL_OWNED=1` the
 janitor also lists the artifacts of each in-flight attempt-1, same-repository
 pull request CI run or main full-suite dispatch (one request per run, more only past 100 artifacts) to
 read its marker's peak into `committed`. A run's other macOS jobs do not rule

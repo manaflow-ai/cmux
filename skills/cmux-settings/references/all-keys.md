@@ -39,6 +39,7 @@ General app preferences from Settings > App.
 | `app.paneResizeStepPixels` | integer | `20` | Pixels moved per keypress when using pane-resize shortcuts. |
 | `app.focusHistoryIncludesPanesAndTabs` | boolean | `false` | When true, Back and Forward include focus changes between panes and tabs. When false, they navigate between workspaces only. |
 | `app.equalizeSplitsOnCreate` | boolean | `false` | When true, creating a split resizes the panes in that split's row or column to equal sizes. When false, a new split halves the pane it was created from. |
+| `app.equalizeSplitsOnDividerDoubleClick` | boolean | `true` | When true, double-clicking a split divider makes the panes in its row or column equal in size. Other rows and columns keep their sizes. |
 | `app.globalFontMagnification` | integer | `100` | Scales cmux-owned terminals, tab titles, sidebars, settings, overlays, and app chrome by this percentage. Rendered browser page content is excluded. |
 | `app.confirmQuit` | `"always"` or `"dirty-only"` or `"never"` | `"always"` | Control when cmux asks for confirmation before quitting. DEV builds always quit immediately regardless of this setting. Legacy app.warnBeforeQuit is still accepted as a boolean fallback. |
 | `app.warnBeforeClosingTabXButton` | boolean | `false` | Show a confirmation before closing a tab with the tab close button. |
@@ -220,6 +221,18 @@ Agent-to-agent messages sent with `cmux agent message`. Per-agent and per-worksp
 | Key | Type | Default | Description |
 |---|---|---|---|
 | `agentMessages.enabled` | boolean | `true` | Allow agents to message each other through cmux. When false, `cmux agent message` fails, nothing is stored, and messages already queued are marked failed instead of being delivered. |
+
+## chief
+
+Chief, the Home agent: whether it is shown and which harness, model, and effort it uses.
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `chief.enabled` | boolean | `true` | Show the Home row and Chief entry points. When false, the Home row, the Open Chief shortcut, menu item, and command palette entries are hidden. |
+| `chief.harness` | `"claude"` or `"codex"` | `"claude"` | Agent harness Chief runs on: `claude` (Claude Code) or `codex` (Codex). |
+| `chief.model` | string | `""` | Model passed to the harness. Leave empty to use the harness default. |
+| `chief.effort` | string | `""` | Reasoning effort passed to the harness, such as `low`, `medium`, or `high`. Leave empty to use the harness default. |
+| `chief.dangerouslySkipPermissions` | boolean | `false` | Allow Chief's selected agent to bypass permission prompts and sandbox guardrails. Off by default. |
 
 ## browser
 

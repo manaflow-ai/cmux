@@ -77,7 +77,7 @@ class InstallGitHooksTests(unittest.TestCase):
         installed = self.common_dir() / "cmux-git-hooks"
         self.assertEqual(Path(self.local_hooks_path()).resolve(), installed.resolve())
         self.assertNotEqual(installed.resolve(), (self.repo / "scripts/git-hooks").resolve())
-        for name in ("pre-commit", "post-merge"):
+        for name in ("pre-commit", "post-merge", "prepare-commit-msg", "check-git-remotes.sh"):
             self.assertTrue((installed / name).is_file(), name)
             self.assertTrue(os.access(installed / name, os.X_OK), name)
         for name in (
@@ -381,6 +381,40 @@ class InstallGitHooksTests(unittest.TestCase):
         self.assertNotIn("core.hooksPath scripts/git-hooks", result.stderr)
         self.assert_merge_driver_installed()
 
+    def commit_message_with_global_hook(self, global_hook):
+        global_hooks = self.root / "global-hooks"
+        global_hooks.mkdir(exist_ok=True)
+        hook = global_hooks / "prepare-commit-msg"
+        hook.write_text(global_hook)
+        hook.chmod(0o755)
+        result = self.install()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.git("config", "--global", "core.hooksPath", str(global_hooks))
+        self.git("config", "user.name", "t")
+        self.git("config", "user.email", "t@example.com")
+        (self.repo / "file").write_text("x")
+        self.git("add", "file")
+        commit = self.git("commit", "-q", "-m", "change", check=False)
+        self.assertEqual(commit.returncode, 0, commit.stderr)
+        return self.git("log", "-1", "--format=%B").stdout
+
+    def test_trusted_hooks_run_the_global_prepare_commit_msg(self):
+        message = self.commit_message_with_global_hook(
+            '#!/bin/sh\necho "Agent-Session: test" >> "$1"\n')
+        self.assertEqual(Path(self.local_hooks_path()).resolve(), (self.common_dir() / "cmux-git-hooks").resolve())
+        self.assertIn("Agent-Session: test", message)
+
+    def test_a_failing_global_prepare_commit_msg_never_blocks_a_commit(self):
+        message = self.commit_message_with_global_hook("#!/bin/sh\nexit 1\n")
+        self.assertEqual(message.strip(), "change")
+
+    def test_a_global_hook_that_runs_the_clones_hooks_does_not_loop(self):
+        message = self.commit_message_with_global_hook(
+            '#!/bin/sh\necho "Global: once" >> "$1"\n'
+            'h="$(git rev-parse --git-common-dir)/cmux-git-hooks/prepare-commit-msg"\n'
+            '"$h" "$@"\n')
+        self.assertEqual(message.count("Global: once"), 1)
+
     def default_hooks_dir(self):
         hooks = Path(self.git("rev-parse", "--git-path", "hooks").stdout.strip())
         return hooks if hooks.is_absolute() else self.repo / hooks
@@ -409,6 +443,109 @@ class InstallGitHooksTests(unittest.TestCase):
         self.assertIn("cmux-git-hooks/pre-commit", result.stderr, "must say how to chain the hook")
         self.assertIn("cmux-git-hooks/post-merge", result.stderr, "must say how to refresh merge drivers")
         self.assert_merge_driver_installed()
+
+    def check_remotes(self, *args):
+        return subprocess.run(["bash", "scripts/git-hooks/check-git-remotes.sh", *args], cwd=self.repo,
+                              env=self.env, text=True, capture_output=True)
+
+    def test_remote_fetching_a_local_mirror_but_pushing_to_github_warns(self):
+        # 2026-10-19: origin fetched a stale local mirror and pushed to GitHub.
+        mirror = self.root / "cmux-merge-remote-nightly.git"
+        self.git("remote", "add", "origin", str(mirror))
+        self.git("remote", "set-url", "--push", "origin", "https://github.com/manaflow-ai/cmux.git")
+
+        result = self.check_remotes()
+        self.assertEqual(result.returncode, 0, "a warning, never a failure")
+        self.assertIn("warning: git remote origin fetches from a local path", result.stderr)
+        self.assertIn(str(mirror), result.stderr)
+        self.assertIn("git remote set-url origin https://github.com/manaflow-ai/cmux.git", result.stderr)
+        self.assertEqual(self.check_remotes("--strict").returncode, 1)
+
+        install = self.install()
+        self.assertEqual(install.returncode, 0, install.stderr)
+        self.assertIn("warning: git remote origin", install.stderr, "setup must say it too")
+
+        self.git("config", "remote.origin.cmuxSplitOk", "true")
+        silenced = self.check_remotes("--strict")
+        self.assertEqual((silenced.returncode, silenced.stderr), (0, ""))
+
+    def test_remotes_naming_different_repositories_warn(self):
+        self.git("remote", "add", "fork", "git@github.com:someone/cmux.git")
+        self.git("remote", "set-url", "--push", "fork", "https://github.com/manaflow-ai/cmux.git")
+        result = self.check_remotes("--strict")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("fetches and pushes different repositories", result.stderr)
+
+    def test_one_repository_in_different_spellings_is_quiet(self):
+        self.git("remote", "add", "origin", "https://github.com/manaflow-ai/cmux.git")
+        self.git("remote", "set-url", "--push", "origin", "git@github.com:Manaflow-AI/cmux")
+        self.git("remote", "add", "mf", "ssh://git@github.com/manaflow-ai/cmux.git/")
+        self.git("remote", "add", "local", str(self.root / "mirror.git"))
+        self.git("config", "url.https://github.com/.insteadOf", "gh:")
+        self.git("remote", "add", "short", "gh:manaflow-ai/cmux")
+        result = self.check_remotes("--strict")
+        self.assertEqual((result.returncode, result.stderr), (0, ""))
+
+    def test_insteadof_rewrites_are_followed(self):
+        # url.<local>.insteadOf hides a local fetch behind a GitHub-looking URL.
+        mirror = self.root / "mirror.git"
+        self.git("config", f"url.{mirror}.insteadOf", "https://github.com/manaflow-ai/cmux")
+        self.git("config", "url.https://github.com/manaflow-ai/cmux.pushInsteadOf",
+                 "https://github.com/manaflow-ai/cmux")
+        self.git("remote", "add", "origin", "https://github.com/manaflow-ai/cmux.git")
+        result = self.check_remotes()
+        self.assertIn("fetches from a local path", result.stderr)
+
+    def test_different_ports_and_local_directories_are_different_repositories(self):
+        self.git("remote", "add", "ports", "ssh://git@example.com:2222/team/repo.git")
+        self.git("remote", "set-url", "--push", "ports", "ssh://git@example.com:2223/team/repo.git")
+        self.git("remote", "add", "suffix", str(self.root / "mirror"))
+        self.git("remote", "set-url", "--push", "suffix", str(self.root / "mirror.git"))
+        self.git("remote", "add", "case", str(self.root / "Mirror.git"))
+        self.git("remote", "set-url", "--push", "case", str(self.root / "mirror.git"))
+        result = self.check_remotes("--strict")
+        self.assertEqual(result.returncode, 1)
+        for remote in ("ports", "suffix", "case"):
+            self.assertIn(f"warning: git remote {remote} fetches and pushes different repositories", result.stderr)
+
+    def test_default_ports_and_relative_paths_name_the_same_repository(self):
+        self.git("remote", "add", "ssh", "ssh://git@example.com:22/team/repo.git")
+        self.git("remote", "set-url", "--push", "ssh", "git@example.com:team/repo.git")
+        self.git("remote", "add", "rel", "../mirror.git")
+        self.git("remote", "set-url", "--push", "rel", str(self.root / "mirror.git"))
+        result = self.check_remotes("--strict")
+        self.assertEqual((result.returncode, result.stderr), (0, ""))
+
+    def test_an_insteadof_rewrite_is_named_in_the_fix(self):
+        mirror = self.root / "mirror.git"
+        self.git("config", f"url.{mirror}.insteadOf", "https://github.com/manaflow-ai/cmux")
+        self.git("config", "url.https://github.com/manaflow-ai/cmux.pushInsteadOf",
+                 "https://github.com/manaflow-ai/cmux")
+        self.git("remote", "add", "origin", "https://github.com/manaflow-ai/cmux.git")
+        result = self.check_remotes()
+        self.assertIn("rewritten by url.*.insteadOf", result.stderr)
+        self.assertIn(f"--unset url.{mirror}.insteadof https://github.com/manaflow-ai/cmux", result.stderr)
+        self.assertNotIn("git remote set-url", result.stderr)
+
+    def test_repair_commands_are_shell_quoted(self):
+        self.git("remote", "add", "dev&ops", str(self.root / "mirror.git"))
+        self.git("remote", "set-url", "--push", "dev&ops", "https://github.com/manaflow-ai/cmux.git")
+        result = self.check_remotes()
+        self.assertIn("git remote set-url dev\\&ops https://github.com/manaflow-ai/cmux.git", result.stderr)
+        self.assertIn("git config remote.dev\\&ops.cmuxSplitOk true", result.stderr)
+
+    def test_pre_commit_hook_warns_but_commits(self):
+        install = self.install()
+        self.assertEqual(install.returncode, 0, install.stderr)
+        self.git("remote", "add", "origin", str(self.root / "mirror.git"))
+        self.git("remote", "set-url", "--push", "origin", "https://github.com/manaflow-ai/cmux.git")
+        self.git("config", "user.email", "t@example.com")
+        self.git("config", "user.name", "t")
+        (self.repo / "file.txt").write_text("x\n")
+        self.git("add", "file.txt")
+        commit = self.git("commit", "--quiet", "-m", "x", check=False)
+        self.assertEqual(commit.returncode, 0, commit.stderr)
+        self.assertIn("warning: git remote origin", commit.stderr)
 
     def test_outside_a_git_repository_still_fails(self):
         plain = self.root / "not-a-repository"

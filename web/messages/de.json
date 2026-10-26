@@ -2181,6 +2181,7 @@
           "canonicalAgentScratch": "Use a cmux-owned scratch directory for native agent panels, organized per session."
         },
         "app": {
+          "equalizeSplitsOnDividerDoubleClick": "Wenn aktiviert, gleicht ein Doppelklick auf eine Trennlinie die Größen der Bereiche in ihrer Zeile oder Spalte an. Andere Zeilen und Spalten behalten ihre Größen.",
           "confirmQuit": "Steuert, wann cmux vor dem Beenden eine Bestätigung anfordert. DEV-Builds beenden sich unabhängig von dieser Einstellung immer sofort. Das ältere app.warnBeforeQuit wird weiterhin als boolescher Fallback akzeptiert.",
           "windowTitleTemplate": "Optionale Vorlage für den NSWindow-Titel. Leer behält das bestehende Standardtitelverhalten von cmux bei, einschließlich Fallback auf das aktuelle Verzeichnis. Unterstützte Platzhalter: '{windowId}', '{windowToken}', '{activeWorkspace}', '{activeDirectory}', '{defaultTitle}', '{appName}'.",
           "devWindowDisplay": "Nur in DEBUG-Builds verwendeter Anzeigename beim Öffnen neuer Fenster. Ein leerer Wert verwendet die Systemeinstellung.",
@@ -2265,6 +2266,13 @@
               "enabled": "Wenn ein Remote-tmux-Arbeitsbereich ausgewählt ist, startet „Neuer Arbeitsbereich“ eine tmux-Sitzung auf dem Host dieses Arbeitsbereichs."
             }
           }
+        },
+        "chief": {
+          "description": "Chief, der Home-Agent: ob er angezeigt wird und welches Harness, Modell und welchen Aufwand er verwendet.",
+          "enabled": "Zeigt die Home-Zeile und die Chief-Einstiegspunkte. Bei false werden die Home-Zeile, der Kurzbefehl „Chief öffnen“, der Menüeintrag und die Befehlspaletten-Einträge ausgeblendet.",
+          "harness": "Agent-Harness, auf dem Chief läuft: claude (Claude Code) oder codex (Codex).",
+          "model": "An das Harness übergebenes Modell. Leer lassen, um den Standard des Harness zu verwenden.",
+          "effort": "An das Harness übergebener Denkaufwand, z. B. low, medium oder high. Leer lassen, um den Standard des Harness zu verwenden."
         }
       },
       "exampleMarkdownFontSize": "Default body font size (points) for newly opened markdown viewers.",
@@ -3444,6 +3452,7 @@
     "unsupportedParams": "Dieser Link enthält nicht unterstützte Parameter, die cmux ablehnt: {params}",
     "conflictingParams": "Dieser Link enthält Parameter, die nicht zusammen verwendet werden können: {params}",
     "invalidParams": "Dieser Link enthält ungültige Parameterwerte: {params}",
+    "ignoredParams": "cmux ignoriert Parameter, die es nicht verwendet: {params}. Die Sitzung wird dennoch geöffnet.",
     "fixParams": "Korrigieren Sie die URL-Parameter und laden Sie dann diese Seite neu.",
     "examplePrefix": "Siehe eine",
     "exampleLink": "Beispiellink",
@@ -5515,6 +5524,8 @@
     "errorInvalidCode": "Dieser Code ist ungültig. Prüfe deine E-Mails und versuche es erneut.",
     "errorInvalidTotp": "Dieser Zwei-Faktor-Code ist ungültig.",
     "errorSignUpNotAllowed": "Neue Konten können derzeit nicht erstellt werden.",
+    "errorEmailUnverified": "Für diese E-Mail-Adresse gibt es bereits ein Konto, aber die Adresse ist noch nicht bestätigt. Melde dich so an, wie du dich registriert hast, und bestätige dann deine E-Mail-Adresse, um Anmeldecodes zu nutzen.",
+    "useEmailPasswordInstead": "Mit E-Mail und Passwort anmelden",
     "errorPasskey": "Die Passkey-Anmeldung wurde nicht abgeschlossen. Versuche es erneut oder nutze eine andere Methode.",
     "errorGeneric": "Etwas ist schiefgelaufen. Versuche es erneut."
   },

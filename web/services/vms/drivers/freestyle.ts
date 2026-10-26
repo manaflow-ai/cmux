@@ -73,6 +73,7 @@ import { parseSshPublicKey, scpPrepareCommand, SCP_KEY_TTL_SECONDS } from "./scp
 import {
   CMUX_TUI_PORT,
   CMUX_TUI_SESSION,
+  shellQuote,
 } from "./cmuxTuiDaemon";
 export { preconnectFreestyle } from "./freestyleWarmup";
 export type { FreestylePreconnectOptions } from "./freestyleWarmup";
@@ -173,12 +174,9 @@ export const PORT_OPEN_LEASE_TTL_SECONDS = 7 * 24 * 60 * 60;
 const DESKTOP_HEAL_TIMEOUT_MS = 90_000;
 export const FREESTYLE_ATTACH_TRANSPORT: AttachTransport = "cmux-remote";
 /**
- * Every guest command the driver runs is administrative — systemd, sudoers, the
- * daemon install — so it runs as root. The 0.2 API's `linuxUser` default is
- * "the account holding uid 1000, or root in an image with no such account",
- * which on a cmux devbox image is the work user; leaving this off would run
- * the driver's own maintenance unprivileged. Sessions are a different thing:
- * the daemon drops to the work user itself (cmuxTuiLayoutSelector).
+ * Driver maintenance commands are administrative — systemd, sudoers, the
+ * daemon install — so they run as root. Public commands are separate: they use
+ * the provider's uid-1000 default and normalize HOME in freestyleExecCommand.
  */
 const GUEST_LINUX_USER = "root";
 
@@ -200,6 +198,23 @@ export const FREESTYLE_PERSISTENT_IDLE_TIMEOUT_SECONDS = -1;
 /** The exec API rejects timeoutMs above 300000 (5 minutes per exec). */
 const MAX_EXEC_TIMEOUT_MS = 300_000;
 const EXEC_OVERHEAD_TIMEOUT_MS = 15_000;
+
+/**
+ * Run a public VM command with the home directory belonging to the account
+ * Freestyle selected for the command. Older snapshots can leave HOME pointing
+ * at the base image's former uid-1000 home even after that account was renamed
+ * to cmux; resolving passwd at execution time fixes those machines without a
+ * reboot or image migration. The command itself remains a shell command, as it
+ * was before this wrapper was added.
+ */
+export function freestyleExecCommand(command: string): string {
+  return [
+    'cmux_exec_home="$(getent passwd "$(id -u)" | cut -d: -f6)"',
+    'case "$cmux_exec_home" in /*) ;; *) echo "cmux: unable to resolve the exec user home" >&2; exit 125 ;; esac',
+    'export HOME="$cmux_exec_home"',
+    `exec /bin/sh -c ${shellQuote(command)}`,
+  ].join('; ');
+}
 const FORK_DAEMON_LISTEN_TIMEOUT_SECONDS = 30;
 const ROUTE_TOKEN_TTL_SECONDS = 12 * 60 * 60;
 const EDGE_DOMAIN = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/i;
@@ -1402,9 +1417,12 @@ export class FreestyleProvider implements VMProvider {
           // terminals and coding agents. Leaving `linuxUser` unset asks the
           // provider for its uid-1000 account (`cmux` on current images), while
           // preserving the provider's legacy fallback to root on older images.
-          // Driver maintenance stays explicitly root below, as does cmux's own
-          // guest maintenance that asks for it.
-          const r = await vm.exec({ command, timeoutMs, ...(opts?.asRoot ? { linuxUser: GUEST_LINUX_USER } : {}) });
+          // Public commands use the provider's uid-1000 account and normalize
+          // its home. Driver maintenance and explicit root commands stay
+          // pinned to root.
+          const r = await vm.exec(opts?.asRoot
+            ? { command, timeoutMs, linuxUser: GUEST_LINUX_USER }
+            : { command: freestyleExecCommand(command), timeoutMs });
           // statusCode is null when the guest killed the command at its timeout.
           const exitCode = r.statusCode ?? 124;
           setSpanAttributes(span, { "cmux.exec.exit_code": exitCode });

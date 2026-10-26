@@ -1,5 +1,4 @@
 import CmuxCloud
-import CMUXAgentLaunch
 import CmuxComputerUse
 import AppKit
 import CmuxAppKitSupportUI
@@ -41,6 +40,8 @@ struct cmuxApp: App {
     @AppStorage(BrowserToolbarAccessorySpacingDebugSettings.key) private var browserToolbarAccessorySpacingRaw = BrowserToolbarAccessorySpacingDebugSettings.defaultSpacing
     @AppStorage(SettingCatalog().betaFeatures.remoteTmuxNewWorkspaceOnHost.userDefaultsKey)
     private var remoteTmuxNewWorkspaceOnHostEnabled = SettingCatalog().betaFeatures.remoteTmuxNewWorkspaceOnHost.defaultValue
+    @AppStorage(ChiefCatalogSection().enabled.userDefaultsKey)
+    private var chiefEnabled = ChiefCatalogSection().enabled.defaultValue
     @State private var aboutWindowController: AboutWindowController?
     @State private var browserFocusModeMenuRevision = 0
     @State private var browserAvailabilityMenuRevision = 0
@@ -354,22 +355,6 @@ struct cmuxApp: App {
         fflush(stderr)
         NSLog("%@", message)
         Darwin.exit(64)
-    }
-
-    /// Every terminal inherits the app environment. When cmux is launched from
-    /// inside a cmux Claude session, NODE_OPTIONS carries that session's restore
-    /// preload, and `node` fails in every shell once the file is gone (#22274).
-    private static func removeInheritedClaudeNodeOptionsPreload() {
-        let updates = AgentLaunchEnvironmentPolicy().inheritedNodeOptionsRepair(
-            from: ProcessInfo.processInfo.environment
-        )
-        for (key, value) in updates {
-            if let value {
-                setenv(key, value, 1)
-            } else {
-                unsetenv(key)
-            }
-        }
     }
 
     private static func configureGhosttyEnvironment() {
@@ -1338,6 +1323,12 @@ struct cmuxApp: App {
 
             splitCommandButton(title: String(localized: "menu.view.showNotifications", defaultValue: "Show Notifications"), shortcut: menuShortcut(for: .showNotifications)) {
                 showNotificationsPopover()
+            }
+
+            if chiefEnabled {
+                splitCommandButton(title: String(localized: "menu.view.chief", defaultValue: "Chief"), shortcut: menuShortcut(for: .openChief)) {
+                    AppDelegate.shared?.openChiefHome(toggle: true, source: "menu.view.chief")
+                }
             }
         }
     }

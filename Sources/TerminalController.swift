@@ -426,7 +426,9 @@ class TerminalController {
         "debug.notification.focus",
         "debug.app.activate", "debug.cloudtree.spacing",
         "debug.right_sidebar.focus",
-        "feed.jump"
+        "feed.jump",
+        // Shows Chief Home in the target window, like workspace.select.
+        "chief.open"
     ]
 
     nonisolated static func commandHasFocusIntent(
@@ -15637,6 +15639,14 @@ class TerminalController {
             result = v2MobileWorkspaceMove(params: request.params)
         case "workspace.group.action", "workspace.group.create":
             result = request.method == "workspace.group.create" ? v2MobileWorkspaceGroupCreate(params: request.params) : v2MobileWorkspaceGroupAction(params: request.params)
+        case let method where method.hasPrefix("chief."):
+            // Chief already has one validated owner-backed implementation for
+            // the local control socket. Reuse it for the authenticated mobile
+            // data plane instead of maintaining a second parser or a second
+            // set of owner/conversation checks. `chiefResult` returns the
+            // Foundation-shaped v2 result, which is bridged to the mobile
+            // envelope below just like every other mobile handler.
+            result = await chiefMobileResult(method: method, params: request.params)
         case let method where method.hasPrefix("mobile.chat."):
             result = await v2MobileChatDispatch(
                 method: method,
