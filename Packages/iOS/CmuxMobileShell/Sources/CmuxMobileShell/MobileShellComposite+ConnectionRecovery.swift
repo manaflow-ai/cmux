@@ -911,8 +911,8 @@ extension MobileShellComposite {
     /// same plan so the foreground connect can adopt it without redialing.
     struct StoredMacDialPlan {
         let method: MobileConnectionMethod
-        /// Direct's Iroh address allowlist; `nil` for every other method. An
-        /// empty allowlist means Direct has nothing it may dial.
+        /// The Direct allowlist, or a user-supplied private path for first
+        /// pairing. An empty allowlist has nothing it may dial.
         let methodPinnedCandidates: [CmxIrohDirectDialCandidate]?
         let routes: [CmxAttachRoute]
     }
@@ -934,12 +934,12 @@ extension MobileShellComposite {
                 forMacDeviceID: pairedMacDeviceID,
                 instanceTag: expectedInstanceTag
             )
-        // Direct is the only method that supplies an Iroh address allowlist.
+        // Direct and explicit first-pair private paths constrain the Iroh dial.
         // Tailscale selects an authorized raw Tailscale route below and must
         // never be converted into an Iroh dial, even when both route kinds are
         // advertised by the pairing.
         let methodPinnedCandidates: [CmxIrohDirectDialCandidate]?
-        if let directOnlyDialCandidates {
+        if let directOnlyDialCandidates, resolvedMethod != .tailscale {
             methodPinnedCandidates = directOnlyDialCandidates
         } else if resolvedMethod == .direct {
             methodPinnedCandidates = irohMethodPinnedDialCandidates(
@@ -1334,7 +1334,7 @@ extension MobileShellComposite {
         instanceTag: String?,
         directOnlyDialCandidates: [CmxIrohDirectDialCandidate]? = nil
     ) async -> Bool {
-        guard let accountID = identityProvider?.currentUserID else { return false }
+        guard !Task.isCancelled, let scope = await currentScopeSnapshot() else { return false }
         let canonicalDeviceID = cmxCanonicalDeviceID(macDeviceID)
         guard let candidate = discoveredIrohMacs.first(where: {
             cmxCanonicalDeviceID($0.deviceID) == canonicalDeviceID
@@ -1344,8 +1344,14 @@ extension MobileShellComposite {
         }
         return await connectAccountDiscoveredIrohMac(
             candidate,
-            accountID: accountID,
-            directOnlyDialCandidates: directOnlyDialCandidates
+            accountID: scope.userID,
+            directOnlyDialCandidates: directOnlyDialCandidates,
+            ifStillCurrent: { [weak self] in
+                guard let self else { return false }
+                return !Task.isCancelled && self.isSignedIn
+                    && self.identityProvider?.currentUserID == scope.userID
+                    && self.secondaryAggregationScopeGeneration == scope.generation
+            }
         )
     }
 

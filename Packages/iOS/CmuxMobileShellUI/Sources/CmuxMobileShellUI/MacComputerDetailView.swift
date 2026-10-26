@@ -295,7 +295,7 @@ struct MacComputerDetailView: View {
                     availableMacs: privatePathEditorMacs
                 ) { draft in
                     let saved = await irohSettingsModel.upsertCustomPrivatePath(draft)
-                    if saved, pairedMac == nil {
+                    if saved, pairedMac == nil, draft.isEnabled {
                         let directOnlyDialCandidates: [CmxIrohDirectDialCandidate] =
                             draft.addresses.compactMap { raw in
                                 guard let socket = try? CmxIrohLocalSocketAddress(raw) else {
@@ -306,13 +306,11 @@ struct MacComputerDetailView: View {
                                     port: socket.port
                                 )
                             }
-                        Task {
-                            _ = await store.connectDiscoveredIrohMac(
-                                macDeviceID: macDeviceID,
-                                instanceTag: instanceTag,
-                                directOnlyDialCandidates: directOnlyDialCandidates
-                            )
-                        }
+                        _ = await store.connectDiscoveredIrohMac(
+                            macDeviceID: macDeviceID,
+                            instanceTag: instanceTag,
+                            directOnlyDialCandidates: directOnlyDialCandidates
+                        )
                     }
                     return saved
                 }

@@ -1220,6 +1220,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// Computers screen must still render them so a user can configure a
     /// private path before the first dial succeeds.
     public internal(set) var discoveredIrohMacs: [MobileDiscoveredIrohMac] = []
+    var directoryCandidatesGeneration = 0
     /// Revokes a hidden computer's account bindings when the user forgets it.
     /// Optional so tests and non-iOS hosts run without the transport graph; when
     /// `nil`, the Forget action is a no-op and the row stays put.
@@ -2444,6 +2445,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         pairedMacAliasIDsByRepresentativeID = [:]
         pairedMacs = []
         discoveredIrohMacs = []
+        directoryCandidatesGeneration &+= 1
         pairedMacLoadState = .notLoaded
         pairedMacLoadGeneration &+= 1
         hiddenComputers = []
@@ -2590,6 +2592,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
         pairedMacAliasIDsByRepresentativeID = [:]
         pairedMacs = []
         discoveredIrohMacs = []
+        directoryCandidatesGeneration &+= 1
         pairedMacLoadState = .notLoaded
         pairedMacLoadGeneration &+= 1
         hiddenMacDeviceIDsByScope = [:]
@@ -4315,11 +4318,12 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
     /// before its first authenticated connection, which is required when a
     /// relay-less host needs a user-entered private path.
     public func refreshDirectoryCandidates() async {
-        guard let personalIrohDiscovery,
-              let scope = await currentScopeSnapshot() else { return }
-        let discovered = await personalIrohDiscovery.discoverLiveMacs()
-        guard await isScopeCurrent(scope) else { return }
-        discoveredIrohMacs = discovered
+        guard let scope = await currentScopeSnapshot() else {
+            directoryCandidatesGeneration &+= 1
+            discoveredIrohMacs = []
+            return
+        }
+        _ = await loadDirectoryCandidates(scope: scope)
     }
 
     /// The device-tree data source, honoring the registry's best-effort/fallback
@@ -4692,6 +4696,7 @@ public final class MobileShellComposite: MobileTerminalOutputSinking {
             pairedMacAliasIDsByRepresentativeID = [:]
             pairedMacs = []
             discoveredIrohMacs = []
+            directoryCandidatesGeneration &+= 1
             pairedMacLoadState = .failed
             hiddenComputers = []
             hasHiddenComputers = false

@@ -102,7 +102,7 @@ extension MacComputerSnapshot {
                     } ?? CmxAttachRoute.deviceTreeRouteDescription(for: mac.routes),
                 routes: mac.routes,
                 lastSeenAt: mac.lastSeenAt,
-                workspaceCount: store.workspaceCount(
+                workspaceCount: isDirectoryOnly ? 0 : store.workspaceCount(
                     for: mac.macDeviceID,
                     instanceTag: mac.instanceTag
                 ),
