@@ -72,24 +72,25 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
 
     /// Whether the Keychain can currently answer whether a session is stored.
     ///
-    /// A read that fails for any reason other than "no item" comes back as a
-    /// nil token, which is indistinguishable from a signed-out store. Session
-    /// restore asks this first so a Keychain that is briefly unreadable (locked,
-    /// or busy right after the app was replaced by an update) keeps the session
-    /// instead of signing the user out. A missing entitlement is permanent and
-    /// means ``FallbackTokenStore``'s file store is authoritative, so it counts
-    /// as readable.
+    /// A read that fails comes back as a nil token, which is indistinguishable
+    /// from a signed-out store. Session restore asks this first so a Keychain
+    /// that is briefly unreadable (locked, or busy right after the app was
+    /// replaced by an update) keeps the session instead of signing the user
+    /// out. Only failures that clear up on their own count as unreadable: a
+    /// permanent one (a corrupt item, a missing entitlement, which routes to
+    /// ``FallbackTokenStore``'s file store) must still reach sign-in, or the
+    /// user would sit in a signed-in shell with no session behind it.
     public func isReadable() async -> Bool {
         if cachedRefreshToken != nil { return true }
-        return Self.isDefinitiveReadStatus(keychainProbeStatus(account: Self.refreshTokenAccount))
+        return !Self.isTemporaryReadFailure(keychainProbeStatus(account: Self.refreshTokenAccount))
     }
 
-    /// Whether a Keychain read status says what is (or is not) stored.
-    static func isDefinitiveReadStatus(_ status: Int32) -> Bool {
+    /// Whether a Keychain read status is a failure that clears up on its own.
+    static func isTemporaryReadFailure(_ status: Int32) -> Bool {
 #if canImport(Security)
-        return status == errSecSuccess || status == errSecItemNotFound || status == errSecMissingEntitlement
+        return status == errSecInteractionNotAllowed || status == errSecNotAvailable
 #else
-        return true
+        return false
 #endif
     }
 
@@ -250,7 +251,7 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var result: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
-        if !Self.isDefinitiveReadStatus(status) {
+        if Self.isTemporaryReadFailure(status) {
             log.log("keychain PROBE status=\(status) account=\(account)")
         }
         return status
