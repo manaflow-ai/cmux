@@ -2,10 +2,87 @@ import Foundation
 import Testing
 @testable import CmuxUpdater
 
+/// `SPUUserUpdateChoice` raw values (Sparkle/SPUUserUpdateState.h: Skip, Install, Dismiss).
+private let sparkleSkip = 0
+private let sparkleInstall = 1
+private let sparkleDismiss = 2
+
+/// The `SPUUpdaterDelegate` optional methods the pre-seam `UpdateDriver` answered
+/// (Sparkle/SPUUpdaterDelegate.h). Sparkle checks each with `respondsToSelector:`.
+private let answeredDelegateSelectors = [
+    "updaterShouldPromptForPermissionToCheckForUpdates:",
+    "feedURLStringForUpdater:",
+    "allowedChannelsForUpdater:",
+    "updater:willInstallUpdate:",
+    "updater:willScheduleUpdateCheckAfterDelay:",
+    "updaterWillNotScheduleUpdateCheck:",
+    "updater:willInstallUpdateOnQuit:immediateInstallationBlock:",
+    "updater:didFinishLoadingAppcast:",
+    "updater:didFindValidUpdate:",
+    "updaterDidNotFindUpdate:error:",
+    "updater:didFinishUpdateCycleForUpdateCheck:error:",
+    "updater:userDidMakeChoice:forUpdate:state:",
+    "updater:shouldPostponeRelaunchForUpdate:untilInvokingBlock:",
+    "updaterWillRelaunchApplication:",
+]
+
+/// Every `SPUUserDriver` method the driver answered: the required ones and `showUpdateInFocus`
+/// (Sparkle/SPUUserDriver.h).
+private let answeredUserDriverSelectors = [
+    "showUpdatePermissionRequest:reply:",
+    "showUserInitiatedUpdateCheckWithCancellation:",
+    "showUpdateFoundWithAppcastItem:state:reply:",
+    "showUpdateReleaseNotesWithDownloadData:",
+    "showUpdateReleaseNotesFailedToDownloadWithError:",
+    "showUpdateNotFoundWithError:acknowledgement:",
+    "showUpdaterError:acknowledgement:",
+    "showDownloadInitiatedWithCancellation:",
+    "showDownloadDidReceiveExpectedContentLength:",
+    "showDownloadDidReceiveDataOfLength:",
+    "showDownloadDidStartExtractingUpdate",
+    "showExtractionReceivedProgress:",
+    "showReadyToInstallAndRelaunch:",
+    "showInstallingUpdateWithApplicationTerminated:retryTerminatingApplication:",
+    "showUpdateInstalledAndRelaunched:acknowledgement:",
+    "dismissUpdateInstallation",
+    "showUpdateInFocus",
+]
+
+/// Optional Sparkle methods the driver never answered: implementing one changes what Sparkle
+/// does (a check veto, a relaunch policy, a deprecated fallback path).
+private let unansweredSelectors = [
+    "updater:mayPerformUpdateCheck:error:",
+    "updaterMayCheckForUpdates:",
+    "updater:shouldProceedWithUpdate:updateCheck:error:",
+    "bestValidUpdateInAppcast:forUpdater:",
+    "updaterDidNotFindUpdate:",
+    "feedParametersForUpdater:sendingSystemProfile:",
+    "allowedSystemProfileKeysForUpdater:",
+    "updater:shouldDownloadReleaseNotesForUpdate:",
+    "updater:willDownloadUpdate:withRequest:",
+    "updater:didDownloadUpdate:",
+    "updater:failedToDownloadUpdate:error:",
+    "userDidCancelDownload:",
+    "updater:willExtractUpdate:",
+    "updater:didExtractUpdate:",
+    "updaterShouldRelaunchApplication:",
+    "versionComparatorForUpdater:",
+    "decryptionPasswordForUpdater:",
+    "updater:didAbortWithError:",
+    "updater:userDidSkipThisVersion:",
+    "showUpdateNotFoundWithAcknowledgement:",
+    "showUpdateInstallationDidFinishWithAcknowledgement:",
+    "dismissUserInitiatedUpdateCheck",
+    "showInstallingUpdate",
+    "showSendingTerminationSignal",
+    "showInstallingUpdateWithApplicationTerminated:",
+]
+
 /// The Sparkle seam (`SparkleSeam.swift`) translates Sparkle's callbacks into ``UpdateDriver``
 /// calls and the driver's answers back into Sparkle's values. These tests drive the bridge the
 /// way Sparkle does and read what Sparkle would receive, with no Sparkle import: the reply
-/// closures get Sparkle's own `SPUUserUpdateChoice`, recorded by raw value.
+/// closures get Sparkle's own `SPUUserUpdateChoice`, recorded by raw value and compared with the
+/// values Sparkle's headers declare.
 @MainActor
 @Suite struct SparkleSeamTests {
     private let model = UpdateStateModel()
@@ -16,8 +93,51 @@ import Testing
         var rawValues: [Int] = []
     }
 
-    private func makeDriver() -> UpdateDriver {
-        UpdateDriver(model: model, log: NoopUpdateLog(), clock: TestDeadlineClock())
+    /// Records the update-cycle kinds the driver forwards to its lifecycle owner.
+    @MainActor
+    private final class CycleSpy: UpdateDriverEventDelegate {
+        var checks: [UpdateCheckKind] = []
+
+        func updateDriverDidFinishCycle(_ updateCheck: UpdateCheckKind, error: NSError?) { checks.append(updateCheck) }
+        func updateDriverUserDidCancelCheck() {}
+        func updateDriverUserDidDismissPrompt() {}
+    }
+
+    /// An ``UpdateLogging`` that hands every line to an `AsyncStream`, so a test reads the log.
+    private struct StreamUpdateLog: UpdateLogging {
+        let continuation: AsyncStream<String>.Continuation
+
+        func append(_ message: String) { continuation.yield(message) }
+        func logPath() -> String { "/dev/null" }
+    }
+
+    private func makeDriver(log: any UpdateLogging = NoopUpdateLog()) -> UpdateDriver {
+        UpdateDriver(model: model, log: log, clock: TestDeadlineClock())
+    }
+
+    private func makeItem(_ version: String) throws -> UpdateAppcastItem {
+        try #require(UpdateAppcastItem(dictionary: [
+            "title": "cmux \(version)",
+            "pubDate": "Wed, 25 Mar 2026 12:00:00 +0000",
+            "enclosure": [
+                "url": "https://example.com/cmux.zip",
+                "length": "1024",
+                "sparkle:version": version,
+                "sparkle:shortVersionString": version,
+            ],
+        ]))
+    }
+
+    /// Sparkle calls only what the bridge answers, so the bridge answers exactly the selectors
+    /// the driver did before the seam.
+    @Test func bridgeAnswersTheSelectorsTheDriverAnswered() {
+        let bridge = SparkleDriverBridge(driver: makeDriver())
+        for selector in answeredDelegateSelectors + answeredUserDriverSelectors {
+            #expect(bridge.responds(to: NSSelectorFromString(selector)), "Sparkle no longer calls \(selector)")
+        }
+        for selector in unansweredSelectors {
+            #expect(!bridge.responds(to: NSSelectorFromString(selector)), "Sparkle now calls \(selector)")
+        }
     }
 
     @Test func readyReplyReachesSparkleAsInstall() {
@@ -29,7 +149,7 @@ import Testing
             MainActor.assumeIsolated { replies.rawValues.append(choice.rawValue) }
         })
 
-        #expect(replies.rawValues == [UpdateChoice.install.rawValue])
+        #expect(replies.rawValues == [sparkleInstall])
     }
 
     /// A staged background update's installer is cancelled with Sparkle's Skip, which records
@@ -46,18 +166,80 @@ import Testing
         #expect(replies.rawValues.isEmpty, "a background install holds Sparkle's reply until the host acts")
         #expect(driver.cancelStaged())
 
-        #expect(replies.rawValues == [UpdateChoice.skip.rawValue])
+        #expect(replies.rawValues == [sparkleSkip])
     }
 
-    @Test func choicesKeepSparklesRawValues() {
-        // `SPUUserUpdateChoice`: Skip = 0, Install = 1, Dismiss = 2. The update log prints these.
-        #expect(UpdateChoice.skip.rawValue == 0)
-        #expect(UpdateChoice.install.rawValue == 1)
-        #expect(UpdateChoice.dismiss.rawValue == 2)
-        // `SPUUpdateCheck`: Updates = 0, UpdatesInBackground = 1, UpdateInformation = 2.
-        #expect(UpdateCheckKind.updates.rawValue == 0)
-        #expect(UpdateCheckKind.updatesInBackground.rawValue == 1)
-        #expect(UpdateCheckKind.updateInformation.rawValue == 2)
+    /// The person's answer to an update prompt reaches Sparkle as Sparkle's own choice.
+    @Test(arguments: [
+        (UpdateChoice.skip, sparkleSkip),
+        (UpdateChoice.install, sparkleInstall),
+        (UpdateChoice.dismiss, sparkleDismiss),
+    ])
+    func promptAnswerReachesSparkle(choice: UpdateChoice, sparkleRawValue: Int) throws {
+        let bridge = SparkleDriverBridge(driver: makeDriver())
+        let replies = SparkleReplies()
+        let item = try makeItem("0.64.17")
+
+        bridge.forwardUpdateFound(item, reply: { choice in
+            MainActor.assumeIsolated { replies.rawValues.append(choice.rawValue) }
+        })
+        guard case .updateAvailable(let available) = model.state else {
+            Issue.record("the bridge must offer a found update; state=\(model.state)")
+            return
+        }
+        #expect(replies.rawValues.isEmpty, "the prompt waits for the person")
+        available.reply(choice)
+
+        #expect(replies.rawValues == [sparkleRawValue])
+    }
+
+    /// Sparkle's permission request is answered with scheduled checks on and no system profile.
+    @Test func permissionRequestReachesSparkleAsChecksWithoutProfile() async {
+        let bridge = SparkleDriverBridge(driver: makeDriver())
+
+        let answer = await withCheckedContinuation { (continuation: CheckedContinuation<[Bool], Never>) in
+            bridge.forwardPermissionRequest(reply: { response in
+                continuation.resume(returning: [response.automaticUpdateChecks, response.sendSystemProfile])
+            })
+        }
+
+        #expect(answer == [true, false])
+    }
+
+    /// Each `SPUUpdateCheck` Sparkle ends a cycle with reaches the lifecycle owner as its kind.
+    @Test func finishedCycleReachesTheOwnerAsItsCheckKind() {
+        let driver = makeDriver()
+        let spy = CycleSpy()
+        driver.eventDelegate = spy
+        let bridge = SparkleDriverBridge(driver: driver)
+
+        bridge.forwardUpdateCycleFinished(.updates, error: nil)
+        bridge.forwardUpdateCycleFinished(.updatesInBackground, error: nil)
+        bridge.forwardUpdateCycleFinished(.updateInformation, error: nil)
+
+        #expect(spy.checks == [.updates, .updatesInBackground, .updateInformation])
+    }
+
+    /// Sparkle's no-update error is read by the string values of its `userInfo` keys
+    /// (Sparkle/SUConstants.m: `SUNoUpdateFoundReason`, `SPUNoUpdateUserInitiated`).
+    @Test(arguments: [
+        (1, true, "no update found (reason=onLatestVersion, userInitiated=true)"),
+        (2, false, "no update found (reason=onNewerThanLatestVersion, userInitiated=false)"),
+        (nil, nil, "no update found (reason=unknown, userInitiated=false)"),
+    ] as [(Int?, Bool?, String)])
+    func noUpdateErrorIsReadFromSparklesKeys(reason: Int?, userInitiated: Bool?, expected: String) async {
+        var userInfo: [String: Any] = [:]
+        if let reason { userInfo["SUNoUpdateFoundReason"] = NSNumber(value: reason) }
+        if let userInitiated { userInfo["SPUNoUpdateUserInitiated"] = NSNumber(value: userInitiated) }
+        let (lines, continuation) = AsyncStream<String>.makeStream()
+        let driver = makeDriver(log: StreamUpdateLog(continuation: continuation))
+
+        driver.handleDidNotFindUpdate(NSError(domain: "SUSparkleErrorDomain", code: 1001, userInfo: userInfo))
+        continuation.finish()
+
+        var logged: [String] = []
+        for await line in lines { logged.append(line) }
+        #expect(logged.contains(expected), "logged: \(logged)")
     }
 
     @Test func userCheckReachesTheDriverThroughTheBridge() {

@@ -187,7 +187,11 @@ extension UpdateDriver {
 /// Sparkle's `SPUUserDriver` and `SPUUpdaterDelegate`, translated into ``UpdateDriver`` calls
 /// with cmux values. It holds no state: every callback forwards on the main actor, where Sparkle
 /// makes it. It implements exactly the optional delegate methods the driver answers, because
-/// Sparkle changes behavior on `respondsToSelector:`.
+/// Sparkle changes behavior on `respondsToSelector:` (`SparkleSeamTests` pins the selector set).
+///
+/// Callbacks that carry an object only Sparkle can make (`SPUUpdater`, `SPUUserUpdateState`,
+/// `SPUUpdatePermissionRequest`) and ignore it hand their translation to a `forward...` method,
+/// so tests check each value conversion without building those objects.
 @MainActor
 final class SparkleDriverBridge: NSObject, @preconcurrency SPUUserDriver, @preconcurrency SPUUpdaterDelegate {
     private let driver: UpdateDriver
@@ -201,6 +205,11 @@ final class SparkleDriverBridge: NSObject, @preconcurrency SPUUserDriver, @preco
 
     func show(_ request: SPUUpdatePermissionRequest,
               reply: @escaping @Sendable (SUUpdatePermissionResponse) -> Void) {
+        forwardPermissionRequest(reply: reply)
+    }
+
+    /// Answers Sparkle's permission request with the driver's response.
+    func forwardPermissionRequest(reply: @escaping @Sendable (SUUpdatePermissionResponse) -> Void) {
         driver.showPermissionRequest { response in reply(response.sparkle) }
     }
 
@@ -211,7 +220,13 @@ final class SparkleDriverBridge: NSObject, @preconcurrency SPUUserDriver, @preco
     func showUpdateFound(with appcastItem: SUAppcastItem,
                          state: SPUUserUpdateState,
                          reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void) {
-        driver.showUpdateFound(with: UpdateAppcastItem(appcastItem)) { choice in reply(choice.sparkle) }
+        forwardUpdateFound(UpdateAppcastItem(appcastItem), reply: reply)
+    }
+
+    /// Offers `item` through the driver; its answer reaches Sparkle as `SPUUserUpdateChoice`.
+    func forwardUpdateFound(_ item: UpdateAppcastItem,
+                            reply: @escaping @Sendable (SPUUserUpdateChoice) -> Void) {
+        driver.showUpdateFound(with: item) { choice in reply(choice.sparkle) }
     }
 
     func showUpdateReleaseNotes(with downloadData: SPUDownloadData) {
@@ -320,6 +335,11 @@ final class SparkleDriverBridge: NSObject, @preconcurrency SPUUserDriver, @preco
     func updater(_ updater: SPUUpdater,
                  didFinishUpdateCycleFor updateCheck: SPUUpdateCheck,
                  error: (any Error)?) {
+        forwardUpdateCycleFinished(updateCheck, error: error)
+    }
+
+    /// Tells the driver that Sparkle's update cycle for `updateCheck` ended.
+    func forwardUpdateCycleFinished(_ updateCheck: SPUUpdateCheck, error: (any Error)?) {
         driver.handleDidFinishUpdateCycle(UpdateCheckKind(updateCheck), error: error)
     }
 
