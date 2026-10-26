@@ -11,11 +11,12 @@ extension WindowController {
         // toolbar band; strips under it follow in the same layout pass.
         root.onToolbarBandPresenceChange = { [weak self] in
             for pane in self?.content?.panes.values.map({ $0 }) ?? [] { pane.view.stripView.updateWindowControlsAvoidance() }
+            self?.updateTopRowAvoiders()
         }
         // The Home page rides the sidebar's slide inside the main pane card with no layout of its
         // own (a hide sizes it once at the start): every move of the card, its last frame
         // included, has its header re-read the traffic lights (no change, no work).
-        root.onMainPaneMove = { [weak self] in self?.homePageWindowControlsChanged() }
+        root.onMainPaneMove = { [weak self] in self?.updateTopRowAvoiders() }
         // The host pressure indicator joins the top row after the band and badge (cmuxterm-hq#2995).
         root.hostPressureIndicator = HostPressureIndicatorView(services: services) { [weak self] in
             // Shown or hidden: the top row places it (layoutTitlebarAccessories), then strips avoid it.
@@ -45,15 +46,13 @@ extension WindowController {
             pane.view.stripView.updateWindowControlsAvoidance()
             pane.view.stripView.layoutSubtreeIfNeeded()
         }
-        homePageWindowControlsChanged()
+        updateTopRowAvoiders()
     }
 
-    /// The Home page slides under or out from under the traffic lights with the sidebar without
-    /// a resize of its list: the list's header re-reads them (Messages' header under the lights).
-    func homePageWindowControlsChanged() {
-        // Classic Home's top page, and the docked Home (a pane's Home tab) when it is in this window.
-        let pages = [topPages.views[.home] as? TopHomePageView, HomeDockTab.view(services)?.messages]
-        for case let page? in pages where page.window === window { page.split.windowControlsMoved() }
+    /// Views without a tab strip re-read the traffic lights after moving in the window.
+    private func updateTopRowAvoiders() {
+        guard let window = window as? ShellWindow else { return }
+        window.windowControlsAvoiders.update(in: window)
     }
 
     /// Marks this window incognito: the badge shows in the sidebar header,
