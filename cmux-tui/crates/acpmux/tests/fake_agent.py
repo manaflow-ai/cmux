@@ -600,6 +600,29 @@ def handle_prompt(rid, params):
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": f"chose {chosen}"}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    # "guard: CMD" asks to run Bash CMD as Claude Code's own guard does in bypassPermissions
+    # (a can_use_tool its classifier may not approve), here with the lasting allow listed first.
+    if text.startswith("guard:"):
+        cmd = text[6:].strip()
+        res = request(
+            "session/request_permission",
+            {
+                "sessionId": sid,
+                "toolCall": {"toolCallId": "g1", "title": cmd, "kind": "execute", "status": "pending",
+                             "rawInput": {"command": cmd},
+                             "_meta": {"claude": {"tool": "Bash", "interactive": False,
+                                                  "description": "Dangerous rm operation on statically-unresolvable target"}}},
+                "options": [
+                    {"optionId": "always", "name": "Allow for this session", "kind": "allow_always"},
+                    {"optionId": "once", "name": "Allow", "kind": "allow_once"},
+                    {"optionId": "no", "name": "Reject", "kind": "reject_once"},
+                ],
+            },
+        )
+        chosen = (res or {}).get("outcome", {}).get("optionId", (res or {}).get("outcome", {}).get("outcome"))
+        update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": f"chose {chosen}"}})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
     if text.startswith("ask:"):
         res = request(
             "session/request_permission",
@@ -633,6 +656,21 @@ def handle_prompt(rid, params):
         update(sid, {"sessionUpdate": "agent_message_chunk", "content": {"type": "text", "text": "echo: " + text[10:].strip()}})
         send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
         return
+    # "set-mode-option: X" (FAKE_MODE_OPTION=1): the harness moves its own mode option to X.
+    if text.startswith("set-mode-option:"):
+        MODE_OPTION[sid] = text[16:].strip()
+        update(sid, {"sessionUpdate": "config_option_update", "configOptions": mode_options(sid)})
+        send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
+        return
+    # "bounce-guard: X" (FAKE_MODE_OPTION=1): the harness moves its mode option to X and straight
+    # back to what it was, then asks as "guard:" does.
+    if text.startswith("bounce-guard:"):
+        was = MODE_OPTION.get(sid, "normal")
+        MODE_OPTION[sid] = text[13:].strip()
+        update(sid, {"sessionUpdate": "config_option_update", "configOptions": mode_options(sid)})
+        MODE_OPTION[sid] = was
+        update(sid, {"sessionUpdate": "config_option_update", "configOptions": mode_options(sid)})
+        return handle_prompt(rid, dict(params, prompt=[{"type": "text", "text": "guard: rm -rf \"$TARGET\""}]))
     # "set-mode: X": the harness changes its own mode, as a real one may.
     if text.startswith("set-mode:"):
         update(sid, {"sessionUpdate": "current_mode_update", "currentModeId": text[9:].strip()})
@@ -967,6 +1005,19 @@ def handle_prompt(rid, params):
     send({"jsonrpc": "2.0", "id": rid, "result": {"stopReason": "end_turn"}})
 
 
+# FAKE_MODE_OPTION=1: a harness whose mode is its "mode" config option (with FAKE_NO_MODES=1, its
+# only mode): normal, strict or full-access, per session.
+MODE_OPTION = {}
+
+
+def mode_options(sid):
+    return [{"id": "model", "name": "Model", "type": "select", "currentValue": "m1",
+             "options": [{"value": "m1", "name": "m1"}, {"value": "m2", "name": "m2"}]},
+            {"id": "mode", "name": "Mode", "type": "select", "category": "mode",
+             "currentValue": MODE_OPTION.get(sid, "normal"),
+             "options": [{"value": v, "name": v} for v in ("normal", "strict", "full-access")]}]
+
+
 # FAKE_PICKER_MODES=claude: each session's model (session/set_model), and the models it offers.
 PICKER_MODELS = {}
 PICKER_EFFORTS = {}
@@ -1150,6 +1201,8 @@ def main():
                 "modes": {"currentModeId": "normal", "availableModes": [{"id": "normal", "name": "Normal"}, {"id": "strict", "name": "Strict"}]},
                 "configOptions": [{"id": "model", "name": "Model", "type": "select", "currentValue": "m1", "options": [{"value": "m1", "name": "m1"}, {"value": "m2", "name": "m2"}]}],
             }
+            if os.environ.get("FAKE_MODE_OPTION") == "1":
+                result["configOptions"] = mode_options(new_sid)
             # FAKE_NO_MODES=1: an adapter that reports no session modes.
             if os.environ.get("FAKE_NO_MODES") == "1":
                 del result["modes"]
@@ -1244,6 +1297,11 @@ def main():
             send({"jsonrpc": "2.0", "id": rid, "result": {}})
         elif m == "session/set_config_option":
             v = params.get("value")
+            if os.environ.get("FAKE_MODE_OPTION") == "1":
+                if params.get("configId") == "mode":
+                    MODE_OPTION[params.get("sessionId")] = v
+                send({"jsonrpc": "2.0", "id": rid, "result": {"configOptions": mode_options(params.get("sessionId"))}})
+                continue
             send({"jsonrpc": "2.0", "id": rid, "result": {"configOptions": [{"id": "model", "name": "Model", "type": "select", "currentValue": v, "options": []}]}})
         elif m == "session/prompt":
             if os.environ.get("FAKE_LOAD_GATE") and params.get("sessionId") not in known:
