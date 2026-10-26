@@ -26,7 +26,8 @@ nonisolated struct ChromiumHostTextInput: Sendable {
         var invalidateCharacterCoordinates = false
     }
 
-    /// Counts for `debug.chromium_host`.
+    /// Counts for `debug.chromium_host` (``report``). There is no count of requests that ask
+    /// the host and wait: no such path exists, which code reading checks (p01-process.md 7).
     struct Stats: Equatable, Sendable {
         /// `firstRectForCharacterRange` answers from pushed rects.
         var firstRectAnswers = 0
@@ -34,9 +35,12 @@ nonisolated struct ChromiumHostTextInput: Sendable {
         var firstRectMisses = 0
         /// `characterIndexForPoint` points off every pushed rect: answered NSNotFound.
         var characterIndexMisses = 0
-        /// Requests that ask the host and wait: there is no such path
-        /// (`ime_sync_requests`, p01-process.md 7, bench `--ime`).
-        var syncRequests: Int { 0 }
+
+        /// The counts under their `debug.chromium_host` names.
+        var report: [String: Int] {
+            ["ime_first_rect_answers": firstRectAnswers, "ime_first_rect_misses": firstRectMisses,
+             "ime_character_index_misses": characterIndexMisses]
+        }
     }
 
     /// A key frame's v3 (`ChromiumHostFrame`): how the host sends the key.
@@ -45,7 +49,8 @@ nonisolated struct ChromiumHostTextInput: Sendable {
         case plain = 0
         /// An input method took the key: a key down as VKEY_PROCESSKEY (0xE5,
         /// skip_if_unhandled) and no character, so pages see keyCode 229
-        /// while text is being composed, as on Windows.
+        /// while text is being composed, as on Windows. On a key up: the up
+        /// that balances that process key down before the real key follows it.
         case inputMethod = 1
         /// The character only (`ch`), after an input method's turn (Chrome's kChar).
         case characterOnly = 2
@@ -69,6 +74,9 @@ nonisolated struct ChromiumHostTextInput: Sendable {
     private(set) var clauses: [ChromiumHostCompositionClause] = []
     private(set) var stats = Stats()
     private var turn: Turn?
+    /// A composition op went to the host and no push has shown a composition since: a push
+    /// without one may predate the op, so it does not mean the page dropped the composition.
+    private var compositionInFlight = false
 
     var hasMarkedText: Bool { !markedText.isEmpty }
 
@@ -83,15 +91,21 @@ nonisolated struct ChromiumHostTextInput: Sendable {
 
     // MARK: Pushed state
 
-    /// Takes a TEXT_INPUT_STATE push. A focus that leaves every text field
-    /// ends the input method's composition here too: the page has none left.
+    /// Takes a TEXT_INPUT_STATE push. The input method's composition ends here
+    /// too when the page has none left for it: focus left every field that
+    /// takes an input method (none, a password field), focus moved to a field
+    /// of another type, or the page dropped its composition (a script moved
+    /// focus or changed the field) while no composition op of cmux is on its way.
     mutating func apply(_ pushed: ChromiumHostTextInputState) -> Applied {
         let previous = state
         state = pushed
+        if pushed.composition != nil { compositionInFlight = false }
         var applied = Applied()
-        if previous.type != .noField, pushed.type == .noField {
+        guard hasMarkedText else { return applied }
+        let pageDropped = pushed.composition == nil && !compositionInFlight
+        if !pushed.type.takesInputMethod || pushed.type != previous.type || pageDropped {
             applied.discardMarkedText = cancelComposition()
-        } else if hasMarkedText, previous.compositionRects != pushed.compositionRects || previous.caretRect != pushed.caretRect {
+        } else if previous.compositionRects != pushed.compositionRects || previous.caretRect != pushed.caretRect {
             applied.invalidateCharacterCoordinates = true
         }
         return applied
@@ -105,20 +119,21 @@ nonisolated struct ChromiumHostTextInput: Sendable {
     }
 
     /// The input method is done with the key down that `key` describes: the
-    /// key frames and ops that send it, in Chrome's order (key down,
-    /// commit, composition, the delayed key, the character).
+    /// key frames and ops that send it, in Chrome's order (process key down,
+    /// commit, composition, the process key's up and the delayed key, the character).
     mutating func endKey(_ key: ChromiumHostFrame, controlOrCommand: Bool) -> [Output] {
         guard let turn else { return [.key(key)] }
         self.turn = nil
         let marked = hasMarkedText
         let composing = marked || turn.hadMarkedText
         var outputs: [Output] = []
-        // The input method took the key: pages see a process key, and the real
-        // key follows the composition only when it also chose edit commands
-        // (Korean Enter ends the composition and still makes a new line).
+        // The input method took the key: pages see a process key. The real key
+        // follows the composition when the input method also chose a command
+        // and left no marked text (Korean Return ends the composition and still
+        // makes a new line): Chrome's `_hasEditCommands && !_hasMarkedText`.
         let taken = composing || turn.inserted.count > 1
         if taken { outputs.append(.key(Self.marking(key, .inputMethod, ch: 0))) }
-        let delayed = taken && !turn.editCommands.isEmpty
+        let delayed = taken && turn.hasEditCommands && !marked
         var committed = false
         if turn.inserted.count > (composing ? 0 : 1) {
             outputs.append(.op(.commitText(String(decoding: turn.inserted, as: UTF16.self), replacement: nil)))
@@ -127,11 +142,18 @@ nonisolated struct ChromiumHostTextInput: Sendable {
         if marked {
             outputs.append(.op(.setComposition(text: String(decoding: markedText, as: UTF16.self), clauses: clauses,
                                                selection: markedSelection, replacement: turn.replacement)))
+            compositionInFlight = true
         } else if turn.hadMarkedText, !committed {
             outputs.append(.op(turn.unmarkCalled ? .finishComposing : .cancelComposition))
         }
         let ch = Self.character(of: key, turn: turn, marked: marked, committed: committed, delayed: delayed,
                                 controlOrCommand: controlOrCommand)
+        if delayed {
+            // The process key down's up first, so the page's key state balances.
+            var up = Self.marking(key, .inputMethod, ch: 0)
+            up.v[0] = 1
+            outputs.append(.key(up))
+        }
         if !taken || delayed {
             if !turn.editCommands.isEmpty { outputs.append(.op(.keyCommands(turn.editCommands))) }
             outputs.append(.key(Self.marking(key, .plain, ch: ch)))
@@ -174,6 +196,7 @@ nonisolated struct ChromiumHostTextInput: Sendable {
             turn?.replacement = replacement
             return []
         }
+        compositionInFlight = !text.isEmpty
         return [.op(.setComposition(text: text, clauses: clauses, selection: selection, replacement: replacement))]
     }
 
@@ -240,6 +263,7 @@ nonisolated struct ChromiumHostTextInput: Sendable {
         markedText = []
         markedSelection = 0..<0
         clauses = []
+        compositionInFlight = false
     }
 
     // MARK: Geometry

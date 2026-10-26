@@ -26,6 +26,15 @@ import Testing
         return .key(frame)
     }
 
+    /// The up that balances a process key down before the real key follows it.
+    static func processKeyUp(_ key: ChromiumHostFrame) -> Output {
+        var frame = key
+        frame.v[0] = 1
+        frame.v[3] = ChromiumHostTextInput.KeyMark.inputMethod.rawValue
+        frame.ch = 0
+        return .key(frame)
+    }
+
     static let field = ChromiumHostTextInputState(type: .text, selection: 3..<3, text: "abc", textOffset: 0,
                                                   caretRect: CGRect(x: 30, y: 10, width: 1, height: 16))
 
@@ -116,7 +125,8 @@ import Testing
         ])
     }
 
-    /// Korean: Return ends the composition (unmarkText) and still makes a new line, after it.
+    /// Korean: Backspace ends the composition (unmarkText) and still deletes, after it. The
+    /// process key down gets its up before the real key down, so the page's keys balance.
     @Test func aKeyThatEndsTheCompositionWithCommandsFollowsIt() {
         var input = editing()
         input.beginKey()
@@ -127,14 +137,31 @@ import Testing
         _ = input.unmarkText()
         _ = input.doCommand("deleteBackward:")
         #expect(input.endKey(backspace, controlOrCommand: false) == [
-            Self.marked(backspace, .inputMethod, ch: 0), .op(.finishComposing),
+            Self.marked(backspace, .inputMethod, ch: 0), .op(.finishComposing), Self.processKeyUp(backspace),
             .op(.keyCommands(["DeleteBackward"])), Self.marked(backspace, .plain, ch: 0),
         ])
     }
 
+    /// Korean 2-Set: Return commits the syllable (insertText) and binds insertNewline:. The real
+    /// Return follows the commit with its own character, so pages see keydown 13 and a new line.
+    @Test func returnThatCommitsAndInsertsANewlineSendsTheRealKey() {
+        var input = editing()
+        input.beginKey()
+        _ = input.setMarkedText("한", clauses: [], selection: 1..<1, replacement: nil)
+        _ = input.endKey(Self.key(4, ch: 0x67), controlOrCommand: false)
+        let enter = Self.key(36, ch: 0x0d)
+        input.beginKey()
+        _ = input.insertText("한", replacement: nil)
+        _ = input.doCommand("insertNewline:")
+        #expect(input.endKey(enter, controlOrCommand: false) == [
+            Self.marked(enter, .inputMethod, ch: 0), .op(.commitText("한", replacement: nil)), Self.processKeyUp(enter),
+            Self.marked(enter, .plain, ch: 0x0d),
+        ])
+    }
+
     /// An input method that ends the composition and binds Return to insertNewline: sends the
-    /// newline as a character after the composition ends.
-    @Test func anInsertCommandAfterAnUnmarkSendsTheCharacterOnly() {
+    /// real Return key down, with its character, after the composition ends.
+    @Test func anInsertCommandAfterAnUnmarkSendsTheRealKey() {
         var input = editing()
         input.beginKey()
         _ = input.setMarkedText("x", clauses: [], selection: 1..<1, replacement: nil)
@@ -144,7 +171,25 @@ import Testing
         _ = input.unmarkText()
         _ = input.doCommand("insertNewline:")
         #expect(input.endKey(enter, controlOrCommand: false) == [
-            Self.marked(enter, .inputMethod, ch: 0), .op(.finishComposing), Self.marked(enter, .characterOnly, ch: 0x0d),
+            Self.marked(enter, .inputMethod, ch: 0), .op(.finishComposing), Self.processKeyUp(enter),
+            Self.marked(enter, .plain, ch: 0x0d),
+        ])
+    }
+
+    /// A key that sets new marked text and also chose a command: the composition holds the
+    /// key, so neither the real key nor its command goes (Chrome's `!_hasMarkedText`).
+    @Test func aKeyThatKeepsMarkedTextSendsNoDelayedKey() {
+        var input = editing()
+        input.beginKey()
+        _ = input.setMarkedText("か", clauses: [], selection: 1..<1, replacement: nil)
+        _ = input.endKey(Self.key(0, ch: 0x61), controlOrCommand: false)
+        let left = Self.key(123, ch: 0xf702)
+        input.beginKey()
+        _ = input.setMarkedText("かな", clauses: [], selection: 1..<1, replacement: nil)
+        _ = input.doCommand("moveLeft:")
+        #expect(input.endKey(left, controlOrCommand: false) == [
+            Self.marked(left, .inputMethod, ch: 0),
+            .op(.setComposition(text: "かな", clauses: [], selection: 1..<1, replacement: nil)),
         ])
     }
 
@@ -188,6 +233,55 @@ import Testing
         #expect(input.apply(ChromiumHostTextInputState()) == .init(discardMarkedText: true))
         #expect(!input.hasMarkedText)
         #expect(input.finishComposition().isEmpty)
+    }
+
+    /// A script moves focus from a text field to a password field mid-composition: the
+    /// composition ends here, and the next key is a plain key, not an input method commit.
+    @Test func aMoveToAPasswordFieldDropsTheComposition() {
+        var input = editing()
+        _ = input.setMarkedText("か", clauses: [], selection: 1..<1, replacement: nil)
+        var shown = Self.field
+        shown.composition = 3..<4
+        shown.compositionRects = [CGRect(x: 30, y: 10, width: 8, height: 16)]
+        #expect(input.apply(shown) == .init(invalidateCharacterCoordinates: true))
+        #expect(input.apply(ChromiumHostTextInputState(type: .password, selection: 0..<0)) == .init(discardMarkedText: true))
+        #expect(!input.hasMarkedText)
+        let a = Self.key(0, ch: 0x61)
+        input.beginKey()
+        _ = input.insertText("a", replacement: nil)
+        #expect(input.endKey(a, controlOrCommand: false) == [Self.marked(a, .plain, ch: 0x61)])
+    }
+
+    /// A script moves focus to another text field: the page ended the composition on blur, so the
+    /// new field's push has none, and the composition ends here instead of going into that field.
+    @Test func aMoveToAnotherTextFieldDropsTheComposition() {
+        var input = editing()
+        _ = input.setMarkedText("か", clauses: [], selection: 1..<1, replacement: nil)
+        var shown = Self.field
+        shown.composition = 3..<4
+        shown.compositionRects = [CGRect(x: 30, y: 10, width: 8, height: 16)]
+        _ = input.apply(shown)
+        let other = ChromiumHostTextInputState(type: .text, selection: 0..<0, text: "", textOffset: 0,
+                                               caretRect: CGRect(x: 5, y: 80, width: 1, height: 16))
+        #expect(input.apply(other) == .init(discardMarkedText: true))
+        #expect(!input.hasMarkedText)
+
+        var search = editing()
+        _ = search.setMarkedText("か", clauses: [], selection: 1..<1, replacement: nil)
+        var searchField = Self.field
+        searchField.type = .search
+        #expect(search.apply(searchField) == .init(discardMarkedText: true), "a field of another type")
+    }
+
+    /// A push the host sent before it applied cmux's composition op has no composition yet: the
+    /// composition stays.
+    @Test func aPushThatPredatesTheCompositionOpKeepsIt() {
+        var input = editing()
+        _ = input.setMarkedText("か", clauses: [], selection: 1..<1, replacement: nil)
+        var moved = Self.field
+        moved.caretRect.origin.x += 1
+        #expect(input.apply(moved) == .init(invalidateCharacterCoordinates: true))
+        #expect(input.hasMarkedText)
     }
 
     @Test func movedCompositionRectsAskTheInputMethodToReadThemAgain() {
@@ -240,7 +334,9 @@ import Testing
         #expect(input.firstRect(for: 4..<5).rect == CGRect(x: 0, y: 0, width: 10, height: 20))
         #expect(input.stats.firstRectMisses == 1)
         #expect(input.stats.firstRectAnswers == 1)
-        #expect(input.stats.syncRequests == 0)
+        _ = input.characterIndex(at: CGPoint(x: 500, y: 500))
+        #expect(input.stats.report == ["ime_first_rect_answers": 1, "ime_first_rect_misses": 1,
+                                       "ime_character_index_misses": 1])
     }
 
     @Test func aSelectionWithoutACompositionGetsItsFirstRect() {
@@ -313,7 +409,7 @@ import Testing
         #expect(actual == NSRange(location: 3, length: 0))
         // The caret at (30, 10) top-left, 16 tall, in a 300-tall page at screen (100, 100).
         #expect(rect == NSRect(x: 130, y: 100 + 300 - 26, width: 1, height: 16))
-        #expect(page.textInput.stats.syncRequests == 0)
+        #expect(page.textInput.stats.firstRectAnswers == 1)
 
         var substringRange = NSRange()
         #expect(page.attributedSubstring(forProposedRange: NSRange(location: 0, length: 2), actualRange: &substringRange)?
@@ -328,7 +424,7 @@ import Testing
         let (page, window) = makePage()
         defer { window.close() }
         var frames: [ChromiumHostFrame] = []
-        page.sink = { frames.append($0) }
+        page.sink = { frames.append($0); return nil }
         let event = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 1,
                                                   windowNumber: window.windowNumber, context: nil, characters: "a",
                                                   charactersIgnoringModifiers: "a", isARepeat: false, keyCode: 0))
@@ -347,6 +443,38 @@ import Testing
         #expect(page.inputContext != nil)
     }
 
+    /// What a page view sent, in order: mouse frames by phase and text input ops.
+    enum Sent: Equatable {
+        case mouse(phase: Int32)
+        case op(ChromiumHostTextInputOp)
+    }
+
+    /// A click while composing: the composition ends with its text kept, then the page gets the
+    /// down and its up, so its button state balances.
+    @Test func aMouseDownWhileComposingFinishesTheCompositionThenClicks() throws {
+        let (page, window) = makePage()
+        defer { window.close() }
+        var sent: [Sent] = []
+        page.sink = { frame in
+            if frame.kind == .mouse { sent.append(.mouse(phase: frame.v[2])) }
+            return nil
+        }
+        page.textInputSink = { sent.append(.op($0)) }
+        page.applyTextInputState(Self.field)
+        page.setMarkedText("か", selectedRange: NSRange(location: 1, length: 0),
+                           replacementRange: NSRange(location: NSNotFound, length: 0))
+        sent.removeAll()
+        func click(_ type: NSEvent.EventType) throws -> NSEvent {
+            try #require(NSEvent.mouseEvent(with: type, location: NSPoint(x: 20, y: 20), modifierFlags: [], timestamp: 1,
+                                            windowNumber: window.windowNumber, context: nil, eventNumber: 0,
+                                            clickCount: 1, pressure: 1))
+        }
+        page.mouseDown(with: try click(.leftMouseDown))
+        page.mouseUp(with: try click(.leftMouseUp))
+        #expect(sent == [.op(.finishComposing), .mouse(phase: 1), .mouse(phase: 2)])
+        #expect(!page.hasMarkedText())
+    }
+
     @Test func resigningDropsTheCompositionWithoutAnOp() {
         let (page, window) = makePage()
         defer { window.close() }
@@ -358,6 +486,74 @@ import Testing
         _ = page.resignFirstResponder()
         #expect(!page.hasMarkedText())
         #expect(ops.count == 1)
+    }
+
+    // MARK: The wire
+
+    @Test func aCompositionOpIsAnImeFrameWithItsTextAndClauses() {
+        let frame = ChromiumHostFrame(textInput: .setComposition(
+            text: "かな", clauses: [.init(range: 0..<1, thick: true, color: 0xFF11_2233)], selection: 2..<2,
+            replacement: 4..<5))
+        #expect(frame.kind == .ime)
+        #expect(frame.v == [0, 2, 2, 4, 5, 1])
+        #expect(frame.payload == [0x4B, 0x30, 0x6A, 0x30,  // か な, UTF-16LE
+                                  0, 0, 0, 0, 1, 0, 0, 0, 0x33, 0x22, 0x11, 0xFF, 1, 0, 0, 0])
+        let commit = ChromiumHostFrame(textInput: .commitText("a", replacement: nil))
+        #expect(commit.v == [1, 0, 0, -1, -1, 0])
+        #expect(commit.payload == [0x61, 0])
+        #expect(ChromiumHostFrame(textInput: .finishComposing).v[0] == 2)
+        #expect(ChromiumHostFrame(textInput: .cancelComposition).v[0] == 3)
+        let commands = ChromiumHostFrame(textInput: .keyCommands(["MoveLeft", "DeleteBackward"]))
+        #expect(commands.v[0] == 4)
+        let units = stride(from: 0, to: commands.payload.count, by: 2).map {
+            UInt16(commands.payload[$0]) | UInt16(commands.payload[$0 + 1]) << 8
+        }
+        #expect(String(decoding: units, as: UTF16.self) == "MoveLeft\nDeleteBackward")
+        #expect(ChromiumHostFrame(textInput: .editCommand("SelectAll")).v[0] == 5)
+    }
+
+    static func stateFrame(caret: [Int32], textOffset: Int32, rects: [[Int32]], text: String) -> ChromiumHostFrame {
+        var payload: [UInt8] = []
+        func put(_ value: Int32) { withUnsafeBytes(of: value.littleEndian) { payload.append(contentsOf: $0) } }
+        caret.forEach(put)
+        put(textOffset)
+        put(Int32(rects.count))
+        rects.joined().forEach(put)
+        for unit in text.utf16 { withUnsafeBytes(of: unit.littleEndian) { payload.append(contentsOf: $0) } }
+        return ChromiumHostFrame(.textInputState, v: [1, 8, 7, 7, 4, 6], payload: payload)
+    }
+
+    @Test func aTextInputStateFrameDecodesToThePushedState() throws {
+        let frame = Self.stateFrame(caret: [20, 22, 1, 20], textOffset: 2,
+                                    rects: [[0, 0, 10, 20], [10, 0, 10, 20]], text: "hello world")
+        let state = try #require(ChromiumHostTextInputState(frame: frame))
+        #expect(state == ChromiumHostTextInputState(
+            type: .text, flags: 8, selection: 7..<7, text: "hello world", textOffset: 2, composition: 4..<6,
+            compositionRects: [CGRect(x: 0, y: 0, width: 10, height: 20), CGRect(x: 10, y: 0, width: 10, height: 20)],
+            caretRect: CGRect(x: 20, y: 22, width: 1, height: 20)))
+
+        var unknown = frame
+        unknown.v[2...5] = [-1, -1, -1, -1]
+        let none = try #require(ChromiumHostTextInputState(frame: unknown))
+        #expect(none.selection == nil)
+        #expect(none.composition == nil)
+    }
+
+    @Test func aMalformedTextInputStateFrameIsRefused() {
+        let good = Self.stateFrame(caret: [0, 0, 0, 0], textOffset: 0, rects: [[0, 0, 1, 1]], text: "ab")
+        var short = good
+        short.payload = Array(good.payload.prefix(20))
+        var tooManyRects = good
+        tooManyRects.payload[20] = 9
+        var oddText = good
+        oddText.payload.append(0)
+        var otherKind = good
+        otherKind.rawKind = ChromiumHostFrame.Kind.title.rawValue
+        #expect(ChromiumHostTextInputState(frame: good) != nil)
+        #expect(ChromiumHostTextInputState(frame: short) == nil)
+        #expect(ChromiumHostTextInputState(frame: tooManyRects) == nil)
+        #expect(ChromiumHostTextInputState(frame: oddText) == nil)
+        #expect(ChromiumHostTextInputState(frame: otherKind) == nil)
     }
 }
 #endif

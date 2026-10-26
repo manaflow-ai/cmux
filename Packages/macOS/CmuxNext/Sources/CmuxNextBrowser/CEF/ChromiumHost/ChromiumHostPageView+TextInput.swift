@@ -19,11 +19,14 @@ extension ChromiumHostPageView: NSTextInputClient {
     /// A key down: the input method sees it first, then the key goes to the
     /// host as its calls decided (a plain key, a process key and a
     /// composition, a commit).
-    func textInputKeyDown(_ event: NSEvent, key: ChromiumHostFrame) { // perf-hot: 1ms cef-host-input (every key typed into a hosted page)
+    ///
+    /// - Returns: Where the writer put the frame that carries the key itself
+    ///   (a plain key down), nil when no frame does or the writer stamped none.
+    func textInputKeyDown(_ event: NSEvent, key: ChromiumHostFrame) -> ChromiumHostInputReceipt? { // perf-hot: 1ms cef-host-input (every key typed into a hosted page)
         textInput.beginKey()
         interpretKeyEvents([event])
         let controlOrCommand = !event.modifierFlags.isDisjoint(with: [.control, .command])
-        deliver(textInput.endKey(key, controlOrCommand: controlOrCommand))
+        return deliver(textInput.endKey(key, controlOrCommand: controlOrCommand))
     }
 
     /// Takes the host's TEXT_INPUT_STATE push (task 044).
@@ -35,18 +38,18 @@ extension ChromiumHostPageView: NSTextInputClient {
         if applied.invalidateCharacterCoordinates { context?.invalidateCharacterCoordinates() }
     }
 
-    /// A mouse down while composing: the input method sees a left click first
-    /// (true: it took the click, the page gets none), then the composition
-    /// ends with its text kept, so the caret never moves with a composition
-    /// open (Chrome's `-[RenderWidgetHostViewCocoa mouseEvent:]`).
-    func textInputMouseDown(_ event: NSEvent) -> Bool {
-        guard textInput.hasMarkedText else { return false }
+    /// A mouse down while composing, before the down goes to the page: the
+    /// composition ends with its text kept and the input method drops its
+    /// marked text, so the caret never moves with a composition open. The
+    /// click is not offered to the input method: Chrome's
+    /// `-[RenderWidgetHostViewCocoa mouseEvent:]` calls `finishComposingText`
+    /// and sends the down.
+    func textInputMouseDown() {
+        guard textInput.hasMarkedText else { return }
         let context = inputContext
-        if event.type == .leftMouseDown, context?.handleEvent(event) == true { return true }
         let outputs = textInput.finishComposition()
         context?.discardMarkedText()
         deliver(outputs)
-        return false
     }
 
     /// The page lost focus: the page ends its own composition on blur, so the
@@ -57,13 +60,20 @@ extension ChromiumHostPageView: NSTextInputClient {
         if textInput.cancelComposition() { context?.discardMarkedText() }
     }
 
-    private func deliver(_ outputs: [ChromiumHostTextInput.Output]) {
+    /// Sends `outputs` in order. Returns the receipt of the plain key down among them.
+    @discardableResult
+    private func deliver(_ outputs: [ChromiumHostTextInput.Output]) -> ChromiumHostInputReceipt? {
+        var carried: ChromiumHostInputReceipt?
         for output in outputs {
             switch output {
-            case .key(let frame): sink?(frame)
-            case .op(let op): textInputSink?(op)
+            case .key(let frame):
+                let receipt = sink?(frame)
+                if frame.v[0] == 0, frame.v[3] == ChromiumHostTextInput.KeyMark.plain.rawValue { carried = receipt }
+            case .op(let op):
+                textInputSink?(op)
             }
         }
+        return carried
     }
 
     /// None while no field can take an input method (no text field focused,

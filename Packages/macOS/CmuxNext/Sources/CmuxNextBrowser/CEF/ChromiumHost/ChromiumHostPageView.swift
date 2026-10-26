@@ -353,20 +353,15 @@ extension ChromiumHostPageView {
 
     public override func mouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
-        guard !textInputMouseDown(event) else { return }
         mouse(event, phase: 1, button: 0)
     }
     public override func mouseUp(with event: NSEvent) { mouse(event, phase: 2, button: 0) }
     public override func rightMouseDown(with event: NSEvent) {
         window?.makeFirstResponder(self)
-        guard !textInputMouseDown(event) else { return }
         mouse(event, phase: 1, button: 2)
     }
     public override func rightMouseUp(with event: NSEvent) { mouse(event, phase: 2, button: 2) }
-    public override func otherMouseDown(with event: NSEvent) {
-        guard !textInputMouseDown(event) else { return }
-        mouse(event, phase: 1, button: 1)
-    }
+    public override func otherMouseDown(with event: NSEvent) { mouse(event, phase: 1, button: 1) }
     public override func otherMouseUp(with event: NSEvent) { mouse(event, phase: 2, button: 1) }
     public override func mouseMoved(with event: NSEvent) { mouse(event, phase: 0, button: 0) }
     public override func mouseDragged(with event: NSEvent) { mouse(event, phase: 0, button: 0) }
@@ -382,7 +377,9 @@ extension ChromiumHostPageView {
                                     t0: Self.nanoseconds(event.timestamp)))
     }
 
+    /// A down ends an open composition first, keeping its text (``textInputMouseDown()``).
     private func mouse(_ event: NSEvent, phase: Int32, button: Int32) {
+        if phase == 1 { textInputMouseDown() }
         let point = pagePoint(event)
         // Pressed buttons as bits: 1 left, 2 right, 4 middle (NSEvent's order, the wire's too).
         let buttons = Int32(truncatingIfNeeded: NSEvent.pressedMouseButtons & 0x7)
