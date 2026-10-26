@@ -196,18 +196,23 @@ impl Hub {
         meta.lineage = None;
         self.prepare_harness_state(&meta, replace_durable)
             .map_err(|e| RpcError::internal(e.to_string()))?;
-        self.store.save(&meta).map_err(|e| RpcError::internal(e.to_string()))?;
+        if let Err(e) = self.store.save(&meta) {
+            self.abort_harness_state(&meta);
+            return Err(RpcError::internal(e.to_string()));
+        }
         // Copy events verbatim, preserving seq. A partial transcript is not
         // a valid import: any unreadable file or record rolls it back.
         let last = match self.copy_bundle_events(bundle, &meta.id, guarded.map(|g| g.guard.control))
         {
             Ok(last) => last,
             Err(e) => {
+                self.abort_harness_state(&meta);
                 let _ = self.store.delete(&meta.id);
                 return Err(RpcError::invalid_params(format!("import events: {e}")));
             }
         };
         if let Err(e) = self.restore_harness_state(bundle, &meta, replace_durable) {
+            self.abort_harness_state(&meta);
             let _ = self.store.delete(&meta.id);
             return Err(RpcError::invalid_params(format!("import durable journal: {e}")));
         }
@@ -222,6 +227,7 @@ impl Hub {
                 match restored {
                     Ok(n) => n,
                     Err(e) => {
+                        self.abort_harness_state(&meta);
                         let _ = self.store.delete(&meta.id);
                         return Err(RpcError::new(-32000, format!("transfer.native: {e:#}")));
                     }
@@ -343,6 +349,25 @@ impl Hub {
                 "phase": "prepared",
             }),
         )
+    }
+
+    /// Undo a failed import's durable state as a restart would (`recover_durable_marker`), so a
+    /// retry on this daemon finds no marker of it. Before its store goes: that names the owner.
+    fn abort_harness_state(&self, meta: &SessionMeta) {
+        if meta.harness != "cmux-harness" {
+            return;
+        }
+        let Some(agent_id) = meta.agent_session_id.as_deref() else { return };
+        let Some(session_dir) = self.store.session_dir(&meta.id) else { return };
+        let Some(root) = session_dir.parent() else { return };
+        let marker = root.join(format!(".{agent_id}.durable-transfer-state"));
+        let ours = std::fs::read(&marker)
+            .ok()
+            .and_then(|raw| serde_json::from_slice::<Value>(&raw).ok())
+            .is_some_and(|v| v.get("outerId").and_then(Value::as_str) == Some(meta.id.as_str()));
+        if ours {
+            self.recover_durable_marker(root, &marker, agent_id);
+        }
     }
 
     fn export_harness_state(&self, meta: &SessionMeta, dir: &Path) -> Result<Value> {
