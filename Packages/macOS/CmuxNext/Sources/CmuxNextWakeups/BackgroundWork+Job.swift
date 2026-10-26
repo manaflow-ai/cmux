@@ -1,4 +1,7 @@
-import CmuxNextCompat
+// swift-atomics: shouldYield is inlinable, so the file names Compat's Atomic and its `Bool: AtomicValue`
+// conformance publicly (as CmuxNextTrace's TraceRuntime).
+public import Atomics
+public import CmuxNextCompat
 
 /// What one run of a yieldable job's body did (``BackgroundWork/job(_:shutdown:state:fileID:line:_:)``).
 public enum JobStep<T: Sendable>: Sendable {
