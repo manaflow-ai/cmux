@@ -579,8 +579,7 @@ final class AppServices {
         _ = remoteTerminals  // built here, as before
         remoteTerminals.start()
         WorkspaceClose.willClose = { [weak self] workspace in self?.remoteTerminals.workspaceClosing(workspace) }
-        let registry = registry
-        daemon.workTracker = { registry.track($0) }
+        daemon.workTracker = { [registry] in registry.track($0) }
         _ = palette  // built here, as before
         terminalDelegate.services = self
         _ = configActions  // built here, as before
@@ -608,6 +607,7 @@ final class AppServices {
             self?.windowHints.cancel()
             self?.keyRouter.cancelChord()
         }
+        AppMemoryConsumers(services: self).registerMemoryConsumers()  // AppServices+Memory.swift
     }
     // MARK: Lookup
     /// The tab with durable id (or tab resource id: links and TabMirror's wait use it) `id`
