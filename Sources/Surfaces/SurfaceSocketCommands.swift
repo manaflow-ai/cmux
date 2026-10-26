@@ -118,73 +118,20 @@ extension TerminalController {
             }
 
         case "surface.new_display":
-            guard let machineRaw = Self.surfaceString(params["machine"]), !machineRaw.isEmpty else {
-                return v2Error(
-                    id: id,
-                    code: "invalid_params",
-                    message: String(
-                        localized: "socket.surface.newDisplay.machineRequired",
-                        defaultValue: "surface.new_display requires `machine` (a cloud machine id)."
-                    )
-                )
+            let options: SurfaceNewDisplayOptions
+            switch validateSurfaceNewDisplay(params, id: id) {
+            case .invalid(let response): return response
+            case .valid(let validated): options = validated
             }
-            let machine = SurfaceMachineID(rawValue: machineRaw)
-            guard machine.cloudMachineID != nil else {
-                return v2Error(
-                    id: id,
-                    code: "invalid_params",
-                    message: String(
-                        localized: "socket.surface.newDisplay.cloudOnly",
-                        defaultValue: "surface.new_display requires a cloud machine id; local display creation is not supported."
-                    )
-                )
-            }
-            if let error = cloudDisabledSocketError(id: id) { return error }
-            let open = Self.surfaceBool(params["open"]) ?? true
-            let focus = Self.surfaceBool(params["focus"]) ?? false
-            let workspaceID = open ? surfaceTargetWorkspaceID(params, strictExplicit: true) : nil
-            if open, workspaceID == nil {
-                return v2Error(
-                    id: id,
-                    code: "invalid_params",
-                    message: String(
-                        localized: "socket.surface.newDisplay.workspaceRequired",
-                        defaultValue: "surface.new_display: no target workspace to open into (pass `workspace_id`, select one, or send `open: false`)."
-                    )
-                )
-            }
-            let destination = workspaceID.map { Self.surfaceDestination(surfaceResolvedParams(params), workspaceID: $0) }
+            let destination = options.open ? surfaceNewDisplayDestination(params) : nil
+            if options.open, destination == nil { return surfaceNewDisplayWorkspaceError(id: id) }
             return v2VmCall(id: id, timeoutSeconds: 240) {
-                let catalog = await SurfaceCatalog.shared
-                guard try await Self.surfaceProvider(for: machine, catalog: catalog) != nil else {
-                    throw SurfaceCatalogError.noProvider(machine)
+                do {
+                    return try await Self.surfaceNewDisplay(options, destination: destination)
+                } catch is SurfaceDisplayCreationBusy {
+                    // Preserve the synchronous adapter's existing cancellation mapping.
+                    throw CancellationError()
                 }
-                let resource = try await catalog.createDisplay(on: machine)
-                var payload = Self.surfaceResourcePayload(resource, projections: [])
-                payload["resource"] = resource.id.rawValue
-                payload["open"] = open
-                if let destination {
-                    do {
-                        let opened = try await catalog.project(
-                            resource.id,
-                            into: destination,
-                            focus: focus,
-                            reuseExisting: false
-                        )
-                        payload = Self.surfaceResourcePayload(resource, projections: [opened.projection])
-                        payload["resource"] = resource.id.rawValue
-                        payload.merge(Self.surfaceProjectPayload(opened.projection, reused: opened.reused)) { _, new in new }
-                    } catch {
-                        // Keep request cancellation as a transport timeout, but
-                        // preserve the resource when the provider cancels only
-                        // the projection after creation has already succeeded.
-                        if error is CancellationError, Task.isCancelled { throw error }
-                        payload["open"] = false
-                        payload["projection_failed"] = true
-                        payload["projection_error"] = Self.surfaceDisplayProjectionFailureMessage
-                    }
-                }
-                return await Self.markBackgroundOpen(payload, focus: focus)
             }
 
         default:
@@ -193,104 +140,34 @@ extension TerminalController {
     }
 
     /// Handles `surface.new_display` on the suspendable socket connection task.
-    /// The synchronous adapter above remains for in-process callers, while this
-    /// path keeps cloud creation and projection off the blocking worker lane.
+    /// Only the adapter owns its deadline and error envelope; creation is shared.
     nonisolated func socketWorkerSurfaceNewDisplayResponseAsync(_ request: ControlRequest) async -> String {
         let params = request.params.mapValues(\.foundationObject)
         let id = request.id?.foundationObject
-        guard let machineRaw = Self.surfaceString(params["machine"]), !machineRaw.isEmpty else {
-            return v2Error(
-                id: id,
-                code: "invalid_params",
-                message: String(
-                    localized: "socket.surface.newDisplay.machineRequired",
-                    defaultValue: "surface.new_display requires `machine` (a cloud machine id)."
-                )
-            )
-        }
-        let machine = SurfaceMachineID(rawValue: machineRaw)
-        guard machine.cloudMachineID != nil else {
-            return v2Error(
-                id: id,
-                code: "invalid_params",
-                message: String(
-                    localized: "socket.surface.newDisplay.cloudOnly",
-                    defaultValue: "surface.new_display requires a cloud machine id; local display creation is not supported."
-                )
-            )
-        }
-        if let error = cloudDisabledSocketError(id: id) { return error }
-        let open = Self.surfaceBool(params["open"]) ?? true
-        let focus = Self.surfaceBool(params["focus"]) ?? false
-        // Workspace and destination resolution make blocking main-actor hops
-        // (`v2MainSync`); keep them on the blocking worker lane, not the
-        // cooperative pool this connection task runs on.
-        var workspaceID: UUID?
-        var resolvedDestination: SurfaceDestination?
-        if open {
-            let resolved = await runSocketWorkerBlockingBody { () -> (UUID?, SurfaceDestination?) in
-                let params = request.params.mapValues(\.foundationObject)
-                guard let workspaceID = self.surfaceTargetWorkspaceID(params, strictExplicit: true) else {
-                    return (nil, nil)
-                }
-                return (workspaceID, Self.surfaceDestination(self.surfaceResolvedParams(params), workspaceID: workspaceID))
-            }
-            workspaceID = resolved.0
-            resolvedDestination = resolved.1
-        }
-        let destination = resolvedDestination
-        if open, workspaceID == nil {
-            return v2Error(
-                id: id,
-                code: "invalid_params",
-                message: String(
-                    localized: "socket.surface.newDisplay.workspaceRequired",
-                    defaultValue: "surface.new_display: no target workspace to open into (pass `workspace_id`, select one, or send `open: false`)."
-                )
-            )
+        let options: SurfaceNewDisplayOptions
+        switch validateSurfaceNewDisplay(params, id: id) {
+        case .invalid(let response): return response
+        case .valid(let validated): options = validated
         }
         do {
-            return try await CloudRequestBudget.live.withBudget(seconds: 240) {
-                let catalog = await SurfaceCatalog.shared
-                guard try await Self.surfaceProvider(for: machine, catalog: catalog) != nil else {
-                    throw SurfaceCatalogError.noProvider(machine)
+            let destination: SurfaceDestination?
+            if options.open {
+                // Resolve both workspace and pane on the main actor. The socket
+                // task suspends while queued, and the legacy helpers run inline.
+                destination = try await v2MainAsync {
+                    self.surfaceNewDisplayDestination(request.params.mapValues(\.foundationObject))
                 }
-                let resource: SurfaceResource
-                do {
-                    resource = try await catalog.createDisplay(on: machine)
-                } catch is CancellationError where !Task.isCancelled {
-                    // The catalog cancels without the request being cancelled
-                    // when another creation is already running on this machine
-                    // or the machine's provider changed mid-flight: report
-                    // that as busy, not as a timeout.
-                    throw SurfaceDisplayCreationBusy()
-                }
-                var payload = Self.surfaceResourcePayload(resource, projections: [])
-                payload["resource"] = resource.id.rawValue
-                payload["open"] = open
-                if let destination {
-                    do {
-                        let opened = try await catalog.project(
-                            resource.id,
-                            into: destination,
-                            focus: focus,
-                            reuseExisting: false
-                        )
-                        payload = Self.surfaceResourcePayload(resource, projections: [opened.projection])
-                        payload["resource"] = resource.id.rawValue
-                        payload.merge(Self.surfaceProjectPayload(opened.projection, reused: opened.reused)) { _, new in new }
-                    } catch {
-                        // Keep request cancellation as a transport timeout, but
-                        // preserve the resource when the provider cancels only
-                        // the projection after creation has already succeeded.
-                        if error is CancellationError, Task.isCancelled { throw error }
-                        payload["open"] = false
-                        payload["projection_failed"] = true
-                        payload["projection_error"] = Self.surfaceDisplayProjectionFailureMessage
-                    }
-                }
-                return v2Ok(id: id, result: await Self.markBackgroundOpen(payload, focus: focus))
+                if destination == nil { return surfaceNewDisplayWorkspaceError(id: id) }
+            } else {
+                destination = nil
             }
+            return try await CloudRequestBudget.live.withBudget(seconds: 240) {
+                v2Ok(id: id, result: try await Self.surfaceNewDisplay(options, destination: destination))
+            }
+        } catch let timeout as SocketMainActorHopTimeout {
+            return await socketMainHopTimeoutResponse(
+                id: request.id, method: request.method, isV2: true, error: timeout
+            )
         } catch is SurfaceDisplayCreationBusy {
             return v2Error(
                 id: id,
@@ -328,8 +205,103 @@ extension TerminalController {
         }
     }
 
-    /// Thrown inside the `surface.new_display` request when the catalog refuses
-    /// a concurrent creation, so the reply says "busy" instead of "timed out".
+    private struct SurfaceNewDisplayOptions: Sendable {
+        let machine: SurfaceMachineID
+        let open: Bool
+        let focus: Bool
+    }
+
+    private enum SurfaceNewDisplayValidation {
+        case valid(SurfaceNewDisplayOptions)
+        case invalid(String)
+    }
+
+    /// Keeps validation order, localized errors, and defaults identical across adapters.
+    private nonisolated func validateSurfaceNewDisplay(_ params: [String: Any], id: Any?) -> SurfaceNewDisplayValidation {
+        guard let machineRaw = Self.surfaceString(params["machine"]), !machineRaw.isEmpty else {
+            return .invalid(v2Error(
+                id: id,
+                code: "invalid_params",
+                message: String(
+                    localized: "socket.surface.newDisplay.machineRequired",
+                    defaultValue: "surface.new_display requires `machine` (a cloud machine id)."
+                )
+            ))
+        }
+        let machine = SurfaceMachineID(rawValue: machineRaw)
+        guard machine.cloudMachineID != nil else {
+            return .invalid(v2Error(
+                id: id,
+                code: "invalid_params",
+                message: String(
+                    localized: "socket.surface.newDisplay.cloudOnly",
+                    defaultValue: "surface.new_display requires a cloud machine id; local display creation is not supported."
+                )
+            ))
+        }
+        if let response = cloudDisabledSocketError(id: id) { return .invalid(response) }
+        return .valid(SurfaceNewDisplayOptions(
+            machine: machine,
+            open: Self.surfaceBool(params["open"]) ?? true,
+            focus: Self.surfaceBool(params["focus"]) ?? false
+        ))
+    }
+
+    /// Called inline by the legacy worker and inside one async main-actor hop by sockets.
+    private nonisolated func surfaceNewDisplayDestination(_ params: [String: Any]) -> SurfaceDestination? {
+        guard let workspaceID = surfaceTargetWorkspaceID(params, strictExplicit: true) else { return nil }
+        return Self.surfaceDestination(surfaceResolvedParams(params), workspaceID: workspaceID)
+    }
+
+    private nonisolated func surfaceNewDisplayWorkspaceError(id: Any?) -> String {
+        v2Error(
+            id: id,
+            code: "invalid_params",
+            message: String(
+                localized: "socket.surface.newDisplay.workspaceRequired",
+                defaultValue: "surface.new_display: no target workspace to open into (pass `workspace_id`, select one, or send `open: false`)."
+            )
+        )
+    }
+
+    /// One creation/projection action for both adapters. A failed projection retains
+    /// the created resource; transport cancellation still reaches the caller.
+    private nonisolated static func surfaceNewDisplay(
+        _ options: SurfaceNewDisplayOptions,
+        destination: SurfaceDestination?
+    ) async throws -> [String: Any] {
+        let catalog = await SurfaceCatalog.shared
+        guard try await surfaceProvider(for: options.machine, catalog: catalog) != nil else {
+            throw SurfaceCatalogError.noProvider(options.machine)
+        }
+        let resource: SurfaceResource
+        do {
+            resource = try await catalog.createDisplay(on: options.machine)
+        } catch is CancellationError where !Task.isCancelled {
+            throw SurfaceDisplayCreationBusy()
+        }
+        var payload = surfaceResourcePayload(resource, projections: [])
+        payload["resource"] = resource.id.rawValue
+        payload["open"] = options.open
+        if let destination {
+            do {
+                let opened = try await catalog.project(
+                    resource.id, into: destination, focus: options.focus, reuseExisting: false
+                )
+                payload = surfaceResourcePayload(resource, projections: [opened.projection])
+                payload["resource"] = resource.id.rawValue
+                payload.merge(surfaceProjectPayload(opened.projection, reused: opened.reused)) { _, new in new }
+            } catch {
+                if error is CancellationError, Task.isCancelled { throw error }
+                payload["open"] = false
+                payload["projection_failed"] = true
+                payload["projection_error"] = surfaceDisplayProjectionFailureMessage
+            }
+        }
+        return await markBackgroundOpen(payload, focus: options.focus)
+    }
+
+    /// The catalog can cancel creation while the request itself remains live.
     private struct SurfaceDisplayCreationBusy: Error {}
 
     private nonisolated static let surfaceDisplayProjectionFailureMessage = String(

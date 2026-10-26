@@ -1797,7 +1797,7 @@ extension CMUXCLI {
             if let workspaceOpt {
                 params["workspace_id"] = try normalizeWorkspaceHandle(workspaceOpt, client: client)
             }
-            let response = try client.sendV2(method: "surface.new_display", params: params, responseTimeout: 240)
+            let response = try client.sendV2(method: "surface.new_display", params: params, responseTimeout: 250)
             if jsonOutput {
                 print(jsonString(response))
                 return
