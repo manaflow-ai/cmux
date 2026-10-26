@@ -278,6 +278,8 @@ public final class AgentPaneView: NSView {
     }
     /// Times the re-apply's steps (tests set it).
     var clock: any Clock<Duration> = ContinuousClock()
+    /// How the drag a file drop ends was ended (``AgentPanePersonInput/DragEnd``; tests set it).
+    var dragEnd: @MainActor () -> AgentPanePersonInput.DragEnd = { .now() }
 
     /// Toggle Dictation (the shortcut, palette or menu) from `event`, the action's own
     /// (`InputEventTap.actionEvent`; nil for a CLI or script run). From a key press, holding

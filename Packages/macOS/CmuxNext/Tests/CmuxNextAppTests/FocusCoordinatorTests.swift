@@ -16,21 +16,23 @@ struct FocusCoordinatorTests {
     }
 
     @Test func aContextMenuItemChosenWithReturnIsKeyboard() throws {
-        let tap = InputEventTap()
+        var gate = InputActionEventGate()
         let rightDown = try Self.mouse(.rightMouseDown, at: 10)
-        tap.deliverObserve(rightDown)
+        gate.sendBegan(rightDown.timestamp)
         // The menu tracks inside the right-click's dispatch and dequeued Return itself.
-        let chosen = InputEventTap.actionEvent(dispatched: rightDown, lastDispatched: tap.lastDispatched,
-                                               tracking: try Self.key(at: 11))
+        let chosen = gate.actionEvent(dispatched: rightDown, tracking: try Self.key(at: 11))
         #expect(FocusEvent.Source.of(chosen) == .keyboard)
     }
 
     @Test func aRunAfterAClickIsNotTheMouse() throws {
-        let tap = InputEventTap()
+        var gate = InputActionEventGate()
         let click = try Self.mouse(.leftMouseDown, at: 20)
-        tap.deliverObserve(click)
-        let after = InputEventTap.actionEvent(dispatched: nil, lastDispatched: tap.lastDispatched, tracking: click)
-        #expect(FocusEvent.Source.of(after) == .programmatic)
+        let up = try Self.mouse(.leftMouseUp, at: 20.1)
+        gate.sendBegan(click.timestamp)
+        // A button's loop dequeued the mouse-up; it stays AppKit's current event after the click's dispatch.
+        gate.sendEnded(current: up.timestamp)
+        #expect(FocusEvent.Source.of(gate.actionEvent(dispatched: nil, tracking: up)) == .programmatic)
+        #expect(FocusEvent.Source.of(gate.actionEvent(dispatched: nil, tracking: click)) == .programmatic)
         #expect(FocusEvent.Source.intent == .cli, "outside any dispatch a user-invoked change is the CLI's")
     }
 

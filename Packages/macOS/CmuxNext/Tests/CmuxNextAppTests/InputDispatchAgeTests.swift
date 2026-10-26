@@ -47,11 +47,11 @@ struct InputDispatchAgeTests {
         let now = ProcessInfo.processInfo.systemUptime
         let cmdT = try Self.key("t", keyCode: 17, at: now - 0.005)
         let last = try Self.key("w", keyCode: 13, at: now - 1)
-        try #require(class_getInstanceVariable(NSApplication.self, "_currentEvent") != nil, "NSApplication has no _currentEvent ivar")
-        // The person's last key went through the tap and stays AppKit's current event after its dispatch.
+        // The person's last key went through `sendEvent` and stays AppKit's current event after its dispatch.
+        services.inputTap.currentEvent = { last }
+        services.inputTap.sendEventBegan(last)
         services.inputTap.deliverObserve(last)
-        NSApp.setValue(last, forKey: "currentEvent")
-        defer { NSApp.setValue(nil, forKey: "currentEvent") }
+        services.inputTap.sendEventEnded()
 
         let (actionEvent, source) = services.keyRouter.dispatchingSynthetic(cmdT) {
             (services.inputTap.actionEvent, FocusEvent.Source.of(services.inputTap.actionEvent))

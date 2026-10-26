@@ -42,6 +42,31 @@ enum AgentPanePersonInput {
         if byPerson, isPerson(answering: input) { gestures.record(click: answer) }
     }
 
+    /// How the drag a drop ends was ended, read as the drop lands. A drop has no event to judge:
+    /// AppKit calls `performDragOperation` from the drag session, outside any dispatch, and the window
+    /// server sends the destination no mouse event during a drag.
+    struct DragEnd: Equatable {
+        /// Seconds since the HID system's last button release. Posted events (CGEventPost) never move
+        /// the HID state, only the session's.
+        var sinceHIDRelease: TimeInterval
+        /// Seconds since the login session's last button drag, posted ones included.
+        var sinceSessionDrag: TimeInterval
+
+        /// The person's drop: the HID system released the button after the drag's last move, so the
+        /// person's hand ended the drag. A drag a script posts moves after the person's last release.
+        var isPersons: Bool { sinceHIDRelease < sinceSessionDrag }
+
+        /// Read now. The release is read first, so the time between the two reads never makes a
+        /// posted drag look older than the person's release.
+        static func now() -> DragEnd {
+            let release = [CGEventType.leftMouseUp, .rightMouseUp, .otherMouseUp]
+                .map { CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: $0) }.min() ?? .infinity
+            let drag = [CGEventType.leftMouseDragged, .rightMouseDragged, .otherMouseDragged]
+                .map { CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: $0) }.min() ?? .infinity
+            return DragEnd(sinceHIDRelease: release, sinceSessionDrag: drag)
+        }
+    }
+
     private static func executablePath(_ pid: pid_t) -> String? {
         var buffer = [CChar](repeating: 0, count: Int(MAXPATHLEN) * 4)
         guard proc_pidpath(pid, &buffer, UInt32(buffer.count)) > 0 else { return nil }

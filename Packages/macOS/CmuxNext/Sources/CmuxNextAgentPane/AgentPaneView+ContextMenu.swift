@@ -43,9 +43,10 @@ extension AgentPaneView {
     /// records where the files of the person's drop or paste are, for the page's
     /// `chat.attach.dropped` (``AgentPaneDroppedPaths``).
     func installContextMenu() {
+        // A drop runs outside any dispatch: the drag's own end decides whether it is the person's.
         let dropped: @MainActor ([URL]) -> Void = { [weak self] urls in
-            guard let self, AgentPanePersonInput.isPerson(answering: gestureRouter.input) else { return }
-            AgentPanePersonInput.record(model.transport.gestures, input: gestureRouter.input)
+            guard let self, dragEnd().isPersons else { return }
+            model.transport.gestures.record()
             model.droppedPaths.stash(urls, kind: .drop)
         }
         // Read as the paste goes to WebKit: the pasteboard WebKit hands the page. As for a drop, only
