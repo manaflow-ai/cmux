@@ -585,12 +585,6 @@
       "row": "observer_sites",
       "allow": 2,
       "why": "PL-cef-helper: ChromiumHostPageView (Debug-only, #if DEBUG, behind browserHost.helperPrototype) watches its own window's didMove/didChangeScreen so the out-of-process host's window follows the page on screen; window moves do not change the view's frame, so no view callback reports them. Two names (didMove, didChangeScreen) at one site, counted once each; one observation per name per host page, scoped to object: window and released with the view. No shared per-window geometry adapter exists in a package CmuxNextBrowser can use (WindowOverlayHost keeps its observers private and is PL-motion-cef's); the page view moves onto that adapter when one lands."
-    },
-    {
-      "date": "2026-10-26",
-      "row": "layer-gate",
-      "allow": 13,
-      "why": "p15-oracle-002: the 13 lines are the Linux mode of Packages/macOS/CmuxNext/Package.swift, all inside the exact `if ProcessInfo.processInfo.environment[\"CMUX_SWIFTPM_TARGET_LINUX\"] == \"1\" {` gate that check-package-resolved-policy.py already drops; no Apple build (the app, the fleet compile, Mac swift test) runs it, and dump-package without the variable is byte-identical to the base, so the Apple graph the gate checks is unchanged. This push makes arch_counts.parse_manifest skip the same gate form (test_a_linux_only_gate_block_is_not_read); the installed hook snapshot predates it, so after the next install-git-hooks.sh the gate reads the head manifest with no refusal and this entry allows nothing more."
     }
   ],
   "observer_wrappers": [
