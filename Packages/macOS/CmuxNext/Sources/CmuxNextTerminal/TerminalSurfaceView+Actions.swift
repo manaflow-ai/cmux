@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import GhosttyNextKit
 
 // Surface-targeted Ghostty actions (`action_cb`) applied to the session
@@ -31,8 +32,8 @@ extension TerminalSurfaceView {
                 return delegate.terminalSession(session, openLink: text)
             }
             guard let url = Self.url(from: text) else { return false }
-            // Never the blocking open: Ghostty holds the renderer lock here.
-            NSWorkspace.shared.open(url, configuration: NSWorkspace.OpenConfiguration())
+            // Never on this thread: Ghostty holds the renderer lock here.
+            NSWorkspace.shared.openInBackground(url)
         case .mouseShape(let shape):
             // Over a link with Command held the hand stays (TerminalLinkPointer).
             let cursor = Self.cursor(for: shape)

@@ -26,6 +26,8 @@ final class AgentTabStore {
     /// The app's made-ahead open panel for agent panes' file pickers (nil, in tests, shows none) and
     /// its page host (`AppServices.webUI`) every agent pane opens its page through, and the agent pages' WebKit warm-up.
     private let openPanel: MadeAheadOpenPanel?, webUI: WebUIHost, warmup: AgentPageWarmup?
+    /// Where each chat rested and its unsent chips, which every pane's page reads and writes (``AgentPaneChatStores``).
+    let chatStores: AgentPaneChatStores
     /// Gives each press to the agent pane it goes to (one input tap subscription per window).
     let gestureRouter: AgentPaneGestureRouter
     /// The main-thread scheduler the chat headers' watches apply on (``AgentChatHeaderWatch``).
@@ -223,10 +225,11 @@ final class AgentTabStore {
 
     /// `settings`, when given, is followed for the page settings (``AgentPanePageSettings``); else from `AppServices.settings`.
     /// `input` is the app's input tap (`AppServices.inputTap`; a test's own); `mainWork`, the app's scheduler (`AppServices.mainWork`).
+    /// `chatStores`, the chats' kept places and chips (``wired(to:)`` puts them beside the launch snapshot; tests keep none).
     init(build: BuildIdentity?, registry: ActionRegistry, webUI: WebUIHost, input: InputEventTap, environment: [String: String] = ProcessInfo.processInfo.environment,
          showcase: Bool = false, linkScheme: String? = nil, settings: SettingsController? = nil,
          openPanel: MadeAheadOpenPanel? = nil, warmup: AgentPageWarmup? = nil, defaults: UserDefaults = .standard,
-         mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget())) {
+         mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget()), chatStores: AgentPaneChatStores = .keepsNothing) {
         gestureRouter = AgentPaneGestureRouter(input: input)
         self.mainWork = mainWork
         self.defaults = defaults
@@ -234,7 +237,7 @@ final class AgentTabStore {
            let saved = try? JSONDecoder().blockingDecode([String: String].self, from: data) {
             adoptions = saved
         }
-        (self.openPanel, self.warmup) = (openPanel, warmup)
+        (self.openPanel, self.warmup, self.chatStores) = (openPanel, warmup, chatStores)
         self.webUI = webUI
         actionRegistry = registry
         self.linkScheme = linkScheme
@@ -513,7 +516,8 @@ final class AgentTabStore {
         if shown { pageShown() }
         AgentPaneNewTabFrame.shared.pageMade(model)
         model.linkScheme = linkScheme
-        guard let source, let view = AgentPaneView(model: model, source: source, renderRate: renderRate, webUI: webUI, openPanel: openPanel, warmup: warmup, gestures: gestureRouter) else { return nil }
+        guard let source, let view = AgentPaneView(model: model, source: source, renderRate: renderRate, webUI: webUI, openPanel: openPanel, warmup: warmup, gestures: gestureRouter,
+                                                    chatStores: chatStores) else { return nil }
         DebugTimings.markLaunch("agent_pane.view_created")
         view.customization = customization.current
         view.shortcuts = shortcuts

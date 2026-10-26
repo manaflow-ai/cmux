@@ -43,8 +43,9 @@ nonisolated struct NewTabSpareSlot<Spare> {
 /// content Cmd-T fills (the target window's focused pane), refitted when a
 /// pane there changes size or focus, so the adoption changes no size: WebKit
 /// shows it at once at its final layout (hqacp-v2: a page parked at the
-/// window's width showed for ~40 ms at that width after Cmd-T). Memory pressure drops the spare. A spare
-/// exists while the new tab page is likely: a person's Cmd-T always opens it.
+/// window's width showed for ~40 ms at that width after Cmd-T). Memory pressure drops the spare, and none
+/// is made or recycled until normal (``SpareMemoryConsumer``). A spare exists while the new tab page is
+/// likely: a person's Cmd-T always opens it.
 @MainActor
 final class NewTabSparePool {
     /// One adoption, for `debug.new_tab` (timing test, section 2.3).
@@ -75,9 +76,9 @@ final class NewTabSparePool {
     /// The app's input tap: a warm waiting for quiet input observes its ``warmDelayingInput``.
     private let input: any InputObserving
     private var inputSubscription: InputSubscription?
-    /// The app's memory pressure events; a warning or critical level drops the spare.
-    private let memoryPressure: MemoryPressureEvents
-    private var pressureObservation: MainActorHandlerRegistration<MemoryPressureLevel>?
+    /// The pool's memory consumer: warning or critical drops the spare, and none is made or recycled
+    /// until normal (Chrome's spare rule).
+    private var spareMemory: SpareMemoryConsumer?
     private var usedThisSession = false
     /// Set by `start(holdingWarm: true)` until ``startWarming()``: no spare is made meanwhile.
     private var warmHeld = false
@@ -91,16 +92,22 @@ final class NewTabSparePool {
     /// In place of ``AgentTabs/makeSpare(_:)`` (WebKit's first load, on the main thread): tests stall it.
     var makeSpare: ((AgentPaneNewTab) -> AgentPaneView?)?
     /// - Parameters:
+    ///   - memory: The app's memory coordinator; the pool registers its spare with it at once.
     ///   - input: The app's input tap.
     ///   - clock: The warm and fit deadlines' clock (tests: a manual one).
-    init(services: AppServices, memoryPressure: MemoryPressureEvents, input: any InputObserving,
+    init(services: AppServices, memory: any MemoryConsumerRegistry, input: any InputObserving,
          clock: any Clock<Duration> = ContinuousClock()) {
         self.services = services
-        self.memoryPressure = memoryPressure
         self.input = input
         warmTimer = DemandTimer(owner: "NewTabSparePool.warm", clock: clock)
         fitTimer = DemandTimer(owner: "NewTabSparePool.fit", clock: clock)
+        spareMemory = SpareMemoryConsumer(
+            name: "new-tab-spare", registry: memory, spares: { [weak self] in self?.slot.count ?? 0 },
+            drop: { [weak self] in self?.dropForPressure() }, refill: { [weak self] in self?.scheduleWarm() })
     }
+
+    /// Whether memory pressure lets the pool keep, make or recycle a spare now (normal only).
+    var allowsSpare: Bool { spareMemory?.allowsSpares ?? true }
 
     /// At launch: probes WebKit's setup off the main thread, no spare yet (a first load held launch >10 s, cua-2).
     func prewarm() {
@@ -266,7 +273,8 @@ final class NewTabSparePool {
 
     func recycle(_ view: AgentPaneView) -> Bool {
         lastRecycleRefusal = view.model.neverPooled ? "another machine's page" : !slot.shouldWarm ? "slot full" : view.model.newTab == nil ? "became a chat"
-            : view.model.userTouched ? "touched by \(view.model.touchedBy ?? "?")" : target == nil ? "no target window" : nil
+            : view.model.userTouched ? "touched by \(view.model.touchedBy ?? "?")" : target == nil ? "no target window"
+            : !allowsSpare ? "memory pressure" : nil
         guard lastRecycleRefusal == nil else { return false }
         BenchSpans.measure("pool.recycle") {
             view.adoptNewTab(NewTabPage.sparePage(services))
@@ -291,6 +299,13 @@ final class NewTabSparePool {
         return (window.windowNumber, view)
     }
 
+    /// Memory pressure: drops the spare and the warm that waits for quiet input.
+    private func dropForPressure() {
+        warmTimer.cancel()
+        inputSubscription = nil
+        dropAll()
+    }
+
     /// Drops the spare (memory pressure, the last window closing).
     func dropAll() {
         guard let view = slot.drop() else { return }
@@ -307,8 +322,7 @@ final class NewTabSparePool {
 
     /// Arms the quiet-input deadline; each key or click pushes it back.
     private func scheduleWarm() {
-        guard !warmHeld, services.agentTabs.canHostChat, slot.shouldWarm || unparked != nil, target != nil else { return }
-        watchMemoryPressure()
+        guard !warmHeld, allowsSpare, services.agentTabs.canHostChat, slot.shouldWarm || unparked != nil, target != nil else { return }
         if inputSubscription == nil {
             inputSubscription = input.observe(types: Self.warmDelayingInput) { [weak self] _ in self?.armWarmTimer() }
         }
@@ -339,6 +353,7 @@ final class NewTabSparePool {
 
     private func warmNow() {
         inputSubscription = nil
+        guard allowsSpare else { return }
         if let view = unparked, let content = target?.contentView {
             park(in: content)
             view.frame = parking.bounds
@@ -358,12 +373,5 @@ final class NewTabSparePool {
         parking.addSubview(view)
         slot.parked(view)
         snapshotParked()
-    }
-
-    private func watchMemoryPressure() {
-        guard pressureObservation == nil else { return }
-        pressureObservation = memoryPressure.observe { [weak self] level in
-            if level != .normal { self?.dropAll() }
-        }
     }
 }

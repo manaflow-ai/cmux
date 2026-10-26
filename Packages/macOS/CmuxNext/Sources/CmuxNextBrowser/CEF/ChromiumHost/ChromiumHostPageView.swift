@@ -26,7 +26,10 @@ import QuartzCore
 ///
 /// Input (``InputTarget``): with ``InputTarget/view`` this view is the page's
 /// input target and first responder (host mode: mouse, scroll, keys and Edit
-/// menu actions become wire frames for ``sink``). With
+/// menu actions become wire frames for ``sink``, one per event, in the
+/// event's own turn: no display-tick alignment here, the renderer aligns
+/// input to its frames, as Chrome's browser process forwards input at once;
+/// ``ChromiumHostConnection`` coalesces only under socket back-pressure). With
 /// ``InputTarget/pageWindow`` the fork's transparent page window above takes
 /// every event (in-process layer hosting), and this view takes none.
 public final class ChromiumHostPageView: NSView {
@@ -39,6 +42,8 @@ public final class ChromiumHostPageView: NSView {
     }
 
     let inputTarget: InputTarget
+    /// Names this view on the Chromium Host wire for a parent NSView* argument (host mode); 0 in process.
+    var wireToken: UInt64 = 0
     /// The view's size or screen place changed (only when the rect differs from the last one reported).
     var onGeometry: ((ChromiumHostGeometry) -> Void)? {
         didSet { observeWindow() }
@@ -62,7 +67,8 @@ public final class ChromiumHostPageView: NSView {
     let surface: Surface
 
     #if DEBUG || CMUX_BENCH_HOOKS
-    /// Where frames for the host go (``InputTarget/view`` only).
+    /// Where frames for the host go (``InputTarget/view`` only), synchronously
+    /// from the event handler: a sink must write or queue, never wait.
     var sink: ((ChromiumHostFrame) -> Void)?
     private var tracking: NSTrackingArea?
     #endif

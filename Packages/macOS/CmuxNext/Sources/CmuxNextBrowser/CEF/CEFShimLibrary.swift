@@ -13,6 +13,9 @@ import Foundation
 /// main thread.
 nonisolated struct CEFShimLibrary: @unchecked Sendable {
     typealias ScheduleFn = @convention(c) (UnsafeMutableRawPointer?, Int64) -> Void
+    /// `cmux_shim_schedule_delayed_fn`: ctx, run time (uptime ns, `Int64.max` for none), leeway ns,
+    /// precise (1 when it has no leeway).
+    typealias ScheduleDelayedFn = @convention(c) (UnsafeMutableRawPointer?, Int64, Int64, Int32) -> Void
     typealias EventFn = @convention(c) (
         UnsafeMutableRawPointer?, Int32, Int32, Int32, Int64, Int64,
         UnsafePointer<CChar>?, UnsafePointer<CChar>?
@@ -56,6 +59,9 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         UnsafeMutableRawPointer?, ScheduleFn?, EventFn?, KeyFn?
     ) -> Int32
     let doWork: @convention(c) () -> Void
+    /// `cmux_shim_set_schedule_delayed`: CEF's delayed work as absolute run times with Chromium's
+    /// leeway (p14-energy-046); 1 when the fork has the call, 0 when delayed work stays on `ScheduleFn`.
+    let setScheduleDelayed: @convention(c) (ScheduleDelayedFn?) -> Int32
 
     let createWindow: @convention(c) (Int32, UnsafeMutableRawPointer?, Int32, Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32
     /// The same window whose first tab has no renderer and never navigates (the spare window's
@@ -353,6 +359,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         browserSetResizeSync = try r("cmux_shim_browser_set_resize_sync")
         initialize = try r("cmux_shim_initialize")
         doWork = try r("cmux_shim_do_work")
+        setScheduleDelayed = try r("cmux_shim_set_schedule_delayed")
         createWindow = try r("cmux_shim_create_window")
         createPlaceholderWindow = try r("cmux_shim_create_placeholder_window")
         placeholderSupported = try r("cmux_shim_placeholder_supported")

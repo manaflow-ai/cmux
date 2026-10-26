@@ -122,7 +122,7 @@ def main():
         report["pump_per_s"] = {k: round((after.get(k, 0) - before.get(k, 0)) / seconds, 2)
                                 for k in after if isinstance(after.get(k), (int, float))}
         print("CEF-IDLE-PUMP " + json.dumps(report["pump_per_s"]), flush=True)
-        # Delayed passes CEF re-asked for under 2 ms (CEFPumpStats.earlyPasses, p14-energy-018): 0 after 046.
+        # Delayed passes before Chromium's task was due (CEFPumpStats.earlyPasses, p14-energy-018, -046).
         report["early_passes"] = after.get("early_passes", 0) - before.get("early_passes", 0)
         print("CEF-IDLE-EARLY-PASSES " + json.dumps({"count": report["early_passes"], "seconds": round(seconds, 2)}), flush=True)
         report["chromium"] = chromium_summary(os.path.join(opts.out, "chromium-trace.json"), seconds)

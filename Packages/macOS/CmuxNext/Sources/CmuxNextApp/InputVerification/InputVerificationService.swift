@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextFocus
@@ -15,7 +16,7 @@ final class InputVerificationService {
     private var geometryObservers: [any NSObjectProtocol] = []
     /// No-activate mode only: gives back a keyboard the user did not give.
     var keyboardGuard: NoActivateKeyboardGuard?
-    var keyboardGuardObservers: [any NSObjectProtocol] = []
+    var keyboardGuardObservers: [MainActorObservation] = []
     /// The journal's and the monitor's subscription to the input tap (before the key router).
     private var journalSubscription: InputSubscription?
     /// No-activate mode only: the keyboard guard's subscription to the person's key and mouse presses.

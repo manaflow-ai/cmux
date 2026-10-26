@@ -151,6 +151,9 @@ CASES = {
          'func start() {\n    let t = Thread { work() }\n    t.name = "cmux-next known thread"\n    t.start()\n}\n'),
         (SEAMS, "extension BlockingAllowance {\n    static let launch = BlockingAllowance(reviewed: \"launch\")\n}\n",
          "extension BlockingAllowance {\n    static let terminate = BlockingAllowance(reviewed: \"terminate\")\n}\n"),
+        # A launcher's label names its queue: the wrapper does not hide it.
+        (SERVICE, 'let l = ChildProcessLauncher(label: "com.cmuxterm.next.unknown", priority: .userBlocking)\n',
+         'let l = ChildProcessLauncher(label: "com.cmuxterm.next.known", priority: .userBlocking)\n'),
     ],
 }
 # The second thread-doc case is listed (an interpolated label against `<pid>`): its "bad" text is not debt.

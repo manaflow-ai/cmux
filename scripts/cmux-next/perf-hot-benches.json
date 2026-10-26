@@ -4,7 +4,8 @@
     "cef-host-input": {
       "what": "one input event forwarded to the Chromium host app (prototype, browserHost.helper): encode and one non-blocking write",
       "bench": "scripts/cmux-next/chromium-host-bench.py (hop_us, ping_us)",
-      "owner": "PL-cef-helper"
+      "owner": "PL-cef-helper",
+      "trace": ["cef.host_input"]
     },
     "cef-host-control": {
       "what": "one control op to the Chromium host (ChromiumHostControlChannel.send): encode, then one non-blocking sendmsg or an outbox push (the reader flushes waiting frames in batches, one sendmsg each)",
@@ -29,12 +30,14 @@
     "palette-key": {
       "what": "Command Palette open and each query key to its first painted frame",
       "bench": "scripts/cmux-next/palette-open-stages.py",
-      "owner": "Performance Lead"
+      "owner": "Performance Lead",
+      "trace": ["key.palette_search"]
     },
     "omnibar-key": {
       "what": "omnibar suggestions per typed key",
       "bench": "scripts/cmux-next/omnibar-click-bench.py (focus), then bench-typing.py with the omnibar focused",
-      "owner": "Performance Lead"
+      "owner": "Performance Lead",
+      "trace": ["key.omnibar_suggest"]
     },
     "motion-frame": {
       "what": "one split/close/zoom/column motion frame",
@@ -69,7 +72,8 @@
     "cef-geometry": {
       "what": "Chromium page geometry, clip and occlusion updates",
       "bench": "scripts/cmux-next/pane-perf-terminal.py with a Chromium page (debug.cef geometry posts per frame)",
-      "owner": "PL-motion-cef"
+      "owner": "PL-motion-cef",
+      "trace": ["cef.geometry"]
     },
     "cmd-tab": {
       "what": "app activation (Cmd-Tab back): become/resign key notices to committed frame, including the hover refresh",
@@ -130,6 +134,11 @@
       "what": "one divider, column-edge, row-edge, sidebar-edge or DevTools-divider drag event and each coalesced delivery it gets (feature pointerFrameDrags: at most a leading and a trailing delivery per frame, FrameInputCoalescer)",
       "bench": "scripts/cmux-next/divider-drag-reflow-live.py --tag TAG --out DIR with CMUX_ENABLE_FEATURES=pointerFrameDrags and without (frame intervals, drawn-grid lag), light and STRESS; swift test --filter 'DividerDragTests|SidebarResizeHandleTests' for deliveries per frame",
       "owner": "PL-motion-cef"
+    },
+    "terminal-pointer": {
+      "what": "one pointer move, drag or scroll event over a terminal and each coalesced delivery it gets (feature terminalPointerFrames: at most a leading and a trailing ghostty_surface_mouse_pos or mouse-reporting ghostty_surface_mouse_scroll per frame, PointerFrameCoalescer)",
+      "bench": "swift test --filter 'TerminalPointerCoalescingTests' for Ghostty calls per frame; live: scripts/cmux-next/pointer-probe.swift path/drag (1000 Hz moves) over a terminal running a mouse-reporting program (vim with mouse=a), with CMUX_ENABLE_FEATURES=terminalPointerFrames and without, light and STRESS, reading ghostty.lock_wait and main stalls from debug.hangs",
+      "owner": "PL-ghostty"
     }
   }
 }

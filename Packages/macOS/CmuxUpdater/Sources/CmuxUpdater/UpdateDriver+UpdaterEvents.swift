@@ -1,12 +1,11 @@
 import Foundation
-@preconcurrency import Sparkle
 
-extension UpdateDriver: @preconcurrency SPUUpdaterDelegate {
-    func updaterShouldPromptForPermissionToCheck(forUpdates _: SPUUpdater) -> Bool {
-        false
-    }
-
-    func feedURLString(for updater: SPUUpdater) -> String? {
+/// The driver's answers to Sparkle's `SPUUpdaterDelegate` callbacks, which
+/// ``SparkleDriverBridge`` forwards with cmux values. Each is callable directly, so tests drive
+/// them without a live `SPUUpdater`.
+extension UpdateDriver {
+    /// The feed URL Sparkle reads for the next check (`feedURLString(for:)`).
+    func feedURLStringForCheck() -> String? {
 #if DEBUG
         let env = ProcessInfo.processInfo.environment
         if let override = env["CMUX_UI_TEST_FEED_URL"], !override.isEmpty {
@@ -37,26 +36,26 @@ extension UpdateDriver: @preconcurrency SPUUpdaterDelegate {
     /// baked feed is the cmux-next feed accepts them, and only the tags of its ring and the
     /// slower ones. Every other build allows no extra channel, so it ignores those items even
     /// if a wrong feed URL served them.
-    func allowedChannels(for updater: SPUUpdater) -> Set<String> {
+    func allowedChannels() -> Set<String> {
         UpdateFeedResolver().resolve(infoFeedURL: infoFeedURLProvider()).channel.allowedSparkleChannels(ring: ring)
     }
 
-    func updater(_ updater: SPUUpdater, willInstallUpdate item: SUAppcastItem) {
+    func handleWillInstallUpdate(_ item: UpdateAppcastItem) {
         log.append("will install \(item.versionString)")
         actionDelegate?.updaterWillInstallUpdate(build: item.versionString)
     }
 
-    func updater(_ updater: SPUUpdater, willScheduleUpdateCheckAfterDelay delay: TimeInterval) {
+    func handleWillScheduleUpdateCheck(afterDelay delay: TimeInterval) {
         log.append("next update check scheduled in \(Int(delay.rounded()))s")
     }
 
-    func updaterWillNotScheduleUpdateCheck(_ updater: SPUUpdater) {
+    func handleWillNotScheduleUpdateCheck() {
         log.append("automatic update checks disabled; no scheduled check")
     }
 
     /// Called when an update is scheduled to install silently,
     /// which occurs when automatic download is enabled.
-    func updater(_ updater: SPUUpdater, willInstallUpdateOnQuit item: SUAppcastItem, immediateInstallationBlock immediateInstallHandler: @escaping () -> Void) -> Bool {
+    func handleWillInstallUpdateOnQuit(_ item: UpdateAppcastItem, immediateInstallHandler: @escaping () -> Void) -> Bool {
         log.append("silent install staged \(item.versionString) (\(item.displayVersionString))")
         model.clearDetectedUpdate()
         // Sparkle's own silent install: only a click starts it, never the idle policy.
@@ -72,9 +71,7 @@ extension UpdateDriver: @preconcurrency SPUUpdaterDelegate {
         return true
     }
 
-    func updater(_ updater: SPUUpdater, didFinishLoading appcast: SUAppcast) {
-        let count = appcast.items.count
-        let firstVersion = appcast.items.first?.displayVersionString ?? ""
+    func handleDidFinishLoadingAppcast(itemCount count: Int, firstDisplayVersion firstVersion: String) {
         if firstVersion.isEmpty {
             log.append("appcast loaded (items=\(count))")
         } else {
@@ -82,17 +79,9 @@ extension UpdateDriver: @preconcurrency SPUUpdaterDelegate {
         }
     }
 
-    func updater(_ updater: SPUUpdater, didFindValidUpdate item: SUAppcastItem) {
-        handleDidFindValidUpdate(item)
-    }
-
     /// Records a background-detected available update — unless this is a DEV/staging build, in
     /// which case any detected update is cleared so the public appcast's pill never appears.
-    ///
-    /// Extracted from the ``SPUUpdaterDelegate`` callback (which carries an `SPUUpdater` that is
-    /// awkward to construct) so the dev/staging gate is unit-testable directly from an
-    /// ``UpdateStateModel`` and an `SUAppcastItem`.
-    func handleDidFindValidUpdate(_ item: SUAppcastItem) {
+    func handleDidFindValidUpdate(_ item: UpdateAppcastItem) {
         if isDevLikeBundle {
             // DEV/staging builds are not on the public release train. ``UpdateController`` already
             // gates every known path (automatic checks, the launch probe, and manual
@@ -112,38 +101,21 @@ extension UpdateDriver: @preconcurrency SPUUpdaterDelegate {
         }
     }
 
-    func updaterDidNotFindUpdate(_ updater: SPUUpdater, error: any Error) {
-        handleDidNotFindUpdate(error)
-    }
-
-    /// Handles Sparkle's no-update delegate result without requiring a live `SPUUpdater` in tests.
+    /// Handles Sparkle's no-update delegate result.
     func handleDidNotFindUpdate(_ error: any Error) {
         // Delegate callbacks also arrive for automatic/informational probes. They may clear the
         // passive detection cache, but must never answer or erase a foreground Sparkle prompt.
         model.clearDetectedUpdate()
-        let nsError = error as NSError
-        let reasonValue = (nsError.userInfo[SPUNoUpdateFoundReasonKey] as? NSNumber)?.intValue
-        let reason = reasonValue.map { SPUNoUpdateFoundReason(rawValue: OSStatus($0)) } ?? nil
-        let reasonText = reason.map(describeNoUpdateFoundReason) ?? "unknown"
-        let userInitiated = (nsError.userInfo[SPUNoUpdateFoundUserInitiatedKey] as? NSNumber)?.boolValue ?? false
-        let latestItem = nsError.userInfo[SPULatestAppcastItemFoundKey] as? SUAppcastItem
-        let latestVersion = latestItem?.displayVersionString ?? ""
-        if latestVersion.isEmpty {
-            log.append("no update found (reason=\(reasonText), userInitiated=\(userInitiated))")
+        let result = SparkleNoUpdateFound(error)
+        if result.latestDisplayVersion.isEmpty {
+            log.append("no update found (reason=\(result.reason), userInitiated=\(result.userInitiated))")
         } else {
-            log.append("no update found (reason=\(reasonText), userInitiated=\(userInitiated), latest=\(latestVersion))")
+            log.append("no update found (reason=\(result.reason), userInitiated=\(result.userInitiated), latest=\(result.latestDisplayVersion))")
         }
     }
 
-    func updater(_ updater: SPUUpdater,
-                 didFinishUpdateCycleFor updateCheck: SPUUpdateCheck,
-                 error: (any Error)?) {
-        handleDidFinishUpdateCycle(updateCheck, error: error)
-    }
-
     /// Forwards Sparkle's authoritative session-finished signal to the lifecycle owner.
-    /// Extracted so the replacement-check race is testable without constructing `SPUUpdater`.
-    func handleDidFinishUpdateCycle(_ updateCheck: SPUUpdateCheck, error: (any Error)?) {
+    func handleDidFinishUpdateCycle(_ updateCheck: UpdateCheckKind, error: (any Error)?) {
         let errorText = error.map(formatErrorForLog) ?? "none"
         log.append("update cycle finished (check=\(updateCheck.rawValue), error=\(errorText))")
         relaunchGate.cancel()
@@ -151,37 +123,12 @@ extension UpdateDriver: @preconcurrency SPUUpdaterDelegate {
         eventDelegate?.updateDriverDidFinishCycle(updateCheck, error: error.map { $0 as NSError })
     }
 
-    func updater(_ updater: SPUUpdater, userDidMake _: SPUUserUpdateChoice, forUpdate _: SUAppcastItem, state _: SPUUserUpdateState) {
+    /// The person answered a Sparkle prompt (`updater(_:userDidMake:forUpdate:state:)`).
+    func handleUserDidMakeChoice() {
         model.clearDetectedUpdate()
     }
 
-    func updater(_ updater: SPUUpdater,
-                 shouldPostponeRelaunchForUpdate item: SUAppcastItem,
-                 untilInvokingBlock installHandler: @escaping () -> Void) -> Bool {
-        handleShouldPostponeRelaunch(item: item, installHandler: installHandler)
-    }
-
-    func updaterWillRelaunchApplication(_ updater: SPUUpdater) {
+    func handleWillRelaunchApplication() {
         actionDelegate?.updaterWillRelaunchApplication()
-    }
-}
-
-private func describeNoUpdateFoundReason(_ reason: SPUNoUpdateFoundReason) -> String {
-    switch reason {
-    case .unknown:
-        return "unknown"
-    case .onLatestVersion:
-        return "onLatestVersion"
-    case .onNewerThanLatestVersion:
-        return "onNewerThanLatestVersion"
-    case .systemIsTooOld:
-        return "systemIsTooOld"
-    case .systemIsTooNew:
-        return "systemIsTooNew"
-    case .hardwareDoesNotSupportARM64:
-        return "hardwareDoesNotSupportARM64"
-    @unknown default:
-        // Preserve forward compatibility when a future Sparkle release adds another reason.
-        return "unknown"
     }
 }
