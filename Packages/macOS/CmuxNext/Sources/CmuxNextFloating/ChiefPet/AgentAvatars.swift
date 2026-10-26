@@ -12,9 +12,9 @@ import UniformTypeIdentifiers
 @MainActor
 public final class AgentAvatars {
     /// The side of the picture the page draws (its cards and chips draw it at 14 to 28 points).
-    static let side = 96
+    nonisolated static let side = 96
     /// An agent's upload is worn whatever character is picked: this stands for "always".
-    static let worn = "agent"
+    nonisolated static let worn = "agent"
 
     private let uploads: ChiefAvatarUploads
     private let openPanel: MadeAheadOpenPanel?
