@@ -1,5 +1,5 @@
 {
-  "$comment": "p15-oracle-077: tuning of the layout action families (screen, screenGroup, column, layout, split, resize, swap, move: every non-excluded id of plans/cmux-next/action-surfaces.json whose family_of is layout, 114 today, the design's 113 plus ids added since) for gen_actions.py (p15-oracle-071), which reads it as <family>/_tuning.json and keeps regeneration byte-stable. Each entry was reviewed against its handler (PaneHandlers, PaneHandlers+Verbs, TabHandlers, ScreenHandlers, ScreenAppearanceHandlers, ScreenGroupHandlers, GroupIconHandlers, ColumnHandlers, DockColumnHandlers, ColumnDocking, AppearanceHandlers, HistoryHandlers, BrowserHandlers, WindowMembershipHandlers, AppActions+Workspaces). Facet checks: the layout facet (tree, ratios, column widths, docks, active screen, focused and zoomed pane) for structure, the tabs facet for tab moves, the sidebar rows for workspace order, settings.nonDefaultKeys for the two layout settings. a socket run without focus may not move focus or selection (FocusCoordinator.send refuses a changesView event), so the setup's splits and creates leave the launch's pane focused; the cases pick panes with focusPaneByNumber, a focus action. Not tuned: screenGroup.addScreen (an every-action-gaps.json gap, p15-oracle-082..087) and the four destructive ids the sweep never runs (screen.closeOthers, closeToLeft, closeToRight, screenGroup.close). Listed until their task lands: swapPaneRight, swapPaneDown and column.moveRight fail at a generated setup step (p15-oracle-310). Screen and screen-group metadata (color, icon, pin, group, collapsed, saved) is in no facet until p15-oracle-311: those cases check the receipt. Divergences filed: screen creates answer before the screen exists (p15-oracle-312); column presets on a lone split tree and Move Workspace Up/Down at the edge answer ok for nothing done (p15-oracle-313); an unknown saved screen group is daemon_error, not not_found (p15-oracle-314). Legacy registry.bind handlers report action.done, the screen name, color and pin intents action.applied, Split Browser action.waiting.",
+  "$comment": "p15-oracle-077: tuning of the layout action families (screen, screenGroup, column, layout, split, resize, swap, move: every non-excluded id of plans/cmux-next/action-surfaces.json whose family_of is layout, 114 today, the design's 113 plus ids added since) for gen_actions.py (p15-oracle-071), which reads it as <family>/_tuning.json and keeps regeneration byte-stable. Each entry was reviewed against its handler (PaneHandlers, PaneHandlers+Verbs, TabHandlers, ScreenHandlers, ScreenAppearanceHandlers, ScreenGroupHandlers, GroupIconHandlers, ColumnHandlers, DockColumnHandlers, ColumnDocking, AppearanceHandlers, HistoryHandlers, BrowserHandlers, WindowMembershipHandlers, AppActions+Workspaces). Facet checks: the layout facet (tree, ratios, column widths, docks, active screen, focused and zoomed pane) for structure, the topology facet's panes for tab moves (it lists terminal tabs; the tabs facet lists only browser and page tabs), the sidebar rows for workspace order, settings.nonDefaultKeys for the two layout settings. a socket run without focus may not move focus or selection (FocusCoordinator.send refuses a changesView event), so the setup's splits and creates leave the launch's pane focused; the cases pick panes with focusPaneByNumber, a focus action. Not tuned: screenGroup.addScreen (an every-action-gaps.json gap, p15-oracle-082..087) and the four destructive ids the sweep never runs (screen.closeOthers, closeToLeft, closeToRight, screenGroup.close). Listed until their task lands: swapPaneRight, swapPaneDown and column.moveRight fail at a generated setup step (p15-oracle-330). Screen and screen-group metadata (color, icon, pin, group, collapsed, saved) is in no facet until p15-oracle-331: those cases check the receipt. Divergences filed: screen creates answer before the screen exists (p15-oracle-332); column presets on a lone split tree and Move Workspace Up/Down at the edge answer ok for nothing done (p15-oracle-333); an unknown saved screen group is daemon_error, not not_found (p15-oracle-334). Legacy registry.bind handlers report action.done, the screen name, color and pin intents action.applied, Split Browser action.waiting.",
   "actions": {
     "column.center": {
       "before": [
@@ -29,7 +29,7 @@
         "the launch's column scrolls to the viewport's center and keeps focus (LayoutModel.centerColumn)"
       ],
       "untested": [
-        "the scroll offset: the layout facet leaves out what the views report (OracleLayoutFacet), so no case can see it; a lone split tree (no strip) is a silent no-op (p15-oracle-313)"
+        "the scroll offset: the layout facet leaves out what the views report (OracleLayoutFacet), so no case can see it; a lone split tree (no strip) is a silent no-op (p15-oracle-333)"
       ]
     },
     "column.cycleWidth": {
@@ -65,7 +65,7 @@
         "the launch's column width becomes the next preset (2/3 after 1/2) (ColumnWidthPreset.next)"
       ],
       "untested": [
-        "a lone split tree is a silent no-op (p15-oracle-313)"
+        "a lone split tree is a silent no-op (p15-oracle-333)"
       ]
     },
     "column.cycleWidthBack": {
@@ -101,7 +101,7 @@
         "the launch's column width becomes the previous preset (1/3 before 1/2) (ColumnWidthPreset.next)"
       ],
       "untested": [
-        "a lone split tree is a silent no-op (p15-oracle-313)"
+        "a lone split tree is a silent no-op (p15-oracle-333)"
       ]
     },
     "column.dock": {
@@ -490,7 +490,7 @@
       "invariants": [
         "the launch's column moves right past the second in one daemon move-column"
       ],
-      "note": "fails at its generated prepare-2 step until p15-oracle-310: gen_actions.py runs the sweep's PREPARE (newColumn, then column.focusLeft) without focus, so focus stays on the launch's pane and column.focusLeft from it has no pane that way (refuseQuietly, control.unavailable); once 310 runs setup with focus, as the sweep's SweepDriver.run does, the case's own before steps still pick the pane by number"
+      "note": "fails at its generated prepare-2 step until p15-oracle-330: gen_actions.py runs the sweep's PREPARE (newColumn, then column.focusLeft) without focus, so focus stays on the launch's pane and column.focusLeft from it has no pane that way (refuseQuietly, control.unavailable); once 330 runs setup with focus, as the sweep's SweepDriver.run does, the case's own before steps still pick the pane by number"
     },
     "column.undock": {
       "before": [
@@ -597,7 +597,7 @@
       ],
       "untested": [
         "the refusal when the column already has the width (columnAlreadyHasWidth)",
-        "a lone split tree: setColumnWidth finds no column for the implicit one and the run answers ok for nothing done (p15-oracle-313)"
+        "a lone split tree: setColumnWidth finds no column for the implicit one and the run answers ok for nothing done (p15-oracle-333)"
       ],
       "note": "other-width (column.widthOneThird) first: newColumn halves the launch's column, so a preset run on it directly could name the width it already has"
     },
@@ -654,7 +654,7 @@
       ],
       "untested": [
         "the refusal when the column already has the width (columnAlreadyHasWidth)",
-        "a lone split tree: setColumnWidth finds no column for the implicit one and the run answers ok for nothing done (p15-oracle-313)"
+        "a lone split tree: setColumnWidth finds no column for the implicit one and the run answers ok for nothing done (p15-oracle-333)"
       ],
       "note": "other-width (column.widthFull) first: newColumn halves the launch's column, so a preset run on it directly could name the width it already has"
     },
@@ -711,7 +711,7 @@
       ],
       "untested": [
         "the refusal when the column already has the width (columnAlreadyHasWidth)",
-        "a lone split tree: setColumnWidth finds no column for the implicit one and the run answers ok for nothing done (p15-oracle-313)"
+        "a lone split tree: setColumnWidth finds no column for the implicit one and the run answers ok for nothing done (p15-oracle-333)"
       ],
       "note": "other-width (column.widthFull) first: newColumn halves the launch's column, so a preset run on it directly could name the width it already has"
     },
@@ -768,7 +768,7 @@
       ],
       "untested": [
         "the refusal when the column already has the width (columnAlreadyHasWidth)",
-        "a lone split tree: setColumnWidth finds no column for the implicit one and the run answers ok for nothing done (p15-oracle-313)"
+        "a lone split tree: setColumnWidth finds no column for the implicit one and the run answers ok for nothing done (p15-oracle-333)"
       ],
       "note": "other-width (column.widthFull) first: newColumn halves the launch's column, so a preset run on it directly could name the width it already has"
     },
@@ -951,13 +951,14 @@
       ],
       "receipt": "action.done",
       "waitFor": {
-        "pointer": "/tabs/panes",
+        "pointer": "/topology/topology/workspaces/0/screens/0/panes/0/tabs/0/id",
         "predicate": "changed",
         "maxMs": 5000
       },
       "invariants": [
         "the key moves the selected (second) tab one place left among the unpinned tabs (stripModel.moveIndex): the pane's first tab is the one the key moved"
-      ]
+      ],
+      "note": "the topology facet lists a pane's terminal tabs (the tabs facet lists only browser and page tabs, so a terminal-only pane is not in it): the pane's first tab changes when the move lands"
     },
     "moveSurfaceRight": {
       "before": [
@@ -984,13 +985,14 @@
       ],
       "receipt": "action.done",
       "waitFor": {
-        "pointer": "/tabs/panes",
+        "pointer": "/topology/topology/workspaces/0/screens/0/panes/0/tabs/0/id",
         "predicate": "changed",
         "maxMs": 5000
       },
       "invariants": [
         "the key moves the selected (first) tab one place right: the new tab is now first"
-      ]
+      ],
+      "note": "the topology facet lists a pane's terminal tabs (the tabs facet lists only browser and page tabs, so a terminal-only pane is not in it): the pane's first tab changes when the move lands"
     },
     "moveSurfaceToNextPane": {
       "before": [
@@ -1055,14 +1057,15 @@
       ],
       "receipt": "action.done",
       "waitFor": {
-        "pointer": "/tabs/panes",
+        "pointer": "/topology/topology/workspaces/0/screens/0/panes/0/tabs/1/id",
         "predicate": "changed",
         "maxMs": 5000
       },
       "invariants": [
         "the key moves the first pane's selected tab to the end of the next pane in visual order (two panes: the second either way, wrapping); the first pane keeps its other tab",
         "a person's run lets focus follow the moved tab (followMovedTab)"
-      ]
+      ],
+      "note": "the topology facet lists a pane's terminal tabs (the tabs facet lists only browser and page tabs, so a terminal-only pane is not in it): the move takes one pane from two tabs to one and the other from one to two, so the second tab of the facet's first pane comes or goes, whichever pane that is"
     },
     "moveSurfaceToPaneDown": {
       "before": [
@@ -1127,13 +1130,14 @@
       ],
       "receipt": "action.done",
       "waitFor": {
-        "pointer": "/tabs/panes",
+        "pointer": "/topology/topology/workspaces/0/screens/0/panes/0/tabs/1/id",
         "predicate": "changed",
         "maxMs": 5000
       },
       "invariants": [
         "the key moves pane 1's selected tab to the end of its neighbor down (PaneHandlers.neighbor by frames); pane 1 keeps the tab new-tab opened"
-      ]
+      ],
+      "note": "the topology facet lists a pane's terminal tabs (the tabs facet lists only browser and page tabs, so a terminal-only pane is not in it): the move takes one pane from two tabs to one and the other from one to two, so the second tab of the facet's first pane comes or goes, whichever pane that is"
     },
     "moveSurfaceToPaneLeft": {
       "before": [
@@ -1198,13 +1202,14 @@
       ],
       "receipt": "action.done",
       "waitFor": {
-        "pointer": "/tabs/panes",
+        "pointer": "/topology/topology/workspaces/0/screens/0/panes/0/tabs/1/id",
         "predicate": "changed",
         "maxMs": 5000
       },
       "invariants": [
         "the key moves pane 2's selected tab to the end of its neighbor left (PaneHandlers.neighbor by frames); pane 2 keeps the tab new-tab opened"
-      ]
+      ],
+      "note": "the topology facet lists a pane's terminal tabs (the tabs facet lists only browser and page tabs, so a terminal-only pane is not in it): the move takes one pane from two tabs to one and the other from one to two, so the second tab of the facet's first pane comes or goes, whichever pane that is"
     },
     "moveSurfaceToPaneRight": {
       "before": [
@@ -1269,13 +1274,14 @@
       ],
       "receipt": "action.done",
       "waitFor": {
-        "pointer": "/tabs/panes",
+        "pointer": "/topology/topology/workspaces/0/screens/0/panes/0/tabs/1/id",
         "predicate": "changed",
         "maxMs": 5000
       },
       "invariants": [
         "the key moves pane 1's selected tab to the end of its neighbor right (PaneHandlers.neighbor by frames); pane 1 keeps the tab new-tab opened"
-      ]
+      ],
+      "note": "the topology facet lists a pane's terminal tabs (the tabs facet lists only browser and page tabs, so a terminal-only pane is not in it): the move takes one pane from two tabs to one and the other from one to two, so the second tab of the facet's first pane comes or goes, whichever pane that is"
     },
     "moveSurfaceToPaneUp": {
       "before": [
@@ -1340,13 +1346,14 @@
       ],
       "receipt": "action.done",
       "waitFor": {
-        "pointer": "/tabs/panes",
+        "pointer": "/topology/topology/workspaces/0/screens/0/panes/0/tabs/1/id",
         "predicate": "changed",
         "maxMs": 5000
       },
       "invariants": [
         "the key moves pane 2's selected tab to the end of its neighbor up (PaneHandlers.neighbor by frames); pane 2 keeps the tab new-tab opened"
-      ]
+      ],
+      "note": "the topology facet lists a pane's terminal tabs (the tabs facet lists only browser and page tabs, so a terminal-only pane is not in it): the move takes one pane from two tabs to one and the other from one to two, so the second tab of the facet's first pane comes or goes, whichever pane that is"
     },
     "moveSurfaceToPreviousPane": {
       "before": [
@@ -1411,14 +1418,15 @@
       ],
       "receipt": "action.done",
       "waitFor": {
-        "pointer": "/tabs/panes",
+        "pointer": "/topology/topology/workspaces/0/screens/0/panes/0/tabs/1/id",
         "predicate": "changed",
         "maxMs": 5000
       },
       "invariants": [
         "the key moves the first pane's selected tab to the end of the previous pane in visual order (two panes: the second either way, wrapping); the first pane keeps its other tab",
         "a person's run lets focus follow the moved tab (followMovedTab)"
-      ]
+      ],
+      "note": "the topology facet lists a pane's terminal tabs (the tabs facet lists only browser and page tabs, so a terminal-only pane is not in it): the move takes one pane from two tabs to one and the other from one to two, so the second tab of the facet's first pane comes or goes, whichever pane that is"
     },
     "moveWorkspaceDown": {
       "before": [
@@ -1452,7 +1460,7 @@
       "invariants": [
         "the key moves the shown workspace one row down, below the workspace newBelow filed"
       ],
-      "note": "at the bottom the handler returns without a refusal (p15-oracle-313)"
+      "note": "at the bottom the handler returns without a refusal (p15-oracle-333)"
     },
     "moveWorkspaceToGroup": {
       "params": {
@@ -1547,7 +1555,7 @@
       "invariants": [
         "the key moves the shown workspace one row up in the sidebar, above the workspace newAtTop filed (movePersonalWorkspace, one row; AppActions.moveWorkspace without a personal store)"
       ],
-      "note": "at the top the handler returns without a refusal: a key there is a quiet no-op, a CLI run answers ok for nothing done (p15-oracle-313)"
+      "note": "at the top the handler returns without a refusal: a key there is a quiet no-op, a CLI run answers ok for nothing done (p15-oracle-333)"
     },
     "resizePaneDown": {
       "before": [
@@ -1783,7 +1791,7 @@
         "the shown screen's color becomes no color: a store intent the reply settles"
       ],
       "untested": [
-        "the value written: the topology facet's screen has no color, icon, pinned or group field and no facet lists a workspace's screen groups (p15-oracle-311)"
+        "the value written: the topology facet's screen has no color, icon, pinned or group field and no facet lists a workspace's screen groups (p15-oracle-331)"
       ]
     },
     "screen.clearIcon": {
@@ -1811,7 +1819,7 @@
         "the icon star set first is removed"
       ],
       "untested": [
-        "the value written: the topology facet's screen has no color, icon, pinned or group field and no facet lists a workspace's screen groups (p15-oracle-311)"
+        "the value written: the topology facet's screen has no color, icon, pinned or group field and no facet lists a workspace's screen groups (p15-oracle-331)"
       ]
     },
     "screen.clearName": {
@@ -1894,7 +1902,7 @@
         "the shown screen's color becomes blue: a store intent the reply settles"
       ],
       "untested": [
-        "the value written: the topology facet's screen has no color, icon, pinned or group field and no facet lists a workspace's screen groups (p15-oracle-311)"
+        "the value written: the topology facet's screen has no color, icon, pinned or group field and no facet lists a workspace's screen groups (p15-oracle-331)"
       ]
     },
     "screen.color.cyan": {
@@ -1903,7 +1911,7 @@
         "the shown screen's color becomes cyan: a store intent the reply settles"
       ],
       "untested": [
-        "the value written: the topology facet's screen has no color, icon, pinned or group field and no facet lists a workspace's screen groups (p15-oracle-311)"
+        "the value written: the topology facet's screen has no color, icon, pinned or group field and no facet lists a workspace's screen groups (p15-oracle-331)"
       ]
     },
     "screen.color.green": {
@@ -1912,7 +1920,7 @@
         "the shown screen's color becomes green: a store intent the reply settles"
       ],
       "untested": [
-        "the value written: the topology facet's screen has no color, icon, pinned or group field and no facet lists a workspace's screen groups (p15-oracle-311)"
+        "the value written: the topology facet's screen has no color, icon, pinned or group field and no facet lists a workspace's screen groups (p15-oracle-331)"
       ]
     },
     "screen.color.grey": {
@@ -1921,7 +1929,7 @@
         "the shown screen's color becomes grey: a store intent the reply settles"
       ],
       "untested": [
-        "the value written: the topology facet's screen has no color, icon, pinned or group field and no facet lists a workspace's screen groups (p15-oracle-311)"
+        "the value written: the topology facet's screen has no color, icon, pinned or group field and no facet lists a workspace's screen groups (p15-oracle-331)"
       ]
     },
     "screen.color.orange": {
@@ -1930,7 +1938,7 @@
         "the shown screen's color becomes orange: a store intent the reply settles"
       ],
       "untested": [
-        "the value written: the topology facet's screen has no color, icon, pinned or group field and no facet lists a workspace's screen groups (p15-oracle-311)"
+        "the value written: the topology facet's screen has no color, icon, pinned or group field and no facet lists a workspace's screen groups (p15-oracle-331)"
       ]
     },
     "screen.color.pink": {
@@ -1939,7 +1947,7 @@
         "the shown screen's color becomes pink: a store intent the reply settles"
       ],
       "untested": [
-        "the value written: the topology facet's screen has no color, icon, pinned or group field and no facet lists a workspace's screen groups (p15-oracle-311)"
+        "the value written: the topology facet's screen has no color, icon, pinned or group field and no facet lists a workspace's screen groups (p15-oracle-331)"
       ],
       "note": "TOGGLES matches `pin` inside pink, so gen_actions.py adds a restore that sets pink again (p15-oracle-293)"
     },
@@ -1949,7 +1957,7 @@
         "the shown screen's color becomes purple: a store intent the reply settles"
       ],
       "untested": [
-        "the value written: the topology facet's screen has no color, icon, pinned or group field and no facet lists a workspace's screen groups (p15-oracle-311)"
+        "the value written: the topology facet's screen has no color, icon, pinned or group field and no facet lists a workspace's screen groups (p15-oracle-331)"
       ]
     },
     "screen.color.red": {
@@ -1958,7 +1966,7 @@
         "the shown screen's color becomes red: a store intent the reply settles"
       ],
       "untested": [
-        "the value written: the topology facet's screen has no color, icon, pinned or group field and no facet lists a workspace's screen groups (p15-oracle-311)"
+        "the value written: the topology facet's screen has no color, icon, pinned or group field and no facet lists a workspace's screen groups (p15-oracle-331)"
       ]
     },
     "screen.color.yellow": {
@@ -1967,7 +1975,7 @@
         "the shown screen's color becomes yellow: a store intent the reply settles"
       ],
       "untested": [
-        "the value written: the topology facet's screen has no color, icon, pinned or group field and no facet lists a workspace's screen groups (p15-oracle-311)"
+        "the value written: the topology facet's screen has no color, icon, pinned or group field and no facet lists a workspace's screen groups (p15-oracle-331)"
       ]
     },
     "screen.duplicate": {
@@ -1983,7 +1991,7 @@
       "invariants": [
         "a copy of the launch's screen right after it: its name, color, icon and group, a terminal in the directory of its active tab"
       ],
-      "note": "ScreenCommands.create starts its daemon request in an untracked Task, so action.run answers before the screen exists and `created` does not name it (p15-oracle-312); the waitFor is the check until then"
+      "note": "ScreenCommands.create starts its daemon request in an untracked Task, so action.run answers before the screen exists and `created` does not name it (p15-oracle-332); the waitFor is the check until then"
     },
     "screen.focus": {
       "error": "control.unavailable",
@@ -1991,7 +1999,7 @@
         "no screen target: revealScreen is refused (RefusalStrings.noScreen) before any view change"
       ],
       "untested": [
-        "the success path: no step reply names a screen id until screen.new's `created` does (p15-oracle-312); then the case targets $step:second-screen#/created/0"
+        "the success path: no step reply names a screen id until screen.new's `created` does (p15-oracle-332); then the case targets $step:second-screen#/created/0"
       ]
     },
     "screen.moveLeft": {
@@ -2124,7 +2132,7 @@
       "invariants": [
         "the shown screen moves into a new workspace placed in a new window (WindowManager.placeMoved); the launch's workspace keeps its second screen"
       ],
-      "note": "moveToNewWorkspace starts its daemon request in an untracked Task (p15-oracle-312)"
+      "note": "moveToNewWorkspace starts its daemon request in an untracked Task (p15-oracle-332)"
     },
     "screen.moveToNewWorkspace": {
       "before": [
@@ -2161,7 +2169,7 @@
       "invariants": [
         "the shown screen moves into a new workspace placed in this window (WindowManager.placeMoved); the launch's workspace keeps its second screen"
       ],
-      "note": "moveToNewWorkspace starts its daemon request in an untracked Task (p15-oracle-312)"
+      "note": "moveToNewWorkspace starts its daemon request in an untracked Task (p15-oracle-332)"
     },
     "screen.moveToWorkspace": {
       "params": {
@@ -2179,7 +2187,7 @@
             },
             "maxMs": 10000
           },
-          "note": "the generated prepare-1 screen.new answers before its screen exists (p15-oracle-312): wait for the layout to list two screens"
+          "note": "the generated prepare-1 screen.new answers before its screen exists (p15-oracle-332): wait for the layout to list two screens"
         },
         {
           "id": "other-workspace",
@@ -2231,7 +2239,7 @@
       "invariants": [
         "a second screen after the launch's, with one terminal pane; the launch's screen stays active (the run's focus expectation is refused: no focus)"
       ],
-      "note": "ScreenCommands.create starts its daemon request in an untracked Task, so action.run answers before the screen exists and `created` does not name it (p15-oracle-312); the waitFor is the check until then"
+      "note": "ScreenCommands.create starts its daemon request in an untracked Task, so action.run answers before the screen exists and `created` does not name it (p15-oracle-332); the waitFor is the check until then"
     },
     "screen.newWith": {
       "receipt": "action.done",
@@ -2249,7 +2257,7 @@
       "untested": [
         "the name on the new screen: the topology facet's screen name is compared by the differential diff"
       ],
-      "note": "ScreenCommands.create starts its daemon request in an untracked Task, so action.run answers before the screen exists and `created` does not name it (p15-oracle-312); the waitFor is the check until then"
+      "note": "ScreenCommands.create starts its daemon request in an untracked Task, so action.run answers before the screen exists and `created` does not name it (p15-oracle-332); the waitFor is the check until then"
     },
     "screen.next": {
       "before": [
@@ -2483,7 +2491,7 @@
         "the shown screen's color becomes the color argument (grey, the sweep's first choice): a store intent the reply settles"
       ],
       "untested": [
-        "the value written: the topology facet's screen has no color, icon, pinned or group field and no facet lists a workspace's screen groups (p15-oracle-311)"
+        "the value written: the topology facet's screen has no color, icon, pinned or group field and no facet lists a workspace's screen groups (p15-oracle-331)"
       ]
     },
     "screen.setIcon": {
@@ -2495,7 +2503,7 @@
         "the shown screen's icon becomes star (IconHistory.screen; a script's change offers no undo toast)"
       ],
       "untested": [
-        "the value written: the topology facet's screen has no color, icon, pinned or group field and no facet lists a workspace's screen groups (p15-oracle-311)",
+        "the value written: the topology facet's screen has no color, icon, pinned or group field and no facet lists a workspace's screen groups (p15-oracle-331)",
         "the icon picker with no argument, which a socket run must not open (p15-oracle-292)"
       ]
     },
@@ -2505,7 +2513,7 @@
         "the shown screen is pinned (a store intent); the generated restore runs the toggle again to unpin it"
       ],
       "untested": [
-        "the value written: the topology facet's screen has no color, icon, pinned or group field and no facet lists a workspace's screen groups (p15-oracle-311)"
+        "the value written: the topology facet's screen has no color, icon, pinned or group field and no facet lists a workspace's screen groups (p15-oracle-331)"
       ]
     },
     "screenGroup.clearIcon": {
@@ -2551,7 +2559,7 @@
         "the star icon set-icon gave the group is removed"
       ],
       "untested": [
-        "the group's state: no facet lists a workspace's screen groups (name, color, icon, collapsed, saved) until p15-oracle-311; the receipt says the handler ran and the differential diff compares the daemon facet"
+        "the group's state: no facet lists a workspace's screen groups (name, color, icon, collapsed, saved) until p15-oracle-331; the receipt says the handler ran and the differential diff compares the daemon facet"
       ]
     },
     "screenGroup.collapse": {
@@ -2580,7 +2588,7 @@
         "make-group's group folds; its one member is the shown screen and no other screen is visible, so the active screen stays (TabGroupOrdering.selectionBeforeCollapsing finds none)"
       ],
       "untested": [
-        "the group's state: no facet lists a workspace's screen groups (name, color, icon, collapsed, saved) until p15-oracle-311; the receipt says the handler ran and the differential diff compares the daemon facet"
+        "the group's state: no facet lists a workspace's screen groups (name, color, icon, collapsed, saved) until p15-oracle-331; the receipt says the handler ran and the differential diff compares the daemon facet"
       ]
     },
     "screenGroup.color.blue": {
@@ -2609,7 +2617,7 @@
         "make-group's group turns blue"
       ],
       "untested": [
-        "the group's state: no facet lists a workspace's screen groups (name, color, icon, collapsed, saved) until p15-oracle-311; the receipt says the handler ran and the differential diff compares the daemon facet"
+        "the group's state: no facet lists a workspace's screen groups (name, color, icon, collapsed, saved) until p15-oracle-331; the receipt says the handler ran and the differential diff compares the daemon facet"
       ]
     },
     "screenGroup.color.cyan": {
@@ -2638,7 +2646,7 @@
         "make-group's group turns cyan"
       ],
       "untested": [
-        "the group's state: no facet lists a workspace's screen groups (name, color, icon, collapsed, saved) until p15-oracle-311; the receipt says the handler ran and the differential diff compares the daemon facet"
+        "the group's state: no facet lists a workspace's screen groups (name, color, icon, collapsed, saved) until p15-oracle-331; the receipt says the handler ran and the differential diff compares the daemon facet"
       ]
     },
     "screenGroup.color.green": {
@@ -2667,7 +2675,7 @@
         "make-group's group turns green"
       ],
       "untested": [
-        "the group's state: no facet lists a workspace's screen groups (name, color, icon, collapsed, saved) until p15-oracle-311; the receipt says the handler ran and the differential diff compares the daemon facet"
+        "the group's state: no facet lists a workspace's screen groups (name, color, icon, collapsed, saved) until p15-oracle-331; the receipt says the handler ran and the differential diff compares the daemon facet"
       ]
     },
     "screenGroup.color.grey": {
@@ -2696,7 +2704,7 @@
         "make-group's group turns grey"
       ],
       "untested": [
-        "the group's state: no facet lists a workspace's screen groups (name, color, icon, collapsed, saved) until p15-oracle-311; the receipt says the handler ran and the differential diff compares the daemon facet"
+        "the group's state: no facet lists a workspace's screen groups (name, color, icon, collapsed, saved) until p15-oracle-331; the receipt says the handler ran and the differential diff compares the daemon facet"
       ]
     },
     "screenGroup.color.orange": {
@@ -2725,7 +2733,7 @@
         "make-group's group turns orange"
       ],
       "untested": [
-        "the group's state: no facet lists a workspace's screen groups (name, color, icon, collapsed, saved) until p15-oracle-311; the receipt says the handler ran and the differential diff compares the daemon facet"
+        "the group's state: no facet lists a workspace's screen groups (name, color, icon, collapsed, saved) until p15-oracle-331; the receipt says the handler ran and the differential diff compares the daemon facet"
       ]
     },
     "screenGroup.color.pink": {
@@ -2754,7 +2762,7 @@
         "make-group's group turns pink"
       ],
       "untested": [
-        "the group's state: no facet lists a workspace's screen groups (name, color, icon, collapsed, saved) until p15-oracle-311; the receipt says the handler ran and the differential diff compares the daemon facet"
+        "the group's state: no facet lists a workspace's screen groups (name, color, icon, collapsed, saved) until p15-oracle-331; the receipt says the handler ran and the differential diff compares the daemon facet"
       ],
       "note": "TOGGLES matches `pin` inside pink, so gen_actions.py adds a restore that sets pink again (p15-oracle-293)"
     },
@@ -2784,7 +2792,7 @@
         "make-group's group turns purple"
       ],
       "untested": [
-        "the group's state: no facet lists a workspace's screen groups (name, color, icon, collapsed, saved) until p15-oracle-311; the receipt says the handler ran and the differential diff compares the daemon facet"
+        "the group's state: no facet lists a workspace's screen groups (name, color, icon, collapsed, saved) until p15-oracle-331; the receipt says the handler ran and the differential diff compares the daemon facet"
       ]
     },
     "screenGroup.color.red": {
@@ -2813,7 +2821,7 @@
         "make-group's group turns red"
       ],
       "untested": [
-        "the group's state: no facet lists a workspace's screen groups (name, color, icon, collapsed, saved) until p15-oracle-311; the receipt says the handler ran and the differential diff compares the daemon facet"
+        "the group's state: no facet lists a workspace's screen groups (name, color, icon, collapsed, saved) until p15-oracle-331; the receipt says the handler ran and the differential diff compares the daemon facet"
       ]
     },
     "screenGroup.color.yellow": {
@@ -2842,7 +2850,7 @@
         "make-group's group turns yellow"
       ],
       "untested": [
-        "the group's state: no facet lists a workspace's screen groups (name, color, icon, collapsed, saved) until p15-oracle-311; the receipt says the handler ran and the differential diff compares the daemon facet"
+        "the group's state: no facet lists a workspace's screen groups (name, color, icon, collapsed, saved) until p15-oracle-331; the receipt says the handler ran and the differential diff compares the daemon facet"
       ]
     },
     "screenGroup.create": {
@@ -2854,7 +2862,7 @@
         "the shown screen joins a new screen group named oracle with the next unused color (ScreenGroupCommands.create)"
       ],
       "untested": [
-        "the group's state: no facet lists a workspace's screen groups (name, color, icon, collapsed, saved) until p15-oracle-311; the receipt says the handler ran and the differential diff compares the daemon facet"
+        "the group's state: no facet lists a workspace's screen groups (name, color, icon, collapsed, saved) until p15-oracle-331; the receipt says the handler ran and the differential diff compares the daemon facet"
       ]
     },
     "screenGroup.expand": {
@@ -2897,7 +2905,7 @@
         "the group collapse folded unfolds"
       ],
       "untested": [
-        "the group's state: no facet lists a workspace's screen groups (name, color, icon, collapsed, saved) until p15-oracle-311; the receipt says the handler ran and the differential diff compares the daemon facet"
+        "the group's state: no facet lists a workspace's screen groups (name, color, icon, collapsed, saved) until p15-oracle-331; the receipt says the handler ran and the differential diff compares the daemon facet"
       ]
     },
     "screenGroup.moveLeft": {
@@ -3250,9 +3258,9 @@
         "a new screen at the end of make-group's group (ScreenSpec with the group and the index after its last member)"
       ],
       "untested": [
-        "the group's state: no facet lists a workspace's screen groups (name, color, icon, collapsed, saved) until p15-oracle-311; the receipt says the handler ran and the differential diff compares the daemon facet"
+        "the group's state: no facet lists a workspace's screen groups (name, color, icon, collapsed, saved) until p15-oracle-331; the receipt says the handler ran and the differential diff compares the daemon facet"
       ],
-      "note": "ScreenCommands.create starts its daemon request in an untracked Task, so action.run answers before the screen exists and `created` does not name it (p15-oracle-312); the waitFor is the check until then"
+      "note": "ScreenCommands.create starts its daemon request in an untracked Task, so action.run answers before the screen exists and `created` does not name it (p15-oracle-332); the waitFor is the check until then"
     },
     "screenGroup.removeScreen": {
       "before": [
@@ -3280,7 +3288,7 @@
         "the shown screen leaves make-group's group (the daemon drops the emptied group)"
       ],
       "untested": [
-        "the group's state: no facet lists a workspace's screen groups (name, color, icon, collapsed, saved) until p15-oracle-311; the receipt says the handler ran and the differential diff compares the daemon facet"
+        "the group's state: no facet lists a workspace's screen groups (name, color, icon, collapsed, saved) until p15-oracle-331; the receipt says the handler ran and the differential diff compares the daemon facet"
       ]
     },
     "screenGroup.rename": {
@@ -3312,7 +3320,7 @@
         "make-group's group is renamed"
       ],
       "untested": [
-        "the group's state: no facet lists a workspace's screen groups (name, color, icon, collapsed, saved) until p15-oracle-311; the receipt says the handler ran and the differential diff compares the daemon facet",
+        "the group's state: no facet lists a workspace's screen groups (name, color, icon, collapsed, saved) until p15-oracle-331; the receipt says the handler ran and the differential diff compares the daemon facet",
         "the ask with no name, which a socket run must not open (p15-oracle-292)"
       ]
     },
@@ -3324,7 +3332,7 @@
       "untested": [
         "the success path: no step reply names a saved group's id"
       ],
-      "note": "an unknown saved id reaches the person as daemon_error, not a typed not_found (p15-oracle-314)"
+      "note": "an unknown saved id reaches the person as daemon_error, not a typed not_found (p15-oracle-334)"
     },
     "screenGroup.save": {
       "before": [
@@ -3352,7 +3360,7 @@
         "make-group's group is saved (save-screen-group): Reopen Saved lists it"
       ],
       "untested": [
-        "the group's state: no facet lists a workspace's screen groups (name, color, icon, collapsed, saved) until p15-oracle-311; the receipt says the handler ran and the differential diff compares the daemon facet"
+        "the group's state: no facet lists a workspace's screen groups (name, color, icon, collapsed, saved) until p15-oracle-331; the receipt says the handler ran and the differential diff compares the daemon facet"
       ]
     },
     "screenGroup.setColor": {
@@ -3384,7 +3392,7 @@
         "make-group's group turns purple (GroupTint from the palette token)"
       ],
       "untested": [
-        "the group's state: no facet lists a workspace's screen groups (name, color, icon, collapsed, saved) until p15-oracle-311; the receipt says the handler ran and the differential diff compares the daemon facet"
+        "the group's state: no facet lists a workspace's screen groups (name, color, icon, collapsed, saved) until p15-oracle-331; the receipt says the handler ran and the differential diff compares the daemon facet"
       ]
     },
     "screenGroup.setIcon": {
@@ -3416,7 +3424,7 @@
         "make-group's group gets the star icon (GroupIconArgument checks it; screen-group-icon-v1)"
       ],
       "untested": [
-        "the group's state: no facet lists a workspace's screen groups (name, color, icon, collapsed, saved) until p15-oracle-311; the receipt says the handler ran and the differential diff compares the daemon facet",
+        "the group's state: no facet lists a workspace's screen groups (name, color, icon, collapsed, saved) until p15-oracle-331; the receipt says the handler ran and the differential diff compares the daemon facet",
         "the icon picker with no argument, which a socket run must not open (p15-oracle-292)"
       ]
     },
@@ -3446,7 +3454,7 @@
         "make-group's group folds; the generated restore runs the toggle again to unfold it"
       ],
       "untested": [
-        "the group's state: no facet lists a workspace's screen groups (name, color, icon, collapsed, saved) until p15-oracle-311; the receipt says the handler ran and the differential diff compares the daemon facet"
+        "the group's state: no facet lists a workspace's screen groups (name, color, icon, collapsed, saved) until p15-oracle-331; the receipt says the handler ran and the differential diff compares the daemon facet"
       ]
     },
     "screenGroup.ungroup": {
@@ -3475,7 +3483,7 @@
         "make-group's group dissolves; its screen stays where it is"
       ],
       "untested": [
-        "the group's state: no facet lists a workspace's screen groups (name, color, icon, collapsed, saved) until p15-oracle-311; the receipt says the handler ran and the differential diff compares the daemon facet"
+        "the group's state: no facet lists a workspace's screen groups (name, color, icon, collapsed, saved) until p15-oracle-331; the receipt says the handler ran and the differential diff compares the daemon facet"
       ]
     },
     "screenGroup.unsave": {
@@ -3518,7 +3526,7 @@
         "the group save-group saved is unsaved"
       ],
       "untested": [
-        "the group's state: no facet lists a workspace's screen groups (name, color, icon, collapsed, saved) until p15-oracle-311; the receipt says the handler ran and the differential diff compares the daemon facet",
+        "the group's state: no facet lists a workspace's screen groups (name, color, icon, collapsed, saved) until p15-oracle-331; the receipt says the handler ran and the differential diff compares the daemon facet",
         "the refusal for a group never saved (RefusalStrings.groupNotSaved)"
       ]
     },
@@ -3649,7 +3657,7 @@
       "untested": [
         "the panes' tabs and sizes travel with them: the differential diff compares the tabs and layout facets"
       ],
-      "note": "fails at its generated neighbor-2 step until p15-oracle-310: gen_actions.py runs the sweep's NEIGHBOR_STEPS (a split, then focusUp) without focus, so focus stays on the launch's pane and focusUp from it has no pane that way (refuseQuietly, control.unavailable); once 310 runs setup with focus, as the sweep's SweepDriver.run does, the case's own before steps still pick the pane by number"
+      "note": "fails at its generated neighbor-2 step until p15-oracle-330: gen_actions.py runs the sweep's NEIGHBOR_STEPS (a split, then focusUp) without focus, so focus stays on the launch's pane and focusUp from it has no pane that way (refuseQuietly, control.unavailable); once 330 runs setup with focus, as the sweep's SweepDriver.run does, the case's own before steps still pick the pane by number"
     },
     "swapPaneLeft": {
       "before": [
@@ -3719,7 +3727,7 @@
       "untested": [
         "the panes' tabs and sizes travel with them: the differential diff compares the tabs and layout facets"
       ],
-      "note": "fails at its generated neighbor-2 step until p15-oracle-310: gen_actions.py runs the sweep's NEIGHBOR_STEPS (a split, then focusLeft) without focus, so focus stays on the launch's pane and focusLeft from it has no pane that way (refuseQuietly, control.unavailable); once 310 runs setup with focus, as the sweep's SweepDriver.run does, the case's own before steps still pick the pane by number"
+      "note": "fails at its generated neighbor-2 step until p15-oracle-330: gen_actions.py runs the sweep's NEIGHBOR_STEPS (a split, then focusLeft) without focus, so focus stays on the launch's pane and focusLeft from it has no pane that way (refuseQuietly, control.unavailable); once 330 runs setup with focus, as the sweep's SweepDriver.run does, the case's own before steps still pick the pane by number"
     },
     "swapPaneUp": {
       "before": [
