@@ -201,6 +201,15 @@ class GeneratedClientMixin:
     def browser_reload(self, surface: Id) -> EmptyResult:
         return self._invoke_command('browser-reload', BrowserReloadRequest(surface=surface))
 
+    def browser_runtime_start(self, *, url: Union[str, None, MissingType] = MISSING) -> BrowserRuntimeStartResult:
+        return self._invoke_command('browser-runtime-start', BrowserRuntimeStartRequest(url=url))
+
+    def browser_runtime_status(self) -> BrowserRuntimeStatusResult:
+        return self._invoke_command('browser-runtime-status', BrowserRuntimeStatusRequest())
+
+    def browser_runtime_stop(self, runtime: int) -> BrowserRuntimeStopResult:
+        return self._invoke_command('browser-runtime-stop', BrowserRuntimeStopRequest(runtime=runtime))
+
     def browser_wheel(self, surface: Id, x_px: float, y_px: float, delta_y_px: float, *, frame_seq: Union[int, None, MissingType] = MISSING) -> EmptyResult:
         return self._invoke_command('browser-wheel', BrowserWheelRequest(surface=surface, x_px=x_px, y_px=y_px, delta_y_px=delta_y_px, frame_seq=frame_seq))
 
@@ -221,6 +230,9 @@ class GeneratedClientMixin:
 
     def client_focus(self, client_id: str) -> ClientFocusResult:
         return self._invoke_command('client-focus', ClientFocusRequest(client_id=client_id))
+
+    def client_hello(self, *, install_id: Union[str, MissingType] = MISSING, page: Union[str, None, MissingType] = MISSING, proof: Union[str, MissingType] = MISSING, role: Union[str, MissingType] = MISSING) -> ClientHelloResult:
+        return self._invoke_command('client-hello', ClientHelloRequest(install_id=install_id, page=page, proof=proof, role=role))
 
     def close_pane(self, pane: Id, *, end_terminals: Union[bool, MissingType] = MISSING) -> EmptyResult:
         return self._invoke_command('close-pane', ClosePaneRequest(pane=pane, end_terminals=end_terminals))
@@ -590,6 +602,27 @@ class GeneratedClientMixin:
 
     def list_workspaces(self) -> Tree:
         return self._invoke_command('list-workspaces', ListWorkspacesRequest())
+
+    def loopback_close(self, stream: int) -> EmptyResult:
+        return self._invoke_command('loopback-close', LoopbackCloseRequest(stream=stream))
+
+    def loopback_credit(self, bytes_data: Union[int, bytes], stream: int) -> EmptyResult:
+        return self._invoke_command('loopback-credit', LoopbackCreditRequest(bytes_data=(base64.b64encode(bytes_data).decode('ascii') if isinstance(bytes_data, bytes) else bytes_data), stream=stream))
+
+    def loopback_data(self, data: str, stream: int) -> EmptyResult:
+        return self._invoke_command('loopback-data', LoopbackDataRequest(data=data, stream=stream))
+
+    def loopback_open(self, host: str, port: int, stream: int, *, window: Union[int, None, MissingType] = MISSING) -> LoopbackOpenResult:
+        return self._invoke_command('loopback-open', LoopbackOpenRequest(host=host, port=port, stream=stream, window=window))
+
+    def loopback_shutdown(self, stream: int) -> EmptyResult:
+        return self._invoke_command('loopback-shutdown', LoopbackShutdownRequest(stream=stream))
+
+    def loopback_status(self) -> LoopbackStatusResult:
+        return self._invoke_command('loopback-status', LoopbackStatusRequest())
+
+    def machine_catalog_publish(self, expected_machine_id: str, machines: List[MachineCatalogEntry], sequence: int) -> MachineCatalogPublishResult:
+        return self._invoke_command('machine-catalog-publish', MachineCatalogPublishRequest(expected_machine_id=expected_machine_id, machines=machines, sequence=sequence))
 
     def machine_listening_tcp(self) -> MachineListeningTcpResult:
         return self._invoke_command('machine-listening-tcp', MachineListeningTcpRequest())
@@ -1111,6 +1144,9 @@ GeneratedClientMixin.browser_mouse.__cmux_command__ = COMMANDS['browser-mouse']
 GeneratedClientMixin.browser_mouse_guarded.__cmux_command__ = COMMANDS['browser-mouse-guarded']
 GeneratedClientMixin.browser_navigate.__cmux_command__ = COMMANDS['browser-navigate']
 GeneratedClientMixin.browser_reload.__cmux_command__ = COMMANDS['browser-reload']
+GeneratedClientMixin.browser_runtime_start.__cmux_command__ = COMMANDS['browser-runtime-start']
+GeneratedClientMixin.browser_runtime_status.__cmux_command__ = COMMANDS['browser-runtime-status']
+GeneratedClientMixin.browser_runtime_stop.__cmux_command__ = COMMANDS['browser-runtime-stop']
 GeneratedClientMixin.browser_wheel.__cmux_command__ = COMMANDS['browser-wheel']
 GeneratedClientMixin.browser_wheel_guarded.__cmux_command__ = COMMANDS['browser-wheel-guarded']
 GeneratedClientMixin.cancel_request.__cmux_command__ = COMMANDS['cancel-request']
@@ -1118,6 +1154,7 @@ GeneratedClientMixin.chief_inspect.__cmux_command__ = COMMANDS['chief-inspect']
 GeneratedClientMixin.clear_history.__cmux_command__ = COMMANDS['clear-history']
 GeneratedClientMixin.clear_window_title.__cmux_command__ = COMMANDS['clear-window-title']
 GeneratedClientMixin.client_focus.__cmux_command__ = COMMANDS['client-focus']
+GeneratedClientMixin.client_hello.__cmux_command__ = COMMANDS['client-hello']
 GeneratedClientMixin.close_pane.__cmux_command__ = COMMANDS['close-pane']
 GeneratedClientMixin.close_provider_managed_workspace.__cmux_command__ = COMMANDS['close-provider-managed-workspace']
 GeneratedClientMixin.close_screen.__cmux_command__ = COMMANDS['close-screen']
@@ -1241,6 +1278,13 @@ GeneratedClientMixin.list_terminal_commands.__cmux_command__ = COMMANDS['list-te
 GeneratedClientMixin.list_terminals.__cmux_command__ = COMMANDS['list-terminals']
 GeneratedClientMixin.list_workspace_groups.__cmux_command__ = COMMANDS['list-workspace-groups']
 GeneratedClientMixin.list_workspaces.__cmux_command__ = COMMANDS['list-workspaces']
+GeneratedClientMixin.loopback_close.__cmux_command__ = COMMANDS['loopback-close']
+GeneratedClientMixin.loopback_credit.__cmux_command__ = COMMANDS['loopback-credit']
+GeneratedClientMixin.loopback_data.__cmux_command__ = COMMANDS['loopback-data']
+GeneratedClientMixin.loopback_open.__cmux_command__ = COMMANDS['loopback-open']
+GeneratedClientMixin.loopback_shutdown.__cmux_command__ = COMMANDS['loopback-shutdown']
+GeneratedClientMixin.loopback_status.__cmux_command__ = COMMANDS['loopback-status']
+GeneratedClientMixin.machine_catalog_publish.__cmux_command__ = COMMANDS['machine-catalog-publish']
 GeneratedClientMixin.machine_listening_tcp.__cmux_command__ = COMMANDS['machine-listening-tcp']
 GeneratedClientMixin.machine_usage.__cmux_command__ = COMMANDS['machine-usage']
 GeneratedClientMixin.mark_workspaces_provider_managed.__cmux_command__ = COMMANDS['mark-workspaces-provider-managed']

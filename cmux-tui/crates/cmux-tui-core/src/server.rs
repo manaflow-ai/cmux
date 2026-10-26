@@ -157,7 +157,9 @@ mod page_router;
 pub use orphan_shutdown::stop_orphaned_owner;
 mod pending_handoff;
 mod renderer_grant;
-use line_connection::{handle_connection_with_permit, serve_line_connection};
+use line_connection::{
+    handle_connection_with_permit, serve_line_connection, spawn_connection_reader,
+};
 mod attachment_http;
 mod bookmarks;
 mod browser_host_command;
@@ -287,6 +289,9 @@ pub(crate) mod activity;
 mod browser_input;
 mod chief_control;
 mod chief_engine_mirror;
+pub(crate) use chief_engine_mirror::{
+    engine_file as chief_engine_file, write as write_chief_engine_file,
+};
 mod chief_inspect;
 mod chief_manage;
 mod chief_registry_resource;
@@ -2875,7 +2880,8 @@ fn list_workspaces_reply(mux: &Mux) -> anyhow::Result<Value> {
 
 /// Remove the socket file (call on clean shutdown).
 pub fn cleanup(path: &Path) {
-    let _ = std::fs::remove_file(path);
+    use cmux_threads::checked::fs as files;
+    let _ = files::remove_file(path);
 }
 
 #[cfg(test)]
@@ -2885,6 +2891,10 @@ mod loopback_forward_tests;
 #[cfg(all(test, unix))]
 #[path = "server/agent_session_attach_tests.rs"]
 mod agent_session_attach_tests;
+
+#[cfg(test)]
+#[path = "server/request_thread_tests.rs"]
+mod request_thread_tests;
 
 #[cfg(all(test, unix))]
 #[path = "server/agent_inventory_tests.rs"]

@@ -37,12 +37,12 @@
   "daemon": {
    "id": 1,
    "description": "Daemon identity, liveness, configuration and machine state.",
-   "next_ordinal": 17
+   "next_ordinal": 18
   },
   "clients": {
    "id": 2,
    "description": "Connected clients and their focus.",
-   "next_ordinal": 5
+   "next_ordinal": 6
   },
   "terminal-io": {
    "id": 3,
@@ -87,7 +87,7 @@
   "browser": {
    "id": 11,
    "description": "Browser input, navigation, browser providers and browser profiles.",
-   "next_ordinal": 21
+   "next_ordinal": 24
   },
   "bookmarks": {
    "id": 12,
@@ -164,25 +164,35 @@
    "description": "Agent chat tabs attached to this machine's acpmux sessions.",
    "next_ordinal": 11
   },
-  "agent-machine": {
-   "id": 20,
-   "description": "This machine's acpmux for the app: chat moves, Cloud access requests and agent CLI updates.",
-   "next_ordinal": 15
-  },
-  "files": {
-   "id": 21,
-   "description": "File ops on a cmux Cloud host's roots (fs-v1).",
-   "next_ordinal": 7
-  },
-  "scripts": {
-   "id": 22,
-   "description": "Script runs and REPL sessions in the daemon's script host.",
-   "next_ordinal": 4
-  },
   "script-events": {
    "id": 200,
    "description": "Console output of script runs and REPL cells.",
    "next_ordinal": 1
+  },
+  "loopback": {
+   "id": 20,
+   "description": "TCP streams to the daemon machine's loopback services (loopback-forward-v1).",
+   "next_ordinal": 6
+  },
+  "loopback-events": {
+   "id": 199,
+   "description": "Data, credit and end of loopback-forward-v1 streams.",
+   "next_ordinal": 4
+  },
+  "agent-machine": {
+   "id": 21,
+   "description": "This machine's acpmux for the app: chat moves, Cloud access requests and agent CLI updates.",
+   "next_ordinal": 15
+  },
+  "files": {
+   "id": 22,
+   "description": "File ops on a cmux Cloud host's roots (fs-v1).",
+   "next_ordinal": 7
+  },
+  "scripts": {
+   "id": 23,
+   "description": "Script runs and REPL sessions in the daemon's script host.",
+   "next_ordinal": 4
   }
  },
  "types": {
@@ -11664,6 +11674,639 @@
      },
      "presence": "optional",
      "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
+  "BrowserRuntimeRow": {
+   "kind": "object",
+   "fields": {
+    "runtime": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "port": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint16"
+     },
+     "presence": "required",
+     "nullable": false,
+     "constraints": [
+      "The host's loopback port on the daemon machine."
+     ]
+    }
+   },
+   "additional_properties": false
+  },
+  "BrowserRuntimeStatusResult": {
+   "kind": "object",
+   "fields": {
+    "installed": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": true,
+     "constraints": [
+      "The installed version (the directory `current` names), null when none is installed."
+     ]
+    },
+    "platform": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false,
+     "constraints": [
+      "<os>-<arch> of the daemon machine, for example macos-aarch64."
+     ]
+    },
+    "runtimes": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "BrowserRuntimeRow"
+      }
+     },
+     "presence": "required",
+     "nullable": false,
+     "constraints": [
+      "This connection's runtimes."
+     ]
+    }
+   },
+   "additional_properties": false
+  },
+  "BrowserRuntimeStartResult": {
+   "kind": "object",
+   "fields": {
+    "runtime": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "port": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint16"
+     },
+     "presence": "required",
+     "nullable": false,
+     "constraints": [
+      "Reach it with loopback-open on the same connection."
+     ]
+    },
+    "secret": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false,
+     "constraints": [
+      "64 hex characters: the host's cmux.rd/1 hello token. Keep it in memory only."
+     ]
+    },
+    "installed": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false,
+     "constraints": [
+      "The version that was started."
+     ]
+    }
+   },
+   "additional_properties": false
+  },
+  "BrowserRuntimeStopResult": {
+   "kind": "object",
+   "fields": {
+    "stopped": {
+     "type": {
+      "kind": "literal",
+      "value": true
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
+  "LoopbackOpenResult": {
+   "kind": "object",
+   "fields": {
+    "stream": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "address": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false,
+     "constraints": [
+      "The loopback socket address the daemon connected to."
+     ]
+    },
+    "window": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false,
+     "constraints": [
+      "The daemon's receive window in bytes (256 KiB)."
+     ]
+    }
+   },
+   "additional_properties": false
+  },
+  "LoopbackLimits": {
+   "kind": "object",
+   "fields": {
+    "per_client": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "total": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "frame_bytes": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "daemon_window": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
+  "LoopbackAuditRecord": {
+   "kind": "object",
+   "fields": {
+    "at_ms": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "client": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "stream": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "host": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "port": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint16"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "outcome": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false,
+     "constraints": [
+      "ok, or the error code of a refused or failed open."
+     ]
+    },
+    "bytes_to_target": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "bytes_from_target": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "duration_ms": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
+  "LoopbackStatusResult": {
+   "kind": "object",
+   "fields": {
+    "enabled": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false,
+     "constraints": [
+      "server.loopback_forward allows forwarding."
+     ]
+    },
+    "open_streams": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false,
+     "constraints": [
+      "Open streams of every connection."
+     ]
+    },
+    "client_streams": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false,
+     "constraints": [
+      "Open and opening streams of this connection."
+     ]
+    },
+    "opened": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "refused": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "limits": {
+     "type": {
+      "kind": "ref",
+      "name": "LoopbackLimits"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "audit": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "ref",
+       "name": "LoopbackAuditRecord"
+      }
+     },
+     "presence": "required",
+     "nullable": false,
+     "constraints": [
+      "The last 256 finished or refused connections."
+     ]
+    }
+   },
+   "additional_properties": false
+  },
+  "ClientHelloPageOperations": {
+   "kind": "object",
+   "fields": {
+    "read": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "scalar",
+       "name": "string"
+      }
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "gesture": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "scalar",
+       "name": "string"
+      }
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "confirm": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "scalar",
+       "name": "string"
+      }
+     },
+     "presence": "required",
+     "nullable": false
+    }
+   },
+   "additional_properties": false
+  },
+  "ClientHelloResult": {
+   "kind": "object",
+   "fields": {
+    "connection_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false,
+     "constraints": [
+      "The daemon's id for this connection (the relay_connection_id of origin.confirmation.issue)."
+     ]
+    },
+    "user_origin_allowed": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false,
+     "constraints": [
+      "Whether a request with origin user is accepted on this connection now."
+     ]
+    },
+    "nonce": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "constraints": [
+      "Step 1, role main with an install_id: 64 hex digits; the very next line must be step 2."
+     ]
+    },
+    "page": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "constraints": [
+      "Step 1 of a page relay that named its page."
+     ]
+    },
+    "page_operations": {
+     "type": {
+      "kind": "ref",
+      "name": "ClientHelloPageOperations"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "constraints": [
+      "Step 1 of a page relay that named its page: its allow list (page-router-v1)."
+     ]
+    },
+    "page_events": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "scalar",
+       "name": "string"
+      }
+     },
+     "presence": "optional",
+     "nullable": false,
+     "constraints": [
+      "Step 1 of a page relay that named its page: the subscribe events it hears (page-events-v1)."
+     ]
+    },
+    "verified": {
+     "type": {
+      "kind": "literal",
+      "value": true
+     },
+     "presence": "optional",
+     "nullable": false,
+     "constraints": [
+      "Step 2 only."
+     ]
+    },
+    "install_id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": false,
+     "constraints": [
+      "Step 2 only: the proved install id."
+     ]
+    }
+   },
+   "additional_properties": false
+  },
+  "MachineCatalogOrigin": {
+   "kind": "enum",
+   "values": [
+    "cloud",
+    "ssh",
+    "server"
+   ]
+  },
+  "MachineCatalogStatus": {
+   "kind": "enum",
+   "values": [
+    "running",
+    "connecting",
+    "unavailable",
+    "sleeping",
+    "stopped"
+   ]
+  },
+  "MachineCatalogPlatform": {
+   "kind": "object",
+   "fields": {
+    "os": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "constraints": [
+      "1-64 of A-Z a-z 0-9 . _ -."
+     ]
+    },
+    "arch": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "optional",
+     "nullable": true,
+     "constraints": [
+      "1-64 of A-Z a-z 0-9 . _ -."
+     ]
+    }
+   },
+   "additional_properties": false
+  },
+  "MachineCatalogEntry": {
+   "kind": "object",
+   "fields": {
+    "id": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false,
+     "constraints": [
+      "A canonical machine public id, not this daemon's own and unique in the snapshot."
+     ]
+    },
+    "name": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false,
+     "constraints": [
+      "1-64 characters, no control characters."
+     ]
+    },
+    "origin": {
+     "type": {
+      "kind": "ref",
+      "name": "MachineCatalogOrigin"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "status": {
+     "type": {
+      "kind": "ref",
+      "name": "MachineCatalogStatus"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "platform": {
+     "type": {
+      "kind": "ref",
+      "name": "MachineCatalogPlatform"
+     },
+     "presence": "optional",
+     "nullable": true
+    },
+    "capabilities": {
+     "type": {
+      "kind": "array",
+      "items": {
+       "kind": "scalar",
+       "name": "string"
+      }
+     },
+     "presence": "optional",
+     "nullable": false,
+     "constraints": [
+      "Up to 16 tokens: 1-64 of a-z 0-9 . _ -, starting with a letter."
+     ]
+    }
+   },
+   "additional_properties": false
+  },
+  "MachineCatalogPublishResult": {
+   "kind": "object",
+   "fields": {
+    "sequence": {
+     "type": {
+      "kind": "scalar",
+      "name": "uint64"
+     },
+     "presence": "required",
+     "nullable": false
+    },
+    "replayed": {
+     "type": {
+      "kind": "scalar",
+      "name": "boolean"
+     },
+     "presence": "required",
+     "nullable": false,
+     "constraints": [
+      "True for an exact replay of the current snapshot."
+     ]
     }
    },
    "additional_properties": false
@@ -32042,7 +32685,7 @@
     "Paths are absolute; a . or .. component, a path outside the roots, or a symlink leaving them is fs.permission_denied.",
     "fs.not_found when nothing is at path."
    ],
-   "method_id": 5376,
+   "method_id": 5632,
    "priority": "control",
    "durability": "read_only",
    "clients": [
@@ -32128,7 +32771,7 @@
     "Paths are absolute; a . or .. component, a path outside the roots, or a symlink leaving them is fs.permission_denied.",
     "fs.not_a_directory, fs.too_large and cursor.expired."
    ],
-   "method_id": 5377,
+   "method_id": 5633,
    "priority": "control",
    "durability": "memory",
    "clients": [
@@ -32185,7 +32828,7 @@
     "stream:true is params.invalid on the line path: a byte stream needs a link dial of its own (commands.md, File system).",
     "fs.not_a_file for anything but a regular file."
    ],
-   "method_id": 5378,
+   "method_id": 5634,
    "priority": "bulk",
    "durability": "read_only",
    "clients": [
@@ -32275,7 +32918,7 @@
     "At most 12 MiB per call; written to a temporary file, fsynced and renamed over the target.",
     "fs.exists, fs.revision_mismatch (error_details.current), fs.too_large, fs.no_space and fs.read_only."
    ],
-   "method_id": 5379,
+   "method_id": 5635,
    "priority": "control",
    "durability": "reply_after_journal",
    "clients": [
@@ -32322,7 +32965,7 @@
     "Paths are absolute; a . or .. component, a path outside the roots, or a symlink leaving them is fs.permission_denied.",
     "fs.exists when the name is taken."
    ],
-   "method_id": 5380,
+   "method_id": 5636,
    "priority": "control",
    "durability": "reply_before_journal",
    "clients": [
@@ -32369,7 +33012,7 @@
     "Paths are absolute; a . or .. component, a path outside the roots, or a symlink leaving them is fs.permission_denied.",
     "Renames inside the same folder and never replaces: fs.exists or fs.not_found."
    ],
-   "method_id": 5381,
+   "method_id": 5637,
    "priority": "control",
    "durability": "reply_after_journal",
    "clients": [
@@ -32424,7 +33067,7 @@
     "Paths are absolute; a . or .. component, a path outside the roots, or a symlink leaving them is fs.permission_denied.",
     "Removes folders with everything in them and never follows a symlink; fs.not_found."
    ],
-   "method_id": 5382,
+   "method_id": 5638,
    "priority": "control",
    "durability": "reply_before_journal",
    "clients": [
@@ -32501,7 +33144,7 @@
     "Console output arrives before the reply as script-log events on this connection; cancel-request {target} ends a running cell.",
     "Needs a request id."
    ],
-   "method_id": 5632,
+   "method_id": 5888,
    "priority": "control",
    "durability": "memory",
    "clients": [
@@ -32538,7 +33181,7 @@
     "Console output arrives before the reply as script-log events on this connection; cancel-request {target} ends a running cell.",
     "Needs a request id; the session ends when this connection closes."
    ],
-   "method_id": 5633,
+   "method_id": 5889,
    "priority": "control",
    "durability": "memory",
    "clients": [
@@ -32623,7 +33266,7 @@
     "Console output arrives before the reply as script-log events on this connection; cancel-request {target} ends a running cell.",
     "Needs a request id; the session must be this connection's."
    ],
-   "method_id": 5634,
+   "method_id": 5890,
    "priority": "control",
    "durability": "memory",
    "clients": [
@@ -32667,7 +33310,7 @@
    "constraints": [
     "Needs a local Unix connection that is not a page relay and is bound to no agent; others get script.forbidden, a daemon without a script host script.unavailable, a malformed request bad-request."
    ],
-   "method_id": 5635,
+   "method_id": 5891,
    "priority": "control",
    "durability": "memory",
    "clients": [
@@ -32739,7 +33382,7 @@
     "The daemon builds the receive guard from its own host; an acpmux that does not apply it is agent_transfer.unguarded.",
     "Records the receive's move before the reply, so a later receive-abort can ask about it after a restart."
    ],
-   "method_id": 5120,
+   "method_id": 5376,
    "priority": "control",
    "durability": "memory",
    "clients": [
@@ -32814,7 +33457,7 @@
     "Trusted local Unix connections only, as agent-session-attach; others get agent_transfer.not_trusted. A guard, roots, control, env, MCP server, session id, command-bearing or unknown param is agent_transfer.bad_request before anything reaches acpmux.",
     "agent_transfer.unknown_receive for a receive this daemon does not hold."
    ],
-   "method_id": 5121,
+   "method_id": 5377,
    "priority": "control",
    "durability": "memory",
    "clients": [
@@ -32871,7 +33514,7 @@
     "Reads this machine's kind at each call: agent_session.team_vm_blocked on a team VM, agent_session.host_unverified on a Cloud VM of unknown kind.",
     "Imports the chat in the receive's own folder and records it as landed here before the reply."
    ],
-   "method_id": 5122,
+   "method_id": 5378,
    "priority": "control",
    "durability": "memory",
    "clients": [
@@ -32935,7 +33578,7 @@
     "Trusted local Unix connections only, as agent-session-attach; others get agent_transfer.not_trusted. A guard, roots, control, env, MCP server, session id, command-bearing or unknown param is agent_transfer.bad_request before anything reaches acpmux.",
     "Sends acpmux's forget with the ids of the receive's own manifest; a receive the daemon recorded stays askable after a restart."
    ],
-   "method_id": 5123,
+   "method_id": 5379,
    "priority": "control",
    "durability": "memory",
    "clients": [
@@ -33021,7 +33664,7 @@
     "surface must be an agent tab of this store with a session (else agent_transfer.unknown_tab).",
     "A chat already in a move is agent_transfer.refused with error_details.transfer_id."
    ],
-   "method_id": 5124,
+   "method_id": 5380,
    "priority": "control",
    "durability": "memory",
    "stream_scoped": true,
@@ -33068,7 +33711,7 @@
     "surface must be an agent tab of this store with a session (else agent_transfer.unknown_tab).",
     "Reads the tab's store record without reaching acpmux."
    ],
-   "method_id": 5125,
+   "method_id": 5381,
    "priority": "control",
    "durability": "read_only",
    "stream_scoped": true,
@@ -33160,7 +33803,7 @@
     "Trusted local Unix connections only, as agent-session-attach; others get agent_transfer.not_trusted. A guard, roots, control, env, MCP server, session id, command-bearing or unknown param is agent_transfer.bad_request before anything reaches acpmux.",
     "agent_transfer.unknown_transfer for a move not begun through this daemon."
    ],
-   "method_id": 5126,
+   "method_id": 5382,
    "priority": "bulk",
    "durability": "read_only",
    "clients": [
@@ -33225,7 +33868,7 @@
     "surface must be an agent tab of this store with a session (else agent_transfer.unknown_tab).",
     "The chat closes here once the target has it."
    ],
-   "method_id": 5127,
+   "method_id": 5383,
    "priority": "control",
    "durability": "memory",
    "stream_scoped": true,
@@ -33280,7 +33923,7 @@
     "surface must be an agent tab of this store with a session (else agent_transfer.unknown_tab).",
     "The daemon forgets the move even when acpmux refuses the abort."
    ],
-   "method_id": 5128,
+   "method_id": 5384,
    "priority": "control",
    "durability": "memory",
    "stream_scoped": true,
@@ -33376,7 +34019,7 @@
     "Trusted local Unix connections that are not remote clients (else access_request.not_trusted), on a cmux Cloud host only (else access_request.unavailable). A command-bearing, unknown or non-string param is access_request.bad_request.",
     "64 requests are kept, pending or answered (access_request.limit); each is forgotten 15 minutes after it was made or answered."
    ],
-   "method_id": 5129,
+   "method_id": 5385,
    "priority": "control",
    "durability": "memory",
    "clients": [
@@ -33411,7 +34054,7 @@
     "Trusted local Unix connections that are not remote clients (else access_request.not_trusted), on a cmux Cloud host only (else access_request.unavailable). A command-bearing, unknown or non-string param is access_request.bad_request.",
     "access_request.unknown_request; the first read of a delivered secret takes its value."
    ],
-   "method_id": 5130,
+   "method_id": 5386,
    "priority": "control",
    "durability": "memory",
    "clients": [
@@ -33450,7 +34093,7 @@
     "Trusted local Unix connections that are not remote clients (else access_request.not_trusted), on a cmux Cloud host only (else access_request.unavailable). A command-bearing, unknown or non-string param is access_request.bad_request.",
     "The pending requests, oldest first."
    ],
-   "method_id": 5131,
+   "method_id": 5387,
    "priority": "control",
    "durability": "read_only",
    "clients": [
@@ -33527,7 +34170,7 @@
     "Trusted local Unix connections that are not remote clients (else access_request.not_trusted), on a cmux Cloud host only (else access_request.unavailable). A command-bearing, unknown or non-string param is access_request.bad_request.",
     "A pending request only: access_request.unknown_request or access_request.answered."
    ],
-   "method_id": 5132,
+   "method_id": 5388,
    "priority": "control",
    "durability": "memory",
    "clients": [
@@ -33611,7 +34254,7 @@
     "Trusted local Unix connections only, as agent-session-attach; others get agent_update.not_trusted. An unknown param is agent_update.bad_request.",
     "Never starts acpmux: with nothing on its socket the answer has no harness and no thread."
    ],
-   "method_id": 5133,
+   "method_id": 5389,
    "priority": "control",
    "durability": "read_only",
    "clients": [
@@ -33731,10 +34374,520 @@
     "One apply at a time per daemon (agent_update.busy); each update may take 15 minutes, the call at most two hours.",
     "Starts acpmux when nothing listens on its socket (agent_update.acpmux_unavailable when it cannot)."
    ],
-   "method_id": 5134,
+   "method_id": 5390,
    "priority": "control",
    "durability": "memory",
    "clients": [
+    "sdk"
+   ]
+  },
+  "browser-runtime-status": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "browser-runtime-v1",
+   "request": {
+    "kind": "object",
+    "fields": {},
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "BrowserRuntimeStatusResult"
+   },
+   "stream": null,
+   "constraints": [
+    "The installed browser host version, the daemon platform and this connection's runtimes.",
+    "Local (Unix) connections that declared browser-runtime-v1 with set-client-info only (browser-runtime.not-enabled otherwise); the remote relay refuses it."
+   ],
+   "method_id": 2837,
+   "priority": "control",
+   "durability": "read_only",
+   "clients": [
+    "macos",
+    "sdk"
+   ]
+  },
+  "browser-runtime-start": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "browser-runtime-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "url": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "constraints": [
+       "The first page: an http or https URL of at most 8 KiB (browser-runtime.bad-url otherwise)."
+      ]
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "BrowserRuntimeStartResult"
+   },
+   "stream": null,
+   "constraints": [
+    "Starts cmux-remote-browser-host from the install directory; the reply comes when it listens (browser-runtime.start-failed after 45 s or when it exits).",
+    "4 runtimes per connection and 16 per daemon (browser-runtime.limit); browser-runtime.not-installed without an installed host.",
+    "The runtime belongs to the connection: closing it stops its runtimes.",
+    "Local (Unix) connections that declared browser-runtime-v1 with set-client-info only (browser-runtime.not-enabled otherwise); the remote relay refuses it."
+   ],
+   "method_id": 2838,
+   "priority": "control",
+   "durability": "memory",
+   "clients": [
+    "macos",
+    "sdk"
+   ]
+  },
+  "browser-runtime-stop": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "browser-runtime-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "runtime": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false,
+      "constraints": [
+       "A runtime this connection started."
+      ]
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "BrowserRuntimeStopResult"
+   },
+   "stream": null,
+   "constraints": [
+    "browser-runtime.unknown for a runtime this connection does not own.",
+    "Local (Unix) connections that declared browser-runtime-v1 with set-client-info only (browser-runtime.not-enabled otherwise); the remote relay refuses it."
+   ],
+   "method_id": 2839,
+   "priority": "control",
+   "durability": "memory",
+   "clients": [
+    "macos",
+    "sdk"
+   ]
+  },
+  "loopback-open": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "loopback-forward-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "stream": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false,
+      "constraints": [
+       "Client-chosen, unique among the connection's open streams (loopback.duplicate-stream)."
+      ]
+     },
+     "host": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false,
+      "constraints": [
+       "localhost, a name under .localhost, or a loopback IP literal; never resolved through DNS."
+      ]
+     },
+     "port": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint16"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "window": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "constraints": [
+       "The client's receive window: at least 16 KiB (loopback.bad-request), at most 4 MiB, default 256 KiB."
+      ]
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "LoopbackOpenResult"
+   },
+   "stream": null,
+   "constraints": [
+    "Connects to a service on the daemon machine's loopback interface; data, EOF and close of the stream follow as loopback-* events.",
+    "128 streams per connection and 512 per daemon (loopback.limit); 3 s connect timeout.",
+    "Local (Unix) connections that declared loopback-forward-v1 with set-client-info only; the remote relay refuses it. Otherwise loopback.not-enabled."
+   ],
+   "method_id": 5120,
+   "priority": "control",
+   "durability": "memory",
+   "clients": [
+    "macos",
+    "sdk"
+   ]
+  },
+  "loopback-data": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "loopback-forward-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "stream": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false,
+      "constraints": [
+       "The client-chosen stream id of a loopback-open on this connection."
+      ]
+     },
+     "data": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false,
+      "constraints": [
+       "Base64 of at most 64 KiB."
+      ]
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "EmptyResult"
+   },
+   "stream": null,
+   "constraints": [
+    "Usually sent without id (no reply). The daemon returns credit with loopback-credit events; more than the daemon window in flight ends the stream (window-exceeded).",
+    "An unknown stream answers loopback.unknown-stream, or a loopback-closed event without id.",
+    "Local (Unix) connections that declared loopback-forward-v1 with set-client-info only; the remote relay refuses it."
+   ],
+   "method_id": 5121,
+   "priority": "bulk",
+   "durability": "memory",
+   "clients": [
+    "macos",
+    "sdk"
+   ]
+  },
+  "loopback-credit": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "loopback-forward-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "stream": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false,
+      "constraints": [
+       "The client-chosen stream id of a loopback-open on this connection."
+      ]
+     },
+     "bytes": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false,
+      "constraints": [
+       "More send window for the daemon, after the client consumed target bytes."
+      ]
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "EmptyResult"
+   },
+   "stream": null,
+   "constraints": [
+    "Usually sent without id (no reply). An unknown stream changes nothing.",
+    "Local (Unix) connections that declared loopback-forward-v1 with set-client-info only; the remote relay refuses it."
+   ],
+   "method_id": 5122,
+   "priority": "control",
+   "durability": "memory",
+   "clients": [
+    "macos",
+    "sdk"
+   ]
+  },
+  "loopback-shutdown": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "loopback-forward-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "stream": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false,
+      "constraints": [
+       "The client-chosen stream id of a loopback-open on this connection."
+      ]
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "EmptyResult"
+   },
+   "stream": null,
+   "constraints": [
+    "Half close: after the queued bytes the daemon shuts down the target socket's write side.",
+    "Usually sent without id (no reply). An unknown stream changes nothing.",
+    "Local (Unix) connections that declared loopback-forward-v1 with set-client-info only; the remote relay refuses it."
+   ],
+   "method_id": 5123,
+   "priority": "bulk",
+   "durability": "memory",
+   "clients": [
+    "macos",
+    "sdk"
+   ]
+  },
+  "loopback-close": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "loopback-forward-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "stream": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false,
+      "constraints": [
+       "The client-chosen stream id of a loopback-open on this connection."
+      ]
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "EmptyResult"
+   },
+   "stream": null,
+   "constraints": [
+    "Aborts the stream (loopback-closed with error closed-by-client).",
+    "Usually sent without id (no reply). An unknown stream changes nothing.",
+    "Local (Unix) connections that declared loopback-forward-v1 with set-client-info only; the remote relay refuses it."
+   ],
+   "method_id": 5124,
+   "priority": "control",
+   "durability": "memory",
+   "clients": [
+    "macos",
+    "sdk"
+   ]
+  },
+  "loopback-status": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "loopback-forward-v1",
+   "request": {
+    "kind": "object",
+    "fields": {},
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "LoopbackStatusResult"
+   },
+   "stream": null,
+   "constraints": [
+    "The policy switch, stream counts, limits and audit ring.",
+    "Local (Unix) connections that declared loopback-forward-v1 with set-client-info only; the remote relay refuses it. Otherwise loopback.not-enabled."
+   ],
+   "method_id": 5125,
+   "priority": "control",
+   "durability": "read_only",
+   "clients": [
+    "sdk"
+   ]
+  },
+  "client-hello": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "origin-claim-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "role": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "constraints": [
+       "Step 1, required: main or page_relay (client_hello.bad_request {field: role} otherwise)."
+      ]
+     },
+     "install_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "constraints": [
+       "1-128 of A-Z a-z 0-9 _ -. Step 1 with role main: asks for a nonce. Step 2, required: the install id it proves."
+      ]
+     },
+     "page": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "constraints": [
+       "Step 1 with role page_relay only (page-router-v1): the page the relay serves."
+      ]
+     },
+     "proof": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "constraints": [
+       "Step 2, required: the install-key proof over the step 1 nonce (client_hello.refused otherwise)."
+      ]
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "ClientHelloResult"
+   },
+   "stream": null,
+   "constraints": [
+    "Fixes the connection's role. Only the first line, or the second right after exactly one identify (client_hello.window_closed otherwise); every error closes the hello window.",
+    "Step 2 is the very next line after a step 1 reply with a nonce.",
+    "Local (Unix) connections only (client_hello.local_only)."
+   ],
+   "method_id": 517,
+   "priority": "control",
+   "durability": "memory",
+   "clients": [
+    "macos",
+    "sdk"
+   ]
+  },
+  "machine-catalog-publish": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "machine-catalog-publish-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "expected_machine_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false,
+      "constraints": [
+       "This daemon's machine public id (machine_catalog.owner_mismatch otherwise)."
+      ]
+     },
+     "sequence": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false,
+      "constraints": [
+       "Positive and increasing on the connection; an older or conflicting one is machine_catalog.stale."
+      ]
+     },
+     "machines": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "ref",
+        "name": "MachineCatalogEntry"
+       }
+      },
+      "presence": "required",
+      "nullable": false,
+      "constraints": [
+       "At most 256 remote records."
+      ]
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "MachineCatalogPublishResult"
+   },
+   "stream": null,
+   "constraints": [
+    "The verified app's projection of its admitted remote routes; readers keep machine.list/get. The connection is its lease.",
+    "Only a verified-app local (Unix) connection not bound to an agent (machine_catalog.not_trusted); one publisher at a time (machine_catalog.taken); at most 128 KiB."
+   ],
+   "method_id": 273,
+   "priority": "control",
+   "durability": "memory",
+   "clients": [
+    "macos",
     "sdk"
    ]
   }
@@ -39400,6 +40553,168 @@
     ]
    },
    "event_id": 51200,
+   "priority": "control"
+  },
+  "loopback-data": {
+   "since": 12,
+   "capability": "loopback-forward-v1",
+   "streams": [
+    "control"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "loopback-data"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "stream": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "data": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false,
+      "constraints": [
+       "Base64 target bytes, within the client's credit."
+      ]
+     }
+    },
+    "additional_properties": false
+   },
+   "event_id": 50944,
+   "priority": "bulk"
+  },
+  "loopback-credit": {
+   "since": 12,
+   "capability": "loopback-forward-v1",
+   "streams": [
+    "control"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "loopback-credit"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "stream": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "bytes": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false,
+      "constraints": [
+       "Client bytes the daemon wrote to the target."
+      ]
+     }
+    },
+    "additional_properties": false
+   },
+   "event_id": 50945,
+   "priority": "control"
+  },
+  "loopback-eof": {
+   "since": 12,
+   "capability": "loopback-forward-v1",
+   "streams": [
+    "control"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "loopback-eof"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "stream": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "event_id": 50946,
+   "priority": "bulk"
+  },
+  "loopback-closed": {
+   "since": 12,
+   "capability": "loopback-forward-v1",
+   "streams": [
+    "control"
+   ],
+   "emission": "emitted",
+   "payload": {
+    "kind": "object",
+    "fields": {
+     "event": {
+      "type": {
+       "kind": "literal",
+       "value": "loopback-closed"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "stream": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "error": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "constraints": [
+       "Absent after a clean close; else closed-by-client, read-failed, write-failed, window-exceeded, bad-frame, data-after-shutdown, overflow, unknown-stream, client-gone or internal.",
+       "With an error the close aborts the stream: the daemon sends it on the control lane, so it may arrive before loopback-data it had already queued for the stream. A clean close follows the stream's last loopback-data and loopback-eof."
+      ]
+     }
+    },
+    "additional_properties": false
+   },
+   "event_id": 50947,
    "priority": "control"
   }
  }

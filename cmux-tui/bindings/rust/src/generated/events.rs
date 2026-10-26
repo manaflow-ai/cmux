@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 42c23485a8f63b727b98a7bf24ec73def2ea4880bd340707ef835ad16068889c.
+// cmux-tui mux protocol 12, IR 4bc66f3f6855fb5d0f4b3eba3a649fd5dad0dee81fae768370e8b4510bbaa37f.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use super::metadata::*;
@@ -588,6 +588,34 @@ pub struct LayoutChangedEvent {
     pub workspace: Option<T::Id>,
     #[serde(default, skip_serializing_if = "Optional::is_missing")]
     pub zoomed_pane: Optional<T::Id>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LoopbackClosedEvent {
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub error: Option<String>,
+    pub stream: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LoopbackCreditEvent {
+    pub bytes: u64,
+    pub stream: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LoopbackDataEvent {
+    pub data: String,
+    pub stream: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct LoopbackEofEvent {
+    pub stream: u64,
 }
 
 #[rustfmt::skip]
@@ -1191,6 +1219,10 @@ pub enum Event {
     HistoryChanged(HistoryChangedEvent),
     KeybindingsChanged(KeybindingsChangedEvent),
     LayoutChanged(LayoutChangedEvent),
+    LoopbackClosed(LoopbackClosedEvent),
+    LoopbackCredit(LoopbackCreditEvent),
+    LoopbackData(LoopbackDataEvent),
+    LoopbackEof(LoopbackEofEvent),
     MachineUsageChanged(MachineUsageChangedEvent),
     Notification(NotificationEvent),
     Output(OutputEvent),
@@ -1286,6 +1318,10 @@ impl Event {
             Self::HistoryChanged(_) => Some("history-changed"),
             Self::KeybindingsChanged(_) => Some("keybindings-changed"),
             Self::LayoutChanged(_) => Some("layout-changed"),
+            Self::LoopbackClosed(_) => Some("loopback-closed"),
+            Self::LoopbackCredit(_) => Some("loopback-credit"),
+            Self::LoopbackData(_) => Some("loopback-data"),
+            Self::LoopbackEof(_) => Some("loopback-eof"),
             Self::MachineUsageChanged(_) => Some("machine-usage-changed"),
             Self::Notification(_) => Some("notification"),
             Self::Output(_) => Some("output"),
@@ -1380,6 +1416,10 @@ impl Event {
             Self::HistoryChanged(_) => Some(&HISTORY_CHANGED_EVENT_METADATA),
             Self::KeybindingsChanged(_) => Some(&KEYBINDINGS_CHANGED_EVENT_METADATA),
             Self::LayoutChanged(_) => Some(&LAYOUT_CHANGED_EVENT_METADATA),
+            Self::LoopbackClosed(_) => Some(&LOOPBACK_CLOSED_EVENT_METADATA),
+            Self::LoopbackCredit(_) => Some(&LOOPBACK_CREDIT_EVENT_METADATA),
+            Self::LoopbackData(_) => Some(&LOOPBACK_DATA_EVENT_METADATA),
+            Self::LoopbackEof(_) => Some(&LOOPBACK_EOF_EVENT_METADATA),
             Self::MachineUsageChanged(_) => Some(&MACHINE_USAGE_CHANGED_EVENT_METADATA),
             Self::Notification(_) => Some(&NOTIFICATION_EVENT_METADATA),
             Self::Output(_) => Some(&OUTPUT_EVENT_METADATA),
@@ -1765,6 +1805,38 @@ pub fn decode_event(raw: Value) -> Event {
         },
         Some("layout-changed") => match serde_json::from_value::<LayoutChangedEvent>(raw.clone()) {
             Ok(event) => Event::LayoutChanged(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("loopback-closed") => match serde_json::from_value::<LoopbackClosedEvent>(raw.clone()) {
+            Ok(event) => Event::LoopbackClosed(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("loopback-credit") => match serde_json::from_value::<LoopbackCreditEvent>(raw.clone()) {
+            Ok(event) => Event::LoopbackCredit(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("loopback-data") => match serde_json::from_value::<LoopbackDataEvent>(raw.clone()) {
+            Ok(event) => Event::LoopbackData(event),
+            Err(error) => Event::Unknown(UnknownEvent {
+                name,
+                raw,
+                decode_error: Some(error.to_string()),
+            }),
+        },
+        Some("loopback-eof") => match serde_json::from_value::<LoopbackEofEvent>(raw.clone()) {
+            Ok(event) => Event::LoopbackEof(event),
             Err(error) => Event::Unknown(UnknownEvent {
                 name,
                 raw,

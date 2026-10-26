@@ -104,6 +104,9 @@ public:
     [[nodiscard]] Result<EmptyResult> browser_mouse_guarded(const BrowserMouseGuardedRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> browser_navigate(const BrowserNavigateRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> browser_reload(const BrowserReloadRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<BrowserRuntimeStartResult> browser_runtime_start(const BrowserRuntimeStartRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<BrowserRuntimeStatusResult> browser_runtime_status(const BrowserRuntimeStatusRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<BrowserRuntimeStopResult> browser_runtime_stop(const BrowserRuntimeStopRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> browser_wheel(const BrowserWheelRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> browser_wheel_guarded(const BrowserWheelGuardedRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> cancel_request(const CancelRequestRequest& request, RequestOptions options = {});
@@ -111,6 +114,7 @@ public:
     [[nodiscard]] Result<EmptyResult> clear_history(const ClearHistoryRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> clear_window_title(const ClearWindowTitleRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<ClientFocusResult> client_focus(const ClientFocusRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<ClientHelloResult> client_hello(const ClientHelloRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> close_pane(const ClosePaneRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ProviderWorkspaceMutationResult> close_provider_managed_workspace(const CloseProviderManagedWorkspaceRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> close_screen(const CloseScreenRequest& request, RequestOptions options = {});
@@ -234,6 +238,13 @@ public:
     [[nodiscard]] Result<ListTerminalsResult> list_terminals(const ListTerminalsRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> list_workspace_groups(const ListWorkspaceGroupsRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<Tree> list_workspaces(const ListWorkspacesRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<EmptyResult> loopback_close(const LoopbackCloseRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<EmptyResult> loopback_credit(const LoopbackCreditRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<EmptyResult> loopback_data(const LoopbackDataRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<LoopbackOpenResult> loopback_open(const LoopbackOpenRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<EmptyResult> loopback_shutdown(const LoopbackShutdownRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<LoopbackStatusResult> loopback_status(const LoopbackStatusRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<MachineCatalogPublishResult> machine_catalog_publish(const MachineCatalogPublishRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<MachineListeningTcpResult> machine_listening_tcp(const MachineListeningTcpRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<MachineUsageResult> machine_usage(const MachineUsageRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> mark_workspaces_provider_managed(const MarkWorkspacesProviderManagedRequest& request, RequestOptions options = {});

@@ -1,0 +1,25 @@
+--- a/Sources/MessagesLabHome/Vendor/catalyst/MediaCache.swift
++++ b/Sources/MessagesLabHome/Vendor/catalyst/MediaCache.swift
+@@ -58,6 +58,22 @@
+         if !freed.isEmpty { Reclaimer.release(freed) }
+     }
+ 
++    /// cmux: a hidden transcript released its rows (MessagesWindowView.releaseRows): the decoded images of `refs` at
++    /// `scale` (Images.load's keys) go, freed off main.
++    func evict(refs: Set<String>, scale: CGFloat) {
++        guard !refs.isEmpty else { return }
++        let at = "@" + String(describing: scale)
++        var freed: [UIImage] = []
++        lock.lock()
++        for ref in refs {
++            guard let e = map.removeValue(forKey: ref + at) else { continue }
++            bytes -= e.1
++            freed.append(e.0)
++        }
++        lock.unlock()
++        if !freed.isEmpty { Reclaimer.release(freed) }
++    }
++
+     /// Pixel size from the file's metadata (no decode), cached.
+     func pixelSize(_ url: URL) -> CGSize? {
+         let k = url.absoluteString

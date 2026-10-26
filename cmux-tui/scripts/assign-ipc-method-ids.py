@@ -26,7 +26,8 @@ Rules, each a table below:
                terminal host); it must hold every Swift
                `TerminalSpawningRequest` command
   clients      sdk for every command; macos for the ipc-census Q1 names and
-               the MACOS_CALL_SITES names, cli for the Q14 names and
+               the MACOS_CALL_SITES names and the raw `"cmd": "<name>"`
+               lines the Swift app writes, cli for the Q14 names and
                CLI_CALL_HELPER_SENDS; ios is
                kept when set by hand
 
@@ -73,6 +74,7 @@ FAMILIES: dict[str, tuple[int, str, tuple[str, ...]]] = {
     )),
     "clients": (0x02, "Connected clients and their focus.", (
         "set-client-info", "list-clients", "detach-client", "client-focus", "report-focus",
+        "client-hello",
     )),
     "terminal-io": (0x03, "Terminal input, output streams, screen reads and terminal requests to the frontend.", (
         "send", "send-key", "paste-image", "read-screen", "read-scrollback", "wait-for", "copy",
@@ -142,11 +144,14 @@ FAMILIES: dict[str, tuple[int, str, tuple[str, ...]]] = {
     "agent-sessions": (0x13, "Agent chat tabs attached to this machine's acpmux sessions.", (
         "agent-session-*",
     )),
-    "agent-machine": (0x14, "This machine's acpmux for the app: chat moves, Cloud access requests and agent CLI updates.", (
+    "loopback": (0x14, "TCP streams to the daemon machine's loopback services (loopback-forward-v1).", (
+        "loopback-*",
+    )),
+    "agent-machine": (0x15, "This machine's acpmux for the app: chat moves, Cloud access requests and agent CLI updates.", (
         "agent-transfer-*", "access-request", "access-request-*", "agent-update-*",
     )),
-    "files": (0x15, "File ops on a cmux Cloud host's roots (fs-v1).", ("fs.*",)),
-    "scripts": (0x16, "Script runs and REPL sessions in the daemon's script host.", ("script-*",)),
+    "files": (0x16, "File ops on a cmux Cloud host's roots (fs-v1).", ("fs.*",)),
+    "scripts": (0x17, "Script runs and REPL sessions in the daemon's script host.", ("script-*",)),
 }
 
 EVENT_FAMILIES: dict[str, tuple[int, str, tuple[str, ...]]] = {
@@ -173,7 +178,7 @@ EVENT_FAMILIES: dict[str, tuple[int, str, tuple[str, ...]]] = {
         "conversation-*", "participant-avatar-changed", "chief-changed",
     )),
     "cloud-events": (0xC6, "cmux Cloud session, conversations and inbox.", ("cloud-*",)),
-    # 0xC7 is p05-ipc-016's loopback-events.
+    "loopback-events": (0xC7, "Data, credit and end of loopback-forward-v1 streams.", ("loopback-*",)),
     "script-events": (0xC8, "Console output of script runs and REPL cells.", ("script-*",)),
 }
 
@@ -185,9 +190,10 @@ EVENT_FAMILIES: dict[str, tuple[int, str, tuple[str, ...]]] = {
 # WidgetInputHandler, content/common/input/widget_input_handler.mojom).
 # bulk: large reads (journal and history reads, attachment bytes, icon
 # assets); a write stays control, so a later control command that names what
-# it wrote cannot pass it. background: stats; else control. An agent chat's
-# prompt, cancel and permission answer are the person's input to the attached
-# session (p05-ipc-018: input for attach data, control otherwise).
+# it wrote cannot pass it, unless BULK_STREAM_WRITES names it. background:
+# stats; else control. An agent chat's prompt, cancel and permission answer
+# are the person's input to the attached session (p05-ipc-018: input for
+# attach data, control otherwise).
 
 COMMAND_PRIORITY: dict[str, tuple[str, ...]] = {
     "input": (
@@ -200,7 +206,7 @@ COMMAND_PRIORITY: dict[str, tuple[str, ...]] = {
         "terminal-events", "terminal-history", "terminal-read-range", "read-scrollback",
         "list-terminal-commands", "get-frontend-browser-history", "conversation-history",
         "cloud-conversation-history", "conversation-attachment-read", "cloud-attachment-read",
-        "get-blob",
+        "get-blob", "loopback-data", "loopback-shutdown",
         # File and bundle reads: up to 16 MiB per fs.read, 4 MiB per
         # agent-transfer-read page. fs.list stays control: it keeps a listing
         # snapshot, so it is not read_only. fs.stat stays control: its answer
@@ -214,13 +220,42 @@ COMMAND_PRIORITY: dict[str, tuple[str, ...]] = {
     "background": ("server-stats", "machine-usage", "terminal-resources"),
 }
 
+# Bulk writes: the bytes of a data stream and its half close, like a Mojo
+# data pipe beside the message pipe (mojo/public/cpp/system/data_pipe.h). They
+# share bulk, so the half close follows the queued bytes; the open that names
+# the stream is control and goes first. The abort, loopback-close, is control,
+# like closing a data pipe handle: it may pass the stream's queued bytes, and
+# it frees the slot a later open takes (RELEASES_SLOT).
+_LOOPBACK_STREAM = (
+    "Bytes or half close of a loopback stream: loopback-data and -shutdown share bulk, so the "
+    "half close follows the bytes; loopback-open precedes them on control and neither frees "
+    "the stream's slot."
+)
+BULK_STREAM_WRITES: dict[str, str] = {
+    "loopback-data": _LOOPBACK_STREAM,
+    "loopback-shutdown": _LOOPBACK_STREAM,
+}
+
+# Writes that free a per-connection slot, and the command of their family
+# that takes one. Both stay control: on bulk, a later take could pass the
+# write that frees its slot (a client at MAX_STREAMS_PER_CLIENT sends close(A)
+# then open(B), server/loopback_forward.rs).
+RELEASES_SLOT: dict[str, str] = {
+    "loopback-close": "loopback-open",
+}
+
 # Events: what draws the person's terminal rides input (the key echo path,
 # IPC-5); the subscribe copy of output is bulk; usage and inventory refreshes
-# are background; else control. script-log stays control: a cell's console
-# lines must arrive before its control reply.
+# are background; loopback stream bytes and EOF are bulk (one ordered outbound
+# stream per loopback stream, server/loopback_forward.rs). Their credit and
+# loopback-closed are control: an error close is a stream terminal the daemon
+# sends on the control FIFO (ForwardStream::fail, unknown_stream, the overflow
+# text in bounded_outbound.rs), so it may pass the stream's queued bytes. Else
+# control. script-log stays control: a cell's console lines must
+# arrive before its control reply.
 EVENT_PRIORITY: dict[str, tuple[str, ...]] = {
     "input": ("output", "render-delta", "render-state", "frame"),
-    "bulk": ("surface-output",),
+    "bulk": ("surface-output", "loopback-data", "loopback-eof"),
     "background": ("machine-usage-changed", "activity-changed", "agent-inventory-changed"),
 }
 
@@ -253,6 +288,7 @@ READ_ONLY = (
     "cloud-participant-avatar-get", "cloud-attachment-read", "feed-local-list", "trace-status",
     "agent-cli-intents-list", "agent-cli-update-job-resolve",
     "agent-session-events", "agent-session-media",
+    "loopback-status", "browser-runtime-status",
     "fs.stat", "fs.read", "agent-transfer-source", "access-request-list",
     # Pages a bundle file the begin recorded; it only refreshes the move's
     # idle time.
@@ -282,6 +318,10 @@ MEMORY = (
     "apps-provider-result",
     # Cancels an in-flight apps-run or script cell of this connection only.
     "cancel-request",
+    # Connection state that ends with the connection: its role and proof, its
+    # loopback streams, its browser hosts and its machine catalog lease.
+    "client-hello", "loopback-open", "loopback-data", "loopback-credit", "loopback-shutdown",
+    "loopback-close", "browser-runtime-start", "browser-runtime-stop", "machine-catalog-publish",
     # Writes the lease's account, bumps its generation and reconnects sockets.
     "cloud-selfhost-info",
     # Binds the browser host's sockets and starts the host process.
@@ -488,6 +528,25 @@ def _match_brace(text: str, open_: int) -> int:
     return len(text)
 
 
+_RAW_LINE = re.compile(r'"cmd":\s*"([a-z][a-z0-9-]*)"')
+
+
+def swift_line_commands() -> set[str]:
+    """Wire names the Swift app writes as raw `"cmd": "<name>"` lines instead
+    of a request type (LoopbackForwardLine), which ipc-census Q1 does not see."""
+
+    listed = subprocess.run(
+        ["git", "ls-files", "-z", "--", f"{SWIFT_SOURCES}/*.swift"],
+        cwd=ROOT, capture_output=True, check=True,
+    ).stdout.decode().split("\0")
+    return {
+        found.group(1)
+        for path in listed
+        if path and not path.endswith(".generated.swift")
+        for found in _RAW_LINE.finditer((ROOT / path).read_text())
+    }
+
+
 _SPAWNING = re.compile(r"\b(?:struct|extension)\s+(\w+)\s*:[^{]*\bTerminalSpawningRequest\b")
 _STRUCT = re.compile(r"\bstruct\s+(\w+)\b[^{]*\{")
 _COMMAND = re.compile(r'static\s+(?:let|var)\s+command(?:\s*:\s*String)?\s*=\s*"([^"]+)"')
@@ -523,7 +582,9 @@ def swift_spawning_commands() -> set[str]:
 class Sources:
     """The name sets read outside the schema, loaded only when a command needs them."""
 
-    macos: Callable[[], set[str]] = lambda: census_names("Q1") | swift_call_site_names()
+    macos: Callable[[], set[str]] = (
+        lambda: census_names("Q1") | swift_call_site_names() | swift_line_commands()
+    )
     cli: Callable[[], set[str]] = lambda: census_names("Q14") | cli_call_helper_names()
     swift_spawning: Callable[[], set[str]] = swift_spawning_commands
 
@@ -695,8 +756,22 @@ class Assigner:
             if durability_of(name) == "read_only":
                 raise AssignError(f"SPAWNS_TERMINAL: {name!r} is read_only")
         for name in COMMAND_PRIORITY["bulk"]:
-            if durability_of(name) != "read_only":
+            if durability_of(name) != "read_only" and name not in BULK_STREAM_WRITES:
                 raise AssignError(f"COMMAND_PRIORITY bulk: {name!r} is a write; writes stay control")
+        for name in BULK_STREAM_WRITES:
+            if name not in COMMAND_PRIORITY["bulk"]:
+                raise AssignError(f"BULK_STREAM_WRITES: {name!r} is not bulk")
+        for name, taker in RELEASES_SLOT.items():
+            for command in (name, taker):
+                if command not in commands:
+                    raise AssignError(f"RELEASES_SLOT: {command!r} is not a schema command")
+                entry = self.document["commands"][command]
+                if {priority_of(command, COMMAND_PRIORITY), entry.get("priority", "control")} != {
+                    "control"
+                }:
+                    raise AssignError(
+                        f"RELEASES_SLOT: {name!r} frees the slot {taker!r} takes; both stay control"
+                    )
 
 
 def ordered(entry: dict[str, Any], keys: tuple[str, ...]) -> dict[str, Any]:

@@ -752,6 +752,96 @@ struct SurfaceParams {
         with self.assertRaisesRegex(CHECKER.SdkSchemaError, "as StartParams, not agent_session_trust::TrustParams"):
             CHECKER._module_literal_fields(source, "agent-session-start", handled, "fixture")
 
+    def test_q5_module_commands_use_their_request_structs(self) -> None:
+        fields = CHECKER.runtime_command_fields()
+        # browser_runtime and loopback_forward are found by their tagged enum.
+        fields.update(CHECKER.handler_command_fields(set(self.document["commands"])))
+        self.assertEqual(set(fields["browser-runtime-status"]), set())
+        self.assertEqual(set(fields["browser-runtime-start"]), {"url"})
+        self.assertEqual(set(fields["browser-runtime-stop"]), {"runtime"})
+        self.assertEqual(set(fields["loopback-open"]), {"stream", "host", "port", "window"})
+        self.assertEqual(set(fields["loopback-data"]), {"stream", "data"})
+        self.assertEqual(set(fields["loopback-status"]), set())
+        self.assertEqual(set(fields["client-hello"]), {"role", "install_id", "page", "proof"})
+        # The owner fence and the publication struct in client_registry/.
+        self.assertEqual(
+            set(fields["machine-catalog-publish"]),
+            {"expected_machine_id", "sequence", "machines"},
+        )
+        self.assertEqual(
+            CHECKER._runtime_type_shape(fields["machine-catalog-publish"]["machines"].rust_type),
+            "array<ref<MachineCatalogEntry>>",
+        )
+
+    def test_q5_module_request_field_drift_is_rejected(self) -> None:
+        for command, field, change, message in [
+            ("loopback-open", "window", {"presence": "required"}, "presence drift for loopback-open"),
+            ("browser-runtime-stop", "runtime", {"type": {"kind": "scalar", "name": "string"}},
+             "type drift for browser-runtime-stop"),
+            # A null install id is client_hello.bad_request, so it is not nullable.
+            ("client-hello", "install_id", {"nullable": True}, "presence drift for client-hello"),
+            ("machine-catalog-publish", "sequence", {"presence": "optional"},
+             "presence drift for machine-catalog-publish"),
+        ]:
+            document = copy.deepcopy(self.document)
+            document["commands"][command]["request"]["fields"][field].update(change)
+            with self.subTest(command=command), self.assertRaisesRegex(
+                CHECKER.SdkSchemaError, message
+            ):
+                self.validate(document, self.inventory)
+        document = copy.deepcopy(self.document)
+        document["commands"]["client-hello"]["request"]["fields"].pop("proof")
+        with self.assertRaisesRegex(CHECKER.SdkSchemaError, "request field for client-hello"):
+            self.validate(document, self.inventory)
+
+    def test_module_literal_request_struct_in_another_file_must_exist(self) -> None:
+        table = {
+            "connection_frame/machine_catalog": {
+                "literals": {
+                    "machine-catalog-publish": {
+                        "request": ["client_registry/machine_catalog.rs::Nope"],
+                        "handler": "try_handle",
+                    }
+                },
+                "authority": "local-admin",
+            }
+        }
+        with patch.object(CHECKER, "module_commands", lambda: table):
+            with self.assertRaisesRegex(CHECKER.SdkSchemaError, "cannot find Rust struct Nope"):
+                CHECKER.module_command_fields()
+
+    def test_module_literal_raw_members_need_a_type_and_presence(self) -> None:
+        def table(fields: dict[str, object]) -> dict[str, object]:
+            return {
+                "connection_frame/machine_catalog": {
+                    "literals": {
+                        "machine-catalog-publish": {
+                            "request": ["client_registry/machine_catalog.rs::Publication"],
+                            "fields": fields,
+                            "handler": "try_handle",
+                        }
+                    },
+                    "authority": "local-admin",
+                }
+            }
+
+        owner = {"expected_machine_id": {"type": "String", "presence": "required"}}
+        with patch.object(CHECKER, "module_commands", lambda: table(owner)):
+            fields = CHECKER.module_command_fields()["machine-catalog-publish"]
+        self.assertEqual(
+            CHECKER._runtime_field_presence(fields["expected_machine_id"]), ("required", False)
+        )
+        for bad, message in [
+            ({"expected_machine_id": {"type": "String"}}, "needs a Rust type and a presence"),
+            ({"sequence": {"type": "u64", "presence": "required"}}, "request field 'sequence' twice"),
+        ]:
+            with (
+                self.subTest(bad=bad),
+                patch.object(CHECKER, "module_commands", lambda: table(bad)),
+                self.assertRaisesRegex(CHECKER.SdkSchemaError, message),
+            ):
+                CHECKER.module_command_fields()
+
     def test_module_enum_parser_reads_every_variant_form(self) -> None:
         body = """\
     #[serde(rename = "x-unit")]

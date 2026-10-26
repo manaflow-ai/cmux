@@ -14,7 +14,7 @@
 namespace cmux::raw {
 
 inline constexpr std::uint32_t kMuxProtocolVersion = 12U;
-inline constexpr std::string_view kProtocolIrSha256 = "42c23485a8f63b727b98a7bf24ec73def2ea4880bd340707ef835ad16068889c";
+inline constexpr std::string_view kProtocolIrSha256 = "4bc66f3f6855fb5d0f4b3eba3a649fd5dad0dee81fae768370e8b4510bbaa37f";
 
 enum class AccessRequestKind;
 struct AccessRequestPending;
@@ -70,9 +70,15 @@ enum class BrowserProviderHosting;
 struct BrowserProviderSnapshot;
 struct BrowserProviderTarget;
 struct BrowserProviderUnregisterResult;
+struct BrowserRuntimeRow;
+struct BrowserRuntimeStartResult;
+struct BrowserRuntimeStatusResult;
+struct BrowserRuntimeStopResult;
 struct CellPixelFailure;
 struct CellPixelResize;
 struct CellPixelSurface;
+struct ClientHelloPageOperations;
+struct ClientHelloResult;
 struct ClientInfo;
 struct ClientSize;
 enum class ClientTransport;
@@ -151,6 +157,15 @@ struct LayoutUndoUndone;
 struct ListAgentsResult;
 struct ListTerminalsResult;
 struct LivePane;
+struct LoopbackAuditRecord;
+struct LoopbackLimits;
+struct LoopbackOpenResult;
+struct LoopbackStatusResult;
+struct MachineCatalogEntry;
+enum class MachineCatalogOrigin;
+struct MachineCatalogPlatform;
+struct MachineCatalogPublishResult;
+enum class MachineCatalogStatus;
 struct MachineListeningTcpResult;
 struct MachinePlatform;
 struct MachineUsage;
@@ -373,6 +388,9 @@ struct BrowserMouseRequest;
 struct BrowserMouseGuardedRequest;
 struct BrowserNavigateRequest;
 struct BrowserReloadRequest;
+struct BrowserRuntimeStartRequest;
+struct BrowserRuntimeStatusRequest;
+struct BrowserRuntimeStopRequest;
 struct BrowserWheelRequest;
 struct BrowserWheelGuardedRequest;
 struct CancelRequestRequest;
@@ -382,6 +400,7 @@ struct ClearHistoryRequest;
 struct ClearWindowTitleRequest;
 struct ClientFocusRequest;
 struct ClientFocusResult;
+struct ClientHelloRequest;
 struct ClosePaneRequest;
 struct CloseProviderManagedWorkspaceRequest;
 struct CloseScreenRequest;
@@ -540,6 +559,13 @@ struct ListTerminalCommandsRequest;
 struct ListTerminalsRequest;
 struct ListWorkspaceGroupsRequest;
 struct ListWorkspacesRequest;
+struct LoopbackCloseRequest;
+struct LoopbackCreditRequest;
+struct LoopbackDataRequest;
+struct LoopbackOpenRequest;
+struct LoopbackShutdownRequest;
+struct LoopbackStatusRequest;
+struct MachineCatalogPublishRequest;
 struct MachineListeningTcpRequest;
 struct MachineUsageRequest;
 struct MarkWorkspacesProviderManagedRequest;
@@ -749,6 +775,10 @@ struct GraphicsStatusEvent;
 struct HistoryChangedEvent;
 struct KeybindingsChangedEvent;
 struct LayoutChangedEvent;
+struct LoopbackClosedEvent;
+struct LoopbackCreditEvent;
+struct LoopbackDataEvent;
+struct LoopbackEofEvent;
 struct MachineUsageChangedEvent;
 struct NotificationEvent;
 struct OutputEvent;
@@ -2048,6 +2078,45 @@ struct BrowserReloadRequest {
     friend bool operator==(const BrowserReloadRequest&, const BrowserReloadRequest&) = default;
 };
 
+struct BrowserRuntimeRow {
+    std::uint16_t port{};
+    std::uint64_t runtime{};
+    friend bool operator==(const BrowserRuntimeRow&, const BrowserRuntimeRow&) = default;
+};
+
+struct BrowserRuntimeStartRequest {
+    Field<std::string> url{};
+    friend bool operator==(const BrowserRuntimeStartRequest&, const BrowserRuntimeStartRequest&) = default;
+};
+
+struct BrowserRuntimeStartResult {
+    std::string installed{};
+    std::uint16_t port{};
+    std::uint64_t runtime{};
+    std::string secret{};
+    friend bool operator==(const BrowserRuntimeStartResult&, const BrowserRuntimeStartResult&) = default;
+};
+
+struct BrowserRuntimeStatusRequest {
+    friend bool operator==(const BrowserRuntimeStatusRequest&, const BrowserRuntimeStatusRequest&) = default;
+};
+
+struct BrowserRuntimeStatusResult {
+    std::optional<std::string> installed{};
+    std::string platform{};
+    std::vector<BrowserRuntimeRow> runtimes{};
+    friend bool operator==(const BrowserRuntimeStatusResult&, const BrowserRuntimeStatusResult&) = default;
+};
+
+struct BrowserRuntimeStopRequest {
+    std::uint64_t runtime{};
+    friend bool operator==(const BrowserRuntimeStopRequest&, const BrowserRuntimeStopRequest&) = default;
+};
+
+struct BrowserRuntimeStopResult {
+    friend bool operator==(const BrowserRuntimeStopResult&, const BrowserRuntimeStopResult&) = default;
+};
+
 enum class BrowserStateEventStatus {
     starting,
     live,
@@ -2330,6 +2399,33 @@ struct ClientFocusResult {
     std::optional<Id> pane{};
     std::optional<std::uint64_t> tab{};
     friend bool operator==(const ClientFocusResult&, const ClientFocusResult&) = default;
+};
+
+struct ClientHelloPageOperations {
+    std::vector<std::string> confirm{};
+    std::vector<std::string> gesture{};
+    std::vector<std::string> read{};
+    friend bool operator==(const ClientHelloPageOperations&, const ClientHelloPageOperations&) = default;
+};
+
+struct ClientHelloRequest {
+    std::optional<std::string> install_id{};
+    Field<std::string> page{};
+    std::optional<std::string> proof{};
+    std::optional<std::string> role{};
+    friend bool operator==(const ClientHelloRequest&, const ClientHelloRequest&) = default;
+};
+
+struct ClientHelloResult {
+    std::string connection_id{};
+    std::optional<std::string> install_id{};
+    std::optional<std::string> nonce{};
+    std::optional<std::string> page{};
+    std::optional<std::vector<std::string>> page_events{};
+    std::optional<ClientHelloPageOperations> page_operations{};
+    bool user_origin_allowed{};
+    std::optional<bool> verified{};
+    friend bool operator==(const ClientHelloResult&, const ClientHelloResult&) = default;
 };
 
 struct ClientSize {
@@ -4688,6 +4784,145 @@ struct LivePane {
     std::optional<std::string> short_id{};
     std::vector<Tab> tabs{};
     friend bool operator==(const LivePane&, const LivePane&) = default;
+};
+
+struct LoopbackAuditRecord {
+    std::uint64_t at_ms{};
+    std::uint64_t bytes_from_target{};
+    std::uint64_t bytes_to_target{};
+    std::uint64_t client{};
+    std::uint64_t duration_ms{};
+    std::string host{};
+    std::string outcome{};
+    std::uint16_t port{};
+    std::uint64_t stream{};
+    friend bool operator==(const LoopbackAuditRecord&, const LoopbackAuditRecord&) = default;
+};
+
+struct LoopbackCloseRequest {
+    std::uint64_t stream{};
+    friend bool operator==(const LoopbackCloseRequest&, const LoopbackCloseRequest&) = default;
+};
+
+struct LoopbackClosedEvent {
+    std::optional<std::string> error{};
+    std::uint64_t stream{};
+    friend bool operator==(const LoopbackClosedEvent&, const LoopbackClosedEvent&) = default;
+};
+
+struct LoopbackCreditEvent {
+    std::uint64_t bytes{};
+    std::uint64_t stream{};
+    friend bool operator==(const LoopbackCreditEvent&, const LoopbackCreditEvent&) = default;
+};
+
+struct LoopbackCreditRequest {
+    std::uint64_t bytes{};
+    std::uint64_t stream{};
+    friend bool operator==(const LoopbackCreditRequest&, const LoopbackCreditRequest&) = default;
+};
+
+struct LoopbackDataEvent {
+    std::string data{};
+    std::uint64_t stream{};
+    friend bool operator==(const LoopbackDataEvent&, const LoopbackDataEvent&) = default;
+};
+
+struct LoopbackDataRequest {
+    std::string data{};
+    std::uint64_t stream{};
+    friend bool operator==(const LoopbackDataRequest&, const LoopbackDataRequest&) = default;
+};
+
+struct LoopbackEofEvent {
+    std::uint64_t stream{};
+    friend bool operator==(const LoopbackEofEvent&, const LoopbackEofEvent&) = default;
+};
+
+struct LoopbackLimits {
+    std::uint64_t daemon_window{};
+    std::uint64_t frame_bytes{};
+    std::uint64_t per_client{};
+    std::uint64_t total{};
+    friend bool operator==(const LoopbackLimits&, const LoopbackLimits&) = default;
+};
+
+struct LoopbackOpenRequest {
+    std::string host{};
+    std::uint16_t port{};
+    std::uint64_t stream{};
+    Field<std::uint64_t> window{};
+    friend bool operator==(const LoopbackOpenRequest&, const LoopbackOpenRequest&) = default;
+};
+
+struct LoopbackOpenResult {
+    std::string address{};
+    std::uint64_t stream{};
+    std::uint64_t window{};
+    friend bool operator==(const LoopbackOpenResult&, const LoopbackOpenResult&) = default;
+};
+
+struct LoopbackShutdownRequest {
+    std::uint64_t stream{};
+    friend bool operator==(const LoopbackShutdownRequest&, const LoopbackShutdownRequest&) = default;
+};
+
+struct LoopbackStatusRequest {
+    friend bool operator==(const LoopbackStatusRequest&, const LoopbackStatusRequest&) = default;
+};
+
+struct LoopbackStatusResult {
+    std::vector<LoopbackAuditRecord> audit{};
+    std::uint64_t client_streams{};
+    bool enabled{};
+    LoopbackLimits limits{};
+    std::uint64_t open_streams{};
+    std::uint64_t opened{};
+    std::uint64_t refused{};
+    friend bool operator==(const LoopbackStatusResult&, const LoopbackStatusResult&) = default;
+};
+
+enum class MachineCatalogOrigin {
+    cloud,
+    ssh,
+    server,
+};
+
+struct MachineCatalogPlatform {
+    Field<std::string> arch{};
+    Field<std::string> os{};
+    friend bool operator==(const MachineCatalogPlatform&, const MachineCatalogPlatform&) = default;
+};
+
+enum class MachineCatalogStatus {
+    running,
+    connecting,
+    unavailable,
+    sleeping,
+    stopped,
+};
+
+struct MachineCatalogEntry {
+    std::optional<std::vector<std::string>> capabilities{};
+    std::string id{};
+    std::string name{};
+    MachineCatalogOrigin origin{};
+    Field<MachineCatalogPlatform> platform{};
+    MachineCatalogStatus status{};
+    friend bool operator==(const MachineCatalogEntry&, const MachineCatalogEntry&) = default;
+};
+
+struct MachineCatalogPublishRequest {
+    std::string expected_machine_id{};
+    std::vector<MachineCatalogEntry> machines{};
+    std::uint64_t sequence{};
+    friend bool operator==(const MachineCatalogPublishRequest&, const MachineCatalogPublishRequest&) = default;
+};
+
+struct MachineCatalogPublishResult {
+    bool replayed{};
+    std::uint64_t sequence{};
+    friend bool operator==(const MachineCatalogPublishResult&, const MachineCatalogPublishResult&) = default;
 };
 
 struct MachineListeningTcpRequest {
@@ -7579,6 +7814,30 @@ struct Codec<BrowserProviderUnregisterResult> {
 };
 
 template <>
+struct Codec<BrowserRuntimeRow> {
+    static Result<Json> encode(const BrowserRuntimeRow& value);
+    static Result<BrowserRuntimeRow> decode(const Json& value);
+};
+
+template <>
+struct Codec<BrowserRuntimeStartResult> {
+    static Result<Json> encode(const BrowserRuntimeStartResult& value);
+    static Result<BrowserRuntimeStartResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<BrowserRuntimeStatusResult> {
+    static Result<Json> encode(const BrowserRuntimeStatusResult& value);
+    static Result<BrowserRuntimeStatusResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<BrowserRuntimeStopResult> {
+    static Result<Json> encode(const BrowserRuntimeStopResult& value);
+    static Result<BrowserRuntimeStopResult> decode(const Json& value);
+};
+
+template <>
 struct Codec<CellPixelFailure> {
     static Result<Json> encode(const CellPixelFailure& value);
     static Result<CellPixelFailure> decode(const Json& value);
@@ -7594,6 +7853,18 @@ template <>
 struct Codec<CellPixelSurface> {
     static Result<Json> encode(const CellPixelSurface& value);
     static Result<CellPixelSurface> decode(const Json& value);
+};
+
+template <>
+struct Codec<ClientHelloPageOperations> {
+    static Result<Json> encode(const ClientHelloPageOperations& value);
+    static Result<ClientHelloPageOperations> decode(const Json& value);
+};
+
+template <>
+struct Codec<ClientHelloResult> {
+    static Result<Json> encode(const ClientHelloResult& value);
+    static Result<ClientHelloResult> decode(const Json& value);
 };
 
 template <>
@@ -8062,6 +8333,60 @@ template <>
 struct Codec<LivePane> {
     static Result<Json> encode(const LivePane& value);
     static Result<LivePane> decode(const Json& value);
+};
+
+template <>
+struct Codec<LoopbackAuditRecord> {
+    static Result<Json> encode(const LoopbackAuditRecord& value);
+    static Result<LoopbackAuditRecord> decode(const Json& value);
+};
+
+template <>
+struct Codec<LoopbackLimits> {
+    static Result<Json> encode(const LoopbackLimits& value);
+    static Result<LoopbackLimits> decode(const Json& value);
+};
+
+template <>
+struct Codec<LoopbackOpenResult> {
+    static Result<Json> encode(const LoopbackOpenResult& value);
+    static Result<LoopbackOpenResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<LoopbackStatusResult> {
+    static Result<Json> encode(const LoopbackStatusResult& value);
+    static Result<LoopbackStatusResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<MachineCatalogEntry> {
+    static Result<Json> encode(const MachineCatalogEntry& value);
+    static Result<MachineCatalogEntry> decode(const Json& value);
+};
+
+template <>
+struct Codec<MachineCatalogOrigin> {
+    static Result<Json> encode(const MachineCatalogOrigin& value);
+    static Result<MachineCatalogOrigin> decode(const Json& value);
+};
+
+template <>
+struct Codec<MachineCatalogPlatform> {
+    static Result<Json> encode(const MachineCatalogPlatform& value);
+    static Result<MachineCatalogPlatform> decode(const Json& value);
+};
+
+template <>
+struct Codec<MachineCatalogPublishResult> {
+    static Result<Json> encode(const MachineCatalogPublishResult& value);
+    static Result<MachineCatalogPublishResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<MachineCatalogStatus> {
+    static Result<Json> encode(const MachineCatalogStatus& value);
+    static Result<MachineCatalogStatus> decode(const Json& value);
 };
 
 template <>
@@ -9397,6 +9722,24 @@ struct Codec<BrowserReloadRequest> {
 };
 
 template <>
+struct Codec<BrowserRuntimeStartRequest> {
+    static Result<Json> encode(const BrowserRuntimeStartRequest& value);
+    static Result<BrowserRuntimeStartRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<BrowserRuntimeStatusRequest> {
+    static Result<Json> encode(const BrowserRuntimeStatusRequest& value);
+    static Result<BrowserRuntimeStatusRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<BrowserRuntimeStopRequest> {
+    static Result<Json> encode(const BrowserRuntimeStopRequest& value);
+    static Result<BrowserRuntimeStopRequest> decode(const Json& value);
+};
+
+template <>
 struct Codec<BrowserWheelRequest> {
     static Result<Json> encode(const BrowserWheelRequest& value);
     static Result<BrowserWheelRequest> decode(const Json& value);
@@ -9448,6 +9791,12 @@ template <>
 struct Codec<ClientFocusResult> {
     static Result<Json> encode(const ClientFocusResult& value);
     static Result<ClientFocusResult> decode(const Json& value);
+};
+
+template <>
+struct Codec<ClientHelloRequest> {
+    static Result<Json> encode(const ClientHelloRequest& value);
+    static Result<ClientHelloRequest> decode(const Json& value);
 };
 
 template <>
@@ -10396,6 +10745,48 @@ template <>
 struct Codec<ListWorkspacesRequest> {
     static Result<Json> encode(const ListWorkspacesRequest& value);
     static Result<ListWorkspacesRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<LoopbackCloseRequest> {
+    static Result<Json> encode(const LoopbackCloseRequest& value);
+    static Result<LoopbackCloseRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<LoopbackCreditRequest> {
+    static Result<Json> encode(const LoopbackCreditRequest& value);
+    static Result<LoopbackCreditRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<LoopbackDataRequest> {
+    static Result<Json> encode(const LoopbackDataRequest& value);
+    static Result<LoopbackDataRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<LoopbackOpenRequest> {
+    static Result<Json> encode(const LoopbackOpenRequest& value);
+    static Result<LoopbackOpenRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<LoopbackShutdownRequest> {
+    static Result<Json> encode(const LoopbackShutdownRequest& value);
+    static Result<LoopbackShutdownRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<LoopbackStatusRequest> {
+    static Result<Json> encode(const LoopbackStatusRequest& value);
+    static Result<LoopbackStatusRequest> decode(const Json& value);
+};
+
+template <>
+struct Codec<MachineCatalogPublishRequest> {
+    static Result<Json> encode(const MachineCatalogPublishRequest& value);
+    static Result<MachineCatalogPublishRequest> decode(const Json& value);
 };
 
 template <>
@@ -11650,6 +12041,30 @@ template <>
 struct Codec<LayoutChangedEvent> {
     static Result<Json> encode(const LayoutChangedEvent& value);
     static Result<LayoutChangedEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<LoopbackClosedEvent> {
+    static Result<Json> encode(const LoopbackClosedEvent& value);
+    static Result<LoopbackClosedEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<LoopbackCreditEvent> {
+    static Result<Json> encode(const LoopbackCreditEvent& value);
+    static Result<LoopbackCreditEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<LoopbackDataEvent> {
+    static Result<Json> encode(const LoopbackDataEvent& value);
+    static Result<LoopbackDataEvent> decode(const Json& value);
+};
+
+template <>
+struct Codec<LoopbackEofEvent> {
+    static Result<Json> encode(const LoopbackEofEvent& value);
+    static Result<LoopbackEofEvent> decode(const Json& value);
 };
 
 template <>

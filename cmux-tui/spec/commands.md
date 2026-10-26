@@ -958,6 +958,11 @@ Params:
 | --- | --- | --- | --- |
 | `role` | `string` | required | `main` (the app's own connection) or `page_relay` (relays a page's requests) |
 | `install_id` | `string` | optional | 1-128 characters of `A-Z a-z 0-9 _ -`; with role `main` it asks for a nonce (step 2 proves it) |
+| `page` | `string` or null | optional | role `page_relay` only (`page-router-v1`): the page the relay serves |
+
+Step 2 sends `install_id` and `proof` (both required strings). Other members
+are ignored. spec/sdk-schema.json types both steps as one command whose
+members are optional; the step rules above say which are required.
 
 Result: `object{connection_id:string, user_origin_allowed:bool, nonce?:string}`.
 `connection_id` is the daemon's id for this connection (the
@@ -9315,6 +9320,12 @@ or restrict ports: `server.loopback_forward` in cmux-tui.json is `true`,
 `false`, or `{"enabled":bool,"allow_ports":[3000,"5000-5999"],"deny_ports":[..]}`
 (deny wins; an invalid value turns forwarding off). These commands bypass the
 ordered surface queue so forwarded bytes never use its budget.
+spec/sdk-schema.json types the commands and the `loopback-*` events (family
+`loopback`). Data and half close of a stream share bulk, so the half close
+follows the bytes; open and close (an abort that frees the stream's slot) are
+control. The data and EOF events share bulk. `loopback-closed` is control: with
+an error it aborts the stream and may arrive before data the daemon had queued,
+while a clean close follows the stream's last data and EOF.
 
 ### loopback-open
 
@@ -9701,6 +9712,8 @@ gets `machine_catalog.taken`. Disconnect removes the entire publication under
 the client-registry lock. Unverified, agent-bound, WebSocket and remote relay
 clients cannot publish (`machine_catalog.not_trusted`); a wrong daemon is
 `machine_catalog.owner_mismatch` and malformed data is `machine_catalog.bad_request`.
+spec/sdk-schema.json types the request (`MachineCatalogEntry` records) and the
+`{sequence, replayed}` result.
 
 The native local record always remains first and authoritative. Remote metadata
 is read-only: it never opens a connection, creates a session, supplies routing
