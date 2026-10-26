@@ -13,12 +13,12 @@
     "diffViewerPreviousHunk": "files fixture diffViewerFocused: openDiffViewer on the scratch repository of tests/oracle/fixtures/files/diff.json (two changed files, two hunks each)",
     "diffViewerPreviousLine": "files fixture diffViewerFocused: openDiffViewer on the scratch repository of tests/oracle/fixtures/files/diff.json (two changed files, two hunks each)",
     "diffViewerSearch": "files fixture diffViewerFocused: openDiffViewer on the scratch repository of tests/oracle/fixtures/files/diff.json (two changed files, two hunks each)",
-    "fileEditorAction": "files fixture codeEditorFocused: file.open of scratch sample.py, the focused code editor page",
-    "fileEditorGotoLine": "files fixture codeEditorFocused: file.open of scratch sample.py, the focused code editor page",
-    "fileEditorReplace": "files fixture codeEditorFocused: file.open of scratch sample.py, the focused code editor page",
-    "fileEditorZoomIn": "files fixture codeEditorFocused: file.open of scratch sample.py, the focused code editor page",
-    "fileEditorZoomOut": "files fixture codeEditorFocused: file.open of scratch sample.py, the focused code editor page",
-    "fileEditorZoomReset": "files fixture codeEditorFocused: file.open of scratch sample.py, the focused code editor page",
+    "fileEditorAction": "files fixture codeEditorFocused: file.open of scratch sample.py, writable (the scratch folder is a files.roots folder while the context holds), the focused code editor page",
+    "fileEditorGotoLine": "files fixture codeEditorFocused: file.open of scratch sample.py, writable (the scratch folder is a files.roots folder while the context holds), the focused code editor page",
+    "fileEditorReplace": "files fixture codeEditorFocused: file.open of scratch sample.py, writable (the scratch folder is a files.roots folder while the context holds), the focused code editor page",
+    "fileEditorZoomIn": "files fixture codeEditorFocused: file.open of scratch sample.py, writable (the scratch folder is a files.roots folder while the context holds), the focused code editor page",
+    "fileEditorZoomOut": "files fixture codeEditorFocused: file.open of scratch sample.py, writable (the scratch folder is a files.roots folder while the context holds), the focused code editor page",
+    "fileEditorZoomReset": "files fixture codeEditorFocused: file.open of scratch sample.py, writable (the scratch folder is a files.roots folder while the context holds), the focused code editor page",
     "fileExplorerCopyPath": "files fixture fileExplorerFocused: a terminal at scratch explorer/, Files in the right sidebar with the keyboard, one item New File made there selected",
     "fileExplorerCopyRelativePath": "files fixture fileExplorerFocused: a terminal at scratch explorer/, Files in the right sidebar with the keyboard, one item New File made there selected",
     "fileExplorerMoveToTrash": "files fixture fileExplorerFocused: a terminal at scratch explorer/, Files in the right sidebar with the keyboard, one item New File made there selected",
@@ -29,7 +29,7 @@
     "fileExplorerRename": "files fixture fileExplorerFocused: a terminal at scratch explorer/, Files in the right sidebar with the keyboard, one item New File made there selected",
     "markdownBack": "files fixture markdownFocused: file.open of scratch notes.md (writable, a link and a table), the focused Markdown page",
     "markdownForward": "files fixture markdownFocused: file.open of scratch notes.md (writable, a link and a table), the focused Markdown page",
-    "markdownGoToTop": "files fixture markdownReadOnlyFocused: file.open of scratch readonly.md (mode 0444), the focused Markdown page read only",
+    "markdownGoToTop": "files fixture markdownReadOnlyFocused: file.open of scratch readonly.md (mode 0444), the focused Markdown page read only, its context published again by a focus round trip once the page loaded",
     "markdownLink": "files fixture markdownFocused: file.open of scratch notes.md (writable, a link and a table), the focused Markdown page",
     "markdownReload": "files fixture markdownFocused: file.open of scratch notes.md (writable, a link and a table), the focused Markdown page",
     "markdownResetTableWidths": "files fixture markdownFocused: file.open of scratch notes.md (writable, a link and a table), the focused Markdown page",
@@ -37,8 +37,8 @@
     "markdownZoomIn": "files fixture markdownFocused: file.open of scratch notes.md (writable, a link and a table), the focused Markdown page",
     "markdownZoomOut": "files fixture markdownFocused: file.open of scratch notes.md (writable, a link and a table), the focused Markdown page",
     "markdownZoomReset": "files fixture markdownFocused: file.open of scratch notes.md (writable, a link and a table), the focused Markdown page",
-    "saveFilePreview": "files fixture codeEditorFocused: file.open of scratch sample.py, the focused code editor page",
-    "toggleFileEditorWordWrap": "files fixture codeEditorFocused: file.open of scratch sample.py, the focused code editor page"
+    "saveFilePreview": "files fixture codeEditorFocused: file.open of scratch sample.py, writable (the scratch folder is a files.roots folder while the context holds), the focused code editor page",
+    "toggleFileEditorWordWrap": "files fixture codeEditorFocused: file.open of scratch sample.py, writable (the scratch folder is a files.roots folder while the context holds), the focused code editor page"
   },
   "reasoned": {}
 }

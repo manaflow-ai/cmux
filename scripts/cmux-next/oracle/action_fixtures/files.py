@@ -7,9 +7,16 @@ Each context below is one registry context key the sweep did not set up (every-a
 sweep does not set up: KEY"). Its fixture owns a scratch folder, a fresh copy of tests/oracle/fixtures/files/scratch
 made in its first `enter` after a `leave`, and makes the focused page show a scratch file:
 
-  codeEditorFocused        file.open of sample.py: the code editor page (FilePageOpener routes other text there)
+  codeEditorFocused        file.open of sample.py, writable: the code editor page (FilePageOpener routes other text
+                           there). A script's open is not the user's choice, so the editor saves only inside a
+                           `files.roots` folder (FilePageProvider.inWorkspace): the scratch folder is one for the
+                           enter/leave cycle, and `leave` puts the setting back
   markdownFocused          file.open of notes.md, writable: the Markdown page with its editor
-  markdownReadOnlyFocused  file.open of readonly.md, mode 0444: the Markdown page as a file it cannot save
+  markdownReadOnlyFocused  file.open of readonly.md, mode 0444: the Markdown page as a file it cannot save. The page
+                           learns it is read only when it loads, after file.open published the registry context, and
+                           nothing publishes it again (FocusEffectApplier.publish runs on a focus context change), so
+                           `enter` focuses a terminal tab beside it and the page again once the page shows the file
+                           read only
   diffViewerFocused        openDiffViewer on the repository tests/oracle/fixtures/files/diff.json describes, built by
                            tests/oracle/fixtures/git/make_repo.py: two changed files of two hunks each
   fileExplorerFocused      a terminal tab at scratch explorer/, the right sidebar's Files with the keyboard, and one
@@ -17,7 +24,8 @@ made in its first `enter` after a `leave`, and makes the focused page show a scr
 
 `enter` holds only when `action.describe` of an action that needs the key no longer lists it in `missing_context`
 (the registry context the action runs against) and, for a page, the page listens for commands (`debug.page`
-`subscriptions`: PageWebView.send(command:) is false while nothing listens, and the page actions then refuse). A
+`subscriptions`: PageWebView.send(command:) is false while nothing listens, and the page actions then refuse) and
+shows the file as its context needs it (writable, or read only: the page root's data-read-only). A
 second `enter` before `leave` opens the same file again, which selects the tab that shows it. What `enter` opens
 is a tab the sweep's close_new closes; `leave` hides the right sidebar the explorer showed.
 
@@ -38,9 +46,9 @@ import stat
 import tempfile
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Dict, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from action_fixtures import load_module
+from action_fixtures import Step, load_module
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[3]
@@ -53,6 +61,10 @@ DIFF_REPO = "diff"  # FIXTURES/diff.json
 READ_ONLY = ("readonly.md",)  # scratch files the copy makes mode 0444
 EXPLORER = "explorer"  # the scratch folder the explorer's terminal starts in
 WAIT_S = 15.0  # a page's first load and the terminal's first cwd report
+EDITOR_PAGE = "cmux.editor"
+PAGE_ROOT = {EDITOR_PAGE: ".ed-page", "cmux.markdown": ".md-page"}  # the element with data-read-only
+FOCUS_KINDS = ("terminal", "chromium", "browser", "chat")  # tab kinds with a focus context of their own
+ROOTS = ["files", "roots"]  # FilePageTabHost.userChosenRoots: the folders the code editor saves in
 
 
 def error_of(reply: Any) -> Optional[str]:
@@ -86,6 +98,68 @@ def focused_tab(topology: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     tab = (topology.get("focus") or {}).get("tab")
     return next((t for w in topology.get("workspaces") or [] for s in w.get("screens") or []
                  for p in s.get("panes") or [] for t in p.get("tabs") or [] if tab and t.get("id") == tab), None)
+
+
+def page_shows(driver: Any, page: str) -> Optional[str]:
+    """`read only` or `writable`: the file the live `page` loaded, as its root element's data-read-only says
+    (EditorPage.tsx, MarkdownPage.tsx). None before the code editor is ready (<html> data-cmux-editor-phase); the
+    Markdown page has no phase, so only its `read only` says that it loaded."""
+    reply = driver.rpc("debug.page", {"page": page, "action": "query", "selector": f"html, {PAGE_ROOT[page]}"})
+    elements = reply.get("elements") if error_of(reply) is None else None
+    if not isinstance(elements, list) or len(elements) < 2:
+        return None
+    html, root = ((e.get("data") or {}) if isinstance(e, dict) else {} for e in elements[:2])
+    if page == EDITOR_PAGE and html.get("cmuxEditorPhase") != "ready":
+        return None
+    return {"true": "read only", "false": "writable"}.get(root.get("readOnly"))
+
+
+def host_grants(driver: Any, page: str) -> bool:
+    """True when the host now answers the live `page`'s config writable (`<page>.config` with no `readOnly`)."""
+    reply = driver.rpc("debug.page", {"page": page, "action": "call", "op": f"{page}.config"})
+    value = reply.get("value") if isinstance(reply, dict) and reply.get("t") == "ok" else None
+    return isinstance(value, dict) and not value.get("readOnly")
+
+
+def grant_root(driver: Any, root: Path) -> Tuple[Optional[List[Step]], Optional[str]]:
+    """Adds `root` to the `files.roots` setting: (the calls that put the setting back, None), or (None, why)."""
+    reply = driver.rpc("settings.get", {"path": ROOTS[:1]})
+    error = error_of(reply)
+    if error:
+        return None, f"settings.get files: {error}"
+    files = reply.get("value") if reply.get("exists", True) else None
+    if files is None:
+        undo: List[Step] = [("settings.unset", {"path": ROOTS[:1]})]
+    elif not isinstance(files, dict):
+        undo = [("settings.set", {"path": ROOTS[:1], "value": files})]
+    elif "roots" in files:
+        undo = [("settings.set", {"path": ROOTS, "value": files["roots"]})]
+    else:
+        undo = [("settings.unset", {"path": ROOTS})]
+    roots = files.get("roots") if isinstance(files, dict) else None
+    folders = [f for f in roots if isinstance(f, str)] if isinstance(roots, list) else []
+    error = error_of(driver.rpc("settings.set", {"path": ROOTS, "value": folders + [str(root)]}))
+    return (None, f"settings.set files.roots: {error}") if error else (undo, None)
+
+
+def topology_of(driver: Any) -> Dict[str, Any]:
+    reply = driver.rpc("snapshot.get")
+    return (reply.get("topology") or {}) if isinstance(reply, dict) else {}
+
+
+def neighbor_tab(topology: Dict[str, Any], tab: str) -> Optional[str]:
+    """A tab of `tab`'s workspace with a focus context of its own (a terminal, else a browser or chat tab)."""
+    for workspace in topology.get("workspaces") or []:
+        tabs = [t for s in workspace.get("screens") or [] for p in s.get("panes") or [] for t in p.get("tabs") or []]
+        if any(t.get("id") == tab for t in tabs):
+            others = [t for t in tabs if t.get("id") != tab and t.get("kind") in FOCUS_KINDS]
+            others.sort(key=lambda t: t.get("kind") != "terminal")
+            return others[0]["id"] if others else None
+    return None
+
+
+def focus_tab(driver: Any, tab: str) -> Optional[str]:
+    return error_of(driver.rpc("action.run", {"action": "tab.focus", "target": f"tab:{tab}", "focus": True}))
 
 
 def focused_cwd(driver: Any) -> Optional[str]:
@@ -144,8 +218,10 @@ class PageContext:
     probe: str  # an action that requires `key` alone
     opener: str  # the action that opens `path` as a focused tab
     target: Callable[[Scratch], Path]
+    shows: Optional[str] = None  # `writable` or `read only`: how the loaded page must show the file (None: unchecked)
     scratch: Scratch = field(default_factory=Scratch)
     path: Optional[Path] = None  # what this enter/leave cycle opens
+    undo: Optional[List[Step]] = None  # the calls that put `files.roots` back while this cycle's grant stands
 
     def enter(self, driver: Any) -> Optional[str]:
         if self.path is None:
@@ -153,18 +229,67 @@ class PageContext:
                 self.path = self.target(self.scratch)
             except (OSError, make_repo.FixtureError) as error:
                 return f"scratch files not made: {error}"
+        if self.shows == "writable" and self.undo is None:
+            self.undo, why = grant_root(driver, self.path.parent)
+            if why:
+                return why
+        why = self.open(driver)
+        if not why and self.shows == "writable":
+            why = self.writable(driver)
+        elif not why and self.shows == "read only":
+            why = self.read_only(driver)
+        if why:
+            return why
+        if not driver.wait(lambda: context_holds(driver, self.probe, self.key), WAIT_S):
+            return f"{self.key} did not hold after {self.opener} {self.path.name}"
+        return None
+
+    def open(self, driver: Any) -> Optional[str]:
         error = error_of(driver.run(self.opener, {"path": str(self.path)}))
         if error:
             return f"{self.opener} {self.path.name}: {error}"
-        if not driver.wait(lambda: context_holds(driver, self.probe, self.key), WAIT_S):
-            return f"{self.key} did not hold after {self.opener} {self.path.name}"
         if not driver.wait(lambda: page_listens(driver, self.page), WAIT_S):
             return f"the {self.page} page has no command subscriber"
         return None
 
+    def writable(self, driver: Any) -> Optional[str]:
+        """The page shows the file writable. A page asks for its grant once, as it loads (the editor's store.start),
+        so a page that loaded before the settings watcher applied `files.roots` is closed and the file opened again
+        once the host grants it."""
+        shown = driver.wait(lambda: page_shows(driver, self.page), WAIT_S)
+        if shown == "read only":
+            if not driver.wait(lambda: host_grants(driver, self.page), WAIT_S):
+                return f"files.roots did not make {self.path.name} writable"
+            tab = focused_tab(topology_of(driver))
+            error = error_of(driver.rpc("action.run", {"action": "closeTab", "target": f"tab:{(tab or {}).get('id')}",
+                                                       "origin": "script"}))
+            why = f"closeTab of the read-only {self.page} page: {error}" if error else self.open(driver)
+            if why:
+                return why
+            shown = driver.wait(lambda: page_shows(driver, self.page), WAIT_S)
+        return None if shown == "writable" else f"the {self.page} page shows {self.path.name} {shown or 'never'}"
+
+    def read_only(self, driver: Any) -> Optional[str]:
+        """The page shows the file read only, and the registry context says so. The page learns that as it loads,
+        after the open published the context; a focus round trip through a tab with another focus context publishes
+        it again (focusing the page tab alone changes no focus context, so publishes nothing)."""
+        if not driver.wait(lambda: page_shows(driver, self.page) == "read only", WAIT_S):
+            return f"the {self.page} page does not show {self.path.name} read only"
+        if context_holds(driver, self.probe, self.key):
+            return None
+        topology = topology_of(driver)
+        page_tab = (focused_tab(topology) or {}).get("id")
+        other = neighbor_tab(topology, page_tab) if page_tab else None
+        if not other:
+            return f"no tab beside the {self.page} page to publish {self.key} through"
+        error = focus_tab(driver, other) or focus_tab(driver, page_tab)
+        return f"tab.focus to publish {self.key}: {error}" if error else None
+
     def leave(self, driver: Any) -> Optional[str]:
         self.path = None  # the next enter copies the files again: a sample's save or edit does not carry over
-        return None
+        undo, self.undo = self.undo or [], None
+        errors = [error for error in (error_of(driver.rpc(method, params)) for method, params in undo) if error]
+        return f"put files.roots back: {errors[0]}" if errors else None
 
 
 @dataclass
@@ -221,7 +346,8 @@ class ExplorerContext:
 
 
 def code_editor() -> PageContext:
-    return PageContext("codeEditorFocused", "cmux.editor", "fileEditorZoomIn", "file.open", file_target("sample.py"))
+    return PageContext("codeEditorFocused", EDITOR_PAGE, "fileEditorZoomIn", "file.open", file_target("sample.py"),
+                       shows="writable")
 
 
 def markdown() -> PageContext:
@@ -230,7 +356,7 @@ def markdown() -> PageContext:
 
 def markdown_read_only() -> PageContext:
     return PageContext("markdownReadOnlyFocused", "cmux.markdown", "markdownGoToTop", "file.open",
-                       file_target("readonly.md"))
+                       file_target("readonly.md"), shows="read only")
 
 
 def diff_viewer() -> PageContext:
