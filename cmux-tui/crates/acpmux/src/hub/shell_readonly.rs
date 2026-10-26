@@ -399,13 +399,6 @@ fn segment_ok(words: &[String]) -> Option<Reads> {
         "test" | "[" => !any(&|a| matches!(a, "-v" | "-R")),
         // `--paginate` (`-l`) runs `pr`.
         "diff" => !any(&|a| short_has(a, 'l') || long_is(a, "--paginate")),
-        "sort" => !any(&|a| {
-            short_has(a, 'o')
-                || short_has(a, 'T')
-                || long_is(a, "--output")
-                || long_is(a, "--compress-program")
-                || long_is(a, "--temporary-directory")
-        }),
         // A filter on its input only: an operand is a file to read and the next one, however it
         // is spelled (BSD stops at the first operand, `-out` after it is the output), is written.
         "uniq" => args.iter().all(|a| {
@@ -504,7 +497,9 @@ fn git_read_ok(args: &[String]) -> bool {
             || long_is(a, "--ext-diff")
             || long_is(a, "--show-signature")
             || a.contains("%G")
-            || a.contains("%(signature")
+            // Any signature atom, sort key or dereference (`--sort=signature:grade`,
+            // `%(*signature)`) verifies with gpg.
+            || a.contains("signature")
             // Opens the manual in a viewer.
             || long_is(a, "--help")
             // Runs smudge filters (git-lfs can fetch) and textconv drivers.
