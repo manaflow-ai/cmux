@@ -228,7 +228,7 @@ pub struct CheckedFolder {
     /// Its device and inode; None off unix.
     pin: Option<crate::cwd_pin::CwdPin>,
     #[cfg(unix)]
-    _held: Arc<std::fs::File>,
+    held: Arc<std::fs::File>,
 }
 
 impl std::ops::Deref for CheckedFolder {
@@ -275,7 +275,7 @@ impl CheckedFolder {
             path,
             pin,
             #[cfg(unix)]
-            _held: held,
+            held,
         })
     }
 
@@ -286,18 +286,53 @@ impl CheckedFolder {
         let moved = resolved.as_deref() != Some(self.path.as_path())
             || crate::cwd_pin::CwdPin::of(cwd) != self.pin;
         if cfg!(unix) && moved {
-            return Err(refusal(
-                "subsessions.cwd_moved",
-                format!(
-                    "start_session refused: {} is no longer the folder that was checked (it was moved, or a link now leads elsewhere), so nothing started there",
-                    cwd.display()
-                ),
-                json!({"cwd": self.path}),
-            ));
+            return Err(moved_refusal(cwd));
         }
         Ok(())
     }
 
+    /// Its device and inode, kept in the session's meta (`SessionMeta::cwd_pin`); None off unix.
+    pub(super) fn pin(&self) -> Option<crate::cwd_pin::CwdPin> {
+        self.pin
+    }
+
+    /// The open handle on it (unix): git runs in this very folder through it
+    /// (`subsession_worktree::Dir`).
+    pub(super) fn held(&self) -> Option<Arc<std::fs::File>> {
+        #[cfg(unix)]
+        return Some(self.held.clone());
+        #[cfg(not(unix))]
+        None
+    }
+}
+
+/// `subsessions.cwd_moved`: `cwd` no longer leads to the folder a sub-session's start checked.
+fn moved_refusal(cwd: &Path) -> RpcError {
+    refusal(
+        "subsessions.cwd_moved",
+        format!(
+            "start_session refused: {} is no longer the folder that was checked (it was moved, or a link now leads elsewhere), so nothing started there",
+            cwd.display()
+        ),
+        json!({"cwd": cwd}),
+    )
+}
+
+/// Ok unless `pin` is set and `cwd` no longer leads to that folder: a sub-session's harness
+/// starts again (a restart, a route change, a dead agent's next prompt) only in the folder its
+/// start checked (`SessionMeta::cwd_pin`). A folder whose volume remounted with another device
+/// number is refused too: nothing starts in a folder that may not be the one checked.
+pub(super) fn still_pinned(
+    cwd: &Path,
+    pin: Option<crate::cwd_pin::CwdPin>,
+) -> Result<(), RpcError> {
+    match pin {
+        Some(pin) if crate::cwd_pin::CwdPin::of(cwd) != Some(pin) => Err(moved_refusal(cwd)),
+        _ => Ok(()),
+    }
+}
+
+impl CheckedFolder {
     /// Its path, while it still leads to this folder ([`CheckedFolder::still_at`]).
     pub(super) fn still_here(&self) -> Result<&Path, RpcError> {
         self.still_at(&self.path).map(|()| self.path.as_path())
@@ -321,7 +356,7 @@ impl Hub {
         let cwd = session.meta().cwd;
         checked.still_at(&cwd)?;
         let pinned = self.ensure_child(session, spawn);
-        let started = crate::cwd_pin::CwdPin::scope(checked.pin, pinned).await;
+        let started = Box::pin(crate::cwd_pin::CwdPin::scope(checked.pin, pinned)).await;
         // A spawn its harness's own check failed (the folder moved since) says why.
         started.map_err(|e| checked.still_at(&cwd).err().unwrap_or(e))
     }

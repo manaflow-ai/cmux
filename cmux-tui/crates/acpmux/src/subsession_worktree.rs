@@ -40,13 +40,65 @@ pub struct Worktree {
 /// (the user's unpushed work).
 const NO_MAINTENANCE: [&str; 4] = ["-c", "maintenance.auto=false", "-c", "gc.auto=0"];
 
+/// The folder git runs in: `path`, or (unix) the very folder `held` was opened on, wherever
+/// `path` leads now: a sub-session's checked folder (`hub/subsession_guard.rs`), so a folder
+/// renamed or a link swapped after its check never has a worktree made from it.
+#[derive(Clone, Copy)]
+pub struct Dir<'a> {
+    path: &'a Path,
+    #[cfg(unix)]
+    held: Option<&'a std::fs::File>,
+}
+
+impl<'a> Dir<'a> {
+    /// The folder `held` holds (unix; `path` names it in messages), else `path`.
+    pub fn held(path: &'a Path, held: Option<&'a std::fs::File>) -> Self {
+        #[cfg(not(unix))]
+        let _ = held;
+        Self {
+            path,
+            #[cfg(unix)]
+            held,
+        }
+    }
+}
+
+impl<'a> From<&'a Path> for Dir<'a> {
+    fn from(path: &'a Path) -> Self {
+        Self::held(path, None)
+    }
+}
+
+impl<'a> From<&'a PathBuf> for Dir<'a> {
+    fn from(path: &'a PathBuf) -> Self {
+        Self::held(path, None)
+    }
+}
+
 /// Git that runs nothing from the repository at `dir`: no hooks, fsmonitor,
 /// submodule recursion, credential helper, system config, network transport
 /// or lazy fetch of a partial clone.
-fn hardened(dir: &Path) -> Command {
+fn hardened(dir: Dir<'_>) -> Command {
     let mut cmd = Command::new("git");
+    #[cfg(unix)]
+    if let Some(held) = dir.held {
+        use std::os::fd::AsRawFd;
+        use std::os::unix::process::CommandExt;
+        let fd = held.as_raw_fd();
+        // SAFETY: runs in the child between fork and exec, after any `current_dir`; fchdir(2)
+        // is async-signal-safe and allocates nothing. `held` outlives the spawn (borrowed).
+        unsafe {
+            cmd.pre_exec(move || {
+                if libc::fchdir(fd) == 0 { Ok(()) } else { Err(std::io::Error::last_os_error()) }
+            });
+        }
+    }
+    #[cfg(unix)]
+    let at = if dir.held.is_some() { Path::new(".") } else { dir.path };
+    #[cfg(not(unix))]
+    let at = dir.path;
     cmd.arg("-C")
-        .arg(dir)
+        .arg(at)
         .args(["-c", "core.hooksPath=/dev/null", "-c", "core.fsmonitor=false"])
         .args(["-c", "submodule.recurse=false", "-c", "credential.helper="])
         .args(NO_MAINTENANCE)
@@ -75,13 +127,13 @@ fn run_by(mut cmd: Command, args: &[&str], by: Option<Instant>) -> Result<String
     Ok(String::from_utf8_lossy(&out.stdout).trim().to_owned())
 }
 
-fn git(dir: &Path, args: &[&str]) -> Result<String, String> {
-    run(hardened(dir), args)
+fn git<'a>(dir: impl Into<Dir<'a>>, args: &[&str]) -> Result<String, String> {
+    run(hardened(dir.into()), args)
 }
 
 /// Git that runs nothing from the repository at `dir` ([`hardened`]), ended at `by`.
 pub(crate) fn git_by(dir: &Path, args: &[&str], by: Instant) -> Result<String, String> {
-    run_by(hardened(dir), args, Some(by))
+    run_by(hardened(dir.into()), args, Some(by))
 }
 
 /// `cmd`'s output, `input` on its stdin. With `by`, it runs in a process group of its own,
@@ -249,7 +301,7 @@ fn check_out_without_config(
             .map_err(|e| e.to_string())?;
         fetch_missing(objects, &scratch, root, commit, by)?;
         let isolated = || {
-            let mut cmd = hardened(root);
+            let mut cmd = hardened(root.into());
             cmd.env("GIT_DIR", &scratch)
                 .env("GIT_WORK_TREE", root)
                 .env("GIT_INDEX_FILE", scratch.join("index"))
@@ -272,7 +324,7 @@ fn missing_objects(
     commit: &str,
     by: Option<Instant>,
 ) -> Result<Vec<String>, String> {
-    let mut cmd = hardened(root);
+    let mut cmd = hardened(root.into());
     cmd.env("GIT_DIR", scratch).env("GIT_CONFIG_GLOBAL", "/dev/null");
     let tree = format!("{commit}^{{tree}}");
     let listed =
@@ -283,7 +335,7 @@ fn missing_objects(
 /// The URL of the promisor remote of the partial clone whose worktree
 /// `root` is, as its config names it (read, never run).
 fn promisor_url(root: &Path, by: Option<Instant>) -> Option<String> {
-    let git = |dir: &Path, args: &[&str]| run_by(hardened(dir), args, by);
+    let git = |dir: &Path, args: &[&str]| run_by(hardened(dir.into()), args, by);
     let listed =
         git(root, &["config", "--get-regexp", r"^remote\..*\.promisor$"]).unwrap_or_default();
     let named = listed.lines().find_map(|l| {
@@ -343,7 +395,7 @@ fn fetch_missing(
 }
 
 /// Removes a worktree [`make_worktree`] made, and its branch.
-pub fn remove_worktree(folder: &Path, worktree: &Worktree) {
+pub fn remove_worktree(folder: Dir<'_>, worktree: &Worktree) {
     let root = worktree.root.to_string_lossy();
     let _ = git(folder, &["worktree", "remove", "--force", &root]);
     let _ = git(folder, &["branch", "-D", &worktree.branch]);
@@ -371,7 +423,7 @@ pub fn slug(text: &str) -> String {
 /// on a new branch `cmux/<name>` from the current branch (else HEAD), its
 /// base recorded as `branch.<branch>.cmuxBase`, as `git.worktree.create`
 /// makes one. A taken name gets the next free suffix.
-pub fn make_worktree(folder: &Path, title: &str) -> Result<Worktree, String> {
+pub fn make_worktree(folder: Dir<'_>, title: &str) -> Result<Worktree, String> {
     make_worktree_under(folder, title, &home()?)
 }
 
@@ -389,7 +441,7 @@ struct Layout {
     parent: PathBuf,
 }
 
-fn layout(folder: &Path, home: &Path) -> Result<Layout, String> {
+fn layout(folder: Dir<'_>, home: &Path) -> Result<Layout, String> {
     let common =
         PathBuf::from(git(folder, &["rev-parse", "--path-format=absolute", "--git-common-dir"])?);
     let objects = PathBuf::from(git(
@@ -424,7 +476,7 @@ fn layout(folder: &Path, home: &Path) -> Result<Layout, String> {
 /// and index and records its base; removes it when that fails, and its
 /// branch too unless `kept_branch` (the branch was there before).
 fn fill(
-    folder: &Path,
+    folder: Dir<'_>,
     layout: &Layout,
     mut made: Worktree,
     commit: &str,
@@ -456,7 +508,7 @@ fn fill(
 }
 
 /// [`make_worktree`] with `home` as the home folder.
-fn make_worktree_under(folder: &Path, title: &str, home: &Path) -> Result<Worktree, String> {
+fn make_worktree_under(folder: Dir<'_>, title: &str, home: &Path) -> Result<Worktree, String> {
     let layout = layout(folder, home)?;
     let parent = layout.parent.clone();
     // The commit is resolved once; a branch name that reads as an option
@@ -491,14 +543,14 @@ fn make_worktree_under(folder: &Path, title: &str, home: &Path) -> Result<Worktr
 }
 
 /// The current branch, else `commit` (detached, or a name that reads as an option).
-fn current_base(folder: &Path, commit: &str) -> String {
+fn current_base(folder: Dir<'_>, commit: &str) -> String {
     git(folder, &["symbolic-ref", "--quiet", "--short", "HEAD"])
         .ok()
         .filter(|b| !b.is_empty() && !b.starts_with('-'))
         .unwrap_or_else(|| commit.to_owned())
 }
 
-fn has_branch(folder: &Path, name: &str) -> bool {
+fn has_branch(folder: Dir<'_>, name: &str) -> bool {
     git(folder, &["rev-parse", "--verify", "--quiet", &format!("refs/heads/cmux/{name}")]).is_ok()
 }
 
@@ -555,7 +607,7 @@ fn ensure_worktree_under(
     if base.is_some_and(|b| b.is_empty() || b.starts_with('-')) {
         return Err("the base must be a ref or commit, not an option".into());
     }
-    let layout = layout(folder, home)?;
+    let layout = layout(folder.into(), home)?;
     let root = layout.parent.join(&chosen);
     let branch = format!("cmux/{chosen}");
     let lock = name_lock(&root);
@@ -578,7 +630,7 @@ fn ensure_worktree_under(
         std::fs::create_dir_all(&layout.parent)
             .map_err(|e| format!("{}: {e}", layout.parent.display()))?;
         let path = root.to_string_lossy().into_owned();
-        let (added, commit, base, reused) = if has_branch(folder, &chosen) {
+        let (added, commit, base, reused) = if has_branch(folder.into(), &chosen) {
             let commit = git(
                 folder,
                 &["rev-parse", "--verify", "--quiet", &format!("refs/heads/{branch}^{{commit}}")],
@@ -598,7 +650,7 @@ fn ensure_worktree_under(
             let label = base
                 .filter(|b| *b != "HEAD")
                 .map(str::to_owned)
-                .unwrap_or_else(|| current_base(folder, &commit));
+                .unwrap_or_else(|| current_base(folder.into(), &commit));
             let added =
                 git(folder, &["worktree", "add", "--no-checkout", "-b", &branch, &path, &commit]);
             (added, commit, label, None)
@@ -614,7 +666,7 @@ fn ensure_worktree_under(
             Err(e) => return Err(e),
         }
         let made = Worktree { root: root.clone(), branch: branch.clone(), base, cwd: root.clone() };
-        let worktree = fill(folder, &layout, made, &commit, reused.is_some())?;
+        let worktree = fill(folder.into(), &layout, made, &commit, reused.is_some())?;
         return Ok(Ensured { worktree, reused });
     }
     Err(format!("{} was added and removed while this ran; run it again", root.display()))
@@ -700,6 +752,49 @@ mod tests {
         sh(&repo, &["commit", "-q", "-am", "second"]);
         sh(&repo, &["checkout", "-q", "main"]);
         (Scratch(top), repo, home)
+    }
+
+    /// Whether `dir`'s repository has branch `cmux/<name>`.
+    fn branch_in(dir: &Path, name: &str) -> bool {
+        let refname = format!("refs/heads/cmux/{name}");
+        let status = Command::new("git")
+            .arg("-C")
+            .arg(dir)
+            .args(["rev-parse", "--verify", "--quiet", &refname])
+            .env("GIT_CONFIG_NOSYSTEM", "1")
+            .env("GIT_CONFIG_GLOBAL", "/dev/null")
+            .output()
+            .unwrap()
+            .status;
+        status.success()
+    }
+
+    /// A sub-session's checked folder, held open, is renamed away and another repository takes
+    /// its path before the worktree is made: the worktree is of the folder held, never of the
+    /// one at its path now, and its removal leaves that one alone too.
+    #[cfg(unix)]
+    #[test]
+    fn a_held_folder_makes_its_worktree_from_itself_wherever_its_path_leads() {
+        let (scratch, repo, home) = repo();
+        let held = std::fs::File::open(repo.join("sub")).unwrap();
+        let moved = scratch.0.join("proj-moved");
+        std::fs::rename(&repo, &moved).unwrap();
+        std::fs::create_dir_all(repo.join("sub")).unwrap();
+        sh(&repo, &["init", "-q", "-b", "main"]);
+        std::fs::write(repo.join("sub/a.txt"), "unchecked\n").unwrap();
+        sh(&repo, &["add", "."]);
+        sh(&repo, &["commit", "-q", "-m", "unchecked"]);
+
+        let path = repo.join("sub");
+        let at = Dir::held(&path, Some(&held));
+        let made = make_worktree_under(at, "Task", &home).unwrap();
+        assert_eq!(std::fs::read_to_string(made.cwd.join("a.txt")).unwrap(), "first\n");
+        assert_eq!(sh(&moved, &["rev-parse", "cmux/task"]), sh(&moved, &["rev-parse", "main"]));
+        assert!(!branch_in(&repo, "task"), "no branch in the repository now at the path");
+
+        remove_worktree(at, &made);
+        assert!(!made.root.exists(), "removed");
+        assert!(!branch_in(&moved, "task"), "its branch removed from the folder held");
     }
 
     #[test]

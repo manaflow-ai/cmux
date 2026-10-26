@@ -151,6 +151,7 @@ impl Hub {
             (session_env, chat_store, adopted_cwd, git.branch, git.head);
         meta.workspace_id = workspace_id;
         meta.subsession = subsession;
+        meta.cwd_pin = checked_cwd.as_ref().and_then(super::subsession_guard::CheckedFolder::pin);
         meta.tools
             .off
             .extend(disallowed_tools.iter().map(|t| format!("{}{t}", super::tools::BUILT_IN)));
@@ -1190,6 +1191,9 @@ impl Hub {
         }
         self.wait_startup().await;
         let meta = session.meta();
+        // A sub-session's harness starts again only in the folder its start checked, before its
+        // folder profile is read (`cwd_pin.rs`).
+        super::subsession_guard::still_pinned(&meta.cwd, meta.cwd_pin)?;
         let agent = meta.harness.clone();
         let (profile, defaults) = {
             let cfg = self.config.read().await;
@@ -1199,6 +1203,16 @@ impl Hub {
             (profile, cfg.defaults_for(&agent))
         };
         let spawn = self.spawn_profile(session, &profile, &defaults.env).await?;
-        self.ensure_child(session, &spawn).await
+        // Boxed: this future is part of every turn and restart; inline, it overflows a debug
+        // build worker thread stack.
+        let started = Box::pin(crate::cwd_pin::CwdPin::scope(
+            meta.cwd_pin,
+            self.ensure_child(session, &spawn),
+        ))
+        .await;
+        // A spawn its harness's own check failed (the folder moved since) says why.
+        started.map_err(|e| {
+            super::subsession_guard::still_pinned(&meta.cwd, meta.cwd_pin).err().unwrap_or(e)
+        })
     }
 }

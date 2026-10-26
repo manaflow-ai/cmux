@@ -156,6 +156,8 @@ impl Hub {
         meta.status = SessionStatus::Idle;
         // A family lives on one daemon: a moved-in sub-session is a root here.
         meta.subsession = None;
+        // Its folder's identity on the machine it came from means nothing here.
+        meta.cwd_pin = None;
         let session = self.make_session(meta.clone());
         self.store.save(&meta).map_err(|e| RpcError::internal(e.to_string()))?;
         // Copy events verbatim, preserving seq. A partial transcript is not
