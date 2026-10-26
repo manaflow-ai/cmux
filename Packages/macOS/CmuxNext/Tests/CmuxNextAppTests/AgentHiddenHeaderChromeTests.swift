@@ -20,8 +20,8 @@ import Testing
         defer { try? FileManager.default.removeItem(at: directory) }
         let file = directory.appending(path: "index.html")
         try Data("<html><body>Agent</body></html>".utf8).write(to: file)
-        let pane = PaneContentView(stripModel: TabStripModel(tabs: [TabItem(id: TabID("chat"), title: "Chat")]),
-                                   reveal: LaunchReveal(deadline: .zero))
+        let pane = PaneContentView.testing(stripModel: TabStripModel(tabs: [TabItem(id: TabID("chat"), title: "Chat")]),
+                                           reveal: LaunchReveal(deadline: .zero))
         let page = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost()), source: .bundled(file)))
         defer { page.close() }
         pane.hidesStrip = true

@@ -34,7 +34,7 @@ import Testing
 
     @Test func tabStripTabsNewTabAndCloseAreNamedAndIdentified() throws {
         let tabs = (0..<3).map { TabItem(id: TabID("tab\($0)"), title: "Tab \($0)") }
-        let strip = TabStripView(model: TabStripModel(tabs: tabs, selectedID: TabID("tab1")))
+        let strip = TabStripView.testing(model: TabStripModel(tabs: tabs, selectedID: TabID("tab1")))
         strip.dragsWindowFromEmptySpace = false
         let host = window(strip, size: NSSize(width: 900, height: TabStripView.preferredHeight))
         defer { host.orderOut(nil) }

@@ -35,8 +35,8 @@ extension MainPaneGutterSuites {
             init(content: NSView) { self.content = content }
 
             func makeContentView(for pane: PaneID) -> NSView {
-                let view = PaneContentView(stripModel: TabStripModel(tabs: [TabItem(id: TabID("tab"), title: "New Tab")]),
-                                           reveal: LaunchReveal(deadline: .zero))
+                let view = PaneContentView.testing(stripModel: TabStripModel(tabs: [TabItem(id: TabID("tab"), title: "New Tab")]),
+                                                   reveal: LaunchReveal(deadline: .zero))
                 view.show(content)
                 self.pane = view
                 return view
