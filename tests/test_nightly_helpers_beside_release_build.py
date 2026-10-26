@@ -4,8 +4,8 @@
 Before, the job ran the web bundles, the OptChat Chief, the iPhone host and the
 third-party notices one after another before xcodebuild (about 5 min a night,
 up to 9). Now:
-  - build-nightly-linux-inputs builds the web bundles and the notices on Linux,
-    needing only `decide`; build-nightly-app never needs it, downloads each
+  - build-nightly-linux-inputs builds the web bundles and the notices on Linux
+    from the resolved build commit, beside build-nightly-app, which never needs it, downloads each
     hand-off by pattern (a missing one is no error) and builds it itself unless
     it matches its checkout (scripts/ci/nightly_linux_inputs.py);
   - the Chief and the iPhone host build in the background (scripts/ci/
@@ -67,9 +67,10 @@ class WorkflowStructureTests(unittest.TestCase):
         self.assertIn(name, self.names)
         return self.names.index(name)
 
-    def test_linux_job_needs_only_decide_holds_no_secret_and_runs_on_linux(self):
+    def test_linux_job_builds_the_app_commit_holds_no_secret_and_runs_on_linux(self):
         job = self.jobs[LINUX_JOB]
-        self.assertEqual(job["needs"], "decide")
+        self.assertEqual(job["needs"], ["decide", "resolve-nightly-cmux-tui-client"])
+        self.assertEqual(job["steps"][0]["with"]["ref"], "${{ needs.resolve-nightly-cmux-tui-client.outputs.build_sha }}")
         self.assertNotIn("environment", job)
         self.assertEqual(job["permissions"], {"contents": "read"})
         self.assertIn("blacksmith-32vcpu-ubuntu-2404", job["runs-on"])
