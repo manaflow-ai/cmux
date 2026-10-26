@@ -152,7 +152,8 @@ import Testing
             _ = try await SessionTransferService.runToEnd(URL(fileURLWithPath: "/opt/acpmux"), ["transfer"], environment: [:],
                                                           limit: .seconds(240), processes: missing, clock: ManualClock())
             Issue.record("a move that could not start threw nothing")
-        } catch SessionTransferService.Failure.chatNotMoved {
+        } catch SessionTransferService.Failure.chatNotMoved(let message) {
+            #expect(message.contains("no such file"))
         } catch {
             Issue.record("unexpected \(error)")
         }

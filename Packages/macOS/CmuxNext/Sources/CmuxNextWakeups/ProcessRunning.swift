@@ -37,7 +37,12 @@ extension ProcessRunning {
         let processes = self
         // task-owner: the child's own run; it outlives a wait that gave up and ends at the child's exit
         Task {
-            do { first.resolve(.success(try await processes.outcome(of: request))) } catch { first.resolve(.failure(error)) }
+            do {
+                let outcome = try await processes.outcome(of: request)
+                first.resolve(.success(outcome))
+            } catch {
+                first.resolve(.failure(error))
+            }
         }
         let bound = DemandTimer(owner: owner, clock: clock)
         bound.schedule(after: limit) { first.resolve(nil) }
