@@ -314,7 +314,9 @@ test("a new connection forgets the managed mark, and a late answer from the old 
     old = client.startMode("claude", "/Users/dev/project");
   });
   // The pane's connection is replaced (a reconnect, another daemon).
-  await act(async () => void startMode.setStartModeSource(async () => undefined));
+  await act(async () => {
+    startMode.setStartModeSource(async () => undefined);
+  });
   await act(async () => {
     releaseOld({ harness: "claude", modeId: null, fullAccess: "managed" });
     await old;
@@ -323,5 +325,7 @@ test("a new connection forgets the managed mark, and a late answer from the old 
   const { openPicker } = await import("../src/agent-session/acpmux/pickerOpeners");
   await act(async () => void openPicker("Mode"));
   expect(disabled("Bypass permissions")).toBe(false);
-  await act(async () => void startMode.setStartModeSource(undefined));
+  await act(async () => {
+    startMode.setStartModeSource(undefined);
+  });
 });
