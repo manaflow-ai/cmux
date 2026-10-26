@@ -648,10 +648,12 @@ impl Store for MemoryStore {
 pub struct LocalStore {
     root: PathBuf,
     segment_bytes: u64,
+    /// The most logs held open ([`open_logs_for`]).
+    open_logs: usize,
     writers: Mutex<Writers>,
 }
 
-/// The logs held open, at most [`OPEN_LOGS`]: the least recently written one
+/// The logs held open, at most `LocalStore::open_logs`: the least recently written one
 /// is closed for a new one. A daemon held one descriptor per session it wrote
 /// since it started, closed ones too, and ran out (cmux16, 2026-10-22: 193 of
 /// its 256, every agent start failing with "Too many open files").
@@ -662,7 +664,37 @@ struct Writers {
     clock: u64,
 }
 
+/// The fewest logs held open: a quarter of launchd's soft limit of 256.
 const OPEN_LOGS: usize = 64;
+
+/// The most logs held open under any limit.
+const OPEN_LOGS_MAX: usize = 2048;
+
+/// How many logs a store holds open under a soft open-file limit of `soft`: a quarter of it,
+/// from [`OPEN_LOGS`] (the 256 of launchd) to [`OPEN_LOGS_MAX`]. With 64 at the daemon's raised
+/// limit, more than 64 agents that stream at once closed a log, with its sync under the writers'
+/// lock, on every record: 100 fake agents logged about 700 records a second in all, and each
+/// agent's unlogged entries waited in the daemon (p07-memory-064).
+pub(crate) fn open_logs_for(soft: u64) -> usize {
+    usize::try_from(soft / 4).unwrap_or(usize::MAX).clamp(OPEN_LOGS, OPEN_LOGS_MAX)
+}
+
+/// This process's soft open-file limit; the daemon raises it before it opens the store
+/// (`daemon/open_file_limit.rs`).
+#[cfg(unix)]
+fn soft_open_file_limit() -> u64 {
+    let mut lim = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
+    // SAFETY: `lim` is a valid rlimit for getrlimit to fill.
+    if unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &mut lim) } != 0 {
+        return 0;
+    }
+    lim.rlim_cur
+}
+
+#[cfg(not(unix))]
+fn soft_open_file_limit() -> u64 {
+    0
+}
 
 struct SegmentWriter {
     index: u32,
@@ -673,7 +705,7 @@ struct SegmentWriter {
 
 impl SegmentWriter {
     /// Closes the log, durable first as `flush` would have made it. Called under the
-    /// writers' lock, so the cache never holds more than [`OPEN_LOGS`] and a session's
+    /// writers' lock, so the cache never holds more than `LocalStore::open_logs` and a session's
     /// records stay in order. A failed sync is logged: its records were written (an append is
     /// never synced on its own), so only a machine crash before the kernel writes them back
     /// loses them, as it would any append since the last `flush`.
@@ -691,6 +723,7 @@ impl LocalStore {
         Ok(Self {
             root,
             segment_bytes: segment_bytes.max(64 * 1024),
+            open_logs: open_logs_for(soft_open_file_limit()),
             writers: Mutex::new(Writers::default()),
         })
     }
@@ -1000,12 +1033,12 @@ impl Store for LocalStore {
 
     fn append(&self, id: &str, record: &EventRecord) -> Result<()> {
         // One lock hold from the eviction to the write: the least recently written log is
-        // closed before this one opens, so no more than `OPEN_LOGS` are ever open, and no other
+        // closed before this one opens, so no more than `open_logs` are ever open, and no other
         // append comes between (a session's records stay in order). Its sync runs under the lock,
-        // once per eviction: only while more than `OPEN_LOGS` sessions are written.
+        // once per eviction: only while more than `open_logs` sessions are written.
         let mut writers = self.writers.lock_or_recover();
         if !writers.open.contains_key(id)
-            && writers.open.len() >= OPEN_LOGS
+            && writers.open.len() >= self.open_logs
             && let Some(oldest) =
                 writers.open.iter().min_by_key(|(_, w)| w.used).map(|(k, _)| k.clone())
             && let Some(w) = writers.open.remove(&oldest)
@@ -1378,3 +1411,46 @@ mod permission_tests {
 
 #[cfg(all(test, unix))]
 mod line_rev_tests;
+
+#[cfg(test)]
+mod open_logs_tests {
+    use super::*;
+
+    #[test]
+    fn a_quarter_of_the_open_file_limit_holds_logs_from_64_to_2048() {
+        assert_eq!(open_logs_for(0), 64);
+        assert_eq!(open_logs_for(256), 64);
+        assert_eq!(open_logs_for(10_240), 2048);
+        assert_eq!(open_logs_for(1_000), 250);
+        assert_eq!(open_logs_for(u64::MAX), 2048);
+    }
+
+    /// 100 chats that stream at once keep their logs open under the daemon's raised limit: no
+    /// record closes (and syncs) another chat's log.
+    #[test]
+    fn a_hundred_chats_written_in_turn_keep_their_logs_open() {
+        let root = std::env::temp_dir().join(format!(
+            "acpmux-open-logs-{}-{}",
+            std::process::id(),
+            uuid::Uuid::now_v7()
+        ));
+        let mut store = LocalStore::new(root.join("sessions"), 64 * 1024).unwrap();
+        store.open_logs = open_logs_for(10_240);
+        for seq in 1..=3 {
+            for chat in 0..100 {
+                let record = EventRecord {
+                    seq,
+                    at: seq,
+                    dir: "in".into(),
+                    kind: "agent_message_chunk".into(),
+                    msg: serde_json::json!({"text": "tick"}),
+                    host_seq: None,
+                };
+                store.append(&format!("chat-{chat:03}"), &record).unwrap();
+            }
+        }
+        assert_eq!(store.writers.lock_or_recover().open.len(), 100);
+        assert_eq!(store.events("chat-042", 0, usize::MAX).unwrap().len(), 3);
+        let _ = std::fs::remove_dir_all(&root);
+    }
+}
