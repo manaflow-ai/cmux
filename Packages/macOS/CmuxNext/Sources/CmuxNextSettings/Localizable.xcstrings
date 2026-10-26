@@ -141791,6 +141791,270 @@
         }
       }
     },
+    "settings.agentPane.display.vscodeMinimap": {
+      "comment": "Settings: the agent chat's and Markdown viewer's display rows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VS Code Minimap"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "خريطة مصغرة على طريقة VS Code"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mini mapa kao u VS Codeu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minikort som i VS Code"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minimap wie in VS Code"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minimapa estilo VS Code"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mini-carte façon VS Code"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minimappa stile VS Code"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VS Code 風ミニマップ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផែនទីតូចបែប VS Code"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VS Code 스타일 미니맵"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minikart som i VS Code"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minimapa jak w VS Code"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Minimapa estilo VS Code"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Мини-карта как в VS Code"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "มินิแมปแบบ VS Code"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VS Code Tarzı Mini Harita"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Мінікарта як у VS Code"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bản đồ thu nhỏ kiểu VS Code"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VS Code 式缩略图"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VS Code 式縮圖"
+          }
+        }
+      }
+    },
+    "settings.agentPane.display.vscodeMinimap.help": {
+      "comment": "Settings: the agent chat's and Markdown viewer's display rows",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "A small picture of the whole chat at its right edge, as in VS Code. Click or drag it to scroll."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "صورة صغيرة للدردشة كاملة عند حافتها اليمنى، كما في VS Code. انقر عليها أو اسحبها للتمرير."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mala slika cijelog razgovora uz njegovu desnu ivicu, kao u VS Codeu. Kliknite ili je povucite za pomicanje."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Et lille billede af hele chatten ved dens højre kant, som i VS Code. Klik eller træk i det for at rulle."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ein kleines Bild des ganzen Chats an seinem rechten Rand, wie in VS Code. Zum Scrollen klicken oder ziehen."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una imagen pequeña de todo el chat en su borde derecho, como en VS Code. Haz clic o arrástrala para desplazarte."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Une petite image de tout le chat sur son bord droit, comme dans VS Code. Cliquez ou faites-la glisser pour défiler."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Una piccola immagine dell’intera chat sul suo bordo destro, come in VS Code. Fai clic o trascinala per scorrere."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VS Code のように、チャット全体の小さな図を右端に表示します。クリックまたはドラッグしてスクロールします。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "រូបភាពតូចនៃការជជែកទាំងមូលនៅគែមខាងស្ដាំ ដូចក្នុង VS Code។ ចុច ឬអូសវាដើម្បីរំកិល។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VS Code처럼 채팅 전체를 오른쪽 가장자리에 작게 보여 줍니다. 클릭하거나 드래그해 스크롤합니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Et lite bilde av hele chatten ved høyre kant, som i VS Code. Klikk eller dra i det for å rulle."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Mały obraz całego czatu przy jego prawej krawędzi, jak w VS Code. Kliknij lub przeciągnij, aby przewinąć."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uma pequena imagem de todo o chat na borda direita, como no VS Code. Clique ou arraste para rolar."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Небольшое изображение всего чата у его правого края, как в VS Code. Нажмите или перетащите, чтобы прокрутить."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ภาพย่อของแชตทั้งหมดที่ขอบขวา เหมือนใน VS Code คลิกหรือลากเพื่อเลื่อน"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "VS Code’daki gibi, sohbetin tamamının sağ kenarında küçük bir resmi. Kaydırmak için tıklayın veya sürükleyin."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Невелике зображення всього чату біля його правого краю, як у VS Code. Клацніть або перетягніть, щоб прокрутити."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hình thu nhỏ của toàn bộ cuộc trò chuyện ở cạnh phải, như trong VS Code. Nhấp hoặc kéo để cuộn."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在聊天右侧显示整个聊天的小图，就像 VS Code 一样。点按或拖移即可滚动。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "在聊天右側顯示整個聊天的小圖，就像 VS Code 一樣。按一下或拖移即可捲動。"
+          }
+        }
+      }
+    },
     "settings.agentPane.display.fullWidth": {
       "comment": "Settings: the agent chat's and Markdown viewer's display rows",
       "extractionState": "manual",

@@ -327,10 +327,142 @@ async fn a_persons_prompt_through_a_peer_is_recorded_as_theirs_on_the_owning_dae
     assert_eq!(message.pointer("/_meta/provenance"), Some(&stamped), "{message}");
 }
 
-/// A chat made on a peer (`session/new` with `_meta.acpmux.peer`) whose id is one of this
-/// daemon's own: its creator holds the peer's chat, never an attachment to this daemon's.
+/// Chat presence is this daemon's own (`hub/presence.rs`): a peer's link carries all of that
+/// daemon's clients, so it stands for none of them. A's client attached to B's chat gets no
+/// participants, B records no one for the link (its visible attach included), and typing or an
+/// authored view through the link is refused `presence.peer_unsupported`.
 #[tokio::test]
-async fn a_chat_made_on_a_peer_under_a_local_id_counts_no_local_attachment() {
+async fn a_peers_link_makes_no_presence_and_typing_through_it_is_refused() {
+    let b = hub(config(PermissionPolicy::Ask)).await;
+    let (port, peer_token) = listen_with_peer_token(b.clone(), "presence").await;
+    let mut cb = client(b.clone()).await;
+    let s = cb.call(method::SESSION_NEW, json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"name": "shared"}}})).await.unwrap();
+    let remote_id = s["sessionId"].as_str().unwrap().to_owned();
+    let a = hub(config(PermissionPolicy::Ask)).await;
+    a.add_peer("b", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), Some(peer_token), true)
+        .await
+        .unwrap();
+    let mut ca = client(a.clone()).await;
+    let attached =
+        ca.call("_acpmux/attach", json!({"sessionId": "b/shared", "limit": 0})).await.unwrap();
+    assert_eq!(attached["presence"]["participants"], json!([]), "{attached}");
+    let author =
+        json!({"_meta": {"acpmux": {"author": {"id": "tailnet:ana@example.com", "name": "Ana"}}}});
+    for (m, mut params) in [
+        ("_acpmux/typing", json!({"sessionId": "b/shared", "on": true})),
+        ("_acpmux/view", json!({"sessionId": "b/shared", "visible": true})),
+    ] {
+        params["_meta"] = author["_meta"].clone();
+        let refused = ca.call(m, params).await.unwrap_err();
+        assert!(refused.contains("a peer daemon's link carries none"), "{m}: {refused}");
+    }
+    // B holds no one for the link, though A's client attached showing the chat.
+    let held = cb
+        .call("_acpmux/attach", json!({"sessionId": remote_id, "limit": 0, "visible": false}))
+        .await
+        .unwrap();
+    assert_eq!(held["presence"]["participants"], json!([]), "{held}");
+}
+
+/// A peer added with the dashboard token only serves this daemon's link as Web, not Peer: the
+/// link still stands for no one there (`hub/presence.rs`). Typing in that peer's chat is refused
+/// here, before it is forwarded, and a visible attach or view through the link records no owner
+/// on the peer, before or after the client that sent it leaves.
+#[tokio::test]
+async fn typing_in_a_chat_on_a_dashboard_token_peer_is_refused_before_forwarding() {
+    let b = hub(config(PermissionPolicy::Ask)).await;
+    let (port, _) = listen_with_peer_token(b.clone(), "presence-web").await;
+    let mut cb = client(b.clone()).await;
+    let s = cb.call(method::SESSION_NEW, json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"name": "web-shared"}}})).await.unwrap();
+    let remote_id = s["sessionId"].as_str().unwrap().to_owned();
+    let a = hub(config(PermissionPolicy::Ask)).await;
+    a.add_peer("b", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), None, true)
+        .await
+        .unwrap();
+    let mut ca = client(a.clone()).await;
+    ca.call("_acpmux/attach", json!({"sessionId": "b/web-shared", "limit": 0})).await.unwrap();
+    let refused = ca.call("_acpmux/typing", json!({"sessionId": "b/web-shared", "on": true})).await;
+    assert!(refused.unwrap_err().contains("a peer daemon's link carries none"));
+    let held = cb
+        .call("_acpmux/attach", json!({"sessionId": remote_id, "limit": 0, "visible": false}))
+        .await
+        .unwrap();
+    assert_eq!(held["presence"]["participants"], json!([]), "{held}");
+    ca.call("_acpmux/view", json!({"sessionId": "b/web-shared", "visible": true})).await.unwrap();
+    drop(ca);
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert_eq!(a.peers()[0]["connected"], true, "the link outlives its client");
+    let held = cb
+        .call("_acpmux/attach", json!({"sessionId": remote_id, "limit": 0, "visible": false}))
+        .await
+        .unwrap();
+    assert_eq!(held["presence"]["participants"], json!([]), "{held}");
+}
+
+/// A peer that lists a chat under one of this daemon's own raw ids: a client attached to the
+/// peer's chat never hears this daemon's presence for its own chat of that id.
+#[tokio::test]
+async fn a_peer_chat_sharing_a_local_id_never_hears_local_presence() {
+    let a = hub(config(PermissionPolicy::Ask)).await;
+    let mut local = client(a.clone()).await;
+    let own = local
+        .call(method::SESSION_NEW, json!({"cwd": std::env::temp_dir(), "mcpServers": []}))
+        .await
+        .unwrap();
+    let own = own["sessionId"].as_str().unwrap().to_owned();
+    let sessions = vec![json!({"sessionId": own, "name": "twin"})];
+    let says = Lying { instance: json!("l-run"), sessions, ..Lying::default() };
+    let port = lying_peer(says).await;
+    a.add_peer("l", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), None, true)
+        .await
+        .unwrap();
+    // The peer's chat, once this daemon has its list.
+    let mut far = client(a.clone()).await;
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
+    let reply = loop {
+        match far.call("_acpmux/attach", json!({"sessionId": "l/twin", "limit": 0})).await {
+            Ok(reply) => break reply,
+            Err(e) => assert!(tokio::time::Instant::now() < deadline, "never listed: {e}"),
+        }
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    };
+    assert_eq!(reply["presence"]["participants"], json!([]), "{reply}");
+    hears_no_local_presence(&mut local, &mut far, &own).await;
+}
+
+/// `local` types in its chat `own`; `far`, attached to a peer's chat of the same raw id, hears
+/// none of it, up to the reply of a later request.
+async fn hears_no_local_presence(local: &mut C, far: &mut C, own: &str) {
+    local
+        .call("_acpmux/attach", json!({"sessionId": own, "limit": 0, "visible": false}))
+        .await
+        .unwrap();
+    let ana = json!({"id": "tailnet:ana", "name": "Ana"});
+    local
+        .call(
+            "_acpmux/typing",
+            json!({"sessionId": own, "on": true, "_meta": {"acpmux": {"author": ana}}}),
+        )
+        .await
+        .unwrap();
+    local.wait("_acpmux/presence", |p| p["sessionId"] == own).await;
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    far.next += 1;
+    far.tx.send(Message::request(far.next, method::MUX_STATUS, json!({})).to_line()).await.unwrap();
+    loop {
+        let line =
+            tokio::time::timeout(Duration::from_secs(20), far.rx.recv()).await.unwrap().unwrap();
+        assert!(!line.contains("_acpmux/presence"), "{line}");
+        if matches!(Message::parse(&line), Ok(Message::Response { id, .. }) if id == far.next) {
+            break;
+        }
+    }
+}
+
+/// A chat made on a peer (`session/new` with `_meta.acpmux.peer`) whose id is one of this
+/// daemon's own: its creator is subscribed to the peer's chat, never this daemon's presence.
+#[tokio::test]
+async fn a_chat_made_on_a_peer_under_a_local_id_never_hears_local_presence() {
     let a = hub(config(PermissionPolicy::Ask)).await;
     let mut local = client(a.clone()).await;
     let own = local
@@ -344,16 +476,16 @@ async fn a_chat_made_on_a_peer_under_a_local_id_counts_no_local_attachment() {
     a.add_peer("l", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), None, true)
         .await
         .unwrap();
-    let attached = || a.session_summary(&a.resolve(&own).unwrap())["attached"].clone();
-    assert_eq!(attached(), 1, "the creator's own attachment");
     let mut far = client(a.clone()).await;
     let made = far
         .call(method::SESSION_NEW, json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"peer": "l"}}}))
         .await
         .unwrap();
     assert_eq!(made["sessionId"], own, "{made}");
-    assert_eq!(attached(), 1, "the peer's chat counted as this daemon's");
+    hears_no_local_presence(&mut local, &mut far, &own).await;
     // Its close lets go of the peer's chat only: the local attachment still counts.
+    let attached = || a.session_summary(&a.resolve(&own).unwrap())["attached"].clone();
+    assert_eq!(attached(), 1);
     drop(far);
     tokio::time::sleep(Duration::from_millis(500)).await;
     assert_eq!(attached(), 1, "a remote close took a local attachment");
@@ -361,7 +493,7 @@ async fn a_chat_made_on_a_peer_under_a_local_id_counts_no_local_attachment() {
 
 /// One connection, one raw id, this daemon's chat and a peer's of that id in turn: each switch
 /// ends the attachment it replaces, so the local count comes out even, and a prompt to the local
-/// chat after the peer's makes the subscription local again (counted).
+/// chat after the peer's makes the subscription local again (typing allowed, counted).
 #[tokio::test]
 async fn switching_one_raw_id_between_a_local_and_a_peer_chat_keeps_the_count_even() {
     let a = hub(config(PermissionPolicy::Ask)).await;
@@ -424,12 +556,14 @@ async fn switching_one_raw_id_between_a_local_and_a_peer_chat_keeps_the_count_ev
     tokio::time::sleep(Duration::from_millis(300)).await;
     assert_eq!(attached(), 0);
 
-    // The peer's, then a prompt to the local chat: local again, counted.
+    // The peer's, then a prompt to the local chat: local again, counted, typing allowed.
     let mut c = client(a.clone()).await;
     c.call("_acpmux/attach", remote_attach).await.unwrap();
     let prompt = json!({"sessionId": own, "prompt": [{"type": "text", "text": "hi"}]});
     c.call(method::SESSION_PROMPT, prompt).await.unwrap();
     assert_eq!(attached(), 1);
+    c.call("_acpmux/typing", json!({"sessionId": own, "on": true})).await.unwrap();
+    c.wait("_acpmux/presence", |p| p["sessionId"] == own).await;
     drop(c);
     tokio::time::sleep(Duration::from_millis(300)).await;
     assert_eq!(attached(), 0);

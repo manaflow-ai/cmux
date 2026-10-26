@@ -25514,6 +25514,146 @@
     },
     {
       "cli" : "offered",
+      "cli_name" : "cloud open-browser",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "cloudMachine"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "cloudOpenBrowser",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.cloud",
+        "order" : 110,
+        "title" : "Cloud and Account",
+        "title_key" : "category.cloud",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Open Machine Port in Browser…",
+      "title_key" : "action.cloudOpenBrowser",
+      "title_table" : "CloudPortActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "cloud port-list",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "cloudMachine"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "cloudPortList",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.cloud",
+        "order" : 110,
+        "title" : "Cloud and Account",
+        "title_key" : "category.cloud",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "List Forwarded Machine Ports",
+      "title_key" : "action.cloudPortList",
+      "title_table" : "CloudPortActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "cloud port-forward",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "cloudMachine"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "cloudPortForward",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.cloud",
+        "order" : 110,
+        "title" : "Cloud and Account",
+        "title_key" : "category.cloud",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Forward Machine Port…",
+      "title_key" : "action.cloudPortForward",
+      "title_table" : "CloudPortActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "cloud port-close",
+      "context_menu" : "offered",
+      "context_menus" : [
+        "cloudMachine"
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "cloudPortClose",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.cloud",
+        "order" : 110,
+        "title" : "Cloud and Account",
+        "title_key" : "category.cloud",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Close Forwarded Machine Port…",
+      "title_key" : "action.cloudPortClose",
+      "title_table" : "CloudPortActions"
+    },
+    {
+      "cli" : "offered",
+      "cli_name" : "cloud machine-link",
+      "context_menu" : "duplicateOfDefault",
+      "context_menus" : [
+
+      ],
+      "default_aliases" : [
+
+      ],
+      "default_chord" : null,
+      "default_shortcut" : null,
+      "id" : "cloudMachineLink",
+      "main_menu" : null,
+      "mcp" : "offered",
+      "palette" : "offered",
+      "palette_section" : {
+        "id" : "category.cloud",
+        "order" : 110,
+        "title" : "Cloud and Account",
+        "title_key" : "category.cloud",
+        "title_table" : "Localizable"
+      },
+      "palette_suggested" : null,
+      "title" : "Get Machine Link…",
+      "title_key" : "action.cloudMachineLink",
+      "title_table" : "CloudPortActions"
+    },
+    {
+      "cli" : "offered",
       "cli_name" : "accounts show",
       "context_menu" : "noObject",
       "context_menus" : [
@@ -26155,34 +26295,6 @@
       "title" : "Open Remote Browser Tab (Local Host)",
       "title_key" : "action.remote.openLocalBrowserTab",
       "title_table" : "RemoteActions"
-    },
-    {
-      "cli" : "offered",
-      "cli_name" : "cloud start-session",
-      "context_menu" : "offered",
-      "context_menus" : [
-        "cloudMachine"
-      ],
-      "default_aliases" : [
-
-      ],
-      "default_chord" : null,
-      "default_shortcut" : null,
-      "id" : "cloudStartSession",
-      "main_menu" : null,
-      "mcp" : "offered",
-      "palette" : "offered",
-      "palette_section" : {
-        "id" : "category.cloud",
-        "order" : 110,
-        "title" : "Cloud and Account",
-        "title_key" : "category.cloud",
-        "title_table" : "Localizable"
-      },
-      "palette_suggested" : null,
-      "title" : "Start Agent Session on Cloud Machine…",
-      "title_key" : "action.cloudStartSession",
-      "title_table" : "CloudSessionActions"
     },
     {
       "cli" : "offered",
@@ -38018,7 +38130,7 @@
             },
             {
               "enabled_when" : "can_perform",
-              "id" : "cloudStartSession",
+              "id" : "cloudOpenBrowser",
               "kind" : "action",
               "order" : 11,
               "visible_when" : {
@@ -38030,14 +38142,53 @@
               }
             },
             {
+              "enabled_when" : "can_perform",
+              "id" : "cloudPortList",
+              "kind" : "action",
+              "order" : 12,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : "cloud",
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "cloudPortForward",
+              "kind" : "action",
+              "order" : 13,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : "cloud",
+                "requires" : [
+
+                ]
+              }
+            },
+            {
+              "enabled_when" : "can_perform",
+              "id" : "cloudPortClose",
+              "kind" : "action",
+              "order" : 14,
+              "visible_when" : {
+                "debug_only" : false,
+                "feature" : "cloud",
+                "requires" : [
+
+                ]
+              }
+            },
+            {
               "kind" : "separator",
-              "order" : 12
+              "order" : 15
             },
             {
               "enabled_when" : "can_perform",
               "id" : "palette.cloud.deleteSnapshot",
               "kind" : "action",
-              "order" : 13,
+              "order" : 16,
               "visible_when" : {
                 "debug_only" : false,
                 "feature" : "cloud",
