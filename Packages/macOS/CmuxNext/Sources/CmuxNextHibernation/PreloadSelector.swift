@@ -20,7 +20,7 @@ package import CmuxNextCompat
 /// switch PreloadSelector().decide(.init(now: now, startedAt: launch, firstPaintAt: paint, lastInputAt: key,
 ///                                      pressure: pressure, lastOpened: opens, openNow: shown, held: slot.page)) {
 /// case .preload(let page): slot.preload(page.rawValue)
-/// case .later(let until): deadline.arm(at: until)
+/// case .later(let until, let orFirstPaint): deadline.arm(at: until, alsoOnFirstPaint: orFirstPaint)
 /// case .drop: slot.drop()
 /// case .keep, .blocked: break
 /// }
@@ -86,9 +86,12 @@ package nonisolated struct PreloadSelector: Sendable {
     package nonisolated enum Decision: Hashable, Sendable {
         /// The slot is empty and may fill: load this page.
         case preload(Page)
-        /// Too early (no first paint and before its deadline) or input is not quiet yet: nothing until
-        /// `at`, then decide again with the facts of then.
-        case later(at: Double)
+        /// Too early (no first paint and before its deadline) or input is not quiet yet: decide again at
+        /// `at` with the facts of then, and also on the first paint when `orFirstPaint` is true. That is
+        /// set while no paint has come and the deadline is ahead, so `at` is only the deadline's bound:
+        /// the paint can open the gate sooner (Chrome starts on the paint or the deadline, whichever
+        /// comes first).
+        case later(at: Double, orFirstPaint: Bool)
         /// The slot holds a page and keeps it.
         case keep
         /// Memory pressure: close the held page; none starts until pressure is normal again.
@@ -108,7 +111,10 @@ package nonisolated struct PreloadSelector: Sendable {
         guard facts.pressure == .normal else { return facts.held == nil ? .blocked : .drop }
         if facts.held != nil { return .keep }
         let ready = earliestStart(facts)
-        guard facts.now >= ready else { return .later(at: ready) }
+        guard facts.now >= ready else {
+            let paintCanComeFirst = facts.firstPaintAt == nil && facts.now < facts.startedAt + timing.firstPaintDeadline
+            return .later(at: ready, orFirstPaint: paintCanComeFirst)
+        }
         return .preload(page(for: facts))
     }
 
@@ -121,7 +127,8 @@ package nonisolated struct PreloadSelector: Sendable {
     }
 
     /// The page to preload: the most recently opened of Settings, History and Cloud when that open is
-    /// within ``Timing/recentOpen`` and the page is not open now; New Tab otherwise.
+    /// within ``Timing/recentOpen`` and the page is not open now; New Tab otherwise. Equal open times
+    /// fall to the greater raw value, so the choice never follows the dictionary's per-process order.
     package func page(for facts: Facts) -> Page {
         let recent = facts.lastOpened
             .filter { page, openedAt in
