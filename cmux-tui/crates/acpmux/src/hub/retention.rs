@@ -211,6 +211,7 @@ impl Hub {
         let importing =
             self.importing.lock().unwrap_or_else(|e| e.into_inner()).contains(&session.id);
         if session.purged.load(Ordering::SeqCst)
+            || session.replaced.load(Ordering::SeqCst)
             || session.loading.load(Ordering::SeqCst)
             || session.turn().is_some()
             || session.queued() > 0
@@ -227,7 +228,8 @@ impl Hub {
     }
 
     /// Under the chat's append lock, right before the compacted log goes in: still closed, with
-    /// no agent, client, move or import. A reopen sets its status before it logs it, and so do a
+    /// no agent, client, move or import, and no import replacing it (`transfer_in.rs` marks the
+    /// chat it replaces, then waits for this lock before it moves the chat's folder aside). A reopen sets its status before it logs it, and so do a
     /// start, a purge and a move their flags: one that came first is seen here, one that comes
     /// later logs its first record after the compacted log is in place, as for a chat compacted
     /// any time before. Only locks that are never held across an append are taken (`meta`, as
@@ -237,6 +239,7 @@ impl Hub {
             && session.child.try_lock().is_ok_and(|child| child.is_none())
             && session.attached.load(Ordering::SeqCst) == 0
             && !session.purged.load(Ordering::SeqCst)
+            && !session.replaced.load(Ordering::SeqCst)
             && !session.loading.load(Ordering::SeqCst)
             && session.moving().is_none()
             && !self.importing.lock().unwrap_or_else(|e| e.into_inner()).contains(&session.id)
@@ -251,3 +254,7 @@ impl Drop for Release {
         self.0.store(false, Ordering::SeqCst);
     }
 }
+
+#[cfg(test)]
+#[path = "retention_tests.rs"]
+mod tests;
