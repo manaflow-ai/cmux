@@ -5,7 +5,7 @@ import CmuxNextCompat
 import QuartzCore
 
 /// A page of a Chromium host app in a cmux pane (prototype behind
-/// `browserHost.helperPrototype`; plans/cmux-next/cef-helper-app-DESIGN.md).
+/// `browserHost.helper`; plans/cmux-next/cef-helper-app-DESIGN.md).
 ///
 /// Pixels: the host's Core Animation context, shown with the same
 /// `CALayerHost` an in-process hosted page uses

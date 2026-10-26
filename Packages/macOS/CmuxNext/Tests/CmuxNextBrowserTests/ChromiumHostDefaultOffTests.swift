@@ -18,8 +18,16 @@ import Testing
     }
 
     @Test func theHostIsOffByDefault() {
-        #expect(BrowserHostTunables.helperPrototype.defaultValue == false)
-        #expect(BrowserHostTunables.helperPrototype.value(in: Self.defaults()) == false)
+        #expect(BrowserHostTunables.helper.defaultValue == false)
+        #expect(BrowserHostTunables.helper.value(in: Self.defaults()) == false)
+    }
+
+    /// Off keeps Chromium in process; on picks the host backend (task 015).
+    @Test func theBackendFollowsTheToggle() {
+        let store = Self.defaults()
+        #expect(BrowserHostTunables.backend(in: store) == .inProcess)
+        store.set(BrowserHostTunables.helper.key, .bool(true))
+        #expect(BrowserHostTunables.backend(in: store) == .host)
     }
 
     @Test func withDefaultSettingsNoHostStarts() {
@@ -29,7 +37,7 @@ import Testing
             return ChromiumHostConfiguration(executable: URL(filePath: "/bin/true"), arguments: [])
         }, tunables: Self.defaults())
         let reply = prototype.open("https://example.com/", over: NSView(frame: .zero), focus: false)
-        #expect(reply["error"] as? String == "browserHost.helperPrototype is off")
+        #expect(reply["error"] as? String == "browserHost.helper is off")
         #expect(asked == 0)
         #expect(prototype.report["phase"] as? String == "none")
     }
