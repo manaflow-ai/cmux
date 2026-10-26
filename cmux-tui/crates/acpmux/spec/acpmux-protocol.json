@@ -458,6 +458,12 @@
       "result": true
     },
     {
+      "kind": "request",
+      "name": "_acpmux/retention",
+      "params": true,
+      "result": true
+    },
+    {
       "kind": "notification",
       "name": "_acpmux/process_update",
       "params": true
