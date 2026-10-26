@@ -196,7 +196,7 @@ awk '/func applicationDidFinishLaunching/,/^    func applicationShouldTerminate/
 | 67 | `services.observeBorders(` | afterFirstFrame | main | 029 | Window border style follow. |
 | 68 | `services.observeGlass(` | afterFirstFrame | main | 029 | Glass style follow. |
 | 69 | `services.openPanel.warmWhenIdle(` | afterStartup `OpenPanel.warmWhenIdle` | main | 016 | The file picker made ahead at idle (`LaunchFirstOpenWarmups`, after the icon picker). |
-| 70 | `services.palette.bindRegistryActions(` | wiring, then afterFirstFrame `Palette.build` | main | 023 | `services.palettes.bindRegistryActions()` (`PaletteOnDemand`) binds the palette's actions and argument collector to closures that resolve the palette at run (no build); `palettes.postBuild` posts `Palette.build` after the first frame; a palette key before it builds the palette in the key's turn (023). |
+| 70 | `services.palettes.bindRegistryActions(` | wiring, then afterFirstFrame `Palette.build` | main | 023 | `services.palettes.bindRegistryActions()` (`PaletteOnDemand`) binds the palette's actions and argument collector to closures that resolve the palette at run (no build); `palettes.postBuild` posts `Palette.build` after the first frame; a palette key before it builds the palette in the key's turn (023). |
 | 71 | `services.projectsImport.start(` | afterFirstFrame if Home shows, else afterStartup | main | 027 | Projects import. |
 | 72 | `services.registerDeviceHubDebug(` | afterFirstFrame | main | 019 | Control method group (debug methods). |
 | 73 | `services.registerMacScreenDebug(` | afterFirstFrame | main | 019 | Control method group (debug methods). |

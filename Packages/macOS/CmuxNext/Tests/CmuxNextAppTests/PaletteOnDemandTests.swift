@@ -61,8 +61,9 @@ import Testing
         #expect(services.palettes.built === palette, "the post finds it built and builds no second one")
     }
 
-    /// Acceptance: a palette key 50 ms after the first frame (three 17 ms frames of fake time, input pending
-    /// throughout) opens the palette, whether `Palette.build` ran first or not, with one palette.
+    /// Acceptance: within 50 ms after the first frame (three 17 ms frames of fake time, input pending
+    /// throughout) `Palette.build` has built the palette, since the visible class yields to input only every
+    /// other frame; a palette key then opens that palette and builds no second one.
     @Test func aPaletteKey50msAfterTheFirstFrameOpensIt() throws {
         _ = NSApplication.shared
         let services = AppServices(environment: AppEnvironment.current([:]))
@@ -72,13 +73,12 @@ import Testing
         s.startup.firstFrameCommitted()
         input.pending = true
         for _ in 0..<3 { s.fire() }
-        let builtByThePost = services.palettes.built
+        let builtByThePost = try #require(services.palettes.built, "the post built it within 50 ms, input pending")
         input.pending = false
-        #expect(services.registry.perform("commandPalette"))
-        let palette = try #require(services.palettes.built)
-        #expect(builtByThePost == nil || builtByThePost === palette, "one palette")
-        #expect(palette.isVisible)
-        palette.hide()
+        #expect(services.registry.perform("commandPalette"), "the key's action ran")
+        #expect(services.palettes.built === builtByThePost, "the key opens the palette the post built")
+        #expect(builtByThePost.isVisible)
+        builtByThePost.hide()
     }
 }
 
