@@ -85,6 +85,7 @@ final class TrafficLightsPatch: NSView {
 
     override func hitTest(_ point: NSPoint) -> NSView? { nil }
 
+    // visibility-walk-allow: one layer color store (applyColors), no layout or text measure; cheaper than a deferral
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyColors()

@@ -2,7 +2,7 @@ import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextSidebar
-import Observation
+import CmuxNextWakeups
 
 // `sidebar.side` and `sidebar.spacesPosition` (R109): the root pins the
 // sidebar to the chosen edge (`SidebarSide.pins`), the content and title
@@ -24,21 +24,20 @@ extension WindowRootView {
         content?.layoutSubtreeIfNeeded()
     }
 
-    /// Follows the placement settings from `DesignSettings` (init reads the
-    /// first values; the first emission repeats them and changes nothing).
-    func observePlacement() -> Task<Void, Never> {
+    /// Follows the placement settings from `DesignSettings` while `node` shows (init reads the
+    /// first values; the first value here repeats them and changes nothing).
+    func observePlacement(on node: VisibilityNode, work: MainWorkScheduler) -> VisibleObservation<SidebarPlacement> {
         let sidebar = sidebar
-        return Task { [weak self] in
-            for await (side, spaces, visibility, _) in ObservationStream({ [sidebar] in
-                (DesignSettings.shared.sidebarSide, DesignSettings.shared.spacesPosition, DesignSettings.shared.spacesVisibility,
-                 // `sidebar.style` = rail: the content keeps the rail's inset (`WindowRootView+SidebarRail`).
-                 [sidebar.model.style == .rail ? 1 : 0, sidebar.model.contentInset])
-            }) {
-                self?.applySidebarRail()
-                self?.sidebarSide = side
-                self?.sidebar.sidebarView.spacesPosition = spaces
-                self?.sidebar.sidebarView.spacesVisibility = visibility
-            }
+        return VisibleObservation(node, owner: "WindowRootView.placement", on: work) { [sidebar] in
+            SidebarPlacement(side: DesignSettings.shared.sidebarSide, spaces: DesignSettings.shared.spacesPosition,
+                             spacesVisibility: DesignSettings.shared.spacesVisibility,
+                             // `sidebar.style` = rail: the content keeps the rail's inset (`WindowRootView+SidebarRail`).
+                             rail: [sidebar.model.style == .rail ? 1 : 0, sidebar.model.contentInset])
+        } apply: { [weak self] placement in
+            self?.applySidebarRail()
+            self?.sidebarSide = placement.side
+            self?.sidebar.sidebarView.spacesPosition = placement.spaces
+            self?.sidebar.sidebarView.spacesVisibility = placement.spacesVisibility
         }
     }
 

@@ -137,7 +137,7 @@ extension MainPaneLayout {
         }
         // task-owner: one tab creation, then one selection (or the chat's dock) for it
         Task { @MainActor [weak target] in
-            guard let tab = try? await pending.value(), await TabMirror.reaches(tab.key, in: locate), let target else {
+            guard let tab = try? await pending.value(), await TabMirror.reaches(tab.key, in: locate, on: services.mainWork), let target else {
                 outbound?.finish(moved: false)
                 finished?(false)
                 return

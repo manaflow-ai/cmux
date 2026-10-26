@@ -5,7 +5,7 @@ import CmuxNextDesign
 import CmuxNextHistory
 import CmuxNextSidebar
 import CmuxNextTerminal
-import Observation
+import CmuxNextWakeups
 
 /// Window content: the sidebar flush on the leading edge (traffic lights sit
 /// on its top), or on the trailing edge (`sidebar.side`, R109; the traffic
@@ -40,7 +40,8 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     /// The content host's top and bottom pins (the side pins are in
     /// `sidePins`); their constants are the main pane's gutter.
     var mainPaneEdges: [NSLayoutConstraint] = []
-    private var mainPaneObservation: Task<Void, Never>?
+    /// The main pane tunables and the UI scale (``follow(on:work:)``).
+    private var mainPaneObservation: VisibleObservation<[CGFloat]>?
     let sidebar: SidebarContainerView
     /// The edge the sidebar sits on (`sidebar.side`, R109).
     var sidebarSide: SidebarSide = .left {
@@ -48,9 +49,20 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     }
     /// The sidebar, content and title pins of each side (`applySidebarSide`).
     var sidePins: [SidebarSide: [NSLayoutConstraint]] = [:]
-    private var placementObservation: Task<Void, Never>?
+    /// The sidebar placement settings (``follow(on:work:)``).
+    private var placementObservation: VisibleObservation<SidebarPlacement>?
     private var titleHeight: NSLayoutConstraint?
-    private var tokenObservation: Task<Void, Never>?
+    /// The titlebar tokens (``follow(on:work:)``).
+    private var tokenObservation: VisibleObservation<[CGFloat]>?
+    /// The sidebar placement settings the root follows (``observePlacement(on:work:)``).
+    struct SidebarPlacement: Equatable {
+        let side: SidebarSide
+        let spaces: SpacesPosition
+        let spacesVisibility: SpacesVisibilityMode
+        let rail: [CGFloat]
+    }
+    /// The window's node once ``follow(on:work:)`` ran; until then this view's own, always visible.
+    private var visibility = VisibilityNode(root: "WindowRootView", own: .visible)
     private var displayOptionsWatch: AppearanceSignals.Subscription?
     private(set) weak var content: NSView?
     /// Empties AppKit's titlebar drag region: the window moves only through
@@ -159,18 +171,9 @@ final class WindowRootView: NSView, WindowSurfacePainting {
         applyTokens()
         setUpTitlebarReveal()
         setUpCollapsedBandReveal()
-        tokenObservation = Task { [weak self] in
-            for await _ in ObservationStream({ [Metrics.titlebarHeight, Metrics.tabStripHeight, DesignSettings.shared.titlebar == .minimal ? 1 : 0,
-                                           DesignSettings.shared.titlebarButtons == .hover ? 1 : 0] }) {
-                self?.applyTokens()
-                self?.applyTitlebarButtonsMode()
-            }
-        }
-        placementObservation = observePlacement()
         contentHost.onFrameChange = { [weak self] in self?.updateMainPaneShade() }
         wireContentAreaMotion()
         applyMainPane()
-        mainPaneObservation = observeMainPane()
         displayOptionsWatch = signals.subscribe([.displayOptions], owner: "WindowRootView") { [weak self] in
             self?.themeDidChange()
         }
@@ -181,13 +184,24 @@ final class WindowRootView: NSView, WindowSurfacePainting {
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
-    nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            tokenObservation?.cancel()
-            placementObservation?.cancel()
-            mainPaneObservation?.cancel()
+    // Releasing the observations ends them.
+    nonisolated deinit {}
+
+    /// Follows the titlebar tokens, the sidebar placement and the main pane tunables while the
+    /// window shows (`node`, its window's): a hidden or occluded window reads none of them, and
+    /// one that shows again applies what changed meanwhile once. Its theme change waits for the
+    /// show the same way. The values in effect now applied in init.
+    func follow(on node: VisibilityNode, work: MainWorkScheduler) {
+        visibility = node
+        tokenObservation = VisibleObservation(node, owner: "WindowRootView.tokens", on: work) {
+            [Metrics.titlebarHeight, Metrics.tabStripHeight, DesignSettings.shared.titlebar == .minimal ? 1 : 0,
+             DesignSettings.shared.titlebarButtons == .hover ? 1 : 0]
+        } apply: { [weak self] _ in
+            self?.applyTokens()
+            self?.applyTitlebarButtonsMode()
         }
+        placementObservation = observePlacement(on: node, work: work)
+        mainPaneObservation = observeMainPane(on: node, work: work)
     }
 
     var titlebarStyle: TitlebarStyle { DesignSettings.shared.titlebar }
@@ -402,7 +416,7 @@ final class WindowRootView: NSView, WindowSurfacePainting {
 
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
-        themeDidChange()
+        visibility.deferUntilVisible(key: "WindowRootView.theme") { [weak self] in self?.themeDidChange() }
     }
 
     // The window's own background, opacity and blur are in

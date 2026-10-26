@@ -30,7 +30,7 @@ extension TabContentCache {
         session.view.followConfig(node(for: key), on: mainWork)
         // Its link state is the terminal's session's; it has no tab there.
         let entry = TerminalEntry(validity: validity, session: session, io: io, themeKey: TerminalThemeKey(machine: daemon.machineID, tab: tab),
-                                  store: daemon.store, surface: TerminalAttachment.unresolvedSurface)
+                                  store: daemon.store, surface: TerminalAttachment.unresolvedSurface, mainWork: mainWork)
         terminals[key] = entry
         session.delegate = sessionDelegate
         session.isRenderingSuspended = !render

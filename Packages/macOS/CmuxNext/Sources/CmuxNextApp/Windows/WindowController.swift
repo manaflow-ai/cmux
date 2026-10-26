@@ -113,6 +113,7 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         window.tabbingMode = .disallowed
         // Before any view reaches the window, so its views find this node under the app, not a root of their own.
         visibility = WindowVisibilitySource.of(window, name: "window:\(state.id)", app: services.appVisibility.node).node
+        root.follow(on: visibility, work: services.mainWork) // its settings follow while this window shows
         super.init(window: window)
         installHistoryButtons()
         // The key tracker observes through the app's events before the

@@ -84,10 +84,10 @@ extension AgentTabStore {
         guard split || created != nil else { return true }
         // task-owner: one tab creation, then one move (or, not `split`, one focus) of that tab
         Task { [weak self] in
-            guard let tab = try? await pending.value(), let self, await TabMirror.reaches(tab.key, in: locate) else { finished?(false); return }; created?(tab.key)
+            guard let tab = try? await pending.value(), let self, await TabMirror.reaches(tab.key, in: locate, on: mainWork) else { finished?(false); return }; created?(tab.key)
             guard split else { _ = actionRegistry?.perform("tab.focus", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab.key), origin: origin)); finished?(false); return }
             _ = actionRegistry?.perform("tab.moveToNewSplit", invocation: ActionInvocation(target: ActionTargetRef(kind: .tab, id: tab.key), arguments: ["direction": .string(direction), "keep_focus": .bool(origin == .script)], origin: origin)) // script: an unfocused subagent open
-            if let finished { finished(await TabMirror.reaches(tab.key, in: { [weak self] in self?.locate($0).flatMap { $0.pane != pane ? $0 : nil } })) } // stacking waits for the move
+            if let finished { finished(await TabMirror.reaches(tab.key, in: { [weak self] in self?.locate($0).flatMap { $0.pane != pane ? $0 : nil } }, on: mainWork)) } // stacking waits for the move
         }
         return true
     }

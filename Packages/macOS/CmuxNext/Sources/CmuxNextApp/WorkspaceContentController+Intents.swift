@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextBridge
 import CmuxNextDaemon
 import CmuxNextLayout
+import CmuxNextWakeups
 
 // Layout intents -> daemon commands. A divider or column drag is local until
 // it ends: its one command (the final value, one daemon `transaction`)
@@ -140,23 +141,29 @@ extension WorkspaceContentController {
                                                             tab: provisional.tabID)
         let send = BenchSpans.measure("\(label).intend") { intend() }
         BenchSpans.measure("\(label).layout") { applyCurrent() }
-        let logger = daemon.logger
-        // [services, state]: the task pins this controller's owners until it ends (cx-6so P1b).
-        // After the create before it (a fast second press may target its stand-in).
+        let logger = daemon.logger, mainWork = services.mainWork
+        // After the create before it (a fast second press may target its stand-in). The reply is awaited off
+        // main; what it lands is one posted task, the rest of the person's key.
         let previous = pendingCreate
-        pendingCreate = Task { [services, state] in
-            var landed = false
-            defer { keyRouter.creationInputCoordinator.resolve(keys, landed: landed, in: window) }
+        // [services, state]: the task pins this controller's owners until it ends (cx-6so P1b).
+        let landedOn: @MainActor (Bool) -> Void = { [services, state] landed in
+            if landed {
+                BenchSpans.mark("\(label).reply.optimistic")
+                then?()
+            }
+            keyRouter.creationInputCoordinator.resolve(keys, landed: landed, in: window)
+            withExtendedLifetime((services, state)) {}
+        }
+        pendingCreate = Task { @concurrent in
             await previous?.value
+            var landed = false
             do {
                 _ = try await send()
-                BenchSpans.mark("\(label).reply.optimistic")
                 landed = true
-                then?()
             } catch {
                 logger.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")
             }
-            withExtendedLifetime((services, state)) {}
+            await mainWork.apply(.visible, owner: "WorkspaceContent.createLanded") { [landed] in landedOn(landed) }
         }
     }
 
@@ -167,15 +174,19 @@ extension WorkspaceContentController {
         guard let connection = daemon.connection else { return }
         let intent = beginFocusIntent()
         // [services, state]: the task pins this controller's owners until it ends (cx-6so P1b). The
-        // controller itself is weak: a reply that never comes keeps no torn-down workspace alive.
-        Task { [weak self, daemon, services, state] in
+        // controller itself is weak: a reply that never comes keeps no torn-down workspace alive. The reply is
+        // awaited off main; the focus it lands is one posted task.
+        let logger = daemon.logger, mainWork = services.mainWork
+        Task { @concurrent [weak self, services, state] in
             do {
                 let surface = try await body(connection).surface
-                guard let self, !self.isTornDown else { return } // it left the window: no focus, no resize
-                self.expectFocus(on: surface, generation: intent)
-                then?()
+                await mainWork.apply(.visible, owner: "WorkspaceContent.paneSpawned") { [weak self] in
+                    guard let self, !isTornDown else { return } // it left the window: no focus, no resize
+                    expectFocus(on: surface, generation: intent)
+                    then?()
+                }
             } catch {
-                daemon.logger.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")
+                logger.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")
             }
             withExtendedLifetime((services, state)) {}
         }
@@ -195,9 +206,10 @@ extension WorkspaceContentController {
         // The daemon echoes the uint64 transaction as a decimal string in
         // the commit's screen-changed delta, which settles the intent.
         let wire = RowCommands.makeTransaction()
-        Task {
-            _ = await daemon.intend("set-row-heights", .setRowHeights(column: handle, heights: values),
-                                    transaction: ClientTransactionID(rawValue: String(wire))) { connection in
+        let intent = Intent.setRowHeights(column: handle, heights: values), transaction = ClientTransactionID(rawValue: String(wire))
+        // The daemon's intent log takes it on its own actor; this task only awaits.
+        Task { @concurrent [daemon] in
+            _ = await daemon.intend("set-row-heights", intent, transaction: transaction) { connection in
                 try await RowCommands(connection).setRowHeights(column: handle, heights: values, fit: fit, transaction: wire)
             }
         }
@@ -210,11 +222,12 @@ extension WorkspaceContentController {
 
     /// Sends a gesture's one command; its result settles or rolls back the layout's override.
     private func sendGesture(_ transaction: LayoutTransactionID, label: String, _ body: @escaping DaemonCommandBody) {
-        Task { [daemon, layoutModel] in
-            if await daemon.run(label, body) {
-                layoutModel.settleTransaction(transaction)
-            } else {
-                layoutModel.rejectTransaction(transaction)
+        // The command is awaited off main; settling or rolling back the gesture's override is one posted task.
+        let mainWork = services.mainWork
+        Task { @concurrent [daemon, layoutModel] in
+            let sent = await daemon.run(label, body)
+            await mainWork.apply(.visible, owner: "WorkspaceContent.gestureSettled") {
+                if sent { layoutModel.settleTransaction(transaction) } else { layoutModel.rejectTransaction(transaction) }
             }
         }
     }
@@ -222,6 +235,7 @@ extension WorkspaceContentController {
     // MARK: Tab drops onto the layout
 
     func drop(_ tabID: LayoutTabID, on target: LayoutDropTarget) {
+        // view-observation-allow: no observation; locateTab is the MachineTabIndex's one lookup (p06-scheduler-051)
         guard let (tab, source) = services.locateTab(tabID.rawValue) else { return }
         focus.send(.dragEnded(.dropped(tabs: [tab.id], awayFrom: source.id)))
         let restore: @MainActor (Bool) -> Void = { [services] ok in if !ok { services.restoreDetachedTab(tabID.rawValue) } }

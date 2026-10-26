@@ -1,6 +1,7 @@
 import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextWakeups
 import Foundation
 
 /// The dev server a terminal shows (#16620): the newest localhost URL on
@@ -45,9 +46,13 @@ extension PaneController {
         let opener = opener ?? self
         switch currentContent {
         case .agent(let view):
-            services.registry.track(Task { [weak opener] in
+            // The page's context read is awaited off main; the open is the action's main step, classed.
+            let mainWork = services.mainWork
+            services.registry.track(Task { @concurrent [weak opener] in
                 let url = await view.workingContext()?.urls.first
-                opener?.newBrowserTab(url: url, engine: engine, then: then)
+                await mainWork.apply(.visible, owner: "PaneController.newBrowserTabFromWork") { [weak opener] in
+                    _ = opener?.newBrowserTab(url: url, engine: engine, then: then)
+                }
                 return nil
             })
         case .terminal(let entry):

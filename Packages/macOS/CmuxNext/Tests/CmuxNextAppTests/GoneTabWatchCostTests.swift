@@ -1,5 +1,6 @@
 @testable import CmuxNextApp
 @testable import CmuxNextDaemon
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -24,9 +25,6 @@ import Testing
         return try JSONDecoder().decode(DaemonIdentity.self, from: Data(json.utf8))
     }
 
-    private static func settle() async {
-        for _ in 0..<100 { await Task.yield() }
-    }
 
     @Test(arguments: [50, 500])
     func aTabListChangeVisitsOnlyTheTrackedTabs(sessionSize: Int) async throws {
@@ -34,18 +32,35 @@ import Testing
         store.connectionState = .connected(try Self.connected())
         store.apply(snapshot: Self.session(sessionSize))
         let tracked = try #require(store.tab(surface: SurfaceID(rawValue: 100 + 10)))
-        let watch = GoneTabWatch()
+        let work = linklessMainWork()
+        let watch = GoneTabWatch(mainWork: work)
         var released: [String] = []
         watch.track(tracked.id, in: store) { released.append($0) }
-        await Self.settle()
         let before = watch.tabsVisited
 
-        // Another workspace gets a tab: the tab list changed, the tracked tab did not go.
+        // Another workspace gets a tab: the tab list changed, the tracked tab did not go (a posted background walk).
         store.apply(snapshot: Self.session(sessionSize, grown: true))
-        await Self.settle()
+        _ = runMainLoop { work.postedCount(.background) == 0 }
 
         let visited = watch.tabsVisited - before
         #expect(visited <= 2, "one tab-list change visited \(visited) tabs in a \(sessionSize)-workspace session to watch one tab")
         #expect(released.isEmpty, "a tab the tree still lists was released")
+    }
+
+    /// p06-scheduler-303: the walk is one posted background task per burst, not one hop per change.
+    @Test func aBurstOfTabListChangesIsOneWalkInOnePostedTask() throws {
+        let store = DaemonStore()
+        store.connectionState = .connected(try Self.connected())
+        store.apply(snapshot: Self.session(10))
+        let tracked = try #require(store.tab(surface: SurfaceID(rawValue: 10)))
+        let work = linklessMainWork()
+        let watch = GoneTabWatch(mainWork: work)
+        watch.track(tracked.id, in: store) { _ in }
+        let before = watch.tabsVisited
+        for grown in [true, false, true] { store.apply(snapshot: Self.session(10, grown: grown)) }
+        #expect(watch.tabsVisited == before, "a change walked in its own turn")
+        #expect(work.postedCount(.background) == 1, "three changes, \(work.postedCount(.background)) posted walks")
+        #expect(runMainLoop { work.postedCount(.background) == 0 }, "the posted walk never ran")
+        #expect(watch.tabsVisited - before == 1, "three changes, \(watch.tabsVisited - before) visits of the one tracked tab")
     }
 }

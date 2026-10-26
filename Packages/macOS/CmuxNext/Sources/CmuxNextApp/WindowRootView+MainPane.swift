@@ -2,7 +2,7 @@ import AppKit
 import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextDesign
-import Observation
+import CmuxNextWakeups
 
 /// The window's content host as the curved main pane (cx-rkgu): a rounded
 /// clip around the workspace content. Corners are circular (not
@@ -123,14 +123,14 @@ final class MainPaneCardView: NSView {
 }
 
 extension WindowRootView {
-    /// Follows the main pane tunables and the UI scale (the first emission
-    /// applies the current values).
-    func observeMainPane() -> Task<Void, Never> {
-        Task { [weak self] in
-            for await _ in ObservationStream({ () -> [CGFloat] in [Metrics.mainPaneGutter, Metrics.mainPaneCornerRadius,
-                                                Metrics.mainPaneChromeShade(isDark: false), Metrics.mainPaneChromeShade(isDark: true), Metrics.floatingPanes ? 1 : 0] }) {
-                self?.applyMainPane()
-            }
+    /// Follows the main pane tunables and the UI scale while `node` shows (the first value applies
+    /// the current ones).
+    func observeMainPane(on node: VisibilityNode, work: MainWorkScheduler) -> VisibleObservation<[CGFloat]> {
+        VisibleObservation(node, owner: "WindowRootView.mainPane", on: work) { () -> [CGFloat] in
+            [Metrics.mainPaneGutter, Metrics.mainPaneCornerRadius, Metrics.mainPaneChromeShade(isDark: false),
+             Metrics.mainPaneChromeShade(isDark: true), Metrics.floatingPanes ? 1 : 0]
+        } apply: { [weak self] _ in
+            self?.applyMainPane()
         }
     }
 

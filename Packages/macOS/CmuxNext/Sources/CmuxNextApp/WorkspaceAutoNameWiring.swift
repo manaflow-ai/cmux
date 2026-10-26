@@ -55,7 +55,9 @@ struct WorkspaceAutoNameWiring {
                                                       expectedNameRevision: target.nameRevision)
                 }
             })
-        Task { [weak settings] in
+        // task-owner: the namer follows the stores for the app's lifetime; the task itself only awaits (off main),
+        // the namer's own steps run on its actor.
+        Task { @concurrent [weak settings] in
             await settings?.waitForLoad(atLeast: 1)
             await namer.run()
         }
