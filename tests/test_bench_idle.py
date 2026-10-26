@@ -161,10 +161,10 @@ class MeasureTests(unittest.TestCase):
             "debug.hangs": [{"result": {"main_wakes": 1000}}, {"result": {"main_wakes": 1030}},
                             {"result": {"busy_count": 0, "count": 0}}],
         })
-        samples = iter([(0, 0, 1 << 20), (0, 60, 1 << 20)])
+        samples = iter([bi.procs.Usage(footprint=1 << 20), bi.procs.Usage(interrupt_wakeups=60, footprint=1 << 20)])
         clock = iter([100.0, 160.0])
         with mock.patch.object(bi, "classify", return_value={7: "app"}), \
-                mock.patch.object(bi, "usage", side_effect=lambda pid: next(samples)), \
+                mock.patch.object(bi.procs, "usage", side_effect=lambda pid: next(samples)), \
                 mock.patch.object(bi.time, "sleep"), mock.patch.object(bi.time, "monotonic", side_effect=lambda: next(clock)):
             result = bi.measure(7, "/b.app", 60, control)
         self.assertEqual(result["main_wakeups_per_s"], 0.5)
@@ -188,11 +188,11 @@ class MeasureTests(unittest.TestCase):
 
         def sample(pid):
             order.append(("usage", pid))
-            return (0, 0, 0)
+            return bi.procs.Usage()
 
         control = FakeControl({"debug.hangs": hangs})
         clock = iter([0.0, 10.0])
-        with mock.patch.object(bi, "classify", return_value={7: "app"}), mock.patch.object(bi, "usage", side_effect=sample), \
+        with mock.patch.object(bi, "classify", return_value={7: "app"}), mock.patch.object(bi.procs, "usage", side_effect=sample), \
                 mock.patch.object(bi.time, "sleep", side_effect=lambda _: order.append(("sleep",))), \
                 mock.patch.object(bi.time, "monotonic", side_effect=lambda: next(clock)):
             bi.measure(7, "/b.app", 10, control)
