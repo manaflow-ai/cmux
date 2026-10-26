@@ -255,9 +255,9 @@
         },
         {
           "command": "cmux agent toggle-session-info",
+          "title": "Toggle Session Info",
           "id": "agentPane.toggleSessionInfo",
-          "mcp": true,
-          "title": "Toggle Session Info"
+          "mcp": true
         },
         {
           "command": "cmux agent toggle-ui-pointer",
