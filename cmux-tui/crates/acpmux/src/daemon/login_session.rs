@@ -63,9 +63,12 @@ fn label(home: &Path) -> String {
 
 /// What [`start_in_login_session`] did.
 pub(crate) enum Started {
-    /// Nothing: in the login session already, not the person's own home, or no
-    /// GUI login. The daemon starts in place.
+    /// Nothing: in the login session already, or not the person's own home. The
+    /// daemon starts in place.
     No,
+    /// No GUI login on this Mac: the daemon starts in place, and its agents
+    /// cannot read the login keychain (`login_placement::NO_GUI_LOGIN`).
+    NoGuiLogin,
     /// The job `gui/<uid>/<label>` was bootstrapped.
     Job(String),
     /// This home's job is still running: another command's start, or a daemon
@@ -95,12 +98,15 @@ pub(crate) fn start_in_login_session(
     home: &Path,
     log: &Path,
 ) -> Result<Started> {
-    if in_login_session() || !home.starts_with(crate::config::default_home()) {
-        return Ok(Started::No);
-    }
+    use super::login_placement::{Placement, placement};
+    let (here, own) = (in_login_session(), home.starts_with(crate::config::default_home()));
     let domain = gui_domain();
-    if !gui_domain_up(&domain) {
-        return Ok(Started::No);
+    // Only asked when it decides anything (one `launchctl print`).
+    let gui_login = !here && own && gui_domain_up(&domain);
+    match placement(here, own, gui_login) {
+        Placement::InPlace => return Ok(Started::No),
+        Placement::NoGuiLogin => return Ok(Started::NoGuiLogin),
+        Placement::LoginJob => {}
     }
     let label = label(home);
     let target = format!("{domain}/{label}");

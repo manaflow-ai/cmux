@@ -969,6 +969,10 @@ async fn start_daemon_with(key: Option<zeroize::Zeroizing<String>>) -> Result<St
             Ok(login_session::Started::Job(job)) => return wait_for_job(&path, job).await,
             Ok(login_session::Started::Running) => return Ok(LOCK_HELD_LINE.to_owned()),
             Ok(login_session::Started::No) => {}
+            Ok(login_session::Started::NoGuiLogin) => {
+                eprintln!("{}", login_placement::no_gui_login_warning());
+                tracing::warn!("{}", login_placement::no_gui_login_warning());
+            }
             Err(e) => {
                 tracing::warn!("daemon not started in the login session ({e:#}); starting it here")
             }

@@ -23,15 +23,23 @@ pub(crate) const NO_GUI_LOGIN: &str = "login_session.no_gui_login";
 /// `own_home` (the home is under the person's `~/.acpmux`), `gui_login` (the user's `gui/<uid>`
 /// launchd domain exists: someone is logged in at the screen).
 pub(crate) fn placement(in_login_session: bool, own_home: bool, gui_login: bool) -> Placement {
-    if in_login_session || !own_home || !gui_login {
-        return Placement::InPlace;
+    if in_login_session || !own_home {
+        Placement::InPlace
+    } else if gui_login {
+        Placement::LoginJob
+    } else {
+        Placement::NoGuiLogin
     }
-    Placement::LoginJob
 }
 
 /// The one line the starting command prints for [`Placement::NoGuiLogin`].
 pub(crate) fn no_gui_login_warning() -> String {
-    format!("acpmux: {NO_GUI_LOGIN}")
+    format!(
+        "acpmux: {NO_GUI_LOGIN}: no one is logged in at this Mac's screen, so the daemon starts \
+         in this ssh session and its agents cannot read the login keychain (gh, codex, claude \
+         and git credential helpers fail). Fix: log in at the screen, then `acpmux daemon \
+         shutdown` and run any acpmux command"
+    )
 }
 
 #[cfg(test)]

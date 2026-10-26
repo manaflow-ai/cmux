@@ -350,8 +350,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                         println!(
                             "keychain: unreadable from sessions: this daemon runs outside the login \
                              session (started over ssh), so gh, codex, claude and git credential \
-                             helpers cannot read the login keychain. Fix: `acpmux daemon shutdown`, \
-                             then run any acpmux command (it starts the daemon in the login session)"
+                             helpers cannot read the login keychain. Fix: with someone logged in \
+                             at the screen, `acpmux daemon shutdown`, then run any acpmux command \
+                             (it starts the daemon in the login session)"
                         );
                     }
                     for p in v.get("peers").and_then(Value::as_array).cloned().unwrap_or_default() {
