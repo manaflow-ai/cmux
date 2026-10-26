@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Self test of the oracle tooling: normalize, diff, expectations, baselines and the shard math (p15-oracle-019).
 
-Run on the VM or a fleet mini (stdlib only, safe under `python3 -I`, no network):
+Run on the VM or a fleet mini (stdlib only, safe under `python3 -I`):
 
     python3 -I scripts/cmux-next/oracle/selftest.py [-v] [-k PATTERN]... [--seed N]
     python3 -I scripts/cmux-next/oracle/oracle.py selftest [...]
@@ -20,9 +20,15 @@ Two layers:
   independent and stable when cases are added (base/test/launcher/test_launcher.cc,
   ShouldRunInCurrentShard), and the shard plans cover the selection once.
 
-KNOWN_RED lists module self-test cases that fail on the current base, each with its bug. It works
-like a Blink `[ Failure ]` expectation: the case still runs, the failure is printed, and a pass is
-an unexpected pass that fails this run, so the line is removed with the fix.
+Network: this process and the child it starts for the shard check refuse IP connects, IP sends and
+name lookups. oracle_cli_test.py's `oracle.py rebaseline` children run without the guard.
+
+KNOWN_RED lists module self-test cases that fail on the current base, each with its bug and its
+exact error lines. It works like a Blink `[ Failure ]` expectation
+(third_party/blink/tools/blinkpy/web_tests/models/test_expectations.py): the case still runs and its
+failure is printed. The run fails when the case passes (unexpected pass), fails with other errors
+(a new red), or no longer exists (a stale entry, as `lint_test_expectations.py` reports). Only
+modules that name their cases can have entries: a module that reports counts cannot show either.
 
 Exit: 0 when every test passes (known-red failures aside), 1 otherwise, 2 bad usage.
 """
@@ -36,6 +42,7 @@ import hashlib
 import importlib
 import io
 import json
+import random
 import re
 import socket
 import subprocess
@@ -45,7 +52,7 @@ import time
 import unittest
 from dataclasses import dataclass, field
 from pathlib import Path
-from typing import Any, Callable, Dict, Iterator, List, Optional, Sequence, Tuple
+from typing import Any, Callable, Dict, FrozenSet, Iterator, List, Optional, Sequence, Tuple
 
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[2]
@@ -62,11 +69,61 @@ import oracle  # noqa: E402
 TASK = "p15-oracle-019"
 DEFAULT_SEED = 13
 
-# "<module>.<case>" -> the bug that makes it fail on the base. A pass fails the run (unexpected pass).
-KNOWN_RED: Dict[str, str] = {
-    "normalize.real_schema_example": "snapshot-v1.schema.json (4542383d8a5, p15-oracle-011) uses x-oracle-decimal, "
-    "x-oracle-open-keys and x-oracle-id-unpatterned, which normalize.py (p15-oracle-013) refuses as unknown keywords",
+
+
+@dataclass(frozen=True)
+class KnownRed:
+    """A module self-test case that fails on the base: why, who fixes it, and its exact error lines."""
+
+    reason: str
+    fix: str
+    errors: FrozenSet[str]
+
+
+def _real_schema_errors() -> FrozenSet[str]:
+    daemon = "/properties/facets/properties/daemon/oneOf/0/properties/session/properties"
+    unknown = ("unknown keyword '{}' (misspelled x-oracle keyword?); "
+               "this validator refuses keywords it does not implement")
+    kind_rule = "x-oracle-id-kind is a kind name matching ^[a-z][A-Za-z0-9_-]*$"
+    decimals = ("session/properties/revision", "terminals/items/properties/stream_revision",
+                "terminals/items/properties/exit/properties/exited_at",
+                "terminals/items/properties/exit/properties/revision",
+                "clients/items/properties/connected_seconds", "notifications/items/properties/created_at_ms",
+                "agents/items/properties/updated_at_ms", "frontend_projections/items/properties/projection_revision",
+                "cursor/properties/revision")
+    kind_lists = (f"{daemon}/tabs/items/properties/content_id",
+                  "/properties/facets/properties/overlays/oneOf/0/properties/hoverCard/properties/target",
+                  "/properties/facets/properties/intents/oneOf/0/properties/pending/items/properties/target")
+    decimal_times = ("terminals/items/properties/exit/properties/exited_at",
+                     "notifications/items/properties/created_at_ms", "agents/items/properties/updated_at_ms")
+    return frozenset((
+        *(f"/{keyword}: {unknown.format(keyword)}" for keyword in ("x-oracle-id-unpatterned", "x-oracle-open-keys")),
+        *(f"{daemon}/{at}/x-oracle-decimal: {unknown.format('x-oracle-decimal')}" for at in decimals),
+        *(f"{at}/x-oracle-id-kind: {kind_rule}" for at in kind_lists),
+        *(f"{daemon}/{at}: x-oracle-time marks a number" for at in decimal_times),
+    ))
+
+
+# "<module>.<case>" -> its KnownRed. A pass, other errors or a missing case fail the run.
+KNOWN_RED: Dict[str, KnownRed] = {
+    "normalize.real_schema_example": KnownRed(
+        reason="normalize.py (p15-oracle-013) refuses schemas/oracle/snapshot-v1.schema.json (4542383d8a5, "
+        "p15-oracle-011), so no real snapshot canonicalizes. It does not implement three things that "
+        "schemas/oracle/README.md specifies: (1) the keywords x-oracle-open-keys and x-oracle-id-unpatterned "
+        "(schema root) and x-oracle-decimal (9 fields) are refused as unknown; (2) a list x-oracle-id-kind "
+        "(tabs[].content_id, hoverCard.target, intents.pending[].target) fails the one-kind-name rule; (3) "
+        "x-oracle-time on the decimal strings exit.exited_at, notifications[].created_at_ms and "
+        "agents[].updated_at_ms fails 'x-oracle-time marks a number', but README normalization step 1 parses "
+        "x-oracle-decimal strings to integers before step 4 changes times. All three are normalize.py's; the "
+        "schema follows the README.",
+        fix="no task yet: a normalize.py base fix (p15-oracle-013's file), reported to the lead by the "
+        "p15-oracle-019 fixer. Its landing also enables HashAndDiffContract.test_real_snapshot_v1_contract.",
+        errors=_real_schema_errors(),
+    ),
 }
+# The modules whose outcomes name each case. The others report counts, so a KNOWN_RED entry for them could
+# never show an unexpected pass or go stale.
+NAMED_MODULES = ("normalize", "diff", "oracle_cli_test")
 
 HOST = {"name": "selftest-host", "os": "Linux", "osVersion": "6.0", "arch": "x86_64"}
 
@@ -80,29 +137,35 @@ class NetworkRefused(RuntimeError):
 
 @contextlib.contextmanager
 def no_network() -> Iterator[None]:
-    """Refuses IP connects and name lookups in this process for the whole run (AF_UNIX stays allowed)."""
+    """Refuses IP connects, IP sends and name lookups in this process (AF_UNIX stays allowed)."""
 
-    real_connect, real_connect_ex = socket.socket.connect, socket.socket.connect_ex
-    real_getaddrinfo, real_gethostbyname = socket.getaddrinfo, socket.gethostbyname
-
-    def guarded(real: Callable[..., Any]) -> Callable[..., Any]:
-        def connect(sock: socket.socket, address: Any) -> Any:
+    def guarded(real: Callable[..., Any], what: str) -> Callable[..., Any]:
+        def call(sock: socket.socket, *args: Any) -> Any:
             if sock.family in (socket.AF_INET, socket.AF_INET6):
-                raise NetworkRefused(f"selftest opened a network connection to {address!r}")
-            return real(sock, address)
+                raise NetworkRefused(f"selftest {what} {args!r}")
+            return real(sock, *args)
 
-        return connect
+        return call
 
     def lookup(*args: Any, **kwargs: Any) -> Any:
         raise NetworkRefused(f"selftest resolved a host name: {args[:1]!r}")
 
-    socket.socket.connect, socket.socket.connect_ex = guarded(real_connect), guarded(real_connect_ex)
-    socket.getaddrinfo = socket.gethostbyname = lookup
+    methods = {"connect": "opened a network connection:", "connect_ex": "opened a network connection:",
+               "sendto": "sent a datagram:", "sendmsg": "sent a message:"}
+    real_methods = {name: getattr(socket.socket, name) for name in methods}
+    real_resolvers = {name: getattr(socket, name) for name in
+                      ("getaddrinfo", "gethostbyname", "gethostbyname_ex", "gethostbyaddr", "getnameinfo")}
+    for name, what in methods.items():
+        setattr(socket.socket, name, guarded(real_methods[name], what))
+    for name in real_resolvers:
+        setattr(socket, name, lookup)
     try:
         yield
     finally:
-        socket.socket.connect, socket.socket.connect_ex = real_connect, real_connect_ex
-        socket.getaddrinfo, socket.gethostbyname = real_getaddrinfo, real_gethostbyname
+        for name, real in real_methods.items():
+            setattr(socket.socket, name, real)
+        for name, real in real_resolvers.items():
+            setattr(socket, name, real)
 
 
 # ------------------------------------------------------------------------------------------- inner counts
@@ -130,50 +193,114 @@ def captured(fn: Callable[[], Any]) -> Tuple[Any, str]:
     return value, out.getvalue()
 
 
-def judge_cases(test: unittest.TestCase, module: str, outcomes: Dict[str, Optional[str]], output: str) -> Inner:
-    """outcomes: case name -> None (pass) or its failure text. Applies KNOWN_RED and records the counts."""
+@dataclass(frozen=True)
+class Failure:
+    """One failed case: its text for the report and the error lines a KnownRed must match exactly."""
+
+    text: str
+    errors: FrozenSet[str]
+
+
+Outcomes = Dict[str, Optional[Failure]]  # case name -> None when it passed
+
+
+def judge_cases(test: unittest.TestCase, module: str, outcomes: Outcomes, output: str) -> Inner:
+    """Applies KNOWN_RED to a named module's outcomes and records the counts (see the module docstring)."""
     inner = Inner(module, total=len(outcomes))
     unexpected: List[str] = []
     for name, failure in outcomes.items():
         key = f"{module}.{name}"
-        if failure is None and key in KNOWN_RED:
-            unexpected.append(f"{key} passed: remove its KNOWN_RED entry ({KNOWN_RED[key]})")
+        known = KNOWN_RED.get(key)
+        if failure is None and known is not None:
+            unexpected.append(f"{key} passed: remove its KNOWN_RED entry ({known.reason})")
         elif failure is None:
             inner.passed += 1
-        elif key in KNOWN_RED:
-            inner.known_red.append(key)
+        elif known is None:
+            unexpected.append(f"{key}: {failure.text}")
+        elif failure.errors != known.errors:
+            new = "".join(f"\n  new: {line}" for line in sorted(failure.errors - known.errors))
+            gone = "".join(f"\n  gone: {line}" for line in sorted(known.errors - failure.errors))
+            unexpected.append(f"{key} is known red but fails with other errors: update or remove its entry{new}{gone}")
         else:
-            unexpected.append(f"{key}: {failure}")
+            inner.known_red.append(key)
+    for key in sorted(KNOWN_RED):
+        owner, _, name = key.partition(".")
+        if owner == module and name not in outcomes:
+            unexpected.append(f"stale KNOWN_RED entry {key}: {module} has no such case")
     INNER[module] = inner
     if unexpected:
         test.fail("\n".join(unexpected) + "\n--- module output ---\n" + output[-4000:])
     return inner
 
 
+def counted(module: str, passed: int, total: int) -> Inner:
+    """Records a module that reports counts only. KNOWN_RED cannot name its cases (test_known_red_entries)."""
+    INNER[module] = Inner(module, passed, total)
+    return INNER[module]
+
+
 def run_unittest_cases(cases: Sequence[type]) -> Tuple[unittest.TestResult, List[str], str]:
     loader = unittest.TestLoader()
     suite = unittest.TestSuite(loader.loadTestsFromTestCase(case) for case in cases)
-    names = [test.id().rsplit(".", 1)[-1] for test in _flatten(suite)]
+    names = [case_name(test) for test in _flatten(suite)]
     stream = io.StringIO()
     with contextlib.redirect_stdout(stream), contextlib.redirect_stderr(stream):
         result = unittest.TextTestRunner(stream=stream, verbosity=2).run(suite)
     return result, names, stream.getvalue()
 
 
-def unittest_outcomes(result: unittest.TestResult, names: Sequence[str]) -> Dict[str, Optional[str]]:
-    """Per test method: None when it passed or was skipped, else its traceback."""
-    failed = {test.id().rsplit(".", 1)[-1]: text for test, text in (*result.failures, *result.errors)}
-    return {name: failed.get(name) for name in names}
+def case_name(test: unittest.TestCase) -> str:
+    """`Class.method`; a failed subtest names its parent test."""
+    parent = getattr(test, "test_case", test)
+    return f"{type(parent).__name__}.{parent._testMethodName}"
 
 
-def runner_outcomes(output: str) -> Dict[str, Optional[str]]:
-    """Per test of a module that runs its own TextTestRunner: from its `Ran N` and `FAIL:`/`ERROR:` lines."""
-    ran = re.search(r"^Ran (\d+) tests?", output, re.MULTILINE)
-    if ran is None:
-        return {}
-    failed = re.findall(r"^(?:FAIL|ERROR): (\w+)", output, re.MULTILINE)
-    outcomes: Dict[str, Optional[str]] = {f"passed-{i}": None for i in range(int(ran.group(1)) - len(failed))}
-    outcomes.update({name: "failed" for name in failed})
+def unittest_outcomes(result: unittest.TestResult, names: Sequence[str]) -> Outcomes:
+    """Per `Class.method`: None when it and every subtest passed or were skipped, else its tracebacks."""
+    tracebacks: Dict[str, List[str]] = {}
+    for test, text in (*result.failures, *result.errors):
+        tracebacks.setdefault(case_name(test), []).append(f"{test.id()}\n{text}")
+    unknown = set(tracebacks) - set(names)
+    if unknown:
+        raise AssertionError(f"failures of tests that were not loaded: {sorted(unknown)}")
+    outcomes: Outcomes = {}
+    for name in names:
+        texts = tracebacks.get(name)
+        if texts:
+            last_lines = {text.rstrip().splitlines()[-1].strip() for text in texts}
+            outcomes[name] = Failure("\n".join(texts), frozenset(last_lines))
+        else:
+            outcomes[name] = None
+    return outcomes
+
+
+def normalize_outcomes(output: str) -> Outcomes:
+    """normalize.selftest's `ok N name` and `FAIL N name: message` lines; indented lines continue a FAIL.
+
+    The errors of a failure are its indented lines, or its message when it has none (the first line of a
+    schema refusal names the absolute schema path, which differs per checkout)."""
+    outcomes: Outcomes = {}
+    failing: Optional[Tuple[str, List[str]]] = None
+
+    def close() -> None:
+        if failing is not None:
+            name, lines = failing
+            details = [line.strip() for line in lines[1:]]
+            outcomes[name] = Failure("\n".join(lines), frozenset(details or lines[:1]))
+
+    for line in output.splitlines():
+        if failing is not None and line.startswith("  "):
+            failing[1].append(line)
+            continue
+        close()
+        failing = None
+        ok = re.match(r"^ok \d+ (\S+)$", line)
+        bad = re.match(r"^FAIL \d+ (\S+?): (.*)$", line)
+        if ok:
+            outcomes[ok.group(1)] = None
+        elif bad:
+            failing = (bad.group(1), [bad.group(2)])
+    close()
     return outcomes
 
 
@@ -183,24 +310,28 @@ def runner_outcomes(output: str) -> Dict[str, Optional[str]]:
 class ModuleSelftests(unittest.TestCase):
     """Each module's own self test, in this process, with its own case count."""
 
+    def test_known_red_entries(self) -> None:
+        for key, known in KNOWN_RED.items():
+            module, _, name = key.partition(".")
+            self.assertIn(module, NAMED_MODULES, f"{key}: {module} reports counts only; KNOWN_RED cannot name its cases")
+            self.assertTrue(name and known.reason and known.fix and known.errors, key)
+
     def test_normalize_property_cases(self) -> None:
         code, output = captured(lambda: normalize.selftest(SETTINGS["seed"], sys.stdout))
-        outcomes: Dict[str, Optional[str]] = {}
-        for line in output.splitlines():
-            ok = re.match(r"^ok \d+ (\w+)$", line)
-            bad = re.match(r"^FAIL \d+ (\w+): (.*)$", line)
-            if ok:
-                outcomes[ok.group(1)] = None
-            elif bad:
-                outcomes[bad.group(1)] = bad.group(2)
-        self.assertRegex(output, r"\d+/\d+ property cases passed", output[-2000:])
-        self.assertGreaterEqual(len(outcomes), 30, "normalize.py promises at least 30 property cases")
+        summary = re.search(r"^(\d+)/(\d+) property cases passed", output, re.MULTILINE)
+        self.assertIsNotNone(summary, output[-2000:])
+        passed, total = int(summary.group(1)), int(summary.group(2))
+        outcomes = normalize_outcomes(output)
+        self.assertEqual(len(outcomes), total, f"a case without one `ok`/`FAIL` line of its own\n{output[-2000:]}")
+        failed = sum(failure is not None for failure in outcomes.values())
+        self.assertEqual(failed, total - passed, f"parsed FAIL lines disagree with the summary\n{output[-2000:]}")
+        self.assertGreaterEqual(total, 30, "normalize.py promises at least 30 property cases")
         judge_cases(self, "normalize", outcomes, output)
-        if not INNER["normalize"].known_red:
-            self.assertEqual(code, 0, output[-2000:])
+        self.assertEqual(code, 1 if failed else 0, output[-2000:])
 
     def test_diff_synthetic_runs(self) -> None:
         result, names, output = run_unittest_cases([diff.DiffSelfTest])
+        self.assertEqual(len(set(names)), len(names), names)
         judge_cases(self, "diff", unittest_outcomes(result, names), output)
         self.assertEqual(result.testsRun, INNER["diff"].total)
 
@@ -210,18 +341,17 @@ class ModuleSelftests(unittest.TestCase):
         self.assertIsNotNone(summary, output[-2000:])
         failed = re.findall(r"^FAIL (.+)$", output, re.MULTILINE)
         passed, total = int(summary.group(1)), int(summary.group(2))
-        outcomes: Dict[str, Optional[str]] = {f"passed-{i}": None for i in range(passed)}
-        outcomes.update({name.replace(" ", "_"): "failed" for name in failed})
-        self.assertEqual(len(outcomes), total, output[-2000:])
-        judge_cases(self, "expectations", outcomes, output)
-        self.assertEqual(code, 0 if not failed else 1)
+        counted("expectations", passed, total)
+        self.assertEqual(len(failed), total - passed, output[-2000:])
+        self.assertEqual((failed, code), ([], 0), output[-2000:])
 
     def test_baselines_store(self) -> None:
         code, output = captured(baselines.selftest)
-        outcomes = runner_outcomes(output)
-        self.assertTrue(outcomes, output[-2000:])
-        judge_cases(self, "baselines", outcomes, output)
-        self.assertEqual(code, 0, output[-2000:])
+        ran = re.search(r"^Ran (\d+) tests?", output, re.MULTILINE)
+        self.assertIsNotNone(ran, output[-2000:])
+        failed = re.findall(r"^(?:FAIL|ERROR): (\S+)", output, re.MULTILINE)
+        counted("baselines", int(ran.group(1)) - len(failed), int(ran.group(1)))
+        self.assertEqual((failed, code), ([], 0), output[-2000:])
 
     def test_oracle_cli(self) -> None:
         cli = importlib.import_module("oracle_cli_test")
@@ -229,6 +359,7 @@ class ModuleSelftests(unittest.TestCase):
                  if isinstance(value, type) and issubclass(value, unittest.TestCase) and value.__module__ == cli.__name__]
         self.assertTrue(cases)
         result, names, output = run_unittest_cases(cases)
+        self.assertEqual(len(set(names)), len(names), names)
         judge_cases(self, "oracle_cli_test", unittest_outcomes(result, names), output)
         self.assertEqual(result.testsRun, INNER["oracle_cli_test"].total)
 
@@ -242,7 +373,7 @@ class ModuleSelftests(unittest.TestCase):
         code, output = captured(lambda: case_checks.selftest(schema, case_checks.Rules(schema)))
         summary = re.search(r"selftest: (\d+)/(\d+) pass", output)
         self.assertIsNotNone(summary, output[-2000:])
-        INNER["case_checks"] = Inner("case_checks", int(summary.group(1)), int(summary.group(2)))
+        counted("case_checks", int(summary.group(1)), int(summary.group(2)))
         self.assertEqual(code, 0, output[-2000:])
 
 
@@ -307,8 +438,9 @@ class ShardMath(unittest.TestCase):
     def test_assignment_does_not_depend_on_the_process(self) -> None:
         # `python3 -I` randomizes str hashes per process; the shard must not follow them.
         ids = case_ids(64)
-        program = ("import json, sys; sys.path.insert(0, sys.argv[1]); import oracle; "
-                   "print(json.dumps([oracle.shard_of(c, 7) for c in json.loads(sys.argv[2])]))")
+        program = ("import json, sys; sys.path.insert(0, sys.argv[1]); import oracle, selftest\n"
+                   "with selftest.no_network():\n"
+                   "    print(json.dumps([oracle.shard_of(c, 7) for c in json.loads(sys.argv[2])]))")
         here = [oracle.shard_of(cid, 7) for cid in ids]
         for _ in range(2):
             proc = subprocess.run([sys.executable, "-I", "-c", program, str(HERE), json.dumps(ids)],
@@ -491,6 +623,39 @@ class HashAndDiffContract(unittest.TestCase):
                          [(before.sha256, before.value), (settled.sha256, settled.value)])
         self.assertEqual(baselines.check(baselines.Store(root))["errors"], [])
 
+    def test_real_snapshot_v1_contract(self) -> None:
+        blocker = "normalize.real_schema_example"
+        if blocker in KNOWN_RED:
+            self.skipTest(f"normalize.py cannot load snapshot-v1 yet (KNOWN_RED {blocker})")
+        self.check_real_snapshot(normalize.Schema.load(normalize.DEFAULT_SCHEMA))
+
+    def check_real_snapshot(self, schema: Any) -> None:
+        """The checked-in snapshot-v1 example: normalize's hash is oracle.py's, and renamed ids diff equal."""
+        example = normalize.parse_json(normalize.EXAMPLE_SNAPSHOT.read_text(encoding="utf-8"))
+        renamed = renamed_resource_ids(example, SETTINGS["seed"])
+        self.assertNotEqual(renamed, example, "the example has no resource ids to rename")
+        base, other = normalize.canonicalize(example, schema), normalize.canonicalize(renamed, schema)
+        self.assertEqual(base.sha256, oracle.snapshot_sha256(base.value))
+        self.assertEqual(other.sha256, base.sha256)
+        a = write_diff_run(self.tmp, "real-a", {"daemon-ops/example/snapshot": [("get", "settled", base)]})
+        b = write_diff_run(self.tmp, "real-b", {"daemon-ops/example/snapshot": [("get", "settled", other)]})
+        code, report = run_diff(a, b, self.tmp / "real.json")
+        self.assertEqual((code, report["verdict"], report["summary"]["equal"]), (diff.EXIT_OK, "pass", 1), report)
+
+
+RESOURCE_ID = re.compile(r"\b([a-z_]+_)([0-9a-f]{32})\b")
+
+
+def renamed_resource_ids(doc: Any, seed: int) -> Any:
+    """`doc` with every `<prefix>_<32 hex>` id replaced by a fresh one of the same kind, the same id everywhere."""
+    fresh: Dict[str, str] = {}
+    rng = random.Random(f"{seed}:real-snapshot")
+
+    def rename(match: "re.Match[str]") -> str:
+        return fresh.setdefault(match.group(0), match.group(1) + "%032x" % rng.getrandbits(128))
+
+    return json.loads(RESOURCE_ID.sub(rename, json.dumps(doc)))
+
 
 class CaseSchemaContract(unittest.TestCase):
     """case-v1 through normalize's stdlib validator plus case_checks: what `oracle.py check` runs with no jsonschema."""
@@ -500,12 +665,16 @@ class CaseSchemaContract(unittest.TestCase):
         rules = case_checks.Rules(schema)
         table = json.loads(case_checks.MUTATIONS.read_text(encoding="utf-8"))
         bases: Dict[str, Any] = {}
+        passed = 0
         for name in sorted({m["base"] for m in table["mutations"]}):
             bases[name] = json.loads((case_checks.MUTATIONS.parent / name).read_text(encoding="utf-8"))
-            self.assertEqual(normalize.validate(bases[name], schema), [], name)
-            self.assertEqual([f.message for f in case_checks.check_case(bases[name], rules)], [], name)
+            with self.subTest(base=name):
+                self.assertEqual(normalize.validate(bases[name], schema), [], name)
+                self.assertEqual([f.message for f in case_checks.check_case(bases[name], rules)], [], name)
+                passed += 1
         layers: Dict[str, int] = {}
         for mutation in table["mutations"]:
+            # A failed assertion leaves the subTest block, so `passed` counts only the mutations that hold.
             with self.subTest(mutation["name"]):
                 case = case_checks.apply_patch(bases[mutation["base"]], mutation["patch"])
                 errors = normalize.validate(case, schema)
@@ -520,9 +689,9 @@ class CaseSchemaContract(unittest.TestCase):
                                         for e in errors), (pointer, errors))
                 else:
                     self.assertEqual((errors, messages), ([], [mutation["error"]]))
+                passed += 1
+        counted("case-v1 table", passed, len(table["mutations"]) + len(bases))
         self.assertEqual(set(layers), {"valid", "schema", "x-oracle"}, layers)
-        INNER["case-v1 table"] = Inner("case-v1 table", len(table["mutations"]) + len(bases),
-                                       len(table["mutations"]) + len(bases))
 
     def test_duplicate_step_id_error_names_the_step(self) -> None:
         schema = json.loads(case_checks.SCHEMA.read_text(encoding="utf-8"))
@@ -556,8 +725,18 @@ class NoNetwork(unittest.TestCase):
     def test_the_guard_refuses_ip_connections(self) -> None:
         with self.assertRaises(NetworkRefused):
             socket.create_connection(("127.0.0.1", 9), timeout=1)
-        with self.assertRaises(NetworkRefused):
-            socket.getaddrinfo("example.com", 443)
+        for resolve in (lambda: socket.getaddrinfo("example.com", 443), lambda: socket.gethostbyname_ex("example.com"),
+                        lambda: socket.gethostbyaddr("127.0.0.1")):
+            with self.assertRaises(NetworkRefused):
+                resolve()
+        with socket.socket(socket.AF_INET, socket.SOCK_DGRAM) as udp, self.assertRaises(NetworkRefused):
+            udp.sendto(b"x", ("127.0.0.1", 9))
+
+    def test_unix_sockets_stay_allowed(self) -> None:
+        left, right = socket.socketpair(socket.AF_UNIX)
+        with left, right:
+            left.sendall(b"ok")
+            self.assertEqual(right.recv(2), b"ok")
 
 
 # -------------------------------------------------------------------------------------------------- runner
@@ -593,7 +772,8 @@ def report(result: unittest.TestResult, tests: Sequence[unittest.TestCase], spen
                 print(f"    {inner.module:<18} {inner.passed}/{inner.total} passed{red}")
     known = [key for inner in INNER.values() for key in inner.known_red]
     for key in known:
-        print(f"  KNOWN RED {key}: {KNOWN_RED[key]}")
+        print(f"  KNOWN RED {key} ({len(KNOWN_RED[key].errors)} errors): {KNOWN_RED[key].reason}\n"
+              f"    fix: {KNOWN_RED[key].fix}")
     inner_total = sum(inner.total for inner in INNER.values())
     print(f"selftest: {result.testsRun} tests ({inner_total} inner cases), {len(bad)} failed, {len(skipped)} skipped, "
           f"{len(known)} known red, {spent:.1f} s")
