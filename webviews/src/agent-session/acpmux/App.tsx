@@ -357,6 +357,8 @@ import { configureSentLook } from "./conversation/SentMessageLine";
 import { configureNativeSidebarPreviewVariant, configureSidebarPreviewVariant } from "./sidebarPreview";
 import { configureTurnActionsPlacement } from "./turnActionsPlacement";
 import { archiveRow, markUnreadRow } from "./header/archiveRow";
+import { avatarRows } from "./header/avatarRow";
+import { hasAgentAvatar, removeAgentAvatar, setAgentAvatar, useAgentAvatar } from "./agentAvatar";
 import { copyRow } from "./header/copyRow";
 import { recordedConversationMarkdown } from "./conversation/exportMarkdown";
 import { instructionsRow, projectFilesRow } from "./header/instructionsRow";
@@ -7794,6 +7796,16 @@ function AcpmuxPane() {
     () => ignoreFailure(openClient().then((client) => client.markUnread())),
     t,
   );
+  // The session's own avatar (its cards and sender chip draw it): read so the menu knows of one.
+  useAgentAvatar(snapshot.sessionId);
+  const avatar = avatarRows(
+    { sessionId: snapshot.sessionId, hasAvatar: hasAgentAvatar(snapshot.sessionId) },
+    {
+      set: () => snapshot.sessionId && ignoreFailure(setAgentAvatar(snapshot.sessionId)),
+      remove: () => snapshot.sessionId && ignoreFailure(removeAgentAvatar(snapshot.sessionId)),
+    },
+    t,
+  );
   useEffect(() => {
     const run = (event: Event) => {
       const name = (event as CustomEvent<unknown>).detail;
@@ -8090,6 +8102,7 @@ function AcpmuxPane() {
       ],
       tools,
       [
+        ...avatar,
         ...(markUnread ? [markUnread] : []),
         ...(archive ? [archive] : []),
         {

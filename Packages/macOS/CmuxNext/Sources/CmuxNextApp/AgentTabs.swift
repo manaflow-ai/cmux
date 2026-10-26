@@ -5,6 +5,7 @@ import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextFloating
 import CmuxNextHomeEngine
 import CmuxNextRemote
 import CmuxNextSettings
@@ -143,6 +144,8 @@ final class AgentTabStore {
     var remoteMachineName: @MainActor (DaemonService) -> String? = { _ in nil }
     /// Shared conversion and project actions for a direct blank chat, without a chooser page.
     var blankChatHandler: ((String) -> NewTabPageHandler?)?
+    /// Each agent session's own avatar (Set Avatar… in the chat's ⋯ menu).
+    var agentAvatars: AgentAvatars?
     /// Opens a redeemed Run attempt's terminal, owned by an enrolled worker daemon, in the tab's pane.
     var runAttach: (@MainActor (_ key: String, _ request: AgentPaneRunAttach) async throws -> Void)?
     /// The New Tab page a new workspace's first tab shows, starting in the given folder.
@@ -449,6 +452,12 @@ final class AgentTabStore {
             return actionRegistry?.perform(ActionID(rawValue: id), invocation: ActionInvocation(target: target, arguments: arguments.mapValues(ActionValue.string), origin: .user)) ?? false
         }
         wireHeader(model, key: provisional)
+        model.onAgentAvatar = { [weak self] session in await self?.agentAvatars?.avatar(session) }
+        model.onSetAgentAvatar = { [weak self] session in
+            guard let self, let agentAvatars else { return nil }
+            return await agentAvatars.choose(session, window: views[resolve(provisional)]?.window)
+        }
+        model.onRemoveAgentAvatar = { [weak self] session in self?.agentAvatars?.remove(session) }
         model.onBrowseProject = { [weak self] in
             guard let self, let handler = newTabPages[resolve(provisional)]?.handler ?? blankChatHandler?(resolve(provisional)) else { return nil }
             return await handler.browseProject()

@@ -1,6 +1,7 @@
 import CmuxNextAgentPane
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextFloating
 import CmuxNextHomeEngine
 import struct CmuxNextLayout.MainPaneLayout
 import Foundation
@@ -109,6 +110,7 @@ extension AgentTabStore {
         let tabs = AgentTabStore(build: services.environment.build, registry: services.registry, environment: services.agentPaneEnvironment ?? ProcessInfo.processInfo.environment, showcase: services.environment.showcase,
                                  linkScheme: services.linkScheme, settings: services.settings, openPanel: services.openPanel)
         tabs.launchImages = services.launchImages
+        tabs.agentAvatars = AgentAvatars(uploads: services.chiefAvatarUploads, openPanel: services.openPanel)
         let state = services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent()
         tabs.unsentDrafts = AgentUnsentDrafts(directory: state)
         tabs.pageChats.environments = state.map { SavedEnvironments(url: $0.appending(path: "environments.json")) }
