@@ -223,7 +223,8 @@ pub(super) const GUIDES: &[Guide] = &[
         first prompt, as if the user typed it. Its receipt names the chat (an acpmux session \
         id), tab, pane and workspace. Drive a chat of this cmux session (never your own): `cmux \
         agents chat send CHAT -- TEXT` (agents_chat_send, an agent message), `chat read CHAT \
-        --after N` (agents_chat_read), `chat state CHAT` (agents_chat_state: status, running, \
+        --after N [--last-code-block]` (agents_chat_read; the option also returns the latest \
+        complete secret-masked fenced block as `{language, code}`), `chat state CHAT` (agents_chat_state: status, running, \
         pending permissions), `chat interrupt CHAT` (agents_chat_interrupt, stops its turn) and \
         `chat continue CHAT [TEXT]` (a nudge). Wait for its answer with agents_wait or read on \
         from next_after. See a pane or tab: `cmux pane screenshot --target pane_ID --out PATH` or \
