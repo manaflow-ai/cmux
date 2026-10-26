@@ -170,6 +170,16 @@ fn validate_handoff(
         .collect()
 }
 
+#[cfg(test)]
+fn validate_handoff_for_test(
+    payload: &[u8],
+    fds: Vec<OwnedFd>,
+    proxy_port: u16,
+    api_port: Option<u16>,
+) -> Result<Vec<TcpListener>> {
+    validate_handoff(payload, fds, proxy_port, api_port)
+}
+
 /// Ancillary traversal stops at the kernel-provided buffer end. Every received
 /// descriptor is owned before any truncation/error return, so rejection closes it.
 fn recv_chunk(fd: RawFd, bytes: &mut [u8]) -> io::Result<(usize, Vec<OwnedFd>)> {
@@ -529,14 +539,10 @@ mod tests {
         round_trip.extend(options.args.into_iter().map(OsString::from));
         assert_eq!(round_trip, argv(&[]));
         assert!(parse(round_trip).is_ok());
-        for (flag, address) in
-            [("--api-loopback-v4", "127.0.0.1:31415"), ("--api-loopback-v6", "[::1]:31415")]
-        {
-            let options =
-                parse(argv(&["--bwrap", "/opt/bwrap", "--api-port", "31415", flag])).unwrap();
-            assert_eq!(options.bwrap, PathBuf::from("/opt/bwrap"));
-            assert_eq!(options.api, Some(address.parse().unwrap()));
-        }
+        let options = parse(argv(&["--api-port", "31415", "--api-loopback-v4"])).unwrap();
+        assert_eq!(options.api, Some("127.0.0.1:31415".parse().unwrap()));
+        assert!(parse(argv(&["--api-port", "31415", "--api-loopback-v6"])).is_err());
+        assert!(parse(argv(&["--bwrap", "/opt/bwrap"])).is_err());
     }
 
     #[test]
@@ -551,7 +557,7 @@ mod tests {
         for extra in [
             vec!["--wat", "1"],
             vec!["--proxy-port=3128"],
-            vec!["--bwrap", "/a", "--bwrap", "/b"],
+            vec!["--bwrap", "/a"],
             vec!["--api-port", "31415", "--api-port", "31415", "--api-loopback-v4"],
             vec!["--api-port", "31415", "--api-loopback-v4", "--api-loopback-v4"],
             vec!["--api-port", "31415", "--api-loopback-v6", "--api-loopback-v6"],
@@ -562,7 +568,7 @@ mod tests {
         ] {
             assert!(parse(argv(&extra)).is_err(), "{extra:?}");
         }
-        for flag in required().chunks_exact(2).map(|p| p[0]).chain(["--api-port", "--bwrap"]) {
+        for flag in required().chunks_exact(2).map(|p| p[0]).chain(["--api-port"]) {
             assert!(parse(vec![flag.into()]).is_err(), "{flag} at EOF");
             assert!(parse(vec![flag.into(), "--".into(), "/bin/true".into()]).is_err());
         }
@@ -616,7 +622,8 @@ mod tests {
             let expected_api = with_api.then_some(api_port);
             let fds = std::iter::once(proxy).chain(with_api.then_some(api)).collect();
             let listeners =
-                validate_handoff(&payload(port, expected_api), fds, port, expected_api).unwrap();
+                validate_handoff_for_test(&payload(port, expected_api), fds, port, expected_api)
+                    .unwrap();
             assert_eq!(listeners.len(), if with_api { 2 } else { 1 });
             assert_eq!(listeners[0].local_addr().unwrap().to_string(), format!("127.0.0.1:{port}"));
             if with_api {
@@ -634,13 +641,14 @@ mod tests {
             let fds = vec![proxy, api, listener("127.0.0.1").0].into_iter().take(count).collect();
             let expected_api = (count != 2).then_some(api_port);
             assert!(
-                validate_handoff(&payload(port, expected_api), fds, port, expected_api).is_err()
+                validate_handoff_for_test(&payload(port, expected_api), fds, port, expected_api)
+                    .is_err()
             );
         }
         let (proxy, port) = listener("127.0.0.1");
         let (api, api_port) = listener("127.0.0.1");
         assert!(
-            validate_handoff(
+            validate_handoff_for_test(
                 &payload(port, Some(api_port)),
                 vec![api, proxy],
                 port,
@@ -650,7 +658,7 @@ mod tests {
         );
         let (fd, port) = listener("127.0.0.1");
         let wrong = if port == 65535 { 65534 } else { port + 1 };
-        assert!(validate_handoff(&payload(wrong, None), vec![fd], wrong, None).is_err());
+        assert!(validate_handoff_for_test(&payload(wrong, None), vec![fd], wrong, None).is_err());
     }
 
     #[test]
@@ -694,6 +702,12 @@ mod tests {
             let (fd, port) = listener(address);
             assert!(validate_handoff(&payload(port, None), vec![fd], port, None).is_err());
         }
+    }
+
+    #[test]
+    fn handoff_refuses_a_listener_from_the_keeper_network_namespace() {
+        let (fd, port) = listener("127.0.0.1");
+        assert!(validate_handoff(&payload(port, None), vec![fd], port, None).is_err());
     }
 
     #[test]
