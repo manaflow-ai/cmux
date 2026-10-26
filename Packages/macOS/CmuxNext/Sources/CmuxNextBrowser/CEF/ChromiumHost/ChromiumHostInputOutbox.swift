@@ -1,35 +1,36 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 // The Chromium host app ships in Debug builds only (embed-cef.sh), and so does its Swift side.
 
-/// Input frames to the Chromium host that its socket has not taken yet.
+/// Input frames to the Chromium host that its socket has not taken yet,
+/// encoded and contiguous, oldest first.
 ///
 /// Every frame is written at once: cmux adds no display-tick wait, the
 /// renderer aligns input to its own frames, as Chrome's browser process sends
 /// input to the renderer as it comes (`content/browser/renderer_host/input/`).
-/// Frames wait here only while the socket is full, and, after the first wheel
-/// of a scroll, later wheels until the host acknowledges it.
+/// Frames wait here only while the socket is full.
 ///
-/// - A newer pointer move or drag replaces a waiting one, wheel deltas add
-///   into the waiting wheel and a newer geometry replaces a waiting one, each
-///   only at the tail: the host's own `FrameQueue::Coalesce`
-///   (`ChromiumHost/src/chromium_host_wire.h`). The order of moves, clicks,
-///   keys and geometry stays the order sent, and a host that stops reading
-///   holds at most one move between two discrete frames.
-/// - Every other frame waits in order, at most ``discreteLimit``; one more
-///   ends the connection.
+/// - Between two discrete frames each coalescible kind (pointer move or drag,
+///   wheel, geometry) has one latest-wins slot: a newer move or geometry
+///   replaces its waiting one, wheel deltas add into the waiting wheel. Chrome's
+///   browser side queues each input class on its own too (`input_router_impl.cc`,
+///   `mouse_wheel_event_queue.cc`), so a host that stops reading holds at most
+///   three coalescible frames between two discrete ones, whatever their mix.
+/// - Every other frame waits in order, at most ``discreteLimit`` of them and
+///   ``byteLimit`` bytes in all; one more ends the connection.
 /// - A partly written frame keeps its unwritten bytes at the front, as Mojo's
 ///   `ChannelPosix` keeps the offset of a partly written message
 ///   (`mojo/core/channel_posix.cc`), so the stream never breaks mid-frame.
-/// - While the first wheel of a sequence waits for the host's ACK, later
-///   wheels collapse into one held wheel that queues on the ACK: one wheel in
-///   flight, as in `content/browser/renderer_host/input/mouse_wheel_event_queue.cc`
-///   (keys sent meanwhile go first there too).
+/// - One ``flush(_:)`` is one `write` of every waiting byte.
+///
+/// The host's ACK of a sequence's first wheel (one wheel in flight, as in
+/// `mouse_wheel_event_queue.cc`) comes with the host's ACK frame, task
+/// p01-process-042; until then wheels go at once like moves.
 nonisolated struct ChromiumHostInputOutbox: Sendable {
     /// Discrete frames (keys, clicks, focus, navigation) that may wait.
     static let discreteLimit = 4_096
-    /// Every waiting frame: a move whose buttons or modifiers changed does not
-    /// fold into the one before it.
-    static let frameLimit = 2 * discreteLimit
+    /// Bytes that may wait: four kernel send buffers, as the control channel's
+    /// quota is a byte count too. Navigation and text payloads count.
+    static let byteLimit = 4 * Int(ChromiumHostConnection.sendBuffer)
 
     /// What one `write` did.
     enum WriteOutcome: Equatable, Sendable {
@@ -46,107 +47,152 @@ nonisolated struct ChromiumHostInputOutbox: Sendable {
         case failed
     }
 
-    private var frames: [ChromiumHostFrame] = []
-    /// Frames before `head` are written; the array empties when drained or mostly written.
+    /// One waiting frame: where its bytes start, and whether it is discrete.
+    private struct Entry: Sendable {
+        var start: Int
+        var discrete: Bool
+    }
+
+    /// A coalescible kind's waiting frame and its entry.
+    private struct Slot: Sendable {
+        var frame: ChromiumHostFrame
+        var entry: Int
+    }
+
+    /// The encoded frames; bytes before `written` are in the socket.
+    private var bytes: [UInt8] = []
+    private var written = 0
+    private var entries: [Entry] = []
+    /// Entries before `head` have bytes in the socket: they no longer wait.
     private var head = 0
-    /// The frame being written, and how many of its bytes the socket took.
-    private var front: [UInt8] = []
-    private var frontOffset = 0
+    /// The move, wheel and geometry slots of the run after the last discrete frame.
+    private var move: Slot?
+    private var wheel: Slot?
+    private var geometry: Slot?
     private(set) var discreteCount = 0
-    /// The wheels sent while a sequence's first wheel waits for its ACK, summed.
-    private(set) var heldWheel: ChromiumHostFrame?
-    private(set) var awaitsWheelAck = false
     /// Frames folded into a waiting one since the connection opened.
     private(set) var coalesced: UInt64 = 0
+    /// Bytes the socket took since the connection opened.
+    private(set) var taken: UInt64 = 0
 
     /// Frames that wait for the socket, the partly written one not counted.
-    var waitingCount: Int { frames.count - head }
-    /// Waiting pointer moves, wheels and geometry, the held wheel counted.
-    var coalescibleCount: Int { waitingCount - discreteCount + (heldWheel == nil ? 0 : 1) }
+    var waitingCount: Int { entries.count - head }
+    /// Waiting pointer moves, wheels and geometry.
+    var coalescibleCount: Int { waitingCount - discreteCount }
+    /// Bytes that wait for the socket, the partly written frame's rest counted.
+    var waitingBytes: Int { bytes.count - written }
     /// True while bytes wait for the socket.
-    var hasUnwritten: Bool { frontOffset < front.count || head < frames.count }
+    var hasUnwritten: Bool { written < bytes.count }
 
-    /// Queues `frame` behind every waiting frame, or folds it into the last
-    /// one. False, with nothing queued, when the queue is full.
+    /// Queues `frame` behind every waiting frame, or folds it into its kind's
+    /// slot. False, with nothing queued, when the queue is full.
     mutating func push(_ frame: ChromiumHostFrame) -> Bool {
-        if awaitsWheelAck, frame.rawKind == ChromiumHostFrame.Kind.wheel.rawValue {
-            guard var held = heldWheel else {
-                heldWheel = frame
-                return true
-            }
-            if Self.fold(frame, into: &held) {
-                heldWheel = held
-                coalesced += 1
-                return true
-            }
-            // Its modifiers changed: the summed wheel goes now, the new one is held.
-            heldWheel = frame
-            return append(held)
-        }
-        if head < frames.count, Self.fold(frame, into: &frames[frames.count - 1]) {
+        if fold(frame) {
             coalesced += 1
             return true
         }
-        return append(frame)
+        let discrete = !Self.isCoalescible(frame)
+        let size = ChromiumHostFrame.headerSize + frame.payload.count
+        guard waitingBytes + size <= Self.byteLimit, !discrete || discreteCount < Self.discreteLimit else { return false }
+        let entry = Entry(start: bytes.count, discrete: discrete)
+        bytes.append(contentsOf: frame.encoded())
+        entries.append(entry)
+        let slot = Slot(frame: frame, entry: entries.count - 1)
+        if discrete {
+            discreteCount += 1
+            move = nil
+            wheel = nil
+            geometry = nil
+        } else {
+            switch frame.kind {
+            case .mouse: move = slot
+            case .wheel: wheel = slot
+            default: geometry = slot
+            }
+        }
+        return true
     }
 
-    /// The first wheel of a sequence was queued: later wheels are held until
-    /// ``wheelAcknowledged()``.
-    mutating func holdWheelsUntilAck() {
-        awaitsWheelAck = true
-    }
-
-    /// The host took the first wheel: the held wheel queues, and wheels go at
-    /// once again. False when the queue is full.
-    mutating func wheelAcknowledged() -> Bool {
-        awaitsWheelAck = false
-        guard let held = heldWheel else { return true }
-        heldWheel = nil
-        return push(held)
-    }
-
-    /// Writes waiting frames, oldest first, while `write` takes them. Each
-    /// pass writes some bytes or returns, so it ends within the waiting bytes.
+    /// Writes the waiting bytes with one `write` (again on EINTR).
     mutating func flush(_ write: (UnsafeRawBufferPointer) -> WriteOutcome) -> FlushResult {
         while hasUnwritten {
-            if frontOffset == front.count {
-                let next = frames[head]
-                head += 1
-                if !Self.isCoalescible(next) { discreteCount -= 1 }
-                front = next.encoded()
-                frontOffset = 0
-            }
-            let offset = frontOffset
-            let outcome = front.withUnsafeBytes { write(UnsafeRawBufferPointer(rebasing: $0[offset...])) }
+            let offset = written
+            let outcome = bytes.withUnsafeBytes { write(UnsafeRawBufferPointer(rebasing: $0[offset...])) }
             switch outcome {
             case .wrote(let count) where count > 0:
-                frontOffset += count
+                written += count
+                taken += UInt64(count)
+                retireWritten()
+                if hasUnwritten {  // a short write: the socket is full
+                    compactIfSparse()
+                    return .blocked
+                }
             case .interrupted:
-                break  // EINTR: the same bytes again
+                continue  // EINTR: the same bytes again
             case .wouldBlock:
-                compactIfSparse()
                 return .blocked
             case .wrote, .failed:
                 return .failed
             }
         }
-        frames.removeAll(keepingCapacity: true)
+        bytes.removeAll(keepingCapacity: true)
+        entries.removeAll(keepingCapacity: true)
+        written = 0
         head = 0
+        move = nil
+        wheel = nil
+        geometry = nil
         return .drained
     }
 
-    private mutating func append(_ frame: ChromiumHostFrame) -> Bool {
-        let discrete = !Self.isCoalescible(frame)
-        guard waitingCount < Self.frameLimit, !discrete || discreteCount < Self.discreteLimit else { return false }
-        if discrete { discreteCount += 1 }
-        frames.append(frame)
+    /// Folds `frame` into its kind's slot when the slot's frame still waits
+    /// whole; it is rewritten in place (a foldable frame has no payload, so its
+    /// encoding keeps its length).
+    private mutating func fold(_ frame: ChromiumHostFrame) -> Bool {
+        let slot: Slot?
+        switch frame.kind {
+        case .mouse: slot = move
+        case .wheel: slot = wheel
+        case .geometry: slot = geometry
+        default: return false
+        }
+        guard var slot, slot.entry >= head, Self.fold(frame, into: &slot.frame) else { return false }
+        let start = entries[slot.entry].start
+        bytes.replaceSubrange(start..<(start + ChromiumHostFrame.headerSize), with: slot.frame.encoded())
+        switch frame.kind {
+        case .mouse: move = slot
+        case .wheel: wheel = slot
+        default: geometry = slot
+        }
         return true
     }
 
-    /// Drops written slots once they are most of the array; O(waiting), at most once per as many writes.
+    /// Entries whose first byte is in the socket no longer wait.
+    private mutating func retireWritten() {
+        while head < entries.count, entries[head].start < written {
+            if entries[head].discrete { discreteCount -= 1 }
+            head += 1
+        }
+    }
+
+    /// Drops the written bytes once they outnumber the waiting ones: a move
+    /// of fewer bytes than were written since the last one.
     private mutating func compactIfSparse() {
-        guard head > 64, head * 2 > frames.count else { return }
-        frames.removeFirst(head)
+        guard written >= 64 * 1024, written * 2 > bytes.count else { return }
+        let shift = written
+        bytes.removeFirst(shift)
+        written = 0
+        // A partly written frame's rest is now at the front; its entry is retired with the others before `head`.
+        entries.removeFirst(head)
+        for index in entries.indices { entries[index].start -= shift }
+        let retired = head
+        func rebased(_ slot: Slot?) -> Slot? {
+            guard let slot, slot.entry >= retired else { return nil }
+            return Slot(frame: slot.frame, entry: slot.entry - retired)
+        }
+        move = rebased(move)
+        wheel = rebased(wheel)
+        geometry = rebased(geometry)
         head = 0
     }
 

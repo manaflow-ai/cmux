@@ -386,8 +386,8 @@ public final class ChromiumHostSession {
     }
 
     /// Sends a frame to the running host at once (a full socket queues it in
-    /// the connection's outbox); a host whose wire broke (the outbox is full of
-    /// discrete frames, the socket failed) is ended (its exit restarts it by the policy). Its pid is not reused before
+    /// the connection's outbox); a host whose wire broke (the outbox is full,
+    /// the socket failed) is ended (its exit restarts it by the policy). Its pid is not reused before
     /// hostEnded reaps it, so the kill reaches only this host.
     @discardableResult
     private func send(_ frame: ChromiumHostFrame) -> Bool {

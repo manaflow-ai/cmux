@@ -1,6 +1,7 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 // The Chromium host app ships in Debug builds only (embed-cef.sh), and so does its Swift side.
 import CmuxNextCompat
+import CmuxNextWakeups
 import Darwin
 import Dispatch
 
@@ -8,13 +9,25 @@ import Dispatch
 /// ``ChromiumHostConnection``, shared by the connection, its reader thread
 /// and its writable source.
 nonisolated final class ChromiumHostWireState: Sendable {
+    /// A full socket that takes no byte for a whole window ends the
+    /// connection: the host's UI thread is stuck. Chrome's hang monitor calls
+    /// a renderer unresponsive after `kHungRendererDelay` with no input ACK
+    /// (`content/browser/renderer_host/render_widget_host_impl.cc`); ending
+    /// the host loses its page state, so cmux waits twice as long. The check
+    /// runs once per window, so a stuck host ends in 30 to 60 s, the control
+    /// channel's 60 s ceiling.
+    static let stallLimit: Duration = .seconds(30)
+
     private let wire: Mutex<ChromiumHostWire>
     private let protocolError = Atomic<Bool>(false)
     /// Runs the writable source: it flushes the outbox when a full socket takes more.
     private let writeQueue = DispatchQueue(label: "com.cmuxterm.chromium-host.write", qos: .userInitiated)
+    /// The stall check: pending from the first full socket until a check finds the outbox drained.
+    private let stall: DemandTimer
 
-    init(readFD: Int32, writeFD: Int32) {
+    init(readFD: Int32, writeFD: Int32, clock: any Clock<Duration>) {
         wire = Mutex(ChromiumHostWire(readFD: readFD, writeFD: writeFD))
+        stall = DemandTimer(owner: "chromium-host.input-stall", clock: clock)
     }
 
     var endedByProtocolError: Bool { protocolError.load(ordering: .acquiring) }
@@ -23,44 +36,38 @@ nonisolated final class ChromiumHostWireState: Sendable {
     var backlog: ChromiumHostWireBacklog {
         wire.withLock { wire in
             ChromiumHostWireBacklog(waiting: wire.outbox.waitingCount, coalescible: wire.outbox.coalescibleCount,
-                                    coalesced: wire.outbox.coalesced, writableArmed: wire.writableArmed)
+                                    waitingBytes: wire.outbox.waitingBytes, coalesced: wire.outbox.coalesced,
+                                    writableArmed: wire.writableArmed)
         }
     }
 
     /// Writes `frame` at once, or queues it behind frames the full socket has
-    /// not taken (``ChromiumHostInputOutbox``). `holdsLaterWheels`: `frame`
-    /// starts a wheel sequence, and later wheels wait for ``wheelAcknowledged()``.
-    /// False when the wire is closed, or broken now: the outbox is full or the
-    /// socket failed (then the connection ends).
-    func send(_ frame: ChromiumHostFrame, holdsLaterWheels: Bool) -> Bool {
-        let sent = wire.withLock { wire -> Bool? in
+    /// not taken (``ChromiumHostInputOutbox``). False when the wire is closed,
+    /// or broken now: the outbox is full or the socket failed (then the
+    /// connection ends).
+    func send(_ frame: ChromiumHostFrame) -> Bool {
+        let next = wire.withLock { wire -> AfterFlush? in
             guard wire.writeFD >= 0 else { return nil }
-            guard wire.outbox.push(frame) else { return false }
-            if holdsLaterWheels { wire.outbox.holdWheelsUntilAck() }
+            guard wire.outbox.push(frame) else { return .fail }
             // Armed: the socket is full and the writable source flushes, in order.
-            if wire.writableArmed { return true }
+            if wire.writableArmed { return AfterFlush.done }
             return flushLocked(&wire)
         }
-        guard let sent else { return false }
-        if !sent { fail() }
-        return sent
+        guard let next else { return false }
+        return finish(next)
     }
 
-    /// The host took the first wheel of a sequence: the held wheel goes, and wheels go at once again.
-    func wheelAcknowledged() {
-        let flushed = wire.withLock { wire -> Bool in
-            guard wire.writeFD >= 0 else { return true }
-            guard wire.outbox.wheelAcknowledged() else { return false }
-            if wire.writableArmed { return true }
-            return flushLocked(&wire)
-        }
-        if !flushed { fail() }
+    /// What a locked step leaves to do once the lock is released.
+    private enum AfterFlush {
+        case done
+        /// Start a stall window; the socket had taken this many bytes.
+        case watch(UInt64)
+        case fail
     }
 
-    /// Writes what the outbox holds while the socket takes it; arms the
-    /// writable source when the socket is full and disarms it once drained.
-    /// False when the socket failed.
-    private func flushLocked(_ wire: inout ChromiumHostWire) -> Bool {
+    /// One `write` of what the outbox holds; arms the writable source when
+    /// the socket is full and disarms it once drained.
+    private func flushLocked(_ wire: inout ChromiumHostWire) -> AfterFlush {
         let fd = wire.writeFD
         switch wire.outbox.flush({ Self.write(fd, $0) }) {
         case .drained:
@@ -68,7 +75,7 @@ nonisolated final class ChromiumHostWireState: Sendable {
                 wire.writable?.suspend()
                 wire.writableArmed = false
             }
-            return true
+            return .done
         case .blocked:
             if !wire.writableArmed {
                 let source = wire.writable ?? makeWritableSource(fd: fd)
@@ -76,10 +83,42 @@ nonisolated final class ChromiumHostWireState: Sendable {
                 wire.writableArmed = true
                 source.resume()
             }
-            return true
+            guard !wire.stallWatched else { return .done }
+            wire.stallWatched = true
+            return .watch(wire.outbox.taken)
         case .failed:
+            return .fail
+        }
+    }
+
+    /// Acts on a locked step's result with the lock released (the timer has its own lock).
+    private func finish(_ next: AfterFlush) -> Bool {
+        switch next {
+        case .done:
+            return true
+        case .watch(let taken):
+            stall.schedule(after: Self.stallLimit) { [weak self] in self?.stallCheck(since: taken) }
+            return true
+        case .fail:
+            fail()
             return false
         }
+    }
+
+    /// A stall window passed. Bytes still waiting and none taken since
+    /// `taken` end the connection; some taken start the next window; a
+    /// drained outbox ends the check until the socket fills again. Only this
+    /// check and the first full socket schedule the timer, so it is never
+    /// reset while a window runs.
+    private func stallCheck(since taken: UInt64) {
+        let next = wire.withLock { wire -> AfterFlush in
+            guard wire.writeFD >= 0, wire.writableArmed else {
+                wire.stallWatched = false
+                return .done
+            }
+            return wire.outbox.taken == taken ? .fail : .watch(wire.outbox.taken)
+        }
+        _ = finish(next)
     }
 
     /// Created suspended on the first full socket; it owns the descriptor
@@ -91,13 +130,14 @@ nonisolated final class ChromiumHostWireState: Sendable {
         return source
     }
 
-    /// The writable source fired: the socket takes more.
+    /// The writable source fired: the socket takes more. One `write` per
+    /// fire; the source fires again while the socket has room.
     private func writable() {
-        let flushed = wire.withLock { wire -> Bool in
-            guard wire.writeFD >= 0, wire.writableArmed else { return true }
+        let next = wire.withLock { wire -> AfterFlush in
+            guard wire.writeFD >= 0, wire.writableArmed else { return .done }
             return flushLocked(&wire)
         }
-        if !flushed { fail() }
+        _ = finish(next)
     }
 
     private static func write(_ fd: Int32, _ bytes: UnsafeRawBufferPointer) -> ChromiumHostInputOutbox.WriteOutcome {
@@ -110,8 +150,8 @@ nonisolated final class ChromiumHostWireState: Sendable {
         }
     }
 
-    /// The outbox overflowed or the socket failed: the stream cannot carry
-    /// another frame, so the connection ends here.
+    /// The outbox overflowed, or the socket failed or stalled: the stream
+    /// cannot carry another frame, so the connection ends here.
     private func fail() {
         protocolError.store(true, ordering: .releasing)
         close()
@@ -134,6 +174,8 @@ nonisolated final class ChromiumHostWireState: Sendable {
             }
             if wire.readFD >= 0 { Darwin.shutdown(wire.readFD, SHUT_RDWR) }
         }
+        // Closed for good: nothing schedules the check again.
+        stall.cancel()
     }
 
     /// Returns once the reader thread has closed its descriptor: at once when
@@ -204,14 +246,18 @@ nonisolated struct ChromiumHostWire {
     var writable: (any DispatchSourceWrite)?
     /// ``writable`` is resumed: the socket was full and frames wait.
     var writableArmed = false
+    /// A stall check is pending (``ChromiumHostWireState/stallLimit``).
+    var stallWatched = false
 }
 
 /// What waits in a connection's outbox.
 nonisolated struct ChromiumHostWireBacklog: Equatable, Sendable {
     /// Frames the socket has not taken (the partly written one not counted).
     var waiting: Int
-    /// Of them, pointer moves, wheels and geometry, the held wheel counted.
+    /// Of them, pointer moves, wheels and geometry.
     var coalescible: Int
+    /// Bytes the socket has not taken, the partly written frame's rest counted.
+    var waitingBytes: Int
     /// Frames folded into a waiting one since the connection opened.
     var coalesced: UInt64
     /// The socket was full and the writable source waits to flush.
