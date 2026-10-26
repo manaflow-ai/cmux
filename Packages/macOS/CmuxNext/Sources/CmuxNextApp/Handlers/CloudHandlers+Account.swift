@@ -35,10 +35,12 @@ extension CloudHandlers {
                 return
             }
             result("new cloud workspace", context) {
-                let id = await context.services.windows.createWorkspace(on: session.daemon)
+                // Made in the window it was asked from, like a local New Workspace; a CLI or agent
+                // run without focus leaves every window's view as it is.
+                let id = await context.services.windows.createWorkspace(on: session.daemon, into: window?.id)
                 RemoteGroupHandlers.mark(session: session.daemon.store.registryID) // one group per Cloud machine
                 guard let id else { throw ActionFailure(message: CloudStrings.notConnected) }
-                show(id, context)
+                if invocation.allowsViewChange { show(id, context) }
                 return machineFields(session.machineID, ["workspace_id": .string(id)])
             }
         }

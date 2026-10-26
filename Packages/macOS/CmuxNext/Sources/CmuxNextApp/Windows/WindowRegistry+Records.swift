@@ -37,9 +37,11 @@ extension WindowRegistry {
 
     /// The saved record of window `id` (nil for an incognito window), with the window-local fields from
     /// `state` (nil when no state exists yet) and `order` (front = 0).
-    /// `selectedTabs` is the remembered tab per pane of its workspaces.
+    /// `selectedTabs` is the remembered tab per pane of its workspaces; `machines` the machine each
+    /// workspace was last seen on (`WindowManager.seenMachine`), of which the record keeps those
+    /// that are not this Mac.
     func record(_ id: String, state: WindowState?, order: Int, isFullScreen: Bool = false,
-                selectedTabs: [String: String] = [:]) -> WindowRecord? {
+                selectedTabs: [String: String] = [:], machines: [String: String] = [:]) -> WindowRecord? {
         // Incognito windows are never restored: nothing of them is saved.
         guard let window = window(id), !isIncognito(id) else { return nil }
         let selected = state?.workspaceID.flatMap { window.workspaceIDs.contains($0) ? $0 : nil } ?? window.workspaceIDs.first
@@ -64,6 +66,9 @@ extension WindowRegistry {
             page: state?.page?.rawValue,
             isClosed: !window.isOpen
         )
+        for workspace in window.workspaceIDs {
+            if let machine = machines[workspace], machine != MachineRegistry.localID { record.workspaceMachines[workspace] = machine }
+        }
         // The workspaces shown side by side (`sidebar.multiView`), those the window still lists.
         let shown = state?.viewSet?.pruned(keeping: window.workspaceIDs.contains)
         record.multiView = shown.flatMap { $0.ids.count > 1 && $0.contains(selected ?? "") ? $0.record : nil }

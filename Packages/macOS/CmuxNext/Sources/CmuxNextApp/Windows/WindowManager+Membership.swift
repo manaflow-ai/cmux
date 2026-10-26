@@ -413,6 +413,21 @@ extension WindowManager {
         return services.machines.local.store.isLoaded && cloudSettled
     }
 
+    /// The machine a previous launch last saw each saved workspace on (`WindowRecord`'s
+    /// `workspace_machines`, and `machine` for the one it showed), where this launch has seen none
+    /// yet: a workspace on a Cloud machine that is paused or still connecting, or on an SSH host
+    /// not reached yet, keeps its window until that machine reports its tree (``isDead(_:)``).
+    func rememberMachines(of records: [WindowRecord]) {
+        for record in records {
+            if let shown = record.workspaceKey?.rawValue, let machine = record.machine, seenMachine[shown] == nil {
+                seenMachine[shown] = machine
+            }
+            for (workspace, machine) in record.workspaceMachines where seenMachine[workspace] == nil {
+                seenMachine[workspace] = machine
+            }
+        }
+    }
+
     /// Every Cloud machine that could still report workspaces has loaded.
     private var cloudSettled: Bool {
         guard case let cloud = services.cloud, cloud.isSignedIn || cloud.auth.isRestoring else { return true }

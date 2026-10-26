@@ -232,6 +232,7 @@ final class WindowManager {
         // The closed launch window stood for the saved window it would have become.
         if closedLaunchWindowID != nil, let front = adoptableFront(restoredRegistry) { closedDuringRestore.insert(front) }
         for record in document.windows where states[record.id] == nil { states[record.id] = WindowState(record: record) }
+        rememberMachines(of: document.windows)
         if !restoredRegistry.windows.isEmpty {
             registry.apply { registry in
                 registry = restoredRegistry
