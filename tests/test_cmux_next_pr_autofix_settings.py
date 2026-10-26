@@ -58,8 +58,8 @@ class SettingsExportsRegenerateOnPullRequests(unittest.TestCase):
         self.assertEqual(regenerate["if"], "needs.action-areas.outputs.settings == 'true'")
         self.assertIn("regenerate-settings-exports.sh", regenerate["run"])
         outputs = PR["jobs"]["action-exports"]["outputs"]
-        self.assertIn("steps.settings.outputs.exports", outputs["exports"])
-        self.assertEqual(outputs["settings-verified"], "${{ steps.settings.outcome == 'success' }}")
+        self.assertEqual(outputs["exports"], "${{ steps.require-exports.outcome == 'success' }}")
+        self.assertEqual(outputs["settings-verified"], "${{ steps.require-exports.outcome == 'success' && steps.settings.outcome == 'success' }}")
 
         work = Path(tempfile.mkdtemp())
         temp = work / "runner-temp"
@@ -75,6 +75,12 @@ class SettingsExportsRegenerateOnPullRequests(unittest.TestCase):
         self.assertIn("exports=true", output.read_text())
         for path in SETTINGS_EXPORTS:
             self.assertEqual((temp / "action-exports" / path).read_text(), "new\n", path)
+
+    def test_artifact_output_is_false_when_guard_blocks_upload(self):
+        outputs = PR["jobs"]["action-exports"]["outputs"]
+        self.assertEqual(outputs["exports"], "${{ steps.require-exports.outcome == 'success' }}")
+        self.assertEqual(outputs["verified"], "${{ steps.require-exports.outcome == 'success' && steps.regenerate.outcome == 'success' }}")
+        self.assertEqual(outputs["settings-verified"], "${{ steps.require-exports.outcome == 'success' && steps.settings.outcome == 'success' }}")
 
     def test_the_mac_job_has_a_failing_guard_for_missing_or_empty_exports(self):
         guard = step(PR, "action-exports", "Require generated exports")
