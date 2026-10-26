@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 @testable import CmuxNextLayout
+import CmuxNextWakeups
 import Foundation
 import QuartzCore
 import Testing
@@ -137,7 +138,7 @@ struct RenderMotionSpikeTests {
             }
             await rig.wait(untilMediaTime: CACurrentMediaTime() + 0.15)
             let shown = try #require(pane.presentedFrameInWindow(), "no presentation layer")
-            let image = try await rig.window.screenshotImage()
+            let image = try await rig.window.screenshotImage(on: BackgroundWork(label: "test.render-motion-spike"))
             let pixels = try #require(SpikePixels(image, window: rig.window.frame.size))
             let probes = SpikeClipProbe.probes(in: shown)
             let wrong = probes.filter { pixels.isRed(at: $0.point) != $0.red }.map(\.name)

@@ -1882,7 +1882,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // RemoteLayer: RenderMotionSpikeTests clips a CALayerHost.
         .testTarget(
             name: "CmuxNextLayoutTests",
-            dependencies: ["CmuxNextDesign", "CmuxNextLayout", "CmuxNextRemoteLayer"],
+            // Wakeups: the render motion spike's window screenshots run on a BackgroundWork lane.
+            dependencies: ["CmuxNextDesign", "CmuxNextLayout", "CmuxNextRemoteLayer", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         // Browser tab hibernation policy (Memory Saver): which hidden pages freeze or are
