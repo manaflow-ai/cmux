@@ -402,6 +402,14 @@ fn fetch_missing(
 
 /// Removes a worktree [`make_worktree`] made, and its branch.
 pub fn remove_worktree(folder: Dir<'_>, worktree: &Worktree) {
+    // Another folder at its path (renamed in, a copy of its `.git` file): git would remove that
+    // one by path. It is left alone, and so is the worktree's registration and branch.
+    if worktree.root_pin.is_some()
+        && crate::cwd_pin::CwdPin::of(&worktree.root) != worktree.root_pin
+    {
+        tracing::warn!(root = %worktree.root.display(), "worktree not removed: another folder is at its path");
+        return;
+    }
     let root = worktree.root.to_string_lossy();
     let _ = git(folder, &["worktree", "remove", "--force", &root]);
     let _ = git(folder, &["branch", "-D", &worktree.branch]);
@@ -542,7 +550,18 @@ fn make_worktree_under(folder: Dir<'_>, title: &str, home: &Path) -> Result<Work
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
             Err(e) => return Err(format!("{}: {e}", root.display())),
         }
-        let root_pin = crate::cwd_pin::CwdPin::of(&root);
+        // Held from here: its inode stays this folder's for as long as the worktree is in use.
+        #[cfg(unix)]
+        let (root_pin, root_held) = {
+            use std::os::unix::fs::MetadataExt;
+            let held =
+                std::fs::File::open(&root).map_err(|e| format!("{}: {e}", root.display()))?;
+            let m = held.metadata().map_err(|e| format!("{}: {e}", root.display()))?;
+            let pin = crate::cwd_pin::CwdPin { dev: m.dev(), ino: m.ino() };
+            (Some(pin), Some(std::sync::Arc::new(held)))
+        };
+        #[cfg(not(unix))]
+        let (root_pin, root_held) = (None, None);
         let branch = format!("cmux/{chosen}");
         let add =
             ["worktree", "add", "--no-checkout", "-b", &branch, &root.to_string_lossy(), &commit];
@@ -562,7 +581,7 @@ fn make_worktree_under(folder: Dir<'_>, title: &str, home: &Path) -> Result<Work
             base: base.clone(),
             cwd: root,
             root_pin,
-            root_held: None,
+            root_held,
         };
         return fill(folder, &layout, made, &commit, false);
     }
