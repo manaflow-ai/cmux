@@ -82,11 +82,12 @@ import Testing
         let work = BackgroundWork(cpuWidth: 3, label: "test.cpu")
         let arrived = OSAllocatedUnfairLock(initialState: 0)
         let all = DispatchSemaphore(value: 0)
-        // Each item waits until all three run: it passes only when the lane runs three at once.
+        // Each item waits until all three run: it passes only when the lane runs three at once. User-visible,
+        // as best effort runs at most two at once (LaneScheduler.bestEffortCap, task 115).
         try await withThrowingTaskGroup(of: Void.self) { group in
             for _ in 0..<3 {
                 group.addTask {
-                    try await work.run(.bestEffort, mayBlock: .cpu) {
+                    try await work.run(.userVisible, mayBlock: .cpu) {
                         if arrived.withLock({ $0 += 1; return $0 }) == 3 { for _ in 0..<3 { all.signal() } }
                         all.wait()
                     }
