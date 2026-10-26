@@ -633,6 +633,12 @@
       "row": "observer_sites",
       "allow": 2,
       "why": "p06-scheduler-022, merged into p06-scheduler-042: AppVisibilitySource subscribes once per app to the hide, unhide and display sleep and wake notices through AppEvents, and WindowVisibilitySource once per window to the occlusion and miniaturize notices through WindowEvents (recipe R-notif). Those five sites replace per-view observers that this branch removes (StatusIndicatorView's occlusion observer, SidebarListView's, the tab strip's WindowVisibilityObserver), so every indicator, row and strip follows one visibility node per window. Chromium observes the NSApp hide notices once (chrome/browser/app_controller_mac.mm) and each window's occlusion once (web_contents_view_cocoa.mm)."
+    },
+    {
+      "date": "2026-10-26",
+      "row": "observer_sites",
+      "allow": 1,
+      "why": "p04-input-015, carried into p04-input-032 (which depends on it): ScreenDragSession ends a screen-tab drag when the app goes inactive through AppEvents.subscribe(NSApplication.didResignActiveNotification, owner:), the app's one fan-out of app-wide notices (recipe R-notif), the adapter the rule asks for; the subscription lives for the drag only (made in begin, cancelled at every end), so a release in another app, which never reaches the input tap, still ends the drag. It replaces the NSEvent local monitor that ended the drag before (p04-input-015 moved the drag to a tap intercept). TabDragSession ends on the same notice; ScreenDragSession now matches it."
     }
   ],
   "observer_wrappers": [
