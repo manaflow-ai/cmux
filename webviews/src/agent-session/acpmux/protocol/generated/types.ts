@@ -414,6 +414,11 @@ export type QueuedImage = {
 /** A prompt waiting for the running turn to end. */
 export type QueuedPromptSummary = {
   client: string;
+  /**
+   * The sending agent's name when it is another agent's message, null for the person's: an
+   * app draws it as a received message waiting for the turn, not as a composer row.
+   */
+  fromAgent: (string | null);
   /** Waits behind a failed turn until the queue is resumed. */
   held: boolean;
   /** The images it sends, in its order; `_acpmux/attachment` reads each by its id. */

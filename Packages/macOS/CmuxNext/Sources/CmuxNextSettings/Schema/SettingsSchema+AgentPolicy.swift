@@ -280,6 +280,8 @@ extension SettingsSchema {
         "browser.openLinksInCmuxBrowser": .privacy,
         // Off, the person's links leave cmux and no page opens: an agent must not turn the browser it drives off or on.
         "browser.enabled": .userOnly,
+        // On, agents can ask to read another browser's cookies and data again (`browser.importCookies`, `import.suggest`).
+        "browser.import.enabled": .privacy,
         "browser.openTerminalLinksInCmuxBrowser": .privacy,
         // The app that opens your files from a menu: an agent must not pick what runs them.
         "files.textEditor": .userOnly,

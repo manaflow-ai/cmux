@@ -2612,6 +2612,13 @@
         "client": {
           "type": "string"
         },
+        "fromAgent": {
+          "description": "The sending agent's name when it is another agent's message, null for the person's: an\napp draws it as a received message waiting for the turn, not as a composer row.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "held": {
           "description": "Waits behind a failed turn until the queue is resumed.",
           "type": "boolean"
@@ -2641,6 +2648,7 @@
       },
       "required": [
         "client",
+        "fromAgent",
         "held",
         "images",
         "prompt",
