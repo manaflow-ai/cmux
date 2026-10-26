@@ -3,7 +3,7 @@
 //! projections, claims each request, then acknowledges actual browser delivery.
 
 use crate::panic_free::RecoverPoison;
-use cmux_threads::checked::ipc_reply;
+use crate::server::request_hang_watch::ipc_reply;
 use cmux_threads::checked::sync as waits;
 use std::collections::{BTreeMap, HashMap, HashSet};
 use std::sync::{Arc, Mutex, mpsc};

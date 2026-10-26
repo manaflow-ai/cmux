@@ -1808,6 +1808,7 @@ dependencies = [
  "cmux-feed-core",
  "cmux-flow-trace",
  "cmux-git",
+ "cmux-hang-watch",
  "cmux-history",
  "cmux-holder",
  "cmux-ipc",

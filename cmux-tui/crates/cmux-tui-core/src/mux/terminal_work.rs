@@ -37,6 +37,13 @@ const MAX_QUEUED_TERMINAL_JOBS: usize = 1024;
 /// split or workspace).
 const TERMINAL_WORK_QOS: cmux_threads::ThreadQos = cmux_threads::ThreadQos::UserInitiated;
 
+/// How long one job may run before the release hang watch reports it:
+/// Chrome's default unit-of-work deadline (`kDefaultHangWatchTime`,
+/// base/threading/hang_watcher.cc). A job is a host launch, a reap or a
+/// creation's launch and commits; each commit's request is watched again at
+/// its own class deadline (server/request_hang_watch.rs).
+const TERMINAL_JOB_HANG_DEADLINE: Duration = cmux_hang_watch::DEFAULT_DEADLINE;
+
 type TerminalJob = Box<dyn FnOnce() + Send>;
 
 #[derive(Default)]
@@ -109,6 +116,10 @@ impl TerminalWorkPool {
     }
 
     fn work(state: &Mutex<TerminalWorkState>) {
+        let _hang_watch = cmux_hang_watch::register_thread(
+            cmux_hang_watch::ThreadKind::Pool,
+            "mux-terminal-work",
+        );
         loop {
             let job = {
                 let mut state = state.lock().unwrap();
@@ -122,7 +133,10 @@ impl TerminalWorkPool {
             };
             // A panicking job must not take its worker slot with it: the
             // slot count would never drop and later jobs would queue forever.
-            if std::panic::catch_unwind(std::panic::AssertUnwindSafe(job)).is_err() {
+            let watched = cmux_hang_watch::watch(TERMINAL_JOB_HANG_DEADLINE);
+            let finished = std::panic::catch_unwind(std::panic::AssertUnwindSafe(job));
+            drop(watched);
+            if finished.is_err() {
                 eprintln!("cmux-tui: a terminal work job panicked");
             }
         }

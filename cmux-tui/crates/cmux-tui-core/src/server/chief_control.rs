@@ -205,7 +205,7 @@ fn named_socket(
         // The supervisor says at once when no brain process runs (restart
         // backoff, a start that failed): then do not wait.
         if let Some(answer) = mux.chiefs().brains.start_for_control(chief)
-            && !cmux_threads::checked::ipc_reply(|| {
+            && !crate::server::request_hang_watch::ipc_reply(|| {
                 cmux_threads::checked::sync::recv_timeout(
                     &answer,
                     std::time::Duration::from_secs(5),
