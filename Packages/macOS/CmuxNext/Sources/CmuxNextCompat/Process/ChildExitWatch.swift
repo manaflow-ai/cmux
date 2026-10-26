@@ -1,22 +1,34 @@
-import CmuxNextCompat
-import Darwin
-import Dispatch
+public import Darwin
+public import Dispatch
 import os
 
 /// Reaps one child of this process with no thread parked in `waitpid` while it runs: a process-exit source on
-/// the child's own serial queue, then a `waitpid` that returns at once. Chromium waits for a child on macOS the
-/// same way, through a kqueue `EVFILT_PROC` / `NOTE_EXIT` (base/process/kill_mac.cc, `WaitForChildToDie`), never
-/// a thread blocked per child. Shell mode's commands, its Tab completions and the acpmux launch shell all reap
-/// through it.
-nonisolated struct ChildExitWatch: Sendable {
-    let pid: pid_t
-    /// The reap queue, named for the child (its label is listed in threading-model.md), at the QoS of whoever
-    /// waits for the exit.
-    let queue: DispatchQueue
+/// a serial reap queue, then a `waitpid` that returns at once. Chromium waits for a child on macOS the same way,
+/// through a kqueue `EVFILT_PROC` / `NOTE_EXIT` (base/process/kill_mac.cc, `WaitForChildToDie`), never a thread
+/// blocked per child. Shell mode's commands, its Tab completions, the acpmux launch shell, the daemon bridge
+/// children and the Computer Use helper all reap through it.
+///
+/// ```swift
+/// kill(pid, SIGKILL)
+/// ChildExitWatch(pid: pid, queue: reapQueue).start { _ in }   // returns at once; the reap runs on reapQueue
+/// ```
+public struct ChildExitWatch: Sendable {
+    public let pid: pid_t
+    /// The reap queue (serial; its label is listed in threading-model.md), at the QoS of whoever waits for the
+    /// exit. Several children may share one: each watch cancels only its own source.
+    public let queue: DispatchQueue
+
+    /// - Parameters:
+    ///   - pid: A child of this process that nobody else waits for.
+    ///   - queue: A serial queue; ``start(exited:)`` reaps the child and calls back on it.
+    public init(pid: pid_t, queue: DispatchQueue) {
+        self.pid = pid
+        self.queue = queue
+    }
 
     /// Calls `exited` once, on ``queue``, after the child exited and was reaped, with its wait status; nil when
-    /// it is no child of ours or someone else reaped it (ECHILD), so its status is unknown.
-    func start(exited: @escaping @Sendable (Int32?) -> Void) {
+    /// it is no child of ours or someone else reaped it (ECHILD), so its status is unknown. Returns at once.
+    public func start(exited: @escaping @Sendable (Int32?) -> Void) {
         let (pid, queue) = (self.pid, self.queue)
         let source = DispatchSource.makeProcessSource(identifier: pid, eventMask: .exit, queue: queue)
         // The handler and the check below run on the same serial queue; the first to reap cancels the source,
@@ -58,7 +70,7 @@ nonisolated struct ChildExitWatch: Sendable {
         return result == pid ? status : nil
     }
 
-    private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "agent-pane.reap")
+    private static let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "child-reap")
 
     /// ECHILD is expected (someone else reaped the child); any other failure gets a log line.
     private static func logFailure(_ pid: pid_t, _ failure: Int32) {

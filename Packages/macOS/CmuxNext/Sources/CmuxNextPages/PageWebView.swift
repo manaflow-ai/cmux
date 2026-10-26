@@ -44,6 +44,8 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public internal(set) var engineDecision: PageEngineDecision
     /// The Chromium page while one shows the document (PageWebView+Chromium.swift).
     var chromiumSession: PageChromiumSession?
+    /// What the page lifecycle froze the page in, nil while it runs (PageWebView+Lifecycle.swift).
+    var frozenEngine: PageFrozenEngine?
     /// Rects in this view's coordinates where native UI of the window shows over the page
     /// (PageWebView+NativeRects.swift): a Chromium page leaves them uncovered. WebKit draws in the
     /// window's own view tree, under that UI, and needs none.
@@ -90,6 +92,12 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     var shouldFocusOnAttach = false
     /// The page's popup past the window's edge (PageWebView+Popup.swift), made on first use.
     var popupHost: WebPopupHost?
+    /// The windows' frame-aligned pointer input for the page's popup (feature `pointerFrameHover`, the
+    /// App's `hoverFrameInput`; ``WebUIHost/open(_:)`` and ``PageHostPool`` claims set it): the popup's
+    /// rows hover at most twice a frame. Nil: each move.
+    public var popupHoverFrameInput: FrameInputCoalescers? {
+        didSet { popupHost?.hoverFrameInput = popupHoverFrameInput }
+    }
     /// The last theme payload sent, so a redraw that changes nothing sends nothing.
     private var appliedTheme: String?
     /// Pushes every color change of this view's scope to the page, shown or hidden, so a page
@@ -131,9 +139,9 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public internal(set) var externalLinkModifiers: NSEvent.ModifierFlags = []
     /// Decides navigations outside the page's origin (``PageNavigation/policy(for:page:userClicked:mainFrame:hook:)``).
     public var onNavigate: ((PageNavigation) -> PageNavigation.Policy)?
-    /// The page's web content crashed. `reloading` is false once it crashed more often than
-    /// ``PageCrashReloads`` allows: the page is not reloaded, and the host shows its notice (with a
-    /// button that calls ``reloadAfterCrashes()``).
+    /// The page's web content crashed (or crashed hidden and shows, ``PageCrashRecovery``). `reloading` is false
+    /// once its crash budget ran out: the page is not reloaded, and the host shows its notice (with a button
+    /// that calls ``reloadAfterCrashes()``). Setting it lets the page share its renderer group's budget.
     public var onCrash: ((PageWebView, _ reloading: Bool) -> Void)?
     /// A main-frame document finished loading, in either engine (WebKit's `didFinish`, Chromium's
     /// load end): after the page's scripts ran, and again after each reload.
@@ -179,7 +187,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public var chromiumMenuWait: (@MainActor () async -> Void)?
     /// The crash clock (tests set it).
     var now: () -> Date = { Date() }
-    var crashReloads = PageCrashReloads()
+    let crash = PageCrashRecovery()
     let claimState = PageClaimState()
     /// The document start a page opened hidden waits with until its first show (PageWebView+FirstShow.swift).
     var firstShowStart: PageFirstShowStart?

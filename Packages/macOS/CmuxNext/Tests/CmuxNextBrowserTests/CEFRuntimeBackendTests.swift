@@ -351,7 +351,7 @@ import Testing
 
     /// Chromium starts once per process: a runtime that already started keeps its backend.
     @Test func aStartedRuntimeIgnoresALaterSupervisor() throws {
-        let runtime = CEFRuntime(shim: try CEFShimLibrary.resolving(RemoteSpy.symbol), storage: CEFProfileStorage(root: Self.scratch()))
+        let runtime = CEFRuntime.spy(shim: try CEFShimLibrary.resolving(RemoteSpy.symbol), storage: CEFProfileStorage(root: Self.scratch()))
         runtime.adopt(stores: .inMemory(), signInCallbacks: CEFSignInCallbacks(), hostSupervisor: FakeSupervisor(controlFD: -1))
         #expect(runtime.hostStart == nil)
     }
@@ -443,6 +443,8 @@ private final class FakeSupervisor: ChromiumHostSupervising {
         return ChromiumHostAttachment(controlFD: controlFD, remoteShim: URL(filePath: "/nonexistent/libcmux_cef_shim_remote.dylib"),
                                       frameworkLocales: ["en.lproj", "ja.lproj"])
     }
+
+    func observeHostEnds(_ ended: @escaping @MainActor () -> Void) {}
 }
 
 /// The remote dylib's functions: the ABI id, attach (records the control descriptor and says hello

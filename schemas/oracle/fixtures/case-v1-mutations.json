@@ -26,6 +26,8 @@
     {"name": "crash-url-without-allowance", "base": "case-example-app.json", "layer": "schema", "patch": [{"op": "remove", "path": "/allow_crashes"}], "pointer": ""},
     {"name": "gpu-crash-url-without-allowance", "base": "case-example-app.json", "layer": "schema", "patch": [{"op": "replace", "path": "/steps/6/args/params/url", "value": "chrome://gpucrash"}], "pointer": "/allow_crashes"},
     {"name": "kill-without-restart-capability", "base": "case-example-daemon.json", "layer": "schema", "patch": [{"op": "replace", "path": "/requires", "value": ["resource_api"]}], "pointer": "/requires"},
+    {"name": "repo-without-git-repo-capability", "base": "case-example-daemon.json", "layer": "schema", "patch": [{"op": "add", "path": "/fixture/repo", "value": "oracle"}], "pointer": "/requires"},
+    {"name": "repo-with-git-repo-capability", "base": "case-example-daemon.json", "layer": "valid", "patch": [{"op": "add", "path": "/fixture/repo", "value": "oracle"}, {"op": "add", "path": "/requires/-", "value": "git_repo"}]},
     {"name": "advance-clock-on-fixed-clock", "base": "case-example-daemon.json", "layer": "schema", "patch": [{"op": "replace", "path": "/fixture/clock", "value": "fixed"}], "pointer": "/fixture/clock"},
     {"name": "turn-checkpoint-on-cli", "base": "case-example-app.json", "layer": "schema", "patch": [{"op": "add", "path": "/steps/4/checkpoint", "value": ["turn"]}], "pointer": "/steps/4/checkpoint"},
     {"name": "mutation-without-idempotency-key", "base": "case-example-daemon.json", "layer": "schema", "patch": [{"op": "remove", "path": "/steps/0/args/idempotencyKey"}], "pointer": "/steps/0/args"},

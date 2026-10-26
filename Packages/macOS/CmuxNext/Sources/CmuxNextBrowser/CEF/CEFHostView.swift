@@ -35,20 +35,28 @@ final class CEFHostView: NSView {
     /// Hands files dragged in from another app to the shown page (`CEFFileDragRelay`).
     let fileDrag = CEFFileDragRelay()
     /// Layer hosting (fork API 26) of the page window over this view (`CEFLayerHosting`).
-    let layerHosting = CEFLayerHosting()
+    let layerHosting: CEFLayerHosting
+    /// Widgets that order an attached page's window in over this view (`CEFPageWindowWidgets`).
+    let pageWindowWidgets = CEFPageWindowWidgets()
     /// Takes a `cef.geometry` instant per geometry post (tests set one on their own trace runtime).
     var signposter = Signposter.cef
     /// Where its window's page update requests arrive (`BrowserPageUpdates`): `.default` in the app,
     /// a private center in tests.
     let pageUpdateCenter: NotificationCenter
 
-    init(frame: NSRect, pageUpdateCenter: NotificationCenter) {
+    /// - Parameters:
+    ///   - pageUpdateCenter: where its window's page update requests arrive.
+    ///   - layerHosting: the page's layer hosting; tests pass one with a fake fork and their own turn.
+    init(frame: NSRect, pageUpdateCenter: NotificationCenter, layerHosting: CEFLayerHosting) {
         self.pageUpdateCenter = pageUpdateCenter
+        self.layerHosting = layerHosting
         super.init(frame: frame)
         wantsLayer = true
         updateBackground()
         fileDrag.view = self
         layerHosting.view = self
+        // The page window ordered in or out for a widget: the fork places it over this view now.
+        pageWindowWidgets.changed = { [weak self] in self?.childWindowPage.pagesNeedUpdate(force: true) }
         #if DEBUG
         Self.registerMotionSampler()
         #endif
@@ -56,7 +64,17 @@ final class CEFHostView: NSView {
 
     /// A host view that takes its window's page update requests on `NotificationCenter.default`.
     override convenience init(frame: NSRect) {
-        self.init(frame: frame, pageUpdateCenter: .default)
+        self.init(frame: frame, pageUpdateCenter: .default, layerHosting: CEFLayerHosting())
+    }
+
+    /// A host view with its own page update center (tests) and the app's layer hosting.
+    convenience init(frame: NSRect, pageUpdateCenter: NotificationCenter) {
+        self.init(frame: frame, pageUpdateCenter: pageUpdateCenter, layerHosting: CEFLayerHosting())
+    }
+
+    /// A host view with its own layer hosting (tests) that takes page update requests on `.default`.
+    convenience init(frame: NSRect, layerHosting: CEFLayerHosting) {
+        self.init(frame: frame, pageUpdateCenter: .default, layerHosting: layerHosting)
     }
 
     @available(*, unavailable)

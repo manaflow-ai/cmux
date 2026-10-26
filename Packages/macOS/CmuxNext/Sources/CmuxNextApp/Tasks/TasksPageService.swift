@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextActions
+import CmuxNextHibernation
 import CmuxNextSettings
 import CmuxNextTasks
 
@@ -80,6 +81,13 @@ final class TasksPageService: InternalPageProvider {
     func makeView(for key: String, in window: WindowController?) -> NSView {
         TasksHostView(model: makeModel(), layout: { [weak services] in Self.layout(services?.settings) })
     }
+
+    // MARK: Discard (p07-memory-025)
+
+    /// Ten minutes hidden (Chrome's proactive_discarding_policy.cc). The scope, the selection and a
+    /// New Task title typed and not sent (`newTaskDraft`) live in the shared model, which stays
+    /// while the tab does, so the rebuilt view shows them; the default view state adds the scroll.
+    func discardPolicy(for key: String) -> ContentDiscardPolicy { .standard }
 
     func tabClosed(_ key: String) {
         guard !services.pageIsOpen(.tasks) else { return }

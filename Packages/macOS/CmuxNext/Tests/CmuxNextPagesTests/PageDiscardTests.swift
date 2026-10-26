@@ -31,7 +31,10 @@ struct PageDiscardTests {
         func reportsReasonChanges(to lifecycle: PageLifecycle) {}
         func keepHideSnapshot() { page.lines.append("keep \(name)") }
         func dropHideSnapshot() { page.lines.append("drop \(name)") }
-        func freeze() { page.lines.append("freeze \(name)") }
+        func freeze() -> Bool {
+            page.lines.append("freeze \(name)")
+            return true
+        }
         func thaw() { page.lines.append("thaw \(name)") }
         func discard() { page.lines.append("discard \(name)") }
     }
