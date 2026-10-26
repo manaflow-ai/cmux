@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextDesign
 @testable import CmuxNextLayout
 import QuartzCore
+import CmuxNextWakeups
 import Testing
 
 /// A zoom on the render server (chrome-parity p03-rendering-027, `motion.renderServer` on): Cmd-Shift-Enter
@@ -50,7 +51,7 @@ struct ZoomRenderMotionTests {
         init(renderServer: Bool, reduceMotion: Bool = false, layout: ScreenLayout = .splits(ZoomRenderMotionTests.grid)) {
             self.layout = layout
             model = LayoutModel(screens: [LayoutScreen(id: "s", name: "s", layout: layout)], activeScreenID: "s", focusedPane: "p1")
-            root = LayoutRootView(model: model, contentProvider: panes, rendersMotionOnServer: { renderServer })
+            root = LayoutRootView(model: model, contentProvider: panes, rendersMotionOnServer: { renderServer }, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
             root.context.reduceMotionOverride = reduceMotion
             window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.borderless],
                               backing: .buffered, defer: false)
@@ -248,7 +249,9 @@ struct ZoomRenderMotionTests {
             #expect(screen.hasMotion, "the zoom does not spring on the CPU")
             #expect(screen.zoomMotion.pane == "p1" && !screen.zoomMotion.rendersOnServer)
             #expect(screen.renderSpringsInFlight == 0)
-            #expect(try grid.host("p1").layer?.animationKeys()?.isEmpty ?? true, "p1 has render-server springs with the switch off")
+            // Out of the #expect: a closure whose only `try` sits in a macro is inferred not to throw.
+            let p1 = try grid.host("p1")
+            #expect(p1.layer?.animationKeys()?.isEmpty ?? true, "p1 has render-server springs with the switch off")
             for _ in 0..<480 where !grid.root.advanceFrame(1.0 / 120) { break }
             #expect(!screen.hasMotion && screen.zoomMotion.pane == nil && screen.covered.isEmpty, "the CPU zoom did not land")
         }

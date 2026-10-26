@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextLayout
+import CmuxNextWakeups
 import Testing
 
 /// The layout half of a remount record (p07-memory-033): `LayoutRootView.scrollRecords` records
@@ -25,7 +26,7 @@ struct WorkspaceViewRecordLayoutTests {
             model = LayoutModel(screens: screens, activeScreenID: screens.first?.id, focusedPane: focused)
             model.rowsEnabledOverride = true
             model.centerFocusedColumnOverride = .never // a focus change scrolls the least that shows its pane
-            root = LayoutRootView(model: model, contentProvider: provider)
+            root = LayoutRootView(model: model, contentProvider: provider, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
             root.context.reduceMotionOverride = false
             if let restoring { root.restoreScroll(restoring) }
             window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.borderless],

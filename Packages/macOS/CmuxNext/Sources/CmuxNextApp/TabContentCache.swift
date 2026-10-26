@@ -20,8 +20,9 @@ import Observation
 /// from the daemon replay when shown. Previews of destroyed surfaces stay in a 32 MB image LRU.
 final class TabContentCache {
     private let daemon: DaemonService
-    /// Given to every terminal session this cache makes (``TerminalModifierWatch``).
+    /// Given to every terminal session this cache makes: the modifier watch (``TerminalModifierWatch``), and the scheduler its host follows its models through.
     let terminalModifiers: TerminalModifierWatch?
+    let mainWork: MainWorkScheduler
     var terminals: [String: TerminalEntry] = [:]
     var browsers: [String: BrowserEntry] = [:] { didSet { if browsers.count != oldValue.count { pageRequests.media.tabsChanged() } } }
     var ledger = SurfaceLedger<String, ObjectIdentifier>(capacity: WarmSetBudget.standard.terminalCapacity)
@@ -125,8 +126,7 @@ final class TabContentCache {
     /// Presentation changed: the blank-pane invariant, the input monitor and the browser host subscribe.
     let presentationChanges = PresentationChangeSubscribers()
     weak var sessionDelegate: (any TerminalSessionDelegate)?
-    /// Routes app shortcuts before a Chromium page window sees them (a CEF
-    /// page window is key, so `ShellWindow` never gets the key).
+    /// Routes app shortcuts before a Chromium page window sees them (a CEF page window is key, so `ShellWindow` never gets the key).
     weak var keyRouter: KeyRouter?
     /// A page's chrome hands the keyboard back to page `key` (find bar
     /// closed, address bar editing ended); the App routes it through the window's focus coordinator.
@@ -137,8 +137,7 @@ final class TabContentCache {
     var onBrowserEntryCreated: ((BrowserEntry) -> Void)?
     /// The Extensions (puzzle) menu handler of Chromium tab `key` (the App's action registry, `ExtensionMenuRouter`).
     var makeExtensionMenuHandler: ((String) -> (any ExtensionMenuHandling)?)?
-    /// Page `key`'s docked DevTools opened (and takes the keyboard) or
-    /// closed; the App routes it through the window's focus coordinator.
+    /// Page `key`'s docked DevTools opened (and takes the keyboard) or closed; the App routes it through the window's focus coordinator.
     var onDevToolsChange: ((String, BrowserDevToolsState, Bool) -> Void)?
 
     /// The app's grid sender for every terminal it makes (``ResizeCoordinator``).
@@ -151,10 +150,11 @@ final class TabContentCache {
     ///     frame); tests pass one that collects the work or runs it at once.
     ///   - resizes: The app's grid sender (`AppServices.resizes`); tests get their own.
     ///   - terminalModifiers: The terminals' one modifier watch on the app's input tap; tests without a tap pass none.
+    ///   - mainWork: The app's main-thread scheduler, for every terminal session it makes.
     init(daemon: DaemonService, chromium: ChromiumEngineSlot, fileInput: any WebFileInputAnswering,
          afterFrame: @escaping (@escaping @MainActor () -> Void) -> Void = { AfterFrameCommit().run($0) },
-         resizes: ResizeCoordinator = ResizeCoordinator(), terminalModifiers: TerminalModifierWatch? = nil) {
-        (self.daemon, self.terminalModifiers, self.chromium, self.resizes) = (daemon, terminalModifiers, chromium, resizes)
+         resizes: ResizeCoordinator = ResizeCoordinator(), terminalModifiers: TerminalModifierWatch? = nil, mainWork: MainWorkScheduler) {
+        (self.daemon, self.terminalModifiers, self.chromium, self.resizes, self.mainWork) = (daemon, terminalModifiers, chromium, resizes, mainWork)
         webKit = WebKitEngine(fileInput: fileInput, stores: chromium.stores, waitDeadlines: chromium.waitDeadlines)
         self.afterFrame = afterFrame
         browserTabs = BrowserTabService(daemon: daemon, chromium: chromium)

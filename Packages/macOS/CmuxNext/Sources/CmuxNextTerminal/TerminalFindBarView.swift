@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextDesign
 import CmuxNextIcons
 import CmuxNextTerminalFind
+import CmuxNextWakeups
 import Observation
 
 /// The inline find bar over a terminal's top-trailing corner: the shared
@@ -13,9 +14,33 @@ final class TerminalFindBarView: NSView {
     private let find: TerminalFindController
     let pill: FindPillView
     private var shownFocusRequest = 0
+    /// Follows the controller: one render per frame however many of its values changed.
+    private(set) var watch: FrameObservation<Shown>?
+    /// The scheduler's causes: the bar's own edits run as the person's (``asPerson(_:)``).
+    private let causes: ObservationCauses
 
-    init(find: TerminalFindController) {
+    /// What the bar shows of its controller.
+    struct Shown: Equatable {
+        var presented: Bool
+        var query: String
+        var count: TerminalFindCount
+        var focusRequest: Int
+
+        @MainActor init(_ find: TerminalFindController) {
+            presented = find.isPresented
+            query = find.query
+            count = find.count
+            focusRequest = find.focusRequest
+        }
+    }
+
+    /// - Parameters:
+    ///   - mainWork: The app's main-thread scheduler the bar follows `find` through.
+    ///   - node: The terminal host's node (``TerminalHostView/node``): hidden, the bar follows nothing
+    ///     and reads once when it shows.
+    init(find: TerminalFindController, mainWork: MainWorkScheduler, node: VisibilityNode?) {
         self.find = find
+        causes = mainWork.causes
         pill = FindPillView(labels: Self.labels, icons: .terminal, accessibilityPrefix: "cmux.terminal.find")
         super.init(frame: .zero)
         translatesAutoresizingMaskIntoConstraints = false
@@ -26,9 +51,15 @@ final class TerminalFindBarView: NSView {
             pill.topAnchor.constraint(equalTo: topAnchor),
             pill.bottomAnchor.constraint(equalTo: bottomAnchor),
         ])
-        pill.onQueryChange = { [weak self] in self?.find.updateQuery($0) }
-        pill.onCommand = { [weak self] in self?.run($0) }
-        observe()
+        pill.onQueryChange = { [weak self] query in self?.asPerson { $0.find.updateQuery(query) } }
+        pill.onCommand = { [weak self] command in self?.asPerson { $0.run(command) } }
+        follow(on: mainWork, node: node)
+    }
+
+    /// Runs a change the person made in the bar (a key in its field, a click on its buttons) as theirs,
+    /// so the bar's render runs in that input's response pass, before its commit.
+    private func asPerson(_ change: (TerminalFindBarView) -> Void) {
+        causes.withCause(.person) { change(self) }
     }
 
     @available(*, unavailable)
@@ -46,26 +77,30 @@ final class TerminalFindBarView: NSView {
         guard pill.isPresented, pill.isEditing, let command = Self.command(for: event), command != .close else {
             return super.performKeyEquivalent(with: event)
         }
-        run(command)
+        asPerson { $0.run(command) }
         return true
     }
 
     // MARK: Rendering
 
-    /// Re-renders whenever the controller state it reads changes.
-    private func observe() {
-        withObservationTracking {
-            render()
-        } onChange: { [weak self] in
-            Task { @MainActor in self?.observe() }
+    /// Renders the controller now and once per frame after each change. The bar's own edits and
+    /// clicks run as the person's (``asPerson(_:)``): they render in that input's response pass.
+    private func follow(on mainWork: MainWorkScheduler, node: VisibilityNode?) {
+        let find = self.find
+        let watch = FrameObservation(owner: "Terminal.findBar", delivery: .visible(node), on: mainWork) {
+            Shown(find)
+        } onChange: { [weak self] shown in
+            self?.render(shown)
         }
+        self.watch = watch
+        render(watch.value)
     }
 
-    private func render() {
-        let presented = find.isPresented
-        let query = find.query
-        let count = find.count
-        let focusRequest = find.focusRequest
+    private func render(_ shown: Shown) {
+        let presented = shown.presented
+        let query = shown.query
+        let count = shown.count
+        let focusRequest = shown.focusRequest
 
         pill.query = query
         let text = Self.text(for: count)

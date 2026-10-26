@@ -288,7 +288,7 @@ import Testing
         #expect(thawing.contains(.loading))
         #expect(thawing.contains(.audible))
         #expect(thawing.contains(.freezeOff))
-        #expect(thawing.allSatisfy(\.blocksFreeze))
+        #expect(thawing.allSatisfy { $0.blocksFreeze })
         #expect(thawing.isDisjoint(with: Reason.derived.subtracting(Reason.fromSettings)))
     }
 

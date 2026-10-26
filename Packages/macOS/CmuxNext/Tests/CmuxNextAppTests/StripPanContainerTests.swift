@@ -4,6 +4,7 @@ import CmuxNextInput
 @testable import CmuxNextLayout
 import CoreGraphics
 import QuartzCore
+import CmuxNextWakeups
 import Testing
 
 /// A strip pan at O(1) per input event (p03-rendering-026): with `motion.renderServer` on, the strip's
@@ -56,7 +57,7 @@ import Testing
             signals.windowIsKey = { _ in true }
             signals.mouseButtonsDown = { false }
             root = LayoutRootView(model: model, contentProvider: provider, scrollFocusSignals: signals,
-                                  rendersMotionOnServer: { renderServer }, input: input)
+                                  rendersMotionOnServer: { renderServer }, input: input, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
             root.context.reduceMotionOverride = false
             window.isReleasedWhenClosed = false
             if input != nil { window.orderFrontRegardless() }
@@ -399,7 +400,7 @@ import Testing
         model.followsDesignMetrics = false
         model.scrollModifierOverride = .command
         let provider = LayoutScrollModifierTests.Panes()
-        let root = LayoutRootView(model: model, contentProvider: provider, rendersMotionOnServer: { true })
+        let root = LayoutRootView(model: model, contentProvider: provider, rendersMotionOnServer: { true }, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
         root.context.reduceMotionOverride = false
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1200, height: 800), styleMask: [.borderless],
                               backing: .buffered, defer: true)

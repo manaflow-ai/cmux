@@ -126,8 +126,6 @@ class SidebarItemRowView: NSView {
     private var didDrag = false
     /// The press's modifiers, which the release acts with (Option opens a workspace).
     private var pressModifiers: NSEvent.ModifierFlags = []
-    /// One observation of the Notifications glyph look is registered at a time.
-    private var observesNotificationIcon = false
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 
@@ -340,7 +338,7 @@ class SidebarItemRowView: NSView {
         var glyphIcon = info.icon, symbolName = info.symbol
         // The Notifications item draws the Debug Settings glyph (`NotificationIconLook`, cx-epgo).
         if glyphIcon == .notification {
-            let look = observedNotificationIcon()
+            let look = NotificationIconLook.tunable.value
             glyphIcon = look.icon
             symbolName = look.symbol
         }
@@ -349,20 +347,6 @@ class SidebarItemRowView: NSView {
         return NSImage.icon(symbol: symbolName, size: side)
     }
 
-    /// Reads the Notifications glyph look and lays the row out again once
-    /// when Debug Settings changes it (no polling).
-    private func observedNotificationIcon() -> NotificationIconLook {
-        guard !observesNotificationIcon else { return NotificationIconLook.tunable.value }
-        observesNotificationIcon = true
-        return withObservationTracking {
-            NotificationIconLook.tunable.value
-        } onChange: { [weak self] in
-            Task { @MainActor [weak self] in
-                self?.observesNotificationIcon = false
-                self?.needsLayout = true
-            }
-        }
-    }
 
     /// An icon-only item's glyph (the footer's avatar and gear): drawn so its
     /// ink, not its image box, is `iconInkSize` across and centered in `box`.
@@ -501,5 +485,13 @@ class SidebarItemRowView: NSView {
         guard event.modifierFlags.intersection(.deviceIndependentFlagsMask).subtracting(.function).isEmpty,
               [" ", "\r", "\u{3}"].contains(event.charactersIgnoringModifiers ?? "") else { return super.keyDown(with: event) }
         _ = accessibilityPerformPress()
+    }
+}
+
+/// The Notifications item draws the Debug Settings glyph look (`NotificationIconLook`, cx-epgo): the
+/// sidebar's look watch lays it out again, which draws the glyph, when the look changes (no polling).
+extension SidebarItemRowView: SidebarLookFollower {
+    func sidebarLookChanged() {
+        if info.icon == .notification { needsLayout = true }
     }
 }

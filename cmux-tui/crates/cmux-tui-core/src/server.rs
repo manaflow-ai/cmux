@@ -2622,7 +2622,12 @@ mod message_writer;
 use message_writer::{MessageSink, MessageWriter, OutboundStream};
 
 mod request_watchdog;
-pub(crate) use request_watchdog::{FrameStage, RequestScope, RequestWatchdog, WatchedMethod};
+#[cfg(debug_assertions)]
+pub(crate) use request_watchdog::spawn_owner_hang_test;
+pub(crate) use request_watchdog::{
+    FrameStage, RequestScope, RequestWatchdog, WatchKind, WatchedMethod, process_enter,
+    process_exit,
+};
 
 mod connection_scheduler;
 #[cfg(test)]

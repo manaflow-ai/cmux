@@ -172,6 +172,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         observation?.cancel(); observation = nil
         tabItems.cancelAll() // a title or busy-dot change in a parked workspace maps no tab item
         services.presentation.cancel(self)
+        DebugTabSwitch.forget(self) // a switch whose content never showed is not timed across the hidden time
         visibilityNode.set(.hidden)
     }
 
@@ -444,7 +445,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         // May replace a stale surface, displacing the view shown here.
         let content = BenchSpans.measure("switch.content") { key.flatMap(content(for:)) }
         DebugTabSwitch.mark(self, "content")
-        if let content { DebugTabSwitch.kind(self, content.switchKind) }
+        if let content, let key { DebugTabSwitch.content(self, content, key: key) }
         currentTabKey = key
         services.themes.applyPaneBackground(self) // a tab's own tint (no work while nothing is set)
         if let key, content != nil { BenchSpans.measure("switch.present") { services.cache.present(key, by: self, presence: presence) } }
@@ -452,7 +453,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         if view.stripView.window != nil { BenchSpans.measure("switch.strip") { view.stripView.syncFromModel() } } // strip + content: one transaction (L4)
         DebugTabSwitch.mark(self, "stripSync")
         BenchSpans.measure("switch.view") { _ = view.show(content?.view) }
-        DebugTabSwitch.mark(self, "view")
+        DebugTabSwitch.contentShown(self, key: key)
         // Terminals come in on their first frame (`LaunchSettle`), or at once with their frame from the last
         // quit (`TerminalLaunchFrames`); other content (a page, an agent) is ready once shown.
         if case .terminal(let terminal) = content, let key { if terminal.session.showLaunchFrame(key, beside: services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent(), in: view.contentHost, reveal: services.launchReveal) { DebugTimings.markLaunch("terminal.launch_frame_shown") } } else if content != nil { services.launchReveal.markReady(.pane) }

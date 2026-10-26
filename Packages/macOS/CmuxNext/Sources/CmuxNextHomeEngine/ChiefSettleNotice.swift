@@ -26,7 +26,7 @@ public nonisolated final class ChiefSettleWatch {
     public init(home: ChiefHome, report: @escaping @MainActor @Sendable (String?) -> Void) {
         let folder = home.settleStatusFile.deletingLastPathComponent()
         let file = home.settleStatusFile
-        let queue = DispatchQueue(label: "com.cmuxterm.app.next.chief-settle")
+        let queue = DispatchQueue(label: "com.cmuxterm.app.next.chief-settle", qos: .utility)
         let send: @Sendable (String?) -> Void = { text in Task { @MainActor in report(text) } }
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let fd = open(folder.path, O_EVTONLY)

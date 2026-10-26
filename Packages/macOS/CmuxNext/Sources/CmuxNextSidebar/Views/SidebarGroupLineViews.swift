@@ -175,7 +175,7 @@ final class GroupLineView: NSView {
     }
 
     override func updateLayer() {
-        let look = observedLook()
+        let look = Self.look
         performWithTheme {
             // Under the solid band, the band's rest color (Leo 2026-10-19: bar and line are one color);
             // the quieter looks keep the dot's color.
@@ -192,19 +192,15 @@ final class GroupLineView: NSView {
         railShape.path = SidebarGroupLineShape.line(width: bounds.width, height: height)
     }
 
-    /// Reads `sidebar.groupHeader` and `sidebar.groupColors` and repaints once when either changes; one
-    /// observation at a time.
-    private func observedLook() -> (style: SidebarGroupHeaderStyle, themed: Bool) {
-        let read = { (SidebarGroupHeaderStyle.tunable.value, SidebarGroupPalette.tunable.value == .theme) }
-        guard !observesPalette else { return read() }
-        observesPalette = true
-        return withObservationTracking(read) { [weak self] in
-            Task { @MainActor [weak self] in
-                self?.observesPalette = false
-                self?.needsDisplay = true
-            }
-        }
+    /// `sidebar.groupHeader` and `sidebar.groupColors`; the sidebar's look watch repaints the line when
+    /// either changes (`sidebarLookChanged`).
+    private static var look: (style: SidebarGroupHeaderStyle, themed: Bool) {
+        (SidebarGroupHeaderStyle.tunable.value, SidebarGroupPalette.tunable.value == .theme)
     }
+}
 
-    private var observesPalette = false
+extension GroupLineView: SidebarLookFollower {
+    func sidebarLookChanged() {
+        needsDisplay = true
+    }
 }

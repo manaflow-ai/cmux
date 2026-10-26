@@ -18,8 +18,15 @@ pub struct SlowRequestsSnapshot {
     /// Times the watchdog thread could not be started; a later request
     /// tries again. Nonzero means slow requests may have gone unrecorded.
     pub spawn_failures: u64,
-    /// Times the watchdog thread woke since daemon start.
+    /// Times the watchdog thread woke since daemon start. It watches every
+    /// kind of scope (requests, journal commits, holder-link frames), so an
+    /// idle daemon adds 0.
     pub watchdog_wakeups: u64,
+    /// How long a request runs before it is a hang.
+    pub hang_ms: u64,
+    /// Scopes of every kind written to the hang log (busy past their hang
+    /// tier) since daemon start, by this watchdog.
+    pub hangs: u64,
     /// The newest recorded requests, oldest first.
     pub recent: Vec<SlowRequest>,
 }
