@@ -147,6 +147,8 @@ final class BrowserHibernation {
     /// for `keptBackoff` seconds, so one playing page does not hold up the relief of the rest.
     private var probeKeptAt: [String: ContinuousClock.Instant] = [:]
     static let keptBackoff: Double = 60
+    /// Hidden pages' title and icon changes (`DiscardRule.backgroundActivity`); the App turns it on.
+    let activity = PageActivityWatch()
 
     init(cache: TabContentCache, memory: any MemoryConsumerRegistry, lowPower: LowPowerMode = .system) {
         self.cache = cache
@@ -179,6 +181,7 @@ final class BrowserHibernation {
         deadline.cancel()
         freezeDeadline.cancel()
         hoverDwell.cancel()
+        activity.stop()
     }
 
     /// Applies every loaded cmux.json snapshot's `browser.hibernation`.
@@ -241,12 +244,6 @@ final class BrowserHibernation {
         }
     }
 
-    /// The host of the page tab `key` shows (Never Hibernate This Site); nil for none.
-    func host(of key: String) -> String? {
-        guard let host = cache?.browsers[key]?.tab.state.url?.host(), !host.isEmpty else { return nil }
-        return host
-    }
-
     /// An agent took (`held`) or let go of tab `key`'s browser lease. A leased page never
     /// freezes or hibernates; it thaws at once so the agent's next call runs.
     func noteLease(_ key: String, held: Bool) {
@@ -265,8 +262,9 @@ final class BrowserHibernation {
     // MARK: Lifecycle notifications (from TabContentCache effects)
 
     func tabDidHide(_ key: String) {
-        guard cache?.browsers[key] != nil else { return }
+        guard let tab = cache?.browsers[key]?.tab else { return }
         hiddenAt[key] = .now
+        watchActivity(key, tab)
         replan()
     }
 
@@ -281,6 +279,7 @@ final class BrowserHibernation {
         exemptions[key] = nil
         probeKeptAt[key] = nil
         askedBeforeUnload.remove(key)
+        activity.forget(key)
         noteFocus(key, at: .now)
     }
 
@@ -333,6 +332,7 @@ final class BrowserHibernation {
         probeKeptAt[key] = nil
         snapshots.remove(key)
         wakeLog.forget(key)
+        activity.forget(key)
     }
 
     // MARK: Neighbors
@@ -640,6 +640,7 @@ final class BrowserHibernation {
         cache.dormantTabs.set(key, true)
         savedBytes[key] = memoryBytes[key].flatMap { $0 > 0 ? $0 : nil }
         hiddenAt[key] = nil
+        activity.forget(key)
         // A probe that kept the page before no longer applies (`debug.surfaces`).
         exemptions[key] = nil
         hibernatedCount += 1

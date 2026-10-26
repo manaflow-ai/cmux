@@ -39,6 +39,20 @@ extension BrowserHibernation {
         return PageProbe(playingMedia: playing, answered: false)
     }
 
+    /// The host of the page tab `key` shows (Never Hibernate This Site); nil for none.
+    func host(of key: String) -> String? {
+        guard let host = cache?.browsers[key]?.tab.state.url?.host(), !host.isEmpty else { return nil }
+        return host
+    }
+
+    /// Watches hidden page `key`'s title and icon (`PageActivityWatch`, when on): the first change
+    /// keeps it from the timeout until it shows (`DiscardRule.backgroundActivity`).
+    func watchActivity(_ key: String, _ tab: any BrowserTab) {
+        activity.hide(key, look: { [weak tab] in
+            tab.map { PageBackgroundActivity.Look(url: $0.state.url, title: $0.state.title, icon: $0.state.faviconURL) }
+        }, onActive: { [weak self] in self?.replan() })
+    }
+
     /// The planner's facts of hidden page `key`, before any probe (`PageProbe.fill(_:)` adds its answer).
     func candidate(_ key: String, entry: BrowserEntry, hiddenFor: Double, now: ContinuousClock.Instant = .now) -> HibernationPlanner.Candidate {
         let tab = entry.tab
@@ -54,6 +68,7 @@ extension BrowserHibernation {
         candidate.isDownloading = isDownloading(key)
         candidate.hasAgentLease = leased.contains(key)
         candidate.allowsNotifications = (tab as? any BrowserHibernationSource)?.allowsNotifications ?? false
+        candidate.hasBackgroundActivity = activity.contains(key)
         return candidate
     }
 

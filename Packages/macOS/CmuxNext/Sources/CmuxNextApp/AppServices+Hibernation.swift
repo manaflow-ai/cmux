@@ -1,5 +1,6 @@
 import CmuxNextBridge
 import CmuxNextCompat
+import CmuxNextFeatures
 import CmuxNextMemory
 import CmuxNextResources
 import CmuxNextSettings
@@ -21,6 +22,7 @@ extension AppServices {
             guard let self else { return [:] }
             return await self.resources.sample(.everything).tabMemory(kinds: TabResourceKind.browserPages)
         }
+        hibernation.activity.isEnabled = features.isEnabled(.memorySaverBackgroundActivity)
         hibernation.agentPages = AgentPageHibernation(services: self)
         hibernation.follow(settings)
         hibernation.start()

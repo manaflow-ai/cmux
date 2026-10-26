@@ -117,5 +117,6 @@ package nonisolated struct DiscardRule: Sendable {
         .runningCommand,
         .notifications,
         .unanswered,
+        .backgroundActivity,
     ]
 }
