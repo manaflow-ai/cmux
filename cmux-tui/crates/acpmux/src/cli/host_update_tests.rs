@@ -1110,13 +1110,27 @@ const MAC_TARGET: &str = "aarch64-apple-darwin";
 /// daemon at once (`OS_REASON_CODESIGNING`). `bootout` returns before the old
 /// daemon has exited (`$HOME/exiting`, until the next `ps` sees it gone), and
 /// a `bootstrap` before then starts a daemon that finds `daemon.lock` held.
+/// `$HOME/no-gui`: no one is logged in at the screen, so there is no GUI
+/// domain (`print gui/<uid>` fails) and a bootstrap into it fails with 125.
+/// `$HOME/refuses-bootstrap`: the domain is there but takes no job (the probe
+/// neither); `$HOME/refuses-daemon-bootstrap`: it takes the probe, not the
+/// daemon's job. The probe's temporary plist is logged as `PROBE`.
 #[cfg(unix)]
 const FAKE_LAUNCHCTL: &str = r#"#!/bin/sh
-echo "launchctl $*" >> "$HOME/calls"
+case "$3" in */probe.plist) echo "launchctl $1 $2 PROBE" >> "$HOME/calls";; *) echo "launchctl $*" >> "$HOME/calls";; esac
 case "$1" in
-print) test -f "$HOME/loaded" || exit 113; printf 'gui/501/com.acpmux.daemon = {\n\tstate = running\n\tpid = 4242\n\tlast exit code = (never exited)\n}\n';;
-bootout) test -f "$HOME/loaded" || { echo 'Boot-out failed: 3: No such process' >&2; exit 3; }; rm -f "$HOME/loaded" "$HOME/daemon"; touch "$HOME/exiting";;
+print) case "$2" in
+  */*/*) test -f "$HOME/loaded" || exit 113; printf 'gui/501/com.acpmux.daemon = {\n\tstate = running\n\tpid = 4242\n\tlast exit code = (never exited)\n}\n';;
+  *) test ! -f "$HOME/no-gui" || { echo 'Could not print domain: 125: Domain does not support specified action' >&2; exit 125; };;
+  esac;;
+bootout) case "$2" in */com.acpmux.probe) exit 0;; esac
+  test ! -f "$HOME/no-gui" || { echo 'Boot-out failed: 125: Domain does not support specified action' >&2; exit 125; }
+  test -f "$HOME/loaded" || { echo 'Boot-out failed: 3: No such process' >&2; exit 3; }; rm -f "$HOME/loaded" "$HOME/daemon"; touch "$HOME/exiting";;
 bootstrap)
+  test ! -f "$HOME/no-gui" || { echo 'Bootstrap failed: 125: Domain does not support specified action' >&2; exit 125; }
+  test ! -f "$HOME/refuses-bootstrap" || { echo 'Bootstrap failed: 5: Input/output error' >&2; exit 5; }
+  case "$3" in */probe.plist) exit 0;; esac
+  test ! -f "$HOME/refuses-daemon-bootstrap" || { echo 'Bootstrap failed: 5: Input/output error' >&2; exit 5; }
   test ! -f "$HOME/loaded" || { echo 'Bootstrap failed: 5: Input/output error' >&2; exit 5; }
   touch "$HOME/loaded"
   if [ -f "$HOME/exiting" ]; then echo 'daemon.lock held' >> "$HOME/calls"; else ~/.local/bin/acpmux __start; fi;;
@@ -1166,7 +1180,17 @@ fn a_macos_daemon_restarts_by_bootout_then_bootstrap_once_the_old_one_exited() {
     peer.under_launchd();
     let plist = format!("{}/Library/LaunchAgents/com.acpmux.daemon.plist", peer.home.display());
     let bootstrap = format!("launchctl bootstrap gui/{uid} {plist}");
+    let probe = [
+        format!("launchctl print gui/{uid}"),
+        format!("launchctl bootout gui/{uid}/com.acpmux.probe"),
+        format!("launchctl bootstrap gui/{uid} PROBE"),
+        format!("launchctl bootout gui/{uid}/com.acpmux.probe"),
+    ];
     let restart = [
+        probe[0].clone(),
+        probe[1].clone(),
+        probe[2].clone(),
+        probe[3].clone(),
         format!("launchctl print {job}"),
         format!("launchctl bootout {job}"),
         "ps -p 4242".to_owned(),
@@ -1212,7 +1236,11 @@ fn a_macos_daemon_restarts_by_bootout_then_bootstrap_once_the_old_one_exited() {
     assert_eq!(peer.daemon(), OLD);
     assert_eq!(
         peer.take_launchd_calls(),
-        [format!("launchctl print {job}"), format!("launchctl bootout {job}"), bootstrap]
+        [
+            probe.to_vec(),
+            vec![format!("launchctl print {job}"), format!("launchctl bootout {job}"), bootstrap]
+        ]
+        .concat()
     );
 }
 
@@ -1263,6 +1291,126 @@ fn a_held_peer_is_left_alone_without_reaching_it() {
     let up = update_unless_held("peer-a", &Unreachable, &path, now, &opts);
     assert_eq!((up.outcome, up.reason.as_deref()), (Outcome::Failed, Some("holdsUnreadable")));
     let _ = std::fs::remove_dir_all(&dir);
+}
+
+/// This uid, as the scripts' `id -u` prints it.
+#[cfg(unix)]
+fn uid() -> String {
+    let uid = Command::new("id").arg("-u").output().unwrap();
+    String::from_utf8_lossy(&uid.stdout).trim().to_owned()
+}
+
+/// Leo, 2026-10-26: "Couldn't update cmux16: Bootstrap failed: 125: Domain
+/// does not support specified action; the rollback failed too: Bootstrap
+/// failed: 125: ...". A Mac no one is logged in to at the screen has no GUI
+/// domain: its daemon restarts in place, as acpmux's own start over ssh
+/// places it then (#24474), and launchd is not asked to stop or start
+/// anything; a build that does not answer is rolled back in place too.
+#[test]
+#[cfg(unix)]
+fn a_mac_with_no_gui_login_restarts_its_daemon_in_place_and_rolls_back_there() {
+    let peer = FakePeer::new("nogui");
+    peer.under_launchd();
+    peer.write("no-gui", "");
+    let _ = std::fs::remove_file(peer.home.join("loaded"));
+    peer.exe(&format!("binaries/acpmux-{MAC_TARGET}"), &fake_acpmux(NEW, Some(NEW)));
+    let up = peer.update(true);
+    assert_eq!(up.outcome, Outcome::Updated, "{up:?}");
+    assert_eq!(up.build.as_deref(), Some(NEW));
+    assert_eq!(peer.daemon(), NEW);
+    assert!(peer.exists("agents"), "the agents are kept");
+    assert_eq!(up.in_place.as_deref(), Some("noGuiLogin"));
+    assert_eq!(up.to_json("m", "m")["inPlace"], "noGuiLogin");
+    assert_eq!(peer.take_launchd_calls(), [format!("launchctl print gui/{}", uid())]);
+
+    let never = "b2c3d4e5f 2026-10-22";
+    peer.exe(&format!("binaries/acpmux-{MAC_TARGET}"), &fake_acpmux(never, None));
+    let up = peer.update(true);
+    assert_eq!(
+        (up.outcome, up.reason.as_deref()),
+        (Outcome::RolledBack, Some("noAnswer")),
+        "{up:?}"
+    );
+    assert_eq!((peer.daemon(), up.build.as_deref()), (NEW.to_owned(), Some(NEW)));
+    assert_eq!(peer.read(".local/bin/acpmux"), fake_acpmux(NEW, Some(NEW)));
+}
+
+/// Review of #25602: launchd that takes no job (the probe's bootstrap fails)
+/// is asked before anything stops, so neither the restart nor its rollback
+/// boots out the daemon that runs: it is left running on its build, and the
+/// binary is put back. That holds even when a start in place would fail too.
+#[test]
+#[cfg(unix)]
+fn launchd_that_takes_no_job_leaves_the_running_daemon_alone() {
+    let peer = FakePeer::new("refused");
+    peer.under_launchd();
+    peer.write("refuses-bootstrap", "");
+    // A start in place would fail too: this binary's daemon never answers.
+    peer.exe(&format!("binaries/acpmux-{MAC_TARGET}"), &fake_acpmux(NEW, None));
+    let up = peer.update(true);
+    assert_eq!(
+        (up.outcome, up.reason.as_deref()),
+        (Outcome::Failed, Some("launchdRefused")),
+        "{up:?}"
+    );
+    assert!(up.error.as_deref().unwrap_or("").contains("left running"), "{up:?}");
+    assert_eq!(peer.daemon(), OLD, "the old daemon still runs");
+    assert!(peer.exists("loaded"), "its job was never booted out");
+    assert_eq!(peer.read(".local/bin/acpmux"), fake_acpmux(OLD, Some(OLD)));
+    let calls = peer.take_launchd_calls();
+    assert!(!calls.iter().any(|c| c.contains("bootout gui/") && c.ends_with("com.acpmux.daemon")));
+}
+
+/// A rollback whose launchd stops taking jobs between the restart and the
+/// rollback stops nothing more: whatever runs keeps running, and the row
+/// says the rollback stopped nothing, never just "the rollback failed too".
+#[test]
+#[cfg(unix)]
+fn a_rollback_launchd_refuses_stops_nothing_and_says_so() {
+    let peer = FakePeer::new("refused-rollback");
+    peer.under_launchd();
+    // The new build's daemon starts but reports another build, and its start
+    // turns launchd's refusal on, so the rollback finds launchd taking no job.
+    let other = "c3d4e5f6a 2026-10-22";
+    let pushed = fake_acpmux(NEW, Some(other))
+        .replace("echo '", "touch \"$HOME/refuses-bootstrap\"; echo '");
+    peer.exe(&format!("binaries/acpmux-{MAC_TARGET}"), &pushed);
+    let up = peer.update(true);
+    assert_eq!(
+        (up.outcome, up.reason.as_deref()),
+        (Outcome::Failed, Some("buildMismatch")),
+        "{up:?}"
+    );
+    let error = up.error.as_deref().unwrap_or("");
+    assert!(error.contains("the rollback stopped nothing"), "{error}");
+    assert!(!error.contains("the rollback failed too"), "{error}");
+    assert_eq!(peer.daemon(), other, "the running daemon was not stopped");
+}
+
+/// The probe passes but the daemon's own bootstrap fails after the bootout
+/// (in the restart and in its rollback): the daemon starts in place, so the
+/// host is never left without one.
+#[test]
+#[cfg(unix)]
+fn a_bootstrap_that_fails_after_the_bootout_starts_the_daemon_in_place() {
+    let peer = FakePeer::new("daemon-refused");
+    peer.under_launchd();
+    peer.write("refuses-daemon-bootstrap", "");
+    peer.exe(&format!("binaries/acpmux-{MAC_TARGET}"), &fake_acpmux(NEW, Some(NEW)));
+    let up = peer.update(true);
+    assert_eq!(up.outcome, Outcome::Updated, "{up:?}");
+    assert_eq!((peer.daemon(), up.in_place.as_deref()), (NEW.to_owned(), Some("bootstrapFailed")));
+
+    peer.write("loaded", "");
+    let never = "b2c3d4e5f 2026-10-22";
+    peer.exe(&format!("binaries/acpmux-{MAC_TARGET}"), &fake_acpmux(never, None));
+    let up = peer.update(true);
+    assert_eq!(
+        (up.outcome, up.reason.as_deref()),
+        (Outcome::RolledBack, Some("noAnswer")),
+        "{up:?}"
+    );
+    assert_eq!(peer.daemon(), NEW, "a daemon runs after the rollback");
 }
 
 #[cfg(unix)]
