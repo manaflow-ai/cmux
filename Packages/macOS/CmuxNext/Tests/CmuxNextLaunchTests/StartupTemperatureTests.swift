@@ -45,7 +45,6 @@ struct StartupTemperatureTests {
         #expect(StartupTemperature.Thresholds.chrome.classify(pageIns: nil) == .undetermined)
         let sample = StartupCounterReader(source: FixedCounters(pages: nil, cpuNanos: nil)).sample(atMilestone: "run_loop_start")
         #expect(sample == StartupCounterReader.Sample(temperature: .undetermined, values: []))
-        #expect(sample?.temperatureMark == "launch.temperature.undetermined")
     }
 
     @Test func tunedThresholdsReplaceChromes() {
@@ -60,7 +59,6 @@ struct StartupTemperatureTests {
         let sample = reader.sample(atMilestone: "run_loop_start")
         #expect(sample == StartupCounterReader.Sample(
             temperature: .cold, values: [.init(name: "launch.pageins_run_loop_start", value: 4_200)]))
-        #expect(sample?.temperatureMark == "launch.temperature.cold")
     }
 
     @Test func theFirstFrameReadsPageInsAndMainCPUWithoutATemperature() {
@@ -70,7 +68,6 @@ struct StartupTemperatureTests {
             .init(name: "launch.pageins_first_frame", value: 12),
             .init(name: "launch.main_cpu_ms", value: 187.5),
         ]))
-        #expect(sample?.temperatureMark == nil)
     }
 
     @Test func anUnreadableFirstFrameCounterIsLeftOut() {
@@ -79,7 +76,7 @@ struct StartupTemperatureTests {
             == [.init(name: "launch.main_cpu_ms", value: 2)])
     }
 
-    @Test(arguments: ["main_start", "main.run", "did_finish_launching_end", "launch.temperature.warm", "first_terminal_frame"])
+    @Test(arguments: ["main_start", "main.run", "did_finish_launching_end", "launch.temperature", "first_terminal_frame"])
     func otherMilestonesReadNothing(milestone: String) {
         let reader = StartupCounterReader(source: FixedCounters(pages: 1, cpuNanos: 1, readsAllowed: false))
         #expect(reader.sample(atMilestone: milestone) == nil)

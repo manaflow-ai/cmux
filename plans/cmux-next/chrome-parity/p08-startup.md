@@ -319,7 +319,8 @@ need it.
 
 - Milestones: `process_start`, `main_start`, `run_loop_start`, `first_idle`, `window_display`,
   `launch_picture_shown`, `first_window_frame_committed`, `first_live_content_frame`, `startup_complete`,
-  plus `launch.temperature` (at `run_loop_start`), `launch.pageins_first_frame`, `launch.interrupted`.
+  plus the values (not times) `launch.temperature` and `launch.pageins_run_loop_start` (at `run_loop_start`),
+  `launch.pageins_first_frame`, `launch.main_cpu_ms` and `launch.interrupted`.
 - Always-on launch os_signposts (Release too).
 - `CMUX_TRACE_STARTUP=<s>[,file]`: Chrome Trace Event JSON from a preallocated ring, flushed in 64 KiB
   chunks on the `.files` lane (survives a crash), plus the daemon's track (`startup_marks`) and CEF's own
@@ -516,7 +517,7 @@ Size: S <= 150 lines, M <= 400, L = 400 split into commits. "Q" = machine queue.
 | 004 | StartupTrace (CMUX_TRACE_STARTUP), chunked | M | 003, 073 | |
 | 005 | trace.py launch-warm / launch-cold | M | 004 | |
 | 006 | bench-startup percentiles, true cold, optimized-only | M | - (flag: 007) | |
-| 007 | Startup temperature from page-ins | S | 073 | |
+| 007 | Startup temperature from page-ins | S | 073, 002 | |
 | 008 | debug.startup command | S | 010, 007 | |
 | 009 | Field launch histograms by temperature | M | 007 | |
 | 010 | StartupScheduler with destinations | L | - | |
@@ -671,7 +672,9 @@ StartupTrace, daemon and CEF files (099); summary prints milestones, top 10 main
 `Tests/CmuxNextLaunchTests/StartupTemperatureTests.swift`. Change: at `run_loop_start` read `ri_pageins`
 (`proc_pid_rusage` V4) through a seam and classify with Chrome's constants from `startup_metric_utils` at the pinned
 revision as the first thresholds (tuned later on the fleet); at first frame read page-ins and main thread CPU as separate
-values. Marks `launch.temperature`, `launch.pageins_first_frame`, `launch.main_cpu_ms`. Acceptance: pure classifier
+values. Values, never time marks (a `launch.value` signpost, not `launch.mark`, and a `<name> <value>` pipe line that
+VALUE_MARKS in startup-queue.py and bench-startup.py lists): `launch.temperature` (its name), `launch.pageins_run_loop_start`,
+`launch.pageins_first_frame`, `launch.main_cpu_ms`. Acceptance: pure classifier
 tested; syscalls through the seam; nothing after the reads. Test: warm reads warm, purge reads cold.
 
 **008 debug.startup.** Files: `CmuxNextApp/Control/DebugStartup.swift` (wiring), payload builder in `CmuxNextLaunch`,

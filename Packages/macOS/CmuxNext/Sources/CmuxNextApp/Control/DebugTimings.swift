@@ -20,13 +20,8 @@ import CmuxNextCompat
 enum DebugTimings {
     static let signposter = OSSignposter(subsystem: "com.cmuxterm.app.next", category: "stalls")
 
-    /// Launch marks from any thread (the daemon start path runs off main), and the
-    /// temperature and counter values read at `run_loop_start` and the first frame (p08-startup-007).
-    private nonisolated static let launchMarks = Mutex<(
-        marks: [(name: String, ms: Double)],
-        temperature: StartupTemperature?,
-        counters: [StartupCounterReader.Sample.Value]
-    )>(([], nil, []))
+    /// Launch marks from any thread (the daemon start path runs off main).
+    private nonisolated static let launchMarks = Mutex<[(name: String, ms: Double)]>([])
     private static var paletteOpens: [PaletteOpenTiming] = []
     private static var iconPickerOpens: [IconPickerOpenTiming] = []
     private static var surfaces: [Double] = []
@@ -46,6 +41,10 @@ enum DebugTimings {
         return Double(seconds) * 1_000 + Double(attoseconds) / 1e15
     }
 
+    /// The page-ins, temperature and main-thread CPU read at `run_loop_start` and the first
+    /// frame (p08-startup-007), sent as values apart from the time marks.
+    private nonisolated static let launchCounters = LaunchCounterLog(sink: LaunchMarkSink.shared)
+
     private nonisolated static let processStart: Date = {
         var info = kinfo_proc()
         var size = MemoryLayout<kinfo_proc>.stride
@@ -55,35 +54,25 @@ enum DebugTimings {
         return Date(timeIntervalSince1970: Double(start.tv_sec) + Double(start.tv_usec) / 1_000_000)
     }()
 
-    /// Reads the page-ins and main-thread CPU at their milestones (p08-startup-007).
-    private nonisolated static let counterReader = StartupCounterReader()
-
     /// Records a launch mark (milliseconds since process start) once per
     /// name, from any thread. The first record of a name goes to
     /// ``LaunchMarkSink``: a launch os_signpost in every build, and the
     /// bench's pipe when one was passed.
     nonisolated static func markLaunch(_ name: String, at date: Date = Date()) {
-        // First, so the mark's own work (the lock, the pipe write) never reaches the counters.
-        let sample = counterReader.sample(atMilestone: name)
+        // First, so the mark's own work never reaches the counters (p08-startup-007).
+        launchCounters.read(atMilestone: name)
         let ms = date.timeIntervalSince(processStart) * 1_000
-        let first = launchMarks.withLock { state in
-            guard !state.marks.contains(where: { $0.name == name }) else { return false }
-            state.marks.append((name, ms))
-            if let sample {
-                if let temperature = sample.temperature { state.temperature = temperature }
-                state.counters.append(contentsOf: sample.values)
-            }
+        let first = launchMarks.withLock { marks in
+            guard !marks.contains(where: { $0.name == name }) else { return false }
+            marks.append((name, ms))
             return true
         }
-        guard first else { return }
-        LaunchMarkSink.shared.write(name: name, ms: ms)
-        #if DEBUG || CMUX_BENCH_HOOKS
-        UpdateHarness.mark("launch.\(name)", at: date)
-        #endif
-        guard let sample else { return }
-        // Each value as a `<name> <value>` line, then the temperature as an instant mark.
-        for value in sample.values { LaunchMarkSink.shared.write(name: value.name, ms: value.value) }
-        if let mark = sample.temperatureMark { markLaunch(mark, at: date) }
+        if first {
+            LaunchMarkSink.shared.write(name: name, ms: ms)
+            #if DEBUG || CMUX_BENCH_HOOKS
+            UpdateHarness.mark("launch.\(name)", at: date)
+            #endif
+        }
     }
 
     static func install() {
@@ -142,18 +131,23 @@ enum DebugTimings {
         return report
     }
 
+    /// The `debug.timings` fields of the launch counters (p08-startup-007): `launch_temperature`
+    /// (null until `run_loop_start` has read the page-ins) and `launch_counters`, each value by name.
+    nonisolated static func counterReport(_ snapshot: LaunchCounterLog.Snapshot) -> (temperature: JSONValue, values: JSONValue) {
+        var values: [String: JSONValue] = [:]
+        for value in snapshot.values { values[value.name] = .number((value.value * 10).rounded() / 10) }
+        return (snapshot.temperature.map { JSONValue.string($0.rawValue) } ?? .null, .object(values))
+    }
+
     private static var report: JSONValue {
+        let counters = counterReport(launchCounters.snapshot)
         func round(_ ms: Double) -> JSONValue { .number((ms * 10).rounded() / 10) }
         var launch: [String: JSONValue] = [:]
-        let state = launchMarks.withLock { $0 }
-        for mark in state.marks { launch[mark.name] = round(mark.ms) }
-        var counters: [String: JSONValue] = [:]
-        for value in state.counters { counters[value.name] = round(value.value) }
+        for mark in launchMarks.withLock({ $0 }) { launch[mark.name] = round(mark.ms) }
         return [
             "launch_ms_since_process_start": .object(launch),
-            // Absent until run_loop_start has read the page-ins.
-            "launch_temperature": state.temperature.map { .string($0.rawValue) } ?? .null,
-            "launch_counters": .object(counters),
+            "launch_temperature": counters.temperature,
+            "launch_counters": counters.values,
             "palette_opens": .array(paletteOpens.map { open in
                 ["ms": round(milliseconds(open.total)), "input_ms": round(milliseconds(open.input)),
                  "key_to_frame_ms": round(milliseconds(open.keyToFrame)), "model_ms": round(milliseconds(open.model)),

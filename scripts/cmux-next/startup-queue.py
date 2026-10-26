@@ -97,7 +97,8 @@ GLOBAL_PRIORITIES = {"utility": "utility", "low": "utility", 17: "utility", "bac
                      9: "background", "unspecified": "unspecified", None: "unspecified", 0: "unspecified",
                      21: "default", "default": "default", "medium": "default"}
 # Numeric run keys that are values, not times (tasks 006, 007): never ordered or paired as a gap.
-VALUE_MARKS = frozenset({"launch.temperature", "launch.pageins_first_frame", "launch.main_cpu_ms", "launch.interrupted"})
+VALUE_MARKS = frozenset({"launch.temperature", "launch.pageins_run_loop_start", "launch.pageins_first_frame",
+                         "launch.main_cpu_ms", "launch.interrupted"})
 INTERRUPTED = "launch.interrupted"
 # A live launch takes its window as a person's launch does; a noActivate launch is interrupted (task 108).
 LIVE_ENV = {"CMUX_NEXT_NO_ACTIVATE": "0"}

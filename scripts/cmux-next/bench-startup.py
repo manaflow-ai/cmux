@@ -174,7 +174,8 @@ LAUNCH_ORDER = [
 # Marks whose value is not a time (tasks 007, 108; startup-queue.py's VALUE_MARKS): never a row, a gap or an
 # --order term.
 TEMPERATURE = "launch.temperature"
-# Task 007 sends the temperature as an instant time mark, `launch.temperature.<name> <ms>`, at run_loop_start.
+# Task 007 sends the temperature as the value `launch.temperature <name>`; the instant time mark
+# `launch.temperature.<name> <ms>` of its first draft still reads the same.
 TEMPERATURE_INSTANT = TEMPERATURE + "."
 # The page-ins the temperature is classified from (run_loop_start), and the separate count at the first frame.
 PAGEINS_RUN_LOOP = "launch.pageins_run_loop_start"

@@ -56,6 +56,17 @@ public nonisolated struct StartupCounterReader: Sendable {
     /// The milestone of the separate first-frame values (Chrome: `Startup.BrowserWindowFirstPaintHardFaultCount`).
     public static let firstFrameMilestone = "first_window_frame_committed"
 
+    /// The value names, as the launch marks pipe, the `launch.value` signpost and `debug.timings` carry
+    /// them. They are values, never times: scripts/cmux-next/startup-queue.py and bench-startup.py list
+    /// each in their VALUE_MARKS (scripts/cmux-next/tests/test_startup_value_names.py checks it).
+    public static let temperatureName = "launch.temperature"
+    /// The page-ins the temperature is classified from, at `run_loop_start`.
+    public static let pageInsRunLoopStartName = "launch.pageins_run_loop_start"
+    /// The page-ins at the first frame.
+    public static let pageInsFirstFrameName = "launch.pageins_first_frame"
+    /// The main thread's CPU time at the first frame, in ms.
+    public static let mainCPUName = "launch.main_cpu_ms"
+
     private let source: any LaunchCounterSource
     private let thresholds: StartupTemperature.Thresholds
 
@@ -70,21 +81,22 @@ public nonisolated struct StartupCounterReader: Sendable {
         case Self.runLoopStartMilestone:
             let pageIns = source.pageIns()
             return Sample(temperature: thresholds.classify(pageIns: pageIns),
-                          values: pageIns.map { [Sample.Value(name: "launch.pageins_run_loop_start", value: Double($0))] } ?? [])
+                          values: pageIns.map { [Sample.Value(name: Self.pageInsRunLoopStartName, value: Double($0))] } ?? [])
         case Self.firstFrameMilestone:
             let pageIns = source.pageIns()
             let cpuNanos = source.mainThreadCPUNanos()
             var values: [Sample.Value] = []
-            if let pageIns { values.append(Sample.Value(name: "launch.pageins_first_frame", value: Double(pageIns))) }
-            if let cpuNanos { values.append(Sample.Value(name: "launch.main_cpu_ms", value: Double(cpuNanos) / 1_000_000)) }
+            if let pageIns { values.append(Sample.Value(name: Self.pageInsFirstFrameName, value: Double(pageIns))) }
+            if let cpuNanos { values.append(Sample.Value(name: Self.mainCPUName, value: Double(cpuNanos) / 1_000_000)) }
             return Sample(temperature: nil, values: values)
         default:
             return nil
         }
     }
 
-    /// What one milestone read: the temperature (at `run_loop_start` only) and the counter
-    /// values, each named as the launch marks pipe and `debug.timings` carry it.
+    /// What one milestone read: the temperature (at `run_loop_start` only, sent as
+    /// ``StartupCounterReader/temperatureName``) and the counter values, each under one of the
+    /// reader's value names.
     public nonisolated struct Sample: Sendable, Equatable {
         public nonisolated struct Value: Sendable, Equatable {
             public var name: String
@@ -103,9 +115,6 @@ public nonisolated struct StartupCounterReader: Sendable {
             self.temperature = temperature
             self.values = values
         }
-
-        /// The instant mark of the temperature, like Chrome's `Startup.Temperature.<T>` trace event.
-        public var temperatureMark: String? { temperature.map { "launch.temperature.\($0.rawValue)" } }
     }
 
     /// The kernel's counters: `ri_pageins` of `proc_pid_rusage(RUSAGE_INFO_V4)` and the main

@@ -1,3 +1,4 @@
+import CmuxNextLaunch
 import CmuxNextProcessEnvironment
 import CmuxNextSignposts
 import Darwin
@@ -12,7 +13,12 @@ import Foundation
 /// under `PIPE_BUF`, so lines from different threads never interleave. The
 /// descriptor is nonblocking: a reader that stopped reading loses lines
 /// instead of stalling the app.
-nonisolated struct LaunchMarkSink: Sendable {
+///
+/// Launch values (``LaunchValueSink``: page-ins, CPU time, the temperature) take
+/// their own path: a `launch.value` signpost, never `launch.mark`, so no trace
+/// reader puts a count on the launch timeline; on the pipe the same
+/// `<name> <value>\n` line, which the bench's VALUE_MARKS read as values.
+nonisolated struct LaunchMarkSink: LaunchValueSink {
     static let shared = LaunchMarkSink(environment: ProcessInfo.processInfo.environment)
 
     static let environmentKey = "CMUX_NEXT_LAUNCH_MARKS_FD"
@@ -45,9 +51,25 @@ nonisolated struct LaunchMarkSink: Sendable {
     /// Sends the launch mark `name`, `ms` after process start; the caller sends each name once.
     func write(name: String, ms: Double) {
         signposts.mark(name, ms: ms)
+        writeLine("\(name) \(String(format: "%.1f", ms))\n")
+    }
+
+    /// Sends the launch value `name` (a count or a CPU time, not a time since process start).
+    func writeValue(name: String, number: Double) {
+        signposts.value(name, number: number)
+        writeLine("\(name) \(String(format: "%.1f", number))\n")
+    }
+
+    /// Sends the named launch value `name` (the temperature).
+    func writeValue(name: String, label: String) {
+        signposts.value(name, label: label)
+        writeLine("\(name) \(label)\n")
+    }
+
+    /// One `write(2)` of `line`, formatted only when the bench passed a pipe.
+    private func writeLine(_ line: @autoclosure () -> String) {
         guard let fd else { return }
-        let line = "\(name) \(String(format: "%.1f", ms))\n"
-        line.utf8CString.withUnsafeBufferPointer { buffer in
+        line().utf8CString.withUnsafeBufferPointer { buffer in
             // concurrency-allow: O_NONBLOCK pipe, only when the startup bench passed one; a full pipe drops the line
             _ = Darwin.write(fd, buffer.baseAddress, buffer.count - 1)
         }
