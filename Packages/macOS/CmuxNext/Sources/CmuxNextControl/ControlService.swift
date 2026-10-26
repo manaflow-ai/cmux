@@ -85,6 +85,10 @@ public final class ControlService {
         let router = ControlRouter(identity: identity, executor: bridge, settings: settingsStore, settingsWriter: settingsWriter,
                                    frameSource: frameSource)
         router.attach(watchdog: watchdog)
+        #if DEBUG || CMUX_BENCH_HOOKS
+        // Every thread's requested QoS against its declared row (threading-model.md).
+        router.register([ThreadsControl().method])
+        #endif
         bridge.attach(to: router)
         let server = ControlSocketServer(configuration: configuration, router: router)
         try server.start()
