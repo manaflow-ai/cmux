@@ -45,7 +45,8 @@ const str = (v: unknown, name: string): string => {
  * message's own root). `reply_to` alone, as before, when `message` is not among the newest messages.
  */
 const answerTarget = async (env: Env, conversation: string, principal: Principal, message: string): Promise<{ reply_to?: string; thread_root?: string }> => {
-  const view = await readConversation(env, conversation, principal, 100)
+  // A failed read never costs the reply: it goes as before, `reply_to` alone.
+  const view = await readConversation(env, conversation, principal, 100).catch(() => ({ refused: "owner.unreachable" }) as const)
   const answered = "refused" in view ? undefined : view.messages.find((m) => m.id === message)
   if (!answered || "refused" in view) return { reply_to: message }
   return replyTarget("group", message, rootOf(message, view.messages), ownsRoot(answered))
