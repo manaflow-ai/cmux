@@ -224,7 +224,7 @@ class TickTests(unittest.TestCase):
         tooling = steps[names.index("Checkout the gh rate-limit wait")]
         self.assertEqual(tooling["with"]["ref"], "${{ github.sha }}")
         self.assertEqual(tooling["with"]["path"], ".tick-tooling")
-        self.assertEqual(tooling["with"]["sparse-checkout"], "scripts/ci/gh_budget_wait.sh")
+        self.assertIn("scripts/ci/gh_budget_wait.sh", tooling["with"]["sparse-checkout"].split())
         install = names.index("Wait through GitHub API rate limits in this job's gh calls")
         self.assertEqual(steps[install]["run"].strip(), "bash .tick-tooling/scripts/ci/gh_budget_wait.sh --install")
         for i, step in enumerate(steps):

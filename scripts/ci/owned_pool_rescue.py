@@ -959,8 +959,18 @@ class GitHub:
         self.headers = _headers(token)
         self.read_headers = _headers(read_token) if read_token else self.headers
         self.sleep: Callable[[float], None] = time.sleep
-        self.rate_limit_waited = 0.0  # this watch's waits for rate limits (RATE_LIMIT_WAIT_SECONDS)
-        self.rate_limit_tries = 0
+        # Each watch (the sweeper runs one per thread on this one client) has its own
+        # RATE_LIMIT_WAIT_SECONDS, so one run's waits never spend another's.
+        self._limits = threading.local()
+
+    @property
+    def rate_limit_waited(self) -> float:
+        """This thread's waits for rate limits so far."""
+        return getattr(self._limits, "waited", 0.0)
+
+    @property
+    def rate_limit_tries(self) -> int:
+        return getattr(self._limits, "tries", 0)
 
     def _wait_for_rate_limit(self, method: str, path: str, error: urllib.error.HTTPError) -> bool:
         """Wait out a GITHUB_TOKEN request's rate-limit refusal; False when it is not one or the budget is spent."""
@@ -976,8 +986,8 @@ class GitHub:
         if left < 1:
             return False
         wait = min(wait, left)
-        self.rate_limit_tries += 1
-        self.rate_limit_waited += wait
+        self._limits.tries = self.rate_limit_tries + 1
+        self._limits.waited = self.rate_limit_waited + wait
         shown = {key: value for key, value in headers.items()
                  if key.lower().startswith(("x-ratelimit", "retry-after", "x-github-request-id"))}
         print(f"::notice title=GitHub API budget::{method} {path} was refused for a rate limit "
@@ -997,7 +1007,7 @@ class GitHub:
                 seen = getattr(response, "headers", None) or {}
                 self.remaining = seen.get("X-RateLimit-Remaining") or self.remaining
                 self.limit = seen.get("X-RateLimit-Limit") or self.limit
-            self.rate_limit_tries = 0
+            self._limits.tries = 0
         except urllib.error.HTTPError as error:
             if headers is self.headers and error.code in (403, 429) and self._wait_for_rate_limit(method, path, error):
                 # The same request again, after the wait (a refused request did nothing on GitHub's side).
@@ -1636,6 +1646,9 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
     api.cancel(target.run_id)
     log(f"cancelled run {target.run_id}")
     started = now()
+    # Time spent waiting through rate limits (GitHub.request) is not the run's settling time:
+    # counting it could end the settle window before the re-run (the job timeout has room for it).
+    limited_at_cancel = getattr(api, "rate_limit_waited", 0.0)
     forced_at: float | None = None
     while True:
         sleep(10)
@@ -1644,7 +1657,7 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
             return "not rescued: someone else already re-ran the run"
         if run.get("status") == "completed":
             break
-        waited = (now() - started).total_seconds()
+        waited = (now() - started).total_seconds() - (getattr(api, "rate_limit_waited", 0.0) - limited_at_cancel)
         if (forced_at is None and waited >= FORCE_CANCEL_AFTER_SECONDS) or \
                 (forced_at is not None and waited - forced_at >= FORCE_CANCEL_AGAIN_SECONDS):
             forced_at = waited
@@ -1673,6 +1686,18 @@ def rescue(api: GitHub, target: Target, *, now: Callable[[], dt.datetime], sleep
         return (f"re-ran run {target.run_id}; attempt {target.attempt + 1} picks again, the owned machines "
                 "free now first, and the sweeper watches it")
     return f"re-ran run {target.run_id}; attempt {target.attempt + 1} takes an ephemeral pool"
+
+
+def gave_up(target: Target, error: BaseException) -> str:
+    """The give-up line; for a nightly an error annotation, since its run may now sit cancelled.
+
+    nightly-next-tick.yml re-runs a nightly-next tip whose newest run is cancelled, so the
+    tip still builds; the annotation says why it needed to."""
+    text = f"gave up: {error}"
+    if target.nightly:
+        text = (f"::error title=nightly rescue::run {target.run_id} {text}; if it was cancelled, "
+                "the nightly-next tick re-runs it (nightly-next-tick.yml)")
+    return text
 
 
 def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None, *,
@@ -1739,7 +1764,7 @@ def main(argv: Sequence[str] | None = None, env: Mapping[str, str] | None = None
                              now=clock, sleep=sleep, log=log, side_seconds=side_seconds))
     except (*READ_ERRORS, Aborted) as error:
         # A failed watch leaves the run exactly as GitHub scheduled it.
-        finish(f"gave up: {error}")
+        finish(gave_up(target, error))
         return 1
 
 
@@ -1962,6 +1987,8 @@ def sweep(client: GitHub, repository: str, *, seconds: int, queue_rounds: str | 
         except (*READ_ERRORS, Aborted) as error:
             outcome = "gave up"
             say(f"gave up: {error}")
+            if target.nightly:
+                log(gave_up(target, error))  # unprefixed, so the runner reads the annotation
         except Exception as error:  # noqa: BLE001 - one run's bug must not end every other watch
             outcome = "error"
             say(f"error: {type(error).__name__}: {error}")

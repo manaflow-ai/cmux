@@ -1000,6 +1000,23 @@ class Rescuing(unittest.TestCase):
         self.assertNotIn("rerun", api.calls)
         self.assertIn("did not finish", summary)
 
+    def test_rate_limit_waits_do_not_end_the_settle_window(self):
+        # A force-cancel that waited 15 minutes through a rate limit must not cost the re-run:
+        # only the run's own settling counts toward CANCEL_WAIT_SECONDS.
+        clock = Clock()
+        api = FakeAPI(clock, persistent_run(), marker=True, settles_after=rescue.CANCEL_WAIT_SECONDS + 600)
+        api.rate_limit_waited = 0.0
+
+        def limited_force_cancel(run_id):
+            api.calls.append("force-cancel")
+            if api.rate_limit_waited == 0.0:
+                clock.sleep(rescue.RATE_LIMIT_WAIT_SECONDS)
+                api.rate_limit_waited = float(rescue.RATE_LIMIT_WAIT_SECONDS)
+        api.force_cancel = limited_force_cancel
+        code, summary = run_main(api, clock)
+        self.assertEqual(code, 0, summary)
+        self.assertIn("rerun", api.calls)
+
 
 def e2e_event(**overrides):
     return event(**{"path": ".github/workflows/test-e2e.yml", "event": "workflow_dispatch",
@@ -2712,6 +2729,28 @@ class Tokens(unittest.TestCase):
             api.run(1)
         self.assertEqual([entry[2] for entry in seen], ["Bearer app-token", "Bearer repo-token", "Bearer repo-token"])
         self.assertEqual(waits, [60])
+
+    def test_each_watch_thread_has_its_own_rate_limit_budget(self):
+        limited = b'{"message": "secondary rate limit"}'
+        seen, patch = self.refusing([(403, {}, limited)] * 50)
+        with patch:
+            api = rescue.GitHub("repo-token", "o/r")
+            api.sleep = lambda seconds: None
+            with self.assertRaises(rescue.urllib.error.HTTPError):
+                api.cancel(7)
+            self.assertEqual(api.rate_limit_waited, rescue.RATE_LIMIT_WAIT_SECONDS)
+            other = []
+            worker = rescue.threading.Thread(target=lambda: other.append(api.rate_limit_waited))
+            worker.start()
+            worker.join()
+        self.assertEqual(other, [0.0])
+
+    def test_a_nightly_give_up_is_an_error_annotation(self):
+        nightly = rescue.Target(run_id=40340830337, attempt=1, head_sha=HEAD, pr_number=None, nightly=True)
+        self.assertTrue(rescue.gave_up(nightly, RuntimeError("HTTP Error 403")).startswith(
+            "::error title=nightly rescue::run 40340830337 gave up: HTTP Error 403"))
+        other = rescue.Target(run_id=1, attempt=1, head_sha=HEAD, pr_number=7)
+        self.assertEqual(rescue.gave_up(other, RuntimeError("x")), "gave up: x")
 
     def test_the_workflow_mints_a_read_only_token_and_passes_it(self):
         steps = yaml.safe_load((ROOT / ".github/workflows/ci-owned-pool-rescue.yml").read_text(

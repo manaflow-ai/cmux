@@ -78,7 +78,9 @@ jobs:
           persist-credentials: false
           ref: ${{ github.sha }}
           path: .tick-tooling
-          sparse-checkout: scripts/ci/gh_budget_wait.sh
+          sparse-checkout: |
+            scripts/ci/gh_budget_wait.sh
+            scripts/ci/nightly_next_cancelled_tip.sh
           sparse-checkout-cone-mode: false
 
       # A tick refused "API rate limit exceeded for installation" lost its promotion
@@ -104,6 +106,17 @@ jobs:
           set -euo pipefail
           gh workflow run nightly-next-train.yml -R "$GITHUB_REPOSITORY" --ref feat-cmux-next -f mode="$MODE" \
             || echo "::warning::could not start the nightly-next train ($MODE); is nightly-next-train.yml on feat-cmux-next and main?"
+
+      # A tip on nightly-next whose newest run ended cancelled (a rescue that lost its
+      # re-run, run 40340830337) is never requested again below ("already on
+      # nightly-next"), so it is re-run here; scripts/ci/nightly_next_cancelled_tip.sh.
+      - name: Re-run a cancelled nightly-next tip
+        if: vars.NIGHTLY_NEXT_TRAIN != 'off'
+        # The promotion below must run even when this check cannot.
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bash .tick-tooling/scripts/ci/nightly_next_cancelled_tip.sh "$GITHUB_REPOSITORY"
 
       - name: Request nightly-next promotion on main
         if: vars.NIGHTLY_NEXT_TRAIN != 'on'
