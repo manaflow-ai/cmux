@@ -2,6 +2,7 @@ import CmuxNextBrowser
 import CmuxNextBrowserAutomation
 import CmuxNextWakeups
 import Foundation
+import Observation
 
 /// What was last sent in `tab.access` for a tab: resent when the page URL
 /// or the access changes.
@@ -10,50 +11,54 @@ struct AccessKey: Hashable {
     var access: ProviderTabAccess
 }
 
-/// The tab list and every CEF tab's extension access, as one read.
-///
-/// Not `Equatable` on purpose: ``BrowserHostProvider/readTabsNow()`` also reads outside the
-/// observation, so the observation's last value is not what the host was sent; every flush
-/// applies, and ``BrowserHostProvider/sendTabChanges()`` sends only the difference.
-struct ProviderTabsRead {
-    var tabs: [ProviderTab]
-    var access: [String: ProviderTabAccess]
-}
-
 extension BrowserHostProvider {
-    /// Follows the tab list and every CEF tab's extension access, and sends what changed: one
-    /// ``ServiceObservation`` of the automation class (p06-scheduler-036), so a burst of tab changes
-    /// sends once, after the person's pending input. A person's own change (a tab they opened)
-    /// still applies in that input's turn (the observation's person cause). Idempotent.
+    /// Follows the tab list and every CEF tab's extension access, and sends what changed. Only
+    /// agents use it, and the read walks every tab (and may read extension manifests from disk), so
+    /// it runs only in an automation-class task (owner `browser-host.tabs`, p06-scheduler-036),
+    /// never in the turn of a change or in a person's input response: a change posts the task, which
+    /// reads again, tracked for the next change. A burst of changes before it runs is one read.
+    /// Idempotent.
     func followTabs() {
-        guard tabsObservation == nil else { return }
-        tabsObservation = ServiceObservation(.automation, owner: "browser-host.tabs", on: mainWork) { [weak self] in
-            self?.readTabs() ?? ProviderTabsRead(tabs: [], access: [:])
-        } apply: { [weak self] read in
-            self?.applyTabs(read)
-        }
+        guard !followingTabs else { return }
+        followingTabs = true
+        readTabsTracked()
     }
 
     /// Reads the tab list now, untracked, and sends what changed: for state that is not
     /// observable (visibility, a page created or released), and for a tab a call just opened or
     /// closed, which the host learns before the call's reply.
     func readTabsNow() {
-        applyTabs(readTabs())
+        let (tabs, access) = readTabs()
+        applyTabs(tabs, access)
     }
 
-    private func applyTabs(_ read: ProviderTabsRead) {
-        latestTabs = read.tabs
-        latestAccess = read.access
+    /// Reads with a one-shot tracking whose change posts the next read as one automation task.
+    private func readTabsTracked() {
+        let work = mainWork, owner = tabsTaskOwner
+        // view-observation-allow: ServiceObservation re-reads in the change's turn and flushes a person's change in their input response; this O(session) read is for agents only.
+        let (tabs, access) = withObservationTracking {
+            readTabs()
+        } onChange: { @Sendable [weak self] in
+            guard let self else { return }
+            // node-free: agents drive tabs nobody sees; the host learns them while they are hidden.
+            work.postFromAnyThread(.automation, owner: owner) { [weak self] in self?.readTabsTracked() }
+        }
+        applyTabs(tabs, access)
+    }
+
+    private func applyTabs(_ tabs: [ProviderTab], _ access: [String: ProviderTabAccess]) {
+        latestTabs = tabs
+        latestAccess = access
         sendTabChanges()
     }
 
-    private func readTabs() -> ProviderTabsRead {
+    private func readTabs() -> ([ProviderTab], [String: ProviderTabAccess]) {
         let tabs = tabSource?.providerTabs ?? []
         var access: [String: ProviderTabAccess] = [:]
         if let accessSource {
             for tab in tabs where tab.engine == .cef { access[tab.targetID] = accessSource.access(forTab: tab.targetID) }
         }
-        return ProviderTabsRead(tabs: tabs, access: access)
+        return (tabs, access)
     }
 
     /// Sends `tab.announced`, `tab.navigated` (main frame) and `tab.gone`

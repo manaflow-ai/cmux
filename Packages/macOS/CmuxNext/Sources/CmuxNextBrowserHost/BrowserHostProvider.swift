@@ -20,13 +20,14 @@ import os
 /// task of the automation class, posted as it is read
 /// (``MainWorkScheduler/post(_:owner:file:line:_:)``, owner `browser-host.<tag>`;
 /// p06-scheduler-036): an agent never competes with the person, so a frame
-/// read while a key is pending runs after that key, and visible work goes
-/// first. Tasks of one class run in post order. On an idle scheduler the post
-/// runs on the next main run loop turn, not on a display frame: an agent's CDP
-/// and driver traffic is sequential request and reply. The main actor only
+/// read while a key is pending runs after that key. Tasks of one class run in
+/// post order. The post runs on the next main run loop turn, also while frames
+/// run, not on a display frame: an agent's CDP and driver traffic is
+/// sequential request and reply. Only pending input or the class's spent
+/// budget holds it for a frame. The main actor only
 /// dispatches; frames that leave the app (CDP replies, results) are id-mapped
 /// and encoded on the link's write queue, off the main actor. The tab list is
-/// one automation-class ``ServiceObservation``. When the link drops,
+/// read in automation-class tasks only. When the link drops,
 /// the provider reconnects when the credentials source reports new
 /// credentials, or after a `Backoff` delay on the injected clock. It never
 /// polls; with no credentials (before step c2) it stays idle.
@@ -89,8 +90,10 @@ public final class BrowserHostProvider {
     @ObservationIgnored var latestAccess: [String: ProviderTabAccess] = [:]
     @ObservationIgnored var announced: [String: ProviderTab] = [:]
     @ObservationIgnored var accessSent: [String: AccessKey] = [:]
-    /// Follows the tab list and CEF tab access (`+Tabs`, ``followTabs()``).
-    @ObservationIgnored var tabsObservation: ServiceObservation<ProviderTabsRead>?
+    /// ``followTabs()`` ran (`+Tabs`).
+    @ObservationIgnored var followingTabs = false
+    /// The owner of the tab list's automation tasks, interned once.
+    @ObservationIgnored let tabsTaskOwner: MainTaskOwner
     @ObservationIgnored var calledTargets: Set<String> = []
     // CDP relays of the current connection (`+Relay`).
     @ObservationIgnored var relays: [String: RelaySession] = [:]
@@ -124,6 +127,7 @@ public final class BrowserHostProvider {
         self.marking = marking
         self.opener = opener
         self.mainWork = mainWork
+        tabsTaskOwner = mainWork.board.owner("browser-host.tabs")
         self.clock = clock
         self.backoff = backoff
         retryTimer = DemandTimer(owner: "browser-host.provider-retry", clock: clock)
@@ -269,25 +273,11 @@ public final class BrowserHostProvider {
     /// Queues `frame` as one automation-class task. A frame of a link that dropped or was replaced
     /// before its task ran is not handled (its replies would have no link).
     private func post(_ frame: ProviderFrame, from link: ProviderConnection) {
-        guard let owner = Self.taskOwner(of: frame) else { return }
+        guard let task = Self.task(for: frame) else { return }
         // node-free: an agent drives tabs nobody sees; its commands run while hidden.
-        mainWork.post(.automation, owner: owner) { [weak self] in
+        mainWork.post(.automation, owner: task.owner) { [weak self] in
             guard let self, self.connection === link else { return }
-            self.handle(frame)
-        }
-    }
-
-    /// The board's owner of a frame's task, `browser-host.<tag>`: a fixed set, so an unknown or
-    /// unexpected tag from the host never interns a new owner. Nil: the app does not handle it.
-    static func taskOwner(of frame: ProviderFrame) -> String? {
-        switch frame {
-        case .call: "browser-host.call"
-        case .cdpAttach: "browser-host.cdp.attach"
-        case .cdpDetach: "browser-host.cdp.detach"
-        case .cdp: "browser-host.cdp"
-        case .lease: "browser-host.lease"
-        case .input: "browser-host.input"
-        case .hello, .helloAck, .result, .event, .userInput, .tabAccess, .unknown: nil
+            task.run(self)
         }
     }
 

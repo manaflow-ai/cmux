@@ -6,24 +6,32 @@ extension BrowserHostProvider {
     /// `cookies.restore` names a backup, not a tab: the backup records its profile.
     static let tabLessMethods: Set<String> = ["tabs.list", "tabs.open", "cookies.restore"]
 
-    /// One frame from the host, in order, on the main actor.
-    func handle(_ frame: ProviderFrame) {
+    /// A frame the app handles: its task's owner on the board, `browser-host.<tag>`, and its handler.
+    struct FrameTask {
+        /// A fixed set, so an unknown or unexpected tag from the host never interns a new owner.
+        let owner: String
+        let run: @MainActor (BrowserHostProvider) -> Void
+    }
+
+    /// The task of one frame from the host; nil for a frame the app does not handle. The one place
+    /// that maps a frame kind to its handler, so a handled kind always has an owner and a task.
+    static func task(for frame: ProviderFrame) -> FrameTask? {
         switch frame {
         case .call(let id, let method, let params):
-            handleCall(id: id, method: method, params: params)
+            FrameTask(owner: "browser-host.call") { $0.handleCall(id: id, method: method, params: params) }
         case .cdpAttach(let targetID):
-            attachRelay(targetID)
+            FrameTask(owner: "browser-host.cdp.attach") { $0.attachRelay(targetID) }
         case .cdpDetach(let targetID):
-            detachRelay(targetID)
+            FrameTask(owner: "browser-host.cdp.detach") { $0.detachRelay(targetID) }
         case .cdp(let targetID, let message):
-            relayToBrowser(targetID, message)
+            FrameTask(owner: "browser-host.cdp") { $0.relayToBrowser(targetID, message) }
         case .lease(let targetID, let lease):
-            leaseChanged(targetID, lease)
+            FrameTask(owner: "browser-host.lease") { $0.leaseChanged(targetID, lease) }
         case .input(let event):
-            notifyInput(event)
+            FrameTask(owner: "browser-host.input") { $0.notifyInput(event) }
         case .hello, .helloAck, .result, .event, .userInput, .tabAccess, .unknown:
             // Frames the host never sends, a repeated ack, or a newer host's frame.
-            break
+            nil
         }
     }
 
