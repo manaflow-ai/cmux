@@ -536,7 +536,10 @@ jobs:
 
   tree-owner-wait:
     name: wait for same-key tree publisher
-    if: needs.tree-preflight.result == 'success'
+    # A superseded push (tree-preflight's stale step: a moved lane branch, a
+    # moved pin, or a cp/, lane/ or perf/ head no open pull request has) builds
+    # nothing, so it has no publisher to wait for and spends no API calls here.
+    if: needs.tree-preflight.result == 'success' && needs.tree-preflight.outputs.stale != 'true'
     needs: tree-preflight
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
     timeout-minutes: 10
