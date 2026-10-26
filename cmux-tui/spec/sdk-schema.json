@@ -20398,7 +20398,8 @@
        "name": "Id"
       },
       "presence": "optional",
-      "nullable": true
+      "nullable": true,
+      "default": null
      },
      "mode": {
       "type": {
@@ -23105,8 +23106,7 @@
        "name": "string"
       },
       "presence": "optional",
-      "nullable": true,
-      "default": null
+      "nullable": true
      },
      "profile_id": {
       "type": {
@@ -23115,7 +23115,6 @@
       },
       "presence": "optional",
       "nullable": true,
-      "default": null,
       "description": "Move the frontend browser tab to this browser profile; null clears its profile."
      },
      "owner": {
@@ -32473,8 +32472,7 @@
        "name": "string"
       },
       "presence": "optional",
-      "nullable": true,
-      "default": null
+      "nullable": true
      },
      "session_name": {
       "type": {
@@ -32491,8 +32489,7 @@
        "name": "string"
       },
       "presence": "optional",
-      "nullable": true,
-      "default": null
+      "nullable": true
      }
     },
     "additional_properties": false

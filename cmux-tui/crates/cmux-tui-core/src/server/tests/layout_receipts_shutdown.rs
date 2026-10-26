@@ -262,7 +262,7 @@ fn creation_receipts_replay_exact_surfaces_across_control_connections() {
     let receipt = "split-receipt-00000001";
     let origin = "tui-receipt-test";
     let command = |direction: &str, idempotency_key: &str| {
-        Command::CreateSurfaceWithReceipt(Box::new(CreateSurfaceWithReceiptRequest {
+        Command::CreateSurfaceWithReceipt(tabs_wire::CreateSurfaceWithReceiptParams {
             operation: format!("split-{direction}"),
             origin: origin.to_string(),
             receipt: receipt.to_string(),
@@ -277,7 +277,7 @@ fn creation_receipts_replay_exact_surfaces_across_control_connections() {
             width: None,
             cols: Some(100),
             rows: Some(30),
-        }))
+        })
     };
     let register = |writer: &MessageWriter, attempt_keys: bool| {
         let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
@@ -416,7 +416,7 @@ fn browser_receipt_targets_an_exact_empty_workspace_without_focus_state() {
     )
     .unwrap();
     let command = || {
-        Command::CreateSurfaceWithReceipt(Box::new(CreateSurfaceWithReceiptRequest {
+        Command::CreateSurfaceWithReceipt(tabs_wire::CreateSurfaceWithReceiptParams {
             operation: "new-browser-tab".to_string(),
             origin: "native-browser-bootstrap-test".to_string(),
             receipt: "browser-workspace-receipt-00000001".to_string(),
@@ -431,7 +431,7 @@ fn browser_receipt_targets_an_exact_empty_workspace_without_focus_state() {
             width: None,
             cols: None,
             rows: None,
-        }))
+        })
     };
 
     let first = handle_command(&mux, client, command(), &writer).unwrap();
@@ -470,7 +470,7 @@ fn creation_selector_fallbacks_are_negotiated_atomic_and_durably_replayed() {
     assert!(mux.close_pane(primary_pane).unwrap());
 
     let command = || {
-        Command::CreateSurfaceWithReceipt(Box::new(CreateSurfaceWithReceiptRequest {
+        Command::CreateSurfaceWithReceipt(tabs_wire::CreateSurfaceWithReceiptParams {
             operation: "split-right".to_string(),
             origin: "tui-fallback-test".to_string(),
             receipt: "split-fallback-receipt-00000001".to_string(),
@@ -485,7 +485,7 @@ fn creation_selector_fallbacks_are_negotiated_atomic_and_durably_replayed() {
             width: None,
             cols: Some(50),
             rows: Some(30),
-        }))
+        })
     };
     let register = |capabilities: &[&str], writer: &MessageWriter| {
         let client = mux.control_clients.register(ClientTransport::Unix, writer.clone());
