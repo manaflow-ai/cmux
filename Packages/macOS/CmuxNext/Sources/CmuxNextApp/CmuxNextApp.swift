@@ -86,6 +86,8 @@ public struct CmuxNextApp {
                                    launchReads: (work, launchImages, relaunchWake))
         // Every main run-loop turn is timed and split on the main-thread scheduler's meter (MainTurnMeter).
         (app as? CmuxApplication)?.meterTurns(delegate.turnMeter)
+        // The one input tap hears every event from the first (pending input, control, services).
+        (app as? CmuxApplication)?.inputTap = delegate.inputTap
         app.delegate = delegate
         app.setActivationPolicy(.regular)
         DebugTimings.markLaunch("main.nsapp")

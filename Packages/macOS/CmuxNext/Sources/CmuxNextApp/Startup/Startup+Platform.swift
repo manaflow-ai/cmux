@@ -27,9 +27,10 @@ extension AppDelegate {
         }
     }
 
-    /// Keep-awake and the mobile pairing, following settings.
+    /// Keep-awake, Energy Saver and the mobile pairing, following settings.
     func registerKeepAwakeAndMobile(services: AppServices, settings: SettingsController) {
         KeepAwakeService.shared.start(settings: settings, store: services.daemon.store)
+        services.followEnergySaver(settings)
         services.mobile.follow(settings, launch: services.environment.launch)
     }
 

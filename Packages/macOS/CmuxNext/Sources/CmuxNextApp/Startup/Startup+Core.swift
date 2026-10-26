@@ -30,13 +30,14 @@ extension AppDelegate {
     /// AppServices, the frame rate classes, the startup settle references, hang reports and Debug Settings.
     func registerServices() -> AppServices {
         let services = AppServices(environment: environment, launchReveal: launchReveal, work: launchReads.work, mainWork: mainWork,
-                                   launchImages: launchReads.images, relaunchWake: launchReads.wake, wireStats: wireStats)
+                                   launchImages: launchReads.images, relaunchWake: launchReads.wake, wireStats: wireStats, inputTap: inputTap)
         AppProcessRoot.shared.adopt(services)
         self.services = services
         // Frame rate classes (p03-rendering-013): links at their clients' rate, loops at 30 Hz.
         let rateClasses = services.features.isEnabled(.frameRateClasses)
         FrameScheduler.appDisplays.followsClientRates = rateClasses
         DesignSettings.shared.loopsFollowFrameRate = rateClasses
+        services.startEnergy()  // before any tab: WebKit, KeepAwake and the video wallpaper start from the inputs
         // The settle references, one closure each, before the daemon starts and the windows restore
         // (Chrome's StartupObserver, after_startup_task_utils.cc). A hidden launch (no window on
         // screen) reveals at once.

@@ -1,4 +1,5 @@
 import CmuxNextDesign
+import CmuxNextFeatures
 import CmuxNextPages
 import CmuxNextSettings
 import Foundation
@@ -31,7 +32,7 @@ extension AppDelegate {
         services.bookmarks.start(directory: profilesDirectory, importStore: services.onboarding.importStore)
         services.history.start(supportDirectory: profilesDirectory.deletingLastPathComponent())
         // cmux-page:// first-party pages for Chromium, before any window can start it.
-        FirstPartyPageSchemes.install()
+        FirstPartyPageSchemes.install(processGroups: services.features.isEnabled(.pageProcessGroups))
         // The page host already exists (`registerFirstWindowHooks` reads it through `services.iconPicker`) but has opened no page;
         // the statics forward to it for page views not yet made through `webUI.open`
         // (p13-webui-006 to 009 move them, 010 deletes the statics).

@@ -72,10 +72,37 @@ struct AppMemoryModel: MemorySnapshotModel {
         return spares
     }
 
+    /// The WebContent processes of the live WebKit pages, agent chats and spares, each once: what
+    /// ``MemoryFootprintEmitter`` samples. It reads the live web views only (no workspace, tab or
+    /// memory report walk), so it costs O(live web views).
+    static func liveWebContentPIDs(_ services: AppServices) -> [Int32] {
+        var seen = Set<Int32>()
+        var pids: [Int32] = []
+        func add(_ pid: Int32?) {
+            if let pid, seen.insert(pid).inserted { pids.append(pid) }
+        }
+        for entry in services.cache.browsers.values {
+            if case .pids(let list) = AppResourceSource.contentProcesses(of: entry.tab) { list.forEach(add) }
+        }
+        if let agentTabs = services.madeAgentTabs {
+            for view in agentTabs.views.values { add(WebContentProcess.identifier(of: view.webView)) }
+        }
+        if let view = services.newTabSpares.spareView { add(WebContentProcess.identifier(of: view.webView)) }
+        if let host = services.pageHostPool.spareHost { add(WebContentProcess.identifier(of: host.webKitView)) }
+        return pids
+    }
+
     /// The app process, its Chromium helpers and the WebContent processes in `snapshot`, each with
     /// its `phys_footprint` (`proc_pid_rusage`), read off the main actor.
     @concurrent
     nonisolated static func processes(_ snapshot: MemoryDiagnosticsSnapshot) async -> MemoryDiagnosticsProcesses {
+        await processes(webContentPIDs: snapshot.webContentPIDs)
+    }
+
+    /// The app process, its Chromium helpers and the WebContent processes `webContentPIDs`, each with
+    /// its `phys_footprint` (`proc_pid_rusage`), read off the main actor.
+    @concurrent
+    nonisolated static func processes(webContentPIDs: [Int32]) async -> MemoryDiagnosticsProcesses {
         func row(_ kind: MemoryDiagnosticsProcesses.Kind, _ pid: Int32) -> MemoryDiagnosticsProcesses.Row {
             .init(kind: kind, pid: pid, physFootprintBytes: ProcessUsage.sample(pid).map { Int(clamping: $0.physFootprint) })
         }
@@ -92,7 +119,7 @@ struct AppMemoryModel: MemorySnapshotModel {
             case .other: rows.append(row(.other, helper.pid))
             }
         }
-        rows += snapshot.webContentPIDs.map { row(.webkitWebContent, $0) }
+        rows += webContentPIDs.map { row(.webkitWebContent, $0) }
         return MemoryDiagnosticsProcesses(rows: rows, rendererPIDs: rendererPIDs)
     }
 }

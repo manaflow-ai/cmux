@@ -300,6 +300,10 @@ def normalize_function(name: str) -> str:
     return _SPACES.sub(" ", text).strip()
 
 
+# An inlined Rust frame's bare name (`sorted`, `{closure}`): no path, no Swift or ObjC name, no signature.
+_BARE_NAME = re.compile(r"[A-Za-z_{][\w{}]*")
+
+
 def frame_label(frame: Frame) -> str:
     """The normalized function, or `image+0xoffset` for an unsymbolicated frame.
 
@@ -308,7 +312,7 @@ def frame_label(frame: Frame) -> str:
     """
     function = normalize_function(frame.function)
     if function and function not in ("???", "<unknown>", "<null>"):
-        if frame.file and "::" not in function and not function.startswith(("<", "-[", "+[")):
+        if frame.file.endswith(".rs") and _BARE_NAME.fullmatch(function):
             return f"{function} ({_crate_relative(frame.file)})"
         return function
     image = frame.image or "?"
@@ -525,7 +529,13 @@ def _panic_class(message: str) -> str:
 
 _SAN_FRAME = re.compile(r"^\s*#(\d+)\s+(.*)$")
 _SAN_MODULE = re.compile(r"\s*\((?P<image>[^()]+?)(?::[A-Za-z0-9_]+)?\+0x(?P<offset>[0-9a-fA-F]+)\)\s*$")
-_SAN_LOCATION = re.compile(r"\s+(?:\S+:\d+(?::\d+)?|<null>|<compiler-generated>)$")
+# `%L`/`%S`: `FILE:LINE[:COL]`, or `<null>` and `<compiler-generated>` for no file. An absolute
+# path may hold spaces (`/Users/me/My Projects/...`); a function name never holds ` /`.
+_SAN_LOCATION = re.compile(r"\s+(?:(?P<file>/.*?|\S+?):\d+(?::\d+)?|<null>|<compiler-generated>)$")
+# A file with no line (a unit without line tables): `asan_interceptors.cpp`, `test.73e075bfb260dd19-cgu.01`.
+_SAN_BARE_FILE = re.compile(r"\s+(?P<file>[^\s<>():]+\.[\w-]+)$")
+# `%L` and `%M` add the binary's BuildId after an unsymbolized frame's module; it changes per build.
+_SAN_BUILD_ID = re.compile(r"\s*\(BuildId: [0-9a-fA-F]+\)\s*$")
 _ASAN_ERROR = re.compile(r"==\d+==ERROR: AddressSanitizer: (?P<type>.+)$")
 # Headers whose words are not one type token, named as in the report's SUMMARY line (compiler-rt asan_errors.cpp).
 _ASAN_HEADER_TYPES = (
@@ -548,21 +558,32 @@ _PID = re.compile(r"\(pid=\d+\)|==\d+==")
 
 
 def _sanitizer_frame(text: str) -> Frame:
+    """`#N PC in FUNCTION LOCATION`: the function, its module and offset, and its source file.
+
+    The file is kept so the `file:` ignore rules drop std's frames (`/rustc/...`) and inlined bare names are
+    qualified by their file, as for a Rust backtrace.
+    """
     rest = text.strip()
     rest = re.sub(r"^0x[0-9a-fA-F]+\s*", "", rest)
     rest = rest.removeprefix("in ")
+    rest = _SAN_BUILD_ID.sub("", rest)
     image = ""
     offset = None
+    file = ""
     module = _SAN_MODULE.search(rest)
     if module:
         image = os.path.basename(module.group("image").strip())
         offset = int(module.group("offset"), 16)
         rest = rest[:module.start()]
-    rest = _SAN_LOCATION.sub("", rest.strip())
+    rest = rest.strip()
+    location = _SAN_LOCATION.search(rest) or (None if module else _SAN_BARE_FILE.search(rest))
+    if location:
+        file = (location.group("file") or "").replace("\\", "/")
+        rest = rest[:location.start()]
     if rest in ("<null>", "") or rest.startswith(("(", "<unknown")):
         rest = ""
     rest = re.sub(r"\+0x[0-9a-fA-F]+$", "", rest)
-    return Frame(function=rest, image=image, offset=offset)
+    return Frame(function=rest, image=image, offset=offset, file=file)
 
 
 def _asan_type(header: str) -> str:

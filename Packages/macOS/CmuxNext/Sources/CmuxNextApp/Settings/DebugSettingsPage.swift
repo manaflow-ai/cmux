@@ -9,8 +9,10 @@ extension PageDescriptor {
     /// Debug Settings (cmux-page://cmux.debug-settings/, DEV and NIGHTLY builds): every tunable of
     /// the registry, drawn from data. The page writes the pasteboard for its two exports.
     static let debugSettings = PageDescriptor(
-        id: "cmux.debug-settings", resource: "debug-settings", namespaces: ["cmux.debug.tunables."],
-        nativeOps: [PageNativeOp.clipboardWrite], ownsSearchField: true)
+        id: "cmux.debug-settings", resource: "debug-settings", processGroup: .privileged, namespaces: ["cmux.debug.tunables."],
+        nativeOps: [PageNativeOp.clipboardWrite], ownsSearchField: true,
+        opTables: [PageOpTable(namespace: "cmux.debug.tunables.", read: ["state", "view.set", "export", "hangs.copy", "changed"],
+                               act: ["set", "reset", "hangs.reveal"])])
 }
 
 /// The `cmux.debug.tunables.*` ops of the Debug Settings page, over the one ``DebugSettingsModel``

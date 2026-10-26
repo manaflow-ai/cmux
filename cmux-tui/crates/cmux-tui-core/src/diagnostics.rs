@@ -22,6 +22,10 @@ mod resource_projection;
 pub use resource_projection::{
     CommitSpans, ProjectionSpans, ResourceProjectionSnapshot, ResourceProjectionStats,
 };
+mod owner_panic_log;
+pub use owner_panic_log::owner_panic_log_path;
+mod slow_requests;
+pub use slow_requests::{SlowRequest, SlowRequestsSnapshot};
 mod write_path;
 pub(crate) use write_path::writer_took_registry_lock;
 pub use write_path::{WritePathSnapshot, WritePathStats};
@@ -552,6 +556,9 @@ pub struct ServerStatsSnapshot {
     /// Present only when the request names `request_path_io` in `include`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub request_path_io: Option<crate::request_path::RequestPathIoSnapshot>,
+    /// Present only when the request names `slow_requests` in `include`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub slow_requests: Option<SlowRequestsSnapshot>,
 }
 
 pub const SERVER_STATS_SCHEMA: u32 = 1;

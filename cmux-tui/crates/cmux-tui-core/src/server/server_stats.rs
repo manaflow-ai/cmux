@@ -9,6 +9,9 @@ const RESOURCE_PROJECTION: &str = "resource_projection";
 const WRITE_PATH: &str = "write_path";
 /// The optional section that reports blocking work on request threads.
 const REQUEST_PATH_IO: &str = "request_path_io";
+/// The optional section that lists requests that ran past the watchdog
+/// threshold (request_watchdog.rs).
+const SLOW_REQUESTS: &str = "slow_requests";
 
 /// Read every counter; sections outside `include` stay absent so older SDK
 /// decoders, which refuse unknown result fields, keep working.
@@ -24,6 +27,7 @@ pub(super) fn server_stats(mux: &Mux, include: Option<&[String]>) -> ServerStats
         write_path: wants(WRITE_PATH).then(|| mux.write_path_stats()),
         request_path_io: wants(REQUEST_PATH_IO)
             .then(|| crate::request_path::RequestPathIoSnapshot::of(mux.request_path_stats())),
+        slow_requests: wants(SLOW_REQUESTS).then(|| mux.request_watchdog.snapshot()),
     }
 }
 

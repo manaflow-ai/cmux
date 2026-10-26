@@ -4,6 +4,7 @@ import CmuxNextBrowser
 import CmuxNextControl
 import CmuxNextDaemon
 import CmuxNextDesign
+import CmuxNextInput
 import CmuxNextLaunch
 import CmuxNextPopups
 import CmuxNextSettings
@@ -47,6 +48,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// The main-thread budget's run-loop turn meter; `main` hands it to the application before `run()`.
     var turnMeter: MainTurnMeter { mainWork.budget.turns }
     let control: AppControl
+    /// The one input tap (p04-input.md 3 (A)): pending input, control and services observe it;
+    /// `main` installs it on the application before `run()`.
+    let inputTap: InputEventTap
     let mouseSideButtons = MouseSideButtons()
     var cloudContext: Task<Void, Never>?
     /// OSC 52 clipboard reads on the local daemon (`TerminalClipboardReadService`).
@@ -63,10 +67,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
          startupTrace: StartupTrace? = nil,
          launchReads: (work: BackgroundWork, images: AgentPaneLaunchImages, wake: AgentPaneRelaunchWake),
          launchCleanup: LaunchCleanup = LaunchCleanup(cleanUpDownloadTempFiles: { BrowserDownloadTempFiles.shared.cleanUpLeftovers() })) {
-        self.environment = environment
-        self.launchReads = launchReads
-        self.daemonPrestart = daemonPrestart
-        self.startupTrace = startupTrace
+        (self.environment, self.launchReads) = (environment, launchReads)
+        (self.daemonPrestart, self.startupTrace) = (daemonPrestart, startupTrace)
         self.wireStats = wireStats
         self.launchCleanup = launchCleanup
         // One display link per display, shared by the app, window and budgeted frame schedulers.
@@ -83,11 +85,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         launchSettle = LaunchSettle(reveal: reveal, imageHold: .shared, onSettle: { AgentPaneView.finishWarmup() })
         startupReferences = StartupReferences(startup: startup, reveal: reveal)
         let starvation = RenderStarvationGuard(holdsWork: false, signposts: true) // holds work once FeatureList is in the app (p12-perf-process-091)
-        let mainWork = MainWorkScheduler(budget: MainFrameBudget(input: SessionInputPending(), signposts: true, starvation: starvation),
-                                         displays: displays, startup: startup)
+        let inputTap = InputEventTap()
+        let mainWork = MainWorkScheduler(budget: MainFrameBudget(input: SessionInputPending(events: WindowServerInputEvents(input: inputTap)), signposts: true,
+                                                                 starvation: starvation), displays: displays, startup: startup)
         starvation.watch(mainWork.frames, FrameScheduler.app)
-        self.mainWork = mainWork
-        control = AppControl(mainWork: mainWork)
+        (self.mainWork, self.inputTap) = (mainWork, inputTap)
+        control = AppControl(mainWork: mainWork, input: inputTap)
         super.init()
     }
 

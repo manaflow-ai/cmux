@@ -968,9 +968,13 @@ Dropped, with reasons:
   passes `-rss_limit_mb=2048 -malloc_limit_mb=256 -timeout=2` by default; an OOM or timeout is a finding.
 - Acceptance: Main workspace Cargo.toml/Cargo.lock unchanged; each target builds with `cargo fuzz build`.
 - Test phase: Testbox `scripts/cmux-next/rust-fuzz.sh --all --seconds 600`.
+- Landing order: 018 landed first and created the workspace (Cargo.toml with the release profile above, Cargo.lock,
+  rust-toolchain.toml on nightly-2026-10-20). 017 edits those three files in place: it adds its six `[[bin]]` entries,
+  its dependencies and their lock delta, and rust-fuzz.sh. It never adds them again or changes the pin or profile
+  without saying why. 019-021, 176 and 181 do the same: `[[bin]]` entries, dependencies and the lock delta only.
 
 #### p10-stability-018 Rust fuzz batch 2
-- Files: cmux-tui/fuzz/fuzz_targets/
+- Files: cmux-tui/fuzz/fuzz_targets/, and the workspace files of 017 (it landed first; see 017's landing order)
 - Change: cmux-rd-proto (bulk, clock, datagram, feedback, frame, input decode), cmux-transport (relay_frame, probe, stun
   parse_binding_success), cmux-link (dial parse_request/parse_line, stamp parse), cmux-wg packet paths.
 - Acceptance: One target per decoder, each with a seed corpus.

@@ -54,6 +54,8 @@ final class AgentPageHibernation {
     /// The clock (tests set it).
     var now: () -> ContinuousClock.Instant = { .now }
     private(set) var releasedCount = 0
+    /// A page was let go (the App counts it in the memory histograms).
+    var onRelease: () -> Void = {}
     /// A page is due later and the timer for it runs (tests).
     var hasDeadline: Bool { deadline.isScheduled }
     private var turnObservation: Task<Void, Never>?
@@ -228,6 +230,7 @@ final class AgentPageHibernation {
             tabs.stopCustomizationWhenUnused()
             hiddenAt[key] = nil
             releasedCount += 1
+            onRelease()
             logger.info("released agent page \(key, privacy: .public)")
         }
     }

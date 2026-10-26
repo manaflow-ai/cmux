@@ -12,7 +12,7 @@ import WebKit
 @MainActor
 struct WebUIHostTests {
     private let root: URL
-    private let descriptor = PageDescriptor(id: "test.webui-host", resource: "webui-host", namespaces: [])
+    private let descriptor = PageDescriptor(id: "test.webui-host", resource: "webui-host", processGroup: .solo, namespaces: [])
 
     init() throws {
         root = FileManager.default.temporaryDirectory.appendingPathComponent("webui-host-\(UUID().uuidString)", isDirectory: true)

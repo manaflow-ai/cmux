@@ -2,10 +2,13 @@ import CmuxNextDesign
 import CmuxNextEnergy
 
 extension AppServices {
-    /// Repaints every window when the glass mode pages draw changes (the Debug choice `glass.lens`, Reduce
-    /// Transparency, Low Power Mode): every web view pushes its theme (`data-glass`) and its
-    /// wallpaper still again (plans/cmux-next/glass-lens-DESIGN.md).
+    /// Resolves the glass mode pages draw (the Debug choice `glass.lens`, Reduce Transparency, the energy
+    /// monitor's Low Power Mode) into the theme store, now and on each change; the store repaints every
+    /// window, so every web view pushes its theme (`data-glass`) and its wallpaper still again
+    /// (plans/cmux-next/glass-lens-DESIGN.md).
     func observeGlass() {
-        glassWatch = GlassModeWatch(lowPowerMode: energyMonitor.lowPowerMode) { self.themeStore.repaintAll() }
+        let watch = GlassModeWatch(lowPowerMode: energyMonitor.lowPowerMode) { [themeStore] mode in themeStore.setGlassMode(mode) }
+        themeStore.setGlassMode(watch.mode)
+        glassWatch = watch
     }
 }
