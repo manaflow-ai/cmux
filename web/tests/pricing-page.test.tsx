@@ -458,6 +458,20 @@ describe("localized pricing page", () => {
     expect(individual).not.toContain("Billed monthly");
   });
 
+  test("a Max subscriber's Pro card still states its monthly list bill", async () => {
+    stackConfigured = true;
+    stripeSubscriptionRows = [{ id: "sub_max_no_price", plan: "max", status: "active" }];
+
+    const html = await renderSettled(await PricingPage({ params: Promise.resolve({ locale: "en" }) }));
+    const individual = personalizedIndividualSection(html);
+
+    // Pro shows Manage billing at its $50 monthly list price; Max is the
+    // plan in force with no known own price, so it names no period.
+    expect(individual).toContain(">$50<");
+    expect(individual.match(/Billed monthly/g)).toHaveLength(1);
+    expect(individual).not.toMatch(/Billed \$\d+ yearly/);
+  });
+
   test("a yearly early supporter sees both the discount and the yearly bill", async () => {
     stackConfigured = true;
     stripeSubscriptionRows = [{
