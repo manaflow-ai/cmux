@@ -5,7 +5,7 @@ extension GhosttyRuntime {
     /// Classic cmux's stable bundle identifier. Each classic channel kept its
     /// cmux-only Ghostty layer under Application Support/<bundle id>, and the
     /// others fell back to stable's; next ships under the same identifiers.
-    static let classicStableBundleIdentifier = "com.cmuxterm.app"
+    nonisolated static let classicStableBundleIdentifier = "com.cmuxterm.app"
 
     /// The Ghostty config files cmux reads when `CMUX_NEXT_GHOSTTY_CONFIG`
     /// doesn't name one: Ghostty's own default files, then classic cmux's
@@ -24,11 +24,24 @@ extension GhosttyRuntime {
         }
     }
 
+    /// The user's files as libghostty reads them from the disk: `topLevel`
+    /// in order (the `CMUX_NEXT_GHOSTTY_CONFIG` file; tests pass theirs, so
+    /// no test writes the environment), else the default files; then their
+    /// `config-file` includes.
+    static func loadUserFilesFromDisk(into config: ghostty_config_t, topLevel: [String]? = GhosttyRuntime.environmentTopLevelFiles) {
+        if let topLevel {
+            for path in topLevel { ghostty_config_load_file(config, path) }
+        } else {
+            loadDefaultFiles(into: config)
+        }
+        ghostty_config_load_recursive_files(config)
+    }
+
     /// Classic's resolution (`CmuxGhosttyConfigPathResolver`): this channel's
     /// layer, else stable's for any other channel. A layer is its non-empty
     /// `config.ghostty`, else its non-empty legacy `config` (never both),
     /// loaded by its own path so a symlink's includes resolve as in classic.
-    static func classicConfigPath(applicationSupportDirectory: URL, bundleIdentifier: String?) -> String? {
+    nonisolated static func classicConfigPath(applicationSupportDirectory: URL, bundleIdentifier: String?) -> String? {
         let stable = classicStableBundleIdentifier
         let own = bundleIdentifier.flatMap { $0.isEmpty ? nil : $0 } ?? stable
         for identifier in own == stable ? [stable] : [own, stable] {

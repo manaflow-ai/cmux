@@ -6,9 +6,52 @@ import GhosttyNextKit
 /// order. Settings shows the first as the config's source; a reload watcher
 /// watches all of them.
 extension GhosttyRuntime {
+    /// The config files the launch read into memory (``GhosttyConfigFiles/prefetch(on:)``), set before the
+    /// first access to ``shared``: its first load takes them and reads no config file on the main thread.
+    /// Nil leaves that load to read the disk.
+    public static var launchConfigFiles: GhosttyConfigFiles?
+
+    /// ``launchConfigFiles``, taken once.
+    static func takeLaunchConfigFiles() -> GhosttyConfigFiles? {
+        defer { launchConfigFiles = nil }
+        return launchConfigFiles
+    }
+
+    /// What the launch's first config load read.
+    public nonisolated enum LaunchConfig: Sendable, Equatable {
+        /// The files `main` read: every load uses them until ``GhosttyRuntime/endLaunchConfig()``.
+        case memory(GhosttyConfigFiles)
+        /// The disk, on the main thread: the read had not ended in time, or it declined.
+        case disk
+    }
+
+    /// The files every load uses until ``endLaunchConfig()``; nil once it ran, or on the disk path.
+    var launchFiles: GhosttyConfigFiles? {
+        if case .memory(let files) = launchConfig { files } else { nil }
+    }
+
+    /// Ends the launch's use of the files read in `main`: later loads read the disk, so they see every
+    /// change. Call it before the config files are watched (``liveReloadConfigFiles``).
+    ///
+    /// - Returns: What the launch read, so the caller can check it against the disk once the watch is armed;
+    ///   nil when it already ended.
+    @discardableResult
+    public func endLaunchConfig() -> LaunchConfig? {
+        defer { launchConfig = nil }
+        return launchConfig
+    }
+
+    /// Reloads the config from the disk, never from the launch's files: what the person's Reload
+    /// Configuration does, so it always applies the files as they are now. Before the watch starts,
+    /// the launch then counts as a disk launch, which the watch's start reloads once.
+    public func reloadConfigFromDisk() {
+        if launchConfig != nil { launchConfig = .disk }
+        reloadConfig()
+    }
+
     public var loadedConfigFiles: [String] {
         guard let config else { return [] }
-        return Self.loadedFiles(of: config)
+        return Self.loadedFiles(of: config, memory: configMemoryFiles)
     }
 
     /// The files that can change which Ghostty config is loaded. The finalized
@@ -17,7 +60,7 @@ extension GhosttyRuntime {
     /// precedence when it appears.
     public var liveReloadConfigFiles: [String] {
         var paths = loadedConfigFiles
-        if let override = ProcessInfo.processInfo.environment[Self.configOverrideKey], !override.isEmpty {
+        if let override = Self.environmentConfigOverride {
             paths.append(override)
         }
         paths.append(contentsOf: Self.defaultConfigCandidatePaths())
@@ -52,10 +95,17 @@ extension GhosttyRuntime {
         return paths
     }
 
-    nonisolated static func loadedFiles(of config: ghostty_config_t) -> [String] {
-        (0..<ghostty_config_loaded_file_count(config)).compactMap { index in
+    /// The files `config` was loaded from: `memory`, the files loaded from memory
+    /// (``GhosttyConfigFiles``, which libghostty does not list), then the files
+    /// libghostty read itself (all of them on the disk path; on either path the
+    /// theme files, which finalize still reads from the disk), once each: the
+    /// order libghostty lists when it reads every file.
+    nonisolated static func loadedFiles(of config: ghostty_config_t, memory: [String] = []) -> [String] {
+        let read = (0..<ghostty_config_loaded_file_count(config)).compactMap { index in
             ghostty_config_loaded_file(config, index).map { String(cString: $0) }
         }
+        var seen = Set<String>()
+        return (memory + read).filter { seen.insert($0).inserted }
     }
 
     /// The files a config made of `path` and its includes reads, for tests.

@@ -67,6 +67,9 @@ struct AppEnvironment: Sendable {
     /// hermetic home the `terminals` facet rewrites to `$ROOT` and `$HOME` before hashing (schemas/oracle/README.md).
     var oracleRoot: String?
     var launchHome: String?
+    /// The Ghostty config files read from `main` (``GhosttyConfigFiles/prefetch(on:)``): only the real app
+    /// process sets it; without it the terminal runtime reads them itself.
+    var ghosttyConfig: LaunchRead<GhosttyConfigFiles?>?
 
     var tag: String? { launch.tag }
     /// The build whose state roots this app uses (per-build isolation, cx-is1kf).

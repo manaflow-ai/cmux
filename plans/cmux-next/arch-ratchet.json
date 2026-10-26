@@ -675,6 +675,12 @@
       "row": "global_mutable_statics",
       "allow": 1,
       "why": "CmuxNextDesign MotionActivity.end (p03-rendering-004, review of cp/p03-rendering-004): one main-actor time, when the last Motion animation ends, that every gate path moves forward. The gates are process-wide static values (Motion.panes, Motion.tabs, ... and Motion.gate(_:)) called from every UI module with no injection point, as MotionInFlight's settle entries and MotionTrace already are; motion.late_commits needs every gate animation, not the few that opt in to settle at sleep, so the signal must sit where the gates are. Written only by gate paths and MotionClock steps on main, read once per main run-loop turn by the composition root's MotionLateCommits (an injected closure); no lock, no cache, bounded to one Double."
+    },
+    {
+      "date": "2026-10-26",
+      "row": "global_mutable_statics",
+      "allow": 1,
+      "why": "p08-startup-026: GhosttyRuntime.launchConfigFiles, the Ghostty config files main() read on a files lane, handed to the runtime before its first load. GhosttyRuntime is the process's one libghostty app (ghostty_init and ghostty_app_new keep process-wide state), made lazily by `shared` with no parameters, and its first config load runs in that init; its other inputs from before it exists are statics the same way (themeOverride, themeEdits, fontOverride, set by TerminalThemeSetting.prime). The value comes by init from main (AppEnvironment.ghosttyConfig, a LaunchRead) to ThemeBridge.start, the runtime's first access, which sets it only when the read has ended (never waited for); the init takes it once and clears it. It goes when the runtime is an instance the composition root makes and passes."
     }
   ],
   "observer_wrappers": [

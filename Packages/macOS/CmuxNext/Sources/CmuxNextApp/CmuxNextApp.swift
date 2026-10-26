@@ -83,6 +83,8 @@ public struct CmuxNextApp {
         let launchImages = AgentPaneLaunchImages(state: state), relaunchWake = AgentPaneRelaunchWake(directory: state)
         launchImages.prefetch(on: work) { DebugTimings.markLaunch($0) }
         TerminalLaunchFrames.beside(state).prefetch(on: work) { DebugTimings.markLaunch($0) }
+        // The Ghostty config files too: the terminal runtime's first load then reads none of them on main (p08-startup-026).
+        environment.ghosttyConfig = GhosttyConfigFiles.prefetch(on: work)
         relaunchWake.begin(on: work)
         DebugTimings.markLaunch("main.launch_reads")
         // Tab favicons resolve their hosts on work's host-resolution slots (system lane), never on the pool;

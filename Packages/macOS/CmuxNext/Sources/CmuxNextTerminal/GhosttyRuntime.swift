@@ -45,6 +45,10 @@ public final class GhosttyRuntime {
 
     /// Messages from the last config load (unknown keys, bad values).
     public private(set) var configDiagnostics: [String] = []
+    /// What the first config load read (``launchConfigFiles`` or the disk), until ``endLaunchConfig()``.
+    var launchConfig: LaunchConfig?
+    /// The files the applied config was loaded from in memory (libghostty does not list them).
+    var configMemoryFiles: [String] = []
 
     /// Frontend-level actions that have no surface target (for example
     /// `quit` or `new_window` from an app-scoped keybind). Return true when
@@ -101,8 +105,12 @@ public final class GhosttyRuntime {
             return
         }
         mark("ghostty_init")
-        guard let config = Self.loadConfig(diagnostics: &configDiagnostics, opacity: &configuredBackgroundOpacity) else { return }
-        mark("config_load")
+        // Never waits: an unfinished read leaves the disk read here.
+        launchConfig = Self.takeLaunchConfigFiles().map(LaunchConfig.memory) ?? .disk
+        guard let config = Self.loadConfig(diagnostics: &configDiagnostics, opacity: &configuredBackgroundOpacity,
+                                           files: launchFiles) else { return }
+        mark(launchFiles == nil ? "config_load_disk" : "config_load")
+        configMemoryFiles = launchFiles?.paths ?? []
         self.config = config
         // Callbacks reach the runtime through this context, never through
         // `shared`: Ghostty can call back synchronously while `shared` is
@@ -136,7 +144,8 @@ public final class GhosttyRuntime {
         guard let app else { return }
         var diagnostics: [String] = []
         var opacity: Double = 1
-        guard let fresh = Self.loadConfig(diagnostics: &diagnostics, opacity: &opacity) else { return }
+        guard let fresh = Self.loadConfig(diagnostics: &diagnostics, opacity: &opacity, files: launchFiles) else { return }
+        configMemoryFiles = launchFiles?.paths ?? []
         configuredBackgroundOpacity = opacity
         adoptedDuringReload = false
         applyColorTransitionToSurfaces()
@@ -168,7 +177,18 @@ public final class GhosttyRuntime {
     /// Test hook: when set, only this file (plus its `config-file` includes)
     /// is loaded instead of the user's default Ghostty config files, so
     /// visual checks can run a tagged build under another theme.
-    static let configOverrideKey = "CMUX_NEXT_GHOSTTY_CONFIG"
+    nonisolated static let configOverrideKey = "CMUX_NEXT_GHOSTTY_CONFIG"
+
+    /// This process's `CMUX_NEXT_GHOSTTY_CONFIG`; nil when it is not set or empty.
+    nonisolated static var environmentConfigOverride: String? {
+        ProcessInfo.processInfo.environment[configOverrideKey].flatMap { $0.isEmpty ? nil : $0 }
+    }
+
+    /// The disk path's top-level files in place of the default files: the
+    /// `CMUX_NEXT_GHOSTTY_CONFIG` file when it is set, else nil.
+    nonisolated static var environmentTopLevelFiles: [String]? {
+        environmentConfigOverride.map { [$0] }
+    }
 
     /// cmux's own theme (`appearance.theme` in cmux.json, a Ghostty theme
     /// name or `light:A,dark:B`), loaded after the Ghostty config files so
@@ -206,20 +226,20 @@ public final class GhosttyRuntime {
     }
 
     /// Loads the user's config. `theme` replaces `themeOverride` (a room,
-    /// workspace or terminal theme; see `themeConfig(named:)`).
-    static func loadConfig(diagnostics: inout [String], opacity: inout Double, theme: String? = nil) -> ghostty_config_t? {
+    /// workspace or terminal theme; see `themeConfig(named:)`). `files`
+    /// (``GhosttyConfigFiles``) stand in for libghostty's reads of the user's files.
+    /// `topLevel`: the disk path's top-level files in place of the default
+    /// files (``loadUserFilesFromDisk(into:topLevel:)``).
+    static func loadConfig(diagnostics: inout [String], opacity: inout Double, theme: String? = nil,
+                           files: GhosttyConfigFiles? = nil,
+                           topLevel: [String]? = GhosttyRuntime.environmentTopLevelFiles) -> ghostty_config_t? {
         guard let config = ghostty_config_new() else { return nil }
         // cmux's defaults, before the user's files so theirs win.
         loadPaddingDefault(into: config)
         loadThemeDefault(into: config)
         loadKeybindDefaults(into: config)
         GhosttyUnfocusedSplit.loadDefault(into: config)
-        if let path = ProcessInfo.processInfo.environment[configOverrideKey], !path.isEmpty {
-            ghostty_config_load_file(config, path)
-        } else {
-            loadDefaultFiles(into: config)
-        }
-        ghostty_config_load_recursive_files(config)
+        if let files { files.load(into: config) } else { loadUserFilesFromDisk(into: config, topLevel: topLevel) }
         for line in themeLines(theme ?? themeOverride, isDark: colorSchemeIsDark, edits: themeEdits) {
             line.withCString { ghostty_config_load_string(config, $0, UInt(line.utf8.count), "cmux.json") }
         }
@@ -404,23 +424,5 @@ nonisolated final class RuntimeCallbackContext: @unchecked Sendable {
     static func from(_ raw: UnsafeMutableRawPointer?) -> RuntimeCallbackContext? {
         guard let raw else { return nil }
         return Unmanaged<RuntimeCallbackContext>.fromOpaque(raw).takeUnretainedValue()
-    }
-}
-
-/// How the surfaces' config differs from the user's: in a translucent
-/// window the surfaces draw a transparent default background, so the window
-/// root's sheet (`background` at `background-opacity`) is the only layer
-/// behind the cells, as the single surface layer is in Ghostty.app. With
-/// `background-opacity-cells` explicit cell colors take the opacity, and a
-/// 0 would erase them, so the config stays as it is. A terminal background
-/// override (`appearance.surfaces.terminal`) makes the surfaces transparent
-/// in an opaque window too: the terminal host paints the override behind
-/// the cells (`ownerPaintsBackground`). So does background art, which makes
-/// a window see-through at full opacity: the host then paints only where the
-/// panes do (`WindowBackdrop.panesPaintBackground`), and the art reads
-/// through the window's one legible tint behind the cells.
-nonisolated enum GhosttyRuntimeSurfacePolicy {
-    static func override(configuredOpacity: Double, opacityCells: Bool, ownerPaintsBackground: Bool = false) -> String? {
-        (configuredOpacity < 1 || ownerPaintsBackground) && !opacityCells ? "background-opacity = 0" : nil
     }
 }
