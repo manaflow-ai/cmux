@@ -181,6 +181,7 @@ export function ProjectChooser({
             listClassName="m-0 list-none p-0"
             itemClassName="acpmux-menu-item cursor-default rounded-lg data-[highlighted]:bg-hover"
             itemLabel={rowLabel}
+            isItemCurrent={(key) => key === currentKey || (noProject && key === NO_PROJECT_KEY)}
             completionText={(key) => (key === NO_PROJECT_KEY ? "" : rowLabel(key))}
             renderItem={(key) => {
               const row = rows.find((candidate) => candidate.key === key);
