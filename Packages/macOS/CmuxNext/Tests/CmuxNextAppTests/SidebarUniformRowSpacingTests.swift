@@ -110,13 +110,14 @@ struct SidebarUniformRowSpacingTests {
         #expect(abs(after.y - before.y - open.gapShift) < 0.01, "the rows below moved \(after.y - before.y) pt, the gap's shift is \(open.gapShift) pt")
     }
 
-    /// A drag that empties the Pinned block shows its drop zone under the block; the next row follows the zone (or
-    /// the drop's gap in its place) by the row spacing, not a section gap on top of it.
-    @Test(arguments: [false, true]) func theRowUnderThePinnedDropZoneKeepsTheRowSpacing(_ gapInZone: Bool) throws {
+    /// A drag that empties the Pinned block shows its drop zone under the block (or alone, for a section without a
+    /// title, whose block is then 0 pt tall); the next row follows the zone (or the drop's gap in its place) by the
+    /// row spacing, not a section gap on top of it.
+    @Test(arguments: [false, true], [CGFloat(0), 24]) func theRowUnderThePinnedDropZoneKeepsTheRowSpacing(_ gapInZone: Bool, _ blockHeight: CGFloat) throws {
         let m = SidebarLayoutMetrics.standard
         let pinnedID = SidebarLayoutDocument.pinnedSectionID.rawValue
         var options = SidebarLayoutOptions()
-        options.blockHeights = [pinnedID: 24]
+        options.blockHeights = [pinnedID: blockHeight]
         options.showEmptyPinned = true
         options.emptyDocSections = [pinnedID]
         if gapInZone {
@@ -124,16 +125,32 @@ struct SidebarUniformRowSpacingTests {
             options.gapHeight = m.rowHeight
         }
         let layout = SidebarLayout.make(sections: [Self.pinnedBlock(), Self.machine()], metrics: m, options: options)
-        let block = try #require(layout.row(for: Self.pinnedKey))
         let zoneEnd: CGFloat
         if gapInZone {
             zoneEnd = try #require(layout.gapY) + m.rowHeight
         } else {
             zoneEnd = try #require(layout.row(for: .emptySection(.custom(pinnedID)))).maxY
         }
-        #expect(zoneEnd - m.rowSpacing >= block.maxY)
+        if blockHeight > 0 {
+            let block = try #require(layout.row(for: Self.pinnedKey))
+            #expect(zoneEnd - m.rowSpacing >= block.maxY)
+        }
         let header = try #require(layout.row(for: .group(Self.group)))
         #expect(abs(header.y - zoneEnd - m.rowSpacing) < 0.01, "the drop zone's end adds \(header.y - zoneEnd - m.rowSpacing) pt")
+    }
+
+    /// Group by Status lists the rows under the Pinned block (or its drop zone) by the row spacing too.
+    @Test(arguments: [false, true]) func theFirstStatusHeaderUnderThePinsKeepsTheRowSpacing(_ dropZone: Bool) throws {
+        let m = SidebarLayoutMetrics.standard
+        let pinnedID = SidebarLayoutDocument.pinnedSectionID.rawValue
+        var options = SidebarLayoutOptions()
+        options.grouping.setByStatus(true)
+        options.blockHeights = [pinnedID: 24]
+        if dropZone { (options.showEmptyPinned, options.emptyDocSections) = (true, [pinnedID]) }
+        let layout = SidebarLayout.make(sections: [Self.pinnedBlock(), Self.machine()], metrics: m, options: options)
+        let above = try #require(dropZone ? layout.row(for: .emptySection(.custom(pinnedID))) : layout.row(for: Self.pinnedKey))
+        let header = try #require(layout.rows.first { if case .status = $0.key { true } else { false } }, "no status header")
+        #expect(abs(header.y - above.maxY - m.rowSpacing) < 0.01, "the pins' end adds \(header.y - above.maxY - m.rowSpacing) pt")
     }
 
     @Test func theFirstWorkspaceRowFollowsTheLastPinnedChat() throws {
