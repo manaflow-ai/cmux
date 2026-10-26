@@ -28,12 +28,16 @@
 //! - Its `user_message` carries `_meta.provenance = {kind: "auto_resume", promptId, attempt,
 //!   turnId}` so a client can show it as acpmux's, not the person's.
 //! - While a continuation waits, the session row's `retry` says so (`{attempt, of, reason,
-//!   nextAt, promptId, turnId}`, [`Hub::waiting_retry`]); it is null once the attempt fires, is
+//!   nextAt, promptId, turnId}`, [`Hub::retry_row`]); it is null once the attempt fires, is
 //!   skipped or is used up, and from Stop or close on. `auto_resume_scheduled` carries the same
 //!   `of`, `reason` and `nextAt`; `auto_resume_exhausted` its `reason`. The wait's timer ends
 //!   when its delay does, or at once when its mark goes (Stop, close, a turn that took the chat):
 //!   it then records the skip. An attempt refused before its turn starts (its folder gone, a
 //!   dispatch check) records `auto_resume_skipped` `refused` with the `error`.
+//! - From the end of a turn that failed on such an error until its retry's wait is set (or it
+//!   is settled that none comes), and while that retry starts and runs, the row says
+//!   `retryDeciding` ([`Hub::retry_row`]): `_acpmux/wait` answers for that turn only once it
+//!   is settled, so the row it answers with names the retry that waits, if one does.
 //! - A capacity error does not hop to the fallback profile: the SR2 pool reports it, and a 529
 //!   is the provider's whatever account asks, so the session waits where it is.
 //! - A continuation that completes resumes the prompts the cut turn held (`pause_queue`), and
@@ -402,26 +406,48 @@ impl Hub {
         }
     }
 
-    /// The session row's `retry`: the wait of a continuation that may still answer for the
-    /// chat's cut turn, null when none waits or the chat moved on.
-    pub(crate) fn waiting_retry(&self, session: &Session) -> Option<RetrySummary> {
-        let (cut_turn, retry) = match self.auto_resumes.lock().get(&session.id) {
-            Some(Mark::Waiting { turn, retry: Some(retry), .. }) => (turn.clone(), retry.clone()),
-            _ => return None,
+    /// The session row's `retry` and `retryDeciding`, from one read of the chat's mark, so a row
+    /// never shows its failed turn settled while its retry is being set. `retry`: the wait of a
+    /// continuation that may still answer for the chat's cut turn, null when none waits or the
+    /// chat moved on. `retryDeciding`: `last` (the row's `lastTurn`) failed on an error a retry
+    /// answers ([`super::turn_errors::resume_cause`]) and whether, and when, it is retried is not
+    /// settled yet: its end is being settled, its retry's time is not set yet, or its retry is
+    /// starting or runs. `_acpmux/wait` holds its answer for such a row (`server/wait.rs`).
+    pub(crate) fn retry_row(
+        &self,
+        session: &Session,
+        last: Option<&Value>,
+    ) -> (Option<RetrySummary>, bool) {
+        let failed = last.filter(|t| t["status"] == "failed").filter(|t| {
+            let error = t["errorText"].as_str().unwrap_or_default();
+            super::turn_errors::resume_cause(error, error).is_some()
+        });
+        let cut = failed.and_then(|t| t["turnId"].as_str());
+        let (waiting, deciding) = {
+            let pending = self.auto_resumes.lock();
+            let mark = pending.get(&session.id);
+            let waiting = match mark {
+                Some(Mark::Waiting { turn, retry: Some(retry), .. }) => {
+                    Some((turn.clone(), retry.clone()))
+                }
+                _ => None,
+            };
+            let deciding = cut.is_some_and(|cut| match mark {
+                Some(Mark::Ending(t) | Mark::Firing(t)) => t == cut,
+                Some(Mark::Waiting { turn, retry: None, .. }) => turn == cut,
+                Some(_) => false,
+                // Its retry's turn started since the row read `turn` (`start_turn` sets it
+                // under this lock, as the mark goes).
+                None => session.turn().is_some_and(|t| {
+                    let root = failed.and_then(|f| f["promptId"].as_str()).map(split_attempt);
+                    let (of, attempt) = split_attempt(&t.prompt_id);
+                    attempt > 0 && root.is_some_and(|(root, _)| root == of)
+                }),
+            });
+            (waiting, deciding)
         };
-        still_cut(session, &cut_turn).then_some(retry)
-    }
-
-    /// Whether it is not settled yet if the chat's ended turn `turn_id` is retried: its end is
-    /// still being settled (`Ending`), or its retry waits but its time is not set yet.
-    /// `_acpmux/wait` answers for a failed turn only once it is, so the row it answers with has
-    /// the `retry` that waits, if one does (`server/wait.rs`).
-    pub(crate) fn retry_unsettled(&self, session_id: &str, turn_id: &str) -> bool {
-        match self.auto_resumes.lock().get(session_id) {
-            Some(Mark::Ending(t)) => t == turn_id,
-            Some(Mark::Waiting { turn, retry: None, .. }) => turn == turn_id,
-            _ => false,
-        }
+        let retry = waiting.and_then(|(cut_turn, retry)| still_cut(session, &cut_turn).then_some(retry));
+        (retry, deciding)
     }
 
     /// Fires the chat's waiting continuation when it still answers for `cut_turn`: its mark

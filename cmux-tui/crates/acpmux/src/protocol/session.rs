@@ -110,6 +110,13 @@ pub struct SessionSummary {
     /// The automatic retry of its failed last turn that waits (`hub/auto_resume.rs`); null
     /// when none waits.
     pub retry: Option<RetrySummary>,
+    /// Its last turn failed on an error an automatic retry answers, and whether, and when, it
+    /// is retried is not settled yet: `retry` is about to be set or stay null, or the retry is
+    /// starting or runs (`hub/auto_resume.rs`). `_acpmux/wait` answers for that turn once it is
+    /// settled. Absent otherwise, and from a peer on an older acpmux.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    #[schemars(default)]
+    pub retry_deciding: bool,
     /// Attached clients.
     pub attached: u64,
     /// Some attached client shows the chat.
