@@ -1963,3 +1963,8 @@ reason = "Lawrence 2026-10-23: no new CI tests; agents run it on the fleet. Run 
 path = "tests/test_sparkle_image_cost.py"
 lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests. sparkle-image-cost.py is the p08-startup-067 fleet measurement, not a gate; run python3 -I tests/test_sparkle_image_cost.py yourself after changing the script (under 1 s, no app, no build)."
+
+[[test]]
+path = "tests/test_cmux_next_build_timing.py"
+lane = "manual"
+reason = "agents run it on the fleet (Lawrence 2026-10-23). build-timing.sh is a p05-ipc-194 measurement, not a gate; run python3 tests/test_cmux_next_build_timing.py after changing it (under 2 s, no build)."
