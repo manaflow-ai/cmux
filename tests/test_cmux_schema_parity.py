@@ -75,7 +75,6 @@ NOT_IN_CMUX_JSON = frozenset({
     "devices.incomingAccess.enabled",
     "devices.sidebar.hiddenMacIDs",
     "mobile.iOSPairingHost.displayName",
-    "mobile.iOSPairingHost.enabled",
     "mobile.iOSPairingHost.port",
     "mobile.phonePush.forwardingEnabled",
     "mobile.phonePush.hideContent",
