@@ -23,7 +23,7 @@ import Testing
 
     @Test func aScopeOnTheMainThreadOutsideATaskBindsNoTaskLocal() async {
         let (scale, bound) = await onMainOutsideATask { () -> (CGFloat, CGFloat?) in
-            Fixture.withRenderScale(3) { (Fixture.renderScale, RenderScaleScope.$scoped.get()) }
+            Fixture.withRenderScale(3) { (Fixture.renderScale, RenderScaleScope.$scoped.get()?.scale) }
         }
         #expect(scale == 3)
         #expect(bound == nil)

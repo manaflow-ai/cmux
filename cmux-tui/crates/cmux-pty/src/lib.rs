@@ -390,6 +390,67 @@ mod tests {
         Ok(())
     }
 
+    /// A `/bin/sleep 30` spawned on a new PTY.
+    fn spawn_sleeper() -> SpawnedPty {
+        let pair = open(PtySize { rows: 24, cols: 80, pixel_width: 0, pixel_height: 0 }).unwrap();
+        let mut command = PtyCommand::new("/bin/sleep");
+        command.args(["30"]);
+        pair.spawn(command).unwrap()
+    }
+
+    /// macOS: a PTY child spawned from a UserInteractive thread runs at
+    /// QOS_CLASS_DEFAULT, not the thread's class (p02-threads task 223), and
+    /// the thread keeps its class.
+    #[cfg(target_vendor = "apple")]
+    #[test]
+    fn a_pty_child_of_a_user_interactive_thread_runs_at_default() {
+        use cmux_threads::process::probe;
+        use cmux_threads::{LiveQos, QosChange, ThreadQos, current, set_current};
+
+        let default = probe::base_priority_at(ThreadQos::Default).unwrap();
+        let interactive = probe::base_priority_at(ThreadQos::UserInteractive).unwrap();
+        assert_ne!(default, interactive);
+        let child = std::thread::spawn(|| {
+            assert_eq!(set_current(ThreadQos::UserInteractive), QosChange::Applied);
+            let mut spawned = spawn_sleeper();
+            let pid = spawned.child.process_id().unwrap() as libc::pid_t;
+            let priority = probe::first_thread_base_priority(pid);
+            spawned.child.kill().unwrap();
+            let _ = spawned.child.wait();
+            assert_eq!(current(), LiveQos::Class(ThreadQos::UserInteractive));
+            priority.unwrap()
+        })
+        .join()
+        .unwrap();
+        assert_eq!(child, default, "child {child}: default {default}, ui {interactive}");
+    }
+
+    /// Linux: a PTY child keeps the spawning thread's nice value, as before.
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn a_pty_child_keeps_the_threads_nice_value_on_linux() {
+        let nice_of = |pid: libc::pid_t| {
+            // SAFETY: the raw syscall returns 20 - nice (1..=40).
+            let raw = unsafe {
+                libc::syscall(libc::SYS_getpriority, libc::PRIO_PROCESS, pid as libc::c_long)
+            };
+            assert!(raw > 0, "getpriority({pid}): {}", io::Error::last_os_error());
+            20 - raw as i32
+        };
+        std::thread::spawn(move || {
+            // SAFETY: gettid has no preconditions.
+            let tid = unsafe { libc::gettid() };
+            let mut spawned = spawn_sleeper();
+            let pid = spawned.child.process_id().unwrap() as libc::pid_t;
+            let (parent, child) = (nice_of(tid), nice_of(pid));
+            spawned.child.kill().unwrap();
+            let _ = spawned.child.wait();
+            assert_eq!(child, parent);
+        })
+        .join()
+        .unwrap();
+    }
+
     #[test]
     fn pty_capacity_errors_preserve_an_actionable_classification() {
         for errno in [libc::ENXIO, libc::ENOSPC, libc::EMFILE, libc::ENFILE, libc::EAGAIN] {

@@ -13,7 +13,11 @@
 //! - `method_tables.rs` (task 023): the method tables `src/methods.rs`
 //!   includes. `method_tables_fixture.rs` is the same emitter over
 //!   spec/fixtures/ipc-method-tables, which the tests check entry by entry.
+//! - `client_requests.rs` (task 028): the `cli` client's request types,
+//!   which `src/client.rs` includes (feature `client`).
 
+#[path = "build-support/client_requests.rs"]
+mod client_requests;
 #[path = "build-support/method_tables.rs"]
 mod method_tables;
 #[path = "src/schema_digest.rs"]
@@ -101,11 +105,13 @@ fn main() -> Result<(), BuildError> {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-changed=src/schema_digest.rs");
     println!("cargo:rerun-if-changed=build-support/method_tables.rs");
+    println!("cargo:rerun-if-changed=build-support/client_requests.rs");
     let manifest = PathBuf::from(env("CARGO_MANIFEST_DIR")?);
     let out_dir = PathBuf::from(env("OUT_DIR")?);
     let schemas = Schemas::read(&manifest, SDK_SCHEMA, RESOURCE_OPERATIONS)?;
     write(&out_dir, "schema_identity.generated.rs", &schema_identity(&schemas)?)?;
     write(&out_dir, "method_tables.rs", &method_tables(&schemas, "TABLES")?)?;
+    write(&out_dir, "client_requests.rs", &client_requests(&schemas.sdk)?)?;
     let fixture = Schemas::read(&manifest, TABLE_FIXTURE_SDK, TABLE_FIXTURE_RESOURCE)?;
     write(&out_dir, "method_tables_fixture.rs", &method_tables(&fixture, "FIXTURE_TABLES")?)
 }
@@ -150,4 +156,11 @@ fn method_tables(schemas: &Schemas, name: &str) -> Result<String, BuildError> {
         BuildError(format!("{}: {}: {}", file.path.display(), e.path, e.message))
     })?;
     Ok(method_tables::emit(&tables, name))
+}
+
+/// The `cli` client's request types, the ones `src/client.rs` includes. A
+/// command the emitter cannot type fails the build with its JSON path.
+fn client_requests(sdk: &SchemaFile) -> Result<String, BuildError> {
+    client_requests::emit(&sdk.doc, client_requests::CLI)
+        .map_err(|e| BuildError(format!("{}: {e}", sdk.path.display())))
 }

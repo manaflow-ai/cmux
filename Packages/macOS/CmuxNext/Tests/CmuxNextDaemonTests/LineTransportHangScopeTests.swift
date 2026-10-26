@@ -25,8 +25,8 @@ import Testing
         """#
         let hangs = ScopeStackHangWatch()
         let bridge = DaemonBridge(executable: "/usr/bin/python3", arguments: ["-u", "-c", script])
-        let transport = try LineTransport(path: "/tmp/cmux-hang-scope-\(UUID().uuidString).sock", bridge: bridge, role: .control,
-                                          stats: nil, hangs: hangs)
+        let transport = try await LineTransport.open(path: "/tmp/cmux-hang-scope-\(UUID().uuidString).sock", bridge: bridge, role: .control,
+                                                     stats: nil, hangs: hangs)
         let (seen, see) = AsyncStream.makeStream(of: Seen.self)
         transport.start(onEvent: { name, _, _ in see.yield(.event(name: name, open: hangs.open)) },
                         onClose: { _ in

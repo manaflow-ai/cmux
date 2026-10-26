@@ -11,8 +11,10 @@ into one Chrome trace event file (JSON, gzip) keyed by pid and thread, that ui.p
                    on its real thread (a flame chart over time), threads of the bundle's processes and
                    WindowServer
   signposts        `log stream --signpost` of subsystem com.cmuxterm.app.next, every process: the always-on
-                   action.perform / action.commit / action.gate (CmuxNextSignposts) and the debug.* timings
-                   (categories stalls, tab-switch, pane-focus), on per-category tracks of the emitting process
+                   action.perform / action.commit / action.gate (CmuxNextSignposts) and the catalog's spans of the
+                   debug.* timings (category stall: stall.create_surface, stall.palette_open, stall.icon_picker_open;
+                   category switch: switch.tab, switch.pane_focus), on per-category tracks of the emitting process;
+                   a watchdog stall lists the ones it happened inside (STALL_DURING_SPANS)
   input latency    InputLatencyTracker's `input.latency` signposts (one per closed slot): Chrome's EventLatency
                    shape, one slice per input event from generated to presented on an `input latency` track of the
                    app, a child per stage step it has (cross-process ones too), an arrow into its key.flow chain,
@@ -147,6 +149,13 @@ CHROME_CATEGORIES = [
     "navigation", "loading", "blink.user_timing",
 ]
 CHROME_BUFFER_KB = 128 * 1024
+# The catalog spans that name a main-thread stall that happened inside one (a top stall's `actions`): the actions,
+# the main-thread opens the stall bench measures (Signposter.stall thread slices; debug.timings rows), and the tab
+# and pane switches (Signposter.switch; debug.tab_switch, debug.pane_focus). One rule for every one: a span that
+# ended `commit=missed` (a switch superseded in a Cmd-] burst, a refused action) still did its main-thread work, so it
+# names the stall too, labeled `missed`.
+STALL_DURING_SPANS = ("action.perform", "action.commit", "stall.create_surface", "stall.palette_open",
+                      "stall.icon_picker_open", "switch.tab", "switch.pane_focus")
 ROLE_ORDER = ["app", "daemon", "holder", "terminal-host", "acpmux", "cef-gpu", "cef-utility", "cef-renderer",
               "cli", "windowserver", "bundle-other", "other"]
 
@@ -3712,13 +3721,16 @@ def summarize(meta, roles, app_pid, samples, offset_us, signposts, stalls, block
         return [{"event": k[:160], "ms": round(v / 1000, 1)} for k, v in overlap.most_common(limit)]
 
     actions = [i for i in signposts["intervals"] if i["pid"] == app_pid and i["name"] in ("action.perform", "action.commit")]
+    spans = [i for i in signposts["intervals"] if i["pid"] == app_pid and i["name"] in STALL_DURING_SPANS]
 
     def actions_during(a, b):
         found = []
-        for i in actions:
+        for i in spans:
             if i["start_us"] < b and i["end_us"] > a:
-                found.append(f"{i['name']} {i['fields'].get('id', '')} ({i['ms']:.1f} ms)")
-        return sorted(set(found))[:4]
+                detail = i["fields"].get("id") or i["fields"].get("kind") or ""
+                label = " ".join(part for part in (i["name"], detail, "missed" if i["missed"] else "") if part)
+                found.append(f"{label} ({i['ms']:.1f} ms)")
+        return sorted(set(found))[:6]
 
     # Main-thread stalls: the watchdog's records, else busy runs of the main thread's samples.
     candidates = []
@@ -4124,12 +4136,33 @@ TP_XML = """<?xml version="1.0"?><trace-query-result><node xpath="x"><schema nam
 </node></trace-query-result>"""
 
 
+def catalog_span_lines(spans):
+    """`log stream --signpost` lines of the app's catalog spans: (category, name, id, begin ns, end ns, begin message,
+    end message) each."""
+    lines = []
+    for category, name, signpost_id, begin, end, begin_message, end_message in spans:
+        for kind, at, message in (("begin", begin, begin_message), ("end", end, end_message)):
+            lines.append(json.dumps({"eventType": "signpostEvent", "subsystem": SUBSYSTEM, "category": category,
+                                     "signpostName": name, "signpostID": signpost_id, "signpostType": kind,
+                                     "processID": 42, "machTimestamp": at, "eventMessage": message}))
+    return "".join(line + "\n" for line in lines)
+
+
+# Inside the fixture's 40 ms stall at 1.0 s: a palette open's main-thread slice, a warm tab switch, and a cold one
+# that a later switch superseded (`commit=missed`): it still names the stall, labeled missed.
+FIXTURE_CATALOG_SPANS = [
+    ("stall", "stall.palette_open", 30, 1_000_000_000, 1_012_000_000, "", ""),
+    ("switch", "switch.tab", 31, 1_000_500_000, 1_020_000_000, "kind=warm", ""),
+    ("switch", "switch.tab", 32, 1_001_000_000, 1_030_000_000, "kind=cold", "commit=missed"),
+]
+
+
 def build_fixture(out, slept_us=None):
     """Raw files of a small recording in `out` (hand-written shapes), then `build(out)`: its summary. With
     `slept_us`, the host slept that long since boot: the signposts' machTimestamps are mach_continuous_time
     (that much ahead of CLOCK_UPTIME_RAW, as `log` writes them, with the clock line SignpostStream writes) and
     an xctrace os-signpost table holds the same begin events (the xctrace clock is aligned to them)."""
-    sample = signposts_lib.SAMPLE.replace('"processID":1', '"processID":42')
+    sample = signposts_lib.SAMPLE.replace('"processID":1', '"processID":42') + catalog_span_lines(FIXTURE_CATALOG_SPANS)
     if slept_us is not None:
         sample = re.sub(r'"machTimestamp":(\d+)', lambda m: f'"machTimestamp":{int(int(m.group(1)) + slept_us * 1000)}',
                         sample)
@@ -4212,6 +4245,14 @@ def check_parsers_and_merge():
         assert any(str(n).startswith("stall 40 ms") for n in names), names
         assert summary["top_stalls"][0]["ms"] == 40.0 and summary["top_stalls"][0]["waiting"], summary["top_stalls"]
         assert summary["top_stalls"][0]["wait_class"] == "lock", summary["top_stalls"]
+        # The catalog spans the stall happened inside name it; a superseded switch (commit=missed) did its
+        # main-thread work too, so it names it, labeled missed.
+        during = summary["top_stalls"][0]["actions"]
+        assert "stall.palette_open (12.0 ms)" in during and "switch.tab warm (19.5 ms)" in during, during
+        assert "action.commit tab.new (6.0 ms)" in during and "switch.tab cold missed (29.0 ms)" in during, during
+        # On their category's lanes of the app.
+        lanes = {e.get("name"): e.get("cat") for e in trace["traceEvents"]}
+        assert lanes.get("stall.palette_open") == "signpost.stall" and lanes.get("switch.tab warm") == "signpost.switch", lanes
         assert summary["actions"]["tab.new"]["action.input_to_commit"]["p50_ms"] == 7.5, summary["actions"]
         assert summary["waits"]["stall:lock"]["count"] == 1 and "unattributed" not in summary["waits"], summary["waits"]
         span = next(e for e in trace["traceEvents"] if e.get("name") == "daemon new-tab")

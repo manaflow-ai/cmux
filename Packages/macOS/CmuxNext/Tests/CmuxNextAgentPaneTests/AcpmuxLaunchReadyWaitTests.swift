@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 import Testing
 @testable import CmuxNextAgentPane
@@ -20,6 +21,11 @@ struct AcpmuxLaunchReadyWaitTests {
                                  daemonArguments: [], childEnvironment: [:])
     }
 
+    /// The launcher an `AcpmuxHost` keeps, one per test.
+    static func launcher() -> ChildProcessLauncher {
+        ChildProcessLauncher(label: "com.cmuxterm.next.child-launcher.acpmux-tests", priority: .userBlocking)
+    }
+
     static let readyLine = #"{"ready":true,"pid":1,"webUrl":"http://127.0.0.1:4567/?token=t"}"#
 
     @Test func aDaemonThatKeepsStartingPastTheStallTimeIsWaitedFor() async throws {
@@ -29,7 +35,7 @@ struct AcpmuxLaunchReadyWaitTests {
         i=0; while [ $i -lt 12 ]; do echo "loading $i"; sleep 0.2; i=$((i+1)); done
         echo '\(Self.readyLine)' >&3
         """)
-        let endpoint = try await AcpmuxDaemonLauncher.launch(environment, deadline: .seconds(1))
+        let endpoint = try await AcpmuxDaemonLauncher.launch(environment, deadline: .seconds(1), launcher: Self.launcher())
         #expect(endpoint.token == "t")
     }
 
@@ -37,7 +43,7 @@ struct AcpmuxLaunchReadyWaitTests {
         let environment = try Self.environment("echo started; sleep 30")
         let started = ContinuousClock.now
         await #expect(throws: (any Error).self) {
-            _ = try await AcpmuxDaemonLauncher.launch(environment, deadline: .seconds(1))
+            _ = try await AcpmuxDaemonLauncher.launch(environment, deadline: .seconds(1), launcher: Self.launcher())
         }
         #expect(ContinuousClock.now - started < .seconds(10))
     }
@@ -45,7 +51,7 @@ struct AcpmuxLaunchReadyWaitTests {
     @Test func aDaemonThatExitsFailsAtOnce() async throws {
         let environment = try Self.environment("echo bye; exit 3")
         await #expect(throws: AcpmuxDaemonLauncher.Failure.self) {
-            _ = try await AcpmuxDaemonLauncher.launch(environment, deadline: .seconds(20))
+            _ = try await AcpmuxDaemonLauncher.launch(environment, deadline: .seconds(20), launcher: Self.launcher())
         }
     }
 }

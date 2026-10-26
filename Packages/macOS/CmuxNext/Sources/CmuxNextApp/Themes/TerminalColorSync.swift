@@ -62,6 +62,7 @@ extension AppServices {
     func startLocalDaemon(prestart: DaemonPrestart?) {
         terminalColors.apply()
         daemon.start(work: work, launch: environment.launch, terminalEnvironment: environment.terminalEnvironment,
+                     resolvedTerminalEnvironment: environment.resolvedTerminalEnvironment(),
                      terminalEnvironmentProvider: environment.terminalEnvironmentProvider(),
                      resolvesShellIntegration: environment.resolvesShellIntegration, prestart: prestart)
     }

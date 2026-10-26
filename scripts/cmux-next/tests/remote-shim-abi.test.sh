@@ -117,9 +117,6 @@ if [[ -n "${CMUX_REAL_SHIM:-}" ]]; then
 fi
 
 test_libs=(-pthread)
-if [[ "$(uname)" == Darwin ]]; then
-  test_libs+=(-lobjc)  # view tokens are Objective-C associated values
-fi
 "${cxx[@]}" "${flags[@]}" -DCMUX_TEST_ABI_ID="\"$abi\"" -o "$work/remote-shim-test" \
   "$host/tests/remote_shim_test.cpp" "$host/src/chromium_host_control.cc" "${test_libs[@]}"
 "$work/remote-shim-test"

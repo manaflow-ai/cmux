@@ -19,9 +19,14 @@ Per size it measures:
                 (the selection is applied and drawn by then) and the frame intervals
   drag          a row dragged over the list (`debug.mouse` down, then one dragged event per RPC):
                 main-thread time per mouse-move (Time Profiler) and frame intervals
-  observations  `debug.observations` before and after one workspace status change, tickers paused: armed
-                observations app-wide and the evaluations, applies and hosting bodies the one change cost;
-                `budget` checks armed SidebarRows <= on screen + one screen and 1 change -> <= 2 evaluations
+  observations  observers per event: `debug.observations` before and after one CLI status change of an on-screen
+                row, tickers paused: `armed_rows` (SidebarRows armed now), `row_maps_per_change` (SidebarRows
+                re-maps the one change cost), armed observations app-wide and the evaluations, applies and
+                hosting bodies of the change; `budget` checks armed_rows <= on screen + one screen of overscan
+                (on screen: rows whose window_frame meets the list band, not `in_list`, which also holds the
+                realized overscan), exactly 1 row map and <= 2 evaluations app-wide; a changed row that is not
+                on screen skips the row map check with a `row_maps_skipped` reason (p06-scheduler.md "Observers per event"; run it
+                at 400 workspaces with `--sizes 400 --scenarios observations`, before and after p06-scheduler-040)
 Traces go to OUT/traces/*.trace; OUT/results.json holds every number and the top main-thread frames.
 Every percentile block is perf_stats (linear interpolation; sidebar_bench_report.percentiles). When
 every size finished, the raw samples behind the ms blocks and each hitch recording's hitch time ratio
@@ -135,6 +140,22 @@ def sidebar():
 
 def workspace_rows():
     return [r for r in sidebar().get("rows") or [] if str(r.get("key", "")).startswith("workspace(")]
+
+
+# The band of the window the sidebar list shows rows in (window coordinates, top-left origin): below the title bar,
+# above the bottom bar. `in_list` is no visibility test: the list also realizes `SidebarStyle.overscan` past each edge.
+LIST_TOP, LIST_BOTTOM = 60, WINDOW[3] - 80
+
+
+def fully_shown(row):
+    f = row["window_frame"]
+    return f["y"] > LIST_TOP and f["y"] + f["height"] < LIST_BOTTOM
+
+
+def partly_shown(row):
+    """Half-open, as the row feed's `visible` set (SidebarListView+RowWatch.swift `shownWorkspaces`)."""
+    f = row["window_frame"]
+    return f["y"] < LIST_BOTTOM and f["y"] + f["height"] > LIST_TOP
 
 
 def topology():
@@ -465,7 +486,9 @@ def scenario_ticks(pid, size):
 
 
 def scenario_observations():
-    """One status value change's observation cost (debug.observations, p06-scheduler-029).
+    """Observers per event: one CLI status value change's observation cost (debug.observations, p06-scheduler-029
+    and -152). `row_maps_per_change` is the SidebarRows owner's evaluations since the reset (each is one row mapped
+    again, SidebarRowFeed); `armed_rows` is its armed count after the change.
 
     The `bench` status entry is set and settled before the baseline, so the measured change only edits the text of a
     pill the row already shows (the same kind of change at every size), and it is cleared after, so the later
@@ -482,6 +505,7 @@ def scenario_observations():
         return None if done.returncode == 0 else f"status set: exit {done.returncode} {(done.stdout + done.stderr).strip()[-200:]}"
 
     ticking(False)
+    scroll_to_top()  # the changed row (the first, pinned) is on screen, so its change maps it now
     failed = status_set("observations settle")
     if failed:
         return {"error": failed}
@@ -497,7 +521,10 @@ def scenario_observations():
         after = rpc("debug.observations")
         if not isinstance(after, dict) or "error" in after:
             return {"error": f"debug.observations after the change: {after}"}
-        on_screen = sum(1 for r in workspace_rows() if r.get("in_list"))
+        listed = workspace_rows()
+        on_screen = sum(1 for r in listed if partly_shown(r))
+        changed = next((r for r in listed if r.get("title") == first["name"]), None)
+        changed_on_screen = changed is not None and fully_shown(changed)
     finally:
         done = cli("workspace", target, "status", "clear", "bench")
         if done.returncode != 0:
@@ -512,16 +539,27 @@ def scenario_observations():
         per_change[key] = totals.get(key) if bodies_recorded else None
     rows = next((o for o in after.get("owners") or [] if o.get("owner") == "SidebarRows"), {})
     armed_rows = rows.get("armed")
+    row_maps = rows.get("evaluations")
     budget = {"on_screen_rows": on_screen, "armed_rows": armed_rows,
-              "armed_rows_ok": armed_rows <= 2 * on_screen if armed_rows is not None and on_screen else None,
+              "armed_rows_ok": armed_rows <= on_screen + on_screen if armed_rows is not None and on_screen else None,
+              "row_maps_ok": row_maps == 1 if row_maps is not None and changed_on_screen else None,
               "evaluations_ok": per_change["evaluations"] <= 2}
+    if not changed_on_screen:
+        where = "not in the list" if changed is None else f"window_frame {changed['window_frame']} outside y {LIST_TOP}..{LIST_BOTTOM}"
+        budget["row_maps_skipped"] = f"the changed row {first['name']!r} is not on screen after scroll_to_top ({where})"
+    elif row_maps is None:
+        budget["row_maps_skipped"] = "debug.observations reports no SidebarRows owner"
+    if "row_maps_skipped" in budget:
+        note(f"observations: row map check skipped: {budget['row_maps_skipped']}")
     busy = [o for o in after.get("owners") or [] if o.get("evaluations") or o.get("applies") or o.get("body_evaluations")]
-    result = {"armed_before": (before.get("totals") or {}).get("armed"), "armed_after": totals.get("armed"),
+    result = {"armed_rows": armed_rows, "row_maps_per_change": row_maps, "row_applies_per_change": rows.get("applies"),
+              "changed_row_on_screen": changed_on_screen,
+              "armed_before": (before.get("totals") or {}).get("armed"), "armed_after": totals.get("armed"),
               "per_change": per_change, "budget": budget,
               "owners": [o.get("owner") for o in after.get("owners") or []], "busy_owners": busy}
     if not bodies_recorded:
         result["body_note"] = "no hosting body recorder: no owner recorded a body evaluation"
-    if budget["armed_rows_ok"] is False or not budget["evaluations_ok"]:
+    if budget["armed_rows_ok"] is False or budget["row_maps_ok"] is False or not budget["evaluations_ok"]:
         note(f"observations: over budget {budget}")
     return result
 
@@ -529,7 +567,7 @@ def scenario_observations():
 def scenario_switch(pid, size, count=24):
     scroll_to_top()
     time.sleep(1)
-    rows = [r for r in workspace_rows() if r["window_frame"]["y"] > 60 and r["window_frame"]["y"] + r["window_frame"]["height"] < WINDOW[3] - 80]
+    rows = [r for r in workspace_rows() if fully_shown(r)]
     if len(rows) < 2:
         return {"error": "fewer than two visible rows"}
     a, b = rows[2] if len(rows) > 2 else rows[0], rows[-2]

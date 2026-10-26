@@ -228,9 +228,9 @@ public actor DaemonConnection {
         do {
             let endpoint = try await endpointProvider()
             DaemonLaunchTimings.shared.mark("daemon.endpoint_resolved")
-            let transport = try LineTransport(path: endpoint.socketPath, bridge: endpoint.bridge,
-                                              role: configuration.role == .pageRelay ? .pageRelay : .control,
-                                              stats: endpoint.wireStats, hangs: configuration.hangWatch)
+            let transport = try await LineTransport.open(path: endpoint.socketPath, bridge: endpoint.bridge,
+                                                         role: configuration.role == .pageRelay ? .pageRelay : .control,
+                                                         stats: endpoint.wireStats, hangs: configuration.hangWatch)
             DaemonLaunchTimings.shared.mark("daemon.socket_connected")
             let gate = EventGate()
             let continuation = continuation
