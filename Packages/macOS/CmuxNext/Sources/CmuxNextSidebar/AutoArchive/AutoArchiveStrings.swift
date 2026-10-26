@@ -1,7 +1,8 @@
 import Foundation
 
 /// Auto-archive's toast, card, Archived page and refusal text (Resources/Localizable.xcstrings).
-public nonisolated enum AutoArchiveStrings {
+public nonisolated struct AutoArchiveStrings {
+    public nonisolated init() {}
     static var undoTitle: String { text("autoArchive.undoTitle", "Archive Idle Workspaces") }
     static var restoreTitle: String { text("autoArchive.restoreTitle", "Restore Workspace") }
     static var cardEyebrow: String { text("autoArchive.card.eyebrow", "Tidy Up") }

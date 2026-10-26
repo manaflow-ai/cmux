@@ -12,7 +12,8 @@ import React, {
   useState,
   useSyncExternalStore,
 } from "react";
-import { AnsweredBy, AuthorChip, PresenceStack, TypingLine } from "./multiplayer/Faces";
+import { AnsweredBy, AuthorChip } from "./multiplayer/Faces";
+import { LivePresenceStack, LiveTypingLine } from "./multiplayer/LivePresence";
 import { flushSync } from "react-dom";
 import { CONNECT_ACTIONS, savedEnvironmentHost, type ConnectKind, type OffloadKind } from "./environments";
 import { chiefEnvelope } from "./conversation/chiefEnvelope";
@@ -135,6 +136,7 @@ import { ChatUnavailableState } from "./ChatUnavailableState";
 import { PastChat, type PastTurn, readPastTurns } from "./PastChat";
 import type { Project } from "./ProjectChooser";
 import { byRecentUse, parseProjectRepos, projectRows } from "./projectRepos";
+import { answerFromHome } from "./HomeInbox";
 import { HomeLists } from "./HomeLists";
 import { endsTurn, lastChange, turnFiles, turnPathsOnly, turnRows, type PathRef, type TurnFile } from "./diff";
 import { opensTurn } from "./turnStart";
@@ -356,6 +358,8 @@ import { configureSentLook } from "./conversation/SentMessageLine";
 import { configureNativeSidebarPreviewVariant, configureSidebarPreviewVariant } from "./sidebarPreview";
 import { configureTurnActionsPlacement } from "./turnActionsPlacement";
 import { archiveRow, markUnreadRow } from "./header/archiveRow";
+import { avatarRows } from "./header/avatarRow";
+import { agentAvatarChanged, removeAgentAvatar, setAgentAvatar, useAgentAvatar } from "./agentAvatar";
 import { copyRow } from "./header/copyRow";
 import { recordedConversationMarkdown } from "./conversation/exportMarkdown";
 import { instructionsRow, projectFilesRow } from "./header/instructionsRow";
@@ -518,6 +522,8 @@ declare global {
       /// Claude Code desktop's in-session status (the live plan card, the recap card) on or off: the
       /// Debug Settings toggle `agent.sessionStatus`, off by default (sessionStatus.ts).
       applySessionStatus?(on: boolean): void;
+      /// Session `sessionId`'s avatar was set or removed in some pane: ask for it again (agentAvatar.ts).
+      agentAvatarChanged?(sessionId: string): void;
       /// Suggested tasks on or off (Settings > Suggest Follow-Up Tasks, on by default, or the Debug
       /// toggle `agent.suggestedTasks` forcing them on): an agent's offers draw as the suggested tasks
       /// card (offer/offersShown.ts).
@@ -701,6 +707,9 @@ const editQueued = (promptId: string, edit: QueueEdit) =>
 /// The width the header's tools take in the pane's tab row, so the App narrows the tabs (header/tabRow.ts).
 const reportTabRowTools = (width: number) => void callNative("pane.tabRowTools", { width }).catch(() => undefined);
 /// Hands the host a new chat's typed text, kept with its tab across a relaunch (cx-z5vd).
+/// The composer's text changed: the chat tells acpmux this pane types (never the text itself).
+const postTyping = (text: string, sessionId?: string) =>
+  void window.cmuxAcpmuxActions?.["chat.typing"]?.({ text, sessionId }).catch(() => undefined);
 const postUnsentDraft = (text: string) => void callNative("chat.unsentDraft", { text }).catch(() => undefined);
 /// Each chat's unsent chips, kept by the host so reopening or restoring the chat brings them back
 /// (AgentPaneDraftAttachments.swift). A host without the store (the gallery, an older app) keeps none.
@@ -6671,6 +6680,9 @@ function AcpmuxPane() {
       applySessionStatus(on) {
         setSessionStatus(on === true);
       },
+      agentAvatarChanged(sessionId) {
+        if (typeof sessionId === "string") agentAvatarChanged(sessionId);
+      },
       applySuggestedTasks(on) {
         if (setSuggestedTasks(on === true)) directClient.current?.suggestedTasksChanged();
       },
@@ -7129,6 +7141,8 @@ function AcpmuxPane() {
               steer === true,
             ),
           "chat.cancel": () => client.cancel(),
+          "chat.typing": async ({ text, sessionId }) =>
+            client.typing(typeof text === "string" ? text : "", typeof sessionId === "string" ? sessionId : undefined),
           "chat.queue.remove": ({ promptId }) => client.removeQueued(String(promptId)),
           "chat.agentPair.resume": ({ peer }) => client.resumeAgentPair(String(peer)),
           "chat.queue.edit": ({ promptId, ...edit }) => client.editQueued(String(promptId), edit as QueueEdit),
@@ -7788,6 +7802,16 @@ function AcpmuxPane() {
     () => ignoreFailure(openClient().then((client) => client.markUnread())),
     t,
   );
+  // The session's own avatar (its cards and sender chip draw it): the menu offers Remove Avatar with one.
+  const avatarSrc = useAgentAvatar(snapshot.sessionId);
+  const avatar = avatarRows(
+    { sessionId: snapshot.sessionId, hasAvatar: avatarSrc !== undefined },
+    {
+      set: () => snapshot.sessionId && ignoreFailure(setAgentAvatar(snapshot.sessionId)),
+      remove: () => snapshot.sessionId && ignoreFailure(removeAgentAvatar(snapshot.sessionId)),
+    },
+    t,
+  );
   useEffect(() => {
     const run = (event: Event) => {
       const name = (event as CustomEvent<unknown>).detail;
@@ -8084,6 +8108,7 @@ function AcpmuxPane() {
       ],
       tools,
       [
+        ...avatar,
         ...(markUnread ? [markUnread] : []),
         ...(archive ? [archive] : []),
         {
@@ -8861,6 +8886,7 @@ function AcpmuxPane() {
             onOpenContext={inspector.reveal ? () => inspector.reveal?.("context") : undefined}
             draft={draft}
             onUnsentDraft={quick ? undefined : postUnsentDraft}
+            onTyping={quick ? undefined : postTyping}
             keptAttachments={quick ? undefined : keptAttachments}
             onCmuxCommand={(command, args) => {
               if (command.action === "status") {
@@ -9511,7 +9537,10 @@ function AcpmuxPane() {
                     {!inTabRow && environmentSurface.header && environmentLine(environmentSurface.compact)}
                   </ChatHeaderStatus>
                   <div className="acpmux-handoff-header-tools" ref={tabRowTools}>
-                    {snapshot.presence && <PresenceStack viewing={snapshot.presence.viewing} />}
+                    <LivePresenceStack
+                      sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
+                      fallback={snapshot.presence}
+                    />
                     {inTabRow && (
                       <ChatHeaderInlineStatus status={header.status} detail={header.detail}>
                         {environmentSurface.header && environmentLine(environmentSurface.compact)}
@@ -9720,11 +9749,21 @@ function AcpmuxPane() {
                 {/* Between the hero and the docked composer. */}
                 {freshView && (
                   <div className="acpmux-home-area">
-                    <HomeLists sessions={snapshot.sessions} currentId={snapshot.sessionId} onSelect={selectSession} />
+                    <HomeLists
+                      sessions={snapshot.sessions}
+                      currentId={snapshot.sessionId}
+                      asks={snapshot.asks}
+                      onSelect={selectSession}
+                      onAnswer={(item, choice) => answerFromHome(callNative, item, choice, selectSession)}
+                      shortcuts={!hasBottomAsk}
+                    />
                   </div>
                 )}
                 {hostErrorCard}
-                {snapshot.presence && <TypingLine typing={snapshot.presence.typing} />}
+                <LiveTypingLine
+                  sessionId={snapshot.sessionId ?? snapshot.summary?.sessionId}
+                  fallback={snapshot.presence}
+                />
                 {composer}
               </div>
             </>
