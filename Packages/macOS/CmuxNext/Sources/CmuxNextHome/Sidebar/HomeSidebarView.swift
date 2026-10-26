@@ -1,6 +1,6 @@
 public import AppKit
 public import CmuxHomeCore
-import CmuxNextDesign
+public import CmuxNextDesign
 import MessagesLabSidebar
 
 /// The Home page's left column: MessagesLab's conversation list
