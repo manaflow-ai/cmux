@@ -9,9 +9,16 @@
 //! chunk and abandoning the upload on Ctrl-C or failure. Downloads stream to
 //! stdout or to a temporary file that is renamed into place only after the
 //! whole body arrived.
+//!
+//! Transfers have no total deadline ([`TransferClients`]): a download fails
+//! only when the API goes silent for longer than the read-idle timeout, an
+//! upload only when its body stops moving ([`UPLOAD_IDLE`]) or the answer
+//! after the last byte does not come ([`cmux_vm_client::TRANSFER_READ_IDLE`]).
 
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
+use std::time::Duration;
 
 use clap::{Args, Subcommand};
 use cmux_vm_client::raw::{Client, types};
@@ -29,7 +36,27 @@ pub(crate) const RESUMABLE_THRESHOLD: u64 = 64 * 1024 * 1024;
 /// larger, so one chunk finishes well inside the request timeout.
 const MAX_CHUNK: u64 = 8 * 1024 * 1024;
 /// Failed chunks retried (each resuming at the server's count) before giving up.
-const CHUNK_RETRIES: u32 = 3;
+const CHUNK_RETRIES: u32 = 5;
+/// The first retry waits about this long; each later one doubles it.
+const RETRY_BASE: Duration = Duration::from_millis(500);
+/// No computed retry wait is longer than this.
+const RETRY_CAP: Duration = Duration::from_secs(16);
+/// A server asking for a longer wait than this is not retried: the CLI fails
+/// with its answer instead of hanging.
+const MAX_RETRY_AFTER: Duration = Duration::from_secs(60);
+/// An upload whose body has not moved for this long has stalled.
+pub(crate) const UPLOAD_IDLE: Duration = Duration::from_secs(120);
+/// Status reads while a commit settles (each after a backoff wait), about
+/// ten minutes in all with [`RETRY_CAP`].
+const COMMIT_SETTLE_POLLS: u32 = 40;
+
+/// The clients a transfer uses besides the ordinary one: `stream` (no total
+/// deadline, a read-idle bound) reads files and commits uploads, `upload` (no
+/// deadline; [`with_upload_progress`] bounds it) sends file bodies.
+pub(crate) struct TransferClients {
+    pub stream: Client,
+    pub upload: Client,
+}
 
 #[derive(Subcommand, Debug)]
 pub(crate) enum FileCommand {
@@ -290,6 +317,7 @@ pub(crate) fn guest_path(path: &str) -> Result<types::GuestPath, CliError> {
 
 pub(crate) async fn file(
     client: &Client,
+    transfer: &TransferClients,
     command: FileCommand,
     prompt: &mut dyn Prompt,
     mut out: Printer<'_>,
@@ -378,15 +406,20 @@ pub(crate) async fn file(
             let path = guest_path(&args.path)?;
             match args.out {
                 Some(local) => {
-                    let bytes = download(client, id.as_str(), &path, &local).await?;
+                    let bytes = download(&transfer.stream, id.as_str(), &path, &local).await?;
                     out.copied(id.as_str(), path.as_str(), &local, bytes, "read")
                 }
                 None if out.is_json() => Err(CliError::usage(
                     "file contents are not JSON: pass --out FILE with --json",
                 )),
                 None => {
-                    let stream =
-                        call(client.files_read_file(id.as_str(), &path, None, None)).await?;
+                    let stream = call(transfer.stream.files_read_file(
+                        id.as_str(),
+                        &path,
+                        None,
+                        None,
+                    ))
+                    .await?;
                     let mut stream = stream.into_inner();
                     while let Some(chunk) = stream.next().await {
                         let chunk = chunk.map_err(cut_off)?;
@@ -403,7 +436,7 @@ pub(crate) async fn file(
                 mode: args.mode,
                 resumable: args.resumable,
             };
-            let bytes = upload(client, id.as_str(), &path, &args.local, options).await?;
+            let bytes = upload(client, transfer, id.as_str(), &path, &args.local, options).await?;
             out.copied(id.as_str(), path.as_str(), &args.local, bytes, "wrote")
         }
     }
@@ -411,6 +444,7 @@ pub(crate) async fn file(
 
 pub(crate) async fn copy(
     client: &Client,
+    transfer: &TransferClients,
     copy: Transfer,
     options: UploadOptions,
     mut out: Printer<'_>,
@@ -427,7 +461,8 @@ pub(crate) async fn copy(
                 !path.ends_with('/') && remote_is_directory(client, &id, &path).await?;
             let target = push_target(&path, is_directory, &local);
             let target_path = guest_path(&target)?;
-            let bytes = upload(client, id.as_str(), &target_path, &local, options).await?;
+            let bytes =
+                upload(client, transfer, id.as_str(), &target_path, &local, options).await?;
             out.copied(id.as_str(), target_path.as_str(), &local, bytes, "pushed")
         }
         Transfer::Pull {
@@ -443,7 +478,7 @@ pub(crate) async fn copy(
             let id = vm_id(&vm)?;
             let remote = guest_path(&path)?;
             let target = pull_target(&local, local.is_dir(), &path);
-            let bytes = download(client, id.as_str(), &remote, &target).await?;
+            let bytes = download(&transfer.stream, id.as_str(), &remote, &target).await?;
             out.copied(id.as_str(), remote.as_str(), &target, bytes, "pulled")
         }
     }
@@ -468,6 +503,7 @@ async fn remote_is_directory(
 
 async fn upload(
     client: &Client,
+    transfer: &TransferClients,
     id: &str,
     path: &types::GuestPath,
     local: &Path,
@@ -485,8 +521,22 @@ async fn upload(
             .map_err(|e| CliError::usage(format!("could not read stdin: {e}")))?;
         let length = bytes.len() as u64;
         let header = content_length(length)?;
-        call(client.files_write_file(id, mode.as_deref(), path, Some(&header), None, bytes))
-            .await?;
+        let progress = Progress::new(length);
+        let body = progress.body(bytes_chunks(bytes));
+        with_upload_progress(
+            call(transfer.upload.files_write_file(
+                id,
+                mode.as_deref(),
+                path,
+                Some(&header),
+                None,
+                body,
+            )),
+            &progress,
+            UPLOAD_IDLE,
+            cmux_vm_client::TRANSFER_READ_IDLE,
+        )
+        .await?;
         return Ok(length);
     }
     let file = std::fs::File::open(local)
@@ -502,17 +552,24 @@ async fn upload(
     }
     let length = metadata.len();
     if options.resumable || length > RESUMABLE_THRESHOLD {
-        return resumable_upload(client, id, path, file, length, options.mode).await;
+        return resumable_upload(client, transfer, id, path, file, length, options.mode).await;
     }
     let header = content_length(length)?;
-    call(client.files_write_file(
-        id,
-        mode.as_deref(),
-        path,
-        Some(&header),
-        None,
-        file_body(file),
-    ))
+    let progress = Progress::new(length);
+    let body = progress.body(file_chunks(file));
+    with_upload_progress(
+        call(transfer.upload.files_write_file(
+            id,
+            mode.as_deref(),
+            path,
+            Some(&header),
+            None,
+            body,
+        )),
+        &progress,
+        UPLOAD_IDLE,
+        cmux_vm_client::TRANSFER_READ_IDLE,
+    )
     .await?;
     Ok(length)
 }
@@ -530,6 +587,7 @@ fn content_length(length: u64) -> Result<types::FilesWriteFileContentLength, Cli
 /// failure, so no stored chunks are left behind.
 async fn resumable_upload(
     client: &Client,
+    transfer: &TransferClients,
     id: &str,
     path: &types::GuestPath,
     mut file: std::fs::File,
@@ -547,7 +605,10 @@ async fn resumable_upload(
     let begun = fetch_body(client.files_begin_file_upload(id, None, &body)).await?;
     let begun = UploadState::parse(&begun)?;
     let upload_id = begun.upload_id.clone();
-    let send = send_chunks(client, id, &upload_id, &mut file, length, begun);
+    let send = async {
+        send_chunks(client, transfer, id, &upload_id, &mut file, length, begun).await?;
+        commit_upload(client, &transfer.stream, id, path, &upload_id, length).await
+    };
     let result = tokio::select! {
         result = send => result,
         _ = tokio::signal::ctrl_c() => Err(CliError::cancelled(
@@ -608,8 +669,55 @@ pub(crate) fn chunk_retryable(error: &CliError) -> bool {
     )
 }
 
+/// The wait before retry number `attempt` (0 for the first): exponential from
+/// [`RETRY_BASE`] up to [`RETRY_CAP`], with jitter (`jitter` in 0..1 picks a
+/// point in the upper half, so clients that failed together spread out). A
+/// server's `retry_after` is a floor; `None` when it asks for longer than
+/// [`MAX_RETRY_AFTER`], which is not worth waiting for here.
+pub(crate) fn retry_delay(
+    attempt: u32,
+    retry_after: Option<Duration>,
+    jitter: f64,
+) -> Option<Duration> {
+    if retry_after.is_some_and(|wait| wait > MAX_RETRY_AFTER) {
+        return None;
+    }
+    let ceiling = RETRY_BASE
+        .saturating_mul(1_u32.checked_shl(attempt.min(16)).unwrap_or(u32::MAX))
+        .min(RETRY_CAP);
+    let jitter = jitter.clamp(0.0, 1.0);
+    let backoff = ceiling.mul_f64(0.5 + 0.5 * jitter);
+    Some(retry_after.map_or(backoff, |wait| wait.max(backoff)))
+}
+
+/// A number in 0..1 that differs between calls and processes, for jitter. Not
+/// a secret, so the standard library's randomly keyed hasher is enough.
+fn jitter() -> f64 {
+    use std::hash::{BuildHasher, Hasher};
+    let mut hasher = std::collections::hash_map::RandomState::new().build_hasher();
+    hasher.write_u128(
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_or(0, |d| d.as_nanos()),
+    );
+    (hasher.finish() >> 11) as f64 / (1_u64 << 53) as f64
+}
+
+/// Waits before retry `attempt` after `error`; `Err(error)` when the server
+/// asked for a wait too long to make here.
+async fn back_off(attempt: u32, error: CliError) -> Result<(), CliError> {
+    match retry_delay(attempt, error.retry_after(), jitter()) {
+        Some(wait) => {
+            tokio::time::sleep(wait).await;
+            Ok(())
+        }
+        None => Err(error),
+    }
+}
+
 async fn send_chunks(
     client: &Client,
+    transfer: &TransferClients,
     id: &str,
     upload_id: &str,
     file: &mut std::fs::File,
@@ -632,16 +740,23 @@ async fn send_chunks(
             .parse()
             .map_err(|_| CliError::usage("invalid chunk length"))?;
         let at = offset.to_string();
-        match fetch_body(client.files_upload_file_chunk(
-            id,
-            upload_id,
-            &at,
-            Some(&header),
-            None,
-            chunk,
-        ))
-        .await
-        {
+        let progress = Progress::new(size);
+        let body = progress.body(bytes_chunks(chunk));
+        let sent = with_upload_progress(
+            fetch_body(transfer.upload.files_upload_file_chunk(
+                id,
+                upload_id,
+                &at,
+                Some(&header),
+                None,
+                body,
+            )),
+            &progress,
+            UPLOAD_IDLE,
+            cmux_vm_client::TRANSFER_READ_IDLE,
+        )
+        .await;
+        match sent {
             Ok(body) => {
                 let state = UploadState::parse(&body)?;
                 if state.received <= offset {
@@ -653,6 +768,7 @@ async fn send_chunks(
                 retries = 0;
             }
             Err(error) if chunk_retryable(&error) && retries < CHUNK_RETRIES => {
+                back_off(retries, error).await?;
                 retries += 1;
                 let state = fetch_body(client.files_get_file_upload(id, upload_id, None)).await?;
                 offset = UploadState::parse(&state)?.received;
@@ -660,18 +776,101 @@ async fn send_chunks(
             Err(error) => return Err(error),
         }
     }
-    match call(client.files_commit_file_upload(id, upload_id, None)).await {
-        Ok(()) => Ok(()),
-        // A commit whose answer was lost may have finished: a later "upload
-        // not found" then means it did.
-        Err(error) if matches!(error.exit_code(), exit::NETWORK | exit::SERVICE_UNAVAILABLE) => {
+    Ok(())
+}
+
+/// Commits a fully sent upload. A commit can outlast its answer: a lost
+/// answer (a network error or 503) or 409 "a commit is already running" is
+/// followed by status reads with backoff until the commit settles. While the
+/// upload is still there the commit is sent again (409 again while one runs;
+/// 400 if bytes are missing, which fails). "Upload not found" means the commit
+/// finished, or that the upload expired or was lost, so the target is checked
+/// with [`verify_committed`] before that counts as success.
+async fn commit_upload(
+    client: &Client,
+    stream: &Client,
+    id: &str,
+    path: &types::GuestPath,
+    upload_id: &str,
+    length: u64,
+) -> Result<(), CliError> {
+    let mut polls = 0;
+    loop {
+        let error = match call(stream.files_commit_file_upload(id, upload_id, None)).await {
+            Ok(()) => return Ok(()),
+            Err(error)
+                if matches!(
+                    error.exit_code(),
+                    exit::NETWORK
+                        | exit::SERVICE_UNAVAILABLE
+                        | exit::CONFLICT
+                        | exit::QUOTA_EXCEEDED
+                ) && polls < COMMIT_SETTLE_POLLS =>
+            {
+                error
+            }
+            Err(error) => return Err(error),
+        };
+        // Read the status until it answers: still there (send the commit
+        // again) or gone (check the target).
+        let mut error = error;
+        loop {
+            back_off(polls, error).await?;
+            polls += 1;
             match call(client.files_get_file_upload(id, upload_id, None)).await {
-                Err(gone) if gone.exit_code() == exit::NOT_FOUND => Ok(()),
-                _ => call(client.files_commit_file_upload(id, upload_id, None)).await,
+                Ok(_) => break,
+                Err(gone) if gone.exit_code() == exit::NOT_FOUND => {
+                    return verify_committed(client, id, path, length).await;
+                }
+                Err(other)
+                    if matches!(
+                        other.exit_code(),
+                        exit::NETWORK | exit::SERVICE_UNAVAILABLE | exit::QUOTA_EXCEEDED
+                    ) && polls < COMMIT_SETTLE_POLLS =>
+                {
+                    error = other;
+                }
+                Err(other) => return Err(other),
             }
         }
+    }
+}
+
+/// After "upload not found" following a commit whose answer was lost: the
+/// commit finished only if the target is now a file of exactly the uploaded
+/// size (the server renames the whole verified file into place, never a
+/// partial one). A missing or different file means the upload expired or was
+/// lost before the commit ran.
+async fn verify_committed(
+    client: &Client,
+    id: &str,
+    path: &types::GuestPath,
+    length: u64,
+) -> Result<(), CliError> {
+    let lost = || {
+        CliError::unexpected(format!(
+            "the upload to {} ended without a confirmed commit (it expired or was lost) and the file there is not the uploaded one; upload it again",
+            path.as_str().escape_debug()
+        ))
+    };
+    match fetch_body(client.files_stat_file(id, path, None)).await {
+        Ok(body) => {
+            let stat = decode(&body)?;
+            if committed_stat_matches(&stat, length) {
+                Ok(())
+            } else {
+                Err(lost())
+            }
+        }
+        Err(error) if error.exit_code() == exit::NOT_FOUND => Err(lost()),
         Err(error) => Err(error),
     }
+}
+
+/// Whether a file stat shows the committed upload: a regular file of exactly
+/// `length` bytes.
+pub(crate) fn committed_stat_matches(stat: &Value, length: u64) -> bool {
+    stat["kind"].as_str() == Some("file") && stat["size"].as_u64() == Some(length)
 }
 
 /// The lowercase hex SHA-256 of a whole file, read from the start; the file is
@@ -699,9 +898,11 @@ pub(crate) fn sha256_hex(file: &mut impl Read) -> Result<String, CliError> {
         .collect())
 }
 
-/// The file as a request body read a chunk at a time.
-fn file_body(file: std::fs::File) -> reqwest::Body {
-    let chunks = futures::stream::unfold(Some(file), |state| async move {
+/// The file read a chunk at a time.
+fn file_chunks(
+    file: std::fs::File,
+) -> impl futures::Stream<Item = Result<Vec<u8>, std::io::Error>> + Send + 'static {
+    futures::stream::unfold(Some(file), |state| async move {
         let mut file = state?;
         let mut buffer = vec![0_u8; 256 * 1024];
         loop {
@@ -715,8 +916,113 @@ fn file_body(file: std::fs::File) -> reqwest::Body {
                 Err(e) => return Some((Err(e), None)),
             }
         }
-    });
-    reqwest::Body::wrap_stream(chunks)
+    })
+}
+
+/// Bytes already in memory, in pieces small enough to show progress.
+fn bytes_chunks(
+    bytes: Vec<u8>,
+) -> impl futures::Stream<Item = Result<Vec<u8>, std::io::Error>> + Send + 'static {
+    let pieces: Vec<Result<Vec<u8>, std::io::Error>> = bytes
+        .chunks(256 * 1024)
+        .map(|piece| Ok(piece.to_vec()))
+        .collect();
+    futures::stream::iter(pieces)
+}
+
+/// How far an upload body has got: when it last moved, and whether all of it
+/// has been handed to the connection.
+#[derive(Clone)]
+pub(crate) struct Progress {
+    state: Arc<Mutex<ProgressState>>,
+}
+
+struct ProgressState {
+    last: tokio::time::Instant,
+    sent: u64,
+    length: u64,
+}
+
+impl Progress {
+    pub(crate) fn new(length: u64) -> Self {
+        Self {
+            state: Arc::new(Mutex::new(ProgressState {
+                last: tokio::time::Instant::now(),
+                sent: 0,
+                length,
+            })),
+        }
+    }
+
+    /// Notes `bytes` more handed to the connection.
+    pub(crate) fn advance(&self, bytes: u64) {
+        if let Ok(mut state) = self.state.lock() {
+            state.last = tokio::time::Instant::now();
+            state.sent = state.sent.saturating_add(bytes);
+        }
+    }
+
+    /// Whether the whole body has been handed to the connection.
+    fn finished(&self) -> bool {
+        match self.state.lock() {
+            Ok(state) => state.sent >= state.length,
+            Err(_) => true,
+        }
+    }
+
+    /// When the upload counts as stalled if nothing changes: `idle` after the
+    /// body last moved, or `answer` after its last byte.
+    fn deadline(&self, idle: Duration, answer: Duration) -> tokio::time::Instant {
+        match self.state.lock() {
+            Ok(state) if state.sent >= state.length => state.last + answer,
+            Ok(state) => state.last + idle,
+            Err(_) => tokio::time::Instant::now(),
+        }
+    }
+
+    /// `chunks` as a request body that records its progress here.
+    fn body<S>(&self, chunks: S) -> reqwest::Body
+    where
+        S: futures::Stream<Item = Result<Vec<u8>, std::io::Error>> + Send + 'static,
+    {
+        let progress = self.clone();
+        reqwest::Body::wrap_stream(chunks.map(move |item| {
+            if let Ok(piece) = &item {
+                progress.advance(piece.len() as u64);
+            }
+            item
+        }))
+    }
+}
+
+/// Runs an upload request with no total deadline, failing it only when its
+/// body stops moving for `idle`, or when no answer comes within `answer`
+/// after the last byte went out.
+pub(crate) async fn with_upload_progress<T>(
+    request: impl std::future::Future<Output = Result<T, CliError>>,
+    progress: &Progress,
+    idle: Duration,
+    answer: Duration,
+) -> Result<T, CliError> {
+    tokio::pin!(request);
+    loop {
+        let deadline = progress.deadline(idle, answer);
+        tokio::select! {
+            result = &mut request => return result,
+            () = tokio::time::sleep_until(deadline) => {
+                if progress.deadline(idle, answer) <= tokio::time::Instant::now() {
+                    return Err(CliError::network(if progress.finished() {
+                        format!(
+                            "the cmux VM API did not answer within {} s of the upload's last byte",
+                            answer.as_secs()
+                        )
+                    } else {
+                        format!("the upload stalled: nothing was sent for {} s", idle.as_secs())
+                    }));
+                }
+            }
+        }
+    }
 }
 
 /// Streams a guest file into `local` through a temporary sibling that is
@@ -928,6 +1234,79 @@ mod tests {
         assert!(chunk_retryable(&CliError::network("x")));
         assert!(!chunk_retryable(&CliError::usage("x")));
         assert!(!chunk_retryable(&CliError::answered_no()));
+    }
+
+    #[test]
+    fn retries_back_off_exponentially_with_jitter_and_honor_retry_after() {
+        let at = |attempt, jitter| retry_delay(attempt, None, jitter).unwrap();
+        assert_eq!(at(0, 0.0), Duration::from_millis(250));
+        assert_eq!(at(0, 1.0), Duration::from_millis(500));
+        assert_eq!(at(1, 1.0), Duration::from_secs(1));
+        assert_eq!(at(3, 1.0), Duration::from_secs(4));
+        // Capped, however many attempts.
+        assert_eq!(at(30, 1.0), RETRY_CAP);
+        assert!(at(2, 0.3) > at(2, 0.0) && at(2, 0.3) < at(2, 1.0));
+        // A server's wait is a floor, and a very long one is not waited for.
+        assert_eq!(
+            retry_delay(0, Some(Duration::from_secs(5)), 1.0),
+            Some(Duration::from_secs(5))
+        );
+        assert_eq!(retry_delay(0, Some(Duration::from_secs(61)), 1.0), None);
+        let jittered = jitter();
+        assert!((0.0..1.0).contains(&jittered));
+    }
+
+    #[test]
+    fn a_commit_counts_only_with_the_uploaded_file_in_place() {
+        assert!(committed_stat_matches(
+            &json!({"kind": "file", "size": 10}),
+            10
+        ));
+        assert!(!committed_stat_matches(
+            &json!({"kind": "file", "size": 9}),
+            10
+        ));
+        assert!(!committed_stat_matches(
+            &json!({"kind": "directory", "size": 10}),
+            10
+        ));
+    }
+
+    #[tokio::test]
+    async fn an_upload_fails_only_when_its_body_stops_moving() {
+        let idle = Duration::from_millis(150);
+        let answer = Duration::from_millis(150);
+        // Moving steadily for longer than `idle` in all: not stalled.
+        let progress = Progress::new(10);
+        let moving = progress.clone();
+        let steady = async move {
+            for _ in 0..10 {
+                tokio::time::sleep(Duration::from_millis(50)).await;
+                moving.advance(1);
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            Ok::<_, CliError>(())
+        };
+        assert!(
+            with_upload_progress(steady, &progress, idle, answer)
+                .await
+                .is_ok()
+        );
+        // Nothing sent: stalled after `idle`.
+        let progress = Progress::new(10);
+        let stuck = std::future::pending::<Result<(), CliError>>();
+        let error = with_upload_progress(stuck, &progress, idle, answer)
+            .await
+            .unwrap_err();
+        assert_eq!(error.exit_code(), exit::NETWORK);
+        // Everything sent but no answer: fails after `answer`.
+        let progress = Progress::new(4);
+        progress.advance(4);
+        let silent = std::future::pending::<Result<(), CliError>>();
+        let error = with_upload_progress(silent, &progress, idle, answer)
+            .await
+            .unwrap_err();
+        assert_eq!(error.exit_code(), exit::NETWORK);
     }
 
     #[test]

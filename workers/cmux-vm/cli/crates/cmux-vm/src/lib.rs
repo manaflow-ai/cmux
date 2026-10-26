@@ -576,8 +576,13 @@ async fn execute(
             concat!("cmux-vm/", env!("CARGO_PKG_VERSION")),
         )
         .map_err(|e| CliError::usage(e.to_string()))?;
+        let transfer = files::TransferClients {
+            stream: client.clone(),
+            upload: client.clone(),
+        };
         return dispatch(
             &client,
+            &transfer,
             cli.command,
             prompt,
             output::Printer::new(cli.json, stdout),
@@ -593,24 +598,38 @@ async fn execute(
     for warning in &settings.warnings {
         error::report_warning(warning, cli.json, stderr);
     }
-    let client = cmux_vm_client::authenticated_raw_client(
-        &settings.base_url,
-        &settings.api_key,
-        settings.team_id.as_deref(),
-        concat!("cmux-vm/", env!("CARGO_PKG_VERSION")),
-    )
-    .map_err(|e| CliError::usage(e.to_string()))?;
+    // Ordinary calls keep a total deadline; transfers get their own clients
+    // without one (see `files::TransferClients`).
+    let build = |limits| {
+        cmux_vm_client::authenticated_raw_client_with(
+            &settings.base_url,
+            &settings.api_key,
+            settings.team_id.as_deref(),
+            concat!("cmux-vm/", env!("CARGO_PKG_VERSION")),
+            limits,
+        )
+        .map_err(|e| CliError::usage(e.to_string()))
+    };
+    let client = build(cmux_vm_client::Limits::API)?;
+    let transfer = files::TransferClients {
+        stream: build(cmux_vm_client::Limits::STREAM)?,
+        upload: build(cmux_vm_client::Limits::UPLOAD)?,
+    };
     match cli.command {
-        Command::Ssh(args) => access::ssh(&client, args, cli.json, stderr).await,
+        Command::Ssh(args) => {
+            let program = env(access::SSH_PROGRAM_ENV).unwrap_or_else(|| "ssh".to_owned());
+            access::ssh(&client, args, &program, cli.json, stderr).await
+        }
         command => {
             let out = output::Printer::new(cli.json, stdout);
-            dispatch(&client, command, prompt, out).await
+            dispatch(&client, &transfer, command, prompt, out).await
         }
     }
 }
 
 async fn dispatch(
     client: &Client,
+    transfer: &files::TransferClients,
     command: Command,
     prompt: &mut dyn Prompt,
     mut out: output::Printer<'_>,
@@ -965,18 +984,18 @@ async fn dispatch(
             out.revoked(id.as_str())
         }
         Command::ApiKey(command) => api_key(client, command, prompt, out).await,
-        Command::File(command) => files::file(client, command, prompt, out).await,
+        Command::File(command) => files::file(client, transfer, command, prompt, out).await,
         Command::Push(args) => {
             let copy = files::Transfer::push(args)?;
-            files::copy(client, copy.0, copy.1, out).await
+            files::copy(client, transfer, copy.0, copy.1, out).await
         }
         Command::Pull(args) => {
             let copy = files::Transfer::pull(args)?;
-            files::copy(client, copy, files::UploadOptions::default(), out).await
+            files::copy(client, transfer, copy, files::UploadOptions::default(), out).await
         }
         Command::Scp(args) => {
             let (copy, mode) = files::Transfer::scp(args)?;
-            files::copy(client, copy, mode, out).await
+            files::copy(client, transfer, copy, mode, out).await
         }
         Command::Ssh(_) => Err(CliError::usage("ssh needs account configuration")),
         Command::Session(command) => access::session(client, command, prompt, out).await,

@@ -20,8 +20,10 @@ reqwest.workspace = true
 ring = "0.17"
 serde.workspace = true
 serde_json = { workspace = true, features = ["preserve_order"] }
-# `signal`: abandon a resumable upload on Ctrl-C.
-tokio = { workspace = true, features = ["signal"] }
+# `signal`: abandon a resumable upload on Ctrl-C, revoke an ssh session on
+# SIGHUP/SIGTERM. `process`: wait for ssh without blocking a runtime thread.
+# `time`: retry backoff and the upload stall watchdog.
+tokio = { workspace = true, features = ["process", "signal", "time"] }
 
 [dev-dependencies]
 wiremock.workspace = true
