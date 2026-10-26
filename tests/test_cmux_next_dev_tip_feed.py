@@ -5,6 +5,7 @@ the publisher steps that stamp and publish it."""
 from __future__ import annotations
 
 import importlib.util
+import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -61,23 +62,26 @@ stamp = workflow.index("Stamp the tip feed, its key and a build number")
 check(stamp < workflow.index("Sign and verify cmux NEXT DEV"), "the stamp happens before signing")
 check("secrets.NIGHTLY_SPARKLE_PRIVATE_KEY" in workflow and "secrets.SPARKLE_NEXT_PRIVATE_KEY" not in workflow,
       "the tip feed uses the release environment's NIGHTLY Sparkle key")
+tip_dmg = workflow[workflow.index("\n  tip-dmg:\n"):workflow.index("\n  tip:\n")]
 tip = workflow[workflow.index("\n  tip:\n"):]
-check("environment: release" in tip, "the tip job runs in the existing release environment")
-check("concurrency:" not in tip and "cancel-in-progress" not in tip, "a newer tip build never cancels or evicts another")
-check(tip.index("notarytool submit") < tip.index("./scripts/sparkle_generate_appcast.sh"), "the DMG is notarized before the feed names it")
+for job, label in ((tip_dmg, "tip-dmg"), (tip, "tip")):
+    check("environment: release" in job, f"{label} runs in the existing release environment")
+    check("concurrency:" not in job and "cancel-in-progress" not in job, f"a newer tip build never cancels or evicts another ({label})")
+    check("needs.sign.outputs.build != ''" in job.split("steps:")[0], f"only a stamped build gets a tip DMG ({label})")
+    check(job.split("needs:")[0].count("continue-on-error: true") == 1,
+          f"a red {label} job never makes the dispatcher re-publish the same source run")
+check(tip_dmg.index("notarytool submit") < tip_dmg.index("./scripts/sparkle_generate_appcast.sh"), "the DMG is notarized before the feed names it")
 uploads = tip[tip.index("Upload the tip feed to R2"):]
 check(uploads.index("upload \"tip-new/") < uploads.index("r2_cas.py put"),
       "archives upload before the feed that names them")
 check("TIP_APP_FLOOR_SHA: df21458196edaaf3de5192da56ecd2a315aacae7" in workflow
       and 'compare/$TIP_APP_FLOOR_SHA...$SOURCE_SHA' in workflow,
       "a source from before the tip app (#24954) gets no tip feed")
-check("needs.sign.outputs.build != ''" in tip.split("steps:")[0], "only a stamped build gets a tip DMG")
-check('[[ "$app_key" == "$signing_key" ]]' in tip, "the feed key must be the key the app in the DMG trusts")
-check("generate_appcast did not add edSignature" in tip, "the sign_update fallback never publishes")
-check(tip.index('[[ "$app_key" == "$signing_key" ]]') < tip.index("./scripts/sparkle_generate_appcast.sh"),
+check('[[ "$app_key" == "$signing_key" ]]' in tip_dmg and '[[ "$app_build" == "$TIP_BUILD" ]]' in tip_dmg,
+      "the feed key must be the key the app in the DMG trusts, and the DMG must hold this build")
+check("generate_appcast did not add edSignature" in tip_dmg, "the sign_update fallback never publishes")
+check(tip_dmg.index('[[ "$app_key" == "$signing_key" ]]') < tip_dmg.index("./scripts/sparkle_generate_appcast.sh"),
       "the key is checked before the feed is generated")
-check(tip.split("needs:")[0].count("continue-on-error: true") == 1,
-      "a red tip job never makes the dispatcher re-publish the same source run")
 sign = workflow[workflow.index("\n  sign:\n"):workflow.index("\n  verify:\n")]
 verify = workflow[workflow.index("\n  verify:\n"):workflow.index("\n  publish:\n")]
 # The signer runs on Linux (rcodesign): no keychain, no DMG and no notarization there.
@@ -91,18 +95,18 @@ check(all(line.strip().startswith("[[ -n") for line in sign_code.splitlines() if
       "the Sparkle private key reaches the key derivation by environment, never on a command line")
 check("notary_id" not in workflow, "the tip job makes its own notarization submission")
 # The tip job builds, signs and submits the DMG, with a keychain it deletes before notarizing.
-steps = [tip.find(marker) for marker in (
+steps = [tip_dmg.find(marker) for marker in (
     "name: Download the signed app\n", "codesign --verify --deep --strict", "-format ULMO",
     "signing-keychain.sh create", "codesign --force --timestamp --keychain", "signing-keychain.sh delete",
     "notarytool submit", 'notarytool wait "$id"', "xcrun stapler staple", "./scripts/sparkle_generate_appcast.sh")]
 check(-1 not in steps and steps == sorted(steps), "tip: unpack and codesign the signed app, build the DMG, sign it, delete the keychain, then notarize")
-check(tip.count("if: always()") >= 2, "the tip job deletes its keychain whatever happens")
+check(tip_dmg.count("if: always()") >= 2, "tip-dmg deletes its keychain whatever happens")
 publish = workflow[workflow.index("\n  publish:\n"):workflow.index("\n  tip:\n")]
 # Apple's codesign runs in verify now, so publish and tip ship only what verify passed. A skipped
 # or cancelled verify has empty outputs and a result other than success: both block.
-for job, label in ((publish, "publish"), (tip, "tip")):
+for job, label, needs in ((publish, "publish", "needs: [sign, verify]"), (tip, "tip", "needs: [sign, verify, tip-dmg]")):
     head = job.split("steps:")[0]
-    check("needs: [sign, verify]" in head and "needs.verify.result == 'success'" in head
+    check(needs in head and "needs.verify.result == 'success'" in head
           and "needs.verify.outputs.verified == 'true'" in head and "needs.sign.result == 'success'" in head,
           f"{label} needs verify to succeed with verified 'true'")
 runner = workflow[workflow.index("\n  runner:\n"):workflow.index("\n  verify:\n")]
@@ -121,7 +125,7 @@ check("verified: ${{ steps.check.outputs.verified }}" in verify
 check("tip" not in publish.split("needs:")[1].split("\n")[0], "the rolling prerelease never waits for the tip feed")
 # Freshness (2026-10-26: nothing published for six hours): the signer never waits on the 12 vCPU
 # macOS label, and no shared group evicts a newer handoff while a signer waits.
-check(all("12vcpu" not in line for job in (sign, tip) for line in job.splitlines() if line.strip().startswith("runs-on:")),
+check(all("12vcpu" not in line for job in (sign, tip_dmg, tip) for line in job.splitlines() if line.strip().startswith("runs-on:")),
       "sign and tip never queue on blacksmith-12vcpu-macos-26")
 check("concurrency:" not in sign.split("steps:")[0], "no concurrency group evicts a newer DEV handoff while a signer waits")
 # No group anywhere in the publisher (a group replaces a pending run): the newest write wins instead.
@@ -139,11 +143,78 @@ publish_step = publish[publish.index("- name: Publish the rolling GitHub prerele
 check("timeout-minutes: 45" in publish_step.split("run: |")[0] and "--ttl 3000" in publish_step
       and "(( wait > 900 - waited ))" in publish_step,
       "the publish lease outlives the publish step, so it is never taken from a run still writing")
-check("TIP_RUN_TAG: r${{ github.run_id }}-${{ github.run_attempt }}" in tip
-      and 'cmux-NEXT-DEV-$TIP_BUILD.dmg' not in tip
-      and "SPARKLE_DELTA_NAME_PREFIX: cmux-NEXT-DEV-tip-${{ github.run_id }}-${{ github.run_attempt }}-" in tip,
-      "each attempt's tip archive and deltas have their own names, so a re-run never hits an earlier upload")
+check("TIP_RUN_TAG: r${{ github.run_id }}-${{ github.run_attempt }}" in tip_dmg
+      and "TIP_RUN_TAG: ${{ needs.tip-dmg.outputs.run_tag }}" in tip
+      and 'cmux-NEXT-DEV-$TIP_BUILD.dmg' not in tip_dmg + tip
+      and "SPARKLE_DELTA_NAME_PREFIX: cmux-NEXT-DEV-tip-${{ github.run_id }}-${{ github.run_attempt }}-" in tip_dmg,
+      "each attempt's tip archive and deltas have their own names, and tip uploads the ones tip-dmg made")
 check("--write-once" in tip, "tip archives and deltas are write-once, so a feed's signature always matches its bytes")
+
+# Move 4 (Leo, 2026-10-26: "And I thought we were incremental..."): tip-dmg builds, signs and
+# notarizes while verify runs; tip, the only R2 writer, still needs verify.
+import yaml
+jobs = yaml.safe_load(workflow)["jobs"]
+dmg_job, feed_job = jobs["tip-dmg"], jobs["tip"]
+check(dmg_job["needs"] == ["sign"] and "verify" not in dmg_job["if"], "tip-dmg starts right after sign, alongside verify")
+check(feed_job["needs"] == ["sign", "verify", "tip-dmg"] and "needs.tip-dmg.outputs.ready == 'true'" in feed_job["if"],
+      "tip writes the feed only after verify passed and tip-dmg handed off a ready DMG")
+dmg_steps = {step.get("name"): step for step in dmg_job["steps"]}
+build_dmg = dmg_steps["Build the tip DMG"]
+check("continue-on-error" not in build_dmg, "tip-dmg's codesign check is never advisory")
+build_run = build_dmg["run"]
+codesign_line = next(line for line in build_run.splitlines() if "codesign --verify --deep --strict" in line)
+check("|| true" not in build_run and "||" not in codesign_line and "set -euo pipefail" in build_run,
+      "a codesign error fails tip-dmg: no || true, and pipefail keeps codesign's status through tee")
+check('grep -q "sealed resource is missing or invalid" codesign-verify.log; then' in build_run
+      and build_run.index("sealed resource is missing or invalid") < build_run.index("hdiutil create"),
+      "a sealed resource missing or invalid fails tip-dmg before the DMG exists")
+order = [tip_dmg.find(marker) for marker in (
+    "codesign --verify --deep --strict", "hdiutil create", "codesign --force --timestamp", "notarytool submit",
+    "xcrun stapler staple", '[[ "$app_key" == "$signing_key" ]]', "./scripts/sparkle_generate_appcast.sh",
+    "python3 scripts/ci/tip_feed.py check", "name: Upload the tip DMG and appcast for tip", "name: Mark the tip DMG ready for tip")]
+check(-1 not in order and order == sorted(order),
+      "tip-dmg: codesign the app, build, sign, notarize and staple the DMG, check its key and build, then hand off")
+check("CF_R2_" not in tip_dmg and "r2_cas.py" not in tip_dmg and "upload-r2-object.py" not in tip_dmg,
+      "tip-dmg writes nothing public: R2 keys and uploads live only in tip, after verify")
+check(dmg_job["outputs"]["ready"] == "${{ steps.ready.outputs.ready }}" and dmg_steps["Mark the tip DMG ready for tip"]["id"] == "ready"
+      and "if" in dmg_steps["Mark the tip DMG ready for tip"] and "always()" not in dmg_steps["Mark the tip DMG ready for tip"]["if"],
+      "ready is set only by the step after the handoff upload, so a failed tip-dmg never reads as ready")
+check("${{ github.run_attempt }}" not in feed_job["env"]["TIP_RUN_TAG"] and "handoff" in dmg_job["outputs"]
+      and "cmux-next-dev-tip-$GITHUB_RUN_ATTEMPT" in tip_dmg,
+      "each tip-dmg attempt hands off under its own artifact name, which tip reads from its outputs")
+check("ubuntu" in feed_job["runs-on"] and "macos" not in feed_job["runs-on"], "tip, left with only R2 writes, runs on Linux")
+feed_steps = [step.get("name") for step in feed_job["steps"]]
+check(feed_steps.index("Require the archive verify tested") < feed_steps.index("Upload the tip feed to R2")
+      and "if" not in feed_job["steps"][feed_steps.index("Upload the tip feed to R2")],
+      "tip checks the digest verify tested before any upload")
+verify_job = jobs["verify"]
+check(any(step.get("with", {}).get("name") == "cmux-next-dev-daily-tested" for step in verify_job["steps"])
+      and any(step.get("with", {}).get("name") == "cmux-next-dev-daily-tested" for step in feed_job["steps"]),
+      "tip reads the digest verify uploads after it passed")
+
+# The digest gate, run in bash.
+require = next(step for step in feed_job["steps"] if step.get("name") == "Require the archive verify tested")["run"]
+def run_require(built, tested, tag="r7-1"):
+    with tempfile.TemporaryDirectory() as tmp:
+        tmp = Path(tmp)
+        (tmp / "tip-handoff").mkdir(); (tmp / "tip-tested").mkdir()
+        (tmp / "tip-handoff" / "built-from.sha256").write_text(built)
+        (tmp / "tip-tested" / "tested.sha256").write_text(tested)
+        (tmp / "tip-handoff" / "cmux-NEXT-DEV-102-r7-1.dmg").write_text("dmg")
+        (tmp / "tip-handoff" / "appcast-arm64.xml").write_text("feed")
+        (tmp / "tip-handoff" / "cmux-NEXT-DEV-tip-7-1-102-100.delta").write_text("delta")
+        env = {"PATH": "/usr/bin:/bin", "TIP_RUN_TAG": tag, "TIP_BUILD": "102", "TIP_APPCAST": "appcast-arm64.xml"}
+        result = subprocess.run(["bash", "-e", "-c", require], cwd=tmp, env=env, capture_output=True, text=True, timeout=30)
+        placed = sorted(str(path.relative_to(tmp)) for path in (*tmp.glob("tip-new/*"), *tmp.glob("tip-out/*")))
+        return result.returncode, placed
+digest = "ab" * 32 + "  cmux-NEXT-DEV.zip\n"
+rc, placed = run_require(digest, digest)
+check(rc == 0 and placed == ["tip-new/cmux-NEXT-DEV-102-r7-1.dmg", "tip-out/appcast-arm64.xml", "tip-out/cmux-NEXT-DEV-tip-7-1-102-100.delta"],
+      f"the tested archive's DMG, appcast and deltas go where the upload step reads them ({rc} {placed})")
+rc, placed = run_require(digest, "cd" * 32 + "  cmux-NEXT-DEV.zip\n")
+check(rc != 0 and placed == [], "a DMG around an archive verify did not test never reaches the upload")
+rc, placed = run_require(digest, digest, tag="")
+check(rc != 0, "a handoff with no run tag never publishes")
 check(tip_feed.newest(feed(30, 50, 40)) == 50 and tip_feed.newest(feed()) == 0, "newest reads the feed's newest build")
 
 
