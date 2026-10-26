@@ -286,7 +286,16 @@ class Workflow(unittest.TestCase):
             text = WORKFLOW.read_text().split(f"      - name: {name}\n", 1)[1]
             text = text.split("\n      - name:", 1)[0]
             run = text.split("        run: ", 1)[1]
-            return textwrap.dedent(run.split("\n", 1)[1]) if run.startswith("|") else run.splitlines()[0]
+            if not run.startswith("|"):
+                return run.splitlines()[0]
+            lines = run.splitlines()[1:]
+            indent = len(lines[0]) - len(lines[0].lstrip())
+            script = []
+            for line in lines:
+                if line.strip() and not line.startswith(" " * indent):
+                    break
+                script.append(line)
+            return textwrap.dedent("\n".join(script))
 
         with tempfile.TemporaryDirectory() as tmp:
             tmp = Path(tmp)
@@ -335,8 +344,8 @@ class Workflow(unittest.TestCase):
         step = text[text.index("      - name: Test webviews\n"):]
         step = step[: step.index("\n      - name:", 10)]
         self.assertIn("BASE_REF: ${{ github.event_name == 'pull_request' && 'HEAD^1' || '' }}", step)
-        self.assertIn('run: ../scripts/ci/webviews-tests-new-reds.sh "$BASE_REF"', step)
-        self.assertIn("CMUX_WEB_TEST_RESULTS: ${{ runner.temp }}/webviews-head-results.json", step)
+        self.assertIn('../scripts/ci/webviews-tests-new-reds.sh "$BASE_REF"', step)
+        self.assertIn("CMUX_WEB_TEST_RESULTS: ${{ runner.temp }}/webviews-head-results/webviews-head-results.json", step)
         self.assertIn("CMUX_WEB_TEST_SKIP_BASE: ${{ github.event_name == 'pull_request' && '1' || '0' }}", step)
         self.assertIn("Upload head webview results", text)
         self.assertIn("react-apps-head-results-shard${{ matrix.shard }}", text)

@@ -9,7 +9,7 @@
 #
 # CMUX_WEB_TEST_FILE_TIMEOUT: seconds one file may run (default 120); a file may declare more
 # with a `// cmux-web-test-timeout: SECONDS` header line, up to CMUX_WEB_TEST_MAX_FILE_TIMEOUT
-# (default 900). The 3000s attachment stress test once outlived the entire 40-minute CI job;
+# (default 900). A 3000s attachment stress-file allowance can outlive the entire 40-minute CI job;
 # longer runs must explicitly raise the ceiling outside the ordinary PR shard.
 # CMUX_WEB_TEST_TIMEOUT_MS: one test's default limit (bun's own default is 5000); a test or file
 # that sets its own (setDefaultTimeout, a per-test timeout) keeps it. 30000 by default: on a fleet
@@ -313,7 +313,8 @@ while read -r result file log; do
     continue
   fi
   remaining=$((retry_budget - (SECONDS - retry_started)))
-  retry_limit="$(file_limit "$file" "$timeout_seconds")"
+  normal_limit="$(file_limit "$file" "$timeout_seconds")"
+  retry_limit="$normal_limit"
   if [ "$remaining" -lt "$retry_limit" ]; then retry_limit="$remaining"; fi
   echo "RETRY $file (remaining budget ${remaining}s, hard limit ${retry_limit}s)"
   retried=$((retried + 1))
@@ -322,7 +323,18 @@ while read -r result file log; do
   if tr '\0' '\n' < "$results/serial" | grep -qxF -- "$file"; then cache="$vite/retry-$retried"; fi
   CMUX_WEB_TEST_MAX_FILE_TIMEOUT="$retry_limit" bash "$self" --one "$file" "$results" "$timeout_seconds" "$cache" < /dev/null
   if [ -n "$cache" ]; then rm -rf "$cache" || true; fi
-  if grep -qxF "PASS $file $log" "$results/summary"; then
+  if [ "$retry_limit" -lt "$normal_limit" ] && grep -qxF "TIMEOUT $file $log" "$results/summary"; then
+    # An incomplete retry is not a full-file timeout: keep the first run's actual named
+    # failure. Otherwise an old base assertion would become a new file-level head red.
+    echo "retry budget exhausted during $file; retaining its first failure"
+    while read -r saved_result saved_file saved_log; do
+      if [ "$saved_file" = "$file" ]; then saved_result=FAIL; fi
+      printf '%s %s %s\n' "$saved_result" "$saved_file" "$saved_log"
+    done < "$results/summary" > "$results/adjusted-summary"
+    mv "$results/adjusted-summary" "$results/summary"
+    { echo "--- retry stopped at shared budget ---"; cat "$log"; echo "--- first failure retained ---"; cat "$log.first"; } > "$log.both"
+    mv "$log.both" "$log"
+  elif grep -qxF "PASS $file $log" "$results/summary"; then
     echo "$file (first run: $result)" >> "$results/retry-passed"
   else
     { echo "--- first run: $result ---"; cat "$log.first"; echo "--- retry, alone ---"; cat "$log"; } > "$log.both"
