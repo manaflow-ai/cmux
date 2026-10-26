@@ -1,11 +1,20 @@
 public import AppKit
 import CmuxNextCompat
 public import CmuxNextDesignTokens
+public import CmuxNextWakeups
 
 /// `StatusIndicatorLayer` in an NSView, for view-based hosts (sidebar rows,
 /// group headers, section items, Home, pane headers). Follows the shared
-/// config live, resolves colors in its theme scope, and stops animating
-/// while its window is occluded, off screen or under Reduce Motion.
+/// config live, resolves colors in its theme scope, and animates only while
+/// its ``visibilityNode`` is visible and Reduce Motion is off.
+///
+/// The node sits under its host's node (``hostVisibility``: a row's, a tab's) or else its window's
+/// (``WindowVisibilitySource``), and its own state is AppKit's hidden state for the view (recipe
+/// R-hide, plans/cmux-next/chrome-parity/p06-scheduler.md). A hidden app, a miniaturized or
+/// occluded window, a parked workspace and a hidden ancestor all reach it as one flip; the view
+/// observes no window and walks no ancestors. Chromium paces a hidden WebContents the same way, from
+/// the one visibility its owner sets (`content/public/browser/visibility.h`,
+/// `WebContentsImpl::UpdateWebContentsVisibility`).
 public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
     public let indicator = StatusIndicatorLayer()
     public private(set) var state: StatusIndicatorState = .idle
@@ -13,17 +22,13 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
     /// setting.
     public private(set) var styleHint: StatusIndicatorStyle?
 
-    /// Whether the window is on screen and not fully covered. Hosts that
-    /// already track occlusion (the sidebar list) set it; otherwise the view
-    /// reads it when it moves to a window.
-    public var isWindowVisible = true {
-        didSet { if isWindowVisible != oldValue { refresh() } }
-    }
+    /// This indicator in the visibility tree. Its loop runs only while the node is visible.
+    public let visibilityNode: VisibilityNode
 
-    /// Whether the view follows its own window's occlusion (chrome spinners whose host tracks
-    /// none, `spinner()`). Off for hosts that set `isWindowVisible` themselves (the sidebar list).
-    public var tracksWindowOcclusion = false {
-        didSet { if tracksWindowOcclusion != oldValue { observeOcclusion() } }
+    /// The node this indicator sits under: its row's or its tab's. Nil puts it under its window's
+    /// node. It must not be ``visibilityNode`` or a node below it.
+    public var hostVisibility: VisibilityNode? {
+        didSet { if hostVisibility !== oldValue { placeInTree() } }
     }
 
     /// Draws at the host's size whatever `appearance.statusIndicator.scale` says (chrome spinners
@@ -39,24 +44,23 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
         didSet { if usesStatusColors != oldValue { needsDisplay = true } }
     }
 
-    /// Where it hears of its window's occlusion (tests post to their own).
-    public var notificationCenter: NotificationCenter = .default {
-        didSet {
-            guard notificationCenter !== oldValue else { return }
-            stopObservingOcclusion()
-            observeOcclusion()
-        }
-    }
+    /// The parent of ``visibilityNode`` while the view is in no window: always hidden.
+    private let offWindow: VisibilityNode
+    private var flips: VisibilitySubscription?
 
-    private var occlusionObserver: MainActorObservation?
-    private weak var observedWindow: NSWindow?
+    /// The key of the resync a hidden indicator owes (``statusIndicatorResync()``).
+    private static let resyncKey = "StatusIndicatorView.resync"
 
     public override init(frame: NSRect) {
+        let offWindow = VisibilityNode(root: "statusIndicator.offWindow", own: .hidden)
+        self.offWindow = offWindow
+        visibilityNode = VisibilityNode("statusIndicator", own: .hidden, parent: offWindow)
         super.init(frame: frame)
         wantsLayer = true
         layer?.addSublayer(indicator.layer)
         indicator.hostIsFlipped = isFlipped
         isHidden = true
+        flips = visibilityNode.subscribe(owner: "StatusIndicatorView") { [weak self] _ in self?.applyPlan() }
         StatusIndicatorAppearance.shared.register(self)
     }
 
@@ -84,47 +88,60 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
         superview?.needsLayout = true
     }
 
-    /// A resync arrived while the view was out of a window or hidden (its own flag or an
-    /// ancestor's: a parked workspace, a collapsed group); it runs when the view shows again.
-    private var owesResync = false
-
     /// Checks the indicator again (the app came back, a window became main, the Mac woke). Only
-    /// an indicator on screen does the work now: an activation costs what shows, not every row
-    /// and tab of the session (user 2026-10-21, Cmd-Tab lag with many workspaces).
+    /// an indicator whose node is visible does the work now; a hidden one does it once when it
+    /// shows: an activation costs what shows, not every row and tab of the session (user
+    /// 2026-10-21, Cmd-Tab lag with many workspaces).
     public func statusIndicatorResync() {
-        guard window != nil, !isHiddenOrHasHiddenAncestor else {
-            owesResync = true
-            return
+        visibilityNode.deferUntilVisible(key: Self.resyncKey) { [weak self] in
+            guard let self else { return }
+            StatusIndicatorAppearance.resyncs &+= 1
+            refresh()
         }
-        owesResync = false
-        StatusIndicatorAppearance.resyncs &+= 1
-        if let window { isWindowVisible = window.occlusionState.contains(.visible) }
-        refresh()
+    }
+
+    public override func viewDidHide() {
+        super.viewDidHide()
+        visibilityNode.set(.hidden)
     }
 
     public override func viewDidUnhide() {
         super.viewDidUnhide()
-        if owesResync, !isHiddenOrHasHiddenAncestor { statusIndicatorResync() }
+        visibilityNode.set(.visible)
+    }
+
+    /// The shared config, at the host's size when ``ignoresScaleSetting`` is on.
+    private var currentConfig: StatusIndicatorConfig {
+        var config = StatusIndicatorAppearance.shared.config
+        if ignoresScaleSetting { config.settings.scale = 1 }
+        return config
+    }
+
+    private func plan(_ config: StatusIndicatorConfig, animates: Bool) -> StatusIndicatorPlan {
+        StatusIndicatorPlan.make(state, style: config.style(hint: styleHint), animates: animates, set: config.iconSet,
+                                 isStatic: config.isStatic, staticShapes: config.staticShapes,
+                                 working: config.workingLook)
     }
 
     private func refresh() {
-        var config = StatusIndicatorAppearance.shared.config
-        if ignoresScaleSetting { config.settings.scale = 1 }
-        // A host's hidden flag that went stale (its "visible" notice missed this row) cannot keep a
-        // row on a visible window still: the window's own state wins when it says visible.
-        let visible = isWindowVisible || window?.occlusionState.contains(.visible) == true
-        let animates = window != nil && visible && config.animatesLoops
-        let plan = StatusIndicatorPlan.make(state, style: config.style(hint: styleHint), animates: animates, set: config.iconSet,
-                                            isStatic: config.isStatic, staticShapes: config.staticShapes,
-                                            working: config.workingLook)
+        let config = currentConfig
         let showed = showsGlyph
         nameState()
-        indicator.apply(plan, config: config)
-        isHidden = plan.glyph == .none
+        // Shown or hidden before the plan applies, so AppKit's unhide reaches ``visibilityNode`` and the
+        // loop starts in this pass (whether a glyph shows does not depend on the loop).
+        isHidden = plan(config, animates: false).glyph == .none
+        applyPlan(config)
         // The host reserves trailing space only for a visible glyph.
         if showed != showsGlyph { superview?.needsLayout = true }
         needsLayout = true
         needsDisplay = true
+    }
+
+    /// Applies the plan with its loop only while ``visibilityNode`` is visible: a hidden indicator
+    /// keeps no animation in the render server.
+    private func applyPlan(_ given: StatusIndicatorConfig? = nil) {
+        let config = given ?? currentConfig
+        indicator.apply(plan(config, animates: visibilityNode.isVisible && config.animatesLoops), config: config)
     }
 
     public override func layout() {
@@ -147,28 +164,20 @@ public final class StatusIndicatorView: NSView, StatusIndicatorConfigClient {
 
     public override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        owesResync = false
-        observeOcclusion()
-        if let window { isWindowVisible = window.occlusionState.contains(.visible) }
+        // The new place is read below; a resync owed to the old one is moot.
+        visibilityNode.cancelDeferred(key: Self.resyncKey)
+        placeInTree()
         refresh()
     }
 
-    /// Watches the current window's occlusion while `tracksWindowOcclusion` is on; a window that
-    /// shows after the view moved into it starts the animation.
-    private func observeOcclusion() {
-        let target = tracksWindowOcclusion ? window : nil
-        guard observedWindow !== target || (target != nil) != (occlusionObserver != nil) else { return }
-        stopObservingOcclusion()
-        observedWindow = target
-        guard let target else { return }
-        let token = MainActorObservation(NSWindow.didChangeOcclusionStateNotification, object: target, center: notificationCenter) { [weak self] in
-            guard let self, let window = self.window else { return }
-            self.isWindowVisible = window.occlusionState.contains(.visible)
+    /// Puts ``visibilityNode`` under the host's node or the window's, or under the hidden root while
+    /// the view is in no window.
+    private func placeInTree() {
+        let parent = window.map { hostVisibility ?? WindowVisibilitySource.of($0).node } ?? offWindow
+        do {
+            try visibilityNode.attach(to: parent)
+        } catch {
+            assertionFailure("StatusIndicatorView: \(parent.name) cannot hold the indicator's node (\(error))")
         }
-        occlusionObserver = token
-    }
-
-    private func stopObservingOcclusion() {
-        occlusionObserver = nil
     }
 }
