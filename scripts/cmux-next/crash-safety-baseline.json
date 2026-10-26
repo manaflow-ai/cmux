@@ -86,7 +86,6 @@
    "CmuxNextBrowser": 4,
    "CmuxNextBrowserAutomation": 1,
    "CmuxNextBrowserImport": 1,
-   "CmuxNextDictation": 6,
    "CmuxNextServerHelper": 5,
    "CmuxNextTerminal": 7,
    "MessagesLabSidebar": 1
@@ -151,6 +150,7 @@
     "CmuxNextCrashReporting": 12,
     "CmuxNextDaemon": 1,
     "CmuxNextDesign": 4,
+    "CmuxNextDictation": 2,
     "CmuxNextFiles": 2,
     "CmuxNextHome": 1,
     "CmuxNextHomeEngine": 1,
