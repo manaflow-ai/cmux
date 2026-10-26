@@ -35,9 +35,10 @@ extension AgentTabStore {
     /// How many chats start their agent at once at launch.
     static let launchResumesInFlight = 4
 
-    /// The sessions of this Mac's chat tabs in every workspace, once each, in tree order: what a
-    /// relaunch resumes (``resumeChatsAtLaunch()``). Another machine's chats run there.
-    func sessionsToResume() -> [String] {
+    /// The sessions of this Mac's chat tabs in every workspace, once each, in tree order, paired
+    /// with the acpmux that owns each session. Chief-home records are included only when their tab
+    /// is listed by this Mac's local daemon; a remote machine's Chief record stays remote.
+    private func resumeTargetsAtLaunch() -> [(session: String, host: any AgentPaneHostProviding)] {
         guard let localHost else { return [] }
         var seen = Set<String>()
         return listTabs().compactMap { key, record in
@@ -46,33 +47,46 @@ extension AgentTabStore {
             // observation, then fall back to the tree record so launch does not depend on a page
             // having been constructed.
             let session = sessions[resolve(key)] ?? record.session
-            guard record.host == localHost, let session, seen.insert(session).inserted else { return nil }
-            return session
+            guard let session else { return nil }
+            let listedHere = daemonForTab(key)?.isLocal != false
+            let host: (any AgentPaneHostProviding)?
+            if record.host == localHost {
+                host = localSessionHost ?? self.host
+            } else if listedHere, record.host.hasPrefix(ChiefHomeAcpmux.hostPrefix) {
+                host = chiefTabHost(record.host)
+            } else {
+                host = nil
+            }
+            guard let host, seen.insert(record.host + "\0" + session).inserted else { return nil }
+            return (session: session, host: host)
         }
     }
+
+    /// The sessions this Mac asks acpmux to resume at launch, without exposing their host
+    /// routing. Kept as a small observable seam for the launch regression tests.
+    func sessionsToResume() -> [String] { resumeTargetsAtLaunch().map(\.session) }
 
     /// Starts the agent of every chat tab of this Mac at launch (cmux#22292): a chat's page, and
     /// with it its session, is made only when its tab shows, so the chats of a workspace not shown
     /// stayed stopped until it was. acpmux starts each one as the page would, with its own mode.
     func resumeChatsAtLaunch() async {
-        let sessions = sessionsToResume()
-        guard !sessions.isEmpty else { return }
-        let host = localSessionHost ?? host
+        let targets = resumeTargetsAtLaunch()
+        guard !targets.isEmpty else { return }
         await withTaskGroup(of: Void.self) { group in
-            var pending = sessions.makeIterator()
-            let warm: @Sendable (String) async -> Void = { session in
+            var pending = targets.makeIterator()
+            let warm: @Sendable ((session: String, host: any AgentPaneHostProviding)) async -> Void = { target in
                 do {
-                    try await host.warm(sessionIds: [session])
+                    try await target.host.warm(sessionIds: [target.session])
                 } catch {
-                    Self.launchLogger.error("launch resume of chat \(session, privacy: .public) failed: \(String(describing: error), privacy: .public)")
+                    Self.launchLogger.error("launch resume of chat \(target.session, privacy: .public) failed: \(String(describing: error), privacy: .public)")
                 }
             }
-            for session in sessions.prefix(Self.launchResumesInFlight) {
+            for target in targets.prefix(Self.launchResumesInFlight) {
                 _ = pending.next()
-                group.addTask { await warm(session) }
+                group.addTask { await warm(target) }
             }
             for await _ in group {
-                if let session = pending.next() { group.addTask { await warm(session) } }
+                if let target = pending.next() { group.addTask { await warm(target) } }
             }
         }
     }
