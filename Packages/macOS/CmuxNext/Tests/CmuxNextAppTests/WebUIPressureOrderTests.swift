@@ -89,7 +89,8 @@ struct WebUIPressureOrderTests {
         let slot = PagePreloadSlot(deadlines: services.mainDeadlines)
         host.preload = slot
         let engine = SpareWindowEngine(log: log)
-        let warmup = ChromiumWarmup(engine: engine, input: FakeInputTap(), memory: coordinator)
+        let warmup = ChromiumWarmup(engine: engine, idle: services.mainDeadlines, input: FakeInputTap(), memory: coordinator,
+                                    isTrackingMenu: { false }, observeMenuEnd: { _ in NSObject() })
         let hibernation = BrowserHibernation(cache: services.cache, memory: coordinator, deadlines: services.mainDeadlines)
         hibernation.start()
         let parking = Parking()

@@ -15,6 +15,11 @@ pub(crate) const TABLE: &[crate::FeatureDef] = &[
         defaults: crate::Defaults { dev: false, nightly: false, release: false },
         process: crate::Process::Daemon,
     },
+    crate::FeatureDef {
+        name: "memoryScrollbackPressure",
+        defaults: crate::Defaults { dev: false, nightly: false, release: false },
+        process: crate::Process::Daemon,
+    },
 ];
 
 /// One handle per daemon feature, for `Snapshot::is_enabled`.
@@ -24,5 +29,7 @@ pub mod feature {
         COLD_SCROLLBACK_COMPRESSION = "coldScrollbackCompression",
         /// Daemon requests run at their cause's class: verified-app requests at user-initiated, CLI, script, agent and page requests at utility, raised while they wait for or hold a daemon lock.
         DAEMON_REQUEST_QOS = "daemonRequestQos",
+        /// Daemon scrollback RAM total sized from installed RAM (128 MiB at 8 GB, 1 GiB at 64 GB) and lowered by memory pressure: half at warning, 16 MiB at critical, least recently active terminals first; limits return at normal below 80 %.
+        MEMORY_SCROLLBACK_PRESSURE = "memoryScrollbackPressure",
     );
 }

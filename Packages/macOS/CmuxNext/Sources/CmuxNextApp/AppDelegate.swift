@@ -96,7 +96,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         (launchReveal, launchSettle) = (reveal, LaunchSettle(reveal: reveal, paneRefs: paneRefs))
         startupReferences = StartupReferences(startup: startup, reveal: reveal, paneRefs: paneRefs)
         (self.mainWork, self.inputTap) = (order.mainWork, inputTap)
-        control = AppControl(mainWork: order.mainWork, input: inputTap)
+        let control = AppControl(mainWork: order.mainWork, input: inputTap)
+        #if CMUX_PGO_PROFILE
+        control.profileFlush = order.profileFlush
+        #endif
+        self.control = control
         mouseSideButtons = MouseSideButtons(input: inputTap)
         super.init()
     }
@@ -183,8 +187,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // Debug Settings overrides (DEV and NIGHTLY only) before any window lays out.
         services.debugSettings.start()
         DebugTimings.markLaunch("dfl.services")
-        AppActions.bind(services)
-        HandlerCoverage.verify(services.registry)
+        AppActions.bindAtLaunch(services, on: order.startup)  // critical `AppActions.bind`: keys work from the first frame
         services.palettes.bindRegistryActions()  // the palette itself is built after the first frame, or by the first palette key
         let ghosttyKeybinds = GhosttyKeybindSync(router: services.keyRouter, launchImages: launchImageHold)
         self.ghosttyKeybinds = ghosttyKeybinds
@@ -200,9 +203,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         startSettingsAndControl(services: services, launch: settingsRead)
         services.newTabSpares.prewarm() // the first agent page loads while the windows build (cx-z9kz0)
         DebugTimings.markLaunch("dfl.settings")
-        NSApp.mainMenu = MainMenu.make(registry: services.registry, blocking: services.blocking)
+        MainMenu.install(registry: services.registry, blocking: services.blocking, on: order.startup)  // critical `MainMenu.make`
         DebugTimings.markLaunch("dfl.menu")
-        logger.info("unbound catalog actions: \(services.registry.unboundActionIDs().count)")
+        HandlerCoverage.verifyAtLaunch(services.registry)  // every handler is bound by now; Debug builds only
         WindowActivation.activateApp()
         launchSettle.install(daemon: services.daemon, warmup: services.agentPageWarmup)
         daemonPrompts = DaemonPrompts.start(services)
@@ -254,7 +257,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         services.bookmarks.start(directory: profilesDirectory, importStore: services.onboarding.importStore)
         services.history.start(supportDirectory: profilesDirectory.deletingLastPathComponent())
         // cmux-page:// first-party pages for Chromium, before any window can start it.
-        FirstPartyPageSchemes.install(processGroups: services.features.isEnabled(.pageProcessGroups))
+        FirstPartyPageSchemes.install(processGroups: services.features.isEnabled(.pageProcessGroups), rendererSharing: services.features.isEnabled(.cmuxPageRendererSharing))
+        let spareAfterFirstTab = services.features.isEnabled(.chromiumSpareAfterFirstTab)
+        services.cache.cef.spareAfterFirstTab = { spareAfterFirstTab }
         // The page host already exists (`services.iconPicker` above reads it) but has opened no page;
         // the statics forward to it for page views not yet made through `webUI.open`
         // (p13-webui-006 to 009 move them, 010 deletes the statics).
@@ -291,6 +296,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         // completes at the scheduler's failsafe, with reason `failsafe`.
         order.startup.finishRegistration()
         DebugTimings.markLaunch("did_finish_launching_end")
+        DebugTimings.armFirstIdleMark()
         if let launchStart { startupTrace?.task("did_finish_launching", start: launchStart) }
     }
 

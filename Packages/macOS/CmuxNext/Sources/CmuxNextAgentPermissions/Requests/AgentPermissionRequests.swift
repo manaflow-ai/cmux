@@ -149,7 +149,7 @@ public final class AgentPermissionRequests {
     private func startTimeout(_ id: String, after timeout: Duration) {
         // The request's one deadline; finish() cancels it.
         let timer = DemandTimer(owner: "agent-permissions.request-timeout", clock: clock)
-        timer.schedule(after: timeout) { @MainActor [weak self] in self?.finish(id, .timedOut) }
+        timer.scheduleOnMain(after: timeout) { [weak self] in self?.finish(id, .timedOut) }
         timeouts[id] = timer
     }
 

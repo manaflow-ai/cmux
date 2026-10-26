@@ -70,7 +70,7 @@ final class BrowserDownloadsPopup {
         if popup.isShown { return true }
         guard show(list, anchor: anchor, buttons: buttons, work: work, icons: icons, showFolder: showFolder, makeKey: false) else { return false }
         model.entered = false
-        autoClose.schedule(after: Self.autoCloseDelay) { @MainActor [weak self] in
+        autoClose.scheduleOnMain(after: Self.autoCloseDelay) { [weak self] in
             guard let self, !self.model.entered else { return }
             self.close()
         }

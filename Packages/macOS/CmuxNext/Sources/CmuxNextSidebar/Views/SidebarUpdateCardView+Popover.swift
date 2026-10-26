@@ -162,7 +162,7 @@ extension SidebarUpdateCardView {
     }
 
     private func armNotesClose() {
-        notesCloseTimer.schedule(after: Self.notesCloseDelay) { @MainActor [weak self] in
+        notesCloseTimer.scheduleOnMain(after: Self.notesCloseDelay) { [weak self] in
             self?.notesCloseFired()
         }
     }

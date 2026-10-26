@@ -30,6 +30,8 @@ final class FilesPaneService: InternalPageProvider {
 
     private weak var services: AppServices?
     private var tabs: [String: Tab] = [:]
+    /// Icons and thumbnails for every Files tab, held to a share of the image cache budget; with
+    /// `memoryFileHomeCaches` also a memory consumer.
     private let icons: FileIconProvider
     /// Open With's apps, from the app's Launch Services answers (asked on the system lane).
     private let fileApps: WorkspaceFileApps
@@ -55,8 +57,10 @@ final class FilesPaneService: InternalPageProvider {
 
     init(services: AppServices) {
         self.services = services
-        icons = FileIconProvider(queries: services.workspaceQueries)
+        let memory = AppMemoryConsumers(services: services)
+        icons = FileIconProvider(queries: services.workspaceQueries, thumbnailBytes: memory.filesThumbnailBytes)
         fileApps = WorkspaceFileApps(queries: services.workspaceQueries)
+        if let registry = memory.fileCacheRegistry { icons.registerMemoryConsumer(with: registry) }
         let sidebar = self.sidebar
         volumeWatch = [NSWorkspace.didMountNotification, NSWorkspace.didUnmountNotification,
                        NSWorkspace.didRenameVolumeNotification].map { name in
