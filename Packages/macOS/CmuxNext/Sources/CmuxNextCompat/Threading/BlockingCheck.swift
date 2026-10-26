@@ -101,6 +101,14 @@ public func assertBlockingAllowed(_ kind: BlockingKind, fileID: StaticString = #
 public func allowBlocking<Result, Failure: Error>(
     _ reason: BlockingAllowance, _ body: () throws(Failure) -> Result
 ) throws(Failure) -> Result {
+    try blockingAllowanceScope(reason, body)
+}
+
+/// The scope of both ``allowBlocking(_:_:)`` forms (the permit form gives its body a ``BlockingPermit``).
+@inlinable @inline(__always)
+func blockingAllowanceScope<Result, Failure: Error>(
+    _ reason: BlockingAllowance, _ body: () throws(Failure) -> Result
+) throws(Failure) -> Result {
     #if DEBUG || CMUX_BLOCKING_CHECKS
     guard pthread_main_np() != 0 else { return try BlockingContext.run(as: .dedicated, body) }
     let table = BlockingViolationTable.active

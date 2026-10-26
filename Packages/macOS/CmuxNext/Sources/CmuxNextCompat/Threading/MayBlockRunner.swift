@@ -67,7 +67,7 @@ public struct MayBlockCallSite: Sendable {
 /// requirements take it as a ``MayBlockCallSite``.
 ///
 /// ```swift
-/// let bytes = try await runner.runFiles(.userVisible) { try read(url) }
+/// let bytes = try await runner.runFiles(.userVisible) { permit in try Data(blockingContentsOf: url, permit) }
 /// let addresses = try await runner.runHostResolution(.userVisible) { resolve(host) }  // blockingGetaddrinfo inside
 /// runner.postFiles(.bestEffort, shutdown: .blockShutdown) { try? save(snapshot) }
 /// ```
@@ -128,5 +128,45 @@ extension MayBlockRunner {
     public func postFiles(_ priority: MayBlockPriority, shutdown: MayBlockShutdown,
                           fileID: StaticString = #fileID, line: UInt = #line, _ body: @escaping @Sendable () -> Void) {
         postFiles(priority, shutdown: shutdown, site: MayBlockCallSite(fileID: fileID, line: line), body)
+    }
+}
+
+/// The permit forms: the body gets the lane's ``BlockingPermit`` for the seams it calls
+/// (`runner.runFiles(.userVisible) { permit in try Data(blockingContentsOf: url, permit) }`).
+extension MayBlockRunner {
+    /// ``runFiles(_:shutdown:site:_:)`` at the caller's site, whose body gets the lane's ``BlockingPermit``.
+    public func runFiles<T: Sendable>(_ priority: MayBlockPriority, shutdown: MayBlockShutdown = .skipOnShutdown,
+                                      fileID: StaticString = #fileID, line: UInt = #line,
+                                      _ body: @escaping @Sendable (borrowing BlockingPermit) throws -> T) async throws -> T {
+        try await runFiles(priority, shutdown: shutdown, site: MayBlockCallSite(fileID: fileID, line: line)) {
+            try body(BlockingPermit(issuer: .lane))
+        }
+    }
+
+    /// ``runSystem(_:shutdown:site:_:)`` at the caller's site, whose body gets the lane's ``BlockingPermit``.
+    public func runSystem<T: Sendable>(_ priority: MayBlockPriority, shutdown: MayBlockShutdown = .skipOnShutdown,
+                                       fileID: StaticString = #fileID, line: UInt = #line,
+                                       _ body: @escaping @Sendable (borrowing BlockingPermit) throws -> T) async throws -> T {
+        try await runSystem(priority, shutdown: shutdown, site: MayBlockCallSite(fileID: fileID, line: line)) {
+            try body(BlockingPermit(issuer: .lane))
+        }
+    }
+
+    /// ``runHostResolution(_:shutdown:site:_:)`` at the caller's site, whose body gets the lane's ``BlockingPermit``.
+    public func runHostResolution<T: Sendable>(_ priority: MayBlockPriority, shutdown: MayBlockShutdown = .skipOnShutdown,
+                                               fileID: StaticString = #fileID, line: UInt = #line,
+                                               _ body: @escaping @Sendable (borrowing BlockingPermit) throws -> T) async throws -> T {
+        try await runHostResolution(priority, shutdown: shutdown, site: MayBlockCallSite(fileID: fileID, line: line)) {
+            try body(BlockingPermit(issuer: .lane))
+        }
+    }
+
+    /// ``postFiles(_:shutdown:site:_:)`` at the caller's site, whose body gets the lane's ``BlockingPermit``.
+    public func postFiles(_ priority: MayBlockPriority, shutdown: MayBlockShutdown,
+                          fileID: StaticString = #fileID, line: UInt = #line,
+                          _ body: @escaping @Sendable (borrowing BlockingPermit) -> Void) {
+        postFiles(priority, shutdown: shutdown, site: MayBlockCallSite(fileID: fileID, line: line)) {
+            body(BlockingPermit(issuer: .lane))
+        }
     }
 }
