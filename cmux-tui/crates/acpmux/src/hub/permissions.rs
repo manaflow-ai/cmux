@@ -95,6 +95,8 @@ impl Hub {
                     *session.floor.undeclared_mode.lock().unwrap_or_else(|e| e.into_inner()) = None;
                     // Its background processes ended with it (`processes.rs`).
                     self.processes_lost(&session, processes::HARNESS_EXIT);
+                    // So did its background subagents (`work_below.rs`).
+                    self.end_background_subagents(&session);
                     let intentional =
                         matches!(session.status(), SessionStatus::Idle | SessionStatus::Closed);
                     // An agent host's exit was logged before its ack.

@@ -839,6 +839,8 @@ impl Hub {
             }
             *slot = Some(child.clone());
         }
+        // A new harness runs none of the background subagents of one it replaced.
+        self.end_background_subagents(session);
         self.wake_idle_reaper();
 
         // Start the inbound loop for this session once.

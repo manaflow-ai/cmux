@@ -62,6 +62,10 @@ pub struct Session {
     /// 0 while it is not. The lane's `input` since (cx-v9k2f): later records,
     /// a draft save or a second ask do not move it.
     pub(super) input_since: AtomicU64,
+    /// Since when work the session started still runs past its own turn (a
+    /// background subagent, a working sub-session), in ms; 0 while none does
+    /// (`work_below.rs`).
+    pub(super) work_below_since: StdMutex<u64>,
     /// Agent permission requests read but not yet past their group
     /// (`permission_groups::AskInFlight`); `asks_landed` fires when the
     /// last one lands. A group is not shown while one is on its way.
