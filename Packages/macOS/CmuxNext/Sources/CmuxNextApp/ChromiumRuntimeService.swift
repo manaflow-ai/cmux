@@ -75,8 +75,9 @@ final class ChromiumRuntimeService {
 
     /// The service for this app: the embedded runtime when present, else the
     /// bundled pin with the URLSession, tar, code-signature and path-monitor
-    /// implementations.
-    static func make(bundle: Bundle = .main,
+    /// implementations. `work` is the app's one ``BackgroundWork``: the
+    /// code-signature checks run on its system lane.
+    static func make(work: BackgroundWork, bundle: Bundle = .main,
                      environment: [String: String] = ProcessInfo.processInfo.environment,
                      applicationSupport: URL? = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first)
         -> ChromiumRuntimeService {
@@ -90,7 +91,7 @@ final class ChromiumRuntimeService {
         let store = ChromiumRuntimeStore(root: ChromiumRuntimeStore.defaultRoot(applicationSupport: applicationSupport, bundleIdentifier: bundleID))
         return launch(pin: pin, store: store, mainBundle: bundle.bundleURL) { inUse in
             ChromiumRuntimeInstaller(pin: pin, store: store, downloader: URLSessionChromiumRuntimeDownloader(),
-                                     unpacker: TarChromiumRuntimeUnpacker(), signatures: SecCodeChromiumRuntimeSignatureChecker(),
+                                     unpacker: TarChromiumRuntimeUnpacker(), signatures: SecCodeChromiumRuntimeSignatureChecker(work: work),
                                      network: PathMonitorChromiumRuntimeNetwork(), keepAlso: { inUse })
         }
     }

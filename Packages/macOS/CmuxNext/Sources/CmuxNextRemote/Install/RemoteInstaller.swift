@@ -1,4 +1,6 @@
 import CmuxNextCloud
+import CmuxNextCompat
+public import CmuxNextWakeups
 public import Foundation
 import os
 
@@ -19,9 +21,12 @@ public struct RemoteInstaller: Sendable {
     private let commandLine: SSHCommandLine
     private let paths: SSHPaths
     private let session: URLSession
+    /// The app's lanes: the download cache's checks and moves run on its files lane.
+    private let work: BackgroundWork
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "ssh.install")
 
-    public init(commandLine: SSHCommandLine = SSHCommandLine(), paths: SSHPaths, session: URLSession = .shared) {
+    public init(commandLine: SSHCommandLine = SSHCommandLine(), paths: SSHPaths, session: URLSession = .shared, work: BackgroundWork) {
+        self.work = work
         self.commandLine = commandLine
         self.paths = paths
         self.session = session
@@ -118,25 +123,32 @@ public struct RemoteInstaller: Sendable {
     }
 
     /// The artifact in the download cache, fetched with resume when needed
-    /// and checked against the manifest digest.
+    /// and checked against the manifest digest. The cache's disk steps (its
+    /// folders, the digest of a whole artifact, the move) run on `work`'s files lane.
     func localCopy(_ plan: RemoteInstallPlan, environment: [String: String]) async throws -> URL {
-        try paths.prepare()
+        let paths = paths
         let file = paths.downloads.appendingPathComponent("\(plan.artifact)-\(plan.commit.prefix(12))")
-        if (try? SHA256File.verify(file, expected: plan.sha256)) != nil { return file }
+        let cached = try await work.run(.userVisible, mayBlock: .files) {
+            try paths.prepare()
+            return (try? SHA256File.verify(file, expected: plan.sha256)) != nil
+        }
+        if cached { return file }
         let partial = file.appendingPathExtension("partial")
         let result = try await SSHProcessRunner.run(["/usr/bin/curl"] + plan.localDownloadArguments(to: partial), environment: environment,
                                                  deadline: .seconds(1800), label: "download \(plan.artifact)")
         guard result.status == 0 else {
             throw RemoteInstallError.downloadFailed(result.stderr.trimmingCharacters(in: .whitespacesAndNewlines))
         }
-        do {
-            try SHA256File.verify(partial, expected: plan.sha256)
-        } catch {
-            try? FileManager.default.removeItem(at: partial)
-            throw error
+        try await work.run(.userVisible, mayBlock: .files) {
+            do {
+                try SHA256File.verify(partial, expected: plan.sha256)
+            } catch {
+                try? FileManager.checked.removeItem(at: partial)
+                throw error
+            }
+            try? FileManager.checked.removeItem(at: file)
+            try FileManager.checked.moveItem(at: partial, to: file)
         }
-        try? FileManager.default.removeItem(at: file)
-        try FileManager.default.moveItem(at: partial, to: file)
         return file
     }
 }
@@ -145,10 +157,11 @@ public struct RemoteInstaller: Sendable {
 /// binary (`commit=`), else the commit in `cmux-tui --version`.
 public struct BundledCmuxTUI {
     public init() {}
-    public static func commit(binary: URL) async -> String? {
+    /// The commit of `binary`; its `cmux-tui.version` is read on `work`'s files lane.
+    public static func commit(binary: URL, on work: BackgroundWork) async -> String? {
         let versionFile = binary.deletingLastPathComponent().appendingPathComponent("cmux-tui.version")
-        if let text = try? String(contentsOf: versionFile, encoding: .utf8),
-           let line = text.split(whereSeparator: \.isNewline).first(where: { $0.hasPrefix("commit=") }) {
+        let text = try? await work.run(.userVisible, mayBlock: .files) { try String(blockingContentsOf: versionFile, encoding: .utf8) }
+        if let text, let line = text.split(whereSeparator: \.isNewline).first(where: { $0.hasPrefix("commit=") }) {
             let commit = String(line.dropFirst("commit=".count))
             if RemoteInstallPlan.isHex(commit, count: 40) { return commit.lowercased() }
         }

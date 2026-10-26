@@ -42,14 +42,18 @@ final class SSHService {
     /// The app's main-thread scheduler, passed by the composition root: every SSH machine's event
     /// batches run on it.
     @ObservationIgnored private let mainWork: MainWorkScheduler
+    /// The app's lanes (``BundledCmuxTUI/commit(binary:on:)``, ``RemoteInstaller``).
+    @ObservationIgnored let work: BackgroundWork
 
     /// - Parameter mainWork: The app's ``MainWorkScheduler`` (AppServices passes the one it was built with).
-    init(machines: MachineRegistry, bundleID: String?, mainWork: MainWorkScheduler) {
+    /// - Parameter work: The app's one ``BackgroundWork``: the bundled build's version file and the install's download cache.
+    init(machines: MachineRegistry, bundleID: String?, mainWork: MainWorkScheduler, work: BackgroundWork) {
         self.machines = machines
         self.mainWork = mainWork
+        self.work = work
         paths = SSHPaths.standard(bundleID: bundleID)
         binary = try? DaemonLauncher.resolveBinary(bundle: .main, environment: ProcessInfo.processInfo.environment)
-        installer = RemoteInstaller(paths: paths)
+        installer = RemoteInstaller(paths: paths, work: work)
     }
 
     /// Why SSH machines cannot connect in this build, or nil.
@@ -328,7 +332,7 @@ final class SSHService {
     /// build, daemons handed over; any other answer or a failure leaves the machine as it was.
     func updateIfOlder(_ session: SSHMachineSession) async {
         guard !policyDisabled, let binary, case .installed? = await session.link.lastReport?.binary,
-              let commit = await BundledCmuxTUI.commit(binary: binary) else { return }
+              let commit = await BundledCmuxTUI.commit(binary: binary, on: work) else { return }
         let tried = session.machineID + "|" + commit
         guard autoUpdated.mayTry(tried), !installing.contains(session.machineID),
               let checked = await session.host.updateCheck(binary: binary, environment: await Self.environment())
@@ -359,7 +363,7 @@ final class SSHService {
     func install(_ session: SSHMachineSession, automatic: String? = nil) async throws {
         if policyDisabled { throw ActionFailure(message: RefusalStrings.turnedOffByOrganization) }
         guard let binary else { throw ActionFailure(message: RemoteStrings.noClient) }
-        guard let commit = await BundledCmuxTUI.commit(binary: binary) else { throw ActionFailure(message: RemoteStrings.noPinnedBuild) }
+        guard let commit = await BundledCmuxTUI.commit(binary: binary, on: work) else { throw ActionFailure(message: RemoteStrings.noPinnedBuild) }
         let link = session.link, host = session.host
         let environment = await Self.environment()
         var report = await link.lastReport
