@@ -45,53 +45,72 @@ extension WindowOverlayHost {
         }
     }
 
-    /// A move, a drag or a tracking-area edge routes the mouse. With ``hoverFrames`` (feature
-    /// `pointerFrameHover`) moves and drags route on the window's frame: the first of a frame interval in
-    /// its own turn, the rest once at the frame, at the pointer then, as Chromium delivers rAF-aligned
-    /// moves (`third_party/blink/renderer/platform/widget/input/main_thread_event_queue.cc`). An edge is
-    /// discrete: it lands the waiting moves (or routes) now. A press needs nothing here: `sendEvent`
-    /// flushes every window's moves before any press (``FrameInputCoalescers/willDispatch(_:)``).
-    func routePointerEvent(_ event: NSEvent) {
+    /// A move, a drag or a tracking-area edge routes the mouse. The click routing follows every event in
+    /// its own turn: the window server reads `ignoresMouseEvents` to pick the window of the next click
+    /// before any app code sees that click, and the test is one rect check on the cached regions.
+    /// Only the agent cursor tag hover waits for the frame (``hoverFrames``, feature `pointerFrameHover`):
+    /// the first move of a frame interval hovers in its own turn, the rest once at the frame, at the
+    /// pointer then. Chromium splits the same way: the browser hit-tests each event for its target
+    /// (`content/browser/renderer_host/render_widget_host_input_event_router.cc`), and only the
+    /// renderer's main-thread dispatch is aligned to rAF
+    /// (`third_party/blink/renderer/platform/widget/input/main_thread_event_queue.cc`). A tracking-area
+    /// edge is discrete: it lands the waiting tag hover now.
+    func routePointerEvent(_ event: NSEvent) { // perf-hot: 2us main-turn (every pointer event while an overlay takes clicks)
         // The tap and the panel's own `sendEvent` both hand over a move on the panel: route it once.
         guard event !== lastRoutingEvent else { return }
         lastRoutingEvent = event
-        if let moves = routingMoveConsumer(), moves.post(event) { return }
-        routeMouseNow()
+        let point = panelPoint(of: pointerLocation())
+        routeClicks(at: point)
+        // No tag shows in the panel: nothing to hover.
+        guard agentCursorCarrier?.window === panel else { return }
+        if let moves = tagHoverConsumer(), moves.post(event) { return }
+        hoverAgentCursorTagNow(at: point)
     }
 
-    /// Routes the mouse at the pointer now: the waiting moves land (at the pointer now), or it routes.
-    func routeMouseNow() {
-        if let routingMoves, routingMoves.hasPending {
-            routingMoves.flush()
+    /// The panel takes the mouse at `point` (panel coordinates) only over an interactive overlay or a tag.
+    func routeClicks(at point: NSPoint) {
+        let accepts = acceptsMouse(at: point)
+        if panel.ignoresMouseEvents == accepts { panel.ignoresMouseEvents = !accepts }
+    }
+
+    /// The tag hover at `point` (panel coordinates) now: the waiting moves land, at the pointer now, or it hovers.
+    func hoverAgentCursorTagNow(at point: NSPoint) {
+        if let tagHoverMoves, tagHoverMoves.hasPending {
+            tagHoverMoves.flush()
         } else {
-            routeMouse(at: pointerLocation())
+            hoverAgentCursorTag(at: point)
         }
     }
 
-    /// The routing's consumer on the parent window's coalescer while the tap routes the mouse; nil
-    /// without frames, a window or the tap's observer (each move routes then).
-    func routingMoveConsumer() -> PointerFrameConsumer? {
-        if let routingMoves { return routingMoves }
+    /// The tag hover's consumer on the parent window's coalescer while the tap routes the mouse; nil
+    /// without frames, a window or the tap's observer (each move hovers then).
+    func tagHoverConsumer() -> PointerFrameConsumer? {
+        if let tagHoverMoves { return tagHoverMoves }
         guard mouseRouting != nil, let hoverFrames, let window else { return nil }
-        let consumer = hoverFrames.coalescer(for: window).consumer(owner: "WindowOverlayHost.routeMouse") { [weak self] _ in
+        let consumer = hoverFrames.coalescer(for: window).consumer(owner: "WindowOverlayHost.tagHover") { [weak self] _ in
             guard let self, mouseRouting != nil else { return }
-            routeMouse(at: pointerLocation())
+            hoverAgentCursorTag(at: panelPoint(of: pointerLocation()))
         }
-        routingMoves = consumer
+        tagHoverMoves = consumer
         return consumer
     }
 
-    /// Drops the routing's waiting moves and its consumer (the routing stopped or its frames changed).
-    func stopRoutingMoves() {
-        routingMoves?.cancel()
-        routingMoves = nil
+    /// Drops the tag hover's waiting moves and its consumer (the routing stopped or its frames changed).
+    func stopTagHoverMoves() {
+        tagHoverMoves?.cancel()
+        tagHoverMoves = nil
     }
 
+    /// Routes clicks and hovers the tag at the pointer, `screenPoint` (a present, a layout, a dismiss).
     func routeMouse(at screenPoint: NSPoint) {
-        let point = panel.frame.isEmpty ? screenPoint : panel.convertPoint(fromScreen: screenPoint)
-        let accepts = acceptsMouse(at: point)
-        if panel.ignoresMouseEvents == accepts { panel.ignoresMouseEvents = !accepts }
-        hoverAgentCursorTag(at: point)
+        let point = panelPoint(of: screenPoint)
+        routeClicks(at: point)
+        hoverAgentCursorTagNow(at: point)
+    }
+
+    /// `screenPoint` in the panel's coordinates (screen coordinates while the panel has no frame).
+    func panelPoint(of screenPoint: NSPoint) -> NSPoint {
+        panel.frame.isEmpty ? screenPoint : panel.convertPoint(fromScreen: screenPoint)
     }
 
     /// A tab dialog takes the keyboard when a click lands on it; a click

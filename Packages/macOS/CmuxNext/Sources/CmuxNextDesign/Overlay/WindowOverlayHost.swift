@@ -1,7 +1,7 @@
 public import AppKit
 public import CmuxNextDesignTokens
 public import CmuxNextInput
-public import CmuxNextWakeups
+import CmuxNextWakeups
 
 /// The one place app overlays draw above Chromium pages.
 ///
@@ -40,20 +40,26 @@ public final class WindowOverlayHost {
     /// The tap observer of pointer moves and clicks that keeps the panel's mouse routing current,
     /// held while an interactive region or agent cursor tag shows (``updateMouseRouting()``).
     var mouseRouting: InputSubscription? {
-        didSet { if mouseRouting == nil { stopRoutingMoves() } }
-    }
-    /// The windows' frame-aligned pointer input (feature `pointerFrameHover`, p04-input-036): the panel's mouse
-    /// routing, the agent cursor's tags and the window's thin scrollers hover on it. The App sets it on each main
-    /// window's host when it makes the window; nil (the feature off, any other window) hovers on every move.
-    public var hoverFrames: FrameInputCoalescers? {
         didSet {
-            guard hoverFrames !== oldValue else { return }
-            stopRoutingMoves()
-            agentCursorCarrier?.hoverMoves.frames = hoverFrames
+            if mouseRouting == nil { stopTagHoverMoves() }
+            // While the tap routes the mouse it hovers the carrier's tags in the panel: one hover path.
+            agentCursorCarrier?.routedPanel = mouseRouting == nil ? nil : panel
         }
     }
-    /// The routing's consumer on the window's coalescer, made on the first move while ``mouseRouting`` holds.
-    var routingMoves: PointerFrameConsumer?
+    /// The windows' frame-aligned pointer input (feature `pointerFrameHover`, p04-input-036): the agent cursor's
+    /// tag hover and the panel's views wait on it; the panel's click routing never does. From the window
+    /// (``HoverFrameInputHosting``, the App's main windows) when the host is made; nil (the feature off, any
+    /// other window) hovers on every move.
+    var hoverFrames: FrameInputCoalescers? {
+        didSet {
+            guard hoverFrames !== oldValue else { return }
+            stopTagHoverMoves()
+            agentCursorCarrier?.hoverMoves.frames = hoverFrames
+            panel.hoverFrameInput = hoverFrames
+        }
+    }
+    /// The tag hover's consumer on the window's coalescer, made on the first move while ``mouseRouting`` holds.
+    var tagHoverMoves: PointerFrameConsumer?
     /// The last event the routing took: the tap and the panel's `sendEvent` see the same panel event.
     weak var lastRoutingEvent: NSEvent?
     /// The key window and first responder to give back when the last modal overlay goes.
@@ -123,6 +129,8 @@ public final class WindowOverlayHost {
         panel.onCancel = { [weak self] in self?.escape() }
         panel.onCycleKeyView = { [weak self] forward in self?.cycleKeyView(forward: forward) ?? false }
         panel.onMouseEvent = { [weak self] event in self?.panelMouseEvent(event) ?? false }
+        hoverFrames = (window as? HoverFrameInputHosting)?.hoverFrameInput
+        panel.hoverFrameInput = hoverFrames
         if isAppHost {
             // Above the app's own windows while cmux is active; hidden while
             // another app is active, so it never covers other apps.

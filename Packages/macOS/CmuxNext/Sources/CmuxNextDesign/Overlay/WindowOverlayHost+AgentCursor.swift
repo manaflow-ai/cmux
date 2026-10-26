@@ -32,6 +32,11 @@ final class AgentCursorCarrierView: NSView {
         guard let self else { return }
         hover(tag(at: convert(point, from: nil)))
     }
+    /// The overlay panel whose host hovers the tags from the input tap while it routes the mouse
+    /// (``WindowOverlayHost/routePointerEvent(_:)``); in that panel the carrier's own moves hover nothing.
+    weak var routedPanel: NSWindow?
+    /// Hover checks run (debug and tests: at most 2 per frame interval).
+    private(set) var hoverChecks = 0
 
     override init(frame: NSRect) {
         super.init(frame: frame)
@@ -101,7 +106,11 @@ final class AgentCursorCarrierView: NSView {
         tracking = area
     }
 
-    override func mouseMoved(with event: NSEvent) { hoverMoves.moved(event) }
+    override func mouseMoved(with event: NSEvent) {
+        // In the routed panel the host's routing hovers this move already.
+        if let routedPanel, window === routedPanel { return }
+        hoverMoves.moved(event)
+    }
 
     override func mouseExited(with event: NSEvent) {
         // The pointer left every tag: the waiting moves would only hover one on the way out.
@@ -116,6 +125,7 @@ final class AgentCursorCarrierView: NSView {
     /// The pointer is on `tag`, or on no tag: a pointing hand, the tag's
     /// highlight (by its source) and its tooltip.
     func hover(_ tag: AgentCursorTagTarget?) {
+        hoverChecks += 1
         if tag != nil { NSCursor.pointingHand.set() }
         guard tag?.id != hovered?.id else { return }
         let left = hovered != nil
@@ -182,6 +192,7 @@ extension WindowOverlayHost {
         let carrier = AgentCursorCarrierView(frame: .zero)
         carrier.tags = agentCursorTags
         carrier.hoverMoves.frames = hoverFrames
+        carrier.routedPanel = mouseRouting == nil ? nil : panel
         agentCursorCarrier = carrier
         placeAgentCursor()
         return carrier

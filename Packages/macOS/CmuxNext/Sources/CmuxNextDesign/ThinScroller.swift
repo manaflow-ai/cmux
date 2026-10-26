@@ -201,6 +201,13 @@ public final class ThinScroller: NSScroller {
         super.viewDidMoveToSuperview()
         guard let superview else { return }
         proximity = ThinScrollerProximity(scroller: self, host: superview, notificationCenter: notificationCenter)
+        proximity?.windowChanged(window)
+    }
+
+    /// Its proximity hovers on the new window's frames (``HoverFrameInputHosting``, `pointerFrameHover`).
+    override public func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        proximity?.windowChanged(window)
     }
 
     /// Never a track, also while the pointer is over the scroller.

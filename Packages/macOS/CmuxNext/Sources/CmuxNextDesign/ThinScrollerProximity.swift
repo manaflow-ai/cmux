@@ -6,10 +6,10 @@ import CmuxNextInput
 /// notification), so the knob shows then, as macOS overlay scrollers do. One tracking area on the
 /// scroll view, pointer events only: nothing runs on a key press.
 ///
-/// With the window's frames (``WindowOverlayHost/hoverFrames``, feature `pointerFrameHover`) the moves
-/// report on the window's frame: the first of a frame interval in its own turn, the rest once at the
-/// frame, at the latest point (``PointerFrameHover``). An enter reports at once; an exit drops the
-/// waiting moves.
+/// With its window's frames (``HoverFrameInputHosting``, feature `pointerFrameHover`, read when the
+/// scroller joins the window) the moves report on the window's frame: the first of a frame interval in
+/// its own turn, the rest once at the frame, at the latest point (``PointerFrameHover``). An enter
+/// reports at once; an exit drops the waiting moves.
 @MainActor
 final class ThinScrollerProximity: NSResponder {
     private weak var scroller: ThinScroller?
@@ -60,11 +60,12 @@ final class ThinScrollerProximity: NSResponder {
         report(event)
     }
 
-    override func mouseMoved(with event: NSEvent) {
-        // The window's host carries its frames: the App sets them after the window's views exist.
-        if let window = host?.window { moves.frames = WindowOverlayHost.existingHost(for: window)?.hoverFrames }
-        moves.moved(event)
+    /// The scroller joined `window` (or left every window): its moves wait on that window's frames.
+    func windowChanged(_ window: NSWindow?) {
+        moves.frames = (window as? HoverFrameInputHosting)?.hoverFrameInput
     }
+
+    override func mouseMoved(with event: NSEvent) { moves.moved(event) }
 
     override func mouseExited(with event: NSEvent) {
         // Leaving the view settles the knob: the waiting moves would only widen it on the way out.

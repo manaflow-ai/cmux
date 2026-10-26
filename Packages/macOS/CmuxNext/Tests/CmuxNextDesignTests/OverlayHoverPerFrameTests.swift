@@ -113,15 +113,12 @@ import Testing
         let scrollView: NSScrollView
         let scroller: ThinScroller
         let proximity: ThinScrollerProximity
-        /// The window's overlay host: it carries the window's frames (the App sets them on a main window).
-        let host: WindowOverlayHost
 
-        init() throws {
-            _ = NSApplication.shared
-            let window = NSWindow(contentRect: NSRect(x: 200, y: 200, width: 240, height: 200), styleMask: [.borderless],
-                                  backing: .buffered, defer: false)
-            window.isReleasedWhenClosed = false
+        /// A scroll view in a window that carries frames (the App's main windows), or none (`frameInput` false).
+        init(frameInput: Bool = true) throws {
             let frames = PointerFrameTestRig()
+            let window = HoverFramesTestWindow.make(NSRect(x: 200, y: 200, width: 240, height: 200),
+                                                    frames: frameInput ? frames.coalescers : nil, visible: false)
             let scrollView = NSScrollView(frame: NSRect(x: 0, y: 0, width: 240, height: 200))
             scrollView.hasVerticalScroller = true
             scrollView.verticalScroller = ThinScroller(frame: .zero, clock: ManualClock(), notificationCenter: NotificationCenter())
@@ -132,10 +129,7 @@ import Testing
             let scroller = try #require(scrollView.verticalScroller as? ThinScroller)
             scroller.isEnabled = true
             scroller.knobProportion = 0.25
-            let host = WindowOverlayHost.host(for: window)
-            host.hoverFrames = frames.coalescers
             proximity = try #require(scroller.proximity)
-            self.host = host
             self.window = window
             self.frames = frames
             self.scrollView = scrollView
@@ -148,7 +142,6 @@ import Testing
 
         func close() {
             if let exit = OverlayHoverPerFrameTests.exitEvent(at: far, in: window) { proximity.mouseExited(with: exit) }
-            host.tearDown()
             frames.close()
             window.close()
         }
@@ -177,11 +170,10 @@ import Testing
         #expect(!rig.proximity.moves.hasPending)
     }
 
-    /// A window whose host has no frames (the feature off, a panel) reports each move at once.
+    /// A window that carries no frames (the feature off, a window the App did not make) reports each move at once.
     @Test func withoutTheWindowsFramesEachMoveReports() throws {
-        let rig = try Scroller()
+        let rig = try Scroller(frameInput: false)
         defer { rig.close() }
-        rig.host.hoverFrames = nil
         rig.proximity.mouseMoved(with: try Self.move(at: rig.far, in: rig.window))
         rig.proximity.mouseMoved(with: try Self.move(at: rig.near, in: rig.window))
         #expect(rig.scroller.isKnobExpanded, "the second move waited with no frames")
@@ -197,5 +189,52 @@ import Testing
         rig.proximity.mouseExited(with: try Self.exit(at: rig.far, in: rig.window))
         rig.frames.frame()
         #expect(!rig.scroller.isKnobExpanded, "a move from before the exit widened the knob")
+    }
+
+    // MARK: Hover reveal
+
+    @MainActor final class Reveal {
+        let window: NSWindow
+        let frames: PointerFrameTestRig
+        let region: NSView
+        let reveal: HoverReveal
+        let probe: HoverRevealProbe
+
+        /// A region with a reveal in a window that carries frames; off screen, so no real pointer is inside it.
+        init() throws {
+            let frames = PointerFrameTestRig()
+            let window = HoverFramesTestWindow.make(frames: frames.coalescers, visible: false)
+            let region = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
+            window.contentView = region
+            reveal = HoverReveal(region: region)
+            probe = try #require(region.subviews.lazy.compactMap { $0 as? HoverRevealProbe }.first)
+            self.window = window
+            self.frames = frames
+            self.region = region
+        }
+
+        var inside: NSPoint { NSPoint(x: 200, y: 150) }
+
+        func close() {
+            frames.close()
+            window.close()
+        }
+    }
+
+    /// The probe's moves wait on its window's frames: a move inside after a missed enter reveals in its
+    /// own turn, and leaving drops the moves still waiting, so the frame after the exit reveals nothing.
+    @Test func aHoverRevealExitDropsTheWaitingMoves() throws {
+        let rig = try Reveal()
+        defer { rig.close() }
+        #expect(rig.probe.moves.frames === rig.frames.coalescers, "the probe did not take its window's frames")
+        rig.probe.mouseMoved(with: try Self.move(at: rig.inside, in: rig.window))
+        #expect(rig.reveal.state.pointerInside, "the leading move did not mark the pointer inside")
+        rig.probe.mouseMoved(with: try Self.move(at: rig.inside, in: rig.window))
+        #expect(rig.probe.moves.hasPending)
+        rig.probe.mouseExited(with: try Self.exit(at: rig.inside, in: rig.window))
+        #expect(!rig.reveal.state.pointerInside)
+        rig.frames.frame()
+        #expect(!rig.reveal.state.pointerInside, "a move from before the exit marked the pointer inside again")
+        #expect(rig.probe.moves.maxDeliveriesPerFrame <= 2)
     }
 }
