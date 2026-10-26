@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextDesign
+import CmuxNextWakeups
 import Observation
 
 /// Shows where a dragged tab will land. The drawing is one of the
@@ -25,6 +26,19 @@ final class DropHighlightView: NSView {
     private(set) var isShowing = false
     /// Called when a tunable change needs a redraw while nothing moves.
     var needsFrame: () -> Void = {}
+    /// Follows the drop overlay tunables (``follow(on:)``); nil until the layout root passes its scheduler.
+    private var tunablesWatch: FrameObservation<DropTunables>?
+
+    /// Every drop overlay tunable: the style and each override.
+    private struct DropTunables: Equatable {
+        var style: DropOverlayStyle
+        var overrides: [TunableValue?]
+
+        init() {
+            style = DropOverlayStyle.current
+            overrides = DropOverlayTunables.all.map { TunableStore.shared.override($0.key) }
+        }
+    }
 
     /// `material` pins one material (tests); nil follows this Mac.
     init(material: OverlayMaterial? = nil) {
@@ -36,7 +50,6 @@ final class DropHighlightView: NSView {
         isHidden = true
         alphaValue = 0
         setAccessibilityElement(false)
-        observeTunables()
     }
 
     @available(*, unavailable)
@@ -203,24 +216,24 @@ final class DropHighlightView: NSView {
         install(renderer)
     }
 
-    /// Redraws on any drop overlay tunable change (style switches live
-    /// mid-drag, or while `debug.drop_highlight` holds the overlay still).
-    /// One-shot Observation, re-armed after each change; no polling.
-    private func observeTunables() {
-        withObservationTracking {
-            _ = DropOverlayStyle.current
-            for descriptor in DropOverlayTunables.all { _ = TunableStore.shared.override(descriptor.key) }
-        } onChange: { [weak self] in
-            Task { @MainActor [weak self] in
-                guard let self else { return }
-                self.refreshStyle()
-                if self.isShowing || !self.isHidden {
-                    self.renderer.applyTheme()
-                    self.apply()
-                    self.needsFrame()
-                }
-                self.observeTunables()
-            }
+    /// Redraws on any drop overlay tunable change (style switches live mid-drag, or while
+    /// `debug.drop_highlight` holds the overlay still), once per frame however many changed; no
+    /// polling. A highlight never given a scheduler (tests) reads the tunables at each ``show``.
+    func follow(on work: MainWorkScheduler) {
+        guard tunablesWatch == nil else { return }
+        // node-free: the layout root has no VisibilityNode; a hidden highlight's apply only swaps its renderer.
+        tunablesWatch = FrameObservation(owner: "Layout.dropHighlight", delivery: .visible(nil), on: work) {
+            DropTunables()
+        } onChange: { [weak self] _ in
+            self?.tunablesChanged()
         }
+    }
+
+    private func tunablesChanged() {
+        refreshStyle()
+        guard isShowing || !isHidden else { return }
+        renderer.applyTheme()
+        apply()
+        needsFrame()
     }
 }

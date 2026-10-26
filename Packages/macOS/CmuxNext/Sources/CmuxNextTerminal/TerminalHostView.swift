@@ -1,6 +1,7 @@
 public import AppKit
 import CmuxNextDesign
 import CmuxNextTerminalFind
+import CmuxNextWakeups
 import Observation
 
 /// Container the App embeds. Holds the current surface view (swapped on
@@ -88,7 +89,17 @@ public final class TerminalHostView: NSView {
     /// Held here: scopes keep their responders weakly.
     private let aroundListener = TerminalHostThemeListener()
 
-    init() {
+    /// The app's main-thread scheduler: the find bar's presence, the scrollbar, the find bar and the
+    /// TextBox follow their models through it, one apply per frame. nil (tests) follows no change:
+    /// each shows what its model held when it was built.
+    let mainWork: MainWorkScheduler?
+    /// Installs the find bar the first time find opens (``attachFind(_:)``); nil once it is installed.
+    private var findPresence: FrameObservation<Bool>?
+    /// The current surface's scrollbar (``followScrollbar(of:)``).
+    private var scrollbarWatch: FrameObservation<TerminalScrollbar?>?
+
+    init(mainWork: MainWorkScheduler? = nil) {
+        self.mainWork = mainWork
         super.init(frame: NSRect(x: 0, y: 0, width: 800, height: 600))
         wantsLayer = true
         // A surface frame of another size (the host-sized drawable before its
@@ -120,21 +131,25 @@ public final class TerminalHostView: NSView {
     /// The find bar is built the first time find opens, not with the
     /// terminal: its glass panel, stack and buttons cost about 5 ms of main
     /// thread per new terminal (R81 trace), most of a 120 Hz frame.
+    /// Cmd-F is a person's change: its apply runs in that key's input-response pass, so the bar shows
+    /// in the key's own frame.
     func attachFind(_ find: TerminalFindController) {
         if find.isPresented { return installFindBar(find) }
-        withObservationTracking {
-            _ = find.isPresented
-        } onChange: { [weak self, weak find] in
-            Task { @MainActor in
-                guard let self, let find else { return }
-                self.attachFind(find)
-            }
+        guard let mainWork else { return }
+        // node-free: the host has no VisibilityNode; the apply only builds the bar, once.
+        findPresence = FrameObservation(owner: "Terminal.findPresence", delivery: .visible(nil), on: mainWork) { [weak find] in
+            find?.isPresented ?? false
+        } onChange: { [weak self, weak find] presented in
+            guard presented, let self, let find else { return }
+            self.installFindBar(find)
         }
     }
 
     private func installFindBar(_ find: TerminalFindController) {
+        findPresence?.cancel()
+        findPresence = nil
         guard !subviews.contains(where: { $0 is TerminalFindBarView }) else { return }
-        let bar = TerminalFindBarView(find: find)
+        let bar = TerminalFindBarView(find: find, mainWork: mainWork)
         bar.translatesAutoresizingMaskIntoConstraints = true // framed in layout()
         addSubview(bar, positioned: .above, relativeTo: banner)
         needsLayout = true
@@ -240,14 +255,18 @@ public final class TerminalHostView: NSView {
     /// Shows the surface's scrollbar state (Ghostty's scrollbar action) on the scroller, now and on
     /// every change, while the surface is the current one.
     private func followScrollbar(of surfaceView: TerminalSurfaceView) {
+        scrollbarWatch?.cancel()
+        scrollbarWatch = nil
         guard current === surfaceView, let model = surfaceView.session?.model else { return }
-        let bar = withObservationTracking { model.scrollbar } onChange: { [weak self, weak surfaceView] in
-            Task { @MainActor in
-                guard let self, let surfaceView else { return }
-                self.followScrollbar(of: surfaceView)
-            }
+        guard let mainWork else { return scroller.update(model.scrollbar) }
+        // node-free: the host has no VisibilityNode; the apply only hands the scroller its state.
+        let watch = FrameObservation(owner: "Terminal.scrollbar", delivery: .visible(nil), on: mainWork) { [weak model] in
+            model?.scrollbar
+        } onChange: { [weak self] bar in
+            self?.scroller.update(bar)
         }
-        scroller.update(bar)
+        scrollbarWatch = watch
+        scroller.update(watch.value)
     }
 
     /// The width a surface gets in a host `hostWidth` points wide (less a legacy scroller's strip),

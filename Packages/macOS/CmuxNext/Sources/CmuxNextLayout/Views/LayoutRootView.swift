@@ -2,6 +2,7 @@ public import AppKit
 import CmuxNextCompat
 public import CmuxNextDesign
 public import CmuxNextInput
+public import CmuxNextWakeups
 import Observation
 
 /// The workspace content area: renders every screen of a `LayoutModel`,
@@ -31,6 +32,9 @@ public final class LayoutRootView: NSView {
     var reportedLayoutMotion = false
     let driver = DisplayLinkDriver()
     private var observationTask: Task<Void, Never>?
+    /// The attention ring's look (`AttentionHighlightLook`, Debug Settings): one watch for every pane's
+    /// overlay, applied once per frame (nil without a scheduler: tests).
+    private var attentionLookWatch: FrameObservation<AttentionHighlightLook>?
     /// The app's one input tap (nil: nothing routes the app's events to this root; tests call the
     /// routing directly).
     let inputTap: InputEventTap?
@@ -143,11 +147,14 @@ public final class LayoutRootView: NSView {
     /// tests inject fixed values.
     /// `input` is the app's one input tap: while the root is live, its scroll, magnify and button
     /// routing is an intercept there. The App passes its tap; nil only where no event dispatches.
+    /// `mainWork` is the app's main-thread scheduler: the Debug Settings looks of the panes' overlays
+    /// and the drop highlight follow through it. The App passes its one; nil (tests) reads them when
+    /// each view is made or shown.
     public init(model: LayoutModel, contentProvider: any LayoutPaneContentProvider,
                 scrollbarClock: any Clock<Duration> = ContinuousClock(),
                 scrollFocusSignals: ScrollFocusSignals = ScrollFocusSignals(),
                 rendersMotionOnServer: @escaping () -> Bool = { LayoutTunables.motionRenderServer.value },
-                input: InputEventTap? = nil) {
+                input: InputEventTap? = nil, mainWork: MainWorkScheduler? = nil) {
         self.model = model
         inputTap = input
         self.scrollFocusSignals = scrollFocusSignals
@@ -171,6 +178,7 @@ public final class LayoutRootView: NSView {
             planeHost?.paneShapesDidChange(overlayPlane)
         }
         highlight.needsFrame = { [weak self] in self?.driver.start() }
+        if let mainWork { followLooks(on: mainWork) }
         overlayPlane.addSubview(highlight)
         addSubview(overlayPlane)
         registerForDraggedTypes([LayoutTabDrag.pasteboardType, .URL])
@@ -184,6 +192,20 @@ public final class LayoutRootView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) {
         fatalError("init(coder:) is not supported")
+    }
+
+    /// One watch per root for the panes' attention look, not one per pane: a change reaches every
+    /// overlay in one apply, as Chrome's `Widget::ThemeChanged` reaches its views
+    /// (ui/views/widget/widget.cc). A pane made later reads the look when its overlay is made.
+    private func followLooks(on mainWork: MainWorkScheduler) {
+        highlight.follow(on: mainWork)
+        // node-free: the root has no VisibilityNode; the apply only recolors the panes' rings.
+        attentionLookWatch = FrameObservation(owner: "Layout.attentionLook", delivery: .visible(nil), on: mainWork) {
+            AttentionHighlightLook.tunable.value
+        } onChange: { [weak self] look in
+            guard let self else { return }
+            for host in self.context.hosts.values { host.chrome.setAttentionLook(look) }
+        }
     }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.

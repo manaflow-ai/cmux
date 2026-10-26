@@ -1,7 +1,7 @@
 public import AppKit
 public import CmuxNextTerminalFind
 public import CmuxNextTrace
-import CmuxNextWakeups
+public import CmuxNextWakeups
 import GhosttyNextKit
 
 /// One terminal on screen: a Ghostty surface fed by a ``TerminalIO``.
@@ -152,11 +152,15 @@ public final class TerminalSession {
     ///   - secureInput: The process's secure keyboard entry, which its surfaces turn on for Ghostty.
     ///   - modifiers: The terminals' one modifier watch (``TerminalModifierWatch``): Command pressed or
     ///     released over a surface without focus reaches it. The App passes its one; nil reaches none.
+    ///   - mainWork: The app's main-thread scheduler (``MainWorkScheduler``): the host's find bar,
+    ///     scrollbar and TextBox follow their models through it, once per frame. The App passes its one;
+    ///     nil (tests) follows no change.
     public init(io: any TerminalIO, ownsGeometry: Bool = true,
                 echoStages: TerminalEchoStages = GhosttyRuntime.shared.echoStages,
                 hangWatch: (any HangWatchScoping)? = nil,
                 secureInput: TerminalSecureInput = GhosttyRuntime.shared.secureInput,
-                modifiers: TerminalModifierWatch? = nil) {
+                modifiers: TerminalModifierWatch? = nil,
+                mainWork: MainWorkScheduler? = nil) {
         self.io = io
         self.ownsGeometry = ownsGeometry
         self.echoStages = echoStages
@@ -169,7 +173,7 @@ public final class TerminalSession {
         let (outgoing, continuation) = AsyncStream<TerminalOutgoing>.makeStream(bufferingPolicy: .unbounded)
         input = TerminalInputSink(continuation: continuation, typingSurface: TypingLatencyProbe.shared.makeSurfaceKey())
 
-        view = TerminalHostView()
+        view = TerminalHostView(mainWork: mainWork)
         surfaceView = TerminalSurfaceView(io: ioMode, input: input, session: nil, echoStages: echoStages, hangWatch: hangWatch,
                                           secureInput: secureInput, modifiers: modifiers)
         surfaceView.bridge.takeUnretainedValue().installLinkFilter(nil)

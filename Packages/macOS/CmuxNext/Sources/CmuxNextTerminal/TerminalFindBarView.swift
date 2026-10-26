@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextDesign
 import CmuxNextIcons
 import CmuxNextTerminalFind
+import CmuxNextWakeups
 import Observation
 
 /// The inline find bar over a terminal's top-trailing corner: the shared
@@ -13,8 +14,27 @@ final class TerminalFindBarView: NSView {
     private let find: TerminalFindController
     let pill: FindPillView
     private var shownFocusRequest = 0
+    /// Follows the controller: one render per frame however many of its values changed.
+    private var watch: FrameObservation<Shown>?
 
-    init(find: TerminalFindController) {
+    /// What the bar shows of its controller.
+    private struct Shown: Equatable {
+        var presented: Bool
+        var query: String
+        var count: TerminalFindCount
+        var focusRequest: Int
+
+        @MainActor init(_ find: TerminalFindController) {
+            presented = find.isPresented
+            query = find.query
+            count = find.count
+            focusRequest = find.focusRequest
+        }
+    }
+
+    /// - Parameter mainWork: The app's main-thread scheduler the bar follows `find` through; nil (tests)
+    ///   renders `find` once.
+    init(find: TerminalFindController, mainWork: MainWorkScheduler?) {
         self.find = find
         pill = FindPillView(labels: Self.labels, icons: .terminal, accessibilityPrefix: "cmux.terminal.find")
         super.init(frame: .zero)
@@ -28,7 +48,7 @@ final class TerminalFindBarView: NSView {
         ])
         pill.onQueryChange = { [weak self] in self?.find.updateQuery($0) }
         pill.onCommand = { [weak self] in self?.run($0) }
-        observe()
+        follow(on: mainWork)
     }
 
     @available(*, unavailable)
@@ -52,20 +72,26 @@ final class TerminalFindBarView: NSView {
 
     // MARK: Rendering
 
-    /// Re-renders whenever the controller state it reads changes.
-    private func observe() {
-        withObservationTracking {
-            render()
-        } onChange: { [weak self] in
-            Task { @MainActor in self?.observe() }
+    /// Renders the controller now and once per frame after each change. The bar's own keys (typing,
+    /// Return, Escape) are a person's changes: they render in that key's input-response pass.
+    private func follow(on mainWork: MainWorkScheduler?) {
+        let find = self.find
+        guard let mainWork else { return render(Shown(find)) }
+        // node-free: the bar has no VisibilityNode (its host has none); the apply only sets the pill.
+        let watch = FrameObservation(owner: "Terminal.findBar", delivery: .visible(nil), on: mainWork) {
+            Shown(find)
+        } onChange: { [weak self] shown in
+            self?.render(shown)
         }
+        self.watch = watch
+        render(watch.value)
     }
 
-    private func render() {
-        let presented = find.isPresented
-        let query = find.query
-        let count = find.count
-        let focusRequest = find.focusRequest
+    private func render(_ shown: Shown) {
+        let presented = shown.presented
+        let query = shown.query
+        let count = shown.count
+        let focusRequest = shown.focusRequest
 
         pill.query = query
         let text = Self.text(for: count)

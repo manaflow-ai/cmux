@@ -21,6 +21,8 @@ final class TabContentCache {
     private let daemon: DaemonService
     /// Given to every terminal session this cache makes (``TerminalModifierWatch``).
     let terminalModifiers: TerminalModifierWatch?
+    /// Given to every terminal session this cache makes: their hosts follow their models through it.
+    let mainWork: MainWorkScheduler?
     var terminals: [String: TerminalEntry] = [:]
     var browsers: [String: BrowserEntry] = [:] { didSet { if browsers.count != oldValue.count { pageRequests.media.tabsChanged() } } }
     var ledger = SurfaceLedger<String, ObjectIdentifier>(capacity: WarmSetBudget.standard.terminalCapacity)
@@ -150,11 +152,14 @@ final class TabContentCache {
     ///     frame); tests pass one that collects the work or runs it at once.
     ///   - resizes: The app's grid sender (`AppServices.resizes`); tests get their own.
     ///   - terminalModifiers: The terminals' one modifier watch on the app's input tap; tests without a tap pass none.
+    ///   - mainWork: The app's main-thread scheduler, for every terminal session it makes; tests pass none.
     init(daemon: DaemonService, cef: CEFEngine, fileInput: any WebFileInputAnswering,
          afterFrame: @escaping (@escaping @MainActor () -> Void) -> Void = { AfterFrameCommit().run($0) },
-         resizes: ResizeCoordinator = ResizeCoordinator(), terminalModifiers: TerminalModifierWatch? = nil) {
+         resizes: ResizeCoordinator = ResizeCoordinator(), terminalModifiers: TerminalModifierWatch? = nil,
+         mainWork: MainWorkScheduler? = nil) {
         self.daemon = daemon
         self.terminalModifiers = terminalModifiers
+        self.mainWork = mainWork
         self.cef = cef
         webKit = WebKitEngine(fileInput: fileInput, stores: cef.stores, waitDeadlines: cef.waitDeadlines)
         self.afterFrame = afterFrame

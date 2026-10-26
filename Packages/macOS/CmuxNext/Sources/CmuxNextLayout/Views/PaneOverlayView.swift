@@ -57,10 +57,9 @@ final class PaneOverlayView: NSView {
     private var dismissingColor: ThemeRGB?
     /// The ring shown or flashing out marks an agent chat (`AttentionMark.agentChat`).
     private var attentionAgentChat = false
-    /// The ring's strength (`AttentionHighlightLook`, Debug Settings; cx-epgo).
-    private var attentionLook = AttentionHighlightLook.tunable.defaultValue
-    /// One observation of the look is registered at a time.
-    private var observesAttentionLook = false
+    /// The ring's strength (`AttentionHighlightLook`, Debug Settings; cx-epgo): read when the overlay is
+    /// made, then set by the layout root's one look watch (``setAttentionLook(_:)``).
+    private(set) var attentionLook = AttentionHighlightLook.tunable.value
     private var borderStyle = Border(shows: false)
     private var dimFill = DimFill.pane
     private var excluded: [CGRect] = []
@@ -278,21 +277,10 @@ final class PaneOverlayView: NSView {
     /// The flash's stroke is at least this wide, so a 1 pt ring setting still reads at a glance.
     static let flashMinimumWidth: CGFloat = 2
 
-    /// Reads the highlight look and applies a Debug Settings change once,
-    /// without replaying the ring's animation (no polling).
-    private func observedAttentionLook() -> AttentionHighlightLook {
-        guard !observesAttentionLook else { return attentionLook }
-        observesAttentionLook = true
-        return withObservationTracking {
-            AttentionHighlightLook.tunable.value
-        } onChange: { [weak self] in
-            Task { @MainActor [weak self] in self?.attentionLookChanged() }
-        }
-    }
-
-    private func attentionLookChanged() {
-        observesAttentionLook = false
-        attentionLook = observedAttentionLook()
+    /// Applies a Debug Settings change of the highlight look without replaying the ring's animation.
+    func setAttentionLook(_ look: AttentionHighlightLook) {
+        guard look != attentionLook else { return }
+        attentionLook = look
         if attentionMark != nil, attentionSettings.drawsRing {
             Motion.feedback.transaction(.focus) { attention.opacity = Motion.attentionRestingOpacity(attentionSettings, look: attentionLook) }
         }
@@ -306,7 +294,6 @@ final class PaneOverlayView: NSView {
     private func applyAttention(_ mark: AttentionMark?, readByEntry: Bool, animated: Bool) {
         let previous = attentionMark
         attentionMark = mark
-        attentionLook = observedAttentionLook()
         guard let mark, attentionSettings.drawsRing else {
             attention.removeAnimation(forKey: "attention")
             // The look turned off (none) mid-flash: the flash and its glow go with it.

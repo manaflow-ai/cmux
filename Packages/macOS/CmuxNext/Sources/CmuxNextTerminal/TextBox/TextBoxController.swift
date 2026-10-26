@@ -25,7 +25,7 @@ package final class TextBoxController {
     /// The strip under the terminal, made the first time it is asked for.
     package var view: TextBoxView {
         if let installed { return installed }
-        let view = TextBoxView(model: model)
+        let view = TextBoxView(model: model, mainWork: session?.view.mainWork)
         view.perform = perform
         view.textView.onSubmit = { [weak self] in _ = self?.submit() }
         view.textView.onEscape = { [weak self] in self?.focusTerminal() }
