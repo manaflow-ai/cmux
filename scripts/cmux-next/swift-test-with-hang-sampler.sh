@@ -199,10 +199,17 @@ report() {
       name = name_of($0)
       if (!(name in started)) { started[name] = 1; starts[++start_count] = name }
     }
-    # "✘ Test f() passed after 0.001 seconds with 1 known issue." is a test that FINISHED and
-    # passed: a ✘ finish is not only a failure, so both verbs are accepted here. Reading it as
-    # unfinished would fail a whole run.
-    /^✔ Test / || /^✘ Test .* (passed|failed) after / || /^➜ Test / {
+    # Every marker a FINISH can carry, because a finish this misses fails a whole green run.
+    # "✘ Test f() passed after 0.001 seconds with 1 known issue." is a test that finished and
+    # passed, so a ✘ finish is not only a failure and both verbs are accepted. A known-issue
+    # finish carries its own marker, "━", not ✘: the live daemon-tests job of cmux#25391 read
+    # "━ Test aRunCutOffMidwayFinishesWithoutDuplicates() passed after 8.359 seconds with 2 known
+    # issues." as unfinished and failed a run of 386 tests whose summary counted all 386.
+    # Separate anchored patterns, never one bracket set: awk reads [✔✘➜━] as the set of BYTES
+    # those characters are made of, and each ends in a byte another also contains, so match()
+    # lands mid-character and every line matches.
+    /^✔ Test / || /^✘ Test .* (passed|failed) after / || /^━ Test .* (passed|failed) after / \
+      || /^➜ Test / {
       finished[name_of($0)] = 1
     }
     /^[^ ]+ Test run with [0-9]+ tests? / {

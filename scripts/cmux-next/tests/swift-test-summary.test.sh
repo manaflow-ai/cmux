@@ -246,19 +246,36 @@ grep '^::error' <<<"$out" | grep -q 'count 2 tests in total but 3 started and 1 
   || fail "the error does not total the summaries" "$out"
 grep '^::error' <<<"$out" | grep -q 'cStillGoing()' || fail "the error does not name cStillGoing()" "$out"
 
-# A ✘ finish is not only a failure: a test that passes with a known issue reports
-# "✘ Test f() passed after ... with 1 known issue." and HAS finished. Reading it as
-# unfinished would fail a whole run.
+# A finish is not only ✔ or ✘. Both markers a known issue can carry mean FINISHED, and
+# reading either as unfinished fails a whole green run.
+#
+# The "━" case is not hypothetical: this is the real shape, copied from the daemon-tests job
+# of cmux#25391 (2026-10-26), where an earlier version of this gate read it as unfinished and
+# failed a run of 386 tests whose own summary counted all 386.
 cat > "$TMP/knownissue.out" <<'EOF'
 ◇ Test knownIssue() started.
 ✘ Test knownIssue() passed after 0.001 seconds with 1 known issue.
+◇ Test aRunCutOffMidwayFinishesWithoutDuplicates() started.
+━ Test aRunCutOffMidwayFinishesWithoutDuplicates() recorded a known issue at ClassicUpgradeSimulationTests.swift:162:23: Expectation failed
+━ Test aRunCutOffMidwayFinishesWithoutDuplicates() passed after 8.359 seconds with 2 known issues.
 ◇ Test aPasses() started.
 ✔ Test aPasses() passed after 0.001 seconds.
-✔ Test run with 2 tests in 1 suite passed after 0.002 seconds.
+✔ Test run with 3 tests in 1 suite passed after 8.361 seconds.
 EOF
 run knownissue 0
 [[ "$status" == 0 ]] || fail "a test that passed with a known issue exited $status" "$out"
 [[ "$out" != *"::error"* ]] || fail "a test that passed with a known issue printed an error" "$out"
+
+# And a known-issue FAILURE is a finish too, in a run that is red for that reason: the gate's
+# job is the truncation, so it must not add a second error on top of a red the job already has.
+cat > "$TMP/knownissuefail.out" <<'EOF'
+◇ Test knownIssueFails() started.
+━ Test knownIssueFails() failed after 0.002 seconds with 1 known issue.
+✘ Test run with 1 test in 1 suite failed after 0.003 seconds with 1 issue.
+EOF
+run knownissuefail 1
+[[ "$out" != *"never finished"* ]] \
+  || fail "a known-issue failure was read as unfinished" "$out"
 
 # The reporter lines are read anchored at the start of the line, and these two cases
 # are the two sides of that choice.
