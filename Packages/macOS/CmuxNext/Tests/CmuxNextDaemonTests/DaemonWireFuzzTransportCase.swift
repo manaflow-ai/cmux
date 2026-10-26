@@ -2,13 +2,16 @@ import CmuxFuzzSupport
 import Darwin
 import Foundation
 @testable import CmuxNextDaemon
+@testable import CmuxNextTrace
 
-/// One connection's script: `requests` pipelined requests (ids 1...requests), then the peer's lines cut into
-/// chunks. The model routes each line by the contract in ``LineTransport``'s comments: an event (a stream
-/// line too, with no stream handler set) is counted and goes to `onEvent`; a reply resolves its id, or the
-/// oldest pending request when it has no usable id, if that request is still pending, and is dropped
-/// otherwise; an unfinished last line is never read; EOF fails what is left, as a shutdown once a
-/// `daemon-shutdown` event came.
+/// One connection's script: `requests` pipelined requests (ids 1...requests), the control streams it opens
+/// and whether it sets a stream handler, then the peer's lines cut into chunks the reader reads one at a
+/// time. The model routes each line by the contract in ``LineTransport``'s comments: an event is counted and
+/// goes to `onEvent`; a stream line with no `stream_id` is such an event too, one of a control stream
+/// (`routeOnControlSequence`) as well until that stream's `stream_end`, any other goes to the stream handler
+/// or is dropped when there is none; a reply resolves its id, or the oldest pending request when it has no
+/// usable id, if that request is still pending, and is dropped otherwise; an unfinished last line is never
+/// read; EOF fails what is left, as a shutdown once a `daemon-shutdown` event came.
 struct WireFuzzTransportCase {
     static let command = "fuzz"
     static let hangLimit: DispatchTimeInterval = .seconds(20)
@@ -51,16 +54,30 @@ struct WireFuzzTransportCase {
         var index: UInt64
     }
 
+    /// A line the stream handler got.
+    struct Handled: Equatable, Sendable {
+        var streamID: String
+        var line: [UInt8]
+    }
+
     struct Expected {
         var results: [Outcome] = []
         var events: [Seen] = []
+        var handled: [Handled] = []
         var close: TransportCloseReason = .lost("EOF")
+        /// Non-empty lines the reader cuts (an unfinished last line is not one).
+        var linesRead: UInt64 = 0
+        var coverage = WireFuzzTransportCoverage()
     }
 
     let requests: Int
     let lines: [WireFuzzLine]
     let terminated: Bool
     let chunks: [[UInt8]]
+    /// Stream ids routed as stream-0 events (`routeOnControlSequence`) before the reader starts.
+    let controlStreams: Set<String>
+    /// Whether the case sets a stream handler.
+    let handlesStreams: Bool
 
     init(_ rng: inout FuzzRNG) throws {
         let requests = rng.below(6)
@@ -84,44 +101,84 @@ struct WireFuzzTransportCase {
         self.lines = lines
         self.terminated = terminated
         self.chunks = chunks
+        var controlStreams: Set<String> = []
+        for streamID in WireFuzzLine.streamIDs where rng.oneIn(2) { controlStreams.insert(streamID) }
+        self.controlStreams = controlStreams
+        handlesStreams = rng.bool()
     }
 
     func expected() -> Expected {
         var pending = (0..<requests).map { UInt64($0 + 1) }
         var outcomes: [UInt64: Outcome] = [:]
         var expected = Expected()
+        var control = controlStreams
         var sawShutdown = false
         // An unterminated last line stays in the splitter.
         let read = terminated ? lines[...] : lines.dropLast()
         for line in read {
+            if !line.bytes.isEmpty { expected.linesRead += 1 }
+            let event = Seen(name: LineTransport.streamEvent, line: line.bytes, index: UInt64(expected.events.count + 1))
             switch line.route {
             case .ignored:
                 continue
             case .event(let name):
-                expected.events.append(Seen(name: name, line: line.bytes, index: UInt64(expected.events.count + 1)))
-                if name == "daemon-shutdown" { sawShutdown = true }
-            case .stream:
-                expected.events.append(Seen(name: LineTransport.streamEvent, line: line.bytes, index: UInt64(expected.events.count + 1)))
+                expected.events.append(Seen(name: name, line: line.bytes, index: event.index))
+                expected.coverage.events += 1
+                if name == "daemon-shutdown" {
+                    sawShutdown = true
+                    expected.coverage.shutdowns += 1
+                }
+            case .stream(_, nil):
+                expected.events.append(event)
+                expected.coverage.unscopedStreamEvents += 1
+            case .stream(let type, let streamID?):
+                if control.contains(streamID) {
+                    if type == "stream_end" { control.remove(streamID) }
+                    expected.events.append(event)
+                    expected.coverage.controlStreamEvents += 1
+                } else if handlesStreams {
+                    expected.handled.append(Handled(streamID: streamID, line: line.bytes))
+                    expected.coverage.handledStreamLines += 1
+                } else {
+                    expected.coverage.droppedStreamLines += 1
+                }
             case .reply(let id, let ok, let message):
-                guard let target = id ?? pending.first, let slot = pending.firstIndex(of: target) else { continue }
+                guard let target = id ?? pending.first, let slot = pending.firstIndex(of: target) else {
+                    expected.coverage.droppedReplies += 1
+                    continue
+                }
                 pending.remove(at: slot)
-                let outcome: Outcome = ok == true
-                    ? .success(line: line.bytes, barrier: UInt64(expected.events.count))
-                    : .command(message: message ?? "unknown error")
-                outcomes[target] = outcome
+                if ok == true {
+                    outcomes[target] = .success(line: line.bytes, barrier: UInt64(expected.events.count))
+                    expected.coverage.successes += 1
+                } else {
+                    outcomes[target] = .command(message: message ?? "unknown error")
+                    expected.coverage.commandErrors += 1
+                }
             }
         }
         expected.close = sawShutdown ? .daemonShutdown : .lost("EOF")
         let closed: DaemonError = sawShutdown ? .daemonShutdown : .connectionClosed(reason: "EOF")
         expected.results = (0..<requests).map { outcomes[UInt64($0 + 1)] ?? .closed(closed) }
+        expected.coverage.unresolved = pending.count
+        expected.coverage.unterminated = terminated || lines.isEmpty ? 0 : 1
         return expected
     }
 
-    /// Runs the case on a thread that may block (it waits for the reader thread).
-    func run(on peer: WireFuzzPeer) throws {
-        peer.serve(requestLines: requests, chunks: chunks)
-        let transport = try LineTransport(path: peer.path, role: .control, stats: nil)
+    /// Runs the case on a thread that may block (it waits for the reader thread); returns the routes it took.
+    func run(on peer: WireFuzzPeer) throws -> WireFuzzTransportCoverage {
+        let stats = DaemonWireStats()
+        let routedLines = WireFuzzRoutedLines()
+        peer.serve(requestLines: requests, chunks: chunks, routedLines: routedLines)
+        let transport = try LineTransport(path: peer.path, role: .control, stats: stats, hangs: routedLines)
         defer { transport.close() }
+        for streamID in controlStreams.sorted() { transport.routeOnControlSequence(streamID: streamID) }
+        let handled = WireFuzzLocked<[Handled]>([])
+        if handlesStreams {
+            transport.setStreamHandler { streamID, line in
+                handled.withLock { $0.append(Handled(streamID: streamID, line: [UInt8](line))) }
+            }
+        }
         let events = WireFuzzLocked<[Seen]>([])
         let close = WireFuzzLocked<TransportCloseReason?>(nil)
         let closed = DispatchSemaphore(value: 0)
@@ -157,16 +214,88 @@ struct WireFuzzTransportCase {
         let reason = close.withLock { $0 }
         try FuzzRun.check(reason == want.close, "closed with \(String(describing: reason)), the model \(want.close): \(describe())")
         try FuzzRun.check(transport.routedEventCount == UInt64(want.events.count), "routed \(transport.routedEventCount) events: \(describe())")
+        let streamed = handled.withLock { $0 }
+        try FuzzRun.check(streamed == want.handled,
+                          "the stream handler got \(streamed.map(\.streamID)), the model \(want.handled.map(\.streamID)): \(describe())")
+        let counted = stats.snapshot()
+        let sent = UInt64(chunks.reduce(0) { $0 + $1.count })
+        try FuzzRun.check(counted.bytesRead == sent, "read \(counted.bytesRead) of \(sent) bytes: \(describe())")
+        try FuzzRun.check(counted.linesRead == want.linesRead, "cut \(counted.linesRead) lines, the model \(want.linesRead): \(describe())")
+        return want.coverage
     }
 
     func describe() -> String {
         let shown = lines.map { String(decoding: $0.bytes.prefix(120), as: UTF8.self) }.joined(separator: " | ")
-        return "\(requests) requests, \(chunks.count) chunks, terminated \(terminated), lines: \(shown)"
+        return "\(requests) requests, \(chunks.count) chunks, terminated \(terminated), "
+            + "control streams \(controlStreams.sorted()), stream handler \(handlesStreams), lines: \(shown)"
+    }
+}
+
+/// How often each route came up over a run's cases, so a generator that stops making a kind of line fails.
+struct WireFuzzTransportCoverage: Sendable {
+    var successes = 0
+    var commandErrors = 0
+    var unresolved = 0
+    var droppedReplies = 0
+    var events = 0
+    var shutdowns = 0
+    var unscopedStreamEvents = 0
+    var controlStreamEvents = 0
+    var handledStreamLines = 0
+    var droppedStreamLines = 0
+    var unterminated = 0
+
+    mutating func add(_ other: WireFuzzTransportCoverage) {
+        successes += other.successes
+        commandErrors += other.commandErrors
+        unresolved += other.unresolved
+        droppedReplies += other.droppedReplies
+        events += other.events
+        shutdowns += other.shutdowns
+        unscopedStreamEvents += other.unscopedStreamEvents
+        controlStreamEvents += other.controlStreamEvents
+        handledStreamLines += other.handledStreamLines
+        droppedStreamLines += other.droppedStreamLines
+        unterminated += other.unterminated
+    }
+
+    /// The routes no case took.
+    var missing: [String] {
+        let counts: KeyValuePairs<String, Int> = [
+            "ok reply": successes, "error reply": commandErrors, "request failed at EOF": unresolved,
+            "dropped reply": droppedReplies, "event": events, "daemon-shutdown": shutdowns,
+            "stream line with no stream_id": unscopedStreamEvents, "control stream line": controlStreamEvents,
+            "stream handler line": handledStreamLines, "dropped stream line": droppedStreamLines,
+            "unfinished last line": unterminated,
+        ]
+        return counts.filter { $0.value == 0 }.map { $0.key }
+    }
+}
+
+/// The reader's line scope (``LineTransport``'s `hangs` seam): it counts each line the reader routed, so the
+/// peer can wait for the reader without polling.
+final class WireFuzzRoutedLines: HangWatchScoping {
+    private let routed = DispatchSemaphore(value: 0)
+
+    func registerLane(_ name: StaticString) -> HangWatch.Registration {
+        HangWatch.Registration(slot: 0, generation: 1)
+    }
+
+    func unregister(_ registration: HangWatch.Registration) {}
+
+    func watch<T>(_ registration: HangWatch.Registration, deadline: Duration, _ body: () throws -> T) rethrows -> T {
+        defer { routed.signal() }
+        return try body()
+    }
+
+    /// Waits until the reader routed one more line; false when `timeout` passes first.
+    func waitForOne(timeout: DispatchTimeInterval) -> Bool {
+        routed.wait(timeout: .now() + timeout) == .success
     }
 }
 
 /// A Unix socket served by this process: each `serve` accepts one connection, reads the client's request
-/// lines, writes the script chunk by chunk and closes it.
+/// lines, writes the script chunk by chunk, pacing it by the lines the reader routed, and closes it.
 final class WireFuzzPeer: Sendable {
     enum PeerError: Error, CustomStringConvertible {
         case socket(String, errno: Int32)
@@ -206,8 +335,30 @@ final class WireFuzzPeer: Sendable {
         self.listener = listener
     }
 
-    func serve(requestLines: Int, chunks: [[UInt8]]) {
+    /// How long the peer waits for the reader to route a chunk's lines; past it the peer stops pacing and the
+    /// case's own hang limit reports the reader.
+    static let pacingLimit: DispatchTimeInterval = .seconds(5)
+
+    /// The non-empty lines that end in each chunk or before it: what the reader has routed once it read the chunk.
+    static func linesEnded(by chunks: [[UInt8]]) -> [Int] {
+        var lines = 0
+        var lineHasBytes = false
+        return chunks.map { chunk in
+            for byte in chunk {
+                if byte != 0x0A {
+                    lineHasBytes = true
+                } else if lineHasBytes {
+                    lines += 1
+                    lineHasBytes = false
+                }
+            }
+            return lines
+        }
+    }
+
+    func serve(requestLines: Int, chunks: [[UInt8]], routedLines: WireFuzzRoutedLines) {
         let listener = listener
+        let linesEnded = Self.linesEnded(by: chunks)
         let thread = Thread {
             let client = accept(listener, nil, nil)
             guard client >= 0 else { return }
@@ -223,7 +374,17 @@ final class WireFuzzPeer: Sendable {
                 guard count > 0 else { return }
                 newlines += buffer.prefix(count).filter { $0 == 0x0A }.count
             }
-            for chunk in chunks where !Self.writeAll(chunk, to: client) { return }
+            // A chunk that ends a line is written only after the reader routed every line before it, so the
+            // reader's read(2) stops at that chunk's end and a cut line waits in its splitter for the next one.
+            var waited = 0
+            var paced = true
+            for (chunk, ended) in zip(chunks, linesEnded) {
+                guard Self.writeAll(chunk, to: client) else { return }
+                while paced, waited < ended {
+                    paced = routedLines.waitForOne(timeout: Self.pacingLimit)
+                    waited += 1
+                }
+            }
         }
         thread.name = "DaemonWireFuzz peer"
         thread.qualityOfService = .utility

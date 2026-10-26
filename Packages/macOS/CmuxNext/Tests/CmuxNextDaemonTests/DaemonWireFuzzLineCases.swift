@@ -65,7 +65,9 @@ struct WireFuzzLine {
         /// Not JSON, or JSON with no `event`, stream `type`, `ok` or `id`.
         case ignored
         case event(name: String)
-        /// A `cmux.protocol/2` stream line; with no stream handler it travels as an event.
+        /// A `cmux.protocol/2` stream line. With no `stream_id` it travels as an event; with one it is an
+        /// event while that id is a control stream (until its `stream_end`), else it goes to the stream
+        /// handler, or is dropped when there is none.
         case stream(type: String, streamID: String?)
         /// A reply: its usable id (nil: the oldest pending request), its `ok`, and its error text.
         case reply(id: UInt64?, ok: Bool?, message: String?)
@@ -153,10 +155,13 @@ struct WireFuzzLine {
         return WireFuzzLine(bytes: try WireFuzzJSON.bytes(object), route: .event(name: name))
     }
 
+    /// The ids a stream line names; a transport case opens some of them as control streams.
+    static let streamIDs = ["s0", "s1", "s2"]
+
     static func stream(_ rng: inout FuzzRNG) throws -> WireFuzzLine {
         let type = rng.bool() ? "stream_item" : "stream_end"
         var object: [String: Any] = ["type": type, "item": WireFuzzJSON.value(&rng)]
-        let streamID: String? = rng.oneIn(4) ? nil : "s\(rng.below(3))"
+        let streamID: String? = rng.oneIn(4) ? nil : streamIDs[rng.below(streamIDs.count)]
         if let streamID { object["stream_id"] = streamID }
         return WireFuzzLine(bytes: try WireFuzzJSON.bytes(object), route: .stream(type: type, streamID: streamID))
     }

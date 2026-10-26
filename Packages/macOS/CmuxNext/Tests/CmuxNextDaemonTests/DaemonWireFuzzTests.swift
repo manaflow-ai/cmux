@@ -24,8 +24,10 @@ import Testing
 /// ```
 ///
 /// The runs are CmuxFuzzSupport `FuzzRun`s (p10-stability-016): `CMUX_FUZZ_SEED` and `CMUX_FUZZ_ITERATIONS`
-/// replay a failure, `CMUX_FUZZ_DEADLINE` gives the serialized suite one 5 minute long run, and with
-/// `CMUX_FUZZ_ARTIFACTS` set a trap leaves the case it was in behind (`DaemonWire.<run>.inflight`).
+/// replay a failure, and with `CMUX_FUZZ_ARTIFACTS` set a trap leaves the case it was in behind
+/// (`DaemonWire.<run>.inflight`). The suite is serialized, so `CMUX_FUZZ_DEADLINE` is split: each of its
+/// ``runCount`` runs gets an equal share of the time left when the first one starts (5 minutes give each
+/// about 33 s), not the whole budget to whichever runs first. `CMUX_FUZZ_SECONDS` stays per run.
 @Suite(
     .serialized,
     .enabled(
@@ -39,6 +41,23 @@ struct DaemonWireFuzzTests {
         let budget = (try? FuzzEnvironment.current())?.longModeBudget(from: Date()) ?? 0
         return 2 + Int((budget / 60).rounded(.up))
     }()
+
+    /// The suite's runs (its `@Test`s), which share a `CMUX_FUZZ_DEADLINE`.
+    static let runCount = 9
+
+    /// Each run's share of `CMUX_FUZZ_DEADLINE`, fixed when the first run asks; nil without a deadline or in a replay.
+    static let deadlineShare: TimeInterval? = {
+        guard let environment = try? FuzzEnvironment.current(), environment.iterations == nil,
+              let deadline = environment.deadline else { return nil }
+        return max(deadline.timeIntervalSinceNow, 0) / Double(runCount)
+    }()
+
+    /// A run of this suite: the process's `CMUX_FUZZ_*` variables, its long mode capped at ``deadlineShare``.
+    static func run(_ name: String, seed: UInt64, iterations: Int) throws(FuzzError) -> FuzzRun {
+        var environment = try FuzzEnvironment.current()
+        if let share = deadlineShare { environment.seconds = min(environment.seconds ?? share, share) }
+        return FuzzRun(name, seed: seed, iterations: iterations, environment: environment)
+    }
 
     /// One input of the in-process checks, its choices read from `data` (the libFuzzer entry,
     /// p10-stability-182). The transport run needs sockets and threads, so it is not part of it.
@@ -65,7 +84,7 @@ struct DaemonWireFuzzTests {
 
     @Test(.timeLimit(.minutes(DaemonWireFuzzTests.timeLimitMinutes)))
     func oneInputTakesAnyBytes() throws {
-        let run = try FuzzRun("DaemonWire.oneInput", seed: 0x0DA3_0022_0001, iterations: 5_000)
+        let run = try Self.run("DaemonWire.oneInput", seed: 0x0DA3_0022_0001, iterations: 5_000)
         let seeds = [Data(), Data([0]), Data([1, 7, 0x0A]), Data([4, 3, 9, 200, 1]), Data(repeating: 0x5A, count: 64)]
         try run.forEachInput(try run.corpus(seeds: seeds)) { try Self.oneInput($0) }
     }
@@ -74,7 +93,7 @@ struct DaemonWireFuzzTests {
     /// each byte for a newline once (the linear bound of c997498fd634).
     @Test(.timeLimit(.minutes(DaemonWireFuzzTests.timeLimitMinutes)))
     func lineSplitterCutsEveryChunkingTheSame() throws {
-        try FuzzRun("DaemonWire.lineSplitter", seed: 0x0DA3_0022_0002, iterations: 20_000).forEach { rng in
+        try Self.run("DaemonWire.lineSplitter", seed: 0x0DA3_0022_0002, iterations: 20_000).forEach { rng in
             let stream = WireFuzzSplitterCase.stream(&rng)
             try WireFuzzSplitterCase.check(stream, &rng)
         }
@@ -83,7 +102,7 @@ struct DaemonWireFuzzTests {
     /// Every generated line routes by its fields; a mutated line decodes or is refused, never traps.
     @Test(.timeLimit(.minutes(DaemonWireFuzzTests.timeLimitMinutes)))
     func envelopesRouteEveryLineByItsFields() throws {
-        try FuzzRun("DaemonWire.envelope", seed: 0x0DA3_0022_0003, iterations: 20_000).forEach { rng in
+        try Self.run("DaemonWire.envelope", seed: 0x0DA3_0022_0003, iterations: 20_000).forEach { rng in
             let requests = 1 + rng.below(8)
             let line = try WireFuzzLine.random(&rng, requests: requests)
             try WireFuzzEnvelopeCase.check(line, &rng)
@@ -94,7 +113,7 @@ struct DaemonWireFuzzTests {
     /// line's payload; a mutated line under any name gives an event.
     @Test(.timeLimit(.minutes(DaemonWireFuzzTests.timeLimitMinutes)))
     func eventLinesDecodeToTheirCaseOrUnknown() throws {
-        try FuzzRun("DaemonWire.event", seed: 0x0DA3_0022_0004, iterations: 20_000).forEach { rng in
+        try Self.run("DaemonWire.event", seed: 0x0DA3_0022_0004, iterations: 20_000).forEach { rng in
             let sample = try WireFuzzEventCase.Sample.random(&rng)
             try WireFuzzEventCase.check(sample, &rng)
         }
@@ -103,7 +122,7 @@ struct DaemonWireFuzzTests {
     /// A reply decodes to its value, and any damaged reply throws `DaemonError.malformedResponse`.
     @Test(.timeLimit(.minutes(DaemonWireFuzzTests.timeLimitMinutes)))
     func replyLinesDecodeOrThrowMalformedResponse() throws {
-        try FuzzRun("DaemonWire.reply", seed: 0x0DA3_0022_0005, iterations: 10_000).forEach { rng in
+        try Self.run("DaemonWire.reply", seed: 0x0DA3_0022_0005, iterations: 10_000).forEach { rng in
             try WireFuzzReplyCase.check(&rng)
         }
     }
@@ -112,7 +131,7 @@ struct DaemonWireFuzzTests {
     /// and the store run on a line.
     @Test(.timeLimit(.minutes(DaemonWireFuzzTests.timeLimitMinutes)))
     func rawLinesNeverTrapAnyDecoder() throws {
-        let run = try FuzzRun("DaemonWire.rawLine", seed: 0x0DA3_0022_0006, iterations: 5_000)
+        let run = try Self.run("DaemonWire.rawLine", seed: 0x0DA3_0022_0006, iterations: 5_000)
         let corpus = try run.corpus(seeds: WireFuzzRawLineCase.seeds)
         let mutator = FuzzMutator(dictionary: WireFuzzJSON.tokens, maximumCount: 4096)
         try run.forEachInput(corpus, mutator: mutator) { line in
@@ -124,7 +143,7 @@ struct DaemonWireFuzzTests {
     /// what ``EventInbox`` promises.
     @Test(.timeLimit(.minutes(DaemonWireFuzzTests.timeLimitMinutes)))
     func inboxInterleavingsKeepTheirGuarantees() throws {
-        try FuzzRun("DaemonWire.inbox", seed: 0x0DA3_0022_0007, iterations: 10_000).forEach { rng in
+        try Self.run("DaemonWire.inbox", seed: 0x0DA3_0022_0007, iterations: 10_000).forEach { rng in
             try WireFuzzInboxSequence(&rng).check()
         }
     }
@@ -133,30 +152,39 @@ struct DaemonWireFuzzTests {
     /// and a frame is asked for at most once per take.
     @Test(.timeLimit(.minutes(DaemonWireFuzzTests.timeLimitMinutes)))
     func inboxConcurrentAppendsAndTakesDeliverEachEventOnce() throws {
-        try FuzzRun("DaemonWire.inboxThreads", seed: 0x0DA3_0022_0008, iterations: 300).forEach { rng in
+        try Self.run("DaemonWire.inboxThreads", seed: 0x0DA3_0022_0008, iterations: 300).forEach { rng in
             try WireFuzzInboxThreads(&rng).check()
         }
     }
 
     /// A real transport reading a scripted peer: replies in any order (ids as numbers, decimal strings,
-    /// unusable or missing), events, stream lines, garbage and empty lines, cut into any chunks. Each request
-    /// gets the reply the routing contract names, events arrive in wire order with their indexes, and the
-    /// close names a `daemon-shutdown` when one came.
+    /// unusable or missing), events, stream lines (unscoped, of control streams, for a stream handler or
+    /// dropped), garbage and empty lines, cut into chunks the reader reads one by one. Each request gets the
+    /// reply the routing contract names, events arrive in wire order with their indexes, the stream handler
+    /// gets its lines, and the close names a `daemon-shutdown` when one came. A full run takes every route.
     @Test(.timeLimit(.minutes(DaemonWireFuzzTests.timeLimitMinutes)))
     func transportRoutesInterleavedEventsAndReplies() async throws {
-        let run = try FuzzRun("DaemonWire.transport", seed: 0x0DA3_0022_0009, iterations: 200)
+        let run = try Self.run("DaemonWire.transport", seed: 0x0DA3_0022_0009, iterations: 200)
         let peer = try WireFuzzPeer()
         defer { peer.stop() }
         // Each case waits on semaphores the reader thread signals: on a thread of its own, never on one of
         // the Swift concurrency pool.
-        let cases = try await Self.onDedicatedThread("DaemonWireFuzz transport run") {
-            try run.forEach { rng in try WireFuzzTransportCase(&rng).run(on: peer) }
+        let coverage = try await Self.onDedicatedThread("DaemonWireFuzz transport run") {
+            var coverage = WireFuzzTransportCoverage()
+            try run.forEach { rng in
+                let taken = try WireFuzzTransportCase(&rng).run(on: peer)
+                coverage.add(taken)
+            }
+            return coverage
         }
-        #expect(cases >= run.iterations)
+        // A replay (`CMUX_FUZZ_ITERATIONS`) may stop before every route came up.
+        if run.environment.iterations == nil {
+            #expect(coverage.missing.isEmpty, "no case took these routes: \(coverage.missing)")
+        }
     }
 
-    private static func onDedicatedThread(_ name: String, _ body: @escaping @Sendable () throws -> Int) async throws -> Int {
-        let result: Result<Int, any Error> = await withCheckedContinuation { continuation in
+    private static func onDedicatedThread<T: Sendable>(_ name: String, _ body: @escaping @Sendable () throws -> T) async throws -> T {
+        let result: Result<T, any Error> = await withCheckedContinuation { continuation in
             let thread = Thread {
                 do {
                     continuation.resume(returning: .success(try body()))
