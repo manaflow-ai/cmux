@@ -9,7 +9,15 @@ import { JSDOM } from "jsdom";
 import { act } from "react";
 
 const scope = globalThis as Record<string, unknown>;
-const keys = ["window", "document", "navigator", "HTMLElement", "localStorage", "IS_REACT_ACT_ENVIRONMENT"] as const;
+const keys = [
+  "window",
+  "document",
+  "navigator",
+  "HTMLElement",
+  "Element",
+  "localStorage",
+  "IS_REACT_ACT_ENVIRONMENT",
+] as const;
 const saved = keys.map((key) => [key, Object.getOwnPropertyDescriptor(scope, key)] as const);
 let dom: JSDOM;
 
@@ -20,6 +28,7 @@ beforeAll(() => {
     document: dom.window.document,
     navigator: dom.window.navigator,
     HTMLElement: dom.window.HTMLElement,
+    Element: dom.window.Element,
     localStorage: dom.window.localStorage,
     IS_REACT_ACT_ENVIRONMENT: true,
   });
@@ -112,7 +121,7 @@ test("a bar drops once the header reports its pull request merged; an open one s
 test("the default dock is a compact count that opens Session Info changes", async () => {
   const { createRoot } = await import("react-dom/client");
   const { PullRequestDock } = await import("../src/agent-session/acpmux/summary/PullRequestDock");
-  dom.window.document.documentElement.dataset.prDock = "compact";
+  delete dom.window.document.documentElement.dataset.prDock;
   const rows = [
     {
       kind: "activity",
@@ -133,6 +142,24 @@ test("the default dock is a compact count that opens Session Info changes", asyn
   expect(dom.window.document.querySelector(".acpmux-pr-dock__count")?.textContent).toContain("2 PRs");
   await act(async () => (dom.window.document.querySelector(".acpmux-pr-dock__count") as HTMLButtonElement).click());
   expect(opened).toBe(1);
+  const disclosure = dom.window.document.querySelector<HTMLButtonElement>(".acpmux-pr-dock__disclosure");
+  expect(disclosure).not.toBeNull();
+  await act(async () => disclosure!.click());
+  expect(bars().map((bar) => bar[0])).toEqual(["#52", "#51"]);
+  await act(async () => dom.window.document.querySelector<HTMLButtonElement>(".acpmux-pr-dock__dismiss")!.click());
+  expect(bars().map((bar) => bar[0])).toEqual(["#51"]);
+  // Dismissal hides a shortcut, not a session change.
+  expect(dom.window.document.querySelector(".acpmux-pr-dock__count")?.textContent).toBe("2 PRs");
+  await act(async () =>
+    root.render(
+      <PullRequestDock
+        rows={[{ ...rows[0], version: 2, items: [...rows[0].items, tool("t8", "gh pr merge 51")] }] as never}
+        sessionId="s3"
+        onOpenChanges={() => undefined}
+      />,
+    ),
+  );
+  expect(dom.window.document.querySelector(".acpmux-pr-dock__count")?.textContent).toBe("2 PRs");
   act(() => root.unmount());
   const oneRoot = createRoot(container());
   await act(async () =>
