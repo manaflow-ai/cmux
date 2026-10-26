@@ -261,6 +261,17 @@ async fn a_retry_with_no_daemon_keeps_the_backup() {
     let up = apply(&peer, &plan, TARGET);
     assert_eq!((up.outcome, up.build.as_deref()), (Outcome::Updated, Some(NEW)), "{up:?}");
     assert_eq!(peer.read(".local/bin/acpmux.prev"), old, "the backup is the build that last ran");
+
+    // Re-review: the same with the channel moved on to a newer build.
+    peer.exe(".local/bin/acpmux", &new);
+    let _ = std::fs::remove_file(peer.home.join("daemon"));
+    drop(plan);
+    let newer = "b2c3d4e5f 2026-10-22";
+    let files = serving(&fake_acpmux(newer, Some(newer)));
+    let plan = ready(&peer, &files).await;
+    let up = apply(&peer, &plan, TARGET);
+    assert_eq!((up.outcome, up.build.as_deref()), (Outcome::Updated, Some(newer)), "{up:?}");
+    assert_eq!(peer.read(".local/bin/acpmux.prev"), old, "the backup is the build that last ran");
 }
 
 #[tokio::test]
