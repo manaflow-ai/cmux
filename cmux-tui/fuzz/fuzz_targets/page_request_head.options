@@ -1,0 +1,6 @@
+# libFuzzer's default -max_len is max(4096, the largest seed); the listener
+# answers 431 only past REQUEST_HEAD_MAX_BYTES (64 KiB, server/page_files.rs),
+# so inputs must be allowed past it (rust-fuzz.sh reads this file, Chromium's
+# <target>.options of testing/libfuzzer/fuzzer_test.gni).
+[libfuzzer]
+max_len = 70000

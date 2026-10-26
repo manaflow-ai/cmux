@@ -266,6 +266,7 @@ pub fn encode_output_segment_frame(start: u64, bytes: &[u8]) -> anyhow::Result<V
 pub struct PageRequestHead {
     pub method: String,
     pub target: String,
+    pub header_names: Vec<String>,
     pub websocket_upgrade: bool,
     pub host: Vec<String>,
     pub origin: Vec<String>,
@@ -280,6 +281,7 @@ pub fn page_request_head(stream: &mut (impl Read + Write)) -> Option<(Vec<u8>, P
         websocket_upgrade: head.is_websocket_upgrade(),
         host: owned(head.values("host")),
         origin: owned(head.values("origin")),
+        header_names: head.names().map(str::to_owned).collect(),
         method: head.method,
         target: head.target,
     };

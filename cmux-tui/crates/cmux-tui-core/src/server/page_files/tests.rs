@@ -40,6 +40,7 @@ fn a_well_formed_head_parses() {
     assert!(bytes.ends_with(b"rest"));
     assert_eq!((head.method.as_str(), head.target.as_str()), ("GET", "/pages/home/"));
     assert_eq!(head.values("host"), ["127.0.0.1:7777"]);
+    assert_eq!(head.names().collect::<Vec<_>>(), ["Host", "Upgrade"]);
     assert!(head.is_websocket_upgrade());
 }
 

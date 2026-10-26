@@ -207,6 +207,10 @@ def seeds() -> dict[str, dict[str, bytes]]:
             + b"Upgrade: websocket\r\nConnection: Upgrade\r\nSec-WebSocket-Version: 13\r\n\r\n"
             + b"\x81\x80",
             "attachment": u8(0) + b"HEAD /attachments/x?y=1 HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n",
+            "field-ows": u8(31)
+            + b"GET /pages/home/ HTTP/1.0\r\nHost:\t 127.0.0.1 \r\nOrigin:x\r\n\r\n",
+            "obs-fold": u8(3) + b"GET / HTTP/1.1\r\nHost: 127.0.0.1\r\n Host: evil\r\n\r\n",
+            "space-before-colon": u8(3) + b"GET / HTTP/1.1\r\nHost : evil\r\n\r\n",
         },
     }
 

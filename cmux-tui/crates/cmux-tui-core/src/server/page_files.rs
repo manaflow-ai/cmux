@@ -37,6 +37,12 @@ impl RequestHead {
             .collect()
     }
 
+    /// Every field name, in order, as sent.
+    #[cfg(any(test, feature = "fuzz"))]
+    pub fn names(&self) -> impl Iterator<Item = &str> {
+        self.headers.iter().map(|(name, _)| name.as_str())
+    }
+
     /// Whether the request asks for a WebSocket upgrade.
     pub fn is_websocket_upgrade(&self) -> bool {
         self.values("upgrade").iter().any(|value| value.trim().eq_ignore_ascii_case("websocket"))
@@ -77,24 +83,49 @@ pub(crate) fn read_request_head(
         return None;
     }
     let mut lines = head.split("\r\n");
+    // request-line = method SP request-target SP HTTP-version, exactly three
+    // parts (RFC 9112 section 3); the method is a token (RFC 9110 section 9.1).
+    // Chromium's embedded server splits it into the same three parts
+    // (net/server/http_server.cc, ParseHeaders).
     let mut request_line = lines.next()?.split(' ');
-    let method = request_line.next()?.to_owned();
-    // The method is a token (RFC 9110 section 9.1).
-    if method.is_empty() || !method.bytes().all(is_token_byte) {
+    let (method, target, version) =
+        (request_line.next()?, request_line.next()?, request_line.next()?);
+    if request_line.next().is_some()
+        || !is_token(method)
+        || target.is_empty()
+        || !is_http1_version(version)
+    {
         return None;
     }
-    let target = request_line.next()?.to_owned();
     let mut headers = Vec::new();
     for line in lines {
+        // field-line = field-name ":" OWS field-value OWS (RFC 9112 section 5).
+        // The name is a token, so whitespace before the colon (section 5.1)
+        // or at the line start, obs-fold (section 5.2), makes it malformed.
         let (name, value) = line.split_once(':')?;
-        headers.push((name.trim().to_owned(), value.trim().to_owned()));
+        if !is_token(name) {
+            return None;
+        }
+        headers.push((name.to_owned(), value.trim_matches([' ', '\t']).to_owned()));
     }
-    Some((bytes, RequestHead { method, target, headers }))
+    let parsed = RequestHead { method: method.to_owned(), target: target.to_owned(), headers };
+    Some((bytes, parsed))
 }
 
-/// A `tchar` of RFC 9110 section 5.6.2.
-fn is_token_byte(byte: u8) -> bool {
-    byte.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&byte)
+/// A non-empty run of `tchar` (RFC 9110 section 5.6.2).
+fn is_token(text: &str) -> bool {
+    !text.is_empty()
+        && text
+            .bytes()
+            .all(|byte| byte.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&byte))
+}
+
+/// `HTTP/1.` and one digit (RFC 9112 section 2.3): the listener speaks
+/// HTTP/1.x only.
+fn is_http1_version(version: &str) -> bool {
+    version
+        .strip_prefix("HTTP/1.")
+        .is_some_and(|minor| minor.len() == 1 && minor.bytes().all(|byte| byte.is_ascii_digit()))
 }
 
 /// Answers one page file request and closes the connection.

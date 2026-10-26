@@ -5,10 +5,13 @@
 //! the peer sends.
 //!
 //! A head it accepts was read up to the stream's first blank line, every byte
-//! it returns is a prefix of the stream, its method is a token, and its
-//! target and Host and Origin values hold no control byte but HTAB. It
-//! answers only an oversized head (431), and only after reading the whole
-//! limit.
+//! it returns is a prefix of the stream, its request line is exactly
+//! `method SP target SP HTTP/1.x` with a token method and a non-empty
+//! target, every field name is a token (so no whitespace before a colon and
+//! no obs-fold line), and its target and Host and Origin values hold no
+//! control byte but HTAB. It answers only an oversized head (431), and only
+//! after reading the whole limit; page_request_head.options raises max_len
+//! past that limit so the fuzzer reaches it.
 
 #![no_main]
 
@@ -61,12 +64,30 @@ fuzz_target!(|data: &[u8]| {
                 head_end.is_some_and(|end| end <= bytes.len()),
                 "a head was accepted before its blank line"
             );
-            let token =
-                |byte: u8| byte.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&byte);
+            let token = |text: &str| {
+                !text.is_empty()
+                    && text.bytes().all(|byte| {
+                        byte.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&byte)
+                    })
+            };
+            assert!(token(&head.method), "the method is not a token");
+            let request_line = bytes.split(|&byte| byte == b'\r').next().unwrap_or_default();
+            let version = request_line
+                .strip_prefix(format!("{} {} ", head.method, head.target).as_bytes())
+                .expect("the request line is not method SP target SP version");
+            assert!(!head.target.is_empty(), "the target is empty");
             assert!(
-                !head.method.is_empty() && head.method.bytes().all(token),
-                "the method is not a token"
+                version.len() == 8
+                    && version.starts_with(b"HTTP/1.")
+                    && version[7].is_ascii_digit(),
+                "the version is not HTTP/1.x"
             );
+            for name in &head.header_names {
+                assert!(token(name), "a field name is not a token");
+            }
+            let field_lines =
+                blank_line.map(|end| sent[..end].windows(2).filter(|pair| pair == b"\r\n").count());
+            assert_eq!(field_lines, Some(head.header_names.len()), "a field line was dropped");
             for value in std::iter::once(&head.target).chain(&head.host).chain(&head.origin) {
                 assert!(
                     !value.bytes().any(|byte| byte.is_ascii_control() && byte != b'\t'),
