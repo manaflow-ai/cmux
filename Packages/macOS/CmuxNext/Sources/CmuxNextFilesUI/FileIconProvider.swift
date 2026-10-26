@@ -1,45 +1,62 @@
 public import AppKit
 public import CmuxNextFiles
+public import CmuxNextWakeups
+import Observation
 import QuickLookThumbnailing
 import UniformTypeIdentifiers
 
 /// Icons and thumbnails for Files rows and tiles, shared by every Files and
 /// Screenshots pane.
 ///
-/// Type icons are cached per extension (one `NSWorkspace` lookup per type,
+/// Type icons are cached per extension (one Launch Services lookup per type,
 /// not per file), so a 100 000-row list asks the system a handful of times.
+/// The lookups run on the system lane (``WorkspaceQueries``), never on the
+/// main thread: a row whose type was not asked yet shows a placeholder, and
+/// ``arrivals`` changes when its icon lands, so the pane redraws the rows on
+/// screen. Only rows on screen ask, so the visible list is what is fetched.
 /// Thumbnails come from `QLThumbnailGenerator` off the main actor, only for
 /// the tiles on screen, and are kept in an `NSCache` by path, size and
 /// modification date.
 @MainActor
+@Observable
 public final class FileIconProvider {
-    private var typeIcons: [String: NSImage] = [:]
+    /// Counts the icons that landed since the provider was made: a view that showed placeholders redraws its rows
+    /// when it changes.
+    public private(set) var arrivals = 0
+    @ObservationIgnored private var typeIcons: [String: NSImage] = [:]
+    @ObservationIgnored private var asking: Set<String> = []
     private let thumbnails = NSCache<NSString, NSImage>()
-    private var pending: [NSString: Task<NSImage?, Never>] = [:]
+    @ObservationIgnored private var pending: [NSString: Task<NSImage?, Never>] = [:]
+    private let queries: WorkspaceQueries?
 
     /// Makes a provider. One per app is enough; panes share it.
-    public init() {
+    ///
+    /// - Parameter queries: The app's Launch Services answers; nil (tests) shows placeholders only.
+    public init(queries: WorkspaceQueries?) {
+        self.queries = queries
         thumbnails.countLimit = 2_000
     }
 
-    /// The type icon for `entry` (folder, package, or by extension).
+    /// The type icon for `entry` (folder, package, or by extension), or a placeholder until it lands.
     public func icon(for entry: FileEntry) -> NSImage {
         let key: String
+        let query: WorkspaceQuery<NSImage>
         switch entry.kind {
-        case .folder: key = "/folder"
-        case .symlink: key = "/symlink"
-        case .package: return packageIcon(entry)
-        case .file, .other: key = entry.pathExtension
+        case .folder: (key, query) = ("/folder", WorkspaceQuery<NSImage>.typeIcon(.folder))
+        case .symlink: (key, query) = ("/symlink", WorkspaceQuery<NSImage>.typeIcon(.symbolicLink))
+        // Apps carry their own icons, so packages are looked up per item (rare in a folder).
+        case .package: (key, query) = ("/package" + entry.url.path, WorkspaceQuery<NSImage>.fileIcon(atPath: entry.url.path))
+        case .file, .other: (key, query) = (entry.pathExtension, WorkspaceQuery<NSImage>.typeIcon(UTType(filenameExtension: entry.pathExtension) ?? .data))
         }
         if let cached = typeIcons[key] { return cached }
-        let image: NSImage
-        switch entry.kind {
-        case .folder: image = NSWorkspace.shared.icon(for: .folder)
-        case .symlink: image = NSWorkspace.shared.icon(for: .symbolicLink)
-        default: image = NSWorkspace.shared.icon(for: UTType(filenameExtension: key) ?? .data)
-        }
-        typeIcons[key] = image
-        return image
+        ask(query, for: key)
+        return Self.placeholder(folder: entry.kind == .folder)
+    }
+
+    /// The icon of the item at `url`, its own as Finder's Get Info shows it, given to `apply` in this turn when kept,
+    /// else when it lands from the system lane.
+    public func fileIcon(at url: URL, apply: @escaping @MainActor (NSImage) -> Void) {
+        queries?.value(WorkspaceQuery<NSImage>.fileIcon(atPath: url.path, side: 48), priority: .userBlocking, then: apply)
     }
 
     /// The system's localized kind for `entry` ("Folder", "PNG image").
@@ -77,13 +94,20 @@ public final class FileIconProvider {
         return image
     }
 
-    private func packageIcon(_ entry: FileEntry) -> NSImage {
-        // Apps carry their own icons, so packages are looked up per item (rare in a folder).
-        let key = "/package" + entry.url.path
-        if let cached = typeIcons[key] { return cached }
-        let image = NSWorkspace.shared.icon(forFile: entry.url.path)
-        typeIcons[key] = image
-        return image
+    /// Asks the system lane for the icon of `key` once; its landing bumps ``arrivals``.
+    private func ask(_ query: WorkspaceQuery<NSImage>, for key: String) {
+        guard let queries, asking.insert(key).inserted else { return }
+        queries.value(query, priority: .userVisible) { [weak self] image in
+            guard let self else { return }
+            asking.remove(key)
+            typeIcons[key] = image
+            arrivals += 1
+        }
+    }
+
+    /// What a row shows until its icon lands: the folder or the document symbol.
+    private static func placeholder(folder: Bool) -> NSImage {
+        NSImage(systemSymbolName: folder ? "folder" : "doc", accessibilityDescription: nil) ?? NSImage()
     }
 
     private static func key(_ entry: FileEntry, _ size: CGFloat) -> NSString {

@@ -16,11 +16,19 @@ enum OpenInHandlers {
         registry.bind("filePreviewRevealInFiles", run: { invocation in
             try context.services.viewers.filesPanes.reveal(try focusedFile(context, invocation), focus: invocation.allowsViewChange)
         })
-        registry.bind("filePreviewOpenWith", run: { invocation in
-            let file = try focusedFile(context, invocation)
+        registry.bindEffect("filePreviewOpenWith", effect: { invocation in
+            let file: URL
+            do { file = try focusedFile(context, invocation) } catch { return .refused((error as? ActionFailure)?.message ?? error.localizedDescription) }
             let name = invocation["app"]?.stringValue ?? ""
-            guard let app = LinkMenu.application(named: name) else { throw ActionFailure(message: MiscHandlerStrings.appNotFound(name)) }
-            NSWorkspace.shared.openInBackground([file], withApplicationAt: app)
+            let queries = context.services.workspaceQueries
+            // action-wait-allow: the app a name means is known only when Launch Services answers on the system lane; then it opens.
+            return .waiting(.externalProcess) {
+                guard let app = (try? await queries.value(LinkMenu.application(named: name), priority: .userBlocking)) ?? nil else {
+                    return ActionWorkFailure(MiscHandlerStrings.appNotFound(name))
+                }
+                NSWorkspace.shared.openInBackground([file], withApplicationAt: app)
+                return nil
+            }
         })
     }
 

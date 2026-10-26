@@ -36,7 +36,7 @@ struct FileColumnsClickTests {
             key: { _ in false },
             browse: { recorder.browsed.append($0) }
         )
-        let columns = FileColumnsView(actions: actions, icons: FileIconProvider(), lister: FixedLister(entries: entries))
+        let columns = FileColumnsView(actions: actions, icons: FileIconProvider(queries: nil), lister: FixedLister(entries: entries))
         let browser = try #require(columns.view as? NSBrowser)
         browser.frame = NSRect(x: 0, y: 0, width: 600, height: 400)
         browser.loadColumnZero()

@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextCompat
+import CmuxNextWakeups
 import ImageIO
 import UniformTypeIdentifiers
 
@@ -9,6 +10,7 @@ import UniformTypeIdentifiers
 /// it when the off-main read ends.
 @MainActor
 final class AgentPaneFileDrag: NSObject, NSDraggingSource {
+
     /// What a drag of a file carries besides its URL, read off the main actor (``contents(of:)``):
     /// an image's bytes and TIFF for the pasteboard and its decoded picture (at most 160 pt) for the
     /// drag image; both nil for another file.
@@ -27,21 +29,35 @@ final class AgentPaneFileDrag: NSObject, NSDraggingSource {
     /// picture are read off the main actor after the start (``contents(of:)``): the bytes serve the
     /// pasteboard's image types (``AgentPaneFileDragPasteboard``), and the picture replaces the icon in
     /// the running drag.
+    ///
+    /// `queries` are the app's Launch Services answers: the file's icon is the kept one, else it replaces a placeholder
+    /// when it lands from the system lane.
     @discardableResult
-    func start(_ file: URL, from view: NSView) -> Bool {
+    func start(_ file: URL, from view: NSView, queries: WorkspaceQueries?) -> Bool {
         guard let window = view.window,
               let event = NSEvent.mouseEvent(with: .leftMouseDragged, location: window.mouseLocationOutsideOfEventStream,
                                              modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
                                              windowNumber: window.windowNumber, context: nil, eventNumber: 0,
                                              clickCount: 1, pressure: 1) else { return false }
         let pasteboard = AgentPaneFileDragPasteboard(file: file)
-        let image = Self.icon(file)
+        let iconQuery = WorkspaceQuery<NSImage>.fileIcon(atPath: file.path, side: 64)
+        let kept = queries?.cached(iconQuery)
+        let image = kept ?? Self.placeholder
         let item = NSDraggingItem(pasteboardWriter: pasteboard.item())
         let point = view.convert(window.mouseLocationOutsideOfEventStream, from: nil)
         item.setDraggingFrame(CGRect(x: point.x - image.size.width / 2, y: point.y - image.size.height / 2,
                                      width: image.size.width, height: image.size.height), contents: image)
         let session = view.beginDraggingSession(with: [item], event: event, source: self)
-        guard !pasteboard.imageTypes.isEmpty else { return true }
+        guard !pasteboard.imageTypes.isEmpty else {
+            // The file's icon replaces the placeholder in the running drag when it lands from the system lane.
+            if kept == nil {
+                queries?.value(iconQuery, priority: .userBlocking) { [weak view] icon in
+                    guard let view else { return }
+                    Self.show(icon, in: session, from: view)
+                }
+            }
+            return true
+        }
         // task-owner: the drag's image read; it ends with the read, and a drag that ended meanwhile ignores its result
         Task { [weak view] in
             let contents = await Self.contents(of: file)
@@ -87,10 +103,10 @@ final class AgentPaneFileDrag: NSObject, NSDraggingSource {
         return NSImage(cgImage: thumbnail, size: CGSize(width: CGFloat(width) * scale, height: CGFloat(height) * scale))
     }
 
-    /// The file's icon, for a file with no picture.
-    private static func icon(_ file: URL) -> NSImage {
-        let icon = NSWorkspace.shared.icon(forFile: file.path)
-        icon.size = CGSize(width: 64, height: 64)
-        return icon
+    /// The drag image until the file's icon or picture lands: the document symbol, 64 pt.
+    private static var placeholder: NSImage {
+        let symbol = NSImage(systemSymbolName: "doc", accessibilityDescription: nil) ?? NSImage()
+        symbol.size = CGSize(width: 64, height: 64)
+        return symbol
     }
 }

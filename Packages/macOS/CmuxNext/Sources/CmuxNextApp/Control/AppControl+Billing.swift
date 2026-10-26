@@ -101,8 +101,9 @@ extension AppControl {
         let session = await MainActor.run { BrowserProfileLinkSession(services: services) }
         let profile = await session.profileForNewTab()
         let link = request == .printOnly ? false : await session.hasSession(profile: profile)
+        // The default browser, from Launch Services on the system lane.
+        let handler = try? await DefaultBrowserLink.handler(url, queries: services.workspaceQueries)
         return await MainActor.run {
-            let handler = DefaultBrowserLink.handler(url)
             let opener = BillingCheckoutOpener(defaultBrowserIsCmux: handler?.isCmux ?? false,
                                                cmuxBrowserEnabled: LinkRouter.shared.routing().browserEnabled)
             let target = opener.decide(request, linkSession: link)

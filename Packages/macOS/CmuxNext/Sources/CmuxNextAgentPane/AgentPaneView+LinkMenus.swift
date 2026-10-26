@@ -15,7 +15,7 @@ extension AgentPaneView {
         default: return nil
         }
         let file = URL(fileURLWithPath: resolved.path, isDirectory: resolved.isFolder)
-        let menu = LinkMenu()
+        let menu = LinkMenu(queries: model.replyLinks.workspaceQueries)
         // An SVG leaves the pane only as its rebuilt copy (``AgentPaneImageCopies/handedOut(_:in:)``),
         // made when a row is chosen; Open in Text Editor and Copy Path keep the file itself.
         let out = AgentPaneImageCopies.handedOut(file, in: model.replyLinks.imageFolder)

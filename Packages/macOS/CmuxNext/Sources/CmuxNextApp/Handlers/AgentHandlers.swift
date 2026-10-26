@@ -9,6 +9,7 @@ import CmuxNextDesign
 import CmuxNextHomeEngine
 import CmuxNextMacScreen
 import CmuxNextOnboarding
+import CmuxNextPages
 import CmuxNextSettings
 import Observation
 
@@ -371,13 +372,15 @@ enum AgentHandlers {
             throw ActionFailure(message: MiscHandlerStrings.pathNotAbsolute(path))
         } catch AgentPaneFileRefusal.notInTab {
             throw ActionFailure(message: MiscHandlerStrings.fileNotInTab(path))
-        } catch AgentPaneFileRefusal.noEditor {
-            throw ActionFailure(message: MiscHandlerStrings.noEditor)
         } catch {
             throw ActionFailure(message: MiscHandlerStrings.fileNotFound(path))
         }
-        if let editor = opening.editor {
-            NSWorkspace.shared.openInBackground([opening.url], withApplicationAt: editor)
+        // The app for source code (then plain text): in this turn when kept, else when Launch Services answers on
+        // the system lane.
+        let registry = context.registry, file = opening.url
+        context.services.workspaceQueries.value(LinkMenu.textEditor(setting: ""), priority: .userBlocking) { editor in
+            guard let editor else { return registry.refuse(MiscHandlerStrings.noEditor) }
+            NSWorkspace.shared.openInBackground([file], withApplicationAt: editor)
         }
     }
 }

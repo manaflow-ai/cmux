@@ -57,6 +57,11 @@ final class FileColumnsView: NSObject, FileContentView, NSBrowserDelegate {
     }
 
     func reveal(_ name: String) {}
+
+    func redrawIcons() {
+        guard browser.lastColumn >= 0 else { return }
+        for column in 0...browser.lastColumn { browser.reloadColumn(column) }
+    }
     func beginRename(_ name: String) {}
 
     /// A click that leaves no selection sends the action with selectedColumn -1 (#24776): the

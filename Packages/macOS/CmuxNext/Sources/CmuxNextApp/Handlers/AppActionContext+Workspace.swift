@@ -1,6 +1,7 @@
 import AppKit
 import os
 import CmuxNextCompat
+import CmuxNextWakeups
 import CmuxNextPages
 import CmuxNextDesign
 import CmuxNextActions
@@ -71,15 +72,20 @@ extension AppActionContext {
         NSPasteboard.general.setString(text, forType: .string)
     }
 
-    /// Refuses at once when no app opens `url` (a LaunchServices database lookup); the open itself
-    /// runs off the main thread (cx-050n).
+    /// Opens `url` in its app off the main thread (cx-050n). Refuses at once a URL with no scheme, or one the kept
+    /// Launch Services answer says no app opens; an answer not kept yet is asked on the system lane for the next run,
+    /// and the open goes ahead: when no app opens it, the refusal notice shows then.
     func open(_ url: URL) throws {
-        if url.scheme == "http" || url.scheme == "https" { LinkRouter.shared.open(url); return }
-        guard NSWorkspace.shared.urlForApplication(toOpen: url) != nil else {
+        guard let scheme = url.scheme?.lowercased() else { throw ActionFailure(message: RefusalStrings.couldNotOpen(url.absoluteString)) }
+        if scheme == "http" || scheme == "https" { LinkRouter.shared.open(url); return }
+        let handler = WorkspaceQuery<URL?>.defaultApplication(toOpen: url)
+        if let kept = services.workspaceQueries.cached(handler), kept == nil {
             throw ActionFailure(message: RefusalStrings.couldNotOpen(url.absoluteString))
         }
-        NSWorkspace.shared.openInBackground(url) { opened in
-            if !opened { Logger(subsystem: "com.cmuxterm.app.next", category: "actions").error("open failed after its app was found") }
+        services.workspaceQueries.prefetch([handler], priority: .bestEffort)
+        NSWorkspace.shared.openInBackground(url) { [weak services = self.services] opened in
+            guard !opened, let services else { return }
+            services.refusalHUD.show(RefusalStrings.couldNotOpen(url.absoluteString), in: services.windows.active?.window ?? NSApp.keyWindow)
         }
     }
 

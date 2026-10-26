@@ -77,6 +77,8 @@ final class AppServices {
     /// local daemon and to the Cloud, SSH and server services for their machines.
     let mainWork: MainWorkScheduler
     private(set) lazy var mainDeadlines = MainDeadlineScheduler(work: mainWork)  // the app's one `MainDeadline` placer
+    /// The app's one Launch Services and icon answer cache: questions run on `work`'s system lane, never on main.
+    private(set) lazy var workspaceQueries = WorkspaceQueries(work: work, mainWork: mainWork)
     /// The local and peer chat upload stagers' expiry deadlines.
     private(set) lazy var chatUploadExpiry = MainDeadline(owner: "AgentChatUploads.stageExpiry", workClass: .background, scheduler: mainDeadlines)
     private(set) lazy var peerUploadExpiry = MainDeadline(owner: "AgentPeerUploads.stageExpiry", workClass: .background, scheduler: mainDeadlines)
@@ -99,7 +101,7 @@ final class AppServices {
     let machineAsks = SidebarAsks()
     /// The account's sign-in, apart from ``cloud`` so its launch readers (the managed team, Home, a sign-in callback) build no
     /// CloudService. Its first token or restore reader starts the session restore (`CloudAuth.start`); a sign-in starts Cloud.
-    private(set) lazy var cloudAuth: CloudAuth = CloudAuth(configuration: CloudConfiguration.current(isDebugBuild: ControlService.isDebugBuild))
+    private(set) lazy var cloudAuth: CloudAuth = CloudAuth(configuration: CloudConfiguration.current(isDebugBuild: ControlService.isDebugBuild), workspaceQueries: workspaceQueries)
     /// ``cloud`` and ``feed`` (AppServices+Cloud.swift), built at their first read: nil until then (no IUO).
     var cloudIfBuilt: CloudService?, feedIfBuilt: FeedService?
     /// The Cloud policy and the `feed.github` setting, applied when ``cloud`` and ``feed`` are built.
@@ -188,7 +190,7 @@ final class AppServices {
     /// macOS Now Playing adapter stops a minute after the last surface on ``mainDeadlines``.
     private(set) lazy var nowPlayingSources = NowPlayingSources(
         player: cache.pageRequests.music, tabs: cache.pageRequests.sidebarNowPlaying,
-        system: SystemNowPlaying.bundled(deadlines: mainDeadlines),
+        system: SystemNowPlaying.bundled(deadlines: mainDeadlines, queries: workspaceQueries),
         otherApps: { [weak self] in self?.settings?.snapshot.nowPlaying.otherApps ?? NowPlayingSettings.otherAppsDefault })
     #if DEBUG || CMUX_BENCH_HOOKS
     /// `debug.terminal_final_grid`: a split's or close's terminal grids, sent, drawn and announced.

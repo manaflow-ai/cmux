@@ -1,5 +1,7 @@
 public import AppKit
+import CmuxNextCompat
 public import CmuxNextSettings
+public import CmuxNextWakeups
 import UniformTypeIdentifiers
 
 /// One row of a link's or a path's context menu (cx-ir3z4): plain data, so the debug socket
@@ -62,11 +64,15 @@ public struct LinkMenu {
     public var openInNewTab: ((URL) -> Void)?
     /// Overrides Copy Link and Copy Path (tests); nil: the router's.
     public var copy: ((String) -> Void)?
+    /// The app's Launch Services answers (``WorkspaceQueries``): the app lists and icons come from what it keeps,
+    /// and a missing answer is asked on the system lane, never on the main thread. Nil lists no apps.
+    public var queries: WorkspaceQueries?
     /// The most apps a submenu lists.
     nonisolated static let appLimit = 24
 
-    public init(router: LinkRouter = .shared, openInNewTab: ((URL) -> Void)? = nil) {
+    public init(router: LinkRouter = .shared, queries: WorkspaceQueries?, openInNewTab: ((URL) -> Void)? = nil) {
         self.router = router
+        self.queries = queries
         self.openInNewTab = openInNewTab
     }
 
@@ -102,44 +108,61 @@ public struct LinkMenu {
         return rows
     }
 
-    // MARK: App lists (LaunchServices, when a menu opens)
+    // MARK: App lists (Launch Services answers, kept by WorkspaceQueries)
 
-    /// The browsers that open `url`, the default first, without this app.
-    /// The shared workspace's answer is kept per scheme (``LinkMenuAppCache``).
-    public func browsers(for url: URL, workspace: NSWorkspace = .shared) -> [URL] {
-        let ask: @Sendable () -> [URL] = { [url] in
-            let workspace = NSWorkspace.shared
-            return Self.ordered(workspace.urlsForApplications(toOpen: url), first: workspace.urlForApplication(toOpen: url),
-                                excluding: Bundle.main.bundleURL)
-        }
-        guard workspace === NSWorkspace.shared, let scheme = url.scheme?.lowercased() else {
-            return Self.ordered(workspace.urlsForApplications(toOpen: url), first: workspace.urlForApplication(toOpen: url),
-                                excluding: Bundle.main.bundleURL)
-        }
-        // http and https open in the same browsers.
-        return LinkMenuAppCache.shared.apps(for: "link:" + (scheme == "https" ? "http" : scheme), compute: ask)
+    /// The browsers that open `url`'s scheme, the default first, without this app (http and https share one list).
+    /// The kept list; on a miss, none, and the list is asked on the system lane for the next menu.
+    public func browsers(for url: URL) -> [URL] {
+        guard let scheme = url.scheme?.lowercased() else { return [] }
+        return kept(Self.browsers(scheme: scheme == "https" ? "http" : scheme, own: Bundle.main.bundleURL)) ?? []
     }
 
-    /// The apps that open `file`, its default first. The shared workspace's answer is kept per
-    /// content type (``LinkMenuAppCache``); a file without one is asked every time.
-    public func apps(for file: URL, workspace: NSWorkspace = .shared) -> [URL] {
-        guard workspace === NSWorkspace.shared,
-              let type = try? file.resourceValues(forKeys: [.contentTypeKey]).contentType else {
-            return Self.ordered(workspace.urlsForApplications(toOpen: file), first: workspace.urlForApplication(toOpen: file), excluding: nil)
-        }
-        let kept = LinkMenuAppCache.shared.apps(for: "type:" + type.identifier) { [type] in
-            NSWorkspace.shared.urlsForApplications(toOpen: type)
-        }
-        // The default stays per file: Get Info's "Open with" can name another app for one document.
-        return Self.ordered(kept, first: workspace.urlForApplication(toOpen: file), excluding: nil)
+    /// The apps that open `file`, its default first: the list kept per content type, the default per file (Get
+    /// Info's "Open with" can name another app for one document). On a miss, the part that is kept.
+    public func apps(for file: URL, isDirectory: Bool) -> [URL] {
+        let type = Self.contentType(of: file, isDirectory: isDirectory)
+        let first = kept(WorkspaceQuery<URL?>.defaultApplication(toOpen: file)) ?? nil
+        return Self.ordered(kept(WorkspaceQuery<[URL]>.applications(toOpen: type)) ?? [], first: first, excluding: nil)
     }
 
-    /// `files.textEditor` when it names an installed app, else the system's app for source code
-    /// (then plain text); nil when there is none.
-    public func editor(workspace: NSWorkspace = .shared) -> URL? {
-        let setting = router.textEditor()
-        if !setting.isEmpty, let app = Self.application(named: setting, workspace: workspace) { return app }
-        return workspace.urlForApplication(toOpen: .sourceCode) ?? workspace.urlForApplication(toOpen: .plainText)
+    /// `files.textEditor` when it names an installed app, else the system's app for source code (then plain
+    /// text); nil when there is none or the answer is not kept yet.
+    public func editor() -> URL? {
+        kept(Self.textEditor(setting: router.textEditor())) ?? nil
+    }
+
+    /// The app `setting` names (``application(named:)``) when it is installed, else the system's app for source
+    /// code, then for plain text; nil with none. Asked on the system lane, kept per setting.
+    public nonisolated static func textEditor(setting: String) -> WorkspaceQuery<URL?> {
+        let named = setting.trimmingCharacters(in: .whitespaces)
+        return WorkspaceQuery(id: "links.textEditor." + named, refreshes: true) { system in
+            if !named.isEmpty, let app = Self.resolveApplication(named: named, system) { return app }
+            return system.defaultApplication(toOpen: .sourceCode) ?? system.defaultApplication(toOpen: .plainText)
+        }
+    }
+
+    /// The kept answer to `query`; on a miss nil, and the question goes to the system lane at user-blocking (a
+    /// person has the menu open), so the next menu has it.
+    private func kept<Value>(_ query: WorkspaceQuery<Value>) -> Value? {
+        guard let queries else { return nil }
+        if let value = queries.cached(query) { return value }
+        queries.prefetch([query], priority: .userBlocking)
+        return nil
+    }
+
+    /// The browsers for `scheme` links, the default first, without `own` (this app), at most ``appLimit``.
+    public nonisolated static func browsers(scheme: String, own: URL) -> WorkspaceQuery<[URL]> {
+        WorkspaceQuery(id: "links.browsers." + scheme, refreshes: true) { system in
+            guard let probe = URL(string: scheme + "://example.com/") else { return [] }
+            return Self.ordered(system.applications(toOpen: probe), first: system.defaultApplication(toOpen: probe), excluding: own)
+        }
+    }
+
+    /// The type Launch Services matches apps against for `file`, from its name (no disk read).
+    nonisolated static func contentType(of file: URL, isDirectory: Bool) -> UTType {
+        let ext = file.pathExtension
+        if ext.isEmpty { return isDirectory ? .folder : .plainText }
+        return UTType(filenameExtension: ext, conformingTo: isDirectory ? .package : .data) ?? .data
     }
 
     /// Whether opening `file` in its default app would run something: an app or another
@@ -159,22 +182,29 @@ public struct LinkMenu {
     /// The path rows with this Mac's apps and the text editor setting.
     public func pathRows(for file: URL, isDirectory: Bool) -> [LinkMenuRow] {
         pathRows(for: file, isDirectory: isDirectory, runs: Self.runs(file, isDirectory: isDirectory),
-                 apps: apps(for: file), editor: editor())
+                 apps: apps(for: file, isDirectory: isDirectory), editor: editor())
     }
 
-    /// Resolves a bundle identifier, an app path, or an app name ("Visual Studio Code") in the
-    /// standard application folders.
-    public static func application(named name: String, workspace: NSWorkspace = .shared) -> URL? {
+    /// The app `name` names: a bundle identifier, an app path, or an app name ("Visual Studio Code") in the
+    /// standard application folders; asked on the system lane (``WorkspaceQueries``), kept per name.
+    public nonisolated static func application(named name: String) -> WorkspaceQuery<URL?> {
         let trimmed = name.trimmingCharacters(in: .whitespaces)
-        guard !trimmed.isEmpty else { return nil }
-        if let url = workspace.urlForApplication(withBundleIdentifier: trimmed) { return url }
-        let paths = FileManager.default
-        if trimmed.hasPrefix("/") || trimmed.hasPrefix("~/") {
-            let path = (trimmed as NSString).expandingTildeInPath
+        return WorkspaceQuery(id: "links.application." + trimmed, refreshes: true) { system in
+            Self.resolveApplication(named: trimmed, system)
+        }
+    }
+
+    /// Resolves `name` (trimmed) to an app, reading Launch Services and the disk: off the main thread only.
+    nonisolated static func resolveApplication(named name: String, _ system: any WorkspaceQuerying) -> URL? {
+        guard !name.isEmpty else { return nil }
+        if let url = system.application(withBundleIdentifier: name) { return url }
+        let paths = FileManager.checked
+        if name.hasPrefix("/") || name.hasPrefix("~/") {
+            let path = (name as NSString).expandingTildeInPath
             return paths.fileExists(atPath: path) ? URL(fileURLWithPath: path) : nil
         }
-        let bundleName = trimmed.hasSuffix(".app") ? trimmed : trimmed + ".app"
-        let folders = paths.urls(for: .applicationDirectory, in: [.localDomainMask, .userDomainMask, .systemDomainMask])
+        let bundleName = name.hasSuffix(".app") ? name : name + ".app"
+        let folders = FileManager.default.urls(for: .applicationDirectory, in: [.localDomainMask, .userDomainMask, .systemDomainMask])
             + [URL(fileURLWithPath: "/System/Applications"), URL(fileURLWithPath: "/Applications/Utilities")]
         return folders.map { $0.appending(path: bundleName) }.first { paths.fileExists(atPath: $0.path) }
     }
@@ -207,7 +237,7 @@ public struct LinkMenu {
         rows.map { row in
             let item = PageMenuAction.item(row.title) { perform(row, link: link, file: file) }
             if let app = row.app, row.kind == .app {
-                item.image = LinkMenuAppCache.icon(for: app)
+                queries?.image(WorkspaceQuery<NSImage>.fileIcon(atPath: app.path, side: 16), into: item)
             } else if let symbol = row.kind.symbol, let image = NSImage(systemSymbolName: symbol, accessibilityDescription: nil) {
                 // Every cmux menu row shows its action's symbol, as the action registry's menus do.
                 image.isTemplate = true

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextPages
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextBridge
@@ -110,10 +111,10 @@ extension TerminalHandlers {
                 return await daemon.failure("send") { try await $0.send(surface, text: text, paste: true) }
             }
         })
-        registry.bind("palette.terminalOpenDirectory", invoke: { invocation in
-            guard let (tab, _) = ctx.daemonTab(invocation) else { return }
-            guard let cwd = tab.cwd ?? ctx.refuse(RefusalStrings.noWorkingDirectory) else { return }
-            open(URL(fileURLWithPath: cwd, isDirectory: true), with: invocation["app"]?.stringValue, ctx)
+        registry.bindEffect("palette.terminalOpenDirectory", effect: { invocation in
+            guard let (tab, _) = ctx.daemonTab(invocation) else { return .done }
+            guard let cwd = tab.cwd else { return .refused(RefusalStrings.noWorkingDirectory) }
+            return open(URL(fileURLWithPath: cwd, isDirectory: true), with: invocation["app"]?.stringValue, ctx)
         })
     }
 
@@ -136,20 +137,21 @@ extension TerminalHandlers {
         "'" + path.replacingOccurrences(of: "'", with: "'\\''") + "'"
     }
 
-    /// Opens `directory` in Finder, or in `app` (a bundle id, app name, or path).
-    private static func open(_ directory: URL, with app: String?, _ ctx: AppActionContext) {
+    /// Opens `directory` in Finder, or in `app` (a bundle id, app name, or path), which Launch Services finds on
+    /// the system lane.
+    private static func open(_ directory: URL, with app: String?, _ ctx: AppActionContext) -> ActionEffect {
         guard let app, !app.isEmpty else {
             NSWorkspace.shared.openInBackground(directory)
-            return
+            return .done
         }
-        let candidates = [
-            NSWorkspace.shared.urlForApplication(withBundleIdentifier: app),
-            app.hasSuffix(".app") ? URL(fileURLWithPath: app) : nil,
-            URL(fileURLWithPath: "/Applications/\(app).app"),
-            URL(fileURLWithPath: "/System/Applications/\(app).app"),
-        ]
-        guard let appURL = candidates.compactMap({ $0 }).first(where: { FileManager.default.fileExists(atPath: $0.path) })
-            ?? ctx.refuse(MiscHandlerStrings.appNotFound(app)) else { return }
-        NSWorkspace.shared.openInBackground([directory], withApplicationAt: appURL)
+        let queries = ctx.services.workspaceQueries
+        // action-wait-allow: the app a name means is known only when Launch Services answers on the system lane; then it opens.
+        return .waiting(.externalProcess) {
+            guard let appURL = (try? await queries.value(LinkMenu.application(named: app), priority: .userBlocking)) ?? nil else {
+                return ActionWorkFailure(MiscHandlerStrings.appNotFound(app))
+            }
+            NSWorkspace.shared.openInBackground([directory], withApplicationAt: appURL)
+            return nil
+        }
     }
 }
