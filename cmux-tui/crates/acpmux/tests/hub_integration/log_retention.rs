@@ -73,8 +73,10 @@ async fn a_compacted_closed_chat_still_lists_reopens_and_resumes() {
         .as_str()
         .unwrap()
         .to_owned();
+    // A long prompt: the raw lines that repeat it are cut, the chat's own record of it is not.
+    let said_first = format!("remember pelican {}", "padding ".repeat(400));
     for id in [&claude, &noload] {
-        c.request(method::SESSION_PROMPT, prompt(id, "remember pelican", None)).await.unwrap();
+        c.request(method::SESSION_PROMPT, prompt(id, &said_first, None)).await.unwrap();
         c.request("_acpmux/kill", json!({"sessionId": id})).await.unwrap();
     }
     let raw = first.events(&claude, 0, 100_000).unwrap();
@@ -93,14 +95,22 @@ async fn a_compacted_closed_chat_still_lists_reopens_and_resumes() {
     assert_eq!(pass["chats"], 2, "{pass}");
     assert_eq!(pass["freedBytes"], dry["freedBytes"], "the dry run measured this pass: {pass}");
     assert!(pass["freedBytes"].as_u64().unwrap() > 0, "{pass}");
-    let raw: Vec<(String, String)> = second
-        .events(&claude, 0, 100_000)
-        .unwrap()
-        .into_iter()
-        .filter(|e| e.kind.starts_with("claude."))
-        .map(|e| (e.dir, e.kind))
-        .collect();
-    assert!(raw.iter().all(|(dir, _)| dir != "in"), "Claude's raw lines went: {raw:?} {pass}");
+    let after = second.events(&claude, 0, 100_000).unwrap();
+    let kinds = |log: &[acpmux::store::EventRecord]| -> Vec<(u64, String)> {
+        log.iter().map(|e| (e.seq, e.kind.clone())).collect()
+    };
+    let last = raw.last().map_or(0, |e| e.seq);
+    let kept: Vec<_> = after.iter().filter(|e| e.seq <= last).cloned().collect();
+    assert_eq!(kinds(&kept), kinds(&raw), "every record stays, its seq kept");
+    let prompt_text = |log: &[acpmux::store::EventRecord]| {
+        log.iter().find(|e| e.kind == "user_message").map(|e| e.msg["text"].clone())
+    };
+    assert_eq!(prompt_text(&after), Some(json!(said_first)), "the prompt is kept whole");
+    assert!(
+        after.iter().any(|e| e.kind.starts_with("claude.")
+            && e.msg.to_string().contains("removed by log retention")),
+        "a raw line that repeats the prompt is cut: {pass}"
+    );
     // A second pass finds nothing new to do.
     let again = c.request("_acpmux/retention", json!({"olderThanDays": 0})).await.unwrap();
     assert_eq!((again["chats"].as_u64(), &again["skipped"]["compacted"]), (Some(0), &json!(2)));

@@ -117,6 +117,11 @@ impl Hub {
         sessions.sort_by_key(|s| s.meta().updated_at);
         let mut report = Report::default();
         for session in sessions {
+            // A daemon shutting down ends the pass between two chats.
+            if self.shutting_down() {
+                *report.skipped.entry("shutdown").or_default() += 1;
+                break;
+            }
             if let Err(why) = self.retainable(&session, cutoff, &hosted) {
                 *report.skipped.entry(why).or_default() += 1;
                 continue;
@@ -138,12 +143,11 @@ impl Hub {
                 report.add(&session, stats);
                 continue;
             }
-            // No record lands from here to the rename. Anything that reopened the chat since
-            // it was read logged a record (a status, an agent's start), which the store sees as
-            // a longer log; this checks only what takes no other lock, so it orders after no one.
+            // No record lands from here to the rename; anything logged since the read made the
+            // log longer, and the store refuses it (`commit_compaction`).
             let committed = {
                 let _order = session.append_lock.lock().unwrap_or_else(|e| e.into_inner());
-                if Self::untouched(&session) {
+                if self.untouched(&session) {
                     self.store.commit_compaction(&session.id, staged)
                 } else {
                     Ok(false)
@@ -226,13 +230,20 @@ impl Hub {
         Ok(())
     }
 
-    /// `retainable`'s checks that read no lock but the agent's (tried, never waited on): what a
-    /// reopen or a purge sets before it logs anything.
-    fn untouched(session: &Session) -> bool {
-        session.child.try_lock().is_ok_and(|child| child.is_none())
+    /// Under the chat's append lock, right before the compacted log goes in: still closed, with
+    /// no agent, client, move or import. A reopen sets its status before it logs it, and so do a
+    /// start, a purge and a move their flags: one that came first is seen here, one that comes
+    /// later logs its first record after the compacted log is in place, as for a chat compacted
+    /// any time before. Only locks that are never held across an append are taken (`meta`, as
+    /// `append_at` does under this one; `child` is only tried).
+    fn untouched(&self, session: &Session) -> bool {
+        session.status() == SessionStatus::Closed
+            && session.child.try_lock().is_ok_and(|child| child.is_none())
             && session.attached.load(Ordering::SeqCst) == 0
             && !session.purged.load(Ordering::SeqCst)
             && !session.loading.load(Ordering::SeqCst)
+            && session.moving().is_none()
+            && !self.importing.lock().unwrap_or_else(|e| e.into_inner()).contains(&session.id)
     }
 }
 
