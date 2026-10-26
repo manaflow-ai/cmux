@@ -1249,7 +1249,9 @@ jobs:
 
       - name: Validate the nightly-next canary runs the installed app
         if: ${{ matrix.group == 'release-notary' }}
-        run: python3 tests/test_nightly_next_canary_runs_installed_app.py
+        run: |
+          python3 tests/test_nightly_next_canary_runs_installed_app.py
+          python3 tests/test_nightly_next_canary_cadence.py
 
       - name: Validate the cmux NEXT DEV daily dispatcher
         if: ${{ matrix.group == 'release-notary' }}

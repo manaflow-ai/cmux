@@ -25,15 +25,20 @@ jobs:
     # The source run is checked again by id in the first step.
     if: github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main'
     name: Sign cmux NEXT DEV
-    # A source handoff may wait for signing, but a newer handoff never cancels
-    # one that has started.
-    concurrency:
-      group: cmux-next-dev-daily-sign
-      cancel-in-progress: false
+    # No concurrency group: a group keeps one pending run and replaces it with
+    # each newer handoff, so while the signer waited for a runner every newer
+    # source run was cancelled before it started (2026-10-26: nothing published
+    # from 00:13Z for over six hours). Signing shares no state between source
+    # runs (the build number is the source run id), and publish and tip each
+    # refuse to roll their channel back, so a newer handoff signs alongside.
     # This job signs and runs no code from the app. verify runs the app's
     # sidecar without secrets; publish uploads only the archive it tested.
     environment: release
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-12vcpu-macos-26' }}
+    # Blacksmith 6 vCPU, like verify and tip: blacksmith-12vcpu-macos-26 (about
+    # five at once for the whole organization) held this job queued from 02:14Z
+    # to 04:50Z and again from 04:50Z on 2026-10-26, while 6 vCPU (about ten)
+    # started the tip job within minutes. Signing needs no large runner.
+    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'macos-26' || 'blacksmith-6vcpu-macos-26' }}
     timeout-minutes: 30
     permissions:
       actions: read

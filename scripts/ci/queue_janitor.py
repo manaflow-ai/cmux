@@ -80,6 +80,17 @@ jobs queued on a pool they hold exceeds a threshold:
      exceptions hold: a bot's attempt, a run that already failed, a newer run
      at its head (never a second workflow_dispatch: each dispatch is its own
      request), no re-run state, `no-janitor`, and an unfinished sibling.
+     A cascade job of a same-repository cmux-next pull request run queued on a
+     Blacksmith macOS label (blacksmith_leg()) counts too, past
+     BLACKSMITH_LEG_SECONDS (25 minutes, the cascade's own stall wait), while
+     owned pools are on: nothing else moves it, and the janitor's re-run, made
+     only with an App's token (in category e too), sends it to the owned side
+     label the rescue watches.
+
+cmux-next runs follow feat-cmux-next's workflow copy, not main's inert
+registration, so they are listed like any macOS workflow's
+(follows_another_copy()): the pool snapshot counts their Blacksmith queue for
+next_macos_cascade.py, and every category above may act on them.
 
 Draft pull requests are deliberately not a category: a draft can be an active
 integration branch other work depends on, and ci.yml has no ready_for_review
@@ -270,6 +281,21 @@ PENDING_HEAD_LOOKUPS = 10
 UNCLAIMED_MIN_SAMPLES = 5
 # The snapshot key with each owned pool's p90 wait in seconds.
 WAIT_P90_KEY = "wait_p90_seconds"
+# Category f also moves a cmux-next leg queued on a Blacksmith macOS label (blacksmith_leg()). Its bound
+# is next_macos_cascade.STALL_MINUTES, the wait at which the cascade itself calls such a label stalled.
+BLACKSMITH_MACOS_LABEL = re.compile(r"blacksmith-[0-9]+vcpu-macos-[0-9]+")
+BLACKSMITH_LEG_SECONDS = 25 * 60
+# The cmux-next jobs next_macos_cascade.py places (its CASCADE_JOBS), by their names in feat-cmux-next's
+# cmux-next.yml. Each one's runs-on sends a re-run github-actions[bot] did not start to
+# needs.macos-placement.outputs.runner, the owned side label, before any Blacksmith label. The GUI and
+# session jobs (swift test, daemon tests, generated files) are left out: with no GUI or session runner
+# online their re-run still takes blacksmith-6vcpu-macos-26.
+CASCADE_JOB_NAMES = frozenset({
+    "cmux-next fast tier",
+    "cmux-next Swift canary",
+    "cmux-next Release compile (Xcode 26)",
+    "cmux app scheme compile (Debug)",
+})
 SNAPSHOT_UNREADABLE = (ValueError, KeyError, EOFError, NotImplementedError, zipfile.BadZipFile, zlib.error)
 
 # The jobs whose failure decides ci-status. ci-macos.yml shards the app-host
@@ -387,7 +413,7 @@ def linux_only_workflow_paths(workflows_dir: Path) -> frozenset[str]:
 
 def needs_jobs(run: Mapping[str, Any], linux_only_paths: frozenset[str], now: dt.datetime) -> bool:
     """Whether a run's jobs are worth one API call this sweep."""
-    if run.get("path") in linux_only_paths:
+    if run.get("path") in linux_only_paths and not follows_another_copy(run):
         return False
     if run.get("event") in PROTECTED_EVENTS - {"merge_group"}:
         # Deployment/tag bookkeeping never holds pool capacity worth counting.
@@ -409,28 +435,38 @@ def run_target_branch(run: Mapping[str, Any]) -> str | None:
     return None
 
 
-def starved_scope_runs(runs: Sequence[Mapping[str, Any]], listed: Mapping[int, Any],
-                       linux_only_paths: frozenset[str], now: dt.datetime) -> list[Mapping[str, Any]]:
-    """Runs whose jobs only the starved-label alert reads: skipped as linux-only, yet on another branch's copy.
+def follows_another_copy(run: Mapping[str, Any]) -> bool:
+    """A run that may follow a workflow copy other than main's, so main's linux-only reading says nothing about it.
 
     linux_only_workflow_paths() reads main's workflow files, but a run into or
     on another branch follows that branch's copy: main's cmux-next.yml is an
-    inert registration while feat-cmux-next's runs the build-fleet compile on
-    a glaeda-* label. These runs' jobs feed starved_labels only, never the
-    cancel policy, and cost one jobs listing each.
+    inert registration, while feat-cmux-next's puts Mac jobs on the minis,
+    Blacksmith macOS and hosted macOS. Until 2026-10-26 those runs were listed
+    for the starved-label alert only, so the pool snapshot that
+    next_macos_cascade.py reads to count a Blacksmith label's queue and spot a
+    stall never saw a cmux-next job: at 02:32Z that day the cascade counted 2
+    queued on blacksmith-12vcpu-macos-26 while about ten cmux-next jobs waited
+    there, and sent run 40259152940's fast tier into a queue it then sat in
+    for over 90 minutes. A same-repository pull request run that names no pull
+    request has lost it when the pull request closed (run 40259152940 named
+    none once PR #24021 landed), so its base is unknown and it is listed too:
+    category b cancels it while it holds a Mac job.
     """
-    return [run for run in runs
-            if run.get("id") not in listed and run.get("path") in linux_only_paths
-            and needs_jobs(run, frozenset(), now) and run_target_branch(run) not in (None, "main")]
+    target = run_target_branch(run)
+    if target is not None:
+        return target != "main"
+    head = (run.get("head_repository") or {}).get("id")
+    return (run.get("event") == "pull_request" and not run.get("pull_requests")
+            and head is not None and head == (run.get("repository") or {}).get("id"))
 
 
 def starved_result(github: "GitHub", runs: Sequence[Mapping[str, Any]],
                    jobs_by_run: Mapping[int, Sequence[Mapping[str, Any]]],
                    evidence_jobs: Mapping[int, Sequence[Mapping[str, Any]]], *,
-                   linux_only_paths: frozenset[str], now: dt.datetime) -> dict[str, Any]:
+                   now: dt.datetime) -> dict[str, Any]:
     """The snapshot's `starved` and `unserved` (starved_labels.py), and `starved_incomplete` when a listing failed.
 
-    Reads the sweep's jobs plus starved_scope_runs()'s. Starts in completed runs
+    Reads the sweep's jobs, cmux-next's among them (follows_another_copy()). Starts in completed runs
     count as service: the lost-assignment evidence already listed and, only for
     a label about to alert, up to LOST_EVIDENCE_RUNS_PER_WORKFLOW completed runs
     of each of its stuck jobs' workflows (at most LOST_EVIDENCE_WORKFLOWS) that
@@ -441,12 +477,6 @@ def starved_result(github: "GitHub", runs: Sequence[Mapping[str, Any]],
     fleet_jobs: dict[int, Sequence[Mapping[str, Any]]] = dict(jobs_by_run)
     evidence: dict[int, Sequence[Mapping[str, Any]]] = dict(evidence_jobs)
     incomplete = False
-    for run in starved_scope_runs(runs, jobs_by_run, linux_only_paths, now):
-        try:
-            fleet_jobs[run["id"]] = github.jobs(run["id"])
-        except RuntimeError as error:
-            incomplete = True
-            print(f"queue-janitor: starved-label jobs of run {run['id']}: {error}", file=sys.stderr)
     found = starved_labels.starved(runs, fleet_jobs, now=now, evidence=evidence)
     alerting = {entry["label"] for entry in found}
     earliest: dict[str, dt.datetime] = {}
@@ -907,6 +937,8 @@ class Candidate:
     # Category e at the current head of an open pull request: once the cancel
     # has settled, a later sweep re-runs the run's failed jobs (new_lost_reruns()).
     rerun: bool = False
+    # That re-run must come from an App's token, never GITHUB_TOKEN (a Blacksmith leg, blacksmith_leg()).
+    app_actor: bool = False
 
 
 def classify(
@@ -1407,6 +1439,35 @@ class UnclaimedJob:
     pool: str
     queued_since: dt.datetime
     bound_seconds: int
+    blacksmith: bool = False
+
+
+def blacksmith_leg(run: Mapping[str, Any], job: Mapping[str, Any]) -> str | None:
+    """The Blacksmith macOS label a cmux-next job waits on, if any.
+
+    next_macos_cascade.py sends a cmux-next Mac job no idle mini takes to a
+    Blacksmith macOS label it reads as free, and no rescue watches it there:
+    owned_pool_rescue.py moves only owned legs, and GitHub never re-routes a
+    queued job. Run 40259152940's fast tier waited on
+    blacksmith-12vcpu-macos-26 from 02:32Z on 2026-10-26, and in the 18 hours
+    before, 58 of 110 cmux-next jobs sent to that label never got a runner.
+    Category f moves such a leg as it moves an owned one, only because the
+    janitor re-runs as an App: cmux-next.yml sends a re-run that
+    github-actions[bot] did not start to the placement's owned side label
+    (`github.triggering_actor != 'github-actions[bot]' && ...outputs.runner`),
+    where the owned-pool rescue watches it, while that bot's attempt 2 takes
+    attempt 1's Blacksmith placement again. So only a cascade job
+    (CASCADE_JOB_NAMES) of a same-repository pull request run counts: a fork's
+    runs-on takes Blacksmith first whoever re-runs it, and a push or dispatch
+    would need a branch-head read this rule does not spend.
+    """
+    head = (run.get("head_repository") or {}).get("id")
+    if (run.get("path") != rescue.CMUX_NEXT_WORKFLOW_PATH or run.get("event") != "pull_request"
+            or head is None or head != (run.get("repository") or {}).get("id")
+            or job.get("name") not in CASCADE_JOB_NAMES):
+        return None
+    return next((str(label) for label in job.get("labels") or () if BLACKSMITH_MACOS_LABEL.fullmatch(str(label))),
+                None)
 
 
 def _unclaimed_scope(run: Mapping[str, Any]) -> bool:
@@ -1421,31 +1482,39 @@ def find_unclaimed(
     now: dt.datetime,
     lost: Mapping[int, Any] | None = None,
     evidence_jobs: Mapping[int, Sequence[Mapping[str, Any]]] | None = None,
+    blacksmith_legs: bool = False,
 ) -> dict[int, UnclaimedJob]:
     """Run id -> its longest-waiting unclaimed leg, for in-flight runs category e does not already hold.
 
     A leg is unclaimed when it is unassigned(), asks for an owned label
-    (owned_pool_rescue.job_pool(): a Blacksmith leg's re-run would rejoin the
-    same label) and could have run (lost_wait_start()) for longer than
-    unclaimed_bound(). As in category e, a run with any other unfinished job
-    that is not unclaimed itself is left alone (_gated()).
+    (owned_pool_rescue.job_pool(): another Blacksmith leg's re-run would rejoin
+    the same label) and could have run (lost_wait_start()) for longer than
+    unclaimed_bound(). With `blacksmith_legs` (owned pools on, so cmux-next's
+    placement names an owned side label), a cmux-next leg on a Blacksmith macOS
+    label (blacksmith_leg()) counts too, past BLACKSMITH_LEG_SECONDS. As in
+    category e, a run with any other unfinished job that is not unclaimed
+    itself is left alone (_gated()).
     """
     p90 = pool_wait_p90(jobs_by_run, evidence_jobs)
     held = set(lost or ())
     found_by_run: dict[int, UnclaimedJob] = {}
     for run in runs:
-        if run["id"] in held or not _unclaimed_scope(run):
+        if not _unclaimed_scope(run):
             continue
         run_jobs = jobs_by_run.get(run["id"]) or ()
         found: list[tuple[Mapping[str, Any], UnclaimedJob]] = []
         for job in run_jobs:
             pool = rescue.job_pool(job)
-            if not pool or not unassigned(job):
+            blacksmith = None if pool or not blacksmith_legs else blacksmith_leg(run, job)
+            # A run category e holds is judged here only for a Blacksmith leg, in case e leaves it (a bot's
+            # attempt): no other rule moves that leg.
+            if not (pool or blacksmith) or not unassigned(job) or (run["id"] in held and not blacksmith):
                 continue
             since = lost_wait_start(job, run_jobs)
-            bound = unclaimed_bound(pool, p90)
+            bound = BLACKSMITH_LEG_SECONDS if blacksmith else unclaimed_bound(str(pool), p90)
             if since is not None and (now - since).total_seconds() > bound:
-                found.append((job, UnclaimedJob(str(job.get("name") or ""), pool, since, bound)))
+                found.append((job, UnclaimedJob(str(job.get("name") or ""), str(pool or blacksmith), since, bound,
+                                                blacksmith=bool(blacksmith))))
         if found and not _gated(run_jobs, [job for job, _ in found]):
             found_by_run[run["id"]] = min((item for _, item in found), key=lambda item: item.queued_since)
     return found_by_run
@@ -1461,8 +1530,16 @@ def classify_unclaimed(
     rerun_state: bool,
     newer: Mapping[str, Any] | None = None,
     branch_head: str | None = None,
+    app_rerun: bool = False,
 ) -> LostVerdict | None:
     """What category f does with a run holding an unclaimed leg, or None to leave it to the other categories.
+
+    A Blacksmith leg (blacksmith_leg()) is moved only while this sweep holds an
+    App's token (`app_rerun`), and its re-run is made only with one
+    (Candidate.app_actor); a bot's attempt is no reason to skip it, since no
+    rescue watches a Blacksmith leg, but past owned_pool_rescue.
+    REFUSAL_RESCUE_ATTEMPT it is left alone, so the janitor adds one attempt
+    to the rescue's ladder at most.
 
     Only a run at a live head is touched (lost_pr_state() "current"): one at
     the head of an open pull request, or a push or dispatch at its branch's
@@ -1478,9 +1555,9 @@ def classify_unclaimed(
     if prs is None:
         return None
     state, pr, why = lost_pr_state(run, prs, branch_head)
+    bound = ("the cascade's stall wait" if leg.blacksmith else "45m, or the pool's p90 wait when longer")
     evidence = (f"unclaimed leg: `{leg.job_name}` queued {format_age(now - leg.queued_since)} with no runner on "
-                f"`{leg.pool}`, past its {format_age(dt.timedelta(seconds=leg.bound_seconds))} bound (45m, or the "
-                "pool's p90 wait when longer)")
+                f"`{leg.pool}`, past its {format_age(dt.timedelta(seconds=leg.bound_seconds))} bound ({bound})")
     if state != "current":
         return None
     if pr is not None and JANITOR_OPT_OUT_LABEL in pr_labels(pr):
@@ -1488,10 +1565,16 @@ def classify_unclaimed(
     if pr is not None and not labels_complete(pr):
         return LostVerdict("skip", evidence, f"PR #{pr.get('number')} has more labels than were read", pr=pr)
     attempt = int(run.get("run_attempt") or 1)
-    if bot_rerun(run):
+    if leg.blacksmith:
+        if attempt > rescue.REFUSAL_RESCUE_ATTEMPT:
+            return LostVerdict("skip", f"{evidence}; {why}", f"attempt {attempt} is past the rescue's ladder", pr=pr)
+        if not app_rerun:
+            return LostVerdict("skip", f"{evidence}; {why}", "no App token this sweep: a GITHUB_TOKEN re-run would "
+                                                             "take attempt 1's Blacksmith placement again", pr=pr)
+    elif bot_rerun(run):
         return LostVerdict("skip", f"{evidence}; {why}", f"attempt {attempt} is a bot's re-run, left to the "
                                                          "owned-pool rescue and the orphan pass", pr=pr)
-    if not rescue.bot_rerun_leaves_owned(str(run.get("path") or ""), attempt):
+    elif not rescue.bot_rerun_leaves_owned(str(run.get("path") or ""), attempt):
         return LostVerdict("skip", f"{evidence}; {why}", f"a re-run of attempt {attempt} would stay on the owned "
                                                          "label; left to the owned-pool rescue", pr=pr)
     if any(job.get("status") == "completed" and job.get("conclusion") == "failure" for job in run_jobs):
@@ -1501,7 +1584,8 @@ def classify_unclaimed(
         return LostVerdict("skip", f"{evidence}; {why}", f"newer run {newer.get('id')} at its head took over", pr=pr)
     if not rerun_state:
         return LostVerdict("skip", f"{evidence}; {why}", "no re-run state to carry the re-run to a later sweep", pr=pr)
-    return LostVerdict("cancel", f"{evidence}; {why}: its failed jobs are re-run off the owned label once the "
+    off = "the Blacksmith label, by an App," if leg.blacksmith else "the owned label"
+    return LostVerdict("cancel", f"{evidence}; {why}: its failed jobs are re-run off {off} once the "
                                  "cancel settles", rerun=True, pr=pr)
 
 
@@ -1555,9 +1639,12 @@ def new_lost_reruns(candidates: Iterable[Candidate], results: Mapping[int, str],
         result = results.get(candidate.run["id"]) or ""
         if candidate.rerun and (result == "cancelled" or result.startswith("force-cancelled")):
             run = candidate.run
-            entries.append({"run_id": run["id"], "attempt": int(run.get("run_attempt") or 1),
-                            "head_sha": str(run.get("head_sha") or ""), "branch": str(run.get("head_branch") or ""),
-                            "cancelled_at": _iso(now)})
+            entry = {"run_id": run["id"], "attempt": int(run.get("run_attempt") or 1),
+                     "head_sha": str(run.get("head_sha") or ""), "branch": str(run.get("head_branch") or ""),
+                     "cancelled_at": _iso(now)}
+            if candidate.app_actor:
+                entry["app_actor"] = True
+            entries.append(entry)
     return entries
 
 
@@ -1577,6 +1664,7 @@ def plan_lost_reruns(
     now: dt.datetime,
     head_runs: Mapping[int, Sequence[Mapping[str, Any]]],
     branch_heads: Mapping[str, str] | None = None,
+    app_token: bool = True,
 ) -> list[LostRerun]:
     """Which pending category-e and category-f cancels to re-run now.
 
@@ -1593,7 +1681,8 @@ def plan_lost_reruns(
     branch or head not looked up is kept for the next sweep, until
     LOST_RERUN_TTL. A push or dispatch run is current at a live branch's
     head (`branch_heads`, lost_pr_state()); one whose branch head was not read
-    is kept too.
+    is kept too. An entry that needs an App's re-run (`app_actor`, a
+    Blacksmith leg) is kept while this sweep has none (`app_token`).
     """
     decisions: list[LostRerun] = []
     reruns = 0
@@ -1646,6 +1735,9 @@ def plan_lost_reruns(
             decisions.append(LostRerun(entry, "drop", f"not re-run: newer run {newer.get('id')} at its head "
                                                       "took over", run))
             continue
+        if entry.get("app_actor") and not app_token:
+            decisions.append(LostRerun(entry, "keep", "needs an App's re-run; this sweep has only GITHUB_TOKEN", run))
+            continue
         if reruns >= LOST_RERUN_MAX:
             decisions.append(LostRerun(entry, "keep", f"re-run cap of {LOST_RERUN_MAX} reached", run))
             continue
@@ -1695,6 +1787,7 @@ def build_plan(
     rerun_state: bool = True,
     unclaimed: Mapping[int, UnclaimedJob] | None = None,
     branch_heads: Mapping[str, str] | None = None,
+    app_rerun: bool = False,
 ) -> Plan:
     """Decide every category's candidates under the shared cap.
 
@@ -1730,6 +1823,12 @@ def build_plan(
         branch = str(run.get("head_branch") or "")
         lost_verdict = None
         held_category = "lost"
+        # A cmux-next run holding a Blacksmith leg is re-run only by an App, whichever category cancels
+        # it: a GITHUB_TOKEN re-run is github-actions[bot]'s, whose attempt 2 keeps attempt 1's placement.
+        # No earlier snapshot's pending entry names a cmux-next run: none was listed before.
+        app_actor = run.get("path") == rescue.CMUX_NEXT_WORKFLOW_PATH and any(
+            unassigned(job) and any(BLACKSMITH_MACOS_LABEL.fullmatch(str(label)) for label in job.get("labels") or ())
+            for job in jobs_by_run.get(run["id"], ()))
         if run["id"] in lost or run["id"] in unclaimed:
             # A newer run at its head, or a later CI run waiting to take over ci-status.
             newer = newer_run_at_head(run, runs) or next(
@@ -1739,14 +1838,19 @@ def build_plan(
                 lost_verdict = classify_lost(
                     run, jobs_by_run.get(run["id"], ()), lost[run["id"]], branch_prs, now=now,
                     rerun_state=rerun_state, newer=newer, branch_head=heads.get(branch))
-            else:
+            if run["id"] in unclaimed and (lost_verdict is None or lost_verdict.action != "cancel"):
                 held_category = "unclaimed"
                 lost_verdict = classify_unclaimed(
                     run, jobs_by_run.get(run["id"], ()), unclaimed[run["id"]], branch_prs, now=now,
-                    rerun_state=rerun_state, newer=newer, branch_head=heads.get(branch))
+                    rerun_state=rerun_state, newer=newer, branch_head=heads.get(branch), app_rerun=app_rerun)
+            if (lost_verdict is not None and lost_verdict.action == "cancel" and lost_verdict.rerun
+                    and app_actor and not app_rerun):
+                lost_verdict = LostVerdict("skip", lost_verdict.reason, "no App token this sweep: a GITHUB_TOKEN "
+                                           "re-run would take attempt 1's Blacksmith placement again",
+                                           pr=lost_verdict.pr)
             if lost_verdict is not None and lost_verdict.action == "cancel":
                 candidates.append(Candidate(run, held_category, lost_verdict.reason, usage, lost_verdict.pr,
-                                            rerun=lost_verdict.rerun))
+                                            rerun=lost_verdict.rerun, app_actor=app_actor))
                 continue
         pr = None
         if run.get("event") == "pull_request":
@@ -2054,6 +2158,10 @@ def orphan_protected_reason(run: Mapping[str, Any]) -> str | None:
         return f"tag-like ref {branch}"
     if ORPHAN_PROTECTED_WORKFLOW.search(" ".join(str(run.get(key) or "") for key in ("name", "path"))):
         return "release/publish workflow"
+    if event == "push" and branch in PROTECTED_PUSH_BRANCHES - {"main"}:
+        # Listed since follows_another_copy(): a feat-cmux-next push gates the nightly-next build,
+        # which is cancelled only when stuck past its timeout (ci.yml's main pushes are listed as before).
+        return f"push to {branch}"
     return None
 
 
@@ -2356,17 +2464,33 @@ def render_rate_limits(limits: Mapping[str, Mapping[str, int]]) -> str:
     return "GitHub API budget after this sweep's last request: " + "; ".join(parts) + "."
 
 
+def rate_limited(error: urllib.error.HTTPError) -> bool:
+    """Whether a refusal is GitHub's rate limit (primary or secondary), not a permission refusal."""
+    headers = error.headers
+    if headers is not None and (headers.get("X-RateLimit-Remaining") == "0" or headers.get("Retry-After")):
+        return True
+    try:
+        body = error.read() or b""
+    except Exception:  # noqa: BLE001 - an unreadable body is not a rate limit
+        body = b""
+    return b"rate limit" in body.lower()
+
+
 class GitHub:
     """The Actions and GraphQL APIs. `token` is an App's when one was minted (its own budget, not
     the GITHUB_TOKEN budget every workflow shares); `fallback_token` is the workflow's, which takes
-    over for the rest of the sweep once the App's is refused (401 or 403: expired, not permitted, or
-    out of budget). A cancel is idempotent, so the refused request is simply made again."""
+    over for the rest of the sweep once the App's is refused (401 or 403: expired or not permitted).
+    A cancel is idempotent, so the refused request is simply made again. An App out of budget (a
+    rate-limit 403 or 429) ends the sweep instead: moving its ~500 calls onto the shared
+    GITHUB_TOKEN emptied that budget too, and the nightly's publish then failed (2026-10-25)."""
 
     def __init__(self, token: str, repo: str, fallback_token: str = "") -> None:
         self.repo = repo
         self._token = token
         self.calls = 0
         self.fallback_token = fallback_token if fallback_token != token else ""
+        # An App's token is in use: one was minted beside the workflow's, and it was not refused yet.
+        self.app_token = bool(self.fallback_token)
         # Rate limit resource ("core", "graphql") -> the newest response's values.
         self.rate_limits: dict[str, dict[str, int]] = {}
         self.headers = {
@@ -2376,7 +2500,7 @@ class GitHub:
             "User-Agent": "cmux-ci-queue-janitor",
         }
 
-    def request(self, method: str, path: str, body: Any | None = None) -> Any:
+    def request(self, method: str, path: str, body: Any | None = None, *, app_only: bool = False) -> Any:
         self.calls += 1
         data = json.dumps(body).encode() if body is not None else None
         headers = dict(self.headers)
@@ -2390,13 +2514,17 @@ class GitHub:
                 return json.loads(raw) if raw else {}
         except urllib.error.HTTPError as error:
             self.note_rate_limit(error.headers)
-            if error.code in (401, 403) and self.fallback_token:
+            if error.code in (403, 429) and rate_limited(error):
+                raise RuntimeError(f"{method} {path.split('?')[0]} failed ({error.code}: rate limit; "
+                                   "the sweep stops rather than spend the workflow token)") from error
+            if error.code in (401, 403) and self.fallback_token and not app_only:
                 print(f"queue-janitor: App token refused ({error.code}) on {path.split('?')[0]}; "
                       "using the workflow token for the rest of the sweep", file=sys.stderr)
                 self.headers["Authorization"] = f"Bearer {self.fallback_token}"
                 # The snapshot download (download()) uses the same token.
                 self._token = self.fallback_token
                 self.fallback_token = ""
+                self.app_token = False
                 return self.request(method, path, body)
             raise RuntimeError(f"{method} {path.split('?')[0]} failed ({error.code})") from error
         except urllib.error.URLError as error:
@@ -2408,6 +2536,16 @@ class GitHub:
             self.rate_limits[found[0]] = found[1]
 
     def in_flight_runs(self) -> list[dict[str, Any]]:
+        """Every run in IN_FLIGHT_RUN_STATUSES, up to MAX_RUN_PAGES pages a status.
+
+        A status-filtered listing can return a short page before its last one: `status=queued` answered
+        99 runs on page 1 and 85 on page 2 of a total_count of 182 at 06:10Z on 2026-10-26. Stopping at the first short page dropped every queued run older than page 1, so the
+        snapshot's oldest wait on blacksmith-12vcpu-macos-26 read 24 minutes while run 40259152940's fast
+        tier had waited 205, and the janitor never cancelled that run after PR #24021 landed. So only an
+        empty page ends a status before MAX_RUN_PAGES: neither a short page nor total_count, which a page
+        repeating rows or a listing that shifts between pages would satisfy early. Runs keyed by id drop
+        the repeats; a run a shift moves past a page boundary is read on the next sweep.
+        """
         runs: dict[int, dict[str, Any]] = {}
         for status in IN_FLIGHT_RUN_STATUSES:
             for page in range(1, MAX_RUN_PAGES + 1):
@@ -2416,7 +2554,7 @@ class GitHub:
                 batch = payload.get("workflow_runs") or []
                 for run in batch:
                     runs[run["id"]] = run
-                if len(batch) < 100:
+                if not batch:
                     break
         return list(runs.values())
 
@@ -2474,8 +2612,11 @@ class GitHub:
     def force_cancel(self, run_id: int) -> None:
         self.request("POST", f"/repos/{self.repo}/actions/runs/{run_id}/force-cancel")
 
-    def rerun_failed(self, run_id: int) -> None:
-        self.request("POST", f"/repos/{self.repo}/actions/runs/{run_id}/rerun-failed-jobs")
+    def rerun_failed(self, run_id: int, *, app_only: bool = False) -> None:
+        """Re-run the run's failed and cancelled jobs; `app_only` never retries it on the workflow's token."""
+        if app_only and not self.app_token:
+            raise RuntimeError(f"run {run_id} needs an App's re-run; this sweep has only GITHUB_TOKEN")
+        self.request("POST", f"/repos/{self.repo}/actions/runs/{run_id}/rerun-failed-jobs", app_only=app_only)
 
     def request_ui_tests(self, run: Mapping[str, Any], attempt: int) -> None:
         """Start ci-ui-tests.yml for the attempt a re-run of a pull request's CI began.
@@ -2566,7 +2707,7 @@ def rerun_lost(github: GitHub, decisions: Sequence[LostRerun]) -> tuple[list[dic
             continue
         run_id = int(decision.entry["run_id"])
         try:
-            github.rerun_failed(run_id)
+            github.rerun_failed(run_id, app_only=bool(decision.entry.get("app_actor")))
             results[run_id] = "re-ran failed jobs"
         except Exception as error:  # noqa: BLE001 one failed re-run never drops the other entries
             failures += 1
@@ -2652,7 +2793,8 @@ def main(argv: Sequence[str] | None = None) -> int:
             except RuntimeError as error:
                 print(f"queue-janitor: lost-assignment evidence for {workflow}: {error}", file=sys.stderr)
         lost = find_lost(runs, jobs_by_run, now=now, evidence_jobs=evidence_jobs)
-        unclaimed = find_unclaimed(runs, jobs_by_run, now=now, lost=lost, evidence_jobs=evidence_jobs)
+        unclaimed = find_unclaimed(runs, jobs_by_run, now=now, lost=lost, evidence_jobs=evidence_jobs,
+                                   blacksmith_legs=os.environ.get("PR_POOL_OWNED", "").strip() == "1")
         # The re-runs an earlier sweep left pending, from its pool snapshot.
         # None means unknown: then nothing at an open pull request's head is
         # cancelled for a re-run this sweep could not carry on.
@@ -2724,7 +2866,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             snapshot[WAIT_P90_KEY] = waits
         # Fleet labels no runner is taking jobs from; the workflow's alert step
         # (starved_labels.py) annotates them and keeps one issue per label.
-        snapshot.update(starved_result(github, runs, jobs_by_run, evidence_jobs, linux_only_paths=linux_only, now=now))
+        snapshot.update(starved_result(github, runs, jobs_by_run, evidence_jobs, now=now))
         # Warm affinity on: which root runner kept a build of which main
         # commits (owned_warm_state.py). A failure leaves `warm` out, and the
         # picker then routes admission by the root label as before.
@@ -2739,6 +2881,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         runs, jobs_by_run, prs_by_branch,
         threshold=threshold, max_cancels=max_cancels, pull_request_policy=args.pull_request_policy,
         now=now, lost=lost, rerun_state=pending is not None, unclaimed=unclaimed, branch_heads=branch_heads,
+        app_rerun=github.app_token,
     )
 
     results: dict[int, str] = {}
@@ -2784,7 +2927,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         read_heads(branch_head_lookups(settled, {run.get("id") for run in settled}, prs_by_branch=prs_by_branch,
                                        known=branch_heads, cap=PENDING_HEAD_LOOKUPS))
         rerun_decisions = plan_lost_reruns(pending, runs_now, prs_by_branch, now=now, head_runs=head_runs,
-                                           branch_heads=branch_heads)
+                                           branch_heads=branch_heads, app_token=github.app_token)
         if args.dry_run:
             # Nothing acted on, so only an expired entry goes.
             still_pending = [dict(decision.entry) for decision in rerun_decisions
