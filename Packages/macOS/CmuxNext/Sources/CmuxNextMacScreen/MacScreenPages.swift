@@ -74,6 +74,9 @@ public final class MacScreenPages {
     public var events = MacScreenTabEvents()
     /// The app's shortcut matcher: true keeps a key down in cmux.
     public var isLocalShortcut: (NSEvent) -> Bool = { _ in false }
+    /// The windows' frame-aligned pointer input for device screens (feature `pointerFrameRemoteInput`,
+    /// ``RemoteInputSurface/pointerFrames``), read when a screen is made; nil sends each event at once.
+    public var pointerFrames: @MainActor () -> FrameInputCoalescers? = { nil }
     /// Settings > Development > Relay Only (`macScreen.debug.relayOnly`):
     /// sessions use the TURN relay only. Only DEV builds apply it; the app
     /// feeds it from the setting there.
@@ -408,6 +411,7 @@ public final class MacScreenPages {
         pane.handlers.isLocalShortcut = { [weak self] event in self?.isLocalShortcut(event) ?? false }
         pane.handlers.keyboardChanged = { [weak self] in self?.systemShortcuts.update() }
         pane.model.systemShortcuts = systemShortcuts
+        pane.view.input.pointerFrames = pointerFrames()
         return pane
     }
 }

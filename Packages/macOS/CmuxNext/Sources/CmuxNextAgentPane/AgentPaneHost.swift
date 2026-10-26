@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import CmuxNextDesign
 public import Foundation
 import CmuxNextWakeups
@@ -116,6 +117,8 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     /// does. It never stops, hands off or starts that daemon, so a subagent
     /// tab never ends the Chief's acpmux under its host (cx-ebm.54).
     private let startsDaemons: Bool
+    /// Spawns this host's acpmux launch shells, user-blocking: the agent pane waits for its daemon.
+    private let launcher = ChildProcessLauncher(label: "com.cmuxterm.next.child-launcher.acpmux", priority: .userBlocking)
     /// Heals a daemon this app does not own that runs a replaced bundle: its
     /// owner hands it off and starts the bundled one (the Chief host,
     /// `ChiefAcpmuxHeal`). Returns whether it did. Nil: this host cannot heal.
@@ -216,7 +219,8 @@ public actor AcpmuxHost: AgentPaneHostProviding {
         if let healReplaced {
             heal = { @Sendable (pid: Int32) async -> Bool in await self.healOnce(pid: pid, healReplaced) }
         }
-        let task = Task { try await Self.findOrStart(environment, startsDaemon: startsDaemon, owned: owned, heal: heal) }
+        let launcher = self.launcher
+        let task = Task { try await Self.findOrStart(environment, startsDaemon: startsDaemon, owned: owned, heal: heal, launcher: launcher) }
         inFlight[startsDaemon] = task
         defer { if inFlight[startsDaemon] == task { inFlight[startsDaemon] = nil } }
         let endpoint = try await task.value
@@ -315,7 +319,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
     }
 
     private static func findOrStart(_ environment: AcpmuxEnvironment, startsDaemon: Bool, owned: Bool,
-                                    heal: (@Sendable (Int32) async -> Bool)?) async throws -> AcpmuxWebEndpoint {
+                                    heal: (@Sendable (Int32) async -> Bool)?, launcher: ChildProcessLauncher) async throws -> AcpmuxWebEndpoint {
         // cmux NEXT adopts its old acpmux home before it asks or starts a daemon (cx-is1kf.9).
         await AcpmuxEnvironment.adoptBuildHomes()
         do {
@@ -383,7 +387,7 @@ public actor AcpmuxHost: AgentPaneHostProviding {
             throw failure(environment, .other, detail: String(describing: error))
         }
         do {
-            let endpoint = try await AcpmuxDaemonLauncher.launch(environment)
+            let endpoint = try await AcpmuxDaemonLauncher.launch(environment, launcher: launcher)
             // A signed daemon ignores the spawn key: it takes the key by this app's signature.
             if let status = await Self.startedStatus(environment), status.serves(home: environment.home) {
                 _ = await AcpmuxPersonKey.enroll(status, environment: environment)

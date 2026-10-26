@@ -153,7 +153,9 @@ class HostContext {
   void* PageView(uint64_t token);
   void Ack(uint32_t token);
   void Reply(uint32_t token, const TlvWriter& reply);
-  void BindMinted(uint16_t op, int32_t minted, int64_t result);
+  // `client_browser`: the op's browser argument as cmux named it (devtools_call keys the shim's
+  // message id by it; the generator passes it, task 019).
+  void BindMinted(uint16_t op, int32_t minted, int64_t result, int32_t client_browser);
   // `minted` names the browser of the next `event_kind` event with `request`
   // (create_window's AFTER_CREATED) when the call returned 1.
   void BindMintedOnEvent(uint16_t op, int32_t minted, int event_kind, int request, int64_t result);
@@ -194,6 +196,14 @@ class HostContext {
   void ProduceAttach(bool only_attach);
   void Bad(const std::string& what);
   void Forget(int32_t client_id, int chromium_id);
+  // devtools_set_placement named `token` (0: its own window) for every
+  // DevTools of `chromium_id`, Chromium's own opens too (context menu
+  // Inspect). The placement stands, as the shim's does in process: its view
+  // stays open across DevTools closes until the inspected browser closes
+  // (Forget) or a placement naming another view replaces it (task 024).
+  void PlaceDevTools(int chromium_id, uint64_t token);
+  // Closes `token`'s view unless a browser or a DevTools placement still has it.
+  void ReleaseView(uint64_t token);
   void Bind(int32_t client_id, int chromium_id);
   int32_t ClientOf(int chromium_id) const;
   void Post(control::Message message);
@@ -212,7 +222,6 @@ class HostContext {
   // caused reaches cmux before its ack (read-your-writes, task 016b).
   bool dispatching_ = false;
   uint16_t dispatching_op_ = 0;
-  int32_t devtools_call_browser_ = 0;  // the client browser of the devtools_call being dispatched
   uint64_t dispatching_view_ = 0;      // the page view token the op being dispatched opened
   std::optional<std::string> dispatching_profile_;  // a create_window's profile_cache_path
   std::vector<HeldEvent> held_events_;
@@ -236,9 +245,11 @@ class HostContext {
   // The optional exports' functions in the host's shim, by op (kOptionalExports).
   std::vector<std::pair<uint16_t, void*>> optional_exports_;
 
-  // Open page view tokens, and the view each create_window browser has.
+  // Open page view tokens, the view each create_window browser has, and the
+  // DevTools parent view each inspected browser's placement names.
   std::unordered_set<uint64_t> open_views_;
   std::unordered_map<int, uint64_t> view_of_browser_;
+  std::unordered_map<int, uint64_t> devtools_view_of_browser_;
 };
 
 }  // namespace cmux_host

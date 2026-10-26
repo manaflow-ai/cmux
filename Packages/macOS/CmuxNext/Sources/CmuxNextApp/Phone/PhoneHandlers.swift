@@ -9,7 +9,7 @@ import CmuxNextPhone
 enum PhoneHandlers {
     static func bind(into registry: ActionRegistry, context: AppActionContext) {
         let services = context.services
-        let page = PhonePageTab(phones: services.phones)
+        let page = PhonePageTab(phones: services.phones) { [weak services] in services?.remotePointerFrames }
         services.pages.register(page) // at launch, so a restored tab finds it
         services.phones.feedbackSink = services.phoneFeedback
 

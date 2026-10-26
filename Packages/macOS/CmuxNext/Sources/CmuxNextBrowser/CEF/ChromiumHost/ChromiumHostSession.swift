@@ -74,6 +74,10 @@ public final class ChromiumHostSession {
     /// Stats requests by `seq`, which the host's reply echoes.
     private var statsWaiters: [UInt32: CheckedContinuation<ChromiumHostFrame?, Never>] = [:]
     private var tasks: [Task<Void, Never>] = []
+    /// ``start()`` launched a host that ``launched(_:)`` has not connected yet.
+    private var launching = false
+    /// ``close()`` came while the host launched: it quits as soon as it has connected.
+    private var closeWhenLaunched = false
 
     public init(configuration: ChromiumHostConfiguration) {
         self.configuration = configuration
@@ -120,7 +124,10 @@ public final class ChromiumHostSession {
             return false
         }
         self.url = url
-        if connection == nil {
+        if launching {
+            // The launching host loads `url` once it connects.
+            closeWhenLaunched = false
+        } else if connection == nil {
             closing = false
             isFirstStart = true
             start()
@@ -136,6 +143,10 @@ public final class ChromiumHostSession {
     /// host that has not ended ``ChromiumHostFrame/quitLimit`` later.
     public func close() {
         reopenWhenEnded = false
+        if launching {
+            closeWhenLaunched = true
+            return
+        }
         guard let connection, !closing else { return }
         closing = true
         if !send(ChromiumHostFrame(.quit)) { return }  // send ended the host already
@@ -226,14 +237,52 @@ public final class ChromiumHostSession {
 
     // MARK: Lifecycle
 
+    /// Starts a host. The launcher spawns it off the main thread (ChromiumHostLauncher's spawn queue, as
+    /// Chrome's process launcher thread does); the host's reader task awaits that launch, ``launched(_:)``
+    /// connects the host, and the task then reads its frames. While it launches, ``open(_:)`` only changes
+    /// the URL it loads, and ``close()`` ends it once it has connected.
     private func start() {
         fillPageBackground()
+        phase = .starting
+        launching = true
+        let launcher = launcher, configuration = configuration
+        tasks = [
+            Task { [weak self] in
+                let result: Result<ChromiumHostProcessHandle, any Error>
+                do {
+                    result = .success(try await launcher.launch(executable: configuration.executable, arguments: configuration.arguments))
+                } catch {
+                    result = .failure(error)
+                }
+                guard let started = self?.launched(result) else {
+                    // Nobody owns this host any more: end it and free its pid and wire.
+                    if self == nil, case .success(let orphan) = result { await launcher.discard(orphan) }
+                    return
+                }
+                let (connection, pid) = started
+                // A cancelled iterator still gets the frames the stream holds, so a frame of
+                // a host that has ended can come after hostEnded started the next host.
+                for await frame in connection.frames { self?.handle(frame, from: connection) }
+                // The wire ended. A host that broke the protocol (a bad frame, a
+                // flood) is still alive: end it, so its exit restarts it by the policy.
+                // Its pid cannot be reused yet: an ended host stays a zombie until hostEnded reaps it.
+                if connection.endedByProtocolError, let self, self.connection === connection { launcher.kill(pid) }
+            },
+        ]
+    }
+
+    /// Connects the host ``start()`` launched and starts waiting for its exit: its wire and pid. Nil, with the
+    /// session ended, when it could not start.
+    private func launched(_ result: Result<ChromiumHostProcessHandle, any Error>) -> (ChromiumHostConnection, pid_t)? {
+        launching = false
         let handle: ChromiumHostProcessHandle
-        do {
-            handle = try launcher.launch(executable: configuration.executable, arguments: configuration.arguments)
-        } catch {
+        switch result {
+        case .success(let started):
+            handle = started
+        case .failure(let error):
+            closeWhenLaunched = false
             phase = .ended("launch failed: \(error)")
-            return
+            return nil
         }
         let connection = ChromiumHostConnection(readFD: handle.readFD, writeFD: handle.writeFD)
         self.connection = connection
@@ -246,16 +295,7 @@ public final class ChromiumHostSession {
         if let geometry { connection.send(geometry.frame) }
         if view.window?.firstResponder === view { connection.send(ChromiumHostFrame(.focus, v: [1])) }
         let launcher = launcher
-        tasks = [
-            Task { [weak self] in
-                // A cancelled iterator still gets the frames the stream holds, so a frame of
-                // a host that has ended can come after hostEnded started the next host.
-                for await frame in connection.frames { self?.handle(frame, from: connection) }
-                // The wire ended. A host that broke the protocol (a bad frame, a
-                // flood) is still alive: end it, so its exit restarts it by the policy.
-                // Its pid cannot be reused yet: an ended host stays a zombie until hostEnded reaps it.
-                if connection.endedByProtocolError, let self, self.connection === connection { launcher.kill(handle.pid) }
-            },
+        tasks.append(
             Task { [weak self] in
                 let exit = await launcher.exit(of: handle.pid)
                 if let self {
@@ -263,8 +303,12 @@ public final class ChromiumHostSession {
                 } else {
                     launcher.reap(handle.pid)
                 }
-            },
-        ]
+            })
+        if closeWhenLaunched {
+            closeWhenLaunched = false
+            close()
+        }
+        return (connection, handle.pid)
     }
 
     /// Applies a frame of `source`; a frame of an earlier host (not the
