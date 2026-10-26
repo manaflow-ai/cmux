@@ -70,7 +70,7 @@ final class FeedService {
         self.acpmuxEnvironment = acpmuxEnvironment
         apiBaseURL = Self.apiBaseURL(auth: auth)
         // The answer's device label is the owner's record (the install); this name is only the overlay's.
-        source = CloudFeedSource(apiBaseURL: apiBaseURL, device: "Mac") { [auth] in
+        source = CloudFeedSource(apiBaseURL: apiBaseURL, device: "Mac", energy: energy) { [auth] in
             try await auth.tokens().access
         }
         var observe: (@MainActor (FeedSourceEvent) -> Void)?

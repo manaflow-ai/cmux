@@ -30,7 +30,7 @@ import Testing
             device: "Mac",
             token: { await tokens.next() },
             reconnect: Backoff(initial: .milliseconds(1), maximum: .milliseconds(1), jitter: 0)
-        ) { bearer, _ in
+        ) { bearer, _, _ in
             opener.yield(bearer)
             if bearer == "a" { throw CloudFeedSource.Unauthorized() }
             // The new token's socket stays open until the test stops the source.
