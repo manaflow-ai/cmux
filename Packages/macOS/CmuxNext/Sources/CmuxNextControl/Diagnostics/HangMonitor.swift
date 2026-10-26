@@ -1,40 +1,73 @@
 import CmuxNextCompat
 import CmuxNextSettings
 public import CmuxNextTrace
+public import CmuxNextWakeups
 import Darwin
 import os
 
 /// The hang watch's monitor on the main-thread watchdog's thread (p02-threads-016, p09-observability 067):
 /// it adds no thread and no timer. The watchdog thread's kqueue wait is bounded by the slot table's next
 /// scan (``HangWatch/nextScanNanos``), and a scope that needs an earlier scan triggers the kqueue's user
-/// event (``MainThreadWatchdog/attach(hangWatch:)``). Chrome runs one `HangWatcher` thread per process
-/// (base/threading/hang_watcher.cc); cmux's main-thread watchdog thread already waits on a kqueue, so it
-/// takes the job.
+/// event (``MainThreadWatchdog/attach(hangWatch:crashKeys:)``). Chrome runs one `HangWatcher` thread per
+/// process (base/threading/hang_watcher.cc); cmux's main-thread watchdog thread already waits on a kqueue, so
+/// it takes the job.
 ///
-/// Each overdue scope is reported once per tier, while it still runs, into the watchdog's
-/// ``MainThreadWatchdog/threadHangs`` log (`debug.hangs` `thread_hangs`), apart from the main-thread stalls:
-/// - past its budget, a `jank` record: the registration's and the kernel's thread names and how far past
-///   its budget it is, with no stack (a jank is common and costs no thread suspension);
-/// - still open `HangWatch.hangAfterBudget` (2 s) later, a `hang` dump: the thread's stack
-///   (``ThreadStackSampler``) and the crash keys of the moment, and the hung thread goes into the
-///   crash-key page (``CrashKeySlot/lastThreadHangPort``), so a crash that follows names it. Chrome's
-///   `HangWatcher::RecordHang` dumps with crash keys naming the hung thread (base/threading/hang_watcher.cc).
+/// Each overdue scope is reported once per tier, while it still runs, apart from the main-thread stalls:
+/// - past its budget, a `jank` record in ``MainThreadWatchdog/threadJanks`` (`debug.hangs` `thread_janks`):
+///   the registration's and the kernel's thread names and how far past its budget it is, with no stack (a
+///   jank is common and costs no thread suspension; its own log, so janks never push hang dumps out);
+/// - still open `HangWatch.hangAfterBudget` (2 s) later, a `hang` dump in ``MainThreadWatchdog/threadHangs``
+///   (`debug.hangs` `thread_hangs`): the thread's stack (``ThreadStackSampler``) and the crash keys of the
+///   moment. Like Chrome's `HangWatcher::RecordHang`, which names the hung threads in crash keys, the monitor
+///   names the thread in the crash keys' hung threads (``CrashKeySlots/noteHung(_:)``) until its scope ends,
+///   so a crash meanwhile says which threads were hung.
 struct HangMonitor {
-    let watch: HangWatch
-    let log: HangLog
-    let logger: Logger?
-    /// The crash-key page: read into each hang dump, and told the hung thread. nil reads and writes none.
-    let crashKeys: (any CrashKeyStore)?
+    /// What ``MainThreadWatchdog/attach(hangWatch:crashKeys:)`` connected.
+    struct Source: Sendable {
+        let watch: HangWatch
+        let crashKeys: CrashKeySlots?
+        #if DEBUG
+        /// Tests: told each hang dump on the watchdog thread, right after it is logged.
+        var afterHangForTesting: (@Sendable (HangRecord) -> Void)?
+        #endif
+    }
 
-    /// The crash keys a hang dump carries: what the app was doing when the thread hung.
-    static let dumpedKeys: [CrashKeySlot] = [.actionIndex, .actionEntrypoint, .mainTaskOwner, .inCEFPump, .lastInputUptime,
-                                             .daemonPID, .daemonState]
+    let watch: HangWatch
+    /// Hang dumps (``HangRecord/Kind/hang``).
+    let log: HangLog
+    /// Janks (``HangRecord/Kind/jank``).
+    let janks: HangLog
+    let logger: Logger?
+    let crashKeys: CrashKeySlots?
+    #if DEBUG
+    let afterHangForTesting: (@Sendable (HangRecord) -> Void)?
+    #endif
+    /// The reported scopes still named in ``crashKeys``' hung threads (at most its capacity).
+    private var named: [HangWatch.Overdue] = []
+    /// The scan period: a named hung thread is looked at this often, since its scope's close wakes nobody.
+    private let periodNanos: UInt64
+
+    init(source: Source, log: HangLog, janks: HangLog, logger: Logger?) {
+        (watch, crashKeys, self.log, self.janks, self.logger) = (source.watch, source.crashKeys, log, janks, logger)
+        #if DEBUG
+        afterHangForTesting = source.afterHangForTesting
+        #endif
+        periodNanos = UInt64(max(source.watch.minimumDeadline / .nanoseconds(1), 1))
+        named.reserveCapacity(CrashKeySlots.hungThreadCapacity)
+    }
 
     /// Scans when a scan is due and reports what it finds (watchdog thread only).
     ///
     /// - Returns: How long the watchdog thread may wait before the next scan; nil while the slot table
-    ///   is parked (a scope wakes the thread through the kqueue).
-    func service() -> UInt64? {
+    ///   is parked (a scope wakes the thread through the kqueue) and no hung thread is named.
+    mutating func service() -> UInt64? {
+        clearEndedHangs()
+        let wait = scanIfDue()
+        guard !named.isEmpty else { return wait }
+        return min(wait ?? .max, periodNanos)
+    }
+
+    private mutating func scanIfDue() -> UInt64? {
         guard let planned = watch.nextScanNanos else { return nil }
         let now = watch.nowNanos()
         guard planned <= now else { return planned - now }
@@ -45,53 +78,66 @@ struct HangMonitor {
         return next > after ? next - after : 0
     }
 
-    private func report(_ overdue: HangWatch.Overdue, now: UInt64) {
+    /// Takes each named thread whose scope ended off the crash keys' hung threads.
+    private mutating func clearEndedHangs() {
+        guard let crashKeys, !named.isEmpty else { return }
+        let watch = watch // the closure reads a local, not `self`, while `named` is being changed
+        named.removeAll { overdue in
+            guard !watch.isStillOpen(overdue) else { return false }
+            crashKeys.clearHung(port: overdue.port)
+            return true
+        }
+    }
+
+    private mutating func report(_ overdue: HangWatch.Overdue, now: UInt64) {
         guard overdue.port != 0 else { return }
         let overrun = Duration.nanoseconds(Int64(clamping: now > overdue.deadlineNanos ? now - overdue.deadlineNanos : 0))
         var details: [String: JSONValue] = ["scope": .string(overdue.name),
                                             "thread_kind": .string(overdue.kind.map { "\($0)" } ?? "")]
         guard overdue.tier == .hang else {
             details["thread"] = .string(ThreadStackSampler.threadName(overdue.port))
-            log.append(startUptimeNanos: overdue.deadlineNanos, duration: overrun, addresses: [], kind: .jank, details: details)
+            janks.append(startUptimeNanos: overdue.deadlineNanos, duration: overrun, addresses: [], kind: .jank, details: details)
             return
         }
         let addresses = ThreadStackSampler(thread: overdue.port).sample()
         // The scope ended while it was sampled: the stack belongs to later work.
         guard watch.isStillOpen(overdue) else { return }
+        if let crashKeys, crashKeys.noteHung(CrashKeySlots.HungThread(port: overdue.port, kind: overdue.kind?.rawValue ?? 0)) {
+            named.append(overdue)
+        }
         let threadName = ThreadStackSampler.threadName(overdue.port)
         details["thread"] = .string(threadName)
-        if let crashKeys {
-            crashKeys.setCrashKey(.lastThreadHangPort, UInt64(truncatingIfNeeded: overdue.port))
-            crashKeys.setCrashKey(.lastThreadHangUptime, overdue.deadlineNanos)
-            details["crash_keys"] = .object(Dictionary(uniqueKeysWithValues: Self.dumpedKeys.map {
-                ("\($0.name)", JSONValue(Int(clamping: crashKeys.crashKey($0))))
-            }))
-        }
-        let record = log.append(startUptimeNanos: overdue.deadlineNanos, duration: overrun, addresses: addresses, kind: .hang,
-                                details: details)
+        if let tags = crashKeys?.snapshot().tags, !tags.isEmpty { details["crash_keys"] = .object(tags.mapValues(JSONValue.string)) }
+        let record = log.append(startUptimeNanos: overdue.deadlineNanos, duration: overrun, addresses: addresses, kind: .hang, details: details)
         logger?.error("hang: \(overdue.name, privacy: .public) on thread \(threadName, privacy: .public) past its budget by \(overrun.fractionalMilliseconds, format: .fixed(precision: 1)) ms (thread hang \(record.sequence), \(addresses.count) frames; see debug.hangs thread_hangs)")
+        #if DEBUG
+        afterHangForTesting?(record)
+        #endif
     }
 }
 
 extension MainThreadWatchdog {
     /// Watches `hangWatch`'s scopes on this watchdog's thread (the composition root passes
-    /// `TraceRuntime.shared.hangWatch` and `TraceRuntime.shared`); each scope past its budget is reported
-    /// into ``threadHangs``, as a jank and then, 2 s later, as a hang with the `crashKeys` of the moment.
-    /// The same `crashKeys` name the main-thread phase (``CrashKeySlot/inCEFPump``) in stall and hang
-    /// records. Once: a later call, or a slot table another monitor watches, is ignored. With no kqueue the
-    /// watchdog thread does not run, so nothing is attached.
-    public func attach(hangWatch: HangWatch, crashKeys: (any CrashKeyStore)? = nil) {
-        guard alarm.isAvailable, hangWatch.attachMonitor(wake: { [alarm] in alarm.wake() }) else { return }
-        crashKeySink.withLock { $0 = crashKeys }
-        hangWatchSink.withLock { $0 = hangWatch }
+    /// `TraceRuntime.shared.hangWatch` and its ``CrashKeySlots``): each scope past its budget goes into
+    /// ``threadJanks`` and, still open 2 s later, into ``threadHangs``, named in `crashKeys`' hung threads
+    /// while it stays open. The same `crashKeys` give stall and hang records the main thread's phase
+    /// (``phaseLabel(cefState:)``). Once: a later call, or a slot table another monitor watches, is ignored.
+    /// With no kqueue the watchdog thread does not run, so nothing is attached.
+    public func attach(hangWatch: HangWatch, crashKeys: CrashKeySlots? = nil) {
+        attach(HangMonitor.Source(watch: hangWatch, crashKeys: crashKeys))
+    }
+
+    /// ``attach(hangWatch:crashKeys:)`` with the whole source (tests add their hook).
+    func attach(_ source: HangMonitor.Source) {
+        guard alarm.isAvailable, source.watch.attachMonitor(wake: { [alarm] in alarm.wake() }) else { return }
+        hangWatchSink.withLock { $0 = source }
         hangWatchAttached.store(true, ordering: .releasing)
         alarm.wake() // the thread picks it up now, not at its next wake
     }
 
     /// The monitor of the attached slot table, made on the watchdog thread once one is attached.
     func hangMonitor() -> HangMonitor? {
-        guard hangWatchAttached.load(ordering: .acquiring), let watch = hangWatchSink.withLock({ $0 }) else { return nil }
-        return HangMonitor(watch: watch, log: threadHangs, logger: configuration.logStalls ? logger : nil,
-                           crashKeys: crashKeySink.withLock { $0 })
+        guard hangWatchAttached.load(ordering: .acquiring), let source = hangWatchSink.withLock({ $0 }) else { return nil }
+        return HangMonitor(source: source, log: threadHangs, janks: threadJanks, logger: configuration.logStalls ? logger : nil)
     }
 }

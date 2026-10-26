@@ -48,8 +48,8 @@ public struct HangRecord: Sendable, Hashable {
         /// its budget (``MainThreadWatchdog/threadHangs``); its details name the scope, the thread and
         /// the crash keys, and its duration is how far past the budget it was when sampled.
         case hang
-        /// A hang-watch scope on another thread running past its budget, not yet a ``hang``: no
-        /// stack, counted in ``HangLog/Summary/jankCount``.
+        /// A hang-watch scope on another thread running past its budget, not yet a ``hang``
+        /// (``MainThreadWatchdog/threadJanks``): no stack.
         case jank
     }
 
@@ -117,13 +117,11 @@ public struct StallCounts: Sendable, Equatable {
 /// Bounded ring buffer of hang records (drop-oldest).
 public final class HangLog: Sendable {
     public struct Summary: Sendable, Equatable {
-        /// Stalls only; busy windows are counted in ``busyCount``, janks in ``jankCount``.
+        /// Stalls only; busy windows are counted in ``busyCount``.
         public var count = 0
         public var maxDuration: Duration = .zero
         public var totalDuration: Duration = .zero
         public var busyCount = 0
-        /// Hang-watch scopes past their budget (``HangRecord/Kind/jank``).
-        public var jankCount = 0
     }
 
     private struct State {
@@ -155,9 +153,7 @@ public final class HangLog: Sendable {
                 state.summary.totalDuration += duration
             case .busy:
                 state.summary.busyCount += 1
-            case .jank:
-                state.summary.jankCount += 1
-            case .overBudget, .hang: // each in a log of its own kind
+            case .overBudget, .hang, .jank: // each in a log of its own kind
                 state.summary.count += 1
                 state.summary.maxDuration = max(state.summary.maxDuration, duration)
                 state.summary.totalDuration += duration

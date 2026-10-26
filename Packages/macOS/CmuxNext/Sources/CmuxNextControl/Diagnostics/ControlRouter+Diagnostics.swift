@@ -1,7 +1,7 @@
 public import CmuxNextSettings
 
 /// `debug.hangs` (stalls, each naming the scheduled task its sample caught, the tasks that ran
-/// past their class budget, and other threads' hang-watch scopes past their deadline) and
+/// past their class budget, and other threads' hang-watch scopes as janks and hangs) and
 /// `debug.queue`: answered off the main actor (they read lock-protected counters), so they work
 /// while the main thread is stalled.
 extension ControlRouter {
@@ -23,15 +23,20 @@ extension ControlRouter {
                 let overBudget = watchdog.overBudget.records(after: call.params["over_budget_after"]?.intValue.map { UInt64(clamping: $0) } ?? 0)
                     .suffix(max(0, limit))
                 let overBudgetCount = watchdog.overBudget.summary.count
-                // Hang-watch scopes on other threads past their deadline (MainThreadWatchdog.threadHangs).
+                // Hang-watch scopes on other threads still open 2 s past their budget, with a stack
+                // (MainThreadWatchdog.threadHangs), and past their budget, with none (threadJanks).
                 let threadHangs = watchdog.threadHangs.records(after: call.params["thread_hangs_after"]?.intValue.map { UInt64(clamping: $0) } ?? 0)
                     .suffix(max(0, limit))
                 let threadHangCount = watchdog.threadHangs.summary.count
+                let threadJanks = watchdog.threadJanks.records(after: call.params["thread_janks_after"]?.intValue.map { UInt64(clamping: $0) } ?? 0)
+                    .suffix(max(0, limit))
+                let threadJankCount = watchdog.threadJanks.summary.count
                 let turnHistogram = watchdog.turnHistogramJSON
                 if call.params["clear"]?.boolValue == true {
                     watchdog.log.clear()
                     watchdog.overBudget.clear()
                     watchdog.threadHangs.clear()
+                    watchdog.threadJanks.clear()
                     watchdog.resetLongFrames()
                     watchdog.resetStallCounts()
                     watchdog.resetTurnHistograms()
@@ -59,6 +64,8 @@ extension ControlRouter {
                     "over_budget": .array(overBudget.map(\.json)),
                     "thread_hang_count": JSONValue(threadHangCount),
                     "thread_hangs": .array(threadHangs.map(\.json)),
+                    "thread_jank_count": JSONValue(threadJankCount),
+                    "thread_janks": .array(threadJanks.map(\.json)),
                 ]
             },
             .snapshot("debug.queue") { [weak self] call in

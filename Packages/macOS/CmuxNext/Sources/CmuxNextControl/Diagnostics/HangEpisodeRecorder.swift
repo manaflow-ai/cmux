@@ -51,6 +51,8 @@ public final class HangEpisodeRecorder: Sendable {
         /// The addresses still to symbolicate; nil once done.
         var raw: (main: [UInt], others: [ThreadSample])?
         var symbolicated: Bool { raw == nil }
+        /// The main thread's phase at the sample (`MainThreadWatchdog.Hang.phase`), named in the file.
+        var phase: String?
     }
 
     private struct State {
@@ -168,16 +170,16 @@ public final class HangEpisodeRecorder: Sendable {
     /// A hang started `elapsed` ago: opens its file. Returns at once (the toggle is read on
     /// the recorder's queue too, so a main thread holding the tunable store's lock never
     /// blocks the watchdog).
-    func begin(beat: UInt64, elapsed: Duration, main: [UInt], others: [ThreadSample]) {
+    func begin(beat: UInt64, elapsed: Duration, main: [UInt], others: [ThreadSample], phase: String? = nil) {
         let started = Date(timeIntervalSinceNow: -elapsed.fractionalMilliseconds / 1_000)
         queue.async { [self] in
             guard isEnabled() else { return }
             // Raw addresses first: the evidence is on disk before anything can block.
-            let raw = Self.render(main: main.map(Self.hex), others: others.map { (name: $0.name, frames: $0.addresses.map(Self.hex)) })
+            let raw = Self.render(main: main.map(Self.hex), others: others.map { (name: $0.name, frames: $0.addresses.map(Self.hex)) }, phase: phase)
             let entry = Entry(url: directory.appending(path: Self.fileName(started)), started: started, duration: elapsed,
                               ongoing: true, topFrames: Array(main.prefix(Self.topFrameCount).map(Self.hex)))
             state.withLock { state in
-                state.episodes.append(Episode(beat: beat, entry: entry, stacks: raw, raw: (main: main, others: others)))
+                state.episodes.append(Episode(beat: beat, entry: entry, stacks: raw, raw: (main: main, others: others), phase: phase))
                 // A symbolicator that never finishes leaves its episodes here; keep a bounded few.
                 if state.episodes.count > maxFiles { state.episodes.removeFirst(state.episodes.count - maxFiles) }
             }
@@ -214,16 +216,16 @@ public final class HangEpisodeRecorder: Sendable {
     /// runs. Its result enriches that episode's file; then the next one starts. Episodes dropped
     /// meanwhile are never symbolicated.
     private func symbolicateNext() {
-        let next: (beat: UInt64, main: [UInt], others: [ThreadSample])? = state.withLock { state in
+        let next: (beat: UInt64, main: [UInt], others: [ThreadSample], phase: String?)? = state.withLock { state in
             guard !state.symbolicating, let episode = state.episodes.first(where: { !$0.symbolicated }),
                   let raw = episode.raw else { return nil }
             state.symbolicating = true
-            return (beat: episode.beat, main: raw.main, others: raw.others)
+            return (beat: episode.beat, main: raw.main, others: raw.others, phase: episode.phase)
         }
         guard let next else { return }
         symbolQueue.async { [self] in
             let mainFrames = symbolicate(next.main)
-            let stacks = Self.render(main: mainFrames, others: next.others.map { (name: $0.name, frames: symbolicate($0.addresses)) })
+            let stacks = Self.render(main: mainFrames, others: next.others.map { (name: $0.name, frames: symbolicate($0.addresses)) }, phase: next.phase)
             queue.async { [self] in
                 state.withLock { $0.symbolicating = false }
                 change(beat: next.beat) { episode in
@@ -352,8 +354,8 @@ public final class HangEpisodeRecorder: Sendable {
         "0x" + String(address, radix: 16)
     }
 
-    private static func render(main: [String], others: [(name: String, frames: [String])]) -> String {
-        var stacks = "main thread (innermost first):\n" + lines(main)
+    private static func render(main: [String], others: [(name: String, frames: [String])], phase: String?) -> String {
+        var stacks = "main thread (innermost first\(phase.map { ", in \($0)" } ?? "")):\n" + lines(main)
         if !others.isEmpty {
             stacks += "\nother threads (\(others.count)):\n"
             for thread in others {

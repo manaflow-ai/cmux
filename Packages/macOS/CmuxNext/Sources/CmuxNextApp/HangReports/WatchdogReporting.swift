@@ -3,11 +3,13 @@ import CmuxNextControl
 import CmuxNextCrashReporting
 import CmuxNextDaemon
 import CmuxNextHangReports
+import CmuxNextSettings
 
 /// Where the main-thread watchdog's findings go (moved out of `AppDelegate`): each hang still
 /// running after 2 s to crash reporting with its stack and to a file per hang; each finished lag
 /// spike of 250 ms and up to crash reporting (rate-limited); and both to opt-in hang reports
-/// (``HangReportsController``), whose sink does nothing while they are off.
+/// (``HangReportsController``), whose sink does nothing while they are off. Crash reporting and the
+/// hang file also get the main thread's phase (`main_thread_phase`, `cef_pump`).
 @MainActor
 enum WatchdogReporting {
     /// Wires `watchdog` and returns this launch's hang report controller (held by `AppProcessRoot`).
@@ -19,7 +21,8 @@ enum WatchdogReporting {
             counts: { @MainActor [weak services] in services.map(WatchdogReporting.counts) ?? .unknown })
         let collector = hangReports.collector
         watchdog.onHang = { hang in
-            reporter.reportHang(duration: hang.duration, addresses: hang.addresses, otherThreads: hang.otherThreads.map { ($0.name, $0.addresses) })
+            reporter.reportHang(duration: hang.duration, addresses: hang.addresses, otherThreads: hang.otherThreads.map { ($0.name, $0.addresses) },
+                                phase: hang.phase)
             collector?.noteHang(durationNanos: Self.nanos(hang.duration), addresses: hang.addresses)
         }
         // ~/Library/Logs/<bundle id>/hangs, listed in Debug Settings > Hangs.
@@ -35,7 +38,7 @@ enum WatchdogReporting {
             }
         }
         watchdog.onStall = { record in
-            lagSpikes.noteStall(duration: record.duration, cpu: record.cpu, addresses: record.addresses)
+            lagSpikes.noteStall(duration: record.duration, cpu: record.cpu, addresses: record.addresses, phase: record.details["phase"]?.stringValue)
             collector?.noteStall(durationNanos: Self.nanos(record.duration), cpuNanos: Self.nanos(record.cpu), addresses: record.addresses)
         }
         return hangReports
