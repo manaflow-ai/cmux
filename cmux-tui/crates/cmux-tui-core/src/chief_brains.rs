@@ -43,6 +43,8 @@
 //!   ended, its folder `<home>/c/<id tail>` (memory, state, token) is removed
 //!   when its `chief-id` names it and no brain holds its lock.
 
+use cmux_threads::checked::fs as files;
+use cmux_threads::checked::sync as waits;
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock, PoisonError, Weak, mpsc};
@@ -162,7 +164,7 @@ pub fn tools_socket(chief: &str) -> Result<PathBuf, (&'static str, String)> {
     let config =
         config().ok_or(("not_configured", "this daemon runs no Chief brains".to_owned()))?;
     let mux_home = brain_home(&config.home, chief);
-    let owner = std::fs::read_to_string(mux_home.join("chief-id")).unwrap_or_default();
+    let owner = files::read_to_string(mux_home.join("chief-id")).unwrap_or_default();
     if owner.trim() != chief {
         return Err(("unavailable", format!("Chief {chief}'s brain is not running")));
     }
@@ -384,8 +386,7 @@ impl BrainPending {
     pub(crate) fn resolve(self) -> BrainStart {
         match self {
             Self::Ready(start) => start,
-            Self::Wait(answer) => answer
-                .recv_timeout(Duration::from_secs(5))
+            Self::Wait(answer) => waits::recv_timeout(&answer, Duration::from_secs(5))
                 .unwrap_or(BrainStart::NotStarted("unconfirmed")),
         }
     }
@@ -529,10 +530,10 @@ impl ChiefBrains {
         }
         let (done, ended) = mpsc::channel();
         if self.sender.send(Signal::Shutdown(done)).is_ok() {
-            let _ = ended.recv_timeout(SHUTDOWN_GRACE + Duration::from_secs(1));
+            let _ = waits::recv_timeout(&ended, SHUTDOWN_GRACE + Duration::from_secs(1));
         }
         if let Some(thread) = self.thread.take() {
-            let _ = thread.join();
+            let _ = waits::join(thread);
         }
     }
 }
@@ -547,7 +548,7 @@ pub fn start(mux: &Arc<Mux>, socket: &Path) -> Option<ChiefBrains> {
     // reading blocks until a writer comes: no sleep, no polling.
     #[cfg(debug_assertions)]
     if let Some(gate) = std::env::var_os("CMUX_TUI_TEST_CHIEF_BRAINS_GATE") {
-        let _ = std::fs::File::open(gate);
+        let _ = files::open(gate);
     }
     let (sender, inbox) = mpsc::channel();
     {
@@ -715,13 +716,13 @@ impl Supervisor {
         loop {
             let signal = match self.next_deadline() {
                 Some(at) => {
-                    match inbox.recv_timeout(at.saturating_duration_since(Instant::now())) {
+                    match waits::recv_timeout(inbox, at.saturating_duration_since(Instant::now())) {
                         Ok(signal) => Some(signal),
                         Err(mpsc::RecvTimeoutError::Timeout) => None,
                         Err(mpsc::RecvTimeoutError::Disconnected) => return,
                     }
                 }
-                None => match inbox.recv() {
+                None => match waits::recv(inbox) {
                     Ok(signal) => Some(signal),
                     Err(_) => return,
                 },
@@ -970,7 +971,7 @@ impl Supervisor {
             return;
         }
         // Two ids with the same tail would share a directory: the first keeps it.
-        let owner = std::fs::read_to_string(mux_home.join("chief-id")).unwrap_or_default();
+        let owner = files::read_to_string(mux_home.join("chief-id")).unwrap_or_default();
         if !owner.trim().is_empty() && owner.trim() != chief {
             let brain = self.brains.entry(chief.to_owned()).or_insert_with(Brain::new);
             if !std::mem::replace(&mut brain.lock_noted, true) {
@@ -1017,23 +1018,21 @@ impl Supervisor {
         use std::os::unix::fs::{DirBuilderExt, OpenOptionsExt};
 
         let mux_home = brain_home(&self.config.home, &record.id);
-        std::fs::DirBuilder::new().recursive(true).mode(0o700).create(&mux_home)?;
-        std::fs::write(mux_home.join("chief-id"), &record.id)?;
+        files::create_dir_with(files::DirBuilder::new().recursive(true).mode(0o700), &mux_home)?;
+        files::write(mux_home.join("chief-id"), &record.id)?;
         let token = mux.with_conversations(|store| store.mint_agent_token(&record.id))?;
         let token_file = mux_home.join("agent-token");
-        let _ = std::fs::remove_file(&token_file);
-        let mut file = std::fs::OpenOptions::new()
-            .write(true)
-            .create_new(true)
-            .mode(0o600)
-            .open(&token_file)?;
+        let _ = files::remove_file(&token_file);
+        let mut file = files::open_with(
+            files::File::options().write(true).create_new(true).mode(0o600),
+            &token_file,
+        )?;
         file.write_all(token.as_bytes())?;
         drop(file);
-        let log = std::fs::OpenOptions::new()
-            .create(true)
-            .append(true)
-            .mode(0o600)
-            .open(mux_home.join("host.log"))?;
+        let log = files::open_with(
+            files::File::options().create(true).append(true).mode(0o600),
+            mux_home.join("host.log"),
+        )?;
         let inherited = |key: &str| std::env::var(key).ok().filter(|v| !v.is_empty());
         let mut command = cmux_process::Command::new(&self.config.executable);
         command
@@ -1139,7 +1138,7 @@ impl Supervisor {
         }
         let deadline = Instant::now() + SHUTDOWN_GRACE;
         while self.brains.values().any(|b| b.process.is_some()) {
-            match inbox.recv_timeout(deadline.saturating_duration_since(Instant::now())) {
+            match waits::recv_timeout(inbox, deadline.saturating_duration_since(Instant::now())) {
                 Ok(Signal::Exited { chief, pid, .. }) => {
                     if let Some(brain) = self.brains.get_mut(&chief)
                         && brain.process.as_ref().map(|p| p.pid) == Some(pid)

@@ -130,7 +130,8 @@ pub(super) fn handle_connection_frame_at(
                 crate::debug_spans::install(Some(trace));
                 true
             });
-        let keep_open = origin_gate::handle_resource_line(mux, client, message, request, writer);
+        let keep_open =
+            origin_gate::handle_resource_line(mux, client, message, request, writer, &mut span);
         if traced {
             crate::debug_spans::mark("reply.sent");
             crate::debug_spans::finish(crate::debug_spans::take());
@@ -284,6 +285,10 @@ pub(super) fn handle_request_with_cancellation(
     }
     if sized_browser_attach(mux, &cmd) {
         return start_sized_browser_attach(mux, client, id, cmd, span.start_async(), writer);
+    }
+    // A remote client goes on to the relay gate, which refuses it.
+    if matches!(cmd, Command::MachineListeningTcp) && !mux.is_remote_client(client) {
+        return cmd_server::start_machine_listening_tcp(mux, id, span.start_async(), writer);
     }
     if cloud_conversations::is_network(&cmd) {
         return cloud_conversations::start(mux, client, id, cmd, span.start_async(), writer);

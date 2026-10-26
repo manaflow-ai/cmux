@@ -4,6 +4,7 @@
 //! no automatic redirects (a redirect could leave the granted host), bounded
 //! bodies and time.
 
+use cmux_threads::blocking::{BlockingKind, scoped_blocking_call};
 use std::collections::BTreeSet;
 use std::time::Duration;
 
@@ -136,42 +137,48 @@ impl Fetcher for HttpFetcher {
             .enable_all()
             .build()
             .map_err(|e| failed(&e))?;
-        runtime.block_on(async move {
-            let client = reqwest::Client::builder()
-                .redirect(reqwest::redirect::Policy::none())
-                .timeout(TIMEOUT)
-                .build()
-                .map_err(|e| failed(&e))?;
-            let method =
-                reqwest::Method::from_bytes(request.method.as_bytes()).map_err(|e| failed(&e))?;
-            let mut builder = client.request(method, &request.url);
-            for (name, value) in &request.headers {
-                builder = builder.header(name, value);
-            }
-            if let Some(body) = request.body {
-                builder = builder.body(body);
-            }
-            let mut response = builder.send().await.map_err(|e| failed(&e))?;
-            let status = response.status().as_u16();
-            let headers = response
-                .headers()
-                .iter()
-                .filter(|(name, _)| name.as_str() != "set-cookie")
-                .filter_map(|(name, value)| {
-                    value.to_str().ok().map(|v| (name.to_string(), v.to_string()))
-                })
-                .collect();
-            let mut body = Vec::new();
-            while let Some(chunk) = response.chunk().await.map_err(|e| failed(&e))? {
-                if body.len() + chunk.len() > MAX_RESPONSE_BODY {
-                    return Err(EgressError {
-                        code: "app.limit",
-                        message: "response body is larger than 4 MiB".into(),
-                    });
+        scoped_blocking_call(BlockingKind::BlockOn, || {
+            runtime.block_on(async move {
+                let client = reqwest::Client::builder()
+                    .redirect(reqwest::redirect::Policy::none())
+                    .timeout(TIMEOUT)
+                    .build()
+                    .map_err(|e| failed(&e))?;
+                let method = reqwest::Method::from_bytes(request.method.as_bytes())
+                    .map_err(|e| failed(&e))?;
+                let mut builder = client.request(method, &request.url);
+                for (name, value) in &request.headers {
+                    builder = builder.header(name, value);
                 }
-                body.extend_from_slice(&chunk);
-            }
-            Ok(FetchResponse { status, headers, body: String::from_utf8_lossy(&body).into_owned() })
+                if let Some(body) = request.body {
+                    builder = builder.body(body);
+                }
+                let mut response = builder.send().await.map_err(|e| failed(&e))?;
+                let status = response.status().as_u16();
+                let headers = response
+                    .headers()
+                    .iter()
+                    .filter(|(name, _)| name.as_str() != "set-cookie")
+                    .filter_map(|(name, value)| {
+                        value.to_str().ok().map(|v| (name.to_string(), v.to_string()))
+                    })
+                    .collect();
+                let mut body = Vec::new();
+                while let Some(chunk) = response.chunk().await.map_err(|e| failed(&e))? {
+                    if body.len() + chunk.len() > MAX_RESPONSE_BODY {
+                        return Err(EgressError {
+                            code: "app.limit",
+                            message: "response body is larger than 4 MiB".into(),
+                        });
+                    }
+                    body.extend_from_slice(&chunk);
+                }
+                Ok(FetchResponse {
+                    status,
+                    headers,
+                    body: String::from_utf8_lossy(&body).into_owned(),
+                })
+            })
         })
     }
 }

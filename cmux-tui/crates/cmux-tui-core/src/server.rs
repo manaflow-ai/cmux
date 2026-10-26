@@ -2954,5 +2954,9 @@ mod personal_terminal_tests;
 #[path = "server/browser_profile_tests.rs"]
 mod browser_profile_tests;
 
+#[cfg(all(test, unix))]
+#[path = "server/request_path_work_tests.rs"]
+mod request_path_work_tests;
+
 #[cfg(test)]
 mod tests;
