@@ -194,7 +194,10 @@ await requireBrowserLane("running-strip.test.ts", async () => {
         const box = tray.getBoundingClientRect();
         const rect = more.getBoundingClientRect();
         const hit = document.elementFromPoint(rect.left + rect.width / 2, rect.top + rect.height / 2);
-        return { inside: rect.top >= box.top - 0.5 && rect.bottom <= box.bottom + 0.5, drawn: !!hit && more.contains(hit) };
+        return {
+          inside: rect.top >= box.top - 0.5 && rect.bottom <= box.bottom + 0.5,
+          drawn: !!hit && more.contains(hit),
+        };
       });
       expect(seen).toEqual({ inside: true, drawn: true });
       await page.keyboard.press("Enter");
