@@ -55,6 +55,9 @@ export const PermissionCardFrame = React.forwardRef<HTMLFieldSetElement, Permiss
 /** A button's shortcut as a light hint after its label: the modifiers fainter than the key, so the
  * eye finds 1, 2, 3 as in Claude Code's and Codex's numbered prompts. Decoration only: the button
  * carries the key in `aria-keyshortcuts`. */
+/// How many asks' answers a card remembers: far more than a card shows before the snapshot moves on.
+const KEPT_ANSWERS = 32;
+
 function KeyHint({ shortcut }: { shortcut: string }) {
   const key = Array.from(shortcut).at(-1) ?? "";
   const modifiers = shortcut.slice(0, shortcut.length - key.length);
@@ -201,15 +204,13 @@ export function PermissionCard({
   // click can both land before the snapshot clears the ask, and the card can show an ask again
   // (another before it, then it) while its answer is still out, so each ask is answered once. A
   // refusal from acpmux (the promise `onAnswer` returns rejects) frees it again: that answer was
-  // never heard. Asks the card no longer shows are dropped once their answer settles.
-  const answers = useRef(new Map<string, { attempt: number; taken?: boolean }>());
+  // never heard. A taken answer is kept: the card can show that ask again before the snapshot
+  // drops it. Only the newest asks are kept, so a long chat's card stays small.
+  const answers = useRef(new Map<string, number>());
   const attempts = useRef(0);
   /// The ask shown now, read when an answer settles: only its own outcome changes what the card shows.
   const shown = useRef(permission.permissionId);
-  useLayoutEffect(() => {
-    shown.current = permission.permissionId;
-    for (const [id, answer] of answers.current) if (answer.taken && id !== shown.current) answers.current.delete(id);
-  }, [permission.permissionId]);
+  shown.current = permission.permissionId;
   /// The ask whose last answer acpmux refused: the card says so until the next answer.
   const [refused, setRefused] = useState<string>();
   type Sent = { permissionId: string; attempt: number };
@@ -218,19 +219,16 @@ export function PermissionCard({
     const permissionId = permission.permissionId;
     if (answers.current.has(permissionId)) return undefined;
     const attempt = ++attempts.current;
-    answers.current.set(permissionId, { attempt });
+    answers.current.set(permissionId, attempt);
+    for (const id of answers.current.keys()) {
+      if (answers.current.size <= KEPT_ANSWERS) break;
+      answers.current.delete(id);
+    }
     setRefused(undefined);
     return { permissionId, attempt };
   };
   /// Whether `sent` is still its ask's answer: no newer attempt for that ask has replaced it.
-  const owns = (sent: Sent) => answers.current.get(sent.permissionId)?.attempt === sent.attempt;
-  /// acpmux took the answer: an ask the card has moved past is forgotten, the shown one stays answered.
-  const taken = (sent: Sent) => {
-    if (!owns(sent)) return;
-    if (shown.current === sent.permissionId)
-      answers.current.set(sent.permissionId, { attempt: sent.attempt, taken: true });
-    else answers.current.delete(sent.permissionId);
-  };
+  const owns = (sent: Sent) => answers.current.get(sent.permissionId) === sent.attempt;
   /// The ask's answer was refused: its keys and buttons answer it again, and the card says so.
   const refuse = (sent: Sent) => {
     if (!owns(sent)) return;
@@ -250,15 +248,13 @@ export function PermissionCard({
     }
     focusComposer?.();
     // A refusal is never silent, and never leaves the ask unanswerable while it still waits.
-    Promise.resolve(reply).then(
-      () => taken(sent),
-      () => refuse(sent),
-    );
+    Promise.resolve(reply).then(undefined, () => refuse(sent));
   };
   const answerByKey = answer;
   /// Deny: the field for what to do instead when the pane can send it, else the deny itself.
   const deny = (byKey = false) => {
-    if (!denyOption) return;
+    // An answer already out or taken for the ask (a deny with feedback sending) is not given again.
+    if (!denyOption || answers.current.has(permission.permissionId)) return;
     if (feedback) openFeedback();
     else if (byKey) answerByKey(denyOption);
     else answer(denyOption);
@@ -333,7 +329,6 @@ export function PermissionCard({
     const mine = owns(sent);
     const onCard = shown.current === permissionId;
     if (denied) {
-      taken(sent);
       if (mine) setDraft((draft) => (draft?.permissionId === permissionId ? undefined : draft));
       // The keyboard goes back to the composer, as a plain deny's does.
       if (mine && onCard) focusComposer?.();
