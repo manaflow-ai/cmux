@@ -8,7 +8,7 @@ import os
 /// the feed bridge's own mapping). Then `_acpmux/permission_respond`, as the chat's own Allow
 /// and Deny send it.
 @MainActor
-public final class AcpmuxApprovalAnswerer: AgentApprovalAnswering {
+public final class AcpmuxApprovalAnswerer: AgentApprovalAnswering, AgentAskAnswering {
     private let environment: AcpmuxEnvironment
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "notifications.approval")
 
@@ -26,6 +26,20 @@ public final class AcpmuxApprovalAnswerer: AgentApprovalAnswering {
         else { return nil }
         return AgentApproval(session: session, permission: permission, digest: AcpmuxPermissionPrompt.digest(request),
                              summary: AcpmuxPermissionPrompt.summary(request))
+    }
+
+    /// The home inbox's read of one ask (``AgentPaneAskAnswer``): that prompt among the chat's
+    /// pending ones, whatever else is pending, while it is a tool permission.
+    public func pendingAsk(session: String, permission: String) async -> AgentPendingAsk? {
+        guard let line = await AcpmuxPersonLine.open(environment) else { return nil }
+        defer { line.close() }
+        guard let entry = await line.pending(of: session).first(where: { $0["permissionId"] as? String == permission }),
+              let request = entry["request"] as? [String: Any], AcpmuxPermissionPrompt.isToolPermission(request) else { return nil }
+        let offered = request["options"] as? [[String: Any]] ?? []
+        let approval = AgentApproval(session: session, permission: permission, digest: AcpmuxPermissionPrompt.digest(request),
+                                     summary: AcpmuxPermissionPrompt.summary(request))
+        return AgentPendingAsk(approval: approval, allowOnce: AcpmuxPermissionPrompt.option(allow: true, offered: offered),
+                               denyOnce: AcpmuxPermissionPrompt.option(allow: false, offered: offered))
     }
 
     public func answer(_ approval: AgentApproval, allow: Bool) async -> Bool {
