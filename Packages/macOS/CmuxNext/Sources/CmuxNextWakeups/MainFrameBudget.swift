@@ -60,7 +60,8 @@ public final class MainFrameBudget {
     /// (``MainTurnMeter``). The composition root makes it observe the main run loop.
     public let turns: MainTurnMeter
     private let input: any InputPendingSource
-    private let uptimeNanos: () -> UInt64
+    /// The budget's clock; ``ObservationCauses`` times the input-response pass's cap on it.
+    let uptimeNanos: () -> UInt64
     private let signposts: Bool
     /// The rendering starvation guard (nil: never starved).
     public let starvation: RenderStarvationGuard?
