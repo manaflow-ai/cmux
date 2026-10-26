@@ -211,7 +211,9 @@ public final class ChromiumWarmup {
     private func preloadThenInitialize(_ reason: Reason) {
         guard !stopped else { return }
         engine.preload()
-        engine.whenLibraryLoaded { [weak self] in
+        // task-owner: one warm start per process; CEFEngine owns its lifetime
+        Task { [weak self] in
+            await self?.engine.libraryLoadEnded()
             guard let self, !stopped else { return }
             request("ChromiumWarmup.cefInitialize") { [weak self] in self?.initialize(reason) }
         }

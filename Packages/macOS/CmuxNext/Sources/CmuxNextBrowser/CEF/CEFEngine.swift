@@ -31,6 +31,7 @@ public final class CEFEngine: BrowserEngine {
     /// Where the pages' keyed waits (``BrowserPageWaiting``) put their timeouts: the main thread's one
     /// deadline queue, shared with the WebKit engine as the stores are.
     public let waitDeadlines: MainWakeUpQueue
+    let loadedStart = CEFLoadedStart(runtime: .shared)  // the warm start's load, then CefInitialize on a picked turn
 
     /// The runtime to start, nil while none is available.
     var layout: CEFRuntimeLayout? { runtimeSource.layout }
@@ -223,24 +224,6 @@ public final class CEFEngine: BrowserEngine {
         set { CEFRuntime.shared.spareWindow.onNeeded = newValue }
     }
 
-    /// Returns once the framework load that `preload` started ended (at once
-    /// when none runs), or in host mode once the host attached. After it,
-    /// `initializeLoaded` can start CEF with no await.
-    public func libraryLoadEnded() async {
-        await CEFRuntime.shared.libraryLoadEnded()
-    }
-
-    /// Runs `CefInitialize` (about 80-160 ms on the main thread) on this turn,
-    /// once `libraryLoadEnded` returned: a caller that picked an idle moment
-    /// (ChromiumWarmup's step) pays it there, not on a later turn. True when
-    /// Chromium runs; false when no load has ended yet, or CEF failed or shut down.
-    @discardableResult
-    public func initializeLoaded(reason: String) -> Bool {
-        guard layout != nil else { return false }
-        adoptStores()
-        return CEFRuntime.shared.startLoaded(trigger: reason)
-    }
-
     /// Records `name` once in the start marks (the first Chromium page's
     /// creation points, `debug.cef` `start_steps`); true, for a `guard`.
     public func notePoint(_ name: String) -> Bool {
@@ -418,7 +401,7 @@ public final class CEFEngine: BrowserEngine {
     /// Hands the stores, sign-in tabs, wait deadlines and host supervisor (``CEFRuntimeSource/backend``) to the
     /// process's runtime before it starts or makes a tab (not in `init`: the runtime is built on
     /// Chromium's first use, not at launch).
-    private func adoptStores() {
+    func adoptStores() {
         let runtime = CEFRuntime.shared
         runtime.adopt(stores: stores, signInCallbacks: signInCallbacks, waitDeadlines: waitDeadlines,
                       hostSupervisor: runtimeSource.hostSupervisor)

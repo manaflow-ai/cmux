@@ -38,6 +38,12 @@ import Testing
                               now: { clock.now }, isTrackingMenu: trackingMenu)
     }
 
+    /// Lets the warmup's wait for the load run to its request: the wait is a main-actor task queued
+    /// before this yield, and the fake's load does not suspend (or was resumed before the yield).
+    func loadWaitRuns() async {
+        await Task.yield()
+    }
+
     @Test func anUnavailableEngineNeverWarms() {
         let warmup = warmup()
         warmup.start(defaultIsChromium: { true })
@@ -51,7 +57,7 @@ import Testing
 
     /// A hidden need (a restored Chromium tab, launch with Chromium as the default engine) neither maps
     /// nor starts Chromium during launch, and arms no ChromiumWarmup timer: both wait for startup_complete.
-    @Test func aHiddenNeedWaitsForStartupComplete() {
+    @Test func aHiddenNeedWaitsForStartupComplete() async {
         let engine = FakeWarmupEngine(running: false)
         let warmup = warmup(engine: engine)
         warmup.chromiumLikely(.restoredTab)
@@ -63,6 +69,7 @@ import Testing
         launch.complete()
         launch.fire()
         #expect(engine.preloads == 1, "mapped after startup")
+        await loadWaitRuns()
         launch.fire()
         #expect(engine.initialized == ["restoredTab"], "CefInitialize at the next idle frame")
         #expect(!warmup.idleTimerArmed, "no input, no timer")
@@ -71,11 +78,12 @@ import Testing
 
     /// A person's signal (the palette, the "+" menu, the default switch) maps the framework at once, so
     /// a tab picked right after skips the cold load; CefInitialize still waits for startup_complete.
-    @Test func aPersonSignalMapsAtOnceAndInitializesAfterStartup() {
+    @Test func aPersonSignalMapsAtOnceAndInitializesAfterStartup() async {
         let engine = FakeWarmupEngine(running: false)
         let warmup = warmup(engine: engine)
         warmup.chromiumLikely(.palette)
         #expect(engine.preloads == 1, "mapped on the signal's turn")
+        await loadWaitRuns()
         launch.startup.firstFrameCommitted()
         for _ in 0..<4 { launch.fire() }
         #expect(engine.initialized.isEmpty, "held until startup completes")
@@ -86,12 +94,13 @@ import Testing
 
     /// CefInitialize runs inside its scheduled post, so a pending key holds it, and the spare window
     /// follows at the next idle frame.
-    @Test func cefInitializeRunsInsideItsPostNeverWithInputPending() {
+    @Test func cefInitializeRunsInsideItsPostNeverWithInputPending() async {
         launch.complete()
         let engine = FakeWarmupEngine(running: false)
         engine.inputPending = { [pending] in pending.pending }
         let warmup = warmup(engine: engine)
         warmup.chromiumLikely(.newTabMenu)
+        await loadWaitRuns()
         pending.pending = true
         launch.fire()
         #expect(engine.initialized.isEmpty, "a pending key goes first")
@@ -106,15 +115,18 @@ import Testing
     }
 
     /// The load ended late: CefInitialize waits for it, then for its post.
-    @Test func cefInitializeWaitsForTheLoad() {
+    @Test func cefInitializeWaitsForTheLoad() async {
         launch.complete()
         let engine = FakeWarmupEngine(running: false)
         engine.loaded = false
         let warmup = warmup(engine: engine)
         warmup.chromiumLikely(.defaultEngine)
+        await loadWaitRuns()
         launch.fire()
         #expect(engine.initialized.isEmpty)
+        #expect(launch.startup.log.records.isEmpty, "nothing posted before the load ends")
         engine.finishLoad()
+        await loadWaitRuns()
         launch.fire()
         #expect(engine.initialized == ["defaultEngine"])
     }
@@ -372,7 +384,7 @@ final class WarmupPendingInput: InputPendingSource {
 @MainActor private final class FakeWarmupEngine: ChromiumWarmupEngine {
     var availability: BrowserEngineAvailability = .available
     var isRunning: Bool
-    /// Whether the framework load already ended (`whenLibraryLoaded` calls back at once).
+    /// Whether the framework load already ended (`libraryLoadEnded` returns at once).
     var loaded = true
     /// Read when `initializeLoaded` runs.
     var inputPending: @MainActor () -> Bool = { false }
@@ -384,7 +396,7 @@ final class WarmupPendingInput: InputPendingSource {
     /// The `pages` argument of each `prepareSpareWindow` call.
     private(set) var prepared: [Bool] = []
     private(set) var droppedPages = 0
-    private var loadWaiters: [@MainActor () -> Void] = []
+    private var loadWaiters: [CheckedContinuation<Void, Never>] = []
     var onSpareWindowNeeded: (@MainActor () -> Void)?
 
     init(running: Bool = true) { isRunning = running }
@@ -392,17 +404,17 @@ final class WarmupPendingInput: InputPendingSource {
     func usedRecently(within window: TimeInterval) async -> Bool { false }
     func preload() { preloads += 1 }
 
-    func whenLibraryLoaded(_ body: @escaping @MainActor () -> Void) {
-        guard loaded else { return loadWaiters.append(body) }
-        body()
+    func libraryLoadEnded() async {
+        guard !loaded else { return }
+        await withCheckedContinuation { loadWaiters.append($0) }
     }
 
-    /// The load ended: the waiters run.
+    /// The load ended: the waiters resume.
     func finishLoad() {
         loaded = true
         let waiters = loadWaiters
         loadWaiters = []
-        for waiter in waiters { waiter() }
+        for waiter in waiters { waiter.resume() }
     }
 
     func initializeLoaded(reason: String) -> Bool {

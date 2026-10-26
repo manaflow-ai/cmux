@@ -461,10 +461,8 @@ final class AppServices {
     let traceBlackBox: TraceBlackBoxFileSteps?
     /// The last quit's agent pages and chat composers, read off the main thread since the launch began.
     let launchImages: AgentPaneLaunchImages, relaunchWake: AgentPaneRelaunchWake
-    /// The agent panes' launch images as one startup ref (made at the root with the launch's scheduler).
-    let launchImageHold: LaunchImageHold
-    /// The launch's scheduler (`LaunchOrder.startup`): ChromiumWarmup posts its deferred steps on it.
-    let startup: StartupScheduler
+    /// The agent panes' launch images as one startup ref, and the launch's scheduler ChromiumWarmup posts on (root-made).
+    let launchImageHold: LaunchImageHold, startup: StartupScheduler
     /// The burst bench's record of refusals, designed no-op Cmd-W presses and terminal grids (`debug.burst`).
     let burstTrace = BurstTrace()
     /// The inline VS Code server (`serve-web`) behind VS Code (Inline); starts on first use.
@@ -490,7 +488,6 @@ final class AppServices {
     ///   (`TraceRuntime.shared`) by default, a test's fake, or nil to watch nothing.
     /// - Parameter energyMonitor: The app's power inputs: the system's by default (nothing reads IOKit
     ///   until `startEnergy`, which only `AppDelegate` calls), or a test's over fixed inputs.
-    /// - Parameter startup: The launch's scheduler (`AppDelegate` passes `LaunchOrder.startup`); tests get one of their own.
     init(environment: AppEnvironment, launchReveal: LaunchReveal = LaunchReveal(), agentPaneEnvironment: [String: String]? = nil,
          work: BackgroundWork? = nil, mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget()),
          launchImages: AgentPaneLaunchImages = AgentPaneLaunchImages(directory: nil), relaunchWake: AgentPaneRelaunchWake = AgentPaneRelaunchWake(file: nil),
@@ -498,9 +495,7 @@ final class AppServices {
          energyMonitor: EnergyMonitor = EnergyMonitor(), inputTap: InputEventTap = InputEventTap(),
          launchImageHold: LaunchImageHold = LaunchImageHold(), startup: StartupScheduler? = nil) {
         let work = work ?? BackgroundWork(hangs: hangWatch)
-        self.work = work
-        // A test's services get a scheduler of their own on their own ledger.
-        self.startup = startup ?? StartupScheduler(mainWork: mainWork, background: work, clock: ContinuousClock(), ledger: WakeupLedger())
+        (self.work, self.startup) = (work, startup ?? StartupScheduler(mainWork: mainWork, background: work, clock: ContinuousClock(), ledger: WakeupLedger()))
         self.energyMonitor = energyMonitor
         // First: the black-box ring is attached to TraceRuntime.shared, so every trace point records from here
         // on; the ring file opens on `.files`, never on main.

@@ -12,9 +12,10 @@ public protocol ChromiumWarmupEngine: AnyObject {
     func usedRecently(within window: TimeInterval) async -> Bool
     /// Maps the framework on a background thread; no Chromium code runs.
     func preload()
-    /// Calls `body` on the main thread once the framework load that `preload` started ended.
-    func whenLibraryLoaded(_ body: @escaping @MainActor () -> Void)
+    /// Returns once the framework load that `preload` started ended (in host mode, the host attached).
+    func libraryLoadEnded() async
     /// Runs `CefInitialize` for `reason` on this turn, once the load ended; true when Chromium runs.
+    @discardableResult
     func initializeLoaded(reason: String) -> Bool
     /// Builds the next missing spare window, the pages profile's too with `pages`; `pages` false
     /// closes an untaken pages spare. True when one started.
@@ -26,12 +27,4 @@ public protocol ChromiumWarmupEngine: AnyObject {
     var onSpareWindowNeeded: (@MainActor () -> Void)? { get set }
 }
 
-extension CEFEngine: ChromiumWarmupEngine {
-    public func whenLibraryLoaded(_ body: @escaping @MainActor () -> Void) {
-        // task-owner: one wait per warm start; CEFRuntime owns the load it awaits
-        Task {
-            await libraryLoadEnded()
-            body()
-        }
-    }
-}
+extension CEFEngine: ChromiumWarmupEngine {}

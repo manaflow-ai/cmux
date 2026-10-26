@@ -143,9 +143,6 @@ final class CEFRuntime {
     private(set) var preloaded = false
     /// The preload finished mapping the framework (CEF not started yet).
     private(set) var libraryLoaded = false
-    /// The ended framework load or host attach, kept by ``libraryLoadEnded()`` so
-    /// ``startLoaded(environment:trigger:)`` runs `CefInitialize` on its caller's turn with no await.
-    private var loadedBoot: Result<CEFRuntimeBoot, BootError>?
     private(set) var trigger: String?
     private(set) var loadDuration: Duration?
     private(set) var initializeDuration: Duration?
@@ -275,34 +272,6 @@ final class CEFRuntime {
         }
     }
 
-    /// Returns once the framework load ended (at once when none runs), or in host mode once the host
-    /// attached (the one shared attach, ``CEFHostStart/attached()``), and keeps the result for
-    /// ``startLoaded(environment:trigger:)``.
-    func libraryLoadEnded() async {
-        if let hostStart {
-            loadedBoot = await hostStart.attached().map(CEFRuntimeBoot.host)
-        } else if let loadTask {
-            loadedBoot = await loadTask.value.map(CEFRuntimeBoot.inProcess)
-        }
-    }
-
-    /// The main-thread part of ``start(layout:environment:trigger:)``, on this turn: once
-    /// ``libraryLoadEnded()`` returned, `CefInitialize` runs here, so a caller that picked an idle moment
-    /// gets it in that moment and not on a later, unscheduled turn. Idempotent.
-    ///
-    /// - Returns: True when CEF runs; false when no load has ended yet, or CEF failed or shut down.
-    @discardableResult
-    func startLoaded(environment: [String: String] = ProcessInfo.processInfo.environment, trigger: String) -> Bool {
-        if state == .ready { return true }
-        guard startError() == nil, let loadedBoot else { return false }
-        do {
-            try finishStart(loadedBoot, environment: environment, trigger: trigger)
-        } catch {
-            return false
-        }
-        return true
-    }
-
     /// Synchronous start for the debug window (loads on the main thread).
     func startBlocking(
         layout candidate: CEFRuntimeLayout? = CEFRuntimeLayout.locate(),
@@ -315,7 +284,7 @@ final class CEFRuntime {
         try finishStart(loadInProcess(candidate).map(CEFRuntimeBoot.inProcess), environment: environment, trigger: "debugWindow")
     }
 
-    private func startError() -> BrowserEngineError? {
+    func startError() -> BrowserEngineError? {
         switch state {
         case .failed(let reason): .engineUnavailable(.cef, reason: reason)
         case .shutDown: .engineUnavailable(.cef, reason: Strings.cefUnavailable)
@@ -323,7 +292,7 @@ final class CEFRuntime {
         }
     }
 
-    private func finishStart(
+    func finishStart(
         _ loaded: Result<CEFRuntimeBoot, BootError>,
         environment: [String: String],
         trigger: String
