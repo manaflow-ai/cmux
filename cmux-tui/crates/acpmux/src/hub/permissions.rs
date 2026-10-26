@@ -3,6 +3,10 @@
 use super::person::ANSWERED_BY_SLOT;
 use super::*;
 
+// A losing answer is told the first one (`respond_permission`).
+#[path = "permission_settled.rs"]
+pub(super) mod settled;
+
 impl Hub {
     // ------------------------------------------------------------- inbound
 
@@ -15,16 +19,12 @@ impl Hub {
             match item {
                 Inbound::Notification { method: m, params, agent } => {
                     if m == method::SESSION_UPDATE {
-                        // A /context breakdown from an agent that was replaced (a failover's
-                        // dying primary answering late) is not the chat's context now. The
+                        // A /context breakdown or usage limits from an agent that was replaced
+                        // (a failover's dying primary answering late) are not the chat's now. The
                         // child lock is held while it is applied: a failover takes it to retire
                         // the old agent, and again to detach it, before it clears the
                         // breakdown, so the check and the write cannot straddle the failover.
-                        let breakdown = params
-                            .as_ref()
-                            .and_then(|p| p.pointer("/update/_meta/acpmux/contextBreakdown"))
-                            .is_some();
-                        if breakdown {
+                        if params.as_ref().is_some_and(crate::agent::process_state) {
                             let child = session.child.lock().await;
                             if child
                                 .as_ref()
@@ -185,6 +185,13 @@ impl Hub {
                 if let Some(breakdown) = update.pointer("/_meta/acpmux/contextBreakdown") {
                     m.context_breakdown = Some(breakdown.clone());
                     breakdown_changed = true;
+                }
+                // The account's plan usage limits, merged by window (`claude_stdio`).
+                if let Some(limits) = update.pointer("/_meta/acpmux/usageLimits") {
+                    let merged =
+                        crate::claude_stdio::merge_usage_limits(m.usage_limits.as_ref(), limits);
+                    breakdown_changed |= m.usage_limits.as_ref() != Some(&merged);
+                    m.usage_limits = Some(merged);
                 }
                 // Claude Code's system/init: its MCP servers, plugins and skills.
                 reported_tools = update
@@ -534,9 +541,10 @@ impl Hub {
             };
             let denied = policy == PermissionPolicy::DenyAll
                 || rule == Some(super::rules::RuleDecision::Deny);
-            // The chat allowance never answers in a Web turn.
+            // The chat allowance never answers in a Web turn, nor what an `ask` rule sends to the person.
             let chat_option = if state.chat_allowed
                 && !denied
+                && rule != Some(super::rules::RuleDecision::Ask)
                 && session.turn().is_some_and(|t| t.control != Control::Web)
                 && super::permission_groups::eligible(&request)
             {
@@ -652,8 +660,9 @@ impl Hub {
         if let Some(by) = answered_by {
             decision["answeredBy"] = by;
         }
-        self.append(session, "mux", "permission_decision", decision);
-        let state = session.permissions.lock().unwrap();
+        self.append(session, "mux", "permission_decision", decision.clone());
+        let mut state = session.permissions.lock().unwrap();
+        state.settled.remember(permission_id, decision.get("answeredBy"), &decision["outcome"]);
         if state.pending.is_empty()
             && session.status() == SessionStatus::Waiting
             && !self.secrets.waiting_in(&session.id)
@@ -675,15 +684,57 @@ impl Hub {
         answerer: super::person::Answerer<'_>,
         control: Control,
     ) -> Result<(), RpcError> {
+        self.respond_permission_annotated(
+            session,
+            permission_id,
+            option_id,
+            answers,
+            None,
+            answered_by,
+            answerer,
+            control,
+        )
+        .await
+    }
+
+    /// `respond_permission` with a question's `annotations` (the chosen
+    /// preview and notes, `questions::check_annotations`): only the person's
+    /// own answer carries them, never a phone's signed one (its signature
+    /// covers the answers alone) or a session's.
+    pub async fn respond_permission_annotated(
+        &self,
+        session: &Session,
+        permission_id: &str,
+        option_id: Option<String>,
+        answers: Option<Value>,
+        annotations: Option<Value>,
+        answered_by: Option<Value>,
+        answerer: super::person::Answerer<'_>,
+        control: Control,
+    ) -> Result<(), RpcError> {
         // Checked again here, at the answer, not only in the remote guard.
         self.web_control_check(session, control)?;
         let cfg = self.config.read().await;
-        let pending = {
-            let mut state = session.permissions.lock().unwrap();
+        let (pending, answered_by, annotations) = {
+            let mut guard = session.permissions.lock().unwrap();
+            let state = &mut *guard;
             let map = &mut state.pending;
+            // Answered already: the first answer won, and this one is told who gave it and how.
             let p = map.get(permission_id).ok_or_else(|| {
-                RpcError::not_found(format!("no pending permission {permission_id}"))
+                let lost = RpcError::not_found(format!("no pending permission {permission_id}"));
+                match state.settled.lost(permission_id) {
+                    Some(data) => lost.with_data(data),
+                    None => lost,
+                }
             })?;
+            // A question's annotations, after the lookup so a losing answer still learns who
+            // won: only the person's own answer, and only beside its answers.
+            if annotations.is_some() && !answerer.person {
+                return Err(super::person::person_required("annotations"));
+            }
+            if annotations.is_some() && answers.is_none() {
+                return Err(RpcError::invalid_params("annotations go only with answers"));
+            }
             // Legacy clients may answer items in a group, but cannot bypass
             // a policy edit or choose an absent/ambiguous option.
             if let Some(o) = &option_id {
@@ -732,6 +783,10 @@ impl Hub {
                 }
             }
             super::questions::check_reply(&p.request, option_id.as_deref(), answers.as_ref())?;
+            let annotations = match annotations {
+                Some(a) => super::questions::check_annotations(&p.request, &a)?,
+                None => None,
+            };
             // The authoritative person rule (`person.rs`), here under the
             // prompt's lock, whatever the request check saw: a client that
             // is not the person may cancel or reject; an allow, or who
@@ -805,11 +860,20 @@ impl Hub {
                 }
             }
             let p = map.remove(permission_id).unwrap();
+            // A person's answer names them beside any device (`author.rs`), after the person
+            // rule above, which it never satisfies.
+            let answered_by = crate::author::answered_by(answered_by, answerer.author);
+            let decided = match &option_id {
+                Some(o) => json!({"outcome": "selected", "optionId": o}),
+                None => json!({"outcome": "cancelled"}),
+            };
+            // Told to a later answer at once, before the asking task logs the decision.
+            state.settled.remember(permission_id, answered_by.as_ref(), &decided);
             if let Some(group) = state.finish_item(&session.id, permission_id, option_id.is_none())
             {
                 self.append(session, "mux", "permission_group", json!({"group":group}));
             }
-            p
+            (p, answered_by, annotations)
         };
         let mut outcome = match option_id {
             Some(o) => json!({"outcome": "selected", "optionId": o}),
@@ -819,6 +883,9 @@ impl Hub {
             let mut input =
                 pending.request.pointer("/toolCall/rawInput").cloned().unwrap_or(json!({}));
             input["answers"] = a;
+            if let Some(notes) = annotations {
+                input["annotations"] = notes;
+            }
             outcome["_meta"] = json!({"updatedInput": input});
         }
         if let Some(by) = answered_by {
@@ -834,6 +901,8 @@ impl Hub {
             session.permission_epoch.fetch_add(1, Ordering::SeqCst);
             let drained: Vec<_> = state.pending.drain().collect();
             for (id, _) in &drained {
+                // Told to a later answer at once (`permission_settled.rs`): no one answered.
+                state.settled.remember(id, None, &json!({"outcome": "cancelled"}));
                 if let Some(group) = state.finish_item(&session.id, id, true) {
                     self.append(session, "mux", "permission_group", json!({"group":group}));
                 }
