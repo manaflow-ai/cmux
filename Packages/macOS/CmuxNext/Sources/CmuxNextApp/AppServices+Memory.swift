@@ -14,6 +14,7 @@ import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextControl
 import CmuxNextDaemon
+import CmuxNextDesign
 import CmuxNextFavicons
 import CmuxNextFeatures
 import CmuxNextFileGrid
@@ -71,6 +72,7 @@ struct AppMemoryConsumers {
         registerBrowserCaches()  // CmuxNextBrowser
         // registerControlCaches(_:)  // CmuxNextControl: AppControl.start calls it when it makes the service
         registerDaemonCaches()  // CmuxNextDaemon
+        registerDesignCaches()  // CmuxNextDesign (p07-memory-053)
         registerConversationDiscards()  // CmuxNextHibernation, CmuxNextHome
         registerHiddenFrames()  // CmuxNextHibernation, CmuxNextTerminal
         registerPageLifecycle()  // CmuxNextPages
@@ -97,6 +99,13 @@ struct AppMemoryConsumers {
     func registerDaemonCaches() {
         guard services.features.isEnabled(.memoryAgentAndControlCaches) else { return }
         DaemonLauncher.registerLoginEnvironmentMemoryConsumer(with: services.memoryCoordinator)
+    }
+
+    /// `memoryBackdropImages` (default off): the windows' decoded backdrop pictures (`backdrops`, the store
+    /// every window shares) are one lossless consumer (p07-memory-053).
+    func registerDesignCaches(backdrops: BackdropImageStore = .shared) {
+        guard services.features.isEnabled(.memoryBackdropImages) else { return }
+        backdrops.registerMemoryConsumer(with: services.memoryCoordinator)
     }
 
     /// The sidebar document store's projection memo: one lossless entry, dropped at critical
@@ -238,7 +247,7 @@ struct AppMemoryConsumers {
         services.webUI.lifecycle = lifecycle
         // Crash budgets per renderer: Chromium groups pages only with `pageProcessGroups` (FirstPartyPageSchemes).
         services.webUI.crashGroups = PageCrashGroups(chromiumSharesByGroup: services.features.isEnabled(.pageProcessGroups)) { page in
-            guard let chromium = page.chromiumPage else { return WebContentProcess.identifier(of: page.webKitView).map { .webKit(pid: $0) } }
+            guard let chromium = page.chromiumPage else { return page.webKitEngine.flatMap { WebContentProcess.identifier(of: $0) }.map { .webKit(pid: $0) } }
             return (chromium as? CEFPageChromiumPage)?.soleRendererClientID.map { .chromium(client: $0) }
         }
         services.cache.pageLifecycle = lifecycle

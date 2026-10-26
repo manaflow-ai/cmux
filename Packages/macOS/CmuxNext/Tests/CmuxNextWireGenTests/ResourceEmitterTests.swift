@@ -156,6 +156,43 @@ private func allSource(_ emitter: ResourceEmitter) throws -> String {
         #expect(source.contains("    public typealias Result = V2Shape\n"))
     }
 
+    /// An optional nullable request field has three states (absent keeps, `null` clears, a value
+    /// sets), so it is a `ResourceFieldUpdate` defaulting to `.unchanged`, not an optional that
+    /// cannot send `null`. A required nullable field and a plain optional one keep their spelling.
+    @Test func emitsAnOptionalNullableRequestFieldAsAFieldUpdate() throws {
+        let operations = #"""
+            {"workspace.update": {"class": "mutation", "idempotency": "required", "errors": ["validation.invalid"],
+               "params": {"selectors": {"machine": "required", "session": "required"}, "extra": false,
+                 "fields": {"title": {"required": false, "type": {"kind": "nullable", "value": {"kind": "primitive", "name": "string"}}},
+                            "path": {"required": true, "type": {"kind": "nullable", "value": {"kind": "primitive", "name": "string"}}},
+                            "focus": {"required": false, "type": {"kind": "primitive", "name": "boolean"}},
+                            "task_status": {"required": false, "type": {"kind": "nullable", "value": {"kind": "enum", "values": ["todo", "done"]}}}}},
+               "result": {"kind": "apply", "name": "MutationResult", "arguments": [{"kind": "ref", "name": "EmptyResult"}]}}}
+            """#
+        let types = #"{"EmptyResult": {"kind": "object", "fields": {}, "extra": false}}"#
+        let source = try allSource(ResourceEmitter(catalog: catalog(types: types, operations: operations),
+                                                   operations: ["workspace.update"]))
+        #expect(source.contains("""
+                public var focus: Bool?
+                public var path: String?
+                public var taskStatus: ResourceFieldUpdate<TaskStatus>
+                public var title: ResourceFieldUpdate<String>
+            """))
+        #expect(source.contains("""
+                    focus: Bool? = nil,
+                    path: String?,
+                    taskStatus: ResourceFieldUpdate<TaskStatus> = .unchanged,
+                    title: ResourceFieldUpdate<String> = .unchanged
+                ) {
+            """))
+        #expect(source.contains("""
+                    try container.encodeIfPresent(self.focus, forKey: .focus)
+                    try container.encode(self.path, forKey: .path)
+                    try self.taskStatus.encode(into: &container, forKey: .taskStatus)
+                    try self.title.encode(into: &container, forKey: .title)
+            """))
+    }
+
     @Test func emitsObjectsGenericsUnionsAndErrors() throws {
         let source = try allSource(Self.shapes())
         #expect(source.contains("public struct V2MutationResult<T: Codable & Sendable & Equatable>: Codable, Sendable, Equatable {"))

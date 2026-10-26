@@ -52,6 +52,8 @@ final class InternalPageTabStore {
     /// New tabs' `create.tab` waits (the content cache's): a page tab's close or rekey here is its close or move there.
     @ObservationIgnored weak var createTabs: CreateTabTimings?
     @ObservationIgnored let discardRecords = ContentDiscardRecords()
+    /// Whether a page tab's first build shows its title until the page's first frame (feature `pageStandIn`).
+    @ObservationIgnored var showsStandIns = false
 
     /// Whether `daemon` keeps a page tab's route (`page-tab-route-v1`).
     func keepsRoutes(_ daemon: DaemonService) -> Bool {
@@ -161,7 +163,9 @@ final class InternalPageTabStore {
             // The window the tab is in now: it may have moved since it opened.
             let content = provider.makeView(for: key, in: self?.windows[key])
             let picture = gone == nil ? nil : self?.discardedPicture(of: tab)
-            return InternalPageView.Parts(content: content, topBar: provider.makeTopBar(for: key)) { [weak provider] view in
+            let standInTitle = self?.showsStandIns == true ? provider.title(for: key) : nil
+            return InternalPageView.Parts(content: content, topBar: provider.makeTopBar(for: key),
+                                          standInTitle: standInTitle) { [weak provider] view in
                 guard let state = gone?.state else { return }
                 view.rebuilt(under: picture) { [weak provider] content in
                     await provider?.restoreViewState(state, for: key, content: content)

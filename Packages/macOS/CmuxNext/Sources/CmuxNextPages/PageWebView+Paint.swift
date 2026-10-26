@@ -1,3 +1,4 @@
+import AppKit
 import CmuxNextSignposts
 import CmuxNextWakeups
 import Foundation
@@ -9,6 +10,41 @@ extension PageWebView {
     /// until then (no-flicker audit).
     public func whenPainted(_ body: @escaping () -> Void) {
         if hasPainted { body() } else { paintWaiters.append(body) }
+    }
+
+    /// Covers the page with its stand-in (``PageStandInLayer``: its theme's background and `title`) in this
+    /// turn, until the document's first frame (``notePainted()`` takes it off in that callback's turn).
+    /// Nothing when the document painted already or a preload cover shows its last frame.
+    public func showStandIn(title: String) {
+        guard !hasPainted, standIn == nil, let host = layer,
+              !subviews.contains(where: { $0 is PagePreloadCoverView }) else { return }
+        let made = PageStandInLayer()
+        // Over the web view and a Chromium page's view, whichever is added later.
+        made.zPosition = 1
+        standIn = made
+        PageStandInLayer.withoutActions {
+            made.frame = bounds
+            host.addSublayer(made)
+        }
+        made.title.string = title
+        repaintStandIn()
+    }
+
+    /// Whether the stand-in covers the page.
+    package var showsStandIn: Bool { standIn != nil }
+
+    /// Takes the stand-in off, in one frame.
+    func removeStandIn() {
+        guard let standIn else { return }
+        self.standIn = nil
+        PageStandInLayer.withoutActions { standIn.removeFromSuperlayer() }
+    }
+
+    /// Paints the stand-in in the page's current theme, zoom and backing scale.
+    func repaintStandIn() {
+        guard let standIn else { return }
+        // Out of a window it has no scale yet; moving into one repaints it (`viewDidMoveToWindow`).
+        standIn.paint(currentTheme(), title: standIn.title.string, zoom: pageZoom, scale: window?.backingScaleFactor ?? 2)
     }
 
     /// This page's id on the `webui.*` trace tracks (``SignpostName/webuiOpen``): its address while it lives.

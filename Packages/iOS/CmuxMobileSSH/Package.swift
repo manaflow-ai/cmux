@@ -17,7 +17,7 @@ let package = Package(
     dependencies: [
         .package(path: "../CmuxMobileTunnel"),
         .package(url: "https://github.com/apple/swift-nio-ssh.git", from: "0.9.1"),
-        .package(url: "https://github.com/apple/swift-nio.git", from: "2.81.0"),
+        .package(url: "https://github.com/apple/swift-nio.git", from: "2.89.0"),
         .package(url: "https://github.com/apple/swift-nio-transport-services.git", from: "1.23.0"),
         .package(url: "https://github.com/apple/swift-crypto.git", "3.12.0"..<"5.0.0"),
     ],
