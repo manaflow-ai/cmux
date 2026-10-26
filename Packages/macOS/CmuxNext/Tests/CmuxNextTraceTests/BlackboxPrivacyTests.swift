@@ -33,7 +33,7 @@ struct BlackboxPrivacyTests {
 
     /// 100 planted key records among 200 action and hang records, all inside one upload window.
     private static func planted() -> [Record] {
-        (0 ..< 300).map { index in
+        (0 ..< 300).map { index -> Record in
             let time = UInt64(1_000 + index)
             guard index % 3 != 0 else {
                 return Record(process: index % 2 == 0 ? .app : .terminalHost, timestamp: time,
@@ -107,7 +107,8 @@ struct BlackboxPrivacyTests {
         let ring = TraceRing(sizes: TraceRing.Sizes(nameCapacity: 64, threadCapacity: 256, chunkCount: 64),
                              identity: TraceRing.Identity(pid: 9, role: .daemon), catalog: catalog)
         for index in 0 ..< 150 {
-            let name: UInt16 = index % 3 == 2 ? 1 : [2, 3, 4][(index / 3) % 3]
+            let keyNames: [UInt16] = [2, 3, 4]
+            let name: UInt16 = index % 3 == 2 ? 1 : keyNames[(index / 3) % 3]
             ring.write(name: name, phase: .instant, timestamp: 100 + UInt64(index), arg0: UInt64(index))
         }
         let image = try #require(ring.decodedImage())
