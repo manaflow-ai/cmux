@@ -1,5 +1,5 @@
-#if DEBUG
-// The Chromium host app ships in Debug builds only (embed-cef.sh), and so does its Swift side.
+#if DEBUG || CMUX_BENCH_HOOKS
+// The Chromium host app ships in Debug and bench builds only (embed-cef.sh), and so does its Swift side.
 import AppKit
 @testable import CmuxNextBrowser
 import CmuxNextDesign
@@ -40,6 +40,18 @@ import Testing
         #expect(reply["error"] as? String == "browserHost.helper is off")
         #expect(asked == 0)
         #expect(prototype.report["phase"] as? String == "none")
+    }
+
+    /// The toggle a bench run's override file turns on (chromium-host-bench.py; a bench build
+    /// registers it, BrowserHostTunables.all) lets `open` past the gate: here it stops at the
+    /// pane check, before any host starts.
+    @Test func withTheToggleOnOpenGetsPastTheGate() {
+        let store = Self.defaults()
+        store.load(raw: TunableFile.decode(Data(#"{"version": 1, "values": {"browserHost.helper": true}}"#.utf8)))
+        let prototype = ChromiumHostPrototype(makeConfiguration: { nil }, tunables: store)
+        let reply = prototype.open("https://example.com/", over: NSView(frame: .zero), focus: false)
+        #expect(reply["error"] as? String == "the pane is not in a window")
+        #expect(prototype.report["tunable"] as? Bool == true)
     }
 }
 #endif
