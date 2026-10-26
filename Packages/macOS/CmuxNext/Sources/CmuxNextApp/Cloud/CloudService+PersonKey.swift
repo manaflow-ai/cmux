@@ -77,27 +77,27 @@ extension CloudService {
 
     /// The pane's reason for a refused or failed keyed start (the web route's `vm_acpmux_*` codes).
     nonisolated static func approvalsFailure(_ error: CloudAPIError) -> AgentPaneRemoteApprovals.Failure {
-        guard case let .http(_, code, message) = error else { return .failed(error.description) }
+        guard case let .http(_, code, _, _, _) = error else { return .failed(CloudStrings.apiErrorText(error)) }
         switch code {
         case "vm_acpmux_unsupported": return .daemonTooOld
         case "vm_acpmux_not_running": return .machineNotRunning
         case "vm_acpmux_not_single_owner", "vm_acpmux_team_vm": return .notSingleOwner
         case "vm_acpmux_start_failed": return .daemonTookNoKey(nil)
         case "vm_acpmux_holds_failed": return .keyNotHeld
-        default: return .failed(message ?? error.description)
+        default: return .failed(CloudStrings.apiErrorText(error))
         }
     }
 
     /// The pane's reason for a refused or failed keyed start (the API Worker's codes, backend cloud-acpmux.ts).
     nonisolated static func workerApprovalsFailure(_ error: CloudAPIError) -> AgentPaneRemoteApprovals.Failure {
-        guard case let .http(_, code, message) = error else { return .failed(error.description) }
+        guard case let .http(_, code, _, _, _) = error else { return .failed(CloudStrings.apiErrorText(error)) }
         switch code {
         case "cloud.acpmux.unsupported": return .daemonTooOld
         case "cloud.machine.not_running": return .machineNotRunning
         case "cloud.acpmux.not_single_owner", "cloud.acpmux.team_vm": return .notSingleOwner
         case "cloud.acpmux.start_failed": return .daemonTookNoKey(nil)
         case "cloud.acpmux.holds_failed": return .keyNotHeld
-        default: return .failed(message ?? error.description)
+        default: return .failed(CloudStrings.apiErrorText(error))
         }
     }
 }

@@ -48,7 +48,7 @@ enum CloudHandlers {
     static func machine(_ invocation: ActionInvocation, _ context: AppActionContext, fallsBack: Bool = false) throws -> CloudMachineSession {
         let machines = context.services.machines
         if let target = invocation.target, target.kind == .machine {
-            guard let session = machines.session(target.id) else { throw ActionFailure.notFound(RefusalStrings.notShownInAnyWindow(target.description)) }
+            guard let session = machines.session(target.id) else { throw ActionFailure.notFound(CloudStrings.unknownMachine(target.id)) }
             return session
         }
         guard origin(of: invocation) == .user || fallsBack else { throw ActionFailure(message: CloudStrings.noMachine) }
@@ -100,7 +100,7 @@ enum CloudHandlers {
             } catch {
                 logger.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")
                 if interactive { CloudPresenter.failure(error, in: window(context)) }
-                return ActionWorkFailure("\(label): \(error)")
+                return ActionWorkFailure("\(label): \(CloudStrings.errorText(error))")
             }
         }
         context.services.registry.track(task)

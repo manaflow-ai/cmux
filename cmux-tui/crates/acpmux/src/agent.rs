@@ -195,6 +195,14 @@ struct CodexLink {
     order: Mutex<()>,
 }
 
+/// A session update whose news is only the agent process's own to give: Claude Code's /context
+/// breakdown, its account's usage limits. One a replaced process sends is not the chat's.
+pub fn process_state(params: &Value) -> bool {
+    params
+        .pointer("/update/_meta/acpmux")
+        .is_some_and(|m| m.get("contextBreakdown").is_some() || m.get("usageLimits").is_some())
+}
+
 impl ChildAgent {
     /// Ends every process in the agent's job (Windows; killpg on Unix).
     #[cfg(windows)]
@@ -517,8 +525,8 @@ impl ChildAgent {
         None
     }
 
-    /// Mark the agent replaced (a failover) or stopping: a /context breakdown it still sends,
-    /// answering a turn that ended before, is dropped (`tap_live`). Waits for a breakdown being
+    /// Mark the agent replaced (a failover) or stopping: a /context breakdown or usage limits it
+    /// still sends, answering a turn that ended before, are dropped (`tap_live`). Waits for a breakdown being
     /// logged right now, so what the caller logs next comes after it.
     pub fn retire(&self) {
         *self.retired.lock().unwrap_or_else(|e| e.into_inner()) = true;
@@ -529,14 +537,13 @@ impl ChildAgent {
         *self.retired.lock().unwrap_or_else(|e| e.into_inner())
     }
 
-    /// Runs `log` for `m`, unless `m` is a /context breakdown update from a retired agent (None).
+    /// Runs `log` for `m`, unless `m` is a /context breakdown or usage limits update
+    /// (`process_state`) from a retired agent (None).
     /// For such an update the retire lock is held across the check and `log`.
     fn tap_live<R>(&self, m: &Message, log: impl FnOnce() -> R) -> Option<R> {
         let context = matches!(m, Message::Notification { method, params }
             if method == crate::rpc::method::SESSION_UPDATE
-                && params
-                    .as_ref()
-                    .is_some_and(|p| p.pointer("/update/_meta/acpmux/contextBreakdown").is_some()));
+                && params.as_ref().is_some_and(process_state));
         if !context {
             return Some(log());
         }

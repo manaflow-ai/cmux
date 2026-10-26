@@ -611,6 +611,7 @@ pub(crate) async fn compare(
                         on_permission: OnPermission::Wait,
                         stall_secs: 0,
                         retries: 0,
+                        steer: false,
                     },
                     &crate::cli::output::PromptId::new(None),
                 )

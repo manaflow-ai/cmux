@@ -134,6 +134,11 @@ async fn forward_inner(
                 return Err(crate::hub::file_uploads::peer_unsupported(&peer));
             }
         }
+        // A person's prompt is checked here, before `mark_forwarded` drops its provenance
+        // (`author.rs`).
+        if m == method::SESSION_PROMPT {
+            crate::author::of_prompt(params)?;
+        }
         // So do a message's attachments, under their caps (`attach.rs`).
         if m == method::SESSION_PROMPT
             && let Some(blocks) = params.get("prompt").and_then(Value::as_array)
@@ -193,9 +198,10 @@ async fn forward_inner(
                 let filter = crate::hub::EventFilter::parse(params.get("kinds"))?;
                 let event_stream =
                     params.get("eventStream").and_then(Value::as_bool).unwrap_or(false);
-                conn.subscribe_with(&id, SubOpts { event_stream, filter, ..SubOpts::default() });
+                let opts = SubOpts { event_stream, filter, ..SubOpts::default() };
+                super::view::subscribe_remote(hub, conn, &id, Some(opts));
             } else {
-                super::requests::attach(hub, conn, &id);
+                super::view::subscribe_remote(hub, conn, &id, None);
             }
             if peer.mark_attached(&id) && m != method::MUX_ATTACH {
                 // The link is not a person: only a client's own attach or view shows the chat.
@@ -256,7 +262,13 @@ async fn forward_inner(
             {
                 crate::hub::file_uploads::peer_unsupported(&peer)
             } else if e.message.contains("Method not found") {
-                            RpcError::internal(format!("{}; peer {} runs acpmux build {} (this daemon: {}); run `acpmux host update {}`", e.message, peer.name, peer.remote_build().unwrap_or_else(|| "unknown".into()), crate::hub::BUILD, peer.name))
+                            RpcError::internal(format!("peer {} does not support {m}; it runs acpmux build {} (this daemon: {}); run `acpmux host update {}`", peer.name, peer.remote_build().unwrap_or_else(|| "unknown".into()), crate::hub::BUILD, peer.name))
+                                .with_data(json!({
+                                    "reason": "peer_version_skew",
+                                    "try": format!("acpmux host update {}", peer.name),
+                                    "peer": peer.name,
+                                    "method": m,
+                                }))
                         } else {
                             e
                         }
@@ -265,7 +277,7 @@ async fn forward_inner(
         if m == method::SESSION_FORK
             && let Some(new_id) = result.get("sessionId").and_then(Value::as_str)
         {
-            super::requests::attach(hub, conn, new_id);
+            super::view::subscribe_remote(hub, conn, new_id, None);
             peer.mark_attached(new_id);
         }
         if m == method::MUX_KILL && params.get("purge").and_then(Value::as_bool).unwrap_or(false) {

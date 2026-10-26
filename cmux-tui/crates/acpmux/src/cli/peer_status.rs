@@ -10,12 +10,23 @@ pub fn lines(reply: &Value) -> Vec<String> {
     hosts.iter().flat_map(|h| std::iter::once(line(h)).chain(problem_lines(h))).collect()
 }
 
-/// `  problem DNS: DNS: github.com does not resolve (since 2026-10-25T11:40:00.000Z)`.
+/// `  problem DNS: DNS: github.com does not resolve (since 2026-10-25T11:40:00.000Z)`;
+/// a disk problem with a severity says it: `  problem disk (warning): ...`.
 fn problem_lines(h: &Value) -> Vec<String> {
-    problems(h)
-        .map(|(check, detail, since)| {
+    h.get("problems")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|p| {
+            let check = p.get("check")?.as_str()?;
+            let detail = p.get("detail")?.as_str()?;
+            let since = p.get("since").and_then(Value::as_str);
             let since = since.map(|s| format!(" (since {s})")).unwrap_or_default();
-            format!("  problem {}: {detail}{since}", check_label(check))
+            let level = match p.get("severity").and_then(Value::as_str) {
+                Some(level @ ("warning" | "critical")) => format!(" ({level})"),
+                _ => String::new(),
+            };
+            Some(format!("  problem {}{level}: {detail}{since}", check_label(check)))
         })
         .collect()
 }
@@ -36,6 +47,7 @@ fn check_label(check: &str) -> &str {
         "disk" => "disk",
         "ram" => "RAM",
         "acpmux" => "acpmux",
+        "cmux" => "cmux-tui",
         "peer" => "peer link",
         "loop" => "health check",
         other => other,
@@ -196,6 +208,18 @@ mod tests {
             "  problem health check: machine health check has not run since 2026-10-25T11:50:00.000Z"
         );
         assert!(l[3].starts_with("cmux16"), "{}", l[3]);
+    }
+
+    #[test]
+    fn a_disk_problem_says_its_severity_and_a_cmux_tui_one_its_name() {
+        let reply = json!({"hosts": [{"name": "devbox", "self": true, "reachable": true, "problems": [
+            {"check": "disk", "detail": "disk: CRITICAL: 1.0 GB free on /", "severity": "critical"},
+            {"check": "disk", "detail": "disk: 9.0 GB free on /", "severity": "loud"},
+            {"check": "cmux", "detail": "cmux: cmux-tui-daemon.service failed"}]}]});
+        let l = lines(&reply);
+        assert_eq!(l[1], "  problem disk (critical): disk: CRITICAL: 1.0 GB free on /");
+        assert_eq!(l[2], "  problem disk: disk: 9.0 GB free on /");
+        assert_eq!(l[3], "  problem cmux-tui: cmux: cmux-tui-daemon.service failed");
     }
 
     #[test]
