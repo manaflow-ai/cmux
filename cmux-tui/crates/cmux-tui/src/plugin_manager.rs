@@ -2,11 +2,11 @@ use std::collections::HashSet;
 use std::fs;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, Stdio};
 #[cfg(test)]
 use std::time::Instant;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+use cmux_process::{Child, Command, Stdio};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};

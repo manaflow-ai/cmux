@@ -7,13 +7,13 @@
 use std::fs::{File, OpenOptions, TryLockError};
 use std::io::{Read as _, Write as _};
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
 use std::sync::mpsc;
 use std::time::Duration;
 
 #[cfg(not(windows))]
 use anyhow::anyhow;
 use anyhow::{Context as _, bail};
+use cmux_process::{Command, Stdio};
 
 #[cfg(target_os = "macos")]
 const LAUNCHD_LABEL: &str = "com.cmuxterm.host-remote";
@@ -166,33 +166,15 @@ pub(crate) fn spawn_detached(exe: &Path) -> anyhow::Result<u32> {
         std::io::pipe().context("cannot create the readiness pipe")?;
     #[cfg(unix)]
     {
-        use std::os::fd::AsRawFd as _;
-        use std::os::unix::process::CommandExt as _;
-        let writer_fd = ready_writer.as_raw_fd();
+        use std::os::fd::AsFd as _;
         // The `host` verbs live on the `cmux` surface, chosen from argv[0].
         command.arg0("cmux");
         command.env(READY_FD_ENV, READY_FD.to_string());
-        // SAFETY: setsid and dup2 only, between fork and exec. dup2 gives
-        // the child the pipe's write end as fd 3 without close-on-exec.
-        unsafe {
-            command.pre_exec(move || {
-                libc::setsid();
-                // dup2 onto itself would keep close-on-exec; clear it instead.
-                let ok = if writer_fd == READY_FD {
-                    libc::fcntl(READY_FD, libc::F_SETFD, 0) >= 0
-                } else {
-                    libc::dup2(writer_fd, READY_FD) >= 0
-                };
-                if !ok {
-                    return Err(std::io::Error::last_os_error());
-                }
-                Ok(())
-            });
-        }
+        // Its own session; the pipe's write end reaches it as READY_FD.
+        command.new_session().inherit_fd(ready_writer.as_fd(), READY_FD)?;
     }
     #[cfg(windows)]
     {
-        use std::os::windows::process::CommandExt as _;
         const DETACHED_PROCESS: u32 = 0x0000_0008;
         const CREATE_NEW_PROCESS_GROUP: u32 = 0x0000_0200;
         const CREATE_NO_WINDOW: u32 = 0x0800_0000;

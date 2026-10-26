@@ -139,9 +139,11 @@ fn pairing(verb: &str, args: &[String]) -> i32 {
     rest.retain(|arg| verb != "join" || arg != "--serve");
     if rest.len() != before {
         let enabled = self_exe().and_then(|exe| {
-            Ok(std::process::Command::new(exe)
+            use std::os::fd::AsFd as _;
+            let stderr = std::io::stderr().as_fd().try_clone_to_owned()?;
+            Ok(cmux_process::Command::new(exe)
                 .args(["host", "enable"])
-                .stdout(std::process::Stdio::from(std::io::stderr()))
+                .stdout(cmux_process::Stdio::from(stderr))
                 .status()?)
         });
         match enabled {
