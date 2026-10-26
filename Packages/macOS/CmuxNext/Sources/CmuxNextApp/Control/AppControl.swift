@@ -26,8 +26,6 @@ final class AppControl {
     private let terminalDisplayProbe = DebugTerminalDisplayProbe()
     /// `debug.motion`'s Core Animation commit timer (`ca.commit`), owned here, not by a static.
     private let motionCommitProbe = MotionCommitProbe()
-    /// `debug.observations`' per-owner counts, owned here, not by a static; the root hands it to the observers.
-    let observations = ObservationLedger()
     #if DEBUG || CMUX_BENCH_HOOKS
     /// `debug.key` sequences' player (one sequence at a time), owned here, not by a static.
     private let keySequencePlayer = DebugKeySequencePlayer()
@@ -122,7 +120,7 @@ final class AppControl {
             // Main-thread blocking call sites since launch (threading-model.md); {"reset": true} zeroes the counts.
             BlockingControl(detector: services.blocking).method,
             // Observations per owner: armed, evaluated, applied, show re-reads, hosting bodies; {"reset": true} zeroes them.
-            ObservationsControl(ledger: observations).method,
+            ObservationsControl(ledger: services.observations).method,
             // The main-thread scheduler's per-frame budget: tasks, input yields, deferrals, longest task per class.
             .mainActor("debug.main_budget") { [budget = mainWork.budget] call in
                 let report = budget.report

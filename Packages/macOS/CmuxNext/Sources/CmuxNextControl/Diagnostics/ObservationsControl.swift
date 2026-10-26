@@ -5,9 +5,10 @@ internal import CmuxNextSettings
 /// `debug.observations`: per observer owner, the observations armed now, their arms, evaluations
 /// and applies, the show re-reads with their time, and the SwiftUI hosting body evaluations (all
 /// and hidden), since launch or the last reset (plans/cmux-next/chrome-parity/p06-scheduler.md,
-/// "Observers per event"). `{"reset": true}` zeroes the counts after the report; `{"owner":
-/// "<prefix>"}` keeps only owners whose name starts with it. The report reads atomics only, so it
-/// runs off the main thread and answers while the main thread is busy.
+/// "Observers per event"). `{"owner": "<prefix>"}` keeps only owners whose name starts with it;
+/// `{"reset": true}` zeroes the reported owners' counts as it reads them (one atomic exchange per
+/// count, so no event is lost) and leaves the other owners' counts alone. The report reads atomics
+/// only, so it runs off the main thread and answers while the main thread is busy.
 public struct ObservationsControl: Sendable {
     private let ledger: ObservationLedger
 
@@ -22,9 +23,8 @@ public struct ObservationsControl: Sendable {
     }
 
     static func report(_ params: [String: JSONValue], ledger: ObservationLedger) -> JSONValue {
-        let prefix = params["owner"]?.stringValue ?? ""
-        let entries = ledger.snapshot().filter { $0.owner.hasPrefix(prefix) }
-        if params["reset"]?.boolValue == true { ledger.reset() }
+        let entries = ledger.snapshot(matching: params["owner"]?.stringValue ?? "",
+                                      resetting: params["reset"]?.boolValue == true)
         return .object([
             "totals": .object([
                 "armed": JSONValue(entries.reduce(0) { $0 + $1.armed }),

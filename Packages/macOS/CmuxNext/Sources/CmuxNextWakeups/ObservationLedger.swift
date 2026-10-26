@@ -3,7 +3,7 @@ import CmuxNextCompat
 /// Counts what each observer owner does (plans/cmux-next/chrome-parity/p06-scheduler.md, section C):
 /// how many of its observations are armed now, how often they were evaluated and applied, how many
 /// re-reads a show cost and how long they took, and how many SwiftUI hosting bodies it evaluated,
-/// visible and hidden. `debug.observations` reads ``snapshot()``; a bench reads it before and after
+/// visible and hidden. `debug.observations` reads ``snapshot(matching:resetting:)``; a bench reads it before and after
 /// one change and diffs the counts.
 ///
 /// The recording path takes no lock: an observer interns its owner once, when it is built
@@ -80,33 +80,28 @@ public final class ObservationLedger: Sendable {
             if hidden { hiddenBodies.add(1, ordering: .relaxed) }
         }
 
-        var entry: Entry {
-            Entry(owner: name,
-                  armed: armedNow.load(ordering: .relaxed),
-                  arms: arms.load(ordering: .relaxed),
-                  evaluations: evaluations.load(ordering: .relaxed),
-                  applies: applies.load(ordering: .relaxed),
-                  showRereads: showRereads.load(ordering: .relaxed),
-                  showRereadNanos: showRereadNanos.load(ordering: .relaxed),
-                  showRereadMaxNanos: showRereadMaxNanos.load(ordering: .relaxed),
-                  bodyEvaluations: bodies.load(ordering: .relaxed),
-                  hiddenBodyEvaluations: hiddenBodies.load(ordering: .relaxed))
-        }
-
-        /// Zeroes the counts; ``Entry/armed`` is state, not a count, and stays.
-        func reset() {
-            arms.store(0, ordering: .relaxed)
-            evaluations.store(0, ordering: .relaxed)
-            applies.store(0, ordering: .relaxed)
-            showRereads.store(0, ordering: .relaxed)
-            showRereadNanos.store(0, ordering: .relaxed)
-            showRereadMaxNanos.store(0, ordering: .relaxed)
-            bodies.store(0, ordering: .relaxed)
-            hiddenBodies.store(0, ordering: .relaxed)
+        /// The counts now; with `resetting`, each count is read and zeroed in one atomic exchange, so an event
+        /// recorded while the reader runs is in this entry or the next one, never lost (Chrome takes a delta the
+        /// same way: `HistogramSamples::Extract`, base/metrics/histogram_samples.cc). ``Entry/armed`` is state,
+        /// not a count: it is only loaded.
+        func entry(resetting: Bool) -> Entry {
+            func read(_ counter: borrowing Atomic<UInt64>) -> UInt64 {
+                resetting ? counter.exchange(0, ordering: .relaxed) : counter.load(ordering: .relaxed)
+            }
+            return Entry(owner: name,
+                         armed: armedNow.load(ordering: .relaxed),
+                         arms: read(arms),
+                         evaluations: read(evaluations),
+                         applies: read(applies),
+                         showRereads: read(showRereads),
+                         showRereadNanos: read(showRereadNanos),
+                         showRereadMaxNanos: read(showRereadMaxNanos),
+                         bodyEvaluations: read(bodies),
+                         hiddenBodyEvaluations: read(hiddenBodies))
         }
     }
 
-    /// One owner's counts at ``snapshot()`` time, since launch or the last ``reset()``.
+    /// One owner's counts at ``snapshot(matching:resetting:)`` time, since launch or its last reset.
     public struct Entry: Sendable, Equatable {
         public var owner: String
         /// Observations tracking now (not reset).
@@ -127,6 +122,20 @@ public final class ObservationLedger: Sendable {
         public var bodyEvaluations: UInt64
         /// The part of ``bodyEvaluations`` that ran while the node was hidden.
         public var hiddenBodyEvaluations: UInt64
+
+        public init(owner: String, armed: Int, arms: UInt64, evaluations: UInt64, applies: UInt64, showRereads: UInt64,
+                    showRereadNanos: UInt64, showRereadMaxNanos: UInt64, bodyEvaluations: UInt64, hiddenBodyEvaluations: UInt64) {
+            self.owner = owner
+            self.armed = armed
+            self.arms = arms
+            self.evaluations = evaluations
+            self.applies = applies
+            self.showRereads = showRereads
+            self.showRereadNanos = showRereadNanos
+            self.showRereadMaxNanos = showRereadMaxNanos
+            self.bodyEvaluations = bodyEvaluations
+            self.hiddenBodyEvaluations = hiddenBodyEvaluations
+        }
     }
 
     private let owners = Mutex<[String: Owner]>([:])
@@ -144,15 +153,11 @@ public final class ObservationLedger: Sendable {
         }
     }
 
-    /// Every owner, the most evaluated first (ties by name).
-    public func snapshot() -> [Entry] {
-        owners.withLock { Array($0.values) }
-            .map(\.entry)
+    /// Every owner whose name starts with `prefix`, the most evaluated first (ties by name). With `resetting`,
+    /// the counts of exactly those owners are zeroed as they are read; owners outside `prefix` keep theirs.
+    public func snapshot(matching prefix: String = "", resetting: Bool = false) -> [Entry] {
+        owners.withLock { owners in owners.values.filter { $0.name.hasPrefix(prefix) } }
+            .map { $0.entry(resetting: resetting) }
             .sorted { ($1.evaluations, $0.owner) < ($0.evaluations, $1.owner) }
-    }
-
-    /// Zeroes every owner's counts. Armed observations stay armed and are still reported.
-    public func reset() {
-        for owner in owners.withLock({ Array($0.values) }) { owner.reset() }
     }
 }

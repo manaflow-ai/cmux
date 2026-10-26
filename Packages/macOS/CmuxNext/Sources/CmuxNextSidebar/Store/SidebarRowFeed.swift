@@ -1,3 +1,4 @@
+import CmuxNextWakeups
 import Foundation
 import Observation
 
@@ -77,11 +78,14 @@ public final class SidebarRowFeed {
     /// delayed the next frame's scroll update: scroll hitches with ticking rows, perf round 2).
     public typealias Schedule = (@escaping @MainActor @Sendable () -> Void) -> Void
     private let schedule: Schedule
+    /// `debug.observations`' counts of the rows: armed now, re-reads after a change and the ones that changed the row.
+    private let observations: ObservationLedger.Owner?
 
-    /// `schedule` defaults to the next main-actor turn.
-    public init(schedule: Schedule? = nil) {
+    /// `schedule` defaults to the next main-actor turn. `observations` gets the feed's counts (the app's ledger).
+    public init(schedule: Schedule? = nil, observations: ObservationLedger.Owner? = nil) {
         // task-owner: the feed; one flush per main-actor turn after the store's batch applies
         self.schedule = schedule ?? { work in Task { @MainActor in work() } }
+        self.observations = observations
     }
 
     /// Starts a structural pass (call first in the pass's tracked closure).
@@ -162,6 +166,7 @@ public final class SidebarRowFeed {
     private func arm(_ id: WorkspaceID, _ entry: Entry) -> SidebarWorkspace {
         disarm(entry)
         entry.armed = true
+        observations?.armed()
         let generation = entry.generation
         let cancel = entry.cancel
         return withObservationTracking {
@@ -182,12 +187,14 @@ public final class SidebarRowFeed {
         entry.generation &+= 1
         guard entry.armed else { return }
         entry.armed = false
+        observations?.disarmed()
         entry.cancel.epoch &+= 1
     }
 
     private func markDirty(_ id: WorkspaceID, generation: UInt64) {
         guard let entry = entries[id], entry.generation == generation else { return }
         entry.armed = false
+        observations?.disarmed()  // the observation fired, and so is gone
         dirty.insert(id)
         guard !flushScheduled else { return }
         flushScheduled = true
@@ -204,7 +211,9 @@ public final class SidebarRowFeed {
             for id in ids {
                 guard let entry = entries[id], !entry.armed else { continue }
                 let row = arm(id, entry)
+                observations?.evaluated()
                 guard row != entry.row else { continue }
+                observations?.applied()
                 entry.row = row
                 changed.append(row)
             }
