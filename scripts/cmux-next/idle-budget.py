@@ -1851,33 +1851,45 @@ ANIM_PAGE = ("<!doctype html><meta charset='utf-8'><title>idle anim</title>"
              "{method:'POST'})}).then(ask,function(){setTimeout(ask,1000)})}"
              "fetch('/loaded/anim',{method:'POST'}).then(ask)</script>")
 
-# The scroll page of bench-typing's chromium-page-scroll (D8, task 135): 500 rows, nothing running until a wheel
-# event arrives. Each wheel event (a passive listener: the compositor still scrolls, as for any page) keeps one rAF
-# loop running until SCROLL_QUIET_MS pass with no input, and the loop records every frame's timestamp, so the record
-# holds the frames the page presented while input was active (Chrome's scroll jank tracker counts frames the same
-# way: only vsyncs with scroll input, cc/metrics/scroll_jank_dropped_frame_tracker.cc). The read path is the
-# animated page's: a held GET of SCROLL_READ_PATH; once the bench reads (IdlePages.read_scroll) the page POSTs
-# SCROLL_FRAMES_PATH/<wheel events>/<scrolled px>/<frame times in ms from the first, comma separated, or ->, then
-# starts a new record.
+# The scroll page of bench-typing's chromium-page-scroll (D8, task 135): SCROLL_ROWS rows, nothing running until a
+# wheel event arrives. A wheel event (a passive listener: the compositor still scrolls, as for any page) starts one
+# rAF loop if none runs, and the loop runs until SCROLL_QUIET_MS pass with no wheel event. Each loop is one run of
+# the record, so a pause in the input longer than the quiet time starts a new run and is never a frame interval. Per
+# frame the run keeps the rAF time (the BeginMainFrame time, vsync aligned) and the time after that frame's
+# main-thread work (a MessageChannel message posted in the rAF callback, as acpmux perf.ts times a key's `paint`).
+# Both are main-frame times, not presentation times: the loop itself asks for a main frame every vsync, and a frame
+# that viz or the display compositor drops after its main frame is not seen. The read path is the animated page's: a
+# held GET of SCROLL_READ_PATH; once the bench reads (IdlePages.read_scroll) the page POSTs
+# SCROLL_FRAMES_PATH/<wheel events>/<scrolled px>/<rAF runs>/<after-frame runs> (ms from the record's first frame,
+# comma separated, runs separated by `;`, `-` for none), starts a new record and, with no loop running, scrolls back
+# to the top, so every gesture has the page's height to scroll.
 SCROLL_PATH = "/scroll"
 SCROLL_READ_PATH = "/scroll-read"
 SCROLL_FRAMES_PATH = "/scroll-frames"
 SCROLL_QUIET_MS = 50
+SCROLL_ROWS = 500
+SCROLL_PAGE_PX = SCROLL_ROWS * 96  # 88 px rows, their 8 px margins collapsed between rows
 SCROLL_PAGE = ("<!doctype html><meta charset='utf-8'><title>scroll</title>"
                "<style>body{margin:0;font:16px -apple-system,sans-serif;background:#f4f4f6}"
                ".r{height:88px;margin:8px 16px;padding:0 12px;border-radius:10px;background:#c9d4e8;line-height:88px}"
                "</style><div id='rows'></div><script>const rows=document.getElementById('rows');"
-               "for(let i=0;i<500;i++){const d=document.createElement('div');d.className='r';"
+               f"for(let i=0;i<{SCROLL_ROWS};i++){{const d=document.createElement('div');d.className='r';"
                "d.textContent='row '+i+' lorem ipsum dolor sit amet';rows.appendChild(d)}"
-               "let frames=[],wheels=0,from=null,last=-1e9,looping=false;"
-               f"function tick(t){{if(performance.now()-last>{SCROLL_QUIET_MS}){{looping=false;return}}"
-               "frames.push(t);requestAnimationFrame(tick)}"
+               "let runs=[],posts=[],run=null,post=null,wheels=0,from=null,last=-1e9,looping=false;"
+               f"function tick(t){{if(run.length&&performance.now()-last>{SCROLL_QUIET_MS}){{looping=false;return}}"
+               "run.push(t);const into=post,channel=new MessageChannel();"
+               "channel.port1.onmessage=function(){into.push(performance.now());channel.port1.close()};"
+               "channel.port2.postMessage(0);requestAnimationFrame(tick)}"
                "addEventListener('wheel',function(){wheels++;last=performance.now();if(from===null)from=scrollY;"
-               "if(!looping){looping=true;requestAnimationFrame(tick)}},{passive:true});"
+               "if(!looping){looping=true;run=[];post=[];runs.push(run);posts.push(post);requestAnimationFrame(tick)}},"
+               "{passive:true});"
+               "function enc(list,t0){return list.length?list.map(function(times){"
+               "return times.map(function(t){return (t-t0).toFixed(2)}).join(',')}).join(';'):'-'}"
                f"function ask(){{fetch('{SCROLL_READ_PATH}',{{cache:'no-store'}}).then(function(){{"
-               "const t0=frames.length?frames[0]:0,times=frames.map(function(t){return (t-t0).toFixed(2)}).join(',');"
-               "const n=wheels,moved=from===null?0:Math.round(scrollY-from);frames=[];wheels=0;from=null;"
-               f"return fetch('{SCROLL_FRAMES_PATH}/'+n+'/'+moved+'/'+(times||'-'),{{method:'POST'}})}})"
+               "const t0=runs.length&&runs[0].length?runs[0][0]:0,n=wheels,moved=from===null?0:Math.round(scrollY-from);"
+               "const fields=n+'/'+moved+'/'+enc(runs,t0)+'/'+enc(posts,t0);"
+               "runs=looping?[run]:[];posts=looping?[post]:[];wheels=0;from=null;if(!looping)scrollTo(0,0);"
+               f"return fetch('{SCROLL_FRAMES_PATH}/'+fields,{{method:'POST'}})}})"
                ".then(ask,function(){setTimeout(ask,1000)})}"
                "fetch('/loaded/scroll',{method:'POST'}).then(ask)</script>")
 
@@ -1892,13 +1904,19 @@ def parse_anim_count(path):
 
 
 def parse_scroll_frames(path):
-    """{wheels, scrolled_px, frames_ms} from the scroll page's SCROLL_FRAMES_PATH POST, or {"error": ...}.
-    `frames_ms` are the recorded frames' times from the first one (empty when no input came)."""
+    """{wheels, scrolled_px, runs_ms, post_runs_ms} from the scroll page's SCROLL_FRAMES_PATH POST, or
+    {"error": ...}. `runs_ms` holds one list per rAF loop (SCROLL_PAGE) of its frames' rAF times and `post_runs_ms`
+    the same frames' after-frame times, in ms from the record's first frame (no runs when no input came)."""
     parts = path.split("?", 1)[0].removeprefix(SCROLL_FRAMES_PATH + "/").split("/")
+
+    def runs(field):
+        return [] if field == "-" else [[float(v) for v in run.split(",")] if run else [] for run in field.split(";")]
     try:
-        frames = [] if parts[2] == "-" else [float(value) for value in parts[2].split(",")]
-        return {"wheels": int(parts[0]), "scrolled_px": int(parts[1]), "frames_ms": frames}
-    except (IndexError, ValueError):
+        if len(parts) != 4:
+            raise ValueError(f"{len(parts)} fields")
+        return {"wheels": int(parts[0]), "scrolled_px": int(parts[1]), "runs_ms": runs(parts[2]),
+                "post_runs_ms": runs(parts[3])}
+    except ValueError:
         return {"error": f"unreadable scroll frames post {path[:80]}"}
 
 
@@ -1973,8 +1991,8 @@ class IdlePages(tab_pages.TabPages):
         return self._held[ANIM_READ_PATH].read(seconds)
 
     def read_scroll(self, seconds=10):
-        """The scroll page's {wheels, scrolled_px, frames_ms} since its last read (HeldRead.read); the page then
-        starts a new record."""
+        """The scroll page's {wheels, scrolled_px, runs_ms, post_runs_ms} since its last read (HeldRead.read); the
+        page then starts a new record."""
         return self._held[SCROLL_READ_PATH].read(seconds)
 
     def close(self):

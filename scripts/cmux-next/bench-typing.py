@@ -73,20 +73,31 @@ saver adds no visible latency). Launched, like mode 1:
                                       key at its frame) and to after that frame (`key_to_paint_ms`), p50/p95/max.
    --surface chromium-page-scroll     idle-budget's scroll page (SCROLL_PAGE) in a Chromium tab, scrolled by --scrolls
                                       trackpad gestures of --scroll-seconds (2 s) each: one `debug.mouse {target: page,
-                                      action: scroll}` event per display refresh (--hz, default the main display's).
-                                      The page records every frame while input is active. Reported: frames, frame
-                                      intervals p50/p95/p99/max, fps, wheel events sent and received, and dropped
-                                      frames: refreshes that passed with no frame, sum of round(interval / refresh) - 1
-                                      (acpmux perf.ts droppedFrames; Chrome counts a scroll's missed vsyncs the same
-                                      way, cc/metrics/scroll_jank_dropped_frame_tracker.cc).
+                                      action: scroll}` event per display refresh (--hz, default the main display's;
+                                      `hover: false` after `began`, so no event pays a layout hover recompute). The
+                                      page keeps a rAF loop running while wheel events come and records each main
+                                      frame's rAF time and the time after its main-thread work, one run per loop; a
+                                      pause in the input longer than the page's quiet time starts a new run and is no
+                                      interval. Reported: frames, rAF intervals p50/p95/p99/max, after-frame intervals,
+                                      fps, wheel events sent and received, pixels scrolled, and dropped frames:
+                                      refreshes that passed with no main frame inside a run, sum of
+                                      round(interval / refresh) - 1 (acpmux perf.ts droppedFrames). This is the
+                                      page's main-frame (rAF) cadence while scrolled, not presented frames: a frame
+                                      that viz or the display compositor drops after its main frame is not seen, and
+                                      the loop asks for a main frame every refresh. A scroll is an error (and D8
+                                      unscored) when a wheel event failed, two sends were further apart than the quiet
+                                      time, the page got under half the events, or it moved under half the sent delta;
+                                      the page scrolls back to the top between gestures.
    --energy-saver on|off   `energy.saver: always` or `off`, with the default-off `energySaver` feature on in both
                            (idle-budget.saver_launch), on any surface. debug.energy is read before and after the
                            measurement; a run whose saver state is not the asked one has `saver.mismatch` and D8 does
                            not judge it.
    A comma list in --surface or --energy-saver runs every combination, one launch each, in DIR/<surface>-saver-<state>.
    With both saver states of a surface, `BENCH-TYPING-D8 {json}` lines judge D8: key->frame p95 with the saver at most
-   +0.5 ms over off (terminal: the single phase), and no dropped frame of the scroll with the saver on; DIR/d8.json
-   holds every run and the verdicts. Reported, never an exit status.
+   +0.5 ms over off (terminal: the single phase), and with the saver on no dropped main frame of the scroll and fps at
+   least 0.97 x 120. A typing pair is unscored when a key failed or under 90% of the sent keys were timed in either
+   run; a scroll pair when either run has an error or its refresh rate is under 120 Hz or not measured (--hz or the
+   main display's). DIR/d8.json holds every run and the verdicts. Reported, never an exit status.
    --dry-run prints one `BENCH-TYPING-PLAN {json}` line per combination (the single-run command, the cmux-next.json
    keys and environment it adds) and launches nothing.
 """
@@ -624,7 +635,13 @@ AGENT_MOCK_ENV = {"CMUX_NEXT_AGENT_PANE_MOCK": "1"}  # the mock agent host (Agen
 MOCK_SESSION = "mock-session"  # the mock host's session, which shows the composer
 COMPOSER_KEYS = "abcdefghijklmnopqrstuvwxyz"  # no return (it sends the prompt), no `/` or `@` (they open menus)
 D8_TYPING_MS = 0.5  # D8: key->frame p95 with the saver on at most this much over off
+D8_TIMED_SHARE = 0.9  # a typing run scores only when this share of its sent keys was timed
+D8_HZ = 120.0  # D8: a page scroll in saver keeps 120 Hz
+D8_FPS_SHARE = 0.97  # ... with fps over the scroll's runs at least this share of D8_HZ
 DEFAULT_HZ = 120.0  # the fleet's measure display (split-spring --vdisplay=120) when the main display's rate is unknown
+HZ_FROM_FLAG, HZ_FROM_DISPLAY, HZ_ASSUMED = "--hz", "main display", "assumed: the display rate is unknown"
+SCROLL_MIN_WHEELS = 0.5  # Chromium aligns wheel events to its frames and may coalesce two into one, but not most
+SCROLL_MIN_MOVED = 0.5  # a scroll that moved under this share of its sent delta did not really scroll
 
 
 @functools.lru_cache(maxsize=None)
@@ -738,43 +755,92 @@ def composer_result(stats, sent, failed=0):
             "key_to_frame_ms": dist(stats.get("to_frame")), "key_to_paint_ms": dist(stats.get("to_paint"))}
 
 
+def composer_series(stats):
+    """{key_to_frame_ms, key_to_paint_ms: [ms per key]} of typingStats {raw: true} (`to_frame_ms`, `to_paint_ms`);
+    empty lists when the page sent none (a page from before `raw`)."""
+    stats = stats if isinstance(stats, dict) else {}
+    return {name: [v for v in (stats.get(field) or []) if isinstance(v, (int, float))]
+            for name, field in (("key_to_frame_ms", "to_frame_ms"), ("key_to_paint_ms", "to_paint_ms"))}
+
+
 def frame_drops(intervals, nominal_ms):
     """Refreshes that passed with no frame: sum of max(0, round(interval / nominal) - 1) (webviews acpmux perf.ts
-    droppedFrames; Chrome's scroll jank tracker counts a scroll's missed vsyncs the same way,
-    cc/metrics/scroll_jank_dropped_frame_tracker.cc)."""
+    droppedFrames)."""
     return sum(max(0, round(interval / nominal_ms) - 1) for interval in intervals)
 
 
+def gesture_events(seconds, hz):
+    """The wheel events of one gesture of `seconds` at `hz`: began, the changed ones, ended."""
+    return max(2, round(seconds * hz))
+
+
+def run_intervals(runs):
+    """The intervals between consecutive times inside each run; none across two runs (a pause in the input)."""
+    return [b - a for times in runs for a, b in zip(times, times[1:])]
+
+
+def scroll_refusals(read, gesture):
+    """Why one scroll does not measure a steady scroll (empty when it does): a wheel event failed, two sends were
+    further apart than the page's quiet time (the input paused and the page started a new run: gesture's
+    `max_gap_ms`), the page received under SCROLL_MIN_WHEELS of the events sent, or it moved under SCROLL_MIN_MOVED
+    of the delta sent (at its end, or the events went elsewhere). With no `gesture` (its counts unknown) only a page
+    that did not move is refused."""
+    why = []
+    events = gesture.get("events") or 0
+    if gesture.get("failed"):
+        why.append(f"{gesture['failed']} of {events} wheel events failed")
+    gap, quiet = gesture.get("max_gap_ms") or 0, idle_budget().SCROLL_QUIET_MS
+    if gap > quiet:
+        why.append(f"two wheel events were sent {gap:g} ms apart: the input paused past the page's {quiet} ms quiet "
+                   "time (the bench, not the page)")
+    if events and read["wheels"] < SCROLL_MIN_WHEELS * events:
+        why.append(f"the page received {read['wheels']} of {events} wheel events")
+    moved, sent = abs(read["scrolled_px"]), gesture.get("delta_px") or 0
+    if not moved:
+        why.append("the page did not move")
+    elif sent and moved < SCROLL_MIN_MOVED * sent:
+        why.append(f"the page moved {moved} px of {sent:g} px sent")
+    return why
+
+
 def scroll_result(reads, hz, gestures=()):
-    """The scroll run's numbers from the page's reads (IdlePages.read_scroll: {wheels, scrolled_px, frames_ms}, one
-    per gesture) at `hz`: frames, frame intervals (p50/p95/p99/max), fps over the recorded span, dropped frames, wheel
-    events sent (``gestures``) and received, pixels scrolled, per scroll and in total. `error` when a read failed or
-    the page recorded no frame (no wheel event reached it)."""
-    nominal = 1000.0 / hz
-    intervals, scrolls, errors, span = [], [], [], 0.0
-    for read in reads:
+    """The scroll run's numbers from the page's reads (IdlePages.read_scroll: {wheels, scrolled_px, runs_ms,
+    post_runs_ms}, one per gesture) at `hz`: frames, rAF intervals (p50/p95/p99/max) and after-frame intervals inside
+    the runs, fps over the runs' spans, dropped frames, wheel events sent (``gestures``) and received, pixels scrolled,
+    per scroll and in total. `error` when a read failed, a scroll is refused (``scroll_refusals``), or the page
+    recorded no frame interval (no wheel event reached it)."""
+    nominal, gestures = 1000.0 / hz, list(gestures)
+    intervals, post_intervals, scrolls, errors, span = [], [], [], [], 0.0
+    for index, read in enumerate(reads):
+        label = f"scroll {index + 1}"
         if not isinstance(read, dict) or "error" in read:
-            errors.append((read or {}).get("error", "no read") if isinstance(read, dict) else "no read")
+            errors.append(f"{label}: " + (read.get("error", "no read") if isinstance(read, dict) else "no read"))
             continue
-        times = read["frames_ms"]
-        gaps = [b - a for a, b in zip(times, times[1:])]
+        runs = read["runs_ms"]
+        gaps = run_intervals(runs)
         intervals += gaps
-        span += times[-1] - times[0] if len(times) > 1 else 0.0
-        scrolls.append({"frames": len(times), "dropped_frames": frame_drops(gaps, nominal), "wheels": read["wheels"],
+        post_intervals += run_intervals(read["post_runs_ms"])
+        span += sum(times[-1] - times[0] for times in runs if len(times) > 1)
+        scrolls.append({"frames": sum(len(times) for times in runs), "runs": len(runs),
+                        "dropped_frames": frame_drops(gaps, nominal), "wheels": read["wheels"],
                         "scrolled_px": read["scrolled_px"]})
+        gesture = gestures[index] if index < len(gestures) else {}
+        errors += [f"{label}: {why}" for why in scroll_refusals(read, gesture)]
     result = {"hz": hz, "nominal_ms": round(nominal, 3), "scrolls": scrolls,
               "frames": sum(s["frames"] for s in scrolls),
               "wheels_sent": sum(g.get("events", 0) for g in gestures),
               "wheels_received": sum(s["wheels"] for s in scrolls),
-              "scrolled_px": sum(s["scrolled_px"] for s in scrolls),
+              "scrolled_px": sum(abs(s["scrolled_px"]) for s in scrolls),
               "frame_interval_ms": bench_tagged.distribution(intervals),
+              "after_frame_interval_ms": bench_tagged.distribution(post_intervals),
               "dropped_frames": frame_drops(intervals, nominal) if intervals else None,
               "fps": round(len(intervals) / (span / 1000), 1) if span > 0 else None,
-              "intervals_ms": [round(interval, 2) for interval in intervals]}
+              "intervals_ms": [round(interval, 2) for interval in intervals],
+              "after_intervals_ms": [round(interval, 2) for interval in post_intervals]}
+    if not intervals and not errors:
+        errors.append("the page recorded no frames while scrolled: no wheel event reached it")
     if errors:
         result["error"] = "; ".join(errors)
-    elif not intervals:
-        result["error"] = "the page recorded no frames while scrolled: no wheel event reached it"
     return result
 
 
@@ -787,23 +853,58 @@ def typing_p95(surface, report):
     return (stats or {}).get("p95")
 
 
+def typing_counts(surface, report):
+    """(keys sent, keys timed, keys failed) of one typing run's report: the terminal's single phase (timed: its
+    key->frame samples), the composer's page (timed: its typingStats keys)."""
+    if surface == TERMINAL:
+        single = (report.get("phases") or {}).get("single") or {}
+        timed = ((single.get("stats") or {}).get("key_to_frame_ms") or {}).get("n") or 0
+        return single.get("keys") or 0, timed, single.get("failed_keys") or 0
+    return report.get("sent") or 0, report.get("timed") or 0, report.get("failed_keys") or 0
+
+
+def typing_refusals(surface, state, report):
+    """Why one typing run cannot be compared (empty when it can): a key failed, or under D8_TIMED_SHARE of the sent
+    keys reached a timing, so its p95 comes from another sample than the other run's."""
+    sent, timed, failed = typing_counts(surface, report)
+    why = [f"saver {state}: {failed} keys failed"] if failed else []
+    if timed < D8_TIMED_SHARE * sent or not sent:
+        why.append(f"saver {state}: {timed} of {sent} keys timed (under {D8_TIMED_SHARE:.0%})")
+    return why
+
+
+def scroll_rate_refusals(state, report):
+    """Why one scroll run cannot judge D8's 120 Hz (empty when it can): its refresh rate is under D8_HZ, or it was
+    assumed rather than measured (--hz or the main display's)."""
+    hz, source = report.get("hz"), report.get("hz_source")
+    if hz is None:
+        return []  # no scroll result: the run's error says why
+    why = [] if hz >= D8_HZ else [f"saver {state}: measured at {hz:g} Hz, D8 needs {D8_HZ:g} Hz"]
+    if source not in (HZ_FROM_FLAG, HZ_FROM_DISPLAY):
+        why.append(f"saver {state}: the refresh rate was {source or 'not given'}")
+    return why
+
+
 def d8_verdicts(reports):
-    """{surface: {check, on, off, [delta_ms], verdict, [why]}} of each surface that ran with both saver states, from
-    {(surface, state): report}. Verdicts: pass, fail, or unscored (a run failed, its saver state was not the asked
-    one, or it has no number)."""
+    """{surface: {check, on, off, [delta_ms], [fps_on], verdict, [why]}} of each surface that ran with both saver
+    states, from {(surface, state): report}. Verdicts: pass, fail, or unscored (a run failed, its saver state was not
+    the asked one, it has no number, a typing run lost keys, or a scroll was not at a measured 120 Hz)."""
     verdicts = {}
     for surface in SURFACES:
         on, off = reports.get((surface, "on")), reports.get((surface, "off"))
         if on is None or off is None:
             continue
-        why = [f"saver {state}: {r['error']}" for state, r in (("on", on), ("off", off)) if r.get("error")]
-        why += [f"saver {state}: {r['saver']['mismatch']}" for state, r in (("on", on), ("off", off))
-                if (r.get("saver") or {}).get("mismatch")]
+        both = (("on", on), ("off", off))
+        why = [f"saver {state}: {r['error']}" for state, r in both if r.get("error")]
+        why += [f"saver {state}: {r['saver']['mismatch']}" for state, r in both if (r.get("saver") or {}).get("mismatch")]
         if surface == SCROLL:
-            entry = {"check": "dropped frames while scrolled with the saver on == 0",
-                     "on": on.get("dropped_frames"), "off": off.get("dropped_frames")}
-            passed = entry["on"] == 0
+            fps_floor = round(D8_FPS_SHARE * D8_HZ, 1)
+            entry = {"check": f"dropped main frames while scrolled with the saver on == 0 and fps >= {fps_floor:g}",
+                     "on": on.get("dropped_frames"), "off": off.get("dropped_frames"), "fps_on": on.get("fps")}
+            why += [reason for state, r in both for reason in scroll_rate_refusals(state, r)]
+            passed = entry["on"] == 0 and entry["fps_on"] is not None and entry["fps_on"] >= fps_floor
         else:
+            why += [reason for state, r in both if not r.get("error") for reason in typing_refusals(surface, state, r)]
             entry = {"check": f"key->frame p95 with the saver on <= off + {D8_TYPING_MS:g} ms",
                      "on": typing_p95(surface, on), "off": typing_p95(surface, off)}
             passed = None
@@ -930,9 +1031,9 @@ class ComposerRun(SurfaceRun):
         self.type_keys(pane, self.args.warmup)
         self.pane("reset_typing")
         failed, trips = self.type_keys(pane, self.args.samples)
-        stats = self.pane("typing_stats")
+        typing = self.pane("typing_stats", raw=True)
         self.saver.read(self.app)
-        self.report.update(composer_result(stats, self.args.samples, failed), key_rpc_ms=summarize(trips),
+        self.report.update(composer_result(typing, self.args.samples, failed), key_rpc_ms=summarize(trips),
                            composer_text_length=self.pane("readiness").get("composer_text_length"))
         for key in ("key_to_frame_ms", "key_to_paint_ms"):
             stats = self.report.get(key)
@@ -940,6 +1041,9 @@ class ComposerRun(SurfaceRun):
                                                if stats else "(no samples)"))
         if self.report.get("error"):
             self.note(f"{COMPOSER}: {self.report['error']}")
+        self.report["recorded"] = bench_tagged.record_series(
+            self.app, f"bench-typing-{COMPOSER}" + saver_suffix(self.args.energy_saver), composer_series(typing),
+            engine="chromium", log=self.note)
 
 
 class ScrollRun(SurfaceRun):
@@ -952,37 +1056,54 @@ class ScrollRun(SurfaceRun):
         self.pages = idle_budget().IdlePages()
 
     def gesture(self, hz):
-        """One trackpad gesture on the shown page: began, changed at `hz` for --scroll-seconds, ended. Returns the
-        events sent, failed and late (sent after their slot), its seconds and achieved rate."""
-        count = max(2, round(self.args.scroll_seconds * hz))
-        period, failed, late = 1.0 / hz, 0, 0
-        start = deadline = time.monotonic()
+        """One trackpad gesture on the shown page: began, changed at `hz` for --scroll-seconds, ended. Only `began`
+        moves the synthesized pointer (DebugMouse: `hover: false` after it, so no event pays a layout hover
+        recompute a real trackpad scroll does not). Returns the events sent, failed and late (sent after their slot),
+        the latest one's lateness and the longest gap between two sends in ms, the delta sent in px, its seconds and
+        achieved rate."""
+        count = gesture_events(self.args.scroll_seconds, hz)
+        period, failed, late, max_late, max_gap = 1.0 / hz, 0, 0, 0.0, 0.0
+        start = deadline = previous = time.monotonic()
         for index in range(count):
             phase = "began" if index == 0 else "ended" if index == count - 1 else "changed"
-            reply = self.app.rpc("debug.mouse", {"target": "page", "action": "scroll", "phase": phase,
-                                                 "dy": 0 if phase == "ended" else -self.args.scroll_px}, timeout=5)
+            sent = time.monotonic()
+            max_gap = max(max_gap, sent - previous)
+            previous = sent
+            params = {"target": "page", "action": "scroll", "phase": phase,
+                      "dy": 0 if phase == "ended" else -self.args.scroll_px}
+            if phase != "began":
+                params["hover"] = False
+            reply = self.app.rpc("debug.mouse", params, timeout=5)
             if isinstance(reply, dict) and reply.get("error"):
                 failed += 1
             deadline += period
             rest = deadline - time.monotonic()
             if rest > 0:
                 time.sleep(rest)  # bench: one wheel event per display refresh
-            else:
+            elif index < count - 1:
                 late += 1
+                max_late = max(max_late, -rest)
         seconds = time.monotonic() - start
-        return {"events": count, "failed": failed, "late": late, "seconds": round(seconds, 3),
-                "hz": round(count / seconds, 1) if seconds > 0 else None}
+        return {"events": count, "failed": failed, "late": late, "max_late_ms": round(max_late * 1000, 2),
+                "max_gap_ms": round(max_gap * 1000, 2), "delta_px": (count - 1) * self.args.scroll_px,
+                "seconds": round(seconds, 3), "hz": round(count / seconds, 1) if seconds > 0 else None}
 
     def display_hz(self):
+        """(rate, its source): --hz, the main display's, else DEFAULT_HZ assumed (D8 then leaves the scroll unscored)."""
         if self.args.hz:
-            return self.args.hz, "--hz"
+            return self.args.hz, HZ_FROM_FLAG
         measured = (self.report.get("host") or {}).get("display_hz")
-        return (float(measured), "main display") if measured else (DEFAULT_HZ, "assumed: the display rate is unknown")
+        return (float(measured), HZ_FROM_DISPLAY) if measured else (DEFAULT_HZ, HZ_ASSUMED)
 
     def measure(self):
         ib = idle_budget()
         hz, source = self.display_hz()
         self.report["hz_source"] = source
+        room = ib.SCROLL_PAGE_PX - WINDOW[3]
+        if gesture_events(self.args.scroll_seconds, hz) * self.args.scroll_px > room:
+            raise SystemExit(f"bench-typing: a gesture of {self.args.scroll_seconds:g} s at {hz:g} Hz and "
+                             f"{self.args.scroll_px:g} px per event scrolls past the page's {room} px: lower "
+                             "--scroll-seconds or --scroll-px")
         try:
             ib.run_action(self.app, "openBrowser.chromium", {"url": self.pages.origin + ib.SCROLL_PATH}, focus=True,
                           timeout=90)
@@ -992,14 +1113,14 @@ class ScrollRun(SurfaceRun):
             raise SystemExit("bench-typing: the scroll page did not load in 90 s")
         time.sleep(1.0)  # bench: the page's first frames land before the record starts
         self.saver.read(self.app)
-        first = self.pages.read_scroll(10)  # the page starts a clean record
+        first = self.pages.read_scroll(10)  # the page starts a clean record at the top
         if "error" in first:
             raise SystemExit(f"bench-typing: the scroll page does not answer: {first['error']}")
         gestures, reads = [], []
         for _ in range(self.args.scrolls):
             gestures.append(self.gesture(hz))
             time.sleep(ib.SCROLL_QUIET_MS / 1000 + 0.15)  # bench: the page's record ends after its quiet time
-            reads.append(self.pages.read_scroll(10))
+            reads.append(self.pages.read_scroll(10))  # and the page scrolls back to the top for the next gesture
         self.saver.read(self.app)
         result = scroll_result(reads, hz, gestures)
         self.report.update(result, gestures=gestures)
@@ -1009,7 +1130,8 @@ class ScrollRun(SurfaceRun):
                   + (f"; {result['error']}" if result.get("error") else ""))
         self.report["recorded"] = bench_tagged.record_series(
             self.app, f"bench-typing-{SCROLL}" + saver_suffix(self.args.energy_saver),
-            {"frame_interval_ms": result["intervals_ms"]}, engine="chromium", log=self.note)
+            {"frame_interval_ms": result["intervals_ms"], "after_frame_interval_ms": result["after_intervals_ms"]},
+            engine="chromium", log=self.note)
 
     def run(self):
         try:

@@ -24,7 +24,7 @@ import WebKit
 /// a mock session of heavy turns opened through the real client; needs `--showcase`'s mock
 /// daemon), `load_run` (`seconds`, `chunk_chars`, `chunk_ms`, `tool_every`, `scroll_speed`,
 /// `scroll_depth`: a full-speed stream into it while the transcript scrolls, with every frame's
-/// work; webviews loadDebug.ts), `typing_stats`,
+/// work; webviews loadDebug.ts), `typing_stats` (`raw` adds every key's times),
 /// `reset_typing`, `close_menus`, `open_menu` (`label`: opens that composer menu, such as
 /// `Model` or `Mode`, through the same path as a click, for automation and
 /// captures), `acp_log` (the page's acpmux wire log and its stats; `limit`
@@ -289,7 +289,7 @@ enum DebugAgentPane {
             var options: [String: Any] = ["wait": params["wait"]?.boolValue == true]
             if let nominal = params["nominal_ms"]?.doubleValue { options["nominal_ms"] = nominal }
             return [params["seconds"]?.doubleValue ?? 3, options]
-        case "perf_stats":
+        case "perf_stats", "typing_stats":
             return [["raw": params["raw"]?.boolValue == true] as [String: Any]]
         case "stream":
             // R104: a scripted reply streamed into `rows` synthetic rows (streamDebug.ts).
