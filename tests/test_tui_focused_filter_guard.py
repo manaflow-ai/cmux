@@ -23,6 +23,24 @@ def _test_job() -> dict:
     return workflow["jobs"]["test"]
 
 
+def _assert_runner_expression_targets_os(entry: dict) -> None:
+    """Keep matrix host checks independent of pool-specific runner labels."""
+    os_name = entry["os"]
+    runner = entry["runner"]
+
+    assert os_name in {"linux", "macos"}
+    assert isinstance(runner, str)
+    expression = runner.strip()
+    assert expression.startswith("${{")
+    assert expression.endswith("}}")
+
+    # Hosted, owned-pool, fork, and repository override labels can all change;
+    # the expression still has to select a runner from the matrix entry's host
+    # family so each platform's lint coverage remains real.
+    host_markers = {"linux": ("linux", "ubuntu"), "macos": ("macos",)}
+    assert any(marker in expression.lower() for marker in host_markers[os_name])
+
+
 def test_ignored_only_listing_has_no_runnable_test_names() -> None:
     listing = "test tui::slow_network_test: test\n"
     normal_names = {line for line in listing.splitlines() if line}
@@ -121,19 +139,16 @@ def test_lint_is_one_required_job_and_os_matrix_only_runs_behavior_tests() -> No
     assert lint["needs"] == "validate-inputs"
     assert lint["name"] == "lint (${{ matrix.os }})"
     assert lint["strategy"]["fail-fast"] is False
-    assert lint["strategy"]["matrix"]["include"] == [
-        {
-            "os": "macos",
-            "runner": "blacksmith-6vcpu-macos-15",
-        },
-        {
-            "os": "linux",
-            "runner": "blacksmith-4vcpu-ubuntu-2404",
-        },
-    ]
+    matrix = lint["strategy"]["matrix"]["include"]
+    assert len(matrix) == 2
+    assert {entry["os"] for entry in matrix} == {"linux", "macos"}
+    for entry in matrix:
+        _assert_runner_expression_targets_os(entry)
     assert "cargo fmt --check" in lint_commands
     assert "cargo clippy --workspace --all-targets --locked -- -D warnings" in lint_commands
-    assert "cargo fmt --check" not in test_commands
+    # Keep the formatting check in both hosted OS lanes as the workflow does;
+    # clippy remains owned by the dedicated lint matrix below.
+    assert "cargo fmt --check" in test_commands
     assert "cargo clippy --workspace --all-targets --locked -- -D warnings" not in test_commands
     assert "lint" in gate["needs"]
     assert gate["env"]["LINT_RESULT"] == "${{ needs.lint.result }}"
@@ -149,7 +164,7 @@ def test_lint_matrix_runs_clippy_with_each_host_cfg() -> None:
 
     assert {entry["os"] for entry in matrix} == {"linux", "macos"}
     for entry in matrix:
-        runner_os = "Linux" if entry["os"] == "linux" else "macOS"
+        _assert_runner_expression_targets_os(entry)
         linux_dependency_steps = [
             step
             for step in steps
@@ -157,12 +172,9 @@ def test_lint_matrix_runs_clippy_with_each_host_cfg() -> None:
         ]
         assert len(linux_dependency_steps) == 1
         assert linux_dependency_steps[0]["if"] == "runner.os == 'Linux'"
-        if runner_os == "Linux":
-            assert entry["runner"].endswith("ubuntu-2404")
-        else:
-            assert entry["runner"].endswith("macos-15")
 
         clippy_steps = [step for step in steps if step.get("name") == "cargo clippy"]
         assert len(clippy_steps) == 1
+        assert "if" not in clippy_steps[0]
         assert clippy_steps[0]["working-directory"] == "cmux-tui"
         assert "cargo clippy --workspace --all-targets --locked -- -D warnings" in clippy_steps[0]["run"]
