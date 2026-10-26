@@ -16,7 +16,11 @@
 //!   thread exists, ever.
 //! - [`start_recording`] / [`stop`]: the recording ring for `cmux trace`. Its file is mapped once
 //!   and never unmapped or cleared; each start moves its cursor a lap past the last recording.
-//! - [`write`]: off, one relaxed load and a branch; on, no lock, allocation or system call.
+//! - [`write`](fn@write): off, one relaxed load and a branch; on, no lock, allocation or system call.
+//! - The trace macros ([`trace_scope!`], [`trace_instant!`], [`trace_async_begin!`] /
+//!   [`trace_async_end!`], [`trace_flow_out!`] / [`trace_flow_in!`], [`trace_counter!`]): Chrome's
+//!   `TRACE_EVENT*` over [`write`](fn@write), one `static` [`TraceSite`] per call site, names from the shared
+//!   catalog ([`names::CATALOG`]); [`scope_stack`] is the calling thread's open scopes.
 //!
 //! std and libc only: the holder links it.
 
@@ -25,7 +29,9 @@ mod copy;
 mod decode;
 mod identity;
 mod layout;
+mod macros;
 mod map;
+pub mod names;
 mod ring;
 mod tracer;
 
@@ -41,6 +47,9 @@ pub use layout::{
     CHUNK_BYTES, CatalogName, FLAG_ESTIMATE, FLAG_ID, HEADER_BYTES, NameKind, PAGE_BYTES, Phase,
     RECORDS_PER_CHUNK, RingKind, RingLayout, RingSizes, THREAD_NONE,
 };
+#[doc(hidden)]
+pub use macros::categories as __categories;
+pub use macros::{SCOPE_STACK_DEPTH, ScopeGuard, ScopeStack, TraceArg, TraceSite, scope_stack};
 pub use map::{Reserve, reserve_blocks};
 pub use ring::Record;
 pub use tracer::{InternedName, StartClocks, Tracer, TracerConfig, Writer};
@@ -283,7 +292,7 @@ pub fn write(category: u64, name: u16, phase: Phase, flags: u8, arg0: u64, arg1:
     }
 }
 
-/// [`write`] with a time the caller measured on the trace clock (an event's own timestamp).
+/// [`write`](fn@write) with a time the caller measured on the trace clock (an event's own timestamp).
 #[inline]
 pub fn write_at(
     category: u64,
@@ -299,7 +308,7 @@ pub fn write_at(
     }
 }
 
-/// [`write`] under a name interned at run time (one id per ring, interned at its first record
+/// [`write`](fn@write) under a name interned at run time (one id per ring, interned at its first record
 /// there).
 #[inline]
 pub fn write_interned(
