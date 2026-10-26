@@ -74,13 +74,15 @@ jobs:
             || decide false "Could not fetch the head and $BASE_REF: every check runs."
           [ "$(git -C "$repo" rev-parse refs/remotes/pr/head)" = "$AFTER" ] || decide false "The branch moved past $AFTER: every check runs."
           read -r first second extra <<<"$(git -C "$repo" rev-list --parents -n 1 "$AFTER" | cut -d' ' -f2-)"
-          [ "${first:-}" = "$BEFORE" ] && [ -n "${second:-}" ] && [ -z "${extra:-}" ] \
-            || decide false "The head is not a merge onto the previous head: every check runs."
+          if [ "${first:-}" != "$BEFORE" ] || [ -z "${second:-}" ] || [ -n "${extra:-}" ]; then
+            decide false "The head is not a merge onto the previous head: every check runs."
+          fi
           git -C "$repo" merge-base --is-ancestor "$second" refs/remotes/origin/base \
             || decide false "The merged commit is not on $BASE_REF: every check runs."
           bases="$(git -C "$repo" merge-base --all "$BEFORE" "$second" 2>/dev/null || true)"
-          [ -n "$bases" ] && [ "$(wc -l <<<"$bases")" -eq 1 ] \
-            || decide false "No single point where the previous head met $BASE_REF: every check runs."
+          if [ -z "$bases" ] || [ "$(wc -l <<<"$bases")" -ne 1 ]; then
+            decide false "No single point where the previous head met $BASE_REF: every check runs."
+          fi
           # The pull request's own change, before and after, without context, line
           # numbers or blob ids, so a base that moved under unchanged hunks keeps it equal.
           change() {
