@@ -9,6 +9,7 @@ every 30 minutes and measures how long feat-cmux-next pushes have waited.
 from __future__ import annotations
 
 import datetime as dt
+import http.client
 import importlib.util
 from pathlib import Path
 import sys
@@ -188,10 +189,12 @@ class StaleExitTests(unittest.TestCase):
         stage = watch.Stage(stale, 5.0 if stale else 0.5, NOW - dt.timedelta(hours=5), "Nothing was promoted.")
         with unittest.mock.patch.object(watch, "read_feed", lambda url: NEWEST), \
                 unittest.mock.patch.object(watch, "published_commit", lambda gh: ""), \
+                unittest.mock.patch.object(watch, "published_commit_for_release", lambda gh, tag: ""), \
                 unittest.mock.patch.object(watch, "oldest_waiting_push", lambda gh, sha, newest: None), \
                 unittest.mock.patch.object(watch, "assess", lambda *a, **k: stage), \
                 unittest.mock.patch.object(watch.GitHub, "runs", lambda self, *a, **k: []), \
                 unittest.mock.patch.object(watch, "sync_issue", lambda *a: "synced"), \
+                unittest.mock.patch.object(watch, "starvation_dispatch", lambda *a, **k: "stubbed"), \
                 unittest.mock.patch.dict("os.environ", {"GH_TOKEN": "t"}):
             return watch.main(["--repo", "o/r", "--dry-run"])
 
@@ -210,6 +213,376 @@ class FeedTests(unittest.TestCase):
         # nightly-next ships as cmux NEXT with its own feed (cx-x7hwx); the old
         # cmux NIGHTLY-identity feed is no longer written.
         self.assertEqual(watch.FEED_URL, "https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml")
+
+    def test_watches_both_next_appcast_paths(self):
+        """The shipped app polls the bare path; `/next/` is the channel path."""
+        self.assertEqual(set(watch.NEXT_FEED_URLS), {
+            "https://files-next.cmux.com/nightly-next/appcast-arm64.xml",
+            "https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml",
+        })
+
+    def test_freshness_is_the_older_of_the_two_feeds(self):
+        """On 2026-10-26 the bare feed was two hours ahead of `/next/`; a build
+        that reaches one path and not the other still leaves users behind."""
+        ahead, behind = NOW - dt.timedelta(minutes=5), NOW - dt.timedelta(hours=2)
+        with unittest.mock.patch.object(watch, "read_feed", {"a": ahead, "b": behind}.get):
+            self.assertEqual(watch.read_feeds(["a", "b"]), (behind, []))
+            self.assertEqual(watch.read_feeds(["b", "a"]), (behind, []))
+
+    def test_a_zoneless_feed_date_is_read_as_utc(self):
+        """A pubDate with no zone used to blow up `now - feed` as naive vs aware."""
+        feed = "<rss><pubDate>Mon, 26 Oct 2026 01:16:50 -0000</pubDate>" \
+               "<pubDate>Sun, 25 Oct 2026 23:14:49 +0000</pubDate></rss>"
+        # RFC 2822 "-0000" means "zone unknown", and Python returns it naive.
+        newest = watch.newest_item(feed)
+        self.assertEqual(newest.tzinfo, dt.timezone.utc)
+        self.assertEqual(newest.isoformat(), "2026-10-26T01:16:50+00:00")
+        self.assertIsInstance((NOW - newest).total_seconds(), float)  # no naive/aware TypeError
+        self.assertEqual(watch.as_utc(dt.datetime(2026, 10, 26, 1, 0)).tzinfo, dt.timezone.utc)
+
+    def test_one_malformed_item_never_hides_the_rest_of_a_feed(self):
+        feed = "<rss><pubDate>not a date</pubDate><pubDate>Sun, 25 Oct 2026 23:14:49 +0000</pubDate></rss>"
+        self.assertEqual(watch.newest_item(feed).isoformat(), "2026-10-25T23:14:49+00:00")
+        self.assertIsNone(watch.newest_item("<rss><pubDate>not a date</pubDate></rss>"))
+
+    def test_a_feed_whose_dates_are_malformed_is_a_feed_fault_not_a_crash(self):
+        def read(url):
+            raise ValueError("unparseable pubDate")
+        with unittest.mock.patch.object(watch, "read_feed", read):
+            newest, missing = watch.read_feeds(["bad"])
+        self.assertIsNone(newest)
+        self.assertEqual(missing, ["bad: unparseable pubDate"])
+
+    def test_an_unreadable_feed_is_named_and_never_hides_the_others(self):
+        def read(url):
+            if url == "gone":
+                raise urllib.error.HTTPError(url, 404, "Not Found", {}, None)
+            return None if url == "empty" else NEWEST
+        with unittest.mock.patch.object(watch, "read_feed", read):
+            newest, missing = watch.read_feeds(["gone", "empty", "ok"])
+        self.assertEqual(newest, NEWEST)
+        self.assertEqual(len(missing), 2)
+        self.assertTrue(missing[0].startswith("gone: "), missing)
+        self.assertEqual(missing[1], "empty: no dated item")
+        self.assertEqual(watch.read_feeds([]), (None, []))
+
+
+class StarvationGuardTests(unittest.TestCase):
+    """Past 25 minutes without a publication the guard builds the current tip.
+
+    It never cancels anything: a newer tip builds alongside a running build.
+    An active run holds it back only when that run could already be carrying
+    the tip, so a build stuck on an old commit no longer freezes the feed
+    (2026-10-26: nightly-next runs created 03:27Z, 04:18Z and 04:23Z kept the
+    guard quiet while the tip ran four hours ahead of the feed).
+    """
+
+    TIP = "f" * 40
+    LANDED = NOW - dt.timedelta(minutes=10)
+
+    class Gh(watch.GitHub):
+        def __init__(self, outer, runs, tip=None, landed=...):
+            super().__init__("o/r", "t", dry_run=False)
+            self._runs, self.dispatched = runs, []
+            self._tip = outer.TIP if tip is None else tip
+            self._landed = outer.LANDED if landed is ... else landed
+
+        def ref_commit(self, branch):
+            return self._tip, self._landed
+
+        def ref_sha(self, branch):
+            return self._tip
+
+        def recent_runs(self, workflow, branch=None, now=None):
+            return list(self._runs)
+
+        def dispatch(self, workflow, ref, inputs=None):
+            self.dispatched.append((workflow, ref, inputs))
+
+    def guard(self, gh, feed_age_minutes=90.0, published_sha=""):
+        return watch.starvation_dispatch(
+            gh, NOW, feed=NOW - dt.timedelta(minutes=feed_age_minutes),
+            published_sha=published_sha, branch="feat-cmux-next",
+            workflow="nightly-next-tick.yml", ref="main")
+
+    def active(self, run_id, created_hours_ago, head_sha=None):
+        return {"id": run_id, "status": "in_progress", "created_at": at(created_hours_ago),
+                "head_sha": head_sha or f"{run_id:040d}",
+                "html_url": f"https://github.com/o/r/actions/runs/{run_id}"}
+
+    def test_an_unreadable_feed_is_unknown_not_fresh(self):
+        """Saying "fresh" is how a 404 on the appcast stood the guard down."""
+        gh = self.Gh(self, [])
+        self.assertEqual(
+            watch.starvation_dispatch(gh, NOW, feed=None, published_sha="", branch="main",
+                                      workflow="nightly.yml", ref="main"),
+            "feed unknown, nothing dispatched")
+        self.assertEqual(gh.dispatched, [])
+
+    def test_a_fresh_feed_dispatches_nothing(self):
+        gh = self.Gh(self, [])
+        self.assertEqual(self.guard(gh, feed_age_minutes=24.0), "fresh")
+        self.assertEqual(gh.dispatched, [])
+
+    def test_a_quiet_branch_dispatches_nothing(self):
+        gh = self.Gh(self, [])
+        self.assertTrue(self.guard(gh, published_sha=self.TIP).startswith("unchanged"))
+        self.assertEqual(gh.dispatched, [])
+
+    def test_a_published_tip_reports_its_feed_age_without_diagnosing_it(self):
+        """A build cannot fix this case: the promotion ignores a request that
+        does not move the branch forward, and the alarm does not raise it,
+        because no push is waiting. So the run names it instead of reporting a
+        bare "unchanged" -- but it reports the age, it does not call the feed
+        behind. On a branch quiet for two hours an old newest item is exactly
+        what a correct feed looks like, and this check cannot tell that from a
+        publication that never reached a path.
+        """
+        gh = self.Gh(self, [])
+        feed = NOW - dt.timedelta(minutes=90)
+        self.assertEqual(self.guard(gh, published_sha=self.TIP),
+                         f"unchanged: the tip is published, feed newest {feed.isoformat()}")
+        # A feed published ten minutes after the tip landed is current, and a
+        # quiet hour later it must not be described any differently.
+        current = watch.starvation_dispatch(
+            self.Gh(self, []), NOW, feed=NOW - dt.timedelta(minutes=26), published_sha=self.TIP,
+            branch="feat-cmux-next", workflow="nightly-next-tick.yml", ref="main")
+        self.assertEqual(current,
+                         f"unchanged: the tip is published, "
+                         f"feed newest {(NOW - dt.timedelta(minutes=26)).isoformat()}")
+        self.assertNotIn("behind", current)
+        unreadable = watch.starvation_dispatch(
+            self.Gh(self, []), NOW, feed=None, published_sha=self.TIP, branch="feat-cmux-next",
+            workflow="nightly-next-tick.yml", ref="main", feed_unknown=True)
+        self.assertEqual(unreadable, "unchanged: the tip is published and its feed could not be read")
+        self.assertEqual(gh.dispatched, [])
+
+    def test_a_stale_feed_with_no_active_run_builds_the_tip(self):
+        gh = self.Gh(self, [])
+        self.assertEqual(self.guard(gh), f"dispatched nightly-next-tick.yml for {self.TIP}")
+        self.assertEqual(gh.dispatched, [("nightly-next-tick.yml", "main", None)])
+
+    def test_a_run_that_started_before_the_tip_landed_never_blocks_it(self):
+        """The 2026-10-26 outage: three runs stuck on a commit hours behind."""
+        gh = self.Gh(self, [self.active(1, 2.0), self.active(2, 1.5), self.active(3, 1.0)])
+        self.assertEqual(self.guard(gh), f"dispatched nightly-next-tick.yml for {self.TIP}")
+        self.assertEqual(len(gh.dispatched), 1)
+
+    def test_a_run_that_started_after_the_tip_landed_blocks(self):
+        gh = self.Gh(self, [self.active(4, 0.05)])
+        self.assertEqual(self.guard(gh), "running https://github.com/o/r/actions/runs/4")
+        self.assertEqual(gh.dispatched, [])
+
+    def test_the_tips_own_run_blocks_however_old_it_looks(self):
+        gh = self.Gh(self, [self.active(5, 9.0, head_sha=self.TIP.upper())])
+        self.assertEqual(self.guard(gh), "running https://github.com/o/r/actions/runs/5")
+        self.assertEqual(gh.dispatched, [])
+
+    def test_an_unreadable_tip_time_never_doubles_a_build(self):
+        gh = self.Gh(self, [self.active(6, 9.0)], landed=None)
+        self.assertEqual(self.guard(gh), "running https://github.com/o/r/actions/runs/6")
+        self.assertEqual(gh.dispatched, [])
+
+    def test_every_active_status_still_blocks(self):
+        """One unfiltered page keeps ACTIVE's `pending` and `requested`, which a
+        status-filtered read would have dropped."""
+        for status in sorted(watch.ACTIVE):
+            with self.subTest(status=status):
+                live = dict(self.active(8, 0.05), status=status)
+                self.assertEqual(self.guard(self.Gh(self, [live])),
+                                 "running https://github.com/o/r/actions/runs/8")
+
+    def test_a_completed_run_never_blocks(self):
+        done = dict(self.active(7, 0.05), status="completed")
+        gh = self.Gh(self, [done])
+        self.assertEqual(self.guard(gh), f"dispatched nightly-next-tick.yml for {self.TIP}")
+
+    def test_the_dispatched_commit_is_the_one_judged_stale(self):
+        gh = self.Gh(self, [])
+        watch.starvation_dispatch(
+            gh, NOW, feed=NOW - dt.timedelta(minutes=90), published_sha="",
+            branch="feat-cmux-next", workflow="nightly-next-tick.yml", ref="main",
+            tip_input="sha")
+        self.assertEqual(gh.dispatched, [("nightly-next-tick.yml", "main", {"sha": self.TIP})])
+
+    def test_a_fresh_feed_costs_no_api_call(self):
+        """The guard must stay affordable when the REST budget is nearly spent."""
+        class NoCalls(watch.GitHub):
+            def call(self, *_a, **_k):
+                raise AssertionError("a fresh feed must not call the API")
+        self.assertEqual(self.guard(NoCalls("o/r", "t", False), feed_age_minutes=24.0), "fresh")
+
+    def test_a_feed_path_we_could_not_read_is_not_evidence_of_freshness(self):
+        """Usually a path the publish step never wrote, which a build does fix."""
+        gh = self.Gh(self, [])
+        self.assertEqual(
+            watch.starvation_dispatch(gh, NOW, feed=NOW, published_sha="", branch="feat-cmux-next",
+                                      workflow="nightly-next-tick.yml", ref="main", feed_unknown=True),
+            f"dispatched nightly-next-tick.yml for {self.TIP}")
+        # Still bounded: a branch that has not moved past the published commit
+        # dispatches nothing, however unreadable its feed is.
+        quiet = self.Gh(self, [])
+        self.assertEqual(
+            watch.starvation_dispatch(quiet, NOW, feed=None, published_sha=self.TIP,
+                                      branch="feat-cmux-next", workflow="nightly-next-tick.yml",
+                                      ref="main", feed_unknown=True),
+            "unchanged: the tip is published and its feed could not be read")
+        self.assertEqual(quiet.dispatched, [])
+
+    def test_the_guard_never_cancels_a_run(self):
+        """Leo, 2026-10-24: a newer tip builds alongside, it never evicts."""
+        self.assertNotIn("/cancel", SCRIPT.read_text())
+
+    def test_the_trigger_is_twenty_five_minutes(self):
+        """25 minutes to act, so the 30-minute ceiling is never breached."""
+        import inspect
+        self.assertEqual(inspect.signature(watch.starvation_dispatch).parameters["minutes"].default, 25.0)
+
+
+class ActiveRunReadTests(unittest.TestCase):
+    """A stuck run must be found even when newer runs have buried it.
+
+    One page of 100 would have missed a run displaced by newer completed ones,
+    which is exactly the run that holds the feed back.
+    """
+
+    class Paged(watch.GitHub):
+        def __init__(self, pages):
+            super().__init__("o/r", "t", dry_run=True)
+            self.pages, self.asked = pages, []
+
+        def call(self, method, path, body=None):
+            page = int(urllib.parse.parse_qs(path.split("?", 1)[1])["page"][0])
+            self.asked.append(page)
+            return {"workflow_runs": self.pages[page - 1] if page <= len(self.pages) else []}
+
+    def page_of(self, count, hours_ago):
+        return [{"id": i, "created_at": at(hours_ago), "status": "completed"} for i in range(count)]
+
+    def test_it_pages_past_a_full_page_of_recent_runs(self):
+        stuck = {"id": 999, "created_at": at(2.0), "status": "queued"}
+        gh = self.Paged([self.page_of(100, 0.5), [stuck] + self.page_of(99, 3.0)])
+        runs = gh.recent_runs("nightly.yml", "nightly-next", NOW)
+        self.assertIn(stuck, runs)
+        # Page 2 is still inside the lookback, so it asks once more and the
+        # empty page three ends the walk.
+        self.assertEqual(gh.asked, [1, 2, 3])
+
+    def test_it_stops_once_a_page_is_older_than_anything_can_still_be_running(self):
+        gh = self.Paged([self.page_of(100, 9.0), self.page_of(100, 20.0)])
+        gh.recent_runs("nightly.yml", "nightly-next", NOW)
+        self.assertEqual(gh.asked, [1], "a page older than the lookback ends the walk")
+
+    def test_a_short_page_ends_the_walk(self):
+        gh = self.Paged([self.page_of(3, 0.5)])
+        self.assertEqual(len(gh.recent_runs("nightly.yml", "nightly-next", NOW)), 3)
+        self.assertEqual(gh.asked, [1])
+
+
+class HealBeforeAlarmTests(unittest.TestCase):
+    """Every scheduled run from 01:35Z to 04:52Z on 2026-10-26 hit a 403 in the
+    alarm path and returned before the guards ran, so the feed sat four hours
+    stale while the schedule stayed green. The guards now run first, and each
+    inside its own boundary."""
+
+    def run_main(self, gh_call):
+        seen = []
+        with unittest.mock.patch.object(watch, "read_feed", lambda url: NEWEST), \
+                unittest.mock.patch.object(watch.GitHub, "call", gh_call), \
+                unittest.mock.patch.object(
+                    watch, "starvation_dispatch",
+                    lambda *a, **k: seen.append(k.get("branch")) or f"dispatched for {k.get('branch')}"), \
+                unittest.mock.patch.dict("os.environ", {"GH_TOKEN": "t"}):
+            return watch.main(["--repo", "o/r", "--dry-run"]), seen
+
+    def test_a_rate_limited_alarm_still_runs_both_guards(self):
+        def forbidden(self, method, path, body=None):
+            raise urllib.error.HTTPError("u", 403, "rate limit exceeded", {}, None)
+        code, seen = self.run_main(forbidden)
+        self.assertEqual(code, 0)
+        self.assertEqual(seen, ["feat-cmux-next", "main"])
+
+    def test_one_failing_guard_never_skips_the_other(self):
+        calls = []
+
+        def guard(*_args, **kwargs):
+            calls.append(kwargs.get("branch"))
+            if kwargs.get("branch") == "feat-cmux-next":
+                raise urllib.error.HTTPError("u", 403, "Forbidden", {}, None)
+            return "dispatched"
+
+        def forbidden(self, method, path, body=None):
+            raise urllib.error.HTTPError("u", 403, "Forbidden", {}, None)
+        with unittest.mock.patch.object(watch, "read_feed", lambda url: NEWEST), \
+                unittest.mock.patch.object(watch.GitHub, "call", forbidden), \
+                unittest.mock.patch.object(watch, "starvation_dispatch", guard), \
+                unittest.mock.patch.dict("os.environ", {"GH_TOKEN": "t"}):
+            self.assertEqual(watch.main(["--repo", "o/r", "--dry-run"]), 0)
+        self.assertEqual(calls, ["feat-cmux-next", "main"])
+
+    def test_a_release_read_that_is_not_an_oserror_still_leaves_a_guard_running(self):
+        """`published_commit*` swallow OSError, so a 403 was survivable, but the
+        read sat outside every boundary: the live `IncompleteRead` seen on
+        2026-10-26 is not an OSError and would have taken both guards with it."""
+        seen = []
+        with unittest.mock.patch.object(watch, "read_feed", lambda url: NEWEST), \
+                unittest.mock.patch.object(
+                    watch, "published_commit",
+                    lambda gh: (_ for _ in ()).throw(http.client.IncompleteRead(b"half"))), \
+                unittest.mock.patch.object(watch, "published_commit_for_release", lambda gh, tag: ""), \
+                unittest.mock.patch.object(
+                    watch, "starvation_dispatch",
+                    lambda *a, **k: seen.append(k.get("branch")) or "dispatched"), \
+                unittest.mock.patch.dict("os.environ", {"GH_TOKEN": "t"}):
+            self.assertEqual(watch.main(["--repo", "o/r", "--dry-run"]), 0)
+        # The NEXT guard cannot run without its marker, but classic still does.
+        self.assertEqual(seen, ["main"])
+
+    def test_each_release_marker_is_read_once(self):
+        """The guards and the alarm share one read apiece, not three."""
+        reads = []
+        with unittest.mock.patch.object(watch, "read_feed", lambda url: NEWEST), \
+                unittest.mock.patch.object(
+                    watch, "published_commit", lambda gh: reads.append("next") or ""), \
+                unittest.mock.patch.object(
+                    watch, "published_commit_for_release", lambda gh, tag: reads.append(tag) or ""), \
+                unittest.mock.patch.object(watch, "starvation_dispatch", lambda *a, **k: "stubbed"), \
+                unittest.mock.patch.object(watch, "oldest_waiting_push", lambda gh, sha, newest: None), \
+                unittest.mock.patch.object(watch.GitHub, "runs", lambda self, *a, **k: []), \
+                unittest.mock.patch.object(watch, "sync_issue", lambda *a: "synced"), \
+                unittest.mock.patch.dict("os.environ", {"GH_TOKEN": "t"}):
+            watch.main(["--repo", "o/r", "--dry-run"])
+        self.assertEqual(reads, ["next", "nightly"])
+
+    def test_the_classic_guard_runs_when_the_next_feeds_are_unreadable(self):
+        """Different feeds fail differently; one must not take the other down."""
+        seen = []
+
+        def read(url):
+            if url == watch.CLASSIC_FEED_URL:
+                return NEWEST
+            raise urllib.error.HTTPError(url, 404, "Not Found", {}, None)
+
+        def forbidden(self, method, path, body=None):
+            raise urllib.error.HTTPError("u", 403, "Forbidden", {}, None)
+        with unittest.mock.patch.object(watch, "read_feed", read), \
+                unittest.mock.patch.object(watch.GitHub, "call", forbidden), \
+                unittest.mock.patch.object(
+                    watch, "starvation_dispatch",
+                    lambda *a, **k: seen.append(k.get("branch")) or "ok"), \
+                unittest.mock.patch.dict("os.environ", {"GH_TOKEN": "t"}):
+            self.assertEqual(watch.main(["--repo", "o/r", "--dry-run"]), 0)
+        self.assertEqual(seen, ["feat-cmux-next", "main"])
+
+    def test_heal_reports_any_failure_without_raising(self):
+        """A guard runs before the alarm, so nothing it raises may stop the check."""
+        for error in (urllib.error.HTTPError("u", 403, "Forbidden", {}, None),
+                      KeyError("workflow_runs"), ValueError("not json"), TypeError("none")):
+            with self.subTest(error=type(error).__name__):
+                def boom(err=error):
+                    raise err
+                watch.heal("next", boom)  # must not raise
+        self.assertIsNone(watch.heal("next", lambda: "dispatched"))
 
 
 class FakeGitHub:
