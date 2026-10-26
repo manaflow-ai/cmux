@@ -192,7 +192,7 @@ export class TrajectoryStore {
     const total = this.totalBytes()
     if (data.byteLength > freed && total + data.byteLength - freed > LINEAGE_MAX_BYTES) return { ok: false, refusal: { code: "cloud.trajectory.full", bytes: total } }
     if (offset === 0) this.sql.exec(`DELETE FROM traj_native_chunk WHERE session = ? AND label = ? AND path = ?`, session, label, path)
-    if (data.byteLength > 0) this.sql.exec(`INSERT INTO traj_native_chunk (session, label, path, offset, data) VALUES (?, ?, ?, ?, ?)`, session, label, path, offset, data)
+    if (data.byteLength > 0) this.sql.exec(`INSERT INTO traj_native_chunk (session, label, path, offset, data) VALUES (?, ?, ?, ?, ?)`, session, label, path, offset, data.slice().buffer)
     const next = offset + data.byteLength
     this.sql.exec(`INSERT INTO traj_native (session, label, path, size) VALUES (?, ?, ?, ?) ON CONFLICT(session, label, path) DO UPDATE SET size = excluded.size`, session, label, path, next)
     this.sql.exec(`UPDATE traj_session SET bytes = ?, updated_at = ? WHERE session = ?`, row.bytes + data.byteLength - freed, now, session)
