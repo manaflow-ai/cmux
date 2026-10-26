@@ -414,12 +414,14 @@ fn classify(status: Option<i32>, stderr: &str) -> Result<(), Unavailable> {
 /// or wait failure. Stderr reads end at EOF, WouldBlock, or 16 KiB: even an
 /// inherited stderr writer cannot hold the probe open after its child exits.
 pub(crate) fn probe(bwrap: &Path) -> Result<(), Unavailable> {
+    let probe_root = fs::File::open("/")
+        .map_err(|e| Unavailable::Other(format!("bwrap probe could not open /: {e}")))?;
     let mut child = Command::new(bwrap)
-        .args("--unshare-user --unshare-net --disable-userns --ro-bind / / --bind-fd 0 /dev/null --ro-bind-fd 0 /dev/null true".split_whitespace())
+        .args("--unshare-user --unshare-net --disable-userns --ro-bind / / --bind-fd 0 /tmp --ro-bind-fd 0 /var true".split_whitespace())
         .env_clear()
         .env("PATH", "/usr/bin:/bin")
         .current_dir("/")
-        .stdin(Stdio::null())
+        .stdin(Stdio::from(probe_root))
         .stdout(Stdio::null())
         .stderr(Stdio::piped())
         .spawn()
