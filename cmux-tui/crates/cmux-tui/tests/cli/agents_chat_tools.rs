@@ -929,6 +929,13 @@ fn latest_code_block_is_available_over_cli_and_mcp() {
     let before = read_until(&daemon, &reader, json!({"target": holder}), |items| {
         items.iter().any(|item| item["role"] == "turn_end")
     });
+    assert!(before.get("last_code_block").is_none());
+    let (status, with_code) =
+        agents_chat(&daemon, Some(&reader), &["read", &holder, "--last-code-block"]);
+    assert_eq!(status, Some(0), "{with_code}");
+    assert_eq!(with_code["items"], before["items"]);
+    assert_eq!(with_code["next_after"], before["next_after"]);
+    assert_eq!(with_code["has_more"], before["has_more"]);
     let cursor = before["next_after"].as_u64().unwrap().to_string();
     let (status, cli) = agents_chat(
         &daemon,

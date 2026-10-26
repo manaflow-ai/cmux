@@ -87,7 +87,13 @@ fn latest_code_block_supports_markdown_containers_and_matching_fences() {
             "{markdown}"
         );
     }
-    for markdown in ["inline `code`", "    indented code", "```rust\nunfinished", "~~~~\nx\n~~~"] {
+    for markdown in [
+        "inline `code`",
+        "    indented code",
+        "```rust\nunfinished",
+        "~~~~\nx\n~~~",
+        "```sh\necho unfinished\n    ```",
+    ] {
         assert_eq!(extract(markdown), None, "{markdown}");
     }
 }
