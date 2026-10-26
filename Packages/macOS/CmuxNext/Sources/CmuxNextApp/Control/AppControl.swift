@@ -40,13 +40,11 @@ final class AppControl {
     /// `debug.motion`'s Core Animation commit timer (`ca.commit`), owned here, not by a static.
     let motionCommitProbe = MotionCommitProbe()
     #if DEBUG || CMUX_BENCH_HOOKS
-    /// `debug.key` sequences' player (one sequence at a time), owned here, not by a static.
-    private let keySequencePlayer = DebugKeySequencePlayer()
-    /// `debug.startup`'s report: the launch marks, and what the first committed frame held (kept by AppDelegate).
-    /// Counters, scheduler and catalog wait have no producer in this build yet (tasks 007, 012, 092 wire theirs
-    /// here); until then their fields read null, which counts as missing, not present.
-    let startupReport = StartupReportRecorder(launch: { DebugTimings.launchMarksNow },
-                                              processStartNanos: DebugTimings.processStartUptimeNanos,
+    private let keySequencePlayer = DebugKeySequencePlayer() // `debug.key` sequences' player (one at a time), not a static
+    let hops = InputTurnHops() // `debug.input hops` (p04-input-022); the MainJobGate hook (021) records into `hops.recorder`
+    /// `debug.startup`'s report: the launch marks and the first committed frame (kept by AppDelegate). Counters, scheduler
+    /// and catalog wait have no producer yet (tasks 007, 012, 092 wire theirs here); their fields read null until then.
+    let startupReport = StartupReportRecorder(launch: { DebugTimings.launchMarksNow }, processStartNanos: DebugTimings.processStartUptimeNanos,
                                               counters: { nil }, scheduler: { _ in nil }, actionCatalogMainWaitMs: { nil })
     #endif
     private(set) var service: ControlService?
@@ -162,7 +160,7 @@ final class AppControl {
                                                            continuation.resume(returning: DebugInputScrollViews(auditing: NSApp.windows))
                                                        }
                                                    }
-                                               }]).method])
+                                               }], recorders: [hops.start(input: input)]).method])
         router.register(DebugWindowsControl.methods(services) + [services.daemon.debugControlMethod { [weak services] in services?.windows.controllers.map { (id: $0.state.id, shows: $0.recoveryShows) } ?? [] }, services.daemon.debugDrainCostMethod])
     }
     #endif
