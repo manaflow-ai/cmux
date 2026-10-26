@@ -236,6 +236,7 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
         analytics.signedOut()
         await browserSignIn.signOut()
         billingPlanState = .unknown
+        billingPlanRequestScope = nil
         restoreAnalyticsIfStillSignedIn()
     }
 
@@ -283,6 +284,7 @@ final class HostAccountFlow: AccountFlow, AccountSignInFlow {
         analytics.signedOut()
         await browserSignIn.signOut(timeout: timeout)
         billingPlanState = .unknown
+        billingPlanRequestScope = nil
         restoreAnalyticsIfStillSignedIn()
     }
 
