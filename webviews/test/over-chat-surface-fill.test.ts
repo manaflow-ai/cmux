@@ -23,7 +23,7 @@ const files = (dir: string, ext: RegExp): string[] =>
   });
 
 const classNames = (list: string) => list.split(/\s+/).filter((name) => /^[a-z][\w-]*$/.test(name));
-const shared = new Set(["ui-glass", "ui-popup", "ui-dialog", "ui-card"]);
+const shared = new Set(["ui-glass", "ui-glass-floats", "ui-popup", "ui-dialog", "ui-card"]);
 
 // The attributes of the JSX tag that opens at `start`: up to its `>` outside any `{...}` (an arrow
 // function in a prop has a `>` of its own), as glass-one-edge.test.ts reads them.
@@ -47,7 +47,8 @@ for (const file of files(source, /\.tsx$/)) {
     for (const name of classNames(className?.[1] ?? "")) if (!shared.has(name)) surfaces.add(name);
   }
   for (const literal of text.matchAll(/["`]([^"`\n]*\bui-glass\b[^"`\n]*)["`]/g)) {
-    for (const name of classNames(literal[1])) if (!shared.has(name)) surfaces.add(name);
+    // Only the surface's own class; the utility classes beside it (flex, text-fg) are not surfaces.
+    for (const name of classNames(literal[1])) if (/^(acpmux|cv)-/.test(name)) surfaces.add(name);
   }
 }
 
