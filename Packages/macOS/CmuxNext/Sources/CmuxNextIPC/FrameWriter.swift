@@ -16,8 +16,10 @@ public import Foundation
 /// This is the outgoing half of Chromium's `mojo/core/channel_posix.cc` (`outgoing_messages_`, written by
 /// `WriteNoLock` / `FlushOutgoingMessagesNoLock` with the handles of a message on its first byte through
 /// `SendmsgWithHandles`, mojo/public/cpp/platform/socket_utils_posix.cc), with the priority FIFOs of cmux-ipc's
-/// LaneWriter (task 052) in place of Mojo's single queue. Small messages that wait together leave in one send of
-/// at most ``batchBytes`` (Mojo's `kMaxBatchReadCapacity` analog on the write side), still in priority order.
+/// LaneWriter (task 052) in place of Mojo's single queue. Waiting input and control messages leave together in one
+/// send of at most ``batchBytes`` (Mojo's `kMaxBatchReadCapacity` analog on the write side), still in priority
+/// order. A bulk or background message is always a drain step of its own, so the step in flight is never more than
+/// one BULK_FRAME_MAX chunk of bulk.
 ///
 /// Only the drain queue's thread waits on the socket. Past ``limit`` queued bytes ``enqueue(_:priority:fds:)``
 /// fails with ``Failure/backlog(queued:)`` instead of buffering without bound.
@@ -56,8 +58,8 @@ public final class FrameWriter: Sendable {
     public static let maxFdsPerMessage = 4
     /// The default bound on queued bytes (threading-model.md, daemon connection row: outbox 64 MiB).
     public static let defaultLimit = 64 << 20
-    /// The most bytes one drain step gathers from several waiting messages into one send. A single larger
-    /// message is still sent whole.
+    /// The most bytes one drain step gathers from several waiting input and control messages into one send.
+    /// A single larger message is still sent whole; bulk and background messages are never gathered.
     public static let batchBytes = 64 << 10
 
     private let sink: any FrameSink
@@ -238,16 +240,25 @@ extension FrameWriter {
             queuedBytes += message.bytes.count
         }
 
-        /// The next drain step: the head of the highest non-empty FIFO, then while they fit in `budget` the
-        /// following heads in the same priority order, stopping at a message with descriptors (its descriptors
-        /// must ride its own first byte). nil, and draining ends, when there is nothing to send.
+        /// The next drain step: the head of the highest non-empty FIFO. When that head is input or control, the
+        /// following input and control heads join it in priority order while they fit in `budget`, stopping at a
+        /// message with descriptors (its descriptors must ride its own first byte). A bulk or background head is
+        /// sent alone: one chunk is the preemption boundary (p05-ipc.md section 3.2). nil, and draining ends,
+        /// when there is nothing to send.
         mutating func takeBatch(budget: Int) -> Batch? {
             guard !closed, failure == nil, let first = popHighest() else {
                 draining = false
                 return nil
             }
-            var batch = Batch(messages: [first.bytes], fds: first.fds, byteCount: first.bytes.count)
-            while let next = peekHighest(), next.fds.isEmpty, batch.byteCount + next.bytes.count <= budget {
+            var batch = Batch(messages: [first.message.bytes], fds: first.message.fds,
+                              byteCount: first.message.bytes.count)
+            guard Self.joins(first.priority) else {
+                queuedBytes -= batch.byteCount
+                return batch
+            }
+            while let head = peekHighest(), Self.joins(head.priority), head.message.fds.isEmpty,
+                  batch.byteCount + head.message.bytes.count <= budget {
+                let next = head.message
                 _ = popHighest()
                 batch.messages.append(next.bytes)
                 batch.byteCount += next.bytes.count
@@ -263,16 +274,25 @@ extension FrameWriter {
             return fds
         }
 
-        private func peekHighest() -> Message? {
-            for lane in lanes {
-                if let message = lane.first { return message }
+        /// Whether a message of `priority` may share a send with other waiting messages: only input and control,
+        /// which are small; bulk and background are cut at BULK_FRAME_MAX and each chunk is its own step.
+        private static func joins(_ priority: MethodPriority) -> Bool {
+            switch priority {
+            case .input, .control: true
+            case .bulk, .background: false
+            }
+        }
+
+        private func peekHighest() -> (message: Message, priority: MethodPriority)? {
+            for priority in MethodPriority.allCases {
+                if let message = lanes[Int(priority.rawValue)].first { return (message, priority) }
             }
             return nil
         }
 
-        private mutating func popHighest() -> Message? {
-            for index in lanes.indices {
-                if let message = lanes[index].popFirst() { return message }
+        private mutating func popHighest() -> (message: Message, priority: MethodPriority)? {
+            for priority in MethodPriority.allCases {
+                if let message = lanes[Int(priority.rawValue)].popFirst() { return (message, priority) }
             }
             return nil
         }

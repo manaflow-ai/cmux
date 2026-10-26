@@ -8,12 +8,14 @@ import Testing
 /// The app's ``FrameWriter`` (plans/cmux-next/chrome-parity/p05-ipc.md, task 055): input before control before
 /// bulk before background, call order within a priority, a caller that never waits for the socket, the 64 MiB
 /// bound, and descriptors on a message's first byte. Most cases drive a ``GatedSink`` that holds the drain inside
-/// its first send until the test opens it, so the order on the wire does not depend on timing.
+/// chosen sends until the test opens them, so the order on the wire does not depend on timing.
 @Suite nonisolated struct FrameWriterTests {
     @Test func anInputFrameEnqueuedAfterEightMiBOfBulkIsWrittenNext() throws {
-        // 8 MiB of bulk cut at BULK_FRAME_MAX, as the producer cuts it (p05-ipc.md section 3.2).
-        let chunk = 64 << 10
-        let chunks = 128
+        // 8 MiB of bulk cut at cmux-ipc's BULK_FRAME_MAX (32 KiB), as the producer cuts it (p05-ipc.md section 3.2):
+        // smaller than FrameWriter.batchBytes, so a writer that joined bulk chunks would send several first.
+        let chunk = 32 << 10
+        let chunks = 256
+        #expect(chunk < FrameWriter.batchBytes)
         let input = Data(repeating: 0xEE, count: 100)
         let sink = GatedSink(expectedBytes: chunk * chunks + input.count)
         let writer = FrameWriter(sink: sink, label: "com.cmuxterm.next.daemon.write", qos: .userInitiated)
@@ -34,6 +36,60 @@ import Testing
         #expect(wire[0 ..< chunk].allSatisfy { $0 == 0xB0 })
         #expect(wire[chunk ..< chunk + input.count].allSatisfy { $0 == 0xEE }, "the input frame was not next")
         #expect(wire[(chunk + input.count)...].allSatisfy { $0 == 0xB0 })
+    }
+
+    @Test func eachBulkChunkIsItsOwnSendSoInputWaitsForOneChunk() throws {
+        // Four 16 KiB chunks (the smallest BULK_FRAME_MAX of the 16/32/64 KiB bench) fit in one batchBytes send
+        // together; the preemption boundary is still one chunk.
+        let chunk = 16 << 10
+        let chunks = 4
+        #expect(chunk * chunks <= FrameWriter.batchBytes)
+        let plug = Data("P".utf8)
+        let input = Data(repeating: 0xEE, count: 100)
+        let sink = GatedSink(expectedBytes: plug.count + chunk * chunks + input.count, heldSends: [0, 1])
+        let writer = FrameWriter(sink: sink, label: "com.cmuxterm.next.daemon.write", qos: .userInitiated)
+        defer { writer.close() }
+
+        // Hold the drain in the plug's send, so every bulk chunk waits when the next step is taken.
+        #expect(writer.enqueue(plug, priority: .control) == nil)
+        try #require(sink.waitUntilSending(), "the drain never started")
+        for _ in 0 ..< chunks {
+            #expect(writer.enqueue(Data(repeating: 0xB0, count: chunk), priority: .bulk) == nil)
+        }
+        sink.open()
+        // The drain is now held inside the first bulk step; the input frame arrives while it is in flight.
+        try #require(sink.waitUntilSending(), "the drain never took a bulk step")
+        #expect(writer.enqueue(input, priority: .input) == nil)
+        sink.open()
+        try #require(sink.waitUntilFinished(), "the writer did not deliver every byte")
+
+        #expect(Array(sink.sendSizes.prefix(3)) == [plug.count, chunk, input.count],
+                "a bulk step held more than one chunk")
+        let wire = sink.bytes
+        #expect(wire.count == plug.count + chunk * chunks + input.count)
+        let afterChunk = plug.count + chunk
+        #expect(wire[plug.count ..< afterChunk].allSatisfy { $0 == 0xB0 })
+        #expect(wire[afterChunk ..< afterChunk + input.count].allSatisfy { $0 == 0xEE },
+                "the input frame did not follow the first bulk chunk")
+        #expect(wire[(afterChunk + input.count)...].allSatisfy { $0 == 0xB0 })
+    }
+
+    @Test func waitingInputAndControlMessagesShareOneSend() throws {
+        let plug = Data("P".utf8)
+        let sink = GatedSink(expectedBytes: plug.count + 6)
+        let writer = FrameWriter(sink: sink, label: "com.cmuxterm.next.daemon.write", qos: .userInitiated)
+        defer { writer.close() }
+
+        #expect(writer.enqueue(plug, priority: .bulk) == nil)
+        try #require(sink.waitUntilSending(), "the drain never started")
+        #expect(writer.enqueue(Data("c1".utf8), priority: .control) == nil)
+        #expect(writer.enqueue(Data("i1".utf8), priority: .input) == nil)
+        #expect(writer.enqueue(Data("c2".utf8), priority: .control) == nil)
+        sink.open()
+        try #require(sink.waitUntilFinished(), "the writer did not deliver every byte")
+
+        #expect(sink.sendSizes == [plug.count, 6])
+        #expect(String(decoding: sink.bytes, as: UTF8.self) == "Pi1c1c2")
     }
 
     @Test func priorityOrdersTheQueuesAndCallOrderHoldsWithinOne() throws {
@@ -185,29 +241,32 @@ import Testing
     }
 }
 
-/// A ``FrameSink`` that records every byte and holds the drain inside its first send until ``open()``.
+/// A ``FrameSink`` that records every byte and holds the drain inside each send of `heldSends` (by index) until
+/// ``open()``; every other send goes straight through.
 private nonisolated final class GatedSink: FrameSink {
     private struct Recorded {
         var bytes: [UInt8] = []
-        var sends = 0
+        var sendSizes: [Int] = []
     }
 
     private let entered = DispatchSemaphore(value: 0)
     private let gate = DispatchSemaphore(value: 0)
     private let finished = DispatchSemaphore(value: 0)
     private let expectedBytes: Int
+    private let heldSends: Set<Int>
     private let recorded = Mutex(Recorded())
 
-    init(expectedBytes: Int) {
+    init(expectedBytes: Int, heldSends: Set<Int> = [0]) {
         self.expectedBytes = expectedBytes
+        self.heldSends = heldSends
     }
 
     func send(_ bytes: UnsafeRawBufferPointer, fds: [Int32]) -> Result<Int, FrameWriter.Failure> {
-        let isFirst = recorded.withLock { recorded -> Bool in
-            defer { recorded.sends += 1 }
-            return recorded.sends == 0
+        let index = recorded.withLock { recorded -> Int in
+            defer { recorded.sendSizes.append(bytes.count) }
+            return recorded.sendSizes.count
         }
-        if isFirst {
+        if heldSends.contains(index) {
             entered.signal()
             // Test only, on the writer's drain queue: a test that never opens the gate fails on its own wait,
             // and this queue moves on after 10 s.
@@ -221,14 +280,17 @@ private nonisolated final class GatedSink: FrameSink {
         return .success(bytes.count)
     }
 
-    /// True once the drain is inside the first send (within 5 s).
+    /// True once the drain is inside the next held send (within 5 s).
     func waitUntilSending() -> Bool { entered.wait(timeout: .now() + 5) == .success }
 
-    /// Lets the held send, and every later one, go through.
+    /// Lets the held send in progress, or the next one, go through.
     func open() { gate.signal() }
 
     /// True once the expected byte count arrived (within 10 s).
     func waitUntilFinished() -> Bool { finished.wait(timeout: .now() + 10) == .success }
 
     var bytes: [UInt8] { recorded.withLock { $0.bytes } }
+
+    /// The byte count of each send, in order.
+    var sendSizes: [Int] { recorded.withLock { $0.sendSizes } }
 }
