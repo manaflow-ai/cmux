@@ -54,7 +54,7 @@ fn recv_handoff(stream: &std::os::unix::net::UnixStream) -> (serde_json::Value, 
         vec![0u8; unsafe { libc::CMSG_SPACE((2 * std::mem::size_of::<RawFd>()) as u32) as usize }];
     let mut iov = libc::iovec { iov_base: bytes.as_mut_ptr().cast(), iov_len: bytes.len() };
     // SAFETY: all pointers refer to writable buffers for recvmsg's duration.
-    let (n, mut msg) = unsafe {
+    let (n, msg) = unsafe {
         let mut msg: libc::msghdr = std::mem::zeroed();
         msg.msg_iov = &mut iov;
         msg.msg_iovlen = 1;
