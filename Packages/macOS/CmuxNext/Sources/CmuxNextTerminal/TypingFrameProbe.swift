@@ -22,7 +22,8 @@ import QuartzCore
 ///
 /// With renderer-owned frames (`GHOSTTY_RENDERER_FRAMES`, p03-rendering-081) the renderer presents into
 /// its own leaf and no frame passes through `setContents:`, so there is no hook in any build: every
-/// contents mark, the new-terminal trace's too, comes from the trace hook's handoff (``GhosttyTraceHook``).
+/// contents mark, the new-terminal trace's too, is the renderer's presented-frame callback
+/// (`presented_cb`, ``ghosttySurfacePresented(_:_:_:_:)``).
 enum TypingFrameProbe {
     /// Whether every terminal layer class gets the hook, and so whether surfaces get echo stages.
     nonisolated static var hooksEveryLayer: Bool {

@@ -10,7 +10,9 @@ struct TerminalHeldFrame {
     private(set) var frame: IOSurface?
 
     /// The surface paused (`volatile`) or draws again. A frame in flight at the pause may have replaced
-    /// the held one: that one is not volatile.
+    /// the held one: that one is not volatile. The held frame is reclaimed before the renderer is told it
+    /// shows, so a purged one is dropped first and the show queues a fresh frame (ghostty.h: SHOWN after
+    /// PURGE queues a frame; PURGE after SHOWN would leave the pane hidden).
     mutating func hold(volatile: Bool, in source: some TerminalFrameSource) {
         let presented = source.presentedFrame
         if volatile {
@@ -19,11 +21,11 @@ struct TerminalHeldFrame {
             source.setPresentation(.hidden)
             return
         }
+        if let held = frame {
+            frame = nil
+            if presented === held, !held.reclaim() { source.setPresentation(.purge) }
+        }
         source.setPresentation(.shown)
-        guard let held = frame else { return }
-        frame = nil
-        guard presented === held else { return }
-        if !held.reclaim() { source.setPresentation(.purge) }
     }
 
     /// The presented frame for one reader (hover pictures): a held frame is made non-volatile for the

@@ -11,11 +11,7 @@ import QuartzCore
 /// NSView that hosts one Ghostty surface fed by a ``TerminalIO``.
 ///
 /// Ghostty's Metal renderer installs its own `IOSurfaceLayer` as this view's
-/// layer (ghostty/src/renderer/Metal.zig); never replace the layer. With
-/// renderer-owned frames (`GHOSTTY_RENDERER_FRAMES`) that layer is a container:
-/// the renderer presents into its leaf off main, and cmux reads, hides and
-/// purges the frame through Ghostty (``TerminalFrameSource``), never through
-/// the layer's contents. The
+/// layer (ghostty/src/renderer/Metal.zig); never replace the layer. The
 /// surface is created in `init`, like Ghostty.app does, so output that
 /// arrives before the view joins a window is not lost, and freed in `deinit`.
 ///
@@ -160,6 +156,8 @@ public final class TerminalSurfaceView: NSView {
     /// Where this view's pointer positions, buttons and scrolls go: its Ghostty surface, or a test's counter.
     // SAFETY: the sink holds this view's surface and goes with the view (GhosttyMouseSink).
     lazy var mouse: any TerminalMouseSink = unsafe GhosttyMouseSink(surface: surface)
+    // SAFETY: the frame source holds this view's surface and goes with the view (GhosttyFrameSource).
+    lazy var frameSource = unsafe GhosttyFrameSource(surface: surface, view: self)
 
     // MARK: Lifecycle
 
@@ -168,7 +166,7 @@ public final class TerminalSurfaceView: NSView {
          modifiers: TerminalModifierWatch? = nil, pointerFrames: FrameInputCoalescers? = nil,
          gpuResidency: (any TerminalGPUResidency)? = nil) {
         let echoStage = echoStages.makeStage() // before the surface: the trace hook may see its first frame
-        let bridge = SurfaceBridge(input: input, echoStage: echoStage)
+        let bridge = SurfaceBridge(input: input, echoStage: echoStage, frameMarks: echoStages.frameMarks)
         // SAFETY: balanced by the one release in `deinit` (`bridge`'s note).
         self.bridge = unsafe Unmanaged.passRetained(bridge)
         self.session = session
@@ -227,9 +225,7 @@ public final class TerminalSurfaceView: NSView {
         config.context = GHOSTTY_SURFACE_CONTEXT_WINDOW
         config.io_mode = mode
         // SAFETY: as above.
-        unsafe config.io_write_cb = ghosttyIOWrite
-        // SAFETY: as above.
-        unsafe config.io_write_userdata = userdata
+        unsafe SurfaceBridge.setCallbacks(in: &config, userdata: userdata)
         // SAFETY: as above; `app` is the runtime's live app (never freed).
         guard let surface = unsafe ghostty_surface_new(app, &config) else {
             GhosttyRuntime.logger.error("ghostty_surface_new failed")
@@ -571,47 +567,6 @@ public final class TerminalSurfaceView: NSView {
         guard let surface else { return false }
         // SAFETY: the view's live surface (`surface`).
         return unsafe ghostty_surface_has_selection(surface)
-    }
-}
-
-/// The renderer is the one writer of the presented frame (p03-rendering-081): ``presentedFrame``,
-/// the frame hold, last frames, held frames and the first-frame watch read it from Ghostty
-/// (`ghostty_surface_presented_frame`), and hiding, showing and purging go to Ghostty
-/// (`ghostty_surface_set_presentation`). A GhosttyNextKit without them (`GHOSTTY_RENDERER_FRAMES` off,
-/// Package.swift) still presents each frame as this view's layer contents on main, so it reads that.
-extension TerminalSurfaceView: TerminalFrameSource {
-    /// The last presented frame, or nil before the first draw.
-    var presentedFrame: IOSurface? {
-        #if GHOSTTY_RENDERER_FRAMES
-        guard let surface else { return nil }
-        // SAFETY: the view's live surface (`surface`). The frame comes back +1, or nil before the
-        // first draw; taking it retained balances that.
-        guard let frame = unsafe ghostty_surface_presented_frame(surface) else { return nil }
-        return unsafe frame.takeRetainedValue()
-        #else
-        guard let contents = layer?.contents else { return nil }
-        let object = contents as CFTypeRef
-        guard CFGetTypeID(object) == IOSurfaceGetTypeID() else { return nil }
-        // SAFETY: the CF type ID check above proves `object` is an IOSurface.
-        return unsafe unsafeDowncast(object, to: IOSurface.self)
-        #endif
-    }
-
-    func setPresentation(_ presentation: TerminalPresentation) {
-        #if GHOSTTY_RENDERER_FRAMES
-        guard let surface else { return }
-        let value = switch presentation {
-        case .hidden: GHOSTTY_SURFACE_PRESENTATION_HIDDEN
-        case .shown: GHOSTTY_SURFACE_PRESENTATION_SHOWN
-        case .purge: GHOSTTY_SURFACE_PRESENTATION_PURGE
-        }
-        // SAFETY: the view's live surface (`surface`).
-        unsafe ghostty_surface_set_presentation(surface, value)
-        #else
-        // Hidden and shown change nothing on a main-presented layer; a purged frame leaves it.
-        guard presentation == .purge else { return }
-        layer?.contents = nil
-        #endif
     }
 }
 

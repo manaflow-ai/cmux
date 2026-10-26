@@ -33,7 +33,7 @@ public final class TerminalLastFrame {
 
     /// The frame `session` presents now; nil before its first draw.
     public convenience init?(of session: TerminalSession) {
-        self.init(presentedBy: session.surfaceView)
+        self.init(presentedBy: session.surfaceView.frameSource)
     }
 
     /// The frame `source`'s renderer presents now, a reference to its IOSurface that outlives the

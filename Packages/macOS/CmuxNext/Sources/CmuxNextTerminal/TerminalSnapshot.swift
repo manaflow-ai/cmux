@@ -6,6 +6,9 @@ import QuartzCore
 // Hover previews. The latest presented frame (``TerminalSurfaceView/presentedFrame``)
 // is always available without asking Ghostty to draw.
 extension TerminalSurfaceView {
+    /// The last presented frame, or nil before the first draw (``GhosttyFrameSource``).
+    var presentedFrame: IOSurface? { frameSource.presentedFrame }
+
     /// Downscaled copy of the last presented frame. One GPU blit; does not
     /// wake the renderer, so it is safe for surfaces that are occluded.
     func snapshot(maxPixelSize: CGFloat) -> CGImage? {

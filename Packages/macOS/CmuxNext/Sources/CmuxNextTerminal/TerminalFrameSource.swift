@@ -6,7 +6,8 @@ import IOSurface
 /// browser holds a reference to the surface's current frame and asks the producer to evict it
 /// (`components/viz/service/frame_sinks/frame_evictor.h`), and only the producer submits frames.
 ///
-/// ``TerminalSurfaceView`` is the source for a live surface; tests pass a recorder.
+/// ``GhosttyFrameSource`` is the source for a live surface (``TerminalSurfaceView/frameSource``); tests pass a
+/// recorder.
 @MainActor
 protocol TerminalFrameSource: AnyObject {
     /// The frame the renderer presents now; nil before its first draw or after a purge.

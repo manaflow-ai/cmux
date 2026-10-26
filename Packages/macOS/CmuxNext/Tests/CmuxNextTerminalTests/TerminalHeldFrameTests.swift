@@ -7,10 +7,16 @@ import Testing
 /// p03-rendering-081); nothing writes a layer's contents.
 @MainActor @Suite(.timeLimit(.minutes(1)))
 struct TerminalHeldFrameTests {
-    /// A renderer that presents `presented` and records what main asks of it.
+    /// A renderer that presents `presented` and records what main asks of it, with ghostty-next's
+    /// presentation states (Metal.zig `setPresentation`): HIDDEN and PURGE stop presenting (PURGE also
+    /// drops the frame), and only SHOWN presents again and queues a frame.
     final class Renderer: TerminalFrameSource {
         var presented: IOSurface?
         private(set) var presentations: [TerminalPresentation] = []
+        /// Whether the renderer presents: false after HIDDEN or PURGE until the next SHOWN.
+        private(set) var presenting = true
+        /// A SHOWN after HIDDEN or PURGE queued a fresh frame.
+        private(set) var queuedFrame = false
 
         init(presenting presented: IOSurface?) {
             self.presented = presented
@@ -20,7 +26,16 @@ struct TerminalHeldFrameTests {
 
         func setPresentation(_ presentation: TerminalPresentation) {
             presentations.append(presentation)
-            if presentation == .purge { presented = nil }
+            switch presentation {
+            case .hidden:
+                presenting = false
+            case .purge:
+                presenting = false
+                presented = nil
+            case .shown:
+                if !presenting { queuedFrame = true }
+                presenting = true
+            }
         }
     }
 
@@ -59,6 +74,7 @@ struct TerminalHeldFrameTests {
         #expect(purgeableState(frame) == IOSurface.purgeableNonVolatile)
         #expect(renderer.presentations == [.hidden, .shown])
         #expect(renderer.presented === frame)
+        #expect(renderer.presenting)
     }
 
     @Test func aFramePurgedWhileHiddenIsDroppedByTheRenderer() throws {
@@ -69,8 +85,10 @@ struct TerminalHeldFrameTests {
         held.hold(volatile: true, in: renderer)
         purge(frame)
         held.hold(volatile: false, in: renderer)
-        #expect(renderer.presentations == [.hidden, .shown, .purge])
+        #expect(renderer.presentations == [.hidden, .purge, .shown], "dropped before the show, never after it")
         #expect(renderer.presented == nil, "no reader sees the empty frame")
+        #expect(renderer.presenting, "the shown pane presents again")
+        #expect(renderer.queuedFrame, "the show queues a fresh frame for the purged one")
     }
 
     /// A frame in flight at the pause replaced the held one: the new one was never made volatile, so a
@@ -84,6 +102,7 @@ struct TerminalHeldFrameTests {
         renderer.presented = newer
         held.hold(volatile: false, in: renderer)
         #expect(renderer.presentations == [.hidden, .shown])
+        #expect(renderer.presenting)
         #expect(purgeableState(newer) == IOSurface.purgeableNonVolatile)
         #expect(purgeableState(old) == IOSurface.purgeableVolatile)
     }
@@ -112,6 +131,10 @@ struct TerminalHeldFrameTests {
         #expect(held.beginRead(from: renderer) == nil)
         #expect(held.frame == nil)
         #expect(renderer.presentations == [.hidden, .purge])
+
+        held.hold(volatile: false, in: renderer)
+        #expect(renderer.presentations == [.hidden, .purge, .shown])
+        #expect(renderer.presenting && renderer.queuedFrame, "shown again, it waits for a fresh frame")
     }
 
     @Test func aReadOfADrawingSurfaceGetsItsPresentedFrameAsItIs() throws {
