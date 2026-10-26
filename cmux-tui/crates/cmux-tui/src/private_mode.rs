@@ -34,8 +34,51 @@ pub(crate) fn run(args: &[String]) -> Option<i32> {
         // What every daemon of this build advertises, with none running: the
         // app bundle records it for the web pages (daemon-capabilities.json).
         Some(DAEMON_CAPABILITIES) => Some(capabilities(&args[1..])),
+        // One api-compat translation in this build: the oracle's api-compat
+        // suite (scripts/cmux-next/oracle/gen_api_compat.py).
+        #[cfg(any(debug_assertions, feature = "oracle"))]
+        Some(ORACLE_API_COMPAT) => Some(oracle_api_compat(&args[1..])),
         _ => None,
     }
+}
+
+/// The oracle's api-compat mode; debug and `--features oracle` builds only.
+#[cfg(any(debug_assertions, feature = "oracle"))]
+pub(crate) const ORACLE_API_COMPAT: &str = "__oracle-api-compat";
+
+/// `__oracle-api-compat`: one [`cmux_api_compat::fixtures::Translation`] as
+/// JSON on stdin, its [`cmux_api_compat::fixtures::Outcome`] on stdout. A
+/// refusal is an outcome (exit 0); unreadable input exits 2.
+#[cfg(any(debug_assertions, feature = "oracle"))]
+fn oracle_api_compat(args: &[String]) -> i32 {
+    use std::io::Read;
+
+    if !args.is_empty() {
+        client_log::stderr_log!("startup", "usage: {BIN} {ORACLE_API_COMPAT} < translation.json");
+        return 2;
+    }
+    let mut input = Vec::new();
+    if let Err(error) = std::io::stdin().lock().read_to_end(&mut input) {
+        client_log::stderr_log!("startup", "{BIN}: {ORACLE_API_COMPAT}: stdin: {error}");
+        return 2;
+    }
+    match oracle_api_compat_reply(&input) {
+        Ok(reply) => {
+            println!("{reply}");
+            0
+        }
+        Err(error) => {
+            client_log::stderr_log!("startup", "{BIN}: {ORACLE_API_COMPAT}: {error}");
+            2
+        }
+    }
+}
+
+/// The reply line for one translation request.
+#[cfg(any(debug_assertions, feature = "oracle"))]
+fn oracle_api_compat_reply(input: &[u8]) -> Result<String, serde_json::Error> {
+    let translation: cmux_api_compat::fixtures::Translation = serde_json::from_slice(input)?;
+    serde_json::to_string(&translation.run())
 }
 
 /// The offline capabilities mode, which write-daemon-capabilities.sh runs.
@@ -97,5 +140,28 @@ mod tests {
             let args: Vec<String> = args.iter().map(|arg| (*arg).to_owned()).collect();
             assert_eq!(run(&args), None, "{args:?}");
         }
+    }
+
+    /// The oracle's api-compat cases send a fixture vector's translation and
+    /// read the outcome; a refusal is a reply, bad JSON is not.
+    #[cfg(any(debug_assertions, feature = "oracle"))]
+    #[test]
+    fn oracle_api_compat_replies_with_the_translation_outcome() {
+        use super::oracle_api_compat_reply;
+
+        let schema = serde_json::json!({"protocol": "t", "base": 1, "revisions": [{"rev": 2,
+            "changes": [{"message": "event:x", "op": "rename", "path": "/a", "to": "b"}]}]});
+        let request = |input: &str| {
+            serde_json::json!({"schema": schema, "message": "event:x", "from": 1, "to": 2,
+                               "input": input})
+            .to_string()
+        };
+        let reply = oracle_api_compat_reply(request(r#"{"a":1}"#).as_bytes()).unwrap();
+        assert_eq!(reply, r#"{"output":"{\"b\":1}"}"#);
+        let reply: serde_json::Value =
+            serde_json::from_str(&oracle_api_compat_reply(request("{").as_bytes()).unwrap())
+                .unwrap();
+        assert_eq!(reply["error"]["kind"], "malformed", "{reply}");
+        assert!(oracle_api_compat_reply(br#"{"schema": 1}"#).is_err());
     }
 }
