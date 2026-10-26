@@ -28,10 +28,12 @@
 //! - `_acpmux/chat_roots_record {harness, transcriptPath}`: a hook reports
 //!   a transcript; its store root joins the index (recorded roots file).
 //! - `_acpmux/chat_settings {enabled, discovery, roots, managedRoots,
-//!   permissionMode?, permissionModeManaged?}`: the app's effective cmux.json
+//!   permissionMode?, permissionModeManaged?, allowFullAccess?,
+//!   allowFullAccessManaged?}`: the app's effective cmux.json
 //!   `agents.chats.*` values (`chats/settings.rs`) and its effective
-//!   `agents.defaultPermissionMode` with whether MDM or the team policy
-//!   forces it (`hub/start_mode_state.rs`); answers the roots view with
+//!   `agents.defaultPermissionMode` and `sessions.allowFullAccess`, each with
+//!   whether MDM or the team policy forces it (`hub/start_mode_state.rs`);
+//!   answers the roots view with
 //!   `applied: true`. While chats are off, `_acpmux/chats` answers
 //!   `enabled: false` and no chats.
 //!
@@ -243,6 +245,20 @@ pub(super) async fn route(
         "_acpmux/chat_settings" => {
             let settings = crate::chats::ChatSettings::from_params(&params)
                 .map_err(RpcError::invalid_params)?;
+            // `sessions.allowFullAccess`, effective (managed > user > default), and whether MDM or
+            // the team policy forces it. Strict: only `true` allows, so a forced value that is not
+            // a boolean is off. No key (an older app) pushes nothing.
+            let full_access_managed = match params.get("allowFullAccessManaged") {
+                None | Some(Value::Null) => false,
+                Some(Value::Bool(managed)) => *managed,
+                Some(_) => {
+                    return Err(RpcError::invalid_params(
+                        "allowFullAccessManaged must be true or false",
+                    ));
+                }
+            };
+            let allowed = crate::hub::start_mode::strict_allow(params.get("allowFullAccess"))
+                .or(full_access_managed.then_some(false));
             let managed = match params.get("permissionModeManaged") {
                 None | Some(Value::Null) => false,
                 Some(Value::Bool(managed)) => *managed,
@@ -269,6 +285,7 @@ pub(super) async fn route(
                 }
             };
             hub.apply_permission_push(mode, managed).await;
+            hub.apply_full_access_push(allowed, full_access_managed).await;
             let hub = hub.clone();
             blocking(move || {
                 let running = hub.apply_chat_settings(settings).map_err(RpcError::internal)?;

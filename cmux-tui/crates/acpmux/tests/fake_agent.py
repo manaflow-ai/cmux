@@ -237,6 +237,12 @@ def claude_prompt(rid, params):
             claude_turns.discard(sid)
 
 
+def fake_mode_ids():
+    """FAKE_MODE_IDS=<id,id>: the modes this harness offers, the first current."""
+    ids = [i for i in os.environ["FAKE_MODE_IDS"].split(",") if i]
+    return {"currentModeId": ids[0], "availableModes": [{"id": i, "name": i} for i in ids]}
+
+
 def run_hostname(rid, sid):
     """FAKE_ASK_MODE: `hostname` as a tool call, run only after the person's allow."""
     call = {"toolCallId": "hostname-1", "title": "hostname", "kind": "execute", "status": "pending",
@@ -1200,6 +1206,10 @@ def main():
             # FAKE_PLAN_MODE=1: opencode's modes, "build" and a "plan" that runs bash.
             if os.environ.get("FAKE_PLAN_MODE") == "1":
                 result["modes"] = {"currentModeId": "build", "availableModes": [{"id": "build", "name": "Build"}, {"id": "plan", "name": "Plan"}]}
+            # FAKE_MODE_IDS=<id,id>: the harness's modes instead of normal and strict, the first
+            # current (real ids, for the full-access allowlist in spec/full-access-modes.json).
+            if os.environ.get("FAKE_MODE_IDS") and "modes" in result:
+                result["modes"] = fake_mode_ids()
             # FAKE_FULL_ACCESS=1: a harness that also offers a full-access mode.
             if os.environ.get("FAKE_FULL_ACCESS") == "1" and "modes" in result:
                 result["modes"]["availableModes"].append({"id": "full-access", "name": "Full access"})
@@ -1252,6 +1262,8 @@ def main():
             load_mode = os.environ.get("FAKE_LOAD_MODE")
             if load_mode:
                 offered = [{"id": "normal", "name": "Normal"}, {"id": "strict", "name": "Strict"}]
+                if os.environ.get("FAKE_MODE_IDS"):
+                    offered = fake_mode_ids()["availableModes"]
                 if os.environ.get("FAKE_FULL_ACCESS") == "1":
                     offered.append({"id": "full-access", "name": "Full access"})
                 # FAKE_LOAD_ONLY_MODE=1: the loaded chat offers only that mode, nothing lower.
