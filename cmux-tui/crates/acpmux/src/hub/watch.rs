@@ -29,10 +29,6 @@ use serde_json::{Value, json};
 use std::io::{Read, Seek, SeekFrom};
 use std::path::Path;
 use std::sync::Arc;
-use std::time::Duration;
-
-/// How often a watched transcript is checked for new lines.
-const POLL: Duration = Duration::from_millis(400);
 
 /// A transcript bigger than this is read from its newest part only.
 const MAX_BYTES: u64 = 64 << 20;
@@ -91,6 +87,30 @@ pub(super) fn read_lines(file: &Path, offset: u64) -> std::io::Result<(Vec<Strin
     Ok((lines, start + end as u64 + 1))
 }
 
+/// A watch on `file`'s folder that sends once per batch of changes to `file`, and the watcher
+/// to keep alive while it is read. None, logged, when the folder cannot be watched (it is gone):
+/// the chat keeps what it showed, and the next daemon start follows it again.
+fn changes(file: &Path) -> Option<(notify::RecommendedWatcher, tokio::sync::mpsc::Receiver<()>)> {
+    use notify::Watcher;
+    let (folder, name) = (file.parent()?.to_owned(), file.file_name()?.to_owned());
+    // One pending wake is enough: each wake reads everything new.
+    let (tx, rx) = tokio::sync::mpsc::channel(1);
+    let mut watcher = notify::recommended_watcher(move |event: notify::Result<notify::Event>| {
+        if event.is_ok_and(|e| e.paths.iter().any(|p| p.file_name() == Some(name.as_os_str()))) {
+            let _ = tx.try_send(());
+        }
+    })
+    .map_err(
+        |e| tracing::warn!(file = %file.display(), "a watched transcript cannot be followed: {e}"),
+    )
+    .ok()?;
+    if let Err(e) = watcher.watch(&folder, notify::RecursiveMode::NonRecursive) {
+        tracing::warn!(file = %file.display(), "a watched transcript cannot be followed: {e}");
+        return None;
+    }
+    Some((watcher, rx))
+}
+
 impl Hub {
     /// Makes a just-created adopted `session` watch `file` instead of running the conversation.
     pub(super) fn begin_watch(
@@ -116,6 +136,11 @@ impl Hub {
         }
         let (hub, session) = (self.clone(), session.clone());
         tokio::spawn(async move {
+            // The transcript's folder, watched for a change to the file (the file itself may be
+            // replaced or appear later): each change reads what the app appended. No change, no
+            // wake (D6); it replaced a 400 ms poll of every watched chat.
+            let Some(watching) = session.meta().watching else { return };
+            let Some((_watch, mut changed)) = changes(&watching.file) else { return };
             loop {
                 let Some(watching) = session.meta().watching else { return };
                 if session.status() == SessionStatus::Closed {
@@ -134,7 +159,11 @@ impl Hub {
                     hub.show_watched(&session, &lines, offset);
                 }
                 if !more {
-                    tokio::time::sleep(POLL).await;
+                    tokio::select! {
+                        change = changed.recv() => if change.is_none() { return },
+                        // A take-over, a close or a purge: the loop's checks above end it.
+                        () = session.watch_end.notified() => {}
+                    }
                 }
             }
         });
@@ -277,6 +306,7 @@ impl Hub {
             }
             open
         };
+        session.watch_end.notify_one();
         // The other app's open turn is settled here: this chat's own turns follow.
         if let Some(turn) = open {
             self.end_watched_turn(session, &turn, None);

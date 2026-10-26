@@ -213,3 +213,20 @@ async fn a_frame_past_sixteen_mib_is_read() {
         }
     }
 }
+
+/// A client that stops halfway through its upgrade request is closed after the handshake
+/// deadline (5 s, as the request head's peek): it never holds its connection task and
+/// descriptor without end (acpmux-audit.md finding 15).
+#[tokio::test]
+async fn a_websocket_upgrade_that_stalls_midway_is_closed() {
+    let port = listener().await;
+    let mut stream = tokio::net::TcpStream::connect(("127.0.0.1", port)).await.unwrap();
+    // The head routes it to the WebSocket path; the blank line that ends it never comes.
+    let partial =
+        format!("GET /?token={TOKEN} HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\nUpgrade: websocket\r\n");
+    stream.write_all(partial.as_bytes()).await.unwrap();
+    let mut buf = [0u8; 64];
+    let read = tokio::time::timeout(std::time::Duration::from_secs(9), stream.read(&mut buf)).await;
+    let closed = matches!(read, Ok(Ok(0)) | Ok(Err(_)));
+    assert!(closed, "the stalled upgrade was still open after 9 s: {read:?}");
+}

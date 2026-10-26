@@ -156,7 +156,9 @@ fn set(model: &str, effort: &str) -> Vec<(String, String)> {
     vec![("model".into(), model.into()), ("effort".into(), effort.into())]
 }
 
-fn saved(dir: &Path, harness: &str) -> Value {
+fn saved(daemon: &Hub, dir: &Path, harness: &str) -> Value {
+    // The pick reaches config.json on the config writer's thread.
+    daemon.flush_writes();
     let config: Value =
         serde_json::from_slice(&std::fs::read(dir.join("config.json")).unwrap()).unwrap();
     config["defaults"][harness].clone()
@@ -182,7 +184,7 @@ async fn a_new_chat_starts_on_the_catalog_default_then_on_the_persons_pick_after
     // The chip naming the model the chat already runs is no pick and is not sent again.
     app.call("session/set_model", json!({"sessionId": codex, "modelId": "gpt-6.1-sol"})).await;
     assert_eq!(take_calls(&calls), vec![]);
-    assert_eq!(saved(&dir, "codex"), Value::Null);
+    assert_eq!(saved(&daemon, &dir, "codex"), Value::Null);
 
     // The person picks another model and effort: both are saved for the next new chat.
     app.call("session/set_model", json!({"sessionId": codex, "modelId": "gpt-6-astra"})).await;
@@ -192,8 +194,10 @@ async fn a_new_chat_starts_on_the_catalog_default_then_on_the_persons_pick_after
     )
     .await;
     assert_eq!(take_calls(&calls), set("gpt-6-astra", "high"));
-    assert_eq!(saved(&dir, "codex"), json!({"model": "gpt-6-astra", "effort": "high"}));
+    assert_eq!(saved(&daemon, &dir, "codex"), json!({"model": "gpt-6-astra", "effort": "high"}));
     drop(app);
+    // A restart reads config.json: what the writer holds goes first.
+    daemon.flush_writes();
     drop(daemon);
 
     // After a restart (config.json read again), a new Codex chat starts on the pick;
@@ -251,7 +255,7 @@ async fn a_model_named_in_the_request_wins_and_its_effort_follows_the_catalog() 
     app.call("session/new", params).await;
     assert_eq!(take_calls(&calls), set("gpt-6-luna", "medium"));
     // A model the request names is not the person's saved pick.
-    assert_eq!(saved(&dir, "codex"), Value::Null);
+    assert_eq!(saved(&daemon, &dir, "codex"), Value::Null);
     let _ = std::fs::remove_dir_all(&dir);
 }
 
@@ -283,7 +287,7 @@ async fn a_model_set_from_the_cli_is_no_saved_pick() {
     take_calls(&calls);
     cli.call("session/set_model", json!({"sessionId": codex, "modelId": "gpt-6-astra"})).await;
     assert_eq!(take_calls(&calls), vec![("model".to_owned(), "gpt-6-astra".to_owned())]);
-    assert_eq!(saved(&dir, "codex"), Value::Null);
+    assert_eq!(saved(&daemon, &dir, "codex"), Value::Null);
     let _ = std::fs::remove_dir_all(&dir);
 }
 

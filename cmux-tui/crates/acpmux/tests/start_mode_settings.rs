@@ -243,6 +243,9 @@ async fn start_mode_answer_and_new_chats_follow_the_settings_file_never_full_acc
     // count it is at now (another daemon, or the file restored) wins.
     std::fs::write(&settings, r#"{"agents": {"defaultPermissionMode": "ask"}}"#).unwrap();
     assert_eq!(app.chat(&dir, "codex").await.1, "ask");
+    // The picks above reach config.json and start-mode.json on the config writer's thread:
+    // they are on disk before this test reads and edits the files.
+    daemon.flush_writes();
     let config_path = dir.join("config.json");
     let read_config =
         || -> Value { serde_json::from_slice(&std::fs::read(&config_path).unwrap()).unwrap() };
@@ -264,6 +267,8 @@ async fn start_mode_answer_and_new_chats_follow_the_settings_file_never_full_acc
     daemon.reload_catalog().await.unwrap();
     assert_eq!(app.chat(&dir, "codex").await.1, "agent");
     drop(app);
+    // A restart reads config.json: what the writer holds goes first.
+    daemon.flush_writes();
     drop(daemon);
 
     // A pick saved before acpmux counted changes (an upgrade) keeps winning,
@@ -276,6 +281,8 @@ async fn start_mode_answer_and_new_chats_follow_the_settings_file_never_full_acc
     std::fs::write(&settings, r#"{"agents": {"defaultPermissionMode": "fullAccess"}}"#).unwrap();
     assert_eq!(app.chat(&dir, "codex").await.1, "agent-full-access");
     drop(app);
+    // A restart reads config.json: what the writer holds goes first.
+    daemon.flush_writes();
     drop(daemon);
     // An older build's pick saved beside a setting that is no longer the
     // setting: the setting changed after the pick, so the setting wins.
@@ -330,6 +337,8 @@ async fn a_managed_value_the_app_pushes_beats_the_file_config_and_picks() {
     assert_eq!(app.chat(&dir, "codex").await.1, "ask");
     drop(app);
     drop(socket);
+    // A restart reads config.json: what the writer holds goes first.
+    daemon.flush_writes();
     drop(daemon);
 
     // A restarted daemon keeps the forced value before the app pushes again,
@@ -459,10 +468,14 @@ async fn a_spent_pick_stays_spent_when_the_change_count_is_lost() {
     let state = |dir: &Path| -> Value {
         serde_json::from_slice(&std::fs::read(dir.join("start-mode.json")).unwrap()).unwrap()
     };
+    // The pick's count reaches start-mode.json on the config writer's thread.
+    daemon.flush_writes();
     let picked_at = state(&dir)["changes"].as_u64().unwrap();
     assert!(picked_at > 0, "{}", state(&dir));
     drop(app);
     drop(socket);
+    // A restart reads config.json: what the writer holds goes first.
+    daemon.flush_writes();
     drop(daemon);
 
     // The count is lost; the setting changes until the new count passes the
