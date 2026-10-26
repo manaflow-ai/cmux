@@ -372,11 +372,13 @@ fn build_of(line: &str) -> Option<&str> {
 /// Lists each acpmux the host has, in the order it would use them (its
 /// PATH, the standalone install, the cmux apps, then a cmux-tui: the app's
 /// SSH install at ~/.local/bin, `cmux remote install`'s ~/.cmux/bin, PATH),
-/// with its version line and what `daemon status` (which never starts a
+/// with its version line, the file it resolves to (`readlink -f`, so a
+/// link such as `~/.local/bin/acpmux` compares with the daemon's own resolved
+/// `exe`), and what `daemon status` (which never starts a
 /// daemon) says through it (a cmux-tui as `cmux-tui acp …`); then a NUL and
 /// the daemon config. An app name may hold spaces: the glob's words stay
 /// whole and a pattern that matched nothing fails `-f`.
-const PROBE_BINS: &str = r#"seen=; for b in "$(command -v acpmux 2>/dev/null)" ~/.local/bin/acpmux /Applications/cmux*.app/Contents/Resources/bin/acpmux ~/.local/bin/cmux-tui ~/.cmux/bin/cmux-tui "$(command -v cmux-tui 2>/dev/null)"; do [ -n "$b" ] && [ -f "$b" ] && [ -x "$b" ] || continue; case "$seen" in *"|$b|"*) continue ;; esac; seen="$seen|$b|"; case "$b" in */acpmux) set -- "$b" ;; *) set -- "$b" acp ;; esac; printf 'bin\t%s\t%s\n' "$b" "$("$@" --version 2>/dev/null | head -n 1)"; printf 'status\t%s\t%s\n' "$b" "$("$@" --json daemon status 2>/dev/null | tr -d '\n')"; done; printf '\0'; "#;
+const PROBE_BINS: &str = r#"seen=; for b in "$(command -v acpmux 2>/dev/null)" ~/.local/bin/acpmux /Applications/cmux*.app/Contents/Resources/bin/acpmux ~/.local/bin/cmux-tui ~/.cmux/bin/cmux-tui "$(command -v cmux-tui 2>/dev/null)"; do [ -n "$b" ] && [ -f "$b" ] && [ -x "$b" ] || continue; case "$seen" in *"|$b|"*) continue ;; esac; seen="$seen|$b|"; case "$b" in */acpmux) set -- "$b" ;; *) set -- "$b" acp ;; esac; printf 'bin\t%s\t%s\n' "$b" "$("$@" --version 2>/dev/null | head -n 1)"; printf 'real\t%s\t%s\n' "$b" "$(readlink -f "$b" 2>/dev/null)"; printf 'status\t%s\t%s\n' "$b" "$("$@" --json daemon status 2>/dev/null | tr -d '\n')"; done; printf '\0'; "#;
 
 /// [`PROBE_BINS`], then the remote daemon config.
 fn probe_script() -> String {
@@ -393,6 +395,9 @@ struct Probe {
     uname: String,
     /// Each acpmux on the host and its build, in [`probe_script`] order.
     bins: Vec<(String, Option<String>)>,
+    /// Each binary's resolved file (`readlink -f`), by its probed path, when
+    /// the host could resolve it.
+    real: std::collections::BTreeMap<String, String>,
     /// The first daemon that answered.
     running: Option<Running>,
     /// The running daemon's executable, when its `daemon status` names it
@@ -452,6 +457,9 @@ fn parse_probe(stdout: &str) -> Probe {
         let rest = rest.unwrap_or("");
         match kind {
             "bin" => probe.bins.push((path.to_owned(), build_of(rest).map(str::to_owned))),
+            "real" if rest.trim().starts_with('/') => {
+                probe.real.insert(path.to_owned(), rest.trim().to_owned());
+            }
             "status" if probe.running.is_none() => {
                 let v: Value = serde_json::from_str(rest.trim()).unwrap_or(Value::Null);
                 if let Some(pid) = v.get("pid").and_then(Value::as_u64) {
@@ -497,6 +505,11 @@ fn cmux_session_daemon(acp: bool, exe: Option<&str>, daemon_bin: &str) -> bool {
 }
 
 impl Probe {
+    /// The file `path` resolves to on the host, else `path` itself.
+    fn resolved<'a>(&'a self, path: &'a str) -> &'a str {
+        self.real.get(path).map(String::as_str).unwrap_or(path)
+    }
+
     fn in_use(&self) -> Option<InUse> {
         if let Some(run) = &self.running {
             let app_bin = self.bins.iter().any(|(path, _)| app_owned(path));

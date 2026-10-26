@@ -645,6 +645,21 @@ fn daemon_skew_on_another_platform_has_no_host_update_try() {
     assert_eq!(result.reason, Some("peer_version_skew"));
     assert!(result.data.is_none(), "{result:?}");
     assert!(result.fix.unwrap().contains("host doctor box --fix"));
+
+    // A custom `--remote-binary` install: ~/.local/bin/acpmux links to a file
+    // outside the probed folders, and the daemon names that resolved file as
+    // its `exe`. The probe resolves the link, so the restart is still offered.
+    let p = parse_probe(&format!(
+        "uname\t{other_os} {}\nbin\t/home/leo/.local/bin/acpmux\tacpmux 0.1.0 ({})\nreal\t/home/leo/.local/bin/acpmux\t/opt/acpmux/acpmux\nstatus\t/home/leo/.local/bin/acpmux\t{{\"pid\":7,\"build\":\"old\",\"exe\":\"/opt/acpmux/acpmux (deleted)\"}}\0{CONFIG}",
+        std::env::consts::ARCH,
+        crate::hub::BUILD
+    ));
+    assert_eq!(p.resolved("/home/leo/.local/bin/acpmux"), "/opt/acpmux/acpmux");
+    let result = match judge_daemon("leo@box.tail", "box", &p, Some(47811)).0 {
+        Verdict::OtherBuild(result) => result,
+        other => panic!("{other:?}"),
+    };
+    assert!(result.fix.unwrap().contains("host doctor box --fix"), "a resolved link is current");
 }
 
 /// Runs the scripts in a local `sh` with `HOME` at a temp folder, so the

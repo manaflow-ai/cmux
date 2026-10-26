@@ -118,9 +118,14 @@ pub(super) fn judge_daemon(
         Ok(_) => match used.and_then(|u| u.pid.map(|pid| (pid, u.build))) {
             None => Verdict::Repair("the daemon is not running".into()),
             Some((_, Some(b))) if b != build => {
+                // The daemon's `exe` is already resolved; a probed path may
+                // be a link (a custom `--remote-binary` install behind
+                // `~/.local/bin/acpmux`), so compare what each resolves to.
+                let used_real = used_path.as_deref().map(|u| probe.resolved(u));
                 let current_binary = probe.bins.iter().any(|(path, build)| {
-                    Some(path.as_str()) == used_path.as_deref()
-                        && build.as_deref() == Some(crate::hub::BUILD)
+                    build.as_deref() == Some(crate::hub::BUILD)
+                        && (Some(path.as_str()) == used_path.as_deref()
+                            || Some(probe.resolved(path)) == used_real)
                 });
                 let result = match platform_skew(Step::Daemon, host, name, &probe.uname, false) {
                     Some(_) if current_binary => StepResult::new(
