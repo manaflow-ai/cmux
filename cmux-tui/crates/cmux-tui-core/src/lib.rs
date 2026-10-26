@@ -37,6 +37,7 @@ mod browser_profile_ops;
 mod browser_site_engines;
 pub mod diagnostics;
 mod event_bus;
+mod event_cause;
 #[cfg(unix)]
 pub mod fs_ops;
 mod git_ops;

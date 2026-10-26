@@ -123,6 +123,10 @@ class DetachReason(str, Enum):
     HOST_SHUTDOWN = 'host-shutdown'
     SUPERSEDED = 'superseded'
 
+class EventCause(str, Enum):
+    FRONTEND = 'frontend'
+    AUTOMATION = 'automation'
+
 class FrontendFocusTarget(str, Enum):
     PANE = 'pane'
     MACHINE_RAIL = 'machine_rail'
@@ -5499,6 +5503,7 @@ class AgentChangedEvent(EventBase):
     updated_at_ms: int
     agent: Union[str, None, MissingType] = field(default=MISSING)
     agent_session_id: Union[str, None, MissingType] = field(default=MISSING)
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     last_prompt: Union[str, None, MissingType] = field(default=MISSING)
     since_ms: Union[int, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
@@ -5536,6 +5541,7 @@ class AgentPresenceChangedEvent(EventBase):
     session: Union[str, None]
     tool: Union[str, None]
     updated_at_ms: Union[int, None]
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -5544,6 +5550,7 @@ class BellEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/bell/payload'
     surface: Id
     event: Literal['bell']
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -5553,6 +5560,7 @@ class BookmarksChangedEvent(EventBase):
     bookmarks_revision: int
     browser_profile_id: str
     event: Literal['bookmarks-changed']
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -5578,6 +5586,7 @@ class ChiefChangedEvent(EventBase):
     change: Literal['created', 'updated', 'deleted']
     chief: str
     event: Literal['chief-changed']
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -5589,6 +5598,7 @@ class ClientAttachedEvent(EventBase):
     kind: Union[str, None]
     name: Union[str, None]
     transport: Literal['unix', 'ws']
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -5599,6 +5609,7 @@ class ClientChangedEvent(EventBase):
     event: Literal['client-changed']
     kind: Union[str, None]
     name: Union[str, None]
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -5607,6 +5618,7 @@ class ClientDetachedEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/client-detached/payload'
     client: int
     event: Literal['client-detached']
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -5614,6 +5626,7 @@ class ClientDetachedEvent(EventBase):
 class ClientListInvalidatedEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/client-list-invalidated/payload'
     event: Literal['client-list-invalidated']
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -5627,6 +5640,7 @@ class CloudConversationChangedEvent(EventBase):
     seq: int
     transaction: str
     account: Union[str, MissingType] = field(default=MISSING)
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -5637,6 +5651,7 @@ class CloudConversationLiveEvent(EventBase):
     event: Literal['cloud-conversation-live']
     frame: Union[JsonValue, None]
     account: Union[str, MissingType] = field(default=MISSING)
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -5650,6 +5665,7 @@ class CloudConversationResyncedEvent(EventBase):
     seq: int
     summary: Union[JsonValue, None]
     account: Union[str, MissingType] = field(default=MISSING)
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -5661,6 +5677,7 @@ class CloudConversationRunChangedEvent(EventBase):
     run: Union[JsonValue, None]
     steps: List[JsonValue]
     account: Union[str, MissingType] = field(default=MISSING)
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -5672,6 +5689,7 @@ class CloudConversationTypingEvent(EventBase):
     on: bool
     participant: str
     account: Union[str, MissingType] = field(default=MISSING)
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -5680,6 +5698,7 @@ class CloudHostReplicaNeededEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/cloud-host-replica-needed/payload'
     event: Literal['cloud-host-replica-needed']
     reason: str
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     expires_at: Union[int, None, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
@@ -5692,6 +5711,7 @@ class CloudInboxChangedEvent(EventBase):
     seq: int
     transaction: str
     account: Union[str, MissingType] = field(default=MISSING)
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -5701,6 +5721,7 @@ class CloudInboxResetEvent(EventBase):
     event: Literal['cloud-inbox-reset']
     seq: int
     account: Union[str, MissingType] = field(default=MISSING)
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -5711,6 +5732,7 @@ class CloudMuxResyncedEvent(EventBase):
     pending: Union[JsonValue, None]
     seq: int
     account: Union[str, MissingType] = field(default=MISSING)
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -5721,6 +5743,7 @@ class CloudMuxWakeEvent(EventBase):
     seq: int
     wakes: Union[JsonValue, None]
     account: Union[str, MissingType] = field(default=MISSING)
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -5729,6 +5752,7 @@ class CloudSessionNeededEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/cloud-session-needed/payload'
     event: Literal['cloud-session-needed']
     reason: str
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     expires_at: Union[int, None, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
@@ -5740,6 +5764,7 @@ class CloudSubscriptionStateEvent(EventBase):
     scope: str
     state: str
     account: Union[str, MissingType] = field(default=MISSING)
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     conversation: Union[str, None, MissingType] = field(default=MISSING)
     reason: Union[str, None, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
@@ -5766,6 +5791,7 @@ class ColorsChangedEvent(EventBase):
 class ConfigReloadRequestedEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/config-reload-requested/payload'
     event: Literal['config-reload-requested']
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -5777,6 +5803,7 @@ class ConversationChangedEvent(EventBase):
     event: Literal['conversation-changed']
     rev: int
     transaction: Union[str, None]
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -5787,6 +5814,7 @@ class ConversationDraftEvent(EventBase):
     event: Literal['conversation-draft']
     item: JsonValue
     participant: str
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -5798,6 +5826,7 @@ class ConversationInboxChangedEvent(EventBase):
     marked_unread: bool
     participant: str
     pinned: bool
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     pin_position: Union[int, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
@@ -5808,6 +5837,7 @@ class ConversationLiveEvent(EventBase):
     conversation: str
     event: Literal['conversation-live']
     frame: Union[JsonValue, None]
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -5818,6 +5848,7 @@ class ConversationRunChangedEvent(EventBase):
     event: Literal['conversation-run-changed']
     run: Union[JsonValue, None]
     steps: List[JsonValue]
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -5828,6 +5859,7 @@ class ConversationTypingEvent(EventBase):
     event: Literal['conversation-typing']
     on: bool
     participant: str
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -5854,6 +5886,7 @@ class DetachedEvent(EventBase):
 class EmptyEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/empty/payload'
     event: Literal['empty']
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -5879,6 +5912,7 @@ class FrontendProjectionChangedEvent(EventBase):
     projection_revision: int
     scope: str
     subject_key: str
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -5888,6 +5922,7 @@ class GraphicsStatusEvent(EventBase):
     event: Literal['graphics-status']
     kind: Literal['kitty-image-budget-worker-start-failed', 'kitty-image-budget-update-failed', 'cell-pixel-update-retries-exhausted']
     attempts: Union[int, MissingType] = field(default=MISSING)
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     cell_height: Union[int, MissingType] = field(default=MISSING)
     cell_width: Union[int, MissingType] = field(default=MISSING)
     error: Union[str, MissingType] = field(default=MISSING)
@@ -5903,6 +5938,7 @@ class HistoryChangedEvent(EventBase):
     event: Literal['history-changed']
     kinds: List[str]
     revision: int
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -5912,6 +5948,7 @@ class KeybindingsChangedEvent(EventBase):
     event: Literal['keybindings-changed']
     origin: Literal['user', 'cli', 'mcp', 'script', 'remote', 'app', 'file']
     revision: int
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -5922,6 +5959,7 @@ class LayoutChangedEvent(EventBase):
     event: Literal['layout-changed']
     workspace: Union[Id, MissingType] = field(default=MISSING)
     active_pane: Union[Id, MissingType] = field(default=MISSING)
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     layout: Union[Layout, MissingType] = field(default=MISSING)
     transaction: Union[str, MissingType] = field(default=MISSING)
     zoomed_pane: Union[Id, None, MissingType] = field(default=MISSING)
@@ -5933,6 +5971,7 @@ class MachineUsageChangedEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/machine-usage-changed/payload'
     event: Literal['machine-usage-changed']
     usage: Union[MachineUsage, None]
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -5945,6 +5984,7 @@ class NotificationEvent(EventBase):
     level: NotificationLevel
     notification: Id
     title: str
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     desktop: Union[bool, MissingType] = field(default=MISSING)
     reply: Union[bool, MissingType] = field(default=MISSING)
     source: Union[NotificationSource, MissingType] = field(default=MISSING)
@@ -5979,6 +6019,7 @@ class PairingRequestedEvent(EventBase):
     event: Literal['pairing-requested']
     expires_in: int
     peer: str
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -5987,6 +6028,7 @@ class PairingResolvedEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/pairing-resolved/payload'
     request: int
     event: Literal['pairing-resolved']
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -6020,6 +6062,7 @@ class ParticipantAvatarChangedEvent(EventBase):
     avatar: Union[JsonValue, None]
     event: Literal['participant-avatar-changed']
     participant: str
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -6028,6 +6071,7 @@ class PersonalChangedEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/personal-changed/payload'
     event: Literal['personal-changed']
     personal_revision: int
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -6037,6 +6081,7 @@ class ProgramStatusChangedEvent(EventBase):
     surface: Id
     event: Literal['program-status-changed']
     program_status: Union[ShownProgramStatus, None]
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -6138,6 +6183,7 @@ class ScrollChangedEvent(EventBase):
     at_bottom: bool
     event: Literal['scroll-changed']
     offset: int
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -6148,6 +6194,7 @@ class SettingsChangedEvent(EventBase):
     keys: List[str]
     origin: Literal['user', 'cli', 'mcp', 'script', 'remote', 'app', 'file']
     revision: int
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -6157,6 +6204,7 @@ class SizeStateEvent(EventBase):
     surface: Id
     event: Literal['size-state']
     state: SizeState
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     self_participant: Union[str, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
@@ -6166,6 +6214,7 @@ class StatusEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/status/payload'
     event: Literal['status']
     message: str
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -6174,6 +6223,7 @@ class SurfaceExitedEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/surface-exited/payload'
     surface: Id
     event: Literal['surface-exited']
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -6182,6 +6232,7 @@ class SurfaceOutputEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/surface-output/payload'
     surface: Id
     event: Literal['surface-output']
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -6195,6 +6246,7 @@ class SurfaceResizeFailedEvent(EventBase):
     reservation_id: Union[int, None]
     retry_after_ms: Union[int, None]
     rows: int
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -6206,6 +6258,7 @@ class SurfaceResizedEvent(EventBase):
     event: Literal['surface-resized']
     reservation_id: Union[int, None]
     rows: int
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -6297,6 +6350,7 @@ class TerminalReapedEvent(EventBase):
     event: Literal['terminal-reaped']
     grace_ms: int
     terminal: Union[str, None]
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -6308,6 +6362,7 @@ class TerminalRegistryChangedEvent(EventBase):
     refetch: Literal['terminal-events-or-list-terminals']
     registry_id: str
     terminal_revision: int
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -6316,6 +6371,7 @@ class TitleChangedEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/title-changed/payload'
     surface: Id
     event: Literal['title-changed']
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     title: Union[str, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
@@ -6324,6 +6380,7 @@ class TitleChangedEvent(EventBase):
 class TreeChangedEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/tree-changed/payload'
     event: Literal['tree-changed']
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -6356,6 +6413,7 @@ class WindowTitleRequestedEvent(EventBase):
     __cmux_schema_path__: ClassVar[str] = 'events/window-title-requested/payload'
     event: Literal['window-title-requested']
     title: str
+    cause: Union[EventCause, MissingType] = field(default=MISSING)
     raw: Mapping[str, Any] = field(default_factory=dict, repr=False, compare=False, metadata={'cmux_skip': True})
 
 
@@ -6475,6 +6533,7 @@ __all__ = [
     'ConversationThreadStatus',
     'CursorStyle',
     'DetachReason',
+    'EventCause',
     'FrontendFocusTarget',
     'HomeChiefState',
     'HomeInboxKind',
