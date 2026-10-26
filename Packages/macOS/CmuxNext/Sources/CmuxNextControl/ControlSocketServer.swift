@@ -345,13 +345,12 @@ public final class ControlSocketServer: Sendable {
                 defer { state.nextConnection += 1 }
                 return ControlConnectionID(rawValue: state.nextConnection)
             }
-            let connection = ControlConnection(id: id, descriptor: client, limits: limits)
-            state.withLock { $0.connections[id] = connection }
-            connection.onClosed = { [weak self] in
+            let connection = ControlConnection(id: id, descriptor: client, limits: limits, onClosed: { [weak self] in
                 _ = self?.state.withLock { $0.connections.removeValue(forKey: id) }
                 // A request still waiting for this client (a confirmation sheet) ends now.
                 ControlConnectionClosures.shared.closed(id)
-            }
+            })
+            state.withLock { $0.connections[id] = connection }
             let router = self.router
             connection.start { lines in
                 var authorizer = authorizer
