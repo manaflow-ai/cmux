@@ -100,6 +100,10 @@
         "web": {
           "type": "boolean",
           "description": "Start the loopback web fixture server; case URLs then write its origin as $WEB."
+        },
+        "repo": {
+          "$ref": "#/$defs/slug",
+          "description": "Build the git repository tests/oracle/fixtures/git/<repo>.json under $CASE_ROOT/repos/ before the first step (make_repo.py build_for_case): fixed author and committer dates, a bare origin under the case root as its only remote."
         }
       }
     },

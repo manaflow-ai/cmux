@@ -14,11 +14,13 @@
   "fixture": {
     "seed": "daemon-ops.project-add",
     "network": "offline",
-    "clock": "virtual"
+    "clock": "virtual",
+    "repo": "oracle"
   },
   "preconditions": [
     "hermetic state root",
-    "no other cmux-tui on the state root"
+    "no other cmux-tui on the state root",
+    "git on PATH; tests/oracle/fixtures/git/oracle.json built under $CASE_ROOT/repos before the first step (make_repo.py build_for_case): fixed dates, a local bare origin, no other remote"
   ],
   "requires": [
     "resource_api"
@@ -38,7 +40,7 @@
       "args": {
         "method": "project.add",
         "params": {
-          "path": "$CASE_ROOT/oracle"
+          "path": "$CASE_ROOT/repos/oracle"
         },
         "idempotencyKey": "project-add-ok.call"
       },
@@ -50,7 +52,7 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "adds the fixture checkout, an existing folder, as the user's project"
     }
   ],
   "invariants": [
@@ -61,6 +63,6 @@
     "verify the socket and state root are gone"
   ],
   "untested": [
-    "params.path is a fixed placeholder, not a fixture object; git/_tuning.json tunes it"
+    "no case folder is one the project store takes: every case root is under /tmp (oracle.py DEFAULT_STATE_BASE /tmp/o, spec 3G) and state/projects.rs Refusals refuses every path under /tmp, /var/folders and the home folder (validation.invalid refused_path); follow-up to p15-oracle-200: a case folder outside those roots for project.add"
   ]
 }

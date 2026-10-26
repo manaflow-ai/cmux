@@ -30,7 +30,10 @@ Cases are flat in the suite directory, as every suite: `oracle.py` and the expec
 and stays byte-stable. A tuning changes params and target, the error code and the error details the error case
 asserts, and adds `before` steps (a mutation or a waitFor settle between the fixture and the call), `requires`
 capabilities (`chromium` for a daemon-rendered browser, which needs a cmux-browser provider), `untested` reasons
-and a `gap`: why no product can run the success case yet, naming the task that closes it. coverage.json lists every
+and a `gap`: why no product can run the success case yet, naming the task that closes it, and a `repo`: the
+generated git repository (tests/oracle/fixtures/git/<repo>.json, case-v1 fixture.repo) the driver builds under
+$CASE_ROOT/repos before the first step; a `remote` is then a plain name of that repository's remotes, and a path
+under $CASE_ROOT/repos one of its folders. coverage.json lists every
 operation with its family, cases, fixture steps, broken field, placeholders (fields with a fixed id, not a fixture
 object: the tuning work), known gap, tuning and the capabilities of cases that need more than resource_api. An
 operation counts as covered only when its success case has no placeholder and no known or tuned gap; the rest are
@@ -46,7 +49,9 @@ from __future__ import annotations
 
 import argparse
 import copy
+import functools
 import hashlib
+import importlib.util
 import json
 import re
 import sys
@@ -66,6 +71,8 @@ GENERATOR = "scripts/cmux-next/oracle/gen_daemon_ops.py"
 SCHEMA_REF = "../../../../schemas/oracle/case-v1.schema.json"
 COVERAGE = "coverage.json"
 TUNING = "_tuning.json"
+# p15-oracle-068: the generated repositories a case names in fixture.repo, and their builder.
+REPO_FIXTURES = REPO / "tests" / "oracle" / "fixtures" / "git"
 
 # Task 061-070 families: the first segment of an operation name picks its family directory. A new first
 # segment is an error until it is given a family here.
@@ -121,6 +128,10 @@ UNKNOWN_PARAMETER = "oracle_unknown"
 ERROR_CODE = "validation.invalid"
 # hermetic_env.py ROOT_TOKEN (p15-oracle-200): the case's state root. A path under it is local to the case.
 ROOT_TOKEN = "$CASE_ROOT"
+# hermetic_env.py REPOS_DIR: where make_repo.py builds the case's fixture.repo.
+REPOS_ROOT = f"{ROOT_TOKEN}/repos"
+# git_ops/push.rs: `remote` names a configured remote, never a URL or a path.
+REMOTE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
 
 
 class GenError(Exception):
@@ -431,7 +442,6 @@ FIXTURE: Tuple[FixtureStep, ...] = (
                 (("screen_group", "/value/id"), ("grouped_screen", "/value/screen_ids/0"))),
     FixtureStep("fx-workspace-group", "workspace_group.create", (), {"name": "oracle"}, (("workspace_group", "/value/id"),)),
     FixtureStep("fx-room", "room.create", (), {"name": "oracle"}, (("room", "/value/id"),)),
-    FixtureStep("fx-stash", "stash.create", (), {"tabs": [Handle("other_tab")], "name": "oracle"}, (("stash", "/value/stash_id"),)),
     FixtureStep("fx-notification", "notification.create", (), {"title": "oracle", "body": "oracle"},
                 (("notification", "/value/id"),)),
     FixtureStep("fx-checklist", "workspace_checklist.add", (("workspace", "workspace"),), {"text": "oracle"},
@@ -449,6 +459,9 @@ FIXTURE: Tuple[FixtureStep, ...] = (
     FixtureStep("fx-app-browser", "browser.profile.open", (("workspace", "workspace"), ("screen", "screen"), ("pane", "pane")),
                 {"url": "http://127.0.0.1:9/", "profile": Handle("browser_profile")},
                 (("app_browser", "/value/browser_id"), ("app_browser_tab", "/value/tab_id"))),
+    # state/stash.rs: a tabs stash takes web pages only (a terminal tab refuses the request) and `name` goes
+    # with `workspaces` only (stash_router.rs create_workspaces). The app-drawn http page is one on every daemon.
+    FixtureStep("fx-stash", "stash.create", (), {"tabs": [Handle("app_browser_tab")]}, (("stash", "/value/stash_id"),)),
 )
 FIXTURE_BY_ID = {step.id: step for step in FIXTURE}
 HANDLES: Dict[str, Tuple[str, str]] = {handle: (step.id, pointer) for step in FIXTURE for handle, pointer in step.provides}
@@ -481,7 +494,8 @@ KNOWN_GAPS: Dict[str, str] = {
     "closed.reopen": "a fresh daemon has no closed group to reopen; the family task closes one first",
 }
 KNOWN_GAP_PREFIXES: Tuple[Tuple[str, str], ...] = (
-    ("git.", "the fixture workspace has no git repository; the family task generates one under $CASE_ROOT"),
+    ("git.", f"the standard fixture has no git repository; a git case names a generated one in fixture.repo "
+             f"(tests/oracle/fixtures/git, built under {REPOS_ROOT})"),
 )
 FAMILY_TASK = {"browser": "p15-oracle-061", "sidebar": "p15-oracle-062", "session": "p15-oracle-063",
                "workspace": "p15-oracle-064", "terminal": "p15-oracle-065", "layout": "p15-oracle-066",
@@ -517,6 +531,8 @@ class Request:
     untested: List[str] = field(default_factory=list)
     # The error details the error case asserts (case-v1 expect.errorDetails, a subset of the reply's details).
     details: Optional[Dict[str, Any]] = None
+    # The generated repository the case needs (case-v1 fixture.repo, tests/oracle/fixtures/git/<repo>.json).
+    repo: Optional[str] = None
 
 
 class Synth:
@@ -825,6 +841,8 @@ OK = {"outcome": "ok", "receipt": "mutation_result"}
 # target it attaches to (resource_router/browser_engine.rs), so without one `tab.create_browser` is
 # engine_unavailable. The daemon product on the VM has none; the app product brings its browser host.
 ENGINE_PRECONDITION = "a cmux-browser provider attached to the case daemon (the daemon launches no browser)"
+REPO_PRECONDITION = (f"git on PATH; tests/oracle/fixtures/git/{{repo}}.json built under {REPOS_ROOT} before the first "
+                     "step (make_repo.py build_for_case): fixed dates, a local bare origin, no other remote")
 
 
 def known_gap(operation: str) -> Optional[str]:
@@ -851,6 +869,10 @@ def case_doc(case_id: str, operation: str, family: str, kind: str, request: Requ
     preconditions = ["hermetic state root", "no other cmux-tui on the state root"]
     if "chromium" in requires:
         preconditions.append(ENGINE_PRECONDITION)
+    fixture: Dict[str, Any] = {"seed": f"{SUITE}.{slug(operation)}", "network": "offline", "clock": "virtual"}
+    if request.repo:
+        fixture["repo"] = request.repo
+        preconditions.append(REPO_PRECONDITION.format(repo=request.repo))
     doc: Dict[str, Any] = {
         "$schema": SCHEMA_REF,
         "corpusVersion": 1,
@@ -860,7 +882,7 @@ def case_doc(case_id: str, operation: str, family: str, kind: str, request: Requ
         "surface": "cmux-next-daemon",
         "source": {"repo": "manaflow-ai/cmux", "ref": "$RUN", "artifact": "$RUN"},
         "environment": {},
-        "fixture": {"seed": f"{SUITE}.{slug(operation)}", "network": "offline", "clock": "virtual"},
+        "fixture": fixture,
         "preconditions": preconditions,
         "requires": requires,
         "platforms": ["linux", "mac"],
@@ -889,7 +911,8 @@ def before_step(case_id: str, spec: Mapping[str, Any]) -> Dict[str, Any]:
 
 
 TUNING_KINDS = ("success", "error")
-TUNING_KEYS = frozenset({"params", "target", "error", "note", "before", "requires", "untested", "gap", "details"})
+TUNING_KEYS = frozenset({"params", "target", "error", "note", "before", "requires", "untested", "gap", "details",
+                         "repo"})
 # Keys that only one kind takes: the error code and details belong to the error case; a gap blocks the success case.
 KIND_ONLY_KEYS = {"error": "error", "details": "error", "gap": "success"}
 # A gap names the task that closes it (WORK.tsv ids, p15-oracle-204).
@@ -911,7 +934,8 @@ def load_tuning(out: Path, catalog: Catalog) -> Dict[str, Dict[str, Any]]:
     {id, waitFor} settles until a facet value holds), `requires` (capabilities beyond resource_api) and `untested`
     replace the request's; the error case starts from the tuned success case. `details` (error only) is the subset
     of the error's details the case asserts; `gap` (success only) says why no product can check the success yet and
-    names the task that closes it, so coverage excludes the operation."""
+    names the task that closes it, so coverage excludes the operation. `repo` names the generated repository
+    the case needs (tests/oracle/fixtures/git/<repo>.json, case-v1 fixture.repo); null drops it."""
     tuning: Dict[str, Dict[str, Any]] = {}
     for family in FAMILIES:
         path = out / family / TUNING
@@ -944,6 +968,8 @@ def load_tuning(out: Path, catalog: Catalog) -> Dict[str, Dict[str, Any]]:
                     raise GenError(f"{path}: {operation}.{kind} details is a non-empty object")
                 if "gap" in spec and not (isinstance(spec["gap"], str) and TASK_ID.search(spec["gap"])):
                     raise GenError(f"{path}: {operation}.{kind} gap is a reason that names the task closing it")
+                if spec.get("repo") is not None:
+                    repo_fixture(spec["repo"], f"{path}: {operation}.{kind}")
                 check_tuned_steps(f"{path}: {operation}.{kind}", spec, catalog)
             tuning[operation] = kinds
     return tuning
@@ -1013,20 +1039,65 @@ def tuned_value(value: Any) -> Any:
     return value
 
 
-def non_local_remotes(value: Any, path: str) -> Iterable[str]:
-    """Git remotes that are not a path under the case root (hermetic_env.py require_local_remote refuses
-    them when the case runs; the generator refuses them before it writes a case)."""
+@functools.lru_cache(maxsize=None)
+def make_repo() -> Any:
+    """tests/oracle/fixtures/git/make_repo.py: it owns the repository fixture format."""
+    spec = importlib.util.spec_from_file_location("oracle_make_repo", REPO_FIXTURES / "make_repo.py")
+    if spec is None or spec.loader is None:
+        raise GenError(f"{REPO_FIXTURES / 'make_repo.py'}: cannot be loaded")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module  # dataclasses read the module of each class they make
+    spec.loader.exec_module(module)
+    return module
+
+
+def repo_fixture(name: Any, where: str) -> Any:
+    """The RepoFixture `name` names; make_repo.py refuses a fixture whose origin is not a bare repository
+    beside the checkout, so every remote a case can reach is under the case root."""
+    module = make_repo()
+    try:
+        return module.RepoFixture.load(name, REPO_FIXTURES)
+    except module.FixtureError as error:
+        raise GenError(f"{where}: repo: {error}") from None
+
+
+def strings_in(value: Any, path: str) -> Iterable[Tuple[str, Any, str]]:
+    """(path, value, key) of every value under `value`; key is the dict key that holds it, or ''."""
     if isinstance(value, dict):
         for key, item in value.items():
-            if key == "remote" and not (isinstance(item, str) and item.startswith(f"{ROOT_TOKEN}/") and ".." not in item):
-                yield f"{path}.{key} {item!r} is not a remote under {ROOT_TOKEN}"
-            yield from non_local_remotes(item, f"{path}.{key}")
+            yield f"{path}.{key}", item, key
+            yield from strings_in(item, f"{path}.{key}")
     elif isinstance(value, list):
         for index, item in enumerate(value):
-            yield from non_local_remotes(item, f"{path}[{index}]")
+            yield f"{path}[{index}]", item, ""
+            yield from strings_in(item, f"{path}[{index}]")
+
+
+def repo_problems(request: Request) -> Iterable[str]:
+    """What keeps the request off the network and inside its generated repository: a `remote` is a plain
+    remote name of the case's repository (git_ops/push.rs resolves names among configured remotes only, and
+    the fixture's only remote is its bare origin under the case root), never a URL or a path; a path under
+    REPOS_ROOT is one of the case's repository folders."""
+    folders = sorted(repo_fixture(request.repo, request.operation).tokens().values()) if request.repo else []
+    parts = (("params", request.params), ("target", request.target),
+             *((f"before.{step.get('id')}.params", step.get("params") or {}) for step in request.before))
+    for part, value in parts:
+        for where, item, key in strings_in(value, part):
+            if key == "remote":
+                if not (isinstance(item, str) and REMOTE_NAME.match(item)):
+                    yield f"{where} {item!r} is not a configured remote's name: no URL, no path"
+                elif not request.repo:
+                    yield f"{where} names a remote, but the case has no generated repository (repo)"
+            if isinstance(item, str) and (item == REPOS_ROOT or item.startswith(f"{REPOS_ROOT}/")):
+                if ".." in item.split("/"):
+                    yield f"{where} {item!r} leaves its folder"
+                elif not any(item == folder or item.startswith(f"{folder}/") for folder in folders):
+                    yield f"{where} {item!r} is in no folder of the case's repository {request.repo!r}"
 
 
 def apply_tuning(request: Request, spec: Mapping[str, Any]) -> None:
+    if "repo" in spec:
+        request.repo = spec["repo"]
     if "before" in spec:
         request.before = [tuned_value(item) for item in spec["before"]]
     if "requires" in spec:
@@ -1084,9 +1155,9 @@ def generate(catalog: Catalog, tuning: Mapping[str, Mapping[str, Any]]) -> Dict[
         if broken and synth.check.params(operation, synth.concrete(wire_params(broken_request))) is None:
             raise GenError(f"{operation}: the error request passes the catalog check")
         for request in (success, broken_request):
-            remote = next(non_local_remotes(request.params, "params"), None)
-            if remote:
-                raise GenError(f"{operation}: {remote}")
+            problem = next(iter(repo_problems(request)), None)
+            if problem:
+                raise GenError(f"{operation}: {problem}")
         ok_id, error_id = f"{name}-ok", f"{name}-error"
         if len(error_id) > 64:
             raise GenError(f"{operation}: case id {error_id} is longer than 64")
@@ -1480,14 +1551,88 @@ class GenDaemonOpsSelfTest(unittest.TestCase):
             self.assertIn("p15-oracle-204", files[COVERAGE]["excluded"][operation], operation)
         move = files["browser-input-mouse-ok.json"]["steps"][-1]["args"]["params"]
         self.assertEqual((move["kind"], "button" in move), ("move", False))
-        self.assertEqual(files[COVERAGE]["covered"], 148)
+        # The family's own count: the suite total moves with every family's tuning (tasks 061-070).
+        self.assertEqual(sum(op not in files[COVERAGE]["excluded"] for op in browser), len(browser) - len(engine))
 
-    def test_a_git_remote_outside_the_case_root_is_refused(self) -> None:
-        for remote in ("git@github.com:manaflow-ai/cmux.git", "/srv/repos/cmux.git", f"{ROOT_TOKEN}/../x.git", "origin"):
-            with self.subTest(remote=remote), self.assertRaisesRegex(GenError, "git.push: params.remote"):
-                generate(self.catalog, {"git.push": {"success": {"params": {"remote": remote}}}})
-        files = generate(self.catalog, {"git.push": {"success": {"params": {"remote": f"{ROOT_TOKEN}/repos/o.git"}}}})
-        self.assertEqual(files["git-push-ok.json"]["steps"][-1]["args"]["params"]["remote"], f"{ROOT_TOKEN}/repos/o.git")
+    def test_a_git_remote_is_a_name_of_the_generated_repository(self) -> None:
+        """git_ops/push.rs pushes only to a configured remote, and make_repo.py gives the fixture repository one:
+        its bare origin under the case root. So a case's remote is a plain name, never a URL or a path."""
+        repo = {"repo": "oracle", "params": {"path": f"{REPOS_ROOT}/oracle"}}
+        for remote in ("git@github.com:manaflow-ai/cmux.git", "https://example.invalid/x.git", "/srv/repos/cmux.git",
+                       f"{ROOT_TOKEN}/repos/oracle.git", "../x"):
+            with self.subTest(remote=remote), self.assertRaisesRegex(GenError, "git.push: params.remote .* no URL"):
+                generate(self.catalog, {"git.push": {"success": {**repo, "params": {**repo["params"], "remote": remote}}}})
+        with self.assertRaisesRegex(GenError, "git.push: before.push.params.remote"):
+            generate(self.catalog, {"git.push": {"success": {**repo, "before": [
+                {"id": "push", "method": "git.push", "params": {"remote": "file:///srv/x.git"}}]}}})
+        with self.assertRaisesRegex(GenError, "no generated repository"):
+            generate(self.catalog, {"git.push": {"success": {"params": {"remote": "origin"}}}})
+        files = generate(self.catalog, {"git.push": {"success": {**repo, "params": {**repo["params"], "remote": "origin"}}}})
+        self.assertEqual(files["git-push-ok.json"]["steps"][-1]["args"]["params"]["remote"], "origin")
+        self.assertEqual(files["git-push-ok.json"]["fixture"]["repo"], "oracle")
+
+    def test_a_repository_path_needs_its_repository(self) -> None:
+        for path, problem in ((f"{REPOS_ROOT}/oracle", "no folder of the case's repository None"),
+                              (f"{REPOS_ROOT}/other", "no folder of the case's repository 'oracle'"),
+                              (f"{REPOS_ROOT}/oracle/../other", "leaves its folder")):
+            repo = {"repo": "oracle"} if "None" not in problem else {}
+            with self.subTest(path=path), self.assertRaisesRegex(GenError, re.escape(problem)):
+                generate(self.catalog, {"git.commit": {"success": {**repo, "params": {"path": path}}}})
+        for name, problem in (("Not A Slug", "repo: repository fixture name"), ("no-such-repo", "no-such-repo.json")):
+            with self.subTest(repo=name), tempfile.TemporaryDirectory() as tmp:
+                (Path(tmp) / "git").mkdir()
+                (Path(tmp) / "git" / TUNING).write_text(json.dumps(
+                    {"operations": {"git.commit": {"success": {"repo": name}}}}), encoding="utf-8")
+                with self.assertRaisesRegex(GenError, problem):
+                    load_tuning(Path(tmp), self.catalog)
+        files = generate(self.catalog, {"git.commit": {"success": {"repo": "oracle", "params": {
+            "path": f"{REPOS_ROOT}/oracle/src"}}}})
+        case = files["git-commit-ok.json"]
+        self.assertEqual(case["fixture"]["repo"], "oracle")
+        self.assertIn(REPO_PRECONDITION.format(repo="oracle"), case["preconditions"])
+        self.assertEqual(files["git-commit-error.json"]["fixture"]["repo"], "oracle", "the error case starts from success")
+
+    def test_the_git_family_tuning(self) -> None:
+        """tests/oracle/corpus/daemon-ops/git/_tuning.json (p15-oracle-068): each git, project and stash mutation
+        has a success and a typed-error case. A git case runs on the generated repository by path, with no
+        workspace selector; only project.add's success cannot run yet (every case root is under /tmp)."""
+        tuning = load_tuning(DEFAULT_OUT, self.catalog)
+        files = generate(self.catalog, tuning)
+        family = sorted(op for op in self.catalog.mutations() if family_of(op) == "git")
+        self.assertEqual(len(family), 18)
+        self.assertEqual(sorted(op for op in tuning if family_of(op) == "git"), family)
+        coverage = files[COVERAGE]
+        handler_errors = {"git.checkpoint.unpin": "managed_pin", "git.commit": "nothing_to_commit",
+                          "git.push": "no_remote", "git.worktree.apply": "not_a_worktree",
+                          "git.worktree.create": "base_not_found", "git.worktree.remove": "unpushed_commits"}
+        for operation in family:
+            entry = coverage["operations"][operation]
+            self.assertEqual(entry["placeholders"], [], operation)
+            self.assertEqual(operation in coverage["excluded"], operation == "project.add", operation)
+            for kind in ("success", "error"):
+                case = files[entry["cases"][kind].split("/", 1)[1] + ".json"]
+                call = case["steps"][-1]
+                text = json.dumps(case["steps"])
+                if operation.startswith("git."):
+                    self.assertEqual(call["target"], SCOPE, f"{operation} {kind}: a path, no selector")
+                    self.assertNotIn("fx-workspace", [step["id"] for step in case["steps"]], operation)
+                self.assertEqual(case["fixture"].get("repo") == "oracle", REPOS_ROOT in text, f"{operation} {kind}")
+                self.assertNotRegex(text, r"\$CASE_ROOT/(?!repos/oracle(?:-feature)?\")", f"{operation} {kind}")
+            expect = files[entry["cases"]["error"].split("/", 1)[1] + ".json"]["steps"][-1]["expect"]
+            if operation in handler_errors:
+                self.assertEqual((expect["error"], expect["errorDetails"]["reason"]),
+                                 ("operation.failed", handler_errors[operation]), operation)
+        self.assertIn("p15-oracle-200", coverage["excluded"]["project.add"])
+        remove = files["git-worktree-remove-ok.json"]["steps"]
+        self.assertEqual([s["id"] for s in remove], ["worktree", "call"])
+        self.assertEqual(remove[-1]["args"]["params"], {"path": "$step:worktree#/value/root"})
+        # fx-stash stashes a web page, as state/stash.rs requires: the app-drawn http page of the fixture.
+        stash = files["stash-delete-ok.json"]["steps"]
+        self.assertEqual([s["id"] for s in stash], ["fx-workspace", "fx-browser-profile", "fx-app-browser", "fx-stash",
+                                                    "call"])
+        self.assertEqual(stash[3]["args"]["params"], {"tabs": ["$step:fx-app-browser#/value/tab_id"]})
+        # The repository the cases name: its only remote is its bare origin beside the checkout.
+        self.assertEqual(repo_fixture("oracle", "test").tokens()["origin"], f"{REPOS_ROOT}/oracle.git")
 
     def test_catalog_check_matches_the_daemon_rules(self) -> None:
         check = self.synth.check

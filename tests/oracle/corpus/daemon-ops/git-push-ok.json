@@ -14,11 +14,13 @@
   "fixture": {
     "seed": "daemon-ops.git-push",
     "network": "offline",
-    "clock": "virtual"
+    "clock": "virtual",
+    "repo": "oracle"
   },
   "preconditions": [
     "hermetic state root",
-    "no other cmux-tui on the state root"
+    "no other cmux-tui on the state root",
+    "git on PATH; tests/oracle/fixtures/git/oracle.json built under $CASE_ROOT/repos before the first step (make_repo.py build_for_case): fixed dates, a local bare origin, no other remote"
   ],
   "requires": [
     "resource_api"
@@ -29,40 +31,17 @@
   ],
   "steps": [
     {
-      "id": "fx-workspace",
+      "id": "call",
       "op": "resource.call",
       "target": {
         "machine": "current",
         "session": "current"
       },
       "args": {
-        "method": "workspace.create",
-        "params": {
-          "initial_content": "terminal",
-          "name": "oracle"
-        },
-        "idempotencyKey": "git-push-ok.fx-workspace"
-      },
-      "expect": {
-        "outcome": "ok",
-        "receipt": "mutation_result"
-      }
-    },
-    {
-      "id": "call",
-      "op": "resource.call",
-      "target": {
-        "machine": "current",
-        "session": "current",
-        "workspace": "$step:fx-workspace#/value/workspace_id",
-        "screen": "$step:fx-workspace#/value/screen_id",
-        "pane": "$step:fx-workspace#/value/pane_id",
-        "tab": "$step:fx-workspace#/value/tab_id",
-        "terminal": "$step:fx-workspace#/value/terminal_id"
-      },
-      "args": {
         "method": "git.push",
-        "params": {},
+        "params": {
+          "path": "$CASE_ROOT/repos/oracle"
+        },
         "idempotencyKey": "git-push-ok.call"
       },
       "expect": {
@@ -73,7 +52,7 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "main tracks origin/main, one commit behind: the push fast-forwards the fixture's bare origin under the case root, its only remote"
     }
   ],
   "invariants": [
@@ -82,8 +61,5 @@
   "teardown": [
     "stop the case daemon",
     "verify the socket and state root are gone"
-  ],
-  "untested": [
-    "the fixture workspace has no git repository; the family task generates one under $CASE_ROOT; git/_tuning.json tunes it"
   ]
 }
