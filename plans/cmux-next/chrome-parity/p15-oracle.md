@@ -580,6 +580,8 @@ Dropped or merged draft items: 022 and 045 (replaced by 026 and 191); 025 merged
 | 245 | The holder exits at shutdown end_terminals | S | 20-28 | 065 | |
 | 246 | Facet: a terminal's view scroll offset | S | 20-28 | 065 | |
 | 247 | Driver: a call that ends the daemon, expect.result references | S | 20-36 | 023 | MQ-daemon-ops |
+| 270 | Action cases: sidebar, item and group targets | M | 20-36 | 047, 071, 075 | MQ-actions |
+| 271 | Facet: a workspace group's color, icon and archived mark | S | 20-28 | 036, 075 | |
 | 206 | I10 idempotent retry steps | S | 20-28 | 060, 110 | |
 | 204 | Streams suite + I8 | L | 18-36 | 023, 110 | |
 | 205 | restore_preview + I9 | M | 18-30 | 021, 201 | |
@@ -986,6 +988,34 @@ needs all three: without (1) session-shutdown-ok races the exiting daemon at the
 driver_daemon_test.py (ExpectTests, without_pointers; live: a call that ends the daemon owns its exit, three runs,
 and one outside allow_crashes is a Crash at the call); case_checks.py --selftest (ends and resultExcept vectors);
 VM, the 22 session cases green twice.
+
+The sidebar and workspaceGroup action cases (075, `tests/oracle/corpus/actions/sidebar/_tuning.json`) make a group of
+the shown workspace before each group action, since no case can name a group, section or item. Two follow-ups close
+what the cases cannot check yet.
+
+**270 Action cases: sidebar, item and group targets.** Files: `case-v1.schema.json`, `driver_app.py`,
+`driver_app_test.py`, `gen_actions.py`, `tests/oracle/corpus/actions/sidebar/_tuning.json`. case-v1 `target` has no
+`workspaceGroup`, `sidebarSection` or `sidebarItem` kind, so action.run cannot name `sidebar-section:sec_top`,
+`sidebar-item:itm_home` or a group (ActionTargetKind's CLI prefixes), and gen_actions.py takes no tuned target. Add
+the three kinds (a fixed id, or a `$step:` value such as make-group's created group), map them in
+`driver_app.action_target` to `workspace-group:`, `sidebar-section:` and `sidebar-item:`, and add `target` to the
+generator's tuning keys. The 16 section and 5 item cases that now expect the noSuchSection or noSuchItem
+refusal run their success path on `sec_top` and `itm_home` (sidebar.chat.togglePin also needs a history chat, 086),
+and workspaceGroup.collapseOthers folds a second group. workspaceGroup.moveToWindow (blocked `live-value`) takes its
+window from a newWindow setup step's created window as a `$step:` value. Until then five refusal cases fail at their
+restore step: build_case adds a restore that runs a TOGGLES action again after an action step that expects an error,
+so sidebar.section.toggleTitle, toggleSpaceScope, toggleCollapsed, sidebar.item.toggleLabel and toggleArchive run
+the refused action a second time and expect ok. gen_actions.py writes no restore after an action step that expects
+an error (nothing changed to put back). Test: gen_actions.py --selftest (an error case has no restore step);
+driver_app_test.py (the kinds reach action.run's target); fleet, those cases green twice.
+
+**271 Facet: a workspace group's color, icon and archived mark.** Files: `SidebarSnapshot.swift`,
+`snapshot-v1.schema.json`, `OracleSidebarFacetTests.swift`, `tests/oracle/corpus/actions/sidebar/_tuning.json`. The
+sidebar facet's group row has no color, icon or archived field, so workspaceGroup.setColor, clearColor, the nine
+color.* actions, setIcon, clearIcon and toggleArchive change nothing a case can wait on. Add `color` (the GroupTint
+wire token or null), `icon` (null, or `set`: an icon is user text) and `archived` to the row from SidebarModel's
+public values, as 036 reads the rest; the 14 cases gain a waitFor on the group row. Test: OracleSidebarFacetTests;
+fleet, the 14 cases green twice.
 
 **206 I10 idempotent retry.** For each of the 201 `idempotency: required` ops, the generator adds a same-key retry step. Test: holds on all ops.
 
