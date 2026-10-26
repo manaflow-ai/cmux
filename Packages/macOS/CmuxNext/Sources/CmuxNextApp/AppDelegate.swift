@@ -133,6 +133,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         ghosttyConfigLiveReload.start()
         // App-scoped Ghostty actions (quit, toggle_visibility, ...) arrive with no surface.
         TerminalHooks(services: services).install()
+        // The terminal key path's input-source switch keys, read off main now and on each activation.
+        GhosttyRuntime.shared.inputSources.start(runner: services.work)
         DebugTimings.markLaunch("dfl.bind")
         startSettingsAndControl(services: services, launch: settingsRead)
         services.newTabSpares.prewarm() // the first agent page loads while the windows build (cx-z9kz0)
