@@ -627,9 +627,7 @@ async fn new_local_session(
     {
         tokio::time::sleep(std::time::Duration::from_millis(ms.min(5_000))).await;
     }
-    // After the request checks above, so a request they refuse makes no worktree.
-    let worktree = super::new_worktree::ensure(conn.origin, meta, &mut cwd).await?;
-    let req = crate::hub::NewRequest {
+    let mut req = crate::hub::NewRequest {
         harness: pick("harness"),
         preset: pick("preset"),
         name: pick("name"),
@@ -650,6 +648,12 @@ async fn new_local_session(
         checked_cwd: None,
         attach_only: false,
     };
+    // After the request checks above, and only once this create has room (or has
+    // attached), so a request they or admission refuse makes no worktree.
+    let mut worktree = None;
+    if admitted.is_some() {
+        worktree = super::new_worktree::ensure(conn.origin, meta, &mut req.cwd).await?;
+    }
     // Admitted with no room taken (its conversation was held), the adopt only
     // attaches: if the holder ended meanwhile it asks for room like a new
     // session, and a refusal refuses it (`admission::holder_gone`).
@@ -667,8 +671,16 @@ async fn new_local_session(
             Err(e) if crate::hub::admission::is_holder_gone(&e) && tries < 3 => {
                 tries += 1;
                 admitted = hub.admit_adopt(ask(conn, params, &who), conversation).await?;
+                if admitted.is_some() {
+                    worktree = super::new_worktree::ensure(conn.origin, meta, &mut req.cwd).await?;
+                }
             }
-            made => break made?,
+            // Attached: the worktree it asked for is made and named, as for any adopt.
+            made => {
+                let s = made?;
+                worktree = super::new_worktree::ensure(conn.origin, meta, &mut req.cwd).await?;
+                break s;
+            }
         }
     };
     if let Some(tags) = meta.and_then(|m| m.get("tags")).and_then(Value::as_object)
