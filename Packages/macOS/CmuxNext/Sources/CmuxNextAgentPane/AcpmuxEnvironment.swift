@@ -102,7 +102,7 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
         #endif
         return resolve(build: build, bundledBinDirectory: bundledBinDirectory, environment: environment, userHome: userHome,
                        uid: uid, isExecutable: isExecutable, launchEnvironment: launchEnvironment,
-                       executableOverride: executableOverride, teamIdentifier: AcpmuxServerPeer.ownTeam,
+                       executableOverride: executableOverride, teamIdentifier: AcpmuxServerPeer.ownTeam(),
                        isTrustedExecutable: AcpmuxServerPeer.executableSignedByAppTeam)
     }
 
@@ -118,7 +118,7 @@ public nonisolated struct AcpmuxEnvironment: Sendable, Equatable {
         isExecutable: (String) -> Bool = { FileManager.default.isExecutableFile(atPath: $0) },
         launchEnvironment: [String: String] = [:],
         executableOverride: URL?,
-        teamIdentifier: String? = AcpmuxServerPeer.ownTeam,
+        teamIdentifier: String? = AcpmuxServerPeer.ownTeam(),
         isTrustedExecutable: (URL, String) -> Bool = { AcpmuxServerPeer.executableSignedByAppTeam($0, team: $1) }
     ) -> AcpmuxEnvironment? {
         guard let executable = executableOverride

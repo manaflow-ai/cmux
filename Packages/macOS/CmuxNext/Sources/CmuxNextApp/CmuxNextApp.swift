@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextAgentPane
 import CmuxNextBrowser
+import CmuxNextBrowserImport
 import CmuxNextCloud
 import CmuxNextControl
 import CmuxNextDaemon
@@ -83,6 +84,9 @@ public struct CmuxNextApp {
         launchImages.prefetch(on: work) { DebugTimings.markLaunch($0) }
         TerminalLaunchFrames.beside(state).prefetch(on: work) { DebugTimings.markLaunch($0) }
         relaunchWake.begin(on: work)
+        // The browser source registry (browser-sources.json) the import pickers and the Passwords page read:
+        // in memory before them, never read on the thread that asks first (p02-threads-122).
+        BrowserSourceRegistryInstall.shared.load(on: work)
         DebugTimings.markLaunch("main.launch_reads")
         // Tab favicons resolve their hosts on work's host-resolution slots (system lane), never on the pool;
         // video wallpapers list the windows above theirs on its system lane, never on main.

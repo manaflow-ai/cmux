@@ -58,18 +58,20 @@ public final class ComputerUseHelperV2 {
     private var generation = 0
 
     /// This app's signing team. Ad-hoc development builds have no team and
-    /// retain the same-executable-path peer rule.
-    nonisolated static let ownTeam: String? = {
+    /// retain the same-executable-path peer rule. Read through the checked
+    /// Security seams by the admission check that needs it (it reads the
+    /// bridge's signature anyway), never in a static initializer.
+    nonisolated static func ownTeam() -> String? {
         var code: SecCode?
-        guard SecCodeCopySelf([], &code) == errSecSuccess, let code else { return nil }
+        guard blockingSecCodeCopySelf([], &code) == errSecSuccess, let code else { return nil }
         var staticCode: SecStaticCode?
-        guard SecCodeCopyStaticCode(code, [], &staticCode) == errSecSuccess, let staticCode else { return nil }
+        guard blockingSecCodeCopyStaticCode(code, [], &staticCode) == errSecSuccess, let staticCode else { return nil }
         var info: CFDictionary?
-        guard SecCodeCopySigningInformation(staticCode, SecCSFlags(rawValue: kSecCSSigningInformation), &info)
+        guard blockingSecCodeCopySigningInformation(staticCode, SecCSFlags(rawValue: kSecCSSigningInformation), &info)
                 == errSecSuccess, let info = info as? [String: Any] else { return nil }
         let team = info[kSecCodeInfoTeamIdentifier as String] as? String
         return team?.isEmpty == false ? team : nil
-    }()
+    }
 
     /// The code-signing identifier read from an executable. A raced path can
     /// at worst produce a requirement the real helper does not satisfy: the
@@ -86,7 +88,7 @@ public final class ComputerUseHelperV2 {
     /// Release helpers check every bridge's live audit token against its exact
     /// identifier and this app's team. Only ad-hoc development uses a
     /// mutable-path cdhash.
-    nonisolated static func acpmuxAdmission(executable: URL, teamIdentifier: String? = ownTeam,
+    nonisolated static func acpmuxAdmission(executable: URL, teamIdentifier: String? = ownTeam(),
                                             identifier: (URL) -> String? = codeIdentifier,
                                             hash: (URL) -> Data? = cdhash)
         -> (hashes: [String], requirement: String?) {

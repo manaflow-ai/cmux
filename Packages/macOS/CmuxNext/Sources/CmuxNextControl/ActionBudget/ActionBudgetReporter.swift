@@ -45,10 +45,16 @@ public final class ActionBudgetReporter: Sendable {
             let slow = monitor.samples(everyRun: false)
             tasks.append(Task.detached(priority: .utility) {
                 let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "action.budget")
+                var symbolicator: StackSymbolicator?  // the symbol map, read here at the first slow run
                 for await sample in slow {
                     // The board ended the run's span (and the watchdog wrote its record) before the
                     // monitor handed the run over, both on the main actor: the record is in the log.
-                    let line = ActionBudgetLogLine(sample: sample, records: overBudget?.records() ?? [], sampling: sampling)
+                    let records = overBudget?.records() ?? []
+                    let line = ActionBudgetLogLine(sample: sample, records: records, sampling: sampling, frames: { record in
+                        let resolver = symbolicator ?? StackSymbolicator(map: AppSymbolMap.loadMain())
+                        symbolicator = resolver
+                        return resolver.frames(for: record.addresses)
+                    })
                     logger.notice("\(line.text, privacy: .public)")
                 }
             })

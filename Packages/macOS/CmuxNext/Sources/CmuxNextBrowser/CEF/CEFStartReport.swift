@@ -1,3 +1,4 @@
+import CmuxNextTrace
 import Foundation
 
 /// How and when this process started CEF (`debug.cef`, check-first-chromium).
@@ -17,15 +18,12 @@ public nonisolated struct CEFStartReport: Equatable, Sendable {
     /// Seconds since process start when `CefInitialize` returned.
     public var readyAfterLaunch: Double?
 
-    /// Process start, from the kernel (`kinfo_proc.p_starttime`): what ``readyAfterLaunch`` counts from.
-    static let launchUptime: Double = {
-        var info = kinfo_proc()
-        var size = MemoryLayout<kinfo_proc>.stride
-        var mib: [Int32] = [CTL_KERN, KERN_PROC, KERN_PROC_PID, getpid()]
-        guard sysctl(&mib, 4, &info, &size, nil, 0) == 0 else { return 0 }
-        let start = info.kp_proc.p_starttime
-        let started = Double(start.tv_sec) + Double(start.tv_usec) / 1_000_000
-        let age = Date().timeIntervalSince1970 - started
-        return ProcessInfo.processInfo.systemUptime - age
-    }()
+    /// Seconds from the process start to now on `clock` (the launch marks' clock: the kernel's process
+    /// start, PROC_PIDTBSDINFO, read when asked rather than in a static initializer); nil when the kernel
+    /// does not answer.
+    static func secondsSinceLaunch(_ clock: LaunchClock = LaunchClock()) -> Double? {
+        guard let start = clock.processStart() else { return nil }
+        let now = clock.now().uptimeNanos
+        return now > start.uptimeNanos ? Double(now - start.uptimeNanos) / 1e9 : 0
+    }
 }

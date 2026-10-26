@@ -66,8 +66,9 @@ public struct HangRecord: Sendable, Hashable {
     /// Busy records: scope, process, CPU share, busiest wakeup owners.
     public var details: [String: JSONValue] = [:]
 
-    /// Symbolicated ``addresses``. Resolves symbols; call off the main thread.
-    public var frames: [HangFrame] { StackSymbolicator().frames(for: addresses) }
+    /// Symbolicated ``addresses``. Reads the app's symbol map and resolves symbols: call off the main
+    /// thread, for one record; for many, make one ``StackSymbolicator`` and pass it ``addresses``.
+    public var frames: [HangFrame] { StackSymbolicator(map: AppSymbolMap.loadMain()).frames(for: addresses) }
 
     public var json: JSONValue {
         var object: [String: JSONValue] = [

@@ -19,16 +19,23 @@ public import Foundation
 /// not count; a copy the person installed does.
 public nonisolated struct AgentExtensionAccess {
     let manifest: (String) -> [String: Any]?
+    /// The app's pinned built-in uBlock Origin folder; nil trusts no extension.
+    let trustedBuiltInFolder: String?
 
-    /// `manifest` reads an extension folder's parsed manifest.json.
-    public init(manifest: @escaping (String) -> [String: Any]?) { self.manifest = manifest }
+    /// `manifest` reads an extension folder's parsed manifest.json; `trustedBuiltInFolder` is the
+    /// cmux-shipped uBlock Origin's folder (``CEFBuiltInExtensions/trustedAdBlockerFolder(resources:)``).
+    public init(manifest: @escaping (String) -> [String: Any]?, trustedBuiltInFolder: String? = nil) {
+        self.manifest = manifest
+        self.trustedBuiltInFolder = trustedBuiltInFolder
+    }
 
-    /// Reads `<extension path>/manifest.json` from disk.
+    /// Reads `<extension path>/manifest.json` from disk, and the built-in folder's pinned manifest
+    /// with them.
     public static var fromDisk: AgentExtensionAccess {
-        AgentExtensionAccess { path in
+        AgentExtensionAccess(manifest: { path in
             guard let data = FileManager.default.contents(atPath: (path as NSString).appendingPathComponent("manifest.json")) else { return nil }
             return (try? JSONSerialization.blockingJSONObject(with: data)) as? [String: Any]
-        }
+        }, trustedBuiltInFolder: CEFBuiltInExtensions.trustedAdBlockerFolder(resources: Bundle.main.resourceURL))
     }
 
     /// The enabled extensions that can reach `url`. A page that is not a web
@@ -38,7 +45,7 @@ public nonisolated struct AgentExtensionAccess {
         return extensions.filter { info in
             // The cmux-shipped, pinned uBlock Origin is part of cmux, not a
             // third-party extension (CEFBuiltInExtensions.isTrustedBuiltIn).
-            guard info.isEnabled, !CEFBuiltInExtensions.isTrustedBuiltIn(info) else { return false }
+            guard info.isEnabled, !CEFBuiltInExtensions.isTrustedBuiltIn(info, trustedFolder: trustedBuiltInFolder) else { return false }
             guard let manifest = manifest(info.path) else { return true }
             return Self.patterns(manifest).contains { matches($0, url) }
         }
