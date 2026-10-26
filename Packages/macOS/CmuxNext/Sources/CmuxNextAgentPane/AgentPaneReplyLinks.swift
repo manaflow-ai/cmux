@@ -34,6 +34,19 @@ public nonisolated struct AgentPaneReplySite: Equatable, Sendable {
     public var copyItem: @MainActor (NSPasteboardItem) -> Bool = { AgentPaneImageCopies.writeGeneral($0) }
     /// Save Image As…: asks where to save the file under the name (the system save panel).
     public var saveFile: @MainActor (_ file: URL, _ name: String) -> Void = { AgentPaneImageCopies.askToSave($0, name: $1) }
+    /// A path menu's Save As…: the save panel, whose answer copies `file` only while `allowed()`
+    /// holds (the chat is still on this Mac when the person picks a place).
+    public var savePathFile: @MainActor (_ file: URL, _ name: String, _ allowed: @escaping @MainActor () -> Bool) -> Void = {
+        AgentPaneImageCopies.askToSave($0, name: $1, allowed: $2)
+    }
+    /// Reads a local reply image off the main actor (``AgentPaneReplyImages/local(_:)``); tests
+    /// stand in for it.
+    public var readLocalImage: @Sendable (_ path: String) async -> Result<String, AgentPaneReplyError> = {
+        await AgentPaneReplyImages.local($0)
+    }
+    /// Writes a dragged SVG's rebuilt copy off the main actor (``AgentPaneImageCopies/rebuild(_:to:)``);
+    /// tests stand in for it.
+    var rebuildCopy: @Sendable (_ file: URL, _ copy: URL) async -> Bool = { await AgentPaneImageCopies.rebuild($0, to: $1) }
     /// Quick Look on a file (the system's preview panel).
     public lazy var quickLookFile: @MainActor (URL) -> Void = { [quickLook = self.quickLook] in quickLook.show($0) }
     /// Whether the person still holds the pointer's button: a page drag (`image.drag`, `file.drag`)
@@ -110,30 +123,43 @@ public nonisolated struct AgentPaneReplySite: Equatable, Sendable {
 }
 
 extension AgentPaneModel {
+    /// A chat on another machine (cx-k21v): the model marked it (``remoteChat``), or only its
+    /// connection is remote so far (``AgentPaneTransport/remoteWire`` is set when the connection
+    /// opens, before the handshake marks the chat). Its agent names paths on that machine, and a
+    /// path here with the same spelling is not its file.
+    var chatIsElsewhere: Bool { remoteChat || transport.remoteWire }
+
     /// The folders a reply's paths may name for an open: the pane's roots and the folders the
     /// user added (the same as `file.open`). Images also have a read-only scope on this Mac: the
     /// chat's cwd, `/tmp` and home. Keeping it separate means a text path in those folders stays
     /// behind the ordinary outside-root gate. A remote chat never reads this Mac's image roots;
     /// its `image.load` request is handled by the remote wire.
     func replyPaths() -> AgentPaneReplyPaths {
-        let base = sessionRoots().first ?? primaryRoot()
-        let local = !remoteChat
-        let imageRoots = local ? [base, "/tmp", replyLinks.home].compactMap { $0 } : []
         // A remote chat's path spelling belongs to its host. Never retain this Mac's workspace
-        // roots as a fallback: a same-named local file must not be read or opened here.
-        return AgentPaneReplyPaths(roots: local ? fileOpenRoots() : [], imageRoots: imageRoots, home: replyLinks.home, base: local ? base : nil)
+        // roots as a fallback: a same-named local file must not be read or opened here. Its
+        // folders are not even looked up (``chatIsElsewhere``, also while only the wire is remote).
+        guard !chatIsElsewhere else { return AgentPaneReplyPaths(roots: [], home: replyLinks.home, base: nil) }
+        let base = sessionRoots().first ?? primaryRoot()
+        let imageRoots = [base, "/tmp", replyLinks.home].compactMap { $0 }
+        return AgentPaneReplyPaths(roots: fileOpenRoots(), imageRoots: imageRoots, home: replyLinks.home, base: base)
     }
 
     /// The reply for one reply link request.
     func respond(to request: AgentPaneReplyRequest) async -> [String: Any] {
         switch request {
         case .inspect(let paths, let urls):
-            let resolver = replyPaths()
+            // A chat on another machine never looks its paths up here (cx-k21v): a path gets no
+            // place (it stays a chip, never plain text), except a remote chat's raster image,
+            // which `image.load` reads on that machine (``AgentPaneReplyLinks/remoteImageLoader``).
+            let resolver = chatIsElsewhere ? nil : replyPaths()
             var places: [String: Any] = [:]
             for path in paths {
-                let resolved = remoteChat && AgentPaneReplyPaths.isImagePath(path)
-                    ? AgentPaneReplyPaths.Resolved(place: .root, path: path, isFolder: false)
-                    : (AgentPaneReplyPaths.isImagePath(path) ? resolver.resolveImage(path) : resolver.resolve(path))
+                let image = AgentPaneReplyPaths.isImagePath(path)
+                let resolved: AgentPaneReplyPaths.Resolved? = if let resolver {
+                    image ? resolver.resolveImage(path) : resolver.resolve(path)
+                } else {
+                    remoteChat && image ? AgentPaneReplyPaths.Resolved(place: .root, path: path, isFolder: false) : nil
+                }
                 guard let resolved else { continue }
                 places[path] = ["place": resolved.place.rawValue, "folder": resolved.isFolder]
             }
@@ -174,6 +200,9 @@ extension AgentPaneModel {
     /// Opens a path chip (D4): the deny list first, then a gesture; inside a root it opens in
     /// cmux's file pages (a folder in Finder); outside, `agentPane.links.outsideRoots` decides.
     func openReplyPath(_ text: String) async -> Result<Void, AgentPaneReplyError> {
+        // A chat on another machine never opens this Mac's files (cx-k21v), whatever
+        // `agentPane.links.outsideRoots` says: its paths are all outside the (empty) roots here.
+        guard !chatIsElsewhere else { return .failure(.pathOutsideRoots) }
         let paths = replyPaths()
         let resolved = AgentPaneReplyPaths.isImagePath(text) ? paths.resolveImage(text) : paths.resolve(text)
         guard let resolved else { return .failure(.pathInvalid) }
@@ -197,6 +226,9 @@ extension AgentPaneModel {
 
     /// Opens `path` after every check: a folder in Finder, a file in the pane's file pages.
     private func openResolved(_ path: String) async -> Result<Void, AgentPaneReplyError> {
+        // Checked again here, after any confirmation: the chat may have turned remote while the
+        // sheet was up (cx-k21v).
+        guard !chatIsElsewhere else { return .failure(.pathOutsideRoots) }
         guard let canonical = AcpmuxPathPolicy.canonical(path) else { return .failure(.pathInvalid) }
         // The link may have changed between the check and now: check the secret names again.
         guard !replyPaths().isDenied(canonical) else { return .failure(.pathDenied) }
@@ -250,6 +282,8 @@ extension AgentPaneModel {
                 return Self.replyFailure(.imageFailed)
             }
         }
+        // Only the wire is remote so far (the handshake has not marked the chat): nothing here.
+        guard !chatIsElsewhere else { return Self.replyFailure(.pathOutsideRoots) }
         let paths = replyPaths()
         // A raster image may also come from the extra image roots (read-only displays); any other file
         // the loader draws (an SVG, rebuilt without script or links; a PDF's first page) only from the
@@ -257,7 +291,12 @@ extension AgentPaneModel {
         let resolved = AgentPaneReplyPaths.isImagePath(src) ? paths.resolveImage(src) : paths.resolve(src)
         guard let resolved else { return Self.replyFailure(.pathInvalid) }
         switch resolved.place {
-        case .root: return Self.replyImage(await AgentPaneReplyImages.local(resolved.path))
+        case .root:
+            // The read runs off the main actor, right after the check above; a chat that turned
+            // remote while it ran gets none of its bytes (cx-k21v).
+            let image = await replyLinks.readLocalImage(resolved.path)
+            guard !chatIsElsewhere else { return Self.replyFailure(.pathOutsideRoots) }
+            return Self.replyImage(image)
         case .denied: return Self.replyFailure(.pathDenied)
         case .outside: return Self.replyFailure(.pathOutsideRoots)
         case .missing: return Self.replyFailure(.pathInvalid)
