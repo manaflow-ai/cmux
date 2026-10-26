@@ -2536,15 +2536,26 @@ class GitHub:
             self.rate_limits[found[0]] = found[1]
 
     def in_flight_runs(self) -> list[dict[str, Any]]:
+        """Every run in IN_FLIGHT_RUN_STATUSES, up to MAX_RUN_PAGES pages a status.
+
+        A status-filtered listing can return a short page before its last one: `status=queued` answered
+        99 runs on page 1 and 85 on page 2 of a total_count of 182 at 06:10Z on 2026-10-26. Stopping at the first short page dropped every queued run older than page 1, so the
+        snapshot's oldest wait on blacksmith-12vcpu-macos-26 read 24 minutes while run 40259152940's fast
+        tier had waited 205, and the janitor never cancelled that run after PR #24021 landed. Paging ends
+        at an empty page or once the status's total_count is read (at a short page when none is given).
+        """
         runs: dict[int, dict[str, Any]] = {}
         for status in IN_FLIGHT_RUN_STATUSES:
+            seen = 0
             for page in range(1, MAX_RUN_PAGES + 1):
                 query = urllib.parse.urlencode({"status": status, "per_page": 100, "page": page})
                 payload = self.request("GET", f"/repos/{self.repo}/actions/runs?{query}")
                 batch = payload.get("workflow_runs") or []
                 for run in batch:
                     runs[run["id"]] = run
-                if len(batch) < 100:
+                seen += len(batch)
+                total = payload.get("total_count")
+                if not batch or (seen >= int(total) if isinstance(total, int) else len(batch) < 100):
                     break
         return list(runs.values())
 
