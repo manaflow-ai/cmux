@@ -34,4 +34,8 @@ public struct CreateProfileRequest: DaemonRequest {
         self.browserProfileID = browserProfileID
         self.defaults = defaults
     }
+
+    enum CodingKeys: String, CodingKey {
+        case name, profile, color, icon, theme, index, browserProfileID = "browser_profile_id", defaults
+    }
 }

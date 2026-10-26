@@ -29,7 +29,9 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
     case progress(browser: Int32, value: Double)
     case fullscreen(browser: Int32, entering: Bool)
     case devToolsResult(browser: Int32, messageID: Int32, success: Bool, json: String)
-    case findResult(browser: Int32, count: Int, activeOrdinal: Int, isFinal: Bool)
+    /// A result of the find `findID` (``CEFFindRequests``): the shim stamps the caller's id of the
+    /// browser's last `cmux_shim_find`.
+    case findResult(browser: Int32, findID: Int32, count: Int, activeOrdinal: Int, isFinal: Bool)
     case closeRequested(browser: Int32)
     case tab(CEFForkTabEvent, browser: Int32, window: Int32, value: Int)
     case popup(browser: Int32, url: String, disposition: Int, userGesture: Bool)
@@ -142,7 +144,7 @@ nonisolated enum CEFShimEvent: Equatable, Sendable {
         case 13: self = .devToolsResult(browser: browser, messageID: request, success: a != 0, json: s1)
         case 14:
             self = .findResult(
-                browser: browser, count: Int(a),
+                browser: browser, findID: request, count: Int(a),
                 activeOrdinal: Int(Int32(truncatingIfNeeded: b)), isFinal: (b >> 32) & 1 != 0
             )
         case 15: self = .closeRequested(browser: browser)

@@ -50,6 +50,10 @@ public struct AppsSetRequest: DaemonRequest {
         self.sandboxed = sandboxed
         self.grant = grant
     }
+
+    enum CodingKeys: String, CodingKey {
+        case idempotencyKey = "idempotency_key", app, origin, installed, enabled, hidden, sandboxed, grant
+    }
 }
 
 /// `apps-logs`: `{lines: [{level, message, ts_ms}]}`; `follow` streams `apps-log` events.

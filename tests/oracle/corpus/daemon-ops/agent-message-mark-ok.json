@@ -97,6 +97,34 @@
         "settled"
       ],
       "note": "acknowledges the fixture message's delivery to the fixture terminal; a person reading a queued message may skip delivered (agent_message_store.rs), so the outcome is the same whether the terminal took it yet"
+    },
+    {
+      "id": "retry",
+      "op": "resource.call",
+      "target": {
+        "machine": "current",
+        "session": "current"
+      },
+      "args": {
+        "method": "agent.message.mark",
+        "params": {
+          "ids": [
+            "$step:fx-message#/value/id"
+          ],
+          "recipient": "$step:fx-workspace#/value/terminal_id",
+          "state": "acknowledged"
+        },
+        "idempotencyKey": "agent-message-mark-ok.call"
+      },
+      "expect": {
+        "outcome": "ok",
+        "receipt": "mutation_result"
+      },
+      "checkpoint": [
+        "before",
+        "settled"
+      ],
+      "note": "I10: step call again with its idempotency key; the daemon replays its reply, adds no journal record and changes no facet"
     }
   ],
   "invariants": [

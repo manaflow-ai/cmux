@@ -34,7 +34,7 @@ final class QuitCoordinator {
     /// The quit hook's participants (`AppServices.quitUnsaved`; tests replace it).
     var unsaved: QuitUnsavedRegistry
     /// The app's main-thread watchdog (AppDelegate): a quit that is ending
-    /// stops its debug hang assertion.
+    /// stops its debug hang assertion and records its open field interval.
     weak var watchdog: MainThreadWatchdog?
     /// Ends the process if the engine stop never returns (cx-ccjnn).
     let deadline = QuitDeadline()
@@ -232,6 +232,7 @@ final class QuitCoordinator {
                 // does, and a debug build reports that hang, never asserts it.
                 deadline.arm(after: QuitDeadline.engineStopLimit)
                 self?.watchdog?.endHangAssertions()
+                self?.watchdog?.recordFieldMetricsAtQuit()
             },
             beginDrain: { services.work.beginShutdown() },
             stopBrowserEngines: {

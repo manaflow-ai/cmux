@@ -299,10 +299,12 @@ public struct DaemonLauncher: Sendable {
     /// The user's per-user temp directory (`confstr(_CS_DARWIN_USER_TEMP_DIR)`),
     /// independent of the process's `TMPDIR`. Falls back to `/tmp`.
     public static func userTemporaryDirectory() -> URL {
-        let length = confstr(_CS_DARWIN_USER_TEMP_DIR, nil, 0)
+        // SAFETY: with a nil buffer and length 0, confstr only returns the size it needs.
+        let length = unsafe confstr(_CS_DARWIN_USER_TEMP_DIR, nil, 0)
         if length > 0 {
             var buffer = [CChar](repeating: 0, count: length)
-            if confstr(_CS_DARWIN_USER_TEMP_DIR, &buffer, length) > 0 {
+            // SAFETY: confstr writes at most `length` bytes, the array's size, into its storage, lent for the call.
+            if unsafe confstr(_CS_DARWIN_USER_TEMP_DIR, &buffer, length) > 0 {
                 let path = String(decoding: buffer.prefix { $0 != 0 }.map { UInt8(bitPattern: $0) }, as: UTF8.self)
                 if !path.isEmpty { return URL(fileURLWithPath: path, isDirectory: true) }
             }

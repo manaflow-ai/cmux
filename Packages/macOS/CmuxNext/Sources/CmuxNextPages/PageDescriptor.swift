@@ -68,8 +68,11 @@ public nonisolated struct PageDescriptor: Sendable, Hashable {
         self.actions = actions
         self.commands = commands
         self.confirmedOps = confirmedOps
-        // Only a first-party page may widen its policy (PageID); any other id gets the strict one.
-        self.csp = PageID.isFirstParty(id) ? csp : .strict
+        // Only a first-party page may widen its policy (PageID); any other id gets the strict one. Every
+        // page the app ships imports the shared chunks; an app page never does.
+        var policy = PageID.isFirstParty(id) ? csp : .strict
+        policy.sharedChunks = PageID.isReserved(id)
+        self.csp = policy
         // One file name inside the root, never a path.
         self.entry = entry.isEmpty || entry.contains("/") || entry.hasPrefix(".") ? "index.html" : entry
         self.dynamicPrefixes = dynamicPrefixes

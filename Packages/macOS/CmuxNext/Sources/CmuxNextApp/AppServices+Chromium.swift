@@ -86,7 +86,7 @@ extension AppServices {
         })
         palettes.whenBuilt { [weak self] palette in  // the palette is built after launch (p08-startup-023)
             guard let self else { return }
-            chromiumLikelyObservations.append(ChromiumPaletteSignal.observe(palette.model, warmup: chromiumWarmup))
+            lifetimeFollowers.append(ChromiumPaletteSignal(palette.model, warmup: chromiumWarmup, on: mainWork))
         }
     }
 }
@@ -106,7 +106,8 @@ extension AppServices {
         return ChromiumEngineSlot(stores: browserStores, waitDeadlines: mainWork.wakeUps, source: chromiumRuntime.source, launch: launchOrder,
                                   make: { [signInCallbacks, contextMenus, inputTap, crashKeys, launchStartup, launchOrder, pointerFrames = dragFrameInput,
                                            chromiumFeatures = features.enabledChromiumFeatures, layerHosting = features.isEnabled(.cefLayerHosting),
-                                           attachedPages = features.isEnabled(.cefAttachedPages), memoryCoordinator] stores, deadlines, source in
+                                           attachedPages = features.isEnabled(.cefAttachedPages), memoryCoordinator,
+                                           everyPage = Self.hostsEveryPage(features)] stores, deadlines, source in
                                       // Chromium's start as launch marks (p08-startup-044); its first page paint counts until startup_complete.
                                       let launchMarks = CEFLaunchMarkHooks(receive: { DebugTimings.markLaunch($0) },
                                                                            isStarting: { launchStartup.map { $0.completion == nil } ?? false })
@@ -115,11 +116,20 @@ extension AppServices {
                                                        launchMarks: launchMarks, pumpInput: pumpInput, pointerFrames: pointerFrames,
                                                        chromiumFeatures: chromiumFeatures, prefetchWork: prefetchWork,
                                                        launch: launchOrder).usingLayerHostingByDefault(layerHosting).usingAttachedPages(attachedPages)
-                                          .votingMemoryPressure(of: memoryCoordinator)
+                                          .hostingEveryPage(everyPage).votingMemoryPressure(of: memoryCoordinator)
                                   },
                                   engineDidCreate: AppServices.chromiumEngineHook(crashRecovery: crashRecovery, reporter: crashReporting.reporter,
                                                                                   routes: { [weak self] in self?.routeChromiumRequests($0) }),
                                   stop: { await $0.shutdown() })
+    }
+
+    /// Bench-only feature `cefLayerHostingEveryPage`, the layer hosting benches' on arm: compiled out of shipped builds.
+    nonisolated static func hostsEveryPage(_ features: FeatureList) -> Bool {
+        #if DEBUG || CMUX_BENCH_HOOKS
+        features.isEnabled(.cefLayerHostingEveryPage)
+        #else
+        false
+        #endif
     }
 
     /// The slot's `engineDidCreate`. It holds the crash services themselves, not the `AppServices`, so on every engine

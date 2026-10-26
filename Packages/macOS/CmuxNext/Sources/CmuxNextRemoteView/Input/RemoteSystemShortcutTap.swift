@@ -17,8 +17,10 @@ import CoreGraphics
 /// anywhere), macOS hides keys from every tap: the chords then act on this
 /// Mac as they do without the setting, and nothing fights it.
 ///
-/// One instance for the app: the owner keeps it alive for the app's life
-/// (the tap's callback holds it unretained) and calls `remove()` itself.
+/// One instance for the app; the owner calls `remove()` itself. While the
+/// tap is installed it keeps itself alive (`installedSelf`), so the pointer
+/// its callback gets always names a live instance, even if the owner lets
+/// go first.
 @MainActor
 public final class RemoteSystemShortcutTap {
     /// The surface taken keys go to.
@@ -27,11 +29,24 @@ public final class RemoteSystemShortcutTap {
     public var stillHolds: () -> Bool = { false }
     /// The tap removed itself (its conditions stopped holding, or it failed).
     public var onRemoved: (() -> Void)?
-    private var port: CFMachPort?
-    private var source: CFRunLoopSource?
+    private let makePort: RemoteEventTapPortFactory
+    private var port: (any RemoteEventTapPort)?
     private var removalPending = false
+    /// Self while `port` exists: the callback's `refcon` is this instance
+    /// unretained, so the port must never outlive it. `remove()` clears it
+    /// after the port can no longer call back.
+    private var installedSelf: RemoteSystemShortcutTap?
 
-    public init() {}
+    public convenience init() {
+        self.init(makePort: { mask, callback, refcon in
+            unsafe QuartzEventTapPort(mask: mask, callback: callback, refcon: refcon)
+        })
+    }
+
+    /// `makePort` creates the event tap (tests pass a fake).
+    init(makePort: @escaping RemoteEventTapPortFactory) {
+        self.makePort = makePort
+    }
 
     public var isInstalled: Bool { port != nil }
 
@@ -43,33 +58,41 @@ public final class RemoteSystemShortcutTap {
         removalPending = false
         if port != nil { return true }
         let mask = CGEventMask(1 << CGEventType.keyDown.rawValue) | CGEventMask(1 << CGEventType.keyUp.rawValue)
-        guard let port = CGEvent.tapCreate(
-            tap: .cgSessionEventTap, place: .headInsertEventTap, options: .defaultTap, eventsOfInterest: mask,
-            callback: { _, type, event, refcon in
-                guard let refcon else { return Unmanaged.passUnretained(event) }
-                let tapAddress = Int(bitPattern: refcon)
-                let eventAddress = Int(bitPattern: Unmanaged.passUnretained(event).toOpaque())
+        // SAFETY: the refcon is this instance unretained; installedSelf keeps it alive while
+        // the port exists, and remove() invalidates the port before releasing it, so every
+        // callback gets a live instance. The callback reads `event` only during its call.
+        guard let port = unsafe makePort(
+            mask,
+            { _, type, event, refcon in
+                // SAFETY: passes the event on unchanged at +0, as the tap API expects.
+                guard let refcon = unsafe refcon else { return unsafe Unmanaged.passUnretained(event) }
+                // SAFETY: only the addresses cross into the main-actor closure below.
+                let tapAddress = unsafe Int(bitPattern: refcon)
+                // SAFETY: as above; `event` stays alive for the whole callback.
+                let eventAddress = unsafe Int(bitPattern: Unmanaged.passUnretained(event).toOpaque())
                 let rawType = type.rawValue
-                // main-proof: install adds the tap's run loop source to the main run loop only
+                // main-proof: QuartzEventTapPort adds the tap's run loop source to the main run loop only
                 let taken = MainActor.assumeIsolated { () -> Bool in
-                    guard let tapPointer = UnsafeRawPointer(bitPattern: tapAddress),
-                          let eventPointer = UnsafeRawPointer(bitPattern: eventAddress),
+                    // SAFETY: the addresses come from the live refcon and event of this callback.
+                    guard let tapPointer = unsafe UnsafeRawPointer(bitPattern: tapAddress),
+                          let eventPointer = unsafe UnsafeRawPointer(bitPattern: eventAddress),
                           let type = CGEventType(rawValue: rawType) else { return false }
-                    let tap = Unmanaged<RemoteSystemShortcutTap>.fromOpaque(tapPointer).takeUnretainedValue()
-                    return tap.handle(type, Unmanaged<CGEvent>.fromOpaque(eventPointer).takeUnretainedValue())
+                    // SAFETY: refcon is this tap's instance, alive while the port exists (see install).
+                    let tap = unsafe Unmanaged<RemoteSystemShortcutTap>.fromOpaque(tapPointer).takeUnretainedValue()
+                    // SAFETY: the event this callback received, alive until it returns.
+                    let received = unsafe Unmanaged<CGEvent>.fromOpaque(eventPointer).takeUnretainedValue()
+                    return tap.handle(type, received)
                 }
-                return taken ? nil : Unmanaged.passUnretained(event)
+                // SAFETY: nil drops the event; otherwise it passes on unchanged at +0.
+                return taken ? nil : unsafe Unmanaged.passUnretained(event)
             },
-            userInfo: Unmanaged.passUnretained(self).toOpaque()
+            Unmanaged.passUnretained(self).toOpaque()
         ) else {
             self.surface = nil
             return false
         }
-        let source = CFMachPortCreateRunLoopSource(kCFAllocatorDefault, port, 0)
-        CFRunLoopAddSource(CFRunLoopGetMain(), source, .commonModes)
-        CGEvent.tapEnable(tap: port, enable: true)
         self.port = port
-        self.source = source
+        installedSelf = self
         return true
     }
 
@@ -78,11 +101,11 @@ public final class RemoteSystemShortcutTap {
         removalPending = false
         surface = nil
         guard let port else { return }
-        CGEvent.tapEnable(tap: port, enable: false)
-        if let source { CFRunLoopRemoveSource(CFRunLoopGetMain(), source, .commonModes) }
-        CFMachPortInvalidate(port)
+        port.invalidate()
         self.port = nil
-        source = nil
+        // The port can no longer call back: the instance may go now. The caller
+        // holds it for the rest of this method.
+        installedSelf = nil
         onRemoved?()
     }
 
@@ -91,7 +114,7 @@ public final class RemoteSystemShortcutTap {
         switch type {
         case .tapDisabledByTimeout, .tapDisabledByUserInput:
             // macOS turned the tap off (a slow callback, or input it guards): on again while it still holds.
-            if let port, stillHolds() { CGEvent.tapEnable(tap: port, enable: true) } else { removeSoon() }
+            if let port, stillHolds() { port.enable() } else { removeSoon() }
             return false
         default:
             break

@@ -1,9 +1,10 @@
 #if DEBUG || CMUX_BLOCKING_CHECKS
 internal import Atomics
 
-/// The call sites of one off-main violation context of ``BlockingViolationTable`` (``BlockingContext/pool`` or
-/// ``BlockingContext/cpuLane``), recorded from many threads at once: the index, the per-site atomics, the ring
-/// of new sites for the drain and the overflow count (Debug and bench-checks builds).
+/// The call sites of one off-main violation context of ``BlockingViolationTable`` (``BlockingContext/pool``,
+/// ``BlockingContext/cpuLane`` or ``BlockingContext/laneSync``), recorded from many threads at once: the index,
+/// the per-site atomics, the ring of new sites for the drain and the overflow count (Debug and bench-checks
+/// builds).
 ///
 /// A repeat of a known site is one lock-free probe (``BlockingSharedSiteIndex``). Only a new site takes the
 /// insert lock, to take its id and push to the ring, so the ring has one producer at a time, as it requires.

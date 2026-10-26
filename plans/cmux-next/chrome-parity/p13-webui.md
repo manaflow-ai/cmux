@@ -888,10 +888,14 @@ Acceptance: `--check` works; no inline module code; a script test resolves every
 `build-pages-web.sh --check` locally, web-lint.sh.
 
 **050 Shared origin.** Files: FirstPartyPageSchemes.swift, PageServedHosts.swift, PageSchemeHandler.swift, PageCSP.swift,
-CEFShim/src/shim_page_scheme.mm, PageID.swift. Change: `cmux.shared` root serves only .js and .css, ACAO set to the
+CEFShim/src/shim_page_scheme.mm, PageID.swift, webviews/scripts/pages/build-pages.mjs, cmux-tui-core
+server/page_files.rs. Change: `cmux.shared` root serves only .js and .css, ACAO set to the
 requesting first-party cmux-page origin, CSP `script-src 'self' cmux-page://cmux.shared`; cmux.shared cannot be
-opened as a page. Acceptance: a non-cmux origin gets no ACAO; navigation to it refused; React chunk URL identical
-across pages. Test: MarkdownPageSecurityTests (shared case), PageSharedOriginTests, bundle report.
+opened as a page. The page build names every shared chunk `cmux-page://cmux.shared/<chunk>.js` (entry imports and
+modulepreload) and no page folder keeps a `_shared` copy; the daemon's /pages/ serves those URLs as /pages/_shared/.
+Acceptance: a non-cmux origin gets no ACAO; navigation to it refused; React chunk URL identical
+across pages. Test: MarkdownPageSecurityTests (shared case), PageSharedOriginTests, PageChromiumCoverageTests,
+webviews pages-split-build.test.ts, cmux-tui-core page_files tests, bundle report.
 
 **051 Bundle report.** Files: scripts/cmux-next/page-bundle-report.mjs (new). Change: per page first-load bytes,
 shared bytes, total, request count, lazy chunk count, React chunk URL. Acceptance: prints every D8 field; agents run
