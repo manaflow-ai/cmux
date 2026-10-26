@@ -703,7 +703,8 @@ right after each `cloud-conversation-subscribe` reply (after the
 lost events and subscribes again gets the current set without waiting for a
 change. A replay, a new owner set and a socket's end go out one at a time, in
 the order they change that kept set: a replay that races the socket's end goes
-out before the empty set, never after it, and never after a newer owner set.
+out before the empty set, never after it, and never after a newer owner set. An old socket that ends after a new subscribe replaced it leaves the new
+socket's set alone, and sends the empty set only while the new one has shown none.
 
 ### terminal-registry-changed
 

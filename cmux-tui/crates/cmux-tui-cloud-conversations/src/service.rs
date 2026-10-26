@@ -3,7 +3,7 @@
 //! socket per subscribed target with resume and reconnect.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering};
 use std::sync::{Arc, Condvar, Mutex, PoisonError};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
@@ -198,6 +198,9 @@ struct Lease {
 }
 
 struct Subscription {
+    /// The driver thread this entry started (unique per entry): a retired
+    /// driver's late cleanup never touches the entry that replaced it.
+    driver: u64,
     clients: BTreeSet<u64>,
     idle_since: Option<Instant>,
     /// The shared socket's current state, which a later subscriber is told.
@@ -271,6 +274,8 @@ struct Inner {
     /// set, nor an owner set newer than it. Taken before `subscriptions`; the
     /// sink only queues the event.
     presence_order: Mutex<()>,
+    /// The next [`Subscription::driver`].
+    next_driver: AtomicU64,
 }
 
 /// The daemon's cloud link. Cheap to clone; all clones share one state.
@@ -311,6 +316,7 @@ impl CloudConversations {
                 shutdown: AtomicBool::new(false),
                 requests_in_flight: AtomicUsize::new(0),
                 presence_order: Mutex::new(()),
+                next_driver: AtomicU64::new(0),
             }),
         }
     }
@@ -804,7 +810,7 @@ impl CloudConversations {
             if let Some(subscription) = subscriptions.get_mut(&target) {
                 subscription.clients.insert(client);
                 subscription.idle_since = None;
-                (false, subscription.state.reply(&target))
+                (None, subscription.state.reply(&target))
             } else {
                 let conversations = subscriptions
                     .keys()
@@ -819,9 +825,11 @@ impl CloudConversations {
                     ));
                 }
                 let reply = initial.reply(&target);
+                let driver = self.inner.next_driver.fetch_add(1, Ordering::Relaxed);
                 subscriptions.insert(
                     target.clone(),
                     Subscription {
+                        driver,
                         clients: BTreeSet::from([client]),
                         idle_since: None,
                         state: initial,
@@ -831,15 +839,15 @@ impl CloudConversations {
                         presence: None,
                     },
                 );
-                (true, reply)
+                (Some(driver), reply)
             }
         };
-        if start {
+        if let Some(driver) = start {
             let inner = self.inner.clone();
             let driver_target = target.clone();
             let spawned = std::thread::Builder::new()
                 .name("mux-cloud-stream".into())
-                .spawn(move || run_driver(&inner, driver_target));
+                .spawn(move || run_driver(&inner, driver_target, driver));
             if let Err(error) = spawned {
                 self.inner
                     .subscriptions
@@ -1217,28 +1225,40 @@ impl Inner {
 
     /// The live socket's new owner set of `target`: kept for later
     /// subscribers and emitted, in order with replays (`presence_order`).
-    fn show_presence(&self, target: &Target, event: CloudEvent) {
+    /// A driver whose entry is gone or replaced shows nothing.
+    fn show_presence(&self, target: &Target, driver: u64, event: CloudEvent) {
         let _order = self.presence_order.lock().unwrap_or_else(PoisonError::into_inner);
-        self.keep_presence(target, Some(event.clone()));
-        self.emit(event);
+        if self.keep_presence(target, driver, Some(event.clone())) == Kept::Mine {
+            self.emit(event);
+        }
     }
 
-    /// `target`'s socket ended: nothing is kept, and the set it showed
-    /// empties (`ended`), in order with replays (`presence_order`).
-    fn end_presence(&self, target: &Target, ended: Option<CloudEvent>) {
+    /// `driver`'s socket of `target` ended: nothing is kept, and the set it
+    /// showed empties (`ended`), in order with replays (`presence_order`). A
+    /// driver that retired after its entry was replaced keeps its hands off
+    /// the replacement's set, and empties the clients only while the
+    /// replacement has shown none.
+    fn end_presence(&self, target: &Target, driver: u64, ended: Option<CloudEvent>) {
         let _order = self.presence_order.lock().unwrap_or_else(PoisonError::into_inner);
-        self.keep_presence(target, None);
+        if self.keep_presence(target, driver, None) == Kept::Replaced {
+            return;
+        }
         if let Some(event) = ended {
             self.emit(event);
         }
     }
 
     /// Keeps `target`'s last presence set for later subscribers (`None`: its
-    /// socket is no longer live).
-    fn keep_presence(&self, target: &Target, presence: Option<CloudEvent>) {
+    /// socket is no longer live), when the entry is still `driver`'s.
+    fn keep_presence(&self, target: &Target, driver: u64, presence: Option<CloudEvent>) -> Kept {
         let mut subscriptions = self.subscriptions.lock().unwrap_or_else(PoisonError::into_inner);
-        if let Some(subscription) = subscriptions.get_mut(target) {
-            subscription.presence = presence;
+        match subscriptions.get_mut(target) {
+            Some(subscription) if subscription.driver == driver => {
+                subscription.presence = presence;
+                Kept::Mine
+            }
+            Some(subscription) if subscription.presence.is_some() => Kept::Replaced,
+            _ => Kept::Gone,
         }
     }
 
@@ -1253,11 +1273,23 @@ impl Inner {
     }
 }
 
+/// Whose entry [`Inner::keep_presence`] found: the driver's own, a
+/// replacement that has shown a set, or none (gone, or a replacement that
+/// has shown nothing yet).
+#[derive(Debug, PartialEq, Eq)]
+enum Kept {
+    Mine,
+    Replaced,
+    Gone,
+}
+
 /// Records the shared socket's state for later subscribers and emits it to
 /// subscribers whenever it changes.
 struct StateReporter<'a> {
     inner: &'a Inner,
     target: Target,
+    /// The driver it reports for ([`Subscription::driver`]).
+    driver: u64,
     last: Option<SocketState>,
 }
 
@@ -1326,9 +1358,9 @@ fn stop_viewing(subscription: &mut Subscription, target: &Target, client: u64) {
     }
 }
 
-fn run_driver(inner: &Arc<Inner>, target: Target) {
+fn run_driver(inner: &Arc<Inner>, target: Target, driver: u64) {
     let mut stream = StreamState::new(target.clone(), inner.options.snapshot_backoff);
-    let mut reporter = StateReporter { inner, target: target.clone(), last: None };
+    let mut reporter = StateReporter { inner, target: target.clone(), driver, last: None };
     let mut backoff = inner.options.backoff_min;
     let poll = inner.options.poll;
     loop {
@@ -1371,6 +1403,7 @@ fn run_driver(inner: &Arc<Inner>, target: Target) {
                 // The owner sends who views again only to the next socket.
                 inner.end_presence(
                     &target,
+                    driver,
                     stream.presence_ended().map(|event| event.with_account(account)),
                 );
                 ended
@@ -1492,7 +1525,7 @@ fn pump(
                         StreamAction::Emit(event) => {
                             let event = event.with_account(account);
                             if matches!(event, CloudEvent::Presence { .. }) {
-                                inner.show_presence(target, event);
+                                inner.show_presence(target, reporter.driver, event);
                             } else {
                                 inner.emit(event);
                             }
@@ -1557,6 +1590,56 @@ mod presence_order_tests {
         CloudEvent::Presence { conversation: "conv_1".into(), participants, account: None }
     }
 
+    fn entry(driver: u64, shown: Option<CloudEvent>) -> Subscription {
+        Subscription {
+            driver,
+            clients: BTreeSet::from([1]),
+            idle_since: None,
+            state: SocketState { state: "live", reason: None, account: None },
+            outbox: Vec::new(),
+            typing_by: None,
+            viewing: BTreeSet::new(),
+            presence: shown,
+        }
+    }
+
+    fn recording(service: &CloudConversations) -> Arc<Mutex<Vec<CloudEvent>>> {
+        let emitted: Arc<Mutex<Vec<CloudEvent>>> = Arc::default();
+        let log = emitted.clone();
+        service.set_sink(Arc::new(move |event| log.lock().unwrap().push(event)));
+        emitted
+    }
+
+    /// A driver that retires after a new subscribe replaced its entry
+    /// (`retire` removes the entry before the driver cleans up) leaves the
+    /// replacement's set alone; with no replacement, or one that has shown
+    /// nothing yet, it empties the clients.
+    #[test]
+    fn a_retired_drivers_cleanup_never_erases_its_replacements_set() {
+        let service = CloudConversations::new(Arc::new(NoBackend));
+        let target = Target::Conversation("conv_1".into());
+        let emitted = recording(&service);
+        let entries = || service.inner.subscriptions.lock().unwrap();
+        entries().insert(target.clone(), entry(1, Some(presence(true))));
+        service.inner.end_presence(&target, 0, Some(presence(false)));
+        assert!(emitted.lock().unwrap().is_empty(), "the replacement's set stands");
+        assert_eq!(entries()[&target].presence, Some(presence(true)));
+        // A replaced driver shows nothing either.
+        service.inner.show_presence(&target, 0, presence(false));
+        assert!(emitted.lock().unwrap().is_empty());
+        entries().insert(target.clone(), entry(2, None));
+        service.inner.end_presence(&target, 0, Some(presence(false)));
+        assert_eq!(*emitted.lock().unwrap(), [presence(false)], "nothing newer to keep");
+        entries().remove(&target);
+        service.inner.end_presence(&target, 0, Some(presence(false)));
+        assert_eq!(emitted.lock().unwrap().len(), 2, "no entry: the clients empty");
+        // The driver's own entry: cleared and emptied.
+        entries().insert(target.clone(), entry(3, Some(presence(true))));
+        service.inner.end_presence(&target, 3, Some(presence(false)));
+        assert_eq!(entries()[&target].presence, None);
+        assert_eq!(emitted.lock().unwrap().len(), 3);
+    }
+
     /// A replay that is mid-emit when the socket ends still goes out before
     /// the socket's empty set: the clients end on no viewers, never on the
     /// dead socket's set.
@@ -1564,18 +1647,12 @@ mod presence_order_tests {
     fn a_replay_racing_the_socket_end_goes_out_before_the_empty_set() {
         let service = CloudConversations::new(Arc::new(NoBackend));
         let target = Target::Conversation("conv_1".into());
-        service.inner.subscriptions.lock().unwrap().insert(
-            target.clone(),
-            Subscription {
-                clients: BTreeSet::from([1]),
-                idle_since: None,
-                state: SocketState { state: "live", reason: None, account: None },
-                outbox: Vec::new(),
-                typing_by: None,
-                viewing: BTreeSet::new(),
-                presence: Some(presence(true)),
-            },
-        );
+        service
+            .inner
+            .subscriptions
+            .lock()
+            .unwrap()
+            .insert(target.clone(), entry(0, Some(presence(true))));
         let emitted: Arc<Mutex<Vec<CloudEvent>>> = Arc::default();
         let (paused_tx, paused) = mpsc::channel::<()>();
         let (resume, resume_rx) = mpsc::channel::<()>();
@@ -1599,7 +1676,7 @@ mod presence_order_tests {
         let end = {
             let (inner, target) = (service.inner.clone(), target.clone());
             std::thread::spawn(move || {
-                inner.end_presence(&target, Some(presence(false)));
+                inner.end_presence(&target, 0, Some(presence(false)));
                 let _ = ended_tx.send(());
             })
         };
