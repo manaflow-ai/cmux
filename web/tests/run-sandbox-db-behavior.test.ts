@@ -92,8 +92,9 @@ describe("sandboxed Run lifecycle in the repository", () => {
       for (const kind of ["attempt.succeeded", "attempt.failed"] as const) {
         const { runId, attemptId, lease } = await startedAttempt(userId);
         await repo().ingestRunEvent({ runId, attemptId, ...lease, externalId: `end-${kind}`, attemptSequence: 1, kind });
-        // The launcher's handoff window: not yet the reaper's.
+        // The launcher's handoff window: not yet the reaper's, and its outcome can still land.
         expect(await repo().claimExpiredAttemptCleanups({ runId })).toEqual([]);
+        expect(await repo().recordSandboxOutcome({ runId, attemptId, ...lease, outcome: { reply: "done", exitCode: 0, signal: null, timedOut: false, bootMs: 1 } })).toBe(true);
         // The launcher's handoff makes it due at once.
         await repo().scheduleAttemptRetention({ runId, attemptId, ...lease, retentionMs: 0 });
         const claims = await repo().claimExpiredAttemptCleanups({ runId });
@@ -101,8 +102,9 @@ describe("sandboxed Run lifecycle in the repository", () => {
         await repo().finishAttemptCleanup({ attemptId, cleanupLeaseToken: claims[0]!.cleanupLeaseToken, succeeded: true });
         const snapshot = await repo().getRun(runId, userId);
         expect(snapshot.attempts[0]?.providerVmId).toBeNull();
-        // Once the VM is gone, the launcher's lease is gone with it.
-        expect(snapshot.attempts[0]?.leaseToken).toBeNull();
+        // Once the VM is gone, the launcher's lease writes nothing more.
+        const late = { reply: "late", exitCode: 0, signal: null, timedOut: false, bootMs: 1 };
+        expect(await repo().recordSandboxOutcome({ runId, attemptId, ...lease, outcome: late })).toBe(false);
       }
       const persistent = await startedAttempt(userId, "persistent");
       await repo().ingestRunEvent({ runId: persistent.runId, attemptId: persistent.attemptId, ...persistent.lease, externalId: "end", attemptSequence: 1, kind: "attempt.succeeded" });
@@ -176,6 +178,33 @@ describe("sandboxed Run lifecycle in the repository", () => {
     }
   });
 
+  dbTest("the launcher's outcome is fenced on the lease it holds, redacted as stored, and never on a persistent Run", async () => {
+    const userId = `sandbox-${randomUUID()}`;
+    try {
+      const sandbox = await startedAttempt(userId);
+      const persistent = await startedAttempt(userId, "persistent");
+      const outcome = { reply: "first", exitCode: 0, signal: null, timedOut: false, bootMs: 10 };
+      const record = (target: typeof sandbox, lease: { leaseToken: string; leaseGeneration: number }, reply: string) =>
+        repo().recordSandboxOutcome({ runId: target.runId, attemptId: target.attemptId, ...lease, outcome: { ...outcome, reply } });
+      expect(await record(sandbox, { ...sandbox.lease, leaseGeneration: sandbox.lease.leaseGeneration - 1 }, "stale generation")).toBe(false);
+      expect(await record(sandbox, { ...sandbox.lease, leaseToken: randomUUID() }, "stale token")).toBe(false);
+      expect(await record(sandbox, sandbox.lease, `first on vm-${sandbox.attemptId} PASSWORD="hunter2hunter2"`)).toBe(true);
+      expect(await record(persistent, persistent.lease, "first")).toBe(false);
+      expect((await repo().getRun(sandbox.runId, userId)).run.receipt).toMatchObject({ reply: 'first on [redacted] PASSWORD=[redacted]' });
+      expect((await repo().getRun(persistent.runId, userId)).run.receipt).toBeNull();
+
+      // A replacement lease fences the first launcher once its lease lapsed.
+      await sql!`update run_attempts set lease_expires_at = now() - interval '1 second' where id = ${sandbox.attemptId}`;
+      expect(await record(sandbox, sandbox.lease, "expired")).toBe(false);
+      const replacement = await repo().claimAttemptLease({ runId: sandbox.runId, attemptId: sandbox.attemptId, workerId: "replacement" });
+      expect(await record(sandbox, sandbox.lease, "old holder")).toBe(false);
+      expect(await record(sandbox, replacement, "new holder")).toBe(true);
+      expect((await repo().getRun(sandbox.runId, userId)).run.receipt).toMatchObject({ reply: "new holder" });
+    } finally {
+      await removeRuns(userId);
+    }
+  });
+
   dbTest("a VM created but never journaled is adopted after a cancel and reported pending until destroyed", async () => {
     const userId = `sandbox-${randomUUID()}`;
     try {
@@ -189,6 +218,7 @@ describe("sandboxed Run lifecycle in the repository", () => {
       await repo().forceFinalizeRunCancellation(created.run.id, userId);
       const cancelled = await repo().getRun(created.run.id, userId);
       expect(cancelled.attempts[0]).toMatchObject({ status: "cancelled", providerVmId: null });
+      expect(cancelled.sandboxVmLive).toBe(true);
 
       await repo().failAbandonedSandboxAttempts({ limit: 100 });
       const claims = await repo().claimExpiredAttemptCleanups({ runId: created.run.id });
@@ -200,6 +230,7 @@ describe("sandboxed Run lifecycle in the repository", () => {
       await repo().failAbandonedSandboxAttempts({ limit: 100 });
       const done = await repo().getRun(created.run.id, userId);
       expect(done.attempts[0]?.providerVmId).toBeNull();
+      expect(done.sandboxVmLive).toBe(false);
     } finally {
       await sql!`delete from cloud_vms where user_id = ${userId}`;
       await removeRuns(userId);
@@ -263,6 +294,40 @@ describe("sandboxed Run lifecycle in the repository", () => {
     }
   });
 
+  dbTest("cleanup scrubs the handles out of stored text before it clears them, and keeps them nowhere", async () => {
+    const userId = `sandbox-${randomUUID()}`;
+    try {
+      const { runId, attemptId, lease } = await startedAttempt(userId);
+      const vmId = `vm-${attemptId}`;
+      await repo().ingestRunEvent({ runId, attemptId, ...lease, externalId: "end", attemptSequence: 1, kind: "attempt.failed", payload: { error: "x" } });
+      // Text written while the handle was not yet known to the writer, so it still names it.
+      await sql!`update run_attempts set error = ${`lost ${vmId}`} where id = ${attemptId}`;
+      await sql!`update runs set receipt = ${sql!.json({ reply: `ran on ${vmId}`, exitCode: 1, signal: null, timedOut: false, bootMs: 1 })} where id = ${runId}`;
+      await sql!`insert into run_artifacts (run_id, attempt_id, name, media_type, size_bytes, digest, uri) values (${runId}, ${attemptId}, ${`dump-${vmId}.txt`}, ${`text/${vmId}`}, 1, ${`sha256:${"a".repeat(64)}`}, ${`blob/${vmId}`})`;
+      // Two names that scrub to the same text stay distinct (names are unique per attempt).
+      await sql!`update run_attempts set provider_workspace_id = ${`ws-${attemptId}`} where id = ${attemptId}`;
+      await sql!`insert into run_artifacts (run_id, attempt_id, name, media_type, size_bytes, digest, uri) values (${runId}, ${attemptId}, ${`dump-ws-${attemptId}.txt`}, 'text/plain', 1, ${`sha256:${"b".repeat(64)}`}, 'x')`;
+      // The launcher never handed off: past its window the reaper takes the VM anyway.
+      const claims = await repo().claimExpiredAttemptCleanups({ runId, now: new Date(Date.now() + 3 * 60_000) });
+      // The reaper owns the VM now: the launcher's outcome can no longer change the receipt.
+      expect(await repo().recordSandboxOutcome({ runId, attemptId, ...lease, outcome: { reply: "late", exitCode: 0, signal: null, timedOut: false, bootMs: 1 } })).toBe(false);
+      await repo().finishAttemptCleanup({ attemptId, cleanupLeaseToken: claims[0]!.cleanupLeaseToken, succeeded: true });
+      const [run] = await sql!`select receipt::text as receipt from runs where id = ${runId}`;
+      const [attempt] = await sql!`select error from run_attempts where id = ${attemptId}`;
+      const artifacts = await sql!`select name, media_type, uri from run_artifacts where attempt_id = ${attemptId} order by digest`;
+      const artifact = artifacts[0];
+      expect(run?.receipt).not.toContain(vmId);
+      expect(attempt?.error).toBe("lost [redacted]");
+      expect(artifact?.name).toMatch(/^dump-\[redacted\]\.txt~[0-9a-f]{8}$/);
+      expect(artifacts[1]?.name).toMatch(/^dump-\[redacted\]\.txt~[0-9a-f]{8}$/);
+      expect(artifacts[1]?.name).not.toBe(artifact?.name);
+      expect(artifacts.map((row) => row.uri).join(" ")).not.toContain(vmId);
+      expect(artifact?.media_type).toBe("application/octet-stream");
+    } finally {
+      await removeRuns(userId);
+    }
+  });
+
   dbTest("with no VM row left, the reaper asks the provider and only then lets the handle go", async () => {
     const userId = `sandbox-${randomUUID()}`;
     const destroyed: string[] = [];
@@ -291,8 +356,9 @@ describe("sandboxed Run lifecycle in the repository", () => {
       expect((await repo().getRun(gone.runId, userId)).attempts[0]?.providerVmId).toBeNull();
       expect(await reapExpiredCloudVmAttempts({ runId: down.runId })).toMatchObject({ claimed: 1, cleaned: 0, errors: 1 });
       expect((await repo().getRun(down.runId, userId)).attempts[0]?.providerVmId).toBe(`vm-${down.attemptId}-down`);
-      // Claimed by the reaper (deferred, failed or done): the launcher's lease is gone.
-      expect((await repo().getRun(down.runId, userId)).attempts[0]?.leaseToken).toBeNull();
+      // Claimed by the reaper (deferred, failed or done): the launcher's lease writes nothing more.
+      const late = { reply: "late", exitCode: 0, signal: null, timedOut: false, bootMs: 1 };
+      expect(await repo().recordSandboxOutcome({ runId: down.runId, attemptId: down.attemptId, ...down.lease, outcome: late })).toBe(false);
       const route = await startedAttempt(userId);
       await sql!`update run_attempts set provider_vm_id = ${`vm-${route.attemptId}-route`} where id = ${route.attemptId}`;
       await finishAttempt(route);
@@ -312,6 +378,7 @@ describe("sandboxed Run lifecycle in the repository", () => {
       const attempt = created.attempts[0]!;
       await insertSandboxVm(userId, `sandbox-run:${created.run.id}:attempt:${attempt.id}`, `vm-unmarked-${randomUUID()}`, false);
       await repo().cancelRun(created.run.id, userId);
+      expect((await repo().getRun(created.run.id, userId)).sandboxVmLive).toBe(false);
       await repo().failAbandonedSandboxAttempts({ limit: 100 });
       expect(await repo().claimExpiredAttemptCleanups({ runId: created.run.id })).toEqual([]);
     } finally {

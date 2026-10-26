@@ -1,0 +1,193 @@
+import { sandboxHourUsd, SANDBOX_LIST_USD } from "../billing/chiefPricing";
+import { findVmImageManifestEntry } from "../vms/images/resolver";
+import type { ProviderId } from "../vms/drivers";
+import type { RunSnapshotRow } from "./view";
+import type { RunStatus, SandboxRunOutcome, SandboxRunReceipt } from "./model";
+
+/** Characters of terminal output a receipt keeps; the full output stays in the Run journal. */
+export const SANDBOX_REPLY_MAX_CHARS = 4_000;
+
+const ANSI = /\u001b\[[0-?]*[ -/]*[@-~]|\u001b\][^\u0007\u001b]*(?:\u0007|\u001b\\)|\u001b[@-Z\\-_]/g;
+/** Token shapes an agent may echo; the receipt is shared wider than the terminal. */
+// Token prefixes match after any non-alphanumeric (`_`, `-`, `/`), not only a word boundary:
+// `\b` never matches after `_`, so `dump_sk-…` would slip through.
+const TOKEN_SHAPES = [
+  // The provider-secret shapes of services/sentry.ts, plus common package-registry and SaaS tokens.
+  /(?<![A-Za-z0-9])(?:sk|srt|pk|rk|sk_live|sk_test|rk_live|rk_test|whsec)[-_][A-Za-z0-9_-]{8,}/g,
+  /(?<![A-Za-z0-9])gh[pousr]_[A-Za-z0-9]{20,}/g,
+  /(?<![A-Za-z0-9])github_pat_[A-Za-z0-9_]{20,}/g,
+  /(?<![A-Za-z0-9])gl(?:pat|dt|rt|ptt|cbt|oas|soat|ffct|imt|agent)-[A-Za-z0-9_-]{16,}/g,
+  // Common prefixed API tokens (Sentry, Docker, PyPI, Shopify, Linear, Figma, DigitalOcean, Vercel,
+  // npm, RubyGems, Postman, Databricks, HashiCorp, Doppler, Grafana, SendGrid, Twilio, Mailgun).
+  /(?<![A-Za-z0-9])(?:sntry[su]_|dckr_pat_|dckr_oat_|pypi-|shp(?:at|ss|ca|pa)_|lin_(?:api|oauth)_|figd_|do[opr]_v1_|vcp_|npm_|rubygems_|PMAK-|hvs\.|hvb\.|dp\.(?:pt|st|sa|ct)\.|glsa_|glc_|SG\.)[A-Za-z0-9._=-]{16,}/g,
+  // Fixed-length hex tokens whose prefix alone is ordinary text (Databricks, Twilio, Mailgun).
+  /(?<![A-Za-z0-9])(?:dapi[0-9a-f]{32}|SK[0-9a-f]{32}|key-[0-9a-f]{32})(?![A-Za-z0-9])/g,
+  /(?<![A-Za-z0-9])npm_[A-Za-z0-9]{30,}/g,
+  /(?<![A-Za-z0-9])hf_[A-Za-z0-9]{30,}/g,
+  /(?<![A-Za-z0-9])AIza[0-9A-Za-z_-]{30,}/g,
+  /(?<![A-Za-z0-9])xox[abprs]-[A-Za-z0-9-]{10,}/g,
+  /(?<![A-Za-z0-9])xapp-[A-Za-z0-9-]{10,}/g,
+  /(?<![A-Za-z0-9])(?:AKIA|ASIA)[0-9A-Z]{16}\b/g,
+  // Credentials inside a URL (`postgres://user:pass@host`) and Basic auth.
+  /(\b[A-Za-z][A-Za-z0-9+.-]*:\/\/)[^/?#\s@]+@/g,
+  /(\bbasic\s+)[A-Za-z0-9+/]{8,}=*/gi,
+  /(?<![A-Za-z0-9])eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g,
+  /(\bbearer\s+)[A-Za-z0-9._~+/-]{8,}=*/gi,
+  // `PASSWORD="…"`, `api_key: …`, `"clientSecret": "…"`, `MY_TOKEN=…`: a secret-named key, then its value.
+  /(\b[A-Za-z0-9_]*(?:token|password|passwd|pwd|secret|api[_-]?key|apikey|access[_-]?key|private[_-]?key|authorization|credential)[A-Za-z0-9_]*["']?\s*[:=]\s*)(?:"(?:[^"\\]|\\.)*"|'(?:[^'\\]|\\.)*'|[^\s"',;}]{2,})/gi,
+];
+
+/** A PEM or OpenSSH private key block, whole (the receipt never needs one). */
+const PRIVATE_KEY_BLOCK = /-----BEGIN [A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?-----[\s\S]*?(?:-----END [A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?-----|$)/g;
+
+/**
+ * Remove terminal escapes, token-shaped strings and the given exact values (provider handles)
+ * from text a receipt shows. Runs where the text is stored and again where it is served.
+ */
+export function redactReceiptText(text: string, exact: readonly (string | null | undefined)[] = []): string {
+  let out = text.replace(ANSI, "").replace(PRIVATE_KEY_BLOCK, "[redacted private key]");
+  for (const value of exact) {
+    if (value) out = out.split(value).join("[redacted]");
+  }
+  for (const shape of TOKEN_SHAPES) {
+    out = out.replace(shape, (match, prefix: unknown) => (typeof prefix === "string" ? `${prefix}[redacted]` : "[redacted]"));
+  }
+  return out;
+}
+
+/** The tail of a terminal transcript, safe to show as a chat's result. */
+export function sandboxReply(output: string, exact: readonly (string | null | undefined)[] = []): string | null {
+  let text = redactReceiptText(output.replace(/\r\n?/g, "\n"), exact);
+  text = text.trim();
+  if (!text) return null;
+  return text.length > SANDBOX_REPLY_MAX_CHARS ? `…${text.slice(-SANDBOX_REPLY_MAX_CHARS)}` : text;
+}
+
+function iso(value: Date | null | undefined): string | null {
+  return value ? value.toISOString() : null;
+}
+
+function between(from: Date | null | undefined, to: Date | null | undefined): number | null {
+  return from && to ? Math.max(0, to.getTime() - from.getTime()) : null;
+}
+
+/** A bare `type/subtype` that redaction leaves unchanged; anything else shows as octet-stream. */
+function safeMediaType(value: string, handles: readonly (string | null | undefined)[]): string {
+  return MEDIA_TYPE.test(value) && redactReceiptText(value, handles) === value ? value : "application/octet-stream";
+}
+
+const MEDIA_TYPE = /^[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*\/[A-Za-z0-9][A-Za-z0-9!#$&^_.+-]*$/;
+
+function storedOutcome(value: Record<string, unknown> | null | undefined): SandboxRunOutcome | null {
+  if (!value) return null;
+  const num = (key: string) => (typeof value[key] === "number" && Number.isFinite(value[key]) ? value[key] as number : null);
+  return {
+    reply: typeof value.reply === "string" ? value.reply : null,
+    exitCode: num("exitCode"),
+    signal: num("signal"),
+    timedOut: value.timedOut === true,
+    bootMs: num("bootMs"),
+  };
+}
+
+const TERMINAL_RUN_STATUSES: readonly RunStatus[] = ["succeeded", "failed", "cancelled"];
+
+/**
+ * Build a sandboxed Run's receipt from its rows. The launcher's outcome (reply, exit code) is
+ * merged in when it was recorded; a Run whose controller died still gets a receipt from the
+ * journal alone. Cleanup is read live, so a destroy the reaper finishes later shows here.
+ */
+export function sandboxReceiptFor(snapshot: RunSnapshotRow, provider: ProviderId = "freestyle"): SandboxRunReceipt | null {
+  const { run } = snapshot;
+  if (run.environment !== "sandboxed" || !run.imageId) return null;
+  const status = run.status as RunStatus;
+  if (!TERMINAL_RUN_STATUSES.includes(status)) return null;
+  const outcome = storedOutcome(run.receipt);
+  const attempt = snapshot.attempts[0];
+  // Cleanup scrubs stored text before it clears the handles; until then they are redacted here.
+  const handles = [attempt?.providerVmId, attempt?.providerWorkspaceId, attempt?.providerTerminalId];
+  return {
+    schema: "cmux.run.receipt/v1",
+    runId: run.id,
+    environment: "sandboxed",
+    status,
+    image: { id: run.imageId, version: run.imageVersion ?? null },
+    ...receiptOutcome(outcome, attempt?.exitCode ?? null, attempt?.error ?? run.error, handles),
+    artifacts: snapshot.artifacts.map((artifact) => ({
+      name: redactReceiptText(artifact.name, handles),
+      // A bare `type/subtype`; parameters (`; token=…`) or anything else is not shown.
+      mediaType: safeMediaType(artifact.mediaType, handles),
+      sizeBytes: artifact.sizeBytes,
+      digest: artifact.digest,
+    })),
+    ...receiptTimingsAndCost(snapshot, outcome, provider, run.imageId),
+    cleanup: snapshot.sandboxVmLive || snapshot.attempts.some((row) => row.providerVmId) ? "pending" : "destroyed",
+  };
+}
+
+/**
+ * A sandboxed Run's artifact as the snapshot serves it: name, media type and URI redacted like
+ * the receipt (with the attempt's handles while it still has them), metadata already redacted.
+ */
+export function sandboxArtifactView<T extends { readonly name: string; readonly mediaType: string; readonly uri: string }>(view: T, snapshot: RunSnapshotRow): T {
+  const attempt = snapshot.attempts[0];
+  const handles = [attempt?.providerVmId, attempt?.providerWorkspaceId, attempt?.providerTerminalId];
+  return { ...view, name: redactReceiptText(view.name, handles), mediaType: safeMediaType(view.mediaType, handles), uri: redactReceiptText(view.uri, handles) };
+}
+
+function receiptOutcome(
+  outcome: SandboxRunOutcome | null,
+  attemptExitCode: number | null,
+  error: string | null,
+  handles: readonly (string | null | undefined)[],
+): Pick<SandboxRunReceipt, "exitCode" | "signal" | "timedOut" | "reply" | "error"> {
+  const reply = outcome?.reply ? redactReceiptText(outcome.reply, handles).slice(-(SANDBOX_REPLY_MAX_CHARS + 1)) : null;
+  return {
+    exitCode: outcome?.exitCode ?? attemptExitCode,
+    signal: outcome?.signal ?? null,
+    timedOut: outcome?.timedOut ?? false,
+    reply,
+    error: error ? redactReceiptText(error, handles).slice(0, 500) : null,
+  };
+}
+
+/**
+ * Seconds the VM ran: from the attempt's start (journaled right after the VM booted) to its
+ * finish, plus the measured boot. Unknown, never zero, when either end is missing: a create that
+ * failed after the provider made a VM, or a VM the sweep adopted, still ran for a while nobody
+ * measured.
+ */
+function vmSecondsFor(snapshot: RunSnapshotRow, outcome: SandboxRunOutcome | null, finishedAt: Date | null): number | null {
+  const ran = between(snapshot.attempts[0]?.startedAt, finishedAt);
+  if (ran === null) return null;
+  return Math.round((ran + (outcome?.bootMs ?? 0)) / 1000);
+}
+
+function receiptCost(provider: ProviderId, imageId: string, vmSeconds: number | null): SandboxRunReceipt["cost"] {
+  const size = findVmImageManifestEntry(provider, imageId)?.size ?? null;
+  const hourUsd = size ? sandboxHourUsd({ vcpu: size.cpu, gib: size.memoryMb / 1024 }, SANDBOX_LIST_USD) : null;
+  const estimateUsd = hourUsd === null || vmSeconds === null ? null : Math.round(hourUsd * (vmSeconds / 3600) * 10_000) / 10_000;
+  return { vmSeconds, vcpus: size?.cpu ?? null, memoryMb: size?.memoryMb ?? null, estimateUsd };
+}
+
+function receiptTimingsAndCost(
+  snapshot: RunSnapshotRow,
+  outcome: SandboxRunOutcome | null,
+  provider: ProviderId,
+  imageId: string,
+): Pick<SandboxRunReceipt, "timings" | "cost"> {
+  const { run } = snapshot;
+  const attempt = snapshot.attempts[0];
+  const finishedAt = attempt?.finishedAt ?? run.completedAt ?? null;
+  return {
+    timings: {
+      createdAt: run.createdAt.toISOString(),
+      startedAt: iso(attempt?.startedAt),
+      finishedAt: iso(finishedAt),
+      bootMs: outcome?.bootMs ?? null,
+      runMs: between(attempt?.startedAt, finishedAt),
+      totalMs: between(run.createdAt, finishedAt),
+    },
+    cost: receiptCost(provider, imageId, vmSecondsFor(snapshot, outcome, finishedAt)),
+  };
+}

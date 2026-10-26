@@ -18,11 +18,13 @@ import {
   type AttemptStatus,
   type RunEnvironment,
 } from "./model";
+import { sandboxArtifactView, sandboxReceiptFor } from "./sandbox";
 
 export type RunSnapshotRow = {
   readonly run: typeof runs.$inferSelect;
   readonly attempts: readonly (typeof runAttempts.$inferSelect)[];
   readonly artifacts: readonly (typeof runArtifacts.$inferSelect)[];
+  readonly sandboxVmLive?: boolean;
 };
 
 export type RunViewOptions = {
@@ -215,7 +217,10 @@ export function toRunSnapshotView(snapshot: RunSnapshotRow, options: RunViewOpti
   return {
     run,
     attempts: snapshot.attempts.map((attempt) => attemptView(attempt, backendProvider)),
-    artifacts: snapshot.artifacts.map(artifactView),
+    artifacts: snapshot.run.environment === "sandboxed"
+      ? snapshot.artifacts.map((artifact) => sandboxArtifactView(artifactView(artifact), snapshot))
+      : snapshot.artifacts.map(artifactView),
+    receipt: sandboxReceiptFor(snapshot),
   };
 }
 

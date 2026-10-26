@@ -22,7 +22,9 @@ import {
   type RunEnvironment,
   type RunEventKind,
   type RunStatus,
+  type SandboxRunOutcome,
 } from "./model";
+import { redactReceiptText, sandboxReply } from "./sandbox";
 
 export class RunIdempotencyConflictError extends Error {}
 export class RunNotFoundError extends Error {}
@@ -41,6 +43,8 @@ export type RunSnapshot = {
   readonly run: typeof runs.$inferSelect;
   readonly attempts: (typeof runAttempts.$inferSelect)[];
   readonly artifacts: (typeof runArtifacts.$inferSelect)[];
+  /** Sandboxed Runs only: a VM created under the sandbox's key is not destroyed yet. */
+  readonly sandboxVmLive?: boolean;
 };
 
 export type CreateRunInput = {
@@ -149,7 +153,19 @@ async function readSnapshot(db: RunQueryDb, runId: string, userId: string): Prom
   if (!run) throw new RunNotFoundError("run not found");
   const attempts = await db.select().from(runAttempts).where(eq(runAttempts.runId, runId)).orderBy(asc(runAttempts.ordinal));
   const artifacts = await db.select().from(runArtifacts).where(eq(runArtifacts.runId, runId)).orderBy(desc(runArtifacts.createdAt));
-  return { run, attempts, artifacts };
+  if (run.environment !== "sandboxed" || !run.billingTeamId) return { run, attempts, artifacts };
+  // The VM row, not the attempt's handle, says whether a sandbox's machine is gone: a launcher
+  // that died between create and journal leaves a VM the attempt never names.
+  const keys = attempts.map((attempt) => sandboxVmIdempotencyKey(run.id, attempt.id));
+  const live = keys.length === 0 ? [] : await db.select({ id: cloudVms.id }).from(cloudVms).where(and(
+    eq(cloudVms.billingTeamId, run.billingTeamId),
+    eq(cloudVms.userId, run.userId),
+    inArray(cloudVms.idempotencyKey, keys),
+    sql`${cloudVms.providerMetadata}->>${SANDBOX_VM_MARKER_KEY} = ${cloudVms.idempotencyKey}`,
+    isNotNull(cloudVms.providerVmId),
+    ne(cloudVms.status, "destroyed"),
+  )).limit(1);
+  return { run, attempts, artifacts, sandboxVmLive: live.length > 0 };
 }
 
 export async function getRun(runId: string, userId: string): Promise<RunSnapshot> {
@@ -864,11 +880,53 @@ export async function claimExpiredAttemptCleanups(input: { readonly limit?: numb
   });
 }
 
+/**
+ * Before cleanup clears a sandbox attempt's provider handles, take them out of every stored text
+ * that could name them (the receipt's reply, the attempt's error, artifact names), so nothing
+ * stored needs the handles again and the handles themselves are kept nowhere.
+ */
+async function scrubSandboxHandles(attemptId: string, cleanupLeaseToken: string): Promise<void> {
+  const runId = (await cloudDb().select({ runId: runAttempts.runId }).from(runAttempts).where(eq(runAttempts.id, attemptId)).limit(1))[0]?.runId;
+  if (!runId) return;
+  await cloudDb().transaction(async (tx) => {
+    // The same lock order as event ingestion and the outcome write: advisory, run, attempt.
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${runId}, 0))`);
+    await lockRun(tx, runId);
+    await lockAttempt(tx, runId, attemptId);
+    const row = (await tx.select({ attempt: runAttempts, run: runs }).from(runAttempts).innerJoin(runs, eq(runs.id, runAttempts.runId)).where(and(
+      eq(runAttempts.id, attemptId),
+      eq(runAttempts.cleanupLeaseToken, cleanupLeaseToken),
+      eq(runs.environment, "sandboxed"),
+    )).limit(1))[0];
+    if (!row) return;
+    const handles = [row.attempt.providerVmId, row.attempt.providerWorkspaceId, row.attempt.providerTerminalId];
+    if (!handles.some(Boolean)) return;
+    const reply = typeof row.run.receipt?.reply === "string" ? row.run.receipt.reply : null;
+    if (reply !== null) {
+      await tx.update(runs).set({ receipt: { ...row.run.receipt, reply: redactReceiptText(reply, handles) } }).where(eq(runs.id, row.run.id));
+    }
+    if (row.attempt.error) {
+      await tx.update(runAttempts).set({ error: redactReceiptText(row.attempt.error, handles) }).where(eq(runAttempts.id, attemptId));
+    }
+    for (const artifact of await tx.select({ id: runArtifacts.id, name: runArtifacts.name, mediaType: runArtifacts.mediaType, uri: runArtifacts.uri }).from(runArtifacts).where(eq(runArtifacts.attemptId, attemptId))) {
+      const scrubbed = redactReceiptText(artifact.name, handles);
+      // Names are unique per attempt: a scrubbed name that collides keeps a suffix from the id.
+      const name = scrubbed === artifact.name ? scrubbed : `${scrubbed}~${artifact.id.slice(0, 8)}`;
+      const mediaType = redactReceiptText(artifact.mediaType, handles) === artifact.mediaType ? artifact.mediaType : "application/octet-stream";
+      const uri = redactReceiptText(artifact.uri, handles);
+      if (name !== artifact.name || mediaType !== artifact.mediaType || uri !== artifact.uri) {
+        await tx.update(runArtifacts).set({ name, mediaType, uri }).where(eq(runArtifacts.id, artifact.id));
+      }
+    }
+  });
+}
+
 export async function finishAttemptCleanup(input: {
   readonly attemptId: string;
   readonly cleanupLeaseToken: string;
   readonly succeeded: boolean;
 }): Promise<void> {
+  if (input.succeeded) await scrubSandboxHandles(input.attemptId, input.cleanupLeaseToken);
   await cloudDb().update(runAttempts).set(input.succeeded ? {
     providerVmId: null,
     providerWorkspaceId: null,
@@ -884,6 +942,48 @@ export async function finishAttemptCleanup(input: {
     cleanupLeaseExpiresAt: null,
     updatedAt: now(),
   }).where(and(eq(runAttempts.id, input.attemptId), eq(runAttempts.cleanupLeaseToken, input.cleanupLeaseToken)));
+}
+
+/**
+ * The launcher's view of a sandboxed Run (reply, exit code, boot time), written under the Run and
+ * attempt locks and fenced on the lease the launcher still holds (token and generation, and a
+ * live expiry unless the attempt is already terminal). A replacement lease, a cancel or the
+ * abandoned sweep each change the token or generation, so a stale launcher writes nothing; the
+ * current holder may correct its own earlier write. The reply is redacted here, while the
+ * attempt still names its provider handles, so the stored text never holds them.
+ */
+export async function recordSandboxOutcome(input: {
+  readonly runId: string;
+  readonly attemptId: string;
+  readonly leaseToken: string;
+  readonly leaseGeneration: number;
+  readonly outcome: SandboxRunOutcome;
+}): Promise<boolean> {
+  return cloudDb().transaction(async (tx) => {
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtextextended(${input.runId}, 0))`);
+    await lockRun(tx, input.runId);
+    await lockAttempt(tx, input.runId, input.attemptId);
+    const nowAt = now();
+    const attempt = (await tx.select().from(runAttempts).innerJoin(runs, eq(runs.id, runAttempts.runId)).where(and(
+      eq(runAttempts.id, input.attemptId),
+      eq(runAttempts.runId, input.runId),
+      eq(runs.environment, "sandboxed"),
+      eq(runAttempts.leaseToken, input.leaseToken),
+      eq(runAttempts.leaseGeneration, input.leaseGeneration),
+      // Once the reaper claimed the VM, the receipt is final.
+      isNull(runAttempts.cleanupLeaseToken),
+      or(
+        inArray(runAttempts.status, ["succeeded", "failed", "cancelled"]),
+        gt(runAttempts.leaseExpiresAt, nowAt),
+      ),
+    )).limit(1))[0]?.run_attempts;
+    if (!attempt) return false;
+    const { exitCode, signal, timedOut, bootMs } = input.outcome;
+    const handles = [attempt.providerVmId, attempt.providerWorkspaceId, attempt.providerTerminalId];
+    const reply = input.outcome.reply === null ? null : sandboxReply(input.outcome.reply, handles);
+    await tx.update(runs).set({ receipt: { reply, exitCode, signal, timedOut, bootMs }, updatedAt: nowAt }).where(eq(runs.id, input.runId));
+    return true;
+  });
 }
 
 type AbandonCutoffs = { readonly nowAt: Date; readonly leaseCutoff: Date; readonly queuedCutoff: Date };
