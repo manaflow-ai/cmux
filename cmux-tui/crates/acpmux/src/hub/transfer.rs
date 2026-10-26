@@ -708,3 +708,56 @@ impl Hub {
         Ok(last)
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A durable replacement (`transfer_in.rs`) moved the chat's store aside before its import,
+    /// which failed: the import leaves no marker, so the move can be tried again on this daemon.
+    #[tokio::test]
+    async fn a_failed_durable_replacement_leaves_no_recovery_marker() {
+        let dir = std::env::temp_dir().join(format!("acpmux-test-{}", uuid::Uuid::now_v7()));
+        let profile = crate::config::HarnessProfile {
+            kind: Default::default(),
+            argv: vec!["true".into()],
+            env: Default::default(),
+            description: None,
+            fallback: None,
+            family: None,
+            models: vec![],
+            model: None,
+            effort: None,
+            policy: None,
+        };
+        let mut cfg = crate::config::Config::default();
+        cfg.harnesses.insert("cmux-harness".into(), profile);
+        cfg.store.mode = crate::config::StoreMode::Local;
+        let hub = Hub::new(cfg.clone(), crate::store::open(&cfg.store, &dir).unwrap());
+        let id = uuid::Uuid::now_v7().to_string();
+        let meta = json!({
+            "schema": crate::store::META_SCHEMA, "id": id, "name": "durable",
+            "harness": "cmux-harness", "cwd": std::env::temp_dir(), "agentSessionId": "agent-0002",
+            "status": "idle", "createdAt": 1, "updatedAt": 1,
+        });
+        let backup = dir.join("sessions").join(format!(".{id}.replacement-backup"));
+        std::fs::create_dir_all(&backup).unwrap();
+        std::fs::write(backup.join("session.json"), meta.to_string()).unwrap();
+        let bundle = dir.join("bundle");
+        std::fs::create_dir_all(bundle.join("events")).unwrap();
+        std::fs::write(bundle.join("session.json"), meta.to_string()).unwrap();
+        std::fs::write(bundle.join("events").join("000001.ndjson"), "not a record\n").unwrap();
+        let marker = dir.join("sessions/.agent-0002.durable-transfer-state");
+        for attempt in ["first", "retry"] {
+            let failed = hub.import_into(&bundle, None, true, None, true, true).await;
+            let failed = failed.err().map(|e| e.message);
+            assert!(
+                failed.as_deref().is_some_and(|m| m.starts_with("import events")),
+                "{attempt}: {failed:?}"
+            );
+            assert!(!marker.exists(), "{attempt} left its recovery marker");
+        }
+        assert!(backup.join("session.json").exists(), "the moved-aside store is the receive's");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
