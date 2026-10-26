@@ -3036,18 +3036,20 @@ def ui_targets() -> set[str]:
     return BLOCKING_CONTEXT["ui_targets"]
 
 
+def header_start(lines: list[str], number: int) -> int:
+    """The 1-based first line of the header of the block that opens on 1-based line NUMBER: the line after the
+    previous statement's end, at most HEADER_LINES lines up."""
+    j = number - 2
+    while j >= 0 and number - 1 - j <= HEADER_LINES and not STATEMENT_END.search(code_of(lines[j])):
+        j -= 1
+    return j + 2
+
+
 def block_header(lines: list[str], number: int, code: str) -> str:
     """The whole header of the block that opens on 1-based line NUMBER (whose code up to its `{` is CODE): the
     lines back to the previous statement's end, joined, so `func f(\n a: A\n) async throws {` and
     `if a,\n b {` read as one header."""
-    parts = [code]
-    j = number - 2
-    while j >= 0 and number - 1 - j <= HEADER_LINES:
-        text = code_of(lines[j])
-        if STATEMENT_END.search(text):
-            break
-        parts.insert(0, text)
-        j -= 1
+    parts = [code_of(lines[j]) for j in range(header_start(lines, number) - 1, number - 1)] + [code]
     return " ".join(part.strip() for part in parts)
 
 
@@ -3989,24 +3991,35 @@ LOCAL_BINDING = re.compile(r"\b(?:let|var)\s+`?(\w+)`?\s*(?::[^=]+)?=\s*(?:try[?
 ASSIGNED_TO = re.compile(r"(?:^|[^\w.$])(self\s*\.\s*)?`?(\w+)`?\s*=\s*$")
 
 
-def awaits_on_main(version: Version, index: int, prefix: str) -> bool:
-    """Whether the await at PREFIX's end on VERSION's line INDEX runs on the main actor: directly in main-actor code,
-    in a `Task {` or an inline closure (`map`, `withLock`, ...) that keeps that isolation, or in a main opener. A
-    detached, queue or escaping closure, an actor and a nonisolated function are off main. The isolation is the
-    declaration's, read on its opener line: the await's own line may open a `Task.detached` after it."""
+NO_STOP = re.compile(r"(?!)")  # enclosing_openers to the file's top level
+
+
+def awaits_on_main(version: Version, index: int, prefix: str) -> tuple[bool, list[int]]:
+    """(whether the await at PREFIX's end on VERSION's line INDEX runs on the main actor: directly in main-actor code,
+    in a `Task {` or an inline closure (`map`, `withLock`, ...) that keeps that isolation, or in a main opener; the
+    1-based lines that decided it: each opener walked, its whole header, and the line that set the declaration's
+    isolation). A detached, queue or escaping closure, an actor and a nonisolated function are off main. The
+    isolation is the declaration's, read on its opener line: the await's own line may open a `Task.detached` after
+    it."""
     default_main = module_of(version.path) in ui_targets()
-    if "main_lines" not in version.memo:
-        version.memo["main_lines"] = main_actor_scope().main_actor_lines(version.lines, default_main)
+    if "main_scopes" not in version.memo:
+        version.memo["main_scopes"] = main_actor_scope().main_actor_scopes(version.lines, default_main)
+    read: list[int] = []
     for opener, number in enclosing_openers(version.lines, index, OPENER_STOP, prefix):
         header = block_header(version.lines, number, opener) if number - 1 != index else opener
+        read.extend(range(header_start(version.lines, number), number + 1) if number - 1 != index else (number,))
         if MAIN_OPENER.search(opener) or MAIN_OPENER.search(code_of(version.lines[number - 1])):
-            return True
+            return True, read
         if DECLARATION_OPENER.search(header):
-            return version.memo["main_lines"][number - 1]
+            # The headers of the types around it too: `nonisolated final class S {` -> `final class S {` moves it.
+            for _, outer in enclosing_openers(version.lines, number - 1, NO_STOP):
+                read.extend(range(header_start(version.lines, outer), outer + 1))
+            main, source = version.memo["main_scopes"][number - 1]
+            return main, read + ([source] if source else [])
         # The opener alone too: block_header joins a statement that ends in `)` to the `if ... {` below it.
         if not any(p.search(text) for p in (CONTROL_OPENER, TASK_INHERITS, INLINE_CLOSURE_CALL) for text in (header, opener)):
-            return False
-    return default_main
+            return False, read
+    return default_main, read
 
 
 def handle_scope(version: Version, index: int, column: int, prefix: str) -> tuple[str, tuple[int, ...]] | None:
@@ -4041,16 +4054,19 @@ def handle_scope(version: Version, index: int, column: int, prefix: str) -> tupl
 
 def awaited_low_task(version: Version, index: int) -> tuple[bool, list[int]]:
     """(a low-priority task created on line INDEX is awaited on main (the section comment), the 1-based lines that
-    await its handle: a push that adds or edits one rejudges the unchanged creation line)."""
+    judgement read: each await of its handle and the openers, headers and isolation lines that place that await on
+    or off main. A push that touches one rejudges the unchanged creation line: it adds an await, or drops the
+    `nonisolated`, `@concurrent`, `actor` or `Task.detached {` that kept an old await off main)."""
     code = code_of(version.lines[index])
     blocks, codes = blocks_of(version), codes_of(version)
-    debt, awaits = False, []
+    debt, lines = False, []
     for match in LOW_TASK.finditer(code):
         prefix, at = code[:match.start()], index
         if not prefix.strip() and index > 0:  # `let page =` / `await` ends the line above
             prefix, at = codes[index - 1], index - 1
         if AWAIT_BEFORE.search(prefix[max((m.end() for m in STATEMENT_START.finditer(prefix)), default=0):]):
-            debt |= awaits_on_main(version, at, prefix)
+            main, read = awaits_on_main(version, at, prefix)
+            debt, lines = debt or main, lines + read
             continue
         scope = handle_scope(version, index, match.start(), prefix)
         if scope is None:
@@ -4066,9 +4082,9 @@ def awaited_low_task(version: Version, index: int) -> tuple[bool, list[int]]:
                     continue
                 if not set(kept_in) & set(blocks.chain(blocks.at(j, found.start()))):
                     continue
-                awaits.append(j + 1)
-                debt |= awaits_on_main(version, j, head)
-    return debt, awaits
+                main, read = awaits_on_main(version, j, head)
+                debt, lines = debt or main, lines + [j + 1] + read
+    return debt, lines
 
 
 AWAITED_LOW_PRIORITY_RULES = (

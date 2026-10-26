@@ -30,6 +30,7 @@ Not a CI job (Lawrence 2026-10-23: no new CI gates): run it yourself after a cha
 from __future__ import annotations
 
 import collections
+import difflib
 import importlib.util
 import os
 import subprocess
@@ -908,6 +909,52 @@ class AwaitedLowPriorityTests(unittest.TestCase):
         unrelated = (STORED_HANDLE % "        lastWrite?.cancel()\n        log()").split("\n")
         other = guardrails.FileChange(path, unrelated, [guardrails.Added(path, 12, unrelated[11])], base_lines=base)
         self.assertEqual(awaited([other]), [])
+
+    def pushed(self, directory: str, base_text: str, head_text: str) -> list[tuple[str, int]]:
+        """awaited() of the push from BASE_TEXT to HEAD_TEXT at DIRECTORY/Store.swift, read from its -U0 diff."""
+        path = f"{directory}/Store.swift"
+        base, head = base_text.split("\n"), head_text.split("\n")
+        diff = "\n".join(difflib.unified_diff(base, head, f"a/{path}", f"b/{path}", n=0, lineterm=""))
+        pushed = guardrails.parse_diff(f"diff --{'g' + 'it'} a/{path} b/{path}\n{diff}\n")[path]
+        pushed.head_lines, pushed.base_lines = head, base
+        return awaited([pushed])
+
+    def test_a_push_that_moves_an_old_await_of_a_stored_handle_onto_main_refuses_the_old_creation_line(self):
+        head = STORED_HANDLE % "        await lastWrite?.value"
+        base = head.replace("    func flush() async {", "    nonisolated func flush() async {")
+        self.assertEqual(awaited_in(UI, base), [])
+        self.assertEqual(self.pushed(UI, base, head), [("Store.swift", 5)])
+
+    def test_a_push_that_moves_an_old_await_at_once_onto_main_refuses_it(self):
+        head = ("final class Reader {\n    func load() async {\n        prepare()\n        log()\n"
+                "        let data = await Task.detached(priority: .utility) { read() }.value\n"
+                "        use(data)\n    }\n}\n")
+        for attribute in ("nonisolated ", "@concurrent "):
+            with self.subTest(attribute=attribute):
+                base = head.replace("    func load()", f"    {attribute}func load()")
+                self.assertEqual(awaited_in(UI, base), [])
+                self.assertEqual(self.pushed(UI, base, head), [("Store.swift", 5)])
+        on_its_own_line = head.replace("    func load()", "    @concurrent\n    func load()").replace(
+            "        prepare()\n", "")
+        self.assertEqual(awaited_in(UI, on_its_own_line), [])
+        for edit, creation in (("", 4), ("    // was @concurrent\n", 5)):
+            with self.subTest(edit=edit):
+                head_text = on_its_own_line.replace("    @concurrent\n", edit)
+                self.assertEqual(self.pushed(UI, on_its_own_line, head_text), [("Store.swift", creation)])
+        wrapped = head.replace("        log()\n", "        Task.detached {\n").replace(
+            "        use(data)\n", "        use(data) }\n")
+        self.assertEqual(awaited_in(UI, wrapped), [])
+        self.assertEqual(self.pushed(UI, wrapped, head), [("Store.swift", 5)])
+
+    def test_a_push_that_turns_an_actor_into_a_main_actor_class_refuses_the_old_creation_line(self):
+        base = (STORED_HANDLE % "        await lastWrite?.value").replace("final class Store {", "actor Store {")
+        head = base.replace("actor Store {", "@MainActor final class Store {")
+        self.assertEqual(awaited_in(SERVICE, base), [])
+        self.assertEqual(self.pushed(SERVICE, base, head), [("Store.swift", 5)])
+        nonisolated = base.replace("actor Store {", "nonisolated final class Store {")
+        self.assertEqual(awaited_in(UI, nonisolated), [])
+        self.assertEqual(self.pushed(UI, nonisolated, nonisolated.replace("nonisolated final", "final")),
+                         [("Store.swift", 5)])
 
     def test_inventory_records_the_count_at_the_reference_rev(self):
         probe = subprocess.run(["git", "-C", str(REPO), "cat-file", "-e", f"{AWAITED_REV}^{{commit}}"],
