@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import Foundation
 import CmuxNextWakeups
 
@@ -135,12 +136,7 @@ final class CEFPaneHost {
     func setNeedsHostVisibility() {
         guard !hostVisibilityPending else { return }
         hostVisibilityPending = true
-        let main = CFRunLoopGetMain()
-        CFRunLoopPerformBlock(main, CFRunLoopMode.commonModes.rawValue) { [weak self] in
-            // main-proof: a CFRunLoopGetMain() block runs on the main thread
-            MainActor.assumeIsolated { self?.applyHostVisibility() }
-        }
-        CFRunLoopWakeUp(main)
+        MainRunLoopBlock.perform { [weak self] in self?.applyHostVisibility() }
     }
 
     private func applyHostVisibility() {
@@ -413,7 +409,7 @@ final class CEFPaneHost {
         if tabs.contains(where: \.awaitsWindowMove) {
             // Never inside OnAfterCreated (Chromium's tab insertion): moving
             // a tab between tab strips there would re-enter it.
-            Task { @MainActor [weak self] in self?.movePopupsIn() }
+            endOfTurn { [weak self] in self?.movePopupsIn() }
         }
     }
 

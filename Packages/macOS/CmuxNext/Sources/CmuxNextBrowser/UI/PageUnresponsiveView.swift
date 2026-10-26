@@ -77,6 +77,7 @@ final class PageUnresponsiveView: ChromeFrameView {
         cardLayout.column.layout(items, in: CGRect(origin: .zero, size: bounds.size))
     }
 
+    // visibility-walk-allow: two text colors and the glass tint in the theme scope, no layout or text measure; cheaper than a deferral
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyColors()

@@ -13,6 +13,9 @@ import CmuxNextWakeups
 public final class BrowserToolbarButtonsView: NSView {
     /// A button was pressed. The App maps it to its action.
     public var onPress: ((BrowserToolbarButton) -> Void)?
+    /// The node the toolbar's re-read on show waits on (R-hide): its tab's, set by the chrome, or a root that
+    /// stays visible for a toolbar in no tab, whose re-read runs at once.
+    var visibilityNode = VisibilityNode(root: "browser.toolbarButtons.standalone", own: .visible)
     /// The display text of an action's shortcut, for the tooltips.
     public var shortcutHint: ((BrowserToolbarButton) -> String?)? { didSet { render() } }
     /// The tab's browser profile name, for the profile button's tooltip.
@@ -117,15 +120,24 @@ public final class BrowserToolbarButtonsView: NSView {
     /// moved): a popup open under one of its buttons closes. Set by the popup.
     public var onDetach: (() -> Void)?
 
+    // visibility-walk-allow: the hide's own effect, never deferred work (p06 rule 3): a popup open under a button closes with the parked toolbar
     public override func viewDidHide() {
         super.viewDidHide()
         onDetach?()
     }
 
-    /// Shown again after its pane parked it (another tab showed).
+    /// Shown again after its pane parked it (another tab showed): the states are read again once its node shows.
     public override func viewDidUnhide() {
         super.viewDidUnhide()
-        if window != nil { refresh() }
+        visibilityNode.deferUntilVisible(key: Self.shownKey) { [weak self] in self?.refreshShown() }
+    }
+
+    /// The ``visibilityNode`` key of the re-read on show.
+    static let shownKey = "BrowserToolbarButtonsView.shown"
+
+    private func refreshShown() {
+        guard window != nil, !isHidden else { return }
+        refresh()
     }
 
     /// Shows `menu` at a point of a view and returns when it closes (`NSMenu.popUp`). Tests
@@ -170,6 +182,7 @@ public final class BrowserToolbarButtonsView: NSView {
     public func setPopupOpen(_ open: Bool, anchor: NSView) { (anchor as? ChromeIconButton)?.isMenuOpen = open }
 
     func anchor(for button: BrowserToolbarButton) -> NSView? {
+        // visibility-walk-allow: hit test, the menu anchors at the button AppKit shows (a collapsed button is hidden in a shown toolbar)
         let shown = [button, .overflow].compactMap { buttons[$0] }.first { !$0.isHiddenOrHasHiddenAncestor && $0.window != nil }
         return shown ?? superview
     }
