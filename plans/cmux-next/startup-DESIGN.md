@@ -546,3 +546,49 @@ Results: not run yet. The fleet run pastes its `table.md` here, with the commit,
 | base | - | - | - | - | - | - | - | - | - | - | - | reference |
 | thinlto | - | - | - | - | - | - | - | - | - | - | - | - |
 | cmo | - | - | - | - | - | - | - | - | - | - | - | - |
+
+## 11. PGO and order refresh (054)
+
+The profile and the order file are refreshed by hand, at one commit, with one fleet step; there is no CI job
+or schedule (p08-startup.md section F, "Refresh is a manual fleet script"):
+
+```sh
+cmux-ci run --class isolated --script scripts/cmux-next/pgo/refresh.sh --ref SHA
+scripts/cmux-next/pgo/refresh.sh --ref SHA --no-publish        # stop after the check
+scripts/cmux-next/pgo/refresh.sh --ref SHA --out DIR           # resume, or publish what --no-publish made
+```
+
+| Step | What runs | Output in `artifacts/pgo-refresh/<sha>/` |
+| --- | --- | --- |
+| 1 profile build | `pgo/build-profile.sh --no-launch` (049) | `cmux DEV pgo-prof-<sha12>.app` |
+| 2 stage 1 | `run-scenarios.py --stage profile` (050) | `profile/cmux-next.profdata`, its `.sha256`, `launch-functions.txt` |
+| 3 use build | `reload.sh --config bench` with the profile through `pgo/release-env.sh` (052) and the companions of `cmux-next.pgo.conf`; the log must show `-profile-use=<that profile>` | `use/link-map.txt` (051), `use/app` |
+| 4 stage 2 | `run-scenarios.py --stage order` on that build (109) | `order/cmux-next.order`, bound to the profile's sha256 |
+| 5 check | `pgo/check.py` on that build: coverage, binding, link map (053) | `check.json`, `check.passed` |
+| 6 upload | the profile to the bucket at `pgo/cmux-next/<sha256>.profdata`; `fetch-profdata.sh` fetches it back from the public URL and checks it | `publish/fetched/` |
+| 7 PR | one commit on `origin/<base>` (default `feat-cmux-next`) that changes the pin line of `Resources/build/cmux-next.profdata.sha256` and `Resources/build/cmux-next.order`, pushed to `pgo-refresh/<sha12>`, and a PR | `publish/pr.md` |
+
+It refuses (exit 2), before any build: a checkout with tracked or untracked changes, a HEAD that is not
+`--ref`, a run off the fleet while a build step is left, and, unless `--no-publish`, a commit that is not on
+`origin/<base>`, missing bucket credentials (the variables of `scripts/ci/r2-cache.sh save`) or a gh that is
+not signed in. It never changes the checkout or HEAD: the commit is written with a separate index.
+
+It is idempotent. A step whose outputs are complete is skipped, so a rerun resumes. The bucket object is named
+by its content and an existing one is kept. The branch is pushed only when it does not exist; a branch that
+holds another profile or order is refused (exit 1), never forced. An open PR of the branch is reported, not
+opened again, and a base that already pins this profile and order ends the run with exit 0. The switch in
+`cmux-next.pgo.conf` is not touched: turning PGO on stays its own reviewed commit.
+
+The PR body names the host and Xcode of the build, the `PGO-STAGE` lines of both stages and the `PGO-CHECK`
+line. check.py's launch-window check is not in it: that needs a Release link with the new order and a fresh
+launch profile, so it runs on the first Release build after the merge.
+
+Chrome refreshes the same way: `tools/pgo/generate_profile.py` makes the profile on a `chrome_pgo_phase=1`
+build, the profile is uploaded by name, and a roll changes only `chrome/build/mac-arm.pgo.txt`, which
+`tools/update_pgo_profiles.py` reads to fetch it (`docs/pgo.md`).
+
+Test without a build: `bash scripts/cmux-next/tests/pgo-refresh.test.sh` (a sandbox clone and a bare remote,
+stubs for the builds, the stages, the check, the upload and gh). Result of the first fleet run: not run. Like
+the probe (section 9), `cmux-ci run` takes the script only after the controller's ci-step allowlist
+(cmuxterm-hq) lists `scripts/cmux-next/pgo/refresh.sh`; the fleet step also needs the bucket credentials and a
+signed-in gh, or `--no-publish` and a publish run elsewhere with the same `--out`.
