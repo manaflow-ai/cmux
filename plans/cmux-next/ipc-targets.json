@@ -1,5 +1,5 @@
 {
-  "about": "p05-ipc queue targets (plans/cmux-next/chrome-parity/p05-ipc.md, section 6). scripts/cmux-next/ipc-census.py --record writes `base`; --check fails when a queue grows past it or an allowlist entry has no reason or matches no site. Allowlist entries are {queue, file, key (optional: the whole file), reason}. Task p05-ipc-106 adds the transient daemon connections of section 3.1.",
+  "about": "p05-ipc queue targets (plans/cmux-next/chrome-parity/p05-ipc.md, section 6). scripts/cmux-next/ipc-census.py --record writes `base`; --check fails when a queue grows past it or an allowlist entry has no reason or matches no site. Allowlist entries are {queue, file, key (optional: the whole file), reason}. The keyed Q4 entries are the daemon connections app-daemon-connection-DESIGN.md section 2.1 keeps: the control connection and the transient ones (p05-ipc-106).",
   "allowlist": [
     {
       "queue": "Q4",
@@ -51,6 +51,72 @@
       "queue": "Q4",
       "file": "Packages/macOS/CmuxNext/Sources/CmuxNextTasks/SocketTasksSource.swift",
       "reason": "Not a cmux-tui daemon socket: the Tasks owner (cmux task serve)."
+    },
+    {
+      "queue": "Q4",
+      "file": "Packages/macOS/CmuxNext/Sources/CmuxNextDaemonService/DaemonService.swift",
+      "key": "DaemonService.start: DaemonConnection(",
+      "reason": "The one control connection per daemon (the local daemon and each machine): the connection every stream moves onto, not a side connection."
+    },
+    {
+      "queue": "Q4",
+      "file": "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/DaemonConnection.swift",
+      "key": "DaemonConnection.connectOnce: LineTransport(path:",
+      "reason": "A DaemonConnection's own transport, replaced on reconnect: every DaemonConnection is already a Q4 site at its constructor."
+    },
+    {
+      "queue": "Q4",
+      "file": "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/LineTransport.swift",
+      "key": "LineTransport.init: DaemonBridge.open",
+      "reason": "The bridge child of a bridged LineTransport: every LineTransport is already a Q4 site at its constructor, so a child per view is counted there (p05-ipc-151 moves bridged views onto streams)."
+    },
+    {
+      "queue": "Q4",
+      "file": "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/DaemonPrestart.swift",
+      "key": "DaemonPrestart.init: DaemonConnection(",
+      "reason": "Not a second connection: the control connection's first attempt, begun at the top of main; DaemonService adopts it (DaemonStartup.connect(first:)) or closes it."
+    },
+    {
+      "queue": "Q4",
+      "file": "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/DaemonConnection+Commands.swift",
+      "key": "DaemonConnection.shutdownDaemon: LineTransport(path:",
+      "reason": "Transient: shutdown-daemon end_terminals runs after the control connection closed (its reconnect would start a fresh daemon) and awaits every host, past the control deadline; closed at the reply."
+    },
+    {
+      "queue": "Q4",
+      "file": "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/SessionEnding.swift",
+      "key": "SessionEnding.closeEveryWorkspace: LineTransport(path:",
+      "reason": "Transient: Quit's End Everything closes every workspace after the control connection closed (its reconnect would start a fresh daemon); closed before shutdown-daemon runs."
+    },
+    {
+      "queue": "Q4",
+      "file": "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Launch/DaemonSocketMemory.swift",
+      "key": "DaemonSocketMemory.acceptsConnections: LineTransport(path:",
+      "reason": "Transient: the launch probe of the remembered socket connects and closes at once, before any control connection exists; it sends no request."
+    },
+    {
+      "queue": "Q4",
+      "file": "Packages/macOS/CmuxNext/Sources/CmuxNextHomeEngine/ChiefConversationOwner.swift",
+      "key": "ChiefConversationOwner.start: DaemonConnection(",
+      "reason": "Another daemon: the Chief conversation owner (DaemonLauncher.forChief, its own session and socket); this is that daemon's one control connection."
+    },
+    {
+      "queue": "Q4",
+      "file": "Packages/macOS/CmuxNext/Sources/CmuxNextMobile/Compat/DaemonCompatBackend.swift",
+      "key": "DaemonCompatBackend.connect: DaemonConnection(",
+      "reason": "The mobile host's own connection while a phone is attached, so phone traffic never queues behind the Mac's tree mirror or the main actor (p05-ipc-098 keeps it)."
+    },
+    {
+      "queue": "Q4",
+      "file": "Packages/macOS/CmuxNext/Sources/CmuxNextMobile/DaemonLane/UnixSocketLane.swift",
+      "key": "UnixSocketLane.connect: NWConnection(to: .unix",
+      "reason": "The phone's daemon lane: MobileIrxConnectionServer splices a paired phone's lane to the daemon under DaemonLanePolicy, so the daemon sees the phone as its own client; it ends with the lane."
+    },
+    {
+      "queue": "Q4",
+      "file": "Packages/macOS/CmuxNext/Sources/CmuxNextApp/SessionTransfer/SessionTransferService+Chats.swift",
+      "key": "SessionTransferService.answers: connect(",
+      "reason": "Not a cmux-tui daemon socket: the session-transfer probe connects to the source build's acpmux socket and closes at once, sending nothing."
     },
     {
       "queue": "Q8",
