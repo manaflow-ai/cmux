@@ -135,7 +135,19 @@ impl Hub {
             if phase != "staged" && phase != "committed" {
                 continue;
             }
-            let committed = phase == "committed";
+            let landed = if let Some(transfer_id) = value.get("transferId").and_then(Value::as_str)
+            {
+                let mut landed = false;
+                let _ = self.store.scan(id, 0, &mut |event: EventRecord| {
+                    landed |= event.kind == "transferred_in"
+                        && event.msg.get("transferId").and_then(Value::as_str) == Some(transfer_id);
+                    !landed
+                });
+                landed
+            } else {
+                false
+            };
+            let committed = phase == "committed" || landed;
             if committed {
                 let _ = std::fs::remove_dir_all(&entry.path());
             } else {
@@ -512,20 +524,6 @@ impl Hub {
             .await
         {
             Ok(session) => {
-                if let Some((_, backup)) = source_store_backup.as_ref() {
-                    let state = backup.with_extension("replacement-state.json");
-                    let commit = serde_json::to_value(json!({"id": id, "agentId": bundle_meta.agent_session_id, "transferId": manifest["transferId"], "phase": "committed"}))
-                        .map_err(|e| transfer_error("store", format!("encode commit state: {e}")))
-                        .and_then(|value| {
-                            super::transfer::write_json_atomic(&state, &value)
-                                .map_err(|e| transfer_error("store", format!("commit state: {e}")))
-                        });
-                    if let Err(error) = commit {
-                        let _ = self.kill(&session, true).await;
-                        self.recover_staged_replacements();
-                        return Err(error);
-                    }
-                }
                 let (_, stored) = self.append_at(
                     &session,
                     "mux",
@@ -550,6 +548,20 @@ impl Hub {
                         self.recover_staged_replacements();
                     }
                     return Err(transfer_error("store", "could not durably record transferred_in"));
+                }
+                if let Some((_, backup)) = source_store_backup.as_ref() {
+                    let state = backup.with_extension("replacement-state.json");
+                    let commit = serde_json::to_value(json!({"id": id, "agentId": bundle_meta.agent_session_id, "transferId": manifest["transferId"], "phase": "committed"}))
+                        .map_err(|e| transfer_error("store", format!("encode commit state: {e}")))
+                        .and_then(|value| {
+                            super::transfer::write_json_atomic(&state, &value)
+                                .map_err(|e| transfer_error("store", format!("commit state: {e}")))
+                        });
+                    if let Err(error) = commit {
+                        let _ = self.kill(&session, true).await;
+                        self.recover_staged_replacements();
+                        return Err(error);
+                    }
                 }
                 if let Err(error) = self.finalize_harness_state(&session.meta()) {
                     if let Err(mark_error) = self.mark_harness_state_committed(&session.meta()) {
