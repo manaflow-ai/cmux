@@ -105,6 +105,13 @@ nonisolated enum FilePageStrings {
                               defaultValue: "“%@” is not connected. The file shows again when it reconnects.",
                               table: "FilePages", bundle: .module), machine)
     }
+    /// A file of another machine (#25581) larger than one write to it can carry.
+    static func remoteTooLargeToSave(_ machine: String) -> String {
+        String(format: String(localized: "filePages.remote.tooLargeToSave",
+                              defaultValue: "This file is too large to save to “%@” from this Mac. Files up to 12 MB save here.",
+                              table: "FilePages", bundle: .module), machine)
+    }
+
 
     /// A machine whose cmux does not serve its files (an older daemon, a machine that is no Cloud VM).
     static func remoteNoFiles(_ machine: String) -> String {

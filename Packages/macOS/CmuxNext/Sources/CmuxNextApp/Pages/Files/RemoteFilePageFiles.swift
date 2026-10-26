@@ -35,6 +35,8 @@ extension AgentPaneGitLink: RemoteFileClient {
 final class RemoteFilePageFiles: FilePageFiles {
     /// The largest file a page opens from a machine: the daemon's single-read cap.
     static let maximumBytes = FileSystemReadRequest.maximumBytes
+    /// Reads of a file that changes during each one before its revision counts as unknown.
+    static let readAttempts = 3
 
     let client: any RemoteFileClient
     /// The machine's name, for the page's messages.
@@ -54,11 +56,12 @@ final class RemoteFilePageFiles: FilePageFiles {
         try await load(url, inWorkspace: inWorkspace).snapshot
     }
 
-    /// The file and the revision its bytes were read at. A file that changed during the read
-    /// (its revision moved) is read once more, so the pair always matches.
-    func load(_ url: URL, inWorkspace: Bool) async throws(FileOpenFailure) -> (snapshot: FileSnapshot, revision: String) {
+    /// The file and the revision its bytes were read at, or nil when that is unknown: the path is
+    /// a symlink (a stat answers the link's own revision, a write checks its target's), or the
+    /// file kept changing while it was read. A save then asks the target's revision first.
+    func load(_ url: URL, inWorkspace: Bool) async throws(FileOpenFailure) -> (snapshot: FileSnapshot, revision: String?) {
         let path = canonical(url).path
-        for attempt in 1...2 {
+        for attempt in 1...Self.readAttempts {
             let before = try await stat(path)
             let reply: FileSystemReadRequest.Response
             do {
@@ -68,11 +71,12 @@ final class RemoteFilePageFiles: FilePageFiles {
             }
             guard !reply.truncated else { throw .tooLarge }
             let after = try await stat(path)
-            guard after.revision == before.revision || attempt >= 2 else { continue }
+            let settled = after.revision == before.revision
+            if !settled, attempt < Self.readAttempts { continue }
             guard let snapshot = await Self.snapshot(URL(fileURLWithPath: path), reply: reply, inWorkspace: inWorkspace) else {
                 throw .notFile
             }
-            return (snapshot, after.revision)
+            return (snapshot, settled && after.kind == "file" ? after.revision : nil)
         }
         throw .notFile
     }
@@ -110,7 +114,7 @@ final class RemoteFilePageFiles: FilePageFiles {
     }
 
     func save(_ text: String, to url: URL, baseHash: String?, inWorkspace: Bool) async throws(FileSaveFailure) -> FileSaveResult {
-        let current: (snapshot: FileSnapshot, revision: String)
+        let current: (snapshot: FileSnapshot, revision: String?)
         do {
             current = try await load(url, inWorkspace: inWorkspace)
         } catch .notFound {
@@ -127,22 +131,64 @@ final class RemoteFilePageFiles: FilePageFiles {
         }
         let newHash = await Self.hash(text)
         if current.snapshot.hash == newHash { return FileSaveResult(hash: newHash, written: false) }
+        let path = current.snapshot.url.path
+        let expected: String
+        if let revision = current.revision {
+            expected = revision
+        } else {
+            expected = try await targetRevision(path, url: url, baseHash: baseHash, inWorkspace: inWorkspace)
+        }
         do {
-            _ = try await client.replace(current.snapshot.url.path, text: text, expected: current.revision)
+            _ = try await client.replace(path, text: text, expected: expected)
         } catch {
-            switch Self.code(of: error) {
-            case "fs.revision_mismatch"?:
-                // Written between the read and the write: what the file holds now.
-                guard let now = try? await load(url, inWorkspace: inWorkspace) else { throw .deleted }
-                throw .conflict(hash: now.snapshot.hash, text: now.snapshot.text)
-            case "fs.permission_denied"?, "fs.read_only"?:
-                throw .readOnly
-            default:
-                if case .unavailable(let reason) = openFailure(error) { throw .failed(reason) }
-                throw .failed(String(describing: error))
-            }
+            guard Self.code(of: error) == "fs.revision_mismatch" else { throw saveFailure(error) }
+            throw await conflict(url, inWorkspace: inWorkspace)
         }
         return FileSaveResult(hash: newHash, written: true)
+    }
+
+    /// The revision a write checks, for a file whose read could not tell it (a symlink's target, a
+    /// file that kept changing). A replace that cannot match (an empty revision, which no file
+    /// has) writes nothing and answers the target's current revision; the file read after that
+    /// must still be the page's base, so any write in between is a conflict, and any write after
+    /// it fails the real replace.
+    private func targetRevision(_ path: String, url: URL, baseHash: String?, inWorkspace: Bool) async throws(FileSaveFailure) -> String {
+        var revision: String?
+        do {
+            _ = try await client.replace(path, text: "", expected: "")
+        } catch {
+            guard Self.code(of: error) == "fs.revision_mismatch" else { throw saveFailure(error) }
+            revision = Self.currentRevision(of: error)
+        }
+        guard let revision else { throw .deleted }
+        let now: FileSnapshot
+        do {
+            now = try await load(url, inWorkspace: inWorkspace).snapshot
+        } catch {
+            throw .deleted
+        }
+        guard now.hash == baseHash else { throw .conflict(hash: now.hash, text: now.text) }
+        return revision
+    }
+
+    /// Written between the read and the write: what the file holds now.
+    private func conflict(_ url: URL, inWorkspace: Bool) async -> FileSaveFailure {
+        guard let now = try? await load(url, inWorkspace: inWorkspace) else { return .deleted }
+        return .conflict(hash: now.snapshot.hash, text: now.snapshot.text)
+    }
+
+    /// The page's failure for an error of a write, in the page's words.
+    private func saveFailure(_ error: any Error) -> FileSaveFailure {
+        switch Self.code(of: error) {
+        case "fs.permission_denied"?, "fs.read_only"?: return .readOnly
+        default: break
+        }
+        switch openFailure(error) {
+        case .unavailable(let reason): return .failed(reason)
+        case .notFound: return .deleted
+        case .tooLarge: return .failed(FilePageStrings.remoteTooLargeToSave(machine))
+        case .notFile: return .readOnly
+        }
     }
 
     @concurrent private nonisolated static func hash(_ text: String) async -> String {
@@ -181,10 +227,17 @@ final class RemoteFilePageFiles: FilePageFiles {
         if case DaemonError.command(_, _, let code, _, _) = error { return code }
         return nil
     }
+
+    /// The revision an `fs.revision_mismatch` found (its `details.current`); nil when the file is gone.
+    static func currentRevision(of error: any Error) -> String? {
+        if case DaemonError.command(_, _, _, let details, _) = error { return details?["current"]?.stringValue }
+        return nil
+    }
 }
 
 /// Watches a file on another machine by its revision: every ``interval`` (on the injected clock)
-/// it stats the file, reads it when the revision moved, and reports content whose hash differs
+/// it stats the file, reads it when the revision moved (every poll for a symlink, whose own
+/// revision does not move when its target is written), and reports content whose hash differs
 /// from ``knownHash`` (nil: deleted). A machine that stops answering is reported once through
 /// `onUnavailable` with the reason, and once more (nil) when it answers again.
 final class RemoteFileChangeWatch: FilePageWatching {
@@ -263,8 +316,8 @@ final class RemoteFileChangeWatch: FilePageWatching {
         }
         guard !Task.isCancelled else { return }
         available()
-        guard stat.revision != revision else { return }
-        let snapshot: (snapshot: FileSnapshot, revision: String)
+        guard stat.kind == "symlink" || stat.revision != revision else { return }
+        let snapshot: (snapshot: FileSnapshot, revision: String?)
         do {
             snapshot = try await files.load(url, inWorkspace: inWorkspace())
         } catch {

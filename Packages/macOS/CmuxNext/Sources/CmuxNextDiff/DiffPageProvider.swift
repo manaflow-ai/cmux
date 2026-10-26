@@ -85,10 +85,11 @@ public final class DiffPageProvider: PageProvider {
             guard let languages else { throw PageError.unknownOp(op) }
             return await languages.pack()
         case Self.recentsOp:
-            guard let host else { throw PageError.unknownOp(op) }
+            // This Mac's folders: a tab of another machine's repository picks none of them.
+            guard let host, machine == nil else { throw PageError.unknownOp(op) }
             return await host.recents()
         case Self.chooseFolderOp:
-            guard let host else { throw PageError.unknownOp(op) }
+            guard let host, machine == nil else { throw PageError.unknownOp(op) }
             let start = params["start"]?.stringValue.map { URL(fileURLWithPath: $0, isDirectory: true) }
             return await host.chooseFolder(start: start).map { ["path": .string($0.path)] } ?? .null
         case Self.openOp:

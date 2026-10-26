@@ -3799,6 +3799,137 @@
           }
         }
       }
+    },
+    "filePages.remote.tooLargeToSave": {
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "‏هذا الملف أكبر من أن يُحفظ في „%@“ من هذا الـMac. تُحفظ هنا الملفات حتى 12 ميغابايت."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ova datoteka je prevelika da bi se s ovog Maca spremila na „%@“. Ovdje se spremaju datoteke do 12 MB."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne fil er for stor til at blive gemt på “%@” fra denne Mac. Filer på op til 12 MB gemmes her."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diese Datei ist zu groß, um sie von diesem Mac aus auf „%@“ zu sichern. Hier werden Dateien bis 12 MB gesichert."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "This file is too large to save to “%@” from this Mac. Files up to 12 MB save here."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este archivo es demasiado grande para guardarlo en “%@” desde este Mac. Aquí se guardan archivos de hasta 12 MB."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ce fichier est trop volumineux pour être enregistré sur « %@ » depuis ce Mac. Les fichiers jusqu’à 12 Mo s’enregistrent ici."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Questo file è troppo grande per essere salvato su “%@” da questo Mac. Qui si salvano file fino a 12 MB."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "このファイルは大きすぎるため、このMacから“%@”に保存できません。ここで保存できるのは12 MBまでのファイルです。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ឯកសារនេះធំពេកក្នុងការរក្សាទុកទៅ “%@” ពី Mac នេះ។ ឯកសាររហូតដល់ 12 MB រក្សាទុកនៅទីនេះ។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "이 파일은 너무 커서 이 Mac에서 “%@”에 저장할 수 없습니다. 여기서는 12MB까지의 파일을 저장할 수 있습니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Denne filen er for stor til å arkiveres på «%@» fra denne Macen. Filer på opptil 12 MB arkiveres her."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ten plik jest za duży, aby zachować go na „%@” z tego Maca. Tutaj zachowywane są pliki do 12 MB."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Este arquivo é grande demais para ser salvo em “%@” a partir deste Mac. Arquivos de até 12 MB são salvos aqui."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Этот файл слишком большой, чтобы сохранить его на «%@» с этого Mac. Здесь сохраняются файлы до 12 МБ."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ไฟล์นี้ใหญ่เกินกว่าจะบันทึกไปยัง “%@” จาก Mac เครื่องนี้ได้ ไฟล์ขนาดไม่เกิน 12 MB บันทึกได้ที่นี่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bu dosya, bu Mac’ten “%@” makinesine kaydedilemeyecek kadar büyük. Burada 12 MB’a kadar olan dosyalar kaydedilir."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Цей файл завеликий, щоб зберегти його на «%@» з цього Mac. Тут зберігаються файли до 12 МБ."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tệp này quá lớn để lưu vào “%@” từ máy Mac này. Tại đây có thể lưu tệp tối đa 12 MB."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此文件太大，无法从这台 Mac 存储到“%@”。这里可存储不超过 12 MB 的文件。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "此檔案太大，無法從這台 Mac 儲存到「%@」。這裡可儲存不超過 12 MB 的檔案。"
+          }
+        }
+      }
     }
   },
   "version": "1.0"

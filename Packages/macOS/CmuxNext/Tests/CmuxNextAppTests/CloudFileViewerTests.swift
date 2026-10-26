@@ -16,46 +16,61 @@ struct CloudFileViewerTests {
     static let machine = "dev-vm"
 
     /// A machine's files as its daemon serves them: each path's text and revision. `offline`
-    /// answers as a link that did not open; `served` false as a daemon without `fs-v1`.
+    /// answers as a link that did not open; `served` false as a daemon without `fs-v1`. A path in
+    /// `links` is a symlink to another path, as the daemon treats one: a stat answers the link's
+    /// own revision, a read and a write follow it, and a write checks the target's revision.
+    /// `churn` writes the file again during every read; `writeCap` refuses larger writes.
     final class MachineFiles: RemoteFileClient {
         var files: [String: (text: String, revision: Int)] = [:]
+        var links: [String: String] = [:]
         var offline = false
         var served = true
+        var churn = false
+        var writeCap = Int.max
         var writes: [(String, String, String)] = []
 
         func set(_ path: String, _ text: String) {
             files[path] = (text, (files[path]?.revision ?? 0) + 1)
         }
 
+        private func target(_ path: String) -> String { links[path] ?? path }
+
         private func check(_ path: String) throws {
             if offline { throw DaemonError.notConnected }
             if !served { throw DaemonError.missingCapabilities(["fs-v1"]) }
-            guard files[path] != nil else {
+            guard files[target(path)] != nil else {
                 throw DaemonError.command(cmd: "fs", message: "not found", code: "fs.not_found")
             }
         }
 
         func stat(_ path: String) async throws -> FileSystemStatRequest.Response {
             try check(path)
+            if links[path] != nil { return .init(kind: "symlink", size: 10, revision: "link1") }
             let file = files[path]!
             return .init(kind: "file", size: UInt64(file.text.utf8.count), revision: "r\(file.revision)")
         }
 
         func read(_ path: String, maxBytes: Int) async throws -> FileSystemReadRequest.Response {
             try check(path)
-            let file = files[path]!
+            let file = files[target(path)]!
+            if churn { set(target(path), file.text + "+") }
             return .init(text: file.text, bytesBase64: nil, truncated: false, size: UInt64(file.text.utf8.count))
         }
 
         func replace(_ path: String, text: String, expected: String) async throws -> FileSystemReplaceRequest.Response {
             try check(path)
-            guard "r\(files[path]!.revision)" == expected else {
-                throw DaemonError.command(cmd: "fs.write", message: "changed", code: "fs.revision_mismatch")
+            let real = target(path)
+            guard text.utf8.count <= writeCap else {
+                throw DaemonError.command(cmd: "fs.write", message: "too large", code: "fs.too_large")
+            }
+            guard "r\(files[real]!.revision)" == expected else {
+                throw DaemonError.command(cmd: "fs.write", message: "changed", code: "fs.revision_mismatch",
+                                          details: ["current": .string("r\(files[real]!.revision)")])
             }
             writes.append((path, text, expected))
-            set(path, text)
+            set(real, text)
             return try JSONDecoder().decode(FileSystemReplaceRequest.Response.self,
-                                            from: Data(#"{"entry":{"revision":"r\#(files[path]!.revision)"}}"#.utf8))
+                                            from: Data(#"{"entry":{"revision":"r\#(files[real]!.revision)"}}"#.utf8))
         }
     }
 
@@ -202,6 +217,84 @@ struct CloudFileViewerTests {
             #expect(error.message == FilePageStrings.remoteNoFiles(Self.machine))
         }
         provider.close()
+    }
+
+    @Test func aFileOpenedThroughASymlinkSavesAtItsTargetsRevision() async throws {
+        let link = "/home/cmux/AGENTS.md", target = "/home/cmux/CLAUDE.md"
+        let machine = MachineFiles()
+        machine.set(target, "one\n")
+        machine.links[link] = target
+        let provider = FilePageProvider(kind: .markdown, file: URL(fileURLWithPath: link), host: Host(), libraries: nil, images: NoImages(),
+                                        files: RemoteFilePageFiles(client: machine, machine: Self.machine))
+        let config = try await Self.call(provider, "config")
+        #expect(config["text"]?.stringValue == "one\n")
+        let base = try #require(config["hash"]?.stringValue)
+        // The link's own revision never matches the write's check of its target: the save asks first.
+        let saved = try await Self.call(provider, "save", ["path": .string(link), "text": "two\n", "baseHash": .string(base)])
+        #expect(machine.files[target]?.text == "two\n")
+        #expect(machine.writes.map(\.1) == ["two\n"])
+        // Written on the VM since: a conflict with the VM's text, nothing replaced.
+        machine.set(target, "three\n")
+        do {
+            _ = try await Self.call(provider, "save", ["path": .string(link), "text": "mine\n", "baseHash": saved["hash"] ?? .null])
+            Issue.record("a stale save replaced the symlinked file")
+        } catch let error as PageError {
+            #expect(error.code == "cmux.markdown.conflict")
+            #expect(error.details?["text"]?.stringValue == "three\n")
+        }
+        #expect(machine.files[target]?.text == "three\n")
+        #expect(machine.writes.count == 1)
+        provider.close()
+    }
+
+    @Test func aCloudTabFollowsWritesBehindASymlink() async throws {
+        let link = "/home/cmux/AGENTS.md", target = "/home/cmux/CLAUDE.md"
+        let machine = MachineFiles()
+        machine.set(target, "one\n")
+        machine.links[link] = target
+        let files = RemoteFilePageFiles(client: machine, machine: Self.machine)
+        var changes: [FileSnapshot?] = []
+        let watch = try #require(files.watch(URL(fileURLWithPath: link), inWorkspace: { true }, clock: ContinuousClock(),
+                                             onChange: { changes.append($0) }, onUnavailable: { _ in }) as? RemoteFileChangeWatch)
+        watch.knownHash = FileDocument.hash(Data("one\n".utf8))
+        await watch.check()
+        #expect(changes.isEmpty)
+        // An agent edits the target; the link's revision stays the same.
+        machine.set(target, "two\n")
+        await watch.check()
+        #expect(changes.compactMap { $0?.text } == ["two\n"])
+    }
+
+    @Test func aFileThatKeepsChangingWhileReadNeverSavesOverTheNewText() async throws {
+        let path = "/home/cmux/build.log"
+        let machine = MachineFiles()
+        machine.set(path, "one\n")
+        let provider = FilePageProvider(kind: .editor, file: URL(fileURLWithPath: path), host: Host(), libraries: nil, images: NoImages(),
+                                        files: RemoteFilePageFiles(client: machine, machine: Self.machine))
+        let config = try await Self.call(provider, "config")
+        let base = try #require(config["hash"]?.stringValue)
+        // Every read races a write: the bytes and any revision never pair, so the save is a conflict.
+        machine.churn = true
+        await #expect(throws: PageError.self) {
+            _ = try await Self.call(provider, "save", ["path": .string(path), "text": "mine\n", "baseHash": .string(base)])
+        }
+        #expect(machine.writes.isEmpty)
+        provider.close()
+    }
+
+    @Test func aFileTooLargeToWriteSaysSoInThePagesWords() async throws {
+        let path = "/home/cmux/notes.md"
+        let machine = MachineFiles()
+        machine.set(path, "one\n")
+        machine.writeCap = 3
+        let files = RemoteFilePageFiles(client: machine, machine: Self.machine)
+        let snapshot = try await files.read(URL(fileURLWithPath: path), inWorkspace: true)
+        do {
+            _ = try await files.save("longer\n", to: URL(fileURLWithPath: path), baseHash: snapshot.hash, inWorkspace: true)
+            Issue.record("a write over the cap saved")
+        } catch {
+            #expect(error == .failed(FilePageStrings.remoteTooLargeToSave(Self.machine)))
+        }
     }
 
     @Test func aCloudTerminalsPathNamesTheMachinesFile() {

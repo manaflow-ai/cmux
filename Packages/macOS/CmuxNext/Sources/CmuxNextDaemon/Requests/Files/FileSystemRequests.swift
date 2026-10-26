@@ -1,4 +1,4 @@
-import Foundation
+public import Foundation
 
 // `fs-v1` (cmux-tui `crates/cmux-tui-core/src/fs_ops.rs`, `server/fs_wire.rs`): a Cloud host's
 // daemon serves its files, rooted at the VM home, as flat line ops. Every other daemon answers

@@ -191,6 +191,9 @@ struct CloudDiffViewerTests {
             _ = try await Self.call(provider, "cmux.diff.openFile", ["path": "src/a.ts", "where": "finder"], gesture: 2)
         }
         #expect(host.opened.count == 1)
+        // This Mac's recent folders and folder picker are not offered to it.
+        await #expect(throws: PageError.self) { _ = try await Self.call(provider, "cmux.diff.recents") }
+        await #expect(throws: PageError.self) { _ = try await Self.call(provider, "cmux.diff.chooseFolder") }
         await provider.close()
     }
 }
