@@ -26,6 +26,7 @@ pub(in crate::cli) fn safe_operation_cases() -> Vec<(Vec<&'static str>, &'static
     const CONVERSATION: &str = "conv_01J00000000000000000000000";
 
     let mut cases: Vec<(Vec<&'static str>, &'static str)> = vec![
+        (vec!["settings", "list", "--section", "appearance"], "settings.list"),
         (vec!["machine", "list"], "machine.list"),
         (vec!["machine", MACHINE, "show"], "machine.get"),
         (vec!["machine", MACHINE, "session", "list"], "session.list"),
