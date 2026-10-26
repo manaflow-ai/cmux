@@ -54,7 +54,7 @@ import Testing
 }
 
 /// The chunks a lane's parse saw, in order.
-final class ChunkLog: Sendable {
+nonisolated final class ChunkLog: Sendable {  // appended to on the output lane
     private let chunks = Mutex<[Data]>([])
     var all: [Data] { chunks.withLock { $0 } }
     func append(_ chunk: Data) { chunks.withLock { $0.append(chunk) } }

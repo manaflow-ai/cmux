@@ -82,7 +82,7 @@ fn send(mux: &Arc<Mux>, client: u64, frame: Value) -> Value {
 
 fn send_raw(mux: &Arc<Mux>, client: u64, frame: &str) -> Value {
     let (writer, outbound) = writer();
-    super::handle_frame(mux, client, frame, &writer);
+    super::handle_frame(mux, client, frame, &writer, std::time::Instant::now());
     let message = outbound.try_pop().expect("a response");
     serde_json::from_str(&message).unwrap()
 }

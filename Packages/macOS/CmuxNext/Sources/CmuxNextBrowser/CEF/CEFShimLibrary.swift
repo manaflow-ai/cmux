@@ -244,6 +244,10 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     /// and the file `/` serves (NULL = index.html).
     let pageSchemeAddFirstPartyDynamic: @convention(c) (UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafePointer<CChar>?,
                                                         UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32
+    /// The renderer group of a first-party page (p13-webui-011): id, group name (`privileged`); 1 set,
+    /// 0 an unknown id or group. Call before `CefInitialize` ends. Optional: a fork before page groups
+    /// has no such export (nil) and still loads, with no page in a group.
+    let pageSchemeSetGroup: (@convention(c) (UnsafePointer<CChar>?, UnsafePointer<CChar>?) -> Int32)?
     /// Answers a PAGE_RESOURCE request: token, status, MIME, body, length; 1 when it was waiting.
     let pageResourceRespond: @convention(c) (Int32, Int32, UnsafePointer<CChar>?, UnsafeRawPointer?, Int) -> Int32
 
@@ -439,6 +443,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         pageSchemeAdd = try r("cmux_shim_page_scheme_add")
         pageSchemeAddFirstParty = try r("cmux_shim_page_scheme_add_first_party")
         pageSchemeAddFirstPartyDynamic = try r("cmux_shim_page_scheme_add_first_party_dynamic")
+        pageSchemeSetGroup = r.optional("cmux_shim_page_scheme_set_group")
         pageResourceRespond = try r("cmux_shim_page_resource_respond")
         setNewTabPageURL = try r("cmux_shim_set_new_tab_page_url")
         addNativeMessagingDir = try r("cmux_shim_add_native_messaging_dir")

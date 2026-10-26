@@ -18,6 +18,7 @@ dependencies = [
  "cmux-local-auth",
  "cmux-panic-log",
  "cmux-sdk",
+ "cmux-trace",
  "cmux-unix-socket",
  "cmux-worktree-care",
  "crossterm",
@@ -44,6 +45,7 @@ dependencies = [
  "tokio-util",
  "toml",
  "tracing",
+ "tracing-log",
  "tracing-subscriber",
  "unicode-normalization",
  "unicode-width",
@@ -754,6 +756,7 @@ name = "cmux-holder"
 version = "0.1.0"
 dependencies = [
  "cmux-flow-trace",
+ "cmux-ipc",
  "libc",
 ]
 
@@ -765,6 +768,18 @@ dependencies = [
  "cmux-server-core",
  "libc",
  "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "cmux-ipc"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "libc",
+ "memchr",
+ "phf",
+ "phf_codegen",
  "serde_json",
 ]
 
@@ -826,10 +841,15 @@ name = "cmux-pty"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "cmux-process",
  "libc",
  "portable-pty",
  "windows-sys 0.61.2",
 ]
+
+[[package]]
+name = "cmux-rd-proto"
+version = "0.1.0"
 
 [[package]]
 name = "cmux-remote"
@@ -1072,6 +1092,8 @@ dependencies = [
  "cmux-sdk",
  "cmux-terminal-iface",
  "cmux-terminal-sizing",
+ "cmux-threads",
+ "cmux-trace",
  "cmux-tui-cdp",
  "cmux-tui-cloud-conversations",
  "cmux-tui-image-paste",
@@ -1110,9 +1132,14 @@ name = "cmux-tui-fuzz"
 version = "0.0.0"
 dependencies = [
  "cmux-config",
+ "cmux-link",
+ "cmux-rd-proto",
  "cmux-server-core",
+ "cmux-transport",
  "cmux-tui",
+ "cmux-wg",
  "libfuzzer-sys",
+ "serde",
  "serde_json",
 ]
 
@@ -1121,13 +1148,13 @@ name = "cmux-tui-hooks"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "cmux-process",
  "cmux-tui-platform",
  "getrandom 0.3.4",
  "libc",
  "serde_json",
  "sha2",
  "toml_edit",
- "wait-timeout",
  "windows-sys 0.61.2",
 ]
 

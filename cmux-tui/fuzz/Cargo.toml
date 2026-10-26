@@ -1,8 +1,9 @@
-# cargo-fuzz targets for cmux-tui decoders and input schedulers
-# (plans/cmux-next/chrome-parity/p10-stability.md, tasks 017-021, 181).
-# Its own workspace and lock, so the main Cargo.toml and Cargo.lock stay as
-# they are; the nightly toolchain is pinned in rust-toolchain.toml here.
-# Run: scripts/cmux-next/rust-fuzz.sh --target NAME --seconds 600
+# libFuzzer targets for cmux-tui decoders (plans/cmux-next/chrome-parity/p10-stability.md,
+# tasks 017-021). Its own workspace and lock, so the main cmux-tui Cargo.toml and
+# Cargo.lock never change for a fuzz target. Build and run with cargo-fuzz on the
+# nightly in rust-toolchain.toml; seeds are in corpus/<target>/. Task 018 created this
+# workspace; later batches (017, 019-021) add [[bin]] entries, dependencies and their lock
+# delta here and never add these files again (p10-stability.md, 017's landing order).
 [package]
 name = "cmux-tui-fuzz"
 version = "0.0.0"
@@ -17,23 +18,144 @@ members = ["."]
 
 [dependencies]
 libfuzzer-sys = "0.4"
+cmux-link = { path = "../crates/cmux-link" }
+cmux-rd-proto = { path = "../crates/cmux-rd-proto" }
+cmux-transport = { path = "../crates/cmux-transport" }
+cmux-wg = { path = "../crates/cmux-wg", features = ["fuzzing"] }
+serde = "1"
+# Batch 5 (task 021): cmux-tui input schedulers and keys, cmux-config, cmux-server-core.
 serde_json = "1"
 cmux-tui = { path = "../crates/cmux-tui", features = ["fuzzing"] }
 cmux-config = { path = "../crates/cmux-config" }
 cmux-server-core = { path = "../crates/cmux-server-core" }
 
-# As the main workspace: cmux-tui needs crossterm's Kitty CSI-u fields.
+# As the main workspace: cmux-tui needs the cmux crossterm patch (Kitty CSI-u
+# fields, checked coordinates).
 [patch.crates-io]
 crossterm = { path = "../vendor/crossterm" }
 terminput-crossterm = { path = "../vendor/terminput-crossterm" }
 
-# cargo fuzz builds release; keep the checks a debug build has, so an
-# overflow or a debug_assert is a finding.
+# A wrapped integer or a broken debug_assert! is a finding, as Chrome's fuzzers
+# build with DCHECKs on.
 [profile.release]
 debug = 1
-overflow-checks = true
 debug-assertions = true
+overflow-checks = true
 
+# Batch 2 (task 018): cmux-rd-proto, cmux-transport, cmux-link, cmux-wg.
+[[bin]]
+name = "rd_proto_bulk"
+path = "fuzz_targets/rd_proto_bulk.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "rd_proto_clock"
+path = "fuzz_targets/rd_proto_clock.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "rd_proto_datagram"
+path = "fuzz_targets/rd_proto_datagram.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "rd_proto_feedback"
+path = "fuzz_targets/rd_proto_feedback.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "rd_proto_frame"
+path = "fuzz_targets/rd_proto_frame.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "rd_proto_input"
+path = "fuzz_targets/rd_proto_input.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "rd_proto_stream"
+path = "fuzz_targets/rd_proto_stream.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "transport_relay_frame"
+path = "fuzz_targets/transport_relay_frame.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "transport_probe"
+path = "fuzz_targets/transport_probe.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "transport_stun"
+path = "fuzz_targets/transport_stun.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "link_dial"
+path = "fuzz_targets/link_dial.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "link_stamp"
+path = "fuzz_targets/link_stamp.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "wg_packet"
+path = "fuzz_targets/wg_packet.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "wg_config"
+path = "fuzz_targets/wg_config.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "wg_mesh_packet"
+path = "fuzz_targets/wg_mesh_packet.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "link_owner_session"
+path = "fuzz_targets/link_owner_session.rs"
+test = false
+doc = false
+bench = false
+
+# Batch 5 (task 021): terminal input, config, pairing.
 [[bin]]
 name = "tui_pty_input"
 path = "fuzz_targets/tui_pty_input.rs"

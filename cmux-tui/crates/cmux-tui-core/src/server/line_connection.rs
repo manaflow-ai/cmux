@@ -88,6 +88,8 @@ pub(super) fn serve_line_connection(
                 break;
             }
         };
+        // The line's arrival, for its request span (server/request_spans.rs).
+        let arrived = Instant::now();
         if read == 0 {
             break;
         }
@@ -115,13 +117,14 @@ pub(super) fn serve_line_connection(
                 };
                 match hello.observe(&mux, client, &line, peer) {
                     Some(reply) => writer.send_control(&reply).is_ok(),
-                    None => handle_connection_frame(
+                    None => handle_connection_frame_at(
                         &mux,
                         client,
                         transport,
                         &line,
                         &writer,
                         &surface_scheduler,
+                        arrived,
                     ),
                 }
             }

@@ -18,6 +18,7 @@ dependencies = [
  "cmux-local-auth",
  "cmux-panic-log",
  "cmux-sdk",
+ "cmux-trace",
  "cmux-unix-socket",
  "cmux-worktree-care",
  "crossterm",
@@ -26,6 +27,7 @@ dependencies = [
  "futures-util",
  "getrandom 0.3.4",
  "libc",
+ "log",
  "notify",
  "pulldown-cmark",
  "ratatui",
@@ -44,6 +46,7 @@ dependencies = [
  "tokio-util",
  "toml",
  "tracing",
+ "tracing-log",
  "tracing-subscriber",
  "unicode-normalization",
  "unicode-width",
@@ -1148,6 +1151,7 @@ name = "cmux-holder"
 version = "0.1.0"
 dependencies = [
  "cmux-flow-trace",
+ "cmux-ipc",
  "cmux-process",
  "libc",
 ]
@@ -1176,6 +1180,18 @@ dependencies = [
  "tar",
  "tempfile",
  "tokio",
+]
+
+[[package]]
+name = "cmux-ipc"
+version = "0.1.0"
+dependencies = [
+ "bytes",
+ "libc",
+ "memchr",
+ "phf",
+ "phf_codegen",
+ "serde_json",
 ]
 
 [[package]]
@@ -1308,6 +1324,7 @@ name = "cmux-pty"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "cmux-process",
  "libc",
  "portable-pty",
  "windows-sys 0.61.2",
@@ -1694,6 +1711,8 @@ dependencies = [
  "cmux-sdk",
  "cmux-terminal-iface",
  "cmux-terminal-sizing",
+ "cmux-threads",
+ "cmux-trace",
  "cmux-tui-cdp",
  "cmux-tui-cloud-conversations",
  "cmux-tui-image-paste",
@@ -1733,6 +1752,7 @@ name = "cmux-tui-hooks"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "cmux-process",
  "cmux-tui-platform",
  "getrandom 0.3.4",
  "libc",
@@ -1741,7 +1761,6 @@ dependencies = [
  "tempfile",
  "toml",
  "toml_edit 0.22.27",
- "wait-timeout",
  "windows-sys 0.61.2",
 ]
 

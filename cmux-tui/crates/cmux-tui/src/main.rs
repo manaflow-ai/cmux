@@ -42,10 +42,10 @@ mod private_mode;
 #[cfg(unix)]
 mod signal_sender;
 mod websocket_credential;
-// The agent hook helper, also built as the standalone `cmux-tui-hook`.
-mod feature_flags;
 #[cfg(feature = "fuzzing")]
 pub mod fuzzing;
+// The agent hook helper, also built as the standalone `cmux-tui-hook`.
+mod feature_flags;
 #[path = "bin/cmux-tui-hook.rs"]
 mod hook_helper;
 mod host_colors;

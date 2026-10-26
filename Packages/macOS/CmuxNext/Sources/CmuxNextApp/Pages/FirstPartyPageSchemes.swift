@@ -57,20 +57,28 @@ enum FirstPartyPageSchemes {
     ]
 
     /// The accepted entries of `roots`, each with its page's own CSP.
-    static func entries(roots: [String: URL], bundleResources: URL) -> [String: CEFPageSchemes.Entry] {
+    ///
+    /// - Parameter processGroups: Each entry of a page whose ``PageDescriptor/processGroup`` shares a
+    ///   renderer (``PageProcessGroup/sharesRenderer``) names that group, which the fork shares renderers
+    ///   by (the `pageProcessGroups` feature). A `solo` or `secrets` page names none and keeps Chromium's
+    ///   one process per origin: its raw value is a class, not a group, and two pages with one key would
+    ///   share. Off, no entry names one.
+    static func entries(roots: [String: URL], bundleResources: URL, processGroups: Bool = false) -> [String: CEFPageSchemes.Entry] {
         var out: [String: CEFPageSchemes.Entry] = [:]
         for (id, root) in accepted(roots: roots, bundleResources: bundleResources) {
             guard let page = descriptors.first(where: { $0.id == id }) else { continue }
             out[id] = CEFPageSchemes.Entry(root: root, csp: page.csp.header, dynamicPrefixes: page.dynamicPrefixes.sorted(),
-                                           entry: page.entry)
+                                           entry: page.entry, processGroup: processGroups && page.processGroup.sharesRenderer ? page.processGroup.rawValue : nil)
         }
         return out
     }
 
     /// Hands the checked table to Chromium; call before Chromium starts.
-    @MainActor static func install(bundle: Bundle = .main) {
+    ///
+    /// - Parameter processGroups: The `pageProcessGroups` feature (``entries(roots:bundleResources:processGroups:)``).
+    @MainActor static func install(bundle: Bundle = .main, processGroups: Bool) {
         guard let resources = bundle.resourceURL else { return }
-        CEFPageSchemes.firstParty = entries(roots: bundledRoots(), bundleResources: resources)
+        CEFPageSchemes.firstParty = entries(roots: bundledRoots(), bundleResources: resources, processGroups: processGroups)
     }
 
     /// Real paths, compared component by component (`Resources2` is not inside `Resources`).

@@ -287,7 +287,7 @@ class PlanLoop:
             self._driver.job_finished(job_id)
         plan = self._driver.tick(self._hosts(), self._builds(), submit=self._submit)
         return {"tip": self._driver.tip, "mode": plan.mode, "jobs": len(plan.jobs), "builds": len(plan.builds),
-                "gaps": len(plan.gaps), "problems": list(plan.problems)}
+                "gaps": len(plan.gaps), "skipped": len(plan.skipped), "problems": list(plan.problems)}
 
 
 def command_submitter(program: Path, rejected: Callable[..., object]) -> Callable[[object], object]:
@@ -737,6 +737,23 @@ def load_scheduler():
         raise LabdError(f"{error}: labd needs the scheduler (task 011) and the build ledger (task 009)") from None
 
 
+def plan_driver(scheduler, state_path: Path, *, ls_remote: Callable[[], str | None],
+                first_parent: Callable[[str | None, str], object], clock: Callable[[], datetime],
+                root: Path = REPO_ROOT):
+    """scheduler.Driver on the checkout at `root`: its story catalog, its shard map and its expectations.json, which
+    the Driver reads again for every plan (task 023), so an entry skips its story x host-class pair until it expires."""
+    catalog = scheduler._load_sibling("catalog")
+    expectations = scheduler._load_sibling("expectations")
+    try:
+        return scheduler.Driver(
+            state_path, stories=scheduler.stories_from_catalog(catalog.load_catalog(root)),
+            shard_map=scheduler.ShardMap.load(root / "scripts" / "perf-lab" / "shard_map.json"),
+            ls_remote=ls_remote, first_parent=first_parent, clock=clock,
+            expectations=lambda now: expectations.active_at(root / expectations.EXPECTATIONS_PATH, now))
+    except (scheduler.SchedulerError, catalog.CatalogError) as error:
+        raise LabdError(f"scheduler: {error}") from None
+
+
 def serve(args: argparse.Namespace) -> int:
     clock = lambda: datetime.now(timezone.utc)
     bind = args.bind and tailnet_address(args.bind)
@@ -752,15 +769,9 @@ def serve(args: argparse.Namespace) -> int:
         db.migrate()
     finally:
         db.close()
-    catalog = scheduler._load_sibling("catalog")
-    try:
-        driver = scheduler.Driver(
-            data_dir / "scheduler.json", stories=scheduler.stories_from_catalog(catalog.load_catalog(REPO_ROOT)),
-            shard_map=scheduler.ShardMap.load(HERE / "shard_map.json"),
-            ls_remote=lambda: scheduler.git_ls_remote(args.remote, args.branch, repo=repo),
-            first_parent=scheduler.git_first_parent(args.remote, args.branch, repo=repo))
-    except (scheduler.SchedulerError, catalog.CatalogError) as error:
-        raise LabdError(f"scheduler: {error}") from None
+    driver = plan_driver(scheduler, data_dir / "scheduler.json", clock=clock,
+                         ls_remote=lambda: scheduler.git_ls_remote(args.remote, args.branch, repo=repo),
+                         first_parent=scheduler.git_first_parent(args.remote, args.branch, repo=repo))
     plan = None if args.submit_command is None else PlanLoop(
         driver, hosts=lambda: scheduler.hosts_from_document(json.loads(args.pool.read_text(encoding="utf-8"))),
         builds=lambda: ledger_builds(scheduler, builds, data_dir / "builds"),

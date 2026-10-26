@@ -118,6 +118,9 @@ public final class MockBrowserTab: BrowserTab {
     )
 
     private var machine = BrowserTabStateMachine()
+    /// The page plays unmuted media (`BrowserAudibleReporting`): `state.media?.isAudible`, kept
+    /// apart so its observers wake on the flip only, not on each load tick or title.
+    public private(set) var isAudible = false
     /// The current back/forward list entry. Updated when a navigation
     /// starts, which is enough for a fake.
     private var committedURL: URL?
@@ -144,6 +147,14 @@ public final class MockBrowserTab: BrowserTab {
     /// Feeds one engine event into the state machine.
     public func simulate(_ event: BrowserNavigationEvent) {
         machine.apply(event)
+        noteAudible()
+    }
+
+    /// Copies `state.media?.isAudible` into `isAudible` when it flipped. Each event that changes
+    /// `media` calls it: a media report, a commit, a renderer exit.
+    private func noteAudible() {
+        let audible = state.media?.isAudible == true
+        if audible != isAudible { isAudible = audible }
     }
 
     /// Allocates the id a real engine would assign to a new navigation.
@@ -283,6 +294,7 @@ public final class MockBrowserTab: BrowserTab {
         machine.apply(.historyChanged(canGoBack: !backList.isEmpty, canGoForward: !forwardList.isEmpty))
         guard completesNavigationsImmediately else { return }
         machine.apply(.committed(navigation, url: url))
+        noteAudible()
         machine.apply(.titleChanged(url.host() ?? url.absoluteString))
         machine.apply(.progress(1))
         machine.apply(.finished(navigation))
@@ -344,6 +356,8 @@ extension MockBrowserTab: BrowserBackForwardListing {
         return navigation != nil
     }
 }
+
+extension MockBrowserTab: BrowserAudibleReporting {}
 
 /// Mute as the real engines report it: the state follows at once.
 extension MockBrowserTab: BrowserAudioMuting {

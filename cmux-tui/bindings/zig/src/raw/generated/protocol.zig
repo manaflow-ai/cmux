@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "5b68299bda8b5e540da6ebee7fc8a982ee90b11e2050662e4aefe8458b8181a5";
+pub const ir_sha256 = "e02313f2112ebdb438482aac92ad4c5097bcf1fdc45c4e910c3821f2bdc69333";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -1893,6 +1893,17 @@ pub const ServerStatsRegistryLock = struct {
     wait_us: ServerStatsHistogram,
 };
 
+pub const ServerStatsRequestLatency = struct {
+    agent: ServerStatsHistogram,
+    browser: ServerStatsHistogram,
+    cloud: ServerStatsHistogram,
+    create: ServerStatsHistogram,
+    other: ServerStatsHistogram,
+    query: ServerStatsHistogram,
+    terminal_io: ServerStatsHistogram,
+    topology: ServerStatsHistogram,
+};
+
 pub const ServerStatsRequestPathIo = struct {
     child_process: u64,
     fs_write: u64,
@@ -1940,19 +1951,43 @@ pub const ServerStatsResourceProjection = struct {
 
 pub const ServerStatsResult = struct {
     connections: ServerStatsConnections,
+    dispatch_queue_us: ?ServerStatsHistogram = null,
     journal_writer: wire.Nullable(ServerStatsJournalWriter),
     registry_lock: ServerStatsRegistryLock,
+    request_latency_us: ?ServerStatsRequestLatency = null,
     request_path_io: ?ServerStatsRequestPathIo = null,
     resource_projection: ?ServerStatsResourceProjection = null,
     schema: u32,
+    slow_requests: ?ServerStatsSlowRequests = null,
     uptime_ms: u64,
     write_path: ?ServerStatsWritePath = null,
 
     pub const cmux_wire_optional_nonnull_fields = [_][]const u8{
+        "dispatch_queue_us",
+        "request_latency_us",
         "request_path_io",
         "resource_projection",
+        "slow_requests",
         "write_path",
     };
+};
+
+pub const ServerStatsSlowRequest = struct {
+    busy_ms: u64,
+    client: u64,
+    duration_ms: wire.Nullable(u64),
+    method: []const u8,
+    started_ms: u64,
+};
+
+pub const ServerStatsSlowRequests = struct {
+    expected_waits: u64,
+    recent: []const ServerStatsSlowRequest,
+    spawn_failures: u64,
+    threshold_ms: u64,
+    total: u64,
+    unwatched: u64,
+    watchdog_wakeups: u64,
 };
 
 pub const ServerStatsWritePath = struct {

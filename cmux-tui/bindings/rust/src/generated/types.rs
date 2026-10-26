@@ -1,5 +1,5 @@
 // This file is generated. Do not edit by hand.
-// cmux-tui mux protocol 12, IR 5b68299bda8b5e540da6ebee7fc8a982ee90b11e2050662e4aefe8458b8181a5.
+// cmux-tui mux protocol 12, IR e02313f2112ebdb438482aac92ad4c5097bcf1fdc45c4e910c3821f2bdc69333.
 // The emitter owns this layout so generation is independent of the installed rustfmt.
 
 use crate::{Nullable, Optional};
@@ -1736,6 +1736,19 @@ pub struct ServerStatsRegistryLock {
 
 #[rustfmt::skip]
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsRequestLatency {
+    pub agent: ServerStatsHistogram,
+    pub browser: ServerStatsHistogram,
+    pub cloud: ServerStatsHistogram,
+    pub create: ServerStatsHistogram,
+    pub other: ServerStatsHistogram,
+    pub query: ServerStatsHistogram,
+    pub terminal_io: ServerStatsHistogram,
+    pub topology: ServerStatsHistogram,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ServerStatsRequestPathIo {
     pub child_process: u64,
     pub fs_write: u64,
@@ -1786,16 +1799,44 @@ pub struct ServerStatsResourceProjection {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct ServerStatsResult {
     pub connections: ServerStatsConnections,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub dispatch_queue_us: Option<ServerStatsHistogram>,
     pub journal_writer: Nullable<ServerStatsJournalWriter>,
     pub registry_lock: ServerStatsRegistryLock,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub request_latency_us: Option<ServerStatsRequestLatency>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub request_path_io: Option<ServerStatsRequestPathIo>,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub resource_projection: Option<ServerStatsResourceProjection>,
     pub schema: u32,
+    #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
+    pub slow_requests: Option<ServerStatsSlowRequests>,
     pub uptime_ms: u64,
     #[serde(default, deserialize_with = "crate::presence::deserialize_optional_non_null", skip_serializing_if = "Option::is_none")]
     pub write_path: Option<ServerStatsWritePath>,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsSlowRequest {
+    pub busy_ms: u64,
+    pub client: u64,
+    pub duration_ms: Nullable<u64>,
+    pub method: String,
+    pub started_ms: u64,
+}
+
+#[rustfmt::skip]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ServerStatsSlowRequests {
+    pub expected_waits: u64,
+    pub recent: Vec<ServerStatsSlowRequest>,
+    pub spawn_failures: u64,
+    pub threshold_ms: u64,
+    pub total: u64,
+    pub unwatched: u64,
+    pub watchdog_wakeups: u64,
 }
 
 #[rustfmt::skip]

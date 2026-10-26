@@ -288,7 +288,7 @@ pub(super) fn machine_listening_tcp_json() -> anyhow::Result<Value> {
         let candidates: &[(&str, &[&str])] = &[("ss", &["-H", "-ltnp"]), ("netstat", &["-ltn"])];
         let mut failures = Vec::new();
         for &(program, arguments) in candidates {
-            let output = match std::process::Command::new(program).args(arguments).output() {
+            let output = match cmux_process::Command::new(program).args(arguments).output() {
                 Ok(output) => output,
                 Err(error) if error.kind() == std::io::ErrorKind::NotFound => continue,
                 Err(error) => {
