@@ -306,6 +306,22 @@ class BenchGaps(Fixture):
         self.assertEqual(items[1].where, "Packages/macOS/CmuxNext/Sources/App/Debug.swift:2")
         self.assertIn("scripts/cmux-next/a-bench.py", items[1].detail)
 
+    def test_a_debug_only_name_by_design_is_not_a_gap(self):
+        self.write("Packages/macOS/CmuxNext/Sources/Browser/CEFSwitches.swift", """
+            #if DEBUG
+            let extra = env["CMUX_NEXT_CEF_EXTRA_SWITCHES"]
+            let other = env["CMUX_NEXT_OTHER_SWITCHES"]
+            #endif
+            #if DEBUG || CMUX_BENCH_HOOKS
+            let bench = env["CMUX_NEXT_BENCH_CEF_SWITCHES"]
+            #endif
+            """)
+        self.write("scripts/cmux-next/bench_pages.py", """
+            env = {"CMUX_NEXT_CEF_EXTRA_SWITCHES": "a", "CMUX_NEXT_OTHER_SWITCHES": "b", "CMUX_NEXT_BENCH_CEF_SWITCHES": "c"}
+            """)
+        self.assertIn("CMUX_NEXT_CEF_EXTRA_SWITCHES", queues.DEBUG_ONLY_BY_DESIGN)
+        self.assertEqual([item.key for item in queues.bench_gaps(self.root)], ["CMUX_NEXT_OTHER_SWITCHES"])
+
 
 class CommandLine(Fixture):
     def run_main(self, *argv):

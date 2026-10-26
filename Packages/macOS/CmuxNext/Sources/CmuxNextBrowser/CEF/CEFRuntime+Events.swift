@@ -153,7 +153,7 @@ extension CEFRuntime {
             break
         default:
             if let browser = event.browserID, let tab = tabsByBrowser[browser] {
-                #if DEBUG
+                #if DEBUG || CMUX_BENCH_HOOKS
                 CEFEventTrace.record(browser, event)
                 #endif
                 tab.handle(event)

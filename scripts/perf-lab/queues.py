@@ -18,6 +18,7 @@ are the reference forms; these functions are the canonical ones, with the plan's
   MQ-B  bench-migration  MQ1 | MQ2 | MQ3 by file: one file is one migration task
   MQ13  bench-gaps       debug methods and env names that bench scripts use and that a
                          `--config bench` build (DEBUG off, CMUX_BENCH_HOOKS on) does not compile
+                         (DEBUG_ONLY_BY_DESIGN names the ones that stay Debug-only, each with its reason)
 
     python3 scripts/perf-lab/queues.py --all --counts          # one line per queue
     python3 scripts/perf-lab/queues.py bench-migration --files # MQ-B, one path per line
@@ -358,6 +359,13 @@ MEASURING_SCRIPTS = {
     "remote-browser-local-live.py": "--stats measures frame rate, bitrate and input to frame (task 221)",
     "child-crash-e2e.py": "becomes the crash survival timing story (task 036)",
 }
+# Names that stay Debug-only on purpose, each with its reason: MQ13 does not list them.
+DEBUG_ONLY_BY_DESIGN = {
+    "CMUX_NEXT_CEF_EXTRA_SWITCHES": "any Chromium switch, for diagnosis; a bench build takes only the Web Page Replay "
+                                    "pair, through CMUX_NEXT_BENCH_CEF_SWITCHES (CEFSwitches.benchSwitchNames, task 221)",
+    "CMUX_NEXT_CHROMIUM_HOST_SWITCHES": "any host switch, for diagnosis (child logging, no-sandbox); a bench build "
+                                        "measures the host with the switches it ships with (task 221)",
+}
 _PLATFORM = {"os": {"macOS"}, "arch": {"arm64"}, "targetEnvironment": set()}
 _CONDITION_TOKEN = re.compile(r"\s*(\|\||&&|!|\(|\)|\w+\([^()]*\)|\w+)")
 
@@ -487,6 +495,8 @@ def bench_gaps(root: str = ROOT) -> list[Item]:
     for kind in ("method", "env"):
         for name, scripts in sorted(used[kind].items()):
             found = sites.get(name)
+            if name in DEBUG_ONLY_BY_DESIGN:
+                continue
             if found and not any(bench for _, bench in found):
                 more = " (+%d more)" % (len(scripts) - 1) if len(scripts) > 1 else ""
                 items.append(Item(name, found[0][0], "%s, Debug only; used by %s%s" % (kind, scripts[0], more)))
