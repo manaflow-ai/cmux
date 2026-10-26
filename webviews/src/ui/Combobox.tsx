@@ -112,6 +112,7 @@ export function Combobox({
   // itself (data-highlighted).
   const highlightedRef = useRef<string | undefined>(undefined);
   const completionRef = useRef<{ text: string; key: string } | undefined>(undefined);
+  const pressActivatedRef = useRef<string | undefined>(undefined);
   const listRef = useRef<HTMLDivElement>(null);
   const keep = inline && keepHeight;
   const [tallest, setTallest] = useState(0);
@@ -187,12 +188,18 @@ export function Combobox({
             className={cx("ui-combobox-item", itemClassName)}
             render={<li />}
             onMouseDown={(event) => {
+              if (event.button !== 0 || isItemDisabled?.(item)) return;
               event.preventDefault();
+              pressActivatedRef.current = item;
               onSubmit(item);
             }}
             onClick={(event) => {
-              // The press handler above is the activation path; this handles keyboard/synthetic clicks.
-              if (event.detail === 0) onSubmit(item);
+              // A primary press already selected this item; consume its follow-up click so it cannot
+              // submit twice. Keyboard and synthetic clicks have no preceding press.
+              const pressed = pressActivatedRef.current;
+              pressActivatedRef.current = undefined;
+              if (pressed === item) return;
+              if (event.detail === 0 && !isItemDisabled?.(item)) onSubmit(item);
             }}
           >
             {renderItemContent(item)}
