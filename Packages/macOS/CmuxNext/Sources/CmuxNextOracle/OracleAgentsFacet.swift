@@ -77,7 +77,7 @@ public struct OracleAgentsFacet: OracleFacetProvider {
     public struct HomePage: Sendable, Hashable {
         public var window: String?
         public var tab: String?
-        /// The conversation the view shows; nil on New Message or before one shows.
+        /// The conversation the view shows; nil on New Message, on a docked Home that shows Channels, or before one shows.
         public var conversation: String?
 
         public init(window: String? = nil, tab: String? = nil, conversation: String?) {

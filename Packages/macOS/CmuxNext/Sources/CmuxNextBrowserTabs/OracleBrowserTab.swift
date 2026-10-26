@@ -1,7 +1,6 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 public import CmuxNextBrowser
 public import CmuxNextOracle
-import CryptoKit
 import Foundation
 
 /// The oracle's `tabs` facet values (p15-oracle-037) read through the engine-neutral ``BrowserTab`` protocol:
@@ -72,9 +71,7 @@ extension OracleTabsFacet.Tab {
     }
 
     /// `sha256:<hex>` of `text`'s UTF-8 bytes (the schema's `derive: sha256`): private text never goes in.
-    public static func hash(_ text: String) -> String {
-        "sha256:" + SHA256.hash(data: Data(text.utf8)).map { String(format: "%02x", $0) }.joined()
-    }
+    public static func hash(_ text: String) -> String { OracleValue.sha256(of: text) }
 }
 
 extension OracleTabsFacet.Tab.LoadState {

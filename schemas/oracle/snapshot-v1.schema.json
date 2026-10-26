@@ -3105,7 +3105,7 @@
                         "x-oracle-id-kind": "tab"
                       },
                       "conversation": {
-                        "description": "the conversation the view shows (selected in its list); null on New Message or before one shows",
+                        "description": "the conversation the view shows (selected in its list); null on New Message, on a docked Home that shows Channels, or before one shows",
                         "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/agents/home/*/conversation"},
                         "type": ["string", "null"],
                         "x-oracle-id-kind": "conversation"

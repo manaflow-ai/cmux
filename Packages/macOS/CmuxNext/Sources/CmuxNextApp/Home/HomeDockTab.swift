@@ -16,6 +16,8 @@ extension InternalPageID {
 final class HomeDockTab: InternalPageProvider {
     private weak var services: AppServices?
     private var views: [String: HomeDockView] = [:]
+    /// Bumped when a dock's view is made or goes: `views` is plain storage, so a reader of ``messagesViews`` hears it.
+    private let installs = PageInstallCounter()
     /// The Messages list width every docked Home shares (`HomeSidebarWidth` keeps one per key).
     static let widthKey = "home-dock"
     /// The page command the host asks the Channels page for its selection with (hq-ec's page).
@@ -36,6 +38,7 @@ final class HomeDockTab: InternalPageProvider {
         view.channelsSelection = { await Self.askSelection($0) }
         HomeDock.followChannelsSetting(view) { [weak services] in services?.home.dockMode = $0 }
         views[key] = view
+        installs.bump()
         for tab in pending.keys where services.pages.storeKey(of: tab) == key {
             let work = pending.removeValue(forKey: tab) ?? []
             // After this view is in its window, so a sheet has a window to show on.
@@ -46,6 +49,7 @@ final class HomeDockTab: InternalPageProvider {
 
     func tabClosed(_ key: String) {
         views.removeValue(forKey: key)?.close()
+        installs.bump()
         services?.home.dockMode = .messages // no dock view shows Channels now
     }
 
@@ -55,9 +59,11 @@ final class HomeDockTab: InternalPageProvider {
         pending[tabID, default: []].append(body)
     }
 
-    /// Each docked Home's Messages view by provider key, once made.
+    /// The Messages view of each docked Home that shows it, by provider key; observed (a view made or gone, a
+    /// switch). A dock on Channels shows no conversation, so it has none here.
     var messagesViews: [(key: String, view: TopHomePageView)] {
-        views.compactMap { key, view in view.messages.map { (key, $0) } }
+        _ = installs.revision
+        return views.compactMap { key, view in view.mode == .messages ? view.messages.map { (key, $0) } : nil }
     }
 
     /// The docked Home's view in the live tree, once its tab has shown.

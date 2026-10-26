@@ -11,7 +11,11 @@ import CmuxNextSettings
 /// facet tasks (p15-oracle-027, 033 to 044, 188, 215, 216) add theirs to the list; until then each facet
 /// answers not-comparable with its task. The router adds `topology` itself (OracleTopologyFacet).
 extension AppServices: OracleHost {
-    func makeOracleFacets() -> OracleFacets {
+    func makeOracleFacets() -> OracleFacets { makeOracleFacets(lanes: [AgentLaneStore.shared, AgentLaneStore.chief]) }
+
+    /// - Parameter lanes: The acpmux lane mirrors the agents facet reads a session's lane from, the first that has it
+    ///   (the app's: this Mac's watch, then the Chief home's).
+    func makeOracleFacets(lanes: [AgentLaneStore]) -> OracleFacets {
         OracleFacets([
             // The input check `debug.desync` runs and the window problems `debug.focus` reports, now.
             OracleInvariantsFacet { [weak self] in
@@ -36,10 +40,9 @@ extension AppServices: OracleHost {
                                                    motionEnabled: motion.animationsEnabled, motionSpeed: motion.speed.timeScale,
                                                    reduceMotion: motion.reduceMotion)
             },
-            // Agent chat tabs with acpmux's lane for their session (this Mac's watch, then the Chief home's), and
-            // each Home Messages view's conversation.
+            // Agent chat tabs with acpmux's lane for their session, and each Home Messages view's conversation.
             OracleAgentsFacet { [weak self] in
-                self?.oracleAgents { AgentLaneStore.shared.lane($0) ?? AgentLaneStore.chief.lane($0) }
+                self?.oracleAgents { session in lanes.lazy.compactMap { $0.lane(session) }.first }
             },
         ])
     }
