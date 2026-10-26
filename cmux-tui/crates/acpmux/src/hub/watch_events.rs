@@ -8,6 +8,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 
 #[derive(Clone, Debug, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct Cursor {
     pub seq: u64,
     pub initial: Option<Value>,
@@ -63,7 +64,8 @@ pub async fn collect(hub: &Hub, w: &mut Watch, key: &str) -> Result<(Vec<String>
         .ok_or_else(|| RpcError::internal("watch source has no saved cursor"))?;
     let mut found = Vec::new();
     let mut candidates = Vec::new();
-    let end = s["lastSeq"].as_u64().unwrap_or(c.seq);
+    let mut end = None;
+    let mut more = false;
     {
         let events: Vec<crate::store::EventRecord> = if let Ok(local) = hub.resolve(key) {
             hub.events(&local.id, c.seq, 256).map_err(|e| RpcError::internal(e.to_string()))?
@@ -77,18 +79,18 @@ pub async fn collect(hub: &Hub, w: &mut Watch, key: &str) -> Result<(Vec<String>
             )
             .await
             .map_err(|_| RpcError::internal("peer watch page timed out"))??;
+            end = page["lastSeq"].as_u64();
+            more = page["hasMore"] == true;
             serde_json::from_value(page["events"].clone())
                 .map_err(|e| RpcError::internal(format!("watch events: {e}")))?
         } else {
             Vec::new()
         };
+        more |= events.len() == 256;
         let before = c.seq;
         for e in events {
             if e.seq <= c.seq {
                 continue;
-            }
-            if e.seq > end {
-                break;
             }
             if c.initial.as_ref().is_some_and(|i| e.seq > i["lastSeq"].as_u64().unwrap_or(0)) {
                 initial(&w.until, w.match_text.is_some(), key, c, &mut found);
@@ -163,7 +165,7 @@ pub async fn collect(hub: &Hub, w: &mut Watch, key: &str) -> Result<(Vec<String>
             emit(w.match_text.is_some(), key, &s, c, &mut candidates, &mut found);
         }
         emit(w.match_text.is_some(), key, &s, c, &mut candidates, &mut found);
-        if c.seq > before && c.seq < end {
+        if c.seq > before && (more || end.is_some_and(|end| c.seq < end)) {
             return Ok((found, true));
         }
     }

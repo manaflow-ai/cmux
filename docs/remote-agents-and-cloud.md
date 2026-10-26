@@ -136,6 +136,8 @@ Add takes `to`, explicit nonempty `sessions` (including `HOST/name`), `until`, o
 and inspection commands. Watches and undelivered messages survive restart; an offline peer
 produces one notice without resolving. Failed deliveries remain visible in the list and retry
 on a relevant session/peer change or restart. A one-shot watch is removed after delivery.
+Unreadable watch state is preserved as `watches.json.bad-<timestamp>`; the daemon starts
+with no watches. Older cursor fields default safely. Peer replay uses eight workers.
 The CLI and MCP watch tools are not exposed yet; `acpmux wait` remains the script interface.
 
 ## Use cmux Cloud

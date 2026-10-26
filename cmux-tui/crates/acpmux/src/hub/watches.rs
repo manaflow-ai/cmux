@@ -7,7 +7,7 @@ use crate::hub::outbox::{Delivery, State};
 use crate::rpc::RpcError;
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
-use std::collections::{BTreeMap, BTreeSet};
+use std::collections::{BTreeMap, BTreeSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use tokio::sync::{Notify, broadcast};
@@ -43,35 +43,44 @@ struct Inner {
     saved: Saved,
     path: Option<PathBuf>,
 }
+#[derive(Default)]
+struct Jobs {
+    ready: VecDeque<String>,
+    // Dirty while running, plus consecutive failures; one entry per peer/session.
+    pending: BTreeMap<String, (bool, u8)>,
+}
+#[derive(Default)]
 pub struct Watches {
     inner: Mutex<Inner>,
     wake: Notify,
-    running: Mutex<BTreeMap<(String, String), bool>>,
-    slots: Arc<tokio::sync::Semaphore>,
-}
-impl Default for Watches {
-    fn default() -> Self {
-        Self {
-            inner: Mutex::default(),
-            wake: Notify::new(),
-            running: Mutex::default(),
-            slots: Arc::new(tokio::sync::Semaphore::new(8)),
-        }
-    }
+    jobs: Mutex<Jobs>,
+    available: Notify,
 }
 impl Watches {
     pub(super) fn peer_settled(&self) {
         self.wake.notify_one();
     }
-    pub fn open(&self, path: &Path) -> anyhow::Result<()> {
+    pub fn open(&self, path: &Path) {
         let mut inner = self.inner.lock().unwrap_or_else(|e| e.into_inner());
-        inner.saved = match std::fs::read(path) {
-            Ok(bytes) => serde_json::from_slice(&bytes)?,
+        inner.saved = match std::fs::read(path)
+            .and_then(|b| serde_json::from_slice(&b).map_err(std::io::Error::other))
+        {
+            Ok(saved) => saved,
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => Saved::default(),
-            Err(e) => return Err(e.into()),
+            Err(e) => {
+                let bad = path.with_extension(format!("json.bad-{}", crate::store::now_ms()));
+                tracing::warn!(
+                    "watch state {} unavailable: {e}; preserving at {}",
+                    path.display(),
+                    bad.display()
+                );
+                if let Err(e) = std::fs::rename(path, bad) {
+                    tracing::warn!("cannot preserve watch state: {e}");
+                }
+                Saved::default()
+            }
         };
         inner.path = Some(path.into());
-        Ok(())
     }
     // Do not acknowledge a mutation that could not be saved; keep the previous
     // checkpoint so a later event/restart can retry without losing the wake.
@@ -102,6 +111,9 @@ impl Watches {
         self.change(|s| s.watches.remove(id).is_some())
     }
     pub fn start(hub: &Arc<Hub>) {
+        for _ in 0..8 {
+            tokio::spawn(remote_worker(Arc::clone(hub)));
+        }
         let mut events = hub.subscribe(); // Subscribe before startup/reconciliation.
         let weak = Arc::downgrade(hub);
         tokio::spawn(async move {
@@ -260,57 +272,69 @@ async fn reconcile(hub: &Arc<Hub>) -> Result<(), RpcError> {
         }
     }
     drain(hub, true); // Dispatch local wakes before starting any remote read.
-    for w in watches {
-        for key in w.sessions.into_iter().filter(|k| k.contains('/')) {
-            let job = (w.id.clone(), key);
-            let mut running = hub.watches.running.lock().unwrap_or_else(|e| e.into_inner());
-            if running.insert(job.clone(), true).is_some() {
-                continue;
-            }
-            let hub = Arc::clone(hub);
-            tokio::spawn(async move {
-                let mut failures = 0u32;
-                loop {
-                    hub.watches
-                        .running
-                        .lock()
-                        .unwrap_or_else(|e| e.into_inner())
-                        .insert(job.clone(), false);
-                    let permit = tokio::select! {
-                        () = hub.shutdown.notified() => break,
-                        p = hub.watches.slots.acquire() => p.unwrap(),
-                    };
-                    let result = tokio::select! {
-                        () = hub.shutdown.notified() => break,
-                        result = page(&hub, &job.0, &job.1) => result,
-                    };
-                    drop(permit);
-                    match result {
-                        Ok(more) => {
-                            drain(&hub, false);
-                            failures = 0;
-                            let mut jobs =
-                                hub.watches.running.lock().unwrap_or_else(|e| e.into_inner());
-                            if !more && jobs.get(&job) == Some(&false) {
-                                jobs.remove(&job);
-                                return;
-                            }
-                        }
-                        Err(e) => {
-                            tracing::warn!("watch {} source {}: {e}", job.0, job.1);
-                            failures = (failures + 1).min(6);
-                            tokio::select! {
-                                () = hub.shutdown.notified() => break,
-                                () = tokio::time::sleep(std::time::Duration::from_millis(250 << (failures - 1))) => {}
-                            }
-                        }
-                    }
-                }
-                hub.watches.running.lock().unwrap_or_else(|e| e.into_inner()).remove(&job);
-            });
+    let mut jobs = hub.watches.jobs.lock().unwrap_or_else(|e| e.into_inner());
+    for key in watches.into_iter().flat_map(|w| w.sessions).filter(|k| k.contains('/')) {
+        if let Some((dirty, _)) = jobs.pending.get_mut(&key) {
+            *dirty = true;
+        } else {
+            jobs.pending.insert(key.clone(), (false, 0));
+            jobs.ready.push_back(key);
         }
     }
+    hub.watches.available.notify_one();
     Ok(())
+}
+async fn remote_worker(hub: Arc<Hub>) {
+    loop {
+        let available = hub.watches.available.notified();
+        let key = {
+            let mut jobs = hub.watches.jobs.lock().unwrap_or_else(|e| e.into_inner());
+            let key = jobs.ready.pop_front();
+            if let Some(key) = &key {
+                jobs.pending.get_mut(key).unwrap().0 = false;
+            }
+            key
+        };
+        let Some(key) = key else {
+            tokio::select! { () = hub.shutdown.notified() => return, () = available => {} }
+            continue;
+        };
+        hub.watches.available.notify_one(); // Let another worker take the next source.
+        let (mut more, mut failed) = (false, false);
+        for w in snapshot(&hub).into_iter().filter(|w| w.sessions.contains(&key)) {
+            let result = tokio::select! {
+                () = hub.shutdown.notified() => return,
+                result = page(&hub, &w.id, &key) => result,
+            };
+            match result {
+                Ok(next) => more |= next,
+                Err(e) => {
+                    failed = true;
+                    tracing::warn!("watch {} source {key}: {e}", w.id);
+                }
+            }
+        }
+        drain(&hub, false);
+        let failures = {
+            let mut jobs = hub.watches.jobs.lock().unwrap_or_else(|e| e.into_inner());
+            let state = jobs.pending.get_mut(&key).unwrap();
+            state.1 = if failed { (state.1 + 1).min(6) } else { 0 };
+            state.1
+        };
+        if failed {
+            tokio::select! {
+                () = hub.shutdown.notified() => return,
+                () = tokio::time::sleep(std::time::Duration::from_millis(250 << (failures - 1))) => {}
+            }
+        }
+        let mut jobs = hub.watches.jobs.lock().unwrap_or_else(|e| e.into_inner());
+        if more || failed || jobs.pending[&key].0 {
+            jobs.ready.push_back(key);
+            hub.watches.available.notify_one();
+        } else {
+            jobs.pending.remove(&key);
+        }
+    }
 }
 fn drain(hub: &Arc<Hub>, retry: bool) {
     let pending = hub.watches.inner.lock().unwrap_or_else(|e| e.into_inner()).saved.pending.clone();
