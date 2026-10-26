@@ -143,6 +143,8 @@ public final class ChiefPetController {
             guard let self, upload == file else { return }
             self.clip = clip
             panel?.pet.play(clip)
+            // An upload that could not be read leaves the character, drawn as it is now.
+            if clip == nil { drawCharacter() }
         }
     }
 

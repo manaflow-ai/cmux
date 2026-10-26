@@ -181,6 +181,9 @@ import Testing
         panel.pet.play(nil)
         panel.pet.animate(mochi, state: .working, facingRight: true, moving: true)
         #expect(!panel.pet.sprite.layer.isHidden)
+        // An upload that fails to read (play(nil) again) never puts the still under the moving frames.
+        panel.pet.play(nil)
+        #expect(panel.pet.characterContents == nil)
     }
 
     /// Turned off mid-`done`, the pet comes back in the Chief's state, not stuck on done.

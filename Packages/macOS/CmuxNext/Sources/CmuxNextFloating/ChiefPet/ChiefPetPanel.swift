@@ -247,7 +247,8 @@ final class ChiefPetView: NSView, StatusIndicatorConfigClient {
         self.clip = clip
         // An upload covers the character: an animated one's frames stop and hide under it.
         if clip != nil { sprite.show(nil, state: .idle, facingRight: true, moving: false) }
-        character.layer?.contents = clip?.frames.first ?? image
+        // No clip: the still `image`, unless an animated character's frames show over the box.
+        character.layer?.contents = clip?.frames.first ?? (sprite.layer.isHidden ? image : nil)
         character.layer?.removeAnimation(forKey: "clip")
         clipRuns = false
         runClip(clipAllowed)
@@ -342,6 +343,8 @@ final class ChiefPetView: NSView, StatusIndicatorConfigClient {
 
     /// Where the character sits in the view.
     var characterFrame: CGRect { character.frame }
+    /// What the character's own box draws (the still or an upload frame; nil under an animated character's frames).
+    var characterContents: Any? { character.layer?.contents }
 
     override func resetCursorRects() {
         addCursorRect(character.frame, cursor: .pointingHand)
