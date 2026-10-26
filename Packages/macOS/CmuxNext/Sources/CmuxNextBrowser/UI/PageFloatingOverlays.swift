@@ -20,7 +20,7 @@ import CmuxNextDesign
 /// it shows again). The chrome syncs on layout and window, superview and
 /// hidden changes; a move of the window's pages without a resize (a pane
 /// swap) arrives as the window's page update request
-/// (`ChildWindowPageFallback.observePageUpdates`).
+/// (`BrowserPageUpdates`).
 @MainActor
 final class PageFloatingOverlays {
     private struct Card {
@@ -34,9 +34,12 @@ final class PageFloatingOverlays {
     private var cards: [Card] = []
     private weak var page: NSView?
     private var pagesObserver: MainActorObservation?
+    /// Where the window's page update requests arrive: `.default` in the app, a private center in tests.
+    private let pageUpdateCenter: NotificationCenter
 
-    init(page: NSView) {
+    init(page: NSView, pageUpdateCenter: NotificationCenter = .default) {
         self.page = page
+        self.pageUpdateCenter = pageUpdateCenter
     }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
@@ -133,7 +136,7 @@ final class PageFloatingOverlays {
     /// chrome (a pane swap of equal size): the cards follow.
     private func observePages() {
         guard pagesObserver == nil else { return }
-        pagesObserver = ChildWindowPageFallback.observePageUpdates(of: nil) { [weak self] update in
+        pagesObserver = BrowserPageUpdates.observe(of: nil, center: pageUpdateCenter) { [weak self] update in
             guard let self, let window = update.window, window === self.page?.window else { return }
             self.sync()
         }

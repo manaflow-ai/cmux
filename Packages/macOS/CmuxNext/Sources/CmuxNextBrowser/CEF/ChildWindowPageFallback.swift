@@ -1,50 +1,27 @@
-public import AppKit
+import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
 
-/// What a Chromium page needs only while it draws in its own child window (p03-rendering R3). A child
-/// window sits above every view of the cmux window, so no view order puts a pane in front of it and no
-/// layer mask reaches it: the fork's page tracker (`CmuxParentViewTracker`) asks the host view for a clip
-/// shape (`-cmuxClipPath`) and for holes (`-cmuxOcclusionRects`), and re-places the page window when the
-/// window asks its pages to re-read them (`pagesNeedUpdate`). The clip shape leaves out what the panes
-/// stacked in front of its pane cover (a zoom growing over it, an overlay dock's pane over a strip pane).
-/// A page hosted in the window's layer tree (`CEFLayerHosting.page`) is ordered with the views, as
-/// Chrome's page view is an ordinary subview (`content/app_shim_remote_cocoa/render_widget_host_view_cocoa.mm`),
-/// and needs none of the cutouts; the fork falls back to this path for a page whose hosting it refused.
+/// What the fork's page tracker (`CmuxParentViewTracker`) reads from a host view while the fork has a
+/// page window over it (p03-rendering R3). A child window sits above every view of the cmux window, so
+/// no view order puts a pane in front of it and no layer mask reaches it: the tracker asks the host view
+/// for a clip shape (`-cmuxClipPath`) and for holes (`-cmuxOcclusionRects`), and re-places the page
+/// window when the window asks its pages to (`BrowserPageUpdates`). The clip shape leaves out what the
+/// panes stacked in front of its pane cover (a zoom growing over it, an overlay dock's pane over a strip pane).
 ///
-/// This file is the only place that names the fork's clip and occlusion selectors and the window's page
-/// update request (DC8b). Every other file asks through `NSWindow.updateBrowserPageGeometry(force:)`,
-/// `observePageUpdates(of:_:)` and `CEFHostView.childWindowPage`.
+/// A page hosted in the window's layer tree (`CEFLayerHosting.page`) draws with the views, as Chrome's
+/// page view is an ordinary subview (`content/app_shim_remote_cocoa/render_widget_host_view_cocoa.mm`),
+/// so it needs none of the cutouts. Its page window stays over it, transparent, and takes its input
+/// (`ChromiumHostPageView.InputTarget.pageWindow`), so the tracker still places, clips and holes it:
+/// only the cutouts wait on hosting now, and the rest goes with that window when task 045 attaches
+/// Chromium's view in the host view.
+///
+/// This file is the only place that names the fork's clip and occlusion selectors (DC8b).
 ///
 /// The layout computes nothing for this per frame: the covers are asked for here, when a child-window
 /// page reads its clip, and the pane keeps its answer until its screen's stacking or frames change
 /// (`PageCoverSource`).
 nonisolated enum ChildWindowPageFallback {
-    /// Posted (object: the `NSWindow`) to make every page of that window re-apply its geometry, clip and
-    /// occlusion. A page re-applies only when something it reads changed since the fork last read it,
-    /// unless `userInfo[forceKey]` is true.
-    fileprivate static let pagesNeedUpdate = Notification.Name("CmuxBrowserChildWindowPagesNeedUpdate")
-    /// `userInfo` key of `pagesNeedUpdate`: true makes every page re-apply even where nothing it reads
-    /// changed (a page window that something other than the fork moved, such as an Accessibility client,
-    /// goes back over its host).
-    fileprivate static let forceKey = "force"
-
-    /// One page update request: the window it is for and whether every page re-applies.
-    struct PageUpdate {
-        let window: NSWindow?
-        let force: Bool
-    }
-
-    /// Calls `handler` on each page update request of `window` (nil: of every window) until the returned
-    /// observation is released.
-    @MainActor
-    static func observePageUpdates(of window: NSWindow?, center: NotificationCenter = .default,
-                                   _ handler: @escaping @MainActor (PageUpdate) -> Void) -> MainActorObservation {
-        MainActorObservation(pagesNeedUpdate, object: window, center: center, read: { note in
-            PageUpdate(window: note.object as? NSWindow, force: note.userInfo?[forceKey] as? Bool ?? false)
-        }, handler)
-    }
-
     /// The parts of `view` (its coordinates) the panes stacked in front of its pane cover; none for a
     /// page hosted in the layer tree (`isHosted`, a seam for tests), or outside a pane.
     @MainActor
@@ -63,19 +40,6 @@ nonisolated enum ChildWindowPageFallback {
     }
 }
 
-public extension NSWindow {
-    /// Asks every Chromium page of this window to re-apply its geometry, clip and occlusion: after the
-    /// window's own native overlays over its content moved (`BrowserWindowOcclusionProviding`), a clip
-    /// or corner changed with no page move, or the window moved or resized by any means (drag,
-    /// Accessibility clients such as Rectangle, display or Space changes, fullscreen, deminiaturize).
-    /// A page tells the fork only when what it reads changed since its last read; `force` makes every
-    /// page re-apply (a page window moved by another app).
-    func updateBrowserPageGeometry(force: Bool = false, center: NotificationCenter = .default) {
-        center.post(name: ChildWindowPageFallback.pagesNeedUpdate, object: self,
-                    userInfo: force ? [ChildWindowPageFallback.forceKey: true] : nil)
-    }
-}
-
 /// A page draws in its own window until the window's layer tree hosts it (`CEFLayerHosting.page`).
 extension CEFHostView: ChildWindowContent {
     var drawsInChildWindow: Bool { layerHosting.page == nil }
@@ -86,7 +50,8 @@ extension CEFHostView: ChildWindowContent {
 @MainActor
 final class ChildWindowPageGeometry {
     weak var view: CEFHostView?
-    /// The window's page update requests, while the view is in a window.
+    /// The window's page update requests on the view's center (`CEFHostView.pageUpdateCenter`), while
+    /// the view is in a window.
     private var pageUpdates: MainActorObservation?
     /// What the fork read on its last update of this page (`-cmuxOcclusionRects`);
     /// nil before its first read and after a window change.
@@ -113,11 +78,11 @@ final class ChildWindowPageGeometry {
     /// The view moved to another window or out of one: the fork has read nothing in it yet.
     func windowDidChange() {
         readGeometry = nil
-        guard let window = view?.window else {
+        guard let view, let window = view.window else {
             pageUpdates = nil
             return
         }
-        pageUpdates = ChildWindowPageFallback.observePageUpdates(of: window) { [weak self] update in
+        pageUpdates = BrowserPageUpdates.observe(of: window, center: view.pageUpdateCenter) { [weak self] update in
             self?.pagesNeedUpdate(force: update.force)
         }
     }

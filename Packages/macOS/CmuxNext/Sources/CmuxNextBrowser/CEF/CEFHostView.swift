@@ -38,8 +38,12 @@ final class CEFHostView: NSView {
     let layerHosting = CEFLayerHosting()
     /// Takes a `cef.geometry` instant per geometry post (tests set one on their own trace runtime).
     var signposter = Signposter.cef
+    /// Where its window's page update requests arrive (`BrowserPageUpdates`): `.default` in the app,
+    /// a private center in tests.
+    let pageUpdateCenter: NotificationCenter
 
-    override init(frame: NSRect) {
+    init(frame: NSRect, pageUpdateCenter: NotificationCenter) {
+        self.pageUpdateCenter = pageUpdateCenter
         super.init(frame: frame)
         wantsLayer = true
         updateBackground()
@@ -48,6 +52,11 @@ final class CEFHostView: NSView {
         #if DEBUG
         Self.registerMotionSampler()
         #endif
+    }
+
+    /// A host view that takes its window's page update requests on `NotificationCenter.default`.
+    override convenience init(frame: NSRect) {
+        self.init(frame: frame, pageUpdateCenter: .default)
     }
 
     @available(*, unavailable)
@@ -91,8 +100,8 @@ final class CEFHostView: NSView {
         }
     }
 
-    /// The fork's page tracker reads and the window's page update requests while the page draws in
-    /// its own child window (`ChildWindowPageFallback`).
+    /// What the fork's page tracker reads, and the window's page update requests, while the fork has
+    /// a page window over this view (`ChildWindowPageFallback`).
     private(set) lazy var childWindowPage: ChildWindowPageGeometry = {
         let geometry = ChildWindowPageGeometry()
         geometry.view = self

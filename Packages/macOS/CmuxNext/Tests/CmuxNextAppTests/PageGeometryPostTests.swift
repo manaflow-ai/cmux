@@ -15,13 +15,17 @@ import Testing
     struct TwoPages {
         /// A plain window: `ShellWindow.setFrame` keeps frames on the test screen, which can undo a move.
         let window: NSWindow
-        let left = CEFHostView(frame: CGRect(x: 0, y: 0, width: 400, height: 500))
-        let right = CEFHostView(frame: CGRect(x: 400, y: 0, width: 400, height: 500))
+        /// The pages' own center: the requests of this test reach no other test's observers.
+        let center = NotificationCenter()
+        let left: CEFHostView
+        let right: CEFHostView
         /// Both pages' common ancestor below the content view (the layout root's place).
         let stage = NSView()
 
         init() {
             _ = NSApplication.shared
+            left = CEFHostView(frame: CGRect(x: 0, y: 0, width: 400, height: 500), pageUpdateCenter: center)
+            right = CEFHostView(frame: CGRect(x: 400, y: 0, width: 400, height: 500), pageUpdateCenter: center)
             let content = NSView(frame: CGRect(x: 0, y: 0, width: 800, height: 500))
             window = NSWindow(contentRect: content.frame, styleMask: [.titled, .resizable], backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false
@@ -49,7 +53,7 @@ import Testing
         }
 
         func requestPageUpdate() {
-            window.updateBrowserPageGeometry()
+            window.updateBrowserPageGeometry(center: center)
         }
     }
 

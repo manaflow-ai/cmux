@@ -7,10 +7,12 @@ import Testing
 @MainActor
 @Suite struct ChromiumHostPageViewTests {
     let frame = NSRect(x: 0, y: 0, width: 400, height: 300)
+    /// The pages' own center for the window's page update requests: no other test hears this one's.
+    let center = NotificationCenter()
 
     func makePage(_ input: ChromiumHostPageView.InputTarget,
                   layerHost: @escaping (UInt32) -> CALayer? = { _ in CALayer() }) -> ChromiumHostPageView {
-        ChromiumHostPageView(frame: frame, inputTarget: input, makeLayerHost: layerHost)
+        ChromiumHostPageView(frame: frame, inputTarget: input, makeLayerHost: layerHost, pageUpdateCenter: center)
     }
 
     /// A window with a stage (the layout root's place) holding a pane holding `page`.
@@ -121,7 +123,7 @@ import Testing
         defer { page.removeFromSuperview(); window.close() }
         func layoutOwnerPostsPageUpdate() {
             // The window's layout owner (WindowOverlayLayer.requestPageUpdate) asks its pages to update.
-            window.updateBrowserPageGeometry()
+            window.updateBrowserPageGeometry(center: center)
         }
         #expect(reports.count == 1)
         let first = try #require(reports.first)
@@ -173,11 +175,11 @@ import Testing
         var reports = 0
         pane.setFrameOrigin(NSPoint(x: 40, y: 30))
         // The window's layout owner (WindowOverlayLayer.requestPageUpdate) asks its pages to update.
-        window.updateBrowserPageGeometry()
+        window.updateBrowserPageGeometry(center: center)
         page.onGeometry = { _ in reports += 1 }
         #expect(reports == 0)
         // The window's layout owner (WindowOverlayLayer.requestPageUpdate) asks its pages to update.
-        window.updateBrowserPageGeometry()
+        window.updateBrowserPageGeometry(center: center)
         #expect(reports == 1)
     }
 
