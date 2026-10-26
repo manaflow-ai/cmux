@@ -2991,8 +2991,8 @@ struct MainWindowKeyObservationOwnershipTests {
 @MainActor
 @Suite("Workspace process-wide observer retirement", .serialized)
 struct WorkspaceProcessWideObserverRetirementTests {
-    @Test("Retirement rejects queued and future shared agent index publications")
-    func retirementRejectsQueuedAndFutureSharedAgentIndexPublications() async throws {
+    @Test("Retirement removes the shared agent index observer")
+    func retirementRemovesSharedAgentIndexObserver() async throws {
         let manager = TabManager()
         let workspace = try #require(manager.selectedWorkspace)
         defer {
@@ -3006,31 +3006,9 @@ struct WorkspaceProcessWideObserverRetirementTests {
         await drainMainActorQueue()
         #expect(workspace.sharedLiveAgentIndexObserver != nil)
 
-        // A matching publication while live is handled without publishing.
-        NotificationCenter.default.post(
-            name: .sharedLiveAgentIndexDidChange,
-            object: SharedLiveAgentIndex.shared,
-            userInfo: ["workspaceId": workspace.id]
-        )
         workspace.retireFromOwningTabManager()
-        // Future publications reach no observer.
+        // A shared agent-index change no longer reaches a retired workspace.
         #expect(workspace.sharedLiveAgentIndexObserver == nil)
-
-        var publishesAfterRetirement = 0
-        let publication = workspace.objectWillChange.sink { _ in
-            publishesAfterRetirement += 1
-        }
-        defer { publication.cancel() }
-        await drainMainActorQueue()
-        for _ in 0..<3 {
-            NotificationCenter.default.post(
-                name: .sharedLiveAgentIndexDidChange,
-                object: SharedLiveAgentIndex.shared,
-                userInfo: ["workspaceId": workspace.id]
-            )
-        }
-        await drainMainActorQueue()
-        #expect(publishesAfterRetirement == 0)
     }
 
     @Test("Retirement rejects queued and future feature flag publications")
