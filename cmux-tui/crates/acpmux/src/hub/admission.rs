@@ -102,7 +102,8 @@ pub(crate) struct Inputs<'a> {
 
 /// The refusal for `inputs`, and why a cap did not apply (for the log).
 pub(crate) fn check(inputs: &Inputs<'_>) -> (Option<Refusal>, Option<String>) {
-    if let Some(flag) = inputs.flag.filter(|f| f.exists()) {
+    // A marker that cannot be checked counts as there: the floor fails closed.
+    if let Some(flag) = inputs.flag.filter(|f| f.try_exists().unwrap_or(true)) {
         return (Some(Refusal::UnderFloor { flag: flag.to_path_buf() }), None);
     }
     let Some(registry) = inputs.registry else {
@@ -169,6 +170,34 @@ fn registry_path() -> Option<PathBuf> {
         .iter()
         .map(|rel| home.join(rel))
         .find(|p| p.exists())
+}
+
+/// The registry at `source`. One that is there but cannot be read or parsed
+/// (a partial write, a permission error) answers with the last copy read from
+/// the same path, so a bad read never lifts the cap; with none, no registry.
+fn read_registry(source: &Path) -> Option<Value> {
+    static LAST: StdMutex<Option<(PathBuf, Value)>> = StdMutex::new(None);
+    let mut last = LAST.lock().unwrap_or_else(|e| e.into_inner());
+    let read = std::fs::read(source)
+        .map_err(|e| e.to_string())
+        .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).map_err(|e| e.to_string()));
+    match read {
+        Ok(registry) => {
+            *last = Some((source.to_owned(), registry.clone()));
+            Some(registry)
+        }
+        Err(e) => {
+            let kept = last.as_ref().filter(|(p, _)| p == source).map(|(_, r)| r.clone());
+            if source.try_exists().unwrap_or(true) {
+                tracing::warn!(
+                    path = %source.display(),
+                    kept = kept.is_some(),
+                    "fleet registry unreadable: {e}"
+                );
+            }
+            kept
+        }
+    }
 }
 
 /// Creates admitted and not yet done (`Admitted`), counted with the live
@@ -278,14 +307,7 @@ impl Hub {
         let flag = user_home().map(|h| h.join(".cache/worktree-reclaim/under-floor"));
         let read = tokio::task::spawn_blocking(move || {
             let source = registry_path().unwrap_or_default();
-            let registry = match std::fs::read(&source) {
-                Ok(bytes) => serde_json::from_slice::<Value>(&bytes)
-                    .map_err(|e| {
-                        tracing::warn!(path = %source.display(), "fleet registry unreadable: {e}")
-                    })
-                    .ok(),
-                Err(_) => None,
-            };
+            let registry = read_registry(&source);
             let origin = std::env::var("FLEET_ORIGIN").ok();
             let machine = registry
                 .as_ref()
@@ -408,6 +430,21 @@ mod tests {
         assert!(!is_live(SessionStatus::Idle, false));
         assert!(!is_live(SessionStatus::Closed, true));
         assert!(is_live(SessionStatus::Ready, false));
+    }
+
+    /// A registry that turns unreadable keeps its last good copy: a partial write
+    /// never lifts the cap.
+    #[test]
+    fn an_unreadable_registry_keeps_the_last_good_copy() {
+        let dir = std::env::temp_dir().join(format!("acpmux-reg-{}", uuid::Uuid::now_v7()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("fleet-registry.json");
+        std::fs::write(&path, br#"{"machines":{"m":{"max_lanes":1}}}"#).unwrap();
+        let good = read_registry(&path).unwrap();
+        std::fs::write(&path, br#"{"machines":{"m":"#).unwrap();
+        assert_eq!(read_registry(&path), Some(good));
+        let _ = std::fs::remove_dir_all(&dir);
+        assert_eq!(read_registry(&dir.join("never-there.json")), None);
     }
 
     #[test]
