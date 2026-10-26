@@ -1,5 +1,5 @@
 public import AppKit
-import CmuxNextWakeups
+public import CmuxNextWakeups
 import CmuxNextCompat
 public import CmuxNextDesignTokens
 
