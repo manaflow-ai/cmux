@@ -350,6 +350,7 @@ import { ChatDisplaySettings } from "./ChatDisplaySettings";
 import { configureCodexToolRuns, useCodexToolRuns } from "./codexToolRuns";
 import { configureLiveLineBelow, useLiveLineBelow } from "./liveLineBelow";
 import { configureToolRunLook } from "./toolRunLook";
+import { configureSentLook } from "./conversation/SentMessageLine";
 import { configureNativeSidebarPreviewVariant, configureSidebarPreviewVariant } from "./sidebarPreview";
 import { configureTurnActionsPlacement } from "./turnActionsPlacement";
 import { archiveRow, markUnreadRow } from "./header/archiveRow";
@@ -6609,6 +6610,7 @@ function AcpmuxPane() {
         configureCodexToolRuns(theme.codexToolRuns);
         configureLiveLineBelow(theme.liveLineBelow);
         configureToolRunLook(theme.toolRunLook);
+        configureSentLook(theme.sentLook);
         configureTurnActionsPlacement(theme.turnActionsPlacement);
         configureSubagentTray(theme.subagentTray);
         configureSubagentTrayPlacement(theme.subagentTrayPlacement);
