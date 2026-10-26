@@ -107,12 +107,25 @@ await requireBrowserLane("composer-field-menu.test.ts", async () => {
         "Select All",
         "Attach Files…",
         "Insert Mention",
+        "✓ Scroll to bottom when I send",
       ],
       selected: "Rename the retry helper",
       undone: true,
       afterUndo: expect.arrayContaining(["Redo"]),
       redone: expect.stringContaining("Rename the retry helper"),
     });
+    await page.close();
+  });
+
+  test("the composer menu toggles send-to-bottom and keeps its checked state", async () => {
+    const page = await stage();
+    expect(await openMenu(page)).toContain("✓ Scroll to bottom when I send");
+    await pick(page, "Scroll to bottom when I send");
+    expect(await openMenu(page)).toContain("Scroll to bottom when I send");
+    const toggle = page.locator(".ui-context-menu [role=menuitem]", { hasText: "Scroll to bottom when I send" });
+    expect(await toggle.textContent()).not.toContain("✓");
+    await pick(page, "Scroll to bottom when I send");
+    expect(await openMenu(page)).toContain("✓ Scroll to bottom when I send");
     await page.close();
   });
 });
