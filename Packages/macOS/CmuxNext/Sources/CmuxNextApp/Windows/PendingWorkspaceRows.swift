@@ -42,8 +42,10 @@ final class PendingWorkspaceRows {
         redraws.run()
     }
 
-    /// The create `id` failed or a close took it: its row and its name go.
+    /// The create `id` failed or a close took it: its row and its name go (a `create.workspace` interval whose row
+    /// was not drawn yet ends as missed).
     func remove(_ id: String) {
+        SidebarNewRowTimer.shared.forget(id)
         rows.removeAll { $0.id == id }
         names[id] = nil
         takenOver.remove(id)

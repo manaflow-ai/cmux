@@ -30,6 +30,7 @@ extension SidebarListView {
     func releaseHeldModelChange() {
         guard holdsModelChange, drag == nil, settling == nil, landing == nil, external == nil else { return }
         reload(animated: false, fromModel: true)
+        SidebarNewRowTimer.shared.drew(model.sections, in: window) // a new workspace's row held until now draws here
     }
 
     /// A change waits now: the pointer is over the rows and no drag, drop or landing runs (those

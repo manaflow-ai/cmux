@@ -146,7 +146,11 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// `kind=<terminal|chromium|webkit|chat|page>`. Ring: AB/AE keyed by the intent id; begin arg0 the kind,
     /// end arg0 the outcome (0 shown, 1 closed before its first frame); an instant marks the stand-in commit.
     case createTab = 12
-    /// Reserved (task 031, PL-cef-tab). A new workspace: the intent to its sidebar row drawn. Ring: AB/AE.
+    /// A new workspace (`SidebarNewRowTimer`, every build): its create naming the workspace, in the press's turn, to
+    /// the ``CommitBoundary`` after the sidebar pass that drew its row. Begin message `input_age_ms=<age>`. A create
+    /// whose row went before it was drawn (failed, closed) ends `commit=missed`. Ring: AB/AE keyed by its
+    /// `OSSignpostID`; begin arg0 the input age in us in the top 24 bits (all ones without an input event); end arg0
+    /// the end code (0 ended, 1 missed).
     case createWorkspace = 13
 
     // MARK: cef (reserved: PL-motion-cef, PL-cef-tab)
