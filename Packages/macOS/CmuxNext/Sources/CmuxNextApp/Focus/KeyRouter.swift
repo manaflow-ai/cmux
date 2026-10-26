@@ -387,7 +387,7 @@ final class KeyRouter: BrowserKeyRouting {
     lazy var newTabInputCoordinator = NewTabInputCoordinator(router: self)
     /// A pending split or terminal tab owns its window's keys until the new terminal has the keyboard (cx-wb5.76).
     lazy var creationInputCoordinator = CreationInputCoordinator(router: self)
-    /// Keys typed for a terminal that is still a picture (p08-startup-061, KeyRouter+LaunchPicture).
+    /// Keys typed for a terminal that is still a picture (p08-startup-061, KeyRouter+TypeAhead).
     lazy var launchPictureKeys: LaunchPictureKeys = {
         let keys = LaunchPictureKeys { [weak self] target, events in self?.deliverLaunchPictureKeys(events, to: target) ?? false }
         keys.onActiveChange = { [modes] in modes.set(.launchPicture, $0) }
