@@ -1,0 +1,86 @@
+{
+  "version": 1,
+  "build": "4037004604601",
+  "notes": "notes/4037004604601.json",
+  "repo": "manaflow-ai/cmux",
+  "reel": "reel.mp4",
+  "dryRun": false,
+  "treeTruncated": false,
+  "prs": [
+    {
+      "pr": 25522,
+      "title": "ci(nightly legacy): check required-commit ancestry with git, not GitHub's compare API",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25523,
+      "title": "ci(dev): route signed verification through owned Macs",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25513,
+      "title": "cmux-next: a fresh CLI or MCP call without a kind keeps the Chief owner from restarting",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25455,
+      "title": "cmux NEXT: durable cleanup for GCP creates without a stored credential",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 24085,
+      "title": "Agent pane: another agent's message opens below its line, animated, without moving the view",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25456,
+      "title": "host share (daemon): a bound teammate connection reaches only the pinned chat",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25515,
+      "title": "docs: the daemon makes its home owner-only under any umask",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25521,
+      "title": "acpmux: web --no-open and daemon config print no bearer token unless --show-token",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25518,
+      "title": "ci(changelog): validate nightly notes before publication",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25364,
+      "title": "Clear the Package conventions lint base red with the repo's own namespace autofix",
+      "author": "Leo",
+      "clip": "https://raw.githubusercontent.com/manaflow-ai/cmux/pr-media/25364/680caab5/next-core-after/tour.mp4",
+      "source": "tour-after",
+      "sha8": "680caab5",
+      "tour": "core"
+    },
+    {
+      "pr": 25396,
+      "title": "cmux NEXT daemon update: Cloud machines follow the app's build",
+      "author": "Leo",
+      "clip": "no clip"
+    },
+    {
+      "pr": 25512,
+      "title": "acpmux: a peer's watch list reaches the hub before the notices read after it",
+      "author": "Leo",
+      "clip": "no clip"
+    }
+  ]
+}
