@@ -1763,7 +1763,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         // (plans/cmux-next/tab-lifecycle.md). Pure values; no engine, no I/O.
         .target(
             name: "CmuxNextHibernation",
-            dependencies: ["CmuxNextCompat", "CmuxNextSettings"],
+            // Wakeups: the one-shot deadline of ContentDiscardScheduler (DemandTimer).
+            dependencies: ["CmuxNextCompat", "CmuxNextSettings", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(
@@ -1939,6 +1940,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextMetrics",
                 "CmuxNextNowPlaying",
                 "CmuxNextOracle",
+                // InternalPageDiscardTests shows a page in a fake Chromium host.
+                "CmuxNextPagesTestSupport",
                 "CmuxNextPalette",
                 "CmuxNextProcessEnvironment",
                 "CmuxNextRemote",
