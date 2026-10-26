@@ -23,20 +23,42 @@ impl Mux {
                 return false;
             }
             sizing.terminal_runtime_by_placement.insert(surface, runtime);
-            let id = view_participant_id(runtime, surface, client);
+            let id = sizing.view_participant_id(runtime, surface, client);
             let participant = mux.view_participant(sizing, runtime, surface, client);
+            let mut member = sizing.own_view_member(runtime, surface, client);
+            let moved = member.placement != surface;
+            member.focus_view(surface);
             let entry = mux.terminal_sizing_entry(sizing, runtime, surface);
-            entry
-                .members
-                .insert(id.clone(), SizingMember { client, placement: surface, view: None });
+            entry.members.insert(id.clone(), member);
             let changed = if entry.engine.contains(&id) {
-                entry.engine.note_activity(&id)
+                // A claim on another view of the participant makes it the
+                // geometry view, with its report.
+                let reported =
+                    moved && Self::report_view_viewport(entry, &id, participant.viewport);
+                reported | entry.engine.note_activity(&id)
             } else {
                 entry.engine.attach(participant)
             };
             sizing.note_size_state(runtime, changed);
             changed
         }))
+    }
+
+    /// Sets participant `id`'s viewport to its geometry view's report.
+    pub(super) fn report_view_viewport(
+        entry: &mut TerminalSizingEntry,
+        id: &str,
+        viewport: Option<TerminalGridSize>,
+    ) -> bool {
+        let viewport = viewport.map(TerminalGridSize::clamped);
+        match entry.engine.participant(id).map(|current| current.viewport) {
+            None => false,
+            Some(current) if current == viewport => false,
+            Some(_) => match viewport {
+                Some(viewport) => entry.engine.report(id, viewport),
+                None => entry.engine.clear_viewport(id),
+            },
+        }
     }
 
     /// Keyboard, paste or mouse input from an attached client. Unlike
@@ -59,16 +81,22 @@ impl Mux {
         view: Option<&str>,
     ) -> Option<bool> {
         let runtime = self.surface(surface)?.terminal_runtime_id()?;
-        let id = match view {
-            Some(view) => sub_view_participant_id(client, view),
-            None => view_participant_id(runtime, surface, client),
-        };
         self.mutate_terminal_sizing(runtime, |_, sizing| {
+            let id = match view {
+                Some(view) => sub_view_participant_id(client, view),
+                None => sizing.view_participant_id(runtime, surface, client),
+            };
+            let viewport = sizing.view_report(surface, client);
             let entry = sizing.terminal_sizing.get_mut(&runtime)?;
-            if entry.members.get(&id).is_none_or(|member| member.client != client) {
-                return None;
+            let member = entry.members.get_mut(&id).filter(|member| member.client == client)?;
+            let mut changed = false;
+            if view.is_none() && member.views.contains(&surface) && member.placement != surface {
+                // Input on another view of the same participant makes it the
+                // geometry view.
+                member.focus_view(surface);
+                changed |= Self::report_view_viewport(entry, &id, viewport);
             }
-            let changed = entry.engine.note_activity(&id);
+            changed |= entry.engine.note_activity(&id);
             sizing.note_size_state(runtime, changed);
             Some(changed)
         })
@@ -158,13 +186,10 @@ impl Mux {
             "relay views require an attached relay connection for surface {surface}"
         );
         let id = sub_view_participant_id(client, view);
-        let via = view_participant_id(runtime, surface, client);
         let owns = self.mutate_terminal_sizing(runtime, |mux, sizing| {
+            let via = sizing.view_participant_id(runtime, surface, client);
             let entry = mux.terminal_sizing_entry(sizing, runtime, surface);
-            entry.members.insert(
-                id.clone(),
-                SizingMember { client, placement: surface, view: Some(view.to_string()) },
-            );
+            entry.members.insert(id.clone(), SizingMember::sub_view(client, surface, view));
             let has_identity = identity.is_some();
             let identity = identity.unwrap_or_default();
             let participant = TerminalSizingParticipant {
@@ -267,23 +292,40 @@ impl Mux {
             .map(|member| (member.client, member.placement, member.view.clone()))
     }
 
-    /// Detach one connection's own view of a terminal placement, keeping the
-    /// connection, its stream and its relay sub-views. The view stays out of
-    /// the engine until [`Self::reattach_terminal_own_view`].
+    /// The connection and every placement of an own-view participant on the
+    /// terminal shown at `surface`; `None` for a relay sub-view or an unknown id.
+    pub(crate) fn terminal_participant_views_on(
+        &self,
+        surface: SurfaceId,
+        participant: &str,
+    ) -> Option<(u64, Vec<SurfaceId>)> {
+        let runtime = self.surface(surface)?.terminal_runtime_id()?;
+        let sizing = self.client_sizing.lock().unwrap();
+        let member = sizing.terminal_sizing.get(&runtime)?.members.get(participant)?;
+        member.view.is_none().then(|| (member.client, member.views.iter().copied().collect()))
+    }
+
+    /// Detach one connection's own view participant of the terminal shown at
+    /// `placement`: every view of that participant (under
+    /// [`ParticipantScheme::PerApp`] all of the connection's views of the
+    /// terminal), keeping the connection, its streams and its relay
+    /// sub-views. Each view stays out of the engine until
+    /// [`Self::reattach_terminal_own_view`]. Returns the detached placements.
     pub(crate) fn detach_terminal_own_view(
         &self,
         placement: SurfaceId,
         client: u64,
-    ) -> Option<bool> {
+    ) -> Option<Vec<SurfaceId>> {
         let _lifecycle = self.lock_client_sizing_lifecycle();
         let runtime = self.surface(placement)?.terminal_runtime_id()?;
         Some(self.mutate_terminal_sizing(runtime, |mux, sizing| {
-            sizing.detached_views.insert((client, placement));
-            let before =
-                sizing.terminal_sizing.get(&runtime).map(|entry| entry.engine.state().generation);
-            mux.sync_terminal_view_locked(sizing, runtime, placement, client);
-            before
-                != sizing.terminal_sizing.get(&runtime).map(|entry| entry.engine.state().generation)
+            let mut views = sizing.own_view_member(runtime, placement, client).views;
+            views.insert(placement);
+            for view in &views {
+                sizing.detached_views.insert((client, *view));
+                mux.sync_terminal_view_locked(sizing, runtime, *view, client);
+            }
+            views.into_iter().collect()
         }))
     }
 
@@ -301,12 +343,25 @@ impl Mux {
             .surface(placement)
             .and_then(|surface| surface.terminal_runtime_id())
             .ok_or_else(|| anyhow::anyhow!("surface {placement} is not a terminal"))?;
-        let id = view_participant_id(runtime, placement, client);
         self.mutate_terminal_sizing(runtime, |mux, sizing| {
+            let id = sizing.view_participant_id(runtime, placement, client);
             anyhow::ensure!(
                 sizing.detached_views.remove(&(client, placement)),
                 "view of surface {placement} is not detached"
             );
+            // The participant's other views left with it; they return with it.
+            let others = match sizing.participant_scheme {
+                ParticipantScheme::PerPlacement => Vec::new(),
+                ParticipantScheme::PerApp => mux
+                    .runtime_placements(runtime)
+                    .into_iter()
+                    .filter(|other| sizing.detached_views.remove(&(client, *other)))
+                    .collect(),
+            };
+            for view in others {
+                mux.sync_terminal_view_locked(sizing, runtime, view, client);
+            }
+            // The view that asked joins last.
             mux.sync_terminal_view_locked(sizing, runtime, placement, client);
             if let Some(entry) = sizing.terminal_sizing.get_mut(&runtime)
                 && entry.engine.contains(&id)
@@ -315,7 +370,7 @@ impl Mux {
                 let changed = entry.engine.set_counts_override(&id, counts);
                 sizing.note_size_state(runtime, changed);
             }
-            Ok(id.clone())
+            Ok(id)
         })
     }
 
@@ -356,6 +411,18 @@ impl Mux {
             sizing.note_size_state(runtime, changed);
             sizing.terminal_sizing[&runtime].engine.state().clone()
         }))
+    }
+
+    /// Sets how own views map to participants, as `terminalSizingPerApp`
+    /// does at daemon start. Call before any view joins.
+    #[cfg(test)]
+    pub(crate) fn set_participant_scheme_for_test(&self, scheme: ParticipantScheme) {
+        self.client_sizing.lock().unwrap().participant_scheme = scheme;
+    }
+
+    /// The participant scheme fixed at daemon start.
+    pub(crate) fn participant_scheme(&self) -> ParticipantScheme {
+        self.client_sizing.lock().unwrap().participant_scheme
     }
 
     /// Pins the `latest` policy on the workspace that shows `surface`, for
@@ -437,7 +504,7 @@ impl Mux {
     /// The host participant id of `client`'s own view of `surface`.
     pub fn terminal_view_participant_id(&self, surface: SurfaceId, client: u64) -> Option<String> {
         let runtime = self.surface(surface)?.terminal_runtime_id()?;
-        Some(view_participant_id(runtime, surface, client))
+        Some(self.participant_scheme().view_participant_id(runtime, surface, client))
     }
 
     pub(crate) fn client_sizing_identity(&self, client: u64) -> ClientSizingIdentity {
@@ -465,18 +532,14 @@ impl Mux {
     ) -> TerminalSizingParticipant {
         let identity = self.client_sizing_identity(client);
         TerminalSizingParticipant {
-            id: view_participant_id(runtime, placement, client),
+            id: sizing.view_participant_id(runtime, placement, client),
             user_id: identity.user_id,
             display_name: identity.display_name,
             device_kind: identity.device_kind,
             device_name: identity.device_name,
             device_id: identity.device_id,
             via: None,
-            viewport: sizing
-                .surfaces
-                .get(&placement)
-                .and_then(|viewers| viewers.get(&client))
-                .map(|&(cols, rows)| TerminalGridSize::new(cols, rows)),
+            viewport: sizing.view_report(placement, client),
             counts_override: None,
         }
     }
@@ -527,7 +590,10 @@ impl Mux {
 
     /// Mirror one client view's attachment and latest report into the
     /// engine. A view is present while its connection is attached to the
-    /// placement or while it has a retained report.
+    /// placement or while it has a retained report. The view's participant
+    /// stays while any of its views is present; its viewport is its geometry
+    /// view's report, and a view that joins becomes the geometry view
+    /// (attaching is activity).
     pub(super) fn sync_terminal_view_locked(
         &self,
         sizing: &mut ClientSizingState,
@@ -535,20 +601,36 @@ impl Mux {
         placement: SurfaceId,
         client: u64,
     ) {
-        let id = view_participant_id(runtime, placement, client);
-        let has_report =
-            sizing.surfaces.get(&placement).is_some_and(|viewers| viewers.contains_key(&client));
+        let id = sizing.view_participant_id(runtime, placement, client);
         let attached = client != 0
             && self.control_clients.attached_client_ids_for_surface(placement).contains(&client);
-        let present =
-            (attached || has_report) && !sizing.detached_views.contains(&(client, placement));
+        let present = (attached || sizing.has_report(placement, client))
+            && !sizing.detached_views.contains(&(client, placement));
         let known =
             sizing.terminal_sizing.get(&runtime).is_some_and(|entry| entry.engine.contains(&id));
         if !present && !known {
             return;
         }
+        let mut member = sizing.own_view_member(runtime, placement, client);
+        let geometry_before = member.placement;
+        let reports = |view| sizing.has_report(view, client);
+        let alive = if !present {
+            member.leave_view(placement, reports)
+        } else {
+            if !known || !member.views.contains(&placement) {
+                member.join_view(placement, reports);
+            } else if reports(placement) {
+                member.note_report(placement);
+            } else {
+                member.yield_geometry(placement, reports);
+            }
+            true
+        };
+        // A view that just took the participant's geometry is its activity
+        // (attaching is activity).
+        let joined = present && member.placement == placement && geometry_before != placement;
         let participant =
-            present.then(|| self.view_participant(sizing, runtime, placement, client));
+            alive.then(|| self.view_participant(sizing, runtime, member.placement, client));
         let entry = self.terminal_sizing_entry(sizing, runtime, placement);
         let changed = match participant {
             None => {
@@ -556,15 +638,12 @@ impl Mux {
                 entry.engine.detach(&id)
             }
             Some(participant) => {
-                entry.members.insert(id.clone(), SizingMember { client, placement, view: None });
-                let viewport = participant.viewport.map(TerminalGridSize::clamped);
-                match entry.engine.participant(&id).map(|current| current.viewport) {
-                    None => entry.engine.attach(participant),
-                    Some(current) if current == viewport => false,
-                    Some(_) => match viewport {
-                        Some(viewport) => entry.engine.report(&id, viewport),
-                        None => entry.engine.clear_viewport(&id),
-                    },
+                entry.members.insert(id.clone(), member);
+                if known {
+                    let reported = Self::report_view_viewport(entry, &id, participant.viewport);
+                    reported | (joined && entry.engine.note_activity(&id))
+                } else {
+                    entry.engine.attach(participant)
                 }
             }
         };
@@ -635,6 +714,7 @@ impl Mux {
                     placement,
                     publication.runtime,
                     &publication.state,
+                    publication.scheme,
                 );
                 self.emit(MuxEvent::SizeStateChanged {
                     surface: placement,
@@ -664,7 +744,7 @@ impl Mux {
             // Terminals map the legacy participation switch onto the shared
             // engine: disabling sets `counts_override:false`; enabling clears
             // that choice and counts as activity.
-            let id = view_participant_id(runtime, surface, client);
+            let id = self.participant_scheme().view_participant_id(runtime, surface, client);
             if participating {
                 {
                     let _lifecycle = self.lock_client_sizing_lifecycle();
@@ -701,10 +781,7 @@ impl Mux {
                 let entry = mux.terminal_sizing_entry(sizing, runtime, surface);
                 let mut attached = false;
                 if !entry.engine.contains(&id) {
-                    entry.members.insert(
-                        id.clone(),
-                        SizingMember { client, placement: surface, view: None },
-                    );
+                    entry.members.insert(id.clone(), SizingMember::own_view(client, surface));
                     attached = entry.engine.attach(participant);
                 }
                 let changed = entry.engine.set_counts_override(&id, Some(false));

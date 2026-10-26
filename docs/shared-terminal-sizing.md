@@ -529,3 +529,13 @@ keeps the legacy claim and resize path, and phones behind it are not forwarded.
   the view with its latest report (`counts: false` reattaches as a viewer).
   A numeric client id, or a client without the capability, is still kicked
   whole.
+- With the daemon feature `terminalSizingPerApp` (default off), a
+  connection's own views of one terminal are leases of one participant
+  `c<client>`, whatever placement they show: the most recently attached,
+  claimed or typed-into view's report is the participant's viewport, and the
+  participant leaves when its last view does. `detach-client {client:
+  <participant>, surface}` against a client with `view-attachment-lease-v1`
+  (and without `sizing-view-detach-v1`) ends only that terminal's views, each
+  stream with `detached {reason:"disconnected-by", by}` as its last item, and
+  answers `{scope:"terminal"}`; the connection and its other terminals stay.
+  A numeric client id still ends every stream of the whole client.
