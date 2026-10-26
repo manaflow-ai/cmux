@@ -6,6 +6,19 @@
 mod machine_catalog;
 
 use super::*;
+use crate::diagnostics::{LockCaller, LockCallerScope};
+use crate::request_origin::RequestOrigin;
+
+/// The caller class `client`'s lock acquisitions count under until this
+/// drops (`debug-daemon-locks`): the verified app is the frontend, every
+/// other connection automation. Scheduling telemetry only: no permission
+/// reads it.
+pub(super) fn lock_caller_scope(mux: &Mux, client: u64) -> LockCallerScope {
+    LockCallerScope::enter(match origin_gate::derived_origin(mux, client) {
+        RequestOrigin::User => LockCaller::Frontend,
+        RequestOrigin::Page | RequestOrigin::Agent | RequestOrigin::App => LockCaller::Automation,
+    })
+}
 
 /// [`handle_connection_frame_at`] for a line that arrives now (tests).
 #[cfg(test)]
@@ -37,6 +50,12 @@ pub(super) fn handle_connection_frame_at(
     // Every handler this frame reaches runs on the reader's request path
     // (`crate::request_path`): its blocking work is counted at its caller.
     let _request_path = crate::request_path::RequestPathScope::enter(mux.request_path_stats());
+    // The lock acquisitions this frame's handlers make count under its
+    // connection's caller class (`debug-daemon-locks`).
+    let _lock_caller = match transport {
+        ClientTransport::Remote => LockCallerScope::enter(LockCaller::Automation),
+        ClientTransport::Unix | ClientTransport::WebSocket => lock_caller_scope(mux, client),
+    };
     // Every frame is watched on this thread until its handler returns: past
     // 250 ms it lands in server-stats `slow_requests` (request_watchdog.rs),
     // named by the handler it is in. A `Command` handed to the scheduler is

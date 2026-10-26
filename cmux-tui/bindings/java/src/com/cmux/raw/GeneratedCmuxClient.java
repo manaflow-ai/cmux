@@ -588,6 +588,11 @@ public abstract class GeneratedCmuxClient {
         return Wire.immutableJson(result);
     }
 
+    public final Object debugDaemonLocks() throws CmuxException {
+        Object result = execute(Commands.DEBUG_DAEMON_LOCKS, Map.of());
+        return Wire.immutableJson(result);
+    }
+
     public final DeleteBookmarkResult deleteBookmark(DeleteBookmarkRequest request) throws CmuxException {
         Object result = execute(Commands.DELETE_BOOKMARK, request.toWire());
         return DeleteBookmarkResult.fromWire(result);

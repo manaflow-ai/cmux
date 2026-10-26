@@ -28,6 +28,14 @@ mod slow_requests;
 pub use slow_requests::{SlowRequest, SlowRequestFrame, SlowRequestsSnapshot};
 mod requests;
 pub use requests::{REQUEST_CLASSES, RequestLatencySnapshot, RequestStats, RequestStatsSnapshot};
+mod daemon_locks;
+#[cfg(test)]
+pub(crate) use daemon_locks::lock_clock_reads;
+pub use daemon_locks::{
+    CallerLockSnapshot, DaemonLockTable, LOCK_OPS, LockCaller, LockCallerScope,
+    LockHistogramSnapshot, LockOp, LockOpScope, LockTableSnapshot, OpLockSnapshot,
+};
+pub(crate) use daemon_locks::{LockSlot, lock_clock, timed_acquire};
 mod write_path;
 pub(crate) use write_path::writer_took_registry_lock;
 pub use write_path::{WritePathSnapshot, WritePathStats};
@@ -198,7 +206,15 @@ impl LockStats {
         self.holder.lock().unwrap_or_else(|e| e.into_inner()).map(|holder| holder.site)
     }
 
-    pub fn acquired(&self, site: LockSite, waited: Duration, blocker: Option<LockSite>) {
+    /// `at` is when the lock was acquired (the caller's clock read, so this
+    /// reads none).
+    pub fn acquired(
+        &self,
+        site: LockSite,
+        waited: Duration,
+        blocker: Option<LockSite>,
+        at: Instant,
+    ) {
         self.wait.record_duration(waited);
         if waited >= Duration::from_micros(500) {
             crate::debug_spans::mark_with(|| {
@@ -213,8 +229,7 @@ impl LockStats {
             *self.last_stall.lock().unwrap_or_else(|e| e.into_inner()) =
                 Some(Stall { waiter: site, blocker, waited });
         }
-        *self.holder.lock().unwrap_or_else(|e| e.into_inner()) =
-            Some(Holder { site, since: Instant::now() });
+        *self.holder.lock().unwrap_or_else(|e| e.into_inner()) = Some(Holder { site, since: at });
     }
 
     /// Record a wait that ended without acquiring the mutex.

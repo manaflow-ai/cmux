@@ -219,3 +219,97 @@ fn server_stats_include_reports_slow_requests() {
     assert!(section["watchdog_wakeups"].is_u64(), "{full}");
     assert_eq!(section["recent"], json!([]), "{full}");
 }
+
+/// The rows of `debug-daemon-locks` for `lock`: (caller, op, row).
+fn daemon_lock_rows(locks: &Value, lock: &str) -> Vec<(String, String, Value)> {
+    let table = locks["locks"]
+        .as_array()
+        .and_then(|tables| tables.iter().find(|table| table["lock"] == lock))
+        .unwrap_or_else(|| panic!("{lock} is reported: {locks}"));
+    table["ops"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| {
+            let caller = row["caller"].as_str().unwrap().to_owned();
+            (caller, row["op"].as_str().unwrap().to_owned(), row.clone())
+        })
+        .collect()
+}
+
+/// A request's lock acquisitions count under its connection's caller class
+/// (the verified app is the frontend, the CLI automation) and its op's
+/// wire name, on the reader and on the connection's dispatcher.
+#[test]
+fn daemon_locks_attribute_each_request_to_its_caller_and_op() {
+    use super::super::origin_gate::{set_role_for_test, set_verified_app_for_test};
+    let (mux, cli, cli_writer, cli_outbound) = request_path_mux("daemon-locks");
+    let app_outbound = Arc::new(BoundedOutbound::default());
+    let app_writer =
+        MessageWriter::new(QueuedSink { outbound: app_outbound.clone(), control: None });
+    let app = mux.control_clients.register(ClientTransport::Unix, app_writer.clone());
+    set_role_for_test(&mux, app, "main");
+    set_verified_app_for_test(&mux, app, true);
+    mux.new_workspace(None, Some((80, 24))).unwrap();
+
+    let workspace_list = json!({
+        "protocol": "cmux.protocol/2", "type": "request", "id": "r1",
+        "operation": "workspace.list", "params": {"machine": "current", "session": "current"},
+    })
+    .to_string();
+    for (client, writer, outbound) in
+        [(app, &app_writer, &app_outbound), (cli, &cli_writer, &cli_outbound)]
+    {
+        let scheduler =
+            Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+        assert!(handle_connection_frame(
+            &mux,
+            client,
+            ClientTransport::Unix,
+            &workspace_list,
+            writer,
+            &scheduler
+        ));
+        let request: Request =
+            serde_json::from_value(json!({"id": 2, "cmd": "list-workspaces"})).unwrap();
+        let pending = PendingSurfaceRequest {
+            request,
+            arrival: RequestArrival::now(),
+            retained_bytes: 0,
+            _bytes_permit: mux.surface_operation_admission.try_reserve_bytes(0).expect("permit"),
+        };
+        assert!(run_pending_request(&scheduler, &mux, client, pending, writer));
+        while outbound.try_pop().is_some() {}
+    }
+
+    let locks = stats(&mux, cli, json!({"cmd": "debug-daemon-locks"}));
+    assert_eq!(locks["schema"], 1, "{locks}");
+    let state = daemon_lock_rows(&locks, "mux.state");
+    let registry = daemon_lock_rows(&locks, "workspace.registry");
+    for caller in ["frontend", "automation"] {
+        assert!(
+            state.iter().any(|(c, op, row)| c == caller
+                && op == "list-workspaces"
+                && row["hold_us"]["count"].as_u64() >= Some(1)),
+            "{caller} list-workspaces took mux.state: {state:?}"
+        );
+        assert!(
+            state.iter().chain(&registry).any(|(c, op, _)| c == caller && op == "workspace.list"),
+            "{caller} workspace.list took a daemon lock: {locks}"
+        );
+    }
+    // The fixture's own setup ran outside any request.
+    assert!(state.iter().any(|(c, op, _)| c == "program" && op == "none"), "{state:?}");
+    let callers: Vec<&str> = locks["locks"][0]["callers"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| row["caller"].as_str().unwrap())
+        .collect();
+    assert_eq!(callers, ["frontend", "automation", "program"]);
+
+    let remote = mux.control_clients.register(ClientTransport::WebSocket, writer());
+    let error = handle_command(&mux, remote, Command::DebugDaemonLocks, &writer())
+        .expect_err("a remote client must not read daemon lock stats");
+    assert!(error.to_string().contains("trusted local connection"), "{error}");
+}

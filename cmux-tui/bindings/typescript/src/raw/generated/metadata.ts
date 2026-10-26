@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR cb66b76b27d6af323d88e6c50c65226de2a2ef09009dcab5c68a8205bfd94675. */
+/* cmux-tui mux protocol 12, IR 60c1a3101bc7284b166a6eb688a01c58f11bb39d0070a58eb1a308f8b5903ebd. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "cb66b76b27d6af323d88e6c50c65226de2a2ef09009dcab5c68a8205bfd94675" as const;
+export const SDK_IR_SHA256 = "60c1a3101bc7284b166a6eb688a01c58f11bb39d0070a58eb1a308f8b5903ebd" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -1403,6 +1403,16 @@ export const COMMAND_METADATA = {
     "stream": null,
     "constraints": [
       "See spec/commands.md for the result object."
+    ]
+  },
+  "debug-daemon-locks": {
+    "authority": "local-admin",
+    "since": 12,
+    "capability": null,
+    "fields": {},
+    "stream": null,
+    "constraints": [
+      "Owner-only diagnostics (trusted local connection); never journaled and safe to poll."
     ]
   },
   "delete-bookmark": {
@@ -21459,6 +21469,17 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
     "result": {
       "kind": "ref",
       "name": "JsonValue"
+    }
+  },
+  "debug-daemon-locks": {
+    "request": {
+      "additional_properties": false,
+      "fields": {},
+      "kind": "object"
+    },
+    "result": {
+      "kind": "opaque_json",
+      "reason": "Per-lock wait and hold histograms by caller class and request op; the op rows are the ops that took the lock since start. See spec/commands.md debug-daemon-locks."
     }
   },
   "delete-bookmark": {

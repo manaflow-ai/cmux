@@ -31,8 +31,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 use super::Command;
-use super::command_names::MethodClass;
-use crate::diagnostics::RequestStats;
+use super::command_names::{COMMANDS, MethodClass};
+use crate::diagnostics::{LockOp, LockOpScope, RequestStats};
 use crate::resource::{OperationClass, ResourceOperation};
 
 /// When a request line arrived at its connection's reader and when it parsed.
@@ -79,6 +79,19 @@ impl RequestMethod {
         Self { id: Self::RESOURCE_BASE + operation as u16, class: resource_class(operation) }
     }
 
+    /// The dense op this method's lock acquisitions count under
+    /// (`debug-daemon-locks`): 0 is no request, then every command, every
+    /// resource operation and every routed class.
+    pub(super) fn lock_op(self) -> LockOp {
+        let commands = COMMANDS.len() as u16;
+        let resources = ResourceOperation::ALL.len() as u16;
+        LockOp(match self.id {
+            id if id >= Self::ROUTED_BASE => 1 + commands + resources + (id - Self::ROUTED_BASE),
+            id if id >= Self::RESOURCE_BASE => 1 + commands + (id - Self::RESOURCE_BASE),
+            id => 1 + id,
+        })
+    }
+
     /// A line no `Command` names (its `cmd` is a feature route's, or absent).
     fn routed(cmd: Option<&str>) -> Self {
         let class = match cmd {
@@ -90,6 +103,31 @@ impl RequestMethod {
         };
         Self { id: Self::ROUTED_BASE + class as u16, class }
     }
+}
+
+/// The name of a [`RequestMethod::lock_op`]: a command's `cmd` tag, a
+/// resource operation's wire name, `routed.<class>`, or `none` outside any
+/// request.
+pub(super) fn lock_op_name(op: LockOp) -> String {
+    let Some(index) = op.0.checked_sub(1).map(usize::from) else { return "none".to_owned() };
+    if let Some(row) = COMMANDS.get(index) {
+        return row.wire.to_owned();
+    }
+    let index = index - COMMANDS.len();
+    if index < ResourceOperation::ALL.len() {
+        return ResourceOperation::ALL
+            .iter()
+            .find(|operation| **operation as usize == index)
+            .map_or_else(
+                || format!("resource.{index}"),
+                |operation| operation.wire_name().to_owned(),
+            );
+    }
+    let index = index - ResourceOperation::ALL.len();
+    MethodClass::ALL
+        .iter()
+        .find(|class| **class as usize == index)
+        .map_or_else(|| format!("op.{}", op.0), |class| format!("routed.{}", class.as_str()))
 }
 
 /// The class of a v2 resource operation, on the `Command` table's rules:
@@ -180,6 +218,9 @@ pub(super) struct RequestSpan<'a> {
     method: RequestMethod,
     arrival: RequestArrival,
     reply: Reply,
+    /// The op this thread's lock acquisitions count under until the span
+    /// ends (`debug-daemon-locks`).
+    _lock_op: LockOpScope,
     /// Declared last: the slice's end comes after every instant above.
     _scope: cmux_trace::ScopeGuard,
 }
@@ -215,7 +256,8 @@ impl<'a> RequestSpan<'a> {
             micros(queued)
         );
         trace_instant!(daemon, "daemon.request.dispatched", method.class as u8);
-        Self { stats, method, arrival, reply: Reply::Pending, _scope: scope }
+        let lock_op = LockOpScope::enter(method.lock_op());
+        Self { stats, method, arrival, reply: Reply::Pending, _lock_op: lock_op, _scope: scope }
     }
 
     /// Sends the reply the handler built with `send`: `handled` before,

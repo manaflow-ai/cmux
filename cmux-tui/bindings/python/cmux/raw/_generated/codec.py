@@ -379,6 +379,7 @@ MODEL_BY_PATH = {
     'commands/create-terminal/request': models.CreateTerminalRequest,
     'commands/create-workspace/request': models.CreateWorkspaceRequest,
     'commands/create-workspace-group/request': models.CreateWorkspaceGroupRequest,
+    'commands/debug-daemon-locks/request': models.DebugDaemonLocksRequest,
     'commands/delete-bookmark/request': models.DeleteBookmarkRequest,
     'commands/delete-bookmark/result': models.DeleteBookmarkResult,
     'commands/delete-browser-profile/request': models.DeleteBrowserProfileRequest,

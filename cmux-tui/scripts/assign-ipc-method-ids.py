@@ -66,6 +66,7 @@ class AssignError(Exception):
 FAMILIES: dict[str, tuple[int, str, tuple[str, ...]]] = {
     "daemon": (0x01, "Daemon identity, liveness, configuration and machine state.", (
         "identify", "ping", "shutdown-daemon", "reload-config", "server-stats", "machine-*",
+        "debug-daemon-locks",
         "subscribe-activity", "ws-listen", "page-credential", "pairing-response",
         "set-default-colors", "set-window-title", "clear-window-title", "trace-*",
     )),
@@ -187,7 +188,7 @@ COMMAND_PRIORITY: dict[str, tuple[str, ...]] = {
         "cloud-conversation-history", "conversation-attachment-read", "cloud-attachment-read",
         "get-blob",
     ),
-    "background": ("server-stats", "machine-usage", "terminal-resources"),
+    "background": ("server-stats", "debug-daemon-locks", "machine-usage", "terminal-resources"),
 }
 
 # Events: what draws the person's terminal rides input (the key echo path,
@@ -204,7 +205,7 @@ EVENT_PRIORITY: dict[str, tuple[str, ...]] = {
 # they may pass the connection's control sequence. Each one is read_only and
 # names no stream target (validate.py rejects anything else). A cloud command
 # is never here: it needs the lease this connection set with cloud-session-set.
-INDEPENDENT = ("server-stats", "machine-usage", "machine-listening-tcp")
+INDEPENDENT = ("server-stats", "debug-daemon-locks", "machine-usage", "machine-listening-tcp")
 
 # Durability --------------------------------------------------------------------
 # read_only: changes no daemon state. memory: changes state the journal never
@@ -214,7 +215,8 @@ INDEPENDENT = ("server-stats", "machine-usage", "machine-listening-tcp")
 READ_ONLY = (
     "list-*", "get-*", "read-*", "ids", "identify", "ping", "export-layout", "vt-state",
     "resolve-terminal", "process-info", "terminal-ports", "terminal-resources",
-    "terminal-history", "terminal-read-range", "terminal-events", "server-stats", "machine-*",
+    "terminal-history", "terminal-read-range", "terminal-events", "server-stats",
+    "debug-daemon-locks", "machine-*",
     "wait-for", "pane-neighbor", "remote-terminal-snapshot",
     "conversation-list", "conversation-snapshot", "conversation-history", "conversation-thread",
     "conversation-search", "conversation-link-resolve", "conversation-runs", "conversation-run",

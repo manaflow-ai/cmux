@@ -1,7 +1,8 @@
 //! `server-stats`: where the daemon spends its time.
 
+use super::request_spans::lock_op_name;
 use super::{MAX_SERVER_CONNECTIONS, Mux};
-use crate::diagnostics::{SERVER_STATS_SCHEMA, ServerStatsSnapshot};
+use crate::diagnostics::{LockTableSnapshot, SERVER_STATS_SCHEMA, ServerStatsSnapshot};
 
 /// The optional section that reports resource projection spans.
 const RESOURCE_PROJECTION: &str = "resource_projection";
@@ -36,6 +37,29 @@ pub(super) fn server_stats(mux: &Mux, include: Option<&[String]>) -> ServerStats
         slow_requests: wants(SLOW_REQUESTS).then(|| mux.request_watchdog.snapshot()),
         request_latency_us,
         dispatch_queue_us,
+    }
+}
+
+/// The `debug-daemon-locks` result. `schema` grows only when a field
+/// changes meaning.
+#[derive(Clone, Debug, serde::Serialize)]
+pub(super) struct DaemonLocksSnapshot {
+    schema: u32,
+    uptime_ms: u64,
+    locks: Vec<LockTableSnapshot>,
+}
+
+const DAEMON_LOCKS_SCHEMA: u32 = 1;
+
+pub(super) fn daemon_locks(mux: &Mux) -> DaemonLocksSnapshot {
+    DaemonLocksSnapshot {
+        schema: DAEMON_LOCKS_SCHEMA,
+        uptime_ms: u64::try_from(mux.uptime().as_millis()).unwrap_or(u64::MAX),
+        locks: mux
+            .daemon_lock_tables()
+            .into_iter()
+            .map(|(lock, table)| table.snapshot(lock, &lock_op_name))
+            .collect(),
     }
 }
 

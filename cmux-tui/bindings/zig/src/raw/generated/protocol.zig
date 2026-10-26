@@ -7,7 +7,7 @@ const client_runtime = @import("../client.zig");
 
 pub const schema_version: u16 = 2;
 pub const mux_protocol: u16 = 12;
-pub const ir_sha256 = "cb66b76b27d6af323d88e6c50c65226de2a2ef09009dcab5c68a8205bfd94675";
+pub const ir_sha256 = "60c1a3101bc7284b166a6eb688a01c58f11bb39d0070a58eb1a308f8b5903ebd";
 
 pub const ActivitySnapshot = struct {
     attached_clients: u32,
@@ -6415,6 +6415,23 @@ pub fn createWorkspaceGroup(client: anytype, request: CreateWorkspaceGroupReques
     );
 }
 
+pub const DebugDaemonLocksRequest = struct {};
+
+pub const DebugDaemonLocksResult = wire.Value;
+
+pub fn debugDaemonLocks(client: anytype, request: DebugDaemonLocksRequest) !wire.Decoded(DebugDaemonLocksResult) {
+    return client.callTyped(
+        DebugDaemonLocksResult,
+        .{
+            .name = "debug-daemon-locks",
+            .authority = "local-admin",
+            .since = 12,
+            .capability = null,
+        },
+        request,
+    );
+}
+
 pub const DeleteBookmarkRequest = struct {
     bookmark: []const u8,
     mutation_id: wire.Field([]const u8) = .absent,
@@ -12425,7 +12442,7 @@ pub const CommandDescriptor = struct {
     stream: ?[]const u8,
 };
 
-pub const command_count: usize = 308;
+pub const command_count: usize = 309;
 pub const commands = [_]CommandDescriptor{
     .{ .name = "ack-tab-notifications", .authority = "control", .since = 12, .capability = "notification-ack-v1", .stream = null },
     .{ .name = "add-screens-to-screen-group", .authority = "control", .since = 12, .capability = "screen-groups-v1", .stream = null },
@@ -12542,6 +12559,7 @@ pub const commands = [_]CommandDescriptor{
     .{ .name = "create-terminal", .authority = "control", .since = 7, .capability = "workspace-registry-v1", .stream = null },
     .{ .name = "create-workspace", .authority = "control", .since = 7, .capability = "workspace-registry-v1", .stream = null },
     .{ .name = "create-workspace-group", .authority = "control", .since = 12, .capability = "workspace-groups-v1", .stream = null },
+    .{ .name = "debug-daemon-locks", .authority = "local-admin", .since = 12, .capability = null, .stream = null },
     .{ .name = "delete-bookmark", .authority = "control", .since = 12, .capability = "bookmarks-v1", .stream = null },
     .{ .name = "delete-browser-profile", .authority = "control", .since = 12, .capability = "browser-profiles-v1", .stream = null },
     .{ .name = "delete-personal-group", .authority = "control", .since = 12, .capability = "profiles-v1", .stream = null },

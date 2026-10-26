@@ -156,6 +156,7 @@ public:
     [[nodiscard]] Result<TerminalPlacement> create_terminal(const CreateTerminalRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<WorkspaceMutationResult> create_workspace(const CreateWorkspaceRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> create_workspace_group(const CreateWorkspaceGroupRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<DebugDaemonLocksResult> debug_daemon_locks(const DebugDaemonLocksRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<DeleteBookmarkResult> delete_bookmark(const DeleteBookmarkRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> delete_browser_profile(const DeleteBrowserProfileRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<JsonValue> delete_personal_group(const DeletePersonalGroupRequest& request, RequestOptions options = {});

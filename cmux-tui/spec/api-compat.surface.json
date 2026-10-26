@@ -9206,6 +9206,7 @@
         "required": true
       }
     },
+    "request:debug-daemon-locks": {},
     "request:delete-bookmark": {
       "/bookmark": {
         "ty": "string",
@@ -12213,6 +12214,20 @@
         "nullable": true
       }
     },
+    "request:trace-start": {
+      "/categories": {
+        "ty": "array",
+        "nullable": true
+      },
+      "/categories/*": {
+        "ty": "string"
+      },
+      "/keys": {
+        "ty": "boolean"
+      }
+    },
+    "request:trace-status": {},
+    "request:trace-stop": {},
     "request:undo-layout": {
       "/confirm_close": {
         "ty": "boolean"
@@ -17128,6 +17143,12 @@
       }
     },
     "response:create-workspace-group": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
+    "response:debug-daemon-locks": {
       "/data": {
         "ty": "json",
         "required": true
@@ -22049,6 +22070,24 @@
       },
       "/data/terminal_id": {
         "ty": "string",
+        "required": true
+      }
+    },
+    "response:trace-start": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
+    "response:trace-status": {
+      "/data": {
+        "ty": "json",
+        "required": true
+      }
+    },
+    "response:trace-stop": {
+      "/data": {
+        "ty": "json",
         "required": true
       }
     },
