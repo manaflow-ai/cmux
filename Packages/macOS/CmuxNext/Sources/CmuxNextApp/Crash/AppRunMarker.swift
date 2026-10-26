@@ -1,5 +1,6 @@
 import CmuxNextCompat
 import CmuxNextCrashReporting
+import CmuxNextWakeups
 import Darwin
 import Foundation
 import os
@@ -149,8 +150,9 @@ final class AppRunMarker {
         installHandlers()
         let window = LaunchRecovery.quickCrashWindow
         survivalTask = Task { [weak self] in
-            // wakeup-allow: one-shot quick-crash window after launch; fires once
-            do { try await Task.sleep(for: window) } catch { return }
+            // wakeup-allow: deadline the quick-crash window after launch; fires once, cancelled by a clean exit. It is
+            // armed inside AppServices.init, before the app's MainDeadlineScheduler can be read.
+            do { try await Task.sleep(for: window, tolerance: WakeLeeway.window(delay: window).tolerance) } catch { return }
             self?.markSurvived()
         }
     }

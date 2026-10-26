@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextAgentPane
+import CmuxNextWakeups
 
 /// Owns the short interval between Cmd-T (or Cmd-N's new workspace) and the New Tab field's
 /// readiness acknowledgement: every key typed from the shortcut on waits here, in order, and goes to
@@ -28,13 +29,15 @@ final class NewTabInputCoordinator {
     var incomingHoldLimit: Duration = .seconds(4)
     /// Injected for tests; the hold limit is the only time this coordinator reads.
     var now: () -> ContinuousClock.Instant = { ContinuousClock.now }
-    /// Runs `fire` once `limit` from now (a task by default; injected for tests).
-    var scheduleDeadline: (_ limit: Duration, _ fire: @escaping @MainActor () -> Void) -> Task<Void, Never> = { limit, fire in
-        Task { @MainActor in
-            // wakeup-allow: one-shot bound on a New Tab key hold; cancelled when the hold ends first
-            do { try await Task.sleep(for: limit) } catch { return }
-            fire()
-        }
+    /// Runs `fire` once `limit` from now and answers its timer, which the hold cancels when it ends first (injected
+    /// for tests). The person's keys wait on it, so it asks Chromium's flat 8 ms leeway (kDefaultLeeway,
+    /// base/task/task_features.h), not 10% of the limit.
+    var scheduleDeadline: (_ limit: Duration, _ fire: @escaping @MainActor @Sendable () -> Void) -> DemandTimer = { limit, fire in
+        // timer-class-allow: the person's held keys wait on this bound, so it keeps an explicit 8 ms tolerance; a
+        // MainDeadline's flexible window would let the 2 s and 4 s bounds slip 200 and 400 ms.
+        let timer = DemandTimer(owner: "NewTabInput.holdLimit")
+        timer.scheduleOnMain(after: limit, tolerance: WakeLeeway.defaultAlignment, fire)
+        return timer
     }
 
     private final class Entry {
@@ -46,7 +49,7 @@ final class NewTabInputCoordinator {
         weak var window: NSWindow?
         /// The open put the page's tab on screen (`didShow`).
         var shown = false
-        var deadline: Task<Void, Never>?
+        var deadline: DemandTimer?
         /// A page that does not exist yet (Cmd-N's new workspace, `beginIncoming`): its tab key
         /// comes with its readiness; until then the hold owns its window's keys.
         let incoming: IncomingPage?
