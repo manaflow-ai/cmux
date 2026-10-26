@@ -575,6 +575,12 @@
       "why": "p10-stability-207 CrashKeys.swift crashKeysRecordBlock: the address of the crash-key record block (the injected CrashKeySlots' address, this run's run.crashkeys descriptor, the line buffer), read by the async-signal-safe crash path (CrashReporter.recordCrashKeys from fatal-signal and uncaught-exception handlers, after their own record), which has no instance to reach, as CrashDeadline's semaphore and CrashWatcher's pipe. Written once at launch on main before the handlers are installed, then only read; the keys themselves live in the composition root's CrashKeySlots instance. Chrome: crash keys in static storage (components/crash/core/common/crash_key.h)."
     },
     {
+      "date": "2026-10-26",
+      "row": "blocking_allow_escapes",
+      "allow": 3,
+      "why": "p10-stability-207 crash keys. CrashKeys.swift recordCrashKeys: the one write(2) of the record runs in a fatal-signal handler, which can call no seam (blockingCall records and may allocate). AppRunMarker.swift: the rename of the previous run.crashkeys and the open of this run's run beside run.signal's open, once at launch on main before the fatal-signal handlers are installed, so a crash at launch still records its keys; a rename and an empty file in the app's own folder, no fsync."
+    },
+    {
       "date": "2026-10-24",
       "row": "stateful_singletons",
       "allow": 1,
