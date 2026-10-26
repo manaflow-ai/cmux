@@ -103,29 +103,19 @@ final class SidebarNowPlayingLevels: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError() }
 
-    /// The motion observers while the bars are in a window (``observeMotion(_:)``).
-    private var motionObservers: [(center: NotificationCenter, token: any NSObjectProtocol)] = []
+    /// The motion subscription while the bars are in a window (``observeMotion(_:)``).
+    private var motionWatch: AppearanceSignals.Subscription?
 
     /// Reduce Motion (the system's or cmux's own) or the animation speed changed mid-track: the
-    /// bars start or still at once. Block observers on the main queue while in a window, removed
-    /// when the view leaves it, so the view needs no deinit.
+    /// bars start or still at once. Subscribed while in a window, released when the view leaves it.
     private func observeMotion(_ on: Bool) {
-        guard on != !motionObservers.isEmpty else { return }
+        guard on != (motionWatch != nil) else { return }
         guard on else {
-            for observer in motionObservers { observer.center.removeObserver(observer.token) }
-            motionObservers = []
+            motionWatch = nil
             return
         }
-        let names: [(NotificationCenter, Notification.Name)] = [
-            (NotificationCenter.default, Motion.reduceMotionDidChange),
-            (NotificationCenter.default, Motion.speedDidChange),
-            (NSWorkspace.shared.notificationCenter, NSWorkspace.accessibilityDisplayOptionsDidChangeNotification),
-        ]
-        motionObservers = names.map { center, name in
-            (center, center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
-                // main-proof: the observer runs on the main queue (queue: .main)
-                MainActor.assumeIsolated { self?.update() }
-            })
+        motionWatch = DesignSettings.shared.signals.subscribe([.motion], owner: "SidebarNowPlayingControls") { [weak self] in
+            self?.update()
         }
     }
 

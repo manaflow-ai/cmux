@@ -35,6 +35,7 @@ public final class BackdropVideoView: NSView {
     public var windowsAboveOverride: (() -> [BackdropCoverage.Window])?
     let players: BackdropVideoPlayers
     private var observers: [(NotificationCenter, NSObjectProtocol)] = []
+    private var motionWatch: AppearanceSignals.Subscription? // Reduce Motion, the speed or a motion switch
     private var readyObservation: NSKeyValueObservation?
     private var screensAsleep = false
     private var sessionInactive = false
@@ -128,6 +129,7 @@ public final class BackdropVideoView: NSView {
         super.viewDidMoveToWindow()
         for (center, observer) in observers { center.removeObserver(observer) }
         observers = []
+        motionWatch = nil
         guard window != nil else { return detach() }
         observe()
         attach()
@@ -198,10 +200,9 @@ public final class BackdropVideoView: NSView {
             (app, NSWindow.didChangeOcclusionStateNotification, window), (app, NSWindow.didMiniaturizeNotification, window),
             (app, NSWindow.didDeminiaturizeNotification, window), (app, NSWindow.didBecomeMainNotification, window),
             (app, NSWindow.didBecomeKeyNotification, window), (app, NSApplication.didHideNotification, nil),
-            (app, NSApplication.didUnhideNotification, nil), (app, Motion.reduceMotionDidChange, nil),
-            (app, Motion.speedDidChange, nil),
-            (workspace, NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, nil),
+            (app, NSApplication.didUnhideNotification, nil),
         ]
+        motionWatch = DesignSettings.shared.signals.subscribe([.motion], owner: "BackdropVideoView") { [weak self] in self?.update() }
         names.append((app, NSWindow.willCloseNotification, window))
         names += [NSWorkspace.screensDidSleepNotification, NSWorkspace.screensDidWakeNotification,
                   NSWorkspace.sessionDidResignActiveNotification, NSWorkspace.sessionDidBecomeActiveNotification].map { (workspace, $0, nil) }
