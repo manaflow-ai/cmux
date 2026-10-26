@@ -90,13 +90,22 @@ type Sent = { method: "model" | "harness" | "effort"; value: string };
 
 async function mount(start: {
   harness: string;
-  extra?: { id: string; name: string; family?: string; unavailable?: string; probeFailed?: boolean }[];
+  extra?: {
+    id: string;
+    name: string;
+    family?: string;
+    models?: { id: string; name: string }[];
+    unavailable?: string;
+    probeFailed?: boolean;
+    folder?: { folder: string; state: "enabled" | "needs-enable" | "needs-trust" | "error" };
+  }[];
   /// Completed turns of the shown chat: none (the default) is a chat with no message yet.
   turnCount?: number;
   /// acpmux's session list (the sidebar's Chats).
   sessions?: import("../src/agent-session/acpmux/model").AcpmuxSnapshot["sessions"];
   /// Add harness…: each click is counted.
   onAddAgent?: () => void;
+  onHarnessEnable?: (folder: string, id: string) => void;
 }) {
   const { createRoot } = await import("react-dom/client");
   const { QueryClient, QueryClientProvider } = await import("@tanstack/react-query");
@@ -112,7 +121,9 @@ async function mount(start: {
       family: harness.families[0],
       models: harness.models.map((model) => ({ id: model.id, name: model.name })),
     }))
-    .concat((start.extra ?? []).map((entry) => ({ family: entry.id, ...entry, models: [] }))) as Snapshot["catalog"];
+    .concat(
+      (start.extra ?? []).map((entry) => ({ family: entry.id, ...entry, models: entry.models ?? [] })),
+    ) as Snapshot["catalog"];
   const sent: Sent[] = [];
   let session = 0;
   function Host() {
@@ -169,6 +180,7 @@ async function mount(start: {
         }}
         showPlan={false}
         {...(start.onAddAgent ? { onAddAgent: start.onAddAgent } : {})}
+        {...(start.onHarnessEnable ? { onHarnessEnable: start.onHarnessEnable } : {})}
       />
     );
   }
@@ -298,6 +310,76 @@ test("before its first message, the picker's rail lists every installed harness 
   expect(add).not.toBeNull();
   await act(async () => add.click());
   expect(added).toBe(1);
+});
+
+test("before its first message, a machine profile is absent from the harness rail", async () => {
+  await mount({
+    harness: "codex",
+    extra: [
+      {
+        id: "machine-profile",
+        name: "Build machine",
+        folder: { folder: "/Users/me/app", state: "enabled" },
+      },
+    ],
+  });
+  await act(async () => {
+    openFullPicker();
+  });
+  const tabs = [...host.querySelectorAll<HTMLButtonElement>(".acpmux-mp-harness")].map(
+    (button) => button.title.split(" · ")[0],
+  );
+  expect(tabs).toContain("Claude Code");
+  expect(tabs).toContain("Codex");
+  expect(tabs).not.toContain("Build machine");
+});
+
+test("a non-current folder profile keeps its Enable action outside the harness rail", async () => {
+  const enabled: string[] = [];
+  await mount({
+    harness: "codex",
+    extra: [
+      {
+        id: "machine-profile",
+        name: "Build machine",
+        folder: { folder: "/Users/me/app", state: "needs-enable" },
+      },
+    ],
+    onHarnessEnable: (folder, id) => enabled.push(`${folder}:${id}`),
+  });
+  await act(async () => {
+    openFullPicker();
+  });
+  const profile = host.querySelector<HTMLButtonElement>(".acpmux-mp-folder-profiles button");
+  expect(profile?.textContent).toContain("Build machine");
+  expect(host.querySelector(".acpmux-mp-harness[title^='Build machine']")).toBeNull();
+  await act(async () => profile?.click());
+  const enable = [...host.querySelectorAll<HTMLButtonElement>(".acpmux-mp-row")].find(
+    (button) => !button.closest(".acpmux-mp-folder-profiles") && button.textContent?.includes("Enable"),
+  );
+  expect(enable).not.toBeUndefined();
+  await act(async () => enable?.click());
+  expect(enabled).toEqual(["/Users/me/app:machine-profile"]);
+});
+
+test("Starred keeps folder models out of the harness rail", async () => {
+  dom.window.localStorage.setItem("cmux.model-picker.favorites", JSON.stringify(["machine-model"]));
+  await mount({
+    harness: "codex",
+    extra: [
+      {
+        id: "machine-profile",
+        name: "Build machine",
+        models: [{ id: "machine-model", name: "Machine model" }],
+        folder: { folder: "/Users/me/app", state: "enabled" },
+      },
+    ],
+  });
+  await act(async () => {
+    openFullPicker();
+  });
+  await act(async () => host.querySelector<HTMLButtonElement>(".acpmux-mp-rail-list [aria-label='Starred']")!.click());
+  expect(rows().map((row) => row.dataset.key)).not.toContain("model:machine-model");
 });
 
 // Debug Settings' "Allow switching harness in a started chat" (off by default): on, a started

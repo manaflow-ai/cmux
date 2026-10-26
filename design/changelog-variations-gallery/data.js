@@ -31,7 +31,7 @@ window.CHANGELOG = [
     "id": "agent-routes",
     "category": "new",
     "title": "Switch a chat between proxies without a restart",
-    "body": "A route says how an agent reaches its model: its own sign-in, an API key, CodeRouter or any compatible endpoint. Move a chat to another route with `cmux route use` and it keeps its conversation.",
+    "body": "A route says how an agent reaches its model: its own sign-in, an API key, CodeRouter or any compatible endpoint. Move a chat to another route in its composer's Account menu and it keeps its conversation.",
     "action": ""
    },
    {

@@ -91,6 +91,26 @@ const answeredBySession: AgentQuestion = {
   },
 };
 
+/// How an unanswered ask ended, as its record says (record.ts `cancelReason`).
+const skipped: AgentQuestion = {
+  ...(cancelled as unknown as AgentQuestion),
+  state: { kind: "cancelled", reason: "skipped" },
+};
+const stopped: AgentQuestion = {
+  ...(cancelled as unknown as AgentQuestion),
+  state: { kind: "cancelled", reason: "stopped" },
+};
+
+/// Answered from the person's phone through the feed (`answeredBy {device, feedItem}`): the record
+/// names an install, not a device, so the line says another device.
+const answeredElsewhere: AgentQuestion = {
+  ...(answeredCollapsed as unknown as AgentQuestion),
+  state: {
+    kind: "answered",
+    answer: { selections: { q0: { optionIDs: ["OAuth 2.0"] } }, respondent: { isRemote: true } },
+  },
+};
+
 /// Leo's ask (2026-10-20): two Claude Code questions, tabbed New tab pick | References.
 const pendingTwo: AgentQuestion = {
   id: "perm_toolu_two",
@@ -198,6 +218,10 @@ export default componentEntry({
       folderTrust,
       "An agent's sub-session waits in an untrusted folder: Trust folder or Not now. Trust lets the start go on by itself.",
     ),
+    "folder-trust-picked": {
+      ...variant(folderTrust, "Trust folder clicked: the row is chosen and nothing is sent until Submit (or ⌘↩)."),
+      play: (ctx) => ctx.click({ selector: '.acpmux-question-row[data-row="0"]' }),
+    },
     "pending-multi": variant(pendingMulti, "A multi-select ask: checkbox rows."),
     "pending-other-typing": variant(pendingOther, "Other turned into an inline text field."),
     "pending-with-preview": variant(
@@ -230,6 +254,7 @@ export default componentEntry({
       },
       play: async (ctx) => {
         await ctx.click({ selector: '.acpmux-question-row[data-row="0"]' });
+        await ctx.click({ selector: ".acpmux-question-submit" });
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-question-error"));
       },
     },
@@ -247,7 +272,13 @@ export default componentEntry({
     ),
     cancelled: variant(
       cancelled,
-      "Skipped, declined, cancelled or stopped with the turn: one muted line, Not answered, and the question.",
+      "Ended unanswered where the record can't say how (no reject option): one muted line, Not answered, and the question.",
+    ),
+    skipped: variant(skipped, "The person pressed Skip: the line says Skipped."),
+    stopped: variant(stopped, "The turn was stopped (or the chat closed) before an answer: the line says so."),
+    "answered-elsewhere": variant(
+      answeredElsewhere,
+      "Answered on the person's phone through the feed, which names an install, not a device: another device.",
     ),
     "pending-2-other-typed": variant(
       pendingTwo,

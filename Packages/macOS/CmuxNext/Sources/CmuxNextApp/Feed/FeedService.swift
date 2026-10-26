@@ -1,6 +1,8 @@
 import AppKit
+import CmuxNextAgentPane
 import CmuxNextCloud
 import CmuxNextCompat
+import CmuxNextDaemon
 import CmuxNextFeed
 import Foundation
 
@@ -20,10 +22,20 @@ final class FeedService {
     private let github: GitHubFeedSource
     private let showcase: Bool
     private let auth: CloudAuth
+    /// The app's acpmux, resolved once at startup (nil: a mock agent host or no acpmux binary).
+    /// A report reply uses it as is: the reply path resolves nothing (no executable or signature
+    /// check on the main thread).
+    let acpmuxEnvironment: AcpmuxEnvironment?
+    /// The reports reader; a page of a reader that a reset stopped is dropped.
+    private let reports = AcpmuxMailboxSubscription()
+    /// Wakes the current reports reader's retry wait (one per reader, so a stopped reader's end
+    /// never touches the next one's watch): its socket's changes, and app activation or wake.
+    private var reportsWake: RetryWake?
+    private var reportRows: [String: FeedReport] = [:]
     private var started = false
     /// The account the mirror belongs to; a sign-out or another account resets it.
     private var account: String?
-    private var observers: [any NSObjectProtocol] = []
+    private var observers: [MainActorObservation] = []
     private var accountWatch: Task<Void, Never>?
     private(set) var connection: FeedConnection = .disconnected("not started")
     /// Owner-confirmed state of each item (never the overlay).
@@ -39,9 +51,10 @@ final class FeedService {
         auth.configuration.ownerAPIBaseURL(environment: environment)
     }
 
-    init(auth: CloudAuth, showcase: Bool = false) {
+    init(auth: CloudAuth, showcase: Bool = false, acpmuxEnvironment: AcpmuxEnvironment? = nil) {
         self.auth = auth
         self.showcase = showcase
+        self.acpmuxEnvironment = acpmuxEnvironment
         apiBaseURL = Self.apiBaseURL(auth: auth)
         // The answer's device label is the owner's record (the install); this name is only the overlay's.
         source = CloudFeedSource(apiBaseURL: apiBaseURL, device: "Mac") { [auth] in
@@ -73,9 +86,11 @@ final class FeedService {
             guard let self else { return }
             source.setPresence(active: forced ?? NSApp.isActive)
             if forced == nil { source.checkAlive() }
+            // An activation or wake may find acpmux back: a reports reader past its timed retries tries again.
+            if forced != false { reportsWake?.fire() }
         }
-        func on(_ center: NotificationCenter, _ name: Notification.Name, _ forced: Bool?) -> any NSObjectProtocol {
-            center.addObserver(forName: name, object: nil, queue: .main) { _ in MainActor.assumeIsolated { update(forced) } } // main-proof: observer on queue: .main
+        func on(_ center: NotificationCenter, _ name: Notification.Name, _ forced: Bool?) -> MainActorObservation {
+            MainActorObservation(name, center: center) { update(forced) }
         }
         observers = [
             on(app, NSApplication.didBecomeActiveNotification, true),
@@ -96,6 +111,7 @@ final class FeedService {
         if account != nil {
             source.reset(reason: "signed out")
             github.resetDetails()
+            resetReports()
             started = false
         }
         account = user
@@ -106,12 +122,16 @@ final class FeedService {
     /// Starts the mirror when signed in; the panel and requests call it again (after a sign-in).
     func startIfSignedIn() {
         guard !started else {
-            if auth.isSignedIn { source.setPresence(active: NSApp.isActive) }
+            if auth.isSignedIn {
+                startReportsIfNeeded()
+                source.setPresence(active: NSApp.isActive)
+            }
             return
         }
         account = auth.user?.id
         started = true
         model.start()
+        startReportsIfNeeded()
         if auth.isSignedIn { source.setPresence(active: NSApp.isActive) }
     }
 
@@ -135,6 +155,7 @@ final class FeedService {
 
     func stop() {
         accountWatch?.cancel()
+        resetReports()
         model.stop()
         github.stop()
         github.resetDetails()
@@ -165,6 +186,49 @@ final class FeedService {
     }
 
     private var githubEnabled = false
+
+    /// The signed-in account owns its own local alias. Using the stable auth
+    /// id keeps a second account from reading Leo's reports mailbox.
+    private var reportsRecipient: String? {
+        guard let person = auth.user?.id.trimmingCharacters(in: .whitespacesAndNewlines), !person.isEmpty else {
+            return nil
+        }
+        return "reports:\(person)"
+    }
+
+    private func resetReports() {
+        reports.stop()
+        reportsWake = nil
+        reportRows.removeAll()
+        model.replaceReports([])
+    }
+
+    /// Reads the quiet reports alias without creating a model attachment. The
+    /// mailbox wait is event-driven; quiet delivery notifies this reader but
+    /// never wakes the sender's ACP turn. The reader runs off the main actor and
+    /// retries on the shared daemon-client path (`AcpmuxMailboxReader`): a
+    /// missing socket waits for its file-system event, a refusing one is paced.
+    private func startReportsIfNeeded() {
+        guard auth.isSignedIn, !reports.isRunning, let socketPath = acpmuxEnvironment?.socketPath,
+              let reportsRecipient else { return }
+        let wake = RetryWake(owner: "feed.reports.retry")
+        reportsWake = wake
+        let reader = AcpmuxMailboxReader(socketPath: socketPath, recipient: reportsRecipient, wake: wake)
+        // Stopped by resetReports (sign-out, another account, stop); a page already on its way is dropped.
+        reports.start(reader) { [weak self] page in self?.applyReports(page) }
+    }
+
+    private func applyReports(_ page: AcpmuxMailboxPage) {
+        for message in page.messages {
+            reportRows[message.id] = FeedReport(
+                id: message.id,
+                sender: message.sender,
+                body: message.body,
+                createdAt: message.createdAt
+            )
+        }
+        model.replaceReports(Array(reportRows.values))
+    }
 
     private func observe(_ event: FeedSourceEvent) {
         switch event {
@@ -216,16 +280,19 @@ final class FeedService {
         for waiter in list { waiter.resume() }
     }
 
-    /// One HTTP call to the API Worker as the signed-in user (`/v1/ops` or `/v1/read`).
-    func call(_ path: String, _ body: [String: Any]) async throws -> [String: Any] {
+    /// One HTTP call to the API Worker as the signed-in user (`/v1/ops` or `/v1/read`), in its
+    /// personal team or in `team` (`x-cmux-team`; TeamDO confirms the membership).
+    func call(_ path: String, _ body: [String: Any], team: String? = nil) async throws -> [String: Any] {
         guard auth.isSignedIn else { throw FeedServiceError.signedOut }
         var request = URLRequest(url: apiBaseURL.appendingPathComponent(path))
         request.httpMethod = "POST"
         request.timeoutInterval = 15
         request.setValue("application/json", forHTTPHeaderField: "content-type")
         request.setValue("Bearer \(try await auth.tokens().access)", forHTTPHeaderField: "authorization")
+        if let team { request.setValue(team, forHTTPHeaderField: "x-cmux-team") }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        let (data, _) = try await URLSession.shared.data(for: request)
+        // The bearer never goes through the shared, caching session.
+        let (data, _) = try await CloudAPIClient.noStoreTransport.data(for: request)
         guard let reply = try JSONSerialization.jsonObject(with: data) as? [String: Any] else { throw FeedServiceError.badReply }
         if let error = reply["error"] as? [String: Any] {
             throw FeedServiceError.owner(code: error["code"] as? String ?? "error", message: error["message"] as? String ?? "")

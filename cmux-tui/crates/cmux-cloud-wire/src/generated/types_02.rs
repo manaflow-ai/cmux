@@ -591,6 +591,7 @@ wire_enum! {
         GithubRepoScope = "github.repoScope",
         GithubRequireOrgAdmin = "github.requireOrgAdmin",
         GithubRepoAllowList = "github.repoAllowList",
+        GithubAllowWorkflows = "github.allowWorkflows",
         IntegrationsAllowedProviders = "integrations.allowedProviders",
         McpServer = "mcp.server",
         McpRemoteTransport = "mcp.remoteTransport",

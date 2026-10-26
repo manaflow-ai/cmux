@@ -7,7 +7,7 @@ public struct UnsaveTabGroupRequest: DaemonRequest {
         public var unsaved: Bool
     }
     public static let command = "unsave-tab-group"
-    public static let requiredCapability: String? = DaemonCapabilities.shared.savedTabGroups
+    public static let requiredCapability: String? = DaemonCapability.savedTabGroups.rawValue
     /// The live group (not the saved record id).
     public var group: TabGroupID
     public init(group: TabGroupID) { self.group = group }
@@ -20,7 +20,7 @@ public struct DeleteSavedTabGroupRequest: DaemonRequest {
         public var deleted: Bool
     }
     public static let command = "delete-saved-tab-group"
-    public static let requiredCapability: String? = DaemonCapabilities.shared.savedTabGroups
+    public static let requiredCapability: String? = DaemonCapability.savedTabGroups.rawValue
     public var saved: SavedTabGroupID
     public init(saved: SavedTabGroupID) { self.saved = saved }
 }
@@ -31,7 +31,7 @@ public struct DeleteSavedTabGroupRequest: DaemonRequest {
 public struct ReopenSavedTabGroupRequest: DaemonRequest {
     public typealias Response = TabGroupResult
     public static let command = "reopen-saved-tab-group"
-    public static let requiredCapability: String? = DaemonCapabilities.shared.savedTabGroups
+    public static let requiredCapability: String? = DaemonCapability.savedTabGroups.rawValue
     public var saved: SavedTabGroupID
     public var pane: PaneID
     public var transaction: ClientTransactionID?
