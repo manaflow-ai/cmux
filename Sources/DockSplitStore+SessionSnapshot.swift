@@ -6,6 +6,10 @@ import Darwin
 import Foundation
 
 extension DockSplitStore {
+    /// Builds this Dock's session snapshot.
+    ///
+    /// Keeps at most `SessionPersistencePolicy.maxPanelsPerWorkspace` panels and
+    /// records any past it as `omittedPanelCount`.
     func sessionSnapshot(
         includeScrollback: Bool,
         restorableAgentIndex: RestorableAgentSessionIndex? = nil,
