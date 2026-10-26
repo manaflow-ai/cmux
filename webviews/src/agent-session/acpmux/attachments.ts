@@ -7,6 +7,7 @@ import { liftInlineImages } from "./inlineImages";
 import { pastedTextBlocks } from "./pastedText";
 
 import type { StringKey } from "./i18n";
+import type { VideoInfo } from "./composer/videoAttachments";
 
 export type ComposerAttachment = {
   id: string;
@@ -30,6 +31,8 @@ export type ComposerAttachment = {
   /** The original image on the session's machine; the inline bytes are a metadata-free preview. */
   originalPath?: string;
   originalName?: string;
+  /** A video link's poster, length and key frames, as the host read them (composer/videoAttachments.ts). */
+  video?: VideoInfo;
 };
 
 export type AttachmentError = {
@@ -64,7 +67,7 @@ const CONVERTIBLE_NAME = /\.(heic|heif|tiff?|bmp|avif)$/i;
 
 /// Whether `file` is a picture the composer attaches as an image (as it is, or converted), by its
 /// type or name alone: what its chip looks like before its bytes are read.
-export function isImageFile(file: File): boolean {
+export function isImageFile(file: Pick<File, "name" | "type">): boolean {
   return (
     IMAGE_TYPES.has(file.type) || CONVERTIBLE_TYPES.has(file.type) || (!file.type && CONVERTIBLE_NAME.test(file.name))
   );

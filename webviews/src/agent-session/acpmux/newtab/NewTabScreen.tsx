@@ -348,7 +348,8 @@ export function NewTabScreen(props: Props) {
     attachments,
     setAttachments,
     pending: reading,
-    loading,
+    unsettled,
+    videoReading,
     cancel,
     retry,
     attachError,
@@ -363,7 +364,10 @@ export function NewTabScreen(props: Props) {
     ...(props.upload ? { upload: props.upload } : {}),
     ...(props.localPaths ? { localPaths: props.localPaths } : {}),
   });
-  const holdForAttachments = useSendWhenAttached(loading);
+  // Unlike a chat's composer, the new tab waits for uploads too (#25191): the page goes when the
+  // chat starts, so a file still streaming has no next prompt to go with. A video's read is waited
+  // for a few seconds at most (composer/videoAttachments.ts).
+  const holdForAttachments = useSendWhenAttached(unsettled + videoReading);
   // WEB-SWAP: a web update's reload would lose what this page holds only in its state: a typed
   // query (the location comes back with the page) and staged attachments (pages/shared/webSwap.ts).
   useWebSwapHold(
