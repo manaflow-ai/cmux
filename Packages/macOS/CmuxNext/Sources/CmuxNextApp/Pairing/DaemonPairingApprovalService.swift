@@ -54,9 +54,8 @@ final class DaemonPairingApprovalService {
 
     private func answer(_ request: UInt64, approve: Bool) {
         // A dialog closed by `pairing-resolved` was already removed: nothing to answer.
-        guard dialogs.removeValue(forKey: request) != nil,
-              let connection = services?.daemon.connection else { return }
-        // task-owner: one pairing answer; the daemon refuses a stale request on its own.
-        Task { _ = try? await connection.request(PairingResponseRequest(request: request, approve: approve)) }
+        guard dialogs.removeValue(forKey: request) != nil, let daemon = services?.daemon, daemon.connection != nil else { return }
+        // The daemon's command path (its ticket, off main): the daemon refuses a stale request on its own.
+        daemon.send("pairing.respond") { connection in _ = try await connection.request(PairingResponseRequest(request: request, approve: approve)) }
     }
 }

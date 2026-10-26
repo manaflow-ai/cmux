@@ -1370,7 +1370,7 @@
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "The Chromium Host takes Energy Saver as its own versioned wire message (p14-energy-045), not a generated op: the remote shim returns 0, so debug.energy reports it unsupported in host mode until then (p14-energy-030)."
+      "reason": "The Chromium Host takes Energy Saver as its own versioned op, kOpEnergySaver (ChromiumHost/src/host_energy_saver.h, p14-energy-045), not a generated op: the remote shim keeps the state for every host it attaches and answers 1 only when the host's hello lists the saver (its fork has cmux_cef_set_energy_saver)."
     },
     {
       "name": "cmux_shim_create_window",

@@ -13,13 +13,9 @@ extension AppServices {
         bar.hoverFrameInput = hoverFrameInput  // suggestion rows hover once per frame (`pointerFrameHover`)
         let display = bar.suggestionEngine.display
         display.setShowsFullURLs = { [weak self] full in
-            guard let settings = self?.settings else { return }
-            // task-owner: one settings write; ends when it lands (the snapshot brings it back to every bar).
-            Task { @MainActor in
-                do { try await settings.setSetting(at: BrowserOmnibarSetting.showFullURLsPath, to: .bool(full), by: .user) } catch {
-                    NSSound.beep()
-                }
-            }
+            // task-owner: BackgroundWork (quit skips it); one settings write of the person's menu pick, it ends when it
+            // lands (the snapshot brings it back to every bar; recipe R-hop)
+            self?.work.task(.userBlocking) { [weak self] in await self?.writeShowsFullURLs(full) }
         }
         display.manageSearchEngines = { [weak self] in
             try? self?.settingsWindow.show(section: .browser, setting: BrowserOmnibarSetting.searchEnginePath.joined(separator: "."))
@@ -30,6 +26,14 @@ extension AppServices {
             guard let self, let tab, let origin = BookmarkURL.faviconKey(for: url),
                   let address = URL(string: siteFaviconAddress(origin: origin)) else { return nil }
             return await tab.fetchFavicon(address)
+        }
+    }
+
+    /// The address bar menu's "Always Show Full URLs": the person's setting, a beep when it cannot be written.
+    private func writeShowsFullURLs(_ full: Bool) async {
+        guard let settings else { return }
+        do { try await settings.setSetting(at: BrowserOmnibarSetting.showFullURLsPath, to: .bool(full), by: .user) } catch {
+            NSSound.beep()
         }
     }
 }

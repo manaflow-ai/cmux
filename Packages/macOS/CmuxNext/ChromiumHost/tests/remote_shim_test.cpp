@@ -440,6 +440,107 @@ void TestOrderingThroughTheRuntime() {
   PumpUntil([] { return false; }, std::chrono::milliseconds(100));
   ::close(host.fd);
 }
+// Every frame the fake host has within `quiet` of the last one.
+std::vector<Message> Drain(Host* host, std::chrono::milliseconds quiet = std::chrono::milliseconds(200)) {
+  std::vector<Message> out;
+  for (;;) {
+    PumpUntil([] { return false; }, std::chrono::milliseconds(20));
+    pollfd p{host->fd, POLLIN, 0};
+    if (host->buffer.empty() && ::poll(&p, 1, static_cast<int>(quiet.count())) <= 0) return out;
+    const std::vector<Message> got = host->Read(1);
+    if (got.empty()) return out;
+    out.push_back(got[0]);
+  }
+}
+
+// The saver frames among `messages`: "<version> <enabled> <scheme or <null>>".
+std::vector<std::string> SaverFrames(const std::vector<Message>& messages) {
+  std::vector<std::string> out;
+  for (const Message& m : messages) {
+    if (m.op != cmux_host::kOpEnergySaver) continue;
+    TlvReader r(m.fields);
+    const int32_t version = r.I32();
+    const int32_t enabled = r.I32();
+    const std::optional<std::string> scheme = r.Str();
+    CHECK(r.ok() && r.AtEnd() && m.token == 0);
+    out.push_back(std::to_string(version) + " " + std::to_string(enabled) + " " + scheme.value_or("<null>"));
+  }
+  return out;
+}
+
+// A host HELLO of this wire listing `exports`.
+Message HelloListing(std::vector<const char*> exports) {
+  TlvWriter w;
+  w.Str(cmux_remote::kWireID);
+  w.StrList(exports.data(), static_cast<int>(exports.size()));
+  Message message;
+  message.op = cmux_host::control::kOpHello;
+  message.fields = w.Take();
+  return message;
+}
+
+void SayHello(Host* host, std::vector<const char*> exports) {
+  const int ready = seen.ready;
+  host->Send(HelloListing(std::move(exports)));
+  CHECK(PumpUntil([&] { return seen.ready == ready + 1; }));
+}
+
+// cmux_shim_set_energy_saver in host mode (task p14-energy-045): the host's end sees kOpEnergySaver,
+// versioned, on each edge; the call answers 1 only for a host whose HELLO listed the saver; a new
+// host gets the saver once while it is on, and nothing while it is off; a host without the saver
+// gets no frame.
+void TestEnergySaver() {
+  const std::string want_on = std::to_string(cmux_host::kEnergySaverVersion) + " 1 cmux-page";
+  const std::string want_off = std::to_string(cmux_host::kEnergySaverVersion) + " 0 cmux-page";
+
+  // No host: kept for the next one, answered 0.
+  CHECK(cmux_remote_shim_attached() == 0);
+  CHECK(cmux_shim_set_energy_saver(1, "cmux-page") == 0);
+  Host first;
+  CHECK(AttachNew(&first) == 1);
+  CHECK(SaverFrames(Drain(&first)).empty());  // it waits for the HELLO, which says whether the host has it
+  SayHello(&first, {cmux_host::kEnergySaverHelloName});
+  CHECK(SaverFrames(Drain(&first)) == std::vector<std::string>({want_on}));
+  // Each edge is one frame.
+  CHECK(cmux_shim_set_energy_saver(0, "cmux-page") == 1);
+  CHECK(cmux_shim_set_energy_saver(1, nullptr) == 1);
+  CHECK(cmux_shim_set_energy_saver(0, "cmux-page") == 1);
+  CHECK(SaverFrames(Drain(&first)) ==
+        std::vector<std::string>({want_off, std::to_string(cmux_host::kEnergySaverVersion) + " 1 <null>", want_off}));
+  cmux_remote_shim_detach();
+  ::close(first.fd);
+
+  // Off: a new host starts with it off and gets no frame.
+  Host second;
+  CHECK(AttachNew(&second) == 1);
+  SayHello(&second, {cmux_host::kEnergySaverHelloName});
+  CHECK(SaverFrames(Drain(&second)).empty());
+  CHECK(cmux_shim_set_energy_saver(1, "cmux-page") == 1);
+  CHECK(SaverFrames(Drain(&second)) == std::vector<std::string>({want_on}));
+  cmux_remote_shim_detach();
+  ::close(second.fd);
+  // On: the next host gets it after its HELLO. An edge before that HELLO waits for it too, and
+  // the call cannot say whether it applies.
+  Host third;
+  CHECK(AttachNew(&third) == 1);
+  CHECK(cmux_shim_set_energy_saver(1, "cmux-page") == 0);
+  CHECK(SaverFrames(Drain(&third)).empty());
+  SayHello(&third, {cmux_host::kEnergySaverHelloName});
+  CHECK(SaverFrames(Drain(&third)) == std::vector<std::string>({want_on, want_on}));
+  cmux_remote_shim_detach();
+  ::close(third.fd);
+
+  // A host whose fork has no saver: no frame, and the call answers 0.
+  Host fourth;
+  CHECK(AttachNew(&fourth) == 1);
+  SayHello(&fourth, {});
+  CHECK(cmux_shim_set_energy_saver(0, "cmux-page") == 0);
+  CHECK(SaverFrames(Drain(&fourth)).empty());
+  cmux_remote_shim_detach();
+  ::close(fourth.fd);
+  PumpUntil([] { return false; }, std::chrono::milliseconds(100));
+}
+
 // The fence rights cmux_remote_shim_page_resize sent (cmux_remote_shim_set_fence_sender): there
 // is no Mach off macOS, so the fenced path is driven through this one.
 struct FenceSend {
@@ -976,6 +1077,7 @@ int main() {
   ::close(third.fd);
 
   TestOrderingThroughTheRuntime();
+  TestEnergySaver();
 
   // View tokens: cmux passes the page view's token where the ABI takes a parent NSView*, and it
   // travels as is (never a pointer the client reads); NULL is 0.

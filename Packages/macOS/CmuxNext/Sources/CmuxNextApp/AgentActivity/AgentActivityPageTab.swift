@@ -47,7 +47,7 @@ final class AgentActivityPageTab: BrowserTab {
         self.state = state
         let model = AgentActivityModel(source: source)
         self.model = model
-        let provider = AgentActivityPageProvider(requests: AgentActivityRequests(model: model, source: source))
+        let provider = AgentActivityPageProvider(requests: AgentActivityRequests(model: model, source: source), mainWork: deadlines.work)
         contentView = webUI.open(PageOpenRequest(descriptor: .agentActivity,
                                                  routes: [PageRoute(prefix: AgentActivityPageProvider.prefix, provider: provider)]))
             ?? AgentActivityHostView(model: model, source: source)

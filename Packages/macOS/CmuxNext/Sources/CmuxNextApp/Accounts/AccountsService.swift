@@ -6,6 +6,7 @@ import CmuxNextDaemon
 import Foundation
 import os
 import CmuxNextCompat
+import CmuxNextWakeups
 
 /// Owns the Accounts screen's model and its `AccountsServices`: detection
 /// over the login-shell environment, the cmux Keychain item for pasted
@@ -29,7 +30,8 @@ final class AccountsService: AccountsServices {
     /// False once the Keychain salt failed: `acct_…` handles then last for
     /// this launch only (`accounts.list` says `handles_stable: false`).
     private(set) var handlesStable = true
-    private var activation: MainActorObservation?
+    /// The app's one become-active observer (``AppEvents``) re-detects sign-ins made in another app.
+    private var activation: EventSubscription?
     let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "app.accounts")
 
     static let fixtureHomeKey = "CMUX_NEXT_ACCOUNTS_HOME"
@@ -47,7 +49,7 @@ final class AccountsService: AccountsServices {
         let storeID = fixtureHome == nil ? bundleID : "\(bundleID ?? "cmux").fixture"
         keys = KeychainProviderKeyStore(service: KeychainProviderKeyStore.service(bundleID: storeID))
         labels = AccountLabelerStore(provider: KeychainAccountLabelSalt(service: KeychainAccountLabelSalt.service(bundleID: storeID)))
-        activation = MainActorObservation(NSApplication.didBecomeActiveNotification) { [weak self] in
+        activation = services.appEvents.subscribe(NSApplication.didBecomeActiveNotification, owner: "AccountsService.activation") { [weak self] in
             self?.model.appDidBecomeActive()
         }
     }
