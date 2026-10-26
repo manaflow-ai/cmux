@@ -59,8 +59,10 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// frames in bits 0-31 and the longest of them in us in bits 32-63 (`Signposter.motionRunResult`; arg1 is the
     /// async id).
     case motionRun = 5
-    /// Reserved (task 039, PL-motion-core; perf-hot `drag-frame`). One tab drag tick: the ghost move and
-    /// the drop-target update. Ring: B/E; arg0 the tick's dt in us.
+    /// One tab drag ghost tick (task 039, perf-hot `drag-frame`; `TabDragSession.tick`): the ghost's spring step,
+    /// the autoscroll, the drop-target hit test and the render. Ring: B/E, one per tick of the drag or of its
+    /// landing flight (a tick for a drag that ended writes none); begin arg0 the tick's dt in whole us (0 for a
+    /// negative or NaN dt, saturated at `UInt32.max`); end arg0 0.
     case motionDragFrame = 18
 
     // MARK: key (PL-typing)
@@ -146,8 +148,16 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// begin arg0 the input age in us (all ones without an input event); end arg0 the boundary's `EndCode`
     /// (0 committed, 1 `commit=missed`: a refused, no-op or superseded move, which readers drop).
     case switchPaneFocus = 11
-    /// Reserved (task 039, PL-switch; perf-hot `cmd-tab`). The app becoming active or a window becoming key
-    /// (`keyDidMove`) to the commit that shows it (a ``CommitBoundary`` end). Ring: AB/AE keyed by its `OSSignpostID`.
+    /// A key or activation change that flips a window's look (task 039, perf-hot `cmd-tab`; `WindowKeyFamily.check`,
+    /// ``Signposter/beginAppActivation(noticeCode:noticeName:appActivation:noticeAgeMilliseconds:)``): the window's
+    /// key tracker turning its inactive wash on or off to the ``CommitBoundary`` after that turn. One per window whose
+    /// look flipped: a window whose look stays, or one with no material view left, writes none, so a Cmd-Tab back is
+    /// one slice and a focus move between two windows at most two. Begin message `notice=<name> app=<0|1>
+    /// age_ms=<age>`. Ring: AB/AE keyed by its `OSSignpostID`; begin arg0 the turn's first notice in bits 0-7 (a window
+    /// did become key 1, resign key 2, become main 3, resign main 4; the app did become active 5, resign active 6),
+    /// bit 8 set when the turn had the app's become or resign active notice (a Cmd-Tab; clear for a focus move in the
+    /// app), and that first notice's age at the flip in us in the top 24; end arg0 the boundary's `EndCode`
+    /// (0 committed, 1 `commit=missed`, which readers drop).
     case switchAppActivation = 33
 
     // MARK: create (reserved: PL-cef-tab)
