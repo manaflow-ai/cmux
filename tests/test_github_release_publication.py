@@ -6,6 +6,7 @@ import socket
 import importlib.util
 import json
 import subprocess
+import math
 import os
 import io
 from pathlib import Path
@@ -555,9 +556,24 @@ class TransportTests(unittest.TestCase):
             ledger.write_text(bad)
             with patch.object(publisher, "_LEDGER", ledger), patch.dict(os.environ, {"GH_BUDGET_WAIT_MAX_SECONDS": "3600"}):
                 self.assertEqual(publisher._ledger_spent(), 3600.0, bad)
+        ledger.write_bytes(b"\xff\xfe12")  # not UTF-8
+        with patch.object(publisher, "_LEDGER", ledger), patch.dict(os.environ, {"GH_BUDGET_WAIT_MAX_SECONDS": "3600"}):
+            self.assertEqual(publisher._ledger_spent(), 3600.0)
         missing = self.root / "none" / "waited"
         with patch.object(publisher, "_LEDGER", missing):
             self.assertEqual(publisher._ledger_spent(), 0.0)
+
+    def test_a_fractional_wait_is_recorded_rounded_up(self):
+        # 10.2 s waited must not be logged as 10: later steps would wait past the cap.
+        ledger = self.root / "frac" / "waited"
+        with patch.object(publisher, "_LEDGER", ledger), patch.dict(os.environ, {"GH_BUDGET_WAIT_MAX_SECONDS": "3600"}):
+            publisher._ledger_at_start = None
+            self.addCleanup(setattr, publisher, "_ledger_at_start", None)
+            waited_before = publisher._waited_here
+            self.addCleanup(setattr, publisher, "_waited_here", waited_before)
+            with publisher._rate_limit_lock:
+                publisher._record_job_wait(10.2)
+        self.assertEqual(ledger.read_text(), str(math.ceil(waited_before + 10.2)))
 
     def test_the_budget_comes_from_the_environment(self):
         script = Path(publisher.__file__)

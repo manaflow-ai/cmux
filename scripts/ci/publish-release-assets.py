@@ -12,6 +12,7 @@ from dataclasses import dataclass, replace
 import glob
 import hashlib
 import json
+import math
 import mimetypes
 import os
 from pathlib import Path
@@ -66,7 +67,7 @@ def _ledger_spent() -> float:
         text = _LEDGER.read_text().strip()
     except FileNotFoundError:
         return 0.0
-    except OSError:
+    except (OSError, UnicodeDecodeError):
         return _job_cap()
     # Only a whole number of seconds is a ledger (both writers write one); anything else, an empty
     # file from an interrupted write included, is unknown and so the whole hour.
@@ -98,7 +99,7 @@ def _record_job_wait(seconds: float) -> None:
         _LEDGER.parent.mkdir(parents=True, exist_ok=True)
         # Written whole and renamed into place, so a reader never sees a partial file.
         partial = _LEDGER.with_name(f"{_LEDGER.name}.{os.getpid()}")
-        partial.write_text(str(int(total)))
+        partial.write_text(str(math.ceil(total)))  # round up: never under-count
         partial.replace(_LEDGER)
     except OSError as error:
         print(f"could not record the rate-limit wait in {_LEDGER}: {error}", file=sys.stderr, flush=True)
