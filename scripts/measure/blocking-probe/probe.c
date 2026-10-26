@@ -7,16 +7,20 @@
 // the entries by their first cmux frame, so each cmux call site is its own row however many wrappers sit above
 // the system call.
 //
-// Threads: the main thread only, or CMUX_PROBE_THREADS, a comma-separated list of thread-name prefixes (the
-// word "main" stands for the main thread), as Chrome names a thread by its role (base::PlatformThread::
-// SetName, base/threading/platform_thread.h) and its ScopedBlockingCall checks only the threads that must not
-// block (base/threading/thread_restrictions.h). Each entry keeps the prefix its thread matched.
+// Threads: the main thread only, or CMUX_PROBE_THREADS, a comma-separated list of thread-name patterns, each
+// matched against the whole name with `*` for any run of characters (the word "main" stands for the main
+// thread), as Chrome names a thread by its role (base::PlatformThread::SetName, base/threading/platform_thread.h)
+// and its ScopedBlockingCall checks only the threads that must not block (base/threading/thread_restrictions.h).
+// So `surface-*-host` watches each terminal's host thread and not its `surface-<id>-wait` thread. Each entry
+// keeps the pattern its thread matched.
 //
-// Into the daemon: CMUX_BLOCKING_PROBE_CHILD=<program>:<arg>:<prefixes> makes this process's posix_spawn(p) of
-// <program> (by file name) add the probe to the child's environment, with CMUX_PROBE_THREADS=<prefixes> and
-// CMUX_BLOCKING_PROBE_ARG=<arg>. A process with CMUX_BLOCKING_PROBE_ARG records only when its argv holds that
-// argument; without it the probe stays inert and leaves its variables in the environment, so they reach the
-// process's own children (`cmux-tui server ensure` stays inert and its `cmux-tui --headless` owner records).
+// Into the daemon: CMUX_BLOCKING_PROBE_CHILD=<program>:<args>:<patterns> makes this process's posix_spawn(p) of
+// <program> (by file name) add the probe to the child's environment, with CMUX_PROBE_THREADS=<patterns> and
+// CMUX_BLOCKING_PROBE_ARG=<args>, a comma-separated list. A process with CMUX_BLOCKING_PROBE_ARG records only when
+// its argv holds every one of those arguments; otherwise the probe stays inert and leaves its variables in the
+// environment, so they reach the process's own children. `--headless,cmux-app-<tag>` selects the app's session
+// owner only: its `server ensure` client (no --headless), the Chief conversation owner and a cloud link's
+// `remote connect --headless` (other sessions) stay inert.
 //
 // Self-test: at load the probe makes file system calls on a watched thread (the main queue when the main
 // thread is watched, else the probe's own thread), records them as kind "selftest" and writes a dump at once;
@@ -42,8 +46,10 @@
 // select/poll, getaddrinfo, waitpid/wait4, posix_spawn/posix_spawnp, dispatch_semaphore_wait, dispatch_group_wait, dispatch_sync(_f),
 // pthread_cond_(timed)wait, pthread_mutex_lock, os_unfair_lock_lock, usleep, nanosleep. Waits count only past
 // WAIT_FLOOR_NS; every file or socket call counts, however fast (Chrome's rule: no disk on the UI thread).
-// dispatch_sync's time includes the block's own work. On a watched worker thread a read or poll that waits for
-// its next input is counted like any other call: the report's kinds column tells them apart.
+// dispatch_sync's time includes the block's own work. On a watched thread other than main, a wait for the next
+// input has its own kind, "input-wait:<call>": a read of a socket, pipe or PTY (not of a regular file), recv*,
+// poll, select, waitpid and wait4. Chrome's message pump waits for work outside any ScopedBlockingCall the same
+// way; the report lists these apart from blocking work.
 // Not seen (known gaps): pthread_rwlock_*, os_unfair_lock_lock_with_options, semaphore_wait, mach_msg (sync XPC,
 // and the main run loop's own idle wait), __ulock_wait/os_sync_wait_on_address, kevent, renamex_np/renameatx_np,
 // ftruncate, getxattr/setxattr, readv/writev, getdirentries64, copyfile/clonefile, dispatch_async_and_wait, the
@@ -78,6 +84,8 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#include "probe_match.h"
+
 #define DYLD_INTERPOSE(_replacement, _replacee)                                                    \
     __attribute__((used)) static struct {                                                         \
         const void *replacement;                                                                  \
@@ -99,12 +107,12 @@ extern ssize_t sendto_nocancel(int, const void *, size_t, int, const struct sock
 
 enum {
     SLOTS = 8192, MAX_PROBES = 64, DEPTH = 24, STACK_KEY = 16, WAIT_FLOOR_NS = 1000000, DUMP_SECONDS = 10,
-    MAX_PREFIXES = 16, CARRIED = 4,
+    MAX_PATTERNS = 16, CARRIED = 4,
 };
 
 typedef struct {
     const char *kind;    // published last (release): a dump reads only entries whose kind it sees
-    const char *thread;  // "main", "probe" (the self-test on the probe's thread) or the matched prefix
+    const char *thread;  // "main", "probe" (the self-test on the probe's thread) or the matched pattern
     uint64_t key;        // hash of the kind, the thread and the call's first STACK_KEY frames
     uint64_t count, total_ns, max_ns;
     int depth;
@@ -126,10 +134,10 @@ static pthread_key_t state_key;      // per thread: STATE_BUSY (the probe's own 
 enum { STATE_NONE = 0, STATE_BUSY = 1, STATE_SELFTEST = 2 };
 static int watch_main = 1;           // the main thread is watched
 static char thread_list[512] = "main";  // the watched threads as given (the dump header)
-static char prefix_store[512];
-static const char *prefixes[MAX_PREFIXES];
-static size_t prefix_lens[MAX_PREFIXES];
-static int prefix_count;
+static char pattern_store[512];
+static const char *patterns[MAX_PATTERNS];
+static int pattern_count;
+static const char main_thread[] = "main", probe_thread[] = "probe";
 static char out_pattern[1024];       // CMUX_BLOCKING_PROBE_OUT, copied at load
 static uint64_t loaded_ns;
 static const void *probe_base;       // the probe's own image, left out of the reported stacks
@@ -146,21 +154,31 @@ static inline uint64_t now_ns(void) {
 static inline uintptr_t thread_state(void) { return (uintptr_t)pthread_getspecific(state_key); }
 static inline void set_thread_state(uintptr_t state) { pthread_setspecific(state_key, (const void *)state); }
 
-// The watched thread the current call runs on ("main", "probe" or a prefix), or NULL when it is not recorded.
+// The watched thread the current call runs on ("main", "probe" or a pattern), or NULL when it is not recorded.
 static const char *recording_thread(void) {
     if (!__atomic_load_n(&ready, __ATOMIC_ACQUIRE)) return NULL;
     uintptr_t state = thread_state();
     if (state == STATE_BUSY) return NULL;
     int main = pthread_main_np();
-    if (state == STATE_SELFTEST) return main ? "main" : "probe";
-    if (main) return watch_main ? "main" : NULL;
-    if (prefix_count == 0) return NULL;
+    if (state == STATE_SELFTEST) return main ? main_thread : probe_thread;
+    if (main) return watch_main ? main_thread : NULL;
+    if (pattern_count == 0) return NULL;
     char name[64];
     if (pthread_getname_np(pthread_self(), name, sizeof name) != 0 || name[0] == 0) return NULL;
-    for (int i = 0; i < prefix_count; i++) {
-        if (strncmp(name, prefixes[i], prefix_lens[i]) == 0) return prefixes[i];
+    for (int i = 0; i < pattern_count; i++) {
+        if (probe_name_matches(patterns[i], name)) return patterns[i];
     }
     return NULL;
+}
+
+// A call that may be a wait for the next input: `waiting` on a watched worker thread when fd < 0 (the call always
+// waits for input there) or fd is not a regular file, else `blocking` (always on the main thread). The probe's own
+// fstat is not interposed (dyld interposes calls from other images only).
+static const char *input_kind(const char *thread, int fd, const char *blocking, const char *waiting) {
+    if (thread == main_thread || thread == probe_thread) return blocking;
+    if (fd < 0) return waiting;
+    struct stat info;
+    return fstat(fd, &info) == 0 && S_ISREG(info.st_mode) ? blocking : waiting;
 }
 
 static void record_entry(const char *kind, const char *thread, uint64_t ns) {
@@ -241,6 +259,22 @@ static void record(const char *kind, const char *thread, uint64_t ns) {
         errno = errno_;                                                                           \
     } while (0)
 
+// TIMED with the kind input_kind gives; fd < 0 for a call that always waits for input on a worker thread.
+#define TIMED_INPUT(blocking, waiting, fd, call)                                                   \
+    do {                                                                                          \
+        const char *thread_ = recording_thread();                                                 \
+        if (thread_ == NULL) return call;                                                         \
+        const char *kind_ = input_kind(thread_, (fd), (blocking), (waiting));                     \
+        uint64_t start_ = now_ns();                                                               \
+        __typeof__(call) result_ = call;                                                          \
+        int errno_ = errno;                                                                       \
+        uint64_t ns_ = now_ns() - start_;                                                         \
+        __atomic_fetch_add(&calls, 1, __ATOMIC_RELAXED);                                          \
+        record(kind_, thread_, ns_);                                                              \
+        errno = errno_;                                                                           \
+        return result_;                                                                           \
+    } while (0)
+
 // The optional third argument of open/openat/fcntl: read it only when the call takes one, then pass it on.
 #define MODE_ARG(flags) ({ mode_t m_ = 0; if ((flags) & O_CREAT) { va_list ap; va_start(ap, flags); m_ = (mode_t)va_arg(ap, int); va_end(ap); } m_; })
 
@@ -249,8 +283,10 @@ static int p_open(const char *path, int flags, ...) { mode_t m = MODE_ARG(flags)
 static int p_open_nc(const char *path, int flags, ...) { mode_t m = MODE_ARG(flags); TIMED("file-io:open", 0, open_nocancel(path, flags, m)); }
 static int p_openat(int fd, const char *path, int flags, ...) { mode_t m = MODE_ARG(flags); TIMED("file-io:openat", 0, openat(fd, path, flags, m)); }
 static int p_openat_nc(int fd, const char *path, int flags, ...) { mode_t m = MODE_ARG(flags); TIMED("file-io:openat", 0, openat_nocancel(fd, path, flags, m)); }
-static ssize_t p_read(int fd, void *b, size_t n) { TIMED("io:read", 0, read(fd, b, n)); }
-static ssize_t p_read_nc(int fd, void *b, size_t n) { TIMED("io:read", 0, read_nocancel(fd, b, n)); }
+static ssize_t p_read(int fd, void *b, size_t n) { TIMED_INPUT("io:read", "input-wait:read", fd, read(fd, b, n)); }
+static ssize_t p_read_nc(int fd, void *b, size_t n) {
+    TIMED_INPUT("io:read", "input-wait:read", fd, read_nocancel(fd, b, n));
+}
 static ssize_t p_pread(int fd, void *b, size_t n, off_t o) { TIMED("file-io:pread", 0, pread(fd, b, n, o)); }
 static ssize_t p_pread_nc(int fd, void *b, size_t n, off_t o) { TIMED("file-io:pread", 0, pread_nocancel(fd, b, n, o)); }
 static ssize_t p_write(int fd, const void *b, size_t n) { TIMED("io:write", 0, write(fd, b, n)); }
@@ -291,14 +327,18 @@ static int p_rename(const char *a, const char *b) { TIMED("file-io:rename", 0, r
 static ssize_t p_readlink(const char *p, char *b, size_t n) { TIMED("file-io:readlink", 0, readlink(p, b, n)); }
 static int p_close(int fd) { TIMED("io:close", WAIT_FLOOR_NS, close(fd)); }
 // Sockets, polling and processes
-static ssize_t p_recv(int s, void *b, size_t n, int f) { TIMED("socket-read:recv", 0, recv(s, b, n, f)); }
+static ssize_t p_recv(int s, void *b, size_t n, int f) {
+    TIMED_INPUT("socket-read:recv", "input-wait:recv", -1, recv(s, b, n, f));
+}
 static ssize_t p_recvfrom(int s, void *b, size_t n, int f, struct sockaddr *a, socklen_t *l) {
-    TIMED("socket-read:recvfrom", 0, recvfrom(s, b, n, f, a, l));
+    TIMED_INPUT("socket-read:recvfrom", "input-wait:recvfrom", -1, recvfrom(s, b, n, f, a, l));
 }
 static ssize_t p_recvfrom_nc(int s, void *b, size_t n, int f, struct sockaddr *a, socklen_t *l) {
-    TIMED("socket-read:recvfrom", 0, recvfrom_nocancel(s, b, n, f, a, l));
+    TIMED_INPUT("socket-read:recvfrom", "input-wait:recvfrom", -1, recvfrom_nocancel(s, b, n, f, a, l));
 }
-static ssize_t p_recvmsg(int s, struct msghdr *m, int f) { TIMED("socket-read:recvmsg", 0, recvmsg(s, m, f)); }
+static ssize_t p_recvmsg(int s, struct msghdr *m, int f) {
+    TIMED_INPUT("socket-read:recvmsg", "input-wait:recvmsg", -1, recvmsg(s, m, f));
+}
 static ssize_t p_send(int s, const void *b, size_t n, int f) { TIMED("socket-write:send", 0, send(s, b, n, f)); }
 static ssize_t p_sendto(int s, const void *b, size_t n, int f, const struct sockaddr *a, socklen_t l) {
     TIMED("socket-write:sendto", 0, sendto(s, b, n, f, a, l));
@@ -308,14 +348,22 @@ static ssize_t p_sendto_nc(int s, const void *b, size_t n, int f, const struct s
 }
 static ssize_t p_sendmsg(int s, const struct msghdr *m, int f) { TIMED("socket-write:sendmsg", 0, sendmsg(s, m, f)); }
 static int p_connect(int s, const struct sockaddr *a, socklen_t l) { TIMED("socket:connect", 0, connect(s, a, l)); }
-static int p_select(int n, fd_set *r, fd_set *w, fd_set *e, struct timeval *t) { TIMED("socket:select", 0, select(n, r, w, e, t)); }
-static int p_poll(struct pollfd *f, nfds_t n, int t) { TIMED("socket:poll", 0, poll(f, n, t)); }
-static int p_poll_nc(struct pollfd *f, nfds_t n, int t) { TIMED("socket:poll", 0, poll_nocancel(f, n, t)); }
+static int p_select(int n, fd_set *r, fd_set *w, fd_set *e, struct timeval *t) {
+    TIMED_INPUT("socket:select", "input-wait:select", -1, select(n, r, w, e, t));
+}
+static int p_poll(struct pollfd *f, nfds_t n, int t) { TIMED_INPUT("socket:poll", "input-wait:poll", -1, poll(f, n, t)); }
+static int p_poll_nc(struct pollfd *f, nfds_t n, int t) {
+    TIMED_INPUT("socket:poll", "input-wait:poll", -1, poll_nocancel(f, n, t));
+}
 static int p_getaddrinfo(const char *h, const char *s, const struct addrinfo *i, struct addrinfo **r) {
     TIMED("socket:getaddrinfo", 0, getaddrinfo(h, s, i, r));
 }
-static pid_t p_waitpid(pid_t p, int *s, int o) { TIMED("process-wait:waitpid", 0, waitpid(p, s, o)); }
-static pid_t p_wait4(pid_t p, int *s, int o, struct rusage *r) { TIMED("process-wait:wait4", 0, wait4(p, s, o, r)); }
+static pid_t p_waitpid(pid_t p, int *s, int o) {
+    TIMED_INPUT("process-wait:waitpid", "input-wait:waitpid", -1, waitpid(p, s, o));
+}
+static pid_t p_wait4(pid_t p, int *s, int o, struct rusage *r) {
+    TIMED_INPUT("process-wait:wait4", "input-wait:wait4", -1, wait4(p, s, o, r));
+}
 // A CMUX_BLOCKING_PROBE_CHILD spawn: the caller's environment without the probe's own names, then the carried
 // entries. NULL (spawn with envp unchanged) for any other program.
 static int carried_name(const char *entry) {
@@ -568,32 +616,30 @@ static void dump_at_exit(void) {
     dump(1);
 }
 
-// CMUX_PROBE_THREADS: comma-separated thread-name prefixes; "main" is the main thread.
+// CMUX_PROBE_THREADS: comma-separated thread-name patterns; "main" is the main thread.
 static void parse_threads(const char *list) {
     snprintf(thread_list, sizeof thread_list, "%s", list);
-    snprintf(prefix_store, sizeof prefix_store, "%s", list);
+    snprintf(pattern_store, sizeof pattern_store, "%s", list);
     watch_main = 0;
-    char *cursor = prefix_store;
-    while (cursor != NULL && prefix_count < MAX_PREFIXES) {
+    char *cursor = pattern_store;
+    while (cursor != NULL && pattern_count < MAX_PATTERNS) {
         char *comma = strchr(cursor, ',');
         if (comma != NULL) *comma = 0;
         if (strcmp(cursor, "main") == 0) {
             watch_main = 1;
         } else if (cursor[0] != 0) {
-            prefixes[prefix_count] = cursor;
-            prefix_lens[prefix_count] = strlen(cursor);
-            prefix_count++;
+            patterns[pattern_count++] = cursor;
         }
         cursor = comma != NULL ? comma + 1 : NULL;
     }
 }
 
-// CMUX_BLOCKING_PROBE_CHILD=<program>:<arg>:<prefixes>: the entries a spawn of <program> gets.
+// CMUX_BLOCKING_PROBE_CHILD=<program>:<args>:<patterns>: the entries a spawn of <program> gets.
 static void parse_child(const char *spec, const char *dylib) {
     const char *first = strchr(spec, ':');
     const char *second = first != NULL ? strchr(first + 1, ':') : NULL;
     if (second == NULL || first == spec || (size_t)(first - spec) >= sizeof child_program || second[1] == 0) {
-        fprintf(stderr, "blocking-probe: CMUX_BLOCKING_PROBE_CHILD is <program>:<arg>:<thread prefixes>; got %s\n", spec);
+        fprintf(stderr, "blocking-probe: CMUX_BLOCKING_PROBE_CHILD is <program>:<args>:<thread patterns>; got %s\n", spec);
         return;
     }
     snprintf(child_program, sizeof child_program, "%.*s", (int)(first - spec), spec);
@@ -609,13 +655,8 @@ __attribute__((constructor)) static void start(int argc, const char **argv) {
     loaded_ns = now_ns();
     if (pthread_key_create(&state_key, NULL) != 0) return;
     const char *only = getenv("CMUX_BLOCKING_PROBE_ARG");
-    if (only != NULL && only[0] != 0) {
-        int found = 0;
-        for (int i = 1; i < argc && argv != NULL; i++) {
-            if (argv[i] != NULL && strcmp(argv[i], only) == 0) found = 1;
-        }
-        if (!found) return;  // inert: the probe's variables stay in the environment for this process's children
-    }
+    // Inert unless argv holds every wanted argument: the variables stay in the environment for its children.
+    if (only != NULL && only[0] != 0 && !probe_argv_holds_all(argc, argv, only)) return;
     Dl_info self;
     memset(&self, 0, sizeof self);
     if (dladdr((const void *)&start, &self)) probe_base = self.dli_fbase;

@@ -1,22 +1,29 @@
 #!/usr/bin/env python3
-"""Ranks the blocking the probe recorded (scripts/measure/blocking-probe/probe.c), in three sections.
+"""Ranks the blocking the probe recorded (scripts/measure/blocking-probe/probe.c), in four sections.
 
-Reads the probe's dumps (TSV, one per process: probe-<pid>.tsv) and groups every entry by its first cmux frame,
-the first stack frame in cmux's own code: the app executable, a Debug build's `<name>.debug.dylib`, frameworks
-or dylibs named CmuxNext* / cmux* and the daemon binaries in Contents/Resources/bin; never a third-party
-framework such as Sparkle. The probe keys each entry by its first 16 frames, so calls from different call sites
-are different entries, with exact counts. Frames in the app's images are resolved with atos (against a dSYM when
-the build has one), so a stripped bench build and a Debug build's split .debug.dylib name the right function
-and line. The sections, each worst first by total time, as Markdown and JSON, with the owner area
-(plans/cmux-next/OWNERS.md) of the module the site's symbol names:
+Reads the probe's dumps (TSV, one per process: probe-<run>-<pid>.tsv) and groups every entry by its first cmux
+frame, the first stack frame in cmux's own code: the app executable, a Debug build's `<name>.debug.dylib`,
+frameworks or dylibs named CmuxNext* / cmux* (the CEF shim libcmux_cef_shim.dylib too) and the daemon binaries in
+Contents/Resources/bin; never a third-party framework such as Sparkle. The probe keys each entry by its first 16
+frames, so calls from different call sites are different entries, with exact counts. Frames in the app's images
+are resolved with atos (against a dSYM when the build has one), so a stripped bench build and a Debug build's
+split .debug.dylib name the right function and line. The sections, each worst first by total time, as Markdown
+and JSON, with the owner area (plans/cmux-next/OWNERS.md) of the module the site's symbol names:
 
-  app_main        the app's main thread (a dump whose #threads header is "main"), where cmux's code makes the call
-  app_chromium    the app's main thread, where Chromium's code (Chromium Embedded Framework, the CEF shim) makes
-                  it: the first frame of cmux or Chromium from the top is Chromium's
-  daemon_request  the daemon's watched request and echo threads (a dump with any other #threads header); the
-                  site is the first frame in a cmux crate, past the statically linked Rust std
+  app_main           the app's main thread (a dump whose #threads header is "main"), where cmux's code makes the
+                     call, its CEF shim (cmux's own C++) included
+  app_chromium       the app's main thread, where Chromium's code (Chromium Embedded Framework) makes it: the first
+                     frame of cmux or Chromium from the top is Chromium's; "via" is the cmux caller below it with
+                     the most time
+  daemon_request     the daemon's watched request and echo threads (a dump with any other #threads header); the
+                     site is the first frame in a cmux crate, past the statically linked Rust std
+  daemon_input_wait  the same threads' waits for their next input (kind input-wait:*: a socket, pipe or PTY read,
+                     recv, poll, select, waitpid), listed apart: an idle wait is not blocking work, as Chrome's
+                     message pump waits outside any ScopedBlockingCall
 
   scripts/measure/blocking-probe-report.py --app APP.app [--launches N] --out DIR dump1.tsv [dump2.tsv ...]
+  scripts/measure/blocking-probe-report.py --select main|daemon dump1.tsv ...   prints the app's or daemon's dumps
+  scripts/measure/blocking-probe-report.py --preflight dump1.tsv ...            blocking-probe.sh's preflight check
 """
 import argparse
 import collections
@@ -25,22 +32,29 @@ import json
 import os
 import re
 import subprocess
+import sys
 
-SECTIONS = ("app_main", "app_chromium", "daemon_request")
+SECTIONS = ("app_main", "app_chromium", "daemon_request", "daemon_input_wait")
 SECTION_TITLES = {
     "app_main": "App main thread (cmux's own calls)",
     "app_chromium": "App main thread, made by Chromium (the CEF helper-app program's queue)",
     "daemon_request": "Daemon request and echo threads",
+    "daemon_input_wait": "Daemon request and echo threads waiting for their next input (not blocking work)",
 }
+INPUT_WAIT = "input-wait:"
 # cmux's own images by file name: the executable, a Debug build's .debug.dylib, frameworks or dylibs named
 # CmuxNext* / cmux*, and the daemon binaries (not third-party ones such as Sparkle).
 CMUX_NAME = re.compile(r"^(CmuxNext|cmux|libcmux|acpmux)", re.I)
-# Chromium's images: the framework and cmux's CEF shim (CEFRuntimeLayout.frameworkName / shimName).
-CHROMIUM_IMAGES = {"Chromium Embedded Framework", "libcmux_cef_shim.dylib"}
+# Chromium's image (CEFRuntimeLayout.frameworkName). The CEF shim beside it is cmux's own code (CEFShim/src), also
+# when the runtime is a download outside the bundle and so not among the app's images.
+CHROMIUM_IMAGES = {"Chromium Embedded Framework"}
+CEF_SHIM = "libcmux_cef_shim.dylib"
 SWIFT_MODULE = re.compile(r"^\$s(\d+)(\w+)")
 # A Rust symbol in one of cmux's crates (resolved `cmux_tui_core::server::...`, `<cmux_x::Y as std::io::Read>`,
 # or mangled `_ZN13cmux_tui_core...`); Rust std, core and third-party crates are not.
 RUST_CRATE = re.compile(r"(?<![A-Za-z])((?:cmux|acpmux)\w*?)(?:::|\d|$)")
+# The preflight program's watched thread pattern (blocking-probe.sh).
+PREFLIGHT_THREAD = "probe-test-*-host"
 
 
 def app_images_of(app):
@@ -52,14 +66,76 @@ def app_images_of(app):
                     "Contents/Resources/bin/*"):
         for path in glob.glob(os.path.join(app, pattern)):
             name = os.path.basename(path)
-            if os.path.isfile(path) and CMUX_NAME.match(name) and name not in CHROMIUM_IMAGES:
+            if os.path.isfile(path) and CMUX_NAME.match(name):
                 images.setdefault(name, path)
     return images
+
+
+def is_cmux(image, images):
+    return image in images or image == CEF_SHIM
 
 
 def split_frame(frame):
     image, offset, symbol = (frame.split("|") + ["", "", ""])[:3]
     return image, offset, symbol
+
+
+def dump_header(path):
+    """The dump's header ({key: value}), or None when the file cannot be read (an unmatched glob)."""
+    header = {}
+    try:
+        with open(path, errors="replace") as f:
+            for line in f:
+                if not line.startswith("#"):
+                    break
+                key, _, value = line[1:].rstrip("\n").partition("\t")
+                header[key] = value
+    except OSError:
+        return None
+    return header
+
+
+def select(paths, want):
+    """The dumps of the app (want "main": #threads is main) or of the daemon (want "daemon": any other)."""
+    picked = []
+    for path in paths:
+        header = dump_header(path)
+        if header is not None and (header.get("threads", "main") != "main") == (want == "daemon"):
+            picked.append(path)
+    return picked
+
+
+def rows_of(path):
+    """(kind, thread) of every row of a dump."""
+    with open(path, errors="replace") as f:
+        return [tuple(line.split("\t")[:2]) for line in f if not line.startswith("#") and "\t" in line]
+
+
+def preflight(paths):
+    """The problems in blocking-probe.sh's preflight dumps (app -> inert hop -> owner); empty when the probe works."""
+    problems = []
+    apps, daemons = select(paths, "main"), select(paths, "daemon")
+    if len(paths) != 2 or len(apps) != 1 or len(daemons) != 1:
+        problems.append(f"{len(paths)} dumps ({len(apps)} app, {len(daemons)} owner), want 2: the app's and the "
+                        "owner's; the hop, with only one of the two wanted arguments, must stay inert")
+    for path in apps[:1]:
+        if dump_header(path).get("final") != "1" or ("selftest", "main") not in rows_of(path):
+            problems.append("the app's dump has no main-thread self-test row at exit: the probe did not load or "
+                            "did not interpose")
+    for path in daemons[:1]:
+        threads, rows = dump_header(path).get("threads"), rows_of(path)
+        if threads != PREFLIGHT_THREAD:
+            problems.append(f"the owner watches {threads!r}, want {PREFLIGHT_THREAD!r}: the spawn did not carry "
+                            "CMUX_PROBE_THREADS")
+        if not any(kind == "selftest" for kind, _ in rows):
+            problems.append("the owner's dump has no self-test row")
+        if ("file-io:stat", PREFLIGHT_THREAD) not in rows:
+            problems.append("no stat from probe-test-1-host: the thread pattern does not match it")
+        if ("input-wait:read", PREFLIGHT_THREAD) not in rows:
+            problems.append("probe-test-1-host's pipe read is not an input-wait:read")
+        if any(kind == "file-io:access" for kind, _ in rows):
+            problems.append("probe-test-1-wait, which the pattern does not name, was recorded")
+    return problems
 
 
 def read_dumps(paths):
@@ -123,9 +199,10 @@ def symbol_part(name):
     return name.split(" (in ")[0]
 
 
-def classify(daemon, frames, images, resolved):
+def classify(daemon, kind, frames, images, resolved):
     """(section, site frame, via frame): the frame that names the site and, for Chromium, cmux's frame below."""
     if daemon:
+        section = "daemon_input_wait" if kind.startswith(INPUT_WAIT) else "daemon_request"
         first_cmux = None
         for frame in frames:
             image, offset, symbol = split_frame(frame)
@@ -133,14 +210,14 @@ def classify(daemon, frames, images, resolved):
                 continue
             first_cmux = first_cmux or frame
             if RUST_CRATE.search(symbol_part(resolved.get((image, offset), "")) or symbol):
-                return "daemon_request", frame, None
-        return "daemon_request", first_cmux or (frames[0] if frames else "?|?|?"), None
+                return section, frame, None
+        return section, first_cmux or (frames[0] if frames else "?|?|?"), None
     for index, frame in enumerate(frames):
         image, _, _ = split_frame(frame)
         if image in CHROMIUM_IMAGES:
-            via = next((f for f in frames[index + 1:] if split_frame(f)[0] in images), None)
+            via = next((f for f in frames[index + 1:] if is_cmux(split_frame(f)[0], images)), None)
             return "app_chromium", frame, via
-        if image in images:
+        if is_cmux(image, images):
             return "app_main", frame, None
     return "app_main", frames[0] if frames else "?|?|?", None
 
@@ -201,9 +278,9 @@ def build(entries, images, dsyms, owned):
     resolved = atos(images, dsyms, wanted)
     sites = {section: collections.defaultdict(lambda: {
         "count": 0, "total_ns": 0, "max_ns": 0, "kinds": collections.Counter(), "threads": collections.Counter(),
-        "stack": "", "symbol": "", "via": ""}) for section in SECTIONS}
+        "stack": "", "symbol": "", "vias": collections.Counter()}) for section in SECTIONS}
     for daemon, kind, thread, count, total, longest, frames in entries:
-        section, frame, via = classify(daemon, frames, images, resolved)
+        section, frame, via = classify(daemon, kind, frames, images, resolved)
         name = frame_name(frame, resolved)
         if section == "app_chromium":
             image, offset, _ = split_frame(frame)
@@ -215,10 +292,14 @@ def build(entries, images, dsyms, owned):
         site["threads"][thread] += count
         site["symbol"] = split_frame(frame)[2]
         if via:
-            site["via"] = frame_name(via, resolved)
+            site["vias"][frame_name(via, resolved)] += total
         if longest >= site["max_ns"]:
             site["max_ns"] = longest
             site["stack"] = ";".join(frames[:12])
+    for section in sites.values():
+        for site in section.values():
+            # The cmux caller with the most time under this Chromium site, not whichever entry came last.
+            site["via"] = site["vias"].most_common(1)[0][0] if site["vias"] else ""
     demangled = demangle([s["symbol"] for section in sites.values() for s in section.values()
                           if s["symbol"].startswith("$s")]
                          + [s["via"] for section in sites.values() for s in section.values()
@@ -256,8 +337,10 @@ def write_markdown(path, summary, report, overhead_ms):
                  "Known gaps (probe.c header): pthread_rwlock_*, os_unfair_lock_lock_with_options, semaphore_wait, "
                  "mach_msg (sync XPC), __ulock_wait, kevent, renamex_np, ftruncate, xattrs, readv/writev, "
                  "getdirentries64, copyfile/clonefile, dispatch_async_and_wait, some $NOCANCEL forms, calls a system "
-                 "library makes to itself. On a daemon thread a read or poll waiting for its next input counts too: "
-                 "read the kinds column.\n")
+                 "library makes to itself. A daemon thread's wait for its next input (input-wait:*) is in "
+                 "daemon_input_wait, a recv or poll that waits for another process's reply inside a request too; a "
+                 "worker's condition or semaphore wait for its next job stays in daemon_request (read the kinds "
+                 "column).\n")
         for section in SECTIONS:
             rows = report[section]
             info = summary["sections"][section]
@@ -279,10 +362,23 @@ def write_markdown(path, summary, report, overhead_ms):
 def main():
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("dumps", nargs="+")
-    parser.add_argument("--app", required=True, help="the .app the dumps came from")
+    parser.add_argument("--app", help="the .app the dumps came from (a report)")
     parser.add_argument("--launches", type=int, default=0, help="launches the sweep made (to compare with the dumps)")
-    parser.add_argument("--out", required=True)
+    parser.add_argument("--out", help="the report's folder")
+    parser.add_argument("--select", choices=("main", "daemon"), help="print the app's or the daemon's dumps")
+    parser.add_argument("--preflight", action="store_true", help="check blocking-probe.sh's preflight dumps")
     opts = parser.parse_args()
+    if opts.select:
+        for path in select(opts.dumps, opts.select):
+            print(path)
+        return 0
+    if opts.preflight:
+        problems = preflight(opts.dumps)
+        for problem in problems:
+            print(f"blocking-probe: preflight: {problem}", file=sys.stderr)
+        return 1 if problems else 0
+    if not opts.app or not opts.out:
+        parser.error("a report needs --app and --out")
 
     images = app_images_of(opts.app)
     dsyms = {os.path.basename(p): p
@@ -301,7 +397,8 @@ def main():
         json.dump({"summary": summary, "sections": report}, f, indent=1)
     write_markdown(os.path.join(opts.out, "blocking-probe.md"), summary, report, overhead_ms)
     print(json.dumps(summary))
+    return 0
 
 
 if __name__ == "__main__":
-    main()
+    sys.exit(main())
