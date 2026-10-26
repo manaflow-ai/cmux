@@ -24,10 +24,15 @@ public final class GhosttyRuntime {
     public static let shared = GhosttyRuntime()
 
     /// Nil before the app starts (``start(with:)``) or when libghostty failed to initialize; surfaces then stay blank.
-    private(set) var app: ghostty_app_t?
+    /// SAFETY: set once, by `start(with:)` on the main actor, and never freed (the runtime lives
+    /// for the process), so every read is a live handle or nil.
+    @safe private(set) var app: ghostty_app_t?
 
     /// The finalized configuration currently applied to the app; nil before the app starts.
-    private(set) var config: ghostty_config_t?
+    /// SAFETY: owned here. `start(with:)` takes it over from the first GhosttyBuiltConfig, and
+    /// `replaceConfig` frees the old one and stores the next (a reload's build or a clone Ghostty
+    /// applied), all on the main actor like every reader; no reader keeps it past its own turn.
+    @safe private(set) var config: ghostty_config_t?
     /// Whether the app was started (``start(with:)``), with or without success.
     private(set) var isStarted = false
     /// Where config builds run (``start(loadingOn:then:)``, or a test's); nil: no reload or theme build runs.
@@ -126,27 +131,42 @@ public final class GhosttyRuntime {
         guard let built else { return }
         mark("config_load")
         recordUserConfigLoad(built)
-        config = built.config
+        // SAFETY: the runtime takes over the built config (`config`'s note); nothing frees `built`
+        // after this.
+        config = unsafe built.config
         // Callbacks reach the runtime through this context, never through
         // `shared`: Ghostty can call back synchronously while it starts (for
         // example set_color_scheme emits CONFIG_CHANGE).
         context.runtime = self
 
         var runtime = ghostty_runtime_config_s()
-        runtime.userdata = Unmanaged.passUnretained(context).toOpaque()
+        // SAFETY: the userdata is unretained: `context` is this runtime's stored
+        // constant and the runtime is never freed, so every callback that gets it back
+        // (RuntimeCallbackContext.from) sees a live object.
+        unsafe runtime.userdata = Unmanaged.passUnretained(context).toOpaque()
         runtime.supports_selection_clipboard = true
-        runtime.wakeup_cb = ghosttyWakeup
-        runtime.action_cb = ghosttyAction
-        runtime.read_clipboard_cb = ghosttyReadClipboard
-        runtime.confirm_read_clipboard_cb = ghosttyConfirmReadClipboard
-        runtime.write_clipboard_cb = ghosttyWriteClipboard
-        runtime.close_surface_cb = ghosttyCloseSurface
-        app = ghostty_app_new(&runtime, built.config)
+        // SAFETY: each callback has the C signature ghostty.h declares for its slot and
+        // reads its pointers only as that header documents (GhosttyRuntimeCallbacks.swift).
+        unsafe runtime.wakeup_cb = ghosttyWakeup
+        // SAFETY: as above.
+        unsafe runtime.action_cb = ghosttyAction
+        // SAFETY: as above.
+        unsafe runtime.read_clipboard_cb = ghosttyReadClipboard
+        // SAFETY: as above.
+        unsafe runtime.confirm_read_clipboard_cb = ghosttyConfirmReadClipboard
+        // SAFETY: as above.
+        unsafe runtime.write_clipboard_cb = ghosttyWriteClipboard
+        // SAFETY: as above.
+        unsafe runtime.close_surface_cb = ghosttyCloseSurface
+        // SAFETY: ghostty_app_new copies the runtime config during the call and does not take
+        // over the built config, which `config` (above) now owns.
+        app = unsafe ghostty_app_new(&runtime, config)
         guard let app else {
             Self.logger.error("ghostty_app_new failed; terminal surfaces are disabled")
             return
         }
-        ghostty_app_set_focus(app, NSApp?.isActive ?? false)
+        // SAFETY: `app` was just created and is never freed.
+        unsafe ghostty_app_set_focus(app, NSApp?.isActive ?? false)
         traceHook.refreshDemand()
         installObservers()
     }
@@ -164,18 +184,26 @@ public final class GhosttyRuntime {
         let environment = ProcessEnvironmentGuard.process
         if !environment.isFrozen { GhosttyRuntime.prepareProcessEnvironment(resources: GhosttyRuntime.resourcesDirectory(), environmentGuard: environment) }
         environment.freeze()
-        return ghostty_init(UInt(CommandLine.argc), CommandLine.unsafeArgv) == 0
+        // SAFETY: unsafeArgv is the process's argv, argc entries long and valid for the
+        // process's lifetime; ghostty_init only reads it.
+        return unsafe ghostty_init(UInt(CommandLine.argc), CommandLine.unsafeArgv) == 0
     }()
 
     /// Adopts a config Ghostty already applied (`GHOSTTY_ACTION_CONFIG_CHANGE`).
     func adoptAppliedConfig(_ applied: ghostty_config_t) {
         adoptedDuringReload = true
-        replaceConfig(ghostty_config_clone(applied))
+        // SAFETY: `applied` is the config Ghostty passes to its CONFIG_CHANGE action, valid
+        // for that callback; the clone is a new handle this runtime owns.
+        unsafe replaceConfig(ghostty_config_clone(applied))
     }
 
     func replaceConfig(_ fresh: ghostty_config_t?) {
-        if let config { ghostty_config_free(config) }
-        config = fresh
+        // SAFETY: the old config is owned here and no reader keeps it past its turn
+        // (`config`'s note), so it is freed once, then replaced by `fresh`, which the
+        // caller hands over.
+        if let config { unsafe ghostty_config_free(config) }
+        // SAFETY: as above.
+        config = unsafe fresh
         hostKeybindCache.binds = nil
         // Themed configs were built on the old files: each keeps serving until its rebuild lands.
         themeConfigs.invalidate(loader: configLoader) { GhosttyConfigInputs.current(theme: $0) }
@@ -224,12 +252,41 @@ public final class GhosttyRuntime {
         return "theme = \(value)"
     }
 
+    /// A new config: `load` fills it, Ghostty finalizes it, `read` reads it, then it is freed: the
+    /// one owner of the configs built for defaults and tests. The handle given to the closures is
+    /// live for their calls and must not leave them. Nil when Ghostty cannot make a config.
+    nonisolated static func withScratchConfig<Result>(
+        load: (ghostty_config_t) -> Void, read: (ghostty_config_t) -> Result
+    ) -> Result? {
+        // SAFETY: a new config owned here and freed once (defer), after `read` returns; the
+        // closures get it only for their calls.
+        guard let config = unsafe ghostty_config_new() else { return nil }
+        // SAFETY: as above.
+        defer { unsafe ghostty_config_free(config) }
+        // SAFETY: as above.
+        unsafe load(config)
+        // SAFETY: as above.
+        unsafe ghostty_config_finalize(config)
+        // SAFETY: as above.
+        return unsafe read(config)
+    }
+
+    /// Loads one config line (`ghostty_config_load_string`) into `config`, which the caller
+    /// passes live, with `source` as the line's origin in Ghostty's diagnostics.
+    nonisolated static func loadConfigLine(_ line: String, into config: ghostty_config_t, source: String) {
+        // SAFETY: Swift passes NUL-terminated copies of `line` and `source` that live for
+        // the call, and the length is `line`'s UTF-8 count without the NUL; Ghostty copies
+        // what it keeps.
+        unsafe ghostty_config_load_string(config, line, UInt(line.utf8.count), source)
+    }
+
     /// What a view behind a surface paints (padding, placeholder while a
     /// surface swaps): the config background when opaque, nothing in a
     /// translucent window, where the window root paints the one sheet.
     public var backgroundColor: NSColor {
         var color = ghostty_config_color_s()
-        guard let config, Self.configGet(config, &color, key: "background") else {
+        // SAFETY: `config` is the live applied config (its note); background is a color.
+        guard let config, unsafe Self.configGet(config, &color, key: "background") else {
             return .black
         }
         guard backgroundOpacity >= 1 else { return .clear }
@@ -240,8 +297,10 @@ public final class GhosttyRuntime {
     /// configured foreground (Ghostty colors, never a fixed accent).
     var copyCursorColor: NSColor {
         var color = ghostty_config_color_s()
+        // SAFETY: `config` is the live applied config (its note); both keys read a color
+        // (ghostty-next PR 34 for cursor-color).
         guard let config,
-              Self.configGet(config, &color, key: "cursor-color") || Self.configGet(config, &color, key: "foreground")
+              unsafe Self.configGet(config, &color, key: "cursor-color") || Self.configGet(config, &color, key: "foreground")
         else { return .textColor }
         return NSColor(srgbRed: CGFloat(color.r) / 255, green: CGFloat(color.g) / 255, blue: CGFloat(color.b) / 255, alpha: 1)
     }
@@ -252,12 +311,25 @@ public final class GhosttyRuntime {
     public var backgroundOpacity: Double { configuredBackgroundOpacity }
 
     /// `ghostty_config_get` (ghostty.h:1321) for one key.
+    /// The caller passes a live config and a `T` that is the C type Ghostty writes for `key`
+    /// (ghostty.h names it per key: a bool, a number, a ghostty_config_*_s struct).
     nonisolated static func configGet<T: BitwiseCopyable>(_ config: ghostty_config_t, _ value: inout T, key: String) -> Bool {
-        withUnsafeMutablePointer(to: &value) { valuePointer in
-            key.withCString { keyPointer in
-                ghostty_config_get(config, valuePointer, keyPointer, UInt(key.utf8.count))
-            }
-        }
+        // SAFETY: Ghostty writes one value of the key's C type, which the caller matched to
+        // `T`, into `value`, which lives for the call; the key is a NUL-terminated copy Swift
+        // passes for the call, its length without the NUL.
+        unsafe ghostty_config_get(config, &value, key, UInt(key.utf8.count))
+    }
+
+    /// A string-valued key of a live `config` (an enum's name, a path), copied; nil when the
+    /// key is unreadable or unset.
+    nonisolated static func configString(_ config: ghostty_config_t, key: String) -> String? {
+        var value: UnsafePointer<CChar>?
+        // SAFETY: the caller's live config; a string key's C type is `const char *`, which
+        // `value` is (configGet's contract).
+        guard unsafe configGet(config, &value, key: key), let pointer = unsafe value else { return nil }
+        // SAFETY: Ghostty's string is NUL-terminated and owned by the live config;
+        // String(cString:) copies it at once.
+        return unsafe String(cString: pointer)
     }
 
     // MARK: Tick and focus
@@ -266,7 +338,8 @@ public final class GhosttyRuntime {
     func tick() {
         context.pending.store(false, ordering: .releasing)
         guard let app else { return }
-        ghostty_app_tick(app)
+        // SAFETY: `app` is live (never freed); a tick runs on the main actor as Ghostty asks.
+        unsafe ghostty_app_tick(app)
     }
 
     private func installObservers() {
@@ -288,7 +361,8 @@ public final class GhosttyRuntime {
             MainActor.assumeIsolated {
                 self?.inputSources.selectedSourceChanged()
                 guard let app = self?.app else { return }
-                ghostty_app_keyboard_changed(app)
+                // SAFETY: `app` is live (never freed).
+                unsafe ghostty_app_keyboard_changed(app)
             }
         })
         if let nsApp = NSApp {
@@ -304,7 +378,8 @@ public final class GhosttyRuntime {
     /// Forward app activation so Ghostty can dim unfocused cursors.
     public func setAppFocused(_ focused: Bool) {
         guard let app else { return }
-        ghostty_app_set_focus(app, focused)
+        // SAFETY: `app` is live (never freed).
+        unsafe ghostty_app_set_focus(app, focused)
     }
 
     /// Drives Ghostty's light/dark conditional config
@@ -320,7 +395,8 @@ public final class GhosttyRuntime {
                 reloadConfig()
             }
         }
-        ghostty_app_set_color_scheme(app, isDark ? GHOSTTY_COLOR_SCHEME_DARK : GHOSTTY_COLOR_SCHEME_LIGHT)
+        // SAFETY: `app` is live (never freed).
+        unsafe ghostty_app_set_color_scheme(app, isDark ? GHOSTTY_COLOR_SCHEME_DARK : GHOSTTY_COLOR_SCHEME_LIGHT)
         // A surface copies the app's scheme only when it is created; live
         // ones need it too (as Ghostty.app does per surface view), or open
         // terminals keep the old variant while the chrome switches.
@@ -342,8 +418,12 @@ public final class GhosttyRuntime {
     public nonisolated static func prepareProcessEnvironment(resources: String?, environmentGuard: ProcessEnvironmentGuard = .process) {
         environmentGuard.write("GhosttyRuntime.prepareProcessEnvironment") {
             guard let resources else { return }
-            if let current = getenv("GHOSTTY_RESOURCES_DIR"), String(cString: current) == resources { return }
-            setenv("GHOSTTY_RESOURCES_DIR", resources, 1)
+            // SAFETY: getenv's string is NUL-terminated and stays valid until the next
+            // environment write, which only this guarded block makes, after the copy.
+            if let current = unsafe getenv("GHOSTTY_RESOURCES_DIR"), unsafe String(cString: current) == resources { return }
+            // SAFETY: Swift passes NUL-terminated copies of both strings that live for the call;
+            // setenv copies them, inside the guard's one environment write.
+            unsafe setenv("GHOSTTY_RESOURCES_DIR", resources, 1)
         }
     }
 
@@ -351,9 +431,13 @@ public final class GhosttyRuntime {
     /// exports to its shells as `TERM_PROGRAM_VERSION`.
     public nonisolated static var version: String? {
         let info = ghostty_info()
-        guard let pointer = info.version, info.version_len > 0 else { return nil }
-        let bytes = UnsafeRawBufferPointer(start: pointer, count: Int(info.version_len))
-        return String(decoding: bytes, as: UTF8.self)
+        // SAFETY: ghostty_info's version is a static string of version_len bytes in the
+        // library's read-only data; String(decoding:) copies it.
+        guard let pointer = unsafe info.version, info.version_len > 0 else { return nil }
+        // SAFETY: as above.
+        let bytes = unsafe UnsafeRawBufferPointer(start: pointer, count: Int(info.version_len))
+        // SAFETY: as above.
+        return unsafe String(decoding: bytes, as: UTF8.self)
     }
 }
 
@@ -363,9 +447,13 @@ nonisolated final class RuntimeCallbackContext: Sendable {
     let pending = Atomic<Bool>(false)
     @MainActor weak var runtime: GhosttyRuntime?
 
+    /// `raw` must be the runtime's userdata (`ghostty_runtime_config_s.userdata`) or nil.
     static func from(_ raw: UnsafeMutableRawPointer?) -> RuntimeCallbackContext? {
-        guard let raw else { return nil }
-        return Unmanaged<RuntimeCallbackContext>.fromOpaque(raw).takeUnretainedValue()
+        // SAFETY: the caller passes the userdata GhosttyRuntime.init made from its context,
+        // which the never-freed runtime keeps alive; taken unretained, as it was passed.
+        guard let raw = unsafe raw else { return nil }
+        // SAFETY: as above.
+        return unsafe Unmanaged<RuntimeCallbackContext>.fromOpaque(raw).takeUnretainedValue()
     }
 }
 

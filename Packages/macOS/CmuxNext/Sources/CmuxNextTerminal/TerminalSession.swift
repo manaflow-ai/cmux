@@ -194,7 +194,7 @@ public final class TerminalSession {
         surfaceView = TerminalSurfaceView(io: ioMode, input: input, session: nil, echoStages: echoStages, hangWatch: hangWatch,
                                           secureInput: secureInput, modifiers: modifiers, pointerFrames: pointerFrames,
                                           gpuResidency: gpuResidency)
-        surfaceView.bridge.takeUnretainedValue().installLinkFilter(nil)
+        surfaceView.bridgeObject.installLinkFilter(nil)
         surfaceView.session = self
         surfaceView.ownsGeometry = ownsGeometry
         view.install(surfaceView)
@@ -226,7 +226,7 @@ public final class TerminalSession {
     /// that names no file is plain text, with no underline and no open. Gets the text and the
     /// folder the shell last reported; runs off the main thread. Nil: every detected link is one.
     public private(set) var linkCheck: TerminalLinkCheck? {
-        didSet { surfaceView.bridge.takeUnretainedValue().linkFilter.setCheck(linkCheck) }
+        didSet { surfaceView.bridgeObject.linkFilter.setCheck(linkCheck) }
     }
 
     /// Activates `text` as a Cmd-click on a link Ghostty detected does (its `open_url` action).
@@ -246,9 +246,9 @@ public final class TerminalSession {
     /// program enabled it). The encoded bytes reach `io.write`.
     public func sendText(_ text: String) {
         guard let surface = surfaceView.surface, !text.isEmpty else { return }
-        text.withCString { pointer in
-            ghostty_surface_text(surface, pointer, UInt(text.utf8.count))
-        }
+        // SAFETY: the view's live surface (TerminalSurfaceView.surface); Swift passes a NUL-terminated
+        // copy of `text` for the call, its length without the NUL, and Ghostty copies what it keeps.
+        unsafe ghostty_surface_text(surface, text, UInt(text.utf8.count))
     }
 
     /// Downscaled image of the last presented frame, for static previews.
@@ -413,8 +413,8 @@ public final class TerminalSession {
         fresh.isRenderingSuspended = isRenderingSuspended
         fresh.releasesGPUWhilePaused = releasesGPUWhilePaused
         surfaceView = fresh
-        fresh.bridge.takeUnretainedValue().installLinkFilter(linkCheck)
-        fresh.bridge.takeUnretainedValue().linkFilter.setWorkingDirectory(model.workingDirectory)
+        fresh.bridgeObject.installLinkFilter(linkCheck)
+        fresh.bridgeObject.linkFilter.setWorkingDirectory(model.workingDirectory)
         view.install(fresh)
         frameHold.begin(old: old, fresh: fresh, in: view) // no empty frame until the fresh one draws (cx-6so.23)
         applyTheme(to: fresh, clearing: false, animated: false)
@@ -436,9 +436,12 @@ public final class TerminalSession {
         guard let surface = surfaceView.surface else { return }
         surfaceView.applyColorTransition(animated: animated)
         if let theme {
-            ghostty_surface_update_config(surface, theme.config)
+            // SAFETY: the view's live surface (TerminalSurfaceView.surface) and the theme's live
+            // config, which `theme` holds for the call; Ghostty copies what it keeps.
+            unsafe ghostty_surface_update_config(surface, theme.config)
         } else if clearing, let config = GhosttyRuntime.shared.config {
-            ghostty_surface_update_config(surface, config)
+            // SAFETY: as above, with the runtime's live applied config (GhosttyRuntime.config).
+            unsafe ghostty_surface_update_config(surface, config)
         }
     }
 

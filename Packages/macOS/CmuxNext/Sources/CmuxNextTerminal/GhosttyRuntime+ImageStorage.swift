@@ -12,11 +12,12 @@ extension GhosttyRuntime {
     nonisolated static func loadImageStorageDefaultIfUnset(into config: ghostty_config_t) {
         let key = "image-storage-limit"
         var source = ghostty_config_source_s()
-        let explicitlySet = key.withCString {
-            ghostty_config_key_source(config, $0, UInt(key.utf8.count), &source)
-        }
+        // SAFETY: the caller passes a live config; Swift passes a NUL-terminated copy of `key`
+        // for the call, and Ghostty fills `source`, which lives for the call.
+        let explicitlySet = unsafe ghostty_config_key_source(config, key, UInt(key.utf8.count), &source)
         guard !explicitlySet else { return }
         let line = "image-storage-limit = \(cmuxDefaultImageStorageBytes)"
-        line.withCString { ghostty_config_load_string(config, $0, UInt(line.utf8.count), "cmux-next") }
+        // SAFETY: the caller passes a live config.
+        unsafe loadConfigLine(line, into: config, source: "cmux-next")
     }
 }
