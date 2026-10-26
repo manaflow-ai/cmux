@@ -1,6 +1,7 @@
 import CmuxNextBridge
 import CmuxNextCompat
 import CmuxNextMemory
+import CmuxNextResources
 import CmuxNextSettings
 
 // Browser hibernation and the memory-budgeted warm sets
@@ -19,7 +20,7 @@ extension AppServices {
         hibernation.isDownloading = { [weak self] key in self?.cache.pageRequests.downloads.isDownloading(tab: key) ?? false }
         hibernation.measureMemory = { [weak self] in
             guard let self else { return [:] }
-            return await self.resources.sample(.everything).browserTabMemory()
+            return await self.resources.sample(.everything).tabMemory(kinds: TabResourceKind.browserPages)
         }
         hibernation.agentPages = AgentPageHibernation(services: self)
         hibernation.follow(settings)
