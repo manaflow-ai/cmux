@@ -70,15 +70,31 @@ impl CloudError {
 impl fmt::Display for CloudError {
     fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Rejected { code, message, .. } if message.is_empty() || message == code => {
-                formatter.write_str(code)
-            }
-            Self::Rejected { code, message, .. } => write!(formatter, "{code}: {message}"),
-            Self::SignedOut => formatter.write_str("not signed in to cmux Cloud"),
-            Self::SessionExpired => formatter.write_str("the cmux Cloud session expired"),
-            Self::Unauthenticated => formatter.write_str("cmux Cloud refused the session"),
-            Self::Unavailable(detail) => write!(formatter, "cmux Cloud is unavailable: {detail}"),
-            Self::BadRequest(detail) => write!(formatter, "bad request: {detail}"),
+            Self::Rejected { code, message, .. } if message.is_empty() || message == code => write!(
+                formatter,
+                "cmux Cloud conversation request failed ({code}); retry the command",
+            ),
+            Self::Rejected { code, message, .. } => write!(
+                formatter,
+                "cmux Cloud conversation request failed: {message} ({code}); retry the command",
+            ),
+            Self::SignedOut => formatter.write_str(
+                "cmux Cloud conversation request failed: not signed in; run `cmux cloud sign-in`",
+            ),
+            Self::SessionExpired => formatter.write_str(
+                "cmux Cloud conversation request failed: the session expired; run `cmux cloud sign-in`",
+            ),
+            Self::Unauthenticated => formatter.write_str(
+                "cmux Cloud conversation request failed: the session was refused; run `cmux cloud sign-in`",
+            ),
+            Self::Unavailable(detail) => write!(
+                formatter,
+                "cmux Cloud conversation request failed: {detail}; retry the command or run `cmux cloud diagnostics`",
+            ),
+            Self::BadRequest(detail) => write!(
+                formatter,
+                "cmux Cloud conversation request had invalid arguments: {detail}; retry with valid arguments",
+            ),
         }
     }
 }

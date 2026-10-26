@@ -155,7 +155,7 @@ pub(crate) fn connect<C: ControlPlane>(
     let attach = server.attach_mut();
     attach.supervisor.pump();
     if let Some(outcome) = attach.supervisor.outcome(machine, generation) {
-        return outcome.map_err(link_failure);
+        return outcome.map_err(|failure| link_failure_for(machine, failure));
     }
     if attach.park_link_waits {
         // The serve loop never waits for a link: the op is parked and runs
@@ -163,7 +163,10 @@ pub(crate) fn connect<C: ControlPlane>(
         attach.parked = Some((machine.to_owned(), generation));
         return Err(CloudError::new(super::park::LINK_WAIT, "the link is connecting"));
     }
-    attach.supervisor.wait_connect(machine, generation).map_err(link_failure)
+    attach
+        .supervisor
+        .wait_connect(machine, generation)
+        .map_err(|failure| link_failure_for(machine, failure))
 }
 
 /// How a connect started.
@@ -176,20 +179,37 @@ pub(crate) enum Begun {
 
 /// A link failure as an op error.
 pub(crate) fn link_failure(failure: LinkFailure) -> CloudError {
+    link_failure_for("unknown", failure)
+}
+
+pub(crate) fn link_failure_for(machine: &str, failure: LinkFailure) -> CloudError {
+    let retry = format!("run `cmux cloud ssh --target machine:{machine}` again");
     match failure {
-        LinkFailure::Revoked(reason) => CloudError::new(LINK_REVOKED, reason),
-        LinkFailure::Down { retryable, reason } => {
-            CloudError { retryable, ..CloudError::new(LINK_DOWN, reason) }
-        }
-        LinkFailure::Spawn(why) => {
-            CloudError::new(LINK_UNAVAILABLE, format!("the link process did not start: {why}"))
-        }
-        LinkFailure::Dial(code) => dial_error(&code),
+        LinkFailure::Revoked(reason) => CloudError::new(
+            LINK_REVOKED,
+            format!("Cloud machine {machine}'s link was revoked: {reason}; reconnect with {retry}"),
+        ),
+        LinkFailure::Down { retryable, reason } => CloudError {
+            retryable,
+            ..CloudError::new(
+                LINK_DOWN,
+                format!(
+                    "Cloud machine {machine}'s link went down: {reason}; reconnect with {retry}"
+                ),
+            )
+        },
+        LinkFailure::Spawn(why) => CloudError::new(
+            LINK_UNAVAILABLE,
+            format!(
+                "Cloud machine {machine}'s link process did not start: {why}; run `cmux cloud diagnostics`"
+            ),
+        ),
+        LinkFailure::Dial(code) => dial_error(machine, &code),
     }
 }
 
 /// A `link.dial` refusal as an op error (contract 1.7 mapping).
-fn dial_error(code: &DialCode) -> CloudError {
+fn dial_error(machine: &str, code: &DialCode) -> CloudError {
     let retryable = |code: &'static str, message: &str| CloudError {
         retryable: true,
         ..CloudError::new(code, message.to_owned())
@@ -197,19 +217,38 @@ fn dial_error(code: &DialCode) -> CloudError {
     match code {
         DialCode::HostPaused => retryable(
             codes::MACHINE_PAUSED,
-            "The machine is still paused after a start: try again when it runs",
+            &format!(
+                "Cloud machine {machine} is still paused after a start; run `cmux cloud resume-machine --target machine:{machine}` and try again"
+            ),
         ),
-        DialCode::UnknownHost => {
-            CloudError::new(codes::NOT_FOUND, "cmux Cloud does not know this machine's host")
-        }
-        DialCode::NotAuthorized => {
-            CloudError::new(codes::FORBIDDEN, "This Mac may not reach this machine")
-        }
-        DialCode::Unreachable => retryable(LINK_DOWN, "No network path reached the machine"),
-        DialCode::BadRequest => {
-            CloudError::new(LINK_UNAVAILABLE, "cmux link did not understand the dial")
-        }
-        DialCode::Unavailable(why) => retryable(LINK_UNAVAILABLE, why),
+        DialCode::UnknownHost => CloudError::new(
+            codes::NOT_FOUND,
+            format!("Cloud machine {machine} has no known host; run `cmux cloud list-machines`"),
+        ),
+        DialCode::NotAuthorized => CloudError::new(
+            codes::FORBIDDEN,
+            format!(
+                "this Mac may not reach Cloud machine {machine}; run `cmux cloud diagnostics` or ask the team admin to change the policy"
+            ),
+        ),
+        DialCode::Unreachable => retryable(
+            LINK_DOWN,
+            &format!(
+                "no network path reached Cloud machine {machine}; run `cmux cloud diagnostics`"
+            ),
+        ),
+        DialCode::BadRequest => CloudError::new(
+            LINK_UNAVAILABLE,
+            format!(
+                "the link to Cloud machine {machine} rejected the dial; run `cmux cloud diagnostics`"
+            ),
+        ),
+        DialCode::Unavailable(why) => retryable(
+            LINK_UNAVAILABLE,
+            &format!(
+                "Cloud machine {machine} link is unavailable: {why}; run `cmux cloud diagnostics`"
+            ),
+        ),
     }
 }
 
@@ -257,7 +296,7 @@ pub(crate) fn begin_connect<C: ControlPlane>(
     // (no loop), and the one after it may start again.
     let restart = match attach.supervisor.refusal(machine) {
         Some(DialCode::HostPaused) if attach.paused_restarts.remove(machine) => {
-            return Err(dial_error(&DialCode::HostPaused));
+            return Err(dial_error(machine, &DialCode::HostPaused));
         }
         Some(DialCode::HostPaused) => {
             attach.paused_restarts.insert(machine.to_owned());
@@ -325,7 +364,11 @@ pub(crate) fn begin_connect<C: ControlPlane>(
     if let Some(generation) = attach.supervisor.connecting(machine) {
         return Ok(Begun::Connecting(generation));
     }
-    attach.supervisor.begin(machine, &command).map(Begun::Connecting).map_err(link_failure)
+    attach
+        .supervisor
+        .begin(machine, &command)
+        .map(Begun::Connecting)
+        .map_err(|failure| link_failure_for(machine, failure))
 }
 
 /// Reads the machine when the projection does not know it, and starts it
