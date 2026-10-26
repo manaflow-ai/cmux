@@ -159,14 +159,10 @@ public final class AgentPaneShell {
                 continuation.yield(.output(data))
             }
         }
-        DispatchQueue.global(qos: .utility).async {
-            var status: Int32 = 0
-            var result: pid_t
-            // wakeup-allow: a blocking wait for the child's exit, retried only when a signal interrupts it.
-            repeat { result = waitpid(pid, &status, 0) } while result == -1 && errno == EINTR
-            // ECHILD: someone else reaped it; the exit status is unknown.
-            continuation.yield(.exit(result == pid ? status : nil))
-        }
+        // Reaped from an exit source on its own queue, so no thread waits in `waitpid` while the command runs.
+        // A nil status (ECHILD): someone else reaped it; the exit status is unknown.
+        ChildExitWatch(pid: pid, queue: DispatchQueue(label: "cmux.next.agent-pane.shell-reap.\(pid)", qos: .utility))
+            .start { status in continuation.yield(.exit(status)) }
         // Reading ends once the run has both its exit and its EOF, or when the drain after exit
         // gives up on a pipe a background child keeps open; either way the pipe closes.
         run.stopReading = {
