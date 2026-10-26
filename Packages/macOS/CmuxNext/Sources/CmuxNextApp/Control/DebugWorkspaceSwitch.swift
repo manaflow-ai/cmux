@@ -11,8 +11,8 @@ import CmuxNextSignposts
 ///
 /// Every switch is also the `switch.workspace` trace interval in every build, recording or not (perf-hot
 /// `workspace-switch`): an `os_signpost` interval and a ring async pair from the intent (begin `arg0`: the
-/// input age in microseconds) to the `CommitBoundary` after the turn that shows it. A recorded row's
-/// `signpost_ms` is that interval.
+/// input age in microseconds, all ones without an input event) to the `CommitBoundary` after the turn that
+/// shows it. A recorded row starts at that interval's begin, and its `signpost_ms` is the interval.
 @MainActor
 enum DebugWorkspaceSwitch {
     static let timer = SwitchFrameTimer(owner: "debug.workspace_switch", signpost: SignpostName.switchWorkspace)

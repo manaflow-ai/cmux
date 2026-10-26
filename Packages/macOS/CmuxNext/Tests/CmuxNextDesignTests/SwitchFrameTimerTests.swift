@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextSignposts
 @testable import CmuxNextTrace
@@ -7,21 +8,20 @@ import QuartzCore
 import Testing
 
 /// `switch.workspace` (p09-observability 027): a ``SwitchFrameTimer`` with a signpost name makes every
-/// switch one trace interval, recording or not: the intent begins the ring async pair and the
-/// `CommitBoundary` after the turn that shows the switch ends it. A recorded row's `signpost_ms` is the
-/// same interval, read from the same two timestamps.
+/// switch one ``Signposter`` interval, recording or not: the intent begins its ring async pair and the
+/// `CommitBoundary` after the turn that shows the switch ends it. A recorded row starts at the interval's
+/// begin and its `signpost_ms` ends at the boundary, so the Debug row and the trace agree.
 @MainActor @Suite(.serialized)
 struct SwitchFrameTimerTests {
     private let key = "window-1"
 
-    /// A runtime with only the `switch` category on (or every category off).
-    private func runtime(switchOn: Bool = true) -> TraceRuntime {
-        let runtime = TraceRuntime(role: .app)
+    /// A runtime with only the `switch` category on (or every category off) that keeps its records.
+    private func runtime(switchOn: Bool = true) -> (TraceRuntime, SwitchRecordLog) {
+        let log = SwitchRecordLog()
+        let runtime = TraceRuntime(role: .app, clock: TraceClock(), stubRecorder: { log.append($0) })
         runtime.setCategoryMask(switchOn ? 1 << UInt64(SignpostCategory.switch.traceBit) : 0)
-        return runtime
+        return (runtime, log)
     }
-
-    private func records(_ runtime: TraceRuntime) -> UInt64 { runtime.stubRecordCount.load(ordering: .relaxed) }
 
     /// Runs one main run-loop turn that polls and exits without waiting: its exit fires the boundary.
     private func pollingTurn() { turn(upTo: 0) }
@@ -36,64 +36,85 @@ struct SwitchFrameTimerTests {
     }
 
     @Test func aSwitchIsOneAsyncPairEndedAtItsCommitBoundaryWhileNotRecording() {
-        let trace = runtime()
+        let (trace, log) = runtime()
         let timer = SwitchFrameTimer(owner: "test.switch", signpost: .switchWorkspace, trace: trace)
         #expect(!timer.isRecording)
         timer.began(key)
-        #expect(records(trace) == 1, "the intent writes the AB")
+        #expect(log.phases == [.asyncBegin], "the intent writes the AB")
         timer.shown(key, in: nil)
-        #expect(records(trace) == 1, "the AE waits for the turn's commit boundary")
+        #expect(log.phases == [.asyncBegin], "the AE waits for the turn's commit boundary")
         pollingTurn()
-        #expect(records(trace) == 2, "the boundary writes the AE")
+        #expect(log.phases == [.asyncBegin, .asyncEnd], "the boundary writes the AE")
+        #expect(log.records.allSatisfy { $0.name == SignpostName.switchWorkspace.rawValue })
+        #expect(log.records.last?.arg0 == 0, "a committed boundary ends it as committed")
+        #expect(log.records.first?.arg1 == log.records.last?.arg1, "one async id pairs the AB and the AE")
         pollingTurn()
-        #expect(records(trace) == 2, "the boundary runs once")
+        #expect(log.records.count == 2, "the boundary runs once")
     }
 
-    @Test func aSecondIntentBeforeTheFirstShowsEndsTheFirstPair() {
-        let trace = runtime()
+    @Test func theBeginCarriesTheInputAgeInMicroseconds() throws {
+        let (trace, log) = runtime()
+        let timer = SwitchFrameTimer(owner: "test.switch", signpost: .switchWorkspace, trace: trace)
+        let now = CACurrentMediaTime()
+        timer.began(key, at: now, inputTimestamp: now - 0.005)
+        timer.began("window-2")
+        let ages = log.records.filter { $0.phase == .asyncBegin }.map(\.arg0)
+        try #require(ages.count == 2)
+        #expect(ages[0] == 5_000, "a key or click 5 ms old")
+        #expect(ages[1] == .max, "no input event: all ones")
+    }
+
+    @Test func aSecondIntentBeforeTheFirstShowsEndsTheFirstPairAsMissed() {
+        let (trace, log) = runtime()
         let timer = SwitchFrameTimer(owner: "test.switch", signpost: .switchWorkspace, trace: trace)
         timer.began(key)
         timer.began(key)
-        #expect(records(trace) == 3, "AB, AE (superseded), AB")
+        #expect(log.phases == [.asyncBegin, .asyncEnd, .asyncBegin], "AB, AE (superseded), AB")
+        #expect(log.records[1].arg0 == 1, "a superseded switch ends as a missed commit, so readers drop it")
+        #expect(log.records[0].arg1 == log.records[1].arg1)
+        #expect(log.records[1].arg1 != log.records[2].arg1)
         timer.shown(key, in: nil)
         pollingTurn()
-        #expect(records(trace) == 4)
+        #expect(log.phases == [.asyncBegin, .asyncEnd, .asyncBegin, .asyncEnd])
+        #expect(log.records[3].arg0 == 0)
     }
 
     @Test func aForgottenSwitchEndsItsPairAndAShownOneWithoutAnIntentWritesNothing() {
-        let trace = runtime()
+        let (trace, log) = runtime()
         let timer = SwitchFrameTimer(owner: "test.switch", signpost: .switchWorkspace, trace: trace)
         timer.began(key)
         timer.forget(key)
-        #expect(records(trace) == 2)
+        #expect(log.phases == [.asyncBegin, .asyncEnd])
+        #expect(log.records.last?.arg0 == 1)
         timer.shown(key, in: nil)
         pollingTurn()
-        #expect(records(trace) == 2)
+        #expect(log.records.count == 2)
     }
 
     @Test func theSwitchCategoryOffWritesNoRecord() {
-        let trace = runtime(switchOn: false)
+        let (trace, log) = runtime(switchOn: false)
         let timer = SwitchFrameTimer(owner: "test.switch", signpost: .switchWorkspace, trace: trace)
         timer.began(key)
         timer.shown(key, in: nil)
         pollingTurn()
-        #expect(records(trace) == 0)
+        #expect(log.records.isEmpty)
     }
 
     @Test func aTimerWithoutASignpostWritesNoRecord() {
-        let trace = runtime()
+        let (trace, log) = runtime()
         let timer = SwitchFrameTimer(owner: "test.switch", trace: trace)
         timer.start()
         timer.began(key)
         timer.shown(key, in: nil)
         pollingTurn()
         timer.stop()
-        #expect(records(trace) == 0)
+        #expect(log.records.isEmpty)
     }
 
     /// A recorded switch in a real window: the row waits for both the Core Animation commit (``CommitProbe``)
-    /// and the boundary, and its `signpost_ms` lies between the shown selection and the next vsync tick.
-    @Test func aRecordedRowCarriesTheSignpostInterval() throws {
+    /// and the boundary, and its `signpost_ms` is the ring pair's duration within 0.1 ms (the acceptance of
+    /// task 027: the Debug row and the signpost read the same timestamps).
+    @Test func aRecordedRowAgreesWithTheRingPairWithinATenthOfAMillisecond() throws {
         _ = NSApplication.shared
         let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 120, height: 80), styleMask: [.borderless],
                               backing: .buffered, defer: false)
@@ -104,7 +125,7 @@ struct SwitchFrameTimerTests {
         window.contentView = view
         window.orderFrontRegardless()
         let frames = FrameScheduler.testing { _ in TimerFakeLink() }
-        let trace = runtime()
+        let (trace, log) = runtime()
         let timer = SwitchFrameTimer(owner: "test.switch", signpost: .switchWorkspace, trace: trace, frames: frames)
         timer.start()
         defer { timer.stop() }
@@ -115,12 +136,25 @@ struct SwitchFrameTimerTests {
         try #require(!timer.awaitsCommit, "the window's commit never displayed the probe")
         frames.frameDidFire(timestamp: CACurrentMediaTime() + 0.001, refreshInterval: 1.0 / 120)
         let row = try #require(timer.samples.first)
-        #expect(records(trace) == 2)
+        #expect(log.phases == [.asyncBegin, .asyncEnd])
         let signpost = try #require(row["signpost_ms"])
+        let ringMs = Double(log.records[1].tNanos - log.records[0].tNanos) / 1_000_000
+        #expect(abs(signpost - ringMs) < 0.1, "Debug \(signpost) ms, ring \(ringMs) ms")
         let apply = try #require(row["apply_ms"])
         #expect(signpost >= apply, "the pair ends after the switch showed: \(row)")
         #expect(row["signpost_missed"] == nil, "a polling turn's exit is a committed boundary: \(row)")
     }
+}
+
+/// The records a test runtime's stub writes, in order.
+private final class SwitchRecordLog: Sendable {
+    private let state = Mutex<[TraceRuntime.StubRecord]>([])
+
+    func append(_ record: TraceRuntime.StubRecord) { state.withLock { $0.append(record) } }
+
+    var records: [TraceRuntime.StubRecord] { state.withLock { $0 } }
+
+    var phases: [TraceRuntime.Phase] { records.map(\.phase) }
 }
 
 @MainActor
