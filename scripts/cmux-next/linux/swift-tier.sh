@@ -18,6 +18,9 @@
 #
 # Every SwiftPM command gets --only-use-versions-from-resolved-file, so a
 # manifest change that needs new pins fails instead of resolving silently.
+# A package pinned in both files must have the same revision in both, so the
+# Linux tier compiles against the dependency APIs of the macOS build; a run
+# fails when Package.resolved bumped a shared pin.
 # --update-resolved is the one way to change Package.linux.resolved.
 #
 # Usage:
@@ -31,9 +34,9 @@
 #                       elsewhere the first run copies (about 120 MB) and
 #                       later runs copy only changed files.
 #   --update-resolved   resolve without the lock and write the result to
-#                       Package.linux.resolved (seeded from it, or from the
-#                       macOS Package.resolved the first time, so shared pins
-#                       keep the macOS versions).
+#                       Package.linux.resolved. The seed is the Linux pins
+#                       with every macOS Package.resolved pin laid over them,
+#                       so shared pins take the macOS revisions.
 #   --print-paths       print the source copy, package path and scratch path.
 # Environment:
 #   SWIFT               swift executable (default: swift on PATH; install it
@@ -45,7 +48,7 @@
 #   swift-tier.sh package dump-package
 set -euo pipefail
 
-repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
+repo_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd -P)"
 package_rel="Packages/macOS/CmuxNext"
 # Top-level entries the manifest reaches through path dependencies
 # (CmuxAuthRuntime depends on vendor/stack-auth-swift-sdk-prerelease).
@@ -54,6 +57,49 @@ checkout_resolved="$repo_root/$package_rel/Package.resolved"
 linux_resolved="$repo_root/$package_rel/Package.linux.resolved"
 
 usage() { sed -n '2,/^set -euo/{/^set -euo/d;s/^# \{0,1\}//;p}' "${BASH_SOURCE[0]}"; }
+
+# pins seed LINUX MACOS OUT: the Linux pins with the macOS pins laid over them
+#   (macOS wins per identity), without originHash so SwiftPM checks every pin
+#   against the manifest. Either input may be missing.
+# pins check LINUX MACOS: fail naming each identity pinned in both files at
+#   different revisions.
+pins() {
+  python3 -I - "$@" <<'PY'
+import json, os, sys
+
+def load(path):
+    if not os.path.isfile(path):
+        return {}, {}
+    with open(path) as f:
+        data = json.load(f)
+    return data, {pin["identity"]: pin for pin in data.get("pins", [])}
+
+def revision(pin):
+    return pin.get("state", {}).get("revision")
+
+command, linux_path, mac_path = sys.argv[1:4]
+linux, linux_pins = load(linux_path)
+mac, mac_pins = load(mac_path)
+if command == "seed":
+    seed = dict(linux or mac)
+    seed.pop("originHash", None)
+    merged = {**linux_pins, **mac_pins}
+    seed["pins"] = [merged[identity] for identity in sorted(merged)]
+    seed.setdefault("version", 3)
+    with open(sys.argv[4], "w") as f:
+        json.dump(seed, f, indent=2)
+        f.write("\n")
+else:
+    drift = sorted(identity for identity in linux_pins.keys() & mac_pins.keys()
+                   if revision(linux_pins[identity]) != revision(mac_pins[identity]))
+    for identity in drift:
+        print(f"error: shared pin {identity} differs from Package.resolved "
+              f"({revision(linux_pins[identity])} in Package.linux.resolved, "
+              f"{revision(mac_pins[identity])} in Package.resolved); "
+              "run swift-tier.sh --update-resolved", file=sys.stderr)
+    sys.exit(1 if drift else 0)
+PY
+}
 
 scratch_root="${CMUX_SWIFT_TIER_SCRATCH:-}"
 mode=run
@@ -80,8 +126,11 @@ if [[ -z "$scratch_root" ]]; then
   checkout_key="$(printf '%s' "$repo_root" | sha256sum | cut -c1-12)"
   scratch_root="/tmp/cmux-swift-tier/$checkout_key"
 fi
+# Canonical paths, so a relative path, `..` or a symlink cannot name a
+# directory inside the checkout.
+scratch_root="$(realpath -m -- "$scratch_root")"
 case "$scratch_root" in
-  ""|"/") echo "error: the scratch root must name a directory" >&2; exit 2 ;;
+  "/") echo "error: the scratch root must name a directory" >&2; exit 2 ;;
   "$repo_root"|"$repo_root"/*) echo "error: the scratch root must be outside the checkout" >&2; exit 2 ;;
 esac
 src="$scratch_root/src"
@@ -99,9 +148,13 @@ command -v "$swift_bin" >/dev/null 2>&1 || {
   exit 1
 }
 command -v rsync >/dev/null 2>&1 || { echo "error: rsync is required" >&2; exit 1; }
+command -v python3 >/dev/null 2>&1 || { echo "error: python3 is required" >&2; exit 1; }
 if [[ "$mode" == run && ! -f "$linux_resolved" ]]; then
   echo "error: $package_rel/Package.linux.resolved is missing; run $0 --update-resolved" >&2
   exit 1
+fi
+if [[ "$mode" == run ]]; then
+  pins check "$linux_resolved" "$checkout_resolved" || exit 1
 fi
 
 mkdir -p "$src" "$build"
@@ -131,10 +184,8 @@ pins_marker="$build/cmux-linux-resolved.sha256"
 pins_digest() { sha256sum <"$1" | cut -d' ' -f1; }
 
 if [[ "$mode" == update ]]; then
-  if [[ -f "$linux_resolved" ]]; then
-    cp "$linux_resolved" "$scratch_resolved"
-  elif [[ -f "$checkout_resolved" ]]; then
-    cp "$checkout_resolved" "$scratch_resolved"
+  if [[ -f "$linux_resolved" || -f "$checkout_resolved" ]]; then
+    pins seed "$linux_resolved" "$checkout_resolved" "$scratch_resolved"
   fi
   "$swift_bin" package --package-path "$package_path" --scratch-path "$build" resolve
   cp "$scratch_resolved" "$linux_resolved.tmp"
@@ -145,15 +196,17 @@ if [[ "$mode" == update ]]; then
 else
   cp "$linux_resolved" "$scratch_resolved"
   digest="$(pins_digest "$linux_resolved")"
+  # The marker follows the pins, not the result: a run that fails to compile
+  # keeps the state, so the next run does not clone every dependency again.
   if [[ "$(cat "$pins_marker" 2>/dev/null)" != "$digest" ]]; then
-    rm -f "$pins_marker" "$build/workspace-state.json"
+    rm -f "$build/workspace-state.json"
+    printf '%s\n' "$digest" >"$pins_marker"
   fi
   status=0
   # swift package takes these options before its subcommand; build, test and
   # run take them anywhere.
   "$swift_bin" "${swift_args[0]}" --package-path "$package_path" --scratch-path "$build" \
     --only-use-versions-from-resolved-file "${swift_args[@]:1}" || status=$?
-  ((status)) || echo "$digest" >"$pins_marker"
 fi
 
 if [[ "$(resolved_digest)" != "$checkout_resolved_before" ]]; then

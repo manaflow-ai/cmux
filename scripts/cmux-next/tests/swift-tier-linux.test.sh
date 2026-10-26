@@ -12,7 +12,13 @@
 #      the macOS pins minus sentry-cocoa and Sparkle) still build;
 #   4. a Package.linux.resolved without a needed pin fails the build and still
 #      writes nothing (--only-use-versions-from-resolved-file);
-#   5. control: the same Linux resolve run in the checkout itself rewrites
+#   5. a build that fails to compile keeps the workspace state: the next run
+#      reuses the dependency checkouts instead of cloning them again;
+#   6. a shared pin bumped in Package.resolved fails the run until
+#      --update-resolved, which takes the macOS revision;
+#   7. a scratch root inside the checkout (relative, or through a symlink) is
+#      refused with exit 2 and writes nothing;
+#   8. control: the same Linux resolve run in the checkout itself rewrites
 #      Package.resolved, which is what the scratch copy prevents.
 # Needs swift (SWIFT=..., or scripts/cmux-next/linux/setup-swift.sh), python3
 # and network access to github.com/apple.
@@ -43,7 +49,7 @@ import PackageDescription
 
 let linux = ProcessInfo.processInfo.environment["CMUX_SWIFTPM_TARGET_LINUX"] == "1"
 var dependencies: [Package.Dependency] = [
-    .package(url: "https://github.com/apple/swift-collections.git", exact: "1.1.4"),
+    .package(url: "https://github.com/apple/swift-collections.git", .upToNextMinor(from: "1.1.0")),
 ]
 var tierDependencies: [Target.Dependency] = [.product(name: "DequeModule", package: "swift-collections")]
 if linux {
@@ -74,6 +80,7 @@ tier() { SWIFT="$swift_bin" "$repo/scripts/cmux-next/linux/swift-tier.sh" --scra
 
 # The macOS pins: what a macOS resolve of the fixture writes.
 (cd "$pkg" && "$swift_bin" package resolve >/dev/null)
+printf '.build/\n.swiftpm/\n' >"$repo/.gitignore"
 git -C "$repo" init -q
 git -C "$repo" add -A
 commit fixture
@@ -127,7 +134,68 @@ grep -q 'out-of-date resolved file' "$work/stale.err" || fail "unexpected error:
 [[ -z "$(porcelain)" ]] || fail "a failed build changed the checkout: $(porcelain)"
 echo "ok 4 a missing pin fails and writes nothing"
 
+cp "$work/linux.resolved" "$pkg/Package.linux.resolved"
+cp "$pkg/Sources/Tier/Tier.swift" "$work/Tier.swift"
+echo 'public let tierBroken: Int = "not an int"' >>"$pkg/Sources/Tier/Tier.swift"
+commit compile-error
+checkout_dir="$scratch/build/checkouts/swift-collections"
+if tier build >/dev/null 2>&1; then fail "the compile error built"; fi
+[[ -d "$checkout_dir" ]] || fail "no dependency checkout after the first failed build"
+checkout_inode="$(inode "$checkout_dir")"
+if tier build >/dev/null 2>&1; then fail "the compile error built"; fi
+[[ -f "$scratch/build/workspace-state.json" ]] || fail "a failed build dropped the workspace state"
+[[ "$(inode "$checkout_dir")" == "$checkout_inode" ]] \
+  || fail "the second failed build cloned swift-collections again"
+[[ -z "$(porcelain)" ]] || fail "a failed compile changed the checkout: $(porcelain)"
+cp "$work/Tier.swift" "$pkg/Sources/Tier/Tier.swift"
+commit compile-fixed
+echo "ok 5 a failed compile keeps the workspace state"
+
+collections_url="https://github.com/apple/swift-collections.git"
+old_revision="$(git ls-remote "$collections_url" refs/tags/1.1.0 'refs/tags/1.1.0^{}' | sort -k2 | tail -n1 | cut -f1)"
+[[ -n "$old_revision" ]] || fail "no swift-collections 1.1.0 tag"
+python3 -I - "$pkg/Package.resolved" "$old_revision" <<'PY'
+import json, sys
+path, revision = sys.argv[1], sys.argv[2]
+with open(path) as f:
+    resolved = json.load(f)
+pin = next(pin for pin in resolved["pins"] if pin["identity"] == "swift-collections")
+if pin["state"]["revision"] == revision:
+    sys.exit("the fixture already pins swift-collections 1.1.0")
+pin["state"] = {"revision": revision, "version": "1.1.0"}
+with open(path, "w") as f:
+    json.dump(resolved, f, indent=2)
+    f.write("\n")
+PY
+commit bump-shared-pin
+if tier build >/dev/null 2>"$work/drift.err"; then fail "a drifted shared pin built"; fi
+grep -q 'shared pin swift-collections differs from Package.resolved' "$work/drift.err" \
+  || fail "unexpected drift error: $(cat "$work/drift.err")"
+[[ -z "$(porcelain)" ]] || fail "the drift check changed the checkout: $(porcelain)"
+tier --update-resolved >/dev/null
+grep -q "\"revision\" : \"$old_revision\"" "$pkg/Package.linux.resolved" \
+  || fail "--update-resolved kept the old Linux revision of swift-collections"
+[[ "$(porcelain)" == " M Packages/macOS/CmuxNext/Package.linux.resolved" ]] \
+  || fail "--update-resolved changed more than Package.linux.resolved: $(porcelain)"
+commit linux-pins-follow
+tier build >/dev/null || fail "the build after --update-resolved failed"
+echo "ok 6 a drifted shared pin fails until --update-resolved takes the macOS revision"
+
+expect_refused() {
+  local status=0
+  (cd "$repo" && SWIFT="$swift_bin" scripts/cmux-next/linux/swift-tier.sh --scratch "$1" build) \
+    >/dev/null 2>&1 || status=$?
+  [[ "$status" == 2 ]] || fail "--scratch $1 exited $status, not 2"
+  [[ -z "$(porcelain)" ]] || fail "--scratch $1 changed the checkout: $(porcelain)"
+}
+expect_refused ./inside
+expect_refused Packages/inside
+ln -s "$repo/Packages" "$work/packages-link"
+expect_refused "$work/packages-link/inside"
+expect_refused "$scratch/../repo/inside"
+echo "ok 7 a scratch root inside the checkout is refused"
+
 (cd "$pkg" && CMUX_SWIFTPM_TARGET_LINUX=1 "$swift_bin" package resolve >/dev/null)
 [[ "$(porcelain)" == *"Packages/macOS/CmuxNext/Package.resolved"* ]] \
   || fail "control: an in-checkout Linux resolve did not touch Package.resolved"
-echo "ok 5 control: an in-checkout Linux resolve rewrites Package.resolved"
+echo "ok 8 control: an in-checkout Linux resolve rewrites Package.resolved"
