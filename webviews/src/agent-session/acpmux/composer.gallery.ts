@@ -957,6 +957,44 @@ export default agentPaneEntry({
         await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-pending .acpmux-attachment-spinner"));
       },
     },
+    "attachment-reorder": {
+      note: "Leo, 2026-10-24: \"we ought to be able to drag and reorder images if we're seeing the non-inline attachment composer\". Three pasted screenshots; the first is being dragged past the second (it lifts and moves as the pointer goes), and the prompt sends them in the strip's order. Option-Left/Right moves a focused chip.",
+      snapshot: chat(finished),
+      play: async (ctx) => {
+        const view = ctx.document.defaultView!;
+        const files = await Promise.all(
+          ["#5b8def", "#e0a84f", "#62b67a"].map(async (color, index) => {
+            const canvas = ctx.document.createElement("canvas");
+            canvas.width = 480;
+            canvas.height = 300;
+            const context = canvas.getContext("2d")!;
+            context.fillStyle = color;
+            context.fillRect(0, 0, 480, 300);
+            const blob = await new Promise<Blob>((resolve) => canvas.toBlob((png) => resolve(png!), "image/png"));
+            return new view.File([blob], `Screenshot ${index + 1}.png`, { type: "image/png" });
+          }),
+        );
+        const paste = new view.Event("paste", { bubbles: true, cancelable: true });
+        Object.defineProperty(paste, "clipboardData", { value: { files, types: ["Files"] } });
+        ctx.find({ selector: ".acpmux-md" }).dispatchEvent(paste);
+        await ctx.waitFor(() => ctx.document.querySelectorAll(".acpmux-attachment-image img").length === 3);
+        const chips = [...ctx.document.querySelectorAll<HTMLElement>(".acpmux-attachment-image")];
+        const from = chips[0]!.getBoundingClientRect();
+        const to = chips[1]!.getBoundingClientRect();
+        const at = (x: number) => ({
+          clientX: x,
+          clientY: from.top + from.height / 2,
+          pointerId: 1,
+          button: 0,
+          buttons: 1,
+          bubbles: true,
+        });
+        chips[0]!.dispatchEvent(new view.PointerEvent("pointerdown", at(from.left + from.width / 2)));
+        chips[0]!.dispatchEvent(new view.PointerEvent("pointermove", at(from.left + from.width / 2 + 8)));
+        chips[0]!.dispatchEvent(new view.PointerEvent("pointermove", at(to.right - 4)));
+        await ctx.waitFor(() => ctx.document.querySelector(".acpmux-attachment-slot[data-dragging]"));
+      },
+    },
     "attachment-failed": {
       note: "A file the composer could not attach stays in the strip saying why (here the app could not save it), with Retry and its ×, instead of a placeholder that never loads.",
       snapshot: chat(finished),
@@ -1078,7 +1116,7 @@ export default agentPaneEntry({
       }),
     },
     "queued-from-agent": {
-      note: "Another agent's message waiting behind the turn: its received line (the sender's mark, its name as a chip that opens its chat, the message as a card under it, cut to eight lines when longer), its actions (Steer, the trash can, ⋯) at the line's end; the person's prompt below is unchanged.",
+      note: "Another agent's message waiting behind the turn: no queue row; it is its received card in the transcript after the turn, Read after this turn, its actions (Steer, Edit message, Delete) in its ⋯ menu (QueuedMessageCard.tsx). The person's prompt is the queue's one row, unchanged.",
       snapshot: chat(working, {
         isWorking: true,
         queue: [
@@ -1092,7 +1130,7 @@ export default agentPaneEntry({
       }),
     },
     "queued-from-agent-open": {
-      note: "Play: the queued agent's message opened: the message as a glass card under its line, as Markdown, the queue as tall as it.",
+      note: "Play: the waiting agent's message opened in the transcript: its glass card under its line, as Markdown.",
       snapshot: chat(working, {
         isWorking: true,
         queue: [
@@ -1105,19 +1143,14 @@ export default agentPaneEntry({
         ],
       }),
       play: async (ctx) => {
-        await ctx.click({ selector: '.acpmux-queued[data-prompt-id="q1"] .cv-received__toggle' });
-        // Whole: the list fits its height to the opened card, not just a sliver of it.
-        await ctx.waitFor(() => {
-          const body = ctx.document.querySelector(".acpmux-queued .cv-received__body");
-          const list = ctx.document.querySelector(".acpmux-composer-queue");
-          return Boolean(
-            body && list && body.getBoundingClientRect().bottom <= list.getBoundingClientRect().bottom + 1,
-          );
-        });
+        await ctx.click({ selector: '[data-queued-message="q1"] .cv-received__toggle' });
+        await ctx.waitFor(() =>
+          ctx.document.querySelector('[data-queued-message="q1"] .cv-received__toggle[aria-expanded="true"]'),
+        );
       },
     },
     "queued-from-agent-lane-report": {
-      note: "Leo's lane report reference queued behind a running turn: sender header, rendered Markdown table and links, with the long body folded to eight lines.",
+      note: "Leo's lane report reference waiting behind a running turn: its received card in the transcript, sender header, rendered Markdown table and links, the long body folded to eight lines.",
       snapshot: chat(working, {
         isWorking: true,
         queue: [

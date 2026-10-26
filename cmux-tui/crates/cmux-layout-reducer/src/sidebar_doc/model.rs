@@ -216,6 +216,10 @@ pub struct Section {
     /// sidebar is one list. Only a machine section can be one.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub host_group: bool,
+    /// A person explicitly removed this machine's remote-group header. This
+    /// survives the false `host_group` value being omitted on older wires.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub host_group_opt_out: bool,
     #[serde(default, skip_serializing_if = "Map::is_empty")]
     pub extra: Map<String, Value>,
 }
@@ -254,6 +258,8 @@ struct SectionWire {
     #[serde(default)]
     host_group: bool,
     #[serde(default)]
+    host_group_opt_out: bool,
+    #[serde(default)]
     extra: Map<String, Value>,
 }
 
@@ -277,6 +283,7 @@ impl From<SectionWire> for Section {
             order: wire.order,
             keeps_closed: wire.keeps_closed,
             host_group: wire.host_group,
+            host_group_opt_out: wire.host_group_opt_out,
             extra: wire.extra,
         }
     }
@@ -306,6 +313,7 @@ impl Section {
             order: String::new(),
             keeps_closed,
             host_group: false,
+            host_group_opt_out: false,
             extra: Map::new(),
         }
     }
@@ -588,6 +596,8 @@ pub struct SectionPatch {
     pub scroll: Option<Scroll>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub host_group: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub host_group_opt_out: Option<bool>,
 }
 
 /// An item's own fields; a group's fields go through `group.update`.
