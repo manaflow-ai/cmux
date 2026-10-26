@@ -60,7 +60,8 @@ struct HostBrowserDeadline: Sendable {
         let stream = AsyncStream<Bool>(bufferingPolicy: .bufferingOldest(1)) { continuation in
             let deadlineTask = Task {
                 do {
-                    try await clock.sleep(for: .seconds(clamped))
+                    // wakeup-allow: deadline one attempt's timeout, cancelled when the attempt resolves
+                    try await clock.sleep(for: .seconds(clamped), tolerance: Duration.seconds(clamped).authWakeLeeway)
                 } catch {
                     return
                 }

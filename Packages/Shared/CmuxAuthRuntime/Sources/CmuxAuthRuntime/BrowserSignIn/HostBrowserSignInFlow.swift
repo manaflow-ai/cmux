@@ -516,7 +516,8 @@ public final class HostBrowserSignInFlow {
         let timeout = browserAttemptTimeout
         let clock = self.clock
         activeAttemptTimeoutTask = Task { @MainActor [weak self] in
-            try? await clock.sleep(for: .seconds(timeout))
+            // wakeup-allow: deadline one browser attempt's timeout, cancelled when the attempt ends
+            try? await clock.sleep(for: .seconds(timeout), tolerance: Duration.seconds(timeout).authWakeLeeway)
             guard !Task.isCancelled, let self, self.activeAttemptID == attemptID else { return }
             self.log.log("auth.browser.attempt.timeout id=\(attemptID)")
             self.lastFailure = .timedOut
@@ -539,7 +540,8 @@ public final class HostBrowserSignInFlow {
         let threshold = slowSignInThreshold
         let clock = self.clock
         slowSignInHintTask = Task { @MainActor [weak self] in
-            try? await clock.sleep(for: .seconds(threshold))
+            // wakeup-allow: deadline one slow-popup hint per attempt, cancelled when the attempt ends
+            try? await clock.sleep(for: .seconds(threshold), tolerance: Duration.seconds(threshold).authWakeLeeway)
             guard !Task.isCancelled, let self, self.activeAttemptID == attemptID else { return }
             self.log.log("auth.browser.attempt.slow id=\(attemptID)")
             self.signInIsSlow = true
@@ -622,6 +624,7 @@ public final class HostBrowserSignInFlow {
         var rateLimitRetries = 0
         var ownedRateLimitEpoch: UInt64?
         defer { endRateLimitWait(ownedRateLimitEpoch) }
+        // wakeup-allow: backoff loops again only after a 429, at most AuthRateLimit.maximumRetries times
         while true {
             do {
                 log.log("auth.callback.coordinator.complete.begin attempt=\(attemptID.map(String.init) ?? "external") retry=\(rateLimitRetries)")
@@ -658,7 +661,10 @@ public final class HostBrowserSignInFlow {
                     ownedRateLimitEpoch = rateLimitEpoch
                     let clock = self.clock
                     let epoch = rateLimitEpoch
-                    let wait = Task<Void, Never> { _ = try? await clock.sleep(for: delay) }
+                    let wait = Task<Void, Never> {
+                        // wakeup-allow: backoff the 429 wait of one bounded retry
+                        _ = try? await clock.sleep(for: delay, tolerance: delay.authWakeLeeway)
+                    }
                     rateLimitWaits[epoch] = wait
                     await wait.value
                     rateLimitWaits[epoch] = nil

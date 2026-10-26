@@ -642,7 +642,8 @@ public final class AuthCoordinator {
             group.addTask {
                 // Bounded, cancellable teardown deadline (carve-out); the loser
                 // is cancelled by `cancelAll()` once the first side finishes.
-                try? await clock.sleep(for: teardownTimeout, tolerance: nil)
+                // wakeup-allow: deadline the sign-out revocation timeout, cancelled when revocation ends
+                try? await clock.sleep(for: teardownTimeout, tolerance: teardownTimeout.authWakeLeeway)
             }
             await group.next()
             group.cancelAll()

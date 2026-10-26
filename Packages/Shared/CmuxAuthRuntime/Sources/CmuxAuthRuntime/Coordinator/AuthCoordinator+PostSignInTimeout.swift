@@ -71,7 +71,8 @@ extension AuthCoordinator {
             }
             let deadline = Task { [clock, log] in
                 do {
-                    try await clock.sleep(for: timeout, tolerance: nil)
+                    // wakeup-allow: deadline the post-sign-in hook timeout, cancelled when the hooks finish
+                    try await clock.sleep(for: timeout, tolerance: timeout.authWakeLeeway)
                     try Task.checkCancellation()
                 } catch {
                     return
@@ -112,7 +113,8 @@ extension AuthCoordinator {
             }
             let deadline = Task { [clock, log] in
                 do {
-                    try await clock.sleep(for: timeout, tolerance: nil)
+                    // wakeup-allow: deadline the post-sign-in hook timeout, cancelled when the hooks finish
+                    try await clock.sleep(for: timeout, tolerance: timeout.authWakeLeeway)
                     try Task.checkCancellation()
                 } catch {
                     return

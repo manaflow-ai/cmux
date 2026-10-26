@@ -77,7 +77,8 @@ extension AuthCoordinator {
             }
             let deadline = Task { [clock, log] in
                 do {
-                    try await clock.sleep(for: timeout, tolerance: nil)
+                    // wakeup-allow: deadline the session validation timeout, cancelled when validation ends
+                    try await clock.sleep(for: timeout, tolerance: timeout.authWakeLeeway)
                     try Task.checkCancellation()
                 } catch {
                     return

@@ -86,6 +86,8 @@ public actor PushRegistrationService: PushRegistering {
     private static let pendingUnregisterQueueKey =
         "cmux.notifications.pendingUnregisters.v2"
     private static let pendingUnregisterAttemptBudget = 4
+    /// Past AuthPhaseTimeoutRegistry's 30 s timed-out-phase lease.
+    private static let pendingUnregisterRecoveryDelay: Duration = .seconds(31)
 
     private static func defaultPendingUnregisterStoreURL(
         suiteName: String?,
@@ -142,7 +144,8 @@ public actor PushRegistrationService: PushRegistering {
             Double.random(in: $0)
         },
         retrySleep: @escaping @Sendable (Duration) async throws -> Void = {
-            try await ContinuousClock().sleep(for: $0)
+            // wakeup-allow: backoff one wait of the bounded upload retry list (retryDelays)
+            try await ContinuousClock().sleep(for: $0, tolerance: $0.authWakeLeeway)
         },
         sessionSnapshotTimeout: Duration = .seconds(15),
         sessionSnapshotClock: any Clock<Duration> = ContinuousClock()
@@ -1168,11 +1171,13 @@ public actor PushRegistrationService: PushRegistering {
         }
         guard pendingUnregisterRecoveryTask == nil else { return }
         let clock = sessionSnapshotClock
+        let delay = Self.pendingUnregisterRecoveryDelay
         pendingUnregisterRecoveryTask = Task { [weak self, clock] in
             do {
                 // AuthPhaseTimeoutRegistry holds a timed-out phase for 30s.
                 // Wait past that lease before asking the worker to retry.
-                try await clock.sleep(for: .seconds(31))
+                // wakeup-allow: deadline one retry after the 30 s timed-out-phase lease
+                try await clock.sleep(for: delay, tolerance: delay.authWakeLeeway)
             } catch {
                 return
             }

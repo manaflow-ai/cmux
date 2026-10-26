@@ -5,6 +5,14 @@ import Testing
 /// Auth deadlines pass a tolerance to their clock, so the kernel can fire them
 /// together with other wakes (p14-energy-067c).
 struct AuthWakeLeewayTests {
+    @Test func leewayIsTenPercentBetweenEightMillisecondsAndOneSecond() {
+        #expect(Duration.zero.authWakeLeeway == .milliseconds(8))
+        #expect(Duration.milliseconds(20).authWakeLeeway == .milliseconds(8))
+        #expect(Duration.seconds(2).authWakeLeeway == .milliseconds(200))
+        #expect(Duration.seconds(10).authWakeLeeway == .seconds(1))
+        #expect(Duration.seconds(31).authWakeLeeway == .seconds(1))
+    }
+
     @Test func tokenDeadlineWaitPassesTenPercentTolerance() async throws {
         let clock = ToleranceRecordingClock()
         try await clock.authTokenDeadline(after: .seconds(2)).wait()
