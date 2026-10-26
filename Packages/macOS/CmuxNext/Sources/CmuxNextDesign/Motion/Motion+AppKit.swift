@@ -119,7 +119,10 @@ extension Motion {
     /// Chrome's per-sink preferred frame interval, components/viz/service/display/frame_rate_decider.cc).
     /// Never a timing change: the loop's period and curve stay as they are.
     static func paced(_ loop: CAAnimation, _ policy: MotionPolicy, at rate: FrameRate = .ambient) -> CAAnimation {
-        if policy.pacesLoops { loop.preferredFrameRateRange = rate.range }
+        guard policy.pacesLoops else { return loop }
+        loop.preferredFrameRateRange = rate.range
+        // A group's parts ask for the same rate, so none of them keeps the display's full rate.
+        for part in (loop as? CAAnimationGroup)?.animations ?? [] { part.preferredFrameRateRange = rate.range }
         return loop
     }
 

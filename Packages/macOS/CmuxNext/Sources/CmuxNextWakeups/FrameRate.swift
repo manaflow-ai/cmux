@@ -15,7 +15,8 @@ public enum FrameRate: Sendable, Hashable {
     case ui
     /// Spinners, breathing and pulsing indicators, decorative loops: 30 Hz.
     case ambient
-    /// `n` frames a second (1 to 30): a discrete indicator that steps `n` times a second.
+    /// `n` frames a second (1 to 30): a discrete indicator (``stepping(_:every:)``). A display
+    /// link never runs below ``DisplayClock/slowestLinkHertz``, whatever its clients ask.
     case slow(Int)
 
     /// Frames a second this rate asks for.
@@ -30,7 +31,7 @@ public enum FrameRate: Sendable, Hashable {
 
     /// The range a display link or a `CAAnimation` asks for at this rate. A slow rate may run
     /// faster (up to 30 Hz), never slower: a display whose refresh `n` does not divide picks the
-    /// next rate above, so a stepping indicator never skips a step.
+    /// next rate above.
     public var range: CAFrameRateRange {
         switch self {
         case .motion: CAFrameRateRange(minimum: 80, maximum: 120, preferred: 120)
@@ -45,11 +46,14 @@ public enum FrameRate: Sendable, Hashable {
         rates.max { $0.hertz < $1.hertz }
     }
 
-    /// The rate of an indicator that changes `steps` times a `period` (seconds): ``slow(_:)``
-    /// at that many changes a second, ``ambient`` when that is 30 or more.
+    /// The rate of an indicator that changes `steps` times a `period` (seconds): ``slow(_:)`` at
+    /// twice that many changes a second, ``ambient`` when that is 30 or more. The steps follow
+    /// wall time, not the render server's frames, so at the step rate itself a step boundary that
+    /// drifts past a frame shows one step twice and never draws the next; two frames a step draw
+    /// every step at least once.
     public static func stepping(_ steps: Int, every period: Double) -> FrameRate {
         guard period > 0 else { return .ambient }
-        let perSecond = (Double(steps) / period).rounded(.up)
+        let perSecond = (2 * Double(steps) / period).rounded(.up)
         return perSecond >= 30 ? .ambient : .slow(Int(perSecond))
     }
 }
