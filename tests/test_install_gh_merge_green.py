@@ -48,6 +48,21 @@ else:
 """
 
 
+class DefaultTestsCoverTheHelpersTests(unittest.TestCase):
+    """An install runs DEFAULT_TESTS before it trusts a new main. Every scripts/ci helper gh-merge-green runs whose
+    tests/test_<helper>.py exists must be among them: cmux#23516 added merge_check_paths.py and its tests, but not
+    the module here, so an install never ran them."""
+
+    def test_every_helper_with_tests_is_in_default_tests(self):
+        import re
+        helper = (SOURCE / "scripts" / "gh-merge-green").read_text()
+        installer = (SOURCE / INSTALLER).read_text()
+        listed = set(re.search(r'^DEFAULT_TESTS="([^"]*)"', installer, re.M).group(1).split())
+        missing = sorted(f"tests.test_{name}" for name in set(re.findall(r"\bci/([a-z_]+)\.py", helper))
+                         if (SOURCE / "tests" / f"test_{name}.py").is_file() and f"tests.test_{name}" not in listed)
+        self.assertEqual(missing, [], "add these to DEFAULT_TESTS in " + INSTALLER)
+
+
 class InstallGhMergeGreenTests(unittest.TestCase):
     def setUp(self):
         temporary = tempfile.TemporaryDirectory(prefix="gh-merge-green-install-")

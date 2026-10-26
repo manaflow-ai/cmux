@@ -9,7 +9,9 @@
 # full-gate lane (ci-status, Release compile, swift test). It also checks conflict markers and freezes. The full suites run after
 # the merge; the culprit bot and the base sheriff revert or fix forward.
 # --full keeps the wait for every check (main, classic), as does every base other than
-# feat-cmux-next. One `gh-merge-green:` line at exit says what was checked and how long it waited.
+# feat-cmux-next. Every feat-cmux-next merge, on either gate, also needs an independent review's SHIP
+# receipt for the exact head (scripts/ci/review_receipt.py), which nothing waives.
+# One `gh-merge-green:` line at exit says what was checked and how long it waited.
 set -Eeuo pipefail
 
 repair_note='see cmuxterm-hq REPAIR.md#merging'
@@ -454,6 +456,43 @@ if [ "$(python3 "$script_dir/ci/gh_rate_limit.py" --exhausted core 2>/dev/null |
 fi
 if [ "$fast" -eq 1 ] && [ "$(python3 "$script_dir/ci/gh_rate_limit.py" --exhausted graphql 2>/dev/null || true)" = spent ]; then
   refuse_rate_limited "GitHub's GraphQL quota is spent, and the fast gate polls the pull request through it"
+fi
+# Into feat-cmux-next a head merges only with an independent review's SHIP receipt for that
+# exact commit (scripts/ci/review_receipt.py), the rule next-autoland applies: cmux#22899 merged
+# before its re-review, which then found cmux#22988 (2026-10-21). Like a red risk evidence,
+# nothing waives a missing receipt, --override included. It is read before the gate waits and
+# again before the merge, ahead of any merge-override comment, so a BLOCK posted during the
+# wait stops it. Pass `final` for that second read.
+review_receipt_gate() {
+  local receipt_args=("$repo" "$num" "$sha") receipt_out receipt_err receipt_status=0 fixture
+  # Tests hand the checker a recorded read. GH_MERGE_GREEN_TEST left set in a real shell
+  # without the fixture refuses, rather than reading as no reviews.
+  if [ -n "${GH_MERGE_GREEN_TEST:-}" ]; then
+    if [ -z "${GH_MERGE_GREEN_REVIEWS:-}" ]; then
+      refuse \
+        "not merged: review receipt unknown for $ref (GH_MERGE_GREEN_TEST is set without GH_MERGE_GREEN_REVIEWS)" \
+        'unset GH_MERGE_GREEN_TEST for a real merge; tests set the reviews fixture'
+    fi
+    fixture=$GH_MERGE_GREEN_REVIEWS
+    # A test's reviews may change while the gate waits: the second read takes the _FINAL fixture.
+    [ "${1:-}" != final ] || fixture=${GH_MERGE_GREEN_REVIEWS_FINAL:-$GH_MERGE_GREEN_REVIEWS}
+    receipt_args+=(--pr-file "$fixture")
+  fi
+  receipt_err=$(mktemp "${TMPDIR:-/tmp}/gh-merge-green-receipt.XXXXXX")
+  tmp_files+=("$receipt_err")
+  receipt_out=$(python3 "$script_dir/ci/review_receipt.py" "${receipt_args[@]}" 2>"$receipt_err") || receipt_status=$?
+  if [ "$receipt_status" -eq 3 ]; then
+    refuse_rate_limited "reading the reviews of $ref: $(sed 's/^rate-limited: //' "$receipt_err")"
+  fi
+  if [ "$receipt_status" -ne 0 ]; then
+    refuse \
+      "not merged: $ref: $(cat "$receipt_err")" \
+      'get an independent review of the exact head and post its receipt (after a base merge, of the new head); --override cannot waive the review receipt'
+  fi
+  printf 'note: review receipt on %s: %s\n' "$sha" "${receipt_out#receipt=}" >&2
+}
+if [ "$base" = feat-cmux-next ]; then
+  review_receipt_gate
 fi
 if [ "$fix" -eq 1 ]; then
   validator="$script_dir/ci/main_fix_evidence.py"
@@ -994,7 +1033,7 @@ if [ -z "$override_reason" ] && { [ "${#bad_required[@]}" -gt 0 ] || [ "${#excus
   excuse_errors=$(mktemp)
   tmp_files+=("$excuse_errors")
   excuse_status=0
-  excused=$(python3 "$script_dir/ci/base_red_excuse.py" --repo "$repo" --base "$base" --sha "$sha" \
+  excused=$(python3 "$script_dir/ci/base_red_excuse.py" --repo "$repo" --base "$base" --sha "$sha" --pull "$num" \
       "${excuse_args[@]}" 2>"$excuse_errors") || excuse_status=$?
   if [ "$excuse_status" -ne 0 ]; then
     why=$(sed 's/^not excused: //' "$excuse_errors")
@@ -1110,7 +1149,7 @@ fast_gate() {
   excuse_errors=$(mktemp)
   tmp_files+=("$excuse_errors")
   local excuse_status=0
-  excused=$(python3 "$script_dir/ci/base_red_excuse.py" --repo "$repo" --base "$base" --sha "$sha" \
+  excused=$(python3 "$script_dir/ci/base_red_excuse.py" --repo "$repo" --base "$base" --sha "$sha" --pull "$num" \
       "${excuse_args[@]}" 2>"$excuse_errors") || excuse_status=$?
   if [ "$excuse_status" -ne 0 ]; then
     local why
@@ -1399,6 +1438,7 @@ elif [ "$fast" -eq 1 ]; then
     merged_head_checks 1
   fi
 fi
+[ "$base" != feat-cmux-next ] || review_receipt_gate final
 if [ "$dry_run" -eq 1 ]; then
   printf 'dry-run: every gate passes for %s at %s; would run: gh pr merge %s --repo %s --match-head-commit %s%s\n' \
     "$ref" "$sha" "$num" "$repo" "$sha" "$(printf ' %q' "$@")"

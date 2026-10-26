@@ -18,6 +18,15 @@
 //       policy line `@require_non_lander_approver on` the approval must come
 //       from someone who is not a lander (ackDecision()); off, any approval in
 //       the approval environment counts.
+// A train commit (nightly-next-train.yml; docs/ci/nightly-next-train.md) is
+// checked by G1'/G2' in place of G1/G2:
+//   G1' its second parent is on feat-cmux-next, and its tree is that parent
+//       with exactly its `Nightly-Train-Revert:` reverts, which the injected
+//       verifyTrain() rebuilds (scripts/ci/nightly_next_train.py verify);
+//   G2' a nightly-next-train.yml dispatch run of this repository on a
+//       nightly-train/* ref for that exact SHA has a successful
+//       "nightly-next train Release compile" job;
+// and its first parent must be the current nightly-next. G3/G4 are unchanged.
 // Anything it cannot establish is a "refuse" (fail closed).
 //
 // The functions take injected clients so tests drive them with a fake API.
@@ -99,6 +108,119 @@ async function admitted(github, owner, repo, sha, { attempts, delayMs, sleep, co
     }
     if (attempt < attempts) {
       core?.notice?.(`The exact ${GATE_JOB} result is not visible yet; retrying promotion admission (${attempt}/${attempts - 1}).`);
+      await sleep(delayMs);
+    }
+  }
+  return false;
+}
+
+// A tip can still be compiling while an older commit has already finished its
+// exact Release compile. Keep the safety gate, but promote the newest green
+// source commit instead of waiting for the tip. This scan is bounded by the
+// workflow-run API page and only accepts same-repository push runs on the
+// source branch with the exact gate job green.
+async function newestGreenSourceCommit(github, owner, repo, targetSha, excludeSha) {
+  const runs = await github.paginate(github.rest.actions.listWorkflowRuns, {
+    owner, repo, workflow_id: 'cmux-next.yml', event: 'push', branch: SOURCE, per_page: 100,
+  });
+  const ordered = [...runs].sort((a, b) => Date.parse(b.created_at || 0) - Date.parse(a.created_at || 0) || Number(b.id) - Number(a.id));
+  const green = [];
+  for (const run of ordered) {
+    const candidate = run.head_sha;
+    if (!candidate || candidate === excludeSha || run.event !== 'push' || run.head_branch !== SOURCE ||
+        run.path !== GATE_WORKFLOW || run.head_repository?.full_name !== `${owner}/${repo}`) continue;
+    let lineage;
+    try {
+      lineage = (await github.rest.repos.compareCommitsWithBasehead({
+        owner, repo, basehead: `${candidate}...${targetSha}`,
+      })).data.status;
+    } catch {
+      continue;
+    }
+    if (lineage !== 'ahead' && lineage !== 'identical') continue;
+    const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
+      owner, repo, run_id: run.id, filter: 'latest', per_page: 100,
+    });
+    if (jobs.some((job) => job.status === 'completed' && job.name === GATE_JOB && job.conclusion === 'success')) green.push(candidate);
+  }
+  if (green.length === 0) return null;
+  // Run creation time is not commit order: reruns and delayed workflow runs
+  // can make an older commit appear newer. Prefer the candidate that is a
+  // descendant of every other green candidate; keep the first candidate only
+  // when GitHub cannot relate two merge-shaped histories.
+  let newest = green[0];
+  for (const candidate of green.slice(1)) {
+    try {
+      const relation = (await github.rest.repos.compareCommitsWithBasehead({
+        owner, repo, basehead: `${newest}...${candidate}`,
+      })).data.status;
+      if (relation === 'ahead') newest = candidate;
+    } catch {
+      // The candidate was already proven on the source branch; leave the
+      // deterministic run-order winner when the pairwise comparison fails.
+    }
+  }
+  return newest;
+}
+
+// A train commit (scripts/ci/nightly_next_train.py): two parents, the
+// nightly-next head it was made on and a feat-cmux-next tip, and the
+// `Nightly-Train: v1` trailer. Anything else (or an unreadable commit) is not a
+// train commit and goes through G1/G2, which refuse what they cannot place.
+export const TRAIN_TRAILER = 'Nightly-Train: v1';
+export const TRAIN_WORKFLOW = '.github/workflows/nightly-next-train.yml';
+export const TRAIN_GATE_JOB = 'nightly-next train Release compile';
+export const TRAIN_REF_PREFIX = 'nightly-train/';
+
+export async function readTrainCommit(github, owner, repo, sha) {
+  let data;
+  try {
+    ({ data } = await github.rest.git.getCommit({ owner, repo, commit_sha: sha }));
+  } catch {
+    return null;
+  }
+  const lines = String(data?.message || '').split('\n').map((line) => line.trim());
+  if (!lines.includes(TRAIN_TRAILER) || (data.parents || []).length !== 2) return null;
+  return { firstParent: data.parents[0].sha, tip: data.parents[1].sha };
+}
+
+// verifyTrain for decide(): run the train script's `verify --fetch` in the
+// guard's checkout (main's copy of the script) and read its JSON verdict.
+export function trainVerifier(script, { cwd = process.cwd(), spawn } = {}) {
+  return async (sha) => {
+    const run = spawn || (await import('node:child_process')).spawnSync;
+    const proc = run('python3', [script, 'verify', '--fetch', '--commit', sha], { cwd, encoding: 'utf8', timeout: 600000 });
+    let verdict = null;
+    try {
+      verdict = JSON.parse(String(proc.stdout || '').trim().split('\n').pop());
+    } catch {
+      verdict = null;
+    }
+    if (!verdict || typeof verdict.ok !== 'boolean') {
+      throw new Error(`verify exited ${proc.status}: ${String(proc.stderr || '').trim().slice(0, 400)}`);
+    }
+    return { ok: verdict.ok && proc.status === 0, reason: verdict.reason };
+  };
+}
+
+async function admittedTrain(github, owner, repo, sha, { attempts, delayMs, sleep, core }) {
+  for (let attempt = 1; attempt <= attempts; attempt += 1) {
+    const runs = await github.paginate(github.rest.actions.listWorkflowRuns, {
+      owner, repo, workflow_id: 'nightly-next-train.yml', event: 'workflow_dispatch', head_sha: sha, per_page: 100,
+    });
+    for (const run of runs) {
+      if (run.head_sha !== sha || run.event !== 'workflow_dispatch') continue;
+      if (run.path !== TRAIN_WORKFLOW || !String(run.head_branch || '').startsWith(TRAIN_REF_PREFIX)) continue;
+      if (run.head_repository?.full_name !== `${owner}/${repo}`) continue;
+      const jobs = await github.paginate(github.rest.actions.listJobsForWorkflowRun, {
+        owner, repo, run_id: run.id, filter: 'latest', per_page: 100,
+      });
+      if (jobs.some((job) => job.status === 'completed' && job.name === TRAIN_GATE_JOB && job.conclusion === 'success')) {
+        return true;
+      }
+    }
+    if (attempt < attempts) {
+      core?.notice?.(`The ${TRAIN_GATE_JOB} result of ${sha} is not visible yet; retrying (${attempt}/${attempts - 1}).`);
       await sleep(delayMs);
     }
   }
@@ -281,6 +403,10 @@ async function pushActors(github, owner, repo, compare, wanted, rangeSet, bounda
 async function landersOf(github, owner, repo, commit, actors) {
   const logins = new Set();
   const add = (login) => { if (login && !BOT_LOGINS.has(login)) logins.add(login); };
+  // GitHub leaves these users null when an email is not linked to an account.
+  // Silently omitting that identity would let a release approver approve their
+  // own commit while the non-lander policy appears to be enabled.
+  if (!commit.author?.login || !commit.committer?.login) return null;
   add(commit.author?.login);
   add(commit.committer?.login);
   const pushers = actors.get(commit.sha);
@@ -291,12 +417,15 @@ async function landersOf(github, owner, repo, commit, actors) {
   });
   for (const pull of pulls || []) {
     if (!pull.merged_at) continue;
+    if (!pull.user?.login) return null;
     add(pull.user?.login);
     const { data: full } = await github.rest.pulls.get({ owner, repo, pull_number: pull.number });
+    if (!full.merged_by?.login) return null;
     add(full.merged_by?.login);
     // Anyone whose commits are in the merged PR counts as a lander too.
     const prCommits = await github.paginate(github.rest.pulls.listCommits, { owner, repo, pull_number: pull.number, per_page: 100 });
     for (const prCommit of prCommits) {
+      if (!prCommit.author?.login || !prCommit.committer?.login) return null;
       add(prCommit.author?.login);
       add(prCommit.committer?.login);
     }
@@ -307,24 +436,63 @@ async function landersOf(github, owner, repo, commit, actors) {
 export async function decide({
   github, owner, repo, sha, surfaceText, core, sleep = (ms) => new Promise((r) => setTimeout(r, ms)),
   debounce = false, minIntervalHours = 0, admissionAttempts = 6, admissionDelayMs = 5000, now = () => Date.now(),
+  verifyTrain = null,
 }) {
   if (!/^[0-9a-f]{40}$/.test(sha)) return refuse(`promote_nightly_next_sha must be 40 lowercase hex characters, got ${sha}`);
 
-  // G1: on feat-cmux-next.
   const sourceHead = (await github.rest.git.getRef({ owner, repo, ref: `heads/${SOURCE}` })).data.object.sha;
-  let onSource;
-  try {
-    onSource = (await github.rest.repos.compareCommitsWithBasehead({ owner, repo, basehead: `${sha}...${sourceHead}` })).data.status;
-  } catch (error) {
-    return refuse(`${sha} cannot be compared with ${SOURCE} (${error.status || error.message})`);
-  }
-  if (onSource !== 'ahead' && onSource !== 'identical') {
-    return refuse(`${sha} is not on ${SOURCE} (compare status ${onSource})`);
-  }
+  const onSourceStatus = async (commit) => {
+    try {
+      return (await github.rest.repos.compareCommitsWithBasehead({ owner, repo, basehead: `${commit}...${sourceHead}` })).data.status;
+    } catch (error) {
+      return { error: `${commit} cannot be compared with ${SOURCE} (${error.status || error.message})` };
+    }
+  };
+  const train = await readTrainCommit(github, owner, repo, sha);
+  let trainFirstParent = null;
+  if (train) {
+    // G1' (docs/ci/nightly-next-train.md): the second parent is on
+    // feat-cmux-next and the tree is that parent with exactly the listed
+    // reverts, which the verifier rebuilds itself (it trusts no list).
+    const status = await onSourceStatus(train.tip);
+    if (status?.error) return refuse(status.error);
+    if (status !== 'ahead' && status !== 'identical') {
+      return refuse(`train commit ${sha}: its second parent ${train.tip} is not on ${SOURCE} (compare status ${status})`);
+    }
+    if (typeof verifyTrain !== 'function') return refuse(`train commit ${sha}: no train tree verifier in this job; nothing promoted`);
+    let verdict;
+    try {
+      verdict = await verifyTrain(sha);
+    } catch (error) {
+      return refuse(`train commit ${sha}: the tree check failed to run (${error.message})`);
+    }
+    if (!verdict?.ok) return refuse(`train commit ${sha}: ${verdict?.reason || 'its tree is not its second parent minus its listed reverts'}`);
+    // G2': a green Release compile of this exact commit in nightly-next-train.yml.
+    if (!(await admittedTrain(github, owner, repo, sha, { attempts: admissionAttempts, delayMs: admissionDelayMs, sleep, core }))) {
+      return refuse(`train commit ${sha} has no ${TRAIN_WORKFLOW} dispatch run on a ${TRAIN_REF_PREFIX}* ref in ${owner}/${repo} with a successful "${TRAIN_GATE_JOB}" job`);
+    }
+    trainFirstParent = train.firstParent;
+  } else {
+    // G1: on feat-cmux-next.
+    const onSource = await onSourceStatus(sha);
+    if (onSource?.error) return refuse(onSource.error);
+    if (onSource !== 'ahead' && onSource !== 'identical') {
+      return refuse(`${sha} is not on ${SOURCE} (compare status ${onSource})`);
+    }
 
-  // G2: the trusted gate.
-  if (!(await admitted(github, owner, repo, sha, { attempts: admissionAttempts, delayMs: admissionDelayMs, sleep, core }))) {
-    return refuse(`${sha} has no ${GATE_WORKFLOW} push run on ${SOURCE} in ${owner}/${repo} with a successful "${GATE_JOB}" job`);
+    // G2: the trusted gate. If the requested tip is still compiling, use the
+    // newest earlier source commit whose exact Release compile is already green.
+    if (!(await admitted(github, owner, repo, sha, { attempts: admissionAttempts, delayMs: admissionDelayMs, sleep, core }))) {
+      const fallback = await newestGreenSourceCommit(github, owner, repo, sha, sha);
+      if (!fallback) {
+        return refuse(`${sha} has no ${GATE_WORKFLOW} push run on ${SOURCE} in ${owner}/${repo} with a successful "${GATE_JOB}" job, and no earlier green source commit was found`);
+      }
+      core?.notice?.(`The requested tip ${sha} is not Release-green; promoting the newest green source commit ${fallback}.`);
+      sha = fallback;
+      if (!(await admitted(github, owner, repo, sha, { attempts: 1, delayMs: 0, sleep, core }))) {
+        return refuse(`${sha} lost its successful "${GATE_JOB}" result while promotion was being decided`);
+      }
+    }
   }
 
   if (debounce && Number.isFinite(minIntervalHours) && minIntervalHours > 0) {
@@ -345,6 +513,9 @@ export async function decide({
     if (error.status !== 404) throw error;
   }
   if (current === sha) return { action: 'skip', reason: `${TARGET} is already at ${sha}.`, sha, current };
+  if (trainFirstParent !== null && trainFirstParent !== current) {
+    return refuse(`train commit ${sha} was made on ${trainFirstParent}, but ${TARGET} is at ${current || 'nothing'}; the next train starts from the new head`, { sha, current });
+  }
 
   // The current nightly-next must be an ancestor of the target: compare
   // status "ahead". "identical" was handled above; anything else refuses.
@@ -365,6 +536,11 @@ export async function decide({
   }
   const matches = surfaceMatcher(parseSurface(surfaceText));
   if (!current) {
+    if (policy.require_non_lander_approver) {
+      return refuse(`${TARGET} does not exist; the commit-author exclusion cannot establish a bounded promotion range`, {
+        sha, current, surfaceFiles: ['*'],
+      });
+    }
     return { action: 'needs-ack', reason: `${TARGET} does not exist; the first promotion needs a release approver`, sha, current, surfaceFiles: ['*'], landers: [] };
   }
   const touches = (file) => matches(file.filename) || Boolean(file.previous_filename && matches(file.previous_filename));
@@ -421,7 +597,7 @@ export async function decide({
     else logins.forEach((login) => landers.add(login));
   });
   if (unresolved.length && policy.require_non_lander_approver) {
-    return refuse(`no push actor found for ${unresolved.join(', ')}; the landers of the release surface change are unknown`, { sha, current, surfaceFiles });
+    return refuse(`an author, committer, pull-request lander, or push actor is unknown for ${unresolved.join(', ')}; the landers of the release surface change cannot be established`, { sha, current, surfaceFiles });
   }
   return {
     action: 'needs-ack',
