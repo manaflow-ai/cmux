@@ -223,6 +223,25 @@ await requireBrowserLane("new-chat-composer.test.ts", async () => {
     expect(result.calls).not.toContain("project.browse");
   });
 
+  test("a real pointer click on Choose folder asks the workspace sheet once", async () => {
+    const page = await open("folder-menu");
+    await page.locator('.acpmux-location-menu [data-choose=""]').click();
+    await page.waitForFunction(() =>
+      (window as unknown as { cmuxGalleryLog: { method: string }[] }).cmuxGalleryLog.some(
+        ({ method }) => method === "workspace.chooseFolder",
+      ),
+    );
+    const count = await page.evaluate(
+      () =>
+        (window as unknown as { cmuxGalleryLog: { method: string }[] }).cmuxGalleryLog.filter(
+          ({ method }) => method === "workspace.chooseFolder",
+        ).length,
+    );
+    await page.locator(".acpmux-location-menu").waitFor({ state: "hidden" });
+    await page.close();
+    expect(count).toBe(1);
+  });
+
   test("the first send carries the prompt and the pasted attachment", async () => {
     const page = await open("first-send");
     await page.waitForFunction(() => Boolean(document.documentElement.dataset.galleryPlay), undefined, {
