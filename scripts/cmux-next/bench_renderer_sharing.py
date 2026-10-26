@@ -68,7 +68,7 @@ import threading
 import time
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import bench_memory as bm  # noqa: E402  (App, sample, end_bundle, webkit_pids)
+import bench_memory as bm  # noqa: E402  (App, sample, end_bundle, note_child_launch)
 import bench_power as bp  # noqa: E402  (rpc, wipe_state)
 import browser_engine_bench_report as results  # noqa: E402
 from bench_launch import BenchApp, tag_of  # noqa: E402
@@ -356,7 +356,6 @@ def main(argv=None):
         stopping["signal"] = True
         raise KeyboardInterrupt
 
-    signal.signal(signal.SIGTERM, terminate)
     _Handler.heap_mb = args.heap_mb
     port = serve()
     # No colon inside a switch: CMUX_NEXT_CEF_EXTRA_SWITCHES is colon-separated, so the rule maps
@@ -376,12 +375,15 @@ def main(argv=None):
         extra["CI_JOB_DIR"] = os.environ["CI_JOB_DIR"]
     bench = BenchApp(bundle, out=results_dir, env=extra, config=config, window=(40, 40, 1400, 900),
                      build_config=args.build_config, perf_session=args.session)
-    bm._foreign_webkit = bm.webkit_pids()  # the app is this script's child (bench_memory.webkit_is_apps)
+    bm.note_child_launch()  # the app is this script's child (bench_memory.webkit_is_apps)
     try:
         bench.launch()
     except BaseException:
         bench.stop()
         raise
+    # After the launch: its teardown's SIGTERM handler would replace this one, and the finally below needs to know
+    # a cancelled step (seconds before SIGKILL) to take the fast path.
+    signal.signal(signal.SIGTERM, terminate)
     pid, sock = bench.process.pid, bench.socket
     limit = chrome_soft_limit(memory_gb)
     report = {"app": bundle, "tabs": args.tabs, "sites": args.sites, "heap_mb": args.heap_mb, "memory_gb": round(memory_gb, 1),

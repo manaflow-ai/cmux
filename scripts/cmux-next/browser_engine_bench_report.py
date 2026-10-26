@@ -120,9 +120,13 @@ def renderer_sharing_series(new_tab_ms, renderers, tab_renderers, sample, sessio
                   sample.get("total_footprint_bytes")))
 
 
-# chromium-host-bench.py's raw event series: (metric, unit), filled by its drive() per mode.
+# chromium-host-bench.py's raw event series: (metric, unit), filled by its drive() per mode. One per sent key or
+# click (None for one the page never painted), so each has its `.missed_runs`.
 CHROMIUM_HOST_EVENTS = (("key_to_paint", "ms"), ("click_to_paint", "ms"), ("key_to_raf", "ms"),
-                        ("click_to_raf", "ms"), ("raf_interval", "ms"))
+                        ("click_to_raf", "ms"))
+# The pacing run's frame intervals: as many as the page drew, so no interval is ever missing. Its `.missed_runs` is
+# the pacing run itself: 1 when a mode that ran gave no interval (the page never animated, or its title was lost).
+CHROMIUM_HOST_PACING = "raf_interval"
 
 
 def chromium_host_series(samples, modes, session="light", story=CHROMIUM_HOST_STORY):
@@ -135,6 +139,13 @@ def chromium_host_series(samples, modes, session="light", story=CHROMIUM_HOST_ST
             if metric in samples[mode]:
                 out += per_event(story, f"chromium_host.{session}.{mode}.{metric}", unit, "chromium", session,
                                  samples[mode][metric])
+        if CHROMIUM_HOST_PACING in samples[mode]:
+            name = f"chromium_host.{session}.{mode}.{CHROMIUM_HOST_PACING}"
+            intervals = [v for v in samples[mode][CHROMIUM_HOST_PACING] if is_sample(v)]
+            if intervals:
+                out.append(Series(story, name, "ms", "lower", "chromium", session, intervals))
+            out.append(Series(story, f"{name}.missed_runs", "count", "lower", "chromium", session,
+                              [0 if intervals else 1]))
     for mode, row in sorted(modes.items()):
         if not isinstance(row, dict):
             continue

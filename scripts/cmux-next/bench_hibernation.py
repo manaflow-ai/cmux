@@ -55,6 +55,7 @@ import argparse
 import http.server
 import json
 import os
+import shutil
 import signal
 import subprocess
 import sys
@@ -63,7 +64,7 @@ import time
 from urllib.parse import parse_qs, urlparse
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-import bench_memory as bm  # noqa: E402  (App, owned, sample, webkit_pids)
+import bench_memory as bm  # noqa: E402  (App, owned, sample, note_child_launch)
 import bench_power as bp  # noqa: E402  (rpc, wipe_state)
 import browser_engine_bench_report as results  # noqa: E402
 from bench_launch import BenchApp, tag_of  # noqa: E402
@@ -285,11 +286,12 @@ def main(argv=None):
         if not args.app_pid:
             raise SystemExit("bench-hibernation: --socket needs --app-pid")
         pid, sock, launched = args.app_pid, args.socket, False
-        # result-v1 for an attached app: its build, this host, and the features it answers now.
-        bench = BenchApp(bundle, out=results_dir, teardown=False, build_config=args.build_config,
-                         perf_session=args.session)
-        bench.socket = sock
+        bench = None  # an attached app is any app a capture slot started; only result-v1 needs a tagged DEV bundle
         if results_dir:
+            # result-v1 for an attached app: its build, this host, and the features it answers now.
+            bench = BenchApp(bundle, out=results_dir, teardown=False, build_config=args.build_config,
+                             perf_session=args.session)
+            bench.socket = sock
             bench.features = bench.read_features()
         for path, value in flatten(config):
             answer = bp.rpc(sock, "settings.set", {"path": path, "value": value})
@@ -299,8 +301,7 @@ def main(argv=None):
         bp.wipe_state(bundle)  # also the bundle's Chromium profile and caches, which BenchApp's fresh state keeps
         bench = BenchApp(bundle, out=results_dir, config=config, window=(40, 40, 1400, 900),
                          build_config=args.build_config, perf_session=args.session)
-        # The app is this script's child: a WebKit process is its own when it did not run before the launch.
-        bm._foreign_webkit = bm.webkit_pids()
+        bm.note_child_launch()  # the app is this script's child (bench_memory.webkit_is_apps)
         try:
             bench.launch()
         except BaseException:
@@ -428,6 +429,8 @@ def main(argv=None):
         else:
             for tab in [t for tabs in opened.values() for t in tabs] + opened_extra:
                 app.run("tab.close", target=tab)
+            if bench is not None:  # it launched nothing: its scratch folder holds no app state
+                shutil.rmtree(bench.scratch, ignore_errors=True)
         if report_path:
             with open(report_path, "w") as handle:
                 json.dump(report, handle, indent=1)

@@ -15,6 +15,8 @@ import importlib.util
 import io
 import json
 import re
+import shutil
+import subprocess
 import sys
 import tempfile
 import types
@@ -178,6 +180,10 @@ class SeriesTests(unittest.TestCase):
         self.assertEqual(by_name["chromium_host.light.inproc.long_frames"].samples, [1])
         self.assertNotIn("chromium_host.stress.inproc.pump_share.idle", by_name, "one story run is one session")
         self.assertNotIn("chromium_host.light.helper.raf_interval", by_name, "no frame was measured")
+        self.assertEqual(by_name["chromium_host.light.helper.raf_interval.missed_runs"].samples, [1],
+                         "a mode that ran with no frame interval is a missed pacing run")
+        self.assertEqual(by_name["chromium_host.light.inproc.raf_interval"].samples, [8.3, 8.4, 16.7])
+        self.assertEqual(by_name["chromium_host.light.inproc.raf_interval.missed_runs"].samples, [0])
         self.assertNotIn("chromium_host.light.helper.long_frames", by_name)
         self.assertEqual({s.session for s in by_name.values()}, {"light"})
 
@@ -258,6 +264,88 @@ class StoryTests(unittest.TestCase):
         root = str(HERE.parent.parent)
         for query in (queues.private_stats, queues.self_launch, queues.p95_without_p99):
             self.assertEqual([i.key for i in query(root) if i.key in mine], [], query.__name__)
+
+
+# The probe page's script under node's vm with a stand-in DOM and a stepped clock: the bench's own order of input in
+# helper mode (chromium-host-bench.py drive, run_helper's identity clicks, input_rows), then the longest title it
+# reported and the lists drive() reads. Frame and event times have the widest values a run gives (two-digit deltas,
+# a 13-digit wall clock with 3 decimals).
+PROBE_HARNESS = r"""
+const vm = require('node:vm');
+const fs = require('node:fs');
+const [script, count, hz] = [fs.readFileSync(process.argv[2], 'utf8'), +process.argv[3], +process.argv[4]];
+let now = 13456.789, longest = 0, title = '';
+const queue = [], handlers = {};
+const element = id => ({id, style: {}, textContent: '', value: '', selectionStart: 0,
+                        classList: {add() {}, remove() {}}});
+const elements = Object.fromEntries(['t', 'b', 'box', 's', 'al', 'f'].map(id => [id, element(id)]));
+const ctx = {
+  performance: {timeOrigin: 1793000000000, now: () => now},
+  requestAnimationFrame: cb => queue.push(cb),
+  addEventListener: (type, fn) => (handlers[type] = handlers[type] || []).push(fn),
+  alert() {},
+  document: {
+    getElementById: id => elements[id], addEventListener() {}, hasFocus: () => true, activeElement: elements.t,
+    get title() { return title; }, set title(v) { title = v; longest = Math.max(longest, v.length); },
+  },
+};
+ctx.window = ctx;
+vm.createContext(ctx);
+vm.runInContext(script, ctx);
+const period = 1000 / hz;
+let jitter = 0;
+function frame() {
+  now += period + (jitter++ % 3) * 0.013;
+  queue.splice(0).forEach(cb => cb(now));
+}
+function fire(type, fields) {
+  (handlers[type] || []).forEach(h => h({preventDefault() {}, ...fields}));
+  now += 0.37; frame(); frame();
+}
+const key = k => fire('keydown', {key: k, target: elements.t});
+const click = id => fire('mousedown', {target: elements[id]});
+const state = () => JSON.parse(title.slice('probe '.length));
+click('t');                                   // drive: the focus click
+for (let i = 0; i < count; i++) key('a');
+for (let i = 0; i < count; i++) click('b');
+const drive = state();
+key('p');                                     // the 3 s pacing run
+const end = now + 3100;
+while (now < end) frame();
+const paced = state().raf_raw.length;
+key('r');
+for (let i = 0; i < 10; i++) { click('b'); key('a'); }   // run_helper's identity clicks
+click('t'); for (let i = 0; i < 5; i++) key('a');         // input_rows: typing, focus, copy and paste, natives
+click('t'); ['a', 'c', 'delete', 'v'].forEach(key); ['s', 'al', 'f', 't'].forEach(click);
+console.log(JSON.stringify({longest, key_raw: drive.key_raw.length, click_raw: drive.click_raw.length,
+                            click_paint: drive.click_paint.length, paced, raf_after: state().raf_raw.length}));
+"""
+
+
+@unittest.skipUnless(shutil.which("node"), "the probe page runs under node")
+class ProbePageTests(unittest.TestCase):
+    def run_probe(self, count, hz):
+        bench = load("chromium_host_bench_058", HERE / "chromium-host-bench.py")
+        script = re.search(r"<script>(.*)</script>", bench.PAGE, re.S).group(1)
+        with tempfile.TemporaryDirectory() as tmp:
+            (Path(tmp) / "page.js").write_text(script)
+            (Path(tmp) / "harness.js").write_text(PROBE_HARNESS)
+            done = subprocess.run(["node", str(Path(tmp) / "harness.js"), str(Path(tmp) / "page.js"), str(count),
+                                   str(hz)], capture_output=True, text=True, timeout=60)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        return bench, json.loads(done.stdout)
+
+    def test_the_title_stays_below_blinks_limit_through_a_helper_run(self):
+        for hz in (60, 120):
+            bench, got = self.run_probe(60, hz)
+            self.assertLess(got["longest"], bench.TITLE_LIMIT, f"{hz} Hz: {got}")
+            self.assertGreaterEqual(got["paced"], 3 * hz - 2, f"{hz} Hz: the pacing run reported its intervals")
+            self.assertEqual(got["raf_after"], 0, "`r` drops the intervals the bench read")
+
+    def test_the_lists_drive_reads_hold_exactly_its_measured_events(self):
+        _, got = self.run_probe(60, 60)
+        self.assertEqual((got["key_raw"], got["click_raw"], got["click_paint"]), (60, 60, 60),
+                         "the focus click is not a sample: drive's clicks start each list")
 
 
 class RecordTests(unittest.TestCase):

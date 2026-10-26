@@ -60,7 +60,8 @@ Percentiles (n/p50/p95/p99/max) are scripts/perf-lab/perf_stats.py's (linear int
 the page reports each event's delta, never its own summary. Every series is also one cmux-perf-result/v1 file in
 --out through BenchApp.record (browser_engine_bench_report.py): `chromium_host.<session>.<mode>.<metric>` in story
 chromium-host (key and click to paint and to the next animation frame, frame intervals, long frames, pump share);
-the report lists them under `results_v1`.
+the report lists them under `results_v1`. hop_us and ping_us stay in the report only: debug.chromium_host.measure
+answers percentiles, not samples, so the story claims no hot path (cef-host-input) until it returns the samples.
 
 On a fleet GUI host:
   python3 scripts/cmux-next/chromium-host-bench.py --app "<cmux DEV tag.app>" --out DIR [--count 60]
@@ -77,7 +78,8 @@ def parse(argv=None):
     parser = argparse.ArgumentParser()
     parser.add_argument("--app", required=True)
     parser.add_argument("--out", required=True)
-    parser.add_argument("--count", type=int, default=60)
+    parser.add_argument("--count", type=int, default=60,
+                        help="keys and clicks per mode; above about 60 the helper's title passes TITLE_LIMIT")
     parser.add_argument("--modes", default="inproc,helper")
     parser.add_argument("--json", help="also write the result here (a fleet measure entry's report.json)")
     parser.add_argument("--stress", action="store_true", help="also measure the pump share in the STRESS session")
@@ -122,13 +124,22 @@ function sample(list, paint, e) {
   // The frame that shows the change: the next animation frame after the event.
   requestAnimationFrame(() => { list.push(performance.now() - at); paint.push(+wall().toFixed(3)); report(); });
 }
-addEventListener('keydown', e => { if (e.key === 'p') { window.__pace(3000); return; } document.getElementById('t').style.outline = '2px solid #' + (S.key.length % 9) + 'f0'; sample(S.key, S.key_paint, e); }, true);
-addEventListener('mousedown', e => { document.getElementById('b').textContent = 'click ' + S.click.length; sample(S.click, S.click_paint, e); }, true);
-// Raw deltas only: the bench takes every percentile from perf_stats.
+// `p` starts the pacing run, `r` drops its intervals once the bench read them: both keep the title short (below).
+addEventListener('keydown', e => {
+  if (e.key === 'p') { window.__pace(3000); return; }
+  if (e.key === 'r') { e.preventDefault(); S.raf = []; report(); return; }
+  document.getElementById('t').style.outline = '2px solid #' + (S.key.length % 9) + 'f0'; sample(S.key, S.key_paint, e);
+}, true);
+// Only clicks on the button are samples: the click that focuses the field is not one of the bench's measured clicks.
+addEventListener('mousedown', e => { if (e.target.id !== 'b') return; e.target.textContent = 'click ' + S.click.length; sample(S.click, S.click_paint, e); }, true);
+// Raw deltas only: the bench takes every percentile from perf_stats. The helper reads this title through the host
+// (CEF OnTitleChange), and Blink cuts a title at mojom::kMaxTitleChars (4096, Document::DispatchDidReceiveTitle in
+// third_party/blink/renderer/core/dom/document.cc): __pace drops the key and click lists the bench already read,
+// and `r` the intervals, so the title stays below it (TITLE_LIMIT).
 const raw = list => list.map(v => +v.toFixed(2));
 function report() { document.title = 'probe ' + JSON.stringify({key_raw: raw(S.key), click_raw: raw(S.click), raf_raw: raw(S.raf), key_paint: S.key_paint, click_paint: S.click_paint, focus: S.focus, blur: S.blur, has_focus: document.hasFocus(), active: (document.activeElement || {}).id || null, field: document.getElementById('t').value.length, caret: document.getElementById('t').selectionStart, dialogs: S.dialogs, menus: S.menus}); }
 window.__pace = function(ms) {
-  S.raf = []; const box = document.getElementById('box'); box.classList.add('go');
+  S.key = []; S.click = []; S.key_paint = []; S.click_paint = []; S.raf = []; const box = document.getElementById('box'); box.classList.add('go');
   let last = null; const end = performance.now() + ms;
   function tick(t) { if (last !== null) S.raf.push(t - last); last = t; if (t < end) requestAnimationFrame(tick); else { box.classList.remove('go'); report(); } }
   requestAnimationFrame(tick);
@@ -136,6 +147,9 @@ window.__pace = function(ms) {
 window.__reset = function() { S.key = []; S.click = []; S.raf = []; S.key_paint = []; S.click_paint = []; report(); };
 report();
 </script>"""
+
+# Blink's mojom::kMaxTitleChars: a longer document.title reaches the browser cut, and the probe's JSON with it.
+TITLE_LIMIT = 4096
 
 TUNABLES = {"version": 1, "values": {"browserHost.helper": True, "browserResize.layerHosting": True}}
 RESULT = {"build": "Debug", "modes": {}, "notes": []}
@@ -414,14 +428,18 @@ def main():
         RESULT["error"] = error.reason
         ok = False
     finally:
-        if app.features is not None and SAMPLES:  # a launch that answered features.list and measured a mode
-            RESULT["results_v1"] = results.record_all(app, results.chromium_host_series(
-                SAMPLES, RESULT["modes"], session=opts.session, story=opts.story))
-        for path in filter(None, [os.path.join(opts.out, "chromium-host-bench.json"), opts.json]):
-            with open(path, "w") as out:
-                json.dump(RESULT, out, indent=2)
-        print("CHROMIUM-HOST-BENCH " + json.dumps(RESULT), flush=True)
-        app.stop()
+        try:
+            if app.features is not None and SAMPLES:  # a launch that answered features.list and measured a mode
+                RESULT["results_v1"] = results.record_all(app, results.chromium_host_series(
+                    SAMPLES, RESULT["modes"], session=opts.session, story=opts.story))
+        finally:
+            try:
+                for path in filter(None, [os.path.join(opts.out, "chromium-host-bench.json"), opts.json]):
+                    with open(path, "w") as out:
+                        json.dump(RESULT, out, indent=2)
+                print("CHROMIUM-HOST-BENCH " + json.dumps(RESULT), flush=True)
+            finally:
+                app.stop()
     return 0 if ok else 1
 
 
@@ -463,9 +481,10 @@ def drive(rpc, mode, title_of, key_target, mouse_target, click_point):
         time.sleep(1 / 30)  # test harness: as above
     stats = wait(lambda: len((probe_stats(title_of()) or {}).get("click_raw") or []) >= opts.count and probe_stats(title_of()), 10)
     stats = stats or probe_stats(title_of()) or {}
-    # The first click focused the field: it is not in click_sent, so only the last clicks are this run's.
-    clicks = (stats.get("click_raw") or [])[-len(click_sent):]
-    click_paint = (stats.get("click_paint") or [])[-len(click_sent):]
+    # The page samples only clicks on the button, so the focus click above is not in its lists: they start with
+    # this loop's first click.
+    clicks = (stats.get("click_raw") or [])[:len(click_sent)]
+    click_paint = (stats.get("click_paint") or [])[:len(click_sent)]
     samples["click_to_raf"] = padded(clicks, opts.count)
     samples["click_to_paint"] = paint_deltas(click_sent, click_paint)
     row["click_to_raf_ms"] = results.percentiles(clicks)
@@ -474,6 +493,7 @@ def drive(rpc, mode, title_of, key_target, mouse_target, click_point):
     rpc("debug.key", {**key_target, "key": "p"})
     time.sleep(3.6)  # test harness: the page animates for 3 s
     raw = (probe_stats(title_of()) or {}).get("raf_raw") or []
+    rpc("debug.key", {**key_target, "key": "r"})  # read: the page drops the intervals from its title
     samples["raf_interval"] = raw
     row["raf_ms"] = results.percentiles(raw)
     if raw and RESULT.get("refresh_hz"):

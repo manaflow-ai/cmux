@@ -17,7 +17,6 @@
   "seconds": 300,
   "needs": ["debug:debug.chromium_host", "debug:debug.chromium_host.measure", "debug:debug.cef", "debug:debug.key",
             "debug:debug.mouse", "debug:debug.wakeups", "debug:debug.pane_chrome"],
-  "hot_paths": ["cef-host-input"],
   "owner": "PL-cefhost",
   "component": "Browser>ChromiumHost"
 }

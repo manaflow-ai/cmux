@@ -394,6 +394,9 @@ try:
 except LaunchError as error:
     bench.stop()
     sys.exit(f"app did not come up: {error.reason}")
+except BaseException:  # SIGTERM (the teardown's SystemExit), Ctrl-C: the spawned app and its tag end too
+    bench.stop()
+    raise
 SOCKET = bench.socket
 report["pid"] = bench.process.pid
 try:
