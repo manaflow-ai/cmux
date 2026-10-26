@@ -54,7 +54,7 @@ nonisolated extension Feature {
         defaults: FeatureDefaults(dev: false, nightly: false, release: false),
         expires: "2026-12-20",
         params: [],
-        stories: ["cef-resize-sync", "cef-resize-sync-stress"],
+        stories: ["cef-resize-sync", "cef-resize-sync-stress", "pane-chromium"],
         sticky: false,
         runtimeMutable: false
     )

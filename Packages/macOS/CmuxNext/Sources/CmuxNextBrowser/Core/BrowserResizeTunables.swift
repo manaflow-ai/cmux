@@ -17,17 +17,20 @@ public nonisolated struct BrowserResizeTunables {
         help: "While a Chromium page lays out at a new window or pane size, the gap beside its last frame shows the page's own background color. Off shows Chromium's white and the pane ground.",
         default: true, code: "BrowserResizeTunables.pageBackdrop")
 
-    /// Off (the default): the feature `cefLayerHosting` decides
-    /// (`CEFLayerHosting.hosting(override:fork:widget:)`). On: every page
-    /// window's pixels live in the cmux window's layer tree (fork API 26,
-    /// `ChromiumHostPageView`), DevTools and popups too; the page window stays
-    /// as a transparent input target. Applies to pages shown after the change.
+    /// The developer's local override of the feature `cefLayerHosting`
+    /// (`schemas/features/features.d/cefLayerHosting.json`, which `replaces`
+    /// this key): nothing in the browser reads it. The App's feature bridge
+    /// gives it the feature's local-override place (under managed policy and
+    /// `CMUX_DISABLE_FEATURES`/`CMUX_ENABLE_FEATURES`) when it builds the
+    /// Chromium engine, so a change applies at the next Chromium start. Set:
+    /// the feature takes this value; a pane's page then hosts only where the
+    /// app makes every Track A call (`CEFLayerHosting.TrackA`).
     public static let layerHosting = Tunable<Bool>.toggle(
         "browserResize.layerHosting", section, "Host Chromium pages in the window's layers",
-        help: "A Chromium page draws inside the cmux window's own layer tree, so it moves, clips and shows with the panes in one frame. Its page window stays on top only to take input. Needs Chromium fork API 26; applies when a page is shown next.",
+        help: "Overrides the feature cefLayerHosting: a Chromium pane page draws inside the cmux window's own layer tree where the app makes every Track A call for the fork (resize fence, embedder visibility); DevTools and popups keep their own window. Applies at the next Chromium start (relaunch).",
         default: false, code: "BrowserResizeTunables.layerHosting")
 
-    /// While a page is layer hosted (`layerHosting`), how long a resize of
+    /// While a page is layer hosted (feature `cefLayerHosting`), how long a resize of
     /// its pane may hold the window's frame for Chromium's frame at the new
     /// size (fork API 27 to 31; from API 32 it has no effect), so the page
     /// resizes in the same frame as the pane.

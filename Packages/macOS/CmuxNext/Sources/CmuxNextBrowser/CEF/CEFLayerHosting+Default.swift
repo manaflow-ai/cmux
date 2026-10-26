@@ -40,9 +40,10 @@ extension CEFLayerHosting {
         case popup
     }
 
-    /// Whether the page window hosts. `override` (`browserResize.layerHosting`):
-    /// every page window of a fork from ``forkAPI``. Else the feature's default:
-    /// a pane's page where the app makes every Track A call for the fork.
+    /// Whether the page window hosts. `override` (a test's forced hosting; the
+    /// app never sets it): every page window of a fork from ``forkAPI``. Else the
+    /// feature `cefLayerHosting`: a pane's page where the app makes every Track A
+    /// call for the fork.
     static func hosting(override: Bool, fork: Fork, widget: Widget) -> Hosting {
         if override { return .hosted }
         guard let trackA = fork.trackA else { return .off }

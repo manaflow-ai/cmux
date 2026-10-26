@@ -1,12 +1,15 @@
 import AppKit
 @testable import CmuxNextBrowser
+import CmuxNextDesign
 import Foundation
 import Testing
 
 /// Layer hosting's default (p03-rendering-050). The feature `cefLayerHosting` hosts a pane's page only where the
 /// app makes every Track A call for the fork (the resize fence, embedder visibility); no fork API alone turns it on.
 /// DevTools and popup windows keep their own window (until p03-rendering-056), and `debug.cef` counts why a page
-/// did not host. The developer's `browserResize.layerHosting` keeps its meaning: every page window from API 26.
+/// did not host. Only the feature decides in the app (p12-perf-process-100): the Debug tunable
+/// `browserResize.layerHosting` is the feature's local override in the App's bridge, and the `override` seam that
+/// hosts every page window from API 26 is a test's.
 @MainActor
 @Suite(.serialized) struct CEFLayerHostingDefaultTests {
     let view = NSView(frame: NSRect(x: 0, y: 0, width: 400, height: 300))
@@ -19,7 +22,7 @@ import Testing
                                     trackA: trackA)
     }
 
-    func makeHosting(override: Bool = BrowserResizeTunables.layerHosting.defaultValue,
+    func makeHosting(override: Bool = false,
                      widget: CEFLayerHosting.Widget) -> CEFLayerHosting {
         let hosting = CEFLayerHosting(isEnabled: { override }, schedule: { $0() },
                                       makePage: { ChromiumHostPageView(frame: $0, inputTarget: .pageWindow, makeLayerHost: { _ in CALayer() }) },
@@ -46,7 +49,7 @@ import Testing
         #expect(host(false, fork(trackA: .required), .popup) == .widgetFallback)
     }
 
-    @Test func theDeveloperOverrideHostsEveryPageWindowOnAnyFork() {
+    @Test func theForcedOverrideHostsEveryPageWindowOnAnyFork() {
         for widget in [CEFLayerHosting.Widget.page, .devTools, .popup] {
             for trackA in [nil, [], CEFLayerHosting.TrackA.required] as [CEFLayerHosting.TrackA?] {
                 #expect(CEFLayerHosting.hosting(override: true, fork: fork(trackA: trackA), widget: widget) == .hosted)
@@ -56,10 +59,10 @@ import Testing
 
     // MARK: The state machine
 
-    @Test func aDockedDevToolsHostsWithTheOverrideAndNoFeature() throws {
+    @Test func aDockedDevToolsHostsWithTheForcedOverrideAndNoFeature() throws {
         let hosting = makeHosting(override: true, widget: .devTools)
         hosting.pageWindowCreated(browser: 5, fork: fork(trackA: nil))
-        #expect(fake.calls.map(\.enabled) == [true], "an override set before 050 still hosts DevTools")
+        #expect(fake.calls.map(\.enabled) == [true], "a test's forced override hosts DevTools")
         #expect(try #require(hosting.page).contextID == 7)
     }
 
@@ -92,6 +95,28 @@ import Testing
             #expect(hosting.page == nil)
             #expect(CEFHostView.trackerStats.hostingWidgetFallbacks == before.hostingWidgetFallbacks + 1)
         }
+    }
+
+    /// The Debug tunable on hosts nothing by itself: the app's hosting reads only the feature (its fork's Track A
+    /// calls), and the tunable reaches it only as the feature's local override at the engine's build.
+    @Test func theAppsHostingNeverReadsTheDebugTunable() {
+        let store = TunableStore.shared
+        store.activate(file: nil)
+        store.register(BrowserResizeTunables.all)
+        store.set("browserResize.layerHosting", .bool(true))
+        defer { store.set("browserResize.layerHosting", nil) }
+        let hosting = CEFLayerHosting(schedule: { $0() },
+                                      makePage: { ChromiumHostPageView(frame: $0, inputTarget: .pageWindow, makeLayerHost: { _ in CALayer() }) },
+                                      resizeDeadlineMs: { 0 }, liveResizeDeadlineMs: { 0 }, refreshIntervals: { [] })
+        hosting.view = view
+        for widget in [CEFLayerHosting.Widget.page, .devTools, .popup] {
+            hosting.widget = widget
+            #expect(hosting.decide(fork(trackA: nil)) == .off, "\(widget) hosted with the feature off")
+        }
+        hosting.widget = .devTools
+        hosting.pageWindowCreated(browser: 5, fork: fork(trackA: nil))
+        #expect(fake.calls.isEmpty)
+        #expect(hosting.page == nil)
     }
 
     @Test func theFeatureOffCountsNothing() {

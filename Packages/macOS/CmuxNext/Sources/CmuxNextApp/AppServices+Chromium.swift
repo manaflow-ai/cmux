@@ -3,6 +3,7 @@ import CmuxNextBrowser
 import CmuxNextChromiumWarmup
 import CmuxNextCompat
 import CmuxNextCrashReporting
+import CmuxNextDesign
 import CmuxNextFeatures
 import CmuxNextSettings
 import CmuxNextWakeups
@@ -76,18 +77,30 @@ extension AppServices {
         chromiumRuntime.source.showsHostWidgets = features.isEnabled(.chromiumHostWidgets)
         return ChromiumEngineSlot(stores: browserStores, waitDeadlines: mainWork.wakeUps, source: chromiumRuntime.source,
                                   make: { [signInCallbacks, contextMenus, inputTap, crashKeys, launchStartup, pointerFrames = dragFrameInput,
-                                           chromiumFeatures = features.enabledChromiumFeatures, layerHosting = features.isEnabled(.cefLayerHosting)] stores, deadlines, source in
+                                           chromiumFeatures = features.enabledChromiumFeatures, features] stores, deadlines, source in
                                       // Chromium's start as launch marks (p08-startup-044); its first page paint counts until startup_complete.
                                       let launchMarks = CEFLaunchMarkHooks(receive: { DebugTimings.markLaunch($0) },
                                                                            isStarting: { launchStartup.map { $0.completion == nil } ?? false })
                                       return CEFEngine(source: source, stores: stores, signInCallbacks: signInCallbacks, lifecycleTrace: .shared,
                                                        contextMenus: contextMenus, waitDeadlines: deadlines, input: inputTap, crashKeys: crashKeys,
                                                        launchMarks: launchMarks, pumpInput: pumpInput, pointerFrames: pointerFrames,
-                                                       chromiumFeatures: chromiumFeatures, prefetchWork: prefetchWork).usingLayerHostingByDefault(layerHosting)
+                                                       chromiumFeatures: chromiumFeatures, prefetchWork: prefetchWork)
+                                          .usingLayerHostingByDefault(AppServices.cefLayerHosting(in: features, tunables: .shared))
                                   },
                                   engineDidCreate: AppServices.chromiumEngineHook(crashRecovery: crashRecovery, reporter: crashReporting.reporter,
                                                                                   routes: { [weak self] in self?.routeChromiumRequests($0) }),
                                   stop: { await $0.shutdown() })
+    }
+
+    /// Feature `cefLayerHosting` for the engine being built, with the Debug tunable it replaces
+    /// (`browserResize.layerHosting`) as its local override: the bridge, the tunable's only reader. The list
+    /// asks its local layer once at launch, before the tunable store has read its file, so the override takes
+    /// that place in the list's order here (DEV and NIGHTLY; managed policy and the environment lists still win).
+    nonisolated static func cefLayerHosting(in features: FeatureList, tunables: TunableStore) -> Bool {
+        let resolved = features.resolution(of: .cefLayerHosting)
+        guard features.channel.allowsLocalOverrides, resolved.source != .policy, resolved.source != .environment,
+              let local = BrowserResizeTunables.layerHosting.override(in: tunables) else { return resolved.isEnabled }
+        return local
     }
 
     /// The slot's `engineDidCreate`. It holds the crash services themselves, not the `AppServices`, so on every engine
