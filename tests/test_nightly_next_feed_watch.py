@@ -9,6 +9,7 @@ every 30 minutes and measures how long feat-cmux-next pushes have waited.
 from __future__ import annotations
 
 import datetime as dt
+import http.client
 import importlib.util
 from pathlib import Path
 import sys
@@ -188,6 +189,7 @@ class StaleExitTests(unittest.TestCase):
         stage = watch.Stage(stale, 5.0 if stale else 0.5, NOW - dt.timedelta(hours=5), "Nothing was promoted.")
         with unittest.mock.patch.object(watch, "read_feed", lambda url: NEWEST), \
                 unittest.mock.patch.object(watch, "published_commit", lambda gh: ""), \
+                unittest.mock.patch.object(watch, "published_commit_for_release", lambda gh, tag: ""), \
                 unittest.mock.patch.object(watch, "oldest_waiting_push", lambda gh, sha, newest: None), \
                 unittest.mock.patch.object(watch, "assess", lambda *a, **k: stage), \
                 unittest.mock.patch.object(watch.GitHub, "runs", lambda self, *a, **k: []), \
@@ -324,7 +326,23 @@ class StarvationGuardTests(unittest.TestCase):
 
     def test_a_quiet_branch_dispatches_nothing(self):
         gh = self.Gh(self, [])
-        self.assertEqual(self.guard(gh, published_sha=self.TIP), "unchanged")
+        self.assertTrue(self.guard(gh, published_sha=self.TIP).startswith("unchanged"))
+        self.assertEqual(gh.dispatched, [])
+
+    def test_a_published_tip_behind_its_feed_says_so_instead_of_just_unchanged(self):
+        """Nothing here covers that case; a bare "unchanged" hid it.
+
+        A build cannot fix it, because the promotion ignores a request that
+        does not move the branch forward, and the alarm does not raise it,
+        because no push is waiting.
+        """
+        gh = self.Gh(self, [])
+        self.assertEqual(self.guard(gh, published_sha=self.TIP),
+                         "unchanged: the tip is published but the feed is behind the release")
+        unreadable = watch.starvation_dispatch(
+            self.Gh(self, []), NOW, feed=None, published_sha=self.TIP, branch="feat-cmux-next",
+            workflow="nightly-next-tick.yml", ref="main", feed_unknown=True)
+        self.assertEqual(unreadable, "unchanged: the tip is published but its feed could not be read")
         self.assertEqual(gh.dispatched, [])
 
     def test_a_stale_feed_with_no_active_run_builds_the_tip(self):
@@ -395,7 +413,8 @@ class StarvationGuardTests(unittest.TestCase):
         self.assertEqual(
             watch.starvation_dispatch(quiet, NOW, feed=None, published_sha=self.TIP,
                                       branch="feat-cmux-next", workflow="nightly-next-tick.yml",
-                                      ref="main", feed_unknown=True), "unchanged")
+                                      ref="main", feed_unknown=True),
+            "unchanged: the tip is published but its feed could not be read")
         self.assertEqual(quiet.dispatched, [])
 
     def test_the_guard_never_cancels_a_run(self):
@@ -488,6 +507,40 @@ class HealBeforeAlarmTests(unittest.TestCase):
                 unittest.mock.patch.dict("os.environ", {"GH_TOKEN": "t"}):
             self.assertEqual(watch.main(["--repo", "o/r", "--dry-run"]), 0)
         self.assertEqual(calls, ["feat-cmux-next", "main"])
+
+    def test_a_release_read_that_is_not_an_oserror_still_leaves_a_guard_running(self):
+        """`published_commit*` swallow OSError, so a 403 was survivable, but the
+        read sat outside every boundary: the live `IncompleteRead` seen on
+        2026-10-26 is not an OSError and would have taken both guards with it."""
+        seen = []
+        with unittest.mock.patch.object(watch, "read_feed", lambda url: NEWEST), \
+                unittest.mock.patch.object(
+                    watch, "published_commit",
+                    lambda gh: (_ for _ in ()).throw(http.client.IncompleteRead(b"half"))), \
+                unittest.mock.patch.object(watch, "published_commit_for_release", lambda gh, tag: ""), \
+                unittest.mock.patch.object(
+                    watch, "starvation_dispatch",
+                    lambda *a, **k: seen.append(k.get("branch")) or "dispatched"), \
+                unittest.mock.patch.dict("os.environ", {"GH_TOKEN": "t"}):
+            self.assertEqual(watch.main(["--repo", "o/r", "--dry-run"]), 0)
+        # The NEXT guard cannot run without its marker, but classic still does.
+        self.assertEqual(seen, ["main"])
+
+    def test_each_release_marker_is_read_once(self):
+        """The guards and the alarm share one read apiece, not three."""
+        reads = []
+        with unittest.mock.patch.object(watch, "read_feed", lambda url: NEWEST), \
+                unittest.mock.patch.object(
+                    watch, "published_commit", lambda gh: reads.append("next") or ""), \
+                unittest.mock.patch.object(
+                    watch, "published_commit_for_release", lambda gh, tag: reads.append(tag) or ""), \
+                unittest.mock.patch.object(watch, "starvation_dispatch", lambda *a, **k: "stubbed"), \
+                unittest.mock.patch.object(watch, "oldest_waiting_push", lambda gh, sha, newest: None), \
+                unittest.mock.patch.object(watch.GitHub, "runs", lambda self, *a, **k: []), \
+                unittest.mock.patch.object(watch, "sync_issue", lambda *a: "synced"), \
+                unittest.mock.patch.dict("os.environ", {"GH_TOKEN": "t"}):
+            watch.main(["--repo", "o/r", "--dry-run"])
+        self.assertEqual(reads, ["next", "nightly"])
 
     def test_the_classic_guard_runs_when_the_next_feeds_are_unreadable(self):
         """Different feeds fail differently; one must not take the other down."""

@@ -34,12 +34,20 @@ import argparse
 from dataclasses import dataclass
 import datetime as dt
 import email.utils
+import http.client
 import json
 import os
 import re
 import sys
 import urllib.parse
 import urllib.request
+
+# Every way a read can fail in transit. `urllib` raises OSError for a refused
+# connection, a timeout or an HTTP status, but a truncated response arrives as
+# http.client.IncompleteRead, which is an HTTPException and not an OSError;
+# one of those on 2026-10-26 was two guards away from taking the whole check
+# down. A read that fails in transit is always a warning, never a traceback.
+TRANSPORT = (OSError, http.client.HTTPException)
 
 FEED_URL = "https://files-next.cmux.com/nightly-next/next/appcast-arm64.xml"  # cmux NEXT (cx-x7hwx)
 # nightly-next writes two appcasts: the bare path an installed app polls and
@@ -226,7 +234,7 @@ class GitHub:
         sha = self.ref_sha(branch)
         try:
             return sha, parse_time(self.call("GET", f"/commits/{sha}")["commit"]["committer"]["date"])
-        except (OSError, AttributeError, KeyError, TypeError, ValueError):
+        except (*TRANSPORT, AttributeError, KeyError, TypeError, ValueError):
             return sha, None
 
     def dispatch(self, workflow: str, ref: str, inputs: dict[str, str] | None = None) -> None:
@@ -239,7 +247,7 @@ class GitHub:
                 for note in self.call("GET", f"/check-runs/{job['id']}/annotations?per_page=50"):
                     if note.get("title") == TICK_ANNOTATION:
                         return f"{note.get('message', '').strip()} ({runs[0]['html_url']})"
-        except (OSError, KeyError, IndexError, TypeError):
+        except (*TRANSPORT, KeyError, IndexError, TypeError):
             pass
         return ""
 
@@ -268,7 +276,7 @@ def is_active_delivery_run(workflow: str, branch: str | None, run: dict) -> bool
 def published_commit_for_release(gh: GitHub, tag: str) -> str:
     try:
         body = gh.call("GET", f"/releases/tags/{tag}").get("body") or ""
-    except OSError:
+    except TRANSPORT:
         return ""
     match = PUBLISHED_MARKER.search(body)
     return match.group(1).lower() if match else ""
@@ -318,10 +326,14 @@ def starvation_dispatch(gh: GitHub, now: dt.datetime, *, feed: dt.datetime | Non
     Two limits this does not close. `tip_landed` is the commit's committer
     date, not the moment it reached the branch; for this repository they are
     the same, because every commit on these branches arrives by squash merge,
-    which sets the committer date at merge time. And a tip the release marker
-    already calls published dispatches nothing even if a feed path lags: the
-    publication, not the build, is what is behind, and the stale-feed issue is
-    what covers it.
+    which sets the committer date at merge time.
+
+    And a tip the release marker already calls published dispatches nothing
+    even when a feed path is behind or unreadable. A build cannot fix that
+    case -- the promotion ignores a request that does not move the branch
+    forward -- and the alarm does not raise it either, because no push is
+    waiting. Nothing here covers it, so the run says so in as many words
+    rather than reporting a bare "unchanged".
 
     `tip_input` names the dispatch input that carries the commit, filled in
     from the tip this call resolved. Reading it here rather than in the
@@ -341,7 +353,13 @@ def starvation_dispatch(gh: GitHub, now: dt.datetime, *, feed: dt.datetime | Non
     elif (now - feed).total_seconds() < minutes * 60:
         return "fresh"
     tip, tip_landed = gh.ref_commit(branch)
-    if not tip or tip == published_sha:
+    if not tip:
+        return "unchanged"
+    if tip == published_sha:
+        if feed_unknown or feed is None:
+            return "unchanged: the tip is published but its feed could not be read"
+        if (now - feed).total_seconds() >= minutes * 60:
+            return "unchanged: the tip is published but the feed is behind the release"
         return "unchanged"
     active = [run for name, run_branch in (active_workflows or [(workflow, branch)])
               for run in gh.recent_runs(name, run_branch, now)
@@ -350,6 +368,7 @@ def starvation_dispatch(gh: GitHub, now: dt.datetime, *, feed: dt.datetime | Non
         return f"running {active[0].get('html_url', active[0].get('id', '?'))}"
     gh.dispatch(workflow, ref, {**(inputs or {}), tip_input: tip} if tip_input else inputs)
     return f"dispatched {workflow} for {tip}"
+
 
 def published_commit(gh: GitHub) -> str:
     try:
@@ -394,7 +413,7 @@ def read_feeds(urls) -> tuple[dt.datetime | None, list[str]]:
     for url in urls:
         try:
             item = read_feed(url)
-        except (OSError, ValueError) as error:
+        except (*TRANSPORT, ValueError) as error:
             missing.append(f"{url}: {error}")
             continue
         if item is None:
@@ -468,24 +487,35 @@ def main(argv: list[str]) -> int:
         print("::warning::no cmux NEXT feed had a dated item")
     gh = GitHub(args.repo, token, args.dry_run)
     now = dt.datetime.now(dt.timezone.utc)
-    published_sha = published_commit(gh)
 
-    # Heal first, and independently. Each guard is cheap and must not be lost
-    # to a failure in the alarm path below.
+    # Read each release marker once, inside whichever boundary asks for it
+    # first. Reading them up here instead is what made the 2026-10-26 stall
+    # invisible: one 403 on a release lookup raised before any guard ran, and
+    # the run still reported success.
+    seen: dict[str, str] = {}
+
+    def published(tag: str = "") -> str:
+        if tag not in seen:
+            seen[tag] = published_commit_for_release(gh, tag) if tag else published_commit(gh)
+        return seen[tag]
+
+    # Heal first, and each guard inside its own boundary: a failure in one, or
+    # in the alarm below, must never cost the other its dispatch.
     heal("next", lambda: starvation_dispatch(
-        gh, now, feed=newest, published_sha=published_sha,
+        gh, now, feed=newest, published_sha=published(),
         branch="feat-cmux-next", workflow="nightly-next-tick.yml", ref="main", tip_input="sha",
         feed_unknown=bool(missing),
         active_workflows=[("nightly-next-tick.yml", "main"), ("nightly-next-train.yml", "feat-cmux-next"),
                           ("nightly.yml", "nightly-next"), ("nightly.yml", "main")]))
     heal("classic", lambda: starvation_dispatch(
-        gh, now, feed=classic_newest, published_sha=published_commit_for_release(gh, "nightly"),
+        gh, now, feed=classic_newest, published_sha=published("nightly"),
         branch="main", workflow="nightly.yml", ref="main", inputs={"force": "false"},
         feed_unknown=bool(classic_missing)))
 
     if newest is None:
         return 0
     try:
+        published_sha = published()
         oldest = oldest_waiting_push(gh, published_sha, newest)
         stage = assess(
             now, newest,
@@ -499,7 +529,7 @@ def main(argv: list[str]) -> int:
         )
         print(f"feed newest {newest.isoformat()}, waited {stage.waited_hours:.1f}h: {stage.reason}")
         print(sync_issue(gh, stage, issue_body(stage, newest, now, published_sha, args.max_lag_hours, args.run_url), args.max_lag_hours, args.run_url))
-    except OSError as error:  # urllib.error.URLError and HTTPError; the next check runs in 30 minutes
+    except TRANSPORT as error:  # the next check runs in 30 minutes
         print(f"::warning::GitHub API error, skipped this check: {error}")
         return 0
     if stage.stale:
