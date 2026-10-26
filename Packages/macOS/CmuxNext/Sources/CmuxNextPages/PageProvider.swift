@@ -17,6 +17,17 @@ public protocol PageProvider: AnyObject {
 
     func eventDeliveryDropped(stream: String, data: JSONValue, publicationID: UInt64?)
     var eventDeliveryID: UInt64? { get }
+
+    /// The page froze (p13-webui.md 3.C): it runs no script until ``pageDidThaw()``, so the provider
+    /// stops the native sources and daemon listens behind its streams; the router holds what still
+    /// arrives. Chrome's `WebUIMessageHandler::OnJavascriptDisallowed`
+    /// (content/public/browser/web_ui_message_handler.h), where handlers drop their observers.
+    /// Called once per freeze, in the turn the engine froze the page (``PageRouter/pageWillFreeze()``).
+    func pageWillFreeze()
+    /// The page thawed, in the turn of the thaw and before the router releases what it held: the
+    /// provider starts what ``pageWillFreeze()`` stopped and tells each stream that missed changes to
+    /// re-read (one resync per stream). Chrome's `OnJavascriptAllowed`.
+    func pageDidThaw()
 }
 
 public extension PageProvider {
@@ -30,6 +41,11 @@ public extension PageProvider {
     var eventDeliveryID: UInt64? { nil }
     func eventDeliveryDropped(stream: String, data: JSONValue) {}
     func eventDeliveryDropped(stream: String, data: JSONValue, publicationID: UInt64?) {}
+
+    /// A provider whose streams have no source of their own to stop keeps them running: the router
+    /// holds their events while the page is frozen.
+    func pageWillFreeze() {}
+    func pageDidThaw() {}
 }
 
 /// What ``PageRouter`` keeps of one stream's events while the page's delivery is held (hidden or
