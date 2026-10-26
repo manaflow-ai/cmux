@@ -47,9 +47,27 @@ public final class FakeChromiumPage: PageChromiumPage {
     public var answer: ((_ method: String, _ params: [String: any Sendable]) -> String?)?
     /// Runs when the host closes the page.
     public var onClose: (() -> Void)?
+    /// Every script ``evaluate(_:)`` ran, in order, whichever path answered it.
+    public private(set) var evaluations: [String] = []
+    /// Runs after each evaluation (tests wait on it).
+    public var onEvaluate: (() -> Void)?
+    /// The renderer path (`tabEvaluate`, fork API 29): when set, ``evaluate(_:)`` answers with it
+    /// (the value as JSON, `null` for null and undefined; throw ``PageScriptError/exception(_:)``
+    /// for an exception) and makes no DevTools call. Nil: the DevTools path, a `Runtime.evaluate`
+    /// in ``calls`` answered as any call is (``answer``).
+    public var rendererEvaluate: ((_ script: String) throws -> String)?
 
     /// Makes a page with no calls yet.
     public init() {}
+
+    /// Records `script` in ``evaluations`` and answers it through ``rendererEvaluate``, or through
+    /// the DevTools path (``PageChromiumPage/devToolsEvaluate(_:)``) when that is nil.
+    public func evaluate(_ script: String) async throws -> String {
+        evaluations.append(script)
+        defer { onEvaluate?() }
+        guard let rendererEvaluate else { return try await devToolsEvaluate(script) }
+        return try rendererEvaluate(script)
+    }
 
     /// Records the call and answers it: ``answer`` first, then the sender check, then an empty result.
     public func devTools(_ method: String, params: [String: any Sendable]) async throws -> String {

@@ -29,7 +29,8 @@ public protocol PageChromiumHosting: AnyObject {
 }
 
 /// One Chromium page the page host shows. The page host drives it only through this protocol
-/// and the DevTools protocol (``devTools(_:params:)``), so a CEF tab or a fake in tests both fit.
+/// (scripts through ``evaluate(_:)``, the rest through the DevTools protocol,
+/// ``devTools(_:params:)``), so a CEF tab or a fake in tests both fit.
 @MainActor
 public protocol PageChromiumPage: AnyObject {
     /// The view to place where the page shows (Chromium's view tracks it).
@@ -49,11 +50,24 @@ public protocol PageChromiumPage: AnyObject {
     /// Runs a DevTools protocol method and returns its JSON result.
     ///
     /// - Parameters:
-    ///   - method: The method (`Runtime.evaluate`).
+    ///   - method: The method (`Page.captureScreenshot`).
     ///   - params: Its params.
     /// - Returns: The method's JSON result.
     /// - Throws: When the page is gone or the method fails.
     func devTools(_ method: String, params: [String: any Sendable]) async throws -> String
+    /// Runs `script` in the page's main frame, in the page's own world, without a user gesture,
+    /// awaits a promise it gives, and returns the value as JSON (`Runtime.evaluate` `returnByValue`
+    /// rules; `null` for null and for undefined). Chrome's WebUI runs its scripts in its page with
+    /// no DevTools agent (`WebUIImpl::ExecuteJavascript`, content/browser/webui/web_ui_impl.cc): a
+    /// CEF page does the same through the fork's `tabEvaluate` on renderer paths (fork API 29), so
+    /// its renderer stays shareable. The default is ``devToolsEvaluate(_:)``, for a page with no
+    /// renderer path.
+    ///
+    /// - Parameter script: An expression, or statements whose last value is the result.
+    /// - Returns: The value as JSON.
+    /// - Throws: ``PageScriptError/exception(_:)`` when the script throws,
+    ///   ``PageScriptError/noResult`` when the answer is not JSON, or the page's error when it is gone.
+    func evaluate(_ script: String) async throws -> String
     /// Loads `url` in the page.
     func load(_ url: URL)
     /// Reloads the document.
@@ -70,6 +84,24 @@ public protocol PageChromiumPage: AnyObject {
     func setSeeThrough(_ seeThrough: Bool)
     /// Tears the page down. Idempotent.
     func close()
+}
+
+extension PageChromiumPage {
+    /// ``evaluate(_:)`` through a DevTools `Runtime.evaluate` (`awaitPromise`, `returnByValue`), for
+    /// a page with no renderer path (a fork before API 29); its reply is parsed off the main actor.
+    public func evaluate(_ script: String) async throws -> String {
+        try await devToolsEvaluate(script)
+    }
+
+    /// ``evaluate(_:)``'s answer made from a DevTools `Runtime.evaluate` of `script`.
+    ///
+    /// - Parameter script: The script.
+    /// - Returns: The value as JSON; `null` for null and for undefined.
+    /// - Throws: ``PageScriptError`` for an exception or a reply that is not JSON, or the page's error.
+    public func devToolsEvaluate(_ script: String) async throws -> String {
+        let reply = try await devTools("Runtime.evaluate", params: ["expression": script, "awaitPromise": true, "returnByValue": true])
+        return try await ChromiumPageHostWire.valueJSON(devToolsReply: reply)
+    }
 }
 
 /// What a Chromium page reports to the page host.

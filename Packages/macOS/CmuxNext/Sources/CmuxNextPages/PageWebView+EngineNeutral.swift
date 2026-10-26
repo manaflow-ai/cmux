@@ -2,10 +2,11 @@ public import AppKit
 import Foundation
 import WebKit
 
-// Calls a host makes on a page whichever engine shows it (WebKit, or Chromium through the DevTools
-// protocol), so a host never reaches into ``PageWebView/webKitView`` for them: a script, a picture
-// of the page, the next drawn frame, and extra message handlers. A function's value is
-// ``PageWebView/callPageFunction(_:arguments:)``.
+// Calls a host makes on a page whichever engine shows it (WebKit, or Chromium through
+// ``PageChromiumPage``), so a host never reaches into ``PageWebView/webKitView`` for them: a script,
+// a picture of the page, the next drawn frame, and extra message handlers. A function's value is
+// ``PageWebView/callPageFunction(_:arguments:)``; in Chromium it runs through
+// ``PageChromiumPage/evaluate(_:)``, so the frame wait opens no DevTools session.
 extension PageWebView {
     /// Whether a Chromium page shows the document now (``engineDecision`` may still say Chromium
     /// while the page starts).
