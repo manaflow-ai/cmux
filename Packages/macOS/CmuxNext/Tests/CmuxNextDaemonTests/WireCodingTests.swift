@@ -46,11 +46,58 @@ struct WireCodingTests {
         ]))
     }
 
-    /// A camelCase key is not rewritten: before this change the encoder sent
-    /// `camelKey` inside a nested object as `camel_key`.
-    @Test func nestedObjectKeysStayAsWritten() throws {
-        let line = try WireCoding.encoder().encode(JSONValue.object(["camelKey": .object(["innerKey": .null])]))
-        #expect(String(decoding: line, as: UTF8.self).contains("\"camelKey\":{\"innerKey\":null}"))
+    /// A CodingKey is not rewritten, in a nested struct too: the snake_case
+    /// strategy sent this `{"outer_key":{"inner_key":true}}`.
+    @Test func nestedCodingKeysStayAsWritten() throws {
+        struct Inner: Encodable {
+            var innerKey: Bool
+        }
+        struct Outer: Encodable {
+            var outerKey: Inner
+        }
+        let line = try WireCoding.encoder().encode(Outer(outerKey: Inner(innerKey: true)))
+        #expect(try Self.fields(line) == .object(["outerKey": .object(["innerKey": .bool(true)])]))
+    }
+
+    /// The hand-written requests spell their wire names in `CodingKeys`, nested
+    /// types and flattened mutation fields included, so the lines the strategy
+    /// wrote do not change.
+    @Test func handWrittenRequestsKeepTheirSnakeCaseNames() throws {
+        #expect(try Self.fields(WireCoding.encodeRequest(SubscribeRequest(), id: 1)) == .object([
+            "id": .number(1), "cmd": .string("subscribe"), "tree_events": .string("deltas"),
+        ]))
+
+        let mount = AppsMountRequest(app: "notes", interface: "main", mountID: "m-1",
+                                     context: .object(["camelKey": .bool(true)]))
+        #expect(try Self.fields(WireCoding.encodeRequest(mount, id: 2)) == .object([
+            "id": .number(2), "cmd": .string("apps-mount"), "app": .string("notes"), "interface": .string("main"),
+            "mount_id": .string("m-1"), "context": .object(["camelKey": .bool(true)]),
+        ]))
+
+        let mutation = MutationIdentity(origin: "app", mutationID: "m-2", expectedGeneration: DaemonGeneration(rawValue: "g"),
+                                        expectedRevision: 4)
+        let close = CloseTabsRequest(surfaces: [SurfaceID(rawValue: 5)], endTerminals: true, mutation: mutation)
+        #expect(try Self.fields(WireCoding.encodeRequest(close, id: 3)) == .object([
+            "id": .number(3), "cmd": .string("close-tabs"), "surfaces": .array([.number(5)]), "end_terminals": .bool(true),
+            "origin": .string("app"), "mutation_id": .string("m-2"), "expected_generation": .string("g"),
+            "expected_revision": .number(4),
+        ]))
+
+        let clear = ClearHistoryRequest(surface: SurfaceID(rawValue: 6), fallbackKey: .command("k"))
+        func modifiers(super pressed: Bool) -> JSONValue {
+            .object([
+                "shift": .bool(false), "control": .bool(false), "alt": .bool(false), "super": .bool(pressed),
+                "caps_lock": .bool(false), "num_lock": .bool(false),
+            ])
+        }
+        #expect(try Self.fields(WireCoding.encodeRequest(clear, id: 4)) == .object([
+            "id": .number(4), "cmd": .string("clear-history"), "surface": .number(6),
+            "fallback_key": .object([
+                "key": .string("k"), "mods": modifiers(super: true), "consumed_mods": modifiers(super: false),
+                "utf8": .string(""),
+                "unshifted_codepoint": .string("k"), "action": .string("press"), "macos_option_as_alt": .bool(true),
+            ]),
+        ]))
     }
 
     @Test func verbatimFieldsGoOnTheWireUnchanged() throws {
