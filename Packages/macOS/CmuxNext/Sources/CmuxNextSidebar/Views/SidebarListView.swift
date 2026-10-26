@@ -81,6 +81,8 @@ final class SidebarListView: NSView {
     let chatHistory = SidebarChatHistoryViews()
     /// Recycled row views by class; only rows near the viewport have views.
     var rowPool = SidebarRowViewPool()
+    /// The row views built while the app starts (SidebarListView+LaunchRows, p08-startup-064).
+    var launchRows = SidebarModel.LaunchRows()
     var hoveredKey: SidebarRowKey?
     /// The hovered row changed (nil: off every row); the App prewarms a hidden page ahead of the click.
     var onHoverRow: ((SidebarRowKey?) -> Void)?

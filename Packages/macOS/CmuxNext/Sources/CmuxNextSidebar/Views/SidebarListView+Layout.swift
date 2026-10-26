@@ -143,7 +143,7 @@ extension SidebarListViewComponents {
         // A space page never scrolls: the rows in its frame, no overscan.
         if enclosingScrollView == nil, let pageViewport { return pageViewport }
         let visible = enclosingScrollView?.contentView.bounds ?? bounds
-        return visible.insetBy(dx: 0, dy: -SidebarStyle.overscan)
+        return visible.insetBy(dx: 0, dy: launchRows.holdsOffscreenRows ? 0 : -SidebarStyle.overscan) // p08-startup-064
     }
     func apply(_ layout: SidebarLayout, animated: Bool) {
         let previousHoverSuppression = suppressHoverEffects
