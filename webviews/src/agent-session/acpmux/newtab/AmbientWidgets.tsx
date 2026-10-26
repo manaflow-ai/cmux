@@ -4,8 +4,16 @@
 import { Icon } from "../icons/Icon";
 import type { AcpmuxSnapshot } from "../model";
 import { Tooltip } from "../../../ui/Tooltip";
-import { degrees, newTabMachines, type NewTabWeather, weatherGlyph, weatherIsStale } from "./ambient";
+import {
+  degrees,
+  newTabMachines,
+  type NewTabWeather,
+  type NewTabMachine,
+  weatherGlyph,
+  weatherIsStale,
+} from "./ambient";
 import { useNt } from "./strings";
+import { translate as t } from "../i18n";
 
 const MACHINE_ICONS = { local: "machine.mac", ssh: "machine.remote", cloud: "cloud" } as const;
 
@@ -15,17 +23,22 @@ export function AmbientWidgets({
   snapshot,
   localName,
   now,
+  onAddMachine,
+  onPickMachine,
 }: {
   /// The weather widget's last reading; undefined draws no weather (off, or none yet).
   weather?: NewTabWeather;
   /// The machines widget is on.
   machines: boolean;
-  snapshot: Pick<AcpmuxSnapshot, "sessions" | "peers" | "peerKinds">;
+  snapshot: Pick<AcpmuxSnapshot, "sessions" | "peers" | "peerKinds" | "peerStatus" | "machines" | "peerConnected">;
   localName: string;
   now: number;
+  onAddMachine?(kind: "pair" | "cloud"): void;
+  onPickMachine?(machine: NewTabMachine): void;
 }) {
   const nt = useNt();
   const list = machines ? newTabMachines(snapshot, snapshot.peerKinds ?? {}, localName) : [];
+  const hasCloud = list.some((machine) => machine.kind === "cloud");
   if (!weather && !list.length) return null;
   const stale = weather ? weatherIsStale(weather, now) : false;
   return (
@@ -48,20 +61,68 @@ export function AmbientWidgets({
         <section className="nt-ambient-machines" aria-label={nt("widgets.machines")}>
           {list.map((machine) => (
             <Tooltip
-              key={machine.id}
-              label={`${machine.label}: ${nt(machine.online ? "widgets.online" : "widgets.offline")}`}
+              key={`${machine.native ? "native" : "peer"}:${machine.id}`}
+              label={
+                machine.status
+                  ? `${machine.label}: ${machineStateLabel(machine.status)}`
+                  : machine.online === undefined
+                    ? machine.label
+                    : `${machine.label}: ${nt(machine.online ? "widgets.online" : "widgets.offline")}`
+              }
             >
-              <span className="nt-ambient-machine" data-online={machine.online || undefined}>
+              <button
+                type="button"
+                className="nt-ambient-machine"
+                data-online={machine.online || undefined}
+                disabled={!onPickMachine}
+                onClick={() => onPickMachine?.(machine)}
+              >
                 <span className="nt-ambient-machine-icon" style={machine.color ? { color: machine.color } : undefined}>
                   <Icon name={MACHINE_ICONS[machine.kind]} size={14} />
                 </span>
                 <span className="nt-ambient-machine-name">{machine.label}</span>
+                {machine.status && (
+                  <span className="nt-ambient-machine-state">{machineStateLabel(machine.status)}</span>
+                )}
                 <span className="nt-ambient-dot" aria-hidden="true" />
-              </span>
+              </button>
             </Tooltip>
           ))}
+          {onAddMachine && (
+            <button
+              type="button"
+              className="nt-ambient-machine nt-ambient-machine-add"
+              onClick={() => onAddMachine(hasCloud ? "pair" : "cloud")}
+            >
+              <span className="nt-ambient-machine-icon" aria-hidden="true">
+                +
+              </span>
+              <span className="nt-ambient-machine-name">
+                {hasCloud ? t("composer.add") : t("composer.newCloudMachine")}
+              </span>
+            </button>
+          )}
         </section>
       )}
     </div>
   );
+}
+
+function machineStateLabel(status: NonNullable<import("./ambient").NewTabMachine["status"]>): string {
+  switch (status) {
+    case "connected":
+      return t("composer.envConnected");
+    case "connecting":
+      return t("rail.connectorPending");
+    case "paused":
+      return t("goal.paused");
+    case "offline":
+      return t("composer.envOffline");
+    case "unreachable":
+      return t("composer.envUnreachable");
+    case "needsUpdate":
+      return t("composer.envNeedsUpdate");
+    case "needsLogin":
+      return t("composer.envNeedsLogin");
+  }
 }

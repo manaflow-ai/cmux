@@ -9390,6 +9390,9 @@ function AcpmuxPane() {
               key={newTabGeneration}
               environments={preview}
               onConnect={connectMachine}
+              onMachineAction={machineAction}
+              onSetupDocs={setupDocs}
+              onRefreshMachines={refreshCloudMachines}
               onNewWorktree={(cwd) => {
                 let folder: string | undefined;
                 return newWorktree(callNative, cwd, (used) => {
@@ -9416,7 +9419,10 @@ function AcpmuxPane() {
                   show: (done) => setNewTab((current) => current && withWidgetEdit(current, done)),
                 })
               }
-              snapshot={commandSession ? { ...newTabSnapshot, commands: pendingCommands ?? [] } : newTabSnapshot}
+              snapshot={{
+                ...(commandSession ? { ...newTabSnapshot, commands: pendingCommands ?? [] } : newTabSnapshot),
+                machines: cloudMachines,
+              }}
               omnibar={newTab.omnibar}
               location={newTab.location}
               lastAgent={newTab.lastAgent}

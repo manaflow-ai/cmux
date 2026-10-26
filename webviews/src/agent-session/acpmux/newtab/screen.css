@@ -1096,3 +1096,7 @@ button.nt-widget-row:hover{background:color-mix(in srgb,var(--agent-text) 6%,tra
     transform: rotate(0.4deg);
   }
 }
+
+.nt-ambient-machine-state { color: var(--agent-muted); font-size: var(--text-caption); white-space: nowrap; }
+button.nt-ambient-machine { appearance: none; border: 0; padding: 0; color: var(--agent-muted); background: transparent; font: inherit; cursor: pointer; }
+button.nt-ambient-machine:hover { color: var(--agent-fg); }

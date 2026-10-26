@@ -3,6 +3,7 @@
 // (the handshake's `weather`, AgentPaneNewTabWeather.swift); Machines are the composer's computers
 // (acpmux's peers and the hosts its chats ran on), each online while acpmux lists it as a peer.
 import { knownMachines } from "../environments";
+import type { PeerStatus } from "../chatUnavailable";
 import { machineColor } from "../machineColor";
 import type { AcpmuxSnapshot } from "../model";
 
@@ -68,7 +69,9 @@ export type NewTabMachine = {
   id: string;
   label: string;
   kind: MachineKind;
-  online: boolean;
+  online: boolean | undefined;
+  native?: boolean;
+  status?: import("../environments").EnvironmentStatus;
   /** The machine's identity color (machineColor.ts), as the composer's computer chip draws it; none for this Mac. */
   color?: string;
 };
@@ -77,14 +80,30 @@ export type NewTabMachine = {
 /// then the hosts older chats ran on that acpmux no longer lists (offline). Each peer's kind is its
 /// transport (`peerKinds`, environments.ts); a Cloud chat's host is Cloud.
 export function newTabMachines(
-  snapshot: Pick<AcpmuxSnapshot, "sessions" | "peers">,
+  snapshot: Pick<AcpmuxSnapshot, "sessions" | "peers" | "machines" | "peerConnected"> & {
+    peerStatus?: Record<string, PeerStatus>;
+  },
   peerKinds: Record<string, "ssh" | "cloud">,
   localName: string,
 ): NewTabMachine[] {
   const machines: NewTabMachine[] = [{ id: "local", label: localName, kind: "local", online: true }];
-  const online = new Set(snapshot.peers ?? []);
-  for (const machine of knownMachines(snapshot.peers ?? [], snapshot.sessions, peerKinds)) {
-    machines.push({ ...machine, online: online.has(machine.id), color: machineColor(machine.label) });
+
+  for (const machine of knownMachines(
+    snapshot.peers ?? [],
+    snapshot.sessions,
+    peerKinds,
+    [],
+    snapshot.peerConnected ?? {},
+    snapshot.peerStatus ?? {},
+  )) {
+    machines.push({
+      ...machine,
+      online: machine.status ? machine.status === "connected" : machine.connected,
+      ...(machine.status ? { status: machine.status } : {}),
+      color: machineColor(machine.label),
+    });
   }
+  for (const machine of snapshot.machines ?? [])
+    machines.push({ ...machine, online: machine.connected, color: machineColor(machine.label) });
   return machines;
 }
