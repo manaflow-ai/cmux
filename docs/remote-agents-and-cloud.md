@@ -115,9 +115,8 @@ only hosts and accounts you trust.
 Run `host doctor` from your Mac against the SSH alias; on the host itself, use
 `acpmux daemon status` and `acpmux daemon harnesses`. `host doctor` without
 `--harness` skips harness checks; a healthy peer does not prove that an agent
-can run. Its `--harness ID` option checks a named harness profile, not the
-PATH-discovered harness alone. Verify the remote harness with
-`acpmux daemon harnesses` on that host and a real session prompt.
+can run. Its `--harness ID` option is described below. Verify the remote
+harness with `acpmux daemon harnesses` on that host and a real session prompt.
 
 `host enroll` and `host setup` install the invoking binary. Use them only for a
 compatible remote OS and architecture. For a Linux host reached from a Mac, use
@@ -136,8 +135,9 @@ For a fresh host, merge `"webRoots": ["/home/me/project"]` into the existing
 daemon with the same home/listener. This authorizes remote access to that
 directory; choose only the project root you intend to expose.
 
-A prompt that makes the agent run a tool (read files, run a command) waits for
-your approval in cmux NEXT on your Mac, on the chat's pending-permission card.
+When a tool call asks for permission (a command, or a read the harness does not
+already treat as safe), approve it in cmux NEXT on your Mac, on the chat's
+pending-permission card.
 Use the CLI bundled with the app (its default home), so the app and the CLI
 share one daemon and the app shows the remote chat; open it with
 `cmux agent open-tab` (below) or by passing `--group NAME` to
