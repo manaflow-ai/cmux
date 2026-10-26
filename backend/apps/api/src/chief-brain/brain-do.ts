@@ -57,6 +57,15 @@ import { type AppendBody, type AppendResult, IMPORT_SCHEMA, type ImportBody, typ
 /** Post retries after the loop guard's agent_rate (another agent spoke under 2 s ago). */
 export const POST_RETRY_MS = 2_500
 export const MAX_POST_TRIES = 6
+/**
+ * The loop guard's 2 s gap is per conversation, for every agent: in a group with several Chiefs (and their
+ * subagents' reports) a ready reply can meet agent_rate more than MAX_POST_TRIES times in a row. agent_rate
+ * is "wait", never "no": it is retried until this long after the turn ended, then the reply is refused.
+ */
+export const AGENT_RATE_WINDOW_MS = 120_000
+/** Whether a post refused with `code` is tried again (pure, for tests). */
+export const retryPost = (code: string, tries: number, endedAt: number | null, now: number): boolean =>
+  code === "agent_rate" ? now - (endedAt ?? now) < AGENT_RATE_WINDOW_MS || tries + 1 < MAX_POST_TRIES : code === "owner.unreachable" && tries + 1 < MAX_POST_TRIES
 export const HOST = "cloud-chief"
 /**
  * A turn waits at most this long for every message before its new ones to be summarized (the reference
