@@ -188,12 +188,17 @@ final class FilePageLook {
     private func readTheme(_ file: URL) {
         themeGeneration += 1
         let generation = themeGeneration
-        work.run(.userVisible, mayBlock: .files) { (try? String(contentsOf: file, encoding: .utf8)) ?? "" }
+        work.run(.userVisible, mayBlock: .files) { Self.theme(at: file) }
             .reply(on: mainWork, class: .visible, owner: "file-look.theme") { [weak self] text in
                 guard let self, self.themeGeneration == generation, text != self.themeCSS else { return }
                 self.themeCSS = text
                 self.publish()
             }
+    }
+
+    /// The theme file's text, "" when it cannot be read; on the files lane.
+    private nonisolated static func theme(at file: URL) -> String {
+        (try? String(contentsOf: file, encoding: .utf8)) ?? ""
     }
 
     /// Sends the keys that changed since the last event.
