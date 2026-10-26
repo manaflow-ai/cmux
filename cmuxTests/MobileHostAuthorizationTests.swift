@@ -60,6 +60,38 @@ struct MobileHostAuthorizationTests {
         await session.close(reason: "test complete")
     }
 
+    @Test func revokedTailscaleSessionDropsQueuedFanoutWithoutWaitingForClose() async throws {
+        let registry = MobileHostConnectionRegistry()
+        let generation = registry.currentStackBearerGeneration()
+        let id = UUID()
+        let transport = RecordingMobileHostByteTransport()
+        let session = MobileHostConnection(
+            id: id, transport: transport,
+            authorizeRequest: { _ in nil }, onAuthorizedRequest: { _ in },
+            isSessionCurrent: { registry.isCurrentStackBearerGeneration(generation) },
+            handleRequest: { _ in .ok([:]) }, onClose: { registry.remove(id: $0) }
+        )
+        try #require(registry.insert(session, id: id, authorization: .stackBearer, limit: 4,
+            stackBearerGeneration: generation))
+        await session.subscribe(streamID: "queued", topics: ["terminal.updated"])
+        let before = session.enqueueEventFrame(Data("private".utf8), topic: "terminal.updated",
+            coalesceKey: nil, isFullRenderGridFrame: false, stateSeq: nil)
+        #expect(before.admitted)
+        // Retire the generation but deliberately leave the actor and transport
+        // open. The asynchronous close must not be what suppresses delivery.
+        _ = registry.removeStackBearerConnections()
+        await session.drainQueuedEvents()
+        #expect(await transport.observedCloseCount() == 0)
+        #expect(await transport.waitForSentBufferCount(0).isEmpty)
+        let after = session.enqueueEventFrame(Data("private".utf8), topic: "terminal.updated",
+            coalesceKey: nil, isFullRenderGridFrame: false, stateSeq: nil)
+        #expect(!after.admitted)
+        await session.subscribe(streamID: "late", topics: ["workspace.updated"])
+        #expect(await session.isSubscribed(to: "workspace.updated") == false)
+        #expect(await session.sendEvent(topic: "terminal.updated", payload: ["content": "private"]) == false)
+        await session.close(reason: "test complete")
+    }
+
     @Test func signOutRevokesTailscaleSubscriptionsBeforeAsynchronousClose() async throws {
         let registry = MobileHostConnectionRegistry.shared
         let generation = registry.currentStackBearerGeneration()

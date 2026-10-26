@@ -1843,7 +1843,7 @@ actor MobileHostConnection {
         let transport = CmxNetworkByteTransport(acceptedConnection: connection)
         self.id = id
         self.transport = transport
-        self.writer = MobileHostSerializedTransportWriter(transport: transport)
+        self.writer = MobileHostSerializedTransportWriter(transport: transport, isSessionCurrent: isSessionCurrent)
         self.independentEventWriter = independentEventWriter
         self.firstFrameTimeoutNanoseconds = firstFrameTimeoutNanoseconds
         self.authorizeRequest = authorizeRequest
@@ -1874,7 +1874,7 @@ actor MobileHostConnection {
     ) {
         self.id = id
         self.transport = transport
-        self.writer = MobileHostSerializedTransportWriter(transport: transport)
+        self.writer = MobileHostSerializedTransportWriter(transport: transport, isSessionCurrent: isSessionCurrent)
         self.independentEventWriter = independentEventWriter
         self.firstFrameTimeoutNanoseconds = firstFrameTimeoutNanoseconds
         self.authorizeRequest = authorizeRequest
@@ -2255,6 +2255,7 @@ actor MobileHostConnection {
             return nil
         }
         if let intercepted = await handleSubscriptionRPC(request) {
+            guard !isClosed, !Task.isCancelled, isSessionCurrent() else { return nil }
             return PreparedResponse(
                 data: MobileHostRPCEnvelope.encodeResponse(
                     id: request.id,
@@ -2499,6 +2500,7 @@ actor MobileHostConnection {
         clientID: String? = nil,
         surfaceEventLanes: Bool = false
     ) async {
+        guard !isClosed, isSessionCurrent() else { return }
         let previousTopics = subscriptions[streamID]?.topics
         subscriptions[streamID] = EventSubscription(
             topics: topics,
@@ -2620,7 +2622,8 @@ actor MobileHostConnection {
         isFullRenderGridFrame: Bool,
         stateSeq: UInt64?
     ) -> MobileHostEventEnqueueResult {
-        eventQueue.enqueue(
+        guard isSessionCurrent() else { return .rejected }
+        return eventQueue.enqueue(
             topic: topic,
             coalesceKey: coalesceKey,
             isFullRenderGridFrame: isFullRenderGridFrame,
@@ -2938,7 +2941,7 @@ actor MobileHostConnection {
     }
 
     private func sendControlFrame(_ frame: Data) async -> Bool {
-        guard !isClosed else { return false }
+        guard !isClosed, isSessionCurrent() else { return false }
         do {
             try await writer.send(frame)
             return true
