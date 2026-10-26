@@ -286,6 +286,36 @@ async fn a_prompt_an_agent_sends_through_a_peer_names_that_agent_on_the_owning_d
     assert!(by_id("from-person").pointer("/_meta/provenance").is_none(), "{messages:?}");
 }
 
+/// Chat presence is this daemon's own (`hub/presence.rs`): a peer's link carries all of that
+/// daemon's clients, so it stands for none of them. A's client attached to B's chat gets no
+/// participants, and typing through the link is refused `presence.peer_unsupported`.
+#[tokio::test]
+async fn a_peers_link_makes_no_presence_and_typing_through_it_is_refused() {
+    let b = hub(config(PermissionPolicy::Ask)).await;
+    let (port, peer_token) = listen_with_peer_token(b.clone(), "presence").await;
+    let mut cb = client(b.clone()).await;
+    let s = cb.call(method::SESSION_NEW, json!({"cwd": std::env::temp_dir(), "mcpServers": [], "_meta": {"acpmux": {"name": "shared"}}})).await.unwrap();
+    let remote_id = s["sessionId"].as_str().unwrap().to_owned();
+    let a = hub(config(PermissionPolicy::Ask)).await;
+    a.add_peer("b", &format!("ws://127.0.0.1:{port}"), Some("tok".into()), Some(peer_token), true)
+        .await
+        .unwrap();
+    let mut ca = client(a.clone()).await;
+    let attached =
+        ca.call("_acpmux/attach", json!({"sessionId": "b/shared", "limit": 0})).await.unwrap();
+    assert_eq!(attached["presence"]["participants"], json!([]), "{attached}");
+    let author = json!({"_meta": {"acpmux": {"author": {"id": "tailnet:ana@example.com", "name": "Ana"}}}});
+    let mut params = json!({"sessionId": "b/shared", "on": true});
+    params["_meta"] = author["_meta"].clone();
+    let refused = ca.call("_acpmux/typing", params).await.unwrap_err();
+    assert!(refused.contains("a peer daemon's link carries none"), "{refused}");
+    let held = cb
+        .call("_acpmux/attach", json!({"sessionId": remote_id, "limit": 0, "visible": false}))
+        .await
+        .unwrap();
+    assert_eq!(held["presence"]["participants"], json!([]), "{held}");
+}
+
 /// Two daemons peered both ways (a real pair on 10-14 grew names
 /// like `a/b/a/b/.../cycle` to 346k characters): a daemon serves only its own
 /// sessions to a peer, both in the watch snapshot and in later changes, so a
