@@ -90,6 +90,9 @@ extension CrashReporter {
         block.slotsWord.store(UInt64(slots.wordsAddress), ordering: .releasing)
     }
 
+    /// Whether the crash path's block exists in this process (tests).
+    package static var crashKeysBlockIsPrepared: Bool { CrashKeysRecordBlock.current != nil }
+
     /// Hands the crash path this run's open, empty `run.crashkeys` file (the run marker's folder). Call once at
     /// launch, on the main thread, before the crash handlers are installed; later calls are ignored.
     public static func prepareCrashKeysRecord(descriptor: Int32) {
