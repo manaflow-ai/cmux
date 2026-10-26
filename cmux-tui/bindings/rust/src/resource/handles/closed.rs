@@ -32,8 +32,18 @@ pub struct ClosedTabRecord {
     pub url: Option<String>,
     pub browser_profile_id: Option<String>,
     pub pinned: bool,
+    /// The safe public identity of a closed agent chat. Host/install metadata
+    /// is intentionally omitted by the daemon's closed-history projection.
+    pub agent_session: Option<ClosedAgentSessionRecord>,
     #[serde(flatten)]
     pub additional: BTreeMap<String, Value>,
+}
+
+/// The session id and harness type of a closed agent chat.
+#[derive(Clone, Debug, Deserialize, PartialEq)]
+pub struct ClosedAgentSessionRecord {
+    pub session: Option<String>,
+    pub harness: Option<String>,
 }
 
 /// One screen a closed item recreates.

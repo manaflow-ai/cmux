@@ -49,6 +49,36 @@ fn newtab_agent_identity_cli_preserves_bound_session() {
         assert_success(&output);
         assert_agent_tab(&json_output(&output), &tab);
     }
+    assert_success(&json_cli(&server, &["tab", &tab, "close"]));
+    let closed = json_cli(&server, &["closed", "list"]);
+    assert_success(&closed);
+    fn has_session(value: &Value) -> bool {
+        if let Some(agent) = value.get("agent_session").filter(|agent| agent["session"] == SESSION) {
+            assert_eq!(agent["harness"], "codex", "{agent}");
+            assert!(agent.get("host").is_none(), "closed history leaked agent host: {agent}");
+            assert!(agent.get("host_name").is_none(), "closed history leaked agent host name: {agent}");
+            return true;
+        }
+        match value {
+            Value::Object(fields) => fields.values().any(has_session),
+            Value::Array(items) => items.iter().any(has_session),
+            _ => false,
+        }
+    }
+    let history = json_output(&closed);
+    assert!(has_session(&history), "closed chat lost its agent session: {history}");
+    let closed_id = history
+        .as_array()
+        .and_then(|items| items.first())
+        .and_then(|item| item["id"].as_str())
+        .expect("closed chat history id")
+        .to_owned();
+    let reopened = json_cli(&server, &["closed", &closed_id, "reopen"]);
+    assert_success(&reopened);
+    assert_eq!(json_output(&reopened)["value"]["tab_ids"][0], tab, "{reopened:?}");
+    let reopened_tab = json_cli(&server, &["tab", &tab, "get"]);
+    assert_success(&reopened_tab);
+    assert_agent_tab(&json_output(&reopened_tab), &tab);
 }
 
 #[test]
