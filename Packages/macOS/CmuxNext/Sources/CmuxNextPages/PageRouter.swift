@@ -1,5 +1,7 @@
 package import CmuxNextHibernation
 public import CmuxNextSettings
+import class CmuxSafeConcurrency.OnceContinuation
+import func CmuxSafeConcurrency.withOnceThrowingContinuation
 public import Foundation
 
 /// The host half of a page's bridge, engine neutral: it reads pane-protocol envelopes
@@ -30,7 +32,7 @@ public final class PageRouter {
     var sequences: [UInt64: UInt64] = [:]
     private var nextSubscription: UInt64 = 1
     private var nextCall: UInt64 = 1
-    private var pendingCalls: [UInt64: CheckedContinuation<JSONValue, any Error>] = [:]
+    private var pendingCalls: [UInt64: OnceContinuation<JSONValue, any Error>] = [:]
     /// Page calls still running, by page call id: cancelled by the page's `cancel` envelope, by
     /// navigation (`reset`) and by tab close (`close`) (app-op-routing.md "Op cancel").
     private var inFlight: [UInt64: PageCallInFlight] = [:]
@@ -194,7 +196,7 @@ public final class PageRouter {
         let call = PageCallInFlight(op: op)
         inFlight[id] = call
         defer { if inFlight[id] === call { inFlight[id] = nil } }
-        return try await withCheckedThrowingContinuation { continuation in
+        return try await withOnceThrowingContinuation { (continuation: OnceContinuation<JSONValue, any Error>) in
             call.start(continuation, work)
         }
     }
@@ -340,7 +342,7 @@ public final class PageRouter {
         let id = nextCall
         nextCall += 1
         lifecycle?.thawForDelivery()
-        return try await withCheckedThrowingContinuation { continuation in
+        return try await withOnceThrowingContinuation { (continuation: OnceContinuation<JSONValue, any Error>) in
             pendingCalls[id] = continuation
             started(id)
             send(["t": "call", "id": .number(Double(id)), "op": .string(op), "params": params])
