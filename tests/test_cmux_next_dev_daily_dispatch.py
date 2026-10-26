@@ -47,14 +47,8 @@ check("SOURCE_RUN_ID: ${{ inputs.source_run_id }}" in publish_text,
       "the publisher must resolve the exact dispatched source run")
 check("finishedRuns.slice(0, 10)" not in text,
       "the dispatcher must not hide an older app behind ten failed source runs")
-# verify is the admission gate since the signer moved to Linux (Apple's codesign runs only
-# there): a red verify fails the run on purpose, so the dispatcher hands the source run over
-# again instead of counting a build that never published as handled.
-verify_job = "\n".join(line for line in publish_text[publish_text.index("\n  verify:\n"):publish_text.index("\n  publish:\n")]
-                       .splitlines() if not line.lstrip().startswith("#"))
-check("continue-on-error" not in verify_job and "|| true" not in verify_job.split("id: check")[1].split("- name:")[0],
-      "verify must not be continue-on-error, and its checks must not be masked")
-check("    needs: [sign, runner]\n" in verify_job, "verify runs after sign and its placement job")
+check("    continue-on-error: true\n    needs: sign\n" in publish_text,
+      "a red advisory verify must not fail the run and re-trigger the same publication")
 check("has no current Release app artifact; retry the handoff" in publish_text,
       "a missing source artifact must fail publication so the dispatcher retries")
 

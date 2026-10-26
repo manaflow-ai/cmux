@@ -71,7 +71,7 @@ check(uploads.index("upload \"tip-new/") < uploads.index("r2_cas.py put"),
 check("TIP_APP_FLOOR_SHA: df21458196edaaf3de5192da56ecd2a315aacae7" in workflow
       and 'compare/$TIP_APP_FLOOR_SHA...$SOURCE_SHA' in workflow,
       "a source from before the tip app (#24954) gets no tip feed")
-check("needs.sign.outputs.build != ''" in tip.split("steps:")[0], "only a stamped build gets a tip DMG")
+check("if: steps.stamp.outputs.build != ''" in workflow, "only a stamped build uploads a tip DMG")
 check('[[ "$app_key" == "$signing_key" ]]' in tip, "the feed key must be the key the app in the DMG trusts")
 check("generate_appcast did not add edSignature" in tip, "the sign_update fallback never publishes")
 check(tip.index('[[ "$app_key" == "$signing_key" ]]') < tip.index("./scripts/sparkle_generate_appcast.sh"),
@@ -79,45 +79,17 @@ check(tip.index('[[ "$app_key" == "$signing_key" ]]') < tip.index("./scripts/spa
 check(tip.split("needs:")[0].count("continue-on-error: true") == 1,
       "a red tip job never makes the dispatcher re-publish the same source run")
 sign = workflow[workflow.index("\n  sign:\n"):workflow.index("\n  verify:\n")]
-verify = workflow[workflow.index("\n  verify:\n"):workflow.index("\n  publish:\n")]
-# The signer runs on Linux (rcodesign): no keychain, no DMG and no notarization there.
-check("runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || 'blacksmith-4vcpu-ubuntu-2404' }}" in sign
-      and "./scripts/ci/rcodesign-sign-bundle-dev.sh" in sign, "the sign job signs on Linux with rcodesign")
-sign_code = "\n".join(line for line in sign.splitlines() if not line.lstrip().startswith("#"))
-check(all(word not in sign_code for word in ("keychain", "notarytool", "--no-wait", "hdiutil", "/usr/bin/", "PlistBuddy", "swift ")),
-      "the sign job uses no keychain, macOS tool or notarization")
-check(all(line.strip().startswith("[[ -n") for line in sign_code.splitlines() if "$NIGHTLY_SPARKLE_PRIVATE_KEY" in line)
-      and "sparkle-public-key NIGHTLY_SPARKLE_PRIVATE_KEY" in sign,
-      "the Sparkle private key reaches the key derivation by environment, never on a command line")
-check("notary_id" not in workflow, "the tip job makes its own notarization submission")
-# The tip job builds, signs and submits the DMG, with a keychain it deletes before notarizing.
-steps = [tip.find(marker) for marker in (
-    "name: Download the signed app\n", "codesign --verify --deep --strict", "-format ULMO",
-    "signing-keychain.sh create", "codesign --force --timestamp --keychain", "signing-keychain.sh delete",
-    "notarytool submit", 'notarytool wait "$id"', "xcrun stapler staple", "./scripts/sparkle_generate_appcast.sh")]
-check(-1 not in steps and steps == sorted(steps), "tip: unpack and codesign the signed app, build the DMG, sign it, delete the keychain, then notarize")
-check(tip.count("if: always()") >= 2, "the tip job deletes its keychain whatever happens")
+early = sign[sign.index("Submit the tip DMG for notarization"):]
+check("--no-wait" in early and "continue-on-error: true" in early.split("run: |")[0],
+      "the sign job submits the tip DMG without waiting, and a failed submit never fails signing")
+check(sign.index("Upload the signed tip DMG") < sign.index("Submit the tip DMG for notarization"),
+      "the early submit runs after the DMG is uploaded, so it never delays the tip artifact")
+check("notary_id: ${{ steps.notary.outputs.id }}" in sign, "the sign job hands its submission id to the tip job")
+check("EARLY_NOTARY_ID: ${{ needs.sign.outputs.notary_id }}" in tip and 'notarytool wait "$id"' in tip,
+      "the tip job waits for the early submission")
+check(tip.index('notarytool wait "$id"') < tip.index("notarytool submit") < tip.index("xcrun stapler staple"),
+      "the tip job submits itself only when the early submission could not be read, before stapling")
 publish = workflow[workflow.index("\n  publish:\n"):workflow.index("\n  tip:\n")]
-# Apple's codesign runs in verify now, so publish and tip ship only what verify passed. A skipped
-# or cancelled verify has empty outputs and a result other than success: both block.
-for job, label in ((publish, "publish"), (tip, "tip")):
-    head = job.split("steps:")[0]
-    check("needs: [sign, verify]" in head and "needs.verify.result == 'success'" in head
-          and "needs.verify.outputs.verified == 'true'" in head and "needs.sign.result == 'success'" in head,
-          f"{label} needs verify to succeed with verified 'true'")
-runner = workflow[workflow.index("\n  runner:\n"):workflow.index("\n  verify:\n")]
-check("python3 scripts/ci/e2e_runner_pool.py" in runner and "--queue-rounds" not in runner
-      and "glaeda-*) ;;" in runner and "environment:" not in runner,
-      "the placement job offers an owned Mac only when one is free now, and no other label")
-check(runner.count("github.event_name == 'workflow_dispatch' && github.ref == 'refs/heads/main' && github.run_attempt == 1") == 3,
-      "only main's own first attempt is offered an owned Mac")
-check("name: owned-pool-watch" in runner and "name: macos-pool-persistent-${{ github.run_id }}" in runner,
-      "an owned pick uploads the rescue markers")
-check("verified: ${{ steps.check.outputs.verified }}" in verify
-      and verify.rstrip().count('echo "verified=true" >> "$GITHUB_OUTPUT"') == 1
-      and verify.index("codesign --verify --deep --strict") < verify.index("verify_signed_dev_app.py")
-      < verify.index("--require-signed") < verify.index('echo "verified=true"'),
-      "verify says verified only after codesign, the signature checks and the sidecar passed")
 check("tip" not in publish.split("needs:")[1].split("\n")[0], "the rolling prerelease never waits for the tip feed")
 # Freshness (2026-10-26: nothing published for six hours): the signer never waits on the 12 vCPU
 # macOS label, and no shared group evicts a newer handoff while a signer waits.
@@ -396,9 +368,6 @@ check(rc != 0 and last == [102, 100, 99] and "r2 delete" not in log,
 rc, log, last, err = run_tip([(100, 99)], pending=(1,))
 check(rc != 0 and "r2 delete" not in log,
       f"a feed write that failed without an answer may still land, so the uploads stay ({rc} {log!r})")
-# CMUX_TIMESTAMP=none makes the Linux signer drop the time stamp and the Developer ID check
-# (scripts/ci/rcodesign-sign-bundle-dev.sh); the publisher must never set it.
-check("CMUX_TIMESTAMP" not in workflow, "the DEV workflow never sets CMUX_TIMESTAMP")
 
 if failures:
     for failure in failures:
