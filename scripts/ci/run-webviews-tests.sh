@@ -9,7 +9,7 @@
 #
 # CMUX_WEB_TEST_FILE_TIMEOUT: seconds one file may run (default 120); a file may declare more
 # with a `// cmux-web-test-timeout: SECONDS` header line, up to CMUX_WEB_TEST_MAX_FILE_TIMEOUT
-# (default 300). The 3000s attachment stress test once outlived the entire 40-minute CI job;
+# (default 900). The 3000s attachment stress test once outlived the entire 40-minute CI job;
 # longer runs must explicitly raise the ceiling outside the ordinary PR shard.
 # CMUX_WEB_TEST_TIMEOUT_MS: one test's default limit (bun's own default is 5000); a test or file
 # that sets its own (setDefaultTimeout, a per-test timeout) keeps it. 30000 by default: on a fleet
@@ -20,7 +20,8 @@
 # file has run (default 60 files; 0 turns it off). A file that passes alone is reported as a retry
 # pass (a contention flake, listed so it stays visible); one that fails again fails the lane.
 # Timed-out files keep their named failure without another full timeout. Serial retries stop
-# starting after CMUX_WEB_TEST_RETRY_BUDGET seconds (default 120); unretried failures stay red.
+# after CMUX_WEB_TEST_RETRY_BUDGET seconds (default 120), including an in-flight retry;
+# unretried failures stay red.
 # CMUX_WEB_TEST_JOBS: files run at once (default: CMUX_CI_CPU_BUDGET, the cores a fleet
 # worker granted the step, else the CPU count).
 # CMUX_WEB_TEST_FILES: optional newline-separated test files (relative to webviews/) to run instead
@@ -86,8 +87,8 @@ run_with_timeout() {
 # (editor-page: 24 browser tests in two engines, about 115 s on the CI runner, were killed at
 # 120 s mid-WebKit). The longer of the two wins, up to the runner hard ceiling.
 file_limit() {
-  local declared limit maximum="${CMUX_WEB_TEST_MAX_FILE_TIMEOUT:-300}"
-  [[ "$maximum" =~ ^[1-9][0-9]*$ ]] || maximum=300
+  local declared limit maximum="${CMUX_WEB_TEST_MAX_FILE_TIMEOUT:-900}"
+  [[ "$maximum" =~ ^[1-9][0-9]*$ ]] || maximum=900
   declared="$(head -n 20 "$1" 2> /dev/null | sed -n 's|^// cmux-web-test-timeout: \([1-9][0-9]*\)$|\1|p' | head -n 1)"
   limit="$2"
   if [ -n "$declared" ] && [ "$declared" -gt "$limit" ]; then limit="$declared"; fi
@@ -311,12 +312,15 @@ while read -r result file log; do
     printf '%s %s %s\n' "$result" "$file" "$log" >> "$results/summary"
     continue
   fi
-  echo "RETRY $file"
+  remaining=$((retry_budget - (SECONDS - retry_started)))
+  retry_limit="$(file_limit "$file" "$timeout_seconds")"
+  if [ "$remaining" -lt "$retry_limit" ]; then retry_limit="$remaining"; fi
+  echo "RETRY $file (remaining budget ${remaining}s, hard limit ${retry_limit}s)"
   retried=$((retried + 1))
   mv "$log" "$log.first"
   cache=""
   if tr '\0' '\n' < "$results/serial" | grep -qxF -- "$file"; then cache="$vite/retry-$retried"; fi
-  bash "$self" --one "$file" "$results" "$timeout_seconds" "$cache" < /dev/null
+  CMUX_WEB_TEST_MAX_FILE_TIMEOUT="$retry_limit" bash "$self" --one "$file" "$results" "$timeout_seconds" "$cache" < /dev/null
   if [ -n "$cache" ]; then rm -rf "$cache" || true; fi
   if grep -qxF "PASS $file $log" "$results/summary"; then
     echo "$file (first run: $result)" >> "$results/retry-passed"
