@@ -1,5 +1,6 @@
 import AppKit
 @testable import CmuxNextApp
+import CmuxNextInput
 @testable import CmuxNextLayout
 @testable import CmuxNextTabs
 import CmuxNextWakeups
@@ -29,6 +30,8 @@ struct PaneSwapDragTests {
                               backing: .buffered, defer: false)
         private(set) var swaps: [(PaneID, PaneID)] = []
         private var drags: [PaneSwapDrag] = []
+        /// The tap the drags hear Escape on (the test window's events do not pass through it).
+        let input = InputEventTap()
 
         init() {
             root = LayoutRootView(model: model, contentProvider: provider, mainWork: MainWorkScheduler(budget: MainFrameBudget()))
@@ -37,7 +40,7 @@ struct PaneSwapDragTests {
             window.orderFrontRegardless()
             root.layoutSubtreeIfNeeded()
             for (pane, strip) in provider.strips {
-                drags.append(PaneSwapDrag(strip: strip, pane: pane, layout: { [root] in root },
+                drags.append(PaneSwapDrag(strip: strip, pane: pane, input: input, layout: { [root] in root },
                                           swap: { [unowned self] in swaps.append(($0, $1)) }))
             }
         }
@@ -128,7 +131,7 @@ struct PaneSwapDragTests {
         window.orderFrontRegardless()
         defer { window.orderOut(nil) }
         strip.layoutSubtreeIfNeeded()
-        let drag = PaneSwapDrag(strip: strip, pane: "p1", layout: { nil }, swap: { _, _ in })
+        let drag = PaneSwapDrag(strip: strip, pane: "p1", input: InputEventTap(), layout: { nil }, swap: { _, _ in })
         defer { withExtendedLifetime(drag) {} }
         let cell = try #require(strip.cells[TabID("b")])
         let point = strip.convert(strip.convert(CGPoint(x: cell.frame.midX, y: cell.frame.midY), from: strip.tabsClip), to: nil)
@@ -155,5 +158,23 @@ struct PaneSwapDragTests {
         #expect(shown.width > pane.width / 2)
         #expect(shown.height > pane.height / 2)
         #expect(window.swaps.map { [$0.0, $0.1] } == [["p1", "p2"]])
+    }
+
+    /// p06-scheduler-302 (R-monitor): Escape is a drag-session intercept on the app's input tap, held
+    /// only while a drag is in flight; it cancels the drag, so the release swaps nothing. It was a
+    /// process-wide local event monitor that ran beside the tap for every key.
+    @Test func escapeOnTheInputTapCancelsTheDragAndOnlyADragHoldsIt() throws {
+        let window = Window()
+        defer { window.window.orderOut(nil) }
+        #expect(window.input.subscriberCount(.key, stage: .intercept) == 0, "an idle pane drag holds an Escape intercept")
+        window.hold(from: try window.emptyStripPoint("p1"), to: try window.center("p2"))
+        #expect(window.input.subscriberCount(.key, stage: .intercept) == 1)
+        let escape = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: ProcessInfo.processInfo.systemUptime,
+                                                   windowNumber: window.window.windowNumber, context: nil, characters: "\u{1b}",
+                                                   charactersIgnoringModifiers: "\u{1b}", isARepeat: false, keyCode: 53))
+        #expect(window.input.deliverIntercepts(escape) == .consume)
+        window.release()
+        #expect(window.swaps.isEmpty, "Escape did not cancel the drag")
+        #expect(window.input.subscriberCount(.key, stage: .intercept) == 0, "the Escape intercept outlived its drag")
     }
 }

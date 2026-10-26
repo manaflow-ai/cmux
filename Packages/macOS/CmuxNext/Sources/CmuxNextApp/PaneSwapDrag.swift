@@ -1,5 +1,6 @@
 import AppKit
 import CmuxNextBridge
+import CmuxNextInput
 import CmuxNextLayout
 import CmuxNextTabs
 
@@ -15,12 +16,15 @@ final class PaneSwapDrag: NSObject, NSGestureRecognizerDelegate {
     private let swap: (LayoutPaneID, LayoutPaneID) -> Void
     /// The last mouse-down starts a pane drag (decided at the press, not where the pan begins).
     private var armed = false
-    private var escapeMonitor: Any?
+    /// The app's input tap: Escape is heard there only while a drag is in flight.
+    private let input: InputEventTap
+    private var escapeSubscription: InputSubscription?
 
-    init(strip: TabStripView, pane: LayoutPaneID, layout: @escaping () -> LayoutRootView?,
+    init(strip: TabStripView, pane: LayoutPaneID, input: InputEventTap, layout: @escaping () -> LayoutRootView?,
          swap: @escaping (LayoutPaneID, LayoutPaneID) -> Void) {
         self.strip = strip
         self.pane = pane
+        self.input = input
         self.layout = layout
         self.swap = swap
         super.init()
@@ -35,7 +39,8 @@ final class PaneSwapDrag: NSObject, NSGestureRecognizerDelegate {
 
     /// A pane's drag: a drop sends `swap-pane` to its daemon.
     convenience init(pane: PaneController) {
-        self.init(strip: pane.view.stripView, pane: pane.layoutPaneID, layout: { [weak pane] in pane?.workspace?.layoutView },
+        self.init(strip: pane.view.stripView, pane: pane.layoutPaneID, input: pane.services.inputTap,
+                  layout: { [weak pane] in pane?.workspace?.layoutView },
                   swap: { [weak pane] from, to in
                       guard let pane, let content = pane.workspace, let from = content.handles.panes[from],
                             let to = content.handles.panes[to] else { return }
@@ -94,20 +99,22 @@ final class PaneSwapDrag: NSObject, NSGestureRecognizerDelegate {
     }
 
     /// Escape cancels the drag: it ends here (outline gone, disarmed), and the recognizer turned
-    /// off and on stops tracking.
+    /// off and on stops tracking. A drag-session intercept on the input tap, held only while the drag
+    /// lasts (R-monitor), as the strip holds its tab drag's Escape (`TabStripEscape.dragCancel`).
     private func watchEscape(_ recognizer: NSPanGestureRecognizer) {
-        escapeMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self, weak recognizer] event in
-            guard event.keyCode == 53, let self, let recognizer else { return event }
+        escapeSubscription?.cancel()
+        escapeSubscription = input.subscribe(class: .key, phase: .intercept(order: .dragSession)) { [weak self, weak recognizer] event in
+            guard event.type == .keyDown, event.keyCode == 53, let self, let recognizer else { return .pass }
             if let layout = layout() { end(layout) }
             recognizer.isEnabled = false
             recognizer.isEnabled = true
-            return nil
+            return .consume
         }
     }
 
     private func end(_ layout: LayoutRootView) {
-        if let escapeMonitor { NSEvent.removeMonitor(escapeMonitor) }
-        escapeMonitor = nil
+        escapeSubscription?.cancel()
+        escapeSubscription = nil
         armed = false
         layout.cancelTabDrag()
     }
