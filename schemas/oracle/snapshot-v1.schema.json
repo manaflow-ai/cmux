@@ -2111,12 +2111,12 @@
           ]
         },
         "layout": {
-          "description": "Layout model values per screen: tree, ratios, zoom, dock, canvas.",
+          "description": "LayoutModel values per screen of each workspace a window shows (the focused one and the ones sidebar.multiView shows beside it): the split, strip, column and row tree with ratios, widths and heights at 3 dp, docks on their columns, zoom, focus, the strip's column count and the free canvas. Nothing the views report (frames, LayoutModel.visiblePanes, the strip's scroll offset) and nothing fitted to the viewport.",
           "x-oracle-source": {
             "method": "debug.oracle.snapshot",
             "path": "/layout",
             "v0": null,
-            "provider": "OracleLayoutFacet",
+            "provider": "OracleLayoutFacet (CmuxNextBridge), listed in AppServices+OracleHost",
             "task": "p15-oracle-035",
             "from": "LayoutModel values per screen"
           },
@@ -2133,7 +2133,7 @@
                   "items": {
                     "type": "object",
                     "additionalProperties": false,
-                    "required": ["workspace", "screen", "root", "focusedPane", "zoomedPane", "dock", "canvas"],
+                    "required": ["workspace", "screen", "active", "root", "focusedPane", "zoomedPane", "strip", "canvas"],
                     "properties": {
                       "workspace": {
                         "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/layout/screens/*/workspace"},
@@ -2144,6 +2144,11 @@
                         "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/layout/screens/*/screen"},
                         "type": "string",
                         "x-oracle-id-kind": "screen"
+                      },
+                      "active": {
+                        "description": "the screen the workspace shows (LayoutModel.activeScreenID)",
+                        "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/layout/screens/*/active"},
+                        "type": "boolean"
                       },
                       "root": {
                         "$ref": "#/definitions/layoutNode",
@@ -2159,54 +2164,51 @@
                         "type": ["string", "null"],
                         "x-oracle-id-kind": "pane"
                       },
-                      "dock": {
-                        "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/layout/screens/*/dock"},
+                      "strip": {
+                        "description": "the screen's scrolling column strip. Which columns show is not here: the scroll offset (ScreenContentView.scrollState) and the panes the view reports visible (LayoutModel.visiblePanes) are view state that changes with the window width and on every frame of a scroll.",
+                        "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/layout/screens/*/strip"},
                         "type": "object",
                         "additionalProperties": false,
-                        "required": ["side", "fraction", "open"],
+                        "required": ["columns"],
                         "properties": {
-                          "side": {
-                            "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/layout/screens/*/dock/side"},
-                            "type": ["string", "null"],
-                            "enum": ["left", "right", "bottom", null]
-                          },
-                          "fraction": {
-                            "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/layout/screens/*/dock/fraction"},
-                            "type": ["number", "null"],
-                            "x-oracle-precision": 0.001
-                          },
-                          "open": {
-                            "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/layout/screens/*/dock/open"},
-                            "type": "boolean"
+                          "columns": {
+                            "description": "the columns that are not docked; a screen stored as one split tree is one implicit column (LayoutScreen.implicitColumnID)",
+                            "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/layout/screens/*/strip/columns"},
+                            "type": "integer",
+                            "minimum": 0
                           }
                         }
                       },
                       "canvas": {
+                        "description": "the screen shown as a free canvas (LayoutModel.canvases), null when it is not one. Pane frames are not here: a canvas seeds them from the view's frames when it opens, so they depend on the window size.",
                         "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/layout/screens/*/canvas"},
-                        "type": "object",
-                        "additionalProperties": false,
-                        "required": ["columns", "firstVisibleColumn", "offset"],
-                        "properties": {
-                          "columns": {
-                            "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/layout/screens/*/canvas/columns"},
-                            "type": "integer",
-                            "minimum": 0
-                          },
-                          "firstVisibleColumn": {
-                            "x-oracle-source": {
-                              "method": "debug.oracle.snapshot",
-                              "path": "/layout/screens/*/canvas/firstVisibleColumn"
-                            },
-                            "type": "integer",
-                            "minimum": 0
-                          },
-                          "offset": {
-                            "description": "horizontal scroll as a fraction of one column",
-                            "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/layout/screens/*/canvas/offset"},
-                            "type": "number",
-                            "x-oracle-precision": 0.001
+                        "oneOf": [
+                          {"type": "null"},
+                          {
+                            "type": "object",
+                            "additionalProperties": false,
+                            "required": ["order", "zoom", "overview"],
+                            "properties": {
+                              "order": {
+                                "description": "panes back to front",
+                                "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/layout/screens/*/canvas/order"},
+                                "type": "array",
+                                "x-oracle-order": "sequence",
+                                "items": {"type": "string", "x-oracle-id-kind": "pane"}
+                              },
+                              "zoom": {
+                                "description": "the camera's zoom; null in the overview, whose camera is fitted to the viewport the view reports (CanvasCamera.fitting)",
+                                "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/layout/screens/*/canvas/zoom"},
+                                "type": ["number", "null"],
+                                "x-oracle-precision": 0.001
+                              },
+                              "overview": {
+                                "x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/layout/screens/*/canvas/overview"},
+                                "type": "boolean"
+                              }
+                            }
                           }
-                        }
+                        ]
                       }
                     }
                   }
@@ -3553,10 +3555,50 @@
       }
     },
     "layoutNode": {
-      "description": "one LayoutModel node; leaves name a pane",
+      "description": "one LayoutModel node. split: a binary split (SplitNode), ratios [a, b]; strip: a screen's columns in model order; column: one LayoutColumn, its rows or its one tree as children, with width and dock; row: one LayoutRow, its tree as the one child, with height; leaf: a pane. stack is the daemon's, which LayoutMapping shows as a leaf.",
       "type": "object",
       "additionalProperties": false,
       "required": ["kind", "axis", "ratios", "pane", "children"],
+      "oneOf": [
+        {
+          "description": "a column: its width and its dock, no height",
+          "additionalProperties": false,
+          "required": ["width", "dock"],
+          "properties": {
+            "kind": {"x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/layout/screens/*/root/**/kind", "from": "LayoutModel node"}, "const": "column"},
+            "axis": {"x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/layout/screens/*/root/**/axis", "from": "LayoutModel node"}},
+            "ratios": {"x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/layout/screens/*/root/**/ratios", "from": "LayoutModel node"}},
+            "pane": {"x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/layout/screens/*/root/**/pane", "from": "LayoutModel node"}},
+            "children": {"x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/layout/screens/*/root/**/children", "from": "LayoutModel node"}},
+            "width": {"x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/layout/screens/*/root/**/width", "from": "LayoutColumn.width"}},
+            "dock": {"x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/layout/screens/*/root/**/dock", "from": "LayoutColumn.dock"}}
+          }
+        },
+        {
+          "description": "a row: its height, no width or dock",
+          "additionalProperties": false,
+          "required": ["height"],
+          "properties": {
+            "kind": {"x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/layout/screens/*/root/**/kind", "from": "LayoutModel node"}, "const": "row"},
+            "axis": {"x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/layout/screens/*/root/**/axis", "from": "LayoutModel node"}},
+            "ratios": {"x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/layout/screens/*/root/**/ratios", "from": "LayoutModel node"}},
+            "pane": {"x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/layout/screens/*/root/**/pane", "from": "LayoutModel node"}},
+            "children": {"x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/layout/screens/*/root/**/children", "from": "LayoutModel node"}},
+            "height": {"x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/layout/screens/*/root/**/height", "from": "LayoutRow.height"}}
+          }
+        },
+        {
+          "description": "a split, strip, stack or leaf: no width, height or dock",
+          "additionalProperties": false,
+          "properties": {
+            "kind": {"x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/layout/screens/*/root/**/kind", "from": "LayoutModel node"}, "enum": ["split", "stack", "leaf", "strip"]},
+            "axis": {"x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/layout/screens/*/root/**/axis", "from": "LayoutModel node"}},
+            "ratios": {"x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/layout/screens/*/root/**/ratios", "from": "LayoutModel node"}},
+            "pane": {"x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/layout/screens/*/root/**/pane", "from": "LayoutModel node"}},
+            "children": {"x-oracle-source": {"method": "debug.oracle.snapshot", "path": "/layout/screens/*/root/**/children", "from": "LayoutModel node"}}
+          }
+        }
+      ],
       "properties": {
         "kind": {
           "x-oracle-source": {
@@ -3565,7 +3607,7 @@
             "from": "LayoutModel node"
           },
           "type": "string",
-          "enum": ["split", "stack", "leaf", "column", "row"]
+          "enum": ["split", "stack", "leaf", "strip", "column", "row"]
         },
         "axis": {
           "x-oracle-source": {
@@ -3577,7 +3619,7 @@
           "enum": ["horizontal", "vertical", null]
         },
         "ratios": {
-          "description": "child shares, sum 1",
+          "description": "a split's child shares, sum 1; empty on other kinds",
           "x-oracle-source": {
             "method": "debug.oracle.snapshot",
             "path": "/layout/screens/*/root/**/ratios",
@@ -3605,6 +3647,87 @@
           "type": "array",
           "x-oracle-order": "sequence",
           "items": {"$ref": "#/definitions/layoutNode"}
+        },
+        "width": {
+          "description": "a column's width as a fraction of the viewport",
+          "x-oracle-source": {
+            "method": "debug.oracle.snapshot",
+            "path": "/layout/screens/*/root/**/width",
+            "from": "LayoutColumn.width"
+          },
+          "type": "number",
+          "x-oracle-precision": 0.001
+        },
+        "height": {
+          "description": "a row's height as a fraction of the column's viewport height",
+          "x-oracle-source": {
+            "method": "debug.oracle.snapshot",
+            "path": "/layout/screens/*/root/**/height",
+            "from": "LayoutRow.height"
+          },
+          "type": "number",
+          "x-oracle-precision": 0.001
+        },
+        "dock": {
+          "description": "the edge a column is pinned to, null for a scrolling column",
+          "x-oracle-source": {
+            "method": "debug.oracle.snapshot",
+            "path": "/layout/screens/*/root/**/dock",
+            "from": "LayoutColumn.dock"
+          },
+          "oneOf": [
+            {"type": "null"},
+            {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["edge", "mode", "role", "pinned", "allowsTabs"],
+              "properties": {
+                "edge": {
+                  "x-oracle-source": {
+                    "method": "debug.oracle.snapshot",
+                    "path": "/layout/screens/*/root/**/dock/edge",
+                    "from": "DockColumn.edge"
+                  },
+                  "type": "string",
+                  "enum": ["left", "right", "top", "bottom"]
+                },
+                "mode": {
+                  "x-oracle-source": {
+                    "method": "debug.oracle.snapshot",
+                    "path": "/layout/screens/*/root/**/dock/mode",
+                    "from": "DockColumn.mode"
+                  },
+                  "type": "string",
+                  "enum": ["docked", "overlay"]
+                },
+                "role": {
+                  "x-oracle-source": {
+                    "method": "debug.oracle.snapshot",
+                    "path": "/layout/screens/*/root/**/dock/role",
+                    "from": "DockColumn.role"
+                  },
+                  "type": ["string", "null"],
+                  "enum": ["agentChat", null]
+                },
+                "pinned": {
+                  "x-oracle-source": {
+                    "method": "debug.oracle.snapshot",
+                    "path": "/layout/screens/*/root/**/dock/pinned",
+                    "from": "DockColumn.isPinned"
+                  },
+                  "type": "boolean"
+                },
+                "allowsTabs": {
+                  "x-oracle-source": {
+                    "method": "debug.oracle.snapshot",
+                    "path": "/layout/screens/*/root/**/dock/allowsTabs",
+                    "from": "DockColumn.allowsTabs"
+                  },
+                  "type": "boolean"
+                }
+              }
+            }
+          ]
         }
       }
     }

@@ -188,8 +188,9 @@ extension ScreenContentView {
     /// `force`: a structural or style change; everything is re-placed and the overlay syncs.
     func applyPresentation(force: Bool = false) { // perf-hot: 4ms motion-frame
         // An open change turn lays out once, at its end (``endMotionTurn(needsFrames:policy:)``).
-        if heldPresentation != nil {
-            heldPresentation?.force = heldPresentation?.force == true || force
+        if var held = heldPresentation {
+            held.force = held.force || force
+            heldPresentation = held
             return
         }
         // Every presentation shows the latest pan: no pan event waits after it.
