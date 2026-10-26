@@ -31,23 +31,29 @@ public nonisolated final class LaunchRead<Value: Sendable>: Sendable {
     ///   - priority: How much a person waits for it; default ``WorkPriority/userBlocking`` (a pane's first frame).
     ///   - shutdown: What quit does with it before it has started; ``ShutdownBehavior/blockShutdown`` when a
     ///     ``finished()`` must end (quit itself awaits it), else dropped and ``value`` stays nil.
+    ///   - dropped: The result when quit drops the read before it started or refuses it (posted after
+    ///     `work.shutdown()` returned), so ``value`` has it and ``finished()`` ends; nil leaves both waiting.
     ///   - fileID: The caller's `#fileID`, which names a slow block-shutdown read (leave the default).
     ///   - line: The caller's `#line`.
     ///   - body: The blocking read. It runs on a lane thread.
     public init(on work: BackgroundWork, priority: WorkPriority = .userBlocking, shutdown: ShutdownBehavior = .skipOnShutdown,
-                fileID: StaticString = #fileID, line: UInt = #line, _ body: @escaping @Sendable () -> Value) {
-        work.post(priority, mayBlock: .files, shutdown: shutdown, fileID: fileID, line: line) { [self] in
-            let value = body()
-            let waiters = self.state.withLock { state in
-                state.value = value
-                defer { state.waiters = [] }
-                return state.waiters
-            }
-            for waiter in waiters { waiter.resume(returning: value) }
-        }
+                dropped: Value? = nil, fileID: StaticString = #fileID, line: UInt = #line,
+                _ body: @escaping @Sendable () -> Value) {
+        work.post(priority, mayBlock: .files, shutdown: shutdown, fileID: fileID, line: line,
+                  abandoned: { [self] in if let dropped { end(with: dropped) } }) { [self] in end(with: body()) }
     }
 
-    /// The result once the read has ended; nil while it runs (or when quit dropped it before it started).
+    /// Stores the result and resumes every ``finished()`` waiting for it.
+    private func end(with value: Value) {
+        let waiters = state.withLock { state in
+            state.value = value
+            defer { state.waiters = [] }
+            return state.waiters
+        }
+        for waiter in waiters { waiter.resume(returning: value) }
+    }
+
+    /// The result once the read has ended; nil while it runs (or when quit dropped it and there is no `dropped`).
     public var value: Value? {
         state.withLock { $0.value }
     }
