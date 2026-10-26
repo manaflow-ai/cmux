@@ -1,4 +1,4 @@
-import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "bun:test";
+import { afterAll, beforeAll, expect, setDefaultTimeout, test } from "bun:test";
 import { chromium, type Browser } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { inspectorPushAlways, papercutPane } from "./support/papercutChat";
@@ -48,9 +48,34 @@ await requireBrowserLane("chat-inspector-artifact-motion.test.ts", async () => {
       await toggle.waitFor({ timeout: 10_000 });
       if ((await page.locator("aside.acpmux-chat-inspector").count()) === 0) await toggle.click({ force: true });
       await page.locator('aside.acpmux-chat-inspector[data-presence="shown"]').waitFor({ timeout: 10_000 });
+      await page.waitForFunction(
+        () =>
+          [...document.getAnimations()].every((animation) => {
+            const end = animation.effect?.getComputedTiming().endTime;
+            return end === Infinity || animation.playState !== "running";
+          }),
+        undefined,
+        { timeout: 10_000 },
+      );
+      await page.evaluate(async () => {
+        for (let frame = 0; frame < 3; frame++) await window.cmuxPaintFrame();
+      });
+      // The native preview split springs its pane width; animate the fixture's side item the same
+      // way so the assertion catches a webview shift that starts after the pane has already moved.
+      await page.addStyleTag({
+        content: ".acpmux-artifact { flex-basis: 0 !important; transition: flex-basis 320ms ease-out !important; }",
+      });
       const openPreview = page.getByRole("button", { name: "Open preview" });
       await openPreview.waitFor({ timeout: 10_000 });
       await page.evaluate(() => {
+        const observer = new MutationObserver(() => {
+          const artifact = document.querySelector<HTMLElement>(".acpmux-artifact");
+          if (!artifact || artifact.dataset.motionProbe) return;
+          artifact.dataset.motionProbe = "opening";
+          artifact.style.setProperty("flex-basis", "clamp(320px, 46%, 760px)", "important");
+          observer.disconnect();
+        });
+        observer.observe(document.querySelector(".acpmux-shell")!, { childList: true, subtree: true });
         const scroll = document.querySelector<HTMLElement>(".acpmux-scroll")!;
         const frames: number[] = [Number(scroll.getBoundingClientRect().left.toFixed(2))];
         let done = false;
@@ -68,7 +93,15 @@ await requireBrowserLane("chat-inspector-artifact-motion.test.ts", async () => {
           }
           return frames.length < 240;
         });
-        Object.assign(window, { __artifactMotion: { frames, get done() { return done; } }, __artifactMotionStop: stop });
+        Object.assign(window, {
+          __artifactMotion: {
+            frames,
+            get done() {
+              return done;
+            },
+          },
+          __artifactMotionStop: stop,
+        });
       });
       await openPreview.click();
       await page.waitForFunction(() => (window as any).__artifactMotion?.done === true, undefined, { timeout: 20_000 });

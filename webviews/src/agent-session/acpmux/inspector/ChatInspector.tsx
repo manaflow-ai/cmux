@@ -504,7 +504,9 @@ function InspectorPresence({
   // panel keeps clear of, so it never lies over the document.
   const { width: paneWidth, side } = usePaneRoom(shell, drawn, beside);
   const push = pushes(display.inspector);
-  const chatShift = push ? 0 : inspectorChatShift(paneWidth, width, column, wide);
+  // A side preview owns the pane's opening motion. Hold the floating panel's final room shift while
+  // that sibling enters, so its flex resize cannot animate a stale Session Info shift first.
+  const chatShift = push ? 0 : beside ? 0 : inspectorChatShift(paneWidth, width, column, wide);
   const tabRowHeight = useTabRow().height;
   // Left's machine · folder chip occupies its own row below the header/tab row. Keep the Inspector
   // below it while open so the card never covers the chip; Right preserves the original header slot,
