@@ -164,6 +164,65 @@ class ResourceApiTests(unittest.TestCase):
     def test_aio_request_deadline_bounds_socket_dispatch(self) -> None:
         self._assert_request_deadline_bounds_socket_dispatch(True)
 
+    def test_pre_write_dispatch_timeout_keeps_connection_reusable(self) -> None:
+        observed = []
+        finished = threading.Event()
+        errors = []
+
+        def handler(connection, _index):
+            request = next(frames(connection))
+            observed.append(request)
+            ok(
+                connection,
+                request,
+                {
+                    "alive": True,
+                    "cursor": {
+                        "generation": "generation-a",
+                        "revision": "1",
+                    },
+                },
+            )
+
+        def timed_out_request(client):
+            try:
+                client.with_request_options(
+                    RequestOptions(timeout=0.05),
+                    client.session(SESSION).ping,
+                )
+            except BaseException as error:
+                errors.append(error)
+            finally:
+                finished.set()
+
+        with UnixJsonServer(handler) as server:
+            with Client(server.path, timeout=0.2) as client:
+                send_lock = client._connection._wire._send_lock
+                self.assertTrue(send_lock.acquire())
+                worker = threading.Thread(
+                    target=timed_out_request,
+                    args=(client,),
+                )
+                worker.start()
+                try:
+                    self.assertTrue(
+                        finished.wait(1),
+                        "request did not time out while waiting for send lock",
+                    )
+                finally:
+                    send_lock.release()
+                    worker.join(timeout=1)
+                self.assertFalse(worker.is_alive())
+                self.assertEqual(len(errors), 1)
+                self.assertIsInstance(errors[0], cmux.TimeoutError)
+                self.assertFalse(client.closed)
+                self.assertTrue(client.session(SESSION).ping().alive)
+
+        self.assertEqual(
+            [request["operation"] for request in observed],
+            ["session.ping"],
+        )
+
     def test_public_models_export_journal_append_result(self) -> None:
         self.assertIn("JournalAppendResult", cmux.__all__)
 
