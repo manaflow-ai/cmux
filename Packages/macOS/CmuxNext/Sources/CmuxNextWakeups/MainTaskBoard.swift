@@ -121,6 +121,12 @@ public final class MainTaskBoard: Sendable {
         if notify, hookState.load(ordering: .acquiring) == 2 { taskStartHook.withLock { $0 }?() }
     }
 
+    /// The running task waits in a nested run loop it ran (main thread): no task runs until the
+    /// budget publishes one again (``begin(_:owner:sequence:startNanos:budgetNanos:notify:)``).
+    func endParked() {
+        current.store(0, ordering: .releasing)
+    }
+
     /// Publishes the end of the running task (main thread); reports it when it ran past its budget,
     /// with the site it was posted from.
     func end(_ task: @autoclosure () -> Task, durationNanos: UInt64, overBudget: Bool) {
