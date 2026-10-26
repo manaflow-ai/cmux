@@ -14,10 +14,13 @@ import Foundation
 /// grid that went to a PTY (the attach driver's claim, never a resize the driver dropped), the
 /// stream's echo of that grid (the daemon applied it), and the terminal's first output after the echo.
 ///
-/// A mark while neither records costs two relaxed atomic loads and records nothing: no log system call and
+/// A mark while neither records costs three relaxed atomic loads and records nothing: no log system call and
 /// no lock, per pane or per frame. The ring takes no lock either (Chrome's `TRACE_EVENT_INSTANT` under a
-/// disabled-by-default category, base/trace_event/trace_event.h); the echo matching takes the state lock
-/// only while one records. Times are `CLOCK_UPTIME_RAW` nanoseconds, the clock of `NSEvent.timestamp` and
+/// disabled-by-default category, base/trace_event/trace_event.h). The echo matching takes the state lock for a
+/// sent grid and an announced one while one records, and for an output only between an echo and that
+/// surface's first output after it, so a recording never puts every terminal's output on one lock. The matching
+/// belongs to the recording that sent the grid: the first mark after the recordings stop drops it, so an echo
+/// that comes later never matches a later recording's announce of the same size. Times are `CLOCK_UPTIME_RAW` nanoseconds, the clock of `NSEvent.timestamp` and
 /// of the signposts' `machTimestamp`, so marks from any thread compare with the presses. A `debug.burst`
 /// recording keeps at most ``capacity`` events and counts the rest as dropped. The app makes one and passes
 /// it to its mark sites; tests make their own:
@@ -115,6 +118,11 @@ public nonisolated final class BurstTrace: Sendable {
 
     /// Whether `debug.burst` records (only its `start` sets it, in DEBUG and bench builds).
     private let armed = Atomic<Bool>(false)
+    /// The echo matching's entries (`State.unechoed` surfaces plus `State.awaitingOutput`), stored under the lock and
+    /// read without it: 0 lets a mark with no recording skip the lock.
+    private let matching = Atomic<Int>(0)
+    /// `State.awaitingOutput.count`, stored under the lock and read without it: 0 lets an output skip the lock.
+    private let awaiting = Atomic<Int>(0)
     /// Where each mark's ring instant goes.
     private let trace: TraceRuntime
     // A lock, not an actor: marks come synchronously from the main actor, from each attach driver's
@@ -131,8 +139,12 @@ public nonisolated final class BurstTrace: Sendable {
     }
 
     /// Whether a recording runs: `debug.burst` (DEBUG and bench builds) or a trace recording with the `burst`
-    /// category on (every build). Mark sites check it before anything else.
-    public var isArmed: Bool { isListing || trace.isEnabled(categoryBit: SignpostCategory.burst.traceBit) }
+    /// category on (every build). Mark sites need not check it: each mark does, and a mark with no recording
+    /// is what drops an ended recording's echo matching.
+    public var isArmed: Bool { isListing || isRingRecording }
+
+    /// Whether a trace recording has the `burst` category on.
+    private var isRingRecording: Bool { trace.isEnabled(categoryBit: SignpostCategory.burst.traceBit) }
 
     /// Whether `debug.burst` keeps the marks as a list (always false in a Release build).
     private var isListing: Bool {
@@ -151,7 +163,7 @@ public nonisolated final class BurstTrace: Sendable {
     ///   - input: The timestamp of the person's input event that ran the press (`NSEvent.timestamp`),
     ///     nil when none is known: the bench matches the mark to its press by it.
     public func mark(_ kind: Kind, input: Double?) {
-        guard isArmed else { return }
+        guard recording() else { return }
         record(Event(kind: kind, at: Self.now(), input: input))
     }
 
@@ -162,7 +174,7 @@ public nonisolated final class BurstTrace: Sendable {
     ///   - emptiesPane: Whether the close left the pane with no tab, so the pane closes too.
     ///   - input: The timestamp of the key event that ran it, as for ``mark(_:input:)``.
     public func closed(tabs: [String], emptiesPane: Bool, input: Double?) {
-        guard isArmed else { return }
+        guard recording() else { return }
         record(Event(kind: .closed, at: Self.now(), input: input, tabs: tabs, emptiesPane: emptiesPane))
     }
 
@@ -176,7 +188,7 @@ public nonisolated final class BurstTrace: Sendable {
     ///   - expectsEcho: Whether the daemon will echo it; a grid the PTY already has changes nothing and
     ///     is never echoed, so no ``Kind/gridEcho`` is looked for.
     public func gridSent(surface: UInt64, cols: Int, rows: Int, expectsEcho: Bool) {
-        guard isArmed else { return }
+        guard recording() else { return }
         let event = Event(kind: .ptyGrid, at: Self.now(), surface: surface, cols: cols, rows: rows, expectsEcho: expectsEcho)
         emit(event)
         let grid = Grid(cols: cols, rows: rows)
@@ -185,6 +197,7 @@ public nonisolated final class BurstTrace: Sendable {
             state.append(event, keep: keep)
             guard expectsEcho else { return }
             state.unechoed[surface] = Array((state.unechoed[surface, default: []] + [grid]).suffix(Self.pendingEchoes))
+            publish(state)
         }
     }
 
@@ -201,16 +214,18 @@ public nonisolated final class BurstTrace: Sendable {
     ///   - cols: The announced grid's columns.
     ///   - rows: The announced grid's rows.
     public func gridAnnounced(surface: UInt64, cols: Int, rows: Int) {
-        guard isArmed else { return }
+        guard recording(), matching.load(ordering: .relaxed) != 0 else { return }
         let at = Self.now()
         let grid = Grid(cols: cols, rows: rows)
         let keep = isListing
         let echo: Event? = state.withLock { state in
             guard let sent = state.unechoed[surface], let index = sent.firstIndex(of: grid) else { return nil }
-            state.unechoed[surface] = Array(sent.dropFirst(index + 1))
+            let rest = sent.dropFirst(index + 1)
+            state.unechoed[surface] = rest.isEmpty ? nil : Array(rest)
             let event = Event(kind: .gridEcho, at: at, surface: surface, cols: cols, rows: rows)
             state.append(event, keep: keep)
             state.awaitingOutput.insert(surface)
+            publish(state)
             return event
         }
         if let echo { emit(echo) }
@@ -222,16 +237,51 @@ public nonisolated final class BurstTrace: Sendable {
     ///
     /// - Parameter surface: The daemon surface of the terminal.
     public func output(surface: UInt64) {
-        guard isArmed else { return }
+        // A surface's echo and its outputs come in order from its one stream, so its echo's store is seen here.
+        guard recording(), awaiting.load(ordering: .relaxed) != 0 else { return }
         let at = Self.now()
         let keep = isListing
         let first: Event? = state.withLock { state in
             guard state.awaitingOutput.remove(surface) != nil else { return nil }
             let event = Event(kind: .firstOutput, at: at, surface: surface)
             state.append(event, keep: keep)
+            publish(state)
             return event
         }
         if let first { emit(first) }
+    }
+
+    /// The terminal view of `surface` closed: its grids' echoes and its first output are no longer looked for.
+    ///
+    /// - Parameter surface: The daemon surface of the terminal.
+    public func forget(surface: UInt64) {
+        guard matching.load(ordering: .relaxed) != 0 else { return }
+        state.withLock { state in
+            state.unechoed[surface] = nil
+            state.awaitingOutput.remove(surface)
+            publish(state)
+        }
+    }
+
+    /// Whether a recording runs (``isArmed``). With none, the echo matching an ended recording left goes first, so
+    /// a grid it sent never matches what a later recording sees.
+    private func recording() -> Bool {
+        if isArmed { return true }
+        if matching.load(ordering: .relaxed) != 0 { state.withLock { clearMatching(&$0) } }
+        return false
+    }
+
+    /// Drops every grid waiting for its echo and every surface waiting for its first output.
+    private func clearMatching(_ state: inout State) {
+        state.unechoed = [:]
+        state.awaitingOutput = []
+        publish(state)
+    }
+
+    /// Stores the matching's sizes for the lock-free checks; called under the lock after each change.
+    private func publish(_ state: State) {
+        matching.store(state.unechoed.count + state.awaitingOutput.count, ordering: .relaxed)
+        awaiting.store(state.awaitingOutput.count, ordering: .relaxed)
     }
 
     /// Writes `event`'s ring instant and keeps it for `debug.burst` while that records.
@@ -249,17 +299,26 @@ public nonisolated final class BurstTrace: Sendable {
     private static func now() -> UInt64 { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) }
 
     #if DEBUG || CMUX_BENCH_HOOKS
-    /// Clears the record and arms a new recording.
+    /// Clears the record and arms a new recording. The echo matching stays while a trace recording uses it too.
     func start() {
-        state.withLock { $0 = State() }
+        let shared = isRingRecording
+        state.withLock { state in
+            (state.events, state.dropped) = ([], 0)
+            if !shared { clearMatching(&state) }
+        }
         armed.store(true, ordering: .relaxed)
     }
 
-    /// Disarms and returns what the recording kept, oldest first, and how many marks it dropped.
+    /// Disarms and returns what the recording kept, oldest first, and how many marks it dropped. The echo matching
+    /// stays while a trace recording uses it too.
     func stop() -> (events: [Event], dropped: Int) {
         armed.store(false, ordering: .relaxed)
+        let shared = isRingRecording
         return state.withLock { state in
-            defer { state = State() }
+            defer {
+                (state.events, state.dropped) = ([], 0)
+                if !shared { clearMatching(&state) }
+            }
             return (state.events, state.dropped)
         }
     }

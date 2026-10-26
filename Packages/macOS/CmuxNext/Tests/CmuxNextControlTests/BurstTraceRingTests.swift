@@ -1,5 +1,6 @@
 import CmuxNextCompat
 @testable import CmuxNextControl
+import CmuxNextSettings
 import CmuxNextSignposts
 @testable import CmuxNextTrace
 import Testing
@@ -62,6 +63,48 @@ import Testing
         #expect(records[3].arg0 == 6 | 100 << 8 | 30 << 24 && records[3].arg1 == 7)
         #expect(records[4].arg0 == 7 && records[4].arg1 == 7)
     }
+
+    @Test("A grid sent in an ended recording never matches a later recording's announce of the same size")
+    func staleEchoDoesNotMatchTheNextRecording() {
+        let log = RecordLog()
+        let runtime = log.runtime([.burst])
+        let trace = BurstTrace(trace: runtime)
+        trace.gridSent(surface: 3, cols: 100, rows: 30, expectsEcho: true)
+        runtime.setCategoryMask(0)
+        trace.gridAnnounced(surface: 3, cols: 100, rows: 30)  // the echo, after the recording stopped: dropped
+        runtime.setCategoryMask(1 << UInt64(SignpostCategory.burst.traceBit))
+        trace.gridAnnounced(surface: 3, cols: 100, rows: 30)  // another client's grid of that size
+        trace.output(surface: 3)
+        #expect(log.records.map { $0.arg0 & 0xFF } == [5], "only the first recording's pty_grid")
+        #expect(trace.awaitingOutputCount == 0)
+    }
+
+    @Test("A closed terminal's pending echo and first output are no longer looked for")
+    func forgetDropsAClosedSurface() {
+        let log = RecordLog()
+        let trace = BurstTrace(trace: log.runtime([.burst]))
+        trace.gridSent(surface: 4, cols: 80, rows: 24, expectsEcho: true)
+        trace.gridAnnounced(surface: 4, cols: 80, rows: 24)
+        #expect(trace.awaitingOutputCount == 1)
+        trace.forget(surface: 4)
+        #expect(trace.awaitingOutputCount == 0)
+        trace.output(surface: 4)
+        #expect(log.records.map { $0.arg0 & 0xFF } == [5, 6])
+    }
+
+    #if DEBUG || CMUX_BENCH_HOOKS
+    @Test("debug.burst start and stop leave the echo matching of a trace recording that runs alongside")
+    func debugBurstKeepsTheRingsMatching() {
+        let log = RecordLog()
+        let trace = BurstTrace(trace: log.runtime([.burst]))
+        trace.gridSent(surface: 5, cols: 90, rows: 40, expectsEcho: true)
+        _ = trace.control(["action": .string("start")])
+        _ = trace.control(["action": .string("stop")])
+        trace.gridAnnounced(surface: 5, cols: 90, rows: 40)
+        trace.output(surface: 5)
+        #expect(log.records.map { $0.arg0 & 0xFF } == [5, 6, 7])
+    }
+    #endif
 
     @Test("Each kind keeps its fixed ring code")
     func kindCodesArePinned() {
