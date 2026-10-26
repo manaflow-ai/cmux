@@ -18,11 +18,13 @@ struct ApprovalCardView: View {
                 Text(banner.title).font(.headline).fixedSize(horizontal: false, vertical: true)
             }
             .accessibilityElement(children: .combine)
-            Text(banner.scope).font(.subheadline).foregroundStyle(.secondary)
+            Text(banner.scope).font(.subheadline).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             if let detail = banner.detail {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(banner.detailLabel).font(.caption).foregroundStyle(.secondary)
-                    Text(detail).font(.system(.callout, design: .monospaced)).lineLimit(4).textSelection(.enabled)
+                    // Wraps (up to four lines): what is approved is never cut to one line.
+                    Text(detail).font(.system(.callout, design: .monospaced)).lineLimit(4)
+                        .fixedSize(horizontal: false, vertical: true).textSelection(.enabled)
                 }
             }
             if model.sent {
