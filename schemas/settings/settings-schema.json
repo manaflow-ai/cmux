@@ -1185,6 +1185,16 @@
             }
           },
           {
+            "key" : "settings.group.import",
+            "rows" : [
+              "browser.import.enabled"
+            ],
+            "title" : {
+              "key" : "settings.group.import",
+              "text" : "Import"
+            }
+          },
+          {
             "key" : "settings.group.memory",
             "rows" : [
               "browser.hibernation",
@@ -30437,6 +30447,61 @@
       "title" : {
         "key" : "settings.browser.showBookmarksBar",
         "text" : "Show Bookmarks Bar"
+      },
+      "validation" : "portable"
+    },
+    {
+      "accepts" : [
+        true,
+        false
+      ],
+      "agent_refusal" : "privacy",
+      "agent_settable" : false,
+      "consumers" : [
+        "cmux-next"
+      ],
+      "default" : true,
+      "default_label" : null,
+      "group" : {
+        "key" : "settings.group.import",
+        "text" : "Import"
+      },
+      "help" : {
+        "key" : "settings.browser.importEnabled.help",
+        "text" : "Offers to bring bookmarks, history, passwords and sign-ins over from other browsers: Import from Browser in the File menu and the palette, and the import cards in Settings. Off hides them and nothing imports by itself. Data already imported stays."
+      },
+      "kept_on_reset_all" : false,
+      "key" : "browser.import.enabled",
+      "keywords" : [
+        "import",
+        "browser",
+        "chrome",
+        "safari",
+        "arc",
+        "firefox",
+        "bookmarks",
+        "history",
+        "passwords",
+        "cookies",
+        "suggestions"
+      ],
+      "kind" : "toggle",
+      "page_hidden" : false,
+      "path" : [
+        "browser",
+        "import",
+        "enabled"
+      ],
+      "refuses" : [
+        "true",
+        1,
+        null
+      ],
+      "section" : "browser",
+      "summary" : null,
+      "title" : {
+        "key" : "settings.browser.importEnabled",
+        "text" : "Import from Other Browsers"
       },
       "validation" : "portable"
     },

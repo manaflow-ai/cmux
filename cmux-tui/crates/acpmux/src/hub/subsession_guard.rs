@@ -428,16 +428,20 @@ impl Hub {
         })
     }
 
-    /// A family prompt (`provenance` of kind `subsession_message`) about to
-    /// run in `session`: refused when its sender is gone or the receiver now
-    /// asks less than the sender, by mode or policy (either changed while it
-    /// waited in the queue, or the agent's start changed the mode).
+    /// A family prompt (`provenance` of kind `subsession_message`, or a retry
+    /// a sub-session asked for, `from` it) about to run in `session`: refused
+    /// when its sender is gone or the receiver now asks less than the sender,
+    /// by mode or policy (either changed while it waited in the queue, or the
+    /// agent's start changed the mode).
     pub(super) async fn family_dispatch_check(
         &self,
         session: &Session,
         provenance: Option<&Value>,
     ) -> Result<(), RpcError> {
-        let Some(p) = provenance.filter(|p| is_family_prompt(Some(p))) else { return Ok(()) };
+        let retry = |p: &Value| p.get("manual").is_some() && p.get("from").is_some();
+        let Some(p) = provenance.filter(|p| is_family_prompt(Some(p)) || retry(p)) else {
+            return Ok(());
+        };
         let from = p.get("from").and_then(Value::as_str).unwrap_or_default();
         let sender = self.resolve(from).ok().filter(|s| s.id == from).ok_or_else(|| {
             refusal(

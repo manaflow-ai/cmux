@@ -47,6 +47,7 @@ import {
   devboxDaemonUnit,
 } from "../scripts/devbox-image-common";
 import { DEVBOX_DESKTOP_USER } from "../services/vms/images/desktop";
+import { hostUnit } from "../scripts/cmux-vm-image/host-agent";
 import {
   DEVBOX_WORK_HOME,
   DEVBOX_WORK_UID,
@@ -730,6 +731,19 @@ test "$daemon_pid" = fixture
     expect(devboxDaemonUnit()).toContain("ExecStart=/usr/local/bin/cmux-devbox-boot");
     expect(freestyleScript).toContain("cmux-tui-daemon.service");
     expect(devboxDaemonUnit()).toContain("Restart=always");
+  });
+
+  test("the cmux-tui units never give up after repeated failed starts", () => {
+    // Like acpmux.service: no start limit, retries back off to 60 s.
+    for (const unit of [devboxDaemonUnit(), hostUnit([], "/usr/bin:/bin")]) {
+      const service = unit.indexOf("[Service]");
+      expect(unit.indexOf("StartLimitIntervalSec=0\n")).toBeGreaterThan(0);
+      expect(unit.indexOf("StartLimitIntervalSec=0\n")).toBeLessThan(service);
+      for (const line of ["Restart=always", "RestartSec=3", "RestartSteps=5", "RestartMaxDelaySec=60"]) {
+        expect(unit.split("\n")).toContain(line);
+      }
+      expect(unit).not.toContain("StartLimitBurst=");
+    }
   });
 
   test("the Freestyle replay carries the ble.sh cache bake", () => {

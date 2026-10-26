@@ -25,7 +25,7 @@
  * - The resolver is systemd-resolved with /etc/resolv.conf its stub (dns.ts), checked by
  *   /usr/local/sbin/cmux-dns-check, so Tailscale on a machine runs in resolved mode.
  * - cmux-machine-health.timer (machine-health.ts): a bounded pass every 60 s that checks and heals
- *   DNS, disk, RAM and acpmux and writes /run/cmux/machine-health.json; ssh and login sessions get
+ *   DNS, disk, RAM, acpmux and cmux-tui units and writes /run/cmux/machine-health.json; ssh and login sessions get
  *   memory and task limits, and the user's systemd manager outlives a runaway session.
  * - SBOM (syft, pinned) and a file-hash manifest are downloaded next to the
  *   result JSON. The page cache is dropped and the bind path re-read before the
