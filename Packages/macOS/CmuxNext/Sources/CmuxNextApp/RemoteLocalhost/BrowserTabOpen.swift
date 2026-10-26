@@ -1,4 +1,5 @@
 import CmuxNextBrowser
+import typealias CmuxNextDaemon.SurfaceID
 import CmuxNextPages
 import CmuxNextRemoteLocalhost
 import CmuxNextSettings
@@ -68,6 +69,21 @@ enum BrowserTabOpen {
     /// Checks `args` from page `page` (set by the page host, never by the page).
     static func request(args: JSONValue, page: String) throws(Refusal) -> Request {
         guard page == callerPage else { throw .proxyOriginRefused }
+        return try checked(args)
+    }
+
+    /// `cmux cloud open-browser` (CloudHandlers+Browser.swift): `route` is the `cloud.browser.open`
+    /// answer the app asked for itself, so no page hands it over and the caller page check does not
+    /// apply. The route gets every other check of a page's request.
+    static func request(route: JSONValue, machineName: String) throws(Refusal) -> Request {
+        try checked(.object([
+            "engine": .string("cef"), "url": route["url"] ?? .null,
+            "incarnation": route["incarnation"] ?? .null, "generation": route["generation"] ?? .null,
+            "machineStore": .object(["machine": route["machine"] ?? .null, "machineName": .string(machineName), "proxy": route["proxy"] ?? .null]),
+        ]))
+    }
+
+    private static func checked(_ args: JSONValue) throws(Refusal) -> Request {
         guard args["engine"]?.stringValue == "cef" else { throw .proxyRequiresCEF }
         guard let text = args["url"]?.stringValue, let url = URL(string: text),
               ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
@@ -111,8 +127,13 @@ extension BrowserTabOpen {
     /// Opens a checked request in the active window's focused pane: the
     /// Chromium page is made first (with its store), then the daemon tab
     /// adopts it. Throws a typed refusal; never opens the URL any other way.
-    @MainActor
-    static func open(_ request: Request, services: AppServices) async throws(Refusal) {
+    /// `background` leaves the pane's selected tab as it is (a CLI run without
+    /// focus); `then` gets the new tab's surface once the daemon made it.
+    /// `reportsRefusal` answers the pane's refusal (browser off, machine not
+    /// connected) instead of showing it; nil when the tab was asked for.
+    @MainActor @discardableResult
+    static func open(_ request: Request, services: AppServices, background: Bool = false, reportsRefusal: Bool = false,
+                     then: (@MainActor (SurfaceID) -> Void)? = nil) async throws(Refusal) -> String? {
         guard case let browserTabs = services.cache.browserTabs, browserTabs.cefUnavailable() == nil else { throw .cefUnavailable }
         guard let pane = services.windows.active?.focusedPane else { throw .noWindow }
         let store: BrowserMachineStore
@@ -144,6 +165,13 @@ extension BrowserTabOpen {
         // its tab id). The record starts blank: a page made from the record
         // before the adoption lands must not load the URL unproxied.
         services.cache.pageRequests.proxiedTabs.expect(store)
-        pane.newBrowserTab(url: nil, engine: BrowserEngineTag.cef.rawValue, adopting: page)
+        let open = { pane.newBrowserTab(url: nil, engine: BrowserEngineTag.cef.rawValue, adopting: page, background: background, then: then) }
+        guard reportsRefusal else {
+            open()
+            return nil
+        }
+        var opened = false
+        let refusal = services.registry.reportingRefusal { opened = open() }
+        return opened ? nil : refusal ?? RefusalStrings.chromiumUnavailable
     }
 }
