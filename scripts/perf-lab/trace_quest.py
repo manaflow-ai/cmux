@@ -23,11 +23,15 @@ issue (`links`). `expire` deletes rows older than 30 days that nothing reference
 30 days that no row names (also uploads whose ingest never happened). Referenced: a trace of a job that belongs
 to an alert group (bisect, verify), or of a waterfall point inside an alert's range or the point just before it.
 
-  trace_quest.py publish DIR --attempt N           upload one recorded attempt directory, print its attachments
-  trace_quest.py index --db DB --run UUID          traces rows from a stored run's trace attachments
-  trace_quest.py coverage --db DB --since ISO      T0 points, bisect Changes and verified culprits with no trace
-  trace_quest.py links --db DB --group N           the group's trace links, as issue Markdown
-  trace_quest.py expire --db DB [--dry-run]        the 30-day retention sweep
+  lab.py runs --since 1h [--kind K] [--json]         stored runs with their trace digests (indexed or not)
+  lab.py traces publish DIR --attempt N              upload one recorded attempt directory, print its attachments
+  lab.py traces index --run UUID                     traces rows from a stored run's trace attachments
+  lab.py traces coverage --since 1h                  T0 points, bisect Changes and verified culprits with no trace
+  lab.py traces links --group N                      the group's trace links, as issue Markdown
+  lab.py traces expire [--dry-run]                   the 30-day retention sweep
+
+The store is --db or $CMUX_PERF_LAB_DB. `trace_quest.py runs|publish|index|coverage|links|expire ...` runs the
+same commands without lab.py.
 
 R2 (publish, expire): CMUX_PERF_LAB_R2_ACCOUNT_ID, CMUX_PERF_LAB_R2_ACCESS_KEY_ID,
 CMUX_PERF_LAB_R2_SECRET_ACCESS_KEY, CMUX_PERF_LAB_R2_BUCKET (default cmux-perf-lab) and
@@ -499,43 +503,151 @@ def expire(db: sqlite3.Connection, blobs: BlobStore, *, now: datetime, retention
     return ExpireReport(len(doomed), gone)
 
 
-# ---------------------------------------------------------------- CLI
+# ---------------------------------------------------------------- runs
 
-def main(argv: Sequence[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
-    sub = parser.add_subparsers(dest="command", required=True)
-    pub = sub.add_parser("publish", help="upload one recorded attempt directory")
-    pub.add_argument("dir", type=Path)
-    pub.add_argument("--attempt", type=int, required=True)
-    for name in ("index", "coverage", "links", "expire"):
-        sub.add_parser(name).add_argument("--db", type=Path, required=True)
-    sub.choices["index"].add_argument("--run", required=True)
-    sub.choices["coverage"].add_argument("--since", required=True, help="ISO-8601 with a timezone")
-    sub.choices["links"].add_argument("--group", type=int, required=True)
-    sub.choices["expire"].add_argument("--dry-run", action="store_true")
-    opts = parser.parse_args(argv)
+SINCE_AGO = re.compile(r"^([0-9]+)([mhd])$")
+
+
+def parse_since(text: str, now: datetime) -> datetime:
+    """`1h`, `30m`, `7d` before `now`, or an ISO-8601 time with a timezone."""
+    match = SINCE_AGO.match(text)
+    if match:
+        unit = {"m": "minutes", "h": "hours", "d": "days"}[match.group(2)]
+        return now - timedelta(**{unit: int(match.group(1))})
+    moment = datetime.fromisoformat(text)
+    if moment.tzinfo is None:
+        raise TraceQuestError(f"--since {text}: give a duration (1h, 30m, 7d) or a time with a timezone")
+    return moment
+
+
+def runs_since(db: sqlite3.Connection, since: datetime, kind: str | None = None) -> list[dict[str, Any]]:
+    """Stored runs started at or after `since`, oldest first, each with its trace digests: every trace attachment
+    of the run, with the link and size once `index` has stored its traces row (`indexed` false before that)."""
+    where, args = "WHERE u.started_at >= ?", [stamp(since)]
+    if kind:
+        where, args = f"{where} AND u.kind = ?", [*args, kind]
+    out = []
+    for run in db.execute(f"SELECT u.id, u.run_uuid, u.kind, u.tier, u.story, u.job_id, u.started_at, "
+                          f"u.attachments_json, b.sha, b.commit_pos FROM runs u JOIN builds b ON b.id = u.build_id "
+                          f"{where} ORDER BY u.started_at, u.id", args).fetchall():
+        indexed = {(row["kind"], row["attempt"], row["digest"]): row for row in db.execute(
+            "SELECT kind, attempt, digest, url, bytes FROM traces WHERE run_id = ?", (run["id"],))}
+        traces = []
+        for item in json.loads(run["attachments_json"]):
+            match = ATTACHMENT_KIND.match(str(item.get("kind", ""))) if isinstance(item, dict) else None
+            if not match:
+                continue
+            source, attempt, digest = match.group(1), int(match.group(2)), str(item.get("digest"))
+            row = indexed.get((source, attempt, digest))
+            traces.append({"source": source, "attempt": attempt, "digest": digest, "indexed": row is not None,
+                           **({"url": row["url"], "bytes": row["bytes"]} if row is not None else {})})
+        out.append({"run_uuid": run["run_uuid"], "kind": run["kind"], "tier": run["tier"], "story": run["story"],
+                    "sha": run["sha"], "commit_pos": run["commit_pos"], "job_id": run["job_id"],
+                    "started_at": run["started_at"], "traces": traces})
+    return out
+
+
+# ---------------------------------------------------------------- CLI (lab.py commands and direct)
+
+DB_ENV = "CMUX_PERF_LAB_DB"
+LAB_COMMANDS = {
+    "runs": "List stored runs since --since (1h, 30m, 7d or ISO-8601) with their trace digests.",
+    "traces": "Story-run traces: publish an attempt, index a run, coverage, issue links, the 30-day expiry.",
+}
+ACTIONS = {
+    "publish": "upload one recorded attempt directory, print its attachments",
+    "index": "traces rows from a stored run's trace attachments",
+    "coverage": "T0 points, bisect Changes and verified culprits with no trace (exit 1 when any)",
+    "links": "the alert group's trace links, as issue Markdown",
+    "expire": "the 30-day retention sweep",
+}
+
+
+def _add_db(parser: argparse.ArgumentParser) -> None:
+    parser.add_argument("--db", type=Path, default=os.environ.get(DB_ENV),
+                        help=f"the lab store (SQLite); default ${DB_ENV}")
+
+
+def _add_action(action: str, parser: argparse.ArgumentParser) -> None:
+    if action == "publish":
+        parser.add_argument("dir", type=Path)
+        parser.add_argument("--attempt", type=int, required=True)
+        return
+    _add_db(parser)
+    if action == "index":
+        parser.add_argument("--run", required=True)
+    elif action == "coverage":
+        parser.add_argument("--since", required=True, help="1h, 30m, 7d or ISO-8601 with a timezone")
+    elif action == "links":
+        parser.add_argument("--group", type=int, required=True)
+    elif action == "expire":
+        parser.add_argument("--dry-run", action="store_true")
+
+
+def add_arguments(command: str, parser: argparse.ArgumentParser) -> None:
+    if command == "runs":
+        _add_db(parser)
+        parser.add_argument("--since", required=True, help="1h, 30m, 7d or ISO-8601 with a timezone")
+        parser.add_argument("--kind", help="only runs of this kind (waterfall, bisect, verify, try, ...)")
+        parser.add_argument("--json", action="store_true", help="print the runs as JSON")
+        return
+    actions = parser.add_subparsers(dest="action", metavar="ACTION", required=True)
+    for action, text in ACTIONS.items():
+        _add_action(action, actions.add_parser(action, help=text, description=text))
+
+
+def _run(action: str, args: argparse.Namespace, clock: Callable[[], datetime]) -> int:
+    if action == "publish":
+        refs = publish_attempt(args.dir, args.attempt, R2BlobStore.from_env())
+        print(json.dumps([{"digest": ref.digest, "kind": ref.attachment_kind, "url": ref.url, "bytes": ref.bytes}
+                          for ref in refs], indent=1))
+        return 0
+    if not args.db:
+        raise TraceQuestError(f"--db or ${DB_ENV} names the lab store")
+    db = connect(args.db)
     try:
-        if opts.command == "publish":
-            refs = publish_attempt(opts.dir, opts.attempt, R2BlobStore.from_env())
-            print(json.dumps([{"digest": ref.digest, "kind": ref.attachment_kind, "url": ref.url, "bytes": ref.bytes}
-                              for ref in refs], indent=1))
-            return 0
-        db = connect(opts.db)
-        if opts.command == "index":
-            print(index_run(db, opts.run, R2BlobStore.from_env()))
-        elif opts.command == "coverage":
-            misses = coverage(db, datetime.fromisoformat(opts.since))
+        if action == "runs":
+            runs = runs_since(db, parse_since(args.since, clock()), args.kind)
+            if args.json:
+                print(json.dumps(runs, indent=1))
+            for run in [] if args.json else runs:
+                digests = " ".join(f"{t['source']}#{t['attempt']}={t['digest'][7:19]}" for t in run["traces"])
+                print(f"{run['started_at']} {run['kind']:<9} {run['tier'] or '-':<3} {run['story']} "
+                      f"{run['sha'][:12]} {run['run_uuid']} {digests or 'no traces'}")
+        elif action == "index":
+            print(index_run(db, args.run, R2BlobStore.from_env()))
+        elif action == "coverage":
+            misses = coverage(db, parse_since(args.since, clock()))
             print(json.dumps(misses, indent=1))
             return 1 if any(misses.values()) else 0
-        elif opts.command == "links":
-            print(issue_markdown(db, opts.group))
+        elif action == "links":
+            print(issue_markdown(db, args.group))
         else:
-            report = expire(db, R2BlobStore.from_env(), now=utc_now(), dry_run=opts.dry_run)
-            print(json.dumps({"rows": report.rows, "blobs": report.blobs, "dry_run": opts.dry_run}, indent=1))
+            report = expire(db, R2BlobStore.from_env(), now=clock(), dry_run=args.dry_run)
+            print(json.dumps({"rows": report.rows, "blobs": report.blobs, "dry_run": args.dry_run}, indent=1))
         return 0
-    except (TraceQuestError, ValueError, OSError) as error:
-        print(f"trace_quest: {error}", file=sys.stderr)
+    finally:
+        db.close()
+
+
+def run(command: str, args: argparse.Namespace, clock: Callable[[], datetime] = utc_now) -> int:
+    """lab.py's entry: `runs`, or `traces ACTION`. Exit 2 when the command could not run."""
+    try:
+        return _run(args.action if command == "traces" else command, args, clock)
+    except (TraceQuestError, ValueError, OSError, sqlite3.Error) as error:
+        print(f"perf-lab {command}: {error}", file=sys.stderr)
         return 2
+
+
+def main(argv: Sequence[str] | None = None, clock: Callable[[], datetime] = utc_now) -> int:
+    """Direct use: `trace_quest.py runs ...` or `trace_quest.py ACTION ...` (the actions of `lab.py traces`)."""
+    parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
+    sub = parser.add_subparsers(dest="command", required=True)
+    add_arguments("runs", sub.add_parser("runs", help=LAB_COMMANDS["runs"]))
+    for action, text in ACTIONS.items():
+        _add_action(action, sub.add_parser(action, help=text, description=text))
+    opts = parser.parse_args(argv)
+    return run(opts.command, opts, clock)
 
 
 if __name__ == "__main__":

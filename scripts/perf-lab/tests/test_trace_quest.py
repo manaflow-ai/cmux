@@ -5,9 +5,11 @@
 """
 from __future__ import annotations
 
+import contextlib
 import gzip
 import hashlib
 import importlib.util
+import io
 import json
 import os
 import sqlite3
@@ -293,6 +295,47 @@ class StoreTests(unittest.TestCase):
         self.alert(group, 10, 11)
         self.assertEqual(sorted({r["run_uuid"] for r in tq.traces_for_group(self.db, group)}), ["p10", "p11", "p9"])
 
+    def test_runs_since_lists_each_runs_trace_digests(self):
+        traced = [self.put_trace("t0"), self.put_trace("w", "watchdog", 4)]
+        self.add_run("t0", 1, attachments=[*traced, {"digest": "sha256:" + "0" * 64, "kind": "histogram"}])
+        self.add_run("ingested-only", 2, attachments=[self.put_trace("later", "daemon", 0)], index=False)
+        self.now = NOW - timedelta(hours=2)
+        self.add_run("old", 3, attachments=[self.put_trace("old")])
+        runs = tq.runs_since(self.db, NOW - timedelta(hours=1))
+        self.assertEqual([r["run_uuid"] for r in runs], ["t0", "ingested-only"])
+        self.assertEqual([(t["source"], t["attempt"], t["digest"], t["indexed"]) for t in runs[0]["traces"]],
+                         [("signpost", 0, traced[0]["digest"], True), ("watchdog", 4, traced[1]["digest"], True)])
+        self.assertTrue(runs[0]["traces"][0]["url"].startswith("https://lab.example/perf-lab/traces/sha256/"))
+        self.assertEqual([(t["source"], t["indexed"], "url" in t) for t in runs[1]["traces"]], [("daemon", False, False)])
+        self.assertEqual(tq.runs_since(self.db, NOW - timedelta(days=1), kind="bisect"), [])
+
+    def test_lab_runs_json_shows_digests(self):
+        """The task's test phase: `lab.py runs --since 1h --json` through lab.py's command discovery."""
+        attachment = self.put_trace("t0")
+        self.add_run("t0", 1, attachments=[attachment])
+        lab = load("perf_lab_lab_for_traces", "lab.py")
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            # lab.py imports its own trace_quest with the wall clock, so the test passes an ISO time, not 1h.
+            code = lab.main(["runs", "--db", str(self.path), "--since", (NOW - timedelta(hours=1)).isoformat(), "--json"])
+        self.assertEqual(code, 0)
+        runs = json.loads(out.getvalue())
+        self.assertEqual([t["digest"] for r in runs for t in r["traces"]], [attachment["digest"]])
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(tq.main(["runs", "--db", str(self.path), "--since", "1h"], clock=lambda: NOW), 0)
+        self.assertIn("signpost#0=" + attachment["digest"][7:19], out.getvalue())
+
+    def test_lab_traces_links_prints_the_issue_section(self):
+        group = self.group(verified=True)
+        verify = self.job("verify", group=group, base=sha(10), head=sha(11))
+        self.add_run("v10", 10, kind="verify", job=verify, tier=None, attachments=[self.put_trace("v10")])
+        lab = load("perf_lab_lab_for_traces_links", "lab.py")
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            self.assertEqual(lab.main(["traces", "links", "--db", str(self.path), "--group", str(group)]), 0)
+        self.assertTrue(out.getvalue().startswith("### Traces\n- C^ "), out.getvalue())
+
     def test_expire_keeps_referenced_and_recent_traces(self):
         group = self.group()
         bisect = self.job("bisect", group=group)
@@ -369,6 +412,26 @@ class CliTests(unittest.TestCase):
             path = Path(tmp) / "empty.sqlite"
             sqlite3.connect(path).close()
             self.assertEqual(tq.main(["links", "--db", str(path), "--group", "1"]), 2)
+
+    def test_since_takes_a_duration_or_a_zoned_time(self):
+        self.assertEqual(tq.parse_since("1h", NOW), NOW - timedelta(hours=1))
+        self.assertEqual(tq.parse_since("30m", NOW), NOW - timedelta(minutes=30))
+        self.assertEqual(tq.parse_since("7d", NOW), NOW - timedelta(days=7))
+        self.assertEqual(tq.parse_since("2026-10-25T11:00:00+00:00", NOW), NOW - timedelta(hours=1))
+        with self.assertRaises(tq.TraceQuestError):
+            tq.parse_since("2026-10-25T11:00:00", NOW)
+
+    def test_runs_without_a_store_fails_with_a_reason(self):
+        clean = {k: v for k, v in os.environ.items() if k != tq.DB_ENV}
+        with mock.patch.dict(os.environ, clean, clear=True), contextlib.redirect_stderr(io.StringIO()) as err:
+            self.assertEqual(tq.main(["runs", "--since", "1h"]), 2)
+        self.assertIn(tq.DB_ENV, err.getvalue())
+
+    def test_lab_declares_runs_and_traces(self):
+        lab = load("perf_lab_lab_for_traces_discovery", "lab.py")
+        commands = lab.discover()
+        self.assertEqual({name: path.name for name, (path, _) in commands.items() if path.name == "trace_quest.py"},
+                         {"runs": "trace_quest.py", "traces": "trace_quest.py"})
 
     def test_publish_without_r2_credentials_fails_with_a_reason(self):
         clean = {k: v for k, v in os.environ.items() if not k.startswith("CMUX_PERF_LAB_R2_")}
