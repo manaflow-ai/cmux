@@ -35,6 +35,7 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
         var challengeRead = false
         var challenge: AcpmuxPersonChallenge?
         var challengeWaiters: [CheckedContinuation<AcpmuxPersonChallenge?, Never>] = []
+        var hostReplies: [Int: @Sendable ([String: Any]) -> Void] = [:]
 
         /// A full flush waits: it goes even to a pane nobody can see (``pageWaits``).
         func backlogged(_ limits: AgentPaneTransport.Limits) -> Bool {
@@ -157,6 +158,12 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
             var page: [String] = []
             var awaited = 0
             for text in batch {
+                if let object = try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any],
+                   let id = object["id"] as? Int, ids.isHost(id),
+                   let reply = state.withLock({ $0.hostReplies.removeValue(forKey: id) }) {
+                    reply(object)
+                    continue
+                }
                 switch ids.toPage(text) {
                 case .drop:
                     continue
@@ -329,6 +336,36 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
         }
     }
 
+    /// Sends one host-owned binary upload frame on the existing LocalApp WebSocket.
+    /// Remote wires refuse until their authenticated peer path carries AMUP.
+    func send(_ data: Data, completion: @escaping @Sendable (Bool) -> Void) {
+        if let wire {
+            wire.send(data, completion: completion)
+            return
+        }
+        let outcome = state.withLock { state -> Result<URLSessionWebSocketTask, AgentPaneTransportError> in
+            guard state.closed == nil, let task = state.task, state.opened else { return .failure(.closed) }
+            guard state.outstanding < limits.maximumOutstandingSends,
+                  state.outstandingBytes + data.count <= limits.maximumOutstandingBytes else { return .failure(.outboundOverflow) }
+            state.outstanding += 1
+            state.outstandingBytes += data.count
+            return .success(task)
+        }
+        switch outcome {
+        case .failure: completion(false)
+        case .success(let task):
+            task.send(.data(data)) { [weak self] error in
+                guard let self else { completion(error == nil); return }
+                self.state.withLock { state in
+                    state.outstanding -= 1
+                    state.outstandingBytes -= data.count
+                }
+                if error != nil { self.daemonClosed(code: 1006, reason: "") }
+                completion(error == nil)
+            }
+        }
+    }
+
     /// The wire's send, under the same outstanding bounds as the WebSocket's.
     private func send(_ text: String, on wire: any AcpmuxPaneWire) -> AgentPaneTransportError? {
         let bytes = text.utf8.count
@@ -350,6 +387,42 @@ nonisolated final class AcpmuxPaneSocket: NSObject, URLSessionWebSocketDelegate,
             if !sent { self.daemonClosed(code: 1006, reason: "") }
         }
         return nil
+    }
+
+    /// Sends one host-owned binary AMUP frame on this connection.
+    func sendHostData(_ data: Data) async throws {
+        try await withCheckedThrowingContinuation { continuation in
+            send(data) { success in
+                if success { continuation.resume() }
+                else { continuation.resume(throwing: AgentPaneUploadError.rpc("binary upload send failed")) }
+            }
+        }
+    }
+
+    /// Sends a host-owned JSON-RPC control call and returns its unfiltered daemon response.
+    /// The call never enters the page queue and its params contain metadata only.
+    func callHost(_ method: String, params: [String: Any]) async throws -> [String: Any] {
+        let id = ids.hostID()
+        var request: [String: Any] = ["jsonrpc": "2.0", "id": id, "method": method, "params": params]
+        guard JSONSerialization.isValidJSONObject(request),
+              let data = try? JSONSerialization.data(withJSONObject: request, options: [.sortedKeys]),
+              let text = String(data: data, encoding: .utf8) else { throw AgentPaneTransportError.invalidFrame }
+        return try await withCheckedThrowingContinuation { continuation in
+            let callback: @Sendable ([String: Any]) -> Void = { object in
+                Task { @MainActor in
+                    if let error = object["error"] as? [String: Any] {
+                        continuation.resume(throwing: AgentPaneUploadError.rpc(error["message"] as? String ?? "upload refused"))
+                    } else {
+                        continuation.resume(returning: object["result"] as? [String: Any] ?? [:])
+                    }
+                }
+            }
+            state.withLock { $0.hostReplies[id] = callback }
+            if send(text) != nil {
+                state.withLock { $0.hostReplies.removeValue(forKey: id) }
+                continuation.resume(throwing: AgentPaneTransportError.closed)
+            }
+        }
     }
 
     // MARK: Close

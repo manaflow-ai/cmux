@@ -273,6 +273,18 @@ import CmuxNextCompat
         }
     }
 
+    /// A host-owned upload control request. Page controls never invoke this path with file bytes.
+    public func uploadControl(connection id: Int, method: String, params: [String: Any]) async throws -> [String: Any] {
+        guard id == current, let socket else { throw AgentPaneUploadError.rpc("stale upload connection") }
+        return try await socket.callHost(method, params: params)
+    }
+
+    /// Sends an AMUP frame over the existing LocalApp socket, never through page JSON.
+    public func uploadData(connection id: Int, frame: AcpmuxUploadFrame) async throws {
+        guard id == current, let socket else { throw AgentPaneUploadError.rpc("stale upload connection") }
+        try await socket.sendHostData(try frame.encoded())
+    }
+
     /// The bridge's entry: the frames join the send line in arrival order (they are in line before
     /// this returns, so a later frame never overtakes them). Their work runs off the main thread.
     public func submit(connection id: Int, frames: [String], reply: @escaping @MainActor (AgentPaneTransportError?) -> Void) {

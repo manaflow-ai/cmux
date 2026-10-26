@@ -19,6 +19,11 @@ nonisolated extension AcpmuxPaneMethods {
         "session/prompt": (["sessionId", "prompt", "_meta"], ["promptId", "steer", "interrupt", "context", "surface", "inlineParts"]),
         "session/set_model": (["sessionId", "modelId"], []),
         "session/cancel": (["sessionId"], []),
+        // Prompt upload controls carry metadata only. Bytes travel on the host-owned socket.
+        "_acpmux/file_put_begin": (["sessionId", "fileName", "size"], []),
+        "_acpmux/file_put_status": (["sessionId", "uploadId"], []),
+        "_acpmux/file_put_finish": (["sessionId", "uploadId", "fileName", "size", "sha256"], []),
+        "_acpmux/file_put_cancel": (["sessionId", "uploadId"], []),
         // `limit`: the newest page of the session list, the rest by `_acpmux/sessions` `cursor` (cx-2lv1k).
         "_acpmux/watch": (["enabled", "limit"], []),
         "_acpmux/sessions": (["limit", "cursor"], []),

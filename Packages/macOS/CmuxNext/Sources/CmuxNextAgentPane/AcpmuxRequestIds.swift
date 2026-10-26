@@ -22,6 +22,7 @@ nonisolated final class AcpmuxRequestIds: Sendable {
         var inFlight: Set<String> = []
         /// Told when the daemon answers a relay id (``whenAnswered(_:_:)``).
         var answered: [Int: @Sendable () -> Void] = [:]
+        var hostIDs: Set<Int> = []
     }
 
     private let state = Mutex(State())
@@ -44,9 +45,13 @@ nonisolated final class AcpmuxRequestIds: Sendable {
         state.withLock { state in
             let id = state.next
             state.next += 1
+            state.hostIDs.insert(id)
             return id
         }
     }
+
+    /// Whether an inbound response id belongs to a host-owned control call.
+    func isHost(_ id: Int) -> Bool { state.withLock { $0.hostIDs.remove(id) != nil } }
 
     /// The relay id for a page request with raw id `pageID`; nil while that page id is in flight.
     /// `subject`: the chat a reply in place names (``AgentPaneAgentReply``).

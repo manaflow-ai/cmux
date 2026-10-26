@@ -10,6 +10,8 @@ public nonisolated protocol AcpmuxPaneWire: Sendable {
               onClose: @escaping @Sendable (_ code: Int, _ reason: String) -> Void) async throws
     /// Sends one outbound frame; `completion` gets false when the path failed.
     func send(_ text: String, completion: @escaping @Sendable (Bool) -> Void)
+    /// Sends one host-owned binary upload frame; remote wires refuse until their peer path supports it.
+    func send(_ data: Data, completion: @escaping @Sendable (Bool) -> Void)
     /// Ends the path (the host's decision).
     func cancel(code: Int, reason: String)
     /// Reads one image from a remote chat's owning host. Local socket wires have no such route.
@@ -17,6 +19,7 @@ public nonisolated protocol AcpmuxPaneWire: Sendable {
 }
 
 public extension AcpmuxPaneWire {
+    func send(_ data: Data, completion: @escaping @Sendable (Bool) -> Void) { completion(false) }
     func loadRemoteImage(_ path: String) async throws -> Data {
         throw AgentSessionRemoteError(code: "remote.unsupported", message: "remote media is unavailable")
     }

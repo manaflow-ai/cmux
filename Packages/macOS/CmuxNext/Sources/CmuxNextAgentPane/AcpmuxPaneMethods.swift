@@ -204,7 +204,7 @@ nonisolated enum AcpmuxPaneMethods {
     /// every frame that writes to a session. A session outside the pane's scope (a second attach on
     /// one click) is a read-only view, and the pane never sends anything to it.
     public static let sessionScoped: Set<String> = [
-        "session/prompt", "session/set_mode", "session/set_config_option", "session/set_model", "session/cancel",
+        "session/prompt", "_acpmux/file_put_begin", "_acpmux/file_put_status", "_acpmux/file_put_finish", "_acpmux/file_put_cancel", "session/set_mode", "session/set_config_option", "session/set_model", "session/cancel",
         "_acpmux/kill", "_acpmux/draft_get", "_acpmux/draft_set", "_acpmux/bookmark_get", "_acpmux/bookmark_set", "_acpmux/queue_remove", "_acpmux/queue_edit", "_acpmux/permission_respond", "_acpmux/permission_group_respond", "_acpmux/permission_chat_revoke",
         "_acpmux/secret_submit", "_acpmux/archive", "_acpmux/markUnread", "_acpmux/side", "_acpmux/btw",
         "_acpmux/offer_respond", "_acpmux/subagent_stop", "_acpmux/agent_pair_resume", "_acpmux/app_reply",

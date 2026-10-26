@@ -14,6 +14,8 @@ import os
 ///   ``PageHostTrust`` checks them as for WebKit.
 /// - Replies go back into the sender's context only (`__cmuxPageHostResolve(seq, reply)`).
 /// - ``evaluate(_:)`` runs scripts in order; the ones queued together go in one `Runtime.evaluate`.
+public nonisolated enum AgentPageUploadError: Error, Equatable, Sendable { case invalidBlob, backpressure }
+
 @MainActor
 public final class ChromiumPageHostBridge: PageHostBridge {
     public let engine = PageHostEngine.cef
@@ -24,8 +26,13 @@ public final class ChromiumPageHostBridge: PageHostBridge {
     /// Longest message accepted (page calls are small; large data goes through replies and pushes).
     nonisolated public static let maximumPayloadBytes = 4 << 20
 
+    public typealias UploadHandler = @MainActor (_ page: any PageChromiumPage, _ context: Int, _ params: [String: Any], _ chunks: AsyncThrowingStream<Data, any Error>) async -> [String: Any]?
+    /// Set by the pane host. The page passes only an upload token; the host reads the Blob in its context.
+    public var uploadHandler: UploadHandler?
+
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "page-host.chromium")
     private weak var page: (any PageChromiumPage)?
+    private let descriptor: PageDescriptor?
     /// Handler names without a reply (the paint probe): their messages go to ``onMessage``.
     private let fireAndForget: [String]
     private var handler: PageHostHandler?
@@ -42,9 +49,12 @@ public final class ChromiumPageHostBridge: PageHostBridge {
     /// - Parameters:
     ///   - page: The Chromium page.
     ///   - fireAndForget: Extra `window.webkit.messageHandlers` names whose messages need no reply.
-    public init(page: any PageChromiumPage, fireAndForget: [String] = []) {
+    public init(page: any PageChromiumPage, fireAndForget: [String] = [], uploadHandler: UploadHandler? = nil,
+                descriptor: PageDescriptor? = nil) {
         self.page = page
         self.fireAndForget = fireAndForget
+        self.uploadHandler = uploadHandler
+        self.descriptor = descriptor
     }
 
     /// The DevTools calls that set the page up, in order: run them before the first document loads
@@ -158,13 +168,66 @@ public final class ChromiumPageHostBridge: PageHostBridge {
             onMessage?(message.name, message.body)
             return
         }
-        guard let handler, let seq = message.seq else { return }
+        guard let seq = message.seq else { return }
         noteReached()
+        if let uploadHandler, let method = (message.body as? [String: Any])?["method"] as? String,
+           method == "uploads.begin", let params = (message.body as? [String: Any])?["params"] as? [String: Any] {
+            guard let descriptor, PageHostTrust.isTrusted(request, page: descriptor) else {
+                let reply: [String: Any] = ["ok": false, "error": ["code": "page.untrusted", "userMessage": "The page is not trusted", "retryable": false]]
+                let expression = ChromiumPageHostWire.resolveExpression(seq: seq, reply: reply)
+                _ = try? await page.devTools("Runtime.evaluate", params: ["expression": expression, "contextId": context, "silent": true])
+                answered += 1
+                return
+            }
+            let reply = await uploadHandler(page, context, params, blobChunks(page: page, context: context, params: params))
+            guard self.handler != nil else { return }
+            let expression = ChromiumPageHostWire.resolveExpression(seq: seq, reply: reply)
+            _ = try? await page.devTools("Runtime.evaluate", params: ["expression": expression, "contextId": context, "silent": true])
+            answered += 1
+            return
+        }
+        guard let handler else { return }
         let reply = await handler(request)
         guard self.handler != nil else { return }
         let expression = ChromiumPageHostWire.resolveExpression(seq: seq, reply: reply)
         _ = try? await page.devTools("Runtime.evaluate", params: ["expression": expression, "contextId": context, "silent": true])
         answered += 1
+    }
+
+    private func blobChunks(page: any PageChromiumPage, context: Int, params: [String: Any]) -> AsyncThrowingStream<Data, any Error> {
+        AsyncThrowingStream(bufferingPolicy: .bufferingOldest(1)) { continuation in
+            Task { @MainActor in
+                do {
+                    guard let token = params["token"] as? String, !token.isEmpty,
+                          let tokenJSON = ChromiumPageHostWire.jsonString(token) as String?,
+                          let lookup = try? await page.devTools("Runtime.evaluate", params: [
+                              "expression": "globalThis.__cmuxUploadBlobs?.get(\(tokenJSON))",
+                              "contextId": context, "returnByValue": false, "silent": true,
+                          ]),
+                          let object = ChromiumPageHostWire.object(lookup),
+                          let result = object["result"] as? [String: Any],
+                          let objectId = (result["objectId"] as? String), !objectId.isEmpty,
+                          let resolved = try? await page.devTools("IO.resolveBlob", params: ["objectId": objectId]),
+                          let resolvedObject = ChromiumPageHostWire.object(resolved),
+                          let uuid = (resolvedObject["uuid"] as? String) ?? (resolvedObject["result"] as? [String: Any])?["uuid"] as? String
+                    else { throw AgentPageUploadError.invalidBlob }
+                    var handle = uuid
+                    defer {
+                        Task { _ = try? await page.devTools("IO.close", params: ["handle": handle]) }
+                    }
+                    while true { // wakeup-allow: each IO.read awaits readiness; EOF or error ends the loop
+                        guard let json = try? await page.devTools("IO.read", params: ["handle": handle, "size": 1 << 20]),
+                              let object = ChromiumPageHostWire.object(json),
+                              let data = object["data"] as? String,
+                              let chunk = Data(base64Encoded: data) ?? (object["base64Encoded"] as? Bool == true ? Data(base64Encoded: data) : Data(data.utf8))
+                        else { throw AgentPageUploadError.invalidBlob }
+                        if !chunk.isEmpty, case .dropped = continuation.yield(chunk) { throw AgentPageUploadError.backpressure }
+                        if object["eof"] as? Bool == true { break }
+                    }
+                    continuation.finish()
+                } catch { continuation.finish(throwing: error) }
+            }
+        }
     }
 
     private func noteReached() {

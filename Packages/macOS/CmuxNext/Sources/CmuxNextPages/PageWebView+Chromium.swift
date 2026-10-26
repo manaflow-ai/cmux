@@ -107,7 +107,7 @@ extension PageWebView {
 
     private func attachChromium(_ page: any PageChromiumPage, scripts: PageChromiumDocumentScripts) async {
         let handlers = Self.chromiumFireAndForget + chromiumMessageHandlers.keys.sorted()
-        let bridge = ChromiumPageHostBridge(page: page, fireAndForget: handlers)
+        let bridge = ChromiumPageHostBridge(page: page, fireAndForget: handlers, uploadHandler: chromiumUploadHandler, descriptor: descriptor)
         let session = PageChromiumSession(page: page, bridge: bridge, clock: chromiumClock)
         page.onEvent = { [weak self] event in self?.chromiumEvent(event) }
         page.resources = { [weak self] url in await self?.chromiumResource(url) ?? .notFound }
