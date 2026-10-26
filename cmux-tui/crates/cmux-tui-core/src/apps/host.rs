@@ -182,7 +182,7 @@ fn write_loop(mut socket: UnixStream, outgoing: Receiver<Outgoing>) {
 }
 
 /// In the child before exec: the channel on fd 3 without close-on-exec, and
-/// every other inherited descriptor above 2 closed.
+/// every other inherited descriptor above 3 close-on-exec.
 fn child_fds(fd: libc::c_int, max_fd: libc::c_int) -> std::io::Result<()> {
     // SAFETY: plain descriptor syscalls on this (forked, single-threaded) process.
     unsafe {
@@ -193,8 +193,10 @@ fn child_fds(fd: libc::c_int, max_fd: libc::c_int) -> std::io::Result<()> {
         } else if libc::dup2(fd, 3) != 3 {
             return Err(std::io::Error::last_os_error());
         }
+        // Close-on-exec, not closed: `Command::spawn` reports a failed exec
+        // over a private pipe, and closing it aborts the child instead.
         for other in 4..max_fd {
-            libc::close(other);
+            libc::fcntl(other, libc::F_SETFD, libc::FD_CLOEXEC);
         }
     }
     Ok(())
