@@ -115,7 +115,8 @@ import Testing
         while !flags.stop.load(ordering: .acquiring), Date() < end {
             _ = RunLoop.main.run(mode: .default, before: Date(timeIntervalSinceNow: 0.01))
         }
-        #expect(flags.stop.load(ordering: .acquiring), "the post ran")
+        let ran = flags.stop.load(ordering: .acquiring)  // #expect cannot take the noncopyable Atomic
+        #expect(ran, "the post ran")
         let row = try #require(board.ownerSnapshot().owners.first { $0.owner == "preview.reply" })
         #expect(row.wait.count == 1)
         #expect(row.wait.maxNanos == 5_000_000, "the wait left out the time before the task reached main")

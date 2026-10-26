@@ -77,6 +77,7 @@ struct SignpostTraceCatalogTests {
             (.action, 0), (.key, 1), (.switch, 2), (.create, 3), (.cef, 4), (.launch, 5), (.daemon, 6), (.hang, 7),
             (.crash, 8), (.motion, 9), (.frame, 10), (.stall, 11), (.task, 12), (.burst, 13), (.input, 14),
             (.webview, 15), (.remote, 16), (.control, 17), (.ghostty, 18), (.resize, 19), (.webui, 20),
+            (.log, 21),
         ]
         for (category, bit) in pinned { #expect(category.traceBit == bit, "\(category)") }
         #expect(SignpostCategory.allCases.count == pinned.count)

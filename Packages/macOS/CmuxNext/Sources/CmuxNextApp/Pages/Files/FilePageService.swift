@@ -65,7 +65,7 @@ final class FilePageService: InternalPageProvider {
     static let flushTimeout: Duration = .seconds(3)
 
     init(services: AppServices, kind: FilePageKind, clock: any Clock<Duration> = ContinuousClock(),
-         images: any RemoteImageFetching = GuardedRemoteImages(), documents: FileQuitDocuments? = nil,
+         images: (any RemoteImageFetching)? = nil, documents: FileQuitDocuments? = nil,
          tableWidths: (any MarkdownTableWidthStoring)? = nil) {
         self.services = services
         self.tableWidths = kind == .markdown
@@ -80,7 +80,7 @@ final class FilePageService: InternalPageProvider {
         self.documents = documents ?? services.fileQuitDocuments
         self.kind = kind
         self.clock = clock
-        self.images = images
+        self.images = images ?? GuardedRemoteImages(lanes: services.work) // nil: the guarded fetch, its lookup on the app's lanes
     }
 
     var page: InternalPageID { kind.page }

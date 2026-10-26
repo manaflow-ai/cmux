@@ -310,7 +310,6 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextControl",
                 "CmuxNextSettings",
                 "CmuxNextSettingsWindow",
-                "CmuxNextSignposts",
                 "CmuxNextCloud",
                 "CmuxNextRemote",
                 "CmuxNextMobile",
@@ -1623,7 +1622,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextDaemonTests",
             // CmuxNextCompat: the tests import it directly (Mutex); undeclared, an incremental build kept a
             // test object compiled against its older interface (an undefined Mutex.withLock symbol at link).
-            dependencies: ["CmuxNextCompat", "CmuxNextDaemon", "CmuxNextTrace", "CmuxNextMetrics",
+            // CmuxNextWakeups: StoreWaitersTests drive the store's deadline queue on a timer of their own.
+            dependencies: ["CmuxNextCompat", "CmuxNextDaemon", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextWakeups",
                            .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport")],
             swiftSettings: daemonSwiftSettings
         ),
