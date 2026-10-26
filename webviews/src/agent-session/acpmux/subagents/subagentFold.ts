@@ -92,9 +92,6 @@ export type Subagent = {
   retry?: RetryState;
   retryable?: boolean;
   retriedOut?: RetryState;
-  /// acpmux's attempt that went to the chat's agent (`fired`), until its next step or the chat's
-  /// turn ends: it is retrying meanwhile.
-  firing?: RetryState;
   /// Why it failed, as acpmux recorded it (`error`): its end line says it.
   error?: string;
 };
@@ -361,9 +358,7 @@ export class SubagentFold {
   /// A `subagent_retry` record (retryState.ts ``applyRetryStep``): whether acpmux gave up on one.
   reduceRetryStep(record: any): void {
     const agent = typeof record?.subagentId === "string" ? this.agents.get(record.subagentId) : undefined;
-    if (!agent || !applyRetryStep(agent, record)) return;
-    if (agent.firing) this.firingAgents.add(agent);
-    this.touch(agent);
+    if (agent && applyRetryStep(agent, record)) this.touch(agent);
   }
 
   reduceChild(event: Event, record: any): string | undefined {
@@ -487,28 +482,7 @@ export class SubagentFold {
   /// A turn starts: its stop ends the subagents spawned from here on.
   startTurn(): void {
     this.turn = new Set();
-    this.turnsStarted += 1;
   }
-
-  /// How many of the chat's turns started and ended: an ask to retry holds its row until the turn
-  /// it queued ended (retryState.ts).
-  turnsStarted = 0;
-  turnsEnded = 0;
-
-  /// The chat's turn ended: an attempt acpmux fired is answered (a subagent still failed then is
-  /// acpmux's to schedule again or give up on, or the person's to retry).
-  endRetryTurn(): void {
-    this.turnsEnded += 1;
-    for (const agent of this.firingAgents) {
-      if (agent.firing) {
-        delete agent.firing;
-        this.touch(agent);
-      }
-    }
-    this.firingAgents.clear();
-  }
-
-  private readonly firingAgents = new Set<Subagent>();
 
   /// Ends the subagents still running that nothing will end any more (``subagentsLeft``): the
   /// current turn's foreground ones at its stop, or every one when the agent process behind the
@@ -670,7 +644,6 @@ export class SubagentFold {
     }
     // A subagent that runs again, or finished, gave nothing up.
     if (agent.state === "running" || agent.state === "completed") delete agent.retriedOut;
-    if (agent.state !== "failed" && agent.state !== "disconnected") delete agent.firing;
     this.touch(agent);
   }
 

@@ -55,9 +55,11 @@ describe("the adapter reads acpmux's retry", () => {
 
   test("only a failed or lost one is retrying; a running, finished or stopped one's stale retry is not", () => {
     const retry = { attempt: 1, of: 4 };
-    expect(retrying({ state: "failed", retry })).toBe(retry);
-    expect(retrying({ state: "disconnected", retry })).toBe(retry);
-    for (const state of ["running", "completed", "cancelled"]) expect(retrying({ state, retry })).toBeUndefined();
+    expect(retrying({ parent: null, state: "failed", retry })).toBe(retry);
+    expect(retrying({ parent: null, state: "disconnected", retry })).toBe(retry);
+    for (const state of ["running", "completed", "cancelled"])
+      expect(retrying({ parent: null, state, retry })).toBeUndefined();
+    expect(retrying({ parent: "p", state: "failed", retry })).toBeUndefined();
   });
 
   test("the label names the try, how many, and why", () => {
@@ -93,12 +95,10 @@ describe("the adapter reads acpmux's retry", () => {
     expect(subsessionInfo(sessionEntry(waiting)).error).toBeUndefined();
     // One owner says where it stands: retrying, settling (no Retry), failed with its Retry, or, on a
     // row that runs, nothing (a stale retry there says nothing).
-    const phase = (entry: Record<string, unknown>, caps?: ReadonlySet<string>) =>
-      sessionRetry(subsessionInfo(sessionEntry({ ...failed, ...entry })), caps);
+    const phase = (entry: Record<string, unknown>) => sessionRetry(subsessionInfo(sessionEntry({ ...failed, ...entry })));
     expect(phase({ retry: FIXTURE.sessionRetry }).kind).toBe("retrying");
     expect(phase({ retryDeciding: true })).toEqual({ kind: "settling" });
-    expect(phase({})).toEqual({ kind: "failed", action: "daemon" });
-    expect(phase({}, new Set([SUBAGENT_RETRY]))).toEqual({ kind: "failed", action: "ask" });
+    expect(phase({})).toEqual({ kind: "failed" });
     expect(phase({ lane: { state: "working" }, retry: FIXTURE.sessionRetry, retryDeciding: true })).toEqual({
       kind: "none",
     });
@@ -143,16 +143,14 @@ describe("the fold keeps a subagent's retry", () => {
     agent = fold.all()[0]!;
     expect(agent.retry).toBeUndefined();
     expect(agent.retriedOut).toBeUndefined();
-    // Its attempt runs: the line still retries, with no Retry or Restart, until the turn ends.
-    expect(retrying(agent)).toEqual({ attempt: 2, of: 2, reason: "capacity" });
-    expect(retryActionOf(agent)).toBeUndefined();
-    fold.endRetryTurn();
-    expect(fold.all()[0]!.firing).toBeUndefined();
-    expect(retryActionOf(fold.all()[0]!)).toBe("daemon");
-    // A sub-session's line reads its own session row: acpmux settling its retry offers nothing.
-    expect(subagentRetry({ ...fold.all()[0]!, child: "s" }, undefined, { retryDeciding: true })).toEqual({
-      kind: "settling",
-    });
+    // A fired attempt reads failed again; its Retry goes to acpmux, which refuses it busy meanwhile.
+    expect(retryActionOf(agent)).toBe("daemon");
+    // A sub-session's line reads its own session row: acpmux settling its retry offers nothing, and
+    // one whose own chat runs again is no failure.
+    const sub = { ...agent, child: "s" };
+    expect(subagentRetry(sub, undefined, { state: "failed", retryDeciding: true })).toEqual({ kind: "settling" });
+    expect(subagentRetry(sub, undefined, { state: "working" })).toEqual({ kind: "none" });
+    expect(subagentRetry(sub, new Set([SUBAGENT_RETRY]), { state: "failed" })).toEqual({ kind: "failed" });
     fold.reduceRetryStep({ subagentId: "a", outcome: "exhausted", attempt: 2, of: 2, reason: "capacity" });
     expect(fold.all()[0]!.retriedOut).toEqual({ attempt: 2, of: 2, reason: "capacity" });
     expect(subagentRetry(fold.all()[0]!)).toEqual({
@@ -239,9 +237,6 @@ describe("which rows get which Retry", () => {
     expect(askPrompt({ ...failed, task: "Push relay\nfor GCP\n\nlane bundles" }, translate)).toBe(
       'The subagent "Push relay" (Push relay for GCP lane bundles) failed on a transient error. Run it again.',
     );
-    expect(askPrompt({ ...failed, child: "s2" }, translate)).toBe(
-      'The sub-session "Push relay" failed on a transient error. Send it its last prompt again.',
-    );
   });
 });
 
@@ -277,7 +272,10 @@ describe("Retry reaches acpmux, else the parent", () => {
     const CHAT = "c2";
     const d = deps({ code: -32601 });
     expect(await runRetry(failed, CHAT, d, translate)).toBeUndefined();
-    expect(d.calls[1]).toEqual(["send", 'The subagent "Overview" failed on a transient error. Run it again.']);
+    expect(d.calls[1]).toEqual(["send", 'The subagent "Overview" failed on a transient error. Run it again.']);    // A sub-session is never asked of the parent: only acpmux retries a chat's turn.
+    const sub = deps({ code: -32601 });
+    expect(await runRetry({ ...failed, child: "s2" }, CHAT, sub, translate)).toBe("retry.failed");
+    expect(sub.calls).toHaveLength(1);
   });
 
   test("acpmux's refusals are short notes, never an ask", async () => {
@@ -289,29 +287,8 @@ describe("Retry reaches acpmux, else the parent", () => {
     expect(await runRetry(failed, CHAT, deps({ code: "native.timed_out" }), translate)).toBe("retry.failed");
   });
 
-  test("an ask holds its row until a turn the chat started after it has ended", async () => {
-    const turns = { started: 3, ended: 2 };
-    const d = { ...deps(), turns: () => ({ ...turns }) };
-    const asked = { ...failed, id: "asked", retryable: false };
-    await runRetry(asked, "hold", d, translate);
-    // The turn that was open when it asked ends: the ask's own has not run yet.
-    turns.ended = 3;
-    await runRetry(asked, "hold", d, translate);
-    expect(d.calls).toHaveLength(1);
-    turns.started = 4;
-    turns.ended = 4;
-    await runRetry(asked, "hold", d, translate);
-    expect(d.calls).toHaveLength(2);
-  });
-
-  test("a second Retry of the same target before acpmux answers does nothing; a refusal frees it", async () => {
+  test("runRetry keeps no state: acpmux's busy refusal is the second Retry's answer", async () => {
     const CHAT = "c4";
-    const d = deps();
-    const target = { ...failed, id: "twice", child: "s9" };
-    await runRetry(target, CHAT, d, translate);
-    // The line and the card both offer it.
-    await runRetry(target, CHAT, d, translate);
-    expect(d.calls).toHaveLength(1);
     const busy = deps({ code: "retry.busy" });
     const other = { ...failed, id: "refused" };
     expect(await runRetry(other, CHAT, busy, translate)).toBe("retry.busy");
@@ -334,7 +311,8 @@ describe("Retry reaches acpmux, else the parent", () => {
     const turnOnly = new Set(["turn-retry-v1"]);
     expect(retryActionOf({ ...failed, retryable: true }, turnOnly)).toBe("ask");
     expect(retryActionOf({ ...failed, child: "s" }, turnOnly)).toBe("daemon");
-    expect(retryActionOf({ ...failed, child: "s" }, new Set())).toBe("ask");
+    // Only acpmux retries a chat's turn: without TURN_RETRY a sub-session offers no Retry.
+    expect(retryActionOf({ ...failed, child: "s" }, new Set())).toBeUndefined();
     expect(retryActionOf({ ...failed, retryable: true }, undefined)).toBe("daemon");
     const d = { ...deps(), capabilities: turnOnly };
     await runRetry({ ...failed, id: "forced" }, "forced", d, translate);

@@ -11,9 +11,8 @@ import { Icon } from "../icons/Icon";
 import type { AcpmuxActivity } from "../model";
 import { AgentCard } from "../subagents/AgentCard";
 import { SubsessionContext, useSenderChat, useSubsessionInfo, waitingLine } from "../subagents/subsessions";
-import { retryLabel, sessionRetry, type RetryNote } from "../subagents/retryState";
-import { Retry, Spinner } from "./icons";
-import { TurnActionsContext } from "./turnActions";
+import { retryLabel, sessionRetry } from "../subagents/retryState";
+import { Spinner } from "./icons";
 import { Markdown } from "./Markdown";
 import { McpCallDetails } from "./McpCallRows";
 import { mcpCall, mcpRawName } from "./mcpCalls";
@@ -68,31 +67,14 @@ function SessionCard({
   const live = useSubsessionInfo(sessionId);
   const listed = useSenderChat("", sessionId).harness;
   const open = useContext(SubsessionContext)?.open;
-  const { retryAgent, retryCapabilities } = useContext(TurnActionsContext);
-  // A Retry refused leaves its note until the card's state changes.
-  const [note, setNote] = useState<{ state?: string; key?: RetryNote; busy?: boolean }>();
   // The card's retry, as every surface reads it (retryState.ts ``sessionRetry``): while acpmux
-  // retries its failed turn, the card works, and its state says so.
-  const phase = live ? sessionRetry(live, retryCapabilities) : undefined;
+  // retries its failed turn, the card works, and its state says so. Its Retry is on its end line.
+  const phase = live ? sessionRetry(live) : undefined;
   const retry = phase?.kind === "retrying" ? phase.retry : undefined;
-  const action = phase?.kind === "failed" ? phase.action : undefined;
   const state = retry ? "working" : (live?.state ?? fallback?.state);
   const waiting = live ? live.waiting : fallback?.waiting;
   // A failed one says why (acpmux's lane error), a retry acpmux refused included.
   const doing = waiting ? waitingLine(t, waiting) : (live?.doing ?? (state === "failed" ? live?.error : undefined));
-  const shown = note?.state === state ? note : undefined;
-  const target = sessionId
-    ? { id: sessionId, parent: null, name: live?.name ?? name, state: "failed", child: sessionId }
-    : undefined;
-  const run = () => {
-    if (!retryAgent || !target || shown?.busy) return;
-    setNote({ state, busy: true });
-    void retryAgent(target).then(
-      // Busy only while in flight: runRetry's shared guard refuses a second Retry of it.
-      (key) => setNote(key ? { state, key } : undefined),
-      () => setNote({ state, key: "retry.failed" }),
-    );
-  };
   return (
     <AgentCard
       name={live?.name ?? name}
@@ -105,16 +87,6 @@ function SessionCard({
       queued={live?.queued}
       onOpen={sessionId && open ? () => open(sessionId) : undefined}
     >
-      {action && retryAgent && target && (
-        <div className="cv-subsession__retry">
-          <button type="button" className="cv-subagent-retry" disabled={shown?.busy} onClick={run}>
-            <Retry size={12} />
-            {/* acpmux retries it, or, where it names no turn retry, the chat's agent is asked. */}
-            {t(action === "ask" ? "retry.askParent" : "retry.action")}
-          </button>
-          {shown?.key && <output>{t(shown.key)}</output>}
-        </div>
-      )}
       {children}
     </AgentCard>
   );

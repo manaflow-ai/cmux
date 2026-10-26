@@ -58,8 +58,9 @@ function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }
   const affordance = useContext(RetryAffordanceContext);
   const { restartSubagent, retryAgent, retryCapabilities } = useContext(TurnActionsContext);
   const agent = row.subagents?.[0];
-  // A refusal's note lasts until the row changes; `busy` only while the Retry is in flight (a
-  // second one of the same target is refused by runRetry's shared guard, retryState.ts).
+  // A refusal's note lasts until the row changes. A Retry that went keeps the row's Retry disabled
+  // until the row changes (acpmux's next word on it), so it can't go twice; acpmux refuses a second
+  // one of its own as `retry.busy` meanwhile.
   const [note, setNote] = useState<{ version: number; key?: RetryNote; busy?: boolean }>();
   const open = pane ?? nav;
   if (!agent) return null;
@@ -90,7 +91,7 @@ function DoneLine({ row, child }: { row: AcpmuxRow; child?: SessionRetryFields }
     if (!retryAgent || shown?.busy) return;
     setNote({ version: row.version, busy: true });
     void retryAgent(agent).then(
-      (key) => setNote(key ? { version: row.version, key } : undefined),
+      (key) => setNote(key ? { version: row.version, key } : { version: row.version, busy: true }),
       () => setNote({ version: row.version, key: "retry.failed" }),
     );
   };

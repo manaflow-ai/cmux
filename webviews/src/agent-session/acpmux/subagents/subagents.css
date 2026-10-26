@@ -688,18 +688,10 @@ button.cv-subagent > :last-child {
   cursor: default;
   opacity: 0.55;
 }
-.cv-subagent-done__note,
-.cv-subsession__retry > output {
+.cv-subagent-done__note {
   flex: none;
   margin-inline-start: 6px;
   color: var(--cv-text-dim);
   font-size: var(--text-detail);
 }
-.cv-subsession__retry {
-  display: flex;
-  align-items: center;
-  margin-top: 4px;
-}
-.cv-subsession__retry > .cv-subagent-retry {
-  margin-inline-start: 0;
-}
+

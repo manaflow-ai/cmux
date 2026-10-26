@@ -45,7 +45,7 @@ export function readRetry(raw: unknown): RetryState | null | undefined {
 /// went away while the subagent still failed is one acpmux gave up on: its line says how many
 /// tries it had.
 export function applyRetry(
-  agent: Pick<Subagent, "retry" | "retryable" | "retriedOut" | "firing" | "state" | "error">,
+  agent: Pick<Subagent, "retry" | "retryable" | "retriedOut" | "state" | "error">,
   change: { retry?: unknown; retryable?: unknown; error?: unknown },
 ): void {
   if (typeof change.retryable === "boolean") agent.retryable = change.retryable;
@@ -57,33 +57,36 @@ export function applyRetry(
   if (retry) {
     agent.retry = retry;
     delete agent.retriedOut;
-    delete agent.firing;
   } else delete agent.retry;
 }
 
 /// acpmux's `subagent_retry` record of one step of a subagent's automatic retry
-/// (`hub/subagent_retry.rs`): `exhausted` means it gave up after its last try; `fired` means its
-/// attempt's prompt went to the chat's agent (acpmux cleared `retry` just before), so it is retrying
-/// until its next step or the chat's turn ends (``endRetryTurn``); `scheduled` waits again and
-/// `skipped` ends it. Returns whether the subagent changed.
-export function applyRetryStep(agent: Pick<Subagent, "retriedOut" | "firing">, step: Record<string, unknown>): boolean {
-  const before = [agent.retriedOut, agent.firing];
-  const tries = readRetry({ attempt: step.attempt ?? step.of, of: step.of, reason: step.reason }) ?? undefined;
-  delete agent.firing;
-  if (step.outcome === "exhausted" && tries) agent.retriedOut = tries;
-  else if (step.outcome === "scheduled" || step.outcome === "fired") delete agent.retriedOut;
-  if (step.outcome === "fired" && tries) agent.firing = tries;
-  return agent.retriedOut !== before[0] || agent.firing !== before[1];
+/// (`hub/subagent_retry.rs`): `exhausted` means it gave up after its last try; a scheduled or fired
+/// one is retrying again. Returns whether the subagent changed.
+export function applyRetryStep(agent: Pick<Subagent, "retriedOut">, step: Record<string, unknown>): boolean {
+  if (step.outcome === "exhausted") {
+    const tries = readRetry({ attempt: step.attempt ?? step.of, of: step.of, reason: step.reason });
+    if (!tries) return false;
+    agent.retriedOut = tries;
+    return true;
+  }
+  if ((step.outcome === "scheduled" || step.outcome === "fired") && agent.retriedOut) {
+    delete agent.retriedOut;
+    return true;
+  }
+  return false;
 }
 
 /// Where a row stands with acpmux's retry. Every surface (the end line, the sub-session card, the
 /// summary list, the running tray, the cache keys) reads it from ``subagentRetry`` or
 /// ``sessionRetry`` and nowhere else, so they never disagree:
-/// - `retrying`: a retry waits, or its attempt runs (acpmux fired it); no Retry, no Restart.
+/// - `retrying`: a retry waits; no Retry, no Restart. Once acpmux fires it, `retry` clears and the
+///   row reads failed again until the subagent runs: a Retry then is refused `retry.busy`.
 /// - `settling`: acpmux decides, starts or runs a sub-session's retry (`retryDeciding`); likewise.
 /// - `failed`: it failed and nothing retries it; `action` is the Retry it offers, `gaveUp` the
 ///   automatic retries acpmux used up.
-/// - `none`: not failed (running, finished, stopped), or a nested subagent: a stale retry says nothing.
+/// - `none`: not failed (running, finished, stopped), a nested subagent, or a sub-session whose own
+///   chat runs again: a stale retry says nothing.
 export type RetryPhase =
   | { kind: "retrying"; retry: RetryState }
   | { kind: "settling" }
@@ -94,42 +97,41 @@ const NONE: RetryPhase = { kind: "none" };
 const SETTLING: RetryPhase = { kind: "settling" };
 
 /// What a sub-session's own session row says of its retry (subsessions.ts ``SubsessionInfo``).
-export type SessionRetryFields = { retry?: RetryState; retryDeciding?: true };
+export type SessionRetryFields = { retry?: RetryState; retryDeciding?: true; state?: string };
 
 /// A subagent's phase. `child`: a sub-session's own session row, whose retry acpmux keeps there.
 /// `capabilities`: what acpmux's `initialize` named, undefined from one that names none (its
 /// Retry then tries the method and falls back on an unknown one). One that names them and not this
-/// row's (TURN_RETRY for a sub-session, SUBAGENT_RETRY for a subagent) gets the ask.
+/// row's: a subagent then gets the ask, a sub-session no Retry (only acpmux retries a chat's turn).
 export function subagentRetry(
-  agent: Pick<Subagent, "state" | "parent" | "retry" | "firing" | "retriedOut" | "retryable" | "child" | "harness">,
+  agent: Pick<Subagent, "state" | "parent" | "retry" | "retriedOut" | "retryable" | "child" | "harness">,
   capabilities?: ReadonlySet<string>,
   child?: SessionRetryFields,
 ): RetryPhase {
   if (agent.parent !== null || (agent.state !== "failed" && agent.state !== "disconnected")) return NONE;
-  const retry = agent.retry ?? child?.retry ?? agent.firing;
+  // A sub-session's own chat says where it is: one that runs again is no failure to retry.
+  if (child?.state !== undefined && child.state !== "failed") return NONE;
+  const retry = agent.retry ?? child?.retry;
   if (retry) return { kind: "retrying", retry };
   if (child?.retryDeciding) return SETTLING;
   const served = (capability: string) => !capabilities || capabilities.has(capability);
-  const action: RetryAction = agent.child
+  const action: RetryAction | undefined = agent.child
     ? served(TURN_RETRY)
       ? "daemon"
-      : "ask"
+      : undefined
     : !agent.harness && agent.retryable && served(SUBAGENT_RETRY)
       ? "daemon"
       : "ask";
-  return { kind: "failed", action, ...(agent.retriedOut && { gaveUp: agent.retriedOut }) };
+  return { kind: "failed", ...(action && { action }), ...(agent.retriedOut && { gaveUp: agent.retriedOut }) };
 }
 
 /// A sub-session's phase from its session row (the card, the summary list, the tray): only a
-/// failed one retries or offers Retry, acpmux's where it names TURN_RETRY, else the ask.
-export function sessionRetry(
-  session: SessionRetryFields & { state: string },
-  capabilities?: ReadonlySet<string>,
-): RetryPhase {
+/// failed one retries. Its Retry is on its end line (``subagentRetry``), not here.
+export function sessionRetry(session: SessionRetryFields & { state: string }): RetryPhase {
   if (session.state !== "failed") return NONE;
   if (session.retry) return { kind: "retrying", retry: session.retry };
   if (session.retryDeciding) return SETTLING;
-  return { kind: "failed", action: !capabilities || capabilities.has(TURN_RETRY) ? "daemon" : "ask" };
+  return { kind: "failed" };
 }
 
 /// The retry a row shows working on (its spinner and "Retrying (2/4) …"), if any.
@@ -140,9 +142,9 @@ export const retrying = (agent: Parameters<typeof subagentRetry>[0]) => {
 
 /// The fields a subagent's retry is read from, as one cache-key part (runningTray.ts, App.tsx): a
 /// change to any of them redraws its rows.
-export function retryKey(agent: Pick<Subagent, "retry" | "firing" | "retriedOut" | "retryable" | "error">): string {
+export function retryKey(agent: Pick<Subagent, "retry" | "retriedOut" | "retryable" | "error">): string {
   const part = (r?: RetryState) => (r ? `${r.attempt}/${r.of}/${r.reason ?? ""}` : "");
-  return [part(agent.retry), part(agent.firing), part(agent.retriedOut), agent.retryable ?? "", agent.error ?? ""].join(
+  return [part(agent.retry), part(agent.retriedOut), agent.retryable ?? "", agent.error ?? ""].join(
     "\u0001",
   );
 }
@@ -181,10 +183,9 @@ export function retryActionOf(
 }
 
 /// The line the chat's agent gets when the row asks it to retry.
-export function askPrompt(agent: Pick<Subagent, "name" | "task" | "child">, t: Translate): string {
+export function askPrompt(agent: Pick<Subagent, "name" | "task">, t: Translate): string {
   const line = (text: string) => text.replace(/\s+/g, " ").trim();
   const name = line(agent.name);
-  if (agent.child) return t("retry.askSubsession", { name });
   const task = agent.task && line(agent.task) !== name ? line(agent.task) : undefined;
   return task ? t("retry.askTask", { name, task }) : t("retry.ask", { name });
 }
@@ -198,14 +199,12 @@ export const TURN_RETRY = "turn-retry-v1";
 export const SUBAGENT_RETRY = "subagent-retry-v1";
 
 /// What a row's Retry reaches: acpmux's request, the composer's send, and the capabilities acpmux
-/// said it serves (undefined from a daemon that names none: Retry then asks and falls back on an
-/// unknown method). `turns`: how many of the chat's turns started and ended so far (direct.ts), so
-/// an ask holds its row until the turn it queued has ended.
+/// said it serves (undefined from a daemon that names none: Retry then tries the method and, for a
+/// subagent, falls back on an unknown one).
 export type RetryDeps = {
   request: (method: string, params: Record<string, unknown>) => Promise<unknown>;
   send: (text: string) => Promise<unknown>;
   capabilities?: ReadonlySet<string>;
-  turns?: () => { started: number; ended: number };
 };
 
 /// A refusal's words. `retry.nothing_failed` says why (`data.why`): running again, or gone for
@@ -231,54 +230,16 @@ function refusalNote(error: unknown): RetryNote | "ask" | "unknown-method" {
 
 /// Runs a row's Retry for `agent` of chat `chat`: the one the row offers (``retryActionOf``),
 /// acpmux's when it serves it, else the ask. Settles with the note to show, or undefined when it went.
+/// A second Retry of the same target is the row's to prevent (its button stays disabled until the
+/// row changes) and acpmux's to refuse (`retry.busy` while one is in flight); this keeps no state.
 export async function runRetry(
   agent: RetryTarget,
   chat: string,
   deps: RetryDeps,
   t: Translate,
 ): Promise<RetryNote | undefined> {
-  // Only what the row offers runs: acpmux's retry where it names it and the subagent is
-  // retryable, the ask everywhere else; never both, never a probe.
-  const offered = retryActionOf(agent, deps.capabilities);
-  return offered ? send(agent, chat, deps, t, offered) : undefined;
-}
-
-/// Retries in flight or just sent, by target (`chat`, then the sub-session or subagent): a
-/// sub-session's line and its card both offer Retry, and a second click on either before the retry
-/// shows must not retry it twice. acpmux's retry holds for RETRY_HOLD_MS (its row then says it
-/// retries, and acpmux refuses another as busy). An ask holds until a turn the chat started after
-/// it has ended (the turn that answers it), as the row stays failed while the agent works. No timer:
-/// an entry is checked on the next Retry, and lapsed ones go once the map passes SENT_MAX.
-type Hold = { at: number; turns?: number };
-const sent = new Map<string, Hold>();
-export const RETRY_HOLD_MS = 15_000;
-const SENT_MAX = 32;
-
-function holds(hold: Hold | undefined, at: number, turns: RetryDeps["turns"]): boolean {
-  if (!hold) return false;
-  if (hold.turns === undefined || !turns) return at - hold.at < RETRY_HOLD_MS;
-  return turns().ended <= hold.turns;
-}
-
-export type RetryTarget = Parameters<typeof retryActionOf>[0] & Pick<Subagent, "id" | "name" | "task">;
-
-async function send(
-  agent: RetryTarget,
-  chat: string,
-  deps: RetryDeps,
-  t: Translate,
-  action: RetryAction,
-): Promise<RetryNote | undefined> {
-  const key = `${chat}\u0000${agent.child ?? agent.id}`;
-  const at = Date.now();
-  if (holds(sent.get(key), at, deps.turns)) return undefined;
-  if (sent.size >= SENT_MAX) for (const [old, hold] of sent) if (!holds(hold, at, deps.turns)) sent.delete(old);
-  sent.set(key, { at });
-  // A refusal or a failure lets the next click try again.
-  const fail = (note: RetryNote) => {
-    sent.delete(key);
-    return note;
-  };
+  const action = retryActionOf(agent, deps.capabilities);
+  if (!action) return undefined;
   if (action === "daemon") {
     const params = agent.child ? { sessionId: agent.child } : { sessionId: chat, subagentId: agent.id };
     try {
@@ -286,17 +247,18 @@ async function send(
       return undefined;
     } catch (error) {
       // Only a daemon without the method, or one that cannot retry a subagent, falls back to
-      // asking; any other refusal says why.
+      // asking, and only for a subagent; any other refusal says why.
       const note = refusalNote(error);
-      if (note !== "ask" && note !== "unknown-method") return fail(note);
+      if (note !== "ask" && note !== "unknown-method") return note;
+      if (agent.child) return "retry.failed";
     }
   }
-  // The ask's turn is one that starts after this: until it ends, the row stays held.
-  if (deps.turns) sent.set(key, { at, turns: deps.turns().started });
   try {
     await deps.send(askPrompt(agent, t));
     return undefined;
   } catch {
-    return fail("retry.failed");
+    return "retry.failed";
   }
 }
+
+export type RetryTarget = Parameters<typeof retryActionOf>[0] & Pick<Subagent, "id" | "name" | "task">;
