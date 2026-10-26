@@ -6,16 +6,37 @@
 // Every row does something: a folder opens in the Files tree beside the chat, the repository and
 // the branch are links to GitHub, which the pane opens in the browser as it opens a reply's link.
 import { useMemo, useState, type ReactNode } from "react";
+import { EnvironmentPicker } from "../EnvironmentPicker";
+import type { OffloadKind } from "../environments";
+import "./environment.css";
 import { useT } from "../i18n";
 import { Icon } from "../icons/Icon";
 import { rowIconSize } from "../icons/iconSize";
 import { machineColor } from "../machineColor";
 import type { SavedEnvironmentDraft } from "../environments";
-import type { AcpmuxRow, AcpmuxSnapshot } from "../model";
+import { paneHeader, type AcpmuxRow, type AcpmuxSnapshot } from "../model";
+import type { Translate } from "../i18n";
 import { homePath, projectLabel } from "../sessionList";
 import { chatFolders } from "./chatFolders";
 
 type Summary = NonNullable<AcpmuxSnapshot["summary"]>;
+
+export type EnvironmentLook = "inline" | "titled" | "compact" | "legacy";
+export type EnvironmentControls = {
+  move?: { kind: OffloadKind; run: (kind: OffloadKind) => void; refresh?: () => void };
+  /// This action starts another chat; a started chat keeps its working folder.
+  chooseFolder?: () => void;
+  connection?: { label: string; connected: boolean };
+};
+
+/// The pane connection, not a guessed machine heartbeat. Reuse the header's failure labels.
+export function environmentConnection(snapshot: AcpmuxSnapshot, t: Translate): EnvironmentControls["connection"] {
+  const problem = paneHeader(snapshot, t).status;
+  if (problem) return { label: problem, connected: false };
+  if (snapshot.connection === "connected") return { label: t("composer.envConnected"), connected: true };
+  if (snapshot.connection === "connecting") return { label: t("rail.connectorPending"), connected: false };
+  return undefined;
+}
 
 const ROW_ICON = rowIconSize(12);
 const NO_ROWS: readonly AcpmuxRow[] = [];
@@ -119,7 +140,11 @@ export function EnvironmentSection({
   remoteControl,
   onSave,
   onOpenFolder,
+  controls,
+  look = "inline",
 }: {
+  controls?: EnvironmentControls;
+  look?: EnvironmentLook;
   summary?: Summary;
   machineName?: string;
   peerKinds?: Readonly<Record<string, "ssh" | "cloud">>;
@@ -163,16 +188,47 @@ export function EnvironmentSection({
       </Row>
     );
   };
+  const compact = look === "compact";
+  const machineFace = (
+    <>
+      <Icon
+        name={machine.icon}
+        size={ROW_ICON}
+        row
+        color={machine.kind !== "local" && machine.name ? machineColor(machine.name) : undefined}
+      />
+      <span className="acpmux-chat-inspector-row__name">{machine.name ?? "—"}</span>
+      {compact && cwd && <span className="acpmux-chat-inspector-row__detail">· {projectLabel(cwd)}</span>}
+      {controls?.move && <Icon name="disclosure.collapsed" size={10} />}
+    </>
+  );
+  const connection = controls?.connection;
+  const status = connection && (
+    <span className="acpmux-environment-status" data-connected={connection.connected}>
+      <span className="acpmux-chat-inspector-server__dot acpmux-environment-status__dot" aria-hidden="true" />
+      <span>{connection.label}</span>
+    </span>
+  );
   return (
-    <ul className="acpmux-chat-inspector-list" data-section="environment">
+    <ul className="acpmux-chat-inspector-list acpmux-environment" data-section="environment" data-look={look}>
       <li className="acpmux-chat-inspector-row" data-machine={machine.kind}>
-        <Icon
-          name={machine.icon}
-          size={ROW_ICON}
-          row
-          color={machine.kind !== "local" && machine.name ? machineColor(machine.name) : undefined}
-        />
-        <span className="acpmux-chat-inspector-row__name">{machine.name ?? "—"}</span>
+        {controls?.move ? (
+          <EnvironmentPicker
+            label={t("composer.chooseComputer")}
+            menu="Session Info Environment"
+            value={machine.name ?? "—"}
+            face={machineFace}
+            environments={[{ id: "current", label: machine.name ?? "—", kind: machine.kind }]}
+            current="current"
+            onPick={() => undefined}
+            offload={controls.move.kind}
+            onOffload={controls.move.run}
+            onOpen={controls.move.refresh}
+          />
+        ) : (
+          machineFace
+        )}
+        {compact && status}
         {save && (
           <button
             type="button"
@@ -184,6 +240,27 @@ export function EnvironmentSection({
           </button>
         )}
       </li>
+      {controls?.chooseFolder && (
+        <li className="acpmux-chat-inspector-row">
+          <Icon name="folder" size={ROW_ICON} row />
+          <button
+            type="button"
+            className="acpmux-chat-inspector-link"
+            aria-label={`${t("composer.chooseFolderMenu")} · ${t("composer.newChatHere")}`}
+            onClick={controls.chooseFolder}
+          >
+            {t("composer.chooseFolderMenu")}
+          </button>
+          <span className="acpmux-chat-inspector-row__detail">{t("composer.newChatHere")}</span>
+        </li>
+      )}
+      {!compact && status && (
+        <li className="acpmux-chat-inspector-row" aria-label={t("inspector.connection")}>
+          <Icon name="machine.remote" size={ROW_ICON} row />
+          <span className="acpmux-chat-inspector-row__name">{t("inspector.connection")}</span>
+          {status}
+        </li>
+      )}
       {folders.map((path, index) =>
         folderRow(path, index === 0 && path === summary?.worktree ? "git.worktree" : "folder", index === 0),
       )}

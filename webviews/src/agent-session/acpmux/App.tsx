@@ -164,7 +164,7 @@ import { SummaryButton } from "./summary/SummaryButton";
 import { SummaryCard } from "./summary/SummaryCard";
 import { runningBackgroundTasks } from "./summary/sessionSummary";
 import { useChatInspector } from "./inspector/ChatInspector";
-import { environmentToSave } from "./inspector/EnvironmentSection";
+import { environmentConnection, environmentToSave } from "./inspector/EnvironmentSection";
 import {
   type BackgroundCommand,
   backgroundCommands,
@@ -5897,6 +5897,20 @@ function AcpmuxPane() {
     () => (workflows.length > 0 ? { list: workflows, onStop: stopSubagent } : undefined),
     [workflows, stopSubagent],
   );
+  const { sideTabs, pullRequest: headerPullRequest, moves } = useHeaderState();
+  // The moves the chat's own right-click menu offers now: the composer's picker offers the same.
+  const offloads = useMemo(
+    () => (["move", "bringBack"] as const).filter((kind) => moves.includes(CONNECT_ACTIONS[kind])),
+    [moves],
+  );
+  // Shared with the composer's Choose folder… action. The native browser chooses local folders.
+  const browseChatFolder = () =>
+    callNative<{ cwd?: string }>("project.browse")
+      .then((result) => result?.cwd)
+      .catch(() => undefined);
+  const newChatHere = (cwd: string) => {
+    if (!remoteChat || cwd.startsWith("/")) ignoreFailure(callNative("chat.newHere", { cwd }));
+  };
   const inspector = useChatInspector({
     snapshot,
     machineName,
@@ -5918,6 +5932,30 @@ function AcpmuxPane() {
       quick || !inspectorLocal
         ? undefined
         : (path) => ignoreFailure(callNative("pane.action", { id: HEADER_ACTIONS.files, cwd: path, mode: "open" })),
+    environmentControls: {
+      ...(preview && !quick && offloads[0]
+        ? {
+            move: {
+              kind: offloads[0],
+              run: offloadChat,
+              refresh: () => {
+                void directClient.current?.refreshPeers();
+                refreshTabState();
+              },
+            },
+          }
+        : {}),
+      chooseFolder:
+        !quick && inspectorLocal && snapshot.sessionId
+          ? () => {
+              const sessionId = snapshot.sessionId;
+              void browseChatFolder().then((cwd) => {
+                if (cwd && snapshotRef.current?.sessionId === sessionId) newChatHere(cwd);
+              });
+            }
+          : undefined,
+      connection: environmentConnection(snapshot, t),
+    },
     onSaveEnvironment: environmentDraft ? () => savedEnvironmentHost(callNative).save(environmentDraft) : undefined,
     // A failed MCP server's Reconnect in Connectors, where acpmux offers it (a Claude Code chat's).
     onReconnectMcp: snapshot.reconnectsMcp ? reconnectMcp : undefined,
@@ -7756,12 +7794,6 @@ function AcpmuxPane() {
   // The header's state from the chat's tab (header/headerState.ts): read when a chat opens, then pushed
   // by the App on every change. Whether the panes beside the chat show ([+] New tab reads Hide tabs) also
   // follows the App's answer to the click.
-  const { sideTabs, pullRequest: headerPullRequest, moves } = useHeaderState();
-  // The moves the chat's own right-click menu offers now: the composer's picker offers the same.
-  const offloads = useMemo(
-    () => (["move", "bringBack"] as const).filter((kind) => moves.includes(CONNECT_ACTIONS[kind])),
-    [moves],
-  );
   const toggleSideTabs = () =>
     ignoreFailure(
       callNative<{ shown?: boolean }>("pane.action", { id: "sideTabs" }).then((result) =>
@@ -9114,25 +9146,12 @@ function AcpmuxPane() {
             }
             localName={machineName}
             environments={preview}
-            onBrowseFolder={
-              canMove
-                ? () =>
-                    callNative<{ cwd?: string }>("project.browse")
-                      .then((result) => result?.cwd)
-                      .catch(() => undefined)
-                : undefined
-            }
+            onBrowseFolder={canMove ? browseChatFolder : undefined}
             // A started local chat's folder is fixed (Leo 2026-10-13): its folder menu starts a new chat
             // in a tab of its own; a Cloud chat's folder is a label.
             // The floating chat has no tabs to open one in. Another machine's `~` is not this Mac's: a
             // remote chat starts one only in an absolute folder.
-            onNewChat={
-              canMove && !quick
-                ? (cwd) => {
-                    if (!remoteChat || cwd.startsWith("/")) ignoreFailure(callNative("chat.newHere", { cwd }));
-                  }
-                : undefined
-            }
+            onNewChat={canMove && !quick ? newChatHere : undefined}
             onShellInterrupt={() => {
               const running = shellRuns.running(snapshot.sessionId);
               if (running) shellRuns.stop(running.id);

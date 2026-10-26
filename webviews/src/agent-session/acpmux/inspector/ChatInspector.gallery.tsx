@@ -468,6 +468,12 @@ const openMcpTools: Play = async (ctx) => {
 
 const text = (ctx: Parameters<Play>[0]) => ctx.document.querySelector(".acpmux-chat-inspector")?.textContent ?? "";
 
+const environmentDemo: NonNullable<Props["environmentControls"]> = {
+  move: { kind: "move", run: () => undefined },
+  chooseFolder: () => undefined,
+  connection: { label: "Connected", connected: true },
+};
+
 export default componentEntry<Props>({
   id: "agent-pane.chat-inspector",
   title: "Inspector",
@@ -497,6 +503,22 @@ export default componentEntry<Props>({
   ],
   load: async () => GalleryInspector,
   variants: {
+    "environment-inline": {
+      note: "Chosen. Inline machine picker, Choose folder… for a new chat, and explicit connection state. Keeps Save, the actual paths and links on glass with 28px rows and no extra heading or boxes.",
+      props: { ...full, environmentLook: "inline", environmentControls: environmentDemo },
+    },
+    "environment-titled": {
+      note: "Alternative: a titled Environment section makes the controls easier to find, but repeats what the machine, folder and connection rows already say.",
+      props: { ...full, environmentLook: "titled", environmentControls: environmentDemo },
+    },
+    "environment-compact": {
+      note: "Alternative: machine · folder and connection in one row with the existing move menu. Less height, but long machine and folder names compete with Save.",
+      props: { ...full, environmentLook: "compact", environmentControls: environmentDemo },
+    },
+    "environment-before": {
+      note: "Before: machine with Save and folder navigation, without machine moves, Choose folder… or a connection row.",
+      props: { ...full, environmentLook: "legacy" },
+    },
     "subagents-done": {
       note: "A busy chat with Environment, Context, Outputs and 31 completed subagents: four static harness avatars beside the count, opening the named list.",
       props: {

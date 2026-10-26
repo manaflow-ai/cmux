@@ -67,7 +67,7 @@ import { ChangesSection, headerStatus, visibleChanges, type InspectorPullRequest
 import { useChangesStatuses, useStableUrls, withHeader } from "./changesStatus";
 import { ConnectorsSection } from "./ConnectorsSection";
 import { ContextSection } from "./ContextSection";
-import { EnvironmentSection } from "./EnvironmentSection";
+import { EnvironmentSection, type EnvironmentControls, type EnvironmentLook } from "./EnvironmentSection";
 import { InspectorSection } from "./InspectorSection";
 import { SUBAGENT_HEADER, SubagentBanner, SubagentTitle } from "./SubagentScopeHeader";
 import { subagentProcesses, subagentSummary, withChatEnds, type SubagentScope } from "./subagentScope";
@@ -220,6 +220,7 @@ export function useChatInspector({
   workflows,
   onOpenFolder,
   onSaveEnvironment,
+  environmentControls,
   onShowCall,
   subagent,
   covered = false,
@@ -273,6 +274,7 @@ export function useChatInspector({
   onOpenFolder?: (path: string) => void;
   /// Saves the chat's machine and folder as an environment (`environment.save`).
   onSaveEnvironment?: () => Promise<unknown>;
+  environmentControls?: EnvironmentControls;
   /// Shows the Bash call that started a background command in the transcript (App.tsx `showToolRow`).
   onShowCall?: (toolCallId: string) => boolean;
   /// The subagent whose own view the pane shows: the Inspector lists its things, not the chat's.
@@ -401,6 +403,7 @@ export function useChatInspector({
         onOpenImage={onOpenImage}
         onOpenFolder={onOpenFolder}
         onSaveEnvironment={onSaveEnvironment}
+        environmentControls={environmentControls}
         onReconnectMcp={onReconnectMcp}
         onOpenDocument={onOpenDocument}
         onShowCall={onShowCall}
@@ -448,6 +451,7 @@ function InspectorPresence({
   onOpenImage,
   onOpenFolder,
   onSaveEnvironment,
+  environmentControls,
   onReconnectMcp,
   onOpenDocument,
   onShowCall,
@@ -487,6 +491,7 @@ function InspectorPresence({
   onOpenImage?: (src: string, alt: string) => void;
   onOpenFolder?: (path: string) => void;
   onSaveEnvironment?: () => Promise<unknown>;
+  environmentControls?: EnvironmentControls;
   onReconnectMcp?: (server: string) => Promise<unknown>;
   onOpenDocument?: (artifact: Artifact) => void;
   onShowCall?: (toolCallId: string) => boolean;
@@ -633,6 +638,7 @@ function InspectorPresence({
         onOpenFolder={onOpenFolder}
         // Save keeps the chat's machine and folder, not a subagent's.
         onSaveEnvironment={scope ? undefined : onSaveEnvironment}
+        environmentControls={scope ? undefined : environmentControls}
         onReconnectMcp={onReconnectMcp}
         onOpenDocument={onOpenDocument}
         onShowCall={onShowCall}
@@ -809,12 +815,14 @@ export function ChatInspector({
   onOpenDocument,
   remoteControl,
   onSaveEnvironment,
+  environmentControls,
   onReconnectMcp,
   onOpenFolder,
   onShowCall,
   banner,
   agent,
   layout = RAIL_LAYOUT,
+  environmentLook = "inline",
 }: {
   summary?: Summary;
   machineName?: string;
@@ -866,6 +874,8 @@ export function ChatInspector({
   onOpenImage?: (src: string, alt: string) => void;
   remoteControl?: { on: boolean; set: (on: boolean) => void };
   onSaveEnvironment?: () => Promise<unknown> | void;
+  environmentControls?: EnvironmentControls;
+  environmentLook?: EnvironmentLook;
   /// Reconnects one of the chat's failed MCP servers by name (`_acpmux/mcp/reconnect`).
   onReconnectMcp?: (server: string) => Promise<unknown>;
   /// Opens one of the chat's folders in the Files tree beside the chat.
@@ -943,7 +953,7 @@ export function ChatInspector({
       title={t("rail.environment")}
       open={glance || state.environment}
       onOpenChange={fold("environment")}
-      bare={glance}
+      bare={glance && environmentLook !== "titled"}
     >
       <EnvironmentSection
         summary={summary}
@@ -953,6 +963,8 @@ export function ChatInspector({
         rows={rows}
         remoteControl={remoteControl}
         onSave={onSaveEnvironment}
+        controls={environmentLook === "legacy" ? undefined : environmentControls}
+        look={environmentLook}
         onOpenFolder={onOpenFolder}
       />
     </InspectorSection>

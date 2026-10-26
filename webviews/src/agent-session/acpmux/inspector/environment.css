@@ -1,0 +1,29 @@
+/* The existing environment picker in the rail: the same 28px row, with Save beside it. */
+.acpmux-environment .acpmux-location-picker {
+  flex: 1;
+  min-width: 0;
+}
+.acpmux-environment .acpmux-location-button {
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  height: var(--ui-row-height);
+  gap: 4px;
+  padding: 0;
+  font: inherit;
+  color: inherit;
+}
+.acpmux-environment-status {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--agent-muted);
+  white-space: nowrap;
+}
+.acpmux-environment-status__dot {
+  margin: 0;
+  background: currentColor;
+}
+.acpmux-environment-status[data-connected="true"] .acpmux-environment-status__dot {
+  color: var(--agent-accent);
+}
