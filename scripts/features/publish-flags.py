@@ -17,7 +17,10 @@ plans/cmux-next/chrome-parity/p12-perf-process.md.
   named by CMUX_CONTENT_SIGNING_KEY_PATH (decision D2); its path and content are never printed. Every
   file is verified with the destination's public key before upload.
 - `history/<serial>.json` is written once, so two operators cannot publish the same serial; `flags.json`
-  is replaced only while it still has the bytes this run loaded.
+  is replaced only while it still has the bytes this run loaded. The serial is the first one above the
+  published and checkout serials with no history record, so a run that stopped after reserving one can
+  run again. A published `flags.json` whose signature does not verify is published over only when it is
+  the document of its serial's signed history record (a run that stopped before `flags.json.sig`).
 - `--test-key` signs with the perf lab's committed test key (schemas/features/bench-test-signing-key.json,
   trusted only by bench builds) and publishes to perf-lab-test, never to the nightly feed.
 - A production publish applies the same change and serial to release-notes/next/flags.json in this
@@ -67,10 +70,19 @@ NO_CACHE = "no-cache, no-store, must-revalidate"
 HISTORY_CACHE = "public, max-age=3600"
 # PKCS#8 prefix of a raw Ed25519 private seed (RFC 8410).
 ED25519_PKCS8_PREFIX = bytes.fromhex("302e020100300506032b657004220420")
+# upload-r2-object.py's exit code for a refused conditional write (--conflict-exit-code).
+CONFLICT_EXIT = 3
+# Serials tried past a taken history record before giving up.
+SERIAL_ATTEMPTS = 20
 
 
 class PublishError(Exception):
     """Why nothing (more) was published; the message is for the operator."""
+
+
+class Conflict(PublishError):
+    """A conditional write was refused: a write-once key exists with other bytes, or the object to replace
+    no longer has the bytes this run loaded."""
 
 
 @dataclasses.dataclass(frozen=True)
@@ -231,7 +243,8 @@ def http_fetch(url: str) -> bytes | None:
 class Uploader(Protocol):
     def put(self, path: Path, key: str, *, cache_control: str, write_once: bool = False,
             replace_sha256: str | None = None) -> None:
-        """Writes the file at bucket key `key`; raises PublishError when refused."""
+        """Writes the file at bucket key `key`; raises Conflict when a condition refuses it, PublishError
+        when it fails otherwise."""
 
 
 @dataclasses.dataclass
@@ -247,26 +260,33 @@ class R2Uploader:
             run([sys.executable, str(NIGHTLY_GUARD), "r2-key", dest.bucket, key], env=guard_env)
         command = [sys.executable, str(UPLOADER), "--file", str(path), "--endpoint-url", dest.endpoint,
                    "--bucket", dest.bucket, "--key", key, "--cache-control", cache_control,
-                   "--content-type", "application/json" if key.endswith(".json") else "text/plain"]
+                   "--content-type", "application/json" if key.endswith(".json") else "text/plain",
+                   "--conflict-exit-code", str(CONFLICT_EXIT)]
         if write_once:
             command.append("--write-once")
         if replace_sha256:
             command += ["--replace-sha256", replace_sha256]
-        run(command, env=dict(self.env))
+        run(command, env=dict(self.env), conflict_exit=CONFLICT_EXIT)
 
 
-def run(command: list[str], env: Mapping[str, str] | None = None) -> str:
+def run(command: list[str], env: Mapping[str, str] | None = None, conflict_exit: int | None = None) -> str:
     result = subprocess.run(command, capture_output=True, text=True, env=None if env is None else dict(env))
     if result.returncode != 0:
         detail = (result.stderr or result.stdout).strip()
-        raise PublishError(f"{Path(command[1]).name} failed: {detail}")
+        error = Conflict if result.returncode == conflict_exit else PublishError
+        raise error(f"{Path(command[1]).name} failed: {detail}")
     return result.stdout
 
 
 # Signatures: the nightly's own sign and verify commands.
 
-def sign(paths: list[Path], key_pem: Path) -> None:
-    run([sys.executable, str(RELEASE_NOTES), "sign", "--key", str(key_pem), *map(str, paths)])
+def sign(paths: list[Path], key_pem: Path, key_name: str) -> None:
+    """Signs each file into `<file>.sig`. openssl's output names the key file, so none of it is shown."""
+    result = subprocess.run([sys.executable, str(RELEASE_NOTES), "sign", "--key", str(key_pem), *map(str, paths)],
+                            capture_output=True, text=True)
+    if result.returncode != 0:
+        raise PublishError(f"signing with {key_name} failed; is it an unencrypted Ed25519 PEM? "
+                           "(the signer's output is not shown because it names the key file)")
 
 
 def verified(path: Path, public_key: str) -> bool:
@@ -311,6 +331,7 @@ def production_key(env: Mapping[str, str]) -> Path:
 class Current:
     document: dict
     raw: bytes | None  # the published bytes, None when the destination has no document yet
+    unsigned: bool = False  # left by a run that stopped between the flags.json and flags.json.sig writes
 
 
 def load_current(fetch: Fetch, dest: Destination, checkout: dict) -> Current:
@@ -318,9 +339,11 @@ def load_current(fetch: Fetch, dest: Destination, checkout: dict) -> Current:
     if data is None:
         return Current(copy.deepcopy(checkout), None)
     signature = fetch(dest.url("flags.json.sig"))
-    if signature is None or not bytes_verified(data, signature, dest.public_key):
-        raise PublishError(f"{dest.url('flags.json')} does not verify with the {dest.name} key; "
-                           "publish nothing over it until the nightly republishes it")
+    signed = signature is not None and bytes_verified(data, signature, dest.public_key)
+    if not signed and not recorded(fetch, dest, data):
+        raise PublishError(f"{dest.url('flags.json')} does not verify with the {dest.name} key and is not the "
+                           "document of a signed history record; publish nothing over it until the nightly "
+                           "republishes it")
     try:
         document = json.loads(data)
     except ValueError as error:
@@ -328,7 +351,80 @@ def load_current(fetch: Fetch, dest: Destination, checkout: dict) -> Current:
     # A document from before the feature keys has no FeaturesSerial; the new one always gets one.
     if not version_one(document):
         raise PublishError(f"{dest.url('flags.json')} is not a version 1 flags document")
-    return Current(document, data)
+    return Current(document, data, unsigned=not signed)
+
+
+def recorded(fetch: Fetch, dest: Destination, data: bytes) -> bool:
+    """Whether `data` is the document of the signed history record of its own serial, which is what a run
+    that stopped between the flags.json and flags.json.sig writes leaves published."""
+    try:
+        serial = json.loads(data)["default"]["FeaturesSerial"]
+    except (ValueError, KeyError, TypeError):
+        return False
+    if type(serial) is not int:
+        return False
+    record = fetch(dest.url(f"history/{serial}.json"))
+    record_signature = fetch(dest.url(f"history/{serial}.json.sig"))
+    if record is None or record_signature is None or not bytes_verified(record, record_signature, dest.public_key):
+        return False
+    try:
+        document = json.loads(record)["document"]
+    except (ValueError, KeyError, TypeError):
+        return False
+    return isinstance(document, dict) and render(document) == data
+
+
+def free_serial(fetch: Fetch, dest: Destination, serial: int) -> int:
+    """The first serial from `serial` up with no history record. A run that stopped after reserving a
+    serial, or a publish whose checkout change the nightly republished over, leaves records above it."""
+    for candidate in range(serial, serial + SERIAL_ATTEMPTS):
+        if fetch(dest.url(f"history/{candidate}.json")) is None:
+            return candidate
+    raise PublishError(f"history/{serial}.json to history/{serial + SERIAL_ATTEMPTS - 1}.json all exist; "
+                       "check the destination's history before publishing")
+
+
+@dataclasses.dataclass(frozen=True)
+class Change:
+    cohort: str
+    on: list[str]
+    off: list[str]
+    reason: str
+    published_at: str
+
+
+def upload(change: Change, current: Current, serial: int, dest: Destination, uploader: Uploader,
+           key: Path, key_name: str) -> None:
+    """Signs and uploads the change at `serial`. Raises Conflict only when history/<serial>.json is taken."""
+    document = apply_change(current.document, change.cohort, change.on, change.off, serial)
+    history = {"serial": serial, "cohort": change.cohort, "on": change.on, "off": change.off,
+               "reason": change.reason, "published_at": change.published_at, "destination": dest.name,
+               "document": document}
+    with tempfile.TemporaryDirectory() as tmp:
+        folder = Path(tmp)
+        flags = folder / "flags.json"
+        flags.write_bytes(render(document))
+        record = folder / f"{serial}.json"
+        record.write_bytes(render(history))
+        sign([flags, record], key, key_name)
+        for path in (flags, record):
+            if not verified(path, dest.public_key):
+                raise PublishError(f"the signature of {path.name} does not verify with the {dest.name} public key; "
+                                   f"is {key_name} the {dest.name} key?")
+        # The write-once history file reserves the serial, then flags.json replaces only what was loaded.
+        uploader.put(record, dest.key(f"history/{serial}.json"), cache_control=HISTORY_CACHE, write_once=True)
+        try:
+            uploader.put(Path(f"{record}.sig"), dest.key(f"history/{serial}.json.sig"),
+                         cache_control=HISTORY_CACHE, write_once=True)
+            if current.raw is None:
+                uploader.put(flags, dest.key("flags.json"), cache_control=NO_CACHE, write_once=True)
+            else:
+                uploader.put(flags, dest.key("flags.json"), cache_control=NO_CACHE,
+                             replace_sha256=hashlib.sha256(current.raw).hexdigest())
+        except Conflict as error:
+            raise PublishError(f"another publish changed the destination since it was loaded; run again to see "
+                               f"its change: {error}") from error
+        uploader.put(Path(f"{flags}.sig"), dest.key("flags.json.sig"), cache_control=NO_CACHE)
 
 
 def publish(args: argparse.Namespace, *, env: Mapping[str, str], fetch: Fetch, uploader: Uploader | None,
@@ -347,14 +443,18 @@ def publish(args: argparse.Namespace, *, env: Mapping[str, str], fetch: Fetch, u
     if not nightly_assertion(checkout):
         raise PublishError(f"{checkout_path} fails nightly.yml's flags.json assertion")
     current = load_current(fetch, dest, checkout)
-    serial = max(serials(current.document) + serials(checkout)) + 1
+    serial = free_serial(fetch, dest, max(serials(current.document) + serials(checkout)) + 1)
     document = apply_change(current.document, args.cohort, on, off, serial)
-    if cohort_features(document, args.cohort) == cohort_features(current.document, args.cohort):
+    unchanged = cohort_features(document, args.cohort) == cohort_features(current.document, args.cohort)
+    if unchanged and not current.unsigned:
         raise PublishError(f"cohort {args.cohort} already has these features; nothing to publish")
     check_not_expired(document, args.cohort, now)
     if not nightly_assertion(document):
         raise PublishError("the new document fails nightly.yml's flags.json assertion")
 
+    if current.unsigned:
+        out("note: the published flags.json has no matching flags.json.sig (a publish stopped before it); "
+            "this publish replaces both")
     out(f"{dest.name}: cohort {args.cohort}, FeaturesSerial {serial}")
     out(diff(current.document, document, "flags.json"))
     if args.cohort != DEFAULT_COHORT and "Features" not in current.document.get("cohorts", {}).get(args.cohort, {}):
@@ -365,30 +465,24 @@ def publish(args: argparse.Namespace, *, env: Mapping[str, str], fetch: Fetch, u
     if uploader is None:
         uploader = R2Uploader(dest, env)
 
-    history = {"serial": serial, "cohort": args.cohort, "on": on, "off": off, "reason": args.reason.strip(),
-               "published_at": now.strftime("%Y-%m-%dT%H:%M:%SZ"), "destination": dest.name, "document": document}
+    change = Change(args.cohort, on, off, args.reason.strip(), now.strftime("%Y-%m-%dT%H:%M:%SZ"))
     with tempfile.TemporaryDirectory() as tmp:
-        folder = Path(tmp)
-        flags = folder / "flags.json"
-        flags.write_bytes(render(document))
-        record = folder / f"{serial}.json"
-        record.write_bytes(render(history))
-        key = write_test_key_pem(folder) if args.test_key else production_key(env)
-        sign([flags, record], key)
-        for path in (flags, record):
-            if not verified(path, dest.public_key):
-                raise PublishError(f"the signature of {path.name} does not verify with the {dest.name} public key: "
-                                   f"wrong key in {KEY_PATH_ENV}?")
-        # The write-once history file reserves the serial, then flags.json replaces only what was loaded.
-        uploader.put(record, dest.key(f"history/{serial}.json"), cache_control=HISTORY_CACHE, write_once=True)
-        uploader.put(Path(f"{record}.sig"), dest.key(f"history/{serial}.json.sig"), cache_control=HISTORY_CACHE,
-                     write_once=True)
-        if current.raw is None:
-            uploader.put(flags, dest.key("flags.json"), cache_control=NO_CACHE, write_once=True)
+        if args.test_key:
+            key, key_name = write_test_key_pem(Path(tmp)), "the perf lab's test key"
         else:
-            uploader.put(flags, dest.key("flags.json"), cache_control=NO_CACHE,
-                         replace_sha256=hashlib.sha256(current.raw).hexdigest())
-        uploader.put(Path(f"{flags}.sig"), dest.key("flags.json.sig"), cache_control=NO_CACHE)
+            key, key_name = production_key(env), f"the key in {KEY_PATH_ENV}"
+        first = serial
+        while True:
+            try:
+                upload(change, current, serial, dest, uploader, key, key_name)
+                break
+            except Conflict:
+                # Another run reserved this serial after the probe (its flags.json write then decides).
+                if serial + 1 - first >= SERIAL_ATTEMPTS:
+                    raise PublishError(f"history/{first}.json to history/{serial}.json are all taken; "
+                                       "check the destination's history before publishing") from None
+                out(f"history/{serial}.json is taken; trying serial {serial + 1}")
+                serial += 1
     out(f"published {dest.url('flags.json')} (serial {serial})")
 
     if not args.test_key:

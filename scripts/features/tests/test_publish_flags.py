@@ -24,11 +24,15 @@ NOW = datetime.datetime(2026, 10, 26, tzinfo=datetime.timezone.utc)
 KINDS = {"perfLabKillProbe": "killSwitch", "cefTimerSlack": "perfPath", "energySaver": "labs"}
 TEST_ENV = {"CMUX_PERF_LAB_FLAGS_BASE": "https://lab.example/perf-lab-test",
             "CMUX_PERF_LAB_R2_ENDPOINT": "https://r2.example", "CMUX_PERF_LAB_R2_BUCKET": "cmux-perf-lab"}
-# The document FeatureRemoteTests.theCommittedTestKeySignsForTheBenchKey signs with the committed test seed,
-# and its Ed25519 signature (deterministic, RFC 8032): Swift's CryptoKit, the daemon's ring and openssl
-# all produce and accept exactly these bytes.
+# The shared vector: a flags document and its Ed25519 signature by the perf lab's committed test key, as
+# this tool's signer (openssl, deterministic per RFC 8032) makes it. The app's FeatureRemoteSignatureCheck
+# (FeatureRemoteTests.thePublishToolsVectorVerifiesWithTheBenchKey) and the daemon's feature_flags::verify
+# (the_publish_tools_vector_verifies_with_the_bench_key) verify these bytes.
 VECTOR_DOCUMENT = '{"version": 1, "default": {"Features": {"killThing": "off"}, "FeaturesSerial": 1}}'
 VECTOR_SIGNATURE = "awi7tNpxH9yQKKOTIR0rnhqC9NTbcMynkyHu64U9D1th0EHUG131NFw6LDGVN7gA+hhBDgJJA3xWZUMOv5eDBw=="
+SWIFT_TEST = "Packages/macOS/CmuxNext/Tests/CmuxNextFeaturesTests/FeatureRemoteTests.swift"
+RUST_SOURCE = "cmux-tui/crates/cmux-tui/src/feature_flags.rs"
+LAB_BASE = "https://lab.example/perf-lab-test"
 
 
 def load_script():
@@ -43,14 +47,33 @@ pf = load_script()
 
 
 class FakeUploader:
-    def __init__(self, refuse: set[str] = frozenset()):
+    """Records each put. With `served` (URL to bytes, what the fake fetch reads), a put also lands there
+    under `base`, with upload-r2-object.py's write-once and replace conditions. A key in `fail` fails once,
+    as a network error would."""
+
+    def __init__(self, refuse: set[str] = frozenset(), served: dict[str, bytes] | None = None,
+                 base: str = LAB_BASE, prefix: str = "perf-lab-test/", fail: set[str] = frozenset()):
         self.puts: list[dict] = []
         self.refuse = refuse
+        self.served, self.base, self.prefix = served, base, prefix
+        self.fail = set(fail)
 
     def put(self, path, key, *, cache_control, write_once=False, replace_sha256=None):
+        data = Path(path).read_bytes()
         if key in self.refuse:
-            raise pf.PublishError(f"{key} exists with other bytes")
-        self.puts.append({"key": key, "data": Path(path).read_bytes(), "cache_control": cache_control,
+            raise pf.Conflict(f"{key} exists with other bytes")
+        if key in self.fail:
+            self.fail.discard(key)
+            raise pf.PublishError(f"PUT {key}: HTTP 503")
+        if self.served is not None:
+            url = f"{self.base}/{key.removeprefix(self.prefix)}"
+            existing = self.served.get(url)
+            if write_once and existing is not None and existing != data:
+                raise pf.Conflict(f"{key} exists with other bytes")
+            if replace_sha256 and (existing is None or hashlib.sha256(existing).hexdigest() != replace_sha256):
+                raise pf.Conflict(f"{key} changed since it was read")
+            self.served[url] = data
+        self.puts.append({"key": key, "data": data, "cache_control": cache_control,
                           "write_once": write_once, "replace_sha256": replace_sha256})
 
     def body(self, key):
@@ -93,7 +116,7 @@ class PublishCase(unittest.TestCase):
         folder = Path(tempfile.mkdtemp(dir=self.folder))
         path = folder / "flags.json"
         path.write_bytes(pf.render(document))
-        pf.sign([path], pf.write_test_key_pem(folder))
+        pf.sign([path], pf.write_test_key_pem(folder), "the perf lab's test key")
         self.published[f"{base}/notes/flags.json"] = path.read_bytes()
         self.published[f"{base}/notes/flags.json.sig"] = (folder / "flags.json.sig").read_bytes()
 
@@ -185,13 +208,80 @@ class SerialAndContentTests(PublishCase):
         self.assertEqual(flags["replace_sha256"], hashlib.sha256(loaded).hexdigest())
         self.assertEqual(flags["cache_control"], pf.NO_CACHE)
 
-    def test_a_taken_serial_stops_before_flags_json(self):
+    def test_a_serial_taken_after_the_probe_moves_to_the_next(self):
         self.publish_signed({"version": 1, "default": {"FeaturesSerial": 2}, "cohorts": {}})
         uploader = FakeUploader(refuse={"perf-lab-test/notes/history/3.json"})
-        with self.assertRaises(pf.PublishError):
-            self.run_publish("--cohort", "default", "--off", "perfLabKillProbe", "--reason", "r", "--test-key",
-                             uploader=uploader)
-        self.assertEqual(uploader.puts, [])
+        code, _ = self.run_publish("--cohort", "default", "--off", "perfLabKillProbe", "--reason", "r", "--test-key",
+                                   uploader=uploader)
+        self.assertEqual(code, 0)
+        self.assertEqual([put["key"] for put in uploader.puts][:2],
+                         ["perf-lab-test/notes/history/4.json", "perf-lab-test/notes/history/4.json.sig"])
+        self.assertEqual(json.loads(uploader.body("perf-lab-test/notes/flags.json"))["default"]["FeaturesSerial"], 4)
+        self.assertTrue(any("history/3.json is taken" in line for line in self.output))
+
+    def test_an_existing_history_record_at_the_computed_serial_is_skipped(self):
+        # A production publish whose checkout change the nightly republished over left history/3.json.
+        self.publish_signed({"version": 1, "default": {"FeaturesSerial": 2}, "cohorts": {}})
+        self.published[f"{LAB_BASE}/notes/history/3.json"] = b"{}"
+        self.published[f"{LAB_BASE}/notes/history/4.json"] = b"{}"
+        code, uploader = self.run_publish("--cohort", "default", "--off", "perfLabKillProbe", "--reason", "r",
+                                          "--test-key")
+        self.assertEqual(code, 0)
+        self.assertEqual(uploader.puts[0]["key"], "perf-lab-test/notes/history/5.json")
+        self.assertEqual(json.loads(uploader.body("perf-lab-test/notes/flags.json"))["default"]["FeaturesSerial"], 5)
+
+    def test_a_failed_flags_json_put_can_be_run_again(self):
+        self.publish_signed({"version": 1, "default": {"FeaturesSerial": 2}, "cohorts": {}})
+        argv = ("--cohort", "default", "--off", "perfLabKillProbe", "--reason", "r", "--test-key")
+        failing = FakeUploader(served=self.published, fail={"perf-lab-test/notes/flags.json"})
+        with self.assertRaisesRegex(pf.PublishError, "503"):
+            self.run_publish(*argv, uploader=failing)
+        self.assertIn(f"{LAB_BASE}/notes/history/3.json", self.published)
+        # The rerun's record differs (a later published_at), so it must not reuse serial 3.
+        code, uploader = self.run_publish(*argv, uploader=FakeUploader(served=self.published))
+        self.assertEqual(code, 0)
+        self.assertEqual(uploader.puts[0]["key"], "perf-lab-test/notes/history/4.json")
+        data = self.published[f"{LAB_BASE}/notes/flags.json"]
+        self.assertEqual(json.loads(data)["default"]["FeaturesSerial"], 4)
+        public_key, _ = pf.test_signing_key()
+        self.assertTrue(pf.bytes_verified(data, self.published[f"{LAB_BASE}/notes/flags.json.sig"], public_key))
+
+    def test_a_failed_signature_put_is_repaired_by_the_next_run(self):
+        self.publish_signed({"version": 1, "default": {"FeaturesSerial": 2}, "cohorts": {}})
+        argv = ("--cohort", "default", "--off", "perfLabKillProbe", "--reason", "r", "--test-key")
+        failing = FakeUploader(served=self.published, fail={"perf-lab-test/notes/flags.json.sig"})
+        with self.assertRaisesRegex(pf.PublishError, "503"):
+            self.run_publish(*argv, uploader=failing)
+        public_key, _ = pf.test_signing_key()
+        data, signature = (self.published[f"{LAB_BASE}/notes/flags.json"],
+                           self.published[f"{LAB_BASE}/notes/flags.json.sig"])
+        self.assertFalse(pf.bytes_verified(data, signature, public_key))  # the live feed is broken
+        # The same change again: its features are already published, but the pair is replaced.
+        code, uploader = self.run_publish(*argv, uploader=FakeUploader(served=self.published))
+        self.assertEqual(code, 0)
+        self.assertTrue(any("no matching flags.json.sig" in line for line in self.output))
+        data, signature = (self.published[f"{LAB_BASE}/notes/flags.json"],
+                           self.published[f"{LAB_BASE}/notes/flags.json.sig"])
+        self.assertTrue(pf.bytes_verified(data, signature, public_key))
+        self.assertEqual(json.loads(data)["default"], {"FeaturesSerial": 4, "Features": {"perfLabKillProbe": "off"}})
+        # Repaired, the same change is refused again.
+        with self.assertRaisesRegex(pf.PublishError, "already has these features"):
+            self.run_publish(*argv, uploader=FakeUploader(served=self.published))
+
+    def test_an_unsigned_document_that_is_not_its_serials_record_is_refused(self):
+        self.publish_signed({"version": 1, "default": {"FeaturesSerial": 2}, "cohorts": {}})
+        record = {"serial": 2, "document": {"version": 1, "default": {"FeaturesSerial": 2}, "cohorts": {}}}
+        folder = Path(tempfile.mkdtemp(dir=self.folder))
+        path = folder / "2.json"
+        path.write_bytes(pf.render(record))
+        pf.sign([path], pf.write_test_key_pem(folder), "the perf lab's test key")
+        self.published[f"{LAB_BASE}/notes/history/2.json"] = path.read_bytes()
+        self.published[f"{LAB_BASE}/notes/history/2.json.sig"] = (folder / "2.json.sig").read_bytes()
+        url = f"{LAB_BASE}/notes/flags.json"
+        self.published[url] = pf.render({"version": 1, "default": {"FeaturesSerial": 2, "Features": {"x": "on"}},
+                                         "cohorts": {}})
+        with self.assertRaisesRegex(pf.PublishError, "does not verify"):
+            self.run_publish("--cohort", "default", "--off", "perfLabKillProbe", "--reason", "r", "--test-key")
 
     def test_dry_run_prints_the_diff_and_uploads_nothing(self):
         self.publish_signed({"version": 1, "default": {"FeaturesSerial": 2}, "cohorts": {}})
@@ -271,12 +361,20 @@ class SignatureTests(PublishCase):
             folder = Path(tmp)
             path = folder / "vector.json"
             path.write_text(VECTOR_DOCUMENT, encoding="utf-8")
-            pf.sign([path], pf.write_test_key_pem(folder))
+            pf.sign([path], pf.write_test_key_pem(folder), "the perf lab's test key")
             self.assertEqual((folder / "vector.json.sig").read_text().strip(), VECTOR_SIGNATURE)
         public_key, _ = pf.test_signing_key()
         self.assertTrue(pf.bytes_verified(VECTOR_DOCUMENT.encode(), VECTOR_SIGNATURE.encode(), public_key))
-        swift_test = (REPO / "Packages/macOS/CmuxNext/Tests/CmuxNextFeaturesTests/FeatureRemoteTests.swift").read_text()
-        self.assertIn(f'Data(#"{VECTOR_DOCUMENT}"#.utf8)', swift_test)
+        # The app's and the daemon's tests verify the same vector with the same public key.
+        swift_test = (REPO / SWIFT_TEST).read_text(encoding="utf-8")
+        self.assertIn(f'#"{VECTOR_DOCUMENT}"#', swift_test)
+        self.assertIn(f'"{VECTOR_SIGNATURE}"', swift_test)
+        self.assertIn("func thePublishToolsVectorVerifiesWithTheBenchKey", swift_test)
+        rust = (REPO / RUST_SOURCE).read_text(encoding="utf-8")
+        self.assertIn(f'r#"{VECTOR_DOCUMENT}"#', rust)
+        self.assertIn(f'"{VECTOR_SIGNATURE}"', rust)
+        self.assertIn(f'"{public_key}"', rust)
+        self.assertIn("fn the_publish_tools_vector_verifies_with_the_bench_key", rust)
 
     def test_the_content_signing_key_is_the_one_the_app_daemon_and_nightly_trust(self):
         sources = {
@@ -312,6 +410,19 @@ class SignatureTests(PublishCase):
             self.run_publish("--cohort", "default", "--off", "perfLabKillProbe", "--reason", "r", env=env,
                              uploader=uploader)
         self.assertNotIn(str(pem), str(raised.exception))
+        self.assertEqual(uploader.puts, [])
+
+    def test_a_key_file_openssl_refuses_is_not_named(self):
+        pem = self.folder / "secret-place" / "content-signing.pem"
+        pem.parent.mkdir()
+        pem.write_text("-----BEGIN PRIVATE KEY-----\nbm90IGEga2V5\n-----END PRIVATE KEY-----\n")
+        env = {"NIGHTLY_NEXT_R2_ENDPOINT": "https://r2.example", pf.KEY_PATH_ENV: str(pem)}
+        uploader = FakeUploader()
+        with self.assertRaisesRegex(pf.PublishError, f"signing with the key in {pf.KEY_PATH_ENV} failed") as raised:
+            self.run_publish("--cohort", "default", "--off", "perfLabKillProbe", "--reason", "r", env=env,
+                             uploader=uploader)
+        for text in [str(raised.exception)] + self.output:
+            self.assertNotIn("secret-place", text)
         self.assertEqual(uploader.puts, [])
 
 
