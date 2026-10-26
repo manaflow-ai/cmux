@@ -20,6 +20,10 @@ public final class CEFRuntimeSource {
     /// for the host's wire and never maps the framework in this process. Nil
     /// keeps Chromium in this process.
     public let hostSupervisor: (any ChromiumHostSupervising)?
+    /// Host mode: the host's extension popups, side panel, DevTools, popup windows and page popups
+    /// show in cmux panels and panes (feature `chromiumHostWidgets`, set by the App). Read when the
+    /// runtime adopts the source, before Chromium starts; in process it changes nothing.
+    public var showsHostWidgets = false
 
     /// Creates a source.
     ///
