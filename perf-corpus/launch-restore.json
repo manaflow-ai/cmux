@@ -1,0 +1,46 @@
+{
+  "schema": "cmux-perf-corpus-story/v1",
+  "id": "launch-restore",
+  "tier": "T1",
+  "status": "planned",
+  "planned": "The layout snapshot comes from the layout export (task 111); story task 121 adds the cold and warm launches (task 033).",
+  "description": "Restore 60 workspaces at launch, cold and warm, to the first live terminal frame and all sidebar rows shown. It sends no input.",
+  "owner": "PL-perf-lab",
+  "duration_ms": 30000,
+  "layout": {
+    "snapshot": null,
+    "workspaces": 60
+  },
+  "input": {
+    "events": []
+  },
+  "pty": [],
+  "web_archive": null,
+  "agents": [],
+  "checkpoints": [
+    {
+      "t_ms": 0,
+      "name": "launched",
+      "focus": null,
+      "surfaces": null
+    },
+    {
+      "t_ms": 30000,
+      "name": "restored",
+      "focus": null,
+      "surfaces": null
+    }
+  ],
+  "metrics": [
+    {
+      "name": "corpus\\.launch_restore\\.(cold|warm)\\.first_terminal_frame",
+      "unit": "ms",
+      "better": "lower"
+    },
+    {
+      "name": "corpus\\.launch_restore\\.(cold|warm)\\.sidebar_rows_shown",
+      "unit": "ms",
+      "better": "lower"
+    }
+  ]
+}
