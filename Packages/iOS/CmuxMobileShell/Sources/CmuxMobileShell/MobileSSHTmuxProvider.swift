@@ -24,7 +24,11 @@ final class MobileSSHTmuxProvider: MobileSSHWorkspaceProvider, MobileSSHTerminal
     /// server, which the app always uses. Lab tests use their own server.
     let socketName: String?
     private var controls: [String: MobileSSHTmuxControlClient] = [:]
-    private var opening: [String: Task<MobileSSHTmuxControlClient, any Error>] = [:]
+    struct Opening {
+        let id: UUID
+        let task: Task<MobileSSHTmuxControlClient, any Error>
+    }
+    private(set) var opening: [String: Opening] = [:]
     /// The one stale-grouped-session collection per tmux server, run before
     /// the first listing or attach.
     private var collection: Task<Void, Never>?
@@ -207,6 +211,8 @@ final class MobileSSHTmuxProvider: MobileSSHWorkspaceProvider, MobileSSHTerminal
     }
 
     func closeWorkspace(id: String) async throws {
+        // Revoke ownership before suspending: cancellation alone cannot stop a late SSH reply.
+        opening.removeValue(forKey: id)?.task.cancel()
         if let control = controls.removeValue(forKey: id) { await control.close() }
         _ = try await connection?.exec("\(tmux) kill-session -t \(("=" + id).posixShellSingleQuoted)")
     }
@@ -295,19 +301,37 @@ final class MobileSSHTmuxProvider: MobileSSHWorkspaceProvider, MobileSSHTerminal
 
     private func control(session: String) async throws -> MobileSSHTmuxControlClient {
         if let control = controls[session], !control.isClosed { return control }
-        if let task = opening[session] { return try await task.value }
-        let task = Task { @MainActor in
-            await self.collectStaleGroupedSessions()
-            if let controlOpener = self.controlOpener {
-                return try await controlOpener(session)
+        let task: Task<MobileSSHTmuxControlClient, any Error>
+        if let pending = opening[session] {
+            task = pending.task
+        } else {
+            let id = UUID()
+            task = Task { @MainActor in
+                defer {
+                    if self.opening[session]?.id == id { self.opening[session] = nil }
+                }
+                await self.collectStaleGroupedSessions()
+                try Task.checkCancellation()
+                let control: MobileSSHTmuxControlClient
+                if let controlOpener = self.controlOpener {
+                    control = try await controlOpener(session)
+                } else {
+                    guard let connection = self.connection else { throw SSHConnectionError.closed }
+                    control = try await MobileSSHTmuxControlClient.open(connection: connection, tmux: self.tmux, session: session)
+                }
+                guard self.opening[session]?.id == id else {
+                    await control.close()
+                    throw CancellationError()
+                }
+                // Adoption belongs to the shared task, so every waiter gets the same outcome.
+                self.adopt(control, session: session)
+                return control
             }
-            guard let connection = self.connection else { throw SSHConnectionError.closed }
-            return try await MobileSSHTmuxControlClient.open(connection: connection, tmux: self.tmux, session: session)
+            opening[session] = Opening(id: id, task: task)
         }
-        opening[session] = task
-        defer { opening[session] = nil }
         let control = try await task.value
-        adopt(control, session: session)
+        // The workspace can close after adoption but before a waiter resumes.
+        guard controls[session] === control, !control.isClosed else { throw CancellationError() }
         return control
     }
 
