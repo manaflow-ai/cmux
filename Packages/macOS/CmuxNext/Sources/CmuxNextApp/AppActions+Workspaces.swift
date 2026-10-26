@@ -22,7 +22,14 @@ extension AppActions {
                 return
             }
             guard let window = renameRowWindow(workspace, services) else {
-                return services.registry.refuse(renameRowReason(workspace, services) ?? RefusalStrings.workspaceNotInSidebar)
+                if let reason = renameRowReason(workspace, services) { return services.registry.refuse(reason) }
+                // No list row to edit (a pinned tile, a top row): the palette asks for the name, from the shown one.
+                let target = ActionTargetRef(kind: .workspace, id: workspace.id)
+                let shown = PaletteSourcesBridge.targetSource(services).title(of: target) ?? workspace.displayName
+                if !services.registry.ask("renameWorkspace", ActionInvocation(target: target), ActionArgumentAsk(argument: "name", initialText: shown)) {
+                    services.registry.refuse(RefusalStrings.workspaceNotInSidebar)
+                }
+                return
             }
             // The name field opens on the row in the window that lists it, which comes forward.
             if window !== services.windows.active { services.windows.bringToFront(window) }
@@ -93,12 +100,12 @@ extension AppActions {
         registry.bind("moveWorkspaceDown", invoke: { moveWorkspace(services, $0, by: 1) })
     }
 
-    /// Why Rename Workspace with no name cannot open a name field for `workspace`, or nil: a
-    /// workspace no window's sidebar lists has no row to edit (Home, while the sidebar shows it as
-    /// its Home item, keeps its name).
+    /// Why Rename Workspace with no name cannot rename `workspace`, or nil: Home, while the sidebar
+    /// shows it as its Home item, keeps its name. A workspace with no list row (a pinned tile) is
+    /// renamed in the palette instead.
     static func renameRowReason(_ workspace: WorkspaceModel, _ services: AppServices) -> String? {
         guard renameRowWindow(workspace, services) == nil else { return nil }
-        return HomeRules.isHome(workspace) ? RefusalStrings.homeKeepsItsName : RefusalStrings.workspaceNotInSidebar
+        return HomeRules.isHome(workspace) ? RefusalStrings.homeKeepsItsName : nil
     }
 
     /// The window whose sidebar lists `workspace`'s row: the window that owns it, else the active one.
