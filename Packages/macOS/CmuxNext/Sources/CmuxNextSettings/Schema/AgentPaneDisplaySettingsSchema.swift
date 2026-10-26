@@ -104,8 +104,7 @@ nonisolated enum AgentPaneDisplaySettingsSchema {
                 ]),
                 .string("left"), ["session", "info", "chip", "environment", "machine", "folder", "placement", "left", "right", "off"]),
             // What the chat's edge shows (webviews threadMinimap/ThreadMinimap.tsx): the prompt rail
-            // of ticks, the VS Code-like full map (ScrollMap.tsx; the App Store's Chat Minimap card
-            // picks it, Leo 2026-10-22: "addng in the app store the vscode-like minimap situation"),
+            // of ticks, the full map (ScrollMap.tsx),
             // or nothing. The values are the `thread-minimap-layout` experiment's arms and the
             // default is its default arm (webviews/test/thread-minimap-setting.test.ts checks both),
             // so the row never says one thing while the chat shows another. The keywords are the

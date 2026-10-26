@@ -83,8 +83,7 @@ export const MINIMAL_MODE_KEY = "sidebar.minimal";
 /// Settings > Agent Chat > VS Code Minimap (chatMinimap/ChatMinimap.tsx), off by default. Not part of
 /// ChatDisplay: turning it on or off must not measure the transcript's rows again.
 export const CHAT_MINIMAP_KEY = "agentPane.display.vscodeMinimap";
-/// Settings > Agent Chat > Chat Minimap, and the App Store's Chat Minimap card (Swift
-/// AgentPaneDisplaySettingsSchema has the same row, AppFeature+Catalog the card).
+/// Settings > Agent Chat > Chat Minimap (Swift AgentPaneDisplaySettingsSchema has the same row).
 export const MINIMAP_KEY = "agentPane.display.minimap";
 
 /// Each option: its cmux.json key, its range and default. The Swift schema has the same rows
