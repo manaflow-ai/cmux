@@ -1,5 +1,6 @@
 import AppKit
 import class CmuxNextAgentPane.AgentPaneLaunchTimings
+import class CmuxNextBrowser.CEFEngine
 import CmuxNextControl
 import CmuxNextDesign
 import CmuxNextLaunch
@@ -98,6 +99,9 @@ enum DebugTimings {
         }
         DaemonLaunchTimings.shared.install { markLaunch($0, at: $1) }
         AgentPaneLaunchTimings.shared.install { markLaunch($0) }
+        // Chromium's start: `cef.preload_started`, `cef.library_loaded` (off main), `cef.initialize_started`,
+        // `cef.initialize_ended`, `cef.spare_window_ready`, `cef.first_page_paint` and its trigger.
+        CEFEngine.installLaunchMarks { markLaunch($0) }
         TerminalTimings.onSurfaceCreated = { duration in
             let ms = milliseconds(duration)
             if surfaces.count < capacity { surfaces.append(ms) }
