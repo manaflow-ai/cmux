@@ -1,4 +1,5 @@
 import CmuxNextSharedRegionC
+import CmuxNextWakeups
 import Darwin
 
 /// The resizes' wire in the app: the remote shim's `cmux_remote_shim_page_resize`
@@ -47,7 +48,8 @@ extension CEFRuntime {
         guard let hostStart, let remote = hostStart.remote else { return nil }
         if let resizes = hostStart.pageResizes { return resizes }
         guard let wire = ChromiumHostRemoteResizeWire(runtime: self, remote: remote) else { return nil }
-        let resizes = ChromiumHostResizeFence(wire: wire, fences: hostStart.fencesResizes ? ChromiumHostContextFences() : nil)
+        let resizes = ChromiumHostResizeFence(wire: wire, fences: hostStart.fencesResizes ? ChromiumHostContextFences() : nil,
+                                              deadlines: ChromiumHostWakeUpDeadlines(wakeUps: waitDeadlines))
         hostStart.pageResizes = resizes
         return resizes
     }
@@ -55,13 +57,25 @@ extension CEFRuntime {
 
 extension CEFEngine {
     /// `debug.cef` `host_resize`: the attached host's page resize counters (``ChromiumHostResizeFence/Stats``;
-    /// `max_resize_ms` is the main-thread time of the longest one, the fence's only main-thread cost); nil in
-    /// process or before the host's first resize.
+    /// `max_resize_ms` is the main-thread time of the longest one, the fence's only main-thread cost), zero
+    /// before its first resize; nil in process or while no host is attached, which is how a host mode bench
+    /// (cef-resize-sync-bench.py) tells that Chromium really ran in the host.
     public var hostResizeCounters: [String: Double]? {
-        guard let stats = CEFRuntime.shared.hostStart?.pageResizes?.stats else { return nil }
+        guard let hostStart = CEFRuntime.shared.hostStart, hostStart.remote != nil else { return nil }
+        let stats = hostStart.pageResizes?.stats ?? ChromiumHostResizeFence.Stats()
         return ["resizes": Double(stats.resizes), "fenced": Double(stats.fenced), "fenced_turns": Double(stats.fencedTurns),
                 "joined": Double(stats.joined), "refused": Double(stats.refused), "late": Double(stats.late),
-                "max_resize_ms": Double(stats.maxResizeNanoseconds) / 1e6]
+                "cut": Double(stats.cut), "max_resize_ms": Double(stats.maxResizeNanoseconds) / 1e6]
+    }
+}
+
+/// A hold's cut on the main thread's deadline queue, at its own instant (a frame is under the flexible
+/// placement's 36 ms).
+struct ChromiumHostWakeUpDeadlines: ChromiumHostFenceDeadlines {
+    let wakeUps: AlignedWakeups
+
+    func after(_ delay: Duration, _ body: @escaping @MainActor @Sendable () -> Void) {
+        wakeUps.schedule(owner: "ChromiumHostResizeFence.cut", after: delay, placement: .precise, body)
     }
 }
 

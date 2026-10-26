@@ -34,8 +34,8 @@ requestAnimationFrame loop counting into window.__frames, a spinner, a tall grid
 takes --stream), and each action pair starts with that pane focused. Per action it adds the change of `debug.cef`'s
 pump counters (pump_runs, pump_ms, pump_long, pump_now_req, pump_delayed_req), its tracker counters (trk_clip_reads,
 trk_occl_reads, trk_clip_builds, trk_clip_hits, trk_clip_ms, trk_posts, trk_skips; None on builds without them), the host mode
-page resizes and their fences (fence_resizes, fence_joined, fence_late: `debug.cef` host_resize, p01-process-052; None in
-process), of the page's own animation
+page resizes and their fences (fence_resizes: fenced resizes, fence_joined, fence_late, fence_cut: `debug.cef` host_resize,
+p01-process-052; None in process), of the page's own animation
 frames (page_frames), of `debug.layers` divider catcher panel updates and child window reorders (catcher_updates, reorders), and
 the fork geometry posts per moving frame (posts_per_frame). A layout whose page never runs fails one row and is skipped.
 
@@ -178,14 +178,14 @@ CEF_DELTAS = [("pump_runs", "pump", "work_runs"), ("pump_ms", "pump", "work_ms")
               ("trk_clip_builds", "tracker", "clip_builds"), ("trk_clip_hits", "tracker", "clip_hits"),
               ("trk_clip_ms", "tracker", "clip_ms"),
               ("trk_posts", "tracker", "geometry_posts"), ("trk_skips", "tracker", "geometry_skips"),
-              ("fence_resizes", "host_resize", "resizes"), ("fence_joined", "host_resize", "joined"),
-              ("fence_late", "host_resize", "late")]
+              ("fence_resizes", "host_resize", "fenced"), ("fence_joined", "host_resize", "joined"),
+              ("fence_late", "host_resize", "late"), ("fence_cut", "host_resize", "cut")]
 # --browser: per action, the change of `debug.layers` counters of the first window (divider catcher panel moves, child
 # window reorders); None on builds without them.
 LAYER_DELTAS = [("catcher_updates", "divider_catcher_updates"), ("reorders", "reorders")]
 BROWSER_KEYS = [key for key, _, _ in CEF_DELTAS] + ["page_frames"] + [key for key, _ in LAYER_DELTAS] + ["posts_per_frame"]
 BROWSER_HEADS = ["pump", "pumpms", "long", "nowreq", "dlyreq", "clipr", "occlr", "clipb", "cliph", "clipms", "posts", "skips",
-                 "fresz", "fjoin", "flate", "rAF", "catch", "reord", "post/f"]
+                 "fresz", "fjoin", "flate", "fcut", "rAF", "catch", "reord", "post/f"]
 STILL = ("drag", "sidepanel", "sidepanel-close", "scroll", "idle")  # actions that move no layout spring
 
 
@@ -719,6 +719,9 @@ def main():
                   f"{f(summary['moving_frames']):>5} {f(summary['layout_p95_ms']):>6} {f(summary['layout_max_ms']):>6} "
                   + (f"{grids:>7}" + "".join(f" {f(summary[k]):>6}" for k in browser_keys) if browser_keys else grids),
                   flush=True)
+    # Host mode's page resize counters at the end, with or without --browser: null when Chromium ran in process
+    # (cef-resize-sync-bench.py's host modes are valid only with them).
+    report["host_resize"] = (rpc("debug.cef") or {}).get("host_resize")
     if opts.json:
         json.dump(report, open(opts.json, "w"), indent=1)
     MEASURED = bool(report["runs"])  # at least one action was measured

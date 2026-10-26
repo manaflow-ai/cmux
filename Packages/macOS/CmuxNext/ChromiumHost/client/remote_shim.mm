@@ -353,7 +353,7 @@ class Runtime {
     resize.width = width;
     resize.height = height;
     resize.deadline_frames = deadline_frames;
-    if (fence != 0 && fence_channel_ != 0 && SendFenceRight(fence_channel_, fence, fence_seq_ + 1)) {
+    if (fence != 0 && fence_channel_ != 0 && SendFence(fence, fence_seq_ + 1)) {
       resize.fence_seq = ++fence_seq_;
     }
     TlvWriter args;
@@ -364,6 +364,15 @@ class Runtime {
     // Not sent: the host's book drops the fence when a later seq comes.
     return PostForReply(cmux_host::kOpPageResize, NextToken(), args) ? CMUX_REMOTE_RESIZE_FENCED
                                                                      : CMUX_REMOTE_RESIZE_NOT_SENT;
+  }
+
+  void SetFenceSender(cmux_remote_fence_send_fn send) {
+    CMUX_REMOTE_ASSERT_MAIN();
+    fence_send_ = send;
+  }
+
+  bool SendFence(uint32_t fence, uint64_t seq) {
+    return fence_send_ ? fence_send_(fence_channel_, fence, seq) == 1 : SendFenceRight(fence_channel_, fence, seq);
   }
 
   bool PostForReply(uint16_t op, uint32_t token, const TlvWriter& args) {
@@ -742,6 +751,8 @@ class Runtime {
   // fence seq, which only grows (a new host's inbox starts empty).
   uint32_t fence_channel_ = 0;
   uint64_t fence_seq_ = 0;
+  // nullptr: SendFenceRight (cmux_remote_shim_set_fence_sender).
+  cmux_remote_fence_send_fn fence_send_ = nullptr;
   int32_t next_browser_id_ = kFirstMintedBrowserID;
   int32_t next_devtools_id_ = kFirstMintedDevToolsID;
   cmux_remote_shim_stats stats_ = {};
@@ -850,6 +861,10 @@ int cmux_remote_shim_set_resize_fence_channel(unsigned int port) {
 int cmux_remote_shim_page_resize(uint64_t view_token, int browser_id, int width, int height, unsigned int fence_port,
                                  unsigned int deadline_frames) {
   return R().PageResize(view_token, browser_id, width, height, fence_port, deadline_frames);
+}
+
+void cmux_remote_shim_set_fence_sender(cmux_remote_fence_send_fn send) {
+  R().SetFenceSender(send);
 }
 
 uint32_t cmux_remote_shim_order_input(uint32_t* ctl_seq) {

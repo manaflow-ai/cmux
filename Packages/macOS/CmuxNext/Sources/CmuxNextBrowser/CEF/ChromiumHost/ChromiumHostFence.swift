@@ -12,6 +12,7 @@ final class ChromiumHostFence {
     private let invalidate: () -> Void
     private let release: (mach_port_t) -> Void
     private var held = false
+    private var ended = false
     private(set) var released = false
 
     /// - Parameters:
@@ -35,9 +36,14 @@ final class ChromiumHostFence {
         return true
     }
 
-    /// Ends every fence of the context: a page late for its deadline shows its last frame.
-    func endAll() {
+    /// Ends every fence of the context, once: a page late for its deadline shows its last frame. True
+    /// the first time; a later call would end a newer turn's fence of the context too.
+    @discardableResult
+    func endAll() -> Bool {
+        guard !ended else { return false }
+        ended = true
         invalidate()
+        return true
     }
 
     /// Drops this process's right, once.

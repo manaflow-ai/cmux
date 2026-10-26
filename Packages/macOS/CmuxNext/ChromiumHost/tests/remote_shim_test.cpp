@@ -438,6 +438,20 @@ void TestOrderingThroughTheRuntime() {
   PumpUntil([] { return false; }, std::chrono::milliseconds(100));
   ::close(host.fd);
 }
+// The fence rights cmux_remote_shim_page_resize sent (cmux_remote_shim_set_fence_sender): there
+// is no Mach off macOS, so the fenced path is driven through this one.
+struct FenceSend {
+  unsigned int channel;
+  unsigned int fence;
+  uint64_t seq;
+};
+std::vector<FenceSend> fence_sends;
+int fence_send_result = 1;
+int RecordFenceSend(unsigned int channel, unsigned int fence, uint64_t seq) {
+  fence_sends.push_back({channel, fence, seq});
+  return fence_send_result;
+}
+
 }  // namespace
 
 int main() {
@@ -737,6 +751,46 @@ int main() {
         got.empty() ? std::nullopt : cmux_host::DecodePageResize(got[0].fields);
     CHECK(resize && resize->view == 9 && resize->browser == browser && resize->width == 640 &&
           resize->height == 480 && resize->fence_seq == 0 && resize->deadline_frames == 1);
+  }
+
+  // With a fence channel, the fence right goes to the host's inbox first, under the next fence
+  // seq, and the op carries that seq and a token the host answers. A fence the inbox did not take
+  // sends the op unfenced and takes no seq.
+  {
+    cmux_remote_shim_set_fence_sender(&RecordFenceSend);
+    CHECK(cmux_remote_shim_set_resize_fence_channel(0x2201u) == 1);
+    CHECK(cmux_remote_shim_page_resize(9, browser, 700, 480, 0x1103u, 1) == CMUX_REMOTE_RESIZE_FENCED);
+    const uint32_t first = cmux_remote_shim_last_reply_token();
+    CHECK(first != 0);
+    CHECK(cmux_remote_shim_page_resize(9, browser, 720, 480, 0x1104u, 1) == CMUX_REMOTE_RESIZE_FENCED);
+    const uint32_t second = cmux_remote_shim_last_reply_token();
+    CHECK(second != 0 && second != first);
+    fence_send_result = 0;
+    CHECK(cmux_remote_shim_page_resize(9, browser, 740, 480, 0x1105u, 1) == CMUX_REMOTE_RESIZE_UNFENCED);
+    CHECK(cmux_remote_shim_last_reply_token() == 0);
+    fence_send_result = 1;
+    CHECK(cmux_remote_shim_page_resize(9, browser, 760, 480, 0, 1) == CMUX_REMOTE_RESIZE_UNFENCED);  // no fence
+    CHECK(cmux_remote_shim_page_resize(9, browser, 780, 480, 0x1106u, 1) == CMUX_REMOTE_RESIZE_FENCED);
+    const uint32_t third = cmux_remote_shim_last_reply_token();
+    CHECK(fence_sends.size() == 4);
+    if (fence_sends.size() == 4) {
+      CHECK(fence_sends[0].channel == 0x2201u && fence_sends[0].fence == 0x1103u && fence_sends[0].seq == 1);
+      CHECK(fence_sends[1].fence == 0x1104u && fence_sends[1].seq == 2);
+      CHECK(fence_sends[2].fence == 0x1105u && fence_sends[2].seq == 3);  // not taken
+      CHECK(fence_sends[3].fence == 0x1106u && fence_sends[3].seq == 3);  // the seq the failed one did not take
+    }
+    const std::vector<Message> got = host.Read(5);
+    CHECK(got.size() == 5);
+    const uint64_t seqs[] = {1, 2, 0, 0, 3};
+    const uint32_t tokens[] = {first, second, 0, 0, third};
+    for (size_t i = 0; i < got.size() && i < 5; ++i) {
+      const std::optional<cmux_host::PageResize> resize = cmux_host::DecodePageResize(got[i].fields);
+      CHECK(got[i].op == cmux_host::kOpPageResize && got[i].token == tokens[i] && got[i].ctl_seq != 0);
+      CHECK(resize && resize->view == 9 && resize->width == 700 + 20 * static_cast<int32_t>(i) &&
+            resize->fence_seq == seqs[i]);
+    }
+    cmux_remote_shim_set_fence_sender(nullptr);
+    CHECK(cmux_remote_shim_set_resize_fence_channel(0) == 1);
   }
 
   // A host that never reads: posts still return at once, and the geometry of a page waits

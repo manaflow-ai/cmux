@@ -7,9 +7,11 @@
 // browser's Chromium id, with a deadline of one display frame at most; the
 // host's own right is always released; a fenced op is answered with whether
 // the fork took the fence, an unfenced one is not answered; an op that comes
-// before initialize waits for it. The Mach transport itself (SendFence and
-// the checked-in inbox) is macOS only: cef-resize-sync-bench.py --modes host
-// measures it on the fleet.
+// before initialize waits for it; a view's size stays after its browsers
+// close, for the next browser on it, and the sizes kept are bounded without
+// ending the host. The Mach transport itself (SendFence and the checked-in
+// inbox) is macOS only: cef-resize-sync-bench.py --modes host measures it on
+// the fleet.
 // Run by scripts/cmux-next/tests/chromium-host-dispatch.test.sh.
 #include <cstdio>
 #include <cstdlib>
@@ -255,6 +257,24 @@ struct Fixture {
     host.OnMessages({Op(kOpCreateWindow, 2, create.Take())});
     sent.clear();
   }
+  // cmux's browser `minted` in page view `view`; the fake shim makes it
+  // Chromium's browser 3.
+  void Create(int32_t minted, uint64_t view) {
+    Writer create;
+    create.I32(minted);
+    create.I32(42);
+    create.ViewToken(view);
+    create.I32(800);
+    create.I32(600);
+    create.Str("https://a/");
+    create.Str(nullptr);
+    host.OnMessages({Op(kOpCreateWindow, 0, create.Take())});
+  }
+  // Chromium's browser 3 closes.
+  void Close() {
+    shim.live = 0;
+    HostContext::OnShimEvent(&host, CMUX_SHIM_BEFORE_CLOSE, 3, 0, 0, 0, "", "");
+  }
   // Replies sent since the last call, as "token = result".
   std::vector<std::string> Replies() {
     std::vector<std::string> out;
@@ -323,6 +343,48 @@ void WaitsForInitialize() {
         "and applies after it: create_window opens view 9 at that size");
 }
 
+// cmux keeps a page view token for its pane while the pane's browsers come
+// and go, and sends a size only when it changes: the size a view had stays for
+// the next browser opened on it.
+void AReopenedViewTakesItsLastSize() {
+  Fixture f;
+  f.host.OnMessages({Op(kOpPageResize, 0, Fields(Resize(9, kMinted, 640, 480, 0, 1)))});
+  f.Close();
+  f.log.clear();
+  f.Create(kMinted + 1, 9);
+  Check(f.log == std::vector<std::string>({"resize 9 640x480"}),
+        "the view's only browser closed, a new one on it: its window opens at the last size");
+  Check(f.delegate.calls == std::vector<std::string>({"initialize", "closed"}), "no bad message");
+}
+
+// Sizes of views that are never opened, or closed, take no more room than
+// kMaxSizedViews (2 * 4096, host_dispatch.mm), and a resize past it is never a
+// bad message: the least recently resized closed view's size goes first, an
+// open view's never.
+void ManySizedViewsStayBoundedAndEndNoHost() {
+  Fixture f;
+  f.host.OnMessages({Op(kOpPageResize, 0, Fields(Resize(9, kMinted, 640, 480, 0, 1)))});
+  f.log.clear();
+  constexpr uint64_t kFirst = 1000;
+  constexpr uint64_t kCount = 2 * 4096 + 16;
+  for (uint64_t view = kFirst; view < kFirst + kCount; ++view) {
+    f.host.OnMessages({Op(kOpPageResize, 0, Fields(Resize(view, kMinted, 100, 100, 0, 1)))});
+  }
+  Check(f.delegate.calls == std::vector<std::string>({"initialize"}), "valid resizes past the bound end no host");
+  Check(f.log.empty(), "views never opened are not made");
+  f.Close();
+  f.Create(kMinted + 1, kFirst);
+  Check(f.log.empty(), "the oldest closed view's size went");
+  f.Close();
+  f.Create(kMinted + 2, kFirst + kCount - 1);
+  Check(f.log == std::vector<std::string>({"resize " + std::to_string(kFirst + kCount - 1) + " 100x100"}),
+        "the newest stays");
+  f.Close();
+  f.log.clear();
+  f.Create(kMinted + 3, 9);
+  Check(f.log == std::vector<std::string>({"resize 9 640x480"}), "view 9, open through the flood, kept its size");
+}
+
 }  // namespace
 
 int main() {
@@ -331,6 +393,8 @@ int main() {
   JoinsBeforeTheFrameChange();
   DispatchesThroughTheHost();
   WaitsForInitialize();
+  AReopenedViewTakesItsLastSize();
+  ManySizedViewsStayBoundedAndEndNoHost();
   if (failures != 0) {
     std::fprintf(stderr, "%d failure(s)\n", failures);
     return 1;

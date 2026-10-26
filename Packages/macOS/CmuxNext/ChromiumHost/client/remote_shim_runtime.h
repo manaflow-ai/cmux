@@ -128,6 +128,12 @@ typedef enum {
 // The caller's right stays its own either way.
 CMUX_REMOTE_EXPORT int cmux_remote_shim_page_resize(uint64_t view_token, int browser_id, int width, int height,
                                                     unsigned int fence_port, unsigned int deadline_frames);
+// Sends a copy of the send right `fence` and its `seq` to the fence inbox `channel`: 1 when sent.
+typedef int (*cmux_remote_fence_send_fn)(unsigned int channel, unsigned int fence, uint64_t seq);
+// Main thread. How cmux_remote_shim_page_resize sends a fence right: nullptr (the default) is the
+// Mach message of host_resize.h (SendFence), which sends nothing where there is no Mach; the
+// tests pass their own to drive the fenced path on Linux.
+CMUX_REMOTE_EXPORT void cmux_remote_shim_set_fence_sender(cmux_remote_fence_send_fn send);
 
 }  // extern "C"
 

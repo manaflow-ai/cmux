@@ -56,6 +56,7 @@
 #include <cstdint>
 #include <deque>
 #include <functional>
+#include <list>
 #include <optional>
 #include <string>
 #include <unordered_map>
@@ -227,6 +228,8 @@ class HostContext {
   bool HandleInitialize(const control::Message& message);
   bool HandleTextInputWatch(const control::Message& message);
   bool HandlePageResize(const control::Message& message);
+  // Keeps `token`'s size for the next op that opens its view (view_sizes_).
+  void RememberViewSize(uint64_t token, int32_t width, int32_t height);
   // Watches `chromium_id`'s text input in the fork: its result (0 refused).
   int ArmTextInputWatch(int chromium_id);
   // True while `client_id` is a minted id whose creation event has not come.
@@ -293,9 +296,19 @@ class HostContext {
   std::unordered_set<uint64_t> open_views_;
   std::unordered_map<int, uint64_t> view_of_browser_;
   std::unordered_map<int, uint64_t> devtools_view_of_browser_;
-  // The last kOpPageResize size of each page view token (width, height),
-  // open or not yet: an op that opens the view gives it this size.
-  std::unordered_map<uint64_t, std::pair<int32_t, int32_t>> view_sizes_;
+  // The last kOpPageResize size of each page view token, open, not open yet
+  // or closed: an op that opens the view, again too, gives it this size. cmux
+  // keeps a token for its pane while the pane's browsers come and go, and
+  // sends a size only when it changes, so a closed view's size stays. At most
+  // kMaxSizedViews: a new token's size takes the place of the least recently
+  // resized view that is not open (kMaxPageViews at most are).
+  struct ViewSize {
+    int32_t width = 0;
+    int32_t height = 0;
+    std::list<uint64_t>::iterator order;
+  };
+  std::unordered_map<uint64_t, ViewSize> view_sizes_;
+  std::list<uint64_t> view_size_order_;  // least recently resized first
 
   // Browsers cmux watches the text input of, by Chromium id.
   TextInputPushes text_input_;

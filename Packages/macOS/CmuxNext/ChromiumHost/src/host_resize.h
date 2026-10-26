@@ -33,8 +33,11 @@
 // cmux sends the Mach message first, so when the host reads the op its fence
 // is in the port's queue already, and the host takes it without waiting
 // (MACH_RCV_TIMEOUT 0). The deadline the host passes is at most
-// kMaxFenceDeadlineFrames: a page holds cmux's frame for one display frame at
-// most, then cmux's commit shows the page's last frame on its background.
+// kMaxFenceDeadlineFrames, counted by the fork from its join. cmux bounds the
+// hold from its own commit: a host that joins after that commit has the
+// window's fences ended by cmux one frame after the commit
+// (ChromiumHostResizeFence.swift), and the commit shows the page's last frame
+// on its background.
 //
 // Plain C++ apart from the Mach parts (__APPLE__), so the tests build it on
 // Linux (scripts/cmux-next/tests/chromium-host-dispatch.test.sh).

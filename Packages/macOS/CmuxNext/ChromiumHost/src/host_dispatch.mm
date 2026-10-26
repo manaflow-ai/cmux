@@ -6,6 +6,7 @@
 #include <unistd.h>
 
 #include <cstdio>
+#include <iterator>
 #include <utility>
 
 #include "cmux_cef_shim.h"
@@ -32,6 +33,9 @@ namespace {
 constexpr size_t kMaxWatchedKeys = 16384;
 // Page view tokens open at once.
 constexpr size_t kMaxPageViews = 4096;
+// Page view sizes kept (HostContext::view_sizes_): room for every open view
+// and as many closed ones.
+constexpr size_t kMaxSizedViews = 2 * kMaxPageViews;
 // create_window and create_placeholder_window calls whose AFTER_CREATED has
 // not come yet.
 constexpr size_t kMaxPendingBinds = 4096;
@@ -204,8 +208,7 @@ void HostContext::Handle(control::Message& message) {
 bool HostContext::HandlePageResize(const control::Message& message) {
   const std::optional<PageResize> resize = DecodePageResize(message.fields);
   if (!resize) return false;
-  if (view_sizes_.size() >= kMaxPageViews && !view_sizes_.count(resize->view)) return false;
-  view_sizes_[resize->view] = {resize->width, resize->height};
+  RememberViewSize(resize->view, resize->width, resize->height);
   const int chromium_id = AwaitsCreation(resize->browser) ? 0 : Browser(resize->browser);
   auto change_frame = [&] {
     if (open_views_.count(resize->view)) views_.Resize(resize->view, resize->width, resize->height);
@@ -222,6 +225,26 @@ bool HostContext::HandlePageResize(const control::Message& message) {
     Reply(message.token, reply);
   }
   return true;
+}
+
+void HostContext::RememberViewSize(uint64_t token, int32_t width, int32_t height) {
+  if (auto found = view_sizes_.find(token); found != view_sizes_.end()) {
+    view_size_order_.splice(view_size_order_.end(), view_size_order_, found->second.order);
+    found->second.width = width;
+    found->second.height = height;
+    return;
+  }
+  if (view_sizes_.size() >= kMaxSizedViews) {
+    // At most kMaxPageViews of them are open: a closed one is there to go.
+    for (auto oldest = view_size_order_.begin(); oldest != view_size_order_.end(); ++oldest) {
+      if (open_views_.count(*oldest)) continue;
+      view_sizes_.erase(*oldest);
+      view_size_order_.erase(oldest);
+      break;
+    }
+  }
+  view_size_order_.push_back(token);
+  view_sizes_[token] = {width, height, std::prev(view_size_order_.end())};
 }
 
 bool HostContext::HandleHello(const control::Message& message) {
@@ -514,8 +537,7 @@ void HostContext::ReleaseView(uint64_t token) {
   for (const auto& [browser, other] : devtools_view_of_browser_) {
     if (other == token) return;  // a DevTools placement still names it
   }
-  if (open_views_.erase(token)) views_.Close(token);
-  view_sizes_.erase(token);
+  if (open_views_.erase(token)) views_.Close(token);  // its size stays (view_sizes_)
 }
 
 void* HostContext::PageView(uint64_t token) {
@@ -528,7 +550,7 @@ void* HostContext::PageView(uint64_t token) {
     open_views_.insert(token);
     void* view = views_.Open(token);
     const auto size = view_sizes_.find(token);
-    if (size != view_sizes_.end()) views_.Resize(token, size->second.first, size->second.second);
+    if (size != view_sizes_.end()) views_.Resize(token, size->second.width, size->second.height);
     if (dispatching_) dispatching_view_ = token;
     return view;
   }

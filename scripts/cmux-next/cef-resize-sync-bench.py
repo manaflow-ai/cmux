@@ -17,11 +17,13 @@ checks with debug.layers that the fork really moved the page's pixels, `hosted.f
   host    Chromium in the Chromium Host (feature cefHelperHost, Debug builds): each page resize is an ordered op, no
           fence (the page shows its last frame until the host's page draws the new size)
   hostfence  host, plus feature chromiumHostResizeFence (p01-process-052): the window's commit waits on a Core
-          Animation fence until the host's page joins it, one display frame at most. Rows add fence_resizes,
-          fence_joined and fence_late (`debug.cef` host_resize); acceptance: commit p95 within one display frame and
-          no more missed frames than `host`
-The host modes are not checked with cef-layer-verify.py (it checks in-process layer hosting): summary.json records
-the features they started with, and `hostfence` rows with fence_resizes 0 measured no fenced resize.
+          Animation fence until the host's page joins it, one display frame at most from the commit. Rows add
+          fence_resizes (fenced resizes), fence_joined, fence_late and fence_cut (`debug.cef` host_resize);
+          acceptance: commit p95 within one display frame and no more missed frames than `host`
+The host modes are not checked with cef-layer-verify.py (it checks in-process layer hosting). They start with the
+layer hosting and deadline tunables removed, and a bench of one counts as valid only when the app reported
+`debug.cef` host_resize at its end (null: Chromium ran in process), for `hostfence` with at least one fenced resize.
+summary.json records the features, the tunables file reset and each bench's host_resize.
 
 Benches per mode: `light` (pane-perf-terminal.py --browser 1x2,4x2: the top-left pane is a Chromium page) and `stress`
 (pane-perf-terminal.py --layouts stress --stress-selected chromium: the STRESS session, every pane a Chromium page),
@@ -137,7 +139,30 @@ def stress_session(log_path):
 
 
 KEYS = ("commit_p95_ms", "commit_max_ms", "missed", "frames_p95_ms", "frames_p99_ms", "frames_max_ms", "layout_p95_ms",
-        "refresh_ms", "fence_resizes", "fence_joined", "fence_late")
+        "refresh_ms", "fence_resizes", "fence_joined", "fence_late", "fence_cut")
+
+
+def clear_tunables(path):
+    """Removes the layer hosting and deadline tunables from the build's tunables file (the app has quit)."""
+    data = load(path) or {}
+    for key in (HOSTING_KEY, DEADLINE_KEY):
+        data.setdefault("values", {}).pop(key, None)
+    try:
+        with open(path, "w") as f:
+            json.dump(data, f, indent=2, sort_keys=True)
+    except OSError:
+        pass
+
+
+def host_validity(mode, report):
+    """Why a host mode bench did not measure host mode, None when it did: the app reported `debug.cef` host_resize
+    at the end (null in process), and for `hostfence` at least one fenced resize."""
+    counters = report.get("host_resize")
+    if not isinstance(counters, dict):
+        return "debug.cef host_resize is null: Chromium ran in process"
+    if mode == "hostfence" and not (counters.get("fenced") or 0) > 0:
+        return f"no fenced resize (host_resize {json.dumps(counters)})"
+    return None
 
 
 def record_results(series):
@@ -164,7 +189,11 @@ def main(argv=None):
         hosting, deadline = MODES[mode]
         summary["modes"][mode] = {}
         if mode in HOST_FEATURES:
-            summary["validity"][mode] = {"ok": True, "features": HOST_FEATURES[mode]}
+            # The tunables an in-process mode left would change what the host mode measures.
+            if tunables_file:
+                clear_tunables(tunables_file)
+            summary["validity"][mode] = {"ok": True, "features": HOST_FEATURES[mode], "tunables_reset": tunables_file,
+                                         "benches": {}}
         else:
             ok, facts = check_mode(mode, hosting)
             summary["validity"][mode] = {"ok": ok, **facts}
@@ -186,22 +215,26 @@ def main(argv=None):
             report = load(os.path.join(out, "report.json")) or {}
             rows = [{"layout": r.get("layout"), "action": r.get("action"), **{k: r.get(k) for k in KEYS}}
                     for r in report.get("summary") or []]
+            valid = True
+            if mode in HOST_FEATURES:
+                invalid = host_validity(mode, report)
+                valid = invalid is None
+                summary["validity"][mode]["benches"][bench] = {"ok": valid, "host_resize": report.get("host_resize"),
+                                                               **({"error": invalid} if invalid else {})}
+                if not valid:
+                    summary["validity"][mode]["ok"] = False
+                    print(f"== {mode} {bench}: not a valid {mode} run: {invalid}", flush=True)
+                    failures += 1
             if not rows:
                 failures += 1
-            series += results.cef_resize_series(mode, bench, (report.get("runs") or []) if rows else [], valid=True)
+            series += results.cef_resize_series(mode, bench, (report.get("runs") or []) if rows and valid else [],
+                                                valid=valid)
             summary["modes"][mode][bench] = {"exit": code,
                                              "stress_session": stress_session(os.path.join(out, "log.txt")),
                                              "macos": report.get("macos"), "host": report.get("host"),
                                              "rows": rows or {"error": "no report"}}
     if tunables_file:
-        data = load(tunables_file) or {}
-        for key in (HOSTING_KEY, DEADLINE_KEY):
-            data.setdefault("values", {}).pop(key, None)
-        try:
-            with open(tunables_file, "w") as f:
-                json.dump(data, f, indent=2, sort_keys=True)
-        except OSError:
-            pass
+        clear_tunables(tunables_file)
     with open(os.path.join(opts.out, "summary.json"), "w") as f:
         json.dump(summary, f, indent=2, sort_keys=True)
     for mode, benches in summary["modes"].items():

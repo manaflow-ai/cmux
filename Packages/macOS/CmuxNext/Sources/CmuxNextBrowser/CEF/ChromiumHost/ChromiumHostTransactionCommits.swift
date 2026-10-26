@@ -17,3 +17,8 @@ struct ChromiumHostTransactionCommits: ChromiumHostCommitObserving {
         CATransaction.commit()
     }
 }
+
+/// Runs work on the main thread after a delay (``ChromiumHostWakeUpDeadlines`` in the app; tests fire it).
+protocol ChromiumHostFenceDeadlines {
+    func after(_ delay: Duration, _ body: @escaping @MainActor @Sendable () -> Void)
+}
