@@ -329,12 +329,26 @@ impl Hub {
     /// refused stays queued and goes at the next turn end.
     async fn lane_deliver_ready(self: &Arc<Self>, lane: &str) {
         let now = now_ms();
-        let due = self.lane_links(|links| {
+        let Some(due) = self.lane_take_due(lane, now) else { return };
+        self.lane_hand_over(lane, due, now).await;
+    }
+
+    /// `lane`'s parent and the report due to it now, with its key ([`due_report`]).
+    fn lane_take_due(&self, lane: &str, now: u64) -> Option<(String, Report, String)> {
+        self.lane_links(|links| {
             let l = links.get_mut(lane)?;
             let (report, key) = due_report(l, now)?;
             Some((l.parent.clone(), report, key))
-        });
-        let Some((parent, report, key)) = due else { return };
+        })
+    }
+
+    /// Hands the report [`Hub::lane_take_due`] took to the parent, and records it once taken.
+    async fn lane_hand_over(
+        self: &Arc<Self>,
+        lane: &str,
+        (parent, report, key): (String, Report, String),
+        now: u64,
+    ) {
         if let Err(e) = self.lane_deliver(&parent, lane, &report).await {
             tracing::warn!(lane, %parent, "lane report not delivered: {}", e.message);
             return;
@@ -621,10 +635,87 @@ mod tests {
     }
 
     #[test]
-    fn the_transcript_read_for_a_reply_keeps_each_turns_start() {
-        // `lane_last_reply` reads with the transcript filter and stops at `turn_started`: were it
-        // left out, a turn with no reply would report the turn before's.
-        assert!(super::super::paging::TRANSCRIPT_MUX_KINDS.contains(&"turn_started"));
+    fn a_turn_with_no_reply_never_reads_the_turn_befores_through_the_transcript_filter() {
+        let mux = |seq: u64, kind: &str| crate::store::EventRecord {
+            seq,
+            at: 0,
+            dir: "mux".into(),
+            kind: kind.into(),
+            msg: json!({}),
+            host_seq: None,
+        };
+        let reply = |seq: u64, text: &str| crate::store::EventRecord {
+            seq,
+            at: 0,
+            dir: "in".into(),
+            kind: "agent_message_chunk".into(),
+            msg: json!({"jsonrpc": "2.0", "method": "session/update", "params": {"sessionId": "a",
+                "update": {"sessionUpdate": "agent_message_chunk",
+                           "content": {"type": "text", "text": text}}}}),
+            host_seq: None,
+        };
+        // Turn 1 replies; turn 2 ends with no reply of its own.
+        let log = [
+            mux(1, "turn_started"),
+            reply(2, "turn one's reply"),
+            mux(3, "turn_result"),
+            mux(4, "turn_started"),
+            mux(5, "turn_result"),
+        ];
+        // What `lane_last_reply` reads: the transcript filter, newest pages first.
+        let filter = EventFilter::parse(Some(&json!(["transcript"]))).unwrap();
+        let read = |last_seq: u64| {
+            let page = |before: u64| -> Result<EventPage> {
+                let events: Vec<_> =
+                    log.iter().filter(|r| r.seq < before && filter.matches(r)).cloned().collect();
+                Ok(EventPage { has_more: false, events })
+            };
+            let records = last_turn_records(last_seq, page).unwrap();
+            let events: Vec<Value> = records
+                .into_iter()
+                .map(|r| json!({"seq": r.seq, "dir": r.dir, "kind": r.kind, "msg": r.msg}))
+                .collect();
+            last_reply(&events)
+        };
+        assert_eq!(read(3).as_deref(), Some("turn one's reply"));
+        assert_eq!(read(5), None);
+    }
+
+    #[tokio::test]
+    async fn a_report_taken_for_a_lane_that_closes_before_it_goes_never_reaches_the_parent() {
+        let fake = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
+        let mut cfg: crate::config::Config = serde_json::from_value(json!({
+            "harnesses": {"fake": {"argv": ["python3", fake]}},
+            "defaultHarness": "fake",
+        }))
+        .unwrap();
+        cfg.store.mode = crate::config::StoreMode::Memory;
+        let store = crate::store::open(&cfg.store, std::path::Path::new("/nonexistent")).unwrap();
+        let hub = Hub::new(cfg, store);
+        let start = || NewRequest { cwd: Some(std::env::temp_dir()), ..NewRequest::default() };
+        let parent = hub.new_session(start()).await.unwrap();
+        let lane = hub.new_session(start()).await.unwrap();
+        hub.lane_link(&parent.id, &lane.id);
+        let queued = Report {
+            content: "idle\nlast words".into(),
+            prompt_id: format!("{PROMPT_PREFIX}test"),
+            name: "lane".into(),
+            session: lane.id.clone(),
+            turn: 1,
+            state: "idle".into(),
+            reply: "last words".into(),
+            prs: vec![],
+            shas: vec![],
+        };
+        hub.lane_links(|l| l.get_mut(&lane.id).unwrap().ready = Some(queued));
+        // The report is taken; the lane closes (its link retired) before it is handed over.
+        let now = now_ms();
+        let due = hub.lane_take_due(&lane.id, now).unwrap();
+        hub.kill(&lane, true).await.unwrap();
+        hub.lane_hand_over(&lane.id, due, now).await;
+        tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+        assert_eq!(parent.meta().turn_count, 0, "the closed lane's report went in");
+        hub.kill(&parent, true).await.unwrap();
     }
 
     #[tokio::test]
