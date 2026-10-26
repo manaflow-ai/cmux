@@ -52,7 +52,9 @@ enum Kind : uint32_t {
                    // cmux sends the geometry again when the window moves or changes screen or scale)
   kMouse = 3,      // v0 x, v1 y (points, top left), v2 phase (0 move, 1 down, 2 up, 3 exit), v3 button
                    // (0 left, 1 middle, 2 right), v4 click count, flags = NSEventModifierFlags, t0 event time
-  kWheel = 4,      // v0 x, v1 y, v2 dx, v3 dy (pixels), flags, t0
+  kWheel = 4,      // v0 x, v1 y, v2 dx, v3 dy (pixels), v4 scroll phase, v5 momentum phase
+                   // (cmux_shim_browser_send_wheel's values: 0 none, 1 may begin, 2 began,
+                   // 3 changed, 4 ended, 5 cancelled), ch 1 for precise (trackpad) deltas, flags, t0
   kKey = 5,        // v0 phase (0 down, 1 up, 2 flags changed), v1 key code, v2 repeat, flags, ch, unmod, t0
   kFocus = 6,      // v0 1 focused, 0 not
   kPing = 7,       // t0 cmux send time; the host answers kPong
@@ -215,7 +217,8 @@ class FrameQueue {
       *waiting = next;  // the newest position, buttons and event time
       return true;
     }
-    if (waiting->kind == kWheel && next.kind == kWheel && waiting->flags == next.flags) {
+    if (waiting->kind == kWheel && next.kind == kWheel && waiting->flags == next.flags &&
+        waiting->v[4] == next.v[4] && waiting->v[5] == next.v[5] && waiting->ch == next.ch) {
       const int32_t dx = waiting->v[2], dy = waiting->v[3];
       *waiting = next;  // the newest position and event time, the summed deltas
       waiting->v[2] = SaturatingAdd(dx, next.v[2]);

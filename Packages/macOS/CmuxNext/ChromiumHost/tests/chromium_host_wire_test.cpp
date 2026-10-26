@@ -128,6 +128,30 @@ int main() {
     Check(q.size() == 2, "a move with other modifier flags is its own frame");
   }
   {
+    // Wheel ticks of another scroll phase, momentum phase or precision never fold (p01-process-042).
+    Queue q(8);
+    q.MarkReady();
+    cmux_host::Header began;
+    began.kind = cmux_host::kWheel;
+    began.v[3] = -1;
+    began.v[4] = 2;
+    began.ch = 1;
+    q.Add(began, {});
+    cmux_host::Header changed = began;
+    changed.v[4] = 3;
+    q.Add(changed, {});
+    q.Add(changed, {});
+    cmux_host::Header momentum = changed;
+    momentum.v[4] = 0;
+    momentum.v[5] = 3;
+    q.Add(momentum, {});
+    cmux_host::Header coarse = momentum;
+    coarse.ch = 0;
+    q.Add(coarse, {});
+    auto taken = q.Take();
+    Check(taken.size() == 4 && taken[1].header.v[3] == -2, "a wheel folds only into a tick of its own phase");
+  }
+  {
     Queue q(3);
     q.MarkReady();
     Check(q.Add(key, {}) != Queue::Push::kFull && q.Add(key, {}) != Queue::Push::kFull &&

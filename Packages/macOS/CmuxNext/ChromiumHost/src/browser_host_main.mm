@@ -9,7 +9,10 @@
 // browser_main_loop.cc), it runs CefRunMessageLoop itself: no external pump.
 //
 // Launched by cmux with the control socket on fd 3:
-//   <host> --framework=<CEF framework dir>
+//   <host> --framework=<CEF framework dir> [--input-doorbell=<name>]
+// With --input-doorbell, fd 5 holds the input ring (chromium_host_input_ring.h): keys, clicks,
+// pointer moves and wheel ticks, dispatched on Chromium's user-input queue and acked there
+// (host_input.h, task p01-process-042).
 // Order on the wire: each side's HELLO (the host's after the fork
 // capabilities' MIRRORs); cmux's queued preinit ops, applied in order; INITIALIZE, which runs
 // cmux_shim_initialize (CefInitialize) with an event_fn that forwards each
@@ -42,9 +45,11 @@
 #include "include/cef_application_mac.h"
 
 #include "chromium_host_control.h"
+#include "chromium_host_input_ring.h"
 #include "chromium_host_wire.h"
 #include "cmux_cef_shim.h"
 #include "host_dispatch.h"
+#include "host_input.h"
 
 @interface ChromiumHostApplication : NSApplication <CefAppProtocol> {
   BOOL _handlingSendEvent;
@@ -128,6 +133,29 @@ void PostToMain(std::function<void()> task) {
     }
   });
   CFRunLoopWakeUp(main);
+}
+
+// Runs an input batch on the UI thread: on Chromium's user-input queue, the browser's highest
+// priority (BrowserTaskType::kUserInput, content/public/browser/browser_task_traits.h), once
+// CEF runs (`user_input_queue`), and in PostToMain's order before that or on a fork without
+// the queue. The reader hands over one batch at a time (input_ring::BatchGate), so batches keep
+// their order across the switch. Any thread.
+void PostInputTask(const std::atomic<bool>& user_input_queue, std::function<void()> task) {
+  if (user_input_queue.load(std::memory_order_acquire)) {
+    auto* boxed = new std::function<void()>(std::move(task));
+    const int posted = cmux_shim_post_user_input_task(
+        [](void* context) {
+          std::unique_ptr<std::function<void()>> run(static_cast<std::function<void()>*>(context));
+          @autoreleasepool {
+            (*run)();
+          }
+        },
+        boxed);
+    if (posted) return;
+    task = std::move(*boxed);
+    delete boxed;
+  }
+  PostToMain(std::move(task));
 }
 
 std::string Arg(const std::vector<std::string>& args, const std::string& name) {
@@ -227,6 +255,17 @@ int main(int argc, char* argv[]) {
   }
   const std::string framework = Arg(args, "framework");
   const std::string binary = framework + "/Chromium Embedded Framework";
+  // The input ring and its doorbell, checked in before the HELLO, when cmux passed them.
+  const std::string doorbell_name = Arg(args, "input-doorbell");
+  void* ring = nullptr;
+  cmux_host::input_ring::MachDoorbell doorbell;
+  if (!doorbell_name.empty()) {
+    ring = cmux_host::input_ring::MapRegion(cmux_host::input_ring::kRingFd);
+    if (ring == nullptr || !doorbell.CheckIn(doorbell_name.c_str())) {
+      fprintf(stderr, "cmux-chromium-host: the input ring or its doorbell %s cannot be used\n", doorbell_name.c_str());
+      return cmux_host::kExitNoWire;
+    }
+  }
 
   @autoreleasepool {
     [ChromiumHostApplication sharedApplication];
@@ -262,6 +301,33 @@ int main(int argc, char* argv[]) {
       kControlFd, &PostToMain,
       [&host](std::vector<cmux_host::control::Message> messages) { host.OnMessages(std::move(messages)); },
       [&host_main](cmux_host::control::End) { host_main.Quit(); });
+
+  // The input reader starts here too, after the framework load. Each frame goes to its page and
+  // the batch's moves and wheel ticks are acked once dispatched (host_input.h).
+  std::atomic<bool> user_input_queue{false};
+  using HostInput = cmux_host::input_ring::HostInput<cmux_host::input_ring::MachDoorbell>;
+  std::unique_ptr<HostInput> input;
+  if (ring != nullptr) {
+    input = std::make_unique<HostInput>(ring, doorbell);
+    input->Start(
+        [&user_input_queue](std::function<void()> task) { PostInputTask(user_input_queue, std::move(task)); },
+        [&host, &channel](const HostInput::Frames& frames) {
+          cmux_host::AckBatch acks;
+          for (const cmux_host::Header& frame : frames) {
+            cmux_host::DispatchInputFrame(host.Browser(cmux_host::input_ring::BrowserOf(frame)), frame);
+            acks.Add(frame);
+          }
+          if (!acks.empty() && channel) channel->Send(acks.Take());
+        },
+        [&host_main](cmux_host::input_ring::Reader::End end) {
+          if (end == cmux_host::input_ring::Reader::End::kBroken) {
+            host_main.BadMessage("input ring: a position or a frame no writer makes");
+            return;
+          }
+          fprintf(stderr, "cmux-chromium-host: the input doorbell failed; no input can arrive\n");
+          host_main.Quit();
+        });
+  }
   host.Attach();
 
   // Preinit ops apply as they arrive; INITIALIZE (or the channel's end) stops
@@ -296,13 +362,17 @@ int main(int argc, char* argv[]) {
       return cmux_host::kExitInitialize;
     }
     host_main.set_running();
+    user_input_queue.store(true, std::memory_order_release);
     PostToMain([&host] { host.Resume(); });
     CefRunMessageLoop();
+    if (input) input->Stop();  // no batch runs after this, so none reaches a shut down Chromium
     channel->Close();
     cmux_shim_shutdown();
     status = host_main.exit_status();
   } else {
     channel->Close();
   }
+  input.reset();
+  cmux_host::input_ring::UnmapRegion(ring);
   return status;
 }

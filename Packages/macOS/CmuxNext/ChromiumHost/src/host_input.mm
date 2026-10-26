@@ -1,0 +1,124 @@
+// Ring frames to Chromium (host_input.h, task p01-process-042). The events are what cefclient's
+// off-screen view builds from an NSEvent (tests/cefclient/browser/browser_window_osr_mac.mm);
+// wheel ticks go through the fork's cmux_shim_browser_send_wheel, which keeps the scroll and
+// momentum phases a trackpad gesture needs (fork API 30), and through
+// CefBrowserHost::SendMouseWheelEvent on a fork without it.
+#import <AppKit/AppKit.h>
+
+#include <algorithm>
+
+#include "include/cef_browser.h"
+
+#include "cmux_cef_shim.h"
+#include "host_input.h"
+#include "shim_internal.h"
+
+namespace cmux_host {
+namespace {
+
+// NSEventModifierFlags and the pressed mouse buttons (bits 1 left, 2 right, 4 middle) as
+// cef_event_flags_t.
+uint32_t CefFlags(uint64_t modifiers, int32_t buttons) {
+  uint32_t flags = 0;
+  if (modifiers & NSEventModifierFlagCapsLock) flags |= EVENTFLAG_CAPS_LOCK_ON;
+  if (modifiers & NSEventModifierFlagShift) flags |= EVENTFLAG_SHIFT_DOWN;
+  if (modifiers & NSEventModifierFlagControl) flags |= EVENTFLAG_CONTROL_DOWN;
+  if (modifiers & NSEventModifierFlagOption) flags |= EVENTFLAG_ALT_DOWN;
+  if (modifiers & NSEventModifierFlagCommand) flags |= EVENTFLAG_COMMAND_DOWN;
+  if (modifiers & NSEventModifierFlagNumericPad) flags |= EVENTFLAG_IS_KEY_PAD;
+  if (buttons & 1) flags |= EVENTFLAG_LEFT_MOUSE_BUTTON;
+  if (buttons & 2) flags |= EVENTFLAG_RIGHT_MOUSE_BUTTON;
+  if (buttons & 4) flags |= EVENTFLAG_MIDDLE_MOUSE_BUTTON;
+  return flags;
+}
+
+// The modifier a flags-changed key code belongs to.
+uint64_t ModifierOfKey(int32_t key_code) {
+  switch (key_code) {
+    case 56: case 60: return NSEventModifierFlagShift;
+    case 59: case 62: return NSEventModifierFlagControl;
+    case 58: case 61: return NSEventModifierFlagOption;
+    case 55: case 54: return NSEventModifierFlagCommand;
+    case 57: return NSEventModifierFlagCapsLock;
+    default: return 0;
+  }
+}
+
+// kKey: v0 phase (0 down, 1 up, 2 flags changed), v1 key code, v2 repeat, flags, ch, unmod.
+void SendKey(CefRefPtr<CefBrowserHost> host, const Header& frame) {
+  CefKeyEvent event;
+  event.native_key_code = frame.v[1];
+  event.modifiers = CefFlags(frame.flags, 0);
+  if (frame.v[2]) event.modifiers |= EVENTFLAG_IS_REPEAT;
+  if (frame.v[0] == 2) {
+    // No characters: CEF builds a flags-changed event.
+    event.type = (frame.flags & ModifierOfKey(frame.v[1])) ? KEYEVENT_RAWKEYDOWN : KEYEVENT_KEYUP;
+    host->SendKeyEvent(event);
+    return;
+  }
+  event.character = frame.ch;
+  event.unmodified_character = frame.unmod;
+  event.type = frame.v[0] == 1 ? KEYEVENT_KEYUP : KEYEVENT_RAWKEYDOWN;
+  host->SendKeyEvent(event);
+  if (frame.v[0] == 1) return;
+  // Text: a character that is not a function key (U+F700..U+F8FF), with no Command chord.
+  const bool function_key = frame.ch >= 0xF700 && frame.ch <= 0xF8FF;
+  if (frame.ch != 0 && !function_key && !(frame.flags & NSEventModifierFlagCommand)) {
+    event.type = KEYEVENT_CHAR;
+    host->SendKeyEvent(event);
+  }
+}
+
+// kMouse: v0 x, v1 y, v2 phase (0 move, 1 down, 2 up, 3 exit), v3 button (0 left, 1 middle,
+// 2 right), v4 click count, v5 pressed buttons, flags.
+void SendMouse(CefRefPtr<CefBrowserHost> host, const Header& frame) {
+  CefMouseEvent mouse;
+  mouse.x = frame.v[0];
+  mouse.y = frame.v[1];
+  mouse.modifiers = CefFlags(frame.flags, frame.v[5]);
+  const int32_t phase = frame.v[2];
+  if (phase == 0 || phase == 3) {
+    host->SendMouseMoveEvent(mouse, phase == 3);
+    return;
+  }
+  const cef_mouse_button_type_t button = frame.v[3] == 2 ? MBT_RIGHT : frame.v[3] == 1 ? MBT_MIDDLE : MBT_LEFT;
+  host->SendMouseClickEvent(mouse, button, phase == 2, std::max(1, frame.v[4]));
+}
+
+// kWheel: v0 x, v1 y, v2 dx, v3 dy (pixels), v4 phase, v5 momentum phase, ch 1 when precise.
+void SendWheel(int chromium_browser_id, CefRefPtr<CefBrowserHost> host, const Header& frame) {
+  const uint32_t modifiers = CefFlags(frame.flags, 0);
+  if (cmux_shim_browser_send_wheel(chromium_browser_id, frame.v[0], frame.v[1], frame.v[2], frame.v[3],
+                                   frame.ch & 1, frame.v[4], frame.v[5], static_cast<int>(modifiers))) {
+    return;
+  }
+  CefMouseEvent mouse;
+  mouse.x = frame.v[0];
+  mouse.y = frame.v[1];
+  mouse.modifiers = modifiers;
+  host->SendMouseWheelEvent(mouse, frame.v[2], frame.v[3]);
+}
+
+}  // namespace
+
+void DispatchInputFrame(int chromium_browser_id, const Header& frame) {
+  CefRefPtr<CefBrowser> browser = cmux_shim::BrowserById(chromium_browser_id);
+  if (!browser) return;
+  CefRefPtr<CefBrowserHost> host = browser->GetHost();
+  if (!host) return;
+  switch (frame.kind) {
+    case kKey:
+      SendKey(host, frame);
+      break;
+    case kMouse:
+      SendMouse(host, frame);
+      break;
+    case kWheel:
+      SendWheel(chromium_browser_id, host, frame);
+      break;
+    default:
+      break;
+  }
+}
+
+}  // namespace cmux_host

@@ -39,10 +39,10 @@
 // receive right in under that name (bootstrap_check_in, as Chromium's
 // MachPortRendezvousServer does in base/apple/mach_port_rendezvous_mac.cc)
 // before its HELLO, and cmux looks it up once after the HELLO, off main.
-// HostInput below is the host's reader. browser_host_main.mm starts it in
-// task 042, which dispatches the frames to Chromium and acks them; until
-// then the host takes no --input-doorbell, so no key reaches a host that
-// would drop it.
+// HostInput below is the host's reader. browser_host_main.mm starts it when
+// cmux passes --input-doorbell, dispatches each batch on Chromium's
+// user-input queue and acks its moves and wheel ticks there (host_input.h,
+// task 042).
 #pragma once
 
 #include <fcntl.h>

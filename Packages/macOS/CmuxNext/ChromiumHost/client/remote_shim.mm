@@ -12,9 +12,12 @@
 //                             value to forget the key; before the EVENT that refreshes it
 //                 kOpAck      `token`'s op ran: its pending marks clear
 //                 kOpReply    the answer to an awaited `token`, its fields to the reply callback
+//                 kOpInputAck (i32 browser, i32 kind, u32 seq) per dispatched move or wheel tick,
+//                             to the input ack callback (chromium_host_tlv.h)
 // Anything else from the host is malformed and ends it, as bad_message::ReceivedBadMessage ends
 // a renderer (content/browser/bad_message.cc).
 
+#include "chromium_host_wire.h"
 #include "cmux_cef_shim.h"
 #include "cmux_page_path.h"
 #include "remote_shim_mirror.h"
@@ -47,6 +50,7 @@ using cmux_host::control::Channel;
 using cmux_host::control::End;
 using cmux_host::control::Field;
 using cmux_host::control::kOpHello;
+using cmux_host::control::kOpInputAck;
 using cmux_host::control::kTagNull;
 using cmux_host::control::Message;
 
@@ -188,6 +192,12 @@ class Runtime {
     CMUX_REMOTE_ASSERT_MAIN();
     reply_ = reply;
     reply_ctx_ = ctx;
+  }
+
+  void SetInputAck(void* ctx, cmux_remote_input_ack_fn ack) {
+    CMUX_REMOTE_ASSERT_MAIN();
+    input_ack_ = ack;
+    input_ack_ctx_ = ctx;
   }
 
   int Attach(int fd, void* in_ring, void* out_ring) {
@@ -497,6 +507,32 @@ class Runtime {
     closing_.erase(generation);
   }
 
+  // kOpInputAck: every record is checked before any reaches the callback, so a malformed ack
+  // moves no page's input on.
+  bool ApplyInputAck(const Message& message) {
+    if (message.reply || message.token != 0) return false;
+    struct Record {
+      int32_t browser, kind;
+      uint32_t seq;
+    };
+    std::vector<Record> records;
+    TlvReader r(message.fields);
+    while (!r.AtEnd()) {
+      const Record record{r.I32(), r.I32(), r.U32()};
+      if (!r.ok() || (record.kind != cmux_host::kMouse && record.kind != cmux_host::kWheel)) return false;
+      records.push_back(record);
+    }
+    if (records.empty()) return false;
+    for (const Record& record : records) {
+      if (input_ack_) {
+        input_ack_(input_ack_ctx_, record.browser, record.kind, record.seq);
+      } else {
+        ++stats_.input_acks_unhandled;
+      }
+    }
+    return true;
+  }
+
   // False for a malformed frame.
   bool Apply(const Message& message) {
     TlvReader r(message.fields);
@@ -545,6 +581,8 @@ class Runtime {
         }
         return true;
       }
+      case kOpInputAck:
+        return ApplyInputAck(message);
       case kOpHello: {
         const std::optional<std::string> wire = r.Str();
         std::vector<std::string> exports = r.StrList();
@@ -564,6 +602,9 @@ class Runtime {
   // Where REPLY frames go: the configured callback, or cmux_remote_shim_set_reply's.
   cmux_remote_reply_fn reply_ = nullptr;
   void* reply_ctx_ = nullptr;
+  // Where kOpInputAck records go (cmux_remote_shim_set_input_ack).
+  cmux_remote_input_ack_fn input_ack_ = nullptr;
+  void* input_ack_ctx_ = nullptr;
   Link link_ = Link::kNotYet;
   std::unique_ptr<Channel> channel_;
   // Closed channels whose reader has not reported its end yet, by generation.
@@ -688,6 +729,10 @@ uint32_t cmux_remote_shim_last_reply_token(void) {
 
 void cmux_remote_shim_set_reply(void* ctx, cmux_remote_reply_fn reply) {
   R().SetReply(ctx, reply);
+}
+
+void cmux_remote_shim_set_input_ack(void* ctx, cmux_remote_input_ack_fn ack) {
+  R().SetInputAck(ctx, ack);
 }
 
 // --- local exports (chromium-host-ops.json class local) --------------------------------------

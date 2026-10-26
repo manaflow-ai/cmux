@@ -26,12 +26,15 @@ import QuartzCore
 ///
 /// Input (``InputTarget``): with ``InputTarget/view`` this view is the page's
 /// input target and first responder (host mode: mouse, scroll, keys and Edit
-/// menu actions become wire frames for ``sink``, one per event, in the
-/// event's own turn: no display-tick alignment here, the renderer aligns
-/// input to its frames, as Chrome's browser process forwards input at once;
-/// ``ChromiumHostConnection`` coalesces only under socket back-pressure). With
-/// ``InputTarget/pageWindow`` the fork's transparent page window above takes
-/// every event (in-process layer hosting), and this view takes none.
+/// menu actions become wire frames for ``sink`` in the event's own turn: no
+/// display-tick alignment here, the renderer aligns input to its frames, as
+/// Chrome's browser process forwards input at once). With an owner that
+/// delivers the host's input acks (``pacesInput``, ``inputAcked(_:)``), a
+/// move or wheel tick still leaves at once when none of its kind is in
+/// flight, and later ones wait coalesced for the ack
+/// (``ChromiumHostInputPacer``, task p01-process-042); keys and clicks never
+/// wait. With ``InputTarget/pageWindow`` the fork's transparent page window
+/// above takes every event (in-process layer hosting), and this view takes none.
 public final class ChromiumHostPageView: NSView {
     /// Where the page's input goes.
     enum InputTarget: Equatable, Sendable {
@@ -75,6 +78,15 @@ public final class ChromiumHostPageView: NSView {
     /// Where frames for the host go (``InputTarget/view`` only), synchronously
     /// from the event handler: a sink must write or queue, never wait.
     var sink: ((ChromiumHostFrame) -> Void)?
+    /// Moves and wheel ticks wait for the host's ack of the one in flight; set
+    /// by an owner that calls ``inputAcked(_:)`` (the input ring's host acks
+    /// each at dispatch). Off, every frame goes to ``sink`` at once. Turning it
+    /// on or off forgets what was in flight.
+    var pacesInput = false {
+        didSet { inputPacer = pacesInput ? ChromiumHostInputPacer() : nil }
+    }
+    /// The pacing state while ``pacesInput``.
+    private(set) var inputPacer: ChromiumHostInputPacer?
     private var tracking: NSTrackingArea?
     #endif
 
@@ -287,15 +299,42 @@ public final class ChromiumHostPageView: NSView {
 #if DEBUG || CMUX_BENCH_HOOKS
 // The Chromium host app ships in Debug builds only (embed-cef.sh), and so does its wire.
 extension ChromiumHostPageView {
+    // MARK: Pacing
+
+    /// The host dispatched this page's move or wheel tick in flight: the next
+    /// waiting one leaves now. Main thread, in the host's ack order.
+    func inputAcked(_ kind: ChromiumHostInputPacer.Paced) {
+        guard let next = inputPacer?.acked(kind) else { return }
+        sink?(next)
+    }
+
+    /// The host this page's input went to is gone (or a new one attached):
+    /// nothing is in flight to it any more.
+    func resetInputPacing() {
+        inputPacer?.reset()
+    }
+
+    /// Every input frame of this view: through the pacer while ``pacesInput``.
+    /// The pacer's state changes before ``sink`` runs, so a sink that acks at
+    /// once (a test's fake host) re-enters cleanly.
+    private func send(_ frame: ChromiumHostFrame) {
+        guard inputPacer != nil else {
+            sink?(frame)
+            return
+        }
+        guard let out = inputPacer?.submit(frame) else { return }
+        sink?(out)
+    }
+
     // MARK: Focus
 
     public override func becomeFirstResponder() -> Bool {
-        sink?(ChromiumHostFrame(.focus, v: [1]))
+        send(ChromiumHostFrame(.focus, v: [1]))
         return true
     }
 
     public override func resignFirstResponder() -> Bool {
-        sink?(ChromiumHostFrame(.focus, v: [0]))
+        send(ChromiumHostFrame(.focus, v: [0]))
         return true
     }
 
@@ -332,18 +371,33 @@ extension ChromiumHostPageView {
     public override func scrollWheel(with event: NSEvent) {
         let point = pagePoint(event)
         // Pixel deltas, as cefclient's off-screen view reads them.
-        let dy = event.cgEvent.map { Int32($0.getIntegerValueField(.scrollWheelEventPointDeltaAxis1)) } ?? 0
-        let dx = event.cgEvent.map { Int32($0.getIntegerValueField(.scrollWheelEventPointDeltaAxis2)) } ?? 0
-        sink?(ChromiumHostFrame(.wheel, v: [point.x, point.y, dx, dy], flags: UInt64(event.modifierFlags.rawValue),
-                                t0: Self.nanoseconds(event.timestamp)))
+        let dy = event.cgEvent.map { Int32(clamping: $0.getIntegerValueField(.scrollWheelEventPointDeltaAxis1)) } ?? 0
+        let dx = event.cgEvent.map { Int32(clamping: $0.getIntegerValueField(.scrollWheelEventPointDeltaAxis2)) } ?? 0
+        var frame = ChromiumHostFrame(.wheel, v: [point.x, point.y, dx, dy, Self.wheelPhase(event.phase), Self.wheelPhase(event.momentumPhase)],
+                                      flags: UInt64(event.modifierFlags.rawValue), t0: Self.nanoseconds(event.timestamp))
+        frame.ch = event.hasPreciseScrollingDeltas ? 1 : 0
+        send(frame)
+    }
+
+    /// An `NSEvent.Phase` as `cmux_shim_browser_send_wheel` takes it: 0 none,
+    /// 1 may begin, 2 began, 3 changed, 4 ended, 5 cancelled. Chrome reads the
+    /// same bits (`PhaseForNSEventPhase`, ui/events/blink/web_input_event_builders_mac.mm);
+    /// a stationary tick, which the shim has no value for, is a change with no movement.
+    static func wheelPhase(_ phase: NSEvent.Phase) -> Int32 {
+        if phase.contains(.mayBegin) { return 1 }
+        if phase.contains(.began) { return 2 }
+        if phase.contains(.changed) || phase.contains(.stationary) { return 3 }
+        if phase.contains(.ended) { return 4 }
+        if phase.contains(.cancelled) { return 5 }
+        return 0
     }
 
     private func mouse(_ event: NSEvent, phase: Int32, button: Int32) {
         let point = pagePoint(event)
         // Pressed buttons as bits: 1 left, 2 right, 4 middle (NSEvent's order, the wire's too).
         let buttons = Int32(truncatingIfNeeded: NSEvent.pressedMouseButtons & 0x7)
-        sink?(ChromiumHostFrame(.mouse, v: [point.x, point.y, phase, button, Int32(phase == 0 || phase == 3 ? 0 : event.clickCount), buttons],
-                                flags: UInt64(event.modifierFlags.rawValue), t0: Self.nanoseconds(event.timestamp)))
+        send(ChromiumHostFrame(.mouse, v: [point.x, point.y, phase, button, Int32(phase == 0 || phase == 3 ? 0 : event.clickCount), buttons],
+                               flags: UInt64(event.modifierFlags.rawValue), t0: Self.nanoseconds(event.timestamp)))
     }
 
     /// The event's point in page coordinates: points from the top left.
@@ -365,7 +419,7 @@ extension ChromiumHostPageView {
             frame.ch = event.characters?.utf16.first ?? 0
             frame.unmod = event.charactersIgnoringModifiers?.utf16.first ?? 0
         }
-        sink?(frame)
+        send(frame)
     }
 
     // MARK: Edit menu
@@ -378,7 +432,7 @@ extension ChromiumHostPageView {
     @objc public func redo(_ sender: Any?) { edit(5) }
 
     private func edit(_ command: Int32) {
-        sink?(ChromiumHostFrame(.edit, v: [command]))
+        send(ChromiumHostFrame(.edit, v: [command]))
     }
 
     /// An event time (seconds since boot) as CLOCK_UPTIME_RAW nanoseconds, the host's clock too.

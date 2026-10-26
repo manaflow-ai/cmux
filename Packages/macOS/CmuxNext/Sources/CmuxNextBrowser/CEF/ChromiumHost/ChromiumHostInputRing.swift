@@ -288,6 +288,8 @@ final class ChromiumHostInputRing {
             return true
         }
         if next.rawKind == ChromiumHostFrame.Kind.wheel.rawValue {
+            // One scroll phase, momentum phase and precision only (p01-process-042).
+            guard waiting.v[4] == next.v[4], waiting.v[5] == next.v[5], waiting.ch == next.ch else { return false }
             let dx = waiting.v[2], dy = waiting.v[3]
             waiting = next  // the newest position, time and seq; the summed deltas
             waiting.v[2] = saturatingAdd(dx, next.v[2])

@@ -3,10 +3,12 @@
 // protocol, how the reader ends, the host reader's back-pressure handshake
 // (HostInput: a batch in flight refuses, the UI thread's ring takes the reader
 // on) over 1,000,000 frames, and a process pair that moves 1,000,000 frames
-// with no loss and in order. Run by
+// with no loss and in order, and the acks the host sends for a dispatched batch (AckBatch,
+// host_input.h, task p01-process-042). Run by
 // scripts/cmux-next/tests/chromium-host-input-ring.test.sh; on macOS the
 // doorbell is the real Mach port, elsewhere a pipe.
 #include "../src/chromium_host_input_ring.h"
+#include "../src/host_input.h"
 
 #include <fcntl.h>
 #include <sched.h>
@@ -436,6 +438,40 @@ void TestProcessPair() {
               static_cast<unsigned long long>(rings), static_cast<unsigned long long>(full));
 }
 
+// A batch's acks: one record per pointer move and wheel tick (the frames cmux paces), in batch
+// order, with the client browser and the frame's seq; keys, clicks and exits get none.
+void TestAckBatch() {
+  auto frame = [](uint32_t kind, int32_t phase, int32_t browser, uint32_t seq) {
+    Header h;
+    h.kind = kind;
+    h.v[kind == cmux_host::kKey ? 0 : 2] = phase;
+    SetBrowser(&h, browser);
+    h.seq = seq;
+    return h;
+  };
+  cmux_host::AckBatch acks;
+  EXPECT(acks.empty());
+  acks.Add(frame(cmux_host::kKey, 0, 7, 1));
+  acks.Add(frame(cmux_host::kMouse, 0, 7, 2));    // move
+  acks.Add(frame(cmux_host::kMouse, 1, 7, 3));    // down
+  acks.Add(frame(cmux_host::kWheel, 3, 9, 4));    // wheel tick, phase changed
+  acks.Add(frame(cmux_host::kMouse, 3, 7, 5));    // exit
+  acks.Add(frame(cmux_host::kMouse, 0, -2, 6));   // a move of a page with a negative client id
+  EXPECT(acks.count() == 3);
+  const cmux_host::control::Message message = acks.Take();
+  EXPECT(acks.empty());
+  EXPECT(message.op == cmux_host::control::kOpInputAck && !message.reply && message.token == 0);
+  cmux_host::control::TlvReader r(message.fields);
+  EXPECT(r.I32() == 7 && r.I32() == static_cast<int32_t>(cmux_host::kMouse) && r.U32() == 2);
+  EXPECT(r.I32() == 9 && r.I32() == static_cast<int32_t>(cmux_host::kWheel) && r.U32() == 4);
+  EXPECT(r.I32() == -2 && r.I32() == static_cast<int32_t>(cmux_host::kMouse) && r.U32() == 6);
+  EXPECT(r.ok() && r.AtEnd());
+  // The next batch starts empty.
+  acks.Add(frame(cmux_host::kWheel, 4, 9, 8));
+  const cmux_host::control::Message next = acks.Take();
+  EXPECT(next.fields.size() == 3);
+}
+
 }  // namespace
 
 int main() {
@@ -448,6 +484,7 @@ int main() {
   TestHostInputReportsItsEnd();
   TestHostInputBackPressure();
   TestProcessPair();
+  TestAckBatch();
   if (failures != 0) {
     std::fprintf(stderr, "%d failures\n", failures);
     return 1;

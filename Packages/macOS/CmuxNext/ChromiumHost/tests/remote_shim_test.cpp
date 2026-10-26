@@ -28,6 +28,7 @@ namespace {
 using cmux_host::control::Decode;
 using cmux_host::control::Encode;
 using cmux_host::control::EncodeFields;
+using cmux_host::control::Field;
 using cmux_host::control::Message;
 using cmux_host::control::Parse;
 using cmux_host::control::TlvReader;
@@ -199,6 +200,41 @@ void OnSchedule(void*, int64_t) {
 
 void OnEnded(void*, int reason) {
   seen.ended = reason;
+}
+
+uint64_t stats_unhandled_input_acks() {
+  cmux_remote_shim_stats stats = {};
+  cmux_remote_shim_get_stats(&stats);
+  return stats.input_acks_unhandled;
+}
+
+// The input acks (kOpInputAck, task p01-process-042) the callback got, in order.
+struct InputAck {
+  int32_t browser, kind;
+  uint32_t seq;
+  bool operator==(const InputAck& other) const {
+    return browser == other.browser && kind == other.kind && seq == other.seq;
+  }
+};
+std::vector<InputAck> input_acks;
+int input_ack_ctx = 0;
+
+void OnInputAck(void* ctx, int32_t browser, int32_t kind, uint32_t seq) {
+  CHECK(ctx == &input_ack_ctx);
+  input_acks.push_back(InputAck{browser, kind, seq});
+}
+
+Message InputAckMessage(const std::vector<InputAck>& records) {
+  TlvWriter w;
+  for (const InputAck& record : records) {
+    w.I32(record.browser);
+    w.I32(record.kind);
+    w.U32(record.seq);
+  }
+  Message message;
+  message.op = cmux_host::control::kOpInputAck;
+  message.fields = w.Take();
+  return message;
 }
 
 }  // namespace
@@ -411,6 +447,20 @@ int main() {
     }
   }
 
+  // The host's input acks reach the input ack callback, every record in the host's order; with
+  // no callback they are counted.
+  {
+    const std::vector<InputAck> sent = {{browser, cmux_host::kMouse, 41}, {browser + 1, cmux_host::kWheel, 42},
+                                        {browser, cmux_host::kWheel, 43}};
+    host.Send(InputAckMessage(sent));
+    CHECK(PumpUntil([] { return stats_unhandled_input_acks() == 3; }));
+    cmux_remote_shim_set_input_ack(&input_ack_ctx, &OnInputAck);
+    host.Send(InputAckMessage(sent));
+    CHECK(PumpUntil([] { return input_acks.size() == 3; }));
+    CHECK(input_acks == sent);
+    CHECK(cmux_remote_shim_attached() == 1);
+  }
+
   // Settings changes after initialize go now, and into the replay log for the next host.
   cmux_shim_set_new_tab_page_url("cmux-page://latest/");
   cmux_shim_set_background_color(0xff445566u);
@@ -503,6 +553,30 @@ int main() {
   PumpUntil([] { return false; }, std::chrono::milliseconds(100));
   CHECK(seen.ended == -1);
   ::close(third.fd);
+
+  // An input ack of a kind cmux does not pace, an empty one or a cut record is malformed: it ends
+  // the host, and no record of it reaches the callback.
+  std::vector<Field> cut = InputAckMessage({{browser, cmux_host::kWheel, 52}}).fields;
+  cut.pop_back();
+  for (const std::vector<Field>& fields : {
+           InputAckMessage({{browser, cmux_host::kMouse, 50}, {browser, cmux_host::kKey, 51}}).fields,
+           std::vector<Field>(), cut}) {
+    Host bad;
+    CHECK(AttachNew(&bad) == 1);
+    bad.Read(1);  // HELLO
+    seen.ended = -1;
+    input_acks.clear();
+    Message ack;
+    ack.op = cmux_host::control::kOpInputAck;
+    ack.fields = fields;
+    bad.Send(ack);
+    CHECK(PumpUntil([] { return seen.ended >= 0; }));
+    CHECK(seen.ended == CMUX_REMOTE_END_MALFORMED);
+    CHECK(input_acks.empty());
+    ::close(bad.fd);
+    PumpUntil([] { return false; }, std::chrono::milliseconds(50));
+  }
+  cmux_remote_shim_set_input_ack(nullptr, nullptr);
 
   // View tokens: cmux passes the page view's token where the ABI takes a parent NSView*, and it
   // travels as is (never a pointer the client reads); NULL is 0.
