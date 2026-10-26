@@ -11,10 +11,11 @@ import Testing
 /// through `ProjectionCore` (what `HomeProjection` installs), derives the
 /// transcript rows with `RowBuilder` and draws the part rows with `RowDraw`.
 @MainActor @Suite struct HomeGroupSenderTests {
-    static let me = ParticipantID("user_me")
-    static let alice = ParticipantID("user_alice")
-    static let bob = ParticipantID("user_bob")
-    static let chief = ParticipantID("agent_chief")
+    /// Nonisolated: `@Test(arguments:)` reads the ids outside the main actor.
+    nonisolated static let me = ParticipantID("user_me")
+    nonisolated static let alice = ParticipantID("user_alice")
+    nonisolated static let bob = ParticipantID("user_bob")
+    nonisolated static let chief = ParticipantID("agent_chief")
     static let id = ConversationID("conv_group")
 
     static func date(_ t: Double) -> Date { Replay.base.addingTimeInterval(t) }

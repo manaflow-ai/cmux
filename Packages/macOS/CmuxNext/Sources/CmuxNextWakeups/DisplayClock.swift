@@ -97,6 +97,11 @@ public final class DisplayClock {
     /// Display links made since creation, stall rebuilds included (debug.wakeups).
     public private(set) var linksMade: UInt64 = 0
 
+    /// The display links ``FrameScheduler/app`` and the window schedulers on this clock tick on, and
+    /// their frames: the ``MainWorkScheduler`` waits for none to run before a long idle period, and
+    /// their frames open short ones. The budgeted scheduler does not report here.
+    public let unbudgetedLinks: UnbudgetedFrameLinks
+
     /// Each display's link runs at the highest ``FrameClient/rate`` armed on it (feature
     /// `frameRateClasses`); false: every link runs at ``FrameRate/motion``, whatever its clients ask.
     public var followsClientRates: Bool {
@@ -123,6 +128,7 @@ public final class DisplayClock {
                 mediaTime: @escaping @MainActor () -> CFTimeInterval = { CACurrentMediaTime() },
                 followsClientRates: Bool = false, presents: FramePresentEstimate? = nil) {
         self.presents = presents ?? FramePresentEstimate()
+        unbudgetedLinks = UnbudgetedFrameLinks()
         self.followsClientRates = followsClientRates
         self.hub = hub
         self.makeLink = makeLink
@@ -161,6 +167,26 @@ public final class DisplayClock {
 
     /// The rate `display`'s link was last asked for; nil while the display has no link.
     public func frameRate(on display: CGDirectDisplayID) -> FrameRate? { displays[display]?.rate }
+
+    /// The last link frame of the key window's display (``newestFrame(for:)`` with no window): the grid an action's
+    /// estimated present and a late motion commit are placed on, as the person acts in and watches the key window.
+    public func newestFrame() -> DisplayFrameSample? { newestFrame(for: nil) }
+
+    /// The last link frame of the display `window` is on (nil: the key window's), with whether that display's link
+    /// runs now: the vsync grid ``DisplayFrameSample`` places a time on, as Chrome's compositor reads the
+    /// `BeginFrameSource` of its own display (ui/display/mac/display_link_mac.h, one link per display). Nil when
+    /// that display had no link frame yet. With no screen at all, the newest frame of any display, never marked
+    /// running (its phase is another display's). Reads only: no link is made or resumed, and a display keeps its
+    /// last frame when its link stops.
+    public func newestFrame(for window: NSWindow?) -> DisplayFrameSample? {
+        if let id = displayOf(window) {
+            guard let display = displays[id], let vsync = display.lastVsync else { return nil }
+            return DisplayFrameSample(timestamp: vsync.timestamp, interval: vsync.interval,
+                                      linkRunning: display.link.map { !$0.isPaused } ?? false)
+        }
+        let newest = displays.values.compactMap { $0.lastVsync }.max { $0.timestamp < $1.timestamp }
+        return newest.flatMap { DisplayFrameSample(timestamp: $0.timestamp, interval: $0.interval, linkRunning: false) }
+    }
 
     // MARK: Subscribers
 
@@ -323,6 +349,7 @@ public final class DisplayClock {
         display.frames &+= 1
         display.lastFrame = now
         display.stalls = 0
+        if let timestamp, let refreshInterval { display.lastVsync = (timestamp, refreshInterval) }
         deliver(display, timestamp: timestamp, refreshInterval: refreshInterval, targetTimestamp: targetTimestamp,
                 hiddenUntil: now - Self.stallSeconds)
         guard !display.subscribers.isEmpty else { return idle(display) }
@@ -524,6 +551,8 @@ public final class DisplayClock {
         var frames: UInt64 = 0
         /// A next-turn tick is queued for a client that raised the rate (``tickOnNextTurn(_:)``).
         var raiseTickQueued = false
+        /// The last link frame's vsync time and refresh period (``DisplayClock/newestFrame(for:)``), kept when the link stops.
+        var lastVsync: (timestamp: CFTimeInterval, interval: Double)?
         /// A next-turn tick is queued for subscribers that came while the display had no link.
         var linklessTickQueued = false
 
