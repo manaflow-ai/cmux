@@ -80,11 +80,10 @@ extension InputObservationBuilder {
     }
 
     /// `observation` in the schema's form: public window ids (`win_<hex>`, as `snapshot.get` prints them), the
-    /// model's target and resolved kind as `debug.focus` names them, and per window whether the world
-    /// invariants hold for it (an unsettled window does not: the oracle reads after a settle).
+    /// model's target and resolved kind as `debug.focus` names them, and per window whether no world
+    /// invariant violation names it. Settle state is not folded in: `debug.oracle.settle` and I5 own it.
     static func oracleFocus(_ observation: InputObservation) -> OracleValue {
-        let world = InputInvariants.world(observation)
-        let broken = Set(world.violations.compactMap(\.window)).union(world.unsettled)
+        let broken = Set(InputInvariants.world(observation).violations.compactMap(\.window))
         func id(_ key: String?) -> OracleValue { key.map { .string(ControlWindowInfo.publicID(forKey: $0)) } ?? .null }
         func string(_ value: String?) -> OracleValue { value.map(OracleValue.string) ?? .null }
         let windows = observation.windows.map { window -> OracleValue in
@@ -92,8 +91,8 @@ extension InputObservationBuilder {
             return [
                 "id": id(window.id),
                 "isKey": .bool(window.isKey),
-                // The responder's kind; its pane is the model's (W1 checks the two agree).
                 "responder": .string(String(FocusResponderClassifier.describe(window.responder).prefix { $0 != ":" })),
+                "responderPane": string(window.responder.pane),
                 "layoutFocus": string(window.layoutFocus),
                 "ghosttyFocused": .array(window.ghosttyFocused.map(OracleValue.string)),
                 "childPage": string(window.childPage),
