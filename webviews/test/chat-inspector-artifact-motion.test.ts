@@ -3,9 +3,8 @@ import { chromium, type Browser } from "playwright";
 import { requireBrowserLane } from "./support/requireBrowserLane";
 import { inspectorPushAlways, papercutPane } from "./support/papercutChat";
 
-const REPLY = "Here is the preview:\n\n```cmux-render\n<title>Motion probe</title><p>preview</p>\n```";
-
 await requireBrowserLane("chat-inspector-artifact-motion.test.ts", async () => {
+  const REPLY = "Here is the preview:\n\n```cmux-render\n<title>Motion probe</title><p>preview</p>\n```";
   setDefaultTimeout(300_000);
   let browser: Browser | undefined;
   let pane: Awaited<ReturnType<typeof papercutPane>> | undefined;
