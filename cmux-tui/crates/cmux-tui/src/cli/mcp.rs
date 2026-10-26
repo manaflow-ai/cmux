@@ -20,6 +20,7 @@ mod agent_events_tool;
 mod agent_tools;
 mod agent_wait_tool;
 mod browser_tools;
+mod caller_scope;
 mod code_mode;
 mod config;
 mod keybinding_tools;
@@ -101,6 +102,7 @@ pub(super) const MAX_RESULT_BYTES: usize = 256 << 10;
 const INSTRUCTIONS: &str = "These tools drive the cmux terminal app and its session daemon. \
     Objects have stable public ids (ws_…, screen_…, pane_…, tab_…, term_…, win_…) that the \
     *_list tools report; a unique prefix works, and <session>:<id> reaches another session. \
+    `current` is this chat's own workspace or pane; `focused` is the one the person looks at. \
     A change takes idempotency_key: when a call fails with state in_progress, retry it with the \
     key from the error so it cannot apply twice. Tools never move the user's focus unless the \
     call passes focus: true or the tool's purpose is focus. \
@@ -164,6 +166,18 @@ pub(super) trait Backend {
             "acpmux.unavailable",
             "this server cannot reach acpmux agent dispatch",
         ))
+    }
+    /// Where this server's caller is: the app's `caller` from
+    /// `system.identify` (its workspace, screen, pane and tab ids), `Null`
+    /// when the app cannot place it, `None` when the environment names no
+    /// caller (a client outside a cmux chat or terminal).
+    fn caller(&self) -> Result<Option<Value>, CallFailure> {
+        Ok(None)
+    }
+    /// What the person looks at: the app's focus from `snapshot.get` (its
+    /// window, workspace, pane and tab ids).
+    fn focus(&self) -> Result<Option<Value>, CallFailure> {
+        Ok(None)
     }
     /// Holds the session daemon's `session.events` stream open until
     /// `deadline` and calls `on_wake` with each item (the initial snapshot
@@ -229,6 +243,33 @@ impl Backend for LiveBackend {
         prefixes: &[Prefix],
     ) -> Result<Value, CallFailure> {
         transport::resource(&self.routed(session)?, plan, prefixes)
+    }
+
+    fn caller(&self) -> Result<Option<Value>, CallFailure> {
+        if super::app::caller_from(|key| std::env::var(key).ok()).is_none() {
+            return Ok(None);
+        }
+        let identity = transport::app_method(
+            &self.global,
+            "system.identify",
+            json!({}),
+            super::app::READ_TIMEOUT,
+            None,
+            false,
+        )?;
+        Ok(Some(identity.get("caller").cloned().unwrap_or(Value::Null)))
+    }
+
+    fn focus(&self) -> Result<Option<Value>, CallFailure> {
+        let snapshot = transport::app_method(
+            &self.global,
+            "snapshot.get",
+            json!({}),
+            super::app::READ_TIMEOUT,
+            None,
+            false,
+        )?;
+        Ok(snapshot.get("topology").and_then(|topology| topology.get("focus")).cloned())
     }
 
     fn session_events(
@@ -862,10 +903,13 @@ impl<B: Backend> Server<B> {
     }
 
     fn call_v2(&self, tool: &v2_tools::V2Tool, arguments: &Map<String, Value>) -> Value {
-        let call = match tool.plan(arguments) {
+        let mut call = match tool.plan(arguments) {
             Ok(call) => call,
             Err(error) => return tool_error(envelope(error, "not_run", None)),
         };
+        if let Err(error) = self.place_caller(&mut call) {
+            return tool_error(envelope(error, "not_run", None));
+        }
         let page = call.page;
         match self.backend.resource(call.session.as_deref(), call.plan, &call.prefixes) {
             Ok(value) => success(
@@ -877,6 +921,37 @@ impl<B: Backend> Server<B> {
             ),
             Err(failure) => failure_result(failure),
         }
+    }
+
+    /// Puts the caller's own ids in place of `current` selectors and the
+    /// app's focus in place of `focused` ([`caller_scope`]). A call to
+    /// another session than the server's has neither there.
+    fn place_caller(&self, call: &mut v2_tools::CallPlan) -> Result<(), Value> {
+        let Some(params) = call.plan.params.as_object_mut() else { return Ok(()) };
+        if call.session.is_some() {
+            return Ok(());
+        }
+        let caller = if caller_scope::wants_caller(params) {
+            match self.backend.caller() {
+                Ok(Some(Value::Null)) => {
+                    return Err(caller_scope::unresolved("the app does not know this chat"));
+                }
+                Ok(caller) => caller,
+                Err(failure) => {
+                    let message = failure.error["message"].as_str().unwrap_or("no answer");
+                    return Err(caller_scope::unresolved(message));
+                }
+            }
+        } else {
+            None
+        };
+        // An app that cannot say what is in front leaves the daemon's
+        // `current`, its active object.
+        let focus = caller_scope::wants_focus(params)
+            .then(|| self.backend.focus().ok().flatten())
+            .flatten();
+        caller_scope::apply(params, caller.as_ref(), focus.as_ref());
+        Ok(())
     }
 
     fn call_window_list(&self, arguments: &Map<String, Value>) -> Value {
