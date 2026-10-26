@@ -2451,6 +2451,7 @@ fn run_server(
     // interactive client attaches. Install the non-terminal sink as soon as
     // the owner mux exists, before serving or adopting clients.
     app::install_mux_diagnostic_logger(&mux);
+    drop(mux.start_metrics_file(state_root.as_deref()));
     // After restore and adoption: a terminal that joins the catalog later
     // wakes the worker itself.
     if let Err(error) = mux.start_cold_scrollback(&feature_flags::daemon_features()) {

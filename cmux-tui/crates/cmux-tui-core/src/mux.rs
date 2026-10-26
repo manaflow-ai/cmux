@@ -213,6 +213,7 @@ mod kitty_budget;
 mod kitty_reservation;
 mod launch_identity;
 mod ledger_maintenance;
+mod metrics_file;
 #[cfg(any(debug_assertions, feature = "oracle"))]
 mod oracle;
 mod pinned_columns;
