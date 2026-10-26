@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Darwin
 import Foundation
 import os
@@ -13,7 +14,11 @@ import os
 /// the app's children registers `NOTE_EXEC | NOTE_EXIT | NOTE_EXITSTATUS`
 /// on each new one, and the exit event carries the wait status before
 /// Chromium reaps the child.
-nonisolated final class CEFChildProcessMonitor: @unchecked Sendable {
+///
+/// The kqueue, its source and the watched children are one ``State`` behind a
+/// `Mutex`; only the monitor's queue takes it, so it is never contended. Exits
+/// are reported after the lock is released.
+nonisolated final class CEFChildProcessMonitor: Sendable {
     struct Exit: Sendable, Equatable {
         var pid: Int32
         var processType: String
@@ -23,49 +28,67 @@ nonisolated final class CEFChildProcessMonitor: @unchecked Sendable {
         var status: Int32
     }
 
+    private nonisolated struct State {
+        var kq: Int32 = -1
+        var source: (any DispatchSourceRead)?
+        /// Children being watched: pid -> helper identity (nil until exec).
+        var children: [Int32: CEFHelperIdentity?] = [:]
+    }
+
     private let queue = DispatchQueue(label: "com.cmuxterm.app.next.cef-children", qos: .userInitiated)
     private let onExit: @Sendable (Exit) -> Void
+    /// Each pid the monitor starts watching (tests wait for it before they end a child).
+    private let onWatch: @Sendable (Int32) -> Void
     private let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "cef-children")
-    private var kq: Int32 = -1
-    private var source: (any DispatchSourceRead)?
-    /// Children being watched: pid -> helper identity (nil until exec).
-    private var children: [Int32: CEFHelperIdentity?] = [:]
+    private let state = Mutex(State())
 
-    init(onExit: @escaping @Sendable (Exit) -> Void) {
+    init(onExit: @escaping @Sendable (Exit) -> Void, onWatch: @escaping @Sendable (Int32) -> Void = { _ in }) {
         self.onExit = onExit
+        self.onWatch = onWatch
     }
 
     /// Starts watching on the monitor's own queue (idempotent).
     func start() {
         queue.async { [self] in
-            guard kq < 0 else { return }
-            let fd = kqueue()
-            guard fd >= 0 else {
-                logger.error("kqueue failed: \(errno)")
-                return
+            let watched = state.withLock { state -> [Int32] in
+                guard state.kq < 0 else { return [] }
+                let fd = kqueue()
+                guard fd >= 0 else {
+                    logger.error("kqueue failed: \(errno)")
+                    return []
+                }
+                var event = kevent(ident: UInt(getpid()), filter: Int16(EVFILT_PROC), flags: UInt16(EV_ADD | EV_CLEAR),
+                                   fflags: UInt32(NOTE_FORK), data: 0, udata: nil)
+                guard kevent(fd, &event, 1, nil, 0, nil) == 0 else {
+                    logger.error("NOTE_FORK watch failed: \(errno)")
+                    close(fd)
+                    return []
+                }
+                state.kq = fd
+                let source = DispatchSource.makeReadSource(fileDescriptor: fd, queue: queue)
+                source.setEventHandler { [weak self] in self?.drain() }
+                source.resume()
+                state.source = source
+                return Self.rescan(&state)
             }
-            var event = kevent(ident: UInt(getpid()), filter: Int16(EVFILT_PROC), flags: UInt16(EV_ADD | EV_CLEAR),
-                               fflags: UInt32(NOTE_FORK), data: 0, udata: nil)
-            guard kevent(fd, &event, 1, nil, 0, nil) == 0 else {
-                logger.error("NOTE_FORK watch failed: \(errno)")
-                close(fd)
-                return
-            }
-            kq = fd
-            let source = DispatchSource.makeReadSource(fileDescriptor: fd, queue: queue)
-            source.setEventHandler { [weak self] in self?.drain() }
-            source.resume()
-            self.source = source
-            rescan()
+            for pid in watched { onWatch(pid) }
         }
     }
 
     private func drain() {
+        let found = state.withLock { state in Self.drain(&state) }
+        for pid in found.watched { onWatch(pid) }
+        for exit in found.exits { onExit(exit) }
+    }
+
+    /// Reads the pending events: the helpers that ended and the children newly watched.
+    private static func drain(_ state: inout State) -> (exits: [Exit], watched: [Int32]) {
         var events = Array(repeating: Darwin.kevent(), count: 16)
         var zero = timespec(tv_sec: 0, tv_nsec: 0)
-        let count = kevent(kq, nil, 0, &events, Int32(events.count), &zero)
-        guard count > 0 else { return }
+        let count = kevent(state.kq, nil, 0, &events, Int32(events.count), &zero)
+        guard count > 0 else { return ([], []) }
         var needsRescan = false
+        var exits: [Exit] = []
         for event in events.prefix(Int(count)) {
             let pid = Int32(truncatingIfNeeded: event.ident)
             if pid == getpid() {
@@ -73,32 +96,36 @@ nonisolated final class CEFChildProcessMonitor: @unchecked Sendable {
                 continue
             }
             if event.fflags & UInt32(NOTE_EXEC) != 0 {
-                children[pid] = CEFHelperIdentity.read(pid: pid)
+                state.children[pid] = CEFHelperIdentity.read(pid: pid)
             }
             if event.fflags & UInt32(NOTE_EXIT) != 0 {
-                let identity = children.removeValue(forKey: pid) ?? nil
+                let identity = state.children.removeValue(forKey: pid) ?? nil
                 guard let identity else { continue }
-                onExit(Exit(pid: pid, processType: identity.processType, subType: identity.subType,
-                            isExtension: identity.isExtension, status: Int32(truncatingIfNeeded: event.data)))
+                exits.append(Exit(pid: pid, processType: identity.processType, subType: identity.subType,
+                                  isExtension: identity.isExtension, status: Int32(truncatingIfNeeded: event.data)))
             }
         }
-        if needsRescan { rescan() }
+        return (exits, needsRescan ? rescan(&state) : [])
     }
 
-    private func rescan() {
+    /// Registers every child not watched yet; returns their pids.
+    private static func rescan(_ state: inout State) -> [Int32] {
         var pids = [pid_t](repeating: 0, count: 256)
         let bytes = proc_listchildpids(getpid(), &pids, Int32(pids.count * MemoryLayout<pid_t>.stride))
-        guard bytes > 0 else { return }
+        guard bytes > 0 else { return [] }
         // proc_listchildpids returns a count on current macOS (bytes on
         // older ones); take whichever fits the buffer.
         let count = min(Int(bytes), pids.count)
-        for pid in pids.prefix(count) where pid > 0 && children[pid] == nil {
+        var watched: [Int32] = []
+        for pid in pids.prefix(count) where pid > 0 && state.children[pid] == nil {
             var event = kevent(ident: UInt(pid), filter: Int16(EVFILT_PROC), flags: UInt16(EV_ADD | EV_CLEAR),
                                fflags: UInt32(NOTE_EXEC) | UInt32(NOTE_EXIT) | UInt32(NOTE_EXITSTATUS), data: 0, udata: nil)
             // Fails when the child already exited (and was reaped).
-            guard kevent(kq, &event, 1, nil, 0, nil) == 0 else { continue }
-            children[pid] = CEFHelperIdentity.read(pid: pid)
+            guard kevent(state.kq, &event, 1, nil, 0, nil) == 0 else { continue }
+            state.children[pid] = CEFHelperIdentity.read(pid: pid)
+            watched.append(pid)
         }
+        return watched
     }
 }
 

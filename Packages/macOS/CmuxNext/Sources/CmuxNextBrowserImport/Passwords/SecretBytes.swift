@@ -10,6 +10,7 @@ public import Foundation
 /// `Data`, never print (descriptions and mirrors are redacted), and are not
 /// `Codable`, so they cannot reach a log, a crash report, telemetry or a file
 /// by accident. Hand them on only through `withUnsafeBytes`.
+// crash-allow: the buffer and count change only in init, zero() and deinit; a holder hands the bytes on and calls zero() after its last read (AppPasswordDestination, PasswordConflictHold, on the main actor), and every other use only reads.
 public final class SecretBytes: @unchecked Sendable {
     private var buffer: UnsafeMutableRawBufferPointer
     private let locked: Bool

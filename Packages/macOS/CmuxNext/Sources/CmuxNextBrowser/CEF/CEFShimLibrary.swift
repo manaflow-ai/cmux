@@ -9,8 +9,8 @@ import Foundation
 /// is loaded only when the first CEF tab is created, so a session without CEF
 /// tabs never maps the shim or the 367 MiB Chromium framework, and SwiftPM
 /// builds need no CEF headers.
-/// Immutable C function pointers: safe to hand from the loading thread to the
-/// main thread.
+/// Immutable C function pointers: safe to hand from the loading thread to the main thread.
+// crash-allow: every stored property is a let holding a C function pointer (no context, nothing captured) resolved once in init; a value type that never mutates after make shares no state.
 nonisolated struct CEFShimLibrary: @unchecked Sendable {
     typealias ScheduleFn = @convention(c) (UnsafeMutableRawPointer?, Int64) -> Void
     /// `cmux_shim_schedule_delayed_fn`: ctx, run time (uptime ns, `Int64.max` for none), leeway ns,

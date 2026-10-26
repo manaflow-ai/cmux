@@ -1,4 +1,5 @@
 import AppKit
+import CmuxNextCompat
 public import Foundation
 import Security
 public import WebKit
@@ -126,39 +127,44 @@ extension WebKitTab: PageInfoProviding {
               let trust = challenge.protectionSpace.serverTrust else {
             return answer(challenge, completionHandler: completionHandler)
         }
-        // Evaluation can fetch intermediates or revocation data: never
-        // on the main thread (architecture.md 5a).
-        let box = ServerTrustBox(trust: trust)
         let excepted = engine?.hasCertificateException(challenge.protectionSpace.host, profile: profileID) ?? false
         if !excepted { completionHandler(.performDefaultHandling, nil) }
-        Task.detached { [weak self] in
-            let result = box.evaluate()
-            await MainActor.run {
-                if excepted {
-                    let trusted = result == nil
-                    completionHandler(trusted ? .performDefaultHandling : .useCredential, trusted ? nil : URLCredential(trust: box.trust))
-                }
-                guard let activity = self?.pageInfoActivity else { return }
-                if let failure = result {
-                    activity.recordCertificateFailure(chain: failure.chain, reason: failure.reason)
-                } else {
-                    activity.clearCertificateFailure()
-                }
+        // Evaluation can fetch intermediates or revocation data: never on the main thread
+        // (architecture.md 5a). Security evaluates on its own queue and answers on main, where this
+        // delegate call runs, so the trust never crosses threads in Swift; Chromium likewise verifies on
+        // a worker and replies on the calling sequence (net/cert/multi_threaded_cert_verifier.cc).
+        let status = SecTrustEvaluateAsyncWithError(trust, .main) { [weak self] evaluated, trusted, error in
+            if excepted {
+                completionHandler(trusted ? .performDefaultHandling : .useCredential, trusted ? nil : URLCredential(trust: evaluated))
+            }
+            guard let activity = self?.pageInfoActivity else { return }
+            if trusted {
+                activity.clearCertificateFailure()
+            } else {
+                let failure = ServerTrustFailure(trust: evaluated, error: error)
+                activity.recordCertificateFailure(chain: failure.chain, reason: failure.reason)
             }
         }
+        // The evaluation never started: WebKit's own evaluation decides, as for a host with no exception.
+        if status != errSecSuccess, excepted { completionHandler(.performDefaultHandling, nil) }
     }
 }
 
-/// A `SecTrust` handed to a background evaluation. SecTrust is thread-safe
-/// for evaluation; it is only not annotated `Sendable`.
-nonisolated struct ServerTrustBox: @unchecked Sendable {
-    let trust: SecTrust
+/// Why a server trust failed: the chain (leaf first) and the reason, read from an evaluated `SecTrust`.
+nonisolated struct ServerTrustFailure {
+    let chain: [Data]
+    let reason: String?
 
-    /// nil when the trust evaluates, else the chain and the failure reason.
-    func evaluate() -> (chain: [Data], reason: String?)? {
+    init(trust: SecTrust, error: CFError?) {
+        chain = (SecTrustCopyCertificateChain(trust) as? [SecCertificate] ?? []).map { SecCertificateCopyData($0) as Data }
+        reason = error.map { CFErrorCopyDescription($0) as String }
+    }
+
+    /// Evaluates `trust` on the calling thread (a URLSession delegate queue, never the main thread);
+    /// nil when the system trusts it.
+    static func evaluate(_ trust: SecTrust) -> ServerTrustFailure? {
         var error: CFError?
-        guard !SecTrustEvaluateWithError(trust, &error) else { return nil }
-        let chain = (SecTrustCopyCertificateChain(trust) as? [SecCertificate] ?? []).map { SecCertificateCopyData($0) as Data }
-        return (chain, error.map { CFErrorCopyDescription($0) as String })
+        guard !blockingSecTrustEvaluate(trust, &error) else { return nil }
+        return ServerTrustFailure(trust: trust, error: error)
     }
 }

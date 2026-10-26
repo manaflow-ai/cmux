@@ -7,6 +7,7 @@ public import Foundation
 /// buffer, which must stay alive and unchanged until `importPasswords`
 /// returns (the shim copies everything before it returns). The row buffer is
 /// zeroed before it is freed.
+// crash-allow: count and rows are lets and the row bytes and strings are written only in init; copied() runs on the main actor (CEFRuntime, CEFEngine) right after the synchronous shim call, and deinit only once no holder is left, so no two threads touch afterCopy or the buffers at once.
 public nonisolated final class ChromiumPasswordRows: @unchecked Sendable {
     static let stride = 72
     let count: Int
