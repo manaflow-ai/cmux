@@ -34,6 +34,8 @@ import PackageDescription
 //     motion tokens, theme specs, settings enums; CmuxNextDesign re-exports it)
 //   CmuxNextFeatures -> Compat, swift-atomics (base::FeatureList: the feature registry and the immutable
 //     resolved snapshot the App builds once; plans/cmux-next/chrome-parity/p12-perf-process.md section 3.9)
+//   CmuxNextMemory -> Compat only (the memory coordinator, budgets from RAM and the memory report; the consumer
+//     protocol and traits live in Compat so any module registers a consumer with no new edge; p07-memory.md)
 //   CmuxNextIcons -> system frameworks only (the cmux icon pack, catalog, renderer and Icon view)
 //   CmuxNextChiefMemory -> Design (the built-in Memory Inspector: model and view; the App supplies its daemon-backed source)
 //   CmuxNextSettings -> Design, Actions (cmux.json load/watch/apply, SettingsSchema)
@@ -234,6 +236,7 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
                 "CmuxNextWorkspaceRepair",
                 "CmuxNextCLIInstall",
                 "CmuxNextMallocZone",
+                "CmuxNextMemory",
                 "CmuxNextProcessEnvironment",
                 "CmuxNextCrashReporting",
                 "CmuxNextHangReports",
@@ -821,6 +824,19 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: ["CmuxNextHostPressure", "CmuxNextTrace", "CmuxNextMetrics"],
             swiftSettings: daemonSwiftSettings
         ),
+        // The memory coordinator (plans/cmux-next/chrome-parity/p07-memory.md section 3.A): one per
+        // process, a port of Chrome's base/memory_coordinator over the consumer protocol and traits in
+        // CmuxNextCompat/Memory. A leaf: it depends only on CmuxNextCompat and only the App imports it.
+        .target(
+            name: "CmuxNextMemory",
+            dependencies: ["CmuxNextCompat"],
+            swiftSettings: uiSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextMemoryTests",
+            dependencies: ["CmuxNextCompat", "CmuxNextMemory"],
+            swiftSettings: uiSwiftSettings
+        ),
         // VS Code (Inline): the one `serve-web` server on 127.0.0.1 behind Open Folder in VS Code
         // (Inline) and Stop/Restart VS Code Inline Server. The App opens its URL in a browser tab.
         .target(
@@ -1300,6 +1316,11 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         .target(
             name: "CmuxNextWakeupsTestSupport",
             dependencies: ["CmuxNextCompat", "CmuxNextWakeups"],
+            swiftSettings: daemonSwiftSettings
+        ),
+        .testTarget(
+            name: "CmuxNextWakeupsTests",
+            dependencies: ["CmuxNextCompat", "CmuxNextWakeups", "CmuxNextWakeupsTestSupport"],
             swiftSettings: daemonSwiftSettings
         ),
         // Install cmux CLI in PATH: the /usr/local/bin link to the bundled CLI
