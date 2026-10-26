@@ -23,9 +23,18 @@ sys.modules["sanitizer_sweep"] = ss
 spec.loader.exec_module(ss)
 
 FLEET = {"CMUX_CI_STEP_KEY": "step-1", "PATH": "/usr/bin:/bin"}
+TOOLCHAIN = ss.Toolchain("/Applications/Xcode_26.6.app/Contents/Developer",
+                         "/Applications/Xcode_26.6.app/Contents/Developer/Platforms/MacOSX.platform/SDKs/MacOSX.sdk")
 TSAN = (FIXTURES / "tsan-race.txt").read_text()
 ASAN = (FIXTURES / "asan-uaf.txt").read_text()
 HANG = (FIXTURES / "hang-sample.txt").read_text()
+# A strict-pool deadlock: the main thread idles in dispatch_main, the one cooperative worker waits on a semaphore.
+POOL_STALL = (HERE / "fixtures" / "sanitizer-sweep" / "pool-stall-sample.txt").read_text()
+
+
+def watchdog_sample(process: str, sample: str) -> str:
+    """How hung_test_watchdog.py prints one process's `sample` report."""
+    return f"::group::Stack sample of {process} (5150)\n{sample}::endgroup::\n"
 
 
 def lane_text(package: str, targets: dict[str, tuple[str, str]]) -> str:
@@ -49,8 +58,7 @@ class FakeLane:
         self.calls: list[tuple[str, str, dict]] = []
 
     def __call__(self, package, env, log: Path):
-        mode = env.get("CMUX_SWIFT_SANITIZE") or ("coop-strict" if env.get("LIBDISPATCH_COOPERATIVE_POOL_STRICT")
-                                                  else "base")
+        mode = env.get("CMUX_SWIFT_SANITIZE") or ("coop-strict" if env.get("CMUX_SWIFT_TEST_COOP_STRICT") else "base")
         self.calls.append((mode, package.path, dict(env)))
         status, text = self.scripts.get((mode, package.path), (0, lane_text(package.path, {
             t: ("passed", "✔ Test passed.") for t in package.tests})))
@@ -82,7 +90,8 @@ MANIFESTS = {
 def make_dump(root: Path):
     calls: list[str] = []
 
-    def dump(package_dir: Path) -> dict:
+    def dump(toolchain, package_dir: Path, environ) -> dict:
+        assert toolchain == TOOLCHAIN, toolchain
         relative = package_dir.relative_to(root).as_posix()
         calls.append(relative)
         text = json.dumps(MANIFESTS[relative]).replace("{root}", str(root))
@@ -105,7 +114,8 @@ class SweepCase(unittest.TestCase):
     def run_main(self, argv, lane, environ=FLEET, system="Darwin"):
         stdout, stderr = io.StringIO(), io.StringIO()
         with redirect_stdout(stdout), redirect_stderr(stderr):
-            status = ss.main(argv, environ=environ, system=system, dump=self.dump, run_lane=lane, root=self.root)
+            status = ss.main(argv, environ=environ, system=system, resolve=lambda root, env: TOOLCHAIN,
+                             dump=self.dump, run_lane=lane, names=lambda: [], root=self.root)
         return status, stdout.getvalue(), stderr.getvalue()
 
     def out(self, name="findings.jsonl"):
@@ -145,27 +155,50 @@ class SuppressionTests(unittest.TestCase):
         self.assertLessEqual(len(suppressions), ss.MAX_SUPPRESSIONS)
 
     def test_needs_a_third_party_reason_above_each_line(self):
-        ss.check_suppressions("# third-party Sparkle 2.6: reads cached state off main\nrace:SPUUpdater\n")
+        ss.check_suppressions("# third-party Sparkle 2.6: reads cached state off main\nrace:SPUUpdater\n", lambda: [])
         with self.assertRaisesRegex(ss.UsageError, "third-party"):
-            ss.check_suppressions("race:SPUUpdater\n")
+            ss.check_suppressions("race:SPUUpdater\n", lambda: [])
         with self.assertRaisesRegex(ss.UsageError, "third-party"):
-            ss.check_suppressions("# Sparkle races\nrace:SPUUpdater\n")
+            ss.check_suppressions("# Sparkle races\nrace:SPUUpdater\n", lambda: [])
 
     def test_refuses_cmux_code_and_unknown_types(self):
         with self.assertRaisesRegex(ss.UsageError, "cmux code"):
-            ss.check_suppressions("# third-party x: y\nrace:CmuxNextTerminal\n")
+            ss.check_suppressions("# third-party x: y\nrace:CmuxNextTerminal\n", lambda: [])
         with self.assertRaisesRegex(ss.UsageError, "not a TSan suppression"):
             ss.check_suppressions("# third-party x: y\nleak:Foo\n")
 
     def test_refuses_more_than_ten(self):
-        text = "".join(f"# third-party Lib{i}: benign\nrace:Lib{i}\n" for i in range(11))
+        text = "".join(f"# third-party Lib{i}: benign\nrace:LibFoo{i}\n" for i in range(11))
         with self.assertRaisesRegex(ss.UsageError, "limit is 10"):
-            ss.check_suppressions(text)
+            ss.check_suppressions(text, lambda: [])
+
+    def test_refuses_wildcards_and_patterns_too_short_to_name_a_library(self):
+        # TSan matches a pattern anywhere in a function, file or module name: `race:*` hides every race.
+        for pattern in ("*", "*Foo", "^*", "**", "ab", "a*b*c"):
+            with self.subTest(pattern=pattern), self.assertRaises(ss.UsageError):
+                ss.check_suppressions(f"# third-party x: y\nrace:{pattern}\n", lambda: [])
+
+    def test_refuses_a_pattern_that_matches_a_declared_cmux_name_or_path(self):
+        names = ["Packages/macOS/CmuxNext/Sources/Terminal/TerminalRegistry.swift", "TerminalRegistry"]
+        for pattern in ("TerminalRegistry", "Registry", "TerminalRegistry.register", "^Terminal*"):
+            with self.subTest(pattern=pattern), self.assertRaisesRegex(ss.UsageError, "matches cmux code"):
+                ss.check_suppressions(f"# third-party Sparkle: y\nrace:{pattern}\n", lambda: names)
+        self.assertEqual(ss.check_suppressions("# third-party Sparkle 2.6: z\nrace:Sparkle.framework\n",
+                                               lambda: names), ["race:Sparkle.framework"])
+
+    def test_repository_names_are_the_packages_declarations_and_paths(self):
+        names = ss.repository_names(ss.ROOT)
+        self.assertIn("AgentLaneStore", names)
+        with self.assertRaisesRegex(ss.UsageError, "AgentLaneStore"):
+            ss.check_suppressions("# third-party Sparkle: y\nrace:AgentLaneStore\n", lambda: names)
+        # CmuxUpdater's UpdateDriver+SPUUpdaterDelegate.swift: `race:SPUUpdater` would hide cmux code too.
+        with self.assertRaisesRegex(ss.UsageError, "SPUUpdater"):
+            ss.check_suppressions("# third-party Sparkle: y\nrace:SPUUpdater\n", lambda: names)
 
 
 class EnumerationTests(SweepCase):
     def test_closure_follows_path_dependencies_inside_the_repository(self):
-        packages = ss.enumerate_closure(self.root, self.dump)
+        packages = ss.enumerate_closure(self.root, lambda path: self.dump(TOOLCHAIN, path, {}))
         self.assertEqual([p.path for p in packages],
                          ["Packages/macOS/CmuxNext", "Packages/Shared/CmuxTheme", "Packages/macOS/CmuxUpdater"])
         self.assertEqual(packages[0].tests, ("CmuxNextAppTests", "CmuxNextDaemonTests"))
@@ -244,16 +277,48 @@ class SweepTests(SweepCase):
         undefined_env = next(env for mode, _, env in lane.calls if mode == "undefined")
         self.assertIn("print_stacktrace=1", undefined_env["UBSAN_OPTIONS"])
 
-    def test_coop_strict_counts_a_stalled_targets_hang_sample(self):
+    def test_coop_strict_counts_the_blocked_pool_thread_not_the_idle_main_thread(self):
+        stalled = watchdog_sample("swiftpm-testing-helper", POOL_STALL)
         lane = FakeLane({
-            ("coop-strict", self.THEME): (124, lane_text(self.THEME, {"CmuxThemeTests": ("stalled/timeout", HANG)})),
+            ("coop-strict", self.THEME): (124, lane_text(self.THEME, {"CmuxThemeTests": ("stalled/timeout", stalled)})),
         })
         status, _, _ = self.run_main(["--sanitize", "coop-strict", "--package", "CmuxTheme"], lane)
         self.assertEqual(status, 1)
-        self.assertEqual([f["kind"] for f in self.out()], ["hang"])
+        [finding] = self.out()
+        self.assertEqual((finding["kind"], finding["exception"]), ("hang", ss.POOL_STALL))
+        self.assertEqual(finding["frames"][0], "ThemeLoader.loadSync()")
+        self.assertNotIn("dispatch_main", " ".join(finding["frames"]))
+        self.assertEqual(finding["process"], "swiftpm-testing-helper")
+        # The lane gets the test-only knob; the build never sees the strict pool.
         coop_env = next(env for mode, _, env in lane.calls if mode == "coop-strict")
-        self.assertEqual(coop_env["LIBDISPATCH_COOPERATIVE_POOL_STRICT"], "1")
+        self.assertEqual(coop_env["CMUX_SWIFT_TEST_COOP_STRICT"], "1")
+        self.assertNotIn("LIBDISPATCH_COOPERATIVE_POOL_STRICT", coop_env)
         self.assertNotIn("CMUX_SWIFT_SANITIZE", coop_env)
+
+    def test_two_different_pool_deadlocks_are_two_findings(self):
+        other = POOL_STALL.replace("ThemeLoader.loadSync()", "PaletteCache.warm()")
+        lane = FakeLane({
+            ("coop-strict", self.NEXT): (124, lane_text(self.NEXT, {
+                "CmuxNextAppTests": ("stalled/timeout", watchdog_sample("swiftpm-testing-helper", POOL_STALL)),
+                "CmuxNextDaemonTests": ("stalled/timeout", watchdog_sample("xctest", other))})),
+        })
+        self.run_main(["--sanitize", "coop-strict", "--package", self.NEXT], lane)
+        findings = self.out()
+        self.assertEqual(len({f["hash12"] for f in findings}), 2)
+        self.assertEqual(sorted(f["frames"][0] for f in findings), ["PaletteCache.warm()", "ThemeLoader.loadSync()"])
+
+    def test_coop_strict_stall_without_a_test_process_pool_thread_is_not_counted(self):
+        # The SwiftPM driver stalled before a test process started, or the sample shows only the main thread.
+        for body in (watchdog_sample("swift-test", POOL_STALL), watchdog_sample("xctest", HANG)):
+            with self.subTest(body=body[:40]):
+                lane = FakeLane({
+                    ("coop-strict", self.THEME): (124, lane_text(self.THEME, {"CmuxThemeTests": ("stalled/timeout", body)})),
+                })
+                status, _, _ = self.run_main(["--sanitize", "coop-strict", "--package", "CmuxTheme"], lane)
+                self.assertEqual(status, 0)
+                self.assertEqual(self.out(), [])
+                self.assertIn("stalled with no cooperative-pool thread in a test-process sample",
+                              [r["reason"] for r in self.out("not-counted.jsonl")])
 
     def test_a_mode_that_does_not_build_is_no_verdict(self):
         lane = FakeLane({("thread", self.THEME): (1, "error: linker failed\n")})
@@ -261,12 +326,93 @@ class SweepTests(SweepCase):
         self.assertEqual(status, 3)
         self.assertIn("no verdict for Packages/Shared/CmuxTheme under thread: build failed (exit 1)", stdout)
 
-    def test_a_package_red_at_base_build_is_all_base_red_and_skipped(self):
+    def test_a_package_that_does_not_build_at_the_base_is_no_verdict(self):
         lane = FakeLane({("base", self.THEME): (1, "error: compile failed\n")})
         status, stdout, _ = self.run_main(["--sanitize", "thread", "--package", "CmuxTheme"], lane)
-        self.assertEqual(status, 0)
+        self.assertEqual(status, 3)
         self.assertIn("CmuxThemeTests: build failed (exit 1)", stdout)
+        self.assertIn("no verdict for Packages/Shared/CmuxTheme under base: build failed (exit 1)", stdout)
         self.assertEqual([mode for mode, _, _ in lane.calls], ["base"])
+
+    def test_no_package_building_at_the_base_never_exits_zero(self):
+        # No Xcode, no GhosttyKit or a compile break: zero sanitizer tests ran, so `0 findings` is no evidence.
+        lane = FakeLane({("base", self.NEXT): (1, "error: no such module\n"),
+                         ("base", self.THEME): (1, "error: no such module\n")})
+        status, _, _ = self.run_main(["--sanitize", "thread"], lane)
+        self.assertEqual(status, 3)
+        self.assertEqual([mode for mode, _, _ in lane.calls], ["base", "base"])
+        summary = json.loads((self.root / ".build/sanitizer-sweep/summary.json").read_text())
+        self.assertEqual({row["package"] for row in summary["incomplete"]}, {self.NEXT, self.THEME})
+
+    def test_lane_runs_get_the_resolved_xcode_and_sdk(self):
+        lane = FakeLane({})
+        self.run_main(["--sanitize", "thread", "--package", "CmuxTheme"], lane,
+                      environ={**FLEET, "SDKROOT": "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk"})
+        self.assertTrue(lane.calls)
+        for _, _, env in lane.calls:
+            self.assertEqual(env["DEVELOPER_DIR"], TOOLCHAIN.developer_dir)
+            self.assertEqual(env["SDKROOT"], TOOLCHAIN.sdkroot)
+
+    def test_a_killed_step_keeps_the_base_red_list_and_the_runs_done(self):
+        class Killed(Exception):
+            pass
+
+        scripted = FakeLane({
+            ("base", self.THEME): (1, lane_text(self.THEME, {"CmuxThemeTests": ("failed (exit 1)", "boom")})),
+            ("thread", self.NEXT): (66, lane_text(self.NEXT, {"CmuxNextAppTests": ("failed (exit 66)", TSAN),
+                                                              "CmuxNextDaemonTests": ("passed", "ok")})),
+        })
+
+        def lane(package, env, log):
+            if env.get("CMUX_SWIFT_SANITIZE") == "thread" and package.path == self.THEME:
+                raise Killed  # the step timeout ends the sweep in its last run
+            return scripted(package, env, log)
+
+        with self.assertRaises(Killed), redirect_stdout(io.StringIO()):
+            ss.main(["--sanitize", "thread"], environ=FLEET, system="Darwin", resolve=lambda root, env: TOOLCHAIN,
+                    dump=self.dump, run_lane=lane, names=lambda: [], root=self.root)
+        self.assertEqual([r["target"] for r in self.out("base-red.jsonl")], ["CmuxThemeTests"])
+        self.assertEqual([f["kind"] for f in self.out()], ["tsan"])
+        summary = json.loads((self.root / ".build/sanitizer-sweep/summary.json").read_text())
+        self.assertFalse(summary["complete"])
+        self.assertEqual(summary["runs"], [f"base {self.NEXT}", f"base {self.THEME}", f"thread {self.NEXT}"])
+
+
+class ToolchainTests(unittest.TestCase):
+    """resolve_toolchain: the lane's select_xcode + pin_sdkroot, with a fake select-ci-xcode.sh and xcrun."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.root = Path(self.tmp.name) / "repo"
+        (self.root / "scripts").mkdir(parents=True)
+        (self.root / "scripts/select-ci-xcode.sh").write_text(
+            '#!/bin/bash\n[ "$CMUX_CI_SKIP_XCODE_SELECT" = 1 ] || exit 9\n'
+            'echo "DEVELOPER_DIR=/Applications/Xcode_26.6.app/Contents/Developer" >> "$GITHUB_ENV"\n')
+        bin_dir = Path(self.tmp.name) / "bin"
+        bin_dir.mkdir()
+        # xcrun answers with DEVELOPER_DIR's SDK, and only when no SDKROOT leaked into it.
+        (bin_dir / "xcrun").write_text('#!/bin/bash\n[ -z "${SDKROOT:-}" ] || exit 7\n'
+                                       'echo "$DEVELOPER_DIR/Platforms/MacOSX.platform/SDKs/MacOSX.sdk"\n')
+        (bin_dir / "xcrun").chmod(0o755)
+        self.path = f"{bin_dir}:{os.environ['PATH']}"
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def test_selects_the_ci_xcode_and_its_sdk_over_a_leaked_sdkroot(self):
+        toolchain = ss.resolve_toolchain(self.root, {"PATH": self.path,
+                                                     "SDKROOT": "/Library/Developer/CommandLineTools/SDKs/MacOSX.sdk"})
+        self.assertEqual(toolchain, TOOLCHAIN)
+
+    def test_keeps_an_exported_developer_dir(self):
+        toolchain = ss.resolve_toolchain(self.root, {"PATH": self.path, "DEVELOPER_DIR": "/Applications/Xcode_27.app"})
+        self.assertEqual(toolchain.developer_dir, "/Applications/Xcode_27.app")
+        self.assertEqual(toolchain.sdkroot, "/Applications/Xcode_27.app/Platforms/MacOSX.platform/SDKs/MacOSX.sdk")
+
+    def test_no_xcode_is_no_verdict(self):
+        (self.root / "scripts/select-ci-xcode.sh").write_text("#!/bin/bash\necho 'no pinned Xcode' >&2\nexit 1\n")
+        with self.assertRaisesRegex(ss.SweepError, "no pinned Xcode"):
+            ss.resolve_toolchain(self.root, {"PATH": self.path})
 
 
 if __name__ == "__main__":
