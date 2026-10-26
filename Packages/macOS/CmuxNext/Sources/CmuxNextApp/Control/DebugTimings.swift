@@ -10,6 +10,7 @@ import CmuxNextSignposts
 import CmuxNextTerminal
 import CmuxNextTrace
 import CmuxNextUpdater
+import CmuxNextWakeups
 import class CmuxNextDaemon.DaemonLaunchTimings
 import Darwin
 import CmuxNextCompat
@@ -92,15 +93,15 @@ enum DebugTimings {
     }
 
     /// Marks `first_page_frame` when `view`, a page just put in a pane (an agent page or an
-    /// internal page, ``PaneFirstPaintGated``), first paints while it shows in a visible window.
-    /// A page that paints out of sight (the New Tab spare parked in its window, a pane of a
-    /// hidden window) is not live content; Chrome's `FirstWebContentsProfiler` likewise stops
+    /// internal page, ``PaneFirstPaintGated``), first paints while its tab's visibility `node` is
+    /// visible. A page that paints out of sight (the New Tab spare parked in its window, a pane of
+    /// a hidden window) is not live content; Chrome's `FirstWebContentsProfiler` likewise stops
     /// at a hidden or background tab (chrome/browser/metrics/first_web_contents_profiler.cc).
-    static func markFirstPageFrame(of view: NSView?) {
+    static func markFirstPageFrame(of view: NSView?, node: VisibilityNode) {
         let pageFrame = "first_page_frame"
         guard let gated = view as? any PaneFirstPaintGated, !launchMarks.withLock({ $0.marks.contains(pageFrame) }) else { return }
-        gated.whenFirstPainted { [weak view] in
-            guard let view, view.window?.isVisible == true, !view.isHiddenOrHasHiddenAncestor else { return }
+        gated.whenFirstPainted { [weak node] in
+            guard node?.isVisible == true else { return }
             markLaunch(pageFrame)
         }
     }
