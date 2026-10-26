@@ -5,7 +5,7 @@ import Testing
 /// ``ParkedWorkspaceBudget`` (p07-memory-032): every window's parked workspaces held to one budget,
 /// least recently parked first (Chrome's FrameEvictionManager), a 15 min idle timeout on one deadline,
 /// and none at critical pressure, one teardown per look or release slice. Fake clock and deadline:
-/// nothing waits, nothing polls.
+/// nothing waits, nothing polls, and a kept workspace arms no look.
 @MainActor @Suite struct ParkedWorkspaceBudgetTests {
     private let clock = FakeClock()
     private let deadline = FakeDeadline()
@@ -58,21 +58,21 @@ import Testing
         let budget = makeBudget(capacity: 1)
         let window = FakeWindow()
         window.park("covered", in: budget)
-        window.kept = ["covered"]  // under a top page, or on screen beside the shown one
+        window.keep(["covered"], in: budget)  // under a top page, or on screen beside the shown one
         window.park("b", in: budget)
         runDueLooks()
         #expect(window.discarded == ["b"], "the kept workspace went, or it did not count against the budget")
         #expect(window.parked == ["covered"])
     }
 
-    @Test func aKeptWorkspaceBecomesTheMostRecentlyParked() {
+    @Test func aWorkspaceTheWindowStopsKeepingBecomesTheMostRecentlyParked() {
         let budget = makeBudget(capacity: 2)
         let window = FakeWindow()
         window.park("companion", in: budget)
         window.park("b", in: budget)
-        window.kept = ["companion"]
-        runDueLooks()  // the look sees it on screen
-        window.kept = []
+        window.keep(["companion"], in: budget)
+        runDueLooks()
+        window.keep([], in: budget)
         window.park("c", in: budget)
         runDueLooks()
         #expect(window.discarded == ["b"], "a workspace just on screen went before an older hidden one")
@@ -116,22 +116,82 @@ import Testing
         #expect(!deadline.armed, "a deadline stayed with nothing parked")
     }
 
-    @Test func aKeptWorkspaceIsLookedAtAgainATimeoutLaterAndItsHiddenTimeRestarts() {
+    @Test func aKeptWorkspaceArmsNoLook() {
         let timeout = Duration.seconds(15 * 60)
         let budget = makeBudget(capacity: 8, idleTimeout: timeout)
         let window = FakeWindow()
         window.park("covered", in: budget)
-        window.kept = ["covered"]
+        window.keep(["covered"], in: budget)
         clock.advance(timeout * 2)
         deadline.fire()
         #expect(window.discarded.isEmpty, "a kept workspace went at its timeout")
+        #expect(!deadline.armed, "a kept workspace armed a look: that is polling")
+        window.keep(["covered"], in: budget)
+        #expect(!deadline.armed, "an arrangement that kept the same workspaces armed a look")
+    }
+
+    @Test func aWorkspaceStaysAFullTimeoutAfterTheWindowStopsKeepingIt() {
+        let timeout = Duration.seconds(15 * 60)
+        let budget = makeBudget(capacity: 8, idleTimeout: timeout)
+        let window = FakeWindow()
+        window.park("a", in: budget)
+        window.kept = ["companion"]  // parked as a companion on screen
+        window.park("companion", in: budget)
+        deadline.fire()
         #expect(deadline.delay == timeout)
 
-        window.kept = []
+        clock.advance(timeout - .seconds(1))
+        window.keep([], in: budget)  // the person left multi-view a second before the look
+        #expect(deadline.delay == .zero, "the window stopping keeping a workspace did not ask for a look")
+        deadline.fire()
+        #expect(window.discarded.isEmpty)
+        #expect(deadline.delay == .seconds(1), "the next look is not when a comes due")
+
+        clock.advance(.seconds(1))
+        deadline.fire()
+        runDueLooks()
+        #expect(window.discarded == ["a"], "the workspace that just left the screen went at the old timeout")
+        #expect(deadline.delay == timeout - .seconds(1), "its hidden time did not start when it left the screen")
+
         clock.advance(timeout - .seconds(1))
         deadline.fire()
-        #expect(window.discarded.isEmpty, "its hidden time counted from the park, not from when it was last in use")
-        #expect(deadline.delay == .seconds(1))
+        runDueLooks()
+        #expect(window.discarded == ["a", "companion"])
+    }
+
+    @Test func aStopTheWindowDidNotReportErrsLateAtTheNextLook() {
+        let timeout = Duration.seconds(15 * 60)
+        let budget = makeBudget(capacity: 8, idleTimeout: timeout)
+        let window = FakeWindow()
+        window.park("a", in: budget)
+        window.kept = ["companion"]
+        window.park("companion", in: budget)
+        deadline.fire()
+
+        clock.advance(timeout - .seconds(60))
+        window.kept = []  // no arrangement reported it
+        clock.advance(.seconds(60))
+        deadline.fire()
+        runDueLooks()
+        #expect(window.discarded == ["a"], "the companion went though it was hidden for a minute")
+        #expect(deadline.delay == timeout, "its hidden time did not start at the look that saw it hidden")
+    }
+
+    @Test func aWorkspaceThatLeavesTheScreenAtCriticalGoesOnTheNextLook() {
+        let registry = FakeRegistry()
+        let budget = makeBudget(capacity: 8, memory: registry)
+        let window = FakeWindow()
+        window.kept = ["companion"]
+        window.park("companion", in: budget)
+        budget.updateMemoryLimit(.criticalThreshold)
+        #expect(budget.releaseMemory(within: MemoryReleaseSlice(limit: .criticalThreshold) { false }) == .done)
+        runDueLooks()
+        #expect(window.discarded.isEmpty, "a workspace on screen went at critical")
+
+        window.keep([], in: budget)
+        #expect(window.discarded.isEmpty, "it went in the arrangement's turn")
+        runDueLooks()
+        #expect(window.discarded == ["companion"], "a workspace that left the screen at critical stayed mounted")
     }
 
     @Test func withoutATimeoutAWorkspaceWithinTheBudgetStaysForever() {
@@ -151,7 +211,7 @@ import Testing
         #expect(budget.limit == .default, "the registration did not hand it the current limit")
         let window = FakeWindow()
         for id in ["a", "b", "c", "covered"] { window.park(id, in: budget) }
-        window.kept = ["covered"]
+        window.keep(["covered"], in: budget)
         runDueLooks()
         #expect(window.discarded.isEmpty)
 
@@ -199,6 +259,12 @@ private final class FakeWindow: ParkedWorkspaceHolder {
     func park(_ id: String, in budget: ParkedWorkspaceBudget) {
         parked.insert(id)
         budget.didPark(id, in: self)
+    }
+
+    /// The window arranged its content: it keeps `ids` now and tells the budget.
+    func keep(_ ids: Set<String>, in budget: ParkedWorkspaceBudget) {
+        kept = ids
+        budget.keepingDidChange(in: self)
     }
 
     func show(_ id: String, in budget: ParkedWorkspaceBudget) {

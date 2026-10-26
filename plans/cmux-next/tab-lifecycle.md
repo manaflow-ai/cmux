@@ -82,7 +82,10 @@ tab's page window covers the pane (`foreign_pages`).
   15 minutes goes even within the budget. Critical pressure sets the budget
   to 0 through the memory coordinator, which releases one workspace per
   slice. Each look runs on one background `MainDeadline` after the switch's
-  turn and tears down at most one workspace; nothing polls. A torn-down
+  turn and tears down at most one workspace; nothing polls. A kept workspace
+  arms no look: the window tells the budget after each arrangement
+  (`arrangeOnScreen`), and one it stopped keeping is hidden from then on,
+  the most recently parked. A torn-down
   workspace mounts again when shown, with its view-only state (strip and
   screen bar scroll) reset until p07-memory-033's `WorkspaceViewRecord`.
 - No screenshot or PNG decode on the main thread on hide.

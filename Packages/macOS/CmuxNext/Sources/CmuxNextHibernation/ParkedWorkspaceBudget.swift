@@ -39,7 +39,9 @@ extension MainDeadline: ParkedWorkspaceDeadline {}
 /// - **Pressure.** A ``MemoryConsumer`` of the app's coordinator: a lower limit is released by
 ///   ``releaseMemory(within:)``, one teardown per slice.
 ///
-/// Events only: parks, shows and closes, and one ``ParkedWorkspaceDeadline`` for the next look.
+/// Events only: parks, shows, closes, a holder that stops keeping a workspace
+/// (``keepingDidChange(in:)``), and one ``ParkedWorkspaceDeadline`` for the next look; a kept
+/// workspace arms none.
 /// Each look (``plan()``) tears down at most one workspace, after the switch's turn, never in it,
 /// and asks for the next look on a later task while more are due (p07-memory.md rule 2).
 @MainActor
@@ -67,10 +69,12 @@ package final class ParkedWorkspaceBudget {
     private struct Entry {
         weak var holder: (any ParkedWorkspaceHolder)?
         let key: Key
-        /// When it was parked, or last seen kept (a kept workspace is in use).
+        /// When it was parked, or stopped being kept (a kept workspace is in use).
         var since: ContinuousClock.Instant
         /// Least recently parked first.
         var serial: UInt64
+        /// Its holder kept it when last asked.
+        var kept: Bool
     }
 
     private var entries: [Key: Entry] = [:]
@@ -107,8 +111,20 @@ package final class ParkedWorkspaceBudget {
     package func didPark(_ id: String, in holder: any ParkedWorkspaceHolder) {
         let key = Key(holder: ObjectIdentifier(holder), workspace: id)
         serial &+= 1
-        entries[key] = Entry(holder: holder, key: key, since: now(), serial: serial)
+        entries[key] = Entry(holder: holder, key: key, since: now(), serial: serial, kept: holder.keepsParkedWorkspace(id))
         deadline.schedule(after: .zero) { [weak self] in self?.plan() }
+    }
+
+    /// `holder` may keep other workspaces now (it arranged its content: a `sidebar.multiView` set
+    /// changed, a top page opened or closed). One it stopped keeping is hidden from now: it becomes
+    /// the most recently parked, and the next look runs after this turn. O(parked workspaces).
+    package func keepingDidChange(in holder: any ParkedWorkspaceHolder) {
+        let id = ObjectIdentifier(holder), at = now()
+        var released = false
+        for key in entries.keys.filter({ $0.holder == id }) {
+            if refreshKept(key, at: at) { released = true }
+        }
+        if released { deadline.schedule(after: .zero) { [weak self] in self?.plan() } }
     }
 
     /// `holder` no longer parks workspace `id`: it shows again, closed, left the window or was torn down.
@@ -125,34 +141,34 @@ package final class ParkedWorkspaceBudget {
     }
 
     /// One look: tears down the least recently parked workspace that may go while over the budget,
-    /// else the longest hidden one past the idle timeout, and arms the next look. A workspace its
-    /// holder keeps is in use: it becomes the most recently parked and its hidden time starts again.
+    /// else the longest hidden one past the idle timeout, and arms the next look for when the
+    /// longest hidden one comes due. A workspace its holder keeps is in use: it never goes and arms
+    /// no look; its hidden time starts when it stops being kept.
     package func plan() {
         let at = now()
-        var kept: Set<Key> = []
-        for entry in liveEntriesLeastRecentFirst() where isKept(entry) {
-            kept.insert(entry.key)
-            serial &+= 1
-            entries[entry.key]?.serial = serial
-            entries[entry.key]?.since = at
-        }
-        let order = entries.values.sorted { $0.serial < $1.serial }
-        // Least recently parked first, so this is also the one hidden longest.
-        let oldest = order.first { !kept.contains($0.key) }
-        if order.count > currentCapacity, let oldest { return discardAndLookAgain(oldest) }
-        guard let idleTimeout else { return deadline.cancel() }
-        // A kept one is looked at again a timeout later: no event says it stopped being kept.
-        var wait: Duration? = kept.isEmpty ? nil : idleTimeout
-        if let oldest {
-            let remaining = idleTimeout - (at - oldest.since)
-            if remaining <= .zero { return discardAndLookAgain(oldest) }
-            wait = min(wait ?? remaining, remaining)
-        }
-        if let wait {
-            deadline.schedule(after: wait) { [weak self] in self?.plan() }
-        } else {
-            deadline.cancel()
-        }
+        dropClosedHolders()
+        for key in Array(entries.keys) { refreshKept(key, at: at) }
+        // Least recently parked first, so the first one not kept is also the one hidden longest.
+        let oldest = entries.values.filter { !$0.kept }.min { $0.serial < $1.serial }
+        if entries.count > currentCapacity, let oldest { return discardAndLookAgain(oldest) }
+        guard let idleTimeout, let oldest else { return deadline.cancel() }
+        let remaining = idleTimeout - (at - oldest.since)
+        if remaining <= .zero { return discardAndLookAgain(oldest) }
+        deadline.schedule(after: remaining) { [weak self] in self?.plan() }
+    }
+
+    /// Asks the holder whether it keeps `key` now. True when it stopped keeping it: its hidden time
+    /// starts at `at` and it becomes the most recently parked.
+    @discardableResult
+    private func refreshKept(_ key: Key, at: ContinuousClock.Instant) -> Bool {
+        guard let entry = entries[key] else { return false }
+        let kept = isKept(entry)
+        entries[key]?.kept = kept
+        guard entry.kept, !kept else { return false }
+        serial &+= 1
+        entries[key]?.serial = serial
+        entries[key]?.since = at
+        return true
     }
 
     /// One teardown per look; the next look runs on a later task.
@@ -163,8 +179,12 @@ package final class ParkedWorkspaceBudget {
 
     /// The live entries, least recently parked first; entries of closed holders go.
     private func liveEntriesLeastRecentFirst() -> [Entry] {
-        entries = entries.filter { $0.value.holder != nil }
+        dropClosedHolders()
         return entries.values.sorted { $0.serial < $1.serial }
+    }
+
+    private func dropClosedHolders() {
+        entries = entries.filter { $0.value.holder != nil }
     }
 
     private func isKept(_ entry: Entry) -> Bool {

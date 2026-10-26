@@ -87,12 +87,12 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
-    /// At most the Mac's budget of hidden workspaces (4 to 16 by RAM) stay mounted across all windows, none at critical memory pressure; past it the least recently shown one lets its views go, one per frame, and showing it mounts it again. Workspaces on screen or under a top page stay.
+    /// At most the Mac's budget of hidden workspaces (4 to 16 by RAM) stay mounted across all windows, none at critical memory pressure; past it the least recently shown one lets its views go, one at a time in the background, and showing it mounts it again. Workspaces on screen or under a top page stay.
     public static let memoryDiscardParkedWorkspaces = Feature(
         index: 5,
         name: "memoryDiscardParkedWorkspaces",
         owner: "PL-memory",
-        description: "At most the Mac's budget of hidden workspaces (4 to 16 by RAM) stay mounted across all windows, none at critical memory pressure; past it the least recently shown one lets its views go, one per frame, and showing it mounts it again. Workspaces on screen or under a top page stay.",
+        description: "At most the Mac's budget of hidden workspaces (4 to 16 by RAM) stay mounted across all windows, none at critical memory pressure; past it the least recently shown one lets its views go, one at a time in the background, and showing it mounts it again. Workspaces on screen or under a top page stay.",
         kind: .labs,
         process: .app,
         chromiumFeature: nil,
