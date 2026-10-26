@@ -436,6 +436,23 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// Opt-in hang reports are written in schema 3, with the catalog histograms, stability counts, earlier launches and the merged black box; turn it on only once cmux.com accepts schema 3 (p09-observability-064 deployed).
+    public static let hangReportsSchema3 = Feature(
+        index: 24,
+        name: "hangReportsSchema3",
+        owner: "PL-telemetry",
+        description: "Opt-in hang reports are written in schema 3, with the catalog histograms, stability counts, earlier launches and the merged black box; turn it on only once cmux.com accepts schema 3 (p09-observability-064 deployed).",
+        kind: .killSwitch,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: nil,
+        params: [],
+        stories: [],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// The GitHub feed poll and the web-updates check book no next run while no cmux window shows, and run once when a window shows again if one came due.
     public static let hiddenPollPause = Feature(
         index: 25,
@@ -1620,6 +1637,7 @@ nonisolated extension Feature {
         .featureFlagsCard,
         .frameRateClasses,
         .frozenGrowthDiscard,
+        .hangReportsSchema3,
         .hiddenPollPause,
         .hostPressure,
         .intentPrewarmHover,
@@ -1715,6 +1733,7 @@ nonisolated extension Feature {
         .featureFlagsCard,
         .frameRateClasses,
         .frozenGrowthDiscard,
+        .hangReportsSchema3,
         .hiddenPollPause,
         .hostPressure,
         .intentPrewarmHover,
