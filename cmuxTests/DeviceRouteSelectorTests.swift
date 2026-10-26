@@ -134,6 +134,14 @@ struct DeviceRouteSelectorTests {
         #expect(factory.supportedKinds == [.iroh, .tailscale])
         #expect((try factory.makeTransport(for: iroh) as? TaggedByteTransport)?.tag == "iroh")
         #expect((try factory.makeTransport(for: tailscale) as? TaggedByteTransport)?.tag == "tailscale")
+
+        let evidence = try #require(grant(for: tailscale))
+        let request = CmxByteTransportRequest(
+            route: tailscale,
+            expectedPeerDeviceID: studio.deviceID,
+            authorizationMode: .legacyTailscaleBearer(evidence)
+        )
+        #expect((try factory.makeTransport(for: request) as? TaggedByteTransport)?.tag == "tailscale")
     }
 
     @Test("A Tailscale route dials only with a device-bound grant for its exact peer")
