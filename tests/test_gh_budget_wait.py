@@ -113,6 +113,10 @@ class WrapperTests(unittest.TestCase):
                     FAKE_ERROR='{"message": "You have exceeded a secondary rate limit"}')
         self.assertEqual(h.gh("api", "x").returncode, 0)
 
+    def test_a_429_counts(self) -> None:
+        h = self.harness(refusals=1, GH_BUDGET_WAIT_MAX_SECONDS="1", FAKE_ERROR="HTTP 429: Too Many Requests")
+        self.assertEqual(h.gh("api", "x").returncode, 0)
+
     def test_another_failure_is_not_retried(self) -> None:
         h = self.harness(FAKE_FAIL="HTTP 404: Not Found")
         result = h.gh("api", "repos/o/r/releases/tags/v9")
@@ -175,7 +179,7 @@ PUBLISH_PATH = (
     "find-nightly-next-recovery", "recover-nightly-next-notarization", "publish-nightly", "keep-published-dsyms",
     "legacy-identity-target", "sign-nightly-identity-legacy", "publish-nightly-identity-legacy",
     "generate-nightly-deltas", "republish-nightly-deltas", "published-in", "sign-release-notes",
-    "publish-release-notes",
+    "publish-release-notes", "publish-nightly-reel", "build-nightly-app",
 )
 INSTALL = re.compile(r"bash (\.publish-tooling/)?scripts/ci/gh_budget_wait\.sh --install")
 
@@ -195,24 +199,37 @@ class WorkflowTests(unittest.TestCase):
             self.assertTrue(any("actions/checkout" in str(s.get("uses", "")) for s in steps[:at]), name)
             later_gh = [i for i, s in enumerate(steps)
                         if "github.token" in str(s.get("env", {})) or "release-tag-token" in str(s.get("env", {}))]
-            # Only prepare's reuse probe (before any checkout, fallback runs only) comes first.
+            # Only prepare's reuse probe (before any checkout; a refusal prepares here) and the
+            # unsigned-resume restore (a hand-run recovery, not the publish path) come first.
             early = [i for i in later_gh if i < at]
             for i in early:
-                self.assertEqual(steps[i].get("id"), "reuse", (name, steps[i].get("name")))
+                resume = "nightly_next_unsigned_run != ''" in str(steps[i].get("if", ""))
+                self.assertTrue(steps[i].get("id") == "reuse" or resume, (name, steps[i].get("name")))
 
     def test_publish_path_timeouts_leave_room_for_the_wait(self) -> None:
-        for name in PUBLISH_PATH + ("build-nightly-app",):
+        for name in PUBLISH_PATH:
             timeout = self.jobs[name].get("timeout-minutes", 360)
             self.assertGreaterEqual(int(timeout), 65, name)
 
-    def test_the_attestation_reserves_budget_and_its_retry_waits_for_the_reset(self) -> None:
+    def test_the_attestation_reserves_budget_and_its_retry_shares_the_ledger(self) -> None:
         steps = self.jobs["build-nightly-app"]["steps"]
         names = [s.get("name") for s in steps]
         attest = names.index("Attest immutable SSH daemon assets")
-        self.assertIn("--reserve 200", steps[attest - 1]["run"])
+        self.assertIn("gh_budget_wait.sh --reserve 200", steps[attest - 1]["run"])
+        # The retry waits through the same script (one ledger, an hour in all), only while the budget is short.
         wait = steps[names.index("Wait for the API budget before retrying the daemon attestation")]["run"]
-        self.assertIn("(( wait > 3600 )) && wait=3600", wait)
+        self.assertIn("gh_budget_wait.sh --reserve 200", wait)
+        self.assertNotIn("sleep", wait)
+        # The engine fetch's gh release fallback comes after the install too.
+        self.assertLess(next(i for i, s in enumerate(steps) if INSTALL.search(str(s.get("run", "")))),
+                        names.index("Fetch the Chromium engine"))
         self.assertGreaterEqual(int(self.jobs["build-nightly-app"]["timeout-minutes"]), 90 + 60)
+
+    def test_prepare_builds_when_its_reuse_probe_is_refused(self) -> None:
+        for name in ("prepare-nightly-variant-primary", "prepare-nightly-variant-fallback"):
+            probe = next(s for s in self.jobs[name]["steps"] if s.get("id") == "reuse")["run"]
+            self.assertIn('if ! count="$(gh api', probe, name)
+            self.assertIn("count=0", probe, name)
 
 
 if __name__ == "__main__":

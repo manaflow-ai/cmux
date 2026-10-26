@@ -113,7 +113,7 @@ while [ "$try" -le "$attempts" ]; do
   fi
   rc=$?
   if [ "$rc" -eq 0 ] || [ "$try" -eq "$attempts" ] ||
-    ! grep -qiE 'rate limit exceeded|secondary rate limit' "$work/err" "$work/out"; then
+    ! grep -qiE 'rate limit exceeded|secondary rate limit|abuse detection|too many requests|HTTP 429' "$work/err" "$work/out"; then
     break
   fi
   wait_for_budget "$(seconds_to_reset)" "gh ${1:-} ${2:-} was refused for the API rate limit (try $try of $attempts)" || break

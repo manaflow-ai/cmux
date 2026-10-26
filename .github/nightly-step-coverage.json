@@ -48,6 +48,7 @@
         "Build the cmux-next source archive": {"nightly_only": "zig fetches every Ghostty and ghostty-next package on the macOS helper runner (network, minutes); a new package without a pinned license shows only here. The collector and verifier run on fixtures in cmux-next-guards.yml:vt-link-graph:The nightly's Ghostty license checks pass on fixtures; cmux-next-source-archive.yml runs it for real on ghosttykit-pin/** pushes"},
         "libghostty-vt Zig packages are covered by the notices": {"pr": "cmux-next-guards.yml:vt-link-graph:The nightly's Ghostty license checks pass on fixtures", "note": "check_ghostty_vt_notices.py --license-manifest on fixture manifests; the real manifests come from the source archive"}},
       "build-nightly-app": {
+        "Wait through GitHub API rate limits in this job's gh calls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly publish-path gh calls wait through a rate limit"},
         "Wait for API budget before the daemon attestation": {"plumbing": true},
         "Restore the original unsigned nightly inputs": {"pr": "ci-guards.yml:workflow-guard-tests:Validate unsigned nightly resume provenance and routing"},
         "Clear stale git locks (self-hosted reused workspace)": {"plumbing": true},
@@ -273,6 +274,7 @@
         "Recheck the NEXT publication head": {"nightly_only": "reads live published tag, feed"},
         "Upload the signed release notes to R2": {"nightly_only": "uploads signed notes to R2"}},
       "publish-nightly-reel": {
+        "Wait through GitHub API rate limits in this job's gh calls": {"pr": "ci-guards.yml:workflow-guard-tests:Validate nightly publish-path gh calls wait through a rate limit"},
         "Install ffmpeg": {"plumbing": true},
         "Build and publish the reel": {"nightly_only": "publishes reel with media secrets (reel.py tested by tests/test_cmux_next_reel.py)"}},
       "report-nightly-failure": {

@@ -2067,6 +2067,13 @@ jobs:
           go-version-file: daemon/remote/go.mod
           cache: false
 
+      - name: Wait through GitHub API rate limits in this job's gh calls
+        # scripts/ci/gh_budget_wait.sh puts a gh first on PATH that waits for the shared budget's
+        # reset (at most an hour per job, each wait logged) when a call is refused for the rate
+        # limit, instead of failing the publish path. timeout-minutes leaves room for that hour.
+        if: inputs.nightly_next_unsigned_run == ''
+        run: if [ -f scripts/ci/gh_budget_wait.sh ]; then bash scripts/ci/gh_budget_wait.sh --install; fi
+
       # The Embed CEF phase embeds the pinned Chromium engine
       # (scripts/cmux-next/cef-manifest.json) from the ensure-cef cache. This
       # step fills the cache from the private R2 bucket with the read-only key
@@ -2416,17 +2423,10 @@ jobs:
         if: steps.attest_daemon.outcome == 'failure'
         env:
           GH_TOKEN: ${{ github.token }}
-        run: |
-          set -uo pipefail
-          # /rate_limit does not count against the budget. Bounded deadline,
-          # not a poll: one wait until the budget resets (at most the hour a
-          # reset can be away; timeout-minutes leaves room), then one retry.
-          reset="$(gh api rate_limit --jq '.resources.core.reset' 2>/dev/null || echo 0)"
-          now="$(date +%s)"
-          wait=$(( reset > now ? reset - now + 5 : 60 ))
-          (( wait > 3600 )) && wait=3600
-          echo "Daemon attestation failed; retrying in ${wait}s (budget resets at ${reset})."
-          sleep "$wait"
+        # One bounded wait, not a poll, and only while fewer than 200 calls are left (an attestation
+        # that failed for another reason is retried at once). It shares the pre-step's ledger, so the
+        # two wait at most an hour together; timeout-minutes leaves room for it.
+        run: if [ -f scripts/ci/gh_budget_wait.sh ]; then bash scripts/ci/gh_budget_wait.sh --reserve 200; fi
 
       - name: Retry the daemon attestation
         id: attest_daemon_retry
@@ -2753,7 +2753,11 @@ jobs:
           ARTIFACT: cmux-${{ needs.decide.outputs.channel }}-prepared-app-${{ matrix.variant }}-${{ needs.resolve-nightly-cmux-tui-client.outputs.build_short_sha }}
         run: |
           set -euo pipefail
-          count="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts?name=$ARTIFACT&per_page=20" --jq '[.artifacts[] | select(.expired == false)] | length')"
+          # This read runs before the checkout (no budget wait yet); a refused one prepares here.
+          if ! count="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts?name=$ARTIFACT&per_page=20" --jq '[.artifacts[] | select(.expired == false)] | length')"; then
+            echo "::warning::could not list this run's prepared artifacts; preparing the variant here"
+            count=0
+          fi
           if [ "$count" -gt 0 ]; then echo "exists=true" >> "$GITHUB_OUTPUT"; else echo "exists=false" >> "$GITHUB_OUTPUT"; fi
 
       - name: Clear stale git locks (self-hosted reused workspace)
@@ -3181,7 +3185,11 @@ jobs:
           # Every primary leg uploaded its prepared app; no API call, so a spent
           # installation rate limit cannot fail this no-op leg.
           if [ "$PRIMARY_RESULT" = success ]; then echo "exists=true" >> "$GITHUB_OUTPUT"; exit 0; fi
-          count="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts?name=$ARTIFACT&per_page=20" --jq '[.artifacts[] | select(.expired == false)] | length')"
+          # This read runs before the checkout (no budget wait yet); a refused one prepares here.
+          if ! count="$(gh api "repos/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID/artifacts?name=$ARTIFACT&per_page=20" --jq '[.artifacts[] | select(.expired == false)] | length')"; then
+            echo "::warning::could not list this run's prepared artifacts; preparing the variant here"
+            count=0
+          fi
           if [ "$count" -gt 0 ]; then echo "exists=true" >> "$GITHUB_OUTPUT"; else echo "exists=false" >> "$GITHUB_OUTPUT"; fi
 
       - name: Clear stale git locks (self-hosted reused workspace)
@@ -7696,7 +7704,7 @@ jobs:
     if: "!cancelled() && github.repository_owner == 'manaflow-ai' && needs.decide.outputs.track == 'nightly-next' && needs.publish-release-notes.result == 'success'"
     continue-on-error: true
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 30
+    timeout-minutes: 90
     # The private-terms secret lives only in this environment, which admits only
     # the protected branches (main, feat-cmux-next, nightly-next).
     environment: pr-media
@@ -7714,6 +7722,12 @@ jobs:
           sparse-checkout: |
             scripts
             .github/actions/pr-media-publish
+      - name: Wait through GitHub API rate limits in this job's gh calls
+        # scripts/ci/gh_budget_wait.sh puts a gh first on PATH that waits for the shared budget's
+        # reset (at most an hour per job, each wait logged) when a call is refused for the rate
+        # limit, instead of failing the publish path. timeout-minutes leaves room for that hour.
+        run: if [ -f scripts/ci/gh_budget_wait.sh ]; then bash scripts/ci/gh_budget_wait.sh --install; fi
+
       - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: release-notes
