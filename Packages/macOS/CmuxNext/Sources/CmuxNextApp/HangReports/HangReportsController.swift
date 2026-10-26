@@ -8,6 +8,7 @@ import CmuxNextInput
 import CmuxNextSettings
 import CmuxNextSidebar
 import CmuxNextSignposts
+import CmuxNextWakeups
 import os
 
 /// This Mac's personal terms (``ImageClassifier/personalTerms()``: NSFullUserName is an
@@ -64,7 +65,7 @@ final class HangReportsController {
     /// classifier and dyld resolver, the app's own envelope values, and (when the wire schema carries
     /// them) the active time and `watchdog`'s main-turn and input-queueing histograms.
     static func forThisLaunch(policy: CrashReportingPolicy, folder: URL, counts: @escaping @Sendable () async -> CoarseCounts,
-                              watchdog: MainThreadWatchdog, input: any InputObserving,
+                              watchdog: MainThreadWatchdog, input: any InputObserving, events: AppEvents,
                               environment: [String: String] = ProcessInfo.processInfo.environment) -> HangReportsController {
         let devOptIn = policy.channel == .dev && environment[devOptInKey] == "1"
         let mayReport = (policy.channel == .nightly || devOptIn) && !CrashReportingPolicy.isTestProcess(environment)
@@ -101,7 +102,7 @@ final class HangReportsController {
                 stillAllowed: { [key = Self.consentKey] in !managedDisables() && UserDefaults.standard.object(forKey: key) is Date },
                 mainThread: mainThread))
         let feed = mainThread.map {
-            MainThreadActivityFeed(ledger: $0, input: input, becameActive: NSApplication.didBecomeActiveNotification,
+            MainThreadActivityFeed(ledger: $0, input: input, events: events, becameActive: NSApplication.didBecomeActiveNotification,
                                    resignedActive: NSApplication.didResignActiveNotification, isActive: NSApp?.isActive ?? false)
         }
         return HangReportsController(service: service, managedDisables: managedDisables, activityFeed: feed)

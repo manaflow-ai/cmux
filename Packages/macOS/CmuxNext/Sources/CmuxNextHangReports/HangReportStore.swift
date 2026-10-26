@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// The hang report files in one folder (the app's `Application Support/<build>/HangReports`):
@@ -52,19 +53,22 @@ public actor HangReportStore {
     }
 
     /// The saved aggregate, removed from disk (it joins the collector's).
-    public func takePending() -> StallAggregate? {
-        defer { removePending() }
-        guard let data = try? Data(contentsOf: pendingURL) else { return nil }
-        return try? JSONDecoder().decode(StallAggregate.self, from: data)
-    }
+    public func takePending() -> StallAggregate? { take(StallAggregate.self, from: pendingURL) }
 
     private func removePending() { try? manager.removeItem(at: pendingURL) }
 
     /// The main-thread part a quit saved, removed from disk (it joins the ledger's).
     public func takePendingMainThread() -> MainThreadReportLedger.Saved? {
-        defer { try? manager.removeItem(at: pendingMainThreadURL) }
-        guard let data = try? Data(contentsOf: pendingMainThreadURL) else { return nil }
-        return try? JSONDecoder().decode(MainThreadReportLedger.Saved.self, from: data)
+        take(MainThreadReportLedger.Saved.self, from: pendingMainThreadURL)
+    }
+
+    /// The value saved at `url`, removed from disk; nil when missing or unreadable.
+    private func take<Value: Decodable>(_ type: Value.Type, from url: URL) -> Value? {
+        // blocking-allow: one small file read and delete per launch, at setEnabled(true); the store actor has no executor of its own yet
+        defer { try? FileManager.checked.removeItem(at: url) }
+        // blocking-allow: as above
+        guard let data = try? Data(blockingContentsOf: url) else { return nil }
+        return try? JSONDecoder().decode(type, from: data)
     }
 
     // MARK: Outbox
@@ -124,7 +128,8 @@ public actor HangReportStore {
     /// Deletes everything but the last report's copy (hang reports turned off).
     public func clearQueued() {
         removePending()
-        try? manager.removeItem(at: pendingMainThreadURL)
+        // blocking-allow: one delete when reports go off, beside the store's own deletes below
+        try? FileManager.checked.removeItem(at: pendingMainThreadURL)
         try? manager.removeItem(at: outboxURL)
         try? manager.removeItem(at: previewURL)
     }

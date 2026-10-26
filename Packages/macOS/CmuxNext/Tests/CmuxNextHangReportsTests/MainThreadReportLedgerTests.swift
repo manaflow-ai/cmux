@@ -2,6 +2,7 @@
 import CmuxNextCompat
 import CmuxNextInputCore
 import CmuxNextInputCoreTestSupport
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -155,8 +156,8 @@ struct MainThreadReportLedgerTests {
         let tap = FakeInputTap()
         let center = NotificationCenter()
         let became = Notification.Name("test.becameActive"), resigned = Notification.Name("test.resignedActive")
-        let feed = MainThreadActivityFeed(ledger: ledger, input: tap, becameActive: became, resignedActive: resigned,
-                                          isActive: false, center: center)
+        let feed = MainThreadActivityFeed(ledger: ledger, input: tap, events: AppEvents(center: center), becameActive: became,
+                                          resignedActive: resigned, isActive: false)
         #expect(!ledger.isActive)
         #expect(tap.classes == [.key, .button, .scroll])
         center.post(name: became, object: nil)

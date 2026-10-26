@@ -1,15 +1,17 @@
-import CmuxNextCompat
 public import CmuxNextInputCore
+public import CmuxNextWakeups
 public import Foundation
 
-/// Feeds a ``MainThreadReportLedger`` the app's activation notices and the person's keys, clicks
-/// and scrolls (Chrome's `DesktopSessionDurationTracker` hears window activation and user events
-/// the same way). The app passes AppKit's notice names, so this package needs no AppKit. Input is
+/// Feeds a ``MainThreadReportLedger`` the app's activation notices (through the app's one
+/// `AppEvents` adapter) and the person's keys, clicks and scrolls (through its one input tap);
+/// Chrome's `DesktopSessionDurationTracker` hears window activation and user events the same way.
+/// The app passes AppKit's notice names, so this package needs no AppKit. Input is
 /// forwarded at most once a second: an input stamp at most a second old keeps a span to within a
 /// second of Chrome's.
 ///
 /// ```swift
-/// feed = MainThreadActivityFeed(ledger: ledger, input: inputTap, becameActive: NSApplication.didBecomeActiveNotification,
+/// feed = MainThreadActivityFeed(ledger: ledger, input: inputTap, events: appEvents,
+///                               becameActive: NSApplication.didBecomeActiveNotification,
 ///                               resignedActive: NSApplication.didResignActiveNotification, isActive: NSApp.isActive)
 /// ```
 @MainActor
@@ -18,7 +20,7 @@ public final class MainThreadActivityFeed {
     public static let inputStrideNanos: UInt64 = 1_000_000_000
 
     private let ledger: MainThreadReportLedger
-    private var observations: [MainActorObservation] = []
+    private var activation: [EventSubscription] = []
     private var subscription: InputSubscription?
     /// The last input stamp forwarded (uptime nanoseconds).
     private var lastForwardedNanos: UInt64?
@@ -28,17 +30,17 @@ public final class MainThreadActivityFeed {
     /// - Parameters:
     ///   - ledger: The ledger the next report reads.
     ///   - input: The app's input tap.
+    ///   - events: The app's `AppEvents` (one observer per notice for the whole app).
     ///   - becameActive: `NSApplication.didBecomeActiveNotification`.
     ///   - resignedActive: `NSApplication.didResignActiveNotification`.
     ///   - isActive: Whether the app is active now (a span starts at once).
-    ///   - center: Where the notices are posted (tests pass their own).
-    public init(ledger: MainThreadReportLedger, input: any InputObserving, becameActive: Notification.Name,
-                resignedActive: Notification.Name, isActive: Bool, center: NotificationCenter = .default) {
+    public init(ledger: MainThreadReportLedger, input: any InputObserving, events: AppEvents, becameActive: Notification.Name,
+                resignedActive: Notification.Name, isActive: Bool) {
         self.ledger = ledger
         if isActive { ledger.didBecomeActive() }
-        observations = [
-            MainActorObservation(becameActive, center: center) { ledger.didBecomeActive() },
-            MainActorObservation(resignedActive, center: center) { ledger.didResignActive() },
+        activation = [
+            events.subscribe(becameActive, owner: "MainThreadActivityFeed") { ledger.didBecomeActive() },
+            events.subscribe(resignedActive, owner: "MainThreadActivityFeed") { ledger.didResignActive() },
         ]
         subscription = input.observe([.key, .button, .scroll]) { [weak self] record in
             self?.noteInput(timestamp: record.timestamp)
