@@ -1592,6 +1592,7 @@ dependencies = [
  "cmux-agent-pane-policy",
  "cmux-build-identity",
  "cmux-config",
+ "cmux-features",
  "cmux-holder",
  "cmux-host",
  "cmux-link",

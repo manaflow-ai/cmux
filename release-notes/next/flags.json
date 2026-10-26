@@ -1,5 +1,8 @@
 {
   "version": 1,
-  "default": {},
+  "default": {
+    "Features": {},
+    "FeaturesSerial": 1
+  },
   "cohorts": {}
 }
