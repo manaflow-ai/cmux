@@ -32,10 +32,11 @@ export async function wake(b: ChiefBrainDO, w: { agent: string; owner: string; c
   await b.lifecycle.start()
   markPending(b.sql, "life")
   // The admission and the conversation read go at the same time (the read changes nothing; a refusal ignores it).
+  const unread = b.sql.exec(`SELECT 1 FROM cb_cursor WHERE conversation = ?`, w.conversation).toArray().length === 0
   const reading = readConversation(b.doEnv, w.conversation, chiefPrincipal(w.agent, w.owner))
   reading.catch(() => undefined)
   const a = await b.admitted(w.agent, w.owner, false)
-  if (!a.ok) return skip(b, w, a.reason)
+  if (!a.ok) return skip(b, w, a.reason, unread)
   // While the wake reads the conversation and the turn is admitted: the owner's turns object, the route's auth and the team's meter warm up.
   // (Not on the Claude Code route, chief-brain-cc/: its turns use none of them.)
   if (!ccRoute(b.doEnv, w.owner)) {
@@ -45,7 +46,7 @@ export async function wake(b: ChiefBrainDO, w: { agent: string; owner: string; c
     b.doCtx.waitUntil(creditsCanStart(b.doEnv, a.config).catch(() => undefined))
   }
   const view = await reading
-  if ("refused" in view) return skip(b, w, view.refused)
+  if ("refused" in view) return skip(b, w, view.refused, unread)
   // A conversation this brain never read starts at the wake: older history is not answered.
   const cursor = b.sql.exec<{ seq: number }>(`SELECT seq FROM cb_cursor WHERE conversation = ?`, w.conversation).toArray()[0]?.seq ?? w.seq - 1
   let queued = 0
@@ -109,24 +110,24 @@ export async function peerNote(b: ChiefBrainDO, w: { agent: string; owner: strin
  */
 const OTHER_BRAIN = new Set(["disabled", "other_chief", "chief_placed"])
 /**
- * Skips that pass (the owner's object did not answer, a memory copy is under way, a new Chief's
- * conversation is not readable yet): MuxDO sends the wake again with backoff (`retry`), and the
- * brain keeps the floor below the woken message, so this wake or any later one still answers it.
- * Before #25570 a new Chief's first message skipped this way was dropped for good: the next wake of a
- * conversation with no cursor starts at its own seq, so only a second message got an answer.
+ * Skips that pass (#25570). Before, a new Chief's first message skipped this way was dropped for good:
+ * the next wake of a conversation with no cursor starts at its own seq, so only a second message got an
+ * answer. Now the brain keeps the floor below the woken message (FLOOR_SKIPS), so a later wake still
+ * answers it, and MuxDO sends the wake again with backoff (`retry`) when the owner's object did not
+ * answer, or when a conversation this brain never read is not readable yet (a new Chief's, created by a
+ * background delivery). A memory copy under way only keeps the floor: an abandoned import must not hold
+ * the conversation's wakes for hours.
  */
-export const RETRY_SKIPS: ReadonlySet<string> = new Set(["owner.unreachable", "memory_importing", "unknown_conversation"])
-const skip = (b: ChiefBrainDO, w: { agent: string; conversation: string; seq: number }, reason: string): { skipped: string; retry?: true } => {
-  if (RETRY_SKIPS.has(reason)) {
-    b.sql.exec(`INSERT INTO cb_cursor (conversation, seq) VALUES (?, ?) ON CONFLICT (conversation) DO NOTHING`, w.conversation, w.seq - 1)
-    return { skipped: reason, retry: true }
-  }
+const FLOOR_SKIPS: ReadonlySet<string> = new Set(["owner.unreachable", "memory_importing"])
+const retries = (reason: string, unread: boolean) => reason === "owner.unreachable" || (reason === "unknown_conversation" && unread)
+const skip = (b: ChiefBrainDO, w: { agent: string; conversation: string; seq: number }, reason: string, unread = false): { skipped: string; retry?: true } => {
+  if (FLOOR_SKIPS.has(reason)) b.sql.exec(`INSERT INTO cb_cursor (conversation, seq) VALUES (?, ?) ON CONFLICT (conversation) DO NOTHING`, w.conversation, w.seq - 1)
   // A turn that runs, messages that wait for one, or a reply that waits to post in this conversation keep their indicator.
   const busy =
     (b.turnLive && b.turnConversation === w.conversation) ||
     b.sql.exec(`SELECT 1 FROM cb_inbox WHERE conversation = ? AND state IN ('queued', 'running') UNION ALL SELECT 1 FROM cb_turn WHERE conversation = ? AND post = 'pending' LIMIT 1`, w.conversation, w.conversation).toArray().length > 0
   if (!OTHER_BRAIN.has(reason) && !busy) b.doCtx.waitUntil(typing(b.doEnv, w.conversation, w.agent, false))
-  return { skipped: reason }
+  return retries(reason, unread) ? { skipped: reason, retry: true } : { skipped: reason }
 }
 
 /**

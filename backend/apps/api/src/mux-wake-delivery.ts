@@ -66,7 +66,7 @@ export const nextDeliveryAt = (sql: SqlStorage): number | null => {
 }
 
 /** One send to the Chief's own brain; true when the brain answered (it holds the wake now). A skip the
- * brain marks `retry` (brain-turn.ts RETRY_SKIPS: a passing refusal) is not delivered: sent again with backoff. */
+ * brain marks `retry` (brain-turn.ts `skip`: a passing refusal) is not delivered: sent again with backoff. */
 export const sendWake = async (env: Env, w: Wake, opencode: boolean): Promise<boolean> => {
   const pi = () => env.CHIEF_BRAIN_DO.get(env.CHIEF_BRAIN_DO.idFromName(brainName(w.agent, w.conversation))).wake(w)
   const o = opencode && env.OPENCODE_BRAIN_DO ? env.OPENCODE_BRAIN_DO.get(env.OPENCODE_BRAIN_DO.idFromName(w.agent)) : undefined

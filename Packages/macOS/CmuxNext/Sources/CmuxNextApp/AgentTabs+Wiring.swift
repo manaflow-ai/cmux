@@ -119,7 +119,7 @@ extension AgentTabStore {
         let chief = ChiefHomeAcpmux(home: home, local: tabs.host, ensureHost: { [weak services] in
             await MainActor.run { _ = services?.home.brain.ensure(asked: false) }
         }, startHost: { [weak services] in
-            await MainActor.run { services?.home.brain.ensure(asked: false) ?? false }
+            await MainActor.run { services?.home.brain.ensureForChat() ?? false }
         })
         (tabs.chiefHost, tabs.chiefPaneHost) = (chief.host, chief.paneHost)
         // A subagent tab made under another Chief home of this Mac attaches there (#25262).

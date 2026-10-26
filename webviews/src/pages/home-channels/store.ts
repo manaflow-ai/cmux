@@ -456,10 +456,10 @@ export class HomeChannelsStore {
       // the snapshot wins for a message both have unless the event copy was edited later. Kept
       // messages that end before the page starts (more than a page came in since, a reconnect)
       // would leave a hole no older page fills: the window starts at the page then (#25570).
-      const first = page.messages[0]?.seq;
-      const all = this.snapshot.messages.filter((m) => m.conversation === id);
-      const joins = first === undefined || all.some((m) => m.seq >= first - 1);
-      const kept = joins ? all : all.filter((m) => m.seq >= (first ?? 0));
+      const kept = joining(
+        this.snapshot.messages.filter((m) => m.conversation === id),
+        page.messages[0]?.seq,
+      );
       const fresh = page.messages.map((m) => {
         const event = kept.find((k) => k.seq === m.seq);
         return event && (event.editedAt ?? 0) > (m.editedAt ?? 0) ? event : m;
@@ -512,6 +512,7 @@ export class HomeChannelsStore {
     const { selected, messages, hasOlder, loadingOlder } = this.snapshot;
     if (!this.client || !selected || !hasOlder || loadingOlder) return;
     const before = messages[0]?.seq ?? 1;
+    const generation = this.generation;
     this.set({ loadingOlder: true });
     try {
       const older = await this.client.call<HomeHistory>(HomeOps.history, {
@@ -519,7 +520,9 @@ export class HomeChannelsStore {
         beforeSeq: before,
         limit: PAGE,
       });
-      if (this.snapshot.selected !== selected) return;
+      // A reload since (a reconnect) may have moved the window: this page goes before the old one.
+      if (this.snapshot.selected !== selected || this.generation !== generation) return;
+      if ((this.snapshot.messages[0]?.seq ?? 1) !== before) return;
       const merged = mergeMessages(this.snapshot.messages, older.messages, this.snapshot.messages.length + PAGE);
       this.set({
         messages: merged,
@@ -1129,4 +1132,21 @@ function defaultSelection(conversations: readonly HomeConversation[]): string | 
   const chief = conversations.find((c) => c.kind === "chief");
   if (chief) return chief.id;
   return [...conversations].sort((a, b) => b.updatedAt - a.updatedAt)[0]?.id;
+}
+
+/** The window's messages a page starting at `first` keeps: those from `first` on (events merged
+ * while the page was read), and older ones only while they run without a gap up to the page. A
+ * window that ends before the page starts (more than a page came in, a reconnect) would leave a
+ * hole no older page fills, so the window then starts at the page (#25570). */
+function joining(window: readonly HomeMessage[], first: number | undefined): HomeMessage[] {
+  if (first === undefined) return [...window];
+  const older = window.filter((m) => m.seq < first).sort((a, b) => b.seq - a.seq);
+  const kept: HomeMessage[] = [];
+  let next = first - 1;
+  for (const message of older) {
+    if (message.seq !== next) break;
+    kept.push(message);
+    next -= 1;
+  }
+  return [...kept.reverse(), ...window.filter((m) => m.seq >= first)];
 }

@@ -51,13 +51,16 @@ const message = (seq: number, threadRoot?: string): Message => ({
   ...(threadRoot ? { threadRoot } : {}),
 });
 
-/** A host whose conversation is `all` (ascending by seq); `newest()` is what a page read returns. */
-const host = (all: () => Message[]) => {
+/** A host whose conversation is `all` (ascending by seq). `during(op)` runs inside a read, before it
+ * answers: an event the owner sends meanwhile, or another read. */
+const host = (all: () => Message[], during: (op: string) => Promise<void> = async () => {}) => {
   let reconnect: (() => void) | undefined;
+  let deliver: ((batch: unknown) => void) | undefined;
   const client = {
     async call(op: string, params: { tail?: number; beforeSeq?: number; limit?: number }) {
       const messages = all();
       const last = messages.at(-1)?.seq ?? 0;
+      await during(op);
       switch (op) {
         case HomeOps.inbox:
           return { me, conversations: [conversation(last)], rev: last };
@@ -71,7 +74,8 @@ const host = (all: () => Message[]) => {
           return {};
       }
     },
-    async subscribe(_stream: string, _onEvent: (data: unknown) => void) {
+    async subscribe(stream: string, onEvent: (data: unknown) => void) {
+      if (stream === HomeOps.events) deliver = onEvent;
       return () => {};
     },
     handle: (_op: string, fn: () => void) => {
@@ -79,7 +83,7 @@ const host = (all: () => Message[]) => {
       return () => {};
     },
   };
-  return { client, reconnect: () => reconnect?.() };
+  return { client, reconnect: () => reconnect?.(), event: (messages: Message[]) => deliver?.({ conversations: [conversation(messages.at(-1)!.seq)], messages }) };
 };
 
 const topLevel = (messages: readonly Message[]) => messages.filter((m) => !threadOf(m));
@@ -135,5 +139,65 @@ test("a reload after more than a page arrived leaves no hole in the window", asy
   // Scrolling up reaches the start, with nothing missing.
   for (let i = 0; i < 10 && store.getSnapshot().hasOlder; i += 1) await store.loadOlder();
   expect(store.getSnapshot().messages.map((m) => m.seq)).toEqual(all.map((m) => m.seq));
+  stop();
+});
+
+const contiguous = (seqs: number[]) => seqs.every((seq, i) => i === 0 || seq === seqs[i - 1]! + 1);
+
+test("a message that arrives while the reload reads leaves no hole either", async () => {
+  let all = Array.from({ length: 50 }, (_, i) => message(i + 1));
+  let onPage: (() => void) | undefined;
+  const fake = host(
+    () => all,
+    async (op) => {
+      if (op === HomeOps.page) onPage?.();
+    },
+  );
+  const store = new HomeChannelsStore(fake.client as never);
+  const stop = store.subscribe(() => {});
+  await store.start();
+
+  // 300 came in while offline; message 351 arrives as an event while the reload's page is read.
+  all = Array.from({ length: 350 }, (_, i) => message(i + 1));
+  onPage = () => {
+    onPage = undefined;
+    fake.event([message(351)]);
+    all = [...all, message(351)];
+  };
+  await store.reloadInbox();
+  const seqs = store.getSnapshot().messages.map((m) => m.seq);
+  expect(contiguous(seqs)).toBe(true);
+  expect(seqs.at(-1)).toBe(351);
+  expect(store.getSnapshot().hasOlder).toBe(true);
+  stop();
+});
+
+test("an older page read before a reload moved the window is not merged into it", async () => {
+  let all = Array.from({ length: 250 }, (_, i) => message(i + 1));
+  let onHistory: (() => Promise<void>) | undefined;
+  const fake = host(
+    () => all,
+    async (op) => {
+      if (op === HomeOps.history && onHistory) {
+        const run = onHistory;
+        onHistory = undefined;
+        await run();
+      }
+    },
+  );
+  const store = new HomeChannelsStore(fake.client as never);
+  const stop = store.subscribe(() => {});
+  await store.start();
+  expect(store.getSnapshot().messages[0]?.seq).toBe(151);
+
+  // Scrolling up reads 51..150; meanwhile a reconnect reload finds 300 more and moves the window.
+  onHistory = async () => {
+    all = Array.from({ length: 550 }, (_, i) => message(i + 1));
+    await store.reloadInbox();
+  };
+  await store.loadOlder();
+  const seqs = store.getSnapshot().messages.map((m) => m.seq);
+  expect(contiguous(seqs)).toBe(true);
+  expect(seqs.at(-1)).toBe(550);
   stop();
 });

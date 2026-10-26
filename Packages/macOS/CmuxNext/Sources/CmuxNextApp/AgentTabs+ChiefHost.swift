@@ -61,7 +61,7 @@ struct ChiefHomeAcpmux {
     ///   - ensureHost: starts the Chief brain host when none runs
     ///     (`ChiefBrainKeeper.ensure`), after a heal stopped the stale one.
     ///   - startHost: asks for the Chief brain host when a tab finds nothing on the Chief home's
-    ///     socket (`ChiefBrainKeeper.ensure(asked: false)`, never after `cmux chief shutdown`);
+    ///     socket (`ChiefBrainKeeper.ensureForChat()`, never after `cmux chief shutdown`);
     ///     whether one runs or is starting. A restored Chief chat connects after a relaunch
     ///     without Home being shown (#25570).
     ///   - ownHost: the pane host of the Chief home's own acpmux (its environment) for a Chief
