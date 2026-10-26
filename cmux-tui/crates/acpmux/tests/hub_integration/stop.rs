@@ -199,3 +199,57 @@ async fn a_cancel_is_answered_within_the_budget_while_the_agent_ignores_it() {
     assert_eq!(r.unwrap(), json!({}));
     assert!(took < STOP_BUDGET, "the cancel was answered {took:?} after it was sent");
 }
+
+/// What happened to session `id` after its `_acpmux/kill` (`acpmux session stop`) answered:
+/// its status a moment later, as `acpmux ls` reads it, and the records after the close.
+async fn after_a_stop(hub: &Arc<Hub>, c: &mut TestClient, id: &str) -> (Value, Vec<String>) {
+    c.request(method::MUX_KILL, json!({"sessionId": id, "purge": false})).await.unwrap();
+    let closed_at = hub.events(id, 0, 10_000).unwrap().last().map(|e| e.seq).unwrap_or(0);
+    // Whatever the stopped turn still does (its end, the queue behind it) settles here.
+    tokio::time::sleep(Duration::from_millis(1500)).await;
+    let listed = c.request(method::MUX_SESSIONS, json!({})).await.unwrap();
+    let row = listed["sessions"]
+        .as_array()
+        .and_then(|rows| rows.iter().find(|r| r["sessionId"] == id))
+        .cloned()
+        .unwrap_or(Value::Null);
+    let later =
+        hub.events(id, closed_at, 10_000).unwrap().into_iter().map(|e| e.kind).collect();
+    (row["status"].clone(), later)
+}
+
+/// ergo-walk2 (2026-10-25): "session stop says closed but acpmux ls still shows it ready".
+/// A stop while the turn waits on a permission, while it runs, and with a prompt queued
+/// behind it: the session stays closed, and nothing starts it again on its own.
+#[tokio::test]
+async fn a_stopped_session_stays_closed_whatever_its_turn_was_doing() {
+    // Waiting on a permission nobody answers (the walk: a remote Codex tool call).
+    let (hub, mut c) = setup(PermissionPolicy::Ask).await;
+    let id = new_session(&mut c, "stop-asking").await;
+    c.send(method::SESSION_PROMPT, prompt(&id, "ask: run a tool", None)).await;
+    c.wait_for(method::MUX_PERMISSION_PENDING, |_| true).await;
+    let (status, later) = after_a_stop(&hub, &mut c, &id).await;
+    assert_eq!(status, "closed", "stopped while asking; then {later:?}");
+
+    // Running a turn the agent ends when it is cancelled.
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let id = new_session(&mut c, "stop-running").await;
+    c.send(method::SESSION_PROMPT, prompt(&id, "until-cancel", None)).await;
+    c.wait_for(method::SESSION_UPDATE, |p| p["update"]["sessionUpdate"] == "agent_message_chunk")
+        .await;
+    let (status, later) = after_a_stop(&hub, &mut c, &id).await;
+    assert_eq!(status, "closed", "stopped mid-turn; then {later:?}");
+
+    // With a prompt queued behind the running turn.
+    let (hub, mut c) = setup(PermissionPolicy::ApproveAll).await;
+    let id = new_session(&mut c, "stop-queued").await;
+    c.send(method::SESSION_PROMPT, prompt(&id, "until-cancel", None)).await;
+    c.wait_for(method::SESSION_UPDATE, |p| p["update"]["sessionUpdate"] == "agent_message_chunk")
+        .await;
+    c.send(method::SESSION_PROMPT, prompt(&id, "queued", Some("p-queued"))).await;
+    c.wait_for(method::MUX_PROMPT_ACCEPTED, |p| p["promptId"] == "p-queued" && p["queued"] == true)
+        .await;
+    let (status, later) = after_a_stop(&hub, &mut c, &id).await;
+    assert_eq!(status, "closed", "stopped with a prompt queued; then {later:?}");
+    assert!(!later.iter().any(|k| k == "reopened"), "the queued prompt reopened it: {later:?}");
+}
