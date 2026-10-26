@@ -47,6 +47,7 @@ struct EnergyReportTests {
         #expect(object["policy"]?["wakeAlignmentMs"]?.doubleValue == 32)
         #expect(object["policy"]?["webFrameRate"]?.intValue == 30)
         #expect(object["policy"]?["pollStretch"]?.intValue == 4)
+        #expect(object["policy"]?["pageSaver"]?.boolValue == true)
         #expect(object["inputs"]?["featureEnabled"]?.boolValue == true)
         #expect(object["inputs"]?["hasBattery"]?.boolValue == true)
         #expect(object["inputs"]?["batteryPercent"]?.intValue == 15)
