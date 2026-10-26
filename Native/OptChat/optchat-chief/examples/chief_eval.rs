@@ -1083,7 +1083,12 @@ fn main() {
         let body = json!({"model": "claude-haiku-5-5", "max_tokens": 8,
             "system": [{"type": "text", "text": CLAUDE_CODE}],
             "messages": [{"role": "user", "content": "Say ok."}]});
-        match Model::new(&config.base_url, config.api_key.clone()).send(&body) {
+        let mut model = Model::new(&config.base_url, config.api_key.clone());
+        model.agent = ureq::AgentBuilder::new()
+            .timeout_connect(Duration::from_secs(5))
+            .timeout(Duration::from_secs(30))
+            .build();
+        match model.send(&body) {
             Ok(_) => std::process::exit(0),
             Err((e, _)) => {
                 eprintln!("preflight: {}: {e}", config.base_url);

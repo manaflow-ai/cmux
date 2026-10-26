@@ -54,7 +54,13 @@ jobs:
           audience: ${{ vars.TS_E2E_OIDC_AUDIENCE }}
           tags: tag:ci
           use-cache: "true"
+      - name: Model cases skipped (no tailnet)
+        if: steps.tailnet.outcome != 'success'
+        run: |
+          echo "::warning::Chief model evals skipped: this runner could not join the tailnet (the model route is tailnet-only)"
+          echo "Model cases skipped: no tailnet. Run evals/run.sh on a mini." >> "$GITHUB_STEP_SUMMARY"
       - name: Model cases
+        if: steps.tailnet.outcome == 'success'
         working-directory: Native/OptChat/optchat-chief
         env:
           OPTCHAT_ANTHROPIC_BASE_URL: ${{ vars.CHIEF_EVAL_BASE_URL || 'http://100.89.225.106:31415' }}
