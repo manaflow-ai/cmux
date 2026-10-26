@@ -442,7 +442,8 @@ impl Hub {
         // One spawn at a time per session; a caller that waited here finds
         // the child the previous holder started.
         let _spawning = session.spawn_lock.lock().await;
-        let child = self.reach_or_start(session, profile, stops).await?;
+        // Boxed: a start is a deep future, and the stack a caller polls it on is not.
+        let child = Box::pin(self.reach_or_start(session, profile, stops)).await?;
         // Stopped while this agent started: the stop found no agent to end yet, or the start
         // went on after it. The agent is ended here and the session stays closed.
         if session.stops.load(Ordering::SeqCst) != stops
