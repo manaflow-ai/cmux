@@ -105,6 +105,8 @@ extension CloudHandlers {
             // The marker first, so a hub that ends from here on is restarted for the route.
             let paths = cloud.paths
             try await work.run(.userBlocking, mayBlock: .files) { try paths.markSSHRoutes() }
+            // Cloud may have been turned off while the machine answered: then no hub starts.
+            if let reason = cloud.unavailableReason { throw ActionFailure(message: reason) }
             _ = try await hub.linkedSocketPath() // the hub runs, and its link points at it
             let local = try await work.run(.userBlocking, mayBlock: .files) {
                 try enrollment.installOnThisMac(hostKey: hostKey, cli: binary.path, hubLink: hubLink, identityFile: identity, home: home)

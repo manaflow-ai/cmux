@@ -99,6 +99,9 @@ public struct CloudMachineEnrollment: Equatable, Sendable {
             // The pinned key is the only one: no system-wide known_hosts or command can vouch for another.
             "  GlobalKnownHostsFile none",
             "  KnownHostsCommand none",
+            // Every connection is its own: no master of an earlier enrollment of this name answers.
+            "  ControlMaster no",
+            "  ControlPath none",
         ]
         if let identityFile { lines += ["  IdentityFile \(Self.configQuoted(identityFile))", "  IdentitiesOnly yes"] }
         lines.append(Self.end(name))
@@ -215,6 +218,7 @@ public struct CloudMachineEnrollment: Equatable, Sendable {
             && seen["userknownhostsfile"] == knownHosts
             && seen["stricthostkeychecking"] == "true"
             && seen["globalknownhostsfile"] == "none" && (seen["knownhostscommand"] ?? "none") == "none"
+            && seen["controlmaster"] == "false" && (seen["controlpath"] ?? "none") == "none"
     }
 
     /// The file's text; "" when it does not exist. A file that exists but cannot be read as UTF-8

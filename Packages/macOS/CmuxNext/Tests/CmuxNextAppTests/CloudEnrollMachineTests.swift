@@ -49,7 +49,7 @@ struct CloudEnrollMachineTests {
                                               identityFile: "/Users/me/.ssh/id_ed25519")
         #expect(block.contains("Host lane-vm-1\n  HostName 10.0.0.7\n  User cmux\n  Port 22\n  HostKeyAlias cmux-vm-1\n"))
         #expect(block.contains("  ProxyCommand '/Applications/cmux NEXT.app/Contents/Resources/bin/cmux-tui' wg dial --hub '/tmp/cmux-wg-ab.sock' %h %p"))
-        #expect(block.contains("  StrictHostKeyChecking yes\n  GlobalKnownHostsFile none\n  KnownHostsCommand none\n"))
+        #expect(block.contains("  StrictHostKeyChecking yes\n  GlobalKnownHostsFile none\n  KnownHostsCommand none\n  ControlMaster no\n  ControlPath none\n"))
         #expect(block.contains("  IdentityFile /Users/me/.ssh/id_ed25519\n  IdentitiesOnly yes\n"))
     }
 
@@ -135,7 +135,7 @@ struct CloudEnrollMachineTests {
 
     @Test func theRouteIsLiveOnlyWhenSSHResolvesNameToIt() {
         let ours = "user cmux\nhostname 10.0.0.7\nport 22\nhostkeyalias cmux-vm-1\nstricthostkeychecking true\nuserknownhostsfile /Users/me/.ssh/cmux-cloud/known_hosts\n"
-            + "globalknownhostsfile none\n"
+            + "globalknownhostsfile none\ncontrolmaster false\n"
             + "proxycommand '/bin/cmux-tui' wg dial --hub '/tmp/hub.sock' %h %p\n"
         let live = { (text: String) in Self.enrollment.routeIsLive(text, cli: "/bin/cmux-tui", hubLink: "/tmp/hub.sock", knownHosts: "/Users/me/.ssh/cmux-cloud/known_hosts") }
         #expect(live(ours))
@@ -148,5 +148,6 @@ struct CloudEnrollMachineTests {
         #expect(!live(ours.replacingOccurrences(of: "cmux-vm-1", with: "attacker")), "another host key alias is not this route")
         #expect(!live(ours.replacingOccurrences(of: "globalknownhostsfile none", with: "globalknownhostsfile /etc/ssh/ssh_known_hosts")), "a system known_hosts could vouch for another key")
         #expect(!live(ours + "knownhostscommand /usr/local/bin/keys %H\n"))
+        #expect(!live(ours.replacingOccurrences(of: "controlmaster false", with: "controlmaster auto") + "controlpath ~/.ssh/cm-%n\n"), "a shared master of another machine could answer")
     }
 }
