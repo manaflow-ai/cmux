@@ -203,5 +203,17 @@ import Testing
         #expect(writes.restoresDefault(back))
         #expect(writes.savedWhen(back) == entry.when)
         #expect(writes.sameScopeOwners(back).isEmpty)
+        // Another action's user entry on those keys sits above the restored default and would keep
+        // them where both hold: Overwrite must take them from it (review 2026-10-27).
+        services.registry.setShortcutOverride(shipped, for: "newWindow")
+        guard case .array(let taken)? = Self.field(KeybindingReports.conflicts(
+            back, when: writes.savedWhen(back), asDefault: writes.restoresDefault(back), registry: services.registry), "bindings")
+        else {
+            Issue.record("no conflicts reply")
+            return
+        }
+        let newWindow = taken.filter { Self.field($0, "command")?.stringValue == "newWindow" }
+        #expect(!newWindow.isEmpty)
+        #expect(newWindow.allSatisfy { Self.field($0, "takesAll") == .bool(true) })
     }
 }

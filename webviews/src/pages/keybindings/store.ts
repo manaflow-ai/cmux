@@ -325,7 +325,7 @@ export class KeybindingsStore {
       return;
     }
     // The released keys' save is still on the way: that save closes the recorder.
-    if (recording.key && this.committing === recording.key) {
+    if (recording.key && this.commitsNow(recording)) {
       this.set({ recording: { ...recording, closing: true } });
       return;
     }
@@ -482,7 +482,7 @@ export class KeybindingsStore {
       }
       if (first === "return" || first === "enter") {
         // Right after a release whose save is still on the way: that save closes the recorder.
-        if (recording.target === "row" && recording.key && this.committing === recording.key) {
+        if (recording.target === "row" && recording.key && this.commitsNow(recording)) {
           this.set({ recording: { ...recording, closing: true } });
           return;
         }
@@ -513,16 +513,22 @@ export class KeybindingsStore {
    *  app's capture stays on for its Return and Escape. `after`: the recording goes on (a release),
    *  or closes (Close, Return, a press outside). */
   private async commit(recording: Extract<Recording, { target: "row" }>, after: "continue" | "close"): Promise<void> {
-    this.committing = recording.key;
+    const committing = { session: recording.session, key: recording.key };
+    this.committing = committing;
     try {
       await this.commitKeys(recording, after);
     } finally {
-      if (this.committing === recording.key) this.committing = undefined;
+      if (this.committing === committing) this.committing = undefined;
     }
   }
 
   /** The keys `commit` checks and saves now (Return while they are on the way waits for them). */
-  private committing?: string;
+  private committing?: { session: number; key: string };
+
+  /** `recording`'s keys are being checked and saved now (another recording's never count). */
+  private commitsNow(recording: Extract<Recording, { target: "row" }>): boolean {
+    return this.committing?.session === recording.session && this.committing.key === recording.key;
+  }
 
   private async commitKeys(
     recording: Extract<Recording, { target: "row" }>,

@@ -130,7 +130,10 @@ enum KeybindingReports {
             // The new keys hold wherever this entry runs: Overwrite takes them from it. Else they
             // only win where their own `when` holds, and the entry keeps them everywhere else.
             // An action the write refuses to share the keys with (`sameScope`) always loses them.
-            object["takesAll"] = .bool(sameScope.contains(entries[index].command) || WhenClause.implies(entries[index].when, when))
+            // A restored default sits under every user entry: one that can overlap it must go, or it
+            // keeps the keys where both hold.
+            object["takesAll"] = .bool(asDefault || sameScope.contains(entries[index].command)
+                || WhenClause.implies(entries[index].when, when))
             return .object(object)
         }
         return ["bindings": .array(rows)]
