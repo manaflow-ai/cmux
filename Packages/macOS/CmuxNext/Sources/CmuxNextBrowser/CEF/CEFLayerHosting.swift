@@ -147,9 +147,10 @@ final class CEFLayerHosting {
     /// is hosted and hosting is still wanted, nothing reaches the fork unless
     /// the resize deadline changed; a tunable change applies here.
     ///
-    /// `tabSwitch` is the `switch.tab` interval waiting for this tab (the app's
-    /// visible-time request, taken from the tab): the page window shows the tab
-    /// in this turn's commit, hosted or not, so the switch ends there.
+    /// `tabSwitch` is the `switch.tab` request this tab held: the switch ends
+    /// at this turn's app commit as `end=page_activated`, a lower bound, since
+    /// Chromium presents the activated tab later in its own compositor and the
+    /// fork reports no presentation time yet.
     func pageShown(browser: Int32, tabSwitch: TabSwitchSignpost.PageShow? = nil) { // perf-hot: 10ms tab-switch (every Chromium tab show)
         defer { tabSwitch?.pageShown() }
         guard let fork else { return }

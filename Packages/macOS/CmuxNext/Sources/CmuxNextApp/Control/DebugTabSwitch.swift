@@ -13,7 +13,7 @@ import os
 /// Every switch is also an `OSSignposter` interval (subsystem `com.cmuxterm.app.next`, category
 /// `tab-switch`, name `switch`) with one event per stage, for Instruments, recording or not, and in every
 /// build one `switch.tab` trace pair (`AppServices.tabSwitch`): from the intent, with the destination's
-/// kind, to the content commit (for a Chromium page, the commit of its page window's show).
+/// kind, to the app's commit of the destination's content (`TabSwitchSignpost`).
 @MainActor
 enum DebugTabSwitch {
     static let timer = SwitchFrameTimer(owner: "debug.tab_switch")
@@ -31,7 +31,7 @@ enum DebugTabSwitch {
         body()
     }
 
-    /// `pane` begins a switch to `tab`.
+    /// `pane` begins a switch to `tab` that it will show (the caller checked the run allows it and the pane draws).
     static func began(_ pane: PaneController, to tab: StripTabID) {
         let key = ObjectIdentifier(pane)
         if signposter.isEnabled {
@@ -45,7 +45,7 @@ enum DebugTabSwitch {
         let inputTimestamp = input ?? click, now = CACurrentMediaTime()
         // Only this switch's own input (not an event left over from a launch or a menu), as the timer reads it.
         let age = inputTimestamp.flatMap { now - $0 >= 0 && now - $0 < 1 ? (now - $0) * 1_000 : nil } ?? -1
-        pane.services.tabSwitch.began(pane, kind: pane.tabSwitchKind(to: tab.rawValue), inputAgeMilliseconds: age)
+        pane.services.tabSwitch.began(pane, to: tab.rawValue, kind: pane.tabSwitchKind(to: tab.rawValue), inputAgeMilliseconds: age)
         guard timer.isRecording else { return }
         timer.began(key, at: now, inputTimestamp: inputTimestamp)
     }
@@ -62,16 +62,17 @@ enum DebugTabSwitch {
         if timer.isRecording { timer.setKind(ObjectIdentifier(owner), kind) }
     }
 
-    /// `pane` resolved the content its switch shows; a Chromium page takes the `switch.tab` request its show ends.
-    static func content(_ pane: PaneController, _ content: TabContent) {
+    /// `pane` resolved the content of the tab `key`; a live Chromium page takes the `switch.tab` request its show marks.
+    static func content(_ pane: PaneController, _ content: TabContent, key: String) {
         kind(pane, content.switchKind)
-        if case .browser(let entry) = content { pane.services.tabSwitch.shows(entry.tab, for: pane) }
+        if case .browser(let entry) = content { pane.services.tabSwitch.shows(entry.tab, for: pane, key: key) }
     }
 
-    /// `pane` put its content in the pane this turn (the `view` stage): its `switch.tab` ends at this commit.
-    static func contentShown(_ pane: PaneController) {
+    /// `pane` put the content of the tab `key` in the pane this turn (the `view` stage): a `switch.tab` to `key`
+    /// ends at this commit; a re-show of another tab ends nothing.
+    static func contentShown(_ pane: PaneController, key: String?) {
         mark(pane, "view")
-        pane.services.tabSwitch.contentShown(pane)
+        if let key { pane.services.tabSwitch.contentShown(pane, key: key) }
     }
 
     static func shown(_ owner: AnyObject, in window: NSWindow?) {
@@ -79,7 +80,7 @@ enum DebugTabSwitch {
         timer.shown(ObjectIdentifier(owner), in: window)
     }
 
-    /// `pane` goes away: a switch it began and never showed ends here.
+    /// `pane` goes away or stops drawing (`suspend`): a switch it began and never showed ends here, as missed.
     static func forget(_ pane: PaneController) {
         if let open = intervals.removeValue(forKey: ObjectIdentifier(pane)) { signposter.endInterval("switch", open.state, "gone") }
         pane.services.tabSwitch.forget(pane)

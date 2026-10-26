@@ -200,6 +200,15 @@ public nonisolated struct Signposter: Sendable {
         closeInterval(name, interval, arg0: EndCode.of(outcome))
     }
 
+    /// Ends a committed interval whose end is the app's commit after it asked another process to draw (a
+    /// ``SignpostName/switchTab`` to a Chromium page: the commit after `tab_activate`, before Chromium presents the
+    /// tab). The end carries `end=page_activated` and the ring code `EndCode.pageActivated`, and is not mirrored to
+    /// MetricKit: it is a lower bound, so readers keep it apart from app-drawn ends.
+    func endPageActivated(_ name: SignpostName, _ interval: SignpostInterval) {
+        signposter.endInterval(name.staticName, interval.state, "end=page_activated")
+        closeInterval(name, interval, arg0: EndCode.pageActivated)
+    }
+
     /// ``end(_:_:_:)`` for a ``SignpostName/scrollToFrame`` interval, with who took the event, formatted by the log
     /// system only when something reads it: `target=<target>` on a committed end, `commit=missed target=<target>` on a
     /// missed one.

@@ -1,32 +1,37 @@
 /// The always-on `switch.tab` interval (``SignpostName/switchTab``): one async pair per tab switch, in every build,
-/// from the switch intent to the commit that shows the new tab's content.
+/// from the switch intent to the commit that shows the destination tab's content.
 ///
-/// This is Chrome's tab switch time (`Browser.Tabs.TotalSwitchDuration2`): `TabStripModel` activation stores a
-/// visible-time request on the destination's WebContents (`WebContentsImpl::SetTabSwitchStartTime`,
-/// content/browser/renderer_host/visible_time_request_trigger.h), the request is taken when that content becomes
-/// visible, and `ContentToVisibleTimeReporter` (content/browser/renderer_host/content_to_visible_time_reporter.cc)
-/// closes the event at that frame. Chrome splits it by the destination's state (saved frames, loaded, not loaded);
-/// here the ``Kind`` is that split:
+/// Modeled on Chrome's tab switch time (`Browser.Tabs.TotalSwitchDuration2`): `TabStripModel` activation stores a
+/// visible-time request keyed to the destination WebContents (`WebContentsImpl::SetTabSwitchStartTime`,
+/// content/browser/renderer_host/visible_time_request_trigger.h), and the request is dropped when that tab hides.
+/// Chrome splits the time by the destination's state (saved frames, loaded, not loaded); here the ``Kind`` is that
+/// split:
 /// - ``Kind/cold``: the destination has no live content yet; its content shows a frame after the intent.
 /// - ``Kind/warm``: live content of the app's own (a terminal, an agent, a WebKit page, an app page).
 /// - ``Kind/page``: a live Chromium page, shown by the page window.
 ///
-/// The end is the content commit: ``contentShown(_:)`` ends the switch at the ``CommitBoundary`` of the turn that put
-/// the content in the pane. A Chromium page draws in its page window, so its switch waits for the page window to show
-/// that tab instead: ``pageShow(_:)`` hands the destination a ``PageShow`` (Chrome's request), and the page window's
-/// show (`CEFLayerHosting.pageShown`) ends the switch at the boundary of its turn, which can be a later turn than the
-/// pane's (a page whose browser is made after the first frame).
+/// Each switch records its destination key, and only that key's show ends it: ``contentShown(_:key:)`` ends it at the
+/// ``CommitBoundary`` of the turn that put the destination's content in the pane. A re-show of another tab (a store
+/// change, a resume) ends nothing.
 ///
-/// Every begin gets exactly one end. A second intent of the same owner, or ``forget(_:)`` (the pane went away), ends
-/// the open switch as missed (`commit=missed`), so readers and MetricKit drop it; an end that comes after that
-/// (a boundary in flight, a stale ``PageShow``) finds another serial and writes nothing.
+/// The end is the app's commit, not the destination's drawn frame. Chrome ends its event at the renderer's
+/// presentation feedback (`ContentToVisibleTimeReporter`); cmux has no such signal from the Chromium fork yet, so a
+/// Chromium page's switch is a lower bound: the page takes a ``PageShow`` (``pageShow(_:key:)``), its page window's
+/// show (`CEFLayerHosting.pageShown`, after `tab_activate`) marks it, and a committed end of a marked switch carries
+/// `end=page_activated` (ring code `EndCode.pageActivated`) and stays out of MetricKit, so the histogram holds only
+/// app-drawn content.
+///
+/// Every begin gets exactly one end. A second intent of the same owner, or ``forget(_:)`` (the pane went away or its
+/// workspace stopped drawing), ends the open switch as missed (`commit=missed`), so readers and MetricKit drop it; an
+/// end that comes after that (a boundary in flight, a stale ``PageShow``) finds another serial and writes nothing.
 ///
 /// Ring: AB/AE keyed by the interval's `OSSignpostID`; begin `arg0` holds the kind in bits 0-7 (0 cold, 1 warm,
-/// 2 page) and the input age in the top 24 bits (all ones without an input event).
+/// 2 page) and the input age in us in the top 24 bits (all ones without an input event); end `arg0` the end code
+/// (0 ended, 1 missed, 3 page activated).
 ///
 /// ```swift
-/// tabSwitch.began(pane, kind: .warm, inputAgeMilliseconds: age)
-/// tabSwitch.contentShown(pane)
+/// tabSwitch.began(pane, to: key, kind: .warm, inputAgeMilliseconds: age)
+/// tabSwitch.contentShown(pane, key: key)
 /// ```
 @MainActor
 public final class TabSwitchSignpost {
@@ -49,26 +54,28 @@ public final class TabSwitchSignpost {
         }
     }
 
-    /// A switch waiting for its Chromium page to show (Chrome's visible-time request): the destination holds it,
-    /// and the page window's show calls ``pageShown()`` once.
+    /// A switch to a live Chromium page (Chrome's visible-time request, held by the destination): the page window's
+    /// show calls ``pageShown()``.
     @MainActor
     public struct PageShow {
         fileprivate weak var signpost: TabSwitchSignpost?
         fileprivate let owner: ObjectIdentifier
         fileprivate let serial: UInt64
 
-        /// The page window shows the destination now: the switch ends at this turn's commit. A switch that already
-        /// ended (superseded, forgotten) writes nothing.
+        /// The page window shows the destination now (`tab_activate` sent): the switch ends at this turn's commit,
+        /// as `end=page_activated`. A switch that already ended (superseded, forgotten) writes nothing.
         public func pageShown() {
-            signpost?.end(owner, serial: serial)
+            signpost?.pageActivated(owner, serial: serial)
         }
     }
 
     private struct Open {
         var serial: UInt64
+        /// The destination tab: only its show ends the switch.
+        var key: String
         var interval: SignpostInterval
-        /// The switch ends at its page's show, not at the pane's content commit.
-        var waitsForPage = false
+        /// The page window showed the destination in the turn the switch ends in.
+        var pageActivated = false
         /// Its end is scheduled at a commit boundary.
         var ending = false
     }
@@ -97,53 +104,64 @@ public final class TabSwitchSignpost {
     /// How many switches are open (tests, `debug.tab_switch`).
     public var openCount: Int { open.count }
 
-    /// A switch intent of `owner` (a pane): begins its interval and ends the one it left open as missed.
+    /// A switch intent of `owner` (a pane) to the tab `key`: begins its interval and ends the one it left open as
+    /// missed. Callers begin one only for a selection that will be shown (allowed by the run, pane drawing).
     ///
     /// - Parameters:
     ///   - owner: The pane whose selection changes.
+    ///   - key: The destination tab.
     ///   - kind: What the destination is now.
     ///   - inputAgeMilliseconds: The triggering event's age when the intent began, or -1 without one.
-    public func began(_ owner: AnyObject, kind: Kind, inputAgeMilliseconds: Double) {
-        let key = ObjectIdentifier(owner)
-        if let superseded = open.removeValue(forKey: key) { signposter.end(.switchTab, superseded.interval, .missed) }
+    public func began(_ owner: AnyObject, to key: String, kind: Kind, inputAgeMilliseconds: Double) {
+        let id = ObjectIdentifier(owner)
+        if let superseded = open.removeValue(forKey: id) { signposter.end(.switchTab, superseded.interval, .missed) }
         lastSerial &+= 1
         let arg0 = kind.rawValue | Signposter.inputAgeBits(milliseconds: inputAgeMilliseconds)
-        open[key] = Open(serial: lastSerial, interval: signposter.begin(.switchTab, kind.message, arg0: arg0))
+        open[id] = Open(serial: lastSerial, key: key, interval: signposter.begin(.switchTab, kind.message, arg0: arg0))
     }
 
-    /// The switch of `owner` waits for its Chromium page: the returned request ends it when the page window shows
-    /// the page. Nil when `owner` has no open switch.
-    public func pageShow(_ owner: AnyObject) -> PageShow? {
-        let key = ObjectIdentifier(owner)
-        guard let switched = open[key], !switched.ending else { return nil }
-        open[key]?.waitsForPage = true
-        return PageShow(signpost: self, owner: key, serial: switched.serial)
+    /// The request a Chromium page holds for the switch of `owner` to `key`: its page window's show marks the switch.
+    /// Nil when `owner` has no open switch to `key` (a re-show of the tab already shown) or it is already ending.
+    public func pageShow(_ owner: AnyObject, key: String) -> PageShow? {
+        let id = ObjectIdentifier(owner)
+        guard let switched = open[id], switched.key == key, !switched.ending else { return nil }
+        return PageShow(signpost: self, owner: id, serial: switched.serial)
     }
 
-    /// `owner` put its new content in the pane this turn: the switch ends at this turn's commit, unless it waits for
-    /// its page.
-    public func contentShown(_ owner: AnyObject) {
-        let key = ObjectIdentifier(owner)
-        guard let switched = open[key], !switched.waitsForPage else { return }
-        end(key, serial: switched.serial)
+    /// `owner` put the content of `key` in the pane this turn: a switch to `key` ends at this turn's commit.
+    public func contentShown(_ owner: AnyObject, key: String) {
+        let id = ObjectIdentifier(owner)
+        guard let switched = open[id], switched.key == key else { return }
+        end(id, serial: switched.serial)
     }
 
-    /// `owner` went away: a switch it began and never showed ends as missed.
+    /// `owner` went away or stopped drawing (its workspace hid): a switch it began and never showed ends as missed,
+    /// as Chrome drops a visible-time request when its tab hides.
     public func forget(_ owner: AnyObject) {
         guard let switched = open.removeValue(forKey: ObjectIdentifier(owner)) else { return }
         signposter.end(.switchTab, switched.interval, .missed)
     }
 
-    /// Ends the switch `serial` of `key` at this turn's commit boundary, once.
-    private func end(_ key: ObjectIdentifier, serial: UInt64) {
-        guard let switched = open[key], switched.serial == serial, !switched.ending else { return }
-        open[key]?.ending = true
-        boundary { [weak self] outcome in self?.boundaryFired(key, serial: serial, outcome) }
+    private func pageActivated(_ id: ObjectIdentifier, serial: UInt64) {
+        guard open[id]?.serial == serial else { return }
+        open[id]?.pageActivated = true
+        end(id, serial: serial)
     }
 
-    private func boundaryFired(_ key: ObjectIdentifier, serial: UInt64, _ outcome: CommitBoundary.Outcome) {
-        guard let switched = open[key], switched.serial == serial else { return }
-        open[key] = nil
-        signposter.end(.switchTab, switched.interval, outcome)
+    /// Ends the switch `serial` of `id` at this turn's commit boundary, once.
+    private func end(_ id: ObjectIdentifier, serial: UInt64) {
+        guard let switched = open[id], switched.serial == serial, !switched.ending else { return }
+        open[id]?.ending = true
+        boundary { [weak self] outcome in self?.boundaryFired(id, serial: serial, outcome) }
+    }
+
+    private func boundaryFired(_ id: ObjectIdentifier, serial: UInt64, _ outcome: CommitBoundary.Outcome) {
+        guard let switched = open[id], switched.serial == serial else { return }
+        open[id] = nil
+        if switched.pageActivated, outcome == .committed {
+            signposter.endPageActivated(.switchTab, switched.interval)
+        } else {
+            signposter.end(.switchTab, switched.interval, outcome)
+        }
     }
 }
