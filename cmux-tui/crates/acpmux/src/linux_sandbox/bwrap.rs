@@ -1,15 +1,15 @@
 //! Bubblewrap mount/namespace plan. Not wired to remote spawns until G2.
 //! This layer alone is insufficient: the seccomp supervisor and network
 //! proxy must also be installed before a remote command may run.
+//! HOME reconstruction and mount-alias rejection land separately; this staged
+//! plan must not enable Linux remote spawns until those layers are installed.
 #![allow(dead_code)] // Staged API: G1/G2 supply the production callers.
 
-use std::collections::BTreeSet;
-use std::ffi::{CString, OsStr, OsString};
+use std::ffi::CString;
 use std::fmt;
 use std::fs;
 use std::io::{self, Read};
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
-use std::os::unix::ffi::{OsStrExt, OsStringExt};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
@@ -26,18 +26,6 @@ pub(crate) struct Paths {
     pub(crate) claude_project: PathBuf,
 }
 
-/// HOME-relative Linux additions; the shared deny list comes from Seatbelt.
-pub(crate) const LINUX_READ_DENIES: &[&str] = &[
-    ".local/share/keyrings",
-    ".password-store",
-    ".mozilla",
-    ".config/google-chrome",
-    ".config/chromium",
-    ".config/BraveSoftware",
-    ".pki",
-    ".claude/.credentials.json",
-];
-
 /// The argv and source descriptors needed to invoke bubblewrap.
 ///
 /// Callers must keep the descriptors alive until bwrap has started and clear
@@ -45,7 +33,7 @@ pub(crate) const LINUX_READ_DENIES: &[&str] = &[
 pub(crate) type BwrapPlan = (Vec<String>, Vec<OwnedFd>);
 
 /// Build bubblewrap argv and open every bind source with `openat2`.
-/// The loop ends after four writable roots. HOME is rebuilt first.
+/// The loop ends after four writable roots. Supplied masks are applied first.
 fn bwrap_args(
     paths: &Paths,
     home_view: BwrapPlan,
@@ -119,7 +107,11 @@ fn open_bind_source(path: &Path) -> Result<OwnedFd, String> {
     let actual = fs::read_link(format!("/proc/self/fd/{raw}"))
         .map_err(|e| format!("cannot inspect bind source {text}: {e}"))?;
     if actual != canonical {
-        return Err(format!("bind source changed: expected {}, got {}", canonical.display(), actual.display()));
+        return Err(format!(
+            "bind source changed: expected {}, got {}",
+            canonical.display(),
+            actual.display()
+        ));
     }
     Ok(fd)
 }
@@ -134,93 +126,7 @@ struct OpenHow {
 const RESOLVE_NO_MAGICLINKS: u32 = 0x02;
 const RESOLVE_NO_SYMLINKS: u32 = 0x04;
 
-/// Read a symlink through its already-open parent directory, avoiding a
-/// pathname race between the directory snapshot and the emitted `--symlink`.
-fn read_link_at(parent: RawFd, name: &OsStr) -> Result<OsString, String> {
-    let c_name = CString::new(name.as_bytes()).map_err(|_| "symlink name contains NUL".to_owned())?;
-    let mut bytes = vec![0_u8; libc::PATH_MAX as usize];
-    // SAFETY: the fd and C string are valid; the output buffer is writable.
-    let len = unsafe {
-        libc::readlinkat(parent, c_name.as_ptr(), bytes.as_mut_ptr().cast(), bytes.len())
-    };
-    if len < 0 {
-        return Err(format!("cannot read symlink {}: {}", name.to_string_lossy(), io::Error::last_os_error()));
-    }
-    bytes.truncate(len as usize);
-    Ok(OsString::from_vec(bytes))
-}
-
-/// Resolve existing symlinks even when a final component is absent. The
-/// loop stops at the first existing ancestor (at worst /); errors refuse.
-fn resolve_missing(path: &Path) -> Result<PathBuf, String> {
-    let mut ancestor = path.to_owned();
-    loop {
-        match fs::canonicalize(&ancestor) {
-            Ok(root) => {
-                let rest = path.strip_prefix(&ancestor).map_err(|e| e.to_string())?;
-                return Ok(if rest.as_os_str().is_empty() { root } else { root.join(rest) });
-            }
-            Err(e) if e.kind() == io::ErrorKind::NotFound => {
-                if !ancestor.pop() {
-                    return Err(format!("cannot resolve {}: {e}", path.display()));
-                }
-            }
-            Err(e) => return Err(format!("cannot resolve {}: {e}", path.display())),
-        }
-    }
-}
-
-/// Both lexical and canonical HOME names stay denied. Existing paths outside
-/// HOME are returned for direct masks; absent paths under an unwritable
-/// ancestor are skipped because this uid cannot create them later.
-fn denied_paths(
-    home: &Path,
-    read_denies: &[PathBuf],
-) -> Result<(BTreeSet<PathBuf>, Vec<PathBuf>), String> {
-    let mut inside = BTreeSet::new();
-    let mut outside = BTreeSet::new();
-    for path in read_denies.iter().cloned().chain(LINUX_READ_DENIES.iter().map(|p| home.join(p))) {
-        path_arg(&path)?;
-        let resolved = resolve_missing(&path)?;
-        if path.starts_with(home) {
-            if !resolved.starts_with(home) {
-                return Err(format!(
-                    "denied path {} resolves outside HOME: {}",
-                    path.display(),
-                    resolved.display()
-                ));
-            }
-            inside.insert(path);
-            if resolved != home {
-                inside.insert(resolved);
-            }
-            continue;
-        }
-        if resolved.starts_with(home) {
-            inside.insert(resolved);
-            continue;
-        }
-        match fs::symlink_metadata(&path) {
-            Ok(_) => {
-                outside.insert(path);
-            }
-            Err(e) if e.kind() == io::ErrorKind::NotFound => {
-                let ancestor = first_existing_ancestor(&path);
-                if !is_writable_by_uid(&ancestor)? {
-                    continue;
-                }
-                return Err(format!(
-                    "denied path {} is absent under writable ancestor {}",
-                    path.display(),
-                    ancestor.display()
-                ));
-            }
-            Err(e) => return Err(format!("cannot inspect {}: {e}", path.display())),
-        }
-    }
-    Ok((inside, outside.into_iter().collect()))
-}
-
+/// The loop stops at the first existing ancestor, at worst the filesystem root.
 fn first_existing_ancestor(path: &Path) -> PathBuf {
     let mut ancestor = path.to_owned();
     while !ancestor.exists() {
@@ -246,83 +152,31 @@ fn is_writable_by_uid(path: &Path) -> Result<bool, String> {
     }
 }
 
-/// Rebuild denied ancestors; new host entries remain invisible (stricter than Seatbelt).
-fn home_view(home: &Path, denied: &BTreeSet<PathBuf>) -> Result<BwrapPlan, String> {
-    // Keep the built-in Linux deny set local to this rebuild as a second
-    // boundary: callers cannot accidentally omit Claude's credential.
-    let mut denied_owned = denied.clone();
-    for path in LINUX_READ_DENIES.iter().map(|p| home.join(p)) {
-        denied_owned.insert(path.clone());
-        denied_owned.insert(resolve_missing(&path)?);
-    }
-    let denied = &denied_owned;
-    let mut dirs = BTreeSet::from([home.to_owned()]);
-    // Include every denied name: an ancestor is rebuilt even when another
-    // denial makes its leaf redundant, so Linux additions (including Claude's
-    // credential) can never be forgotten by the caller.
-    for path in denied {
-        for parent in path.ancestors().skip(1).take_while(|p| p.starts_with(home)) {
-            let parent = resolve_missing(parent)?;
-            if !parent.starts_with(home) {
-                return Err(format!("ancestor outside HOME: {}", parent.display()));
-            }
-            if !denied.iter().any(|d| parent.starts_with(d)) {
-                dirs.insert(parent);
-            }
-        }
-    }
-    let mut out = Vec::new();
-    let mut fds = Vec::new();
-    for dir in &dirs {
-        out.extend(["--tmpfs".into(), path_arg(dir)?]);
-        let parent_fd = match open_bind_source(dir) {
-            Ok(fd) => fd,
-            Err(_error) if !dir.exists() => continue,
-            Err(error) => return Err(error),
-        };
-        let children = match fs::read_dir(dir) {
-            Ok(entries) => {
-                entries.map(|e| e.map(|e| e.path())).collect::<io::Result<BTreeSet<_>>>()
-            }
-            Err(e) if e.kind() == io::ErrorKind::NotFound => Ok(BTreeSet::new()),
-            Err(e) => Err(e),
-        }
-        .map_err(|e| format!("cannot snapshot {}: {e}", dir.display()))?;
-        if children.len() > 512 {
-            return Err(format!("HOME rebuild directory {} has more than 512 entries", dir.display()));
-        }
-        for child in children {
-            if denied.iter().any(|d| child.starts_with(d)) || dirs.contains(&child) {
-                continue;
-            }
-            let meta = fs::symlink_metadata(&child).map_err(|e| e.to_string())?;
-            if meta.is_symlink() {
-                let target = read_link_at(parent_fd.as_raw_fd(), &child.file_name())?;
-                let target = target.to_str().ok_or("symlink target must be UTF-8")?;
-                out.extend(["--symlink".into(), target.into(), path_arg(&child)?]);
-            } else {
-                let child_text = path_arg(&child)?;
-                let fd = open_bind_source(&child)?;
-                out.extend(["--ro-bind-fd".into(), fd.as_raw_fd().to_string(), child_text]);
-                fds.push(fd);
-            }
-        }
-    }
-    // Seal only after every descendant mountpoint and symlink exists.
-    for dir in dirs.iter().rev() {
-        out.extend(["--remount-ro".into(), path_arg(dir)?]);
-    }
-    Ok((out, fds))
-}
-
-/// Mask existing denied paths outside HOME. Missing paths under an unwritable
-/// ancestor are omitted by `denied_paths`; no host path is followed here.
-fn outside_view(paths: &[PathBuf]) -> Result<Vec<String>, String> {
+/// Snapshot existing explicit denials. A1b replaces HOME masks with a rebuilt
+/// view so absent credentials stay hidden too. Iteration ends after `paths`.
+/// Outside HOME, absent paths are skipped only under an unwritable ancestor.
+/// A nodev /dev/null mask may fail reads with EACCES instead of returning EOF.
+fn outside_view(paths: &[PathBuf], home: &Path) -> Result<Vec<String>, String> {
     let mut out = Vec::new();
     for path in paths {
         let text = path_arg(path)?;
-        let meta = fs::symlink_metadata(path)
-            .map_err(|e| format!("cannot inspect outside denied path {text}: {e}"))?;
+        let meta = match fs::symlink_metadata(path) {
+            Ok(meta) => meta,
+            Err(e) if e.kind() == io::ErrorKind::NotFound => {
+                if path.starts_with(home) {
+                    continue;
+                }
+                let ancestor = first_existing_ancestor(path);
+                if !is_writable_by_uid(&ancestor)? {
+                    continue;
+                }
+                return Err(format!(
+                    "denied path {text} is absent under writable ancestor {}",
+                    ancestor.display()
+                ));
+            }
+            Err(e) => return Err(format!("cannot inspect denied path {text}: {e}")),
+        };
         if meta.is_dir() {
             out.extend(["--tmpfs".into(), text.clone(), "--remount-ro".into(), text]);
         } else {
@@ -332,9 +186,10 @@ fn outside_view(paths: &[PathBuf]) -> Result<Vec<String>, String> {
     Ok(out)
 }
 
-/// Caller supplies explicit denied paths from `rules::read_denies`; Linux
-/// additions are included here. The returned descriptors must be inherited by
-/// bwrap with CLOEXEC cleared. No spawn is wired yet.
+/// Caller supplies explicit denied paths parsed by `rules::WritePolicy`.
+/// The returned descriptors must be inherited by bwrap with CLOEXEC cleared.
+/// No spawn is wired yet; HOME reconstruction and alias checks are required.
+/// Validation loops stop after the fixed roots and supplied deny list.
 pub(crate) fn plan(
     paths: &Paths,
     read_denies: &[PathBuf],
@@ -348,17 +203,12 @@ pub(crate) fn plan(
             return Err(format!("noncanonical sandbox path: {}", path.display()));
         }
     }
-    let (denied, outside) = denied_paths(&paths.home, read_denies)?;
-    // A later writable bind must never reintroduce a denied subtree.
     for root in writable {
-        if denied.iter().any(|d| root.starts_with(d) || d.starts_with(root)) {
+        if read_denies.iter().any(|d| root.starts_with(d) || d.starts_with(root)) {
             return Err(format!("writable root overlaps read denial: {}", root.display()));
         }
     }
-    let mut home = home_view(&paths.home, &denied)?;
-    let outside = outside_view(&outside)?;
-    home.0.splice(0..0, outside);
-    bwrap_args(paths, home, cmd_prefix)
+    bwrap_args(paths, (outside_view(read_denies, &paths.home)?, Vec::new()), cmd_prefix)
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -416,13 +266,16 @@ fn classify(status: Option<i32>, stderr: &str) -> Result<(), Unavailable> {
 pub(crate) fn probe(bwrap: &Path) -> Result<(), Unavailable> {
     let probe_root = fs::File::open("/")
         .map_err(|e| Unavailable::Other(format!("bwrap probe could not open /: {e}")))?;
+    let probe_readonly = probe_root
+        .try_clone()
+        .map_err(|e| Unavailable::Other(format!("bwrap probe could not duplicate /: {e}")))?;
     let mut child = Command::new(bwrap)
-        .args("--unshare-user --unshare-net --disable-userns --ro-bind / / --bind-fd 0 /tmp --ro-bind-fd 0 /var true".split_whitespace())
+        .args("--unshare-user --unshare-net --disable-userns --ro-bind / / --bind-fd 0 /tmp --ro-bind-fd 1 /var true".split_whitespace())
         .env_clear()
         .env("PATH", "/usr/bin:/bin")
         .current_dir("/")
         .stdin(Stdio::from(probe_root))
-        .stdout(Stdio::null())
+        .stdout(Stdio::from(probe_readonly))
         .stderr(Stdio::piped())
         .spawn()
         .map_err(|e| {
@@ -510,11 +363,20 @@ mod tests {
             && matches!(reason, Unavailable::NotInstalled | Unavailable::UserNamespacesRestricted)
     }
 
-    fn clear_fd_cloexec(fds: &[OwnedFd]) {
-        for fd in fds {
-            // SAFETY: each descriptor is owned by this test and remains alive
-            // through child creation.
-            assert_eq!(unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_SETFD, 0) }, 0);
+    /// The child-side loop ends after the finite source descriptor list.
+    fn inherit_fds(child: &mut tokio::process::Command, fds: &[OwnedFd]) {
+        let raw: Vec<_> = fds.iter().map(AsRawFd::as_raw_fd).collect();
+        // SAFETY: only async-signal-safe fcntl calls run before exec; the caller
+        // retains ownership of the live descriptors until spawn returns.
+        unsafe {
+            child.pre_exec(move || {
+                for fd in &raw {
+                    if libc::fcntl(*fd, libc::F_SETFD, 0) == -1 {
+                        return Err(io::Error::last_os_error());
+                    }
+                }
+                Ok(())
+            });
         }
     }
 
@@ -530,65 +392,6 @@ mod tests {
                 false
             }
         }
-    }
-
-    #[test]
-    fn regression_home_rebuild_omits_absent_and_nested_denies() {
-        use std::os::unix::fs::symlink;
-        let f = Fixture::new();
-        let p = f.create_paths();
-        fs::create_dir_all(p.home.join(".ssh/aws")).unwrap();
-        symlink(".ssh/aws", p.home.join(".aws")).unwrap();
-        symlink("absent-target", p.home.join("ordinary-link")).unwrap();
-        fs::write(p.home.join(".claude/settings.json"), "{}").unwrap();
-        let resolved_claude = resolve_missing(&p.home.join(".claude")).unwrap();
-        assert_eq!(resolved_claude, fs::canonicalize(p.home.join(".claude")).unwrap());
-        assert!(!resolved_claude.to_string_lossy().ends_with('/'));
-        let (denied, outside) = denied_paths(&p.home, &[p.home.join(".ssh"), p.home.join(".aws")]).unwrap();
-        assert!(outside.is_empty());
-        let (view, _fds) = home_view(&p.home, &denied).unwrap();
-        let home = p.home.to_str().unwrap();
-        let claude = p.home.join(".claude").to_str().unwrap().to_owned();
-        assert!(view.windows(2).any(|w| w == ["--tmpfs", home]), "view={view:?} denied={denied:?}");
-        assert!(
-            view.windows(2).any(|w| w == ["--tmpfs", &claude]),
-            "view={view:?} denied={denied:?}"
-        );
-        assert!(
-            !view.iter().any(|a| a.ends_with("/.ssh")
-                || a.ends_with("/.ssh/aws")
-                || a.ends_with("/.aws")
-                || a.ends_with("/.credentials.json")),
-            "view={view:?} denied={denied:?}"
-        );
-        assert!(
-            view.windows(3).any(|w| w
-                == ["--symlink", "absent-target", p.home.join("ordinary-link").to_str().unwrap()]),
-            "view={view:?} denied={denied:?}"
-        );
-        let mounts: Vec<_> = view.windows(2).filter(|w| w[0] == "--tmpfs").map(|w| &w[1]).collect();
-        assert_eq!(
-            mounts.len(),
-            mounts.iter().collect::<BTreeSet<_>>().len(),
-            "view={view:?} denied={denied:?}"
-        );
-        let (args, _fds) = plan(&p, &[], &strings(&["true"])).unwrap();
-        let rebuilt = args.iter().position(|s| s == "--tmpfs").unwrap();
-        let writable = args.iter().position(|s| s == "--bind-fd").unwrap();
-        assert!(
-            rebuilt < writable,
-            "HOME must be rebuilt before writable roots return: view={args:?} denied={denied:?}"
-        );
-    }
-
-    #[test]
-    fn regression_external_secret_symlink_is_refused() {
-        let f = Fixture::new();
-        let p = f.create_paths();
-        fs::write(f.0.join("secret"), "credential").unwrap();
-        std::os::unix::fs::symlink(f.0.join("secret"), p.home.join(".netrc")).unwrap();
-        let error = denied_paths(&p.home, &[p.home.join(".netrc")]).unwrap_err();
-        assert!(error.contains("outside HOME"), "{error}");
     }
 
     #[test]
@@ -610,24 +413,67 @@ mod tests {
         )
         .unwrap();
         let (args, _fds) = plan(&p, &policy.read_denies(), &strings(&["true"])).unwrap();
-        assert!(args.windows(2).any(|w| w == ["--tmpfs", p.home.to_str().unwrap()]));
+        assert!(args.iter().any(|arg| arg == "--bind-fd"));
+    }
+
+    #[test]
+    fn outside_denials_mask_existing_and_refuse_absent_writable_names() {
+        let f = Fixture::new();
+        let p = f.create_paths();
+        let directory = f.0.join("keychains");
+        let file = f.0.join("credential");
+        fs::create_dir(&directory).unwrap();
+        fs::write(&file, "secret").unwrap();
+        let args = outside_view(&[directory.clone(), file.clone()], &p.home).unwrap();
+        assert_eq!(
+            args,
+            strings(&[
+                "--tmpfs",
+                directory.to_str().unwrap(),
+                "--remount-ro",
+                directory.to_str().unwrap(),
+                "--ro-bind",
+                "/dev/null",
+                file.to_str().unwrap()
+            ])
+        );
+        let error = outside_view(&[f.0.join("missing")], &p.home).unwrap_err();
+        assert!(error.contains("absent under writable ancestor"), "{error}");
     }
 
     #[test]
     fn argv_exact_mount_order_and_only_four_writable_host_binds() {
         let f = Fixture::new();
         let p = f.create_paths();
-        let view = strings(&["--tmpfs", p.home.to_str().unwrap(), "--remount-ro", p.home.to_str().unwrap()]);
+        let view = strings(&[
+            "--tmpfs",
+            p.home.to_str().unwrap(),
+            "--remount-ro",
+            p.home.to_str().unwrap(),
+        ]);
         let command = strings(&["/usr/bin/acpmux", "__remote-sandbox-init", "--", "a b", "--bind"]);
         let (args, fds) = bwrap_args(&p, (view, Vec::new()), &command).unwrap();
         assert_eq!(fds.len(), 5);
         let mut expected: Vec<String> = "--new-session --die-with-parent --unshare-user --unshare-pid --unshare-ipc --unshare-net --unshare-uts --unshare-cgroup-try --disable-userns --ro-bind / / --dev /dev --proc /proc".split_whitespace().map(str::to_owned).collect();
-        expected.extend(["--tmpfs", p.home.to_str().unwrap(), "--remount-ro", p.home.to_str().unwrap()].into_iter().map(str::to_owned));
+        expected.extend(
+            ["--tmpfs", p.home.to_str().unwrap(), "--remount-ro", p.home.to_str().unwrap()]
+                .into_iter()
+                .map(str::to_owned),
+        );
         for path in [&p.cwd, &p.tmp, &p.claude_tmp_project, &p.claude_project] {
-            expected.extend(["--bind-fd", "fd", path.to_str().unwrap()].into_iter().map(str::to_owned));
+            expected
+                .extend(["--bind-fd", "fd", path.to_str().unwrap()].into_iter().map(str::to_owned));
         }
-        expected.extend(["--ro-bind-fd", "fd", p.claude_project.join("memory").to_str().unwrap()].into_iter().map(str::to_owned));
-        expected.extend(["--chdir", p.cwd.to_str().unwrap(), "--cap-drop", "ALL", "--"].into_iter().map(str::to_owned));
+        expected.extend(
+            ["--ro-bind-fd", "fd", p.claude_project.join("memory").to_str().unwrap()]
+                .into_iter()
+                .map(str::to_owned),
+        );
+        expected.extend(
+            ["--chdir", p.cwd.to_str().unwrap(), "--cap-drop", "ALL", "--"]
+                .into_iter()
+                .map(str::to_owned),
+        );
         expected.extend(command);
         let mut normalized = args.clone();
         for index in 1..normalized.len() {
@@ -660,6 +506,8 @@ mod tests {
             assert_eq!(classify(Some(1), stderr), Err(Unavailable::UserNamespacesRestricted));
         }
         for stderr in [
+            "bwrap: Unknown option --bind-fd",
+            "bwrap: Unknown option --ro-bind-fd",
             "bwrap: Unknown option --disable-userns",
             "bwrap: unrecognized option '--disable-userns'",
         ] {
@@ -682,7 +530,10 @@ mod tests {
                 Unavailable::NotInstalled,
                 "bwrap not installed (Debian/Ubuntu: apt install bubblewrap)",
             ),
-            (Unavailable::TooOld, "bwrap older than 0.9 (missing --disable-userns/--bind-fd/--ro-bind-fd)"),
+            (
+                Unavailable::TooOld,
+                "bwrap older than 0.9 (missing --disable-userns/--bind-fd/--ro-bind-fd)",
+            ),
             (
                 Unavailable::UserNamespacesRestricted,
                 "unprivileged user namespaces are restricted (kernel.apparmor_restrict_unprivileged_userns=1) and /usr/bin/bwrap has no AppArmor profile; install it: Ubuntu's apparmor package ships /etc/apparmor.d/bwrap-userns-restrict",
@@ -697,59 +548,6 @@ mod tests {
     fn missing_probe_executable_is_not_installed() {
         let fixture = Fixture::new();
         assert_eq!(probe(&fixture.0.join("absent-bwrap")), Err(Unavailable::NotInstalled));
-    }
-
-    /// Both the ready handshake and child lifetime end at a 20-second
-    /// deadline; kill_on_drop stops the child if either deadline expires.
-    #[tokio::test]
-    async fn regression_real_bwrap_hides_credentials_created_during_session() {
-        use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
-        if !real_probe() {
-            return;
-        }
-        let f = Fixture::new();
-        let p = f.create_paths();
-        fs::create_dir_all(p.home.join(".ssh/aws")).unwrap();
-        std::os::unix::fs::symlink(".ssh/aws", p.home.join(".aws")).unwrap();
-        let credential = p.home.join(".claude/.credentials.json");
-        let script = "echo ready; read -r go; if [ -e \"$1\" ]; then echo 'late credential visible' >&2; exit 49; fi";
-        let command =
-            strings(&["/bin/sh", "-c", script, "late-secret", credential.to_str().unwrap()]);
-        let (args, fds) = plan(
-            &p,
-            &[p.home.join(".ssh"), p.home.join(".aws")],
-            &command,
-        )
-        .unwrap();
-        clear_fd_cloexec(&fds);
-        let mut child = tokio::process::Command::new("/usr/bin/bwrap")
-            .args(args)
-            .stdin(Stdio::piped())
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .kill_on_drop(true)
-            .spawn()
-            .unwrap();
-        let mut stdout = BufReader::new(child.stdout.take().unwrap());
-        let mut ready = String::new();
-        tokio::time::timeout(Duration::from_secs(20), stdout.read_line(&mut ready))
-            .await
-            .unwrap()
-            .unwrap();
-        assert_eq!(ready, "ready\n");
-        fs::write(credential, "credential-created-after-sandbox-start").unwrap();
-        child.stdin.take().unwrap().write_all(b"go\n").await.unwrap();
-        let output = tokio::time::timeout(Duration::from_secs(20), child.wait_with_output())
-            .await
-            .unwrap()
-            .unwrap();
-        assert!(
-            output.status.success(),
-            "{}: {}",
-            output.status,
-            String::from_utf8_lossy(&output.stderr)
-        );
-        eprintln!("passed: credentials created during a session stay hidden");
     }
 
     /// The child is killed on the 20-second deadline. Shell loops exhaust
@@ -869,14 +667,9 @@ case "$bad_ipv6_route" in '') ;; *) fail 48 "non-loopback IPv6 route: observed=<
             .map(|path| path.to_str().unwrap().to_owned()),
         );
         command.extend([FILE_MARKER.to_owned(), DIRECTORY_MARKER.to_owned()]);
-        let (args, fds) = plan(
-            &p,
-            &[secrets, secret],
-            &command,
-        )
-        .unwrap();
-        clear_fd_cloexec(&fds);
+        let (args, fds) = plan(&p, &[secrets, secret], &command).unwrap();
         let mut child = tokio::process::Command::new(bwrap);
+        inherit_fds(&mut child, &fds);
         child
             .args(args)
             .env_clear()
