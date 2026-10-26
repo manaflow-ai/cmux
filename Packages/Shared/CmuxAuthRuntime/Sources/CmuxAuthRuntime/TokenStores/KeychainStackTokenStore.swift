@@ -76,21 +76,34 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
     /// from a signed-out store. Session restore asks this first so a Keychain
     /// that is briefly unreadable (locked, or busy right after the app was
     /// replaced by an update) keeps the session instead of signing the user
-    /// out. Only failures that clear up on their own count as unreadable: a
-    /// permanent one (a corrupt item, a missing entitlement, which routes to
-    /// ``FallbackTokenStore``'s file store) must still reach sign-in, or the
-    /// user would sit in a signed-in shell with no session behind it.
+    /// out. A missing entitlement is also unavailable: the fallback file store
+    /// may contain the only copy of the session, and a legacy account can fail
+    /// independently of the current account.
     public func isReadable() async -> Bool {
         if cachedRefreshToken != nil { return true }
-        return !Self.isTemporaryReadFailure(keychainProbeStatus(account: Self.refreshTokenAccount))
+#if canImport(Security)
+        let currentStatus = keychainProbeStatus(account: Self.refreshTokenAccount)
+        guard Self.isDefinitiveReadStatus(currentStatus) else { return false }
+        guard currentStatus == errSecItemNotFound,
+              accessGroup != nil,
+              let legacyProjectID else {
+            return true
+        }
+        return Self.isDefinitiveReadStatus(keychainProbeStatus(
+            account: "stack-auth-refresh-\(legacyProjectID)",
+            legacy: true
+        ))
+#else
+        return true
+#endif
     }
 
-    /// Whether a Keychain read status is a failure that clears up on its own.
-    static func isTemporaryReadFailure(_ status: Int32) -> Bool {
+    /// Whether a Keychain read status definitively says whether an item exists.
+    static func isDefinitiveReadStatus(_ status: Int32) -> Bool {
 #if canImport(Security)
-        return status == errSecInteractionNotAllowed || status == errSecNotAvailable
+        return status == errSecSuccess || status == errSecItemNotFound
 #else
-        return false
+        return true
 #endif
     }
 
@@ -243,15 +256,15 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
         return String(data: data, encoding: .utf8)
     }
 
-    private func keychainProbeStatus(account: String) -> Int32 {
-        var query = baseQuery(account: account)
+    private func keychainProbeStatus(account: String, legacy: Bool = false) -> Int32 {
+        var query = legacy ? legacyBaseQuery(account: account) : baseQuery(account: account)
         // Ask for the data, like a real read: a protected item's data can be
         // unavailable while its attributes are not.
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var result: CFTypeRef?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
-        if Self.isTemporaryReadFailure(status) {
+        if !Self.isDefinitiveReadStatus(status) {
             log.log("keychain PROBE status=\(status) account=\(account)")
         }
         return status
@@ -305,7 +318,7 @@ public actor KeychainStackTokenStore: StackAuthTokenStoreProtocol {
     private func readOrAdoptLegacyToken(account: String, legacyAccount: String?) -> String? { nil }
     private func deleteLegacyTokens() {}
     private func keychainRead(account: String) -> String? { nil }
-    private func keychainProbeStatus(account: String) -> Int32 { 0 }
+    private func keychainProbeStatus(account: String, legacy: Bool = false) -> Int32 { 0 }
     private func keychainWrite(_ value: String, account: String) -> Bool { false }
     private func keychainDelete(account: String) {}
 #endif

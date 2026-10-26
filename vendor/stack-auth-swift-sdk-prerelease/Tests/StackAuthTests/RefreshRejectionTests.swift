@@ -84,11 +84,12 @@ private final class ScriptedTokenEndpoint: URLProtocol, @unchecked Sendable {
         config.protocolClasses = [ScriptedTokenEndpoint.self]
         let session = URLSession(configuration: config)
         defer { session.invalidateAndCancel() }
+        let clock = RefreshTestClock()
         let store = MemoryTokenStore()
         await store.setTokens(accessToken: Self.expiredAccessToken, refreshToken: "session")
         let client = APIClient(
             baseUrl: "https://" + host, projectId: "fixture", publishableClientKey: "synthetic",
-            tokenStore: store, session: session
+            tokenStore: store, session: session, refreshClock: testClock(clock)
         )
         for _ in 0..<refreshes {
             _ = await client.getOrFetchLikelyValidTokens()
@@ -152,6 +153,39 @@ private final class ScriptedTokenEndpoint: URLProtocol, @unchecked Sendable {
         #expect(result.exchanges == 1)
     }
 
+    @Test func newSessionClearsRejectedRequestCooldown() async {
+        let host = UUID().uuidString.lowercased() + ".invalid"
+        ScriptedTokenEndpoint.script(.init(
+            status: 401,
+            headers: ["x-hexclave-known-error": "INVALID_PUBLISHABLE_CLIENT_KEY"],
+            body: #"{"code":"INVALID_PUBLISHABLE_CLIENT_KEY"}"#
+        ), host: host)
+        defer { ScriptedTokenEndpoint.remove(host: host) }
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [ScriptedTokenEndpoint.self]
+        let session = URLSession(configuration: config)
+        defer { session.invalidateAndCancel() }
+        let clock = RefreshTestClock()
+        let store = MemoryTokenStore()
+        await store.setTokens(accessToken: Self.expiredAccessToken, refreshToken: "old-session")
+        let client = APIClient(
+            baseUrl: "https://" + host, projectId: "fixture", publishableClientKey: "synthetic",
+            tokenStore: store, session: session, refreshClock: testClock(clock)
+        )
+
+        _ = await client.getOrFetchLikelyValidTokens()
+        await client.setTokens(accessToken: Self.expiredAccessToken, refreshToken: "new-session")
+        ScriptedTokenEndpoint.script(.init(
+            status: 200,
+            body: #"{"access_token":"eyJhbGciOiJIUzI1NiJ9.eyJleHAiOjk5OTk5OTk5OTl9.synthetic"}"#
+        ), host: host)
+
+        let result = await client.getOrFetchLikelyValidTokens()
+        #expect(result.accessToken == RefreshLifecycleTests.fresh)
+        #expect(result.refreshToken == "new-session")
+        #expect(ScriptedTokenEndpoint.requestCount(host: host) == 2)
+    }
+
     @Test func expiredRefreshTokenClearsTheSession() async {
         let kept = await refreshTokenAfterRefresh(answering: .init(
             status: 401,
@@ -171,5 +205,15 @@ private final class ScriptedTokenEndpoint: URLProtocol, @unchecked Sendable {
     @Test func unnamedRejectionStillClearsTheSession() async {
         let kept = await refreshTokenAfterRefresh(answering: .init(status: 401, body: ""))
         #expect(kept == nil)
+    }
+
+    private func testClock(_ clock: RefreshTestClock) -> TokenRefreshClock {
+        TokenRefreshClock(now: {
+            let parts = clock.now.offset.components
+            return UInt64(parts.seconds) * 1_000_000_000
+                + UInt64(parts.attoseconds / 1_000_000_000)
+        }, sleepUntil: {
+            try await clock.sleep(until: .init(offset: .nanoseconds(Int64($0))), tolerance: nil)
+        })
     }
 }
