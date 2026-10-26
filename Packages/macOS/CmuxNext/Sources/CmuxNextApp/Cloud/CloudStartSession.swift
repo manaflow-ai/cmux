@@ -35,7 +35,7 @@ struct CloudStartSession {
         let services = context.services
         CloudHandlers.bind(action, registry, reason: reason) { invocation in
             var request = try Self.request(invocation)
-            let start = CloudStartSession(services: services)
+            let start = CloudStartSession(services: services), runs = services.cloud.startSessionRuns
             guard CloudMoveAsks.isAgent(invocation) else {
                 // A person's palette or menu run without a machine means the one they look at.
                 if request.machineID == nil, request.name == nil, CloudHandlers.origin(of: invocation) == .user {
@@ -43,11 +43,11 @@ struct CloudStartSession {
                 }
                 if request.machineID == nil, request.name == nil { throw ActionFailure(message: CloudStartSessionStrings.needsMachine(agent: request.agent)) }
                 return CloudHandlers.result("start cloud session", context, pendingAfter: Self.answerWithin, pending: Self.pending(request)) {
-                    try await start.run(request, invocation, context)
+                    try await runs.join(CloudStartSessionRuns.Key(request, caller: nil), answeredWithin: Self.answerWithin) { try await start.run(request, invocation, context) }
                 }
             }
             guard request.machineID != nil || request.name != nil else { throw ActionFailure(message: CloudStartSessionStrings.needsMachine(agent: request.agent)) }
-            guard let session = invocation.callerAgentSession, let (tab, _) = CloudMoveAsks.chat(session, services: services) else {
+            guard let caller = invocation.callerAgentSession, let (tab, _) = CloudMoveAsks.chat(caller, services: services) else {
                 throw ActionFailure(message: CloudStartSessionStrings.notInChat)
             }
             let shown = request.machineID.flatMap { services.machines.session($0)?.machine.title }
@@ -56,18 +56,23 @@ struct CloudStartSession {
             let exists = shown != nil || services.machines.cloud.contains { $0.machine.title == named }
             let asks = services.cloud.startSessionAsks
             let text = exists ? CloudStartSessionStrings.ask(agent: request.agent, machine: named) : CloudStartSessionStrings.askNew(agent: request.agent, machine: named)
+            // The person's Start is the gesture: the machine is created as theirs, at the agent's ask.
+            var asPerson = ActionInvocation(target: invocation.target, arguments: invocation.arguments, origin: .user)
+            asPerson.callerAgentSession = nil
+            // The same ask again (the agent's run answered pending) joins the one that runs.
+            let key = CloudStartSessionRuns.Key(request, caller: caller)
             CloudHandlers.result("start cloud session", context, pendingAfter: Self.answerWithin, pending: Self.pending(request)) {
-                try await asks.ask(tab: tab.id, text: text, services: services)
-                asks.show(tab: tab.id, .working, CloudStartSessionStrings.starting(agent: request.agent, machine: named), services: services)
-                do {
-                    // The person's Start is the gesture: the machine is created as theirs, at the agent's ask.
-                    let fields = try await start.run(request, ActionInvocation(target: invocation.target, arguments: invocation.arguments, origin: .user),
-                                                     context, askedBy: session, revealing: false)
-                    asks.close(tab: tab.id, services: services)
-                    return fields
-                } catch {
-                    asks.show(tab: tab.id, .failed, (error as? ActionFailure)?.message ?? String(describing: error), services: services)
-                    throw error
+                try await runs.join(key, answeredWithin: Self.answerWithin) {
+                    let token = try await asks.ask(tab: tab.id, text: text, services: services)
+                    asks.show(tab: tab.id, token: token, .working, CloudStartSessionStrings.starting(agent: request.agent, machine: named), services: services)
+                    do {
+                        let fields = try await start.run(request, asPerson, context, askedBy: caller, revealing: false)
+                        asks.finish(tab: tab.id, token: token, failure: nil, services: services)
+                        return fields
+                    } catch {
+                        asks.finish(tab: tab.id, token: token, failure: (error as? ActionFailure)?.message ?? Self.startFailure(error, name: named, id: request.machineID ?? named, agent: request.agent), services: services)
+                        throw error
+                    }
                 }
             }
         }
@@ -78,7 +83,7 @@ struct CloudStartSession {
     static let answerWithin: Duration = ActionDescriptor.personDeadline - .seconds(10)
 
     static func pending(_ request: Request) -> [String: ActionResultValue] {
-        var fields: [String: ActionResultValue] = ["agent": .string(request.agent)]
+        var fields: [String: ActionResultValue] = ["agent": .string(request.agent), "text": .string(CloudStartSessionStrings.stillStarting)]
         if let id = request.machineID { fields["machine_id"] = .string(id) }
         if let name = request.name { fields["machine_name"] = .string(name) }
         return fields
@@ -158,7 +163,7 @@ struct CloudStartSession {
     }
 
     /// A refusal sentence inside the run's parentheses: no closing period.
-    private static func reason(_ text: String) -> String {
+    static func reason(_ text: String) -> String {
         var text = text.trimmingCharacters(in: .whitespacesAndNewlines)
         while text.hasSuffix(".") { text.removeLast() }
         return text
@@ -173,7 +178,14 @@ struct CloudStartSession {
         }
         let name = request.name ?? ""
         if let named = machines.cloud.first(where: { $0.machine.title == name }) { return named }
-        return try await services.cloud.createMachine(name: name, startedByPerson: invocation.origin == .user, askedBy: askedBy ?? invocation.callerAgentSession)
+        do {
+            return try await services.cloud.createMachine(name: name, startedByPerson: invocation.origin == .user, askedBy: askedBy ?? invocation.callerAgentSession)
+        } catch is CancellationError {
+            throw CancellationError()
+        } catch {
+            let detail = (error as? ActionFailure)?.message ?? (error as? any LocalizedError)?.errorDescription ?? String(describing: error)
+            throw ActionFailure(message: CloudStartSessionStrings.createFailed(name, agent: request.agent, reason: Self.reason(detail)))
+        }
     }
 
     /// The machine connected with its store's id: a paused one resumes, a new one comes up. Nothing
@@ -194,64 +206,4 @@ struct CloudStartSession {
 
     /// How long a machine has to come up (Move to Cloud's own wait).
     static let connectWait: Duration = .seconds(180)
-}
-
-/// An agent's ask to start a Cloud session, as a card in its own chat (``AgentToolCards``): the
-/// agent's run waits for the person's Start or Not now, for at most ``wait``.
-@MainActor
-final class CloudStartSessionAsks {
-    static let owner = "cloudStartSession"
-    /// How long a card waits for the person; the run says so after.
-    static let wait: Duration = .seconds(120)
-    private var open: Set<String> = []
-
-    /// Shows the card in chat tab `tab` and returns once the person clicks Start. Throws when they
-    /// choose Not now, when nobody answers within ``wait``, or when the chat has no page.
-    func ask(tab: String, text: String, services: AppServices) async throws {
-        guard !open.contains(tab) else { throw ActionFailure(message: CloudStartSessionStrings.askOpen) }
-        let (answers, continuation) = AsyncStream<Bool?>.makeStream(bufferingPolicy: .bufferingOldest(1))
-        let actions = [AgentPaneToolCard.Action(id: "start", title: CloudStartSessionStrings.start),
-                       AgentPaneToolCard.Action(id: "notNow", title: CloudMoveAskStrings.notNow)]
-        let card = AgentPaneToolCard(id: "cloud-start-session-" + tab, state: .ask, text: text, actions: actions)
-        guard services.cloud.toolCards.set([card], owner: Self.owner, tab: tab, answer: { _, action, _ in continuation.yield(action == "start") }) else {
-            continuation.finish()
-            close(tab: tab, services: services)
-            throw ActionFailure(message: CloudStartSessionStrings.noPage)
-        }
-        open.insert(tab)
-        // task-owner: the card's one-shot deadline; cancelled below once the person answers.
-        let deadline = Task {
-            // wakeup-allow: one-shot deadline for the person's answer on the card
-            try? await Task.sleep(for: Self.wait)
-            continuation.yield(nil)
-        }
-        defer {
-            deadline.cancel()
-            continuation.finish()
-            open.remove(tab)
-        }
-        var answer: Bool?
-        for await value in answers {
-            answer = value
-            break
-        }
-        guard answer == true else {
-            close(tab: tab, services: services)
-            throw ActionFailure(message: answer == false ? CloudStartSessionStrings.declined : CloudStartSessionStrings.expired)
-        }
-    }
-
-    /// The card after Start: working, or failed with the reason and Dismiss.
-    func show(tab: String, _ state: AgentPaneToolCard.State, _ text: String, services: AppServices) {
-        let actions = state == .failed ? [AgentPaneToolCard.Action(id: "dismiss", title: CloudMoveAskStrings.dismiss)] : []
-        let card = AgentPaneToolCard(id: "cloud-start-session-" + tab, state: state, text: text, actions: actions)
-        services.cloud.toolCards.set([card], owner: Self.owner, tab: tab) { [weak self, weak services] _, _, _ in
-            guard let self, let services else { return }
-            close(tab: tab, services: services)
-        }
-    }
-
-    func close(tab: String, services: AppServices) {
-        services.cloud.toolCards.set([], owner: Self.owner, tab: tab) { _, _, _ in }
-    }
 }

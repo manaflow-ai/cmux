@@ -8,6 +8,7 @@ nonisolated enum CloudSessionActionCatalog: ActionCatalogGroup {
         var start = ActionDescriptor(
             id: "cloudStartSession",
             title: String(localized: "action.cloudStartSession", defaultValue: "Start Agent Session on Cloud Machine…", table: "CloudSessionActions", bundle: .module),
+            description: "Starts an agent session (--agent claude, codex, ...) in the Cloud machine's own acpmux and returns machine_id, session_id and host, plus the chat tab's workspace_id and surface_id. Name the machine with --target machine:<id>, or --name <name> to take that machine or create it; --cwd is the folder there. An agent's run asks the person in its chat first. A run still starting after about 3 minutes answers pending: true; the same command again returns its session.",
             keywords: ["vm", "cloud", "agent", "session", "chat", "acp", "acpmux", "start", "claude", "codex"], category: .cloud, symbol: "sparkles",
             surfaces: [.palette, .contextMenu], arguments: [agent, name, cwd], targets: [.machine], cliName: "cloud start-session",
             surfacePlan: ActionSurfacePlan(cli: .offered, contextMenus: [ActionSurfaceCatalog.p(.cloudMachine, .connection, 221, folder: .connection)])

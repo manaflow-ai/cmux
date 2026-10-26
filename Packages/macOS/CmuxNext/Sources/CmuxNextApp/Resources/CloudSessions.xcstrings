@@ -47,18 +47,48 @@
       }
     },
     "cloud.startSession.cwdInvalid": {
-      "comment": "cmux cloud start-session with a relative or bad --cwd. Keep --cwd /home/cmux/work as written.",
+      "comment": "cmux cloud start-session with a relative or bad --cwd. Keep the command as written.",
       "extractionState": "manual",
       "localizations": {
-        "en": {"stringUnit": {"state": "translated", "value": "Pass --cwd as an absolute folder on the machine, for example --cwd /home/cmux/work."}},
-        "ja": {"stringUnit": {"state": "translated", "value": "--cwd にはマシン上の絶対パスのフォルダを指定してください (例: --cwd /home/cmux/work)。"}},
-        "de": {"stringUnit": {"state": "needs_review", "value": "Gib --cwd als absoluten Ordner auf der Maschine an, zum Beispiel --cwd /home/cmux/work."}},
-        "fr": {"stringUnit": {"state": "needs_review", "value": "Indiquez --cwd sous forme de dossier absolu sur la machine, par exemple --cwd /home/cmux/work."}},
-        "es": {"stringUnit": {"state": "needs_review", "value": "Indica --cwd como una carpeta absoluta en la máquina, por ejemplo --cwd /home/cmux/work."}},
-        "ar": {"stringUnit": {"state": "needs_review", "value": "مرّر ‎--cwd كمجلد بمسار مطلق على الجهاز، مثل ‎--cwd /home/cmux/work."}},
-        "ko": {"stringUnit": {"state": "needs_review", "value": "--cwd에는 머신의 절대 경로 폴더를 지정하세요(예: --cwd /home/cmux/work)."}},
-        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "请将 --cwd 设为机器上的绝对路径文件夹，例如 --cwd /home/cmux/work。"}},
-        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "請將 --cwd 設為機器上的絕對路徑資料夾，例如 --cwd /home/cmux/work。"}}
+        "en": {"stringUnit": {"state": "translated", "value": "Pass --cwd as an absolute folder on the machine, for example `cmux cloud start-session --target machine:<id> --agent claude --cwd /home/cmux/work`."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "--cwd にはマシン上の絶対パスのフォルダを指定してください (例: `cmux cloud start-session --target machine:<id> --agent claude --cwd /home/cmux/work`)。"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Gib --cwd als absoluten Ordner auf der Maschine an, zum Beispiel `cmux cloud start-session --target machine:<id> --agent claude --cwd /home/cmux/work`."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Indiquez --cwd sous forme de dossier absolu sur la machine, par exemple `cmux cloud start-session --target machine:<id> --agent claude --cwd /home/cmux/work`."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Indica --cwd como una carpeta absoluta en la máquina, por ejemplo `cmux cloud start-session --target machine:<id> --agent claude --cwd /home/cmux/work`."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "مرّر ‎--cwd كمجلد بمسار مطلق على الجهاز، مثل `cmux cloud start-session --target machine:<id> --agent claude --cwd /home/cmux/work`."}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "--cwd에는 머신의 절대 경로 폴더를 지정하세요(예: `cmux cloud start-session --target machine:<id> --agent claude --cwd /home/cmux/work`)."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "请将 --cwd 设为机器上的绝对路径文件夹，例如 `cmux cloud start-session --target machine:<id> --agent claude --cwd /home/cmux/work`。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "請將 --cwd 設為機器上的絕對路徑資料夾，例如 `cmux cloud start-session --target machine:<id> --agent claude --cwd /home/cmux/work`。"}}
+      }
+    },
+    "cloud.startSession.createFailed": {
+      "comment": "The named machine could not be created. %1$@ is its name, %2$@ the agent, %3$@ the reason. Keep the commands as written.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Couldn't create Cloud machine `%1$@` (%3$@), so no agent started. Run `cmux cloud start-session --name %1$@ --agent %2$@` again, or pick a machine from `cmux cloud list-machines`."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "Cloud マシン `%1$@` を作成できなかったため (%3$@)、エージェントは開始されませんでした。`cmux cloud start-session --name %1$@ --agent %2$@` をもう一度実行するか、`cmux cloud list-machines` からマシンを選んでください。"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Cloud-Maschine `%1$@` konnte nicht erstellt werden (%3$@), daher wurde kein Agent gestartet. Führe `cmux cloud start-session --name %1$@ --agent %2$@` erneut aus oder wähle eine Maschine aus `cmux cloud list-machines`."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Impossible de créer la machine Cloud `%1$@` (%3$@) : aucun agent n'a démarré. Relancez `cmux cloud start-session --name %1$@ --agent %2$@`, ou choisissez une machine dans `cmux cloud list-machines`."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "No se pudo crear la máquina de Cloud `%1$@` (%3$@), así que no se inició ningún agente. Vuelve a ejecutar `cmux cloud start-session --name %1$@ --agent %2$@` o elige una máquina de `cmux cloud list-machines`."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "تعذّر إنشاء جهاز Cloud ‏`%1$@` (%3$@)، لذا لم يبدأ أي وكيل. شغّل `cmux cloud start-session --name %1$@ --agent %2$@` مرة أخرى، أو اختر جهازًا من `cmux cloud list-machines`."}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "Cloud 머신 `%1$@`을(를) 만들지 못해(%3$@) 에이전트가 시작되지 않았습니다. `cmux cloud start-session --name %1$@ --agent %2$@`을(를) 다시 실행하거나 `cmux cloud list-machines`에서 머신을 고르세요."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "无法创建 Cloud 机器 `%1$@`（%3$@），因此没有启动代理。请再次运行 `cmux cloud start-session --name %1$@ --agent %2$@`，或从 `cmux cloud list-machines` 中选一台机器。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "無法建立 Cloud 機器 `%1$@`（%3$@），因此沒有啟動代理。請再次執行 `cmux cloud start-session --name %1$@ --agent %2$@`，或從 `cmux cloud list-machines` 中選一台機器。"}}
+      }
+    },
+    "cloud.startSession.stillStarting": {
+      "comment": "The run answered pending while the session still starts. Keep the command as written; keep machine_id and session_id in English.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "The session is still starting. Run the same `cmux cloud start-session` command again to get its machine_id and session_id."}},
+        "ja": {"stringUnit": {"state": "translated", "value": "セッションはまだ開始中です。同じ `cmux cloud start-session` コマンドをもう一度実行すると、machine_id と session_id を取得できます。"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Die Sitzung startet noch. Führe denselben Befehl `cmux cloud start-session` erneut aus, um machine_id und session_id zu erhalten."}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "La session démarre encore. Relancez la même commande `cmux cloud start-session` pour obtenir son machine_id et son session_id."}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "La sesión todavía se está iniciando. Vuelve a ejecutar el mismo comando `cmux cloud start-session` para obtener su machine_id y session_id."}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "لا تزال الجلسة قيد البدء. شغّل الأمر `cmux cloud start-session` نفسه مرة أخرى للحصول على machine_id وsession_id."}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "세션이 아직 시작 중입니다. 같은 `cmux cloud start-session` 명령을 다시 실행하면 machine_id와 session_id를 받을 수 있습니다."}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "会话仍在启动。请再次运行同一条 `cmux cloud start-session` 命令以获取其 machine_id 和 session_id。"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "工作階段仍在啟動。請再次執行同一條 `cmux cloud start-session` 命令以取得其 machine_id 和 session_id。"}}
       }
     },
     "cloud.startSession.notConnected": {

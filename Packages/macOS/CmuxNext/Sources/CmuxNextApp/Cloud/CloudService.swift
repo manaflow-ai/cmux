@@ -78,6 +78,8 @@ final class CloudService {
     @ObservationIgnored let toolCards = AgentToolCards()
     /// Agents' asks to start a session on a Cloud machine (``CloudStartSessionAsks``).
     @ObservationIgnored let startSessionAsks = CloudStartSessionAsks()
+    /// `cmux cloud start-session` runs, joined by a repeat of the same ask (``CloudStartSessionRuns``).
+    @ObservationIgnored let startSessionRuns = CloudStartSessionRuns()
     /// Moved chats' file requests for this Mac, asked in their chats.
     @ObservationIgnored let accessAsks = CloudAccessAsks()
     /// Files the person drops or pastes into a moved chat, sent to its machine (``CloudUploads``).
