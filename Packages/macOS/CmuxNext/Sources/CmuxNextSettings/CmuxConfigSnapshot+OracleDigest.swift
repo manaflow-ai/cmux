@@ -16,15 +16,12 @@ extension CmuxConfigSnapshot {
     }
 
     /// The dotted id of each `catalog` setting the effective document sets to a value other than its default,
-    /// sorted. A setting whose default is derived at run time (no `defaultValue`) counts whenever it is set.
-    /// Keys outside the catalog (shortcut bindings, custom actions) are user-named, so only
-    /// ``effectiveSha256`` records them.
+    /// sorted: the rows Settings shows Reset on (``SettingDescriptor/isCustomized(in:)``, which reads a renamed
+    /// key's old key as the parser does). A setting whose default is derived at run time (no `defaultValue`)
+    /// counts whenever it is set. Keys outside the catalog (shortcut bindings, custom actions) are user-named,
+    /// so only ``effectiveSha256`` records them.
     public func nonDefaultKeys(in catalog: [SettingDescriptor] = SettingsSchema.all) -> [String] {
-        let keys = catalog.compactMap { descriptor -> String? in
-            guard let value = root.value(at: descriptor.path), value != descriptor.defaultValue else { return nil }
-            return descriptor.id
-        }
-        return Set(keys).sorted()
+        Set(catalog.filter { $0.isCustomized(in: root) }.map(\.id)).sorted()
     }
 }
 #endif

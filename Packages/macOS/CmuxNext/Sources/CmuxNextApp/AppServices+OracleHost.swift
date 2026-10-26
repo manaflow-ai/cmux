@@ -17,12 +17,14 @@ extension AppServices: OracleHost {
                 return OracleInvariantsFacet.Reading(violations: result.violations.map(\.invariant.rawValue),
                                                      windowInvariants: WindowInvariants.problems(windows), checks: monitor.checks)
             },
-            // The settings the controller applied (no file read) and Reduce Motion as the motion gates see it.
+            // The settings the controller applied (no file read) and the motion arm as the gates compute it from
+            // the design settings the controller applied them to.
             OracleSettingsFacet { [weak self] in
-                guard let applied = self?.settings?.applied else { return nil }
+                guard let settings = self?.settings else { return nil }
+                let applied = settings.applied, motion = Motion.basePolicy(of: settings.design)
                 return OracleSettingsFacet.Reading(effectiveSha256: applied.effectiveSha256, nonDefaultKeys: applied.nonDefaultKeys(),
-                                                   motionEnabled: applied.motionCategories.enabled,
-                                                   motionSpeed: applied.animationSpeed.timeScale, reduceMotion: Motion.reduceMotion)
+                                                   motionEnabled: motion.animationsEnabled, motionSpeed: motion.speed.timeScale,
+                                                   reduceMotion: motion.reduceMotion)
             },
         ])
     }

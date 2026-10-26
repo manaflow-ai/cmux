@@ -1,4 +1,5 @@
 #if DEBUG || CMUX_BENCH_HOOKS
+import CmuxNextDesign
 import CmuxNextSettings
 import CryptoKit
 import Foundation
@@ -41,6 +42,15 @@ struct CmuxConfigSnapshotOracleDigestTests {
         let custom = snapshot(["actions": ["deploy": ["command": "ssh prod ./deploy"]]])
         #expect(custom.nonDefaultKeys().isEmpty)
         #expect(custom.effectiveSha256 != snapshot(.object([:])).effectiveSha256)
+    }
+
+    /// A renamed key's old key still applies while the new key is absent, so the new key is listed, as the
+    /// Settings row shows Reset for it.
+    @Test func aRenamedKeysOldKeyListsTheNewKey() throws {
+        let art = try #require(BackdropArt.allCases.first { $0 != BackdropSelectionSetting.defaultArt }).rawValue
+        let legacy = snapshot(["appearance": ["backdropArt": .string(art)]])
+        #expect(legacy.backdropArt?.rawValue == art)
+        #expect(legacy.nonDefaultKeys().contains("appearance.background"))
     }
 
     @Test func aSettingWithARunTimeDefaultCountsWhenSet() {

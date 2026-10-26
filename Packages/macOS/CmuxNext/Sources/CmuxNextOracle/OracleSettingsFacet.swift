@@ -10,9 +10,9 @@ public struct OracleSettingsFacet: OracleFacetProvider {
         public var effectiveSha256: String
         /// Dotted keys, sorted.
         public var nonDefaultKeys: [String]
-        /// `ui.animations.enabled`.
+        /// The motion gates' master switch: `ui.animations.enabled`, off under `ui.calm` "still".
         public var motionEnabled: Bool
-        /// `ui.animationSpeed` as its time scale (fast 1, normal 1.5, off 0).
+        /// `ui.animationSpeed` as the gates apply it, as its time scale (fast 1, normal 1.5, off 0).
         public var motionSpeed: Double
         /// Reduce Motion as the motion gates see it.
         public var reduceMotion: Bool
