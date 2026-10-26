@@ -33,6 +33,8 @@
 //! last argument. `--version` prints `cmux-tui-host <build identity>`: a macOS
 //! daemon runs this sibling only when it is the daemon's own build.
 
+#![cfg_attr(not(test), deny(clippy::disallowed_methods))]
+
 fn main() -> std::process::ExitCode {
     let mut args = std::env::args().skip(1).collect::<Vec<_>>();
     #[cfg(unix)]

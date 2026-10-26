@@ -12,6 +12,8 @@
 //! search path, never the default search order (no current directory, no
 //! PATH).
 
+#![cfg_attr(not(test), deny(clippy::disallowed_methods))]
+
 #[cfg(not(all(windows, feature = "windows-thin-exe")))]
 fn main() -> std::process::ExitCode {
     cmux_tui::main()
