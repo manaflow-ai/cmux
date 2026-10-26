@@ -63,6 +63,6 @@
   ],
   "untested": [
     "target.pairing_request is a fixed placeholder, not a fixture object; misc/_tuning.json tunes it",
-    "a pairing request exists only while a WebSocket peer waits on the daemon's pairing listener, and no case step opens one (the hermetic case daemon is offline); follow-up to p15-oracle-023: driver_daemon.py starts the loopback listener and opens a pairing, then this case rejects it"
+    "a pairing request exists only while a WebSocket peer waits on the daemon's pairing listener, and no case step opens one (the hermetic case daemon is offline); p15-oracle-238 adds a pairing.open step that opens a WebSocket pairing on the loopback listener, then this case rejects it"
   ]
 }

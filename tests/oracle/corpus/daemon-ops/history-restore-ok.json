@@ -61,6 +61,6 @@
     "verify the socket and state root are gone"
   ],
   "untested": [
-    "a restore needs a removal that moved a page visit to a backup, and only history.visit.record or history.visit.import (user only, Gate A2) make a visit, which the case connection (origin agent) cannot send; follow-up to p15-oracle-023: driver_daemon.py proves the DEV install key, then this case records a visit, removes it and restores the removal's restore_id"
+    "a restore needs a removal that moved a page visit to a backup, and only history.visit.record or history.visit.import (user only, Gate A2) make a visit, which the case connection (origin agent) cannot send; p15-oracle-237 gives the case that user connection, then it records a visit, removes it and restores the removal's restore_id"
   ]
 }

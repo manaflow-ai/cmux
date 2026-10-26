@@ -59,6 +59,7 @@ from typing import Any, Dict, Iterable, List, Mapping, Optional, Sequence, Tuple
 HERE = Path(__file__).resolve().parent
 REPO = HERE.parents[2]
 CATALOG = REPO / "cmux-tui" / "spec" / "resource-operations-v2.json"
+WORK = REPO / "plans" / "cmux-next" / "chrome-parity" / "WORK.tsv"
 DEFAULT_OUT = REPO / "tests" / "oracle" / "corpus" / "daemon-ops"
 CASE_SCHEMA = REPO / "schemas" / "oracle" / "case-v1.schema.json"
 SUITE = "daemon-ops"
@@ -893,7 +894,7 @@ TUNING_KEYS = frozenset({"params", "target", "error", "note", "before", "require
 # Keys that only one kind takes: the error code and details belong to the error case; a gap blocks the success case.
 KIND_ONLY_KEYS = {"error": "error", "details": "error", "gap": "success"}
 # A gap names the task that closes it (WORK.tsv ids, p15-oracle-204).
-TASK_ID = re.compile(r"\bp\d{2}-[a-z]+-\d{3}\b")
+TASK_ID = re.compile(r"\bp\d{2}-[a-z]+-\d{3}[a-z]?\b")
 WAIT_PREDICATES = frozenset({"exists", "absent", "empty", "nonEmpty", "changed"})
 WAIT_OPS = frozenset({"gt", "gte", "lt", "lte", "contains", "lengthEquals"})
 WAIT_MAX_MS = 30000
@@ -904,14 +905,53 @@ BEFORE_WAIT_KEYS = frozenset({"id", "waitFor"})
 STEP_ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
 
 
-def load_tuning(out: Path, catalog: Catalog) -> Dict[str, Dict[str, Any]]:
+@dataclass(frozen=True)
+class TaskGraph:
+    """WORK.tsv's task ids and their depends_on: what a tuning gap may name as the task that closes it."""
+
+    depends_on: Mapping[str, Tuple[str, ...]]
+
+    @classmethod
+    def load(cls, path: Path = WORK) -> "TaskGraph":
+        try:
+            rows = [line.split("\t") for line in path.read_text(encoding="utf-8").splitlines()[1:] if line]
+        except OSError as error:
+            raise GenError(f"{path}: {error}") from None
+        return cls({row[0]: tuple(dep for dep in row[3].split(";") if dep) for row in rows if len(row) >= 4})
+
+    def done_before(self, task: str) -> frozenset:
+        """`task` and every task it depends on, directly or not: all are done when `task` lands."""
+        seen, pending = set(), [task]
+        while pending:
+            current = pending.pop()
+            if current not in seen:
+                seen.add(current)
+                pending.extend(self.depends_on.get(current, ()))
+        return frozenset(seen)
+
+    def gap_problem(self, gap: Any, family: str) -> Optional[str]:
+        """Why `gap` names no task that can still close it, or None. A cited id must be a WORK.tsv task, and not
+        the family's own task or one it depends on: those are done when the family's cases land."""
+        cited = TASK_ID.findall(gap) if isinstance(gap, str) else []
+        if not cited:
+            return "is a reason that names the task closing it"
+        unknown = sorted({task for task in cited if task not in self.depends_on})
+        if unknown:
+            return f"names {unknown}, not tasks of WORK.tsv"
+        done = sorted(set(cited) & self.done_before(FAMILY_TASK[family]))
+        if done:
+            return f"names {done}, done before {FAMILY_TASK[family]} lands, so they close nothing"
+        return None
+
+
+def load_tuning(out: Path, catalog: Catalog, tasks: Optional[TaskGraph] = None) -> Dict[str, Dict[str, Any]]:
     """`<out>/<family>/_tuning.json`: {"operations": {op: {"success"|"error": {params, target, error, details, note,
     before, requires, untested, gap}}}}. A params or target value null removes the key; {"$fixture": NAME} is a
     fixture handle. `before` (steps between the fixture and the call: {id, method, target, params} calls a mutation,
     {id, waitFor} settles until a facet value holds), `requires` (capabilities beyond resource_api) and `untested`
     replace the request's; the error case starts from the tuned success case. `details` (error only) is the subset
     of the error's details the case asserts; `gap` (success only) says why no product can check the success yet and
-    names the task that closes it, so coverage excludes the operation."""
+    names the task that closes it (`tasks`, WORK.tsv by default), so coverage excludes the operation."""
     tuning: Dict[str, Dict[str, Any]] = {}
     for family in FAMILIES:
         path = out / family / TUNING
@@ -942,8 +982,11 @@ def load_tuning(out: Path, catalog: Catalog) -> Dict[str, Dict[str, Any]]:
                     raise GenError(f"{path}: {operation}.{kind} error {spec['error']!r} is not an error of {operation}")
                 if "details" in spec and not (isinstance(spec["details"], dict) and spec["details"]):
                     raise GenError(f"{path}: {operation}.{kind} details is a non-empty object")
-                if "gap" in spec and not (isinstance(spec["gap"], str) and TASK_ID.search(spec["gap"])):
-                    raise GenError(f"{path}: {operation}.{kind} gap is a reason that names the task closing it")
+                if "gap" in spec:
+                    tasks = tasks or TaskGraph.load()
+                    problem = tasks.gap_problem(spec["gap"], family)
+                    if problem:
+                        raise GenError(f"{path}: {operation}.{kind} gap {problem}")
                 check_tuned_steps(f"{path}: {operation}.{kind}", spec, catalog)
             tuning[operation] = kinds
     return tuning
@@ -1336,6 +1379,11 @@ class GenDaemonOpsSelfTest(unittest.TestCase):
             ({"operations": {"pane.close": {"success": {"details": {"extra": {}}}}}}, "details is error only"),
             ({"operations": {"pane.close": {"error": {"gap": "p15-oracle-204"}}}}, "gap is success only"),
             ({"operations": {"pane.close": {"success": {"gap": "later"}}}}, "names the task closing it"),
+            ({"operations": {"pane.close": {"success": {"gap": "p15-oracle-999"}}}}, "not tasks of WORK.tsv"),
+            # The layout family's task (066) depends on 060, which depends on 023: both are done when 066 lands.
+            ({"operations": {"pane.close": {"success": {"gap": "follow-up to p15-oracle-023"}}}},
+             "names \\['p15-oracle-023'\\], done before p15-oracle-066"),
+            ({"operations": {"pane.close": {"success": {"gap": "p15-oracle-066 tunes it"}}}}, "done before p15-oracle-066"),
             ({"operations": {"pane.close": {"error": {"details": {}}}}}, "details is a non-empty object"),
             ({"operations": {"pane.close": {"error": {"error": "home.pinned_first"}}}}, "not an error"),
             ({"operations": {"pane.close": {"retry": {}}}}, "takes only"),
@@ -1377,6 +1425,27 @@ class GenDaemonOpsSelfTest(unittest.TestCase):
         tuned = {"pane.close": {"success": {"params": {"oracle_extra": 1}}}}
         with self.assertRaisesRegex(GenError, "fails the catalog check"):
             generate(self.catalog, tuned)
+
+    def test_a_gap_names_a_task_that_is_not_done_before_the_family_task(self) -> None:
+        tasks = TaskGraph({"p15-oracle-070": ("p15-oracle-060",), "p15-oracle-060": ("p15-oracle-023",),
+                           "p15-oracle-023": (), "p15-oracle-237": ("p15-oracle-023", "p15-oracle-070"),
+                           "p14-energy-077b": ()})
+        self.assertEqual(tasks.done_before("p15-oracle-070"), {"p15-oracle-070", "p15-oracle-060", "p15-oracle-023"})
+        for gap, problem in (
+                ("p15-oracle-237 proves the key", None),
+                ("after p14-energy-077b", None),
+                ("p15-oracle-237, then p15-oracle-023", "names ['p15-oracle-023'], done before p15-oracle-070 lands, "
+                                                        "so they close nothing"),
+                ("p15-oracle-070", "names ['p15-oracle-070'], done before p15-oracle-070 lands, so they close nothing"),
+                ("p15-oracle-238", "names ['p15-oracle-238'], not tasks of WORK.tsv"),
+                ("a later task", "is a reason that names the task closing it"),
+                (None, "is a reason that names the task closing it")):
+            with self.subTest(gap=gap):
+                self.assertEqual(tasks.gap_problem(gap, "misc"), problem)
+        # The corpus's own gaps name tasks of the real WORK.tsv.
+        work = TaskGraph.load()
+        self.assertIn("p15-oracle-237", work.depends_on)
+        self.assertIn("p15-oracle-023", work.done_before("p15-oracle-070"))
 
     def test_before_steps_requires_and_untested_shape_the_case(self) -> None:
         wait = {"pointer": "/daemon/session/browsers/0/status", "equals": "live", "maxMs": 15000}
@@ -1467,11 +1536,11 @@ class GenDaemonOpsSelfTest(unittest.TestCase):
             code = entry["error"]["code"]
             self.assertEqual(code == "operation.failed", operation in engine, operation)
             # No product runs a chromium success case yet (driver_app.py hands resource.call to driver_daemon.py,
-            # whose daemon has no provider): those ops are excluded with the task that closes them, not covered.
+            # whose daemon has no provider): those ops are excluded naming the task that closes them (239).
             excluded = files[COVERAGE]["excluded"]
             self.assertEqual(operation in excluded, operation in engine, operation)
             if operation in engine:
-                self.assertIn("p15-oracle-023", excluded[operation], operation)
+                self.assertIn("p15-oracle-239", excluded[operation], operation)
                 bad = files[entry["cases"]["error"].split("/", 1)[1] + ".json"]["steps"][-1]["expect"]
                 self.assertEqual(bad["errorDetails"], {"extra": {
                     "code": "browser_rendered_by_app", "browser_id": "$step:fx-app-browser#/value/browser_id",
@@ -1487,7 +1556,9 @@ class GenDaemonOpsSelfTest(unittest.TestCase):
         """tests/oracle/corpus/daemon-ops/misc/_tuning.json (p15-oracle-070): the 28 misc mutations. The case
         connection has no client-hello, so it derives origin agent: the operations that need the verified app (and
         pairing accept) assert that refusal, and their success cases (with history.restore, which needs a visit only
-        a user-only operation makes) are excluded naming p15-oracle-023. The rest are covered with no placeholder."""
+        a user-only operation makes) are excluded naming p15-oracle-237, the driver's install-key user connection, and
+        pairing_request.resolve naming p15-oracle-238, its loopback pairing step. The rest are covered with no
+        placeholder."""
         user_only = {"credential.rotate", "history.backups.purge", "history.trail.record", "history.visit.import",
                      "history.visit.record", "history.visit.title"}
         gapped = user_only | {"history.restore", "pairing_request.resolve"}
@@ -1504,7 +1575,8 @@ class GenDaemonOpsSelfTest(unittest.TestCase):
             excluded = coverage["excluded"].get(operation)
             self.assertEqual(excluded is not None, operation in gapped, operation)
             if excluded is not None:
-                self.assertIn("p15-oracle-023", excluded, operation)
+                closing = "p15-oracle-238" if operation == "pairing_request.resolve" else "p15-oracle-237"
+                self.assertIn(closing, excluded, operation)
             else:
                 self.assertEqual(coverage["operations"][operation]["placeholders"], [], operation)
         for operation in user_only | {"pairing_request.resolve"}:
@@ -1521,6 +1593,11 @@ class GenDaemonOpsSelfTest(unittest.TestCase):
         self.assertEqual(call("settings.reset_all", "error")["expect"]["error"], "settings.agent_refused")
         self.assertEqual(call("pairing_request.resolve", "success")["args"]["params"]["decision"], "reject")
         self.assertEqual(call("pairing_request.resolve", "error")["args"]["params"]["decision"], "accept")
+        # Every operation.failed of history.restore has detail operation history.restore; the reason tells the
+        # unknown backup from a store failure.
+        self.assertEqual(call("history.restore", "error")["expect"]["errorDetails"], {
+            "operation": "history.restore",
+            "reason": "no history backup history:0000000000000000000000000000000a (it was restored, purged or expired)"})
 
     def test_a_git_remote_outside_the_case_root_is_refused(self) -> None:
         for remote in ("git@github.com:manaflow-ai/cmux.git", "/srv/repos/cmux.git", f"{ROOT_TOKEN}/../x.git", "origin"):

@@ -8,22 +8,22 @@
   "verdicts": "not run",
   "excluded": {
     "agent.message.mark": "placeholders params.ids[0]: p15-oracle-069 tunes the success case",
-    "browser.activate": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); follow-up to p15-oracle-023: driver_daemon.py attaches a provider and gives the daemon product chromium only then. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked",
-    "browser.back": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); follow-up to p15-oracle-023: driver_daemon.py attaches a provider and gives the daemon product chromium only then. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked",
-    "browser.forward": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); follow-up to p15-oracle-023: driver_daemon.py attaches a provider and gives the daemon product chromium only then. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked",
-    "browser.input.key": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); follow-up to p15-oracle-023: driver_daemon.py attaches a provider and gives the daemon product chromium only then. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked",
-    "browser.input.mouse": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); follow-up to p15-oracle-023: driver_daemon.py attaches a provider and gives the daemon product chromium only then. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked; and params.pointer_frame_seq must be the token of a presented browser.attach frame (the daemon refuses the fixed \"1\", admit_pointer_frame), which the case can read only from a stream step (p15-oracle-204)",
-    "browser.input.text": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); follow-up to p15-oracle-023: driver_daemon.py attaches a provider and gives the daemon product chromium only then. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked",
-    "browser.input.wheel": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); follow-up to p15-oracle-023: driver_daemon.py attaches a provider and gives the daemon product chromium only then. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked; and params.pointer_frame_seq must be the token of a presented browser.attach frame (the daemon refuses the fixed \"1\", admit_pointer_frame), which the case can read only from a stream step (p15-oracle-204)",
-    "browser.navigate": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); follow-up to p15-oracle-023: driver_daemon.py attaches a provider and gives the daemon product chromium only then. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked",
-    "browser.reload": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); follow-up to p15-oracle-023: driver_daemon.py attaches a provider and gives the daemon product chromium only then. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked",
+    "browser.activate": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); p15-oracle-239 runs these cases on the app product's own daemon, whose browser host is the provider. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked",
+    "browser.back": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); p15-oracle-239 runs these cases on the app product's own daemon, whose browser host is the provider. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked",
+    "browser.forward": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); p15-oracle-239 runs these cases on the app product's own daemon, whose browser host is the provider. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked",
+    "browser.input.key": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); p15-oracle-239 runs these cases on the app product's own daemon, whose browser host is the provider. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked",
+    "browser.input.mouse": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); p15-oracle-239 runs these cases on the app product's own daemon, whose browser host is the provider. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked; and params.pointer_frame_seq must be the token of a presented browser.attach frame (the daemon refuses the fixed \"1\", admit_pointer_frame), which the case can read only from a stream step (p15-oracle-204)",
+    "browser.input.text": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); p15-oracle-239 runs these cases on the app product's own daemon, whose browser host is the provider. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked",
+    "browser.input.wheel": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); p15-oracle-239 runs these cases on the app product's own daemon, whose browser host is the provider. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked; and params.pointer_frame_seq must be the token of a presented browser.attach frame (the daemon refuses the fixed \"1\", admit_pointer_frame), which the case can read only from a stream step (p15-oracle-204)",
+    "browser.navigate": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); p15-oracle-239 runs these cases on the app product's own daemon, whose browser host is the provider. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked",
+    "browser.reload": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); p15-oracle-239 runs these cases on the app product's own daemon, whose browser host is the provider. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked",
     "chief.profile.adopt": "placeholders params.participant_id: p15-oracle-069 tunes the success case",
     "closed.reopen": "a fresh daemon has no closed group to reopen; the family task closes one first: p15-oracle-067 tunes the success case",
     "column.update": "placeholders params.column: p15-oracle-066 tunes the success case",
     "conversation.draft": "placeholders params.conversation: p15-oracle-069 tunes the success case",
     "conversation.send": "placeholders params.conversation: p15-oracle-069 tunes the success case",
     "conversation.typing": "placeholders params.conversation: p15-oracle-069 tunes the success case",
-    "credential.rotate": "the case connection derives origin agent: driver_daemon.py sends no client-hello, and credential.rotate needs the verified frontend on a local Unix connection (origin_gate.rs check_credential_owner); follow-up to p15-oracle-023: driver_daemon.py proves the DEV install key (client-hello step 2) on a second connection for the user-only operations",
+    "credential.rotate": "the case connection derives origin agent: driver_daemon.py sends no client-hello, and credential.rotate needs the verified frontend on a local Unix connection (origin_gate.rs check_credential_owner); p15-oracle-237 runs the case on a second connection that proves the DEV install key (client-hello step 2), origin user",
     "git.checkpoint.create": "the fixture workspace has no git repository; the family task generates one under $CASE_ROOT: p15-oracle-068 tunes the success case",
     "git.checkpoint.pin": "placeholders params.checkpoint_id, params.pin_id; the fixture workspace has no git repository; the family task generates one under $CASE_ROOT: p15-oracle-068 tunes the success case",
     "git.checkpoint.unpin": "placeholders params.checkpoint_id, params.pin_id; the fixture workspace has no git repository; the family task generates one under $CASE_ROOT: p15-oracle-068 tunes the success case",
@@ -32,13 +32,13 @@
     "git.worktree.apply": "the fixture workspace has no git repository; the family task generates one under $CASE_ROOT: p15-oracle-068 tunes the success case",
     "git.worktree.create": "the fixture workspace has no git repository; the family task generates one under $CASE_ROOT: p15-oracle-068 tunes the success case",
     "git.worktree.remove": "the fixture workspace has no git repository; the family task generates one under $CASE_ROOT: p15-oracle-068 tunes the success case",
-    "history.backups.purge": "the case connection derives origin agent: driver_daemon.py sends no client-hello, and history.backups.purge is user only (request_origin.rs USER_ONLY_OPERATIONS, Gate A2); follow-up to p15-oracle-023: driver_daemon.py proves the DEV install key (client-hello step 2) on a second connection for the user-only operations",
-    "history.restore": "a restore needs a removal that moved a page visit to a backup, and only history.visit.record or history.visit.import (user only, Gate A2) make a visit, which the case connection (origin agent) cannot send; follow-up to p15-oracle-023: driver_daemon.py proves the DEV install key, then this case records a visit, removes it and restores the removal's restore_id",
-    "history.trail.record": "the case connection derives origin agent: driver_daemon.py sends no client-hello, and history.trail.record is user only (request_origin.rs USER_ONLY_OPERATIONS, Gate A2); follow-up to p15-oracle-023: driver_daemon.py proves the DEV install key (client-hello step 2) on a second connection for the user-only operations",
-    "history.visit.import": "the case connection derives origin agent: driver_daemon.py sends no client-hello, and history.visit.import is user only (request_origin.rs USER_ONLY_OPERATIONS, Gate A2); follow-up to p15-oracle-023: driver_daemon.py proves the DEV install key (client-hello step 2) on a second connection for the user-only operations, and the case writes a History.sqlite visit log under $CASE_ROOT first",
-    "history.visit.record": "the case connection derives origin agent: driver_daemon.py sends no client-hello, and history.visit.record is user only (request_origin.rs USER_ONLY_OPERATIONS, Gate A2); follow-up to p15-oracle-023: driver_daemon.py proves the DEV install key (client-hello step 2) on a second connection for the user-only operations",
-    "history.visit.title": "the case connection derives origin agent: driver_daemon.py sends no client-hello, and history.visit.title is user only (request_origin.rs USER_ONLY_OPERATIONS, Gate A2); follow-up to p15-oracle-023: driver_daemon.py proves the DEV install key (client-hello step 2) on a second connection for the user-only operations",
-    "pairing_request.resolve": "a pairing request exists only while a WebSocket peer waits on the daemon's pairing listener, and no case step opens one (the hermetic case daemon is offline); follow-up to p15-oracle-023: driver_daemon.py starts the loopback listener and opens a pairing, then this case rejects it",
+    "history.backups.purge": "the case connection derives origin agent: driver_daemon.py sends no client-hello, and history.backups.purge is user only (request_origin.rs USER_ONLY_OPERATIONS, Gate A2); p15-oracle-237 runs the case on a second connection that proves the DEV install key (client-hello step 2), origin user",
+    "history.restore": "a restore needs a removal that moved a page visit to a backup, and only history.visit.record or history.visit.import (user only, Gate A2) make a visit, which the case connection (origin agent) cannot send; p15-oracle-237 gives the case that user connection, then it records a visit, removes it and restores the removal's restore_id",
+    "history.trail.record": "the case connection derives origin agent: driver_daemon.py sends no client-hello, and history.trail.record is user only (request_origin.rs USER_ONLY_OPERATIONS, Gate A2); p15-oracle-237 runs the case on a second connection that proves the DEV install key (client-hello step 2), origin user",
+    "history.visit.import": "the case connection derives origin agent: driver_daemon.py sends no client-hello, and history.visit.import is user only (request_origin.rs USER_ONLY_OPERATIONS, Gate A2); p15-oracle-237 runs the case on a second connection that proves the DEV install key (client-hello step 2), origin user, and the case writes a History.sqlite visit log under $CASE_ROOT first",
+    "history.visit.record": "the case connection derives origin agent: driver_daemon.py sends no client-hello, and history.visit.record is user only (request_origin.rs USER_ONLY_OPERATIONS, Gate A2); p15-oracle-237 runs the case on a second connection that proves the DEV install key (client-hello step 2), origin user",
+    "history.visit.title": "the case connection derives origin agent: driver_daemon.py sends no client-hello, and history.visit.title is user only (request_origin.rs USER_ONLY_OPERATIONS, Gate A2); p15-oracle-237 runs the case on a second connection that proves the DEV install key (client-hello step 2), origin user",
+    "pairing_request.resolve": "a pairing request exists only while a WebSocket peer waits on the daemon's pairing listener, and no case step opens one (the hermetic case daemon is offline); p15-oracle-238 adds a pairing.open step that opens a WebSocket pairing on the loopback listener, then this case rejects it",
     "pane.split_ratio.set": "placeholders params.split_id: p15-oracle-066 tunes the success case",
     "participant.avatar.set": "placeholders params.participant_id: p15-oracle-069 tunes the success case",
     "project.add": "placeholders params.path: p15-oracle-068 tunes the success case",
@@ -175,7 +175,7 @@
         "code": "operation.failed"
       },
       "placeholders": [],
-      "gap": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); follow-up to p15-oracle-023: driver_daemon.py attaches a provider and gives the daemon product chromium only then. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked",
+      "gap": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); p15-oracle-239 runs these cases on the app product's own daemon, whose browser host is the provider. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked",
       "tuned": [
         "error",
         "success"
@@ -206,7 +206,7 @@
         "code": "operation.failed"
       },
       "placeholders": [],
-      "gap": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); follow-up to p15-oracle-023: driver_daemon.py attaches a provider and gives the daemon product chromium only then. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked",
+      "gap": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); p15-oracle-239 runs these cases on the app product's own daemon, whose browser host is the provider. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked",
       "tuned": [
         "error",
         "success"
@@ -293,7 +293,7 @@
         "code": "operation.failed"
       },
       "placeholders": [],
-      "gap": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); follow-up to p15-oracle-023: driver_daemon.py attaches a provider and gives the daemon product chromium only then. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked",
+      "gap": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); p15-oracle-239 runs these cases on the app product's own daemon, whose browser host is the provider. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked",
       "tuned": [
         "error",
         "success"
@@ -323,7 +323,7 @@
         "code": "operation.failed"
       },
       "placeholders": [],
-      "gap": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); follow-up to p15-oracle-023: driver_daemon.py attaches a provider and gives the daemon product chromium only then. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked",
+      "gap": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); p15-oracle-239 runs these cases on the app product's own daemon, whose browser host is the provider. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked",
       "tuned": [
         "error",
         "success"
@@ -353,7 +353,7 @@
         "code": "operation.failed"
       },
       "placeholders": [],
-      "gap": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); follow-up to p15-oracle-023: driver_daemon.py attaches a provider and gives the daemon product chromium only then. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked; and params.pointer_frame_seq must be the token of a presented browser.attach frame (the daemon refuses the fixed \"1\", admit_pointer_frame), which the case can read only from a stream step (p15-oracle-204)",
+      "gap": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); p15-oracle-239 runs these cases on the app product's own daemon, whose browser host is the provider. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked; and params.pointer_frame_seq must be the token of a presented browser.attach frame (the daemon refuses the fixed \"1\", admit_pointer_frame), which the case can read only from a stream step (p15-oracle-204)",
       "tuned": [
         "error",
         "success"
@@ -383,7 +383,7 @@
         "code": "operation.failed"
       },
       "placeholders": [],
-      "gap": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); follow-up to p15-oracle-023: driver_daemon.py attaches a provider and gives the daemon product chromium only then. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked",
+      "gap": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); p15-oracle-239 runs these cases on the app product's own daemon, whose browser host is the provider. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked",
       "tuned": [
         "error",
         "success"
@@ -413,7 +413,7 @@
         "code": "operation.failed"
       },
       "placeholders": [],
-      "gap": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); follow-up to p15-oracle-023: driver_daemon.py attaches a provider and gives the daemon product chromium only then. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked; and params.pointer_frame_seq must be the token of a presented browser.attach frame (the daemon refuses the fixed \"1\", admit_pointer_frame), which the case can read only from a stream step (p15-oracle-204)",
+      "gap": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); p15-oracle-239 runs these cases on the app product's own daemon, whose browser host is the provider. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked; and params.pointer_frame_seq must be the token of a presented browser.attach frame (the daemon refuses the fixed \"1\", admit_pointer_frame), which the case can read only from a stream step (p15-oracle-204)",
       "tuned": [
         "error",
         "success"
@@ -443,7 +443,7 @@
         "code": "operation.failed"
       },
       "placeholders": [],
-      "gap": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); follow-up to p15-oracle-023: driver_daemon.py attaches a provider and gives the daemon product chromium only then. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked",
+      "gap": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); p15-oracle-239 runs these cases on the app product's own daemon, whose browser host is the provider. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked",
       "tuned": [
         "error",
         "success"
@@ -510,7 +510,7 @@
         "code": "operation.failed"
       },
       "placeholders": [],
-      "gap": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); follow-up to p15-oracle-023: driver_daemon.py attaches a provider and gives the daemon product chromium only then. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked",
+      "gap": "no product runs it yet: only the app product has chromium, and driver_app.py hands resource.call to driver_daemon.py, while the daemon product attaches no cmux-browser provider (a daemon-rendered browser is engine_unavailable there); p15-oracle-239 runs these cases on the app product's own daemon, whose browser host is the provider. Never run: the wait-live pointer, the offline data: URL commit and the back/forward history are unchecked",
       "tuned": [
         "error",
         "success"
@@ -815,7 +815,7 @@
         "code": "origin.forbidden"
       },
       "placeholders": [],
-      "gap": "the case connection derives origin agent: driver_daemon.py sends no client-hello, and credential.rotate needs the verified frontend on a local Unix connection (origin_gate.rs check_credential_owner); follow-up to p15-oracle-023: driver_daemon.py proves the DEV install key (client-hello step 2) on a second connection for the user-only operations",
+      "gap": "the case connection derives origin agent: driver_daemon.py sends no client-hello, and credential.rotate needs the verified frontend on a local Unix connection (origin_gate.rs check_credential_owner); p15-oracle-237 runs the case on a second connection that proves the DEV install key (client-hello step 2), origin user",
       "tuned": [
         "error",
         "success"
@@ -992,7 +992,7 @@
         "code": "origin.forbidden"
       },
       "placeholders": [],
-      "gap": "the case connection derives origin agent: driver_daemon.py sends no client-hello, and history.backups.purge is user only (request_origin.rs USER_ONLY_OPERATIONS, Gate A2); follow-up to p15-oracle-023: driver_daemon.py proves the DEV install key (client-hello step 2) on a second connection for the user-only operations",
+      "gap": "the case connection derives origin agent: driver_daemon.py sends no client-hello, and history.backups.purge is user only (request_origin.rs USER_ONLY_OPERATIONS, Gate A2); p15-oracle-237 runs the case on a second connection that proves the DEV install key (client-hello step 2), origin user",
       "tuned": [
         "error",
         "success"
@@ -1040,7 +1040,7 @@
         "code": "operation.failed"
       },
       "placeholders": [],
-      "gap": "a restore needs a removal that moved a page visit to a backup, and only history.visit.record or history.visit.import (user only, Gate A2) make a visit, which the case connection (origin agent) cannot send; follow-up to p15-oracle-023: driver_daemon.py proves the DEV install key, then this case records a visit, removes it and restores the removal's restore_id",
+      "gap": "a restore needs a removal that moved a page visit to a backup, and only history.visit.record or history.visit.import (user only, Gate A2) make a visit, which the case connection (origin agent) cannot send; p15-oracle-237 gives the case that user connection, then it records a visit, removes it and restores the removal's restore_id",
       "tuned": [
         "error",
         "success"
@@ -1072,7 +1072,7 @@
         "code": "origin.forbidden"
       },
       "placeholders": [],
-      "gap": "the case connection derives origin agent: driver_daemon.py sends no client-hello, and history.trail.record is user only (request_origin.rs USER_ONLY_OPERATIONS, Gate A2); follow-up to p15-oracle-023: driver_daemon.py proves the DEV install key (client-hello step 2) on a second connection for the user-only operations",
+      "gap": "the case connection derives origin agent: driver_daemon.py sends no client-hello, and history.trail.record is user only (request_origin.rs USER_ONLY_OPERATIONS, Gate A2); p15-oracle-237 runs the case on a second connection that proves the DEV install key (client-hello step 2), origin user",
       "tuned": [
         "error",
         "success"
@@ -1091,7 +1091,7 @@
       "placeholders": [
         "params.path"
       ],
-      "gap": "the case connection derives origin agent: driver_daemon.py sends no client-hello, and history.visit.import is user only (request_origin.rs USER_ONLY_OPERATIONS, Gate A2); follow-up to p15-oracle-023: driver_daemon.py proves the DEV install key (client-hello step 2) on a second connection for the user-only operations, and the case writes a History.sqlite visit log under $CASE_ROOT first",
+      "gap": "the case connection derives origin agent: driver_daemon.py sends no client-hello, and history.visit.import is user only (request_origin.rs USER_ONLY_OPERATIONS, Gate A2); p15-oracle-237 runs the case on a second connection that proves the DEV install key (client-hello step 2), origin user, and the case writes a History.sqlite visit log under $CASE_ROOT first",
       "tuned": [
         "error",
         "success"
@@ -1108,7 +1108,7 @@
         "code": "origin.forbidden"
       },
       "placeholders": [],
-      "gap": "the case connection derives origin agent: driver_daemon.py sends no client-hello, and history.visit.record is user only (request_origin.rs USER_ONLY_OPERATIONS, Gate A2); follow-up to p15-oracle-023: driver_daemon.py proves the DEV install key (client-hello step 2) on a second connection for the user-only operations",
+      "gap": "the case connection derives origin agent: driver_daemon.py sends no client-hello, and history.visit.record is user only (request_origin.rs USER_ONLY_OPERATIONS, Gate A2); p15-oracle-237 runs the case on a second connection that proves the DEV install key (client-hello step 2), origin user",
       "tuned": [
         "error",
         "success"
@@ -1139,7 +1139,7 @@
         "code": "origin.forbidden"
       },
       "placeholders": [],
-      "gap": "the case connection derives origin agent: driver_daemon.py sends no client-hello, and history.visit.title is user only (request_origin.rs USER_ONLY_OPERATIONS, Gate A2); follow-up to p15-oracle-023: driver_daemon.py proves the DEV install key (client-hello step 2) on a second connection for the user-only operations",
+      "gap": "the case connection derives origin agent: driver_daemon.py sends no client-hello, and history.visit.title is user only (request_origin.rs USER_ONLY_OPERATIONS, Gate A2); p15-oracle-237 runs the case on a second connection that proves the DEV install key (client-hello step 2), origin user",
       "tuned": [
         "error",
         "success"
@@ -1268,7 +1268,7 @@
       "placeholders": [
         "target.pairing_request"
       ],
-      "gap": "a pairing request exists only while a WebSocket peer waits on the daemon's pairing listener, and no case step opens one (the hermetic case daemon is offline); follow-up to p15-oracle-023: driver_daemon.py starts the loopback listener and opens a pairing, then this case rejects it",
+      "gap": "a pairing request exists only while a WebSocket peer waits on the daemon's pairing listener, and no case step opens one (the hermetic case daemon is offline); p15-oracle-238 adds a pairing.open step that opens a WebSocket pairing on the loopback listener, then this case rejects it",
       "tuned": [
         "error",
         "success"
