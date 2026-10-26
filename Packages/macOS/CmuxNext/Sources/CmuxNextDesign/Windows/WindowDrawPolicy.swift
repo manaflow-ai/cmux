@@ -72,10 +72,20 @@ public nonisolated struct SurfaceDrawInputs: Equatable, Sendable {
 /// start the app on a host where it is never in front) keep occluded windows
 /// drawing, so captures show content. The same rule as React pages
 /// (`PageWebView.rendersWhenCovered`). Users keep the energy saving.
+/// `CMUX_NEXT_BENCH_SHIPPING_DRAW=1` (idle-budget's shipping measurement
+/// mode) gives an automation launch the user's draw (``drawsOccludedWindows(_:)``),
+/// so an energy bench measures what users run. It changes only the draw:
+/// the launch stays an automation launch for notifications and attention
+/// (``isAutomationLaunch(_:)``).
 @MainActor
 public struct WindowDrawPolicy {
     public init() {}
-    /// Whether a launch with `environment` draws occluded windows.
+    /// The environment key of the shipping measurement mode's draw.
+    nonisolated public static let shippingDrawKey = "CMUX_NEXT_BENCH_SHIPPING_DRAW"
+
+    /// Whether a launch with `environment` is an automation launch of a DEBUG build (e2e scripts, GUI
+    /// proofs, benches). The draw rule starts from it; `DesktopNotifier` and the iPhone pairing's Dock
+    /// bounce read it too.
     nonisolated public static func isAutomationLaunch(_ environment: [String: String]) -> Bool {
         #if DEBUG
         return environment["CMUX_NEXT_NO_ACTIVATE"] == "1" || environment["CMUX_NEXT_SOCKET_MODE"] == "automation"
@@ -84,8 +94,14 @@ public struct WindowDrawPolicy {
         #endif
     }
 
+    /// Whether a launch with `environment` draws occluded windows: an automation launch, unless it
+    /// asks for the user's draw (``shippingDrawKey``).
+    nonisolated public static func drawsOccludedWindows(_ environment: [String: String]) -> Bool {
+        isAutomationLaunch(environment) && environment[shippingDrawKey] != "1"
+    }
+
     /// Whether occluded windows draw in this launch (tests set it).
-    public internal(set) static var drawsWhenOccluded = isAutomationLaunch(ProcessInfo.processInfo.environment)
+    public internal(set) static var drawsWhenOccluded = drawsOccludedWindows(ProcessInfo.processInfo.environment)
 
     /// AppKit's answer: `occlusionState` contains `.visible`. Tests replace
     /// it to drive occlude and un-occlude transitions without a screen.

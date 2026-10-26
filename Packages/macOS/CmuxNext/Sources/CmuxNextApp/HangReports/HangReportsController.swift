@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextActions
 import CmuxNextCompat
+import CmuxNextControl
 import CmuxNextCrashReporting
 import CmuxNextHangReports
 import CmuxNextSettings
@@ -94,6 +95,13 @@ final class HangReportsController {
 
     /// Whether this build can send hang reports at all.
     var isAvailable: Bool { service != nil }
+
+    /// `debug.shipping_mode`'s hang reports (``ShippingModeReport/HangReports``) with the setting's value now.
+    func shippingModeState(setting: Bool?) async -> ShippingModeReport.HangReports {
+        let decision = isAvailable ? setting.map { String(describing: Self.decision(defaults: defaults, settingOn: $0)) } : nil
+        return ShippingModeReport.HangReports(available: isAvailable, setting: setting, decision: decision,
+                                              enabled: await service?.isEnabled ?? false)
+    }
 
     /// Follows the setting from the first load on (``HangReportAskPolicy``): sends only with this
     /// Mac's consent record; otherwise shows the confirm or the one-time invitation card after
