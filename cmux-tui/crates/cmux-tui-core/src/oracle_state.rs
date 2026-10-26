@@ -43,7 +43,7 @@ pub(crate) type SwitchArms = BTreeMap<&'static str, &'static str>;
 const TERMINAL_HOLDER: &str = "terminal-holder";
 
 /// The arms this daemon runs. The one daemon switch so far is the F6 holder,
-/// which `holder_runtime` reads once from `CMUX_TUI_TERMINAL_HOST_MODEL`;
+/// which `holder_runtime` fixes once from the `terminalHolder` feature;
 /// task 020's `Switches` value from `CMUX_TUI_SWITCHES` replaces this source.
 pub(crate) fn launch_switch_arms() -> SwitchArms {
     let holder = if crate::holder_runtime::enabled() { "new" } else { "old" };

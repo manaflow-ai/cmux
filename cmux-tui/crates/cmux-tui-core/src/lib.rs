@@ -110,6 +110,9 @@ pub mod store_schemas;
 use cmux_tui_util::stream_interrupt;
 #[cfg(unix)]
 mod holder_runtime;
+/// The daemon fixes the holder model from its features before it builds the mux.
+#[cfg(unix)]
+pub use holder_runtime::install as install_terminal_holder;
 mod surface;
 mod terminal_activity;
 #[cfg(unix)]

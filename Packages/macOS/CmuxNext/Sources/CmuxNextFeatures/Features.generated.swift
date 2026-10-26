@@ -1250,9 +1250,27 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// New terminals run on the install's one PTY holder process, and the daemon parses their output, instead of one terminal host process each (terminal-host-model-DESIGN.md option D).
+    public static let terminalHolder = Feature(
+        index: 72,
+        name: "terminalHolder",
+        owner: "PL-holder",
+        description: "New terminals run on the install's one PTY holder process, and the daemon parses their output, instead of one terminal host process each (terminal-host-model-DESIGN.md option D).",
+        kind: .perfPath,
+        process: .both,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: "2026-12-20",
+        params: [],
+        stories: ["new-tab-daemon", "new-surfaces"],
+        sticky: false,
+        runtimeMutable: false,
+        replaces: ["CMUX_TUI_TERMINAL_HOST_MODEL"]
+    )
+
     /// Terminal pointer moves, drags and the trackpad scrolls a program with mouse reporting gets reach Ghostty on the first event of a display frame and once more at the frame, at the latest point or each phase's summed scroll; a button delivers what waits first and a scrollback scroll goes at once.
     public static let terminalPointerFrames = Feature(
-        index: 72,
+        index: 73,
         name: "terminalPointerFrames",
         owner: "PL-ghostty",
         description: "Terminal pointer moves, drags and the trackpad scrolls a program with mouse reporting gets reach Ghostty on the first event of a display frame and once more at the frame, at the latest point or each phase's summed scroll; a button delivers what waits first and a scrollback scroll goes at once.",
@@ -1269,7 +1287,7 @@ nonisolated extension Feature {
 
     /// A top page that records itself (classic Home: conversation, search, list scroll) hidden past its timeout lets its view go, and at most the Mac's budget of hidden top pages stay live across windows; showing it builds it again as left. Web pages and unsent input stay live.
     public static let topPageDiscard = Feature(
-        index: 73,
+        index: 74,
         name: "topPageDiscard",
         owner: "PL-memory",
         description: "A top page that records itself (classic Home: conversation, search, list scroll) hidden past its timeout lets its view go, and at most the Mac's budget of hidden top pages stay live across windows; showing it builds it again as left. Web pages and unsent input stay live.",
@@ -1286,7 +1304,7 @@ nonisolated extension Feature {
 
     /// Each display's link runs on a vsync thread of its own, and the main frame clock gets one coalesced tick from it per vsync.
     public static let vsyncHub = Feature(
-        index: 74,
+        index: 75,
         name: "vsyncHub",
         owner: "Performance Lead",
         description: "Each display's link runs on a vsync thread of its own, and the main frame clock gets one coalesced tick from it per vsync.",
@@ -1304,7 +1322,7 @@ nonisolated extension Feature {
     #if DEBUG || CMUX_BENCH_HOOKS
     /// debug.chromium_host can show a Chromium page whose browser process runs in the Chromium Host app, over a pane, and the browser backend picks the host; Chromium tabs stay in cmux until the host supervisor lands.
     public static let cefHelperHost = Feature(
-        index: 75,
+        index: 76,
         name: "cefHelperHost",
         owner: "PL-cef-helper",
         description: "debug.chromium_host can show a Chromium page whose browser process runs in the Chromium Host app, over a pane, and the browser backend picks the host; Chromium tabs stay in cmux until the host supervisor lands.",
@@ -1322,7 +1340,7 @@ nonisolated extension Feature {
 
     /// The layer hosting benches' on arm: every Chromium page window from fork API 26, DevTools and popups too, draws in the cmux window's own layer tree without the Track A calls that cefLayerHosting needs. DEBUG and bench builds only.
     public static let cefLayerHostingEveryPage = Feature(
-        index: 76,
+        index: 77,
         name: "cefLayerHostingEveryPage",
         owner: "PL-cef-layer",
         description: "The layer hosting benches' on arm: every Chromium page window from fork API 26, DevTools and popups too, draws in the cmux window's own layer tree without the Track A calls that cefLayerHosting needs. DEBUG and bench builds only.",
@@ -1340,7 +1358,7 @@ nonisolated extension Feature {
 
     /// The Chromium host app quits when its page has been in no window for a while; a closed pane still quits it at once. The next show starts a new host, under the page background only: cmux cannot capture the host's pixels yet.
     public static let chromiumHostIdleExit = Feature(
-        index: 77,
+        index: 78,
         name: "chromiumHostIdleExit",
         owner: "PL-memory",
         description: "The Chromium host app quits when its page has been in no window for a while; a closed pane still quits it at once. The next show starts a new host, under the page background only: cmux cannot capture the host's pixels yet.",
@@ -1363,7 +1381,7 @@ nonisolated extension Feature {
 
     /// Bench builds only: every key-down spins for exactly 2 ms before key dispatch, the known regression the perf lab canary must alert on, bisect to and verify.
     public static let perfLabCanary = Feature(
-        index: 78,
+        index: 79,
         name: "perfLabCanary",
         owner: "Performance Lead",
         description: "Bench builds only: every key-down spins for exactly 2 ms before key dispatch, the known regression the perf lab canary must alert on, bisect to and verify.",
@@ -1380,7 +1398,7 @@ nonisolated extension Feature {
 
     /// Bench builds only: changes nothing and reports its value at launch, so a signed flags document that turns it off proves the kill switch path end to end.
     public static let perfLabKillProbe = Feature(
-        index: 79,
+        index: 80,
         name: "perfLabKillProbe",
         owner: "Performance Lead",
         description: "Bench builds only: changes nothing and reports its value at launch, so a signed flags document that turns it off proves the kill switch path end to end.",
@@ -1471,6 +1489,7 @@ nonisolated extension Feature {
         .stripPanResampling,
         .taskManagerMemorySaved,
         .terminalGPURelease,
+        .terminalHolder,
         .terminalPointerFrames,
         .topPageDiscard,
         .vsyncHub,
@@ -1555,6 +1574,7 @@ nonisolated extension Feature {
         .stripPanResampling,
         .taskManagerMemorySaved,
         .terminalGPURelease,
+        .terminalHolder,
         .terminalPointerFrames,
         .topPageDiscard,
         .vsyncHub,
