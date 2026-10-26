@@ -51,18 +51,58 @@ pub(super) fn bind(
     )
 }
 
-/// The request's author, checked against the connection's binding: `Some(None)` for the
-/// owner's own client, `Some(Some(author))` for a bound teammate, `None` when refused. The
-/// caller uses this answer, never a later lookup a disconnect could empty.
+/// The request's author, checked against the connection's binding: `Ok(None)` for the owner's
+/// own client, `Ok(Some(author))` for a bound teammate, a refusal otherwise. The caller uses this
+/// answer, never a later lookup a disconnect could empty. A bound teammate's frame also names the
+/// chat its share pinned (`_host_session`), and is refused unless the surface shows that chat now:
+/// a surface rebound to another chat is not shared. A detach needs no chat.
 pub(super) fn check(
     mux: &Mux,
     client: u64,
     object: &mut serde_json::Map<String, Value>,
-) -> Option<Option<Value>> {
+) -> Result<Option<Value>, Refusal> {
     let supplied = object.remove("_host_author");
-    match author(mux, client) {
-        Some(bound) => (supplied.as_ref() == Some(&bound)).then_some(Some(bound)),
-        None => supplied.is_none().then_some(None),
+    let pinned = object.remove("_host_session");
+    let Some(bound) = author(mux, client) else {
+        return if supplied.is_none() && pinned.is_none() {
+            Ok(None)
+        } else {
+            Err(Refusal::NotTrusted)
+        };
+    };
+    if supplied.as_ref() != Some(&bound) {
+        return Err(Refusal::NotTrusted);
+    }
+    if object.get("cmd").and_then(Value::as_str) != Some("agent-session-detach") {
+        let pinned = pinned.as_ref().and_then(Value::as_str).filter(|s| !s.is_empty());
+        let current =
+            object.get("surface").and_then(Value::as_u64).and_then(|s| tab_session(mux, s));
+        if pinned.is_none() || pinned != current.as_deref() {
+            return Err(Refusal::NotShared);
+        }
+    }
+    Ok(Some(bound))
+}
+
+/// `agent-session-of {surface}`: the surface's agent session, for `cmux host share` to pin. The
+/// owner's own same-user client only; a teammate learns no session ids.
+pub(super) fn session_of(
+    mux: &Mux,
+    client: u64,
+    mut object: serde_json::Map<String, Value>,
+    bound: bool,
+    writer: &MessageWriter,
+) -> bool {
+    let id = object.remove("id");
+    if bound || !mux.control_clients.is_unix(client) || mux.is_remote_client(client) {
+        return refuse(writer, id, Refusal::NotTrusted);
+    }
+    let Some(surface) = object.get("surface").and_then(Value::as_u64) else {
+        return refuse(writer, id, Refusal::BadRequest);
+    };
+    match tab_session(mux, surface) {
+        Some(session) => ok(writer, id, json!({"surface": surface, "session": session})),
+        None => refuse(writer, id, Refusal::UnknownTab),
     }
 }
 
@@ -91,6 +131,7 @@ mod tests {
         let mut attach = json!({"cmd":"agent-session-attach", "surface":surface});
         assert_code(&client.request(attach.clone()), "agent_session.not_trusted");
         attach["_host_author"] = author.clone();
+        attach["_host_session"] = json!(SESSION);
         assert_eq!(client.request(attach)["ok"], true);
         // Every acpmux call carries the author: the attach and the session watch.
         for _ in 0..2 {
@@ -98,20 +139,91 @@ mod tests {
         }
         // Whatever kinds a teammate asks for, it pages the transcript only.
         let events = json!({"cmd":"agent-session-events", "surface":surface,
-            "kinds":["wire", "all"], "_host_author":author});
+            "kinds":["wire", "all"], "_host_author":author, "_host_session":SESSION});
         assert_eq!(client.request(events)["ok"], true);
         assert_eq!(fake.frame()["params"]["kinds"], json!(["transcript"]));
         let prompt = json!({"cmd":"agent-session-prompt", "surface":surface,
-            "prompt_id":"p1", "text":"hello", "_host_author":author});
+            "prompt_id":"p1", "text":"hello", "_host_author":author, "_host_session":SESSION});
         assert_eq!(client.request(prompt)["ok"], true);
         assert_eq!(fake.frame()["params"]["_meta"]["acpmux"]["author"], author);
         let mut other = Client::connect(&mux, "proxy-unbound");
         assert_code(
             &other.request(json!({"cmd":"agent-session-observe", "surface":surface,
-            "_host_author":author})),
+            "_host_author":author, "_host_session":SESSION})),
             "agent_session.not_trusted",
         );
         fake.no_frame();
+    }
+
+    /// A share pins one chat: once the owner rebinds the shared surface to another chat, a fresh
+    /// teammate attach or observe (and any frame of an attachment made before) is refused, while
+    /// the owner's own connection is unaffected. Only the owner reads a surface's session id.
+    #[test]
+    fn a_teammate_never_follows_a_rebound_surface_to_another_chat() {
+        let fake = FakeAcpmux::start("proxy-rebound");
+        let mux = mux_with(&fake, "proxy-rebound");
+        let surface = agent_tab(&mux, Some(SESSION));
+        let mut owner = Client::connect(&mux, "proxy-rebound-owner");
+        let of = json!({"cmd":"agent-session-of", "surface":surface});
+        assert_eq!(owner.request(of.clone())["data"]["session"], SESSION);
+        let mut client = Client::connect(&mux, "proxy-rebound");
+        let author = json!({"id":"tailnet:person@example.com", "name":"person@example.com",
+            "login":"person@example.com", "node":"laptop"});
+        let bind = json!({"cmd":"agent-session-proxy-bind", "author":author});
+        assert_eq!(client.request(bind)["ok"], true);
+        let mut of_bound = of.clone();
+        of_bound["_host_author"] = author.clone();
+        of_bound["_host_session"] = json!(SESSION);
+        assert_code(&client.request(of_bound), "agent_session.not_trusted");
+        let frame = |cmd: &str| {
+            let mut frame = json!({"cmd":cmd, "surface":surface, "_host_author":author, "_host_session":SESSION});
+            if cmd == "agent-session-prompt" {
+                frame["prompt_id"] = json!("p1");
+                frame["text"] = json!("hello");
+            }
+            frame
+        };
+        let mut unpinned = frame("agent-session-attach");
+        unpinned.as_object_mut().unwrap().remove("_host_session");
+        assert_code(&client.request(unpinned), "agent_session.not_shared");
+        assert_eq!(client.request(frame("agent-session-attach"))["ok"], true);
+        // The owner's own connection names no chat and is never pinned.
+        assert_eq!(
+            owner.request(json!({"cmd":"agent-session-observe", "surface":surface}))["ok"],
+            true
+        );
+        crate::server::agent_session_attach_tests::run(
+            &mux,
+            json!({"cmd":"bind-conversation-tab-session","surface":surface,
+                "session":"acp_session_2","expected_session":SESSION}),
+        );
+        for cmd in [
+            "agent-session-events",
+            "agent-session-prompt",
+            "agent-session-cancel",
+            "agent-session-attach",
+            "agent-session-observe",
+        ] {
+            assert_code(&client.request(frame(cmd)), "agent_session.not_shared");
+        }
+        let mut fresh = Client::connect(&mux, "proxy-rebound-fresh");
+        assert_eq!(
+            fresh.request(json!({"cmd":"agent-session-proxy-bind", "author":author}))["ok"],
+            true
+        );
+        for cmd in ["agent-session-attach", "agent-session-observe"] {
+            assert_code(&fresh.request(frame(cmd)), "agent_session.not_shared");
+        }
+        assert_eq!(
+            fresh.request(frame("agent-session-detach"))["ok"],
+            true,
+            "a detach needs no chat"
+        );
+        // The owner reads the new chat, and cannot claim a pin.
+        assert_eq!(owner.request(of)["data"]["session"], "acp_session_2");
+        let mut claimed = json!({"cmd":"agent-session-observe", "surface":surface});
+        claimed["_host_session"] = json!("acp_session_2");
+        assert_code(&owner.request(claimed), "agent_session.not_trusted");
     }
 
     /// The attached session's family as acpmux knows it: a child the watch
@@ -186,12 +298,11 @@ mod tests {
             client.request(json!({"cmd":"agent-session-proxy-bind", "author":author}))["ok"],
             true
         );
-        let attach =
-            json!({"cmd":"agent-session-attach", "surface":surface, "_host_author":author});
+        let attach = json!({"cmd":"agent-session-attach", "surface":surface, "_host_author":author, "_host_session":SESSION});
         let page = client.request(attach);
         assert_eq!(kinds(&page), ["user_message"], "the replayed draft is dropped");
         let older = client.request(json!({"cmd":"agent-session-events", "surface":surface,
-            "before_seq": 3, "_host_author":author}));
+            "before_seq": 3, "_host_author":author, "_host_session":SESSION}));
         assert_eq!(kinds(&older), ["user_message"], "a history page drops the draft: {older}");
         let record = |seq: u64, kind: &str| json!({"sessionId": SESSION, "seq": seq, "at": 1, "dir": "mux", "kind": kind});
         fake.notify("_acpmux/event", record(3, "composer"));
@@ -232,11 +343,10 @@ mod tests {
                 "session": {"sessionId": SESSION, "status": "idle"}})),
             "no peer, folder or tags reach a teammate"
         );
-        let children =
-            json!({"cmd":"agent-session-children", "surface":surface, "_host_author":author});
+        let children = json!({"cmd":"agent-session-children", "surface":surface, "_host_author":author, "_host_session":SESSION});
         assert_code(&client.request(children), "agent_session.not_trusted");
         let answer = json!({"cmd":"agent-session-permission", "surface":surface,
-            "permission_id":"perm_attach", "option_id":"allow", "_host_author":author});
+            "permission_id":"perm_attach", "option_id":"allow", "_host_author":author, "_host_session":SESSION});
         assert_code(&client.request(answer), "agent_session.not_trusted");
     }
 
@@ -259,7 +369,7 @@ mod tests {
             true
         );
         client
-            .send(json!({"cmd":"agent-session-attach", "surface":surface, "_host_author":author}));
+            .send(json!({"cmd":"agent-session-attach", "surface":surface, "_host_author":author, "_host_session":SESSION}));
         assert_eq!(fake.raw_frame()["method"], "_acpmux/attach");
         drop(client);
         let deadline = std::time::Instant::now() + Duration::from_secs(5);

@@ -188,8 +188,15 @@ fn shared_chat(role: super::shares::Role) -> Config {
         role,
         shared_at: grant::now_rfc3339(),
         generation: "boot-1".into(),
+        session: "acp_a".to_owned(),
     });
     config
+}
+
+/// The daemon boot `generation` with the surface showing chat `acp_a` (none for an empty boot).
+fn chat(generation: &str) -> super::shares::Chat {
+    let session = if generation.is_empty() { "" } else { "acp_a" };
+    super::shares::Chat { generation: generation.into(), session: session.into() }
 }
 
 fn author() -> serde_json::Value {
@@ -301,7 +308,8 @@ fn agent_proxy_strips_client_authorship_and_stamps_whois() {
     use serde_json::json;
     let frame = json!({"id": 9, "cmd": "agent-session-prompt", "surface": 42,
         "prompt_id": "p1", "text": "hello", "author": {"login": LEO},
-        "_meta": {"acpmux": {"author": {"login": LEO}}}, "_host_author": {"login": LEO}});
+        "_meta": {"acpmux": {"author": {"login": LEO}}}, "_host_author": {"login": LEO},
+        "_host_session": "acp_other"});
     let forwarded = super::agent_proxy::filter(
         &shared_chat(super::shares::Role::Member),
         &author(),
@@ -310,6 +318,7 @@ fn agent_proxy_strips_client_authorship_and_stamps_whois() {
     )
     .unwrap();
     assert_eq!(forwarded["_host_author"], author());
+    assert_eq!(forwarded["_host_session"], "acp_a", "the consented chat, not the client's");
     assert!(forwarded.get("author").is_none() && forwarded.get("_meta").is_none());
     assert_eq!(forwarded["id"], 9);
     assert_eq!(forwarded["text"], "hello");
@@ -336,6 +345,7 @@ fn a_shared_login_on_the_full_access_list_still_goes_through_its_grant() {
         role: super::shares::Role::Member,
         shared_at: "2026-10-26T09:00:00Z".to_owned(),
         generation: "g1".to_owned(),
+        session: "acp_a".to_owned(),
     }];
     match decide_for(&config, PEER, person(LAWRENCE)) {
         Decision::Guest(_, scopes) => assert_eq!(scopes, vec![Scope::Agents]),
@@ -353,19 +363,25 @@ fn full_access_is_refused_while_the_login_has_a_share() {
     use super::shares::{Role, allowable, applied};
     let config = leo_host(consented(LAWRENCE, &[Scope::Agents]));
     assert!(allowable(&config, LAWRENCE).is_ok(), "no share: allow is fine");
-    let shared = applied("share", config, 7, LAWRENCE, Role::Member, "boot-1", "boot-1").unwrap();
+    let shared =
+        applied("share", config, 7, LAWRENCE, Role::Member, &chat("boot-1"), &chat("boot-1"))
+            .unwrap();
     let refused = allowable(&shared, "Lawrence@Manaflow.ai").unwrap_err().to_string();
     assert!(refused.contains("cmux host unshare"), "{refused}");
     // The daemon restarted since: the share is stale, but admission still routes the login by it.
     assert!(allowable(&shared, LAWRENCE).is_err(), "a stale share refuses allow too");
     assert!(allowable(&shared, LEO).is_ok(), "another login is unaffected");
-    let unshared = applied("unshare", shared, 7, LAWRENCE, Role::Member, "", "boot-2").unwrap();
+    let unshared =
+        applied("unshare", shared, 7, LAWRENCE, Role::Member, &chat(""), &chat("boot-2")).unwrap();
     assert!(unshared.shares.is_empty());
     assert!(allowable(&unshared, LAWRENCE).is_ok());
     // And a login on the full-access list cannot get a share.
     let mut allowed = unshared;
     allowed.allow = vec![LAWRENCE.to_owned()];
-    assert!(applied("share", allowed, 7, LAWRENCE, Role::Member, "boot-2", "boot-2").is_err());
+    assert!(
+        applied("share", allowed, 7, LAWRENCE, Role::Member, &chat("boot-2"), &chat("boot-2"))
+            .is_err()
+    );
 }
 
 #[test]
@@ -382,6 +398,7 @@ fn a_shared_login_takes_the_proxy_even_with_shell() {
         role: super::shares::Role::Guest,
         shared_at: "2026-10-26T09:00:00Z".to_owned(),
         generation: "g1".to_owned(),
+        session: "acp_a".to_owned(),
     }];
     assert!(proxied(&config, Some(LAWRENCE), Some(&shell)), "a shared guest never splices");
 }
@@ -395,6 +412,7 @@ fn a_member_cannot_answer_the_hosts_asks() {
         role: super::shares::Role::Member,
         shared_at: "2026-10-26T09:00:00Z".to_owned(),
         generation: "boot-1".to_owned(),
+        session: "acp_a".to_owned(),
     }];
     let author =
         serde_json::json!({"id": format!("tailnet:{LAWRENCE}"), "login": LAWRENCE, "node": "n"});
@@ -415,24 +433,74 @@ fn a_member_cannot_answer_the_hosts_asks() {
 fn a_confirmed_share_is_refused_when_the_boot_or_the_grant_changed_meanwhile() {
     use super::shares::{Role, applied};
     let config = shared_chat(Role::Guest);
-    let restarted =
-        applied("share", config.clone(), 42, LAWRENCE, Role::Member, "boot-1", "boot-2");
+    let restarted = applied(
+        "share",
+        config.clone(),
+        42,
+        LAWRENCE,
+        Role::Member,
+        &chat("boot-1"),
+        &chat("boot-2"),
+    );
     let message = restarted.unwrap_err().to_string();
     assert_eq!(message, crate::localization::catalog().host_share.restarted);
-    let shared = applied("share", config.clone(), 42, LAWRENCE, Role::Member, "boot-1", "boot-1")
-        .expect("the same boot applies");
+    let shared = applied(
+        "share",
+        config.clone(),
+        42,
+        LAWRENCE,
+        Role::Member,
+        &chat("boot-1"),
+        &chat("boot-1"),
+    )
+    .expect("the same boot applies");
     assert_eq!(shared.shares.len(), 1, "the share is replaced, not added");
     assert_eq!(shared.shares[0].role, Role::Member);
     assert_eq!(shared.shares[0].generation, "boot-1");
     let mut revoked = config.clone();
     revoked.grants.clear();
-    assert!(applied("share", revoked, 42, LAWRENCE, Role::Member, "boot-1", "boot-1").is_err());
+    assert!(
+        applied("share", revoked, 42, LAWRENCE, Role::Member, &chat("boot-1"), &chat("boot-1"))
+            .is_err()
+    );
     let mut allowed = config.clone();
     allowed.allow = vec![LAWRENCE.to_owned()];
-    assert!(applied("share", allowed, 42, LAWRENCE, Role::Member, "boot-1", "boot-1").is_err());
+    assert!(
+        applied("share", allowed, 42, LAWRENCE, Role::Member, &chat("boot-1"), &chat("boot-1"))
+            .is_err()
+    );
     // Unsharing needs no boot and no grant: it only ever narrows.
     let mut gone = config;
     gone.grants.clear();
-    let unshared = applied("unshare", gone, 42, LAWRENCE, Role::Member, "", "").unwrap();
+    let unshared =
+        applied("unshare", gone, 42, LAWRENCE, Role::Member, &chat(""), &chat("")).unwrap();
     assert!(unshared.shares.is_empty());
+}
+
+/// A share pins the chat it was given for: one recorded without a session (before the pin existed)
+/// matches nothing, and the share records the session the prompt named. A rebind of the surface to
+/// another chat while the prompt waited refuses the share.
+#[test]
+fn a_share_is_pinned_to_the_consented_chat() {
+    use super::shares::{Chat, Role, applied};
+    let mut config = shared_chat(Role::Member);
+    config.shares[0].session.clear();
+    let frame = serde_json::json!({"cmd": "agent-session-attach", "surface": 42});
+    assert_eq!(
+        super::agent_proxy::filter(&config, &author(), "boot-1", frame.clone()),
+        Err("agent_session.not_shared"),
+        "an unpinned share is not a share"
+    );
+    let shared =
+        applied("share", config, 42, LAWRENCE, Role::Member, &chat("boot-1"), &chat("boot-1"))
+            .unwrap();
+    assert_eq!(shared.shares[0].session, "acp_a");
+    let forwarded = super::agent_proxy::filter(&shared, &author(), "boot-1", frame).unwrap();
+    assert_eq!(forwarded["_host_session"], "acp_a");
+    let rebound = Chat { generation: "boot-1".into(), session: "acp_b".into() };
+    let refused =
+        applied("share", shared.clone(), 42, LAWRENCE, Role::Member, &chat("boot-1"), &rebound);
+    assert!(refused.is_err(), "the surface changed chats while the prompt waited");
+    let none = Chat { generation: "boot-1".into(), session: String::new() };
+    assert!(applied("share", shared, 42, LAWRENCE, Role::Member, &none, &none).is_err());
 }

@@ -379,6 +379,8 @@ pub(crate) enum Refusal {
     NeedsKeyedStart,
     ReadOnly,
     ModeConflict,
+    /// A proxied teammate's frame for a surface that shows another chat than the shared one.
+    NotShared,
 }
 
 impl Refusal {
@@ -404,6 +406,7 @@ impl Refusal {
             Self::NeedsKeyedStart => "agent_session.needs_keyed_start",
             Self::ReadOnly => "agent_session.read_only",
             Self::ModeConflict => "agent_session.mode_conflict",
+            Self::NotShared => "agent_session.not_shared",
         }
     }
 
@@ -439,6 +442,7 @@ impl Refusal {
             Self::ModeConflict => {
                 "this connection already has the same surface attached in another mode"
             }
+            Self::NotShared => "the surface does not show the chat that was shared",
         }
     }
 
@@ -470,10 +474,15 @@ pub(super) fn try_handle(
     if object.get("cmd").and_then(Value::as_str) == Some("agent-session-proxy-bind") {
         return Some(proxy::bind(mux, client, object, writer));
     }
-    // A peer cannot self-attribute: only the preface's fixed identity is accepted.
-    let Some(author) = proxy::check(mux, client, &mut object) else {
-        return Some(refuse(writer, object.remove("id"), Refusal::NotTrusted));
+    // A peer cannot self-attribute: only the preface's fixed identity is accepted, for the chat
+    // the share pinned.
+    let author = match proxy::check(mux, client, &mut object) {
+        Ok(author) => author,
+        Err(refusal) => return Some(refuse(writer, object.remove("id"), refusal)),
     };
+    if object.get("cmd").and_then(Value::as_str) == Some("agent-session-of") {
+        return Some(proxy::session_of(mux, client, object, author.is_some(), writer));
+    }
     if object.get("cmd").and_then(Value::as_str) == Some("agent-session-observe") {
         let clean = Value::Object(object).to_string();
         return agent_session_observe::try_handle(mux, client, &clean, writer, author);

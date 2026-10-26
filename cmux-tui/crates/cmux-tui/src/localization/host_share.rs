@@ -17,6 +17,8 @@ pub(crate) struct Messages {
     pub proxy_refused: &'static str,
     pub unavailable: &'static str,
     pub shared: &'static str,
+    pub chat: &'static str,
+    pub not_a_chat: &'static str,
 }
 
 pub(crate) const ENGLISH: Messages = Messages {
@@ -30,12 +32,14 @@ pub(crate) const ENGLISH: Messages = Messages {
     full_access: "this login has full access (cmux host allow); remove it with cmux host deny before sharing one chat",
     surface: "the surface must be a number (cmux list-workspaces shows it)",
     terminal: "a share must be confirmed by a person at a terminal on this machine",
-    restarted: "the session daemon restarted while you confirmed; the surface may be another chat now, so nothing changed",
+    restarted: "the session daemon restarted or the surface changed chats while you confirmed, so nothing changed",
     lock: "cannot lock the remote config",
     frame_too_long: "a frame is longer than the line limit",
     proxy_refused: "the session daemon refused the proxy identity",
     unavailable: "the session daemon did not report its boot id; restart cmux and try again",
     shared: "this login has a shared chat (cmux host shares lists it); remove it with cmux host unshare before giving full access",
+    chat: "chat",
+    not_a_chat: "the surface is not an agent chat with a session; only an agent chat can be shared",
 };
 pub(crate) const JAPANESE: Messages = Messages {
     no_arguments: "位置引数は指定できません",
@@ -48,10 +52,12 @@ pub(crate) const JAPANESE: Messages = Messages {
     full_access: "このログインにはフルアクセスがあります (cmux host allow)。チャットを共有する前に cmux host deny で削除してください",
     surface: "サーフェスは数値で指定してください (cmux list-workspaces で確認できます)",
     terminal: "共有は、このマシンの端末で本人が確認する必要があります",
-    restarted: "確認中にセッションデーモンが再起動しました。サーフェスが別のチャットを指している可能性があるため、変更していません",
+    restarted: "確認中にセッションデーモンが再起動したか、サーフェスが別のチャットに切り替わったため、変更していません",
     lock: "リモート設定をロックできません",
     frame_too_long: "フレームが行の上限を超えています",
     proxy_refused: "セッションデーモンがプロキシの ID を拒否しました",
     unavailable: "セッションデーモンが起動 ID を返しませんでした。cmux を再起動してからもう一度お試しください",
     shared: "このログインには共有チャットがあります (cmux host shares で確認できます)。フルアクセスを与える前に cmux host unshare で削除してください",
+    chat: "チャット",
+    not_a_chat: "このサーフェスはセッションのあるエージェントチャットではありません。共有できるのはチャットだけです",
 };

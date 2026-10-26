@@ -48,6 +48,7 @@ pub(super) fn filter(
                 && config::same_login(&s.login, login)
                 && !generation.is_empty()
                 && s.generation == generation
+                && !s.session.is_empty()
         })
         .ok_or("agent_session.not_shared")?;
     if share.role == Role::Guest
@@ -59,6 +60,9 @@ pub(super) fn filter(
     object.remove("author");
     object.remove("_meta");
     object.insert("_host_author".into(), author.clone());
+    // The consented chat, never one the teammate names: the daemon refuses the frame when the
+    // surface shows another chat now.
+    object.insert("_host_session".into(), Value::String(share.session.clone()));
     Ok(frame)
 }
 
@@ -224,6 +228,7 @@ mod tests {
                 serde_json::from_slice(&line(&mut reader, MAX_FRAME).unwrap().unwrap()).unwrap();
             assert_eq!(forwarded["cmd"], "agent-session-observe");
             assert_eq!(forwarded["_host_author"], bind["author"]);
+            assert_eq!(forwarded["_host_session"], "acp_a");
             assert!(forwarded.get("author").is_none());
             send(&mut host, &json!({"id":3,"ok":true})).unwrap();
             assert!(line(&mut reader, MAX_FRAME).unwrap().is_none());
@@ -234,7 +239,7 @@ mod tests {
         let tcp = listener.accept().unwrap().0;
         let config: config::Config = serde_json::from_value(json!({"version":1,"enabled":true,
             "teammate_access":true,"grants":[{"login":"lawrence@manaflow.ai","scopes":["agents"],"consented_at":"now"}],
-            "shares":[{"surface":42,"login":"lawrence@manaflow.ai","role":"guest","shared_at":"now","generation":"boot-1"}]})).unwrap();
+            "shares":[{"surface":42,"login":"lawrence@manaflow.ai","role":"guest","shared_at":"now","generation":"boot-1","session":"acp_a"}]})).unwrap();
         let proxy = std::thread::spawn(move || {
             run_with_config(
                 tcp,
@@ -275,7 +280,8 @@ mod tests {
         }
         send(
             &mut client,
-            &json!({"id":3,"cmd":"agent-session-observe","surface":42,"author":"spoof"}),
+            &json!({"id":3,"cmd":"agent-session-observe","surface":42,"author":"spoof",
+                "_host_session":"acp_b"}),
         )
         .unwrap();
         assert!(line(&mut reader, MAX_FRAME).unwrap().is_some());
