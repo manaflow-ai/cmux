@@ -160,8 +160,9 @@ enum Op : uint16_t {
   kOpTabSendClick = 150,  // optional
   kOpTabSetColorScheme = 151,  // optional
   kOpPageSchemeSetGroup = 152,  // optional
+  kOpTabDiscard = 153,  // optional
 };
-inline constexpr uint16_t kOpCount = 152;
+inline constexpr uint16_t kOpCount = 153;
 inline constexpr uint16_t kOpEvent = 0x8001;  // host -> cmux: one shim event
 inline constexpr uint16_t kOpReply = 0x8002;  // host -> cmux: an async op's result
 inline constexpr uint16_t kOpMirror = 0x8003;  // host -> cmux: a mirror value
@@ -169,7 +170,7 @@ inline constexpr uint16_t kOpAck = 0x8004;  // host -> cmux: a token's op ran
 inline constexpr int kEventKindCount = 50;
 inline constexpr char kShimAbiID[] = "a8b0edcfcdd8578fce1a3b1c1d224b98d7dc1384772fbb9c09ac03a7f7a525c2";
 // Both sides' HELLO carries it: the op ids, classes and wire types of this generation.
-inline constexpr char kWireID[] = "bdc791faeb42b3d0cbebb6fe599297194ca71e1d360cc666523fbb384cfe08c6";
+inline constexpr char kWireID[] = "18686fc34f2c82c7fa2accfb0a9e2a38f2accc246b324cb56820c653a5b4a992";
 inline constexpr int32_t kMaxRecords = 65536;
 inline constexpr int32_t kMaxOutCapacity = 65536;
 
@@ -187,6 +188,7 @@ inline constexpr OptionalExport kOptionalExports[] = {
     {kOpTabSendClick, "cmux_shim_tab_send_click"},
     {kOpTabSetColorScheme, "cmux_shim_tab_set_color_scheme"},
     {kOpPageSchemeSetGroup, "cmux_shim_page_scheme_set_group"},
+    {kOpTabDiscard, "cmux_shim_tab_discard"},
 };
 
 // Hand-written in HOST/src: install the host's own handler and push its policy.
@@ -1397,6 +1399,16 @@ inline bool DispatchOp(HostContext& ctx, uint16_t op, uint32_t wire_token, TlvRe
       if (!r.ok() || !r.AtEnd()) return false;
       const auto optional_fn = reinterpret_cast<int (*)(const char*, const char*)>(ctx.OptionalExport(kOpPageSchemeSetGroup));
       const int call_result = optional_fn != nullptr ? optional_fn(arg_id ? arg_id->c_str() : nullptr, arg_group ? arg_group->c_str() : nullptr) : 0;
+      TlvWriter reply_w;
+      reply_w.I32(call_result);
+      ctx.Reply(wire_token, reply_w);
+      return true;
+    }
+    case kOpTabDiscard: {
+      const auto arg_browser_id = r.I32();
+      if (!r.ok() || !r.AtEnd()) return false;
+      const auto optional_fn = reinterpret_cast<int (*)(int)>(ctx.OptionalExport(kOpTabDiscard));
+      const int call_result = optional_fn != nullptr ? optional_fn(ctx.Browser(arg_browser_id)) : 0;
       TlvWriter reply_w;
       reply_w.I32(call_result);
       ctx.Reply(wire_token, reply_w);

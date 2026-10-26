@@ -217,6 +217,9 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
     let tabSendClick: (@convention(c) (Int32, Double, Double, Int32, Int32, Int32) -> Int32)?
     /// The page's `prefers-color-scheme` (WebPreferences preferred_color_scheme): browser, 1 light, 2 dark.
     let tabSetColorScheme: (@convention(c) (Int32, Int32) -> Int32)?
+    /// `WebContents::Discard` in place (p13-webui-018): browser; 1 discarded, 0 refused. Nil without the
+    /// export and in host mode, whose return means only "sent" (the answer is a later REPLY).
+    let tabDiscard: (@convention(c) (Int32) -> Int32)?
 
     /// Every renderer-path export is there (`CEFForkFeatures`).
     var hasRendererPaths: Bool {
@@ -451,6 +454,7 @@ nonisolated struct CEFShimLibrary: @unchecked Sendable {
         tabSetFrozen = r.optional("cmux_shim_tab_set_frozen")
         tabSendClick = r.optional("cmux_shim_tab_send_click")
         tabSetColorScheme = r.optional("cmux_shim_tab_set_color_scheme")
+        tabDiscard = r.hostExports == nil ? r.optional("cmux_shim_tab_discard") : nil
         setContextProxy = try r("cmux_shim_set_context_proxy")
         contextProxyState = try r("cmux_shim_context_proxy_state")
         setContextProxyServer = try r("cmux_shim_set_context_proxy_server")
