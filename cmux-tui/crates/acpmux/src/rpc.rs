@@ -247,6 +247,10 @@ pub mod method {
     pub const MUX_ATTACH: &str = "_acpmux/attach";
     pub const MUX_VIEW: &str = "_acpmux/view";
     pub const MUX_MARK_UNREAD: &str = "_acpmux/markUnread";
+    /// A person in an attached chat starts or stops typing (`hub/presence.rs`).
+    pub const MUX_TYPING: &str = "_acpmux/typing";
+    /// Who has a chat open and who types in it, to its attached connections.
+    pub const MUX_PRESENCE: &str = "_acpmux/presence";
     pub const MUX_DETACH: &str = "_acpmux/detach";
     pub const MUX_WATCH: &str = "_acpmux/watch";
     pub const MUX_RENAME: &str = "_acpmux/rename";
