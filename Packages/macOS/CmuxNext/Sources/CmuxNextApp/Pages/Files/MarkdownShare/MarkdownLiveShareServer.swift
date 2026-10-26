@@ -37,9 +37,8 @@ final class MarkdownLiveShareServer {
     /// Largest request head accepted; a longer one is dropped.
     static let headLimit = 16 * 1024
 
-    /// - Parameter work: the app's blocking-work lanes (`AppServices.work`); tests get lanes of their own.
-    init(clock: any Clock<Duration> = ContinuousClock(),
-         work: BackgroundWork = BackgroundWork(label: "com.cmuxterm.next.work.live-share")) {
+    /// - Parameter work: the process's one set of blocking-work lanes (`AppServices.work`); a test passes its own.
+    init(clock: any Clock<Duration> = ContinuousClock(), work: BackgroundWork) {
         self.clock = clock
         self.work = work
     }

@@ -6,12 +6,18 @@ app's main thread 0 wakeups a second, the app <= 1/s, the cmux-tui daemon <= 1/s
 each process's thread count capped. This script launches a tagged app (bench_launch.BenchApp), builds a
 session, lets it settle, then measures one window with no input and reports, per process:
 
-  threads, wakeups/s (package idle + interrupt wakeups, proc_pid_rusage, what `top -stats idlew` and
-  Activity Monitor show), context switches/s, CPU %, and the threads that ran in the window (CPU time
-  per thread, PROC_PIDTHREADID64INFO: the thread names show which loop woke);
+  threads, wakeups/s (interrupt wakeups, proc_pid_rusage: what Activity Monitor's Idle Wake Ups and
+  Chrome's GetIdleWakeupsPerSecond count; the judged number), package-idle wakeups/s (a subset of them,
+  GetPackageIdleWakeupsPerSecond), CPU energy and billed energy (mW: CPU energy plus what other processes
+  such as WindowServer spent for this one, less what it spent for them), GPU ms/s (IORegistry), context
+  switches/s, CPU %, and the threads that ran in the window (CPU time per thread,
+  PROC_PIDTHREADID64INFO: the thread names show which loop woke);
   for the app also main_wakes/s (the main run loop's wakes from sleep, debug.hangs `main_wakes`) and,
   when the build has it, the wakeup ledger's owners (debug.wakeups: DemandTimer, FrameScheduler,
   Backoff by owner and reason).
+The app's resource coalition (procs.coalition_of: energy, energy billed to it, GPU time and wakeups of
+everything it started, processes gone in the window included) is `coalition` in the report: null when
+it cannot be read.
 
 The script reads the app's counters only at the window's two ends (proc_pid_rusage of another process
 does not wake it; the two socket reads sit outside the process counters' window), so the bench adds no
@@ -45,18 +51,13 @@ Use (fleet only, a host with a GUI console session; never on a laptop in use):
 Output: one `IDLE-BUDGET-MACHINE {json}` line, one `IDLE-BUDGET-ROW {json}` line per session and process
 kind, a Markdown table, and --json with every sample.
 """
-import argparse, ctypes, functools, json, os, platform, re, shutil, subprocess, sys, time
+import argparse, ctypes, json, os, platform, re, shutil, subprocess, sys, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 sys.path.insert(0, os.path.join(HERE, "..", "perf-bench"))
-
-
-def _procs():
-    """perf-bench/procs.py (process set of one app: descendants, bundle processes, responsible XPC processes). It
-    loads libproc, so it is imported on first measurement: the budget logic below runs and tests on any host."""
-    import procs
-    return procs
+import procs  # noqa: E402  (process set of one app: descendants, bundle processes, responsible XPC processes)
+import tab_pages  # noqa: E402  (the tab-page server and the Chromium process classifier)
 
 BUDGET_FILE = os.path.join(HERE, "idle-budget.json")
 STRESS_FILE = os.path.join(HERE, "perf-stress-session.py")
@@ -75,14 +76,9 @@ class _ThreadInfo(ctypes.Structure):
                 ("maxpriority", ctypes.c_int32), ("name", ctypes.c_char * 64)]
 
 
-@functools.cache
-def _libproc():
-    return ctypes.CDLL("/usr/lib/libproc.dylib")
-
-
 def threads(pid):
     """{thread id: (cpu ns, name)} of `pid` now; {} when it is gone."""
-    libproc = _libproc()
+    libproc = procs._darwin().libproc
     ids = (ctypes.c_uint64 * 8192)()
     size = libproc.proc_pidinfo(ctypes.c_int(pid), ctypes.c_int(PROC_PIDLISTTHREADIDS), ctypes.c_uint64(0),
                                 ctypes.byref(ids), ctypes.c_int(ctypes.sizeof(ids)))
@@ -115,19 +111,14 @@ def kind(cmd):
         return "daemon"
     if re.search(r"/bin/acpmux(\s|$)", cmd):
         return "acpmux"
-    if "--type=renderer" in cmd:
-        return "cef-extension" if "--extension-process" in cmd else "cef-renderer"
-    if "--type=gpu-process" in cmd:
-        return "cef-gpu"
-    if "--type=utility" in cmd:
-        service = re.search(r"--utility-sub-type=(\S+)", cmd)
-        return UTILITY_KINDS.get(service.group(1) if service else "", "cef-utility")
     if "--type=crashpad-handler" in cmd or "chrome_crashpad_handler" in cmd:
         return "crashpad"
-    if " Chromium Host.app/Contents/MacOS/" in cmd.split(" --", 1)[0]:
-        return "cef-host"  # the out-of-process Chromium browser process (ChromiumHostConfiguration)
-    if " Helper" in cmd.split(" --", 1)[0]:
-        return "cef-helper"
+    chromium = tab_pages.chromium_kind(cmd)
+    if chromium == "cef-utility":
+        service = re.search(r"--utility-sub-type=(\S+)", cmd)
+        return UTILITY_KINDS.get(service.group(1) if service else "", "cef-utility")
+    if chromium:
+        return chromium
     if "com.apple.WebKit." in cmd:
         return "webkit-" + cmd.split("com.apple.WebKit.", 1)[1].split()[0].split(".")[0].lower()
     exe = cmd.split(" --", 1)[0]
@@ -139,7 +130,7 @@ def kind(cmd):
 def process_set(instance):
     """{pid: command} of the app's processes plus their descendants (shells of the terminals are `other:`)."""
     found = dict(instance.pids())
-    table = _procs().process_table()
+    table = procs.process_table()
     children = {}
     commands = {}
     for pid, ppid, cmd in table:
@@ -169,14 +160,17 @@ def measure(app, instance, seconds):
     hangs0 = read_rpc(app, "debug.hangs", {"limit": 0})
     ledger0 = read_rpc(app, "debug.wakeups")
     counters0 = app_counters(app)
-    procs = _procs()
     pids = process_set(instance)
-    first = {pid: (procs.counters(pid), procs.overhead(pid), threads(pid)) for pid in pids}
+    first = {pid: (procs.usage(pid), procs.overhead(pid), threads(pid)) for pid in pids}
+    gpu0 = procs.gpu_ns_by_pid()
+    coalition0 = procs.coalition_of(instance.pid)
     began = time.monotonic()
     time.sleep(seconds)  # bench: the idle window itself (nothing is sent to the app in it)
     elapsed = time.monotonic() - began
+    coalition1 = procs.coalition_of(instance.pid)
+    gpu1 = procs.gpu_ns_by_pid()
     last_pids = process_set(instance)
-    last = {pid: (procs.counters(pid), procs.overhead(pid), threads(pid)) for pid in last_pids}
+    last = {pid: (procs.usage(pid), procs.overhead(pid), threads(pid)) for pid in last_pids}
     hangs1 = read_rpc(app, "debug.hangs", {"limit": 0})
     ledger1 = read_rpc(app, "debug.wakeups", {"run_loop": True})
     counters1 = app_counters(app)
@@ -187,7 +181,6 @@ def measure(app, instance, seconds):
             continue
         (c0, o0, t0) = first.get(pid, (None, None, {}))
         partial = c0 is None
-        c0 = c0 or (0, 0, 0, 0)
         o0 = o0 or (0, 0, 0, 0, 0)
         ran = []
         for tid, (cpu, name) in t1.items():
@@ -195,15 +188,10 @@ def measure(app, instance, seconds):
             if cpu > before:
                 ran.append({"tid": tid, "name": name or "", "cpu_us": round((cpu - before) / 1000, 1)})
         ran.sort(key=lambda t: -t["cpu_us"])
-        rows.append({
-            "pid": pid, "kind": kind(cmd), "command": cmd[:160], "partial": partial,
-            "threads": o1[1], "threads_ran": len(ran), "ran": ran[:8],
-            "cpu_pct": round(100 * (c1[1] - c0[1]) / 1e9 / elapsed, 4),
-            "wakeups_per_s": round((c1[2] - c0[2]) / elapsed, 3),
-            "csw_per_s": round(procs._delta32(o1[4], o0[4]) / elapsed, 3),
-            "footprint_mb": round(c1[3] / procs.MB, 1),
-        })
-    result = {"seconds": round(elapsed, 1), "processes": rows}
+        rows.append(process_row(pid, cmd, c0, c1, elapsed, gpu=procs.gpu_ms_per_s(gpu0, gpu1, pid, elapsed),
+                                threads_now=o1[1], csw=procs._delta32(o1[4], o0[4]), ran=ran))
+    result = {"seconds": round(elapsed, 1), "processes": rows,
+              "coalition": procs.coalition_rates(coalition0, coalition1, elapsed)}
     if "main_wakes" in hangs0 and "main_wakes" in hangs1:
         result["main_wakes_per_s"] = round((hangs1["main_wakes"] - hangs0["main_wakes"]) / elapsed, 3)
     owners = ledger_rates(ledger0, ledger1, elapsed)
@@ -216,6 +204,24 @@ def measure(app, instance, seconds):
     if ledger1.get("main_run_loop"):
         result["main_run_loop_timers"] = run_loop_timers(ledger1["main_run_loop"])
     return result
+
+
+def process_row(pid, cmd, first, last, elapsed, gpu, threads_now, csw, ran):
+    """One process's row of the window from two procs.Usage reads (`first` None: it started inside the
+    window, `partial`)."""
+    got = procs.rates(first, last, elapsed)
+    return {
+        "pid": pid, "kind": kind(cmd), "command": cmd[:160], "partial": first is None,
+        "threads": threads_now, "threads_ran": len(ran), "ran": ran[:8],
+        "cpu_pct": round(got["cpu_pct"], 4),
+        "wakeups_per_s": round(got["wakeups_per_s"], 3),
+        "pkg_idle_wakeups_per_s": round(got["pkg_idle_wakeups_per_s"], 3),
+        "energy_mw_cpu": round(got["energy_mw_cpu"], 3),
+        "energy_mw_billed": round(got["energy_mw_billed"], 3),
+        "gpu_ms_per_s": None if gpu is None else round(gpu, 3),
+        "csw_per_s": round(csw / elapsed, 3),
+        "footprint_mb": round(last.footprint / procs.MB, 1),
+    }
 
 
 TIMER_RE = re.compile(r"<CFRunLoopTimer [^>]*>\{valid = (\w+), firing = \w+, interval = ([0-9.e+-]+),[^}]*?"
@@ -310,26 +316,35 @@ def ledger_rates(before, after, elapsed):
 # Budget
 
 
-# Fields summed over a kind's processes when the rows carry them (energy, disk and log come from task 003).
-SUMMED = ("wakeups_per_s", "csw_per_s", "cpu_pct", "energy_mw", "disk_bytes_per_s", "log_lines")
+# Summed per kind (field: digits). A None in any process of the kind (GPU time with no IORegistry read)
+# makes the kind's sum None: an unknown is never a 0.
+SUMMED = {"wakeups_per_s": 3, "pkg_idle_wakeups_per_s": 3, "energy_mw_cpu": 3, "energy_mw_billed": 3,
+          "gpu_ms_per_s": 3, "csw_per_s": 3, "cpu_pct": 4}
+# Summed only over the rows that carry them (task 003 records disk and log): a kind whose rows have none has no
+# value, so all_kinds judges nothing that was not measured.
+SUMMED_WHEN_PRESENT = {"disk_bytes_per_s": 3, "log_lines": 0}
 
 
 def aggregate(result):
-    """Per kind: count, threads (sum and max per process), wakeups/s (sum and max per process, and the max over
-    the processes of hidden pages), CPU %, and energy, disk and log sums when the rows have them; the roles."""
+    """Per kind: count, threads (sum and max per process), interrupt wakeups/s (sum and max per process, and the
+    max over the processes of hidden pages), package-idle wakeups/s, CPU and billed energy (mW), GPU ms/s, context
+    switches/s, CPU %, disk and log sums when the rows have them; the roles."""
     kinds = {}
     for row in result["processes"]:
-        entry = kinds.setdefault(row["kind"], {"n": 0, "threads": 0, "threads_max": 0, "wakeups_per_s": 0.0,
-                                               "wakeups_max": 0.0, "csw_per_s": 0.0, "cpu_pct": 0.0, "threads_ran": 0})
+        entry = kinds.setdefault(row["kind"], {"n": 0, "threads": 0, "threads_max": 0, "wakeups_max": 0.0,
+                                               "threads_ran": 0, **{field: 0.0 for field in SUMMED}})
         entry["n"] += 1
         entry["threads"] += row["threads"]
         entry["threads_max"] = max(entry["threads_max"], row["threads"])
         entry["wakeups_max"] = max(entry["wakeups_max"], row["wakeups_per_s"])
         if row.get("hidden"):
             entry["hidden_wakeups_max"] = max(entry.get("hidden_wakeups_max", 0.0), row["wakeups_per_s"])
-        for field in SUMMED:
+        for field, digits in SUMMED.items():
+            value = row.get(field, 0.0)
+            entry[field] = None if entry[field] is None or value is None else round(entry[field] + value, digits)
+        for field, digits in SUMMED_WHEN_PRESENT.items():
             if isinstance(row.get(field), (int, float)):
-                entry[field] = round(entry.get(field, 0) + row[field], 4 if field == "cpu_pct" else 3)
+                entry[field] = round(entry.get(field, 0) + row[field], digits)
         entry["threads_ran"] += row["threads_ran"]
         if row.get("role"):
             entry["roles"] = sorted(set(entry.get("roles", [])) | {row["role"]})
@@ -460,10 +475,12 @@ def load_budget(path):
 
 
 # Noise floors of the cron rows: one wakeup a second, two threads (a pool thread parks or exits late).
-CRON_FLOORS = {"wakeups_per_s": 0.5, "wakeups_max": 0.5, "main_wakes_per_s": 0.5, "threads_max": 2, "threads": 2}
+CRON_FLOORS = {"wakeups_per_s": 0.5, "wakeups_max": 0.5, "main_wakes_per_s": 0.5, "threads_max": 2, "threads": 2,
+               "energy_mw_billed": 1.0, "gpu_ms_per_s": 1.0}
+CRON_UNITS = {"threads_max": "threads", "threads": "threads", "energy_mw_billed": "mW", "gpu_ms_per_s": "ms/s"}
 # The sums every session reports, plus the ones its budget names.
 CRON_SUMS = ("app+daemon", "tree")
-CRON_SUM_FLOORS = {"wakeups_per_s": 0.5, "energy_mw": 0.5}
+CRON_SUM_FLOORS = {"wakeups_per_s": 0.5, "energy_mw_billed": 1.0}
 
 
 def cron_rows(report, budget=None):
@@ -479,7 +496,7 @@ def cron_rows(report, budget=None):
                 value = values.get(field)
                 if not isinstance(value, (int, float)):
                     continue
-                unit = "threads" if field.startswith("threads") else "/s"
+                unit = CRON_UNITS.get(field, "/s")
                 out[f"idle_budget.{session}.{name}.{field}"] = {"p50": value, "p95": value, "unit": unit,
                                                                  "budget": limit_for(budget, session, name, field),
                                                                  "floor": floor}
@@ -490,7 +507,7 @@ def cron_rows(report, budget=None):
                 if value is None:
                     continue
                 out[f"idle_budget.{session}.{selector}.{field}"] = {
-                    "p50": value, "p95": value, "unit": "mW" if field == "energy_mw" else "/s",
+                    "p50": value, "p95": value, "unit": CRON_UNITS.get(field, "/s"),
                     "budget": (sums.get(selector) or {}).get(field), "floor": floor}
     return out
 
@@ -507,45 +524,13 @@ def load_stress():
     return module
 
 
-STATIC_PAGE = ("<!doctype html><meta charset='utf-8'><title>idle %d</title>"
-               "<style>body{margin:0;font:16px -apple-system,sans-serif;background:#f4f4f6}"
-               ".g{display:grid;grid-template-columns:repeat(auto-fill,minmax(140px,1fr));gap:10px;padding:16px}"
-               ".g div{height:80px;border-radius:10px;background:#c9d4e8}</style>"
-               "<h1>idle page %d</h1><div class='g'>%s</div><p>%s</p>")
-
-
-def static_pages(stress_module):
-    """STRESS's local pages without their rAF spinner (no script, no timer, no animation): an idle page."""
-    import http.server
-
-    class Handler(http.server.BaseHTTPRequestHandler):
-        def do_GET(self):
-            try:
-                index = int(self.path.strip("/").split("/")[-1] or 0)
-            except ValueError:
-                index = 0
-            data = (STATIC_PAGE % (index, index, "<div></div>" * 120, "lorem ipsum dolor sit amet " * 200)).encode()
-            self.send_response(200)
-            self.send_header("Content-Type", "text/html")
-            self.send_header("Content-Length", str(len(data)))
-            self.end_headers()
-            self.wfile.write(data)
-
-        def log_message(self, *args):
-            pass
-
-    pages = stress_module.Pages()
-    pages.handler = Handler
-    return pages
-
-
 def build_stress(app, static=False):
     """STRESS, then its busy terminals stopped (Ctrl-C), so the terminals are quiet. With `static` its pages
     have no rAF spinner (STRESS's own pages animate, which is not idle)."""
     stress_module = load_stress()
     stress = stress_module.Stress(app.rpc)
     if static:
-        stress.pages = static_pages(stress_module)
+        stress.pages = tab_pages.TabPages(default_kind="grid")
     summary = stress.build()
     for tab in getattr(stress, "busy", []):
         stress.send(tab, "\x03")
@@ -590,16 +575,29 @@ def host_facts():
 
 def table(session, kinds, overs):
     over_keys = {(k, f) for k, f, _, _ in overs}
-    lines = [f"\n### {session}\n", "| process | n | threads (max) | wakeups/s (max) | main wakes/s | csw/s | CPU % | threads that ran |",
-             "|---|---|---|---|---|---|---|---|"]
+    lines = [f"\n### {session}\n", "| process | n | threads (max) | wakeups/s (max) | pkg-idle wakeups/s | main wakes/s | "
+             "CPU mW | billed mW | GPU ms/s | csw/s | CPU % | threads that ran |",
+             "|---|---|---|---|---|---|---|---|---|---|---|---|"]
     order = ["app", "daemon", "holder", "terminal-host", "acpmux"]
     for name in sorted(kinds, key=lambda k: (order.index(k) if k in order else len(order), k)):
         e = kinds[name]
         mark = lambda f, v: f"**{v}**" if (name, f) in over_keys else f"{v}"  # noqa: E731
         lines.append(f"| {name} | {e['n']} | {e['threads']} ({mark('threads_max', e['threads_max'])}) | "
                      f"{mark('wakeups_per_s', e['wakeups_per_s'])} ({mark('wakeups_max', e['wakeups_max'])}) | "
-                     f"{mark('main_wakes_per_s', e.get('main_wakes_per_s', '-'))} | {e['csw_per_s']} | {e['cpu_pct']} | {e['threads_ran']} |")
+                     f"{e['pkg_idle_wakeups_per_s']} | {mark('main_wakes_per_s', e.get('main_wakes_per_s', '-'))} | "
+                     f"{mark('energy_mw_cpu', e['energy_mw_cpu'])} | {mark('energy_mw_billed', e['energy_mw_billed'])} | "
+                     f"{mark('gpu_ms_per_s', '-' if e['gpu_ms_per_s'] is None else e['gpu_ms_per_s'])} | "
+                     f"{e['csw_per_s']} | {e['cpu_pct']} | {e['threads_ran']} |")
     return "\n".join(lines)
+
+
+def coalition_line(coalition):
+    """The app's resource coalition under the session's table (None: it could not be read)."""
+    if coalition is None:
+        return "app coalition: not readable"
+    return (f"app coalition: {coalition['wakeups_per_s']} wakeups/s ({coalition['pkg_idle_wakeups_per_s']} pkg-idle), "
+            f"{coalition['energy_mw_cpu']} mW CPU, {coalition['energy_mw_billed']} mW billed, "
+            f"{coalition['gpu_ms_per_s']} GPU ms/s, {coalition['cpu_pct']} % CPU")
 
 
 def main():
@@ -638,7 +636,7 @@ def main():
                 entry["hide"] = app.rpc("action.run", {"action": "showHideAllWindows", "args": {"hidden": True},
                                                        "focus": False, "origin": "script"}, timeout=30)
             time.sleep(opts.settle)  # bench: the session settles (page loads, Chromium's post-load work) before the window
-            instance = _procs().Instance(app.app, app.process.pid)
+            instance = procs.Instance(app.app, app.process.pid)
             window_before = window_state(app)
             result = measure(app, instance, opts.measure)
             result["window_state"] = {"start": window_before, "end": window_state(app)}
@@ -670,7 +668,8 @@ def main():
             for over in overs:
                 print(over_line(session, over), flush=True)
             all_overs += [(session, *o) for o in overs]
-            markdown.append(table(session, kinds, overs))
+            markdown.append(table(session, kinds, overs) + "\n\n" + coalition_line(result.get("coalition")))
+            print(f"IDLE-BUDGET-COALITION {session} " + json.dumps(result.get("coalition")), flush=True)
             entry["exit"] = 0
         except BaseException as error:  # noqa: BLE001 - one session's failure (a STRESS shape refusal, a launch
             # failure) is recorded with its exit code; the other sessions still measure and report.

@@ -1,9 +1,9 @@
 {
-  "_doc": "Idle budget of cmux NEXT, schema v2 (scripts/cmux-next/idle-budget.py; plans/cmux-next/idle-wakeups.md section 9; numbers D2-D16 of plans/cmux-next/chrome-parity/p14-energy.md). Idle: no input, no visible change, terminals quiet, after the settle. A limit is a maximum; a string limit (role) must match. Per-kind fields: wakeups_per_s, cpu_pct, energy_mw, disk_bytes_per_s and log_lines are the sum over the kind's processes; wakeups_max, hidden_wakeups_max (only the processes of hidden pages) and threads_max are per process; main_wakes_per_s is the app's main run loop; role is the process's Darwin role (foreground | napped | best-effort | background, read by task 106). Lookup order: sessions.<s>.kinds.<k>.<field>, then kinds.<k>.<field> (one number or {session: number}), then all_kinds.<field> unless the session is busy. sums: a selector ('tree' = every process; 'a+b' = the sum of those kinds) and its summed fields. relative: a ratio to another session of the same run. ratio_to_chrome: source idle-budget rows compare a session with chrome-static; source xbench rows are xbench.py rows (cmux browser / chrome). allowed_periodic: the only owners a `wakeup-allow: periodic <owner>` escape may name (wakeup-audit.py: at most 6, period_s >= 15). assertions_allowed_when: a pmset assertion held by a cmux pid is an over unless one of these settings is on. null: measured and reported, not judged yet (thread caps come from task 091's first measurement). v1 (2026-10-24, PL-idle with the Performance Lead): app main 0, app <= 1/s, daemon <= 1/s, holder 0. v2 (2026-10-25, p14-energy-002, PL-idle with the Performance Lead): the v1 kinds stay the defaults; light-webkit keeps them and tightens to D2; light takes D4's Chromium limits; sessions, sums, ratios, allowed_periodic and assertions added.",
+  "_doc": "Idle budget of cmux NEXT, schema v2 (scripts/cmux-next/idle-budget.py; plans/cmux-next/idle-wakeups.md section 9; numbers D2-D16 of plans/cmux-next/chrome-parity/p14-energy.md). Idle: no input, no visible change, terminals quiet, after the settle. A limit is a maximum; a string limit (role) must match. Per-kind fields: wakeups_per_s, cpu_pct, energy_mw_billed, gpu_ms_per_s, disk_bytes_per_s and log_lines are the sum over the kind's processes; wakeups_per_s counts interrupt wakeups only (Chrome's GetIdleWakeupsPerSecond, Activity Monitor; p14-energy-047, 2026-10-25: before 047 it was package-idle + interrupt, which counted every package-idle wakeup twice, so earlier numbers are not comparable); energy_mw_billed is CPU energy + energy billed to the process - energy it serviced for others (mW); pkg_idle_wakeups_per_s and energy_mw_cpu are reported, not judged; wakeups_max, hidden_wakeups_max (only the processes of hidden pages) and threads_max are per process; main_wakes_per_s is the app's main run loop; role is the process's Darwin role (foreground | napped | best-effort | background, read by task 106). Lookup order: sessions.<s>.kinds.<k>.<field>, then kinds.<k>.<field> (one number or {session: number}), then all_kinds.<field> unless the session is busy. sums: a selector ('tree' = every process; 'a+b' = the sum of those kinds) and its summed fields. relative: a ratio to another session of the same run. ratio_to_chrome: source idle-budget rows compare a session with chrome-static; source xbench rows are xbench.py rows (cmux browser / chrome). allowed_periodic: the only owners a `wakeup-allow: periodic <owner>` escape may name (wakeup-audit.py: at most 6, period_s >= 15). assertions_allowed_when: a pmset assertion held by a cmux pid is an over unless one of these settings is on. null: measured and reported, not judged yet (thread caps come from task 091's first measurement). v1 (2026-10-24, PL-idle with the Performance Lead): app main 0, app <= 1/s, daemon <= 1/s, holder 0. v2 (2026-10-25, p14-energy-002, PL-idle with the Performance Lead): the v1 kinds stay the defaults; light-webkit keeps them and tightens to D2; light takes D4's Chromium limits; sessions, sums, ratios, allowed_periodic and assertions added.",
   "version": 2,
   "kinds": {
-    "app": {"main_wakes_per_s": 0, "wakeups_per_s": 1.0, "threads_max": null},
-    "daemon": {"wakeups_per_s": 1.0, "threads_max": null},
+    "app": {"main_wakes_per_s": 0, "wakeups_per_s": 1.0, "threads_max": null, "energy_mw_billed": null, "gpu_ms_per_s": null},
+    "daemon": {"wakeups_per_s": 1.0, "threads_max": null, "energy_mw_billed": null, "gpu_ms_per_s": null},
     "holder": {"wakeups_max": 0, "threads_max": null},
     "terminal-host": {"wakeups_max": 0, "threads_max": null},
     "acpmux": {"wakeups_max": 1.0, "threads_max": null},
@@ -26,7 +26,7 @@
         "daemon": {"wakeups_per_s": 0.2},
         "acpmux": {"wakeups_max": 0.1}
       },
-      "sums": {"tree": {"energy_mw": 1.0}}
+      "sums": {"tree": {"energy_mw_billed": 1.0}}
     },
     "light": {
       "kinds": {"app": {"wakeups_per_s": 1.0, "main_wakes_per_s": 0.5}}
@@ -106,7 +106,7 @@
   },
   "ratio_to_chrome": [
     {"source": "idle-budget", "session": "tabs-static", "of": "tree", "vs": "tree", "field": "wakeups_per_s", "max_ratio": 0.5},
-    {"source": "idle-budget", "session": "tabs-static", "of": "tree", "vs": "tree", "field": "energy_mw", "max_ratio": 1.0},
+    {"source": "idle-budget", "session": "tabs-static", "of": "tree", "vs": "tree", "field": "energy_mw_billed", "max_ratio": 1.0},
     {"source": "idle-budget", "session": "tabs-static", "of": "cef-gpu", "vs": "gpu", "field": "wakeups_per_s", "max_ratio": 1.0},
     {"source": "idle-budget", "session": "tabs-static", "of": "cef-host", "vs": "browser", "field": "wakeups_per_s", "max_ratio": 1.0},
     {"source": "xbench", "browser": "cmux-chromium", "row": "idle-wakeups-20", "max_ratio": 0.5},
