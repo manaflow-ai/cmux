@@ -58,12 +58,19 @@ pub(in crate::server) async fn new_on(
     p: Value,
 ) -> Result<Value, RpcError> {
     let method = crate::rpc::method::SESSION_NEW;
+    let web = via_web(&p);
     peer.request(method, p).await.map_err(|e| {
         let (build, served_peer) =
             (peer.remote_build(), peer.served_as().as_deref() == Some("peer"));
-        update_first(&e, &peer.name, build.as_deref(), served_peer, params)
+        update_first(&e, &peer.name, build.as_deref(), served_peer && !web, params)
             .unwrap_or_else(|| explain(peer, params, e))
     })
+}
+
+/// Whether this daemon forwarded `p` for a Web client (`mark_forwarded`'s `via: web`): the
+/// peer runs such a start under Web rules on any build, so no update gives it a scratch folder.
+fn via_web(p: &Value) -> bool {
+    p.pointer("/_meta/acpmux/via").and_then(Value::as_str) == Some("web")
 }
 
 /// `e`, with `data.host`, `data.try` (and `data.runOn` when it runs on HOST) and the command
@@ -119,7 +126,8 @@ fn explain(peer: &crate::peer::Peer, params: &Value, e: RpcError) -> RpcError {
 }
 
 /// A start with no folder that `peer_name` refused as outside its roots, from a peer of
-/// another build that serves this daemon as a peer (`served_peer`, its handshake) but names no
+/// another build that serves this daemon as a peer (`served_peer`: its handshake, for a start
+/// this daemon did not forward for a Web client) but names no
 /// `servedAs` in the refusal: one older than the peer scratch folder (#24442), which treats
 /// an absent folder as the home folder. Its way out is updating it, then the same command;
 /// the peer's own folder rule is unchanged. None for any other refusal.
@@ -688,5 +696,16 @@ newlines')"#
         assert!(update_first(&refused(), "gcp-codex-lane-1", same, true, &params).is_none());
         // A peer that serves this daemon as Web refuses no folder on any build: no update hint.
         assert!(update_first(&refused(), "gcp-codex-lane-1", old, false, &params).is_none());
+    }
+
+    /// A start this daemon forwards for a Web client keeps Web rules on the peer after any
+    /// update, so `new_on` passes it as not served as a peer: no update hint for it.
+    #[test]
+    fn a_start_forwarded_for_web_gets_no_update_hint() {
+        let web = json!({"_meta": {"acpmux": {"harness": "claude", "via": "web"}}});
+        assert!(via_web(&web));
+        for p in [json!({"_meta": {"acpmux": {"via": "app"}}}), json!({"_meta": {"acpmux": {}}})] {
+            assert!(!via_web(&p), "{p}");
+        }
     }
 }
