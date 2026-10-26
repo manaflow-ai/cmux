@@ -5,8 +5,8 @@
 //
 // The author is stamped by the host's daemon, never named by a client: a prompt's
 // `_meta.provenance` of kind `person_message` `{from, fromName}`, and a decision's
-// `answeredBy {person, name}` beside acpmux's `{session, name}` and `{device}`. Presence and typing
-// are ephemeral (`_acpmux/presence`), never in the log.
+// `answeredBy {id, name}` (a paired device's is `{device, feedItem}`, a question's ancestor
+// `{session, name}`). Presence and typing are ephemeral (`_acpmux/presence`), never in the log.
 
 /// One person in a chat. `avatar` is a picture's data URL; none draws their initials.
 export type Participant = { id: string; name: string; avatar?: string };
@@ -41,17 +41,19 @@ export function promptAuthor(msg: { _meta?: { provenance?: unknown } } | undefin
   return participant(provenance.from, provenance.fromName, provenance.fromAvatar);
 }
 
-/// The person who answered an ask (`permission_decision.answeredBy`), or undefined when acpmux
-/// names a session, a device or nobody.
+/// The person who answered an ask (`permission_decision.answeredBy {id, name}`), or undefined when
+/// acpmux names a device, a session or nobody (null: the owner answered).
 export function answeredBy(value: unknown): Participant | undefined {
   if (!value || typeof value !== "object") return undefined;
   const by = value as Record<string, unknown>;
-  return participant(by.person, by.name, by.avatar);
+  if (typeof by.session === "string" || typeof by.device === "string") return undefined;
+  return participant(by.id, by.name, by.avatar);
 }
 
-/// The chat's presence from `_acpmux/presence {participants: [{id, name, viewing, typing, self?}]}`.
-/// The reader's own entry (`self`) is left out: nobody needs to see they are here.
-export function chatPresence(value: unknown): ChatPresence {
+/// The chat's presence from `_acpmux/presence {participants: [{id, name, devices, viewing, typing}]}`.
+/// The reader's own entry is left out (`me`, the author id this pane sends as; acpmux names a caller
+/// with no author `owner`): nobody needs to see they are here.
+export function chatPresence(value: unknown, me = "owner"): ChatPresence {
   const list = (value as { participants?: unknown } | undefined)?.participants;
   const viewing: Participant[] = [];
   const typing: Participant[] = [];
@@ -61,7 +63,7 @@ export function chatPresence(value: unknown): ChatPresence {
     if (!entry || typeof entry !== "object") continue;
     const raw = entry as Record<string, unknown>;
     const person = participant(raw.id, raw.name, raw.avatar);
-    if (!person || raw.self === true || seen.has(person.id)) continue;
+    if (!person || person.id === me || seen.has(person.id)) continue;
     seen.add(person.id);
     if (raw.viewing === true || raw.typing === true) viewing.push(person);
     if (raw.typing === true) typing.push(person);

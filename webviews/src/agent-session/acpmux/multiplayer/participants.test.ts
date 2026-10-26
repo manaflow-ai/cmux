@@ -21,26 +21,27 @@ test("a name falls back to the id, is trimmed and bounded", () => {
     "tailnet:sam",
   );
   const long = "x".repeat(200);
-  expect(answeredBy({ person: "p", name: long })?.name.length).toBe(64);
+  expect(answeredBy({ id: "p", name: long })?.name.length).toBe(64);
 });
 
 test("only an inline picture is kept", () => {
-  expect(answeredBy({ person: "p", name: "P", avatar: "https://example.com/a.png" })?.avatar).toBeUndefined();
-  expect(answeredBy({ person: "p", name: "P", avatar: "data:image/png;base64,AAAA" })?.avatar).toBe(
+  expect(answeredBy({ id: "p", name: "P", avatar: "https://example.com/a.png" })?.avatar).toBeUndefined();
+  expect(answeredBy({ id: "p", name: "P", avatar: "data:image/png;base64,AAAA" })?.avatar).toBe(
     "data:image/png;base64,AAAA",
   );
 });
 
 test("an answer by a session or a device names no person", () => {
   expect(answeredBy({ session: "acp:1", name: "Lane" })).toBeUndefined();
-  expect(answeredBy({ device: "phone" })).toBeUndefined();
-  expect(answeredBy({ person: "tailnet:mei", name: "Mei Lin" })).toEqual({ id: "tailnet:mei", name: "Mei Lin" });
+  expect(answeredBy({ device: "phone", feedItem: "f1" })).toBeUndefined();
+  expect(answeredBy(null)).toBeUndefined();
+  expect(answeredBy({ id: "tailnet:mei", name: "Mei Lin" })).toEqual({ id: "tailnet:mei", name: "Mei Lin" });
 });
 
 test("presence leaves the reader out, and a typer is also viewing", () => {
   const presence = chatPresence({
     participants: [
-      { id: "me", name: "Me", viewing: true, self: true },
+      { id: "owner", name: "Me", viewing: true },
       { id: "ana", name: "Ana", viewing: true },
       { id: "sam", name: "Sam", typing: true },
       { id: "ana", name: "Ana again", viewing: true },
@@ -51,6 +52,9 @@ test("presence leaves the reader out, and a typer is also viewing", () => {
   expect(presence.viewing.map((p) => p.id)).toEqual(["ana", "sam"]);
   expect(presence.typing.map((p) => p.id)).toEqual(["sam"]);
   expect(chatPresence(undefined)).toEqual({ viewing: [], typing: [] });
+  // A teammate's pane leaves itself out by its own id; the owner then shows as "owner".
+  const theirs = chatPresence({ participants: [{ id: "owner", name: "Leo", viewing: true }, { id: "ana", name: "Ana", viewing: true }] }, "ana");
+  expect(theirs.viewing.map((p) => p.id)).toEqual(["owner"]);
 });
 
 test("initials take whole graphemes", () => {
