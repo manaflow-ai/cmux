@@ -6,11 +6,13 @@
 // the one a page that never hid shows; a poll (the run boards, the chip's host ask) makes no read
 // on show and waits for its next period.
 import { afterEach, beforeEach, expect, jest, test } from "bun:test";
-import { act, type ReactElement } from "react";
+import { act, Profiler, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
 import { NewTabExtras } from "./newtab/NewTabExtras";
 import { NowPlayingCard } from "./newtab/NowPlayingPlayer";
+import { NewTabScreen } from "./newtab/NewTabScreen";
+import { manySessions, noChat } from "../../gallery/fixtures/acpmux";
 import type { NowPlayingTrack } from "./newtab/nowPlaying";
 import { resetPullRequestStore, usePullRequestAnswer } from "./chips/pullRequestStore";
 import { setChipHost } from "./chips/host";
@@ -31,17 +33,18 @@ function installDom(): HTMLElement {
   dom = new JSDOM("<!doctype html><html><body><main id=root></main></body></html>", { pretendToBeVisual: true });
   Object.defineProperty(dom.window.document, "visibilityState", { configurable: true, get: () => visibility });
   Object.defineProperty(dom.window.document, "hidden", { configurable: true, get: () => visibility === "hidden" });
-  for (const key of ["window", "document", "navigator", "Node", "HTMLElement", "Element", "IS_REACT_ACT_ENVIRONMENT"])
-    saved.set(key, scope[key]);
-  Object.assign(scope, {
+  const globals = {
     window: dom.window,
     document: dom.window.document,
     navigator: dom.window.navigator,
     Node: dom.window.Node,
     HTMLElement: dom.window.HTMLElement,
     Element: dom.window.Element,
+    getComputedStyle: dom.window.getComputedStyle.bind(dom.window),
     IS_REACT_ACT_ENVIRONMENT: true,
-  });
+  };
+  for (const key of Object.keys(globals)) saved.set(key, scope[key]);
+  Object.assign(scope, globals);
   return dom.window.document.getElementById("root")!;
 }
 
@@ -213,3 +216,59 @@ for (const [name, board] of boards)
     await advance(4_000);
     expect(reads()).toBe(atMount + 2);
   });
+
+const newTabActions = {
+  onAsk: () => {},
+  onOpen: () => {},
+  onSearch: () => {},
+  onShell: () => {},
+  onJump: () => {},
+  onOpenSession: () => {},
+  onShowAll: () => {},
+};
+
+// The New Tab page re-renders only through its own timers here: the snapshot and props never change.
+const newTabSnapshot = noChat(manySessions(3));
+function CountedNewTab({ onCommit }: { onCommit: () => void }) {
+  return (
+    <Profiler id="new-tab" onRender={onCommit}>
+      <NewTabScreen snapshot={newTabSnapshot} {...newTabActions} />
+    </Profiler>
+  );
+}
+
+test("a hidden New Tab page arms no timer and makes 0 callbacks in 60 s", async () => {
+  visibility = "hidden";
+  let commits = 0;
+  await mount(<CountedNewTab onCommit={() => (commits += 1)} />);
+  // The field's focus at mount queues JSDOM's own `select` event tasks (0 ms); none is the page's.
+  await advance(0);
+  const atMount = commits;
+  expect(jest.getTimerCount()).toBe(0);
+  await advance(MINUTE);
+  expect(commits).toBe(atMount);
+  expect(jest.getTimerCount()).toBe(0);
+
+  // Shown, the shared minute clock arms again; it reads the time, never data.
+  await setVisibility("visible");
+  expect(jest.getTimerCount()).toBeGreaterThan(0);
+});
+
+test("the New Tab page's minute clock stops when the page hides and reads the minute again on show", async () => {
+  let commits = 0;
+  await mount(<CountedNewTab onCommit={() => (commits += 1)} />);
+  const atMount = commits;
+  await advance(MINUTE);
+  expect(commits).toBeGreaterThan(atMount);
+
+  await setVisibility("hidden");
+  expect(jest.getTimerCount()).toBe(0);
+  const atHide = commits;
+  await advance(3 * MINUTE);
+  expect(commits).toBe(atHide);
+
+  // The minute changed while hidden: the page draws it once on show, as a page that never hid.
+  await setVisibility("visible");
+  expect(commits).toBe(atHide + 1);
+  expect(jest.getTimerCount()).toBeGreaterThan(0);
+});
