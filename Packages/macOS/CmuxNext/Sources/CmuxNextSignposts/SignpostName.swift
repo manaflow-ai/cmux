@@ -16,8 +16,8 @@
 /// ``stallMainTask``, ``stallOverBudget``, ``stallMainTurn`` (the trace ring's), ``stallRenderStarved``,
 /// ``launchStartupTask``, ``launchStartupComplete``, ``launchReadDone``, ``stallPaletteOpen``, ``stallIconPickerOpen``,
 /// ``webuiOpen``, ``webuiScheme``, ``stallCreateSurface``, ``daemonStep``, ``webuiAgentPaneStep``, ``createTab``,
-/// ``createWorkspace``, ``stallGhosttyRuntimePhase``, ``switchWorkspace``, ``switchTab``, ``switchPaneFocus`` and
-/// ``burstEvent`` have an emitter today. The
+/// ``createWorkspace``, ``stallGhosttyRuntimePhase``, ``switchWorkspace``, ``switchTab``, ``switchPaneFocus``,
+/// ``burstEvent``, ``motionLateCommits`` and ``actionPresentedEstimate`` have an emitter today. The
 /// other cases are **reserved**: the task and owner named on each add the emitter. Until then no build records them,
 /// and no bench or report may quote them. "Ring" on a reserved case gives its record phases and the
 /// meaning of `arg0` and `arg1` (the ring v1 record, plans/cmux-next/trace.md).
@@ -300,7 +300,7 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// content_us daemon_us pty_us echo_read_us echo_sent_us presented_us`. Ring: instant, "estimated" when the
     /// presented time is a vsync estimate; arg0 packs kind | target << 8 | entrypoint << 16 | source << 24 |
     /// caused frame update << 32, arg1 the generated-to-presented time in us (0 when the commit was missed).
-    case inputLatency = 82
+    case inputLatency = 85
 
     // MARK: webview (reserved: task 114, PL-telemetry)
     /// Reserved (task 114, PL-telemetry). A slow interaction in a cmux web page (`PerformanceObserver`
@@ -426,6 +426,27 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// output, else the input event's `CLOCK_UPTIME_RAW` ns (0 without one).
     case burstEvent = 81
 
+    // MARK: presentation (p03-rendering 004: what a Release build can say about frames it does not watch)
+    /// A main-thread Core Animation commit, made while a Motion animation runs (`MotionActivity`), that ended past a
+    /// deadline its run-loop turn could have met (`MotionLateCommits`): a display-link tick's turn, the tick's target
+    /// timestamp; any other turn, one period past the first vsync after it began. The grid is the key window's
+    /// display's last link tick; the counter starts no link and asks for no frame, so a commit with no recent tick
+    /// is not judged. Message: `late_ms=<past the deadline> turn_ms=<turn start to commit end>`. Ring: instant;
+    /// arg0 the lateness in us, arg1 the turn in us.
+    case motionLateCommits = 82
+    /// The estimated time an action's committed change is shown, recorded at its commit (`ActionBudgetMonitor`):
+    /// the target timestamp of the first display-link tick after the commit, placed on the vsync grid of the
+    /// key window's display's last tick (no link is started for it). Message: `id=<action id>
+    /// present_ms=<run start to the estimate> commit_ms=<run start to the commit> input_age_ms=<age> phase=<running|
+    /// recent|unknown>`, where `phase` says where the grid came from (a running link, a tick under a second old,
+    /// none: then the estimate is the commit plus 1.5 refresh periods). Ring: instant with the "estimated" flag;
+    /// arg0 the action's interned index in bits 0-31 and the phase code in bits 32-39, arg1 the estimate (uptime ns).
+    case actionPresentedEstimate = 83
+    /// Reserved (task 080, PL-ghostty). The measured time an action's change was shown (Ghostty's presentedTime),
+    /// recorded next to ``actionPresentedEstimate`` where it exists. Ring: instant; arg0 the action's interned index,
+    /// arg1 the presented time (uptime ns).
+    case actionPresented = 84
+
     /// The name `os_signpost` records (a compile-time string, as the API requires).
     public var staticName: StaticString {
         switch self {
@@ -511,6 +532,9 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
         case .webuiAgentPaneStep: "webui.agent_pane_step"
         case .stallGhosttyRuntimePhase: "stall.ghostty_runtime_phase"
         case .burstEvent: "burst.event"
+        case .motionLateCommits: "motion.late_commits"
+        case .actionPresentedEstimate: "action.presented_estimate"
+        case .actionPresented: "action.presented"
         }
     }
 }

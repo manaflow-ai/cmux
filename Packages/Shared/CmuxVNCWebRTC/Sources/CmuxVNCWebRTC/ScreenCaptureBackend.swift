@@ -196,7 +196,7 @@ final class EventInjector: @unchecked Sendable {
             point = location(input)
             post(CGEvent(mouseEventSource: source, mouseType: .mouseMoved, mouseCursorPosition: point, mouseButton: .left))
             post(CGEvent(scrollWheelEvent2Source: source, units: .line, wheelCount: 2,
-                         wheel1: Int32(input.dy ?? 0), wheel2: Int32(input.dx ?? 0), wheel3: 0))
+                         wheel1: input.wheel.dy, wheel2: input.wheel.dx, wheel3: 0))
         case "key":
             guard let keysym = input.k else { return }
             key(keysym, down: input.d ?? true)
@@ -215,7 +215,7 @@ final class EventInjector: @unchecked Sendable {
     }
 
     private func location(_ input: ScreenInput) -> CGPoint {
-        CGPoint(x: display.minX + (input.x ?? 0) * display.width, y: display.minY + (input.y ?? 0) * display.height)
+        input.location(in: display)
     }
 
     /// Moves, then posts a down or up for each button whose state changed.
