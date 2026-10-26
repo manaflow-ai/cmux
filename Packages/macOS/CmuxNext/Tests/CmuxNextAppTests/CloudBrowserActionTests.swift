@@ -50,6 +50,34 @@ struct CloudBrowserActionTests {
         }
     }
 
+    /// Each says what it does and returns (`cmux action describe`, the MCP tool list), and any
+    /// command it names is a CLI verb with the machine named.
+    @Test func everyPortActionDescribesItselfWithRealCommands() throws {
+        let services = Self.fixture().services
+        for descriptor in CloudPortActionCatalog.descriptors() {
+            let text = try #require(descriptor.description, "\(descriptor.id) has no description")
+            #expect(!text.isEmpty && text.count <= 600)
+            #expect(text.contains("--target machine:<id>"), "\(descriptor.id) does not say how to name the machine")
+            for mention in text.components(separatedBy: "`cmux ").dropFirst() {
+                let command = try #require(mention.split(separator: "`").first)
+                let verb = command.split(separator: " ").prefix(2).joined(separator: " ")
+                #expect(services.registry.descriptors.contains { $0.cliName == verb && $0.cli }, "\(descriptor.id) names `cmux \(verb)`")
+                #expect(command.contains("--target machine:"))
+            }
+        }
+    }
+
+    /// A nested run keeps its outer run's origin: a script's open-browser connects and calls the
+    /// app server as the script, never as the person.
+    @Test func aNestedRunTakesItsOuterRunsOrigin() {
+        let inner = ActionInvocation(target: ActionTargetRef(kind: .machine, id: "vm-a"))
+        #expect(CloudHandlers.effective(inner).origin == .user)
+        ActionRunScope.$current.withValue(ActionRunScope(origin: .cli, allowsViewChange: false)) {
+            #expect(CloudHandlers.effective(inner).origin == .cli)
+            #expect(!(inner.allowsViewChange && ActionRunScope.viewChangeAllowed()))
+        }
+    }
+
     // MARK: The route a CLI run opens
 
     @Test func aBrowserRouteTheAppAskedForOpensWithoutThePageCheck() throws {

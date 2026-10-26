@@ -13,18 +13,22 @@ import Foundation
 extension CloudHandlers {
     static func bindBrowserActions(into registry: ActionRegistry, context: AppActionContext, reason: @escaping @MainActor () -> String?) {
         bind("cloudOpenBrowser", registry, reason: reason) { invocation in
+            let invocation = effective(invocation)
             let session = try machine(invocation, context), port = try port(invocation, session, verb: "open-browser")
             let names = CloudPortNames(session, port: port)
             let path = try browserPath(invocation, names)
+            // Read now, while the run's scope is bound: a nested run changes the view only when its outer run may.
+            let viewChange = invocation.allowsViewChange && ActionRunScope.viewChangeAllowed()
             let label = "open machine port in browser"
             if origin(of: invocation) == .user {
-                return runTracked(label, context) { _ = try await openBrowser(session, port: port, path: path, names: names, invocation, context) }
+                return runTracked(label, context) { _ = try await openBrowser(session, port: port, path: path, names: names, viewChange: viewChange, invocation, context) }
             }
             result(label, context, pendingAfter: answerWithin, pending: ["machine_id": .string(session.machineID), "port": .int(port)]) {
-                try await openBrowser(session, port: port, path: path, names: names, invocation, context)
+                try await openBrowser(session, port: port, path: path, names: names, viewChange: viewChange, invocation, context)
             }
         }
         bind("cloudPortList", registry, reason: reason) { invocation in
+            let invocation = effective(invocation)
             let session = try machine(invocation, context), names = CloudPortNames(session, port: nil)
             guard session.appLink != nil else { throw ActionFailure(message: CloudPortStrings.classicLink(names)) }
             answer("list machine ports", invocation, context, pendingAfter: answerWithin, pending: ["machine_id": .string(session.machineID)]) {
@@ -39,6 +43,7 @@ extension CloudHandlers {
             }
         }
         bind("cloudPortForward", registry, reason: reason) { invocation in
+            let invocation = effective(invocation)
             let session = try machine(invocation, context), port = try port(invocation, session, verb: "port-forward"), names = CloudPortNames(session, port: port)
             guard session.appLink != nil else { throw ActionFailure(message: CloudPortStrings.classicLink(names)) }
             answer("forward machine port", invocation, context, pendingAfter: answerWithin, pending: ["machine_id": .string(session.machineID), "port": .int(port)]) {
@@ -49,6 +54,7 @@ extension CloudHandlers {
             }
         }
         bind("cloudPortClose", registry, reason: reason) { invocation in
+            let invocation = effective(invocation)
             let session = try machine(invocation, context), port = try port(invocation, session, verb: "port-close"), names = CloudPortNames(session, port: port)
             guard session.appLink != nil else { throw ActionFailure(message: CloudPortStrings.classicLink(names)) }
             result("close machine port", context, pendingAfter: answerWithin, pending: ["machine_id": .string(session.machineID), "port": .int(port)]) {
@@ -59,6 +65,7 @@ extension CloudHandlers {
             }
         }
         bind("cloudMachineLink", registry, reason: reason) { invocation in
+            let invocation = effective(invocation)
             let session = try machine(invocation, context)
             let port = invocation["port"] == nil ? nil : try Self.port(invocation, session, verb: "machine-link")
             let names = CloudPortNames(session, port: port)
@@ -88,7 +95,7 @@ extension CloudHandlers {
     /// - A machine on the classic link: a tab in the machine's first workspace, whose `localhost`
     ///   the machine's loopback forward serves (remote localhost); the machine connects first.
     @MainActor
-    static func openBrowser(_ session: CloudMachineSession, port: Int, path: String, names: CloudPortNames,
+    static func openBrowser(_ session: CloudMachineSession, port: Int, path: String, names: CloudPortNames, viewChange: Bool,
                             _ invocation: ActionInvocation, _ context: AppActionContext) async throws -> [String: ActionResultValue] {
         let services = context.services, browserTabs = services.cache.browserTabs
         if let reason = browserTabs.cefUnavailable() {
@@ -98,7 +105,7 @@ extension CloudHandlers {
         if session.appLink != nil {
             let args: [String: JSONValue] = ["machine": .string(session.machineID), "port": .number(Double(port)), "path": .string(path)]
             let route = try await portOp("cloud.browser.open", args, key: UUID().uuidString.lowercased(), names, invocation, context)
-            let opened = try await openRoute(route, names: names, background: !invocation.allowsViewChange, services: services)
+            let opened = try await openRoute(route, names: names, background: !viewChange, services: services)
             fields["url"] = route["url"]?.stringValue.map(ActionResultValue.string) ?? .null
             fields["surface_id"] = opened.map { .string(String($0.rawValue)) } ?? .null
             if opened == nil { fields["pending"] = .bool(true) }
@@ -118,11 +125,11 @@ extension CloudHandlers {
         let surface: SurfaceID
         do {
             surface = try await browserTabs.open(BrowserEngineChoice(engine: .cef, pinned: true), in: anchor.pane, url: url,
-                                                 activate: invocation.allowsViewChange)
+                                                 activate: viewChange)
         } catch {
             throw ActionFailure(message: CloudPortStrings.browserFailed(names, detail: detail(error)))
         }
-        if invocation.allowsViewChange { reveal(surface, in: anchor.pane, workspaceID: anchor.id, context) }
+        if viewChange { reveal(surface, in: anchor.pane, workspaceID: anchor.id, context) }
         fields["url"] = .string(url)
         fields["workspace_id"] = .string(anchor.id)
         fields["surface_id"] = .string(String(surface.rawValue))
@@ -198,6 +205,14 @@ extension CloudHandlers {
         text = text.trimmingCharacters(in: .whitespacesAndNewlines)
         while text.hasSuffix(".") { text.removeLast() }
         return text
+    }
+
+    /// The run with its outermost caller's origin (``ActionRunScope``): a nested run of a script
+    /// connects and calls the app server as the script, never as the person.
+    static func effective(_ invocation: ActionInvocation) -> ActionInvocation {
+        var effective = invocation
+        effective.origin = origin(of: invocation)
+        return effective
     }
 
     /// A CLI or agent run answers within `action.run`'s result deadline: a slow link or app op
