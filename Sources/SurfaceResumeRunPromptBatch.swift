@@ -127,7 +127,7 @@ extension SurfaceResumeRunPromptBatch {
         return command.contains("codex") ? "codex" : nil
     }
 
-    static func isConcreteAgentRestoreInput(_ input: String?) -> Bool {
+    nonisolated static func isConcreteAgentRestoreInput(_ input: String?) -> Bool {
         guard let input else { return false }
         let normalized = input.trimmingCharacters(in: .whitespacesAndNewlines)
         return !normalized.isEmpty && normalized != "cmux restore --surface"
