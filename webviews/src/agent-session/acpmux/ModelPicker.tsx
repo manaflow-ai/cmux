@@ -77,6 +77,8 @@ type ModelChoice = {
   offers?: (ModelChoice & { provider: string })[];
   /** The provider the row lands ("OpenRouter"), for a harness that routes to several. */
   provider?: string;
+  /** Raw catalog rows represented by this grouped model, for search-height reservation. */
+  searchRows?: number;
   /** A bracketed note the model's name carried ("New"). */
   tag?: string;
 };
@@ -98,7 +100,7 @@ function quickSections(
   const { latest, older } = sectionsFor(entry);
   const latestIds = new Set(latest.map((choice) => choice.id));
   const all = groupVariants([...latest, ...older], model)
-    .map(({ model: choice, name, tag, offers }): ModelChoice | undefined => {
+    .map(({ model: choice, name, tag, offers, count }): ModelChoice | undefined => {
       // Establish owner identities from the complete catalog before hiding unavailable offers. This
       // keeps an available bare owner row from joining a different model when its peer is offline.
       const visible = offers.filter((offer) => usable(offer.model));
@@ -117,6 +119,7 @@ function quickSections(
         name,
         ...(tag ? { tag } : {}),
         ...(provider ? { provider } : {}),
+        ...(count > offers.length ? { searchRows: count } : {}),
         ...(visible.length > 1
           ? { offers: visible.map((offer) => ({ ...offer.model, provider: offer.provider })) }
           : {}),
@@ -268,6 +271,7 @@ function quickRow(family: string, model: ModelChoice): QuickModel {
     ...(model.unavailable ? { disabled: true } : {}),
     ...(model.tag ? { tag: model.tag } : {}),
     ...(model.provider ? { provider: model.provider } : {}),
+    ...(model.searchRows ? { searchRows: model.searchRows } : {}),
     ...(model.offers
       ? {
           offers: model.offers.map((offer) => ({

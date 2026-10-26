@@ -13,7 +13,7 @@ export type ProviderOffer<T> = { model: T; provider: string };
 /// A model as the menu lists it: `model` is the row a pick lands (the running provider's, else the
 /// first listed), `name` the model's name without a provider, `tag` a bracketed note the name
 /// carried ("New"), and `offers` every provider's row, in list order (one, for a plain model).
-export type ModelGroup<T> = { model: T; name: string; tag?: string; offers: ProviderOffer<T>[] };
+export type ModelGroup<T> = { model: T; name: string; tag?: string; offers: ProviderOffer<T>[]; count: number };
 
 /// Providers' names as they write them; any other is its id, capitalized.
 const PROVIDER_NAMES: Record<string, string> = {
@@ -94,6 +94,7 @@ export function groupVariants<T extends VariantModel>(models: readonly T[], curr
     const id = identity(row);
     const joined = id === undefined ? undefined : byIdentity.get(id);
     if (joined) {
+      joined.count += 1;
       const duplicateIndex = joined.offers.findIndex(
         (each) => each.provider.trim().toLowerCase() === (provider ?? "").trim().toLowerCase(),
       );
@@ -103,7 +104,11 @@ export function groupVariants<T extends VariantModel>(models: readonly T[], curr
         const existing = joined.offers[duplicateIndex]!;
         const existingUnavailable = Boolean((existing.model as VariantModel & { unavailable?: unknown }).unavailable);
         const incomingUnavailable = Boolean((model as T & { unavailable?: unknown }).unavailable);
-        if (model.id === current || (existingUnavailable && !incomingUnavailable)) joined.offers[duplicateIndex] = offer;
+        const existingCurrent = existing.model.id === current;
+        const incomingCurrent = model.id === current;
+        const existingRank = existingCurrent && !existingUnavailable ? 3 : !existingUnavailable ? 2 : existingCurrent ? 1 : 0;
+        const incomingRank = incomingCurrent && !incomingUnavailable ? 3 : !incomingUnavailable ? 2 : incomingCurrent ? 1 : 0;
+        if (incomingRank > existingRank) joined.offers[duplicateIndex] = offer;
       }
       if (model.id === current) joined.model = model;
       joined.tag ??= tag;
@@ -114,6 +119,7 @@ export function groupVariants<T extends VariantModel>(models: readonly T[], curr
       name: provider ? name : model.name.replace(BRACKET_TAG, ""),
       ...(tag ? { tag } : {}),
       offers: [offer],
+      count: 1,
     };
     groups.push(next);
     if (id !== undefined && !byIdentity.has(id)) byIdentity.set(id, next);

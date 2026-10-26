@@ -85,6 +85,8 @@ export type QuickModel = {
   tag?: string;
   /// The provider the row lands, named at its trailing edge (a harness that routes to several).
   provider?: string;
+  /// Raw catalog rows represented by this grouped model, for search-height reservation.
+  searchRows?: number;
   offers?: (QuickModel & { provider: string })[];
 };
 
@@ -470,7 +472,10 @@ export function QuickModelMenu({
             .reduce(
               (count, family) =>
                 count +
-                [...family.models, ...family.more].reduce((rows, model) => rows + (model.offers?.length ?? 1), 0),
+                [...family.models, ...family.more].reduce(
+                  (rows, model) => rows + (model.searchRows ?? model.offers?.length ?? 1),
+                  0,
+                ),
               0,
             ),
         ),
@@ -499,9 +504,11 @@ export function QuickModelMenu({
               {
                 ...named,
                 ...(model.provider ? { value: model.provider } : {}),
-                // The submenu version's row of a model several providers serve has a chevron.
-                ...(model.offers && menu.providers === "submenu" ? { sub: true } : {}),
-                ...(chat && model.id === current ? { check: true } : { shortcut: true }),
+                ...(model.offers && menu.providers === "submenu"
+                  ? { sub: true }
+                  : chat && model.id === current
+                    ? { check: true }
+                    : { shortcut: true }),
               },
             ];
           }),
