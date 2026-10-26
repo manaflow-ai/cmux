@@ -239,7 +239,7 @@ test("explicit daemon states render and run only their corresponding machine act
   const paused = machineRows().find((row) => row.querySelector(".acpmux-menu-label")?.textContent === "gpu-box")!;
   const outdated = machineRows().find((row) => row.querySelector(".acpmux-menu-label")?.textContent === "cloud-1")!;
   expect(paused.querySelector(".acpmux-env-status")?.getAttribute("data-status")).toBe("paused");
-  expect(paused.querySelector(".acpmux-env-status-text")?.textContent).toBe(t("composer.envPaused"));
+  expect(paused.querySelector(".acpmux-env-status-text")?.textContent).toBe(t("goal.paused"));
   expect(outdated.querySelector(".acpmux-env-status")?.getAttribute("data-status")).toBe("needsUpdate");
   expect(outdated.querySelector(".acpmux-env-status-text")?.textContent).toBe(t("composer.envNeedsUpdate"));
   await act(async () => paused.querySelector<HTMLButtonElement>(".acpmux-env-status-action")!.click());
