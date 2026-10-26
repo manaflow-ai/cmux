@@ -56,12 +56,12 @@ pub(crate) fn on_request_thread_in_panic_mode<R: Send + 'static>(
     f: impl FnOnce() -> R + Send + 'static,
 ) -> std::thread::Result<R> {
     cmux_threads::blocking::set_mode(cmux_threads::BlockingMode::Panic);
-    std::thread::Builder::new()
+    let request = std::thread::Builder::new()
         .name("test-request".to_owned())
         .spawn(move || {
             cmux_threads::disallow_blocking();
             f()
         })
-        .expect("spawn the request thread")
-        .join()
+        .expect("spawn the request thread");
+    cmux_threads::checked::sync::join(request)
 }

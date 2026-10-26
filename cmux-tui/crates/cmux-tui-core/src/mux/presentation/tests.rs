@@ -344,6 +344,10 @@ fn cmux_next_git_head_reads_branches_worktrees_and_detached_heads() {
 
     let mux = Mux::new_for_test("git-heads", SurfaceOptions::default());
     let nested_path = nested.to_string_lossy().into_owned();
+    // The first lookup answers from memory (nothing yet) and reads off thread.
+    let first = mux.resolve_tab_directories(vec![(7, nested_path.clone())], true);
+    assert_eq!(first[&7].git_branch, None);
+    assert!(mux.git_heads.wait_read_for_test(&nested_path, Duration::from_secs(10)));
     let directories = mux.resolve_tab_directories(vec![(7, nested_path.clone())], true);
     assert_eq!(
         directories[&7],
@@ -380,6 +384,45 @@ fn git_head_lookup_on_a_request_thread_never_reads_the_disk() {
     });
 
     assert!(answered.is_ok(), "the git HEAD lookup read the disk on its request thread");
+    assert!(mux.git_heads.wait_read_for_test(&cwd, Duration::from_secs(10)));
+    let known = mux.resolve_tab_directories(vec![(7, cwd)], false);
+    assert_eq!(known[&7].git_branch.as_deref(), Some("request-path"));
+    let _ = std::fs::remove_dir_all(&root);
+}
+
+/// The off-thread read reports a HEAD it finds as a `tab-changed` delta of
+/// each tab in that directory.
+#[test]
+fn a_git_head_read_off_thread_sends_tab_changed_with_the_branch() {
+    let root = std::env::temp_dir()
+        .join(format!("cmux-git-head-delta-{}", WorkspacePublicId::random().unwrap()));
+    let repo = root.join("repo");
+    std::fs::create_dir_all(repo.join(".git")).unwrap();
+    std::fs::write(repo.join(".git/HEAD"), "ref: refs/heads/delta\n").unwrap();
+    let cwd = repo.to_string_lossy().into_owned();
+    let mux = Mux::new_for_test("git-heads-delta", SurfaceOptions::default());
+    let workspace = mux.new_workspace(None, None).unwrap().id;
+    let pane = mux.with_state(|state| state.pane_of(workspace)).unwrap();
+    let events = mux.subscribe();
+    let tab = mux.new_tab(Some(pane), Some(cwd), None).unwrap().id;
+    // A tree read answers from memory and starts the read.
+    assert!(tab_json(&mux, tab)["git_branch"].is_null());
+
+    let deadline = Instant::now() + Duration::from_secs(10);
+    let branch = loop {
+        let remaining = deadline.saturating_duration_since(Instant::now());
+        let Ok(event) = events.recv_timeout(remaining) else { break None };
+        if let MuxEvent::TreeDelta(delta) = event
+            && delta.kind == TreeDeltaKind::TabChanged
+            && delta.surface == Some(tab)
+            && let Some(branch) = delta.entity["git_branch"].as_str()
+        {
+            break Some(branch.to_owned());
+        }
+    };
+
+    assert_eq!(branch.as_deref(), Some("delta"));
+    assert_eq!(tab_json(&mux, tab)["git_branch"], "delta");
     let _ = std::fs::remove_dir_all(&root);
 }
 

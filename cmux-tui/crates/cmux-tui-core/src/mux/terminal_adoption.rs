@@ -2,6 +2,7 @@
 //! terminal hosts, template terminals, and scheduling adoption work.
 
 use super::*;
+use cmux_threads::checked::fs as checked_files;
 
 impl Mux {
     #[cfg(any(unix, windows))]
@@ -559,11 +560,11 @@ impl Mux {
             terminal_public_id.as_str()
         );
         if let Some(parent) = path.parent() {
-            cmux_threads::checked::fs::create_dir_all(parent)?;
+            checked_files::create_dir_all(parent)?;
         }
         let temporary = path.with_extension("tmp");
-        cmux_threads::checked::fs::write(&temporary, contents)?;
-        cmux_threads::checked::fs::rename(&temporary, path)?;
+        checked_files::write(&temporary, contents)?;
+        checked_files::rename(&temporary, path)?;
         Ok(())
     }
 
