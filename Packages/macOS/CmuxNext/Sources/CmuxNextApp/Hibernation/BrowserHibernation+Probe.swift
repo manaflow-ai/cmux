@@ -10,12 +10,14 @@ extension BrowserHibernation {
     /// Asks hidden page `tab` what it does (`PageProbe`). Runs no page code: whether a `beforeunload`
     /// handler would ask is learned only right before a discard (`asksBeforeUnload`).
     static func probe(_ tab: any BrowserTab) async -> PageProbe {
+        // A cmux page runs no site and holds no form, media or capture: nothing to ask.
+        if tab is any BrowserAppPage { return PageProbe() }
         do {
             let (value, busy) = try await ControlDeadline.shared.run(method: "hibernation.probe", deadline: .now + .seconds(2)) { @MainActor in
                 (try await tab.evaluate(BrowserPageBusy.fieldProbeScript, world: .isolated, gesture: .cmux), try await tab.pageBusy())
             }
             guard case .string(let json) = value, let data = json.data(using: .utf8),
-                  let object = try? JSONSerialization.jsonObject(with: data) as? [String: Bool] else { return unanswered(tab) }
+                  let object = try? JSONSerialization.blockingJSONObject(with: data) as? [String: Bool] else { return unanswered(tab) }
             // Media the tab's mute silences still plays (cx-d0d.24): hibernating would drop the mute.
             let muted = tab.state.isAudioMuted && tab.state.media?.isPlaying == true
             // A video in Picture in Picture plays on in its floating window, paused or muted alike.
@@ -68,10 +70,12 @@ extension BrowserHibernation {
     func candidate(_ key: String, entry: BrowserEntry, hiddenFor: Double, now: ContinuousClock.Instant = .now) -> HibernationPlanner.Candidate {
         let tab = entry.tab
         let capturing = (tab as? any PageInfoProviding).map { !$0.pageInfoInUse.union($0.pageInfoActivity.inUse).isEmpty } ?? false
+        // A cmux page restores only when `memoryDiscardPageTabs` is on (`discardsAppPages`).
+        let restores = (tab as? any BrowserHibernationSource)?.supportsHibernation == true && (discardsAppPages || !(tab is any BrowserAppPage))
         var candidate = HibernationPlanner.Candidate(
             key: key, hiddenFor: hiddenFor, host: tab.state.url?.host(), isPinned: isPinned(key),
             hasDevTools: (tab as? any BrowserDevToolsHosting)?.devTools.isOpen ?? false, isCapturing: capturing,
-            canRestore: (tab as? any BrowserHibernationSource)?.supportsHibernation ?? false,
+            canRestore: restores,
             showsFormSubmission: (tab as? any BrowserHibernationSource)?.showsFormSubmission ?? false
         )
         candidate.recentFocusCount = recentFocusCount(key, now: now)

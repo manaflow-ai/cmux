@@ -86,6 +86,9 @@ public final class MacScreenPages {
     private var confirmed: [String: MacScreenRecord] = [:]
     /// Tab key -> the record it shows, set before its view is made.
     private var records: [String: MacScreenRecord] = [:]
+    /// Tab key -> the device and scope a discarded tab streamed, which its next view asks for
+    /// again. Never another tab's: ``pendingScopes`` is what a person chose on the home page.
+    private(set) var resumeScopes: [String: (deviceID: String, scope: SessionScope)] = [:]
     /// Open tabs (made views), by key.
     private(set) var tabs: [String: MacScreenTab] = [:]
     private var termination: (any NSObjectProtocol)?
@@ -306,7 +309,29 @@ public final class MacScreenPages {
         tabs.removeValue(forKey: key)?.clear()
         records[key] = nil
         confirmed[key] = nil
+        resumeScopes[key] = nil
         systemShortcuts.update()
+    }
+
+    /// Tab `key`'s view was released and the tab stays (`memoryDiscardInternalPages`): its session
+    /// ends now, as at ``tabClosed(_:)``, and its record stays for the view its next show makes. A
+    /// tab that streamed, or whose stream ended for being hidden, asks again for the same scope
+    /// when shown, as a hidden pane does (``MacScreenPane/resume()``).
+    public func viewDiscarded(_ key: String) {
+        guard let tab = tabs.removeValue(forKey: key) else { return }
+        records[key] = tab.record
+        if let device = tab.record.deviceID, let hub = tab.pane?.model.hub,
+           let scope = hub.phase.streamingScope ?? hub.resumeScope {
+            resumeScopes[key] = (device, scope)
+        }
+        tab.clear()
+        systemShortcuts.update()
+    }
+
+    /// Whether tab `key` asked a Mac for its screen and waits on the answer (the other Mac's
+    /// approval): ending the tab's view would withdraw the request.
+    public func isRequesting(_ key: String) -> Bool {
+        tabs[key]?.pane?.model.hub?.phase.isPending == true
     }
 
     /// The tab `key` (debug and tests).
@@ -361,7 +386,11 @@ public final class MacScreenPages {
     private func makeHubPane(deviceID: String, record: MacScreenRecord, key: String) -> MacScreenPane {
         let viewer = MacScreenHubViewer(deviceID: deviceID) { [weak self] in self?.hub }
         let pane = MacScreenPane(hubDevice: viewer, name: deviceName(deviceID), preferences: ScreenPreferences())
-        if confirmed[key] == record, let scope = pendingScopes.removeValue(forKey: deviceID) { viewer.resumeScope = scope }
+        if let resume = resumeScopes.removeValue(forKey: key), resume.deviceID == deviceID {
+            viewer.resumeScope = resume.scope
+        } else if confirmed[key] == record, let scope = pendingScopes.removeValue(forKey: deviceID) {
+            viewer.resumeScope = scope
+        }
         #if DEBUG
         if relayOnly { pane.setRelayOnly(true) }
         #endif

@@ -53,7 +53,7 @@ final class HiddenHistoryStore {
         services.daemon.send("history-hidden-load") { [weak self] connection in
             let projection = try await connection.frontendProjection(subject: Self.subject)
             let stored = projection.schemaVersion == HiddenHistory.schemaVersion && projection.projection != .null
-                ? try? JSONDecoder().decode(HiddenHistory.self, from: JSONEncoder().encode(projection.projection)) : nil
+                ? try? JSONDecoder().blockingDecode(HiddenHistory.self, from: JSONEncoder().encode(projection.projection)) : nil
             await MainActor.run {
                 guard let self else { return }
                 self.loaded = true
@@ -71,16 +71,16 @@ final class HiddenHistoryStore {
         let document = document
         let revision = revision
         services.daemon.send("history-hidden-save") { [weak self] connection in
-            let value = try JSONDecoder().decode(JSONValue.self, from: JSONEncoder().encode(document))
+            let value = try JSONDecoder().blockingDecode(JSONValue.self, from: JSONEncoder().encode(document))
             do {
                 let stored = try await connection.putFrontendProjection(subject: Self.subject, schemaVersion: HiddenHistory.schemaVersion,
                                                                         projection: value, expectedRevision: revision)
                 await MainActor.run { self?.revision = stored.projectionRevision }
             } catch DaemonError.command(_, let message, _, _, _) where message.contains("revision conflict") {
                 let current = try await connection.frontendProjection(subject: Self.subject)
-                let theirs = (try? JSONDecoder().decode(HiddenHistory.self, from: JSONEncoder().encode(current.projection))) ?? HiddenHistory()
+                let theirs = (try? JSONDecoder().blockingDecode(HiddenHistory.self, from: JSONEncoder().encode(current.projection))) ?? HiddenHistory()
                 let merged = theirs.merged(with: document)
-                let mergedValue = try JSONDecoder().decode(JSONValue.self, from: JSONEncoder().encode(merged))
+                let mergedValue = try JSONDecoder().blockingDecode(JSONValue.self, from: JSONEncoder().encode(merged))
                 let stored = try await connection.putFrontendProjection(subject: Self.subject, schemaVersion: HiddenHistory.schemaVersion,
                                                                         projection: mergedValue, expectedRevision: current.projectionRevision)
                 await MainActor.run {

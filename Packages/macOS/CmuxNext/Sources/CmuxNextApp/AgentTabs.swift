@@ -219,7 +219,7 @@ final class AgentTabStore {
         gestureRouter = AgentPaneGestureRouter(input: input)
         self.defaults = defaults
         if let data = defaults.data(forKey: Self.adoptionsDefaultsKey),
-           let saved = try? JSONDecoder().decode([String: String].self, from: data) {
+           let saved = try? JSONDecoder().blockingDecode([String: String].self, from: data) {
             adoptions = saved
         }
         (self.openPanel, self.warmup) = (openPanel, warmup)

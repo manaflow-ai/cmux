@@ -36,6 +36,7 @@ fn receipted_input_never_reaches_a_legacy_host_without_ack_support() {
         next_request: AtomicU64::new(2),
         viewer_size: Mutex::new(None),
         viewer_size_acks: false,
+        input_flow: false,
         launch_process: None,
         launch_activation_pending: false,
         pty_custody: None,
@@ -169,7 +170,7 @@ fn interactive_input_keeps_fire_and_forget_semantics() {
     let (target_tx, target_rx) = mpsc_channel();
     let target = HostTap::new(target_tx, Arc::new(target_socket), usize::MAX);
 
-    assert!(host.write_input(b"x", 0, &target));
+    assert!(host.write_input(b"x", 0, 0, &target));
     let mut byte = [0u8; 1];
     pty_reader.read_exact(&mut byte).unwrap();
     assert_eq!(&byte, b"x");
@@ -222,7 +223,7 @@ fn host_input_receipt_follows_pty_write_and_flush() {
     let (target_tx, target_rx) = mpsc_channel();
     let target = HostTap::new(target_tx, Arc::new(target_socket), usize::MAX);
     let worker = thread::spawn(move || {
-        assert!(host.write_input(b"x", 42, &target));
+        assert!(host.write_input(b"x", 42, 0, &target));
     });
 
     write_started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
@@ -256,7 +257,7 @@ fn host_input_receipt_requires_successful_flush() {
     let (target_socket, _target_peer) = UnixStream::pair().unwrap();
     let (target_tx, target_rx) = mpsc_channel();
     let target = HostTap::new(target_tx, Arc::new(target_socket), usize::MAX);
-    let worker = thread::spawn(move || host.write_input(b"x", 42, &target));
+    let worker = thread::spawn(move || host.write_input(b"x", 42, 0, &target));
 
     write_started_rx.recv_timeout(Duration::from_secs(1)).unwrap();
     assert!(target_rx.recv_timeout(Duration::from_millis(20)).is_err());
@@ -302,6 +303,7 @@ fn terminate_waits_for_the_authoritative_host_receipt() {
         next_request: AtomicU64::new(2),
         viewer_size: Mutex::new(None),
         viewer_size_acks: false,
+        input_flow: false,
         launch_process: None,
         launch_activation_pending: false,
         pty_custody: None,
@@ -355,6 +357,7 @@ fn clear_history_control_write_failure_after_header_is_ambiguous() {
         next_request: AtomicU64::new(2),
         viewer_size: Mutex::new(None),
         viewer_size_acks: false,
+        input_flow: false,
         launch_process: None,
         launch_activation_pending: false,
         pty_custody: None,

@@ -249,7 +249,3 @@ final class AgentPageHibernation {
         return frame.flatMap { $0 }
     }
 }
-
-private extension Duration {
-    var seconds: Double { Double(components.seconds) + Double(components.attoseconds) / 1e18 }
-}

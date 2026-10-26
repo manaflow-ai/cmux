@@ -102,6 +102,10 @@ protocol InternalPageProvider: AnyObject {
     /// new document painted, native content once it has its size. Its picture covers it until this
     /// returns and the page drew. Default: the scroll ``saveViewState(for:content:)`` read.
     func restoreViewState(_ state: ContentViewState, for key: String, content: NSView) async
+    /// Tab `key`'s view is made again after the discard that kept `state` (empty for a discard
+    /// nobody prepared): called right before ``makeView(for:in:)``, so a page can take its state in
+    /// its first config. Default: nothing.
+    func willRemakeView(for key: String, with state: ContentViewState)
     /// Tab `key`'s view went and the tab stays: close and drop the view's page, models and holders
     /// (``tabClosed(_:)`` without forgetting the tab's route or file), so the next
     /// ``makeView(for:in:)`` makes a new, live view. Default: nothing (the never policy's).
@@ -130,6 +134,7 @@ extension InternalPageProvider {
         view.contentView.scroll(to: scroll)
         view.reflectScrolledClipView(view.contentView)
     }
+    func willRemakeView(for key: String, with state: ContentViewState) {}
     func viewDiscarded(_ key: String) {}
 }
 

@@ -116,6 +116,8 @@ public final class TerminalSession {
     private let hangWatch: (any HangWatchScoping)?
     /// Passed to each surface view this session makes: their secure keyboard entry requests.
     private let secureInput: TerminalSecureInput
+    /// Passed to each surface view this session makes: the terminals' one modifier watch.
+    private let modifiers: TerminalModifierWatch?
     private let input: TerminalInputSink
     private let echoStages: TerminalEchoStages
     private var eventsTask: Task<Void, Never>?
@@ -148,15 +150,19 @@ public final class TerminalSession {
     ///   - hangWatch: watches each output chunk's parse on the surface's output lane; the app's
     ///     composition root passes its ``HangWatch``. nil watches nothing.
     ///   - secureInput: The process's secure keyboard entry, which its surfaces turn on for Ghostty.
+    ///   - modifiers: The terminals' one modifier watch (``TerminalModifierWatch``): Command pressed or
+    ///     released over a surface without focus reaches it. The App passes its one; nil reaches none.
     public init(io: any TerminalIO, ownsGeometry: Bool = true,
                 echoStages: TerminalEchoStages = GhosttyRuntime.shared.echoStages,
                 hangWatch: (any HangWatchScoping)? = nil,
-                secureInput: TerminalSecureInput = GhosttyRuntime.shared.secureInput) {
+                secureInput: TerminalSecureInput = GhosttyRuntime.shared.secureInput,
+                modifiers: TerminalModifierWatch? = nil) {
         self.io = io
         self.ownsGeometry = ownsGeometry
         self.echoStages = echoStages
         self.hangWatch = hangWatch
         self.secureInput = secureInput
+        self.modifiers = modifiers
         ioMode = io.answersTerminalQueries ? GHOSTTY_SURFACE_IO_MANUAL_MIRROR : GHOSTTY_SURFACE_IO_MANUAL
 
         // concurrency-allow: carries only user input and resizes, produced at human rate
@@ -165,7 +171,7 @@ public final class TerminalSession {
 
         view = TerminalHostView()
         surfaceView = TerminalSurfaceView(io: ioMode, input: input, session: nil, echoStages: echoStages, hangWatch: hangWatch,
-                                          secureInput: secureInput)
+                                          secureInput: secureInput, modifiers: modifiers)
         surfaceView.bridge.takeUnretainedValue().installLinkFilter(nil)
         surfaceView.session = self
         surfaceView.ownsGeometry = ownsGeometry
@@ -450,7 +456,7 @@ public final class TerminalSession {
         old.clipboardRequests.cancelPendingWrite()
         let wasFirstResponder = old.isFirstResponder
         let fresh = TerminalSurfaceView(io: ioMode, input: input, session: self, echoStages: echoStages, hangWatch: hangWatch,
-                                        secureInput: secureInput)
+                                        secureInput: secureInput, modifiers: modifiers)
         swappedSurfaces += 1
         #if DEBUG || CMUX_BENCH_HOOKS
         if NewTerminalTrace.shared.isArmed { traceSurfaceSwapped(fresh) }

@@ -1,6 +1,7 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 import AppKit
 import CmuxNextDesign
+import CmuxNextHibernation
 import CmuxNextHome
 import CmuxNextSettings
 
@@ -41,6 +42,11 @@ final class DebugHomeNativeFixture: InternalPageProvider {
     func tabClosed(_ key: String) {
         fixtures.removeValue(forKey: key)?.close()
     }
+
+    /// Never discarded (`memoryDiscardInternalPages`): a fixture is opened to be captured or driven
+    /// (`debug.home.drive`), and each view starts a new fixture from the mock data, so a discard
+    /// would lose what was typed and sent in it.
+    func discardPolicy(for key: String) -> ContentDiscardPolicy { .never }
 
     /// `debug.home.attach`: the shown Home composer of the active window
     /// (the real Home tab or this fixture) takes the files by path.

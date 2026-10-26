@@ -1,5 +1,5 @@
 public import AppKit
-import CmuxNextInput
+public import CmuxNextInput
 
 /// The one native host for the popups that open from the omnibar and the toolbar (Lawrence
 /// 2026-10-14: "omnibar stuff should be macos specific so it feels more native"; hq

@@ -18,6 +18,10 @@ final class FindSectionView: NSView, RightSidebarRefreshing, NSTableViewDataSour
     private let scroll = NSScrollView()
     private var results: [RipgrepMatch] = []
     private var observation: Task<Void, Never>?
+    /// The result to select and the scroll to go back to when the next search finishes
+    /// (``restore(query:cursor:scroll:)``).
+    private var pendingCursor: String?
+    private var pendingScroll: CGPoint?
 
     /// - Parameters:
     ///   - model: The search (one per section or pane).
@@ -110,9 +114,31 @@ final class FindSectionView: NSView, RightSidebarRefreshing, NSTableViewDataSour
         Task { await model.search(text) }
     }
 
+    /// The selected result as ``cursor(of:)``: what a discarded Find tab keeps.
+    var cursor: String? {
+        guard let row = table.selectedRowIfValid, row < results.count else { return nil }
+        return Self.cursor(of: results[row])
+    }
+
+    /// A result's place: `path:line:column`.
+    static func cursor(of match: RipgrepMatch) -> String { "\(match.path):\(match.line):\(match.column)" }
+
+    /// Where the results list is scrolled: what a discarded Find tab keeps with its cursor.
+    var resultsScroll: CGPoint { scroll.documentVisibleRect.origin }
+
+    /// Searches for `query` again, then selects the result at `cursor` and scrolls the results back
+    /// to `scroll` once they show: a discarded Find tab shown again (FindPaneService).
+    func restore(query: String, cursor: String?, scroll: CGPoint? = nil) {
+        field.stringValue = query
+        pendingCursor = cursor
+        pendingScroll = scroll
+        submit()
+    }
+
     private func render() {
         results = model.results
         table.reloadData()
+        selectPendingCursor()
         let root = model.root.map { ($0.path as NSString).abbreviatingWithTildeInPath } ?? FileExplorerStrings.noFolder
         switch model.state {
         case .idle: status.stringValue = root
@@ -121,6 +147,26 @@ final class FindSectionView: NSView, RightSidebarRefreshing, NSTableViewDataSour
             status.stringValue = limited ? FindInDirectoryStrings.limited(RipgrepSearch.limit) : FileExplorerStrings.matchCount(results.count)
         case .failed(let reason): status.stringValue = reason
         }
+    }
+
+    /// Selects the result and goes back to the scroll ``restore(query:cursor:scroll:)`` asked for,
+    /// once its search ends; with no saved scroll, the selected result scrolls into view.
+    private func selectPendingCursor() {
+        guard pendingCursor != nil || pendingScroll != nil else { return }
+        switch model.state {
+        case .idle, .searching: return
+        case .done, .failed: break
+        }
+        let cursor = pendingCursor, origin = pendingScroll
+        pendingCursor = nil
+        pendingScroll = nil
+        if let cursor, let row = results.firstIndex(where: { Self.cursor(of: $0) == cursor }) {
+            table.selectRowIndexes(IndexSet(integer: row), byExtendingSelection: false)
+            if origin == nil { table.scrollRowToVisible(row) }
+        }
+        guard let origin else { return }
+        scroll.contentView.scroll(to: origin)
+        scroll.reflectScrolledClipView(scroll.contentView)
     }
 
     private var selected: RipgrepMatch? {

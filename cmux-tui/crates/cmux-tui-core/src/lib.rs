@@ -37,6 +37,7 @@ mod browser_profile_ops;
 mod browser_site_engines;
 pub mod diagnostics;
 mod event_bus;
+mod event_cause;
 #[cfg(unix)]
 pub mod fs_ops;
 mod git_ops;
@@ -61,6 +62,7 @@ pub mod net_keepalive;
 mod oracle_state;
 /// Remote access state; the cmux-tui-remote-access crate, re-exported at the old paths.
 use cmux_tui_remote_access::pairing;
+mod input_flow;
 mod output_store;
 /// `RecoverPoison` and `JsonFields` (panic-free lane).
 mod panic_free;

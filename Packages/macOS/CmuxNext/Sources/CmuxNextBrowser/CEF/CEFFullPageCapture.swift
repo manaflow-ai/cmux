@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import CoreGraphics
 import Foundation
 
@@ -29,7 +30,7 @@ struct CEFFullPageCapture {
     /// decode runs off the main actor: the result grows with the page.
     @concurrent nonisolated static func contentSize(_ metrics: String) async -> CGSize? {
         guard let data = metrics.data(using: .utf8),
-              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let object = try? JSONSerialization.blockingJSONObject(with: data) as? [String: Any],
               let size = (object["cssContentSize"] ?? object["contentSize"]) as? [String: Any],
               let width = (size["width"] as? NSNumber)?.doubleValue, let height = (size["height"] as? NSNumber)?.doubleValue
         else { return nil }

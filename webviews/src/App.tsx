@@ -113,6 +113,7 @@ import {
 import { useDiffComments } from "./diff-viewer/useDiffComments";
 import { InlinePreview, isPreviewAnnotation, previewItemFor, type PreviewCache } from "./diff-viewer/InlinePreview";
 import { useRevealPath } from "./diff-viewer/reveal";
+import { diffViewState, diffViewStateOf, useDiffViewState } from "./diff-viewer/viewState";
 import {
   registerDiffViewerThemes,
   useDeferredHydration,
@@ -735,6 +736,31 @@ export function App({ config, initialStatus }: ConfigProps) {
   const gitSource = useMemo(() => diffGitSource(diffPageClient(), (config as DiffPageConfig).ops), [config]);
   const [commitOpen, setCommitOpen] = useState(false);
   const commitOpenRef = useSyncedRef(commitOpen);
+  // Before the host discards the hidden page, and back on the next one (diff-viewer/viewState.ts).
+  const savedView = useMemo(() => diffViewStateOf(payload.viewState), [payload.viewState]);
+  useDiffViewState({
+    client: diffPageClient(),
+    unsaved: state.draft != null || commitOpen,
+    saved: savedView,
+    ready: state.streamComplete,
+    items: state.items,
+    capture: () => {
+      const current = latestState.current;
+      return diffViewState(
+        current.items,
+        kindOrderHandlers.current.anchor(),
+        current.options,
+        (item) =>
+          current.options.collapsed ||
+          item.fileDiff?.cmuxDeferredReason != null ||
+          viewedStateOfItem(item, current.viewedByPath) === "viewed",
+      );
+    },
+    unfold: (itemIds) => {
+      for (const itemId of itemIds) revealItem(itemId);
+    },
+    scrollTo: (anchor) => kindOrderHandlers.current.restore(anchor),
+  });
   const refreshRef = useSyncedRef(refresh);
   const git = useGitWrite(gitSource, (op) => {
     if (op === "commit") setCommitOpen(false);

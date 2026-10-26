@@ -1,3 +1,4 @@
+import CmuxNextCompat
 import Foundation
 import os
 
@@ -79,7 +80,7 @@ final class CEFMediaBridge {
         }
         guard json.contains("\"Runtime.bindingCalled\""), json.contains("\"\(BrowserMediaState.channel)\""),
               let data = json.data(using: .utf8),
-              let message = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let message = try? JSONSerialization.blockingJSONObject(with: data) as? [String: Any],
               message["method"] as? String == "Runtime.bindingCalled",
               let params = message["params"] as? [String: Any], params["name"] as? String == BrowserMediaState.channel
         else { return false }
