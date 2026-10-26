@@ -544,6 +544,10 @@ describe("sandboxed Run lifecycle in the repository", () => {
       await repo().finishAttemptCleanup({ attemptId: target.attemptId, cleanupLeaseToken: claims[0]!.cleanupLeaseToken, succeeded: true });
       const [run] = await sql!`select error from runs where id = ${target.runId}`;
       expect(run?.error).toBe("failed on [redacted]");
+      // The journal's handles are scrubbed too: the started event's providerVmId and any text.
+      const events = await sql!`select payload::text as payload from run_events where attempt_id = ${target.attemptId}`;
+      expect(events.map((event) => event.payload).join(" ")).not.toContain(vmId);
+      expect(events.some((event) => String(event.payload).includes('"providerVmId": "[redacted]"'))).toBe(true);
     } finally {
       await sql!`delete from cloud_vms where user_id = ${userId}`;
       await removeRuns(userId);

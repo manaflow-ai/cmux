@@ -969,6 +969,20 @@ async function sandboxAttemptHandles(
  * that could name them (the receipt's reply, the attempt's error, artifact names), so nothing
  * stored needs the handles again and the handles themselves are kept nowhere.
  */
+const HANDLE_KEYS = new Set(["providerVmId", "providerWorkspaceId", "providerTerminalId"]);
+
+/** An event payload with every handle-named value and every handle in its text replaced. */
+function scrubEventPayload(value: unknown, handles: readonly string[]): Record<string, unknown> {
+  const scrub = (item: unknown, key?: string): unknown => {
+    if (key && HANDLE_KEYS.has(key) && item != null) return "[redacted]";
+    if (typeof item === "string") return handles.reduce((text, handle) => text.split(handle).join("[redacted]"), item);
+    if (Array.isArray(item)) return item.map((child) => scrub(child));
+    if (item && typeof item === "object") return Object.fromEntries(Object.entries(item).map(([childKey, child]) => [childKey, scrub(child, childKey)]));
+    return item;
+  };
+  return (scrub(value ?? {}) ?? {}) as Record<string, unknown>;
+}
+
 async function scrubSandboxHandles(attemptId: string, cleanupLeaseToken: string): Promise<void> {
   const runId = (await cloudDb().select({ runId: runAttempts.runId }).from(runAttempts).where(eq(runAttempts.id, attemptId)).limit(1))[0]?.runId;
   if (!runId) return;
@@ -991,6 +1005,14 @@ async function scrubSandboxHandles(attemptId: string, cleanupLeaseToken: string)
     }
     if (row.attempt.error) {
       await tx.update(runAttempts).set({ error: redactReceiptText(row.attempt.error, handles) }).where(eq(runAttempts.id, attemptId));
+    }
+    // The Run journal names handles too (a started event's providerVmId, an adoption's). Their
+    // values become `[redacted]`: the keys stay, so "this attempt had a VM" still reads the same.
+    for (const event of await tx.select({ id: runEvents.id, payload: runEvents.payload }).from(runEvents).where(eq(runEvents.attemptId, attemptId))) {
+      const payload = scrubEventPayload(event.payload, handles);
+      if (JSON.stringify(payload) !== JSON.stringify(event.payload)) {
+        await tx.update(runEvents).set({ payload }).where(eq(runEvents.id, event.id));
+      }
     }
     if (row.run.error) {
       await tx.update(runs).set({ error: redactReceiptText(row.run.error, handles) }).where(eq(runs.id, row.run.id));

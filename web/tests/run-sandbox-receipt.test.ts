@@ -228,6 +228,11 @@ describe("sandbox receipt", () => {
       expect(sandboxReply(line)).not.toContain("c2lnbmF0dXJlMTIz");
     }
     expect(sandboxReply("signal: 9")).toBe("signal: 9");
+    // A short Basic credential (`a:b`), a YAML block value, and a token after a carriage return.
+    expect(sandboxReply("Authorization: Basic YTpi")).not.toContain("YTpi");
+    expect(sandboxReply("db:\n  password: |-\n    hunter2\n    more\n  host: x\n")).not.toMatch(/hunter2|more/);
+    expect(sandboxReply("db:\n  password: |-\n    hunter2\n  host: x\n")).toContain("host: x");
+    expect(sandboxReply("loading\rsk-abcdefghijklmnopqrstuvwxyz\n")).not.toContain("abcdefghijklmnop");
     // Docker's config.json keeps a reversible user:password under "auth".
     expect(sandboxReply('{"auths":{"registry.example":{"auth":"dXNlcjpwYXNz"}}}')).not.toContain("dXNlcjpwYXNz");
     expect(sandboxReply("auth: required")).toBe("auth: required");

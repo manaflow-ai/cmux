@@ -11,7 +11,9 @@ const ANSI = /\u001b\[[0-?]*[ -/]*[@-~]|\u001b\][^\u0007\u001b]*(?:\u0007|\u001b
 
 /** `text` without terminal escapes and other control characters (newlines and tabs kept). */
 export function stripTerminalEscapes(text: string): string {
-  return text.replace(ANSI, "").replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, "");
+  // A carriage return (progress output rewriting its line) is a line break here: dropping it would
+  // join the next text to the last, and a token after it would lose the boundary it is found by.
+  return text.replace(ANSI, "").replace(/\r\n?/g, "\n").replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, "");
 }
 /** Token shapes an agent may echo; the receipt is shared wider than the terminal. */
 // Token prefixes match after any non-alphanumeric (`_`, `-`, `/`), not only a word boundary:
@@ -39,7 +41,7 @@ const TOKEN_SHAPES = [
   /(?<![A-Za-z0-9])(?:AKIA|ASIA)[0-9A-Z]{16}(?![A-Za-z0-9])/g,
   // Credentials inside a URL (`postgres://user:pass@host`) and Basic auth.
   /((?<![A-Za-z0-9])[A-Za-z][A-Za-z0-9+.-]*:\/\/)[^/?#\s@]+@/g,
-  /((?<![A-Za-z0-9])basic\s+)[A-Za-z0-9+/]{8,}=*/gi,
+  /((?<![A-Za-z0-9])basic\s+)[A-Za-z0-9+/]{4,}=*/gi,
   /(?<![A-Za-z0-9])eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]{10,}/g,
   /((?<![A-Za-z0-9])bearer\s+)[A-Za-z0-9._~+/-]{8,}=*/gi,
   // Credentials in query strings and connection strings: Azure SAS `sig=`, `AccountKey=`,
@@ -56,6 +58,12 @@ const TOKEN_SHAPES = [
   /(\b[A-Za-z0-9_]*(?:token|password|passwd|pwd|secret|api[_-]?key|apikey|access[_-]?key|account[_-]?key|private[_-]?key|authorization|credential|shared[_-]?access[_-]?signature)[A-Za-z0-9_]*["']?\s*[:=]\s*)(?:"(?:[^"\\]|\\.)*(?:"|$)|'(?:[^'\\]|\\.)*(?:'|$)|[^\s"',;}]+)/gi,
 ];
 
+/**
+ * A YAML block scalar under a secret-named key (`password: |-` then its indented lines): the
+ * indented lines are the value.
+ */
+const YAML_SECRET_BLOCK = /((?:^|\n)([ \t]*)["']?[A-Za-z0-9_-]*(?:token|password|passwd|pwd|secret|api[_-]?key|apikey|access[_-]?key|account[_-]?key|private[_-]?key|authorization|credential)[A-Za-z0-9_-]*["']?[ \t]*:[ \t]*[|>][-+0-9]*[ \t]*\n)((?:\2[ \t]+[^\n]*(?:\n|$)|[ \t]*\n)+)/gi;
+
 /** A PEM or OpenSSH private key block, whole (the receipt never needs one). */
 const PRIVATE_KEY_BLOCK = /-----BEGIN [A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?-----[\s\S]*?(?:-----END [A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?-----|$)/g;
 
@@ -64,7 +72,9 @@ const PRIVATE_KEY_BLOCK = /-----BEGIN [A-Z0-9 ]*PRIVATE KEY(?: BLOCK)?-----[\s\S
  * from text a receipt shows. Runs where the text is stored and again where it is served.
  */
 export function redactReceiptText(text: string, exact: readonly (string | null | undefined)[] = []): string {
-  let out = stripTerminalEscapes(text).replace(PRIVATE_KEY_BLOCK, "[redacted private key]");
+  let out = stripTerminalEscapes(text)
+    .replace(PRIVATE_KEY_BLOCK, "[redacted private key]")
+    .replace(YAML_SECRET_BLOCK, (_match, head: string, indent: string) => `${head}${indent}  [redacted]\n`);
   for (const value of exact) {
     if (value) out = out.split(value).join("[redacted]");
   }
