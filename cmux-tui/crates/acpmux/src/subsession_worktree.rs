@@ -36,6 +36,9 @@ pub struct Worktree {
     /// The device and inode of `root` as [`make_worktree`] opened it right after git added it
     /// (unix): [`verify_made`] proves the folder at `root` later is still that one.
     pub root_pin: Option<crate::cwd_pin::CwdPin>,
+    /// `root`, held open from before git filled it (unix): its inode is never another folder's
+    /// while this lives, so `root_pin` names this folder only.
+    pub root_held: Option<std::sync::Arc<std::fs::File>>,
 }
 
 /// No automatic maintenance or gc: run from the throwaway git directory,
@@ -553,7 +556,14 @@ fn make_worktree_under(folder: Dir<'_>, title: &str, home: &Path) -> Result<Work
         }
         #[cfg(test)]
         after_add(&root);
-        let made = Worktree { root: root.clone(), branch, base: base.clone(), cwd: root, root_pin };
+        let made = Worktree {
+            root: root.clone(),
+            branch,
+            base: base.clone(),
+            cwd: root,
+            root_pin,
+            root_held: None,
+        };
         return fill(folder, &layout, made, &commit, false);
     }
     Err(format!("every worktree name from {name} to {name}-99 is taken"))
@@ -740,7 +750,8 @@ fn ensure_worktree_under(
             let cwd = Some(root.join(&layout.prefix))
                 .filter(|c| !layout.prefix.is_empty() && c.is_dir())
                 .unwrap_or_else(|| root.clone());
-            let worktree = Worktree { root: root.clone(), branch, base, cwd, root_pin: None };
+            let worktree =
+                Worktree { root: root.clone(), branch, base, cwd, root_pin: None, root_held: None };
             return Ok(Ensured { worktree, reused: Some("worktree") });
         }
         std::fs::create_dir_all(&layout.parent)
@@ -787,6 +798,7 @@ fn ensure_worktree_under(
             base,
             cwd: root.clone(),
             root_pin: None,
+            root_held: None,
         };
         let worktree = fill(folder.into(), &layout, made, &commit, reused.is_some())?;
         return Ok(Ensured { worktree, reused });
@@ -992,6 +1004,43 @@ mod tests {
         let at = Dir::held(&made.root, Some(&held));
         let refused = verify_made(repo.as_path().into(), &made, at).unwrap_err();
         assert!(refused.contains("not the worktree that was made"), "{refused}");
+    }
+
+    /// The folder made is held: one that takes its place after it is deleted never gets its
+    /// inode (a file system reuses a freed one at once), so it is refused.
+    #[cfg(unix)]
+    #[test]
+    fn a_folder_made_after_the_worktree_was_deleted_never_passes_for_it() {
+        let (scratch, repo, home) = repo();
+        let made = make_worktree_under(repo.as_path().into(), "Task", &home).unwrap();
+        let git_file = std::fs::read(made.root.join(".git")).unwrap();
+        let gone = scratch.0.join("gone");
+        std::fs::rename(&made.root, &gone).unwrap();
+        std::fs::remove_dir_all(&gone).unwrap();
+        std::fs::create_dir(&made.root).unwrap();
+        std::fs::write(made.root.join(".git"), git_file).unwrap();
+        let held = std::fs::File::open(&made.root).unwrap();
+        let at = Dir::held(&made.root, Some(&held));
+        let refused = verify_made(repo.as_path().into(), &made, at).unwrap_err();
+        assert!(refused.contains("not the worktree that was made"), "{refused}");
+    }
+
+    /// Removing a worktree whose path another folder took leaves that folder alone.
+    #[cfg(unix)]
+    #[test]
+    fn removing_a_worktree_leaves_a_folder_that_took_its_place_alone() {
+        let (scratch, repo, home) = repo();
+        let made = make_worktree_under(repo.as_path().into(), "Task", &home).unwrap();
+        let (aside, impostor) = (scratch.0.join("made-aside"), scratch.0.join("impostor"));
+        std::fs::create_dir_all(&impostor).unwrap();
+        std::fs::copy(made.root.join(".git"), impostor.join(".git")).unwrap();
+        std::fs::write(impostor.join("sentinel"), "theirs\n").unwrap();
+        std::fs::rename(&made.root, &aside).unwrap();
+        std::fs::rename(&impostor, &made.root).unwrap();
+
+        remove_worktree(repo.as_path().into(), &made);
+        assert!(made.root.join("sentinel").exists(), "the folder at its path is not removed");
+        assert!(branch_in(&repo, "task"), "its branch stays with its registration");
     }
 
     /// Off unix there is no folder identity: an untouched worktree is proven by git alone.
