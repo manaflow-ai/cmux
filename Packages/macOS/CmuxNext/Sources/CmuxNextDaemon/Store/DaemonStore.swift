@@ -52,7 +52,7 @@ public final class DaemonStore: StateResourceQueries {
     /// Bumped once per apply (batch, snapshot, intent) that changed which
     /// tabs the tree lists, their panes or their order: one read for an
     /// observer that follows every tab list, instead of a walk of every pane.
-    public private(set) var tabListRevision: UInt64 = 0
+    public internal(set) var tabListRevision: UInt64 = 0
     public let session = SessionStateStore()
     /// Recent notifications, newest last (bounded).
     public internal(set) var notifications: [DaemonNotification] = []
