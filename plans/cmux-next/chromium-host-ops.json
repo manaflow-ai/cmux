@@ -6,7 +6,7 @@
   "classes": {
     "post": "One-way op, sent in call order on the control channel; returns at once. A Swift caller that binds, guards, compares or returns the result is refused (--check-return-use) unless the site is a host_mode_rewrites entry. pending_keys name the mirror keys it changes: pending (or optimistic) until the host's ack (task 016b). Like a one-way mojo message.",
     "mirror": "Served on main from the client's cache, which the host's MIRROR pushes refresh in the same per-frame batch as the events in refresh_events, pushed before those events (tasks 013 and 016b). Chrome caches the renderer's pushed TextInputState the same way and answers NSTextInputClient queries from it (content/browser/renderer_host/text_input_manager.cc). A read before attach is a bug: the client returns the C zero value (0 or NULL) and reports a fault (task 014). In host mode CEFRuntime.start awaits attach before its first shim call (task 015), so the startup reads listed in host_mode_rewrites (needs after_attach) see the host's hello; --check-pre-attach (task 011) refuses any other mirror read on the startup path before that await.",
-    "async": "Sent with a token; the answer is reply_event, resumed off main by token (task 018). Every pending token resolves with .hostGone when the host exits (task 091). Like a mojo method with a reply callback; never a [Sync] call.",
+    "async": "Sent with a token; the answer is reply_event, resumed off main by token (task 018). The remote returns at once (1 once sent, NULL for a string result) and cmux_remote_shim_last_reply_token(), read right after the call, is the token of its wire:REPLY: the result, then the out-parameters. CEFHostReplies (CEFS/CEFHostReplies.swift) awaits it with a typed decode (CEFHostReplyFields) and a deadline; the remote shim's reply callback resolves it from any thread. Every pending token resolves with .hostGone when the host exits (task 091). Like a mojo method with a reply callback; never a [Sync] call.",
     "mint": "The client mints the id (browser ids from 1 << 20, DevTools message ids below 2^30); the host maps it to Chromium's id for every op and event (task 019). The C return keeps the header's contract, named by mint_returns: id returns the minted id at once; sent returns 1 when the op is sent, and the minted id first reaches cmux in reply_event. In process, AFTER_CREATED runs inside the call; in host mode it comes in a later batch, so a Swift site that relies on that order is a host_mode_rewrites entry.",
     "policy": "A synchronous callback becomes a policy pushed to the host plus events; the host decides inside Chromium without asking cmux (tasks 030-033).",
     "view": "NSView* or page-window plumbing: ChromiumHostPageView owns it in host mode; only geometry and ids cross the wire (tasks 040, 052, 053, 066).",
@@ -2507,7 +2507,7 @@
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": "CMUX_SHIM_REPLY",
-      "reason": "Already answered by CMUX_SHIM_REPLY with the caller's reply id. The client returns 1 when sent; a call the host could not start answers REPLY with a = 0 (task 018)."
+      "reason": "Already answered by CMUX_SHIM_REPLY with the caller's reply id. The client returns 1 when sent; the host's wire:REPLY under the op's token carries the shim's start result, and a start other than 1 fails the reply id's waiter at once (CEFHostReplies, task 018) instead of at its deadline."
     },
     {
       "name": "cmux_shim_delete_cookies",
@@ -2538,7 +2538,7 @@
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": "CMUX_SHIM_REPLY",
-      "reason": "Already answered by CMUX_SHIM_REPLY with the caller's reply id. The client returns 1 when sent; a call the host could not start answers REPLY with a = 0 (task 018)."
+      "reason": "Already answered by CMUX_SHIM_REPLY with the caller's reply id. The client returns 1 when sent; the host's wire:REPLY under the op's token carries the shim's start result, and a start other than 1 fails the reply id's waiter at once (CEFHostReplies, task 018) instead of at its deadline."
     },
     {
       "name": "cmux_shim_download_favicon",
@@ -2569,7 +2569,7 @@
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": "CMUX_SHIM_REPLY",
-      "reason": "Already answered by CMUX_SHIM_REPLY with the caller's reply id. The client returns 1 when sent; a call the host could not start answers REPLY with a = 0 (task 018)."
+      "reason": "Already answered by CMUX_SHIM_REPLY with the caller's reply id. The client returns 1 when sent; the host's wire:REPLY under the op's token carries the shim's start result, and a start other than 1 fails the reply id's waiter at once (CEFHostReplies, task 018) instead of at its deadline."
     },
     {
       "name": "cmux_shim_import_cookies",
@@ -2596,7 +2596,7 @@
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": "CMUX_SHIM_REPLY",
-      "reason": "Already answered by CMUX_SHIM_REPLY with the caller's reply id. The client returns 1 when sent; a call the host could not start answers REPLY with a = 0 (task 018)."
+      "reason": "Already answered by CMUX_SHIM_REPLY with the caller's reply id. The client returns 1 when sent; the host's wire:REPLY under the op's token carries the shim's start result, and a start other than 1 fails the reply id's waiter at once (CEFHostReplies, task 018) instead of at its deadline."
     },
     {
       "name": "cmux_shim_clear_cookies",
@@ -2623,7 +2623,7 @@
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": "CMUX_SHIM_REPLY",
-      "reason": "Already answered by CMUX_SHIM_REPLY with the caller's reply id. The client returns 1 when sent; a call the host could not start answers REPLY with a = 0 (task 018)."
+      "reason": "Already answered by CMUX_SHIM_REPLY with the caller's reply id. The client returns 1 when sent; the host's wire:REPLY under the op's token carries the shim's start result, and a start other than 1 fails the reply id's waiter at once (CEFHostReplies, task 018) instead of at its deadline."
     },
     {
       "name": "cmux_shim_import_passwords",
@@ -2835,7 +2835,7 @@
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": "CMUX_SHIM_REPLY",
-      "reason": "Already answered by CMUX_SHIM_REPLY with the caller's reply id. The client returns 1 when sent; a call the host could not start answers REPLY with a = 0 (task 018)."
+      "reason": "Already answered by CMUX_SHIM_REPLY with the caller's reply id. The client returns 1 when sent; the host's wire:REPLY under the op's token carries the shim's start result, and a start other than 1 fails the reply id's waiter at once (CEFHostReplies, task 018) instead of at its deadline."
     },
     {
       "name": "cmux_shim_passkey_delete",
@@ -2862,7 +2862,7 @@
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": "CMUX_SHIM_REPLY",
-      "reason": "Already answered by CMUX_SHIM_REPLY with the caller's reply id. The client returns 1 when sent; a call the host could not start answers REPLY with a = 0 (task 018)."
+      "reason": "Already answered by CMUX_SHIM_REPLY with the caller's reply id. The client returns 1 when sent; the host's wire:REPLY under the op's token carries the shim's start result, and a start other than 1 fails the reply id's waiter at once (CEFHostReplies, task 018) instead of at its deadline."
     },
     {
       "name": "cmux_shim_password_core_available",
@@ -2901,7 +2901,7 @@
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": "CMUX_SHIM_REPLY",
-      "reason": "Already answered by CMUX_SHIM_REPLY with the caller's reply id. The client returns 1 when sent; a call the host could not start answers REPLY with a = 0 (task 018)."
+      "reason": "Already answered by CMUX_SHIM_REPLY with the caller's reply id. The client returns 1 when sent; the host's wire:REPLY under the op's token carries the shim's start result, and a start other than 1 fails the reply id's waiter at once (CEFHostReplies, task 018) instead of at its deadline."
     },
     {
       "name": "cmux_shim_password_remove",
@@ -2932,7 +2932,7 @@
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": "CMUX_SHIM_REPLY",
-      "reason": "Already answered by CMUX_SHIM_REPLY with the caller's reply id. The client returns 1 when sent; a call the host could not start answers REPLY with a = 0 (task 018)."
+      "reason": "Already answered by CMUX_SHIM_REPLY with the caller's reply id. The client returns 1 when sent; the host's wire:REPLY under the op's token carries the shim's start result, and a start other than 1 fails the reply id's waiter at once (CEFHostReplies, task 018) instead of at its deadline."
     },
     {
       "name": "cmux_shim_password_exception_remove",
@@ -2959,7 +2959,7 @@
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": "CMUX_SHIM_REPLY",
-      "reason": "Already answered by CMUX_SHIM_REPLY with the caller's reply id. The client returns 1 when sent; a call the host could not start answers REPLY with a = 0 (task 018)."
+      "reason": "Already answered by CMUX_SHIM_REPLY with the caller's reply id. The client returns 1 when sent; the host's wire:REPLY under the op's token carries the shim's start result, and a start other than 1 fails the reply id's waiter at once (CEFHostReplies, task 018) instead of at its deadline."
     },
     {
       "name": "cmux_shim_password_set_username",
@@ -2990,7 +2990,7 @@
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": "CMUX_SHIM_REPLY",
-      "reason": "Already answered by CMUX_SHIM_REPLY with the caller's reply id. The client returns 1 when sent; a call the host could not start answers REPLY with a = 0 (task 018)."
+      "reason": "Already answered by CMUX_SHIM_REPLY with the caller's reply id. The client returns 1 when sent; the host's wire:REPLY under the op's token carries the shim's start result, and a start other than 1 fails the reply id's waiter at once (CEFHostReplies, task 018) instead of at its deadline."
     },
     {
       "name": "cmux_shim_password_reveal",
@@ -3049,7 +3049,7 @@
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": "CMUX_SHIM_REPLY",
-      "reason": "Already answered by CMUX_SHIM_REPLY with the caller's reply id. The client returns 1 when sent; a call the host could not start answers REPLY with a = 0 (task 018)."
+      "reason": "Already answered by CMUX_SHIM_REPLY with the caller's reply id. The client returns 1 when sent; the host's wire:REPLY under the op's token carries the shim's start result, and a start other than 1 fails the reply id's waiter at once (CEFHostReplies, task 018) instead of at its deadline."
     },
     {
       "name": "cmux_shim_ssl_status",
@@ -3091,7 +3091,7 @@
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": "CMUX_SHIM_REPLY",
-      "reason": "Already answered by CMUX_SHIM_REPLY with the caller's reply id. The client returns 1 when sent; a call the host could not start answers REPLY with a = 0 (task 018)."
+      "reason": "Already answered by CMUX_SHIM_REPLY with the caller's reply id. The client returns 1 when sent; the host's wire:REPLY under the op's token carries the shim's start result, and a start other than 1 fails the reply id's waiter at once (CEFHostReplies, task 018) instead of at its deadline."
     },
     {
       "name": "cmux_shim_certificate_proceed",
@@ -4111,6 +4111,119 @@
       "needs": "reply",
       "change": "Await sslStatus; syncSecurityFromChromium applies the security state when the reply comes, if the tab still shows the same entry.",
       "task": "p01-process-022"
+    },
+    {
+      "site": "CmuxNextBrowser/CEF/CEFRuntime+CookieImport.swift: CEFRuntime.profileWrite(_:label:timeout:start:)",
+      "exports": [
+        "cmux_shim_import_cookies",
+        "cmux_shim_clear_cookies",
+        "cmux_shim_import_passwords",
+        "cmux_shim_replace_passwords",
+        "cmux_shim_passkeys_list",
+        "cmux_shim_passkey_delete",
+        "cmux_shim_password_list",
+        "cmux_shim_password_remove",
+        "cmux_shim_password_exception_remove",
+        "cmux_shim_password_set_username",
+        "cmux_shim_password_export"
+      ],
+      "needs": "reply",
+      "change": "In host mode `start` returns 1 once sent. Expect cmux_remote_shim_last_reply_token() and await it in CEFHostReplies next to the reply id's site reply: a start result other than 1 fails the write at once, as the in-process `guard start == 1` does.",
+      "task": "p01-process-021"
+    },
+    {
+      "site": "CmuxNextBrowser/CEF/CEFRuntime+Site.swift: CEFRuntime.siteCall(_:what:start:)",
+      "exports": [
+        "cmux_shim_visit_cookies",
+        "cmux_shim_delete_cookies",
+        "cmux_shim_download_favicon",
+        "cmux_shim_clear_certificate_exceptions"
+      ],
+      "needs": "reply",
+      "change": "As profileWrite: Expect cmux_remote_shim_last_reply_token() and await it in CEFHostReplies; a start result other than 1 fails the call at once.",
+      "task": "p01-process-021"
+    },
+    {
+      "site": "CmuxNextBrowser/CEF/CEFRuntime+Site.swift: CEFRuntime.contentSetting(_:url:kind:)",
+      "exports": [
+        "cmux_shim_content_setting"
+      ],
+      "needs": "reply",
+      "change": "Becomes async: Expect cmux_remote_shim_last_reply_token() and await it in CEFHostReplies as Int32; Page Info shows the setting when the reply comes.",
+      "task": "p01-process-021"
+    },
+    {
+      "site": "CmuxNextBrowser/CEF/CEFRuntime+ProfileProxy.swift: CEFRuntime.applyProfileProxy(_:)",
+      "exports": [
+        "cmux_shim_set_context_proxy_server",
+        "cmux_shim_context_proxy_state"
+      ],
+      "needs": "reply",
+      "change": "Becomes async: Expect cmux_remote_shim_last_reply_token() and await it in CEFHostReplies for the stored verdict and the proxy state; a page of the profile opens only after both replies say applied (fail closed, as now).",
+      "task": "p01-process-021"
+    },
+    {
+      "site": "CmuxNextBrowser/CEF/CEFPaneHost.swift: CEFPaneHost.ensureCreated(_:)",
+      "exports": [
+        "cmux_shim_context_proxy_state"
+      ],
+      "needs": "reply",
+      "change": "The remote-localhost proxy check: Expect cmux_remote_shim_last_reply_token() and await it in CEFHostReplies; the tab is created after the reply says applied, and creationFailed() runs when it does not.",
+      "task": "p01-process-023"
+    },
+    {
+      "site": "CmuxNextBrowser/CEF/CEFTab+Processes.swift: CEFTab.contentProcesses() (computed property)",
+      "exports": [
+        "cmux_shim_renderer_client_ids"
+      ],
+      "needs": "reply",
+      "change": "The out buffer comes back in the reply: Expect cmux_remote_shim_last_reply_token() and await it in CEFHostReplies (count, then int32Array) and keep the last value, which the property returns; the hover card shows the previous value until the reply.",
+      "task": "p01-process-022"
+    },
+    {
+      "site": "CmuxNextBrowser/CEF/CEFTab+UserClose.swift: CEFTab.beginUserClose()",
+      "exports": [
+        "cmux_shim_try_close"
+      ],
+      "needs": "reply",
+      "change": "Whether the page asks before it unloads is known only in the host: Expect cmux_remote_shim_last_reply_token() and await it in CEFHostReplies; the close completes or the beforeunload prompt shows when the reply comes.",
+      "task": "p01-process-022"
+    },
+    {
+      "site": "CmuxNextBrowser/CEF/CEFTab+Events.swift: CEFTab.runExtensionAction(_:anchor:)",
+      "exports": [
+        "cmux_shim_ext_action_run"
+      ],
+      "needs": "reply",
+      "change": "Expect cmux_remote_shim_last_reply_token() and await it in CEFHostReplies; openExtensionPopup is set when the reply says the action ran.",
+      "task": "p01-process-022"
+    },
+    {
+      "site": "CmuxNextBrowser/CEF/CEFExtensionBackend.swift: CEFExtensionBackend.openOptions(_:from:)",
+      "exports": [
+        "cmux_shim_ext_open_options"
+      ],
+      "needs": "reply",
+      "change": "Becomes async: Expect cmux_remote_shim_last_reply_token() and await it in CEFHostReplies; callers learn whether the options page opened from the reply.",
+      "task": "p01-process-026"
+    },
+    {
+      "site": "CmuxNextBrowser/CEF/CEFBookmarkBridge.swift: CEFBookmarkBridge.sync(store:treeJSON:)",
+      "exports": [
+        "cmux_shim_bookmarks_sync"
+      ],
+      "needs": "reply",
+      "change": "Becomes async: Expect cmux_remote_shim_last_reply_token() and await it in CEFHostReplies; a reply below 0 forgets the store, as the immediate result does now.",
+      "task": "p01-process-027"
+    },
+    {
+      "site": "CmuxNextBrowser/CEF/CEFOmniboxKeywords.swift: CEFOmniboxKeywords.suggestions(browser:extensionID:text:shim:)",
+      "exports": [
+        "cmux_shim_omnibox_input"
+      ],
+      "needs": "reply",
+      "change": "In host mode the call returns 1 once sent: expect cmux_remote_shim_last_reply_token() and await it in CEFHostReplies beside the OMNIBOX_SUGGESTIONS waiter; a reply of 0 (the extension does not listen) returns nil at once instead of at the suggestion timeout.",
+      "task": "p01-process-026"
     }
   ]
 }

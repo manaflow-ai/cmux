@@ -119,7 +119,9 @@ Commands:
   ... --check-ops                           only the ops JSON, against the header and CEFShimLibrary
   ... --list-missing                        the live queue: export, class, missing side
   ... --swift-sites [--by-file]             Swift call sites that change in host mode: async,
-                                            mint, view, local, and post-like results read
+                                            mint, view, local, and post-like results read; an
+                                            async site that reads its wire:REPLY answer in the
+                                            call's turn, outside host_mode_rewrites, adds sync-reply
   ... --check-return-use                    exit 1 when a Swift caller binds, guards, compares or
                                             returns the result of a post, view, preinit or policy,
                                             outside host_mode_rewrites
@@ -2191,11 +2193,16 @@ def main(argv: list[str]) -> int:
         return 1
 
 
-def site_reasons(op: Op, site: Site) -> list[str]:
-    """Why a call site changes in host mode: its class, and result-read when it reads a stand-in result."""
+def site_reasons(model: Model, op: Op, site: Site) -> list[str]:
+    """Why a call site changes in host mode: its class; result-read when it reads a stand-in result;
+    sync-reply when it reads, in the call's turn, an answer that comes later in the op's wire:REPLY
+    (the result or the out-parameters) and no host_mode_rewrites entry (needs reply) moves it to the
+    token API (CEFHostReplies, task 018)."""
     reasons = [op.cls] if op.cls in SITE_CLASSES else []
     if site.used and op.cls in POST_LIKE:
         reasons.append("result-read")
+    if site.used and op.cls == "async" and op.reply_event == REPLY_WIRE and rewrite_for(model, site, ("reply",)) is None:
+        reasons.append("sync-reply")
     return reasons
 
 
@@ -2205,7 +2212,7 @@ def report_sites(model: Model, root: Path, args: argparse.Namespace) -> int:
         op = model.ops.get(site.export)
         if op is None:
             continue
-        reasons = site_reasons(op, site)
+        reasons = site_reasons(model, op, site)
         if reasons:
             rows.append((site, op.cls, reasons))
     if args.check_return_use:

@@ -344,6 +344,26 @@ int main() {
     CHECK(seen.replies == std::vector<uint32_t>({scheme_token}));
   }
 
+  // An async op returns at once; the token read right after it names its REPLY (task 018).
+  {
+    CHECK(cmux_shim_content_setting(cmux_remote::kFirstMintedBrowserID, "https://a.test/", "cookies") == 1);
+    const uint32_t token = cmux_remote_shim_last_reply_token();
+    CHECK(token != 0 && token != scheme_token);
+    cmux_shim_reload(cmux_remote::kFirstMintedBrowserID);  // a post asks no answer: the token stays
+    CHECK(cmux_remote_shim_last_reply_token() == token);
+    const std::vector<Message> got = host.Read(2);
+    CHECK(got.size() == 2 && got[0].op == cmux_remote::kOpContentSetting && got[0].token == token);
+    cmux_host::control::TlvWriter setting;
+    setting.I32(1);
+    Message reply;
+    reply.op = cmux_remote::kOpReply;
+    reply.token = token;
+    reply.fields = setting.Take();
+    host.Send(reply);
+    CHECK(PumpUntil([] { return seen.replies.size() == 2; }));
+    CHECK(seen.replies == std::vector<uint32_t>({scheme_token, token}));
+  }
+
   // A mirror value pushed before its EVENT is what the event's callback reads.
   const int browser = cmux_remote::kFirstMintedBrowserID;
   host.Send(Mirror(cmux_remote::kOpTabNavigationState, browser, "{\"index\":1}"));

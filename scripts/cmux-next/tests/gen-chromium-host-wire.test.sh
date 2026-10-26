@@ -148,6 +148,7 @@ struct CEFShimLibrary {
         tabGoToEntry = try r("cmux_shim_tab_go_to_entry")
         tabNavigationState = try r("cmux_shim_tab_navigation_state")
         visitCookies = try r("cmux_shim_visit_cookies")
+        rendererClientIDs = try r("cmux_shim_renderer_client_ids")
         createWindow = try r("cmux_shim_create_window")
         setBackgroundColor = try r("cmux_shim_set_background_color")
         popupWindowAttach = try r("cmux_shim_popup_window_attach")
@@ -414,6 +415,31 @@ expect 1 "CEFPopup.swift:3: cmux_shim_popup_window_attach is view; this caller r
   "a bound view result" -- --root "$view" --check-return-use
 expect 0 $'CEFPopup.swift:3\tcmux_shim_popup_window_attach\tview\tview,result-read' "a view site that reads" -- \
   --root "$view" --swift-sites
+
+# An async site that reads its wire:REPLY answer in the call's turn is sync-reply until a
+# host_mode_rewrites entry (needs reply) moves it to the token API (task 018); one whose answer is an
+# event (visit_cookies: CMUX_SHIM_REPLY) reads only "sent" and is not.
+sync="$work/sync-reply"
+fixture "$sync"
+cat >"$sync/Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFProcesses.swift" <<'EOF'
+extension CEFCaller {
+    func ids(_ shim: CEFShimLibrary, _ out: UnsafeMutablePointer<Int32>) -> Int32 {
+        let count = shim.rendererClientIDs(1, out, 4)
+        guard shim.visitCookies(1, 9) == 1 else { return 0 }
+        return count
+    }
+}
+EOF
+expect 0 $'CEFProcesses.swift:3\tcmux_shim_renderer_client_ids\tasync\tasync,sync-reply' "an out-parameter read at once" -- \
+  --root "$sync" --swift-sites
+expect 0 $'CEFProcesses.swift:4\tcmux_shim_visit_cookies\tasync\tasync$' "an event-answered start" -- \
+  --root "$sync" --swift-sites
+edit_ops "$sync" 'd["host_mode_rewrites"] = [{"site": "CmuxNextBrowser/CEF/CEFProcesses.swift: CEFCaller.ids(_:_:)",
+  "exports": ["cmux_shim_renderer_client_ids"], "needs": "reply", "change": "awaits the reply", "task": "p01-process-022"}]'
+out="$(python3 "$gen" --root "$sync" --swift-sites)"
+grep -q 'sync-reply' <<<"$out" && fail "a host_mode_rewrites site is still sync-reply: $out"
+grep -q $'CEFProcesses.swift:3\tcmux_shim_renderer_client_ids\tasync\tasync$' <<<"$out" ||
+  fail "the rewritten site lost its async row: $out"
 
 # host_mode_rewrites accepts the listed function's calls of the listed exports, and nothing else.
 rewrite="$work/rewrite"
