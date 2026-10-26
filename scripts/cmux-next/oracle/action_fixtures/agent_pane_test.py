@@ -69,34 +69,40 @@ class RecordTests(unittest.TestCase):
         self.assertEqual(FAMILIES.owners.get("checkpointCaptureAvailable"), "agentPane")
         FAMILIES.check_contexts(sweep_mod.CONTEXT_SETUP)
 
-    def test_closed_and_reasoned_cover_the_agent_pane_gaps_once(self):
-        self.assertFalse(set(RECORD["closed"]) & set(RECORD["reasoned"]))
-        ours = set(RECORD["closed"]) | set(RECORD["reasoned"])
-        self.assertEqual(len(ours), 6)
+    def test_the_six_agent_pane_gaps_are_closed_each_with_why(self):
+        self.assertNotIn("reasoned", RECORD)
+        self.assertEqual(len(RECORD["closed"]), 6)
         # Until p15-oracle-087 applies the record, every id is still a gap of the baseline.
         pending = {ident for ident in GAPS if ident.startswith("agentPane.")}
-        self.assertLessEqual(pending, ours)
-        self.assertTrue(all(RECORD["closed"].values()) and all(RECORD["reasoned"].values()))
+        self.assertLessEqual(pending, set(RECORD["closed"]))
+        self.assertTrue(all(RECORD["closed"].values()))
+
+    def test_no_closure_leans_on_a_debug_focus_path(self):
+        self.assertNotIn("focus_composer", json.dumps(RECORD))
+        self.assertNotIn("debug.", (HERE / "agent_pane.py").read_text())
 
 
 class CheckpointCaptureTests(unittest.TestCase):
     PROBE = agent_pane.CHECKPOINT_PROBE
 
-    def enter(self, describes, focused=None):
-        driver = Driver({"debug.agent_pane": [focused or {"pane": "p1", "focused": True}],
-                         "action.describe": describes})
+    def enter(self, describes):
+        driver = Driver({"action.describe": describes})
         return agent_pane.CheckpointCapture().enter(driver), driver
 
     def test_holds_once_the_page_reports_support(self):
         why, driver = self.enter([describe(self.PROBE, ["checkpointCaptureAvailable"]), describe(self.PROBE)])
         self.assertIsNone(why)
-        self.assertEqual(driver.calls[0], ("debug.agent_pane", {"action": "focus_composer"}))
-        self.assertEqual(driver.calls[1], ("action.describe", {"action": self.PROBE}))
+        self.assertEqual(driver.calls, [("action.describe", {"action": self.PROBE})] * 2)
 
     def test_a_chat_without_focus_yet_is_waited_for_by_the_same_poll(self):
-        why, _ = self.enter([describe(self.PROBE, ["agentPaneFocused", "checkpointCaptureAvailable"]),
-                             describe(self.PROBE, ["agentPaneFocused"])])
+        why, driver = self.enter([describe(self.PROBE, ["agentPaneFocused", "checkpointCaptureAvailable"]),
+                                  describe(self.PROBE, ["agentPaneFocused"])])
         self.assertIsNone(why)  # the fact this family owns holds; agentPaneFocused is the sweep's (described)
+        self.assertEqual({m for m, _ in driver.calls}, {"action.describe"})  # it only reads, never focuses
+
+    def test_a_chat_tab_focus_never_focused_is_named(self):
+        why, _ = self.enter([describe(self.PROBE, ["agentPaneFocused", "checkpointCaptureAvailable"])])
+        self.assertEqual(why, agent_pane.NOT_FOCUSED)
 
     def test_no_support_is_the_gap_reason(self):
         why, _ = self.enter([describe(self.PROBE, ["checkpointCaptureAvailable"])])
@@ -107,14 +113,9 @@ class CheckpointCaptureTests(unittest.TestCase):
         why, _ = self.enter([{"error": "unreachable", "unreachable": True}])
         self.assertEqual(why, f"{self.PROBE} has no describe answer")
 
-    def test_a_chat_that_does_not_take_the_keyboard_is_named(self):
-        why, driver = self.enter([describe(self.PROBE)], focused={"error": "pane p1 shows no agent tab"})
-        self.assertIn("did not take the keyboard", why)
-        self.assertEqual([m for m, _ in driver.calls], ["debug.agent_pane"])
-
     def test_leave_makes_no_drift(self):
         fixture = agent_pane.CheckpointCapture()
-        fixture.enter(Driver({"debug.agent_pane": [{}], "action.describe": [describe(self.PROBE)]}))
+        fixture.enter(Driver({"action.describe": [describe(self.PROBE)]}))
         self.assertIsNone(fixture.leave(Driver({})))
         self.assertIsNone(fixture.last)
 
@@ -129,58 +130,67 @@ class DescribedTests(unittest.TestCase):
         self.sweep = sweep_mod.Sweep(None, "light", None)
         self.calls = []
 
-    def script(self, describes, until_nudged=False):
-        """Patches the sweep's rpc: describe answers from `describes` (the last repeats), or with `until_nudged` the
-        first answer until focus_composer ran and the second after."""
+    def script(self, describes):
+        """Patches the sweep's rpc: describe answers from `describes` (the last repeats); any other method fails."""
         replies = list(describes)
-        nudged = []
 
         def rpc(method, params=None, timeout=60):
             self.calls.append(method)
-            if method == "debug.agent_pane":
-                nudged.append(params)
-                return {"focused": True}
-            if until_nudged:
-                return replies[1] if nudged else replies[0]
+            if method != "action.describe":
+                raise AssertionError(f"described only reads, not {method}")
             return replies.pop(0) if len(replies) > 1 else replies[0]
 
         patcher = mock.patch.object(sweep_mod, "rpc", rpc)
         patcher.start()
         self.addCleanup(patcher.stop)
-        return nudged
 
-    def test_a_late_focus_fact_is_waited_for(self):
+    def test_a_late_focus_fact_is_waited_for_and_the_wait_recorded(self):
         ident = "agentPane.previousTurn"
         self.script([describe(ident, ["agentPaneFocused"]), describe(ident, ["agentPaneFocused"]), describe(ident)])
-        info = self.sweep.described(ident, {"context": "chat"})
+        info, waited = self.sweep.described(ident)
         self.assertTrue(info["available"])
-        self.assertEqual(self.calls.count("action.describe"), 3)
+        self.assertEqual(self.calls, ["action.describe"] * 3)
+        self.assertGreaterEqual(waited, 50)  # two polls of sweep.wait's 50 ms step
 
-    def test_a_chat_still_unfocused_halfway_takes_the_keyboard(self):
+    def test_a_chat_that_never_takes_the_keyboard_stays_unavailable(self):
         ident = "agentPane.archiveChat"
-        nudged = self.script([describe(ident, ["agentPaneFocused"]), describe(ident)], until_nudged=True)
-        info = self.sweep.described(ident, {"context": "chat"})
-        self.assertTrue(info["available"])
-        self.assertEqual(nudged, [{"action": "focus_composer"}])
-
-    def test_other_contexts_are_never_nudged_and_give_the_last_answer(self):
-        ident = "terminal.clear"
-        nudged = self.script([describe(ident, ["terminalFocused"])])
-        info = self.sweep.described(ident, {"context": "terminal"})
+        self.script([describe(ident, ["agentPaneFocused"])])
+        info, waited = self.sweep.described(ident)
         self.assertFalse(info["available"])
-        self.assertEqual(info["missing_context"], ["terminalFocused"])
-        self.assertEqual(nudged, [])
+        self.assertEqual(info["missing_context"], ["agentPaneFocused"])
+        self.assertGreaterEqual(waited, sweep_mod.CONTEXT_HOLD_S * 1000)
+        self.assertEqual(set(self.calls), {"action.describe"})
 
     def test_an_unavailable_action_with_no_missing_fact_is_not_waited_for(self):
         ident = "debug.only"
         self.script([describe(ident, available=False)])
-        self.assertFalse(self.sweep.described(ident, {"context": None})["available"])
+        info, _ = self.sweep.described(ident)
+        self.assertFalse(info["available"])
         self.assertEqual(self.calls, ["action.describe"])
 
     def test_no_describe_answer_is_none(self):
         self.script([{"error": "unreachable", "unreachable": True}])
-        self.assertIsNone(self.sweep.described("x", {"context": None}))
+        self.assertIsNone(self.sweep.described("x")[0])
         self.assertEqual(self.calls, ["action.describe"])
+
+
+class LateContextReportTests(unittest.TestCase):
+    def report(self, rows):
+        session = {"name": "light", "rows": rows, "interactions": [], "summary": {}, "launches": [],
+                   "validity": {}, "idle": {"frames": {}}}
+        return {"env": {"host": "h", "macos": "26", "sha": "0" * 40}, "sessions": [session]}
+
+    def test_late_and_never_published_contexts_are_listed(self):
+        rows = [{"id": "agentPane.previousTurn", "kind": "action", "context_wait_ms": 640.0},
+                {"id": "agentPane.archiveChat", "kind": "action", "context_wait_ms": 2001.0,
+                 "skipped": "unavailable here: agentPaneFocused", "skip_kind": "gap"},
+                {"id": "agentPane.git.commit", "kind": "action", "context_wait_ms": 3.2}]
+        with mock.patch.object(sweep_mod, "launch_lines", lambda session: []):
+            text = sweep_mod.markdown(self.report(rows))
+        self.assertIn("Context published late", text)
+        self.assertIn("- agentPane.archiveChat: 2001.0 ms (never; skipped)", text)
+        self.assertIn("- agentPane.previousTurn: 640.0 ms", text)
+        self.assertNotIn("agentPane.git.commit: 3.2", text)
 
 
 class PlanTests(unittest.TestCase):

@@ -33,6 +33,25 @@ try {
         { path: "draft.txt", bytes: 32, eligible: true },
         { path: "large.bin", bytes: 10000000, eligible: false, reason: "over_limit" },
       ];
+      // The tour plays the native Git owner: the mock page's in-page daemon also answers the checkpoint
+      // requests (checkpoints/mock.ts), so its page actions for them are left out and the calls reach the host below.
+      const hostOwned = [
+        "git.capabilities",
+        "git.checkpoint.create",
+        "git.checkpoint.get",
+        "git.checkpoint.list",
+        "git.checkpoint.pin",
+        "git.checkpoint.unpin",
+      ];
+      let actions;
+      Object.defineProperty(window, "cmuxAcpmuxActions", {
+        configurable: true,
+        get: () => actions,
+        set: (value) => {
+          for (const method of hostOwned) delete value?.[method];
+          actions = value;
+        },
+      });
       const state = (window.checkpointTour = {
         calls: [],
         creates: 0,

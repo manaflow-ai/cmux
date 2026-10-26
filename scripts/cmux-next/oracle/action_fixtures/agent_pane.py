@@ -5,17 +5,16 @@ action_fixtures.load_families (the sweep and the oracle share it). The record of
 tests/oracle/gap-closures/agentPane.json; p15-oracle-087 applies it to every-action-gaps.json.
 
 The chat is the session's own: every sweep launch runs the mock agent (CMUX_NEXT_AGENT_PANE_MOCK=1, MockAgentPaneHost),
-whose in-page daemon (webviews/src/agent-session/acpmux/mock.ts) serves seeded chats (turns, permission waits) and
-their repository (mockGit.ts: status, diff, commit, push), so no scratch repository is needed. The base pane's chat tab is that chat, and
-the sweep's `chat` context (CONTEXT_SETUP agentPaneFocused) shows it.
+whose in-page daemon (webviews/src/agent-session/acpmux/mock.ts) serves seeded chats (turns, permission waits), their
+repository (mockGit.ts: status, diff, commit, push) and that repository's checkpoints (checkpoints/mock.ts:
+git.capabilities, git.checkpoint.*), so no scratch repository is needed. The base pane's chat tab is that chat, and the
+sweep's `chat` context (CONTEXT_SETUP agentPaneFocused) shows it with tab.focus, as a user or script would.
 
-Five gaps were the sweep describing an action before the chat's keyboard focus was published, while the same rows'
-neighbors on the same chat ran; Sweep.described now waits for the facts the session set up, so they close with no
-fixture of their own. This family owns the one fact the sweep does not set up, checkpointCaptureAvailable: it holds
+Five gaps were the sweep describing an action before the app published the chat's focus; Sweep.described now waits
+for the facts the session set up (reading only, the wait recorded as the row's context_wait_ms), so they close with
+no fixture of their own. This family owns the one fact the sweep does not set up, checkpointCaptureAvailable: it holds
 when the focused chat's page reports checkpoint support (`pane.checkpointAvailability`,
-AgentTabs.publishCheckpointAvailability). The page reads that support from the native host's `git.capabilities`, which AgentPageOps does not
-serve (AgentPageProvider.swift), so on this app the context does not hold and the row stays a gap with that reason;
-the fixture closes it once the host answers.
+AgentTabs.publishCheckpointAvailability), which the mock page does once its daemon answers git.capabilities.
 
 Chrome reference (chromium/src): chrome/test/interaction/interactive_browser_test.h, WaitForState: an interactive
 test waits for the state a step needs instead of sleeping, and names the state that never came.
@@ -31,10 +30,12 @@ FAMILY = "agentPane"
 # holds in the focused window (`missing_context`), with no app state of its own.
 CHECKPOINT_PROBE = "agentPane.createCheckpoint"
 CHECKPOINT_FACT = "checkpointCaptureAvailable"
-# The page asks the host for its checkpoint support once, on mount and reconnect (checkpoints/controller.tsx).
+FOCUS_FACT = "agentPaneFocused"
+# The page asks its daemon for checkpoint support once, on mount and reconnect (checkpoints/controller.tsx).
 CHECKPOINT_HOLD_S = 3.0
-NO_CHECKPOINT_SUPPORT = ("the focused chat's page never reported checkpoint support: it reads git.capabilities from "
-                         "the native host, which AgentPageOps does not serve")
+NOT_FOCUSED = "the chat tab.focus showed never took the keyboard (agentPaneFocused not published)"
+NO_CHECKPOINT_SUPPORT = ("the focused chat's page never reported checkpoint support (pane.checkpointAvailability): "
+                         "its daemon did not answer git.capabilities with checkpoints")
 
 
 def missing_context(reply: Any) -> Optional[list]:
@@ -48,19 +49,14 @@ def missing_context(reply: Any) -> Optional[list]:
 
 
 class CheckpointCapture:
-    """checkpointCaptureAvailable: the shown chat has the keyboard and its page reports checkpoint support. Makes
-    nothing, so `leave` has nothing to close."""
+    """checkpointCaptureAvailable: the chat the sweep's show('chat') focused reports checkpoint support. It only
+    reads (the fact is published for the chat with the keyboard: FocusEffectApplier.publish ->
+    AgentTabs.setCheckpointFocus), makes nothing, so `leave` has nothing to close."""
 
     def __init__(self) -> None:
         self.last: Optional[list] = None
 
     def enter(self, driver: Any) -> Optional[str]:
-        # The sweep's show('chat') selected the chat; the fact is published for the chat with the keyboard
-        # (FocusEffectApplier.publish -> AgentTabs.setCheckpointFocus), so the chat takes it first.
-        focused = driver.rpc("debug.agent_pane", {"action": "focus_composer"})
-        if isinstance(focused, dict) and focused.get("error"):
-            return f"the chat did not take the keyboard: {str(focused['error'])[:120]}"
-
         def holds() -> bool:
             self.last = missing_context(driver.rpc("action.describe", {"action": CHECKPOINT_PROBE}))
             return self.last is not None and CHECKPOINT_FACT not in self.last
@@ -69,7 +65,7 @@ class CheckpointCapture:
             return None
         if self.last is None:
             return f"{CHECKPOINT_PROBE} has no describe answer"
-        return NO_CHECKPOINT_SUPPORT
+        return NOT_FOCUSED if FOCUS_FACT in self.last else NO_CHECKPOINT_SUPPORT
 
     def leave(self, driver: Any) -> Optional[str]:
         self.last = None
@@ -79,6 +75,7 @@ class CheckpointCapture:
 CONTEXTS: Dict[str, Any] = {CHECKPOINT_FACT: CheckpointCapture}
 CLOSES = (
     "agentPane.archiveChat",
+    "agentPane.createCheckpoint",
     "agentPane.git.commit",
     "agentPane.permission.allowChat",
     "agentPane.permission.refresh",

@@ -200,6 +200,8 @@ RESULT_ENGINE = "chromium"
 STORE_APPLY_S = 5.0
 # How long a sample's describe waits for the context facts the session set up to be published (Sweep.described).
 CONTEXT_HOLD_S = 2.0
+# A context fact published later than this after the sweep set it up is listed in every-action.md (`context_wait_ms`).
+CONTEXT_LATE_MS = 100
 # The exit status of a run (or a --merge) in which a session failed: the report still lands, with every failure in
 # failed_sessions and in every-action.md, but the run is not a pass (bench-launch-smoke, split-spring.sh's step).
 FAILED_SESSION_EXIT = 3
@@ -1578,7 +1580,7 @@ class Sweep:
             return row
         row["entry"] = "key" if plan["key"] else "action"
         row["context"] = plan["context"]
-        samples, errors, checks, drifts = [], [], [], []
+        samples, errors, checks, drifts, context_waits = [], [], [], [], []
         toggled = toggles(ident)
 
         def ready():
@@ -1594,7 +1596,8 @@ class Sweep:
             why = self.enter_contexts(plan["families"])
             if why:
                 return None, why[:200], "gap"
-            info = self.described(ident, plan)
+            info, waited = self.described(ident)
+            context_waits.append(waited)
             if info and info.get("available") is False and not plan["args"]:
                 why = info.get("context_reason") or info.get("unavailable_reason") or "context"
                 return None, f"unavailable here: {why}", "gap"
@@ -1678,6 +1681,8 @@ class Sweep:
                 break
         if stopped and self.entered:
             drifts.extend(self.restore(ident, False))  # a context entered before the stop is left, its extras closed
+        if context_waits:
+            row["context_wait_ms"] = max(context_waits)
         if stopped and not samples:
             row.update(skipped=stopped, skip_kind=stopped_kind)
             if drifts:
@@ -1720,30 +1725,24 @@ class Sweep:
             row["from_pane"] = starts
         return row
 
-    def described(self, ident, plan):
-        """action.describe's `action` for `ident` once the context facts it requires are published, or its last answer
-        after CONTEXT_HOLD_S (None when describe does not answer). plan() lets through only facts the session sets up
-        (CONTEXT_SETUP or a family), so a `missing_context` here is one still on its way: the page or view a show()
-        focused takes the keyboard on a later turn, then the registry context and the socket catalog's mask follow
-        (ControlRouter publishes the mask alone). One describe right after show() skipped rows as `unavailable here`
-        at random while their neighbors on the same chat ran. A chat still without the keyboard halfway gets it as
-        the typing benches give it (debug.agent_pane focus_composer: pane.focus, then the composer)."""
-        last, start, nudged = {}, time.monotonic(), []
+    def described(self, ident):
+        """(action.describe's `action` for `ident`, ms it waited) once the context facts the action requires are
+        published, or its last answer after CONTEXT_HOLD_S (None when describe does not answer). plan() lets through
+        only facts the session sets up (CONTEXT_SETUP or a family), so a `missing_context` here is one the show() or
+        fixture just made and the app has not published yet. The wait only reads: a fact that never comes stays the
+        row's `unavailable here` gap, and the ms a fact took is the row's `context_wait_ms`, so a late publish shows in
+        the report instead of passing as on time."""
+        last, start = {}, time.monotonic()
 
         def holds():
             reply = rpc("action.describe", {"action": ident})
             info = reply.get("action") if isinstance(reply, dict) else None
             last["info"] = info if isinstance(info, dict) else None
             missing = (last["info"] or {}).get("missing_context") or []
-            if not last["info"] or last["info"].get("available") is not False or not missing:
-                return True
-            if plan["context"] == "chat" and "agentPaneFocused" in missing and not nudged \
-                    and time.monotonic() - start >= CONTEXT_HOLD_S / 2:
-                nudged.append(rpc("debug.agent_pane", {"action": "focus_composer"}))
-            return False
+            return not last["info"] or last["info"].get("available") is not False or not missing
 
         wait(holds, CONTEXT_HOLD_S)
-        return last.get("info")
+        return last.get("info"), round((time.monotonic() - start) * 1000, 1)
 
     def enter_contexts(self, keys):
         """Enters each family context of `keys` (plan()'s `families`) in order: None, or why one did not hold. A key
@@ -2610,6 +2609,11 @@ def markdown(report):
                 why = row.get("expected_refusal") or (row.get("errors") or ["refused"])[0]
                 lines.append(f"- {row['id']}{' (policy)' if row.get('expected_refusal') else ''}: {why[:160]} "
                              f"(refusal timing: commit p95 {(row.get('commit_ms') or {}).get('p95')} ms)")
+        late = [r for r in session["rows"] if (r.get("context_wait_ms") or 0) > CONTEXT_LATE_MS]
+        if late:
+            lines += ["", f"Context published late (over {CONTEXT_LATE_MS} ms after the sweep set it up) ({len(late)}):", ""]
+            lines += [f"- {row['id']}: {row['context_wait_ms']} ms{' (never; skipped)' if row.get('skipped') else ''}"
+                      for row in sorted(late, key=lambda r: -r["context_wait_ms"])]
         cut = [r for r in session["rows"] if r.get("cut_short")]
         if cut:
             lines += ["", f"Cut short (fewer samples than --repeat; the samples that ran are the row) ({len(cut)}):", ""]
