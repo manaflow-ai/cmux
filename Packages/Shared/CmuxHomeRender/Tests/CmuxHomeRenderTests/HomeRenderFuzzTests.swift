@@ -161,7 +161,7 @@ struct HomeRenderFuzzTests {
     /// measurement `MeasureCache` kept from the text before the edit, and a layout kept across a resize
     /// (`TextLayout.isValid`) has the lines a fresh layout at the current column has.
     static func checkRows(_ c: HomeController, of items: [TranscriptItem]) throws {
-        let specs = Dictionary(c.scene.model.rows.map { ($0.spec.key, $0.spec) }, uniquingKeysWith: { a, _ in a })
+        let specs = Dictionary(c.scene.model.rows.filter { !$0.ghost }.map { ($0.spec.key, $0.spec) }, uniquingKeysWith: { a, _ in a })
         let column = c.scene.metrics.maxTextWidth
         for item in items {
             for (pi, part) in item.parts.enumerated() where RowBuilder.shows(part) {
@@ -201,7 +201,7 @@ struct HomeRenderFuzzTests {
         if rng.oneIn(3) { c.resize(to: viewports[rng.below(viewports.count)]) }
         let edited = items(texts, mentionSets, mine: mine)
         c.update(items: edited, summary: Fixtures.summary(), typing: [], hasOlder: false)
-        // A zero-width viewport lays nothing out (HomeController.update keeps the old rows until it has a width).
+        // HomeController.update lays rows out only once the scene has a width.
         if c.scene.size.width > 0 { try checkRows(c, of: edited) }
         c.hostScrolled(to: CGFloat(rng.double(in: -2000...20000)))
         for spec in measured + c.scene.model.rows.map(\.spec) {
