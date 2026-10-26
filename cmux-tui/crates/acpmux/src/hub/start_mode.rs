@@ -83,6 +83,9 @@ pub const SETTING: &str = "agents.defaultPermissionMode";
 pub(crate) const FULL_ACCESS_MODES: [&str; 4] =
     ["bypassPermissions", "agent-full-access", "full-access", "yolo"];
 
+/// Mode ids that are a temporary toggle, never inherited by a sub-session.
+const TOGGLE_MODES: [&str; 1] = ["plan"];
+
 /// `agents.defaultPermissionMode`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum DefaultMode {
