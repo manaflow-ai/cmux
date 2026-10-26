@@ -55,7 +55,8 @@ import Testing
         #expect(window.makeFirstResponder(terminal))
         let pages = ChildPageFocus(keys: AppKitKeyWindows()) { page, focused in (page as? any BrowserTab)?.setFocused(focused) }
 
-        ChromiumPageKeyboard(window: window, pages: pages).focus(rig.tab)
+        // FocusEffectApplier.focusPage's step for a Chromium page in either backend.
+        pages.focus(rig.tab, in: window) { ($0 as? NSView)?.isDescendant(of: rig.tab.contentView) == true }
 
         #expect(window.firstResponder === window, "the terminal keeps no keys and no caret")
         #expect(EmbedderActiveSpy.calls.map(\.active) == [1])

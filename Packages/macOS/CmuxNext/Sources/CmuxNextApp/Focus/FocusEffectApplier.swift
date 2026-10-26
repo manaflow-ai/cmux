@@ -186,7 +186,13 @@ final class FocusEffectApplier: FocusEffectApplying {
             if !responder(of: window, isInside: page.contentView) { setPageFocus(page, true) }
             return
         }
-        ChromiumPageKeyboard(window: window, pages: pageFocus).focus(page)
+        // One key change (#24913): the old page blurs without this window taking the keys back
+        // first. Tracked, so focus leaving the page blurs it (`blurChildWindowPage`).
+        pageFocus.focus(page, in: window) { responder in
+            // Host mode with a view input target: the page's own view is the responder (p01-process-046).
+            guard let view = responder as? ChromiumHostPageView else { return false }
+            return view.isDescendant(of: page.contentView)
+        }
     }
 
     /// The docked DevTools of `page` takes the keyboard (a separate target
