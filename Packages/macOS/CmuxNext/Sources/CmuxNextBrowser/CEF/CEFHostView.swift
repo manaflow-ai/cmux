@@ -80,6 +80,13 @@ final class CEFHostView: NSView {
         updateBackground()
     }
 
+    /// The content lifecycle shows and hides the shown page by this flag (`CEFTab.setContentVisible`,
+    /// `CEFPaneHost.present`): a hosted page's layer goes with it in this transaction, and the fork
+    /// hears the page's visibility after the commit (`CEFLayerHosting.visibilityMayHaveChanged`).
+    override var isHidden: Bool {
+        didSet { if isHidden != oldValue { layerHosting.visibilityMayHaveChanged() } }
+    }
+
     /// Until Chromium's page window shows its first frame, the page area
     /// follows the shared pane ground. It stays clear over Liquid Glass so
     /// the window backdrop remains visible. During a live resize it takes
