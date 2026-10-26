@@ -5,6 +5,7 @@ import CmuxNextDesign
 @testable import CmuxNextMacScreen
 import CmuxNextRemoteView
 import CmuxNextSettings
+import CmuxNextWakeups
 import CmuxScreenKit
 import CmuxTheme
 import Foundation
@@ -195,7 +196,7 @@ struct MacScreenRightClickTests {
 @MainActor
 struct MacScreenPageTabTests {
     private func makePages() -> MacScreenPages {
-        MacScreenPages(store: makeStore().0)
+        MacScreenPages(store: makeStore().0, work: BackgroundWork())
     }
 
     /// Makes `key`'s view and waits until its screen (or home page) is in.
@@ -306,7 +307,7 @@ struct MacScreenThemeTests {
         let root = try #require(window.contentView)
         scope.root(root)
 
-        let pages = MacScreenPages(store: makeStore().0)
+        let pages = MacScreenPages(store: makeStore().0, work: BackgroundWork())
         pages.prepare("home", record: MacScreenRecord(macID: nil), byPerson: true)
         let tab = pages.makeView(for: "home")
         root.addSubview(tab)

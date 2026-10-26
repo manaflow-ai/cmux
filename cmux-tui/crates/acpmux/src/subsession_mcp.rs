@@ -64,6 +64,7 @@ fn tools() -> Value {
                     "harness": {"type": "string", "description": "The agent to run it, e.g. claude or codex. Default: the same agent as yours."},
                     "model": {"type": "string", "description": "The model. Default: the agent's default."},
                     "cwd": {"type": "string", "description": "The folder it works in, as an absolute path. Default: yours. A folder the user has not trusted makes the call wait on a Trust / Not now card in your chat; Not now refuses it (do not ask again)."},
+                    "host": {"type": "string", "description": "Where it runs. A sub-session runs on this machine only. \"auto\" first checks that this machine has room for another agent, with acpmux's placement engine (the one `acpmux new --host auto` uses): free RAM, busy cores, free disk and this machine's lane limit, weighed by its own size and role. With no room the start is refused and says why; with room the result's placed line says why, e.g. \"placed on huge-blue: 31 GB RAM free, 15.7/32 cores busy, 400 GB disk free, room for 5\". \"auto-build\" checks the same for a build or a test run, which only a build machine takes. Default: this machine, unchecked."},
                     "worktree": {"type": "boolean", "description": "Work in a new git worktree of that folder's repository (~/.cmux/worktrees/<project>/<name>, branch cmux/<name>), so its edits stay apart from yours until the user applies them. It starts in the same subfolder of the worktree as that folder. Its files are checked out as committed, without running the repository's hooks or filters (a Git LFS file stays its pointer)."}
                 },
                 "required": ["prompt"]
@@ -108,7 +109,8 @@ fn tools() -> Value {
                     "sessionId": {"type": "string"},
                     "text": {"type": "string"},
                     "deliver": {"type": "string", "enum": ["next_step", "after_turn", "interrupt"], "description": "after_turn (default): queued behind the running turn. next_step: into the running turn, read at its next tool step (use it when the receiver must change course now). interrupt: stop the running turn, then run this."},
-                    "interrupt": {"type": "boolean", "description": "The same as deliver: interrupt."}
+                    "interrupt": {"type": "boolean", "description": "The same as deliver: interrupt."},
+                    "attachments": {"type": "array", "items": {"type": "string"}, "maxItems": crate::attach::MAX_FILES, "description": "Files to send with it, as absolute paths on this machine (a screenshot, a log): an image reaches the receiver as an image, any other file as a link to its saved copy. At most 8 MiB a file and 10 MiB together."}
                 },
                 "required": ["sessionId", "text"]
             }
@@ -175,8 +177,17 @@ fn ok(text: String, structured: Value) -> Value {
     json!({"content": [{"type": "text", "text": text}], "structuredContent": structured, "isError": false})
 }
 
-/// `start_session`'s one line: what was started, and whether it waits for a run slot.
+/// `start_session`'s one line: what was started, and whether it waits for a run
+/// slot; then, for host `auto`, where it was placed and why.
 fn started_text(r: &Value) -> String {
+    let line = started_line(r);
+    match r["placed"].as_str() {
+        Some(placed) => format!("{line}\n{placed}"),
+        None => line,
+    }
+}
+
+fn started_line(r: &Value) -> String {
     let name = r["shortName"].as_str().or(r["name"].as_str()).unwrap_or_default();
     let id = r["sessionId"].as_str().unwrap_or_default();
     if r["waitsForSlot"].as_bool().unwrap_or(false) {
@@ -216,6 +227,23 @@ fn sent_text(r: &Value) -> String {
     }
 }
 
+/// `send_message`'s `attachments` (absolute paths) as the files' blocks (`attach.rs`): this server
+/// reads them, as the agent's own user on its own machine.
+async fn with_attachments(mut args: Value) -> Result<Value> {
+    let Some(paths) = args.get("attachments").filter(|v| !v.is_null()) else { return Ok(args) };
+    let paths: Vec<std::path::PathBuf> = paths
+        .as_array()
+        .ok_or_else(|| anyhow::anyhow!("attachments must be a list of file paths"))?
+        .iter()
+        .map(|p| p.as_str().map(std::path::PathBuf::from).filter(|p| p.is_absolute()))
+        .collect::<Option<_>>()
+        .ok_or_else(|| anyhow::anyhow!("each attachment is an absolute file path"))?;
+    let blocks =
+        tokio::task::spawn_blocking(move || crate::attach::blocks_from_paths(&paths)).await??;
+    args["attachments"] = Value::Array(blocks);
+    Ok(args)
+}
+
 /// A daemon refusal as the agent reads it: the daemon's message is the advice.
 fn refusal(e: anyhow::Error) -> Value {
     error_result(format!("{e:#}"))
@@ -240,8 +268,11 @@ async fn call(daemon: &Client, params: &Value) -> Value {
             Ok(r) => ok(serde_json::to_string_pretty(&r).unwrap_or_default(), r),
             Err(e) => refusal(e),
         },
-        "send_message" => match request(method::MUX_SUBSESSION_SEND, args).await {
-            Ok(r) => ok(sent_text(&r), r),
+        "send_message" => match with_attachments(args).await {
+            Ok(args) => match request(method::MUX_SUBSESSION_SEND, args).await {
+                Ok(r) => ok(sent_text(&r), r),
+                Err(e) => refusal(e),
+            },
             Err(e) => refusal(e),
         },
         "stop_session" => match request(method::MUX_SUBSESSION_STOP, args).await {
@@ -351,5 +382,29 @@ mod tests {
         assert!(rules.contains(&format!("cmux.{CMUX_APP_TOOL}(")), "{rules}");
         assert!(rules.contains(&format!("cmux.{CMUX_APP_TAB_TOOL}(")), "{rules}");
         assert!(!rules.contains("agent_report"), "agent.report needs a terminal: {rules}");
+    }
+
+    /// `host` documents `auto` and `auto-build`, and a placed start says why
+    /// in `new --host auto`'s words.
+    #[test]
+    fn start_session_documents_host_auto_and_says_where_it_was_placed() {
+        let tools = tools();
+        let host = tools
+            .as_array()
+            .and_then(|t| t.iter().find(|t| t["name"] == "start_session"))
+            .and_then(|t| t["inputSchema"]["properties"]["host"]["description"].as_str())
+            .expect("start_session host")
+            .to_owned();
+        assert!(host.contains("\"auto\"") && host.contains("\"auto-build\""), "{host}");
+        assert!(host.contains("acpmux new --host auto") && host.contains("placed on "), "{host}");
+        let placed = "placed on box: 40 GB RAM free, room for 4";
+        let r = json!({"shortName": "t", "sessionId": "s", "depth": 1, "placed": placed});
+        let text = started_text(&r);
+        assert!(
+            text.starts_with("Started sub-session t") && text.ends_with(&format!("\n{placed}")),
+            "{text}"
+        );
+        let r = json!({"shortName": "t", "sessionId": "s", "depth": 1});
+        assert!(!started_text(&r).contains("placed on"));
     }
 }

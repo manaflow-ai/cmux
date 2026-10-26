@@ -161,3 +161,13 @@ test("the omnibar's editing keys stay the field's", async () => {
   }
   expect(selected()).toBe(0);
 });
+
+test("the New Tab composer follows the opt-in spell checking setting", async () => {
+  const { setComposerSettings } = await import("../src/agent-session/acpmux/composerSettings");
+  setComposerSettings({ spellChecking: false });
+  await render([]);
+  expect(host.querySelector<HTMLTextAreaElement>(".nt-field")?.getAttribute("spellcheck")).toBe("false");
+  await act(async () => setComposerSettings({ spellChecking: true }));
+  expect(host.querySelector<HTMLTextAreaElement>(".nt-field")?.getAttribute("spellcheck")).toBe("true");
+  await act(async () => setComposerSettings({ spellChecking: false }));
+});

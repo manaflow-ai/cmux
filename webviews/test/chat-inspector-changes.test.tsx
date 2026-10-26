@@ -5,6 +5,7 @@
 // ones come first, then the merged and closed; five show, then Show more / Show less. A row's
 // click opens it beside the chat.
 import { afterEach, expect, test } from "bun:test";
+import { readFileSync } from "node:fs";
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
@@ -182,6 +183,35 @@ test("a row's click opens its pull request beside the chat", async () => {
   await act(async () => void link.dispatchEvent(event));
   expect(opened).toEqual([one.url]);
   expect(event.defaultPrevented).toBe(true);
+});
+
+test("the whole lit row is one target: its owner chip opens the pull request, and the link covers the row", async () => {
+  const container = installDom();
+  const opened: string[] = [];
+  const one = pr("manaflow-ai/cmux", 22377);
+  await render(container, [one], { [one.url]: { owner: "inspector" } }, (url) => opened.push(url));
+  const click = async (element: Element) => {
+    const event = new dom!.window.MouseEvent("click", { bubbles: true, cancelable: true });
+    await act(async () => void element.dispatchEvent(event));
+    return event;
+  };
+  // The owner chip is a label inside the row's link, not a dead control of its own.
+  const chip = container.querySelector(".acpmux-chat-inspector-pr__owner")!;
+  expect(chip.closest("a.acpmux-chat-inspector-pr__link")).not.toBeNull();
+  await click(chip);
+  expect(opened).toEqual([one.url]);
+  // The ⋯ button is still its own target: it opens the menu, not the pull request.
+  await click(container.querySelector("button.acpmux-chat-inspector-pr__more")!);
+  expect(opened).toEqual([one.url]);
+  // The row's own padding and gap light on hover too, so the link's hit area covers the whole row
+  // (JSDOM lays nothing out, so this reads the rule that does it), with the ⋯ button above it.
+  const css = readFileSync(new URL("../src/agent-session/acpmux/inspector/inspector.css", import.meta.url), "utf8");
+  expect(css).toMatch(/\.acpmux-chat-inspector-pr \{\s*position: relative;/);
+  expect(css).toMatch(/\.acpmux-chat-inspector-pr__link::before \{[^}]*position: absolute;[^}]*inset: 0;/);
+  expect(css).toMatch(/\.acpmux-chat-inspector-pr__more \{\s*position: relative;/);
+  // The link's own content stays above that overlay, so its tooltips (the state glyph's and the
+  // check dot's titles, the line counts' by-kind breakdown) still get the pointer.
+  expect(css).toMatch(/\.acpmux-chat-inspector-pr__link > \* \{\s*position: relative;/);
 });
 
 test("open ones come first, the most recently touched first, then the merged and closed", () => {

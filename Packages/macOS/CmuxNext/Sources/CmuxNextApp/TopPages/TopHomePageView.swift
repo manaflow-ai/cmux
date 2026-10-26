@@ -63,16 +63,14 @@ final class TopHomePageView: NSView {
     required init?(coder: NSCoder) { nil }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
+    // Each handle here is Sendable and stops from any thread: a release off main cleans up too.
     nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            rowsObservation?.cancel()
-            selectionObservation?.cancel()
-            chiefObservation?.cancel()
-            accountObservation?.cancel()
-            requestsObservation?.cancel()
-            unreadColorObservation?.cancel()
-        }
+        rowsObservation?.cancel()
+        selectionObservation?.cancel()
+        chiefObservation?.cancel()
+        accountObservation?.cancel()
+        requestsObservation?.cancel()
+        unreadColorObservation?.cancel()
     }
 
     /// Redraws the list after a pin change (`home.togglePin`).
@@ -117,7 +115,7 @@ final class TopHomePageView: NSView {
             Task { _ = try? await store.perform(.setReadCursor(conversation: id, seq: row.summary.lastSeq)) }
         }
         list.onMarkUnread = { id in if id != HomeSidebarView.draftRowID { sidebar.setMarkedUnread(true, id) } }
-        // Usage… and Archive Chief on a Chief's row; Hide or Show Alerts on a DM or group's row, and for a group
+        // Usage…, Archive Chief and Delete Chief… on a Chief's row; Hide or Show Alerts on a DM or group's row, and for a group
         // Group Info, Rename, Add People and Leave (the same actions as the palette and the CLI).
         list.menuItems = { id in
             guard let row = home.homeStore.rows.first(where: { $0.id == id }) else { return [] }
@@ -131,8 +129,10 @@ final class TopHomePageView: NSView {
                 // Chief Usage (chief.openUsage) reads this Mac's Chiefs: left out in a build without one.
                 let usage = registry.unavailableReason(for: ChiefUsagePageTab.actionID) == nil
                     ? item(ChiefUsagePageTab.actionID, ChiefUsagePageTab.menuTitle) : []
-                guard let chief = row.summary.participants.lazy.compactMap({ home.directory.chief(for: $0.id) }).first else { return usage }
-                return usage + item("home.archiveChief", nil, ["chief": .string(chief.id)])
+                // Delete for any Chief but the default one; Archive for a cloud Chief (this Mac's have no archive).
+                let delete = home.deletableChief(of: row).map { item("home.deleteChief", nil, ["chief": .string($0.id)]) } ?? []
+                guard let chief = row.summary.participants.lazy.compactMap({ home.directory.chief(for: $0.id) }).first else { return usage + delete }
+                return usage + item("home.archiveChief", nil, ["chief": .string(chief.id)]) + delete
             }
             let conversation: [String: ActionValue] = ["conversation": .string(id.rawValue)]
             let actions = home.groupActions
@@ -184,9 +184,13 @@ final class TopHomePageView: NSView {
             var picturedRows: [HomeInboxRequest.Response?]?
             var picturedChiefs: Set<String>?
             // Each Chief's pet character is its avatar when it has none of its own: a new pick redraws the list.
-            for await (all, archived, _, _, _, _, owned, _, _, _) in ObservationStream({
+            for await (all, archived, _, _, _, _, owned, _, _, _, _, _) in ObservationStream({
                 (store.rows, home.directory.archivedChiefs, sidebar.query, sidebar.pins, sidebar.unreadMarks, home.chiefFaces,
-                 sidebar.ownerRows, home.directory.chiefHarnesses, home.chiefRoster, home.services.settings?.snapshot.homeChiefPetMascot)
+                 sidebar.ownerRows, home.directory.chiefHarnesses, home.chiefRoster, home.services.settings?.snapshot.homeChiefPetMascot,
+                 // The team is read after the page opens: its teammates are rows once it lands.
+                 home.directory.teamMembers,
+                 // A rename of a Chief redraws its tile.
+                 home.chiefNames)
             }) {
                 guard let self else { return }
                 let chiefs = Set(all.flatMap { $0.summary.participants.filter(\.isChief).map(\.id.rawValue) })

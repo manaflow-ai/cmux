@@ -47,6 +47,9 @@ Read the matching skill before changing an area, then only the references needed
 - The app package needs Swift tools 6.2 and deploys to macOS 14; the classic Swift 6.0 rule
   does not apply here. Check Release compiles and macOS 14 limits with
   [toolchain compatibility](skills/cmux-architecture/references/swift-6-0-compatibility.md).
+- No fleet Mac runs macOS 14 or 15 (aws-m4pro-1..4 run 27, aws-m4pro-5..9 run 26). Check an
+  OS-dependent bug or a launch on 14/15 in Tart VMs: `scripts/cmux-next/os-matrix.sh --build JOB
+  --os 14,15` ([MATRIX.md](scripts/fuzz/macos-matrix/MATRIX.md)). VM timing is not perf evidence.
 
 ## Web lint before push
 
@@ -101,8 +104,20 @@ Swift/Rust builds and tests stay on the fleet.
   it: only a `Ghostty-defaults-OK: <the user's words>` commit trailer does. (2f3e1f95983 made
   Cmd-Opt-Left / Right sidebar keys; Lawrence 2026-10-20: "ensure this never happens again".)
 
+- A new or rewritten action handler is `registry.bindEffect(id, effect:)` and returns an `ActionEffect`:
+  `.done`, `daemon.intentEffect(...)` (a store intent shows in the input's turn; the registry sends,
+  rolls back and reports), `.applied(...)` with a rollback, or `.waiting(reason, work)` only when nothing
+  can show first. Never await in a handler, never start its remote work yourself, no disk I/O, waiting
+  lock or whole-session walk on its turn. The guardrail `action-wait` refuses new untyped binds and
+  waits; the budget is < 10 ms to the commit, watched by `ActionBudgetMonitor` and the Debug menu's
+  latency HUD ([zero-latency.md](plans/cmux-next/zero-latency.md), "Native actions: the budget contract").
+
 ## Before you touch hot paths
 
+- Use the patterns in [PATTERNS.md](plans/cmux-next/PATTERNS.md) (composition root, seam adapters, targeted
+  observation, instant create, main-thread budget, off-main frames, daemon request path) and meet
+  [REVIEW-STANDARD.md](plans/cmux-next/REVIEW-STANDARD.md): root-cause fixes, no hacks, no partial fixes. Review
+  landed work with the repo workflow `.claude/workflows/cmux-next-deep-review.js`.
 - Budget: every action reaches its committed frame in < 10 ms p95; motion runs at full refresh, 0 drops.
   Measure on the fleet yourself, light and STRESS ([perf-lead.md](plans/cmux-next/perf-lead.md)), before and after.
 - Never add CI gates, perf-gate rows or budgets, CI jobs or steps, or CI tests (Lawrence 2026-10-23: "not to
@@ -113,9 +128,52 @@ Swift/Rust builds and tests stay on the fleet.
 - `// perf-hot: <budget> <path-id>` marks a per-frame, per-key or per-switch function; the pre-push hook names
   its bench ([perf-hot-benches.json](scripts/cmux-next/perf-hot-benches.json)). Mark new hot paths the same way.
 - Read [OWNERS.md](plans/cmux-next/OWNERS.md) before you change an owned area, and tell the owner.
+- Threads: [threading-model.md](plans/cmux-next/threading-model.md) says what each thread owns, may block on, its QoS and bound; the main thread never blocks (Debug detector, `allowBlocking` only for a listed reason).
+- Copy Chrome's performance model (Lawrence 2026-10-24). Before you design a fast path, find how Chromium
+  does the same job and do that, or write in the commit why cmux differs:
+  - The main thread never blocks: no sync daemon, disk, network or lock wait on it (Chrome's UI-thread
+    rule, `ScopedBlockingCall`). Input changes the model in the same turn; the backend reconciles later.
+  - One frame per display refresh: input and changes coalesce to the frame (Chrome aligns input to the
+    begin-frame), animation runs off the main thread where it can (compositor-driven), and an animation
+    is interruptible from its current value. A layout or a reflow per animation frame is a bug.
+  - Measure from the input to the frame shown, as distributions (p50, p95, p99, max), in lab benches and
+    in opt-in field data (Chrome's EventLatency histograms and UMA). A mean alone proves nothing.
+  - Memory: hidden pages are discarded by Memory Saver rules (never one with form input, audio, capture,
+    a running download or a `beforeunload` handler; it reloads when shown), and renderer processes are
+    shared per site above a limit set from physical memory, as Chrome does.
+  - Process work by priority: what the person sees and touches first; hidden windows, background tabs
+    and idle work are throttled (Chrome's background-tab timer throttling and task priorities).
+    Throttling is only for work the person cannot see. It is never the fix for a slow visible action:
+    remove that work, do not delay, debounce or throttle it.
+- Go past Chrome where cmux is scripted. Scripts, the CLI, MCP and agents drive cmux far more than
+  extensions drive Chrome, so automation must never compete with the person:
+  - A scripted or agent change goes through the same action pipeline as a key press, and its local model
+    change is O(changed items), never O(session).
+  - Changes to hidden or background workspaces update the model only: no layout, no animation, no view
+    work until the workspace shows, then one layout to its final state.
+  - A burst of scripted changes (reorders, moves, splits) coalesces to one model update and at most one
+    frame per window; batch requests apply as one transaction.
+  - Input from the person always goes before automation (separate queues, the person's first), and the
+    socket server parses, validates and coalesces off the main thread.
 - The hook's guardrails refuse new debt in added lines (`scripts/cmux-next/guardrails.py --list`). When the
   hook warns that its installed copy is not origin/feat-cmux-next's, run `scripts/install-git-hooks.sh` from a
   checkout at origin/feat-cmux-next. The hooks are per clone: every worktree of it, main-based ones too, runs them.
+
+## Crash classes
+
+Each class of nightly crash has one guard. Do not work around it; fix the code.
+- Unrecognized selector (a `super` call the framework class does not answer, a selector Chromium sends to
+  NSApp): `scripts/cmux-next/check-objc-selectors.py` and `ObjCSelectorRuntimeTests` (runtime walk).
+- AppKit off the main thread: suites run under Xcode's Main Thread Checker
+  (`scripts/ci/run_swift_test_bundle.py`, `CMUX_MAIN_THREAD_CHECKER`, `MainThreadCheckerLoadedTests`).
+- Stale AppKit index (-1 rows and columns): CmuxNextCompat's `clickedRowIfValid`, `selectedRowIfValid`,
+  `clickedItemIfValid`, `item(ifValidRow:inColumn:)`; guardrails rule `appkit-index`.
+- Undo into replaced text: set text from code only through `replaceAllTextUndoably(_:)` (CmuxNextDesign)
+  in a view with `allowsUndo = true`; guardrails rule `undo-text-write`.
+- Traps (`!`, `as!`, index, `fatalError`): `scripts/cmux-next/crash_ratchet.py`, whose baseline only goes down.
+- Memory corruption and data races: run the suites of risky code under `CMUX_SWIFT_SANITIZE=address` or
+  `thread` (`cmux-ci run --env CMUX_SWIFT_SANITIZE=...`); malloc zone changes: `malloc-zone-race/run.sh corrupt`.
+- A crash that hangs: `CrashDeadline` (10 s) and the out-of-process `CrashWatcher` (15 s) end the app.
 
 ## Swift namespace convention
 
@@ -172,6 +230,14 @@ RFCs or progress updates. Fill the PR's `## Changelog` section with one
 Do not edit `CHANGELOG.md` in feature PRs; release tooling owns it.
 
 ## CI, review and merge
+
+For `feat-cmux-next` compile and build work, use fast checks first, then any
+free compatible owned Mac through the controller, and Blacksmith macOS only as
+the last resort. A compile or build must never depend on a single-host
+reservation without a fallback. The nightly app builder remains dedicated;
+Release gates do not share it. Signing, notarization and GUI steps that truly
+require macOS run on owned Macs first and Blacksmith macOS last, in parallel
+with the fast checks. Keep the target at zero queue.
 
 - Commit the failing behavioral regression before its fix; record the same
   focused command's red and green results ([testing policy](skills/cmux-testing/SKILL.md#reproduce-and-repair)).
