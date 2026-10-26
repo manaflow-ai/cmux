@@ -347,9 +347,50 @@ public struct CloudAPIClient: Sendable {
         value.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed.subtracting(.init(charactersIn: "/?&=#"))) ?? value
     }
 
+    // MARK: Runs
+
+    /// `POST /api/runs` for a sandboxed Run (hq#3367): one task on a throwaway VM from a
+    /// pinned image. The key makes a retry after a lost response return the same Run.
+    /// Answers the server's JSON as is; the Run API's views already hold no secrets.
+    public func createSandboxRun(task: String, agent: String? = nil, image: String? = nil, timeoutMs: Int? = nil,
+                                 idempotencyKey: String = UUID().uuidString) async throws -> Data {
+        var body: [String: any Sendable] = ["environment": "sandboxed", "task": task]
+        if let agent, !agent.isEmpty { body["agent"] = agent }
+        if let image, !image.isEmpty { body["image"] = image }
+        if let timeoutMs { body["timeoutMs"] = timeoutMs }
+        return try await sendData("POST", "/api/runs", body: body, idempotencyKey: idempotencyKey)
+    }
+
+    /// `GET /api/runs/:id/wait`: the snapshot once the Run is terminal or after
+    /// `timeoutMs` (the server caps it at 10 s), with its receipt when it has one.
+    public func waitRun(_ id: String, timeoutMs: Int) async throws -> Data {
+        let wait = max(0, min(timeoutMs, 10_000))
+        return try await sendData("GET", "/api/runs/\(queryComponent(id))/wait?timeoutMs=\(wait)", timeout: .milliseconds(wait + 10_000))
+    }
+
+    /// `POST /api/runs/:id/cancel`; a sandbox's VM is destroyed before it answers.
+    public func cancelRun(_ id: String) async throws -> Data {
+        try await sendData("POST", "/api/runs/\(queryComponent(id))/cancel", timeout: .seconds(60))
+    }
+
     // MARK: Transport
 
     struct Ignored: Decodable {}
+
+    /// One request whose JSON body the caller reads itself.
+    func sendData(_ method: String, _ path: String, body: [String: any Sendable]? = nil, idempotencyKey: String? = nil,
+                  timeout: Duration = .seconds(20)) async throws -> Data {
+        try await send(method, path, body: body, idempotencyKey: idempotencyKey, timeout: timeout, as: RawBody.self).data
+    }
+
+    /// The undecoded body; ``send(_:_:body:bodyStream:idempotencyKey:timeout:onSent:as:)`` hands it over as is.
+    struct RawBody: Decodable {
+        let data: Data
+        init(data: Data) { self.data = data }
+        init(from decoder: any Decoder) throws {
+            throw DecodingError.dataCorrupted(.init(codingPath: [], debugDescription: "RawBody is not decoded"))
+        }
+    }
 
     func send<T: Decodable>(_ method: String, _ path: String, body: [String: any Sendable]? = nil,
                             bodyStream: (stream: InputStream, length: Int, contentType: String)? = nil, idempotencyKey: String? = nil,
@@ -396,6 +437,7 @@ public struct CloudAPIClient: Sendable {
             throw CloudAPIError.from(status: http.statusCode, data: data, headerCode: http.value(forHTTPHeaderField: "x-cmux-vm-error"))
         }
         if T.self == Ignored.self, let ignored = Ignored() as? T { return ignored }
+        if T.self == RawBody.self, let raw = RawBody(data: data) as? T { return raw }
         do {
             return try JSONDecoder().decode(T.self, from: data)
         } catch {
