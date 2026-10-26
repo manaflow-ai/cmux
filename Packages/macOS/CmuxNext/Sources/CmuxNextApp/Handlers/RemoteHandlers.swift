@@ -172,42 +172,47 @@ enum RemoteHandlers {
     /// the active window once its tree loads (creating one when it has
     /// none). Gives up when the machine stops connecting.
     static func showWhenConnected(_ session: SSHMachineSession, _ context: AppActionContext) {
-        let daemon = session.daemon, windows = context.services.windows, mainWork = context.services.mainWork
-        let end = context.registry.completion(on: mainWork)
+        let daemon = session.daemon, windows = context.services.windows, end = context.registry.completion(on: context.services.mainWork)
+        // Ends when the tree loads or the machine stops connecting. The workspace shown, or the failure told, is one
+        // task of the run's completion; a workspace the machine lacks is made off main first.
+        end.start {
+            guard await connected(session, context, end: end), let id = await windows.createWorkspace(on: daemon) else { return }
+            end.post(owner: "RemoteHandlers.showWhenConnected") { CloudHandlers.show(id, context) }
+        }
+    }
+
+    /// Waits until `session`'s tree loads or it stops connecting, then, in one task of `end` that decides on the state
+    /// it reads then, shows its first workspace or tells the failure. True: the tree loaded with no workspace. One
+    /// ServiceObservation reads the state again only when it changes; a connection that dropped before that task ran,
+    /// while the machine still connects, is waited for again, never told as a failure.
+    private static func connected(_ session: SSHMachineSession, _ context: AppActionContext, end: ActionCompletion) async -> Bool {
+        let daemon = session.daemon
         let outcome: @MainActor @Sendable () -> ConnectOutcome = {
             connectOutcome(loaded: daemon.store.isLoaded && daemon.connection != nil, status: session.linkStatus)
         }
-        // Ends when the tree loads or the machine stops connecting: one ServiceObservation reads both again only
-        // when one changes. Each step on main (the workspace shown, the failure told) is one task of the run's
-        // completion and decides on the state it reads then: a connection that dropped while the machine still
-        // connects is waited for again, never told as a failure.
-        end.start {
-            while !Task.isCancelled {
-                await ObservedCondition(owner: "RemoteHandlers.showWhenConnected", .visible, on: mainWork).until {
-                    outcome() != .stillConnecting
+        await ObservedCondition(owner: "RemoteHandlers.showWhenConnected", .visible, on: context.services.mainWork).until {
+            outcome() != .stillConnecting
+        }
+        let needsWorkspace = await end.apply(owner: "RemoteHandlers.showWhenConnected") { () -> Bool? in
+            switch outcome() {
+            case .stillConnecting:
+                return nil
+            case .stopped(let tell):
+                if tell {
+                    CloudPresenter.show(RemoteStrings.connectFailedTitle(session.host.label), RemoteStrings.detail(session) ?? "",
+                                        in: CloudHandlers.window(context))
                 }
-                let needsWorkspace = await end.apply(owner: "RemoteHandlers.showWhenConnected") { () -> Bool? in
-                    switch outcome() {
-                    case .stillConnecting:
-                        return nil
-                    case .stopped(let tell):
-                        if tell {
-                            CloudPresenter.show(RemoteStrings.connectFailedTitle(session.host.label), RemoteStrings.detail(session) ?? "",
-                                                in: CloudHandlers.window(context))
-                        }
-                        return false
-                    case .loaded:
-                        guard let first = daemon.store.workspaces.first else { return true }
-                        CloudHandlers.show(first.id, context)
-                        return false
-                    }
-                }
-                guard let needsWorkspace else { continue }
-                guard needsWorkspace, let id = await windows.createWorkspace(on: daemon) else { return }
-                end.post(owner: "RemoteHandlers.showWhenConnected") { CloudHandlers.show(id, context) }
-                return
+                return false
+            case .loaded:
+                guard let first = daemon.store.workspaces.first else { return true }
+                CloudHandlers.show(first.id, context)
+                return false
             }
         }
+        guard let needsWorkspace else {
+            return Task.isCancelled ? false : await connected(session, context, end: end)
+        }
+        return needsWorkspace
     }
 
     /// Where a connect wait stands (``showWhenConnected(_:_:)``).
