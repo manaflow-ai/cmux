@@ -7,7 +7,7 @@ package import CmuxNextSettings
 ///
 /// The browser's side of ``ContentDiscardPlanner``: it picks the browser's timeout and pace for
 /// the memory pressure and hands the rest to the planner, which every kind of content shares.
-package struct HibernationPlanner {
+package nonisolated struct HibernationPlanner: Sendable {
     package init() {}
 
     /// One hidden page that could hibernate (a ``ContentDiscardPlanner/Candidate`` of kind browser).

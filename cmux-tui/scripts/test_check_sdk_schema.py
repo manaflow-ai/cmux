@@ -301,6 +301,63 @@ class LiveSchemaTests(unittest.TestCase):
         with self.assertRaisesRegex(CHECKER.SdkSchemaError, "alias drift"):
             self.validate(document, self.inventory)
 
+    def test_apps_module_commands_use_their_variant_and_envelope_fields(self) -> None:
+        fields = CHECKER.runtime_command_fields()
+        self.assertEqual(
+            set(fields["apps-set"]),
+            {
+                "idempotency_key",
+                "app",
+                "installed",
+                "enabled",
+                "hidden",
+                "hidden_access",
+                "sandboxed",
+                "grant",
+                "origin",
+            },
+        )
+        self.assertEqual(set(fields["apps-list"]), {"origin"})
+        self.assertEqual(set(fields["apps-unmount"]), {"mount_id", "origin"})
+        # The handler refuses every member but demand_sequence before decoding.
+        self.assertEqual(set(fields["apps-agent-inventory-changed"]), {"demand_sequence"})
+        self.assertEqual(set(fields["cancel-request"]), {"target"})
+        self.assertEqual(
+            CHECKER._runtime_type_shape(fields["apps-set"]["hidden_access"].rust_type),
+            "ref<AppHiddenAccess>",
+        )
+
+    def test_apps_request_field_drift_is_rejected(self) -> None:
+        document = copy.deepcopy(self.document)
+        document["commands"]["apps-set"]["request"]["fields"].pop("grant")
+        with self.assertRaisesRegex(CHECKER.SdkSchemaError, "request field for apps-set"):
+            self.validate(document, self.inventory)
+        document = copy.deepcopy(self.document)
+        document["commands"]["apps-logs"]["request"]["fields"]["follow"]["presence"] = "required"
+        with self.assertRaisesRegex(CHECKER.SdkSchemaError, "presence drift for apps-logs"):
+            self.validate(document, self.inventory)
+
+    def test_module_enum_parser_reads_every_variant_form(self) -> None:
+        body = """\
+    #[serde(rename = "x-unit")]
+    Unit,
+    /// A doc comment.
+    #[serde(rename = "x-one")]
+    One { id: String, count: Option<u32> },
+    #[serde(rename = "x-many")]
+    Many {
+        #[serde(default)]
+        follow: bool,
+    },
+"""
+        commands = CHECKER._module_enum_fields(body, "fixture Command")
+        self.assertEqual(
+            {name: sorted(fields) for name, fields in commands.items()},
+            {"x-unit": [], "x-one": ["count", "id"], "x-many": ["follow"]},
+        )
+        with self.assertRaisesRegex(CHECKER.SdkSchemaError, "needs #\\[serde\\(rename"):
+            CHECKER._module_enum_fields("    Bare,\n", "fixture Command")
+
     def test_wrong_event_stream_is_rejected(self) -> None:
         document = copy.deepcopy(self.document)
         document["events"]["bell"]["streams"] = ["attach-byte"]

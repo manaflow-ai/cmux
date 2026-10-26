@@ -39,6 +39,9 @@ RUNTIME_NAMED_REQUEST_REFS = {
     "RowMarkerPoint": "RowMarkerPoint",
     "RowHeight": "RowHeight",
     "ExpectAgent": "SendExpectAgent",
+    "crate::apps::Origin": "AppOrigin",
+    "crate::apps::HiddenAccess": "AppHiddenAccess",
+    "GrantParam": "AppGrant",
     "AgentCLIIntent": "AgentCLIIntent",
 }
 
@@ -48,6 +51,19 @@ RUNTIME_NAMED_REQUEST_REFS = {
 RUNTIME_NAMED_REQUEST_STRUCTS = {
     "AgentCLIIntent": "workspace_registry/agent_cli_intents.rs",
 }
+
+
+# Server modules that decode their own commands (p05-ipc queue Q2). One table
+# for this checker and check-spec-inventory.py; its description names each key.
+MODULE_COMMANDS_PATH = Path(__file__).with_name("server-module-commands.json")
+
+
+def module_commands() -> dict[str, dict[str, Any]]:
+    modules = json.loads(MODULE_COMMANDS_PATH.read_text(encoding="utf-8")).get("modules")
+    if not isinstance(modules, dict):
+        fail(f"{MODULE_COMMANDS_PATH.name} needs a modules object")
+    return modules
+
 
 # Request fields the server takes as raw JSON and then decodes element by
 # element into a named type, so a bad element gets the command's own error
@@ -263,20 +279,128 @@ def runtime_command_fields() -> dict[str, dict[str, RuntimeField]]:
             source, parsed, f"Command::{variant}"
         )
         index += 1
+    for name, fields in module_command_fields().items():
+        if name in commands:
+            fail(f"command {name!r} is in the server Command enum and a module")
+        commands[name] = fields
+    return commands
+
+
+def _without_reply_id(fields: dict[str, RuntimeField]) -> dict[str, RuntimeField]:
+    return {name: field for name, field in fields.items() if name != "id"}
+
+
+def module_command_fields() -> dict[str, dict[str, RuntimeField]]:
+    """Request fields of the commands server-module-commands.json lists. A
+    module file that is gone serves nothing, so its schema commands become
+    stale."""
+
+    commands: dict[str, dict[str, RuntimeField]] = {}
+    for module, spec in module_commands().items():
+        path = SERVER.with_suffix("") / f"{module}.rs"
+        if not path.exists():
+            continue
+        source = path.read_text(encoding="utf-8")
+        label = f"server/{module}.rs"
+        envelope = {
+            name: field
+            for name, field in _without_reply_id(_rust_struct_fields(source, spec["envelope"])).items()
+            if not any(re.search(r"\bflatten\b", value) for value in field.attributes)
+        }
+        enum_name = spec["enum"]
+        refused_fields = {
+            name: set(fields) for name, fields in spec.get("refused_envelope_fields", {}).items()
+        }
+        found = _module_enum_fields(_rust_enum_body(source, enum_name), f"{label} {enum_name}")
+        for name in refused_fields:
+            if name not in found:
+                fail(f"{label}: refused envelope fields name unknown command {name!r}")
+        for name, fields in found.items():
+            shared = {
+                key: field
+                for key, field in envelope.items()
+                if key not in refused_fields.get(name, set())
+            }
+            duplicate = sorted(set(fields) & set(shared))
+            if duplicate:
+                fail(f"{label} {name} repeats envelope fields {duplicate}")
+            found[name] = {**fields, **shared}
+        for name, literal in spec.get("literals", {}).items():
+            if f'"{name}"' not in source:
+                fail(f"{label} no longer matches {name!r}")
+            found[name] = _without_reply_id(_rust_struct_fields(source, literal["request"]))
+        for name, fields in found.items():
+            if name in commands:
+                fail(f"module command {name!r} is served twice")
+            commands[name] = fields
+    return commands
+
+
+def _module_enum_fields(body: str, label: str) -> dict[str, dict[str, RuntimeField]]:
+    """Variants of a module's `#[serde(tag = "cmd")]` enum by serde rename:
+    unit, one-line `V { a: T }` and multi-line struct variants."""
+
+    commands: dict[str, dict[str, RuntimeField]] = {}
+    rename: str | None = None
+    lines = body.splitlines()
+    index = 0
+    while index < len(lines):
+        line = lines[index].strip()
+        index += 1
+        if not line or line.startswith("//"):
+            continue
+        attribute = re.fullmatch(r'#\[serde\(rename\s*=\s*"([a-z][a-z0-9-]*)"\)\]', line)
+        if attribute:
+            rename = attribute.group(1)
+            continue
+        unit = re.fullmatch(r"([A-Z][A-Za-z0-9]*),", line)
+        one_line = re.fullmatch(r"([A-Z][A-Za-z0-9]*) \{ (.+) \},", line)
+        multi_line = re.fullmatch(r"([A-Z][A-Za-z0-9]*) \{", line)
+        if unit:
+            variant, fields = unit.group(1), {}
+        elif one_line:
+            variant = one_line.group(1)
+            parts = re.split(r",\s*(?=[a-z][A-Za-z0-9_]*:)", one_line.group(2))
+            fields = _parse_rust_fields(
+                "\n".join(part.rstrip(",") + "," for part in parts), f"{label}::{variant}"
+            )
+        elif multi_line:
+            variant = multi_line.group(1)
+            variant_lines: list[str] = []
+            while index < len(lines) and lines[index].strip() != "},":
+                variant_lines.append(lines[index])
+                index += 1
+            if index == len(lines):
+                fail(f"unterminated {label}::{variant}")
+            index += 1
+            fields = _parse_rust_fields("\n".join(variant_lines), f"{label}::{variant}")
+        else:
+            fail(f"cannot parse {label} line {line!r}")
+        if rename is None:
+            fail(f"{label}::{variant} needs #[serde(rename = ...)]")
+        if rename in commands:
+            fail(f"duplicate {label} command {rename!r}")
+        commands[rename] = fields
+        rename = None
     return commands
 
 
 def handler_command_fields(names: set[str]) -> dict[str, dict[str, RuntimeField]]:
     """Request fields of the `names` a handler module decodes before the
-    Command enum (handler_commands.py); names no handler decodes are left out."""
+    Command enum (handler_commands.py); names no handler decodes are left out,
+    and so are the modules server-module-commands.json lists, whose fields
+    module_command_fields reads."""
 
     try:
         decoded = handler_commands(TUI)
     except (HandlerCommandError, OSError, UnicodeError) as error:
         fail(f"cannot read the handler modules: {error}")
+    listed = {SERVER.with_suffix("") / f"{module}.rs" for module in module_commands()}
     commands: dict[str, dict[str, RuntimeField]] = {}
     for name in sorted(names & set(decoded)):
         command = decoded[name]
+        if command.module in listed:
+            continue
         label = f"{command.module.name} {command.enum}::{command.variant}"
         if command.kind == "unit":
             fields: dict[str, RuntimeField] = {}

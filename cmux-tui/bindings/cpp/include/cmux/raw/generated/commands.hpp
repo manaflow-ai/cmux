@@ -51,6 +51,19 @@ public:
     [[nodiscard]] Result<AgentCliJobReceipt> agent_cli_update_job(const AgentCliUpdateJobRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<AgentCliJobResolution> agent_cli_update_job_resolve(const AgentCliUpdateJobResolveRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ApplyLayoutResult> apply_layout(const ApplyLayoutRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<EmptyResult> apps_agent_inventory_changed(const AppsAgentInventoryChangedRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<EmptyResult> apps_dispatch(const AppsDispatchRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<AppsLinkChangedResult> apps_link_changed(const AppsLinkChangedRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<AppsListResult> apps_list(const AppsListRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<AppsLogsResult> apps_logs(const AppsLogsRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<EmptyResult> apps_mount(const AppsMountRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<AppsProviderRegisterResult> apps_provider_register(const AppsProviderRegisterRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<EmptyResult> apps_provider_result(const AppsProviderResultRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<AppsRunResult> apps_run(const AppsRunRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<AppRecord> apps_set(const AppsSetRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<JsonValue> apps_store(const AppsStoreRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<AppsTerminalLinksResult> apps_terminal_links(const AppsTerminalLinksRequest& request = {}, RequestOptions options = {});
+    [[nodiscard]] Result<EmptyResult> apps_unmount(const AppsUnmountRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EventStream> attach_surface(const AttachSurfaceRequest& request = {}, RequestOptions options = {});
     [[nodiscard]] Result<BindConversationTabSessionResult> bind_conversation_tab_session(const BindConversationTabSessionRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> browser_activate(const BrowserActivateRequest& request, RequestOptions options = {});
@@ -67,6 +80,7 @@ public:
     [[nodiscard]] Result<EmptyResult> browser_reload(const BrowserReloadRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> browser_wheel(const BrowserWheelRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> browser_wheel_guarded(const BrowserWheelGuardedRequest& request, RequestOptions options = {});
+    [[nodiscard]] Result<EmptyResult> cancel_request(const CancelRequestRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<ChiefInspectResult> chief_inspect(const ChiefInspectRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> clear_history(const ClearHistoryRequest& request, RequestOptions options = {});
     [[nodiscard]] Result<EmptyResult> clear_window_title(const ClearWindowTitleRequest& request = {}, RequestOptions options = {});

@@ -8,7 +8,7 @@ from typing import Mapping, Optional, Tuple
 
 SCHEMA_VERSION = 2
 MUX_PROTOCOL = 12
-IR_SHA256 = '22abe4e8a7fb9342afb9c13a8430a0845a075c119298ddd6624a99d94d4f61bc'
+IR_SHA256 = '88da3e89c750d2b4a0853254ffe2bcac9f4b5816960471f0c9951c6466bdd28b'
 
 
 @dataclass(frozen=True)
@@ -168,6 +168,180 @@ COMMANDS = {
             'name': CommandFieldMetadata(None, None),
             'rows': CommandFieldMetadata(None, None),
             'workspace': CommandFieldMetadata(None, None),
+        },
+    ),
+    'apps-agent-inventory-changed': CommandMetadata(
+        'apps-agent-inventory-changed',
+        'local-admin',
+        12,
+        'agent-cli-app-invalidation-v1',
+        ('local-admin',),
+        None,
+        {
+            'demand_sequence': CommandFieldMetadata(None, None),
+        },
+    ),
+    'apps-dispatch': CommandMetadata(
+        'apps-dispatch',
+        'local-admin',
+        12,
+        'apps-v1',
+        ('local-admin',),
+        None,
+        {
+            'event': CommandFieldMetadata(None, None),
+            'mount_id': CommandFieldMetadata(None, None),
+            'node': CommandFieldMetadata(None, None),
+            'origin': CommandFieldMetadata(None, None),
+            'payload': CommandFieldMetadata(None, None),
+        },
+    ),
+    'apps-link-changed': CommandMetadata(
+        'apps-link-changed',
+        'local-admin',
+        12,
+        'apps-v1',
+        ('local-admin',),
+        None,
+        {
+            'origin': CommandFieldMetadata(None, None),
+        },
+    ),
+    'apps-list': CommandMetadata(
+        'apps-list',
+        'local-admin',
+        12,
+        'apps-v1',
+        ('local-admin',),
+        None,
+        {
+            'origin': CommandFieldMetadata(None, None),
+        },
+    ),
+    'apps-logs': CommandMetadata(
+        'apps-logs',
+        'local-admin',
+        12,
+        'apps-v1',
+        ('local-admin',),
+        None,
+        {
+            'app': CommandFieldMetadata(None, None),
+            'follow': CommandFieldMetadata(None, None),
+            'origin': CommandFieldMetadata(None, None),
+        },
+    ),
+    'apps-mount': CommandMetadata(
+        'apps-mount',
+        'local-admin',
+        12,
+        'apps-v1',
+        ('local-admin',),
+        None,
+        {
+            'app': CommandFieldMetadata(None, None),
+            'context': CommandFieldMetadata(None, None),
+            'interface': CommandFieldMetadata(None, None),
+            'mount_id': CommandFieldMetadata(None, None),
+            'origin': CommandFieldMetadata(None, None),
+        },
+    ),
+    'apps-provider-register': CommandMetadata(
+        'apps-provider-register',
+        'local-admin',
+        12,
+        'apps-v1',
+        ('local-admin',),
+        None,
+        {
+            'families': CommandFieldMetadata(None, None),
+            'inventory_watch': CommandFieldMetadata(None, 'agent-cli-app-invalidation-v1'),
+            'origin': CommandFieldMetadata(None, None),
+        },
+    ),
+    'apps-provider-result': CommandMetadata(
+        'apps-provider-result',
+        'local-admin',
+        12,
+        'apps-v1',
+        ('local-admin',),
+        None,
+        {
+            'body': CommandFieldMetadata(None, None),
+            'ok': CommandFieldMetadata(None, None),
+            'origin': CommandFieldMetadata(None, None),
+            'request_id': CommandFieldMetadata(None, None),
+        },
+    ),
+    'apps-run': CommandMetadata(
+        'apps-run',
+        'local-admin',
+        12,
+        'apps-v1',
+        ('local-admin',),
+        None,
+        {
+            'app': CommandFieldMetadata(None, None),
+            'args': CommandFieldMetadata(None, None),
+            'gesture': CommandFieldMetadata(None, None),
+            'idempotency_key': CommandFieldMetadata(None, None),
+            'op': CommandFieldMetadata(None, None),
+            'origin': CommandFieldMetadata(None, None),
+        },
+    ),
+    'apps-set': CommandMetadata(
+        'apps-set',
+        'local-admin',
+        12,
+        'apps-v1',
+        ('local-admin',),
+        None,
+        {
+            'app': CommandFieldMetadata(None, None),
+            'enabled': CommandFieldMetadata(None, None),
+            'grant': CommandFieldMetadata(None, None),
+            'hidden': CommandFieldMetadata(None, None),
+            'hidden_access': CommandFieldMetadata(None, None),
+            'idempotency_key': CommandFieldMetadata(None, None),
+            'installed': CommandFieldMetadata(None, None),
+            'origin': CommandFieldMetadata(None, None),
+            'sandboxed': CommandFieldMetadata(None, None),
+        },
+    ),
+    'apps-store': CommandMetadata(
+        'apps-store',
+        'local-admin',
+        12,
+        'apps-v1',
+        ('local-admin',),
+        None,
+        {
+            'args': CommandFieldMetadata(None, None),
+            'op': CommandFieldMetadata(None, None),
+            'origin': CommandFieldMetadata(None, None),
+        },
+    ),
+    'apps-terminal-links': CommandMetadata(
+        'apps-terminal-links',
+        'local-admin',
+        12,
+        'apps-v1',
+        ('local-admin',),
+        None,
+        {
+            'origin': CommandFieldMetadata(None, None),
+        },
+    ),
+    'apps-unmount': CommandMetadata(
+        'apps-unmount',
+        'local-admin',
+        12,
+        'apps-v1',
+        ('local-admin',),
+        None,
+        {
+            'mount_id': CommandFieldMetadata(None, None),
+            'origin': CommandFieldMetadata(None, None),
         },
     ),
     'attach-surface': CommandMetadata(
@@ -390,6 +564,17 @@ COMMANDS = {
             'surface': CommandFieldMetadata(None, None),
             'x_px': CommandFieldMetadata(None, None),
             'y_px': CommandFieldMetadata(None, None),
+        },
+    ),
+    'cancel-request': CommandMetadata(
+        'cancel-request',
+        'local-admin',
+        12,
+        'cancel-request-v1',
+        ('local-admin',),
+        None,
+        {
+            'target': CommandFieldMetadata(None, None),
         },
     ),
     'chief-inspect': CommandMetadata(

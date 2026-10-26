@@ -113,13 +113,20 @@ impl PtySurface {
     }
 
     pub(super) fn broadcast_attach_output(&self, bytes: &[u8]) -> bool {
-        cmux_flow_trace::hop("daemon.output.attach", 0, self.flow_terminal_id());
+        self.broadcast_attach_output_flow(bytes, 0)
+    }
+
+    /// [`Self::broadcast_attach_output`] of PTY output that echoes the key
+    /// press `flow` (0: none): the read that took it from its
+    /// [`crate::input_flow::InputFlowSlot`], or the flow the host sent with it.
+    pub(super) fn broadcast_attach_output_flow(&self, bytes: &[u8], flow: u64) -> bool {
+        cmux_flow_trace::hop("daemon.output.attach", flow, self.flow_terminal_id());
         self.snapshot_position.add_output(bytes.len());
         let mut taps = self.taps.lock().unwrap();
         if taps.is_empty() {
             return false;
         }
-        let frame = AttachFrame::Output(bytes.to_vec());
+        let frame = AttachFrame::with_flow(bytes.to_vec(), flow);
         taps.retain(|tap| tap.try_send(frame.clone()));
         let sent = !taps.is_empty();
         drop(taps);
@@ -178,6 +185,9 @@ impl PtySurface {
     }
 
     pub(super) fn broadcast_attach_frame(&self, frame: AttachFrame) {
+        if frame.output().is_some() {
+            cmux_flow_trace::hop("daemon.output.attach", frame.flow(), self.flow_terminal_id());
+        }
         self.snapshot_position.observe_frame(&frame);
         let mut taps = self.taps.lock().unwrap();
         taps.retain(|tap| tap.try_send(frame.clone()));

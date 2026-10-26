@@ -23,6 +23,7 @@ let package = Package(
     dependencies: [
         .package(path: "../CmuxHomeCore"),
         .package(path: "../CmuxHomeRender"),
+        .package(path: "../CmuxFuzzSupport"),
     ],
     targets: [
         .target(
@@ -58,6 +59,7 @@ let package = Package(
                 "MessagesLabHome",
                 .product(name: "CmuxHomeCore", package: "CmuxHomeCore"),
                 .product(name: "CmuxHomeRender", package: "CmuxHomeRender"),
+                .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport"),
             ],
             // MessagesLab's shared/conversation.json (vendor.tsv), read by path.
             exclude: ["Fixtures"],

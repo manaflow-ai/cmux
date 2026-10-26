@@ -134,6 +134,9 @@ FAMILIES: dict[str, tuple[int, str, tuple[str, ...]]] = {
     )),
     "cloud": (0x10, "cmux Cloud session, host replica, conversations and inbox.", ("cloud-*",)),
     "assets": (0x11, "Content-addressed icon assets.", ("put-blob", "get-blob")),
+    "apps": (0x12, "The app supervisor (apps-v1, server/apps.rs): installs, mounts, runs, logs and app op providers.", (
+        "apps-*", "cancel-request",
+    )),
 }
 
 EVENT_FAMILIES: dict[str, tuple[int, str, tuple[str, ...]]] = {
@@ -236,6 +239,14 @@ MEMORY = (
     "subscribe-activity",
     # Start or stop a trace recording: process memory and ring files, never the journal.
     "trace-start", "trace-stop",
+    # The app supervisor's connection state: every apps-* request registers
+    # the connection for apps events; mounts, runs, follows and providers live
+    # until the connection closes. Nothing here is journaled.
+    "apps-list", "apps-terminal-links", "apps-logs", "apps-mount", "apps-unmount", "apps-dispatch",
+    "apps-run", "apps-link-changed", "apps-provider-register", "apps-agent-inventory-changed",
+    "apps-provider-result",
+    # Cancels an in-flight apps-run or script cell of this connection only.
+    "cancel-request",
     # Writes the lease's account, bumps its generation and reconnects sockets.
     "cloud-selfhost-info",
     # Binds the browser host's sockets and starts the host process.
@@ -243,13 +254,14 @@ MEMORY = (
     # Admits a snapshot on the stream's gate (collapse and 500 ms throttle).
     "snapshot-request",
 )
-# The agent CLI update ledger and job reply after their SQLite commit: the app
-# records an intent before it contacts an owner so a restarted app resumes the
-# same update, and a job's receipt names a durable creation record
-# (commands.md "Update intent ledger").
+# apps-set and the App Store mutations of apps-store write apps.json before
+# they apply and reply (apps/supervisor.rs `set`). The agent CLI update ledger
+# and job reply after their SQLite commit: the app records an intent before it
+# contacts an owner so a restarted app resumes the same update, and a job's
+# receipt names a durable creation record (commands.md "Update intent ledger").
 REPLY_AFTER_JOURNAL = (
-    "journal-frontend-event", "agent-cli-intents-record", "agent-cli-intents-settle",
-    "agent-cli-intents-attach", "agent-cli-update-job",
+    "journal-frontend-event", "apps-set", "apps-store", "agent-cli-intents-record",
+    "agent-cli-intents-settle", "agent-cli-intents-attach", "agent-cli-update-job",
 )
 
 # Stream barrier (p05-ipc design 3.4) -------------------------------------------

@@ -616,7 +616,21 @@
       "agent-cli-intents-settle",
       "agent-cli-intents-attach",
       "agent-cli-update-job",
-      "agent-cli-update-job-resolve"
+      "agent-cli-update-job-resolve",
+      "apps-list",
+      "apps-set",
+      "apps-store",
+      "apps-mount",
+      "apps-unmount",
+      "apps-dispatch",
+      "apps-run",
+      "apps-terminal-links",
+      "apps-logs",
+      "apps-link-changed",
+      "apps-provider-register",
+      "apps-agent-inventory-changed",
+      "apps-provider-result",
+      "cancel-request"
     ],
     "provider-authority": [
       "mark-workspaces-provider-managed",

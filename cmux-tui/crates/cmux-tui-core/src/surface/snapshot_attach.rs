@@ -47,7 +47,9 @@ impl SnapshotStreamPosition {
     /// of the grid (resize, host replay) starts a new generation.
     pub(super) fn observe_frame(&self, frame: &AttachFrame) {
         match frame {
-            AttachFrame::Output(output) | AttachFrame::OutputWithColors { output, .. } => {
+            AttachFrame::Output(output)
+            | AttachFrame::FlowOutput { output, .. }
+            | AttachFrame::OutputWithColors { output, .. } => {
                 self.add_output(output.len());
             }
             AttachFrame::Resized { .. } | AttachFrame::ResizedWithColors { .. } => {

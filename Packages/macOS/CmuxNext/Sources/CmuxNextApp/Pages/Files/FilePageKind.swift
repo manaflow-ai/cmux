@@ -1,4 +1,5 @@
 import CmuxNextDesign
+import CmuxNextHibernation
 import CmuxNextIcons
 import CmuxNextPages
 import Foundation
@@ -74,6 +75,13 @@ nonisolated enum FilePageKind: String, Sendable, CaseIterable {
         case .editor: FilePageStrings.editorTitle
         }
     }
+
+    /// When a hidden tab of this page lets its page go (`memoryDiscardInternalPages`): ten minutes,
+    /// as Chrome's proactive discards (proactive_discarding_policy.cc). Both pages edit their file,
+    /// so a tab with unsaved edits is kept at any pressure (``FilePageService/keepReasons(for:)``,
+    /// Chrome's `kUserEdits`); the rebuilt page gets its cursor, scroll and folds back
+    /// (`cmux.<page>.viewState`).
+    var discardPolicy: ContentDiscardPolicy { .standard }
 
     /// Whether this page opens `url`: the markdown page only Markdown files, the editor any file.
     func accepts(_ url: URL) -> Bool {

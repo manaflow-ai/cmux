@@ -6,8 +6,8 @@
 /// same fact it keeps cmux's name and raw value (Chrome's `kPinnedTab` is ``pinned``, the four
 /// `kCapturing*` reasons are ``capturing``). The other cases are cmux's own: the probe's answers
 /// (``webAudio``, ``beforeUnload``, ``unanswered``), agents (``agentLease``, ``agentDriving``,
-/// ``agentBusy``), the neighbor tabs, and ``unsavedEdits`` and ``runningCommand`` for the
-/// non-browser kinds.
+/// ``agentBusy``), the neighbor tabs, and ``unsavedEdits``, ``runningCommand``, ``inProgress`` and ``openPanel``
+/// for the non-browser kinds.
 ///
 /// The raw values of the cases browser hibernation reported before ``ContentDiscardPlanner`` are
 /// unchanged; scripts and benches read them.
@@ -84,6 +84,13 @@ package nonisolated enum CannotDiscardReason: String, Hashable, Sendable, CaseIt
     case unsavedEdits = "unsaved_edits"
     /// A terminal's command still runs.
     case runningCommand = "running_command"
+    /// The content waits on a step the person started from it and that only it shows the end of:
+    /// a machine being created, a pairing code being scanned, a reply being sent. Chrome has no
+    /// such reason: its pages keep such work in a network request that a discard cancels.
+    case inProgress = "in_progress"
+    /// A window the content opened still shows (a Files pane's Get Info panel): its discard would
+    /// close it. Chrome keeps a tab whose DevTools window is open the same way (`kDevToolsOpen`).
+    case openPanel = "open_panel"
 
     /// The case of Chrome's reason `name` (the enumerator's name in `cannot_discard_reason.h`, such
     /// as `kPinnedTab`), or nil when Chrome has no such reason.

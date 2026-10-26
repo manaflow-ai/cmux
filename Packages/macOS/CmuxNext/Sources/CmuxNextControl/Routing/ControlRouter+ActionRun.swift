@@ -129,7 +129,7 @@ extension ControlRouter {
         let executor = self.executor
         let progress = call.progress
         let wait = call.params["wait"]?.boolValue ?? true
-        let scope = progress.track(ControlCommandScope(idempotencyKey: key))
+        let scope = progress.track(ControlCommandScope.automation(idempotencyKey: key))
         let expired = ControlError.timeout(call.method, after: max(call.deadline - .now, .zero))
         // A later step of a composite call (`file.open`'s next path) follows steps that may have applied.
         let firstStep = !progress.hasStarted

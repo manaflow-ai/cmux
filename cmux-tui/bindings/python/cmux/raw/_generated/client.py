@@ -42,6 +42,45 @@ class GeneratedClientMixin:
     def apply_layout(self, layout: DeclarativeLayout, *, workspace: Union[Id, None, MissingType] = MISSING, name: Union[str, None, MissingType] = MISSING, cols: Union[int, None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING) -> ApplyLayoutResult:
         return self._invoke_command('apply-layout', ApplyLayoutRequest(layout=layout, workspace=workspace, name=name, cols=cols, rows=rows))
 
+    def apps_agent_inventory_changed(self, demand_sequence: int) -> EmptyResult:
+        return self._invoke_command('apps-agent-inventory-changed', AppsAgentInventoryChangedRequest(demand_sequence=demand_sequence))
+
+    def apps_dispatch(self, event: str, mount_id: str, node: str, *, origin: Union[AppOrigin, MissingType] = MISSING, payload: Union[JsonValue, None, MissingType] = MISSING) -> EmptyResult:
+        return self._invoke_command('apps-dispatch', AppsDispatchRequest(event=event, mount_id=mount_id, node=node, origin=origin, payload=payload))
+
+    def apps_link_changed(self, *, origin: Union[AppOrigin, MissingType] = MISSING) -> AppsLinkChangedResult:
+        return self._invoke_command('apps-link-changed', AppsLinkChangedRequest(origin=origin))
+
+    def apps_list(self, *, origin: Union[AppOrigin, MissingType] = MISSING) -> AppsListResult:
+        return self._invoke_command('apps-list', AppsListRequest(origin=origin))
+
+    def apps_logs(self, app: str, *, follow: Union[bool, MissingType] = MISSING, origin: Union[AppOrigin, MissingType] = MISSING) -> AppsLogsResult:
+        return self._invoke_command('apps-logs', AppsLogsRequest(app=app, follow=follow, origin=origin))
+
+    def apps_mount(self, app: str, interface: str, mount_id: str, *, context: Union[JsonValue, None, MissingType] = MISSING, origin: Union[AppOrigin, MissingType] = MISSING) -> EmptyResult:
+        return self._invoke_command('apps-mount', AppsMountRequest(app=app, interface=interface, mount_id=mount_id, context=context, origin=origin))
+
+    def apps_provider_register(self, families: List[str], *, inventory_watch: Union[bool, MissingType] = MISSING, origin: Union[AppOrigin, MissingType] = MISSING) -> AppsProviderRegisterResult:
+        return self._invoke_command('apps-provider-register', AppsProviderRegisterRequest(families=families, inventory_watch=inventory_watch, origin=origin))
+
+    def apps_provider_result(self, ok: bool, request_id: int, *, body: Union[JsonValue, None, MissingType] = MISSING, origin: Union[AppOrigin, MissingType] = MISSING) -> EmptyResult:
+        return self._invoke_command('apps-provider-result', AppsProviderResultRequest(ok=ok, request_id=request_id, body=body, origin=origin))
+
+    def apps_run(self, app: str, op: str, *, args: Union[JsonValue, None, MissingType] = MISSING, gesture: Union[str, None, MissingType] = MISSING, idempotency_key: Union[str, None, MissingType] = MISSING, origin: Union[AppOrigin, MissingType] = MISSING) -> AppsRunResult:
+        return self._invoke_command('apps-run', AppsRunRequest(app=app, op=op, args=args, gesture=gesture, idempotency_key=idempotency_key, origin=origin))
+
+    def apps_set(self, app: str, idempotency_key: str, *, enabled: Union[bool, None, MissingType] = MISSING, grant: Union[AppGrant, None, MissingType] = MISSING, hidden: Union[bool, None, MissingType] = MISSING, hidden_access: Union[AppHiddenAccess, None, MissingType] = MISSING, installed: Union[bool, None, MissingType] = MISSING, origin: Union[AppOrigin, MissingType] = MISSING, sandboxed: Union[bool, None, MissingType] = MISSING) -> AppRecord:
+        return self._invoke_command('apps-set', AppsSetRequest(app=app, idempotency_key=idempotency_key, enabled=enabled, grant=grant, hidden=hidden, hidden_access=hidden_access, installed=installed, origin=origin, sandboxed=sandboxed))
+
+    def apps_store(self, op: str, *, args: Union[JsonValue, None, MissingType] = MISSING, origin: Union[AppOrigin, MissingType] = MISSING) -> JsonValue:
+        return self._invoke_command('apps-store', AppsStoreRequest(op=op, args=args, origin=origin))
+
+    def apps_terminal_links(self, *, origin: Union[AppOrigin, MissingType] = MISSING) -> AppsTerminalLinksResult:
+        return self._invoke_command('apps-terminal-links', AppsTerminalLinksRequest(origin=origin))
+
+    def apps_unmount(self, mount_id: str, *, origin: Union[AppOrigin, MissingType] = MISSING) -> EmptyResult:
+        return self._invoke_command('apps-unmount', AppsUnmountRequest(mount_id=mount_id, origin=origin))
+
     def attach_surface(self, surface: Union[Id, None, MissingType] = MISSING, *, cols: Union[int, None, MissingType] = MISSING, expected_generation: Union[str, None, MissingType] = MISSING, expected_terminal_id: Union[str, None, MissingType] = MISSING, mode: Union[Literal['bytes', 'render'], None, MissingType] = MISSING, rows: Union[int, None, MissingType] = MISSING, snapshot: Union[str, None, MissingType] = MISSING, snapshot_images: Union[bool, MissingType] = MISSING, snapshot_local_history: Union[bool, MissingType] = MISSING, snapshot_version: Union[int, None, MissingType] = MISSING, viewer_backlog_bytes: Union[int, None, MissingType] = MISSING) -> Any:
         return self._open_command_stream('attach-surface', AttachSurfaceRequest(surface=surface, cols=cols, expected_generation=expected_generation, expected_terminal_id=expected_terminal_id, mode=mode, rows=rows, snapshot=snapshot, snapshot_images=snapshot_images, snapshot_local_history=snapshot_local_history, snapshot_version=snapshot_version, viewer_backlog_bytes=viewer_backlog_bytes))
 
@@ -89,6 +128,9 @@ class GeneratedClientMixin:
 
     def browser_wheel_guarded(self, surface: Id, delta_y_px: float, frame_seq: int, x_px: float, y_px: float) -> EmptyResult:
         return self._invoke_command('browser-wheel-guarded', BrowserWheelGuardedRequest(surface=surface, delta_y_px=delta_y_px, frame_seq=frame_seq, x_px=x_px, y_px=y_px))
+
+    def cancel_request(self, target: Union[JsonValue, None]) -> EmptyResult:
+        return self._invoke_command('cancel-request', CancelRequestRequest(target=target))
 
     def chief_inspect(self, path: str, *, query: Union[Dict[str, str], MissingType] = MISSING) -> ChiefInspectResult:
         return self._invoke_command('chief-inspect', ChiefInspectRequest(path=path, query=query))
@@ -905,6 +947,19 @@ GeneratedClientMixin.agent_cli_intents_settle.__cmux_command__ = COMMANDS['agent
 GeneratedClientMixin.agent_cli_update_job.__cmux_command__ = COMMANDS['agent-cli-update-job']
 GeneratedClientMixin.agent_cli_update_job_resolve.__cmux_command__ = COMMANDS['agent-cli-update-job-resolve']
 GeneratedClientMixin.apply_layout.__cmux_command__ = COMMANDS['apply-layout']
+GeneratedClientMixin.apps_agent_inventory_changed.__cmux_command__ = COMMANDS['apps-agent-inventory-changed']
+GeneratedClientMixin.apps_dispatch.__cmux_command__ = COMMANDS['apps-dispatch']
+GeneratedClientMixin.apps_link_changed.__cmux_command__ = COMMANDS['apps-link-changed']
+GeneratedClientMixin.apps_list.__cmux_command__ = COMMANDS['apps-list']
+GeneratedClientMixin.apps_logs.__cmux_command__ = COMMANDS['apps-logs']
+GeneratedClientMixin.apps_mount.__cmux_command__ = COMMANDS['apps-mount']
+GeneratedClientMixin.apps_provider_register.__cmux_command__ = COMMANDS['apps-provider-register']
+GeneratedClientMixin.apps_provider_result.__cmux_command__ = COMMANDS['apps-provider-result']
+GeneratedClientMixin.apps_run.__cmux_command__ = COMMANDS['apps-run']
+GeneratedClientMixin.apps_set.__cmux_command__ = COMMANDS['apps-set']
+GeneratedClientMixin.apps_store.__cmux_command__ = COMMANDS['apps-store']
+GeneratedClientMixin.apps_terminal_links.__cmux_command__ = COMMANDS['apps-terminal-links']
+GeneratedClientMixin.apps_unmount.__cmux_command__ = COMMANDS['apps-unmount']
 GeneratedClientMixin.attach_surface.__cmux_command__ = COMMANDS['attach-surface']
 GeneratedClientMixin.bind_conversation_tab_session.__cmux_command__ = COMMANDS['bind-conversation-tab-session']
 GeneratedClientMixin.browser_activate.__cmux_command__ = COMMANDS['browser-activate']
@@ -921,6 +976,7 @@ GeneratedClientMixin.browser_navigate.__cmux_command__ = COMMANDS['browser-navig
 GeneratedClientMixin.browser_reload.__cmux_command__ = COMMANDS['browser-reload']
 GeneratedClientMixin.browser_wheel.__cmux_command__ = COMMANDS['browser-wheel']
 GeneratedClientMixin.browser_wheel_guarded.__cmux_command__ = COMMANDS['browser-wheel-guarded']
+GeneratedClientMixin.cancel_request.__cmux_command__ = COMMANDS['cancel-request']
 GeneratedClientMixin.chief_inspect.__cmux_command__ = COMMANDS['chief-inspect']
 GeneratedClientMixin.clear_history.__cmux_command__ = COMMANDS['clear-history']
 GeneratedClientMixin.clear_window_title.__cmux_command__ = COMMANDS['clear-window-title']
