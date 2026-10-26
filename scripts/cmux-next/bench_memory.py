@@ -32,6 +32,14 @@ Usage:
       [--settle 30] [--measure 0] [--churn-minutes 0] [--sample-minutes 5]
       [--url URL] [--top 15] [--config JSON] [--fake-agent SCRIPT] [--out FILE.json]
   bench_memory.py --app BUNDLE --tabs 1,10,20 [--urls local|real|URL,URL,...] [--settle 30]
+  bench_memory.py --app BUNDLE ... --kernel-pressure warn|critical [--kernel-pressure-window 5]
+
+--kernel-pressure warn|critical then feeds real kernel pressure
+(`/usr/bin/memory_pressure -S -l LEVEL`, root or passwordless sudo; without
+either it says so and skips that step): kern.memorystatus_vm_pressure_level
+changes and the app's kernel source reads it. Printed as PERF-KERNEL-PRESSURE:
+when the kernel reached the level and the footprint before and after
+--kernel-pressure-window seconds.
 
 Prints a table per measurement (top processes by footprint, totals per
 kind) and writes every sample to --out.
@@ -41,6 +49,7 @@ from __future__ import annotations
 import argparse
 import ctypes
 import json
+import math
 import os
 import plistlib
 import re
@@ -579,6 +588,108 @@ def open_browser_tab(app: App, url: str) -> bool:
     return True
 
 
+KERNEL_LEVELS = {"warn": 2, "critical": 4}
+MEMORY_PRESSURE = "/usr/bin/memory_pressure"
+
+
+def kernel_pressure_level() -> int | None:
+    """kern.memorystatus_vm_pressure_level (1 normal, 2 warn, 4 critical): the
+    level the app's KernelMemoryPressureSource reads on each event. None when
+    sysctl fails."""
+    value = ctypes.c_int32(0)
+    size = ctypes.c_size_t(ctypes.sizeof(value))
+    if _libsystem.sysctlbyname(b"kern.memorystatus_vm_pressure_level", ctypes.byref(value),
+                               ctypes.byref(size), None, ctypes.c_size_t(0)) != 0:
+        return None
+    return value.value
+
+
+def owned_footprint_mb(app_pid: int, bundle: str) -> float:
+    total = 0
+    for pid in owned(app_pid, bundle):
+        got = usage(pid)
+        if got is not None:
+            total += got[1]
+    return round(total / MB, 1)
+
+
+def kernel_pressure(app_pid: int, bundle: str, level: str, window: float, workspaces: int, top: int) -> dict:
+    """Real kernel pressure (`memory_pressure -S -l LEVEL`), not the app's
+    debug override: the kernel's level changes, every process's dispatch
+    source fires, and the app reads the new level. Samples the footprint of
+    the app and its processes before, every 0.5 s for `window` seconds, and
+    after. memory_pressure -S needs root: without it (and without passwordless
+    sudo) this records why and the run goes on.
+
+    memory_pressure holds the level for -s seconds, then resets it to normal;
+    it has no signal handler, so a killed simulator never resets. The hold is
+    the window, so it ends with the window; on an interrupt the run waits only
+    for the rest of the hold, then terminates the simulator."""
+    hold = max(1, math.ceil(window))
+    result = {"level": level, "window_s": window}
+    argv = [MEMORY_PRESSURE, "-S", "-l", level, "-s", str(hold)]
+    if not os.access(MEMORY_PRESSURE, os.X_OK):
+        result["skipped"] = f"{MEMORY_PRESSURE} not found"
+    elif os.geteuid() != 0:
+        if subprocess.run(["sudo", "-n", "true"], capture_output=True).returncode != 0:
+            result["skipped"] = "memory_pressure -S needs root: run as root or allow passwordless sudo"
+        argv = ["sudo", "-n"] + argv
+    if "skipped" in result:
+        print(f"bench-memory: --kernel-pressure {level} skipped: {result['skipped']}", flush=True)
+        return result
+    want = KERNEL_LEVELS[level]
+    before = sample(app_pid, bundle, f"kernel-pressure-{level}-before", workspaces)
+    print_sample(before, top)
+    result["kernel_level_before"] = kernel_pressure_level()
+    simulator = subprocess.Popen(argv, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
+    started = time.monotonic()
+    timeline = []
+    try:
+        while time.monotonic() - started < window:
+            time.sleep(0.5)  # test script: the footprint timeline under pressure
+            seen = kernel_pressure_level()
+            timeline.append({"t_s": round(time.monotonic() - started, 2), "kernel_level": seen,
+                             "total_footprint_mb": owned_footprint_mb(app_pid, bundle)})
+            if seen == want and "kernel_level_reached_s" not in result:
+                result["kernel_level_reached_s"] = timeline[-1]["t_s"]
+            if simulator.poll() is not None and simulator.returncode != 0:
+                break
+        after = sample(app_pid, bundle, f"kernel-pressure-{level}-after", workspaces)
+        print_sample(after, top)
+    except BaseException:
+        # Ctrl-C or SIGTERM: wait at most for the rest of the hold (its reset), then stop it.
+        stop_simulator(simulator, max(0.0, hold - (time.monotonic() - started)) + 2)
+        raise
+    _, errors = stop_simulator(simulator, hold + 10)
+    result["kernel_level_after"] = kernel_pressure_level()
+    if simulator.returncode != 0:
+        result["simulator_error"] = (errors or "").strip()[:300] or f"exit {simulator.returncode}"
+    fall = before["total_footprint_mb"] - after["total_footprint_mb"]
+    result.update({"timeline": timeline, "footprint_before_mb": before["total_footprint_mb"],
+                   "footprint_after_mb": after["total_footprint_mb"], "fall_mb": round(fall, 1),
+                   "fall_pct": round(100 * fall / before["total_footprint_mb"], 1) if before["total_footprint_mb"] else None,
+                   "samples": [before, after]})
+    print(f"PERF-KERNEL-PRESSURE level={level} kernel_level_reached_s={result.get('kernel_level_reached_s')} "
+          f"footprint_before_mb={result['footprint_before_mb']} footprint_after_mb={result['footprint_after_mb']} "
+          f"fall_mb={result['fall_mb']} fall_pct={result['fall_pct']} "
+          f"simulator_error={result.get('simulator_error')}", flush=True)
+    if "kernel_level_reached_s" not in result:
+        print(f"bench-memory: kern.memorystatus_vm_pressure_level never reached {want} within {window} s", flush=True)
+    return result
+
+
+def stop_simulator(simulator: subprocess.Popen, timeout: float) -> tuple[str | None, str | None]:
+    """Waits up to `timeout` s for memory_pressure to reset the level and
+    exit; terminates it after that, saying the level may stay simulated."""
+    try:
+        return simulator.communicate(timeout=timeout)
+    except subprocess.TimeoutExpired:
+        simulator.terminate()
+        print("bench-memory: memory_pressure did not end with its hold and was terminated; the simulated "
+              "level stays until the next memory_pressure -S run resets it", file=sys.stderr, flush=True)
+        return simulator.communicate()
+
+
 def interrupted(_signum, _frame):
     raise KeyboardInterrupt
 
@@ -606,6 +717,11 @@ def main():
     parser.add_argument("--fake-agent", metavar="SCRIPT",
                         help="an ACP agent script (cmux-tui/crates/acpmux/tests/fake_agent.py) the chats use: "
                              "its turns end, as a chat's do after its reply")
+    parser.add_argument("--kernel-pressure", choices=sorted(KERNEL_LEVELS),
+                        help="after the counts, feed real kernel pressure (/usr/bin/memory_pressure -S, needs root "
+                             "or passwordless sudo) and sample the footprint before, during and after")
+    parser.add_argument("--kernel-pressure-window", type=float, default=5,
+                        help="--kernel-pressure: seconds to sample under pressure")
     parser.add_argument("--out")
     args = parser.parse_args()
     # SIGTERM (a timeout, a scheduler) ends the run through its cleanup, as Ctrl-C does.
@@ -662,6 +778,9 @@ def main():
                     break
                 opened.append(workspace)
             settle_and_sample(f"idle-{count}")
+        if args.kernel_pressure:
+            report["kernel_pressure"] = kernel_pressure(app_pid, bundle, args.kernel_pressure,
+                                                        args.kernel_pressure_window, len(opened) + 1, args.top)
         if args.churn_minutes > 0:
             end = time.monotonic() + args.churn_minutes * 60
             next_sample = time.monotonic() + args.sample_minutes * 60
