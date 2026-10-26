@@ -21,14 +21,7 @@ import { useT, type StringKey } from "../i18n";
 import { Icon } from "../icons/Icon";
 import type { AcpmuxRow } from "../model";
 import { canRestart, STOP_REASON_LABEL } from "./restart";
-import {
-  retryActionOf,
-  retrying,
-  retryLabel,
-  type RetryAction,
-  type RetryNote,
-  type RetryState,
-} from "./retryState";
+import { retryActionOf, retrying, retryLabel, type RetryAction, type RetryNote, type RetryState } from "./retryState";
 import { elapsed, SubagentNavContext, SubagentPaneContext } from "./SubagentGroup";
 import { useSubsessionInfo } from "./subsessions";
 import type { Subagent } from "./subagentFold";
