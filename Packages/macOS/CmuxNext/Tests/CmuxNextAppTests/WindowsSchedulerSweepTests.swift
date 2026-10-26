@@ -1,6 +1,8 @@
 import AppKit
 @testable import CmuxNextApp
+import CmuxNextSidebar
 import CmuxNextWakeups
+import Foundation
 import Observation
 import Testing
 
@@ -36,8 +38,37 @@ import Testing
         names.title = "A"
         names.title = "B"
         #expect(band.sidebarToggle.accessibilityLabel() == "Hide Sidebar", "a change applies nothing in its own turn")
+        // Each change re-arms the tracking with one read (VisibleObservation rule 2); the frame reads and applies once.
+        let beforeFrame = names.reads
         rig.frame()
         #expect(band.sidebarToggle.accessibilityLabel() == "B")
+        #expect(names.reads == beforeFrame + 1, "two changes in one turn applied \(names.reads - beforeFrame) times on the frame")
+        rig.frame()
+        #expect(names.reads == beforeFrame + 1, "a frame with no change read the title again")
+    }
+
+    // MARK: ServiceObservation (WindowController.sidebarHidden)
+
+    @Test func aHiddenWindowsSidebarToggleStillAppliesOnTheFrame() throws {
+        _ = NSApplication.shared
+        let rig = MainDeadlineRig()
+        let services = AppServices(environment: AppEnvironment.current([:]), mainWork: rig.deadlines.work)
+        let record = try JSONDecoder().decode(WindowRecord.self, from: Data(#"{"id":"sweep-hidden","workspace_key":"k1"}"#.utf8))
+        let controller = WindowController(state: WindowState(record: record), services: services,
+                                          frame: NSRect(x: 200, y: 200, width: 1100, height: 720))
+        defer {
+            controller.teardown()
+            controller.window?.close()
+        }
+        controller.visibility.set(.hidden)
+        try #require(!controller.visibility.isVisible)
+        try #require(!controller.root.sidebarHidden, "the first value applies when the observation starts")
+
+        controller.sidebar.model.presentation = .hidden
+        rig.frame()
+        // The hover cards and the pages hear it from here, so it must not wait for the window to show.
+        #expect(controller.root.sidebarHidden, "a hidden window's sidebar observation waited for the window to show")
+        withExtendedLifetime(services) {}
     }
 
     // MARK: ObservedCondition (FirstTabHold, DaemonStore.mirrored)

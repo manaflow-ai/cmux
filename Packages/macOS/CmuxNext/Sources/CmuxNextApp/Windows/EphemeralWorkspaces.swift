@@ -32,26 +32,38 @@ enum EphemeralWorkspaces {
         manager.pendingEphemeralWindows.append(windowID)
         guard let connection = daemon.connection else { return createdWorkspace(manager, window: windowID) }
         // The person's new window: the daemon's replies are awaited off main, each main step is a task of its own.
+        // All of it runs in the caller's action scopes, so its run waits for the commands and a retry replays them.
+        let scopes = ActionScopes.current
         services.work.task(.userBlocking) {
-            do {
-                let created = try await connection.state.createWorkspace(name: nil, ephemeral: true, terminal: true, focus: true)
-                await daemon.appliedThroughReply(on: connection, after: "create incognito workspace")
-                let claimed = await mainWork.apply(.visible, owner: "EphemeralWorkspaces.claim") { () -> ClaimedTab? in
-                    guard let workspace = daemon.store.workspace(resourceID: created.workspaceID) else { return nil }
-                    manager.claimNew(workspaceID: workspace.id, window: windowID)
-                    let tab = workspace.screens.flatMap(\.panes).lazy.flatMap(\.tabs).first { $0.resourceID == created.tabID }
-                    guard let tab, let pane = daemon.store.pane(containing: tab.surface) else { return nil }
-                    return ClaimedTab(tab: tab.surface, pane: pane.handle)
+            await scopes.awaiting {
+                do {
+                    let created = try await connection.state.createWorkspace(name: nil, ephemeral: true, terminal: true, focus: true)
+                    await daemon.appliedThroughReply(on: connection, after: "create incognito workspace")
+                    let claimed = await mainWork.apply(.visible, owner: "EphemeralWorkspaces.claim") { () -> ClaimedTab? in
+                        scopes.applying { EphemeralWorkspaces.claim(manager, window: windowID, created: created) }
+                    }
+                    if let claimed {
+                        _ = try await browserTabs.open(choice, in: claimed.pane, on: daemon, url: address, incognito: true)
+                        try await connection.closeTab(claimed.tab)
+                    }
+                } catch {
+                    logger.error("new incognito window failed: \(String(describing: error), privacy: .public)")
                 }
-                if let claimed {
-                    _ = try await browserTabs.open(choice, in: claimed.pane, on: daemon, url: address, incognito: true)
-                    try await connection.closeTab(claimed.tab)
+                mainWork.postFromAnyThread(.visible, owner: "EphemeralWorkspaces.created") {
+                    scopes.applying { EphemeralWorkspaces.createdWorkspace(manager, window: windowID) }
                 }
-            } catch {
-                logger.error("new incognito window failed: \(String(describing: error), privacy: .public)")
             }
-            mainWork.postFromAnyThread(.visible, owner: "EphemeralWorkspaces.created") { EphemeralWorkspaces.createdWorkspace(manager, window: windowID) }
         }
+    }
+
+    /// Gives the created workspace to the new incognito window; returns its terminal tab and pane.
+    private static func claim(_ manager: WindowManager, window windowID: String, created: StateResourceClient.CreatedWorkspace) -> ClaimedTab? {
+        let store = manager.services.daemon.store
+        guard let workspace = store.workspace(resourceID: created.workspaceID) else { return nil }
+        manager.claimNew(workspaceID: workspace.id, window: windowID)
+        let tab = workspace.screens.flatMap(\.panes).lazy.flatMap(\.tabs).first { $0.resourceID == created.tabID }
+        guard let tab, let pane = store.pane(containing: tab.surface) else { return nil }
+        return ClaimedTab(tab: tab.surface, pane: pane.handle)
     }
 
     /// The new workspace's terminal tab, which the browser tab replaces, and its pane.

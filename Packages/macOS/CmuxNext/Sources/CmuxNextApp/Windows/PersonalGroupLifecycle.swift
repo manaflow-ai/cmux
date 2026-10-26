@@ -152,16 +152,20 @@ struct PersonalGroupLife {
             if !ok { failed() }
         })
         // The person's organization command: the replies are awaited off main, each step after one is a visible task.
+        // Both run in the caller's action scopes, so its run waits for them and a retry replays them.
+        let scopes = ActionScopes.current
         work.task(.userVisible) {
-            let value = await home.request(label, transaction: transaction, { connection, _ in try await body(connection) })
-            let doomed = await mainWork.apply(.visible, owner: "PersonalGroupLife.landed") { steps.replied(value) }
-            guard !doomed.isEmpty else { return }
-            let deleted = await home.request("delete-personal-group") { connection in
-                for group in doomed {
-                    if v2 { try await connection.state.deleteWorkspaceGroup(group.rawValue) } else { try await connection.deletePersonalGroup(group) }
+            await scopes.awaiting {
+                let value = await home.request(label, transaction: transaction, { connection, _ in try await body(connection) })
+                let doomed = await mainWork.apply(.visible, owner: "PersonalGroupLife.landed") { scopes.applying { steps.replied(value) } }
+                guard !doomed.isEmpty else { return }
+                let deleted = await home.request("delete-personal-group") { connection in
+                    for group in doomed {
+                        if v2 { try await connection.state.deleteWorkspaceGroup(group.rawValue) } else { try await connection.deletePersonalGroup(group) }
+                    }
                 }
+                mainWork.postFromAnyThread(.visible, owner: "PersonalGroupLife.deleted") { scopes.applying { steps.deleted(deleted != nil) } }
             }
-            mainWork.postFromAnyThread(.visible, owner: "PersonalGroupLife.deleted") { steps.deleted(deleted != nil) }
         }
     }
 
