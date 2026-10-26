@@ -14,6 +14,7 @@ import importlib.util
 import io
 import json
 import random
+import re
 import subprocess
 import sys
 import tempfile
@@ -445,6 +446,34 @@ class Report(unittest.TestCase):
         self.assertEqual(rows, ["CmuxNextCompat", "CmuxNextHome", "CmuxNextNaming", "CmuxNextSettings", "CmuxNextTerminal"])
         self.assertEqual(self.run_main("--target", "Nope")[0], 2)
 
+    def test_a_directory_the_graph_does_not_cover_is_still_scanned(self):
+        self.fx.write("Packages/macOS/CmuxNext/Tests/CmuxNextNewTests/NewTests.swift", "import Testing\nimport Darwin\n")
+        self.fx.write(f"{SOURCES}/CmuxNextFresh/Fresh.swift", "import Foundation\n")
+        self.fx.write(f"{SOURCES}/Loose.swift", "import AppKit\n")  # not a target directory
+        self.fx.write(f"{SOURCES}/CmuxNextFresh/README.md", "import AppKit\n")  # not a source file
+        report = self.fx.report()
+        self.assertEqual(sorted(report["unmapped"]), ["Sources/CmuxNextFresh", "Tests/CmuxNextNewTests"])
+        self.assertEqual(report["unmapped"]["Sources/CmuxNextFresh"]["status"], "ok")
+        new = report["unmapped"]["Tests/CmuxNextNewTests"]
+        self.assertEqual((new["status"], [f["module"] for f in new["imports"]]), ("direct", ["Darwin"]))
+        self.assertEqual((report["summary"]["unmapped"], report["summary"]["unmapped_direct"]), (2, 1))
+        code, out, _ = self.run_main("--files")
+        self.assertIn(
+            "Packages/macOS/CmuxNext/Tests/CmuxNextNewTests/NewTests.swift:2\tunmapped:Tests/CmuxNextNewTests\tDarwin",
+            out.splitlines(),
+        )
+        self.assertIn("2 directories not in the graph (1 with findings)", self.run_main("--summary")[1])
+        code, out, _ = self.run_main("--blocked")
+        self.assertIn("# not in the graph Tests/CmuxNextNewTests: direct Darwin(1)", out)
+        self.assertNotIn("CmuxNextFresh", out)
+        # A target filter names graph targets only.
+        self.assertNotIn("unmapped:", self.run_main("--files", "--target", "Compat")[1])
+        # Once the graph covers it, the directory is a target again.
+        graph = json.loads((self.root / ti.GRAPH_PATH).read_text())
+        graph["targets"]["CmuxNextFresh"] = target(f"{SOURCES}/CmuxNextFresh")
+        self.fx.graph(graph["targets"], graph["packages"])
+        self.assertEqual(sorted(self.fx.report()["unmapped"]), ["Tests/CmuxNextNewTests"])
+
     def test_missing_graph_is_an_input_error(self):
         (self.root / ti.GRAPH_PATH).unlink()
         code, _, err = self.run_main()
@@ -456,7 +485,8 @@ class LiveTree(unittest.TestCase):
     def test_the_real_graph_scans_and_catches_every_os_import(self):
         report = ti.build_report(ti.WorkingTree(REPO))
         self.assertGreater(len(report["targets"]), 100)
-        caught = {f["file"] for e in report["targets"].values() for f in e["imports"] if f["module"].split(".")[0] in ("os", "OSLog")}
+        entries = list(report["targets"].values()) + list(report["unmapped"].values())
+        caught = {f["file"] for e in entries for f in e["imports"] if f["module"].split(".")[0] in ("os", "OSLog")}
         listed = subprocess.run(
             ["git", "-C", str(REPO), "grep", "-lE",
              r"^\s*(@\w+ +)*((public|package|internal) +)?import +((struct|class|enum|func|typealias) +)?(os|OSLog)\b",
@@ -468,6 +498,27 @@ class LiveTree(unittest.TestCase):
         skipped = [path for path in sorted(set(listed) - caught) if "#if" not in (REPO / path).read_text()]
         self.assertEqual(skipped, [])
         self.assertEqual(report["targets"]["CmuxNextSignposts"]["status"], "direct")
+
+    def test_every_file_the_queue_regex_matches_is_caught(self):
+        # The MQ-linux-imports regex as plans/cmux-next/chrome-parity/p15-oracle.md writes it.
+        queue = re.compile(
+            r"^\s*(@[A-Za-z_]+ )*(public |package |internal )?import (struct |class |enum |func |typealias "
+            r"|protocol |var |let )?(" + "|".join(ti.QUEUE_MODULES) + r")(\.[A-Za-z]+)*\s*$",
+            re.M,
+        )
+        report = ti.build_report(ti.WorkingTree(REPO))
+        entries = list(report["targets"].values()) + list(report["unmapped"].values())
+        caught = {f["file"] for e in entries for f in e["imports"]}
+        package = REPO / ti.PACKAGE_DIR
+        matched = sorted(
+            path.relative_to(REPO).as_posix()
+            for top in ("Sources", "Tests")
+            for path in (package / top).rglob("*.swift")
+            if queue.search(path.read_text(errors="replace"))
+        )
+        self.assertGreater(len(matched), 100)
+        skipped = [path for path in matched if path not in caught and "#if" not in (REPO / path).read_text()]
+        self.assertEqual(skipped, [])
 
 
 if __name__ == "__main__":

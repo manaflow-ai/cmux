@@ -27,6 +27,10 @@ blocked by an xcframework binary target (SwiftPM on Linux reads artifact bundles
 by a package it depends on by path. External products (Sparkle, sentry-cocoa) are caught by their module
 names. CCmuxAppFFI counts as available: the Linux mode maps it to CCmuxAppFFILinux (task 002).
 
+A directory under Sources/ or Tests/ that no graph target covers (the generated graph is older than
+Package.swift) is scanned too and reported under `unmapped`, so a stale graph never hides a file; regenerate
+the graph with scripts/cmux-next/ci-target-graph.py to give it edges.
+
 When Packages/macOS/CmuxNext/linux-tier.json exists, each target shows its wave, and `--check` exits 1 when a
 tier target is blocked (task 226: every wave-3 target is in-tier or names its blocking edge).
 
@@ -63,6 +67,9 @@ ROOT = Path(__file__).resolve().parents[3]
 PACKAGE_DIR = "Packages/macOS/CmuxNext"
 GRAPH_PATH = f"{PACKAGE_DIR}/ci-target-graph.json"
 TIER_PATH = f"{PACKAGE_DIR}/linux-tier.json"
+# Where SwiftPM target directories live; a directory here that no graph target covers is reported as unmapped.
+TARGET_ROOTS = (f"{PACKAGE_DIR}/Sources", f"{PACKAGE_DIR}/Tests")
+UNMAPPED_PREFIX = "unmapped:"
 LINUX_WORKFLOWS = (
     ".github/workflows/swift-packages-linux.yml",
     ".github/workflows/cmux-next-terminal.yml",
@@ -534,9 +541,14 @@ def findings(scans: Mapping[str, FileScan], attribute: str, key: str) -> list[di
     ]
 
 
+SOURCE_EXTENSIONS = SWIFT_EXTENSIONS + C_EXTENSIONS + OBJC_EXTENSIONS
+
+
 def scan_directory(source: Source, directory: str) -> dict[str, FileScan]:
-    extensions = SWIFT_EXTENSIONS + C_EXTENSIONS + OBJC_EXTENSIONS
-    paths = [p for p in source.files(directory) if p.endswith(extensions)]
+    return scan_paths(source, [p for p in source.files(directory) if p.endswith(SOURCE_EXTENSIONS)])
+
+
+def scan_paths(source: Source, paths: Iterable[str]) -> dict[str, FileScan]:
     texts = source.read_many(paths)
     scans = {path: scan_file(path, texts[path]) for path in sorted(texts)}
     return {path: scan for path, scan in scans.items() if scan.imports or scan.symbols}
@@ -580,6 +592,21 @@ def package_nodes(source: Source, roots: Mapping[str, str]) -> dict[str, Node]:
     return nodes
 
 
+def unmapped_directories(source: Source, covered: Iterable[str]) -> dict[str, list[str]]:
+    """Target directories (`Sources/X`, `Tests/X`) -> their source files that no graph target path covers."""
+    prefixes = tuple(normalize(path).rstrip("/") + "/" for path in covered)
+    groups: dict[str, list[str]] = {}
+    for root in TARGET_ROOTS:
+        for path in source.files(root):
+            if not path.endswith(SOURCE_EXTENSIONS) or path.startswith(prefixes):
+                continue
+            rest = path[len(root) + 1:]
+            if "/" not in rest:
+                continue  # a loose file is not a target directory
+            groups.setdefault(f"{root}/{rest.split('/', 1)[0]}", []).append(path)
+    return {directory: sorted(files) for directory, files in sorted(groups.items())}
+
+
 def read_tier(source: Source, names: Iterable[str]) -> dict[str, str]:
     """Target name -> wave label from linux-tier.json (`.waves[][]`), or {} when there is no tier file."""
     text = source.read(TIER_PATH)
@@ -621,6 +648,19 @@ def build_report(source: Source) -> dict:
             node.symbols = findings(scans, "symbols", "symbol")
         nodes[name] = node
 
+    unmapped = {}
+    covered = [info["path"] for info in targets.values() if info.get("path")]
+    for directory, paths in unmapped_directories(source, covered).items():
+        scans = scan_paths(source, paths)
+        imports, symbols = findings(scans, "imports", "module"), findings(scans, "symbols", "symbol")
+        unmapped[directory.removeprefix(PACKAGE_DIR + "/")] = {
+            "path": directory,
+            "files": len(paths),
+            "status": "direct" if imports or symbols else "ok",
+            "imports": imports,
+            "symbols": symbols,
+        }
+
     tier = read_tier(source, targets)
     for name, wave in tier.items():
         if name in nodes:
@@ -651,8 +691,9 @@ def build_report(source: Source) -> dict:
         "symbols": list(SYMBOL_NAMES),
         "packages": report_packages,
         "targets": report_targets,
+        "unmapped": unmapped,
         "tier_missing_from_graph": missing,
-        "summary": summarize(report_targets, missing),
+        "summary": summarize(report_targets, unmapped, missing),
     }
 
 
@@ -727,17 +768,20 @@ def target_entry(node: Node, nodes: Mapping[str, Node], blocked: set[str]) -> di
     }
 
 
-def summarize(targets: Mapping[str, dict], missing: list[str]) -> dict:
+def summarize(targets: Mapping[str, dict], unmapped: Mapping[str, dict], missing: list[str]) -> dict:
     counts = {"ok": 0, "direct": 0, "transitive": 0}
     tier = {"ok": 0, "direct": 0, "transitive": 0}
     for entry in targets.values():
         counts[entry["status"]] += 1
         if entry["wave"] is not None:
             tier[entry["status"]] += 1
-    files = {f["file"] for e in targets.values() for f in e["imports"] + e["symbols"]}
+    entries = list(targets.values()) + list(unmapped.values())
+    files = {f["file"] for e in entries for f in e["imports"] + e["symbols"]}
     return {
         "targets": len(targets),
         **counts,
+        "unmapped": len(unmapped),
+        "unmapped_direct": sum(1 for e in unmapped.values() if e["status"] == "direct"),
         "files_with_findings": len(files),
         "tier": {**tier, "missing_from_graph": len(missing)},
     }
@@ -757,7 +801,7 @@ def short(name: str) -> str:
     return name.replace("package:", "pkg:")
 
 
-def render_table(report: dict, names: list[str]) -> str:
+def render_table(report: dict, names: list[str], unmapped: Iterable[str]) -> str:
     lines = ["# target\tkind\twave\tstatus\timports\tsymbols\tblocked deps\troots"]
     for name in names:
         entry = report["targets"][name]
@@ -778,14 +822,20 @@ def render_table(report: dict, names: list[str]) -> str:
         why = entry["reason"] or (tally(entry["imports"], "module") if entry["imports"] else "")
         via = ",".join(entry["blocked_deps"])
         lines.append(f"# package {name}: {entry['status']} {why}{' via ' + via if via else ''}".rstrip())
+    for name in unmapped:
+        entry = report["unmapped"][name]
+        found = " ".join(filter(None, [tally(entry["imports"], "module") if entry["imports"] else "",
+                                       tally(entry["symbols"], "symbol") if entry["symbols"] else ""]))
+        lines.append(f"# not in the graph {name}: {entry['status']} {found}".rstrip())
     lines.append(render_summary(report))
     return "\n".join(lines)
 
 
-def render_files(report: dict, names: list[str]) -> str:
+def render_files(report: dict, names: list[str], unmapped: Iterable[str]) -> str:
     rows = []
-    for name in names:
-        entry = report["targets"][name]
+    entries = [(name, report["targets"][name]) for name in names]
+    entries += [(UNMAPPED_PREFIX + name, report["unmapped"][name]) for name in unmapped]
+    for name, entry in entries:
         rows += [(f["file"], f["line"], name, f["module"]) for f in entry["imports"]]
         rows += [(f["file"], f["line"], name, f["symbol"]) for f in entry["symbols"]]
     return "\n".join(f"{path}:{line}\t{target}\t{what}" for path, line, target, what in sorted(rows))
@@ -797,6 +847,8 @@ def render_summary(report: dict) -> str:
         f"# {report['source']}: {s['targets']} targets, {s['ok']} ok, {s['direct']} direct, "
         f"{s['transitive']} transitive; {s['files_with_findings']} files with findings"
     )
+    if s["unmapped"]:
+        text += f"; {s['unmapped']} directories not in the graph ({s['unmapped_direct']} with findings)"
     if report["tier"]:
         t = s["tier"]
         text += (
@@ -836,6 +888,8 @@ def main(argv: list[str] | None = None) -> int:
         source: Source = GitTree(args.root, args.rev) if args.rev else WorkingTree(args.root)
         report = build_report(source)
         names = resolve_names(report, args.target) if args.target else sorted(report["targets"])
+        # A target filter selects graph targets; the unmapped directories have no target name to match.
+        unmapped = [] if args.target else sorted(report["unmapped"])
     except (InputError, json.JSONDecodeError, KeyError) as error:
         print(f"tier-imports: {error}", file=sys.stderr)
         return 2
@@ -844,21 +898,28 @@ def main(argv: list[str] | None = None) -> int:
         return 2
     if args.blocked:
         names = [n for n in names if report["targets"][n]["status"] != "ok"]
+        unmapped = [n for n in unmapped if report["unmapped"][n]["status"] != "ok"]
 
     if args.json:
-        selected = dict(report, targets={n: report["targets"][n] for n in names})
+        selected = dict(
+            report,
+            targets={n: report["targets"][n] for n in names},
+            unmapped={n: report["unmapped"][n] for n in unmapped},
+        )
         print(json.dumps(selected, indent=2, sort_keys=True))
     elif args.files:
-        print(render_files(report, names))
+        print(render_files(report, names, unmapped))
     elif args.summary:
         print(render_summary(report))
     else:
-        print(render_table(report, names))
+        print(render_table(report, names, unmapped))
 
     if args.check:
         failing = sorted(
             n for n, e in report["targets"].items() if e["wave"] is not None and e["status"] != "ok"
         )
+        for name in report["unmapped"]:
+            print(f"tier-imports: warning: {name} is not in {GRAPH_PATH}; regenerate it", file=sys.stderr)
         for name in failing:
             entry = report["targets"][name]
             edge = "its own files" if entry["status"] == "direct" else " -> ".join(short(n) for n in entry["chain"])
