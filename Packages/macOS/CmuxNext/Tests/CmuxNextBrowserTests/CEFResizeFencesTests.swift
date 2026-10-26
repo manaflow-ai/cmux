@@ -215,10 +215,10 @@ import Testing
         #expect(layerFork.syncs.isEmpty)
     }
 
-    @Test func aHiddenPageDoesNotHoldTheWindow() {
+    @Test func aViewOutOfEveryWindowMakesNoFence() {
         let hosting = makeHosting(enabled: true)
         hosting.pageWindowCreated(browser: 5, fork: fork)
-        view.isHidden = true
+        ca.contexts = [:]
         hosting.viewDidResize()
         #expect(fenceFork.calls.isEmpty)
         #expect(ca.made.isEmpty)

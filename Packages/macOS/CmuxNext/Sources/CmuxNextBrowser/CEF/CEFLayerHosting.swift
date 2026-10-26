@@ -236,11 +236,10 @@ final class CEFLayerHosting {
     /// The view's size changed (`CEFHostView.setFrameSize`: a divider drag, a step of the window's
     /// live resize, a spring start). With the fork's resize fence the page window's next frame at
     /// the new size joins this transaction's fence: a hosted page on every resize, a page in its
-    /// own window during the window's live resize only (the API 27 deadlines' rule). A hidden page
-    /// draws no frame to wait for.
+    /// own window during the window's live resize only (the API 27 deadlines' rule). A view out of
+    /// every window has no context to hold.
     func viewDidResize() { // perf-hot: 0.05ms cef-geometry (each resize of a page's host view)
-        guard let resizeFence = fork?.resizeFence, let browser, let view, page != nil || inLiveResize,
-              !view.isHiddenOrHasHiddenAncestor else { return }
+        guard let resizeFence = fork?.resizeFence, let browser, let view, page != nil || inLiveResize else { return }
         resizeFence.fences.join(view, browser: browser, setFence: resizeFence.set)
     }
 
