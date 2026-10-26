@@ -22,7 +22,7 @@ extension AppServices {
         // Before the first spare: its placeholder has no renderer where the fork can (p13-webui-019).
         cache.cef.setRendererlessSpareWindows(features.isEnabled(.rendererlessSpareWindow))
         chromiumWarmup.start(defaultIsChromium: { preference.defaultEngine == .chromium },
-                             pagesPending: { [weak cache] in cache?.pendingBrowsers.isEmpty == false },
+                             pagesPending: { [weak cache] in cache?.hasPendingPages == true },
                              pagesSpare: { pagesSpare && preference.defaultEngine == .chromium })
         cache.onPagesSettled = { [weak chromiumWarmup] in chromiumWarmup?.pagesSettled() }
         if pagesSpare {
