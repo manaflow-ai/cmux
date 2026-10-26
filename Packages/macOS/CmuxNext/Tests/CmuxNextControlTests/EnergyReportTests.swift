@@ -132,6 +132,19 @@ struct EnergyReportTests {
         #expect(report["inputs"]?["setting"]?.stringValue == "auto")
     }
 
+    /// `debug.energy.simulate` (p14-energy-123): the report says when the inputs are simulated, and the
+    /// simulate method's `thermal` names are the ones the report gives.
+    @Test func inputsSayWhetherTheyAreSimulated() async {
+        #expect(await Self.report()["inputs"]?["simulated"] == JSONValue.bool(false))
+        var state = Self.state
+        state.inputs.simulated = true
+        #expect(await Self.report(state: state)["inputs"]?["simulated"] == JSONValue.bool(true))
+        for thermal in [ProcessInfo.ThermalState.nominal, .fair, .serious, .critical] {
+            #expect(EnergyReport.Inputs.thermal(named: EnergyReport.Inputs.name(thermal)) == thermal)
+        }
+        #expect(EnergyReport.Inputs.thermal(named: "hot") == nil)
+    }
+
     @Test func wakeQueueFiresComeFromTheQueuesOwnLedgerRecord() async {
         let ledger = WakeupLedger(uptime: { 100_000_000_000 })
         ledger.record(MainWakeUpQueue.ledgerOwner, reason: "fire", count: 7)
