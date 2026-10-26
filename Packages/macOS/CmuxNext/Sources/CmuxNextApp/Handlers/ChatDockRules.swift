@@ -37,9 +37,9 @@ enum ChatDockRules {
     }
 
     /// Refuses (and reports) a non-chat tab moving into a chat dock that takes only chats. A
-    /// reorder inside the dock is not a move into it.
+    /// reorder inside the dock is not a move into it (the dock's own tabs: no lookup of the tab's machine).
     @MainActor static func refusesMove(_ tab: TabModel, to pane: PaneModel, services: AppServices) -> Bool {
-        guard services.locateTab(tab.id)?.1 !== pane, !ChatColumnPlacement.isChat(tab, services: services),
+        guard !pane.tabs.contains(where: { $0 === tab }), !ChatColumnPlacement.isChat(tab, services: services),
               takesOnlyChats(pane, services: services) else { return false }
         services.registry.refuse(RefusalStrings.chatDockTakesOnlyChats)
         return true

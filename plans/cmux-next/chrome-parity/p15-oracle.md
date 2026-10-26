@@ -577,6 +577,8 @@ Dropped or merged draft items: 022 and 045 (replaced by 026 and 191); 025 merged
 | 240 | Driver: errorDetails, mock agent, chief connections | M | 20-36 | 023, 237, 069 | MQ-daemon-ops |
 | 241 | Typed refusals the chief family found | S | 20-28 | 069 | |
 | 242 | normalize.py snapshot-v1 keywords | S | 18-28 | 013, 011 | |
+| 245 | The holder exits at shutdown end_terminals | S | 20-28 | 065 | |
+| 246 | Facet: a terminal's view scroll offset | S | 20-28 | 065 | |
 | 206 | I10 idempotent retry steps | S | 20-28 | 060, 110 | |
 | 204 | Streams suite + I8 | L | 18-36 | 023, 110 | |
 | 205 | restore_preview + I9 | M | 18-30 | 021, 201 | |
@@ -950,6 +952,23 @@ root is under /tmp and state/projects.rs refuses every path under /tmp, /var/fol
 success cannot run. Give a case with a generated repository a checkout outside those roots (a per-run folder the
 hermetic environment owns and removes), and project.add's success loses its gap. Test: VM, project.add green twice; no
 folder left after the run.
+
+**245 The holder exits at shutdown end_terminals.** Files: `cmux-holder/src/holder.rs`, `holder_runtime.rs`,
+`mux/terminal_reap.rs`, `terminal/_tuning.json`. On the holder arm (CMUX_TUI_TERMINAL_HOST_MODEL=holder),
+`shutdown-daemon end_terminals` ends every terminal but leaves the holder running until its idle exit (IDLE_EXIT, 30 s):
+the holder model has no frame that ends the holder, so driver_daemon.py's I6 teardown (10 s) reports it left behind on
+every holder-arm case. Change: when the daemon ends its last holder terminal for shutdown, it tells the holder to exit
+(or the holder exits when its owner leaves and it holds no terminal), and the daemon waits for that exit before it
+answers. terminal/_tuning.json then drops its `expectations` entry (the 18 `[ new ] ... [ Failure ]` lines). Test: the
+cmux-holder and holder_runtime tests of the exit; VM, the 18 terminal cases green twice on the holder arm with the stock
+driver.
+
+**246 Facet: a terminal's view scroll offset.** Files: `oracle_state.rs`, `snapshot-v1.schema.json`, `terminal/_tuning.json`.
+terminal.viewport.scroll moves only the compatibility view's anchor (Surface::view_scroll_delta), which no read and no
+facet field returns: terminal.copy and terminal.screen.read read the terminal's own viewport. Change: the daemon facet
+reports each terminal's view scrollbar {offset, total, len} (Surface::view_scrollbar), and the scroll success case
+settles on offset = total - len - 5 after the call; its gap goes away. Test: VM, the scroll success case green twice on
+both holder arms, and red when the handler scrolls 0 rows or the other way (negative control).
 
 **206 I10 idempotent retry.** For each of the 201 `idempotency: required` ops, the generator adds a same-key retry step. Test: holds on all ops.
 

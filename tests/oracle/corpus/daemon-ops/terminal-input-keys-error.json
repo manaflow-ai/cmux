@@ -23,6 +23,9 @@
   "requires": [
     "resource_api"
   ],
+  "switches": [
+    "terminal-holder"
+  ],
   "platforms": [
     "linux",
     "mac"
@@ -59,19 +62,24 @@
       "args": {
         "method": "terminal.input.keys",
         "params": {
-          "keys": []
+          "keys": [
+            "notakey"
+          ]
         },
         "idempotencyKey": "terminal-input-keys-error.call"
       },
       "expect": {
         "outcome": "error",
-        "error": "validation.invalid"
+        "error": "validation.invalid",
+        "errorDetails": {
+          "reason": "terminal key chord is invalid"
+        }
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "keys breaks its catalog type (value has too few items); the daemon's catalog check refuses it"
+      "note": "a key the chord grammar does not know (ghostty-vt key_input_from_chord): no byte reaches the shell"
     }
   ],
   "invariants": [
