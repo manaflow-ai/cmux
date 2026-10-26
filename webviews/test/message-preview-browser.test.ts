@@ -31,7 +31,7 @@ await requireBrowserLane("message-preview-browser.test.ts", async () => {
     await browser?.close();
     await vite?.close();
   });
-  const open = async (variant = "grouped") => {
+  const open = async (variant = "cards-no-fade") => {
     const { port } = vite.httpServer!.address() as { port: number };
     await page.goto(`http://127.0.0.1:${port}${galleryFrame(entry, { variant })}`);
     await page.waitForFunction(() => document.documentElement.dataset.galleryReady === "1");

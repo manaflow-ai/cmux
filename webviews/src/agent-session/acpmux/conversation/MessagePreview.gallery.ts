@@ -39,8 +39,8 @@ export default agentPaneEntry({
       snapshot: cards,
       display: { "sidebar.minimal": true },
     },
-    grouped: {
-      note: "Consecutive reports from the same sender, using today's received rows and actions.",
+    "cards-no-fade": {
+      note: "Today's received rows and actions, with whole-line previews instead of a bottom fade.",
       snapshot: cards,
     },
     "full-cards-no-fade": {
