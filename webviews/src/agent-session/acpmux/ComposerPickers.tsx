@@ -745,18 +745,18 @@ export function ComposerPickers({
   const local = fresh && snapshot.origin !== "remote" && snapshot.origin !== "peer";
   const asksStart = awaiting && local && modes.length === 0;
   const startAnswer = useStartMode(chipHarness, folder ?? summary?.cwd, asksStart);
+  // A chat this Mac's acpmux runs: not a peer's, a remote host's or the cloud's.
+  const onThisMac =
+    snapshot.origin !== "remote" && snapshot.origin !== "peer" && !summary?.host && summary?.hostKind !== "cloud";
   // A local chat whose menu has a full-access row learns whether full access is managed off, and
   // again on `_acpmux/start_mode_changed` (#23322).
   useFullAccessProbe(
     chipHarness,
     folder ?? summary?.cwd,
-    !asksStart &&
-      snapshot.origin !== "remote" &&
-      snapshot.origin !== "peer" &&
-      !summary?.host &&
-      summary?.hostKind !== "cloud" &&
-      modes.some((choice) => unrestricted(choice.id)),
+    !asksStart && onThisMac && modes.some((choice) => unrestricted(choice.id)),
   );
+  // This Mac's daemon said full access is managed off: it bounds only the chats it runs (review 37).
+  const fullAccessManaged = useFullAccessManaged() && onThisMac;
   // Before acpmux has ever answered for this harness here (a first New Tab), the chip names the
   // harness's highest permission level, the level acpmux starts a chat in when the person chose
   // none (hub/start_mode.rs); acpmux's answer, which carries a saved choice, then replaces it.
@@ -997,6 +997,7 @@ export function ComposerPickers({
           current={mode?.id ?? (pendingAccessModes.length > 0 ? shownStart?.modeId : undefined)}
           sessionId={summary?.sessionId}
           warning={t(PICKER_LABELS.fullAccessWarning)}
+          managed={fullAccessManaged}
           managedReason={t(PICKER_LABELS.fullAccessManaged)}
           help={t(PICKER_LABELS.modeHelp)}
           refusedReason={t(PICKER_LABELS.modeRefused)}
@@ -1087,6 +1088,7 @@ function AccessMenu({
   current,
   sessionId,
   warning,
+  managed,
   managedReason,
   help,
   refusedReason,
@@ -1100,6 +1102,8 @@ function AccessMenu({
   current?: string;
   sessionId?: string;
   warning: string;
+  /// Full access is managed off for this chat (`useFullAccessManaged`, this Mac's chats only).
+  managed: boolean;
   managedReason: string;
   help: string;
   refusedReason: string;
@@ -1128,8 +1132,7 @@ function AccessMenu({
   // disable bypass mode): the chip goes back to the mode in force and their rows are disabled.
   const [refused, setRefused] = useState<{ sessionId?: string; ids: readonly string[] }>({ ids: [] });
   const refusedIds = refused.sessionId === sessionId ? refused.ids : [];
-  // MDM or a team policy keeps full access off (#23322): its rows are disabled and say so.
-  const managed = useFullAccessManaged();
+  // MDM or a team policy keeps full access off (#23322, `managed`): its rows are disabled and say so.
   const blocked = (id: string) => refusedIds.includes(id) || (managed && unrestricted(id));
   // A chat that has not reported its mode (one acpmux has not started) names none, not the first,
   // and every mode, the first included, is a pick.
@@ -1157,7 +1160,10 @@ function AccessMenu({
   if (
     refusedIds.length > 0 &&
     grants.length === 0 &&
-    modes.every((choice) => choice.id === value || refusedIds.includes(choice.id))
+    // A full-access row managed off stays in the menu, disabled and saying why (review 37).
+    modes.every(
+      (choice) => choice.id === value || (refusedIds.includes(choice.id) && !(managed && unrestricted(choice.id))),
+    )
   ) {
     return (
       <span
