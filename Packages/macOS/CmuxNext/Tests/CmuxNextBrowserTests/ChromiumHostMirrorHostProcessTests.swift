@@ -29,10 +29,10 @@ private nonisolated let chromiumHostApp = ProcessInfo.processInfo.environment["C
 struct ChromiumHostMirrorHostProcessTests {
     nonisolated static var app: URL? { chromiumHostApp }
 
-    // cmux_cef_shim.h event kinds.
-    static let afterCreated: Int32 = 2
-    static let loadStart: Int32 = 8
-    static let loadEnd: Int32 = 9
+    // cmux_cef_shim.h event kinds (nonisolated: the @Sendable matchers of `next` read them).
+    nonisolated static let afterCreated: Int32 = 2
+    nonisolated static let loadStart: Int32 = 8
+    nonisolated static let loadEnd: Int32 = 9
 
     @Test(.timeLimit(.minutes(3)))
     func aReadInLoadStartsTurnHasTheNewEntry() async throws {
@@ -100,9 +100,12 @@ struct ChromiumHostMirrorHostProcessTests {
         withExtendedLifetime(view) {}
     }
 
-    /// The next signal that matches, or nil when the wire ended first.
-    static func next(_ signals: inout AsyncStream<HostMirrorRecorder.Signal>.Iterator,
-                     _ match: (HostMirrorRecorder.Signal) -> Bool) async -> HostMirrorRecorder.Signal? {
+    /// The next signal that matches, or nil when the wire ended first. `@concurrent`, like
+    /// `AsyncStream.Iterator.next()`: the caller sends its iterator here once and the reads do not
+    /// hop isolation again (the target's default isolation is the main actor), as
+    /// BranchSizedForTests.notice does.
+    @concurrent nonisolated static func next(_ signals: inout AsyncStream<HostMirrorRecorder.Signal>.Iterator,
+                                             _ match: @Sendable (HostMirrorRecorder.Signal) -> Bool) async -> HostMirrorRecorder.Signal? {
         while let signal = await signals.next() {
             if match(signal) { return signal }
             if case .ended = signal { return nil }
