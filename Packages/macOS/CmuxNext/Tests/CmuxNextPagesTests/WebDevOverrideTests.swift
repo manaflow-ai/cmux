@@ -81,6 +81,42 @@ struct WebDevOverrideTests {
         #expect(WebDevOverride().sharedOverlayRoot == nil)
     }
 
+    /// `cmux-page://cmux.shared/` answers from the overlay's `pages/_shared` first: an overlay page imports
+    /// the React and chunks its own build wrote, which the bundle does not have. A file the overlay lacks
+    /// still comes from the bundle, and without an overlay the overlay's copy is never read.
+    @Test func sharedChunksComeFromTheOverlayBeforeTheBundle() async throws {
+        let bundled = try temporaryDirectory()
+        let overlay = try temporaryDirectory()
+        defer { for dir in [bundled, overlay] { try? FileManager.default.removeItem(at: dir) } }
+        try write("<p>settings</p>", to: bundled.appending(path: "settings/index.html"))
+        try write("bundled react", to: bundled.appending(path: "_shared/react-OLD.js"))
+        try write("bundled chunk", to: bundled.appending(path: "_shared/chunk-A.js"))
+        try write("overlay react", to: overlay.appending(path: "pages/_shared/react-NEW.js"))
+        try write("overlay chunk", to: overlay.appending(path: "pages/_shared/chunk-A.js"))
+
+        let handler = PageSchemeHandler(page: .settings, root: bundled.appending(path: "settings"), devServer: nil,
+                                        sharedRoot: bundled.appending(path: "_shared"))
+        let origin = PageDescriptor.settings.origin
+        func shared(_ name: String) async throws -> String? {
+            let url = try #require(URL(string: "cmux-page://cmux.shared/\(name)"))
+            return await handler.sharedReply(to: url, origin: origin).map { String(decoding: $0.body, as: UTF8.self) }
+        }
+
+        handler.liveOverride = { WebDevOverride(overlay: overlay) }
+        let react = try #require(URL(string: "cmux-page://cmux.shared/react-NEW.js"))
+        let reply = try #require(await handler.sharedReply(to: react, origin: origin))
+        #expect(String(decoding: reply.body, as: UTF8.self) == "overlay react")
+        #expect(reply.response.value(forHTTPHeaderField: "Access-Control-Allow-Origin") == origin)
+        #expect(try await shared("chunk-A.js") == "overlay chunk")
+        #expect(try await shared("react-OLD.js") == "bundled react")
+        // The overlay answers the same origins as the bundle only.
+        #expect(await handler.sharedReply(to: react, origin: "https://evil.test") == nil)
+
+        handler.liveOverride = { WebDevOverride() }
+        #expect(try await shared("react-NEW.js") == nil)
+        #expect(try await shared("chunk-A.js") == "bundled chunk")
+    }
+
     @Test func pageFilesComeFromTheOverlay() async throws {
         let bundled = try temporaryDirectory()
         let overlay = try temporaryDirectory()
