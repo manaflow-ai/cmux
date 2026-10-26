@@ -93,7 +93,8 @@ public final class WebUpdater {
 
     let store: WebUpdateStore
     public let app: App
-    let keys: WebUpdateKeys
+    let keySource: KeySource
+    @ObservationIgnored var loadedKeys: WebUpdateKeys?  // ``trustedKeys()``
     let base: URL
     let fetch: Fetch
     let download: Download
@@ -120,14 +121,14 @@ public final class WebUpdater {
 
     public static let defaultBase = URL(string: "https://files.cmux.com/cmux-next-web/") ?? URL(fileURLWithPath: "/dev/null") // a test parses it
 
-    public init(store: WebUpdateStore, app: App, keys: WebUpdateKeys = .bundled, base: URL = WebUpdater.defaultBase,
+    public init(store: WebUpdateStore, app: App, keys: KeySource, base: URL = WebUpdater.defaultBase,
                 interval: Duration = .seconds(60), backgroundInterval: Duration = .seconds(600),
                 clock: any Clock<Duration> = ContinuousClock(),
                 fetch: @escaping Fetch = { try await URLSession.shared.data(for: $0) },
                 download: @escaping Download = WebUpdater.downloadToFile) {
         self.store = store
         self.app = app
-        self.keys = keys
+        keySource = keys
         self.base = base
         self.interval = interval
         self.backgroundInterval = backgroundInterval
@@ -196,6 +197,7 @@ public final class WebUpdater {
     public func noteActivation(stale: TimeInterval = 60) {
         foreground = true
         guard channel != .off, phase != .checking, phase != .downloading else { return }
+        // wall-clock: the wait since the shown lastCheck counts time asleep; the trace clock stops then.
         let since = Date().timeIntervalSince(lastCheck ?? .distantPast)
         guard since > stale else {
             nextCheck.schedule(after: Self.delay(after: since, interval: interval)) { @MainActor [weak self] in await self?.check() }
@@ -210,6 +212,7 @@ public final class WebUpdater {
     public func noteBackground() {
         foreground = false
         guard channel != .off, phase != .checking, phase != .downloading, nextCheck.isScheduled else { return }
+        // wall-clock: the wait since the shown lastCheck counts time asleep; the trace clock stops then.
         let since = Date().timeIntervalSince(lastCheck ?? .distantPast)
         nextCheck.schedule(after: Self.delay(after: since, interval: backgroundInterval)) { @MainActor [weak self] in await self?.check() }
     }
@@ -322,6 +325,7 @@ public final class WebUpdater {
         if http?.statusCode == 404 { return nil }
         guard http?.statusCode == 200 else { throw WebUpdateRefusal.transfer("pointer status \(http?.statusCode ?? 0)") }
         let tag = http?.value(forHTTPHeaderField: "ETag")
+        let keys = try await trustedKeys()
         do {
             return (try WebUpdatePointer.verified(data, keys: keys, channel: channel.rawValue), tag)
         } catch {

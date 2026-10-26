@@ -33,7 +33,9 @@ public struct V2SystemKeychainAccess: V2KeychainAccess, Sendable {
         query[kSecReturnAttributes as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var result: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        // SAFETY: SecItemCopyMatching stores at most one +1 CFTypeRef in the local
+        // `result`, live for this call; the Swift import takes ownership of it.
+        let status = unsafe SecItemCopyMatching(query as CFDictionary, &result)
         if status == errSecItemNotFound { return false }
         guard status == errSecSuccess, let attributes = result as? NSDictionary else {
             throw V2KeychainAccessError.status(status)
@@ -76,7 +78,9 @@ public struct V2SystemKeychainAccess: V2KeychainAccess, Sendable {
         query[kSecReturnData as String] = true
         query[kSecMatchLimit as String] = kSecMatchLimitOne
         var result: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &result)
+        // SAFETY: SecItemCopyMatching stores at most one +1 CFTypeRef in the local
+        // `result`, live for this call; the Swift import takes ownership of it.
+        let status = unsafe SecItemCopyMatching(query as CFDictionary, &result)
         if status == errSecItemNotFound { return nil }
         guard status == errSecSuccess, let data = result as? Data else {
             throw V2KeychainAccessError.status(status)
@@ -100,7 +104,8 @@ public struct V2SystemKeychainAccess: V2KeychainAccess, Sendable {
         )
         query[kSecValueData as String] = data
         query[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
-        let status = SecItemAdd(query as CFDictionary, nil)
+        // SAFETY: with a nil result pointer SecItemAdd writes nothing back.
+        let status = unsafe SecItemAdd(query as CFDictionary, nil)
         if status == errSecDuplicateItem { throw V2KeychainAccessError.duplicate }
         guard status == errSecSuccess else { throw V2KeychainAccessError.status(status) }
     }

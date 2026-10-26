@@ -130,11 +130,12 @@ nonisolated public struct WebUpdateKeys: Sendable {
         SHA256.hash(data: raw).map { String(format: "%02x", $0) }.joined().prefix(16).description
     }
 
-    /// The keys this build trusts.
-    public static let bundled: WebUpdateKeys = {
+    /// The keys this build trusts, read from its bundle: a file read, so the updater runs it on the files
+    /// lane (``WebUpdater/KeySource/bundled(_:)``).
+    public static func loadBundled() -> WebUpdateKeys {
         let url = Bundle.module.url(forResource: "web-update-keys", withExtension: "json")
-        return WebUpdateKeys(json: url.flatMap { try? Data(contentsOf: $0) } ?? Data())
-    }()
+        return WebUpdateKeys(json: url.flatMap { try? Data(blockingContentsOf: $0) } ?? Data())
+    }
 }
 
 /// Why a web update was not taken.

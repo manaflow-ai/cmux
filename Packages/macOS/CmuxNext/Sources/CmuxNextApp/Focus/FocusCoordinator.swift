@@ -39,6 +39,8 @@ final class FocusCoordinator {
     var paneFocusTimer = DebugPaneFocus.timer
     /// The key whose binding runs now (the key router's ``KeyRouter/keyInput``): a move's input stage.
     var keyInput: KeyInputScope?
+    /// The input event being dispatched (the app's ``InputDispatchContext``): a move's input stage when no binding runs.
+    var inputDispatch: InputDispatchContext?
     /// The app's crash keys: what has the keyboard in the key window's focused pane (``CrashKeySlots/Key/paneKind``).
     var crashKeys: CrashKeySlots?
     private var queue: [FocusEvent] = []

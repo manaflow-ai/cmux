@@ -2,30 +2,32 @@ import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextInput
+import CmuxNextWakeups
 import os
 
-private enum NoActivateApplicationResolver {
-    /// Resolves the PID off the main actor. AppKit's `processIdentifier`
-    /// property can synchronously ask LaunchServices for dynamic properties.
-    static func resolve(_ application: NSRunningApplication,
-                        completion: @escaping @MainActor @Sendable (NSRunningApplication, pid_t) -> Void) {
+/// Resolves running apps' PIDs on the system lane: AppKit's `processIdentifier` can synchronously ask
+/// LaunchServices for dynamic properties. Each answer comes back as a posted main task with an owner, as
+/// Chrome's `PostTaskAndReplyWithResult` (base/task/task_runner.h).
+private struct NoActivateApplicationResolver {
+    let work: BackgroundWork
+    let mainWork: MainWorkScheduler
+
+    func resolve(_ application: NSRunningApplication,
+                 completion: @escaping @MainActor @Sendable (NSRunningApplication, pid_t) -> Void) {
         let reference = NoActivateApplicationReference(application)
-        DispatchQueue.global(qos: .utility).async {
-            let pid = reference.application.processIdentifier
-            DispatchQueue.main.async {
+        work.run(.userVisible, mayBlock: .system) { reference.application.processIdentifier }
+            .reply(on: mainWork, class: .visible, owner: "focus.noActivate.resolve") { pid in
                 completion(reference.application, pid)
             }
-        }
     }
 
-    static func resolveFrontmost(completion: @escaping @MainActor @Sendable (NSRunningApplication?, pid_t?) -> Void) {
-        DispatchQueue.global(qos: .utility).async {
-            let application = NSWorkspace.shared.frontmostApplication
-            let reference = application.map(NoActivateApplicationReference.init)
-            let pid = reference?.application.processIdentifier
-            DispatchQueue.main.async {
-                completion(reference?.application, pid)
-            }
+    func resolveFrontmost(completion: @escaping @MainActor @Sendable (NSRunningApplication?, pid_t?) -> Void) {
+        work.run(.userVisible, mayBlock: .system) { () -> (NoActivateApplicationReference?, pid_t?) in
+            let reference = NSWorkspace.shared.frontmostApplication.map(NoActivateApplicationReference.init)
+            return (reference, reference?.application.processIdentifier)
+        }
+        .reply(on: mainWork, class: .visible, owner: "focus.noActivate.frontmost") { resolved in
+            completion(resolved.0?.application, resolved.1)
         }
     }
 }
@@ -36,8 +38,10 @@ private enum NoActivateApplicationResolver {
 extension InputVerificationService {
     /// Installs the guard in the launch turn (`AppServices.init`), before the app activates and its first
     /// window becomes key, so it sees both and resolves the app the person had in front. Once.
-    func startNoActivateGuard(tap: InputEventTap) {
+    /// `work` resolves each activated app's PID on its system lane; the answers come back on `mainWork`.
+    func startNoActivateGuard(tap: InputEventTap, work: BackgroundWork, mainWork: MainWorkScheduler) {
         guard WindowPlacement.noActivate, keyboardGuard == nil else { return }
+        let resolver = NoActivateApplicationResolver(work: work, mainWork: mainWork)
         let me = ProcessInfo.processInfo.processIdentifier
         let logger = Logger(subsystem: "com.cmuxterm.app.next", category: "focus.no-activate")
         let guardian = NoActivateKeyboardGuard(host: AppKitKeyboardGuardHost(), frontmost: nil,
@@ -52,7 +56,7 @@ extension InputVerificationService {
             read: { $0.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication }) { [weak guardian] app in
             guard let guardian, let app else { return }
             let sequence = guardian.beginOtherAppActivation()
-            NoActivateApplicationResolver.resolve(app) { [weak self, weak guardian] app, pid in
+            resolver.resolve(app) { [weak self, weak guardian] app, pid in
                 guard let self, let guardian, let current = self.keyboardGuard, current === guardian else { return }
                 guard pid != me else { return }
                 guardian.otherAppActivated(app, processIdentifier: pid, sequence: sequence)
@@ -73,7 +77,7 @@ extension InputVerificationService {
         // LaunchServices while installing observers.
         let initialApplicationSequence = guardian.beginOtherAppActivation()
         guardian.start()
-        NoActivateApplicationResolver.resolveFrontmost { [weak self, weak guardian] app, pid in
+        resolver.resolveFrontmost { [weak self, weak guardian] app, pid in
             guard let self, let guardian, let current = self.keyboardGuard, current === guardian else { return }
             guard let app, let pid, pid != me else { return }
             guardian.otherAppActivated(app, processIdentifier: pid, sequence: initialApplicationSequence)

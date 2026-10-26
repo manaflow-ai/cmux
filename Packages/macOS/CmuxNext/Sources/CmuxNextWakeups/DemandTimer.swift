@@ -5,8 +5,10 @@ import CmuxNextCompat
 /// CmuxNext may use outside animation frames (plans/cmux-next/idle-wakeups.md).
 ///
 /// It never repeats. ``schedule(after:tolerance:_:)`` replaces a pending
-/// deadline (reset); ``cancel()`` drops it. The clock is injected so tests do
-/// not wait. Each fire records one wakeup in the ledger under `owner`.
+/// deadline (reset); ``cancel()`` drops it. A synchronous main-actor action
+/// uses ``scheduleOnMain(after:tolerance:_:)`` and
+/// ``scheduleOnMainIfIdle(after:tolerance:_:)``. The clock is injected so tests
+/// do not wait. Each fire records one wakeup in the ledger under `owner`.
 ///
 /// A timer given the app's ``MainWakeUpQueue`` (``init(owner:policy:clock:ledger:mainWork:)``)
 /// puts main-actor deadlines on it, so they share the main thread's one run-loop timer and wake no
@@ -138,6 +140,14 @@ public final class DemandTimer: Sendable {
                                _ action: @escaping @isolated(any) @Sendable () async -> Void) {
         guard !isScheduled else { return }
         schedule(after: delay, tolerance: tolerance, action)
+    }
+
+    /// ``scheduleIfIdle(after:tolerance:_:)`` for a synchronous main-actor action: schedules
+    /// ``scheduleOnMain(after:tolerance:_:)`` only when nothing is pending.
+    public func scheduleOnMainIfIdle(after delay: Duration, tolerance: Duration? = nil,
+                                     _ action: @escaping @MainActor @Sendable () -> Void) {
+        guard !isScheduled else { return }
+        scheduleOnMain(after: delay, tolerance: tolerance, action)
     }
 
     public func cancel() {

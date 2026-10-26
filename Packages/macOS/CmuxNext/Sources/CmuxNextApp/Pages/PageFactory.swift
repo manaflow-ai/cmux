@@ -122,7 +122,10 @@ struct PageFactory {
     func settingsPage(route: String?, edits: SettingsPageProvider.Edits = SettingsPageProvider.Edits()) -> PageWebView? {
         guard let settings = services.settings else { return nil }
         let provider = SettingsPageProvider(settings: settings, domains: { [weak services] in
-            ["themes": services?.themes.catalog.names ?? [], "font_families": SettingsPageDomains.fontFamilies, "sounds": SettingsPageDomains.sounds, "recent_fonts": services?.settings?.recentFonts.families ?? []]
+            var sounds: [String] = []
+            if let work = services?.work { sounds = await SettingsPageDomains.sounds(work: work) }
+            return ["themes": services?.themes.catalog.names ?? [], "font_families": SettingsPageDomains.fontFamilies, "sounds": sounds,
+                    "recent_fonts": services?.settings?.recentFonts.families ?? []]
         }, hostLists: { [weak services] in services?.settingsWindow.pageHostLists() ?? .null })
         provider.edits = edits
         provider.removeDevice = { [weak services] id in await services?.devices.remove(id: id) }
@@ -196,7 +199,7 @@ struct PageFactory {
                 await services?.viewers.picker.open(.init(choose: .files, types: [.image, .movie]))?.first
             }
         }
-        let museumArt = MuseumArtSession()
+        let museumArt = MuseumArtSession(memory: AppMemoryConsumers(services: services).appCacheRegistry)
         provider.museumArt = museumArt
         provider.workspaceBackgrounds = SettingsWorkspaceBackgrounds(
             title: { [weak services] id in services?.workspace(id: id)?.displayName },

@@ -61,7 +61,8 @@ Paths are in chromium/src at main.
    RenderProcessHost". Top-chrome WebUIs use this (`tab-search.top-chrome`, `chrome/common/webui_url_constants.h`
    kChromeUITopChromeDomain). Embedder hooks: `ContentBrowserClient::GetAdditionalWebUISchemes`,
    `ShouldUseProcessPerSite`, `ShouldAllowProcessPerSiteForMultipleMainFrames`, and the feature
-   `ProcessPerSiteUpToMainFrameThreshold` (`content/public/common/content_features.cc`).
+   `ProcessPerSiteUpToMainFrameThreshold` (`content/public/common/content_features.cc`; HTTP(S) sites only, see
+   `GetProcessReusePolicyForMainFrame` in `render_frame_host_manager.cc`).
    Untrusted content goes in `chrome-untrusted://` documents, never in a process with stronger bindings.
 2. Preloading WebUI. `chrome/browser/ui/webui/top_chrome/webui_contents_preload_manager.h`: "At anytime, at most
    one WebContents is preloaded across all profiles". The preload is made visible so that resources load at once,
@@ -215,9 +216,11 @@ Chromium mechanism (fork, through the shared fork train, task 086):
   3 origins, B gives 1 with no bad-message kill. 011 implements the option that passes.
 - If B wins, the origin rename is machine queue MQ15 (task 094). Page storage is off-the-record and WebKit
   stores are non-persistent, so no stored data needs migration. The OTA abi bump (071) covers it.
-- The agent group needs no new fork code: one origin plus `ProcessPerSiteUpToMainFrameThreshold`. The cap for
-  cmux-page sites (8) is one table entry in PL-memory's per-site sharing switch (web tabs: 2), reviewed by
-  PL-memory, measured with bench_renderer_sharing.py (task 085).
+- The agent group needs the same fork code as the other groups. At 154.0.8037.98,
+  `ProcessPerSiteUpToMainFrameThreshold` applies only to HTTP(S) sites (`render_frame_host_manager.cc`
+  `GetProcessReusePolicyForMainFrame`, `kSchemeIsNotHttpOrHttps`), so it does not share `cmux.agent`. Its cap of 8 is
+  011's embedder cap; the cmux-page entry in PL-memory's per-site sharing switch (web tabs: 2) holds the same value,
+  reviewed by PL-memory, measured with bench_renderer_sharing.py (task 085). Spike 091 measures nine agent pages.
 - The page bridge leaves DevTools (013, 014, 078): page channel `cmuxPageHost`, document scripts limited to
   cmux-page, tabEvaluate, a surface copy export (077) and native clicks. The host takes the sender's browser id,
   frame and committed origin from the CEF frame that delivered the message, never from the payload.
@@ -384,7 +387,8 @@ virtual display), light and STRESS, with p50, p95, p99 and max. A row marked "tr
 - D5 Crash. `bench-webui.py crash`: kill -9 a group renderer with 5 pages, 1 shown. cmux survives; the shown page
   shows its notice and reloads once; hidden pages reload 0 times until shown; a second kill within 600 s follows
   the group cap (3).
-- D6 Memory pressure. `debug.webui pressure critical`: the preload slot is empty within 1 turn; one ranked pass
+- D6 Memory pressure. `debug.hibernation.pressure critical` (the memory coordinator's override, the one path
+  every web object follows since 047): the preload slot is empty within 1 turn; one ranked pass
   over browser tabs, chats and pages discards in importance order until the reclaim target, recently visible
   last; page renderer count == groups with a shown page once all candidates are discarded.
 - D7 Static counts (git grep at the program head, from the repo root):
@@ -392,7 +396,8 @@ virtual display), light and STRESS, with p50, p95, p99 and max. A row marked "tr
   == 0 (today 22). MQ10 command == 0 (today 13 plus PageProcessPool.shared).
   `git grep -n 'final class PageHostPool\|final class NewTabSparePool\|static func startWarmup\|final class AgentPageRetirer' -- Packages/macOS/CmuxNext/Sources`
   == 0. `git grep -n 'memoryPressure.observe' -- Packages/macOS/CmuxNext/Sources/CmuxNextPages Packages/macOS/CmuxNext/Sources/CmuxNextApp/NewTab Packages/macOS/CmuxNext/Sources/CmuxNextApp/Hibernation`
-  == 1 (WebUIHost; today 3). `git grep -n 'setInterval(' -- webviews/src/pages webviews/src/agent-session ':!*.test.*' ':!*.gallery.*' ':!**/gallery/**'`
+  == 0 (today 3; 047: the one kernel subscription is `MemoryCoordinator`'s in CmuxNextMemory, and WebUIHost,
+  ChromiumWarmup and BrowserHibernation register with the coordinator). `git grep -n 'setInterval(' -- webviews/src/pages webviews/src/agent-session ':!*.test.*' ':!*.gallery.*' ':!**/gallery/**'`
   == 1 (inside usePageInterval). MQ3 hits only in the fork < 29 fallback. MQ13 == 0.
 - D8 Bundles. `node scripts/cmux-next/page-bundle-report.mjs`: every page and the agent pane load <= 250 KB
   first-load JS (minified, uncompressed) not counting shared chunks; shared first-load <= 400 KB; total first
@@ -435,7 +440,8 @@ Each command runs from the repo root. Each hit is one unit of work in the named 
   AgentActivityHostView.swift:41 -> 075; AgentPaneView+Warmup.swift:41 -> 046; AgentPaneView.swift:192 -> 073;
   WebProcessGroups.swift:16 (doc comment) -> 015; PageWebView.swift:273 -> 041.
 - MQ8 spares and warmers (016, 019, 043-047). `git grep -n -E 'final class (CEFSpareWindow|NewTabSparePool|PageHostPool)|static func startWarmup|memoryPressure.observe' -- Packages/macOS/CmuxNext/Sources/CmuxNextPages Packages/macOS/CmuxNext/Sources/CmuxNextApp/NewTab Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF Packages/macOS/CmuxNext/Sources/CmuxNextApp/Hibernation`.
-  End state: one PagePreloadSlot, renderer-less spare windows, one pressure subscription.
+  End state: one PagePreloadSlot, renderer-less spare windows, no `memoryPressure.observe` in this scope (every
+  web object is a consumer of the memory coordinator, which holds the one kernel subscription in CmuxNextMemory).
 - MQ9 lazy page tabs (040). `git grep -n -E '(class|struct) \w+.*: .*\bInternalPageProvider\b' -- Packages/macOS/CmuxNext/Sources`.
   Today 28. Applies only if 040's red-at-base test is red.
 - MQ10 stateful statics (005, 010, 015, 066, 071, 073). `git grep -n -E 'static (let|var) (channels|views|processPool|processGroups|sharedDataStore|warmupView|chromiumHosting|openPanel|serials|nextSerial)\b|static let shared = (WKProcessPool|WebDevOverrideWatcher|WebBundleServedViews|AgentPaneNowPlaying)' -- Packages/macOS/CmuxNext/Sources/CmuxNextPages Packages/macOS/CmuxNext/Sources/CmuxNextAgentPane Packages/macOS/CmuxNext/Sources/CmuxNextApp/Pages Packages/macOS/CmuxNext/Sources/CmuxNextApp/NewTab`.
@@ -462,7 +468,8 @@ Each command runs from the repo root. Each hit is one unit of work in the named 
    train (one reserved number per export, one dist, one pin bump by T+30 h). If the train is late, the "train"
    rows of D1, D3 and D12 cannot pass; the "pinned" rows still give a measured result.
 2. Process lock. If spike 091 finds that neither option shares a renderer across origins without bad-message
-   kills, groups fall back to one origin per process, and only the agent group shares (085). D3 then expects
+   kills, groups fall back to one origin per process, and only the agent group shares (one origin, through 011's
+   existing-process reuse and cap; the 085 threshold does not cover a site that is not HTTP(S)). D3 then expects
    renderers == pages open, and the rest of the program still lands.
 3. Security of shared renderers. The capability test (087) is the guard. Groups are risk:high. A new op with a
    dangerous prefix on a viewer page makes the test fail.
@@ -635,14 +642,23 @@ those MQ10 hits == 0; one WKProcessPool() in Sources; a fleet trace shows page b
 Test: CmuxNextPagesTests, compile-check --package CmuxNext.
 
 **011 Fork page groups.** Files: fork include/cef_cmux.h, libcef/browser/chrome/chrome_content_browser_client_cef.cc,
-the cmux page scheme table. Change: the mechanism that spike 091 proved: either cmux-page as an additional WebUI
-scheme with the last-label lock rule (option B), or the lock override with an explicit commit allowlist
-(option A). Export `cmux_shim_page_scheme_set_group(id, group)` before CefInitialize ends. `solo` and `secrets`
-keep one process per page. The per-site main-frame cap for cmux-page sites is the entry in PL-memory's sharing
-switch (085), not a second switch. Acceptance: fork test opens 3 origins of one group: 1 RenderProcessHost,
-0 bad-message kills after localStorage, fetch and postMessage on each; a 9th frame gets a second process; a
-secrets page gets its own; API number from the train reservation (086). Tell PL-memory. Test: fork browser
-tests; pin a dev dist for 012.
+the cmux page scheme table. Its ref (`17a7f8ff`) stays unpinned until spike 091 has run: its Measured column (webui-DESIGN.md section 5.1) needs
+a job id, and 091 names no winner before that. Change: the mechanism that the 091 run proves. Hypothesis (expected
+B, unmeasured): cmux-page as an additional WebUI scheme with the last-label lock rule, and existing-process reuse
+(`ShouldTryToUseExistingProcessHost`, as top-chrome WebUI) for the grouped hosts of `privileged`, `viewer` and
+`agent` (`cmux.agent`). That reuse (`GetExistingProcessHost`) has no cap, and `ProcessPerSiteUpToMainFrameThreshold`
+refuses a site that is not HTTP(S), so it cannot cap the agent group. Thus 011 has one cap of 8 main frames per
+group renderer for every grouped host, the agent group too, in the content patch `cmux_page_process_groups`
+(`ContentBrowserClient::ShouldUseExistingProcessHost`, asked only in `GetExistingProcessHost`), not in
+`IsSuitableHost`, so a navigating page never moves off a full renderer (webui-DESIGN.md sections 3.2 and 5.1). The value 8 is the same as the cmux-page entry of
+PL-memory's sharing switch (085), not a second setting. Export `cmux_shim_page_scheme_set_group(id, group)` before
+CefInitialize ends. `solo` and `secrets` keep one process per page. Acceptance: fork test opens 3 origins of one
+group: 1 RenderProcessHost, 0 bad-message kills after localStorage, fetch and postMessage on each; a 9th frame gets
+a second process, in a `privileged` group and in the agent group (nine `cmux.agent` pages give 2 renderers); pages
+of two groups never share a renderer; a secrets page gets its own; cmux-page sites do not use process-per-site (no
+WebUIControllerFactory and no WebUI data source is registered for cmux-page, and it is not privileged embedder
+content: `SiteInfo::ShouldUseProcessPerSite`); API number from the train reservation (086). Tell PL-memory. Test:
+fork browser tests; pin a dev dist for 012.
 
 **012 processGroup.** Files: PageDescriptor.swift, WebUI/PageProcessGroup.swift (new), CmuxNextBrowser/CEF/CEFPageSchemes.swift,
 CEFRuntime.swift, CEFShimLibrary.swift, CEFForkFeatures.swift, CmuxNextApp/Pages/FirstPartyPageSchemes.swift.
@@ -853,6 +869,12 @@ CmuxNextApp/Hibernation/BrowserHibernation.swift. Change: WebUIHost holds the on
 slot; critical also drops untaken spare windows and runs one ranker pass (092); BrowserHibernation's own observer
 goes. Acceptance: one `memoryPressure.observe` in the D7 scope; drop order tested with ManualMemoryPressureSource.
 Tell PL-memory. Test: WebUIHostPressureTests; pressure bench.
+As built: PL-memory's coordinator had landed, so the one observer is `MemoryCoordinator`'s and the D7 count is 0;
+WebUIHost registers the slot as a `SpareMemoryConsumer`, ChromiumWarmup's spare windows close only at critical
+(`SpareMemoryConsumer.Closing.atCritical`), BrowserHibernation runs the ranked pass on the critical release slice.
+Order tests: WebUIHostPressureTests (stand-ins), WebUIPressureOrderTests (the app's real registrations). The
+pressure bench drives `debug.hibernation.pressure`. PL-memory told in p07-memory.md section 3.E. PL-cef-tab:
+`CEFSpareWindow.setHeld` no longer closes the untaken spares; `CEFEngine.closeUntakenSpareWindows` does, at critical.
 
 **048 Stand-in.** Files: PageWebView+Paint.swift, PageWebView.swift, InternalPageView.swift. Change: a themed
 CALayer (WebTheme surface color, title through TypeScale) in the open's turn, removed at the first PagePaintProbe
@@ -1071,8 +1093,10 @@ automation suite.
 **085 Agent origin sharing.** Files: CEFSwitches.swift, Tests/.../CEFSwitchesTests.swift. Change: with rendererPaths,
 the cmux-page entry in PL-memory's per-site sharing switch (ProcessPerSiteUpToMainFrameThreshold, cap 8 for
 cmux-page sites, web tabs keep 2), constant cites content_features.cc. Acceptance: present only with rendererPaths;
-test for API 28 and 29; reviewed by PL-memory. Test: CEFSwitchesTests; with 5 chats, cmux.agent renderers == 1
-(train), measured with bench_renderer_sharing.py.
+test for API 28 and 29; reviewed by PL-memory. At 154.0.8037.98 the threshold policy refuses a site that is not
+HTTP(S), so this entry alone does not share `cmux.agent`; the "5 chats" row needs 011's reuse and cap (spike 091).
+Test: CEFSwitchesTests; with 5 chats, cmux.agent renderers == 1 (train, with 011), measured with
+bench_renderer_sharing.py.
 
 **086 Fork train.** Files: scripts/cmux-next/cef-manifest.json, remote-browser-host.pin.json, perf-lead.md. Change:
 reserve one API number per p13 export (page groups, renderer-less spare, discard, surface copy if not reused, push
@@ -1126,6 +1150,7 @@ the async path. Acceptance: 0 `Task {` hops for a shared request; table holds on
 --engine webkit main-thread time before and after.
 
 **094 Origin rename.** Files: MQ15 hits, PageDescriptor.swift, a generated TS origin table. Change: only if 091 picks
-option B: every page origin becomes `<page>.<group>`, built in one place. Acceptance: MQ15 literals only in the
+option B after its measured run (blocked until then, webui-DESIGN.md section 5.1): every page origin becomes
+`<page>.<group>`, built in one place. Acceptance: MQ15 literals only in the
 origin table and tests; CSP, router namespaces and storage tests pass; risk:high. Test: CmuxNextPagesTests,
 `bun run check`, compile-check --app.

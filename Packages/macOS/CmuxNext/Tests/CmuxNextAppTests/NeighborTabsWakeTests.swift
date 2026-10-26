@@ -4,9 +4,9 @@ import CmuxNextBridge
 @testable import CmuxNextBrowser
 import CmuxNextCompat
 import CmuxNextDesign
-import CmuxNextEnergy
 import CmuxNextHibernation
 import CmuxNextInput
+import CmuxNextPages
 @testable import CmuxNextSettings
 import CmuxNextWakeups
 import Foundation
@@ -107,8 +107,9 @@ import Testing
         #expect(rig.hibernation.prewarmedCount >= 2)
     }
 
-    /// Memory pressure and Low Power Mode shrink the neighbor set to nothing.
-    @Test func pressureAndLowPowerModeKeepNoNeighborAwake() async throws {
+    /// Memory pressure and Energy Saver shrink the neighbor set to nothing; a policy change that
+    /// leaves the saver as it was (the power source) changes nothing.
+    @Test func pressureAndEnergySaverKeepNoNeighborAwake() async throws {
         let rig = try Rig()
         defer { rig.close() }
         let keys = try await rig.pages(["a", "b", "c"])
@@ -118,10 +119,30 @@ import Testing
         #expect(rig.hibernation.awakeNeighbors.isEmpty)
         rig.hibernation.pressureDidChange(.normal)
         #expect(rig.hibernation.awakeNeighbors.count == 2)
-        rig.lowPower.override = true
-        #expect(rig.hibernation.awakeNeighbors.isEmpty)
-        rig.lowPower.override = nil
-        #expect(rig.hibernation.awakeNeighbors.count == 2)
+        rig.energy.update(EnergyPolicy(onBattery: true))
+        #expect(rig.hibernation.awakeNeighbors.count == 2, "a policy change without the saver dropped the neighbors")
+        rig.energy.update(EnergyPolicy(saverReason: .battery, onBattery: true))
+        #expect(rig.hibernation.energySaver)
+        #expect(rig.hibernation.neighborRadius == 0)
+        #expect(rig.hibernation.awakeNeighbors.isEmpty, "Energy Saver kept neighbors awake")
+        rig.energy.update(.normal)
+        #expect(rig.hibernation.awakeNeighbors.count == 2, "the neighbors did not wake again after the saver")
+    }
+
+    /// The saver reaches the cmux pages' lifecycle too (a shorter recently visible window), and so does
+    /// Low Power Mode while the `energySaver` feature is off (the policy's fallback).
+    @Test func energySaverReachesThePageLifecycle() throws {
+        let rig = try Rig()
+        defer { rig.close() }
+        let lifecycle = PageLifecycle(deadlines: rig.services.mainDeadlines)
+        rig.services.cache.pageLifecycle = lifecycle
+        defer { rig.services.cache.pageLifecycle = nil }
+        rig.energy.update(EnergyPolicy(saverReason: .setting))
+        #expect(lifecycle.conditions.energySaver, "the page lifecycle did not take the saver")
+        rig.energy.update(.normal)
+        #expect(!lifecycle.conditions.energySaver, "the page lifecycle kept the saver after it ended")
+        rig.energy.update(EnergyPolicy(lowPowerFallback: true))
+        #expect(lifecycle.conditions.energySaver, "the page lifecycle ignored Low Power Mode with the feature off")
     }
 
     @Test func zeroTurnsItOff() async throws {
@@ -182,7 +203,7 @@ import Testing
     @MainActor final class Rig {
         let services: AppServices
         let hibernation: BrowserHibernation
-        let lowPower = LowPowerMode(enabled: false)
+        let energy = EnergyPolicySource()
         let pane = Pane()
         let folder: URL
         var keys: [String] = []
@@ -193,7 +214,7 @@ import Testing
         init(freezes: Bool = true, audible: AudibleHistory? = nil) throws {
             _ = NSApplication.shared
             services = AppServices(environment: AppEnvironment.current([:]))
-            hibernation = BrowserHibernation(cache: services.cache, memory: ManualMemoryLevelRegistry(), deadlines: services.mainDeadlines, lowPower: lowPower, audible: audible)
+            hibernation = BrowserHibernation(cache: services.cache, memory: ManualMemoryLevelRegistry(), deadlines: services.mainDeadlines, energy: energy, audible: audible)
             services.cache.hibernation = hibernation
             hibernation.apply(BrowserHibernationSetting(mode: .off, freezeSeconds: freezes ? 0.05 : nil))
             hibernation.start()

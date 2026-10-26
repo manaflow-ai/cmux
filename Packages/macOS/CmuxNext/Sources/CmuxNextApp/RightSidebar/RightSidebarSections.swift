@@ -12,6 +12,7 @@ final class RightSidebarSections {
     typealias Provider = @MainActor (WindowController) -> NSView
 
     @ObservationIgnored private var providers: [RightSidebarMode: Provider] = [:]
+    // memory: fixed one SF Symbol image per RightSidebarMode case (6), a few KB each
     /// The section buttons' SF Symbol images, made off the main thread by ``buildIcons(_:)``: CoreUI decodes
     /// each symbol's vectors when its image is made, which cost the first Focus Right Sidebar 47 ms in its turn.
     @ObservationIgnored private var icons: [RightSidebarMode: NSImage] = [:]

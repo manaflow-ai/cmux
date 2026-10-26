@@ -4,8 +4,8 @@ nonisolated extension SignpostName {
     /// so a disabled trace point folds it to a constant and reads no `String`.
     @inlinable public var traceCategory: SignpostCategory {
         switch self {
-        case .actionPerform, .actionCommit, .actionGate: .action
-        case .motionFrame, .motionRun, .motionDragFrame: .motion
+        case .actionPerform, .actionCommit, .actionGate, .actionPresentedEstimate, .actionPresented: .action
+        case .motionFrame, .motionRun, .motionDragFrame, .motionLateCommits: .motion
         case .keyToFrame, .keyFlow, .scrollToFrame, .keyOmnibarSuggest, .keyPaletteSearch, .keyEchoHostPTYRead,
              .keyEchoHostClientWrite, .keyEchoDaemonFrames, .keyEchoSurfaceParse, .keyEchoAttachEncode, .keyEchoLineOut,
              .keyEchoAppTransportRead, .keyEchoMainActor, .keyEchoOutputLane, .keyEchoRenderer, .keyEchoGPUDone,
@@ -24,7 +24,7 @@ nonisolated extension SignpostName {
         case .frameTick, .frameCommit, .frameGPUDone, .framePresentEstimate, .frameSequence: .frame
         case .taskPost, .taskRun: .task
         case .hangThreadHung, .hangInProgress, .hangInvalidated: .hang
-        case .inputFrame: .input
+        case .inputFrame, .inputLatency: .input
         case .webviewINP, .webviewLoAF: .webview
         case .remoteInput, .remoteFrameDecoded, .remotePresent: .remote
         case .crashHelperExit, .crashWebContentEnd, .crashRendererUnresponsive, .crashChildExit,
@@ -34,6 +34,7 @@ nonisolated extension SignpostName {
         case .ghosttyRender: .ghostty
         case .resizeFrame: .resize
         case .webuiLifecycle, .webuiOpen, .webuiPreload, .webuiScheme, .webuiAgentPaneStep: .webui
+        case .burstEvent: .burst
         }
     }
 

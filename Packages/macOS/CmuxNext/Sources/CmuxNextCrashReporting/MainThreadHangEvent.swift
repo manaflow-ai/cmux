@@ -13,11 +13,15 @@ public nonisolated struct MainThreadHangEvent: Sendable {
     /// Every other thread's stack at the report (name, return addresses innermost first):
     /// for a main thread waiting on a lock or a reply, the thread it waits for.
     public let otherThreads: [(name: String, addresses: [UInt])]
+    /// What the main thread was in when sampled (the watchdog's `Hang.phase`, `cef_pump`), as the
+    /// `main_thread_phase` tag; nil sets no tag.
+    public let phase: String?
 
-    public init(duration: Duration, addresses: [UInt], otherThreads: [(name: String, addresses: [UInt])] = []) {
+    public init(duration: Duration, addresses: [UInt], otherThreads: [(name: String, addresses: [UInt])] = [], phase: String? = nil) {
         self.duration = duration
         self.addresses = addresses
         self.otherThreads = otherThreads
+        self.phase = phase
     }
 
     public func event() -> Event {
@@ -68,6 +72,7 @@ public nonisolated struct MainThreadHangEvent: Sendable {
             return meta
         }
         event.tags = ["hang_source": "main_thread_watchdog"]
+        if let phase { event.tags?["main_thread_phase"] = phase }
         event.extra = ["hang_ms": Int(duration / .milliseconds(1))]
         return event
     }
@@ -144,8 +149,9 @@ extension CrashReporter {
     /// this on its own thread, at most once per stall and per interval).
     /// Does nothing when crash reporting is off.
     public nonisolated func reportHang(duration: Duration, addresses: [UInt],
-                                       otherThreads: [(name: String, addresses: [UInt])] = []) {
+                                       otherThreads: [(name: String, addresses: [UInt])] = [], phase: String? = nil) {
         guard isStarted else { return }
-        SentrySDK.capture(event: MainThreadHangEvent(duration: duration, addresses: addresses, otherThreads: otherThreads).event())
+        SentrySDK.capture(event: MainThreadHangEvent(duration: duration, addresses: addresses, otherThreads: otherThreads,
+                                                     phase: phase).event())
     }
 }
