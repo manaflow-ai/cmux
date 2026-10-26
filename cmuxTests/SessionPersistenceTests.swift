@@ -8089,7 +8089,7 @@ extension SessionPersistenceTests {
         XCTAssertEqual(ordered.count, SessionPersistencePolicy.maxPanelsPerWorkspace + 1)
         let omittedId = try XCTUnwrap(ordered.last)
         workspace.focusPanel(omittedId)
-        let focusedTheOmittedPanel = workspace.focusedPanelId == omittedId
+        XCTAssertEqual(workspace.focusedPanelId, omittedId, "the omitted panel must hold focus before the snapshot")
 
         let snapshot = workspace.sessionSnapshot(includeScrollback: false)
         let savedIds = Set(snapshot.panels.map(\.id))
@@ -8101,11 +8101,9 @@ extension SessionPersistenceTests {
         XCTAssertTrue(Set(layoutPanelIds(snapshot.layout)).isSubset(of: savedIds))
         XCTAssertEqual(snapshot.omittedPanelCount, 1)
         XCTAssertEqual(omittedPanelCount(in: json), 1)
-        if focusedTheOmittedPanel {
-            XCTAssertNotEqual(snapshot.focusedPanelId, omittedId)
-            if let focused = snapshot.focusedPanelId {
-                XCTAssertTrue(savedIds.contains(focused))
-            }
+        XCTAssertNotEqual(snapshot.focusedPanelId, omittedId)
+        if let focused = snapshot.focusedPanelId {
+            XCTAssertTrue(savedIds.contains(focused))
         }
     }
 
@@ -8218,6 +8216,58 @@ extension SessionPersistenceTests {
         XCTAssertEqual(warnings[0].level, .warning)
         XCTAssertTrue(warnings[0].message.contains("2"))
         XCTAssertTrue(warnings[0].message.contains(String(SessionPersistencePolicy.maxPanelsPerWorkspace)))
+    }
+
+    /// Drives the window-Dock restore entry point, not only the shared
+    /// helper, so a lost or misrouted `omittedPanelCount` on a window Dock
+    /// snapshot fails here.
+    @MainActor
+    func testWindowDockRestoreRecordsItsOmissionOnTheSelectedWorkspace() throws {
+        let previousAppDelegate = AppDelegate.shared
+        let appDelegate = AppDelegate()
+        AppDelegate.shared = appDelegate
+        defer { AppDelegate.shared = previousAppDelegate }
+
+        let tabManager = TabManager()
+        defer { tabManager.closeWorkspacesForTesting() }
+        let windowId = appDelegate.registerMainWindowContextForTesting(tabManager: tabManager)
+        defer { appDelegate.unregisterMainWindowContextForTesting(windowId: windowId) }
+        let context = try XCTUnwrap(
+            appDelegate.mainWindowContexts.values.first { $0.windowId == windowId }
+        )
+        defer { context.teardownWindowDock() }
+        let selected = try XCTUnwrap(tabManager.selectedWorkspace)
+
+        let sourceDock = DockSplitStore(workspaceId: windowId, baseDirectoryProvider: { nil })
+        defer { sourceDock.closeAllPanels() }
+        var dockJSON = try jsonObject(encoding: sourceDock.sessionSnapshot(includeScrollback: false))
+        dockJSON["omittedPanelCount"] = 5
+        let dockSnapshot = try JSONDecoder().decode(
+            SessionSplitContainerSnapshot.self,
+            from: JSONSerialization.data(withJSONObject: dockJSON)
+        )
+        let windowSnapshot = SessionWindowSnapshot(
+            frame: nil,
+            display: nil,
+            tabManager: SessionTabManagerSnapshot(
+                selectedWorkspaceIndex: 0,
+                workspaces: [selected.sessionSnapshot(includeScrollback: false)]
+            ),
+            sidebar: SessionSidebarSnapshot(isVisible: true, selection: .tabs, width: nil),
+            dock: dockSnapshot
+        )
+
+        context.restoreWindowDockSessionSnapshot(windowSnapshot, notificationStore: nil)
+
+        let warnings = selected.logEntries.filter {
+            $0.source == Workspace.sessionPersistenceOmissionLogSource
+        }
+        XCTAssertEqual(warnings.count, 1)
+        XCTAssertEqual(warnings.first?.level, .warning)
+        XCTAssertEqual(
+            warnings.first?.message,
+            SessionSnapshotOmittedPanelContainer.windowDock.warning(omittedCount: 5)
+        )
     }
 
     @MainActor

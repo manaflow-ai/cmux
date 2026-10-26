@@ -47,8 +47,9 @@ extension DockSplitStore {
                         panelIds: terminalPanelIds
                     )
         }
-        let panelCap = SessionPersistencePolicy.cappedPanelIds(orderedPanelIds)
-        let builtPanelSnapshots = panelCap.keptPanelIds
+        let panelCap = SessionPanelCap(maxPanels: SessionPersistencePolicy.maxPanelsPerWorkspace)
+            .cap(orderedPanelIds)
+        let builtPanelSnapshots = panelCap.retainedPanelIds
             .compactMap { panelId in
                 // A Dock's owner UUID can change when its window/workspace is restored or
                 // when the panel moves between containers. The panel UUID is persisted,
