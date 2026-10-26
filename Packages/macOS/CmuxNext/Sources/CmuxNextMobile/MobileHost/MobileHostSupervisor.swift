@@ -185,7 +185,7 @@ public actor MobileHostSupervisor {
         publish { $0.reset(to: .connecting) }
         let child = MobileHostProcess()
         do {
-            try child.start(inputs.launch, environment: inputs.launch.environment(inherited: inputs.inherited), log: inputs.log)
+            try await child.start(inputs.launch, environment: inputs.launch.environment(inherited: inputs.inherited), log: inputs.log)
         } catch {
             return "cmux-mobile-host did not start: \(error.localizedDescription)"
         }

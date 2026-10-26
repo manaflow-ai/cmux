@@ -12,12 +12,12 @@ public struct PhoneProcessRunner: PhoneCommandRunning {
     }
 
     public func run(_ arguments: [String], stdin: Data?, deadline: Duration) async throws -> PhoneCommandResult {
-        let process = try PhoneProcess(launcher: launcher, arguments: arguments, stdin: stdin, stdoutFile: nil, captureStdout: true)
+        let process = try await PhoneProcess.launch(launcher: launcher, arguments: arguments, stdin: stdin, stdoutFile: nil, captureStdout: true)
         let status = await process.waitForExit(deadline: deadline)
         return PhoneCommandResult(status: status, stdout: process.stdout, stderr: process.stderr)
     }
 
     public func start(_ arguments: [String], stdoutFile: URL?) async throws -> any PhoneRunningCommand {
-        try PhoneProcess(launcher: launcher, arguments: arguments, stdin: nil, stdoutFile: stdoutFile, captureStdout: false)
+        try await PhoneProcess.launch(launcher: launcher, arguments: arguments, stdin: nil, stdoutFile: stdoutFile, captureStdout: false)
     }
 }

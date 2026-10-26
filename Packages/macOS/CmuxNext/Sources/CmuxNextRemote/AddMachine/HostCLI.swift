@@ -1,5 +1,6 @@
 import CmuxNextCloud
 import CmuxNextCompat
+import CmuxNextWakeups
 public import Foundation
 
 /// Why a run ended without its report line.
@@ -62,11 +63,12 @@ public struct HostCLI: Sendable {
             // task-owner: ends when the process starts, or with the stream's cancel
             let start = Task {
                 let env = await Self.grouped(environment())
-                Self.run(process, gate: gate, binary: binary, arguments: arguments, environment: env, into: continuation)
+                await Self.run(process, gate: gate, binary: binary, arguments: arguments, environment: env, into: continuation)
             }
             continuation.onTermination = { _ in
                 start.cancel()
-                // Before the start: it sees the gate closed and never runs. After it: stopped here.
+                // Before the launch finished: the run sees the gate closed and stops the child itself.
+                // After it: stopped here.
                 if gate.close(), process.isRunning { Self.stop(process) }
             }
         }
@@ -86,8 +88,11 @@ public struct HostCLI: Sendable {
         kill(getpgid(pid) == pid ? -pid : pid, SIGTERM)
     }
 
+    /// Configures and launches the run. The spawn runs on a ``ProcessLauncher`` queue at the caller's
+    /// priority (never the caller's thread, never under the gate's lock), the child at its `processQoS`.
     private static func run(_ process: Process, gate: RunGate, binary: URL, arguments: [String], environment: [String: String],
-                            into continuation: AsyncThrowingStream<String, any Error>.Continuation) {
+                            into continuation: AsyncThrowingStream<String, any Error>.Continuation) async {
+        guard gate.isOpen else { return continuation.finish(throwing: CancellationError()) }
         process.executableURL = binary
         process.arguments = arguments
         process.environment = environment
@@ -128,30 +133,33 @@ public struct HostCLI: Sendable {
                 }
             }
         }
-        // The stream may end (Cancel) at any point up to here; the gate decides under one lock
-        // whether this start still runs, and a cancel that lands after it stops the process.
         do {
-            try gate.start { try process.run() }
-        } catch is CancellationError {
-            continuation.finish(throwing: CancellationError())
+            try await ProcessLauncher(label: "com.cmuxterm.next.host-cli", priority: WorkPriority(Task.currentPriority))
+                .launched(process)
         } catch {
-            continuation.finish(throwing: HostCLIStop(status: nil, message: error.localizedDescription))
+            return continuation.finish(throwing: HostCLIStop(status: nil, message: error.localizedDescription))
         }
+        // The stream may have ended (Cancel) while the child started: then ``RunGate/close()`` found
+        // nothing to stop, and the child is stopped here.
+        if !gate.started() { stop(process) }
     }
 }
 
-/// Orders a run's start against its stream's end: ``start(_:)`` runs the launch only while the gate
-/// is open, under the same lock ``close()`` takes, so a cancel either comes first (no launch) or
-/// after the launch (``close()`` says it started, and the caller stops the process).
+/// Orders a run's launch against its stream's end without holding a lock across the spawn: exactly
+/// one of ``started()`` (the stream closed during the launch) and ``close()`` (it closed after) says
+/// to stop the child, so a cancel always reaches a child that started and never stops one twice.
 final class RunGate: Sendable {
     private let state = Mutex((closed: false, started: false))
 
-    /// Launches unless closed; throws `CancellationError` when it was.
-    func start(_ launch: () throws -> Void) throws {
-        try state.withLock { state in
-            guard !state.closed else { throw CancellationError() }
-            try launch()
+    /// Whether the stream is still open; a closed one launches nothing.
+    var isOpen: Bool { state.withLock { !$0.closed } }
+
+    /// Records the launch; false when the stream closed meanwhile (the caller then stops the child).
+    func started() -> Bool {
+        state.withLock { state in
+            guard !state.closed else { return false }
             state.started = true
+            return true
         }
     }
 

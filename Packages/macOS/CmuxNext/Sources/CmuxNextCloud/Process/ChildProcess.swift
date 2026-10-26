@@ -1,11 +1,16 @@
 package import Foundation
 import CmuxNextCompat
+package import CmuxNextWakeups
 
 /// A cmux-tui helper process (`wg hub`, `remote connect`) whose stdout is a
-/// stream of JSON lines. Reading happens on Foundation's pipe threads, never
-/// the main actor. Stdout lines are bounded (drop-oldest past 256 pending);
-/// stderr keeps a 4 KB tail for error messages. The child runs with
-/// `--exit-with-parent`, so a crash of this app ends it too.
+/// stream of JSON lines. The spawn runs on a ``ProcessLauncher`` queue, never
+/// the caller's actor, and the child at its priority's `processQoS`
+/// (as Chromium's content/browser/child_process_launcher_helper.cc launches on
+/// its process launcher task runner, never the UI thread).
+/// Reading happens on Foundation's pipe threads, never the main actor. Stdout
+/// lines are bounded (drop-oldest past 256 pending); stderr keeps a 4 KB tail
+/// for error messages. The child runs with `--exit-with-parent`, so a crash
+/// of this app ends it too.
 package final class ChildProcess: Sendable {
     private struct State {
         var process: Process?
@@ -20,15 +25,23 @@ package final class ChildProcess: Sendable {
     private let executable: URL
     private let arguments: [String]
     private let environment: [String: String]
+    private let launcher: ProcessLauncher
 
-    package init(executable: URL, arguments: [String], environment: [String: String] = ProcessInfo.processInfo.environment) {
+    /// - Parameter priority: how much a person waits for this helper; the spawn's queue and the
+    ///   child run at it. Default ``WorkPriority/userVisible``: the link and hub carry the sessions
+    ///   on screen.
+    package init(executable: URL, arguments: [String], environment: [String: String] = ProcessInfo.processInfo.environment,
+                 priority: WorkPriority = .userVisible) {
         self.executable = executable
         self.arguments = arguments
         self.environment = environment
+        launcher = ProcessLauncher(label: "com.cmuxterm.next.child.\(executable.lastPathComponent)", priority: priority)
         (lines, continuation) = AsyncStream.makeStream(of: String.self, bufferingPolicy: .bufferingNewest(256))
     }
 
-    package func start() throws {
+    /// Spawns the child and returns once it started.
+    /// - Throws: the launch error (a missing or non-executable binary).
+    package func start() async throws {
         let process = Process()
         process.executableURL = executable
         process.arguments = arguments
@@ -67,11 +80,13 @@ package final class ChildProcess: Sendable {
             } ?? []
             for waiter in waiters { waiter.resume(returning: status) }
         }
+        try await launcher.launched(process)
         state.withLock { $0.process = process }
-        try process.run()
     }
 
     package var pid: Int32? { state.withLock { $0.process?.processIdentifier } }
+    /// The child's quality of service, once it started.
+    package var qualityOfService: QualityOfService? { state.withLock { $0.process?.qualityOfService } }
     package var isRunning: Bool { state.withLock { $0.process != nil && $0.exitStatus == nil } }
 
     package var stderrText: String {

@@ -3,8 +3,10 @@ import CmuxNextWakeups
 import Foundation
 
 /// One child process: `xcrun <arguments>`, or `arguments[0]` itself when
-/// the runner has no launcher (the Android SDK's `adb` and `emulator`). Exit is observed with the termination handler (no
-/// polling); a one-shot `DemandTimer` kills it at its deadline.
+/// the runner has no launcher (the Android SDK's `adb` and `emulator`). ``launch(launcher:arguments:stdin:stdoutFile:captureStdout:)``
+/// spawns it on a ``ProcessLauncher`` queue at the caller's priority, never the caller's actor, and the child
+/// runs at that priority's `processQoS`. Exit is observed with the termination handler (no polling); a
+/// one-shot `DemandTimer` kills it at its deadline.
 final class PhoneProcess: PhoneRunningCommand, Sendable {
     private struct State {
         var status: Int32?
@@ -22,7 +24,26 @@ final class PhoneProcess: PhoneRunningCommand, Sendable {
     private let state = Mutex(State())
     private let killTimer = DemandTimer(owner: "phone.process.deadline")
 
-    init(launcher: URL?, arguments: [String], stdin: Data?, stdoutFile: URL?, captureStdout: Bool) throws {
+    /// Starts one child and returns once it runs, with `stdin` written and closed.
+    /// - Throws: the launch error, or ``PhoneError/commandFailed(command:status:stderr:)`` for no arguments.
+    static func launch(launcher: URL?, arguments: [String], stdin: Data?, stdoutFile: URL?,
+                       captureStdout: Bool) async throws -> PhoneProcess {
+        let command = try PhoneProcess(launcher: launcher, arguments: arguments, stdin: stdin != nil,
+                                       stdoutFile: stdoutFile, captureStdout: captureStdout)
+        try await ProcessLauncher(label: "com.cmuxterm.next.phone-process", priority: WorkPriority(Task.currentPriority))
+            .launched(command.process)
+        if let stdin, let input = command.process.standardInput as? Pipe {
+            input.fileHandleForWriting.write(stdin)
+            try? input.fileHandleForWriting.close()
+        }
+        return command
+    }
+
+    /// The child's quality of service.
+    var qualityOfService: QualityOfService { process.qualityOfService }
+
+    /// Configures the child; ``launch(launcher:arguments:stdin:stdoutFile:captureStdout:)`` starts it.
+    private init(launcher: URL?, arguments: [String], stdin: Bool, stdoutFile: URL?, captureStdout: Bool) throws {
         let process = Process()
         if let launcher {
             process.executableURL = launcher
@@ -64,17 +85,15 @@ final class PhoneProcess: PhoneRunningCommand, Sendable {
         } else {
             process.standardOutput = FileHandle.nullDevice
         }
-        let inPipe = stdin.map { _ in Pipe() }
-        process.standardInput = inPipe ?? FileHandle.nullDevice
+        if stdin {
+            process.standardInput = Pipe()
+        } else {
+            process.standardInput = FileHandle.nullDevice
+        }
         process.terminationHandler = { [weak self] finished in
             guard let self else { return }
             self.killTimer.cancel()
             self.settle { $0.status = finished.terminationStatus }
-        }
-        try process.run()
-        if let inPipe, let stdin {
-            inPipe.fileHandleForWriting.write(stdin)
-            try? inPipe.fileHandleForWriting.close()
         }
     }
 

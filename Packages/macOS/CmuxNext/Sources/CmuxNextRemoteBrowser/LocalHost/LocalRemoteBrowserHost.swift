@@ -1,4 +1,5 @@
 public import CmuxNextRemoteView
+import CmuxNextWakeups
 public import Foundation
 import Security
 
@@ -101,7 +102,10 @@ public final class LocalRemoteBrowserHost {
             exited.finish()
         }
         do {
-            try process.run()
+            // Off the main thread: a spawn takes hundreds of ms under memory pressure. The person
+            // waits for this tab, so the spawn and the host run at userBlocking, as Chromium's
+            // process launcher task runner does (content/browser/child_process_launcher_helper.cc).
+            try await ProcessLauncher(label: "com.cmuxterm.next.remote-browser-host", priority: .userBlocking).launched(process)
         } catch {
             try? FileManager.default.removeItem(at: work)
             throw Failure.launch(String(describing: error))

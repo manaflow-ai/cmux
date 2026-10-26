@@ -1,9 +1,11 @@
 public import Foundation
 import CmuxNextCompat
+public import CmuxNextWakeups
 
 /// One running `cmux-mobile-host` child: its stdout as event lines, its stdin for
-/// control lines, its stderr appended to a log file. Reading happens on
-/// Foundation's pipe queue, never the caller's actor. The child exits by
+/// control lines, its stderr appended to a log file. The spawn runs on a
+/// ``ProcessLauncher`` queue and the child at its priority's `processQoS`; reading
+/// happens on Foundation's pipe queue, never the caller's actor. The child exits by
 /// itself when stdin closes, so a crash of the app ends it too.
 public final class MobileHostProcess: Sendable {
     private struct State {
@@ -17,13 +19,19 @@ public final class MobileHostProcess: Sendable {
     public let lines: AsyncStream<String>
     private let continuation: AsyncStream<String>.Continuation
     private let state = Mutex(State())
+    private let launcher: ProcessLauncher
 
-    public init() {
+    /// - Parameter priority: the spawn's and the child's priority. Default ``WorkPriority/userVisible``:
+    ///   hostd serves the person's phone now.
+    public init(priority: WorkPriority = .userVisible) {
+        launcher = ProcessLauncher(label: "com.cmuxterm.next.mobile-host", priority: priority)
         (lines, continuation) = AsyncStream.makeStream(of: String.self, bufferingPolicy: .bufferingNewest(256))
     }
 
-    /// Starts `launch.executable` with `environment`; stderr goes to `log` (created 0600) or nowhere.
-    public func start(_ launch: MobileHostLaunch, environment: [String: String], log: URL?) throws {
+    /// Starts `launch.executable` with `environment` and returns once it runs; stderr goes to `log`
+    /// (created 0600) or nowhere.
+    /// - Throws: the launch error.
+    public func start(_ launch: MobileHostLaunch, environment: [String: String], log: URL?) async throws {
         let process = Process()
         process.executableURL = launch.executable
         process.environment = environment
@@ -60,8 +68,11 @@ public final class MobileHostProcess: Sendable {
             $0.process = process
             $0.input = input.fileHandleForWriting
         }
-        try process.run()
+        try await launcher.launched(process)
     }
+
+    /// The child's quality of service, once it started.
+    public var qualityOfService: QualityOfService? { state.withLock { $0.process?.qualityOfService } }
 
     /// Writes one control line; false when hostd is gone.
     @discardableResult
