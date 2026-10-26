@@ -244,8 +244,8 @@ impl Hub {
         self.save_meta(&session);
         if !defer_finalize {
             if let Err(error) = self.finalize_harness_state(&session.meta()) {
-                let _ = self.kill(&session, true).await;
                 self.recover_staged_replacements();
+                let _ = self.kill(&session, true).await;
                 return Err(RpcError::internal(error.to_string()));
             }
         }

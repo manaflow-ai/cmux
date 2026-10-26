@@ -246,13 +246,17 @@ impl Hub {
                 if !name.starts_with(".") || !name.ends_with(".replacement-state.json") {
                     continue;
                 }
-                if std::fs::read(entry.path())
-                    .ok()
-                    .and_then(|raw| serde_json::from_slice::<Value>(&raw).ok())
-                    .and_then(|v| v.get("phase").and_then(Value::as_str).map(|_| true))
-                    == Some(true)
-                {
-                    let _ = std::fs::remove_file(entry.path());
+                if let Ok(raw) = std::fs::read(entry.path()) {
+                    if let Ok(value) = serde_json::from_slice::<Value>(&raw) {
+                        let agent = value.get("agentId").and_then(Value::as_str).unwrap_or("");
+                        let outer = value.get("outerId").and_then(Value::as_str).unwrap_or("");
+                        let phase = value.get("phase").and_then(Value::as_str).unwrap_or("");
+                        if matches!(phase, "prepared" | "staged" | "committed")
+                            && recovery_owner(root, agent, outer)
+                        {
+                            let _ = std::fs::remove_file(entry.path());
+                        }
+                    }
                 }
             }
         }
@@ -505,14 +509,23 @@ impl Hub {
                         return Err(error);
                     }
                 }
-                self.append(
+                let (_, stored) = self.append_at(
                     &session,
                     "mux",
                     "transferred_in",
                     json!({"transferId": transfer_id, "from": from}),
+                    None,
+                    None,
                 );
+                if !stored {
+                    self.recover_staged_replacements();
+                    let _ = self.kill(&session, true).await;
+                    return Err(transfer_error("store", "could not durably record transferred_in"));
+                }
                 if let Err(error) = self.finalize_harness_state(&session.meta()) {
-                    let _ = self.mark_harness_state_committed(&session.meta());
+                    if let Err(mark_error) = self.mark_harness_state_committed(&session.meta()) {
+                        tracing::warn!(session = %session.id, "durable commit marker deferred: {mark_error:#}");
+                    }
                     tracing::warn!(session = %session.id, "durable transfer finalization deferred: {error:#}");
                 }
                 if let Some((_, backup)) = source_store_backup.as_ref() {
