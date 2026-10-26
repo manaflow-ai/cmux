@@ -123,6 +123,55 @@ describe("groupVariants", () => {
     ]);
   });
 
+  // Primary review at 68a5f69a: the third row joined the Qwen model, so its Together row would land
+  // Mistral's model in place of Qwen's.
+  test("a provider's row joins the model of its own owner, not the first with the same last id part", async () => {
+    const { groupVariants } = await variants();
+    const groups = groupVariants([
+      { id: "openrouter/qwen/coder-3", name: "OpenRouter/Coder 3" },
+      { id: "openrouter/mistral/coder-3", name: "OpenRouter/Coder 3" },
+      { id: "together/mistral/coder-3", name: "Together/Coder 3" },
+    ]);
+    expect(groups.map((group) => group.offers.map((offer) => offer.model.id))).toEqual([
+      ["openrouter/qwen/coder-3"],
+      ["openrouter/mistral/coder-3", "together/mistral/coder-3"],
+    ]);
+  });
+
+  test("a row that names no owner joins only the one model it can be", async () => {
+    const { groupVariants } = await variants();
+    // Two owners serve a coder-3: a bare row names neither, so it stays its own model.
+    const ambiguous = groupVariants([
+      { id: "openrouter/qwen/coder-3", name: "OpenRouter/Coder 3" },
+      { id: "together/mistral/coder-3", name: "Together/Coder 3" },
+      { id: "groq/coder-3", name: "Groq/Coder 3" },
+    ]);
+    expect(ambiguous.map((group) => group.offers.map((offer) => offer.model.id))).toEqual([
+      ["openrouter/qwen/coder-3"],
+      ["together/mistral/coder-3"],
+      ["groq/coder-3"],
+    ]);
+    // An owner's own bare row ("mistral/coder-3") is that owner's model.
+    const owned = groupVariants([
+      { id: "openrouter/qwen/coder-3", name: "OpenRouter/Coder 3" },
+      { id: "together/mistral/coder-3", name: "Together/Coder 3" },
+      { id: "mistral/coder-3", name: "Mistral/Coder 3" },
+    ]);
+    expect(owned.map((group) => group.offers.map((offer) => offer.model.id))).toEqual([
+      ["openrouter/qwen/coder-3"],
+      ["together/mistral/coder-3", "mistral/coder-3"],
+    ]);
+    // One owner: every provider's row is that model, bare rows included, whichever comes first.
+    const one = groupVariants([
+      { id: "opencode/deepseek-v4-pro", name: "DeepSeek V4 Pro" },
+      { id: "openrouter/deepseek/deepseek-v4-pro", name: "OpenRouter/DeepSeek V4 Pro" },
+      { id: "deepseek/deepseek-v4-pro", name: "DeepSeek/DeepSeek V4 Pro" },
+    ]);
+    expect(one.map((group) => group.offers.map((offer) => offer.provider))).toEqual([
+      ["OpenCode", "OpenRouter", "DeepSeek"],
+    ]);
+  });
+
   test("the running provider's row is the one its model lands", async () => {
     const { groupVariants } = await variants();
     expect(groupVariants(rows, "deepseek/deepseek-v4-pro")[0]!.model.id).toBe("deepseek/deepseek-v4-pro");
