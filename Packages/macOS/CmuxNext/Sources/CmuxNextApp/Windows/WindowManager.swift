@@ -98,9 +98,9 @@ final class WindowManager {
     /// incognito window is open (`WindowManager+Incognito`).
     var incognitoSession: BrowserProfileID?
     /// Workspaces of open incognito windows, closed at the next launch when
-    /// this run ends without closing them.
-    lazy var incognitoLedger = IncognitoWorkspaceLedger.forApplication(bundleIdentifier: Bundle.main.bundleIdentifier,
-                                                                       leftovers: services.environment.incognitoLeftovers, work: services.work)
+    /// this run ends without closing them. Built with the manager (in `AppServices.init`), so a read it
+    /// starts itself is posted long before the launch window or the restore asks.
+    let incognitoLedger: IncognitoWorkspaceLedger
     /// Incognito windows waiting for the ephemeral workspace created for
     /// them (`WindowManager+Ephemeral`).
     var pendingEphemeralWindows: [String] = []
@@ -111,6 +111,8 @@ final class WindowManager {
 
     init(services: AppServices) {
         self.services = services
+        incognitoLedger = .forApplication(bundleIdentifier: Bundle.main.bundleIdentifier,
+                                          leftovers: services.environment.incognitoLeftovers, work: services.work)
         WindowActivation.didOrder = { [weak self] window, inFront in self?.windowDidOrder(window, inFront: inFront) }
     }
 
