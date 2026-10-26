@@ -105,7 +105,7 @@ enum DestructiveConfirmation {
                           button: HomeStrings.deleteChiefButton, returnConfirms: false)
         case "home.leaveConversation":
             // The group's name in the question; a conversation not listed is refused by the action.
-            let id = invocation["conversation"]?.stringValue.map { ConversationID($0) } ?? AppActions.shownPage(services)?.shown
+            let id = invocation["conversation"]?.stringValue.map { ConversationID($0) } ?? HomeDockTab.homeConversation(services)
             guard let id, let info = services.home.groupActions.info(id), info.isGroup else { return nil }
             let prompt = info.leavePrompt
             return Prompt(title: prompt.title, body: prompt.body, button: prompt.button)

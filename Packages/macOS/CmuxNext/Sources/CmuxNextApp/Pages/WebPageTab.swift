@@ -4,7 +4,7 @@ import CmuxNextIcons
 import CmuxNextPages
 
 /// A React page as an internal page tab, one view per tab: `make` builds each tab's page with its
-/// routes, and a closed tab closes its page. The Stats, Chief Usage, Chief view gallery, channels
+/// routes, and a closed tab closes its page. The Stats, Chief Usage, Chief view gallery
 /// and CodeRouter tabs are this; a page with routes or sub-views of its own has its own provider.
 @MainActor
 final class WebPageTab: InternalPageProvider {
@@ -13,13 +13,14 @@ final class WebPageTab: InternalPageProvider {
     let icon: IconName?
     /// Read once, when the tab registers: page titles do not change while the app runs.
     let title: String
-    /// How long a hidden tab keeps its page (`memoryDiscardInternalPages`); its next show makes a new one.
+    /// How long a hidden tab keeps its page (`memoryDiscardInternalPages`); its next show makes a new
+    /// one. Each page states its own: there is no default, so a new page cannot leave it out.
     let policy: ContentDiscardPolicy
     private let make: () -> PageWebView?
     private var pages: [String: PageWebView] = [:]
 
     init(_ page: InternalPageID, symbol: String, icon: IconName? = nil, title: String,
-         discardPolicy: ContentDiscardPolicy = .standard, make: @escaping () -> PageWebView?) {
+         discardPolicy: ContentDiscardPolicy, make: @escaping () -> PageWebView?) {
         self.page = page
         self.symbol = symbol
         self.icon = icon

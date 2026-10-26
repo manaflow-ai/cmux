@@ -98,17 +98,19 @@ final class HomeNewMessageView: NSView {
     /// leaving drops the draft (and its row in the list).
     var isEmpty: Bool { field.draft.isEmpty && messageText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
 
-    /// What the person put on the page: the To: field and the message box's text. A conversation's
-    /// own draft also stays in Home's store; the blank page's lives only here.
+    /// What the person put on the page: the To: field and the blank page's text. The text of a
+    /// conversation the people already have is that conversation's draft in Home's store, which
+    /// every Home view reads live; it is never copied here, so a message sent meanwhile from
+    /// another view does not come back.
     struct Saved: Equatable {
         var recipients: HomeNewMessageDraft
         var text: String
     }
 
-    var saved: Saved { Saved(recipients: field.draft, text: messageText) }
+    var saved: Saved { Saved(recipients: field.draft, text: existing == nil ? messageText : "") }
 
-    /// Puts `saved` back on a new page (its Home view was discarded): the box takes the text, then
-    /// the To: field's people show their conversation with it, as when the person chose them.
+    /// Puts `saved` back on a new page (its Home view was discarded): the box takes the blank
+    /// page's text, then the To: field's people show their conversation, as when the person chose them.
     func restore(_ saved: Saved) {
         showComposer(carrying: saved.text)
         field.setDraft(saved.recipients)

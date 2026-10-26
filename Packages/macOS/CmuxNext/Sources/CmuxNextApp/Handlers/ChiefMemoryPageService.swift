@@ -78,6 +78,8 @@ final class ChiefMemoryPageService: InternalPageProvider {
     struct SavedView: Equatable {
         var trail: [String]
         var query: String
+        /// The search's hits showed: the next view searches again.
+        var searched: Bool
     }
 
     init(services: AppServices) {
@@ -173,8 +175,8 @@ final class ChiefMemoryPageService: InternalPageProvider {
             return await CmuxDialogCenter.shared.present(spec, in: scope).button == ChiefMemoryInspectorView.deleteButton
         }
         // A view made again after a discard opens on the nodes and search it showed; its first
-        // reload reads the last node.
-        if let shown = saved.removeValue(forKey: key) { model.restore(trail: shown.trail, query: shown.query) }
+        // reload reads the last node and runs its search again.
+        if let shown = saved.removeValue(forKey: key) { model.restore(trail: shown.trail, query: shown.query, searched: shown.searched) }
         models[key] = model
         let view = NSHostingView(rootView: ChiefMemoryInspectorView(model: model))
         anchor.view = view
@@ -208,7 +210,7 @@ final class ChiefMemoryPageService: InternalPageProvider {
     /// (``makeView(for:in:)``).
     func viewDiscarded(_ key: String) {
         guard let model = models.removeValue(forKey: key) else { return }
-        saved[key] = SavedView(trail: model.trail, query: model.query)
+        saved[key] = SavedView(trail: model.trail, query: model.query, searched: !model.hits.isEmpty)
     }
 
     func route(for key: String) -> String? { routes[key]?.description }

@@ -36,6 +36,8 @@ final class TopHomePageView: NSView {
     /// A conversation the person started that the inbox does not list yet: opened (with the
     /// keyboard in its box) when it shows.
     private var opening: ConversationID?
+    /// A restored list scroll position, applied once the list first draws its rows (TopHomePageView+ViewState).
+    var pendingListScroll: CGPoint?
     private var rowsObservation: Task<Void, Never>?
     private var selectionObservation: Task<Void, Never>?
     private var chiefObservation: Task<Void, Never>?
@@ -207,6 +209,7 @@ final class TopHomePageView: NSView {
                 // A conversation came or went (a lease arrived, a request was accepted): requests may have changed.
                 if Set(all.map(\.id)) != listed { listed = Set(all.map(\.id)); home.requests.refresh() }
                 list.update(sidebar.model())
+                if !rows.isEmpty, let scroll = pendingListScroll { pendingListScroll = nil; list.layoutSubtreeIfNeeded(); list.scrollOrigin = scroll }
                 if shown == nil, !isComposingNewMessage, let first = defaultConversation(rows: rows, home: home) { show(first) }
                 // The cache's conversation of a Chief home made again (cx-ebm.55).
                 if shownIsGone(store), let chief = Self.chief(home) { replaceGone(with: ConversationID(chief), store: store) }
@@ -364,36 +367,6 @@ final class TopHomePageView: NSView {
         host?.takeKeyboardOnOpen()
     }
 
-    // MARK: View state (`memoryDiscardInternalPages`)
-
-    /// What this page shows that Home's store does not keep: the shown conversation and the New
-    /// Message page (each conversation's draft and scroll stay in the store). A Home tab or dock
-    /// whose view was discarded gives it to its next view.
-    struct ViewState: Equatable {
-        var shown: ConversationID?
-        /// The New Message page's draft, nil when there is none or it is empty.
-        var newMessage: HomeNewMessageView.Saved?
-        /// The New Message page is the one on screen.
-        var composing = false
-    }
-
-    var viewState: ViewState {
-        ViewState(shown: shown, newMessage: newMessage.flatMap { $0.isEmpty ? nil : $0.saved }, composing: isComposingNewMessage)
-    }
-
-    /// Shows `state` on this new page: its conversation, and a kept New Message draft with its
-    /// row, on screen when it was.
-    func restore(_ state: ViewState) {
-        if let shown = state.shown { show(shown) }
-        guard let saved = state.newMessage, let services else { return }
-        let page = newMessage ?? makeNewMessage(services)
-        page.restore(saved)
-        if state.composing { return presentNewMessage() }
-        page.isHidden = true
-        list.setDraftRow(HomeNewMessageDraft.rowTitle)
-        if let shown { list.select(shown) }
-    }
-
     // MARK: New Message
 
     /// New Message (the compose button, the palette, the
@@ -402,8 +375,14 @@ final class TopHomePageView: NSView {
     /// transcript column, with the caret in To:. A kept draft comes back as
     /// the person left it.
     func presentNewMessage() {
-        guard let services else { return }
-        let page = newMessage ?? makeNewMessage(services)
+        guard let page = showNewMessage() else { return }
+        window?.makeFirstResponder(page.focusTarget)
+    }
+
+    /// The New Message page on screen with its selected row; the keyboard stays where it is.
+    @discardableResult
+    func showNewMessage() -> HomeNewMessageView? {
+        guard let page = keptNewMessage() else { return nil }
         if page.superview == nil {
             page.frame = transcriptColumn.bounds
             page.autoresizingMask = [.width, .height]
@@ -416,8 +395,11 @@ final class TopHomePageView: NSView {
         list.select(HomeSidebarView.draftRowID)
         page.needsLayout = true
         page.layoutSubtreeIfNeeded()
-        window?.makeFirstResponder(page.focusTarget)
+        return page
     }
+
+    /// The New Message page, made when there is none (not shown yet).
+    func keptNewMessage() -> HomeNewMessageView? { newMessage ?? services.map { makeNewMessage($0) } }
 
     private func makeNewMessage(_ services: AppServices) -> HomeNewMessageView {
         let page = HomeNewMessageView(services: services)

@@ -1,4 +1,5 @@
 import AppKit
+import CmuxHomeCore
 import CmuxNextHibernation
 import CmuxNextHomeEngine
 import CmuxNextPages
@@ -65,10 +66,10 @@ final class HomeDockTab: InternalPageProvider {
     /// Ten minutes hidden, as a Home tab (``HomePageTab``).
     func discardPolicy(for key: String) -> ContentDiscardPolicy { .standard }
 
-    /// A dock that made its Channels page keeps it: that page's composers hold unsent text only in
-    /// the page (``HomeChannelsPageTab/discardPolicy``; Chrome's `kFormInteractions`).
+    /// A dock stays while its Channels page reports unsent composer input: that input lives only in
+    /// the page (``HomeChannelsInput``; Chrome's `kFormInteractions`).
     func keepReasons(for key: String) -> [CannotDiscardReason] {
-        views[key]?.channels == nil ? [] : [.formInput]
+        views[key]?.channelsInput.keepReasons ?? []
     }
 
     /// The tab stays: its view and Messages state wait for its next view.
@@ -79,10 +80,12 @@ final class HomeDockTab: InternalPageProvider {
         if view.mode == .channels { services?.home.dockMode = .messages } // its next view opens on Messages
     }
 
+    /// The Messages page restores its own state, list scroll included (`TopHomePageView.ViewState`),
+    /// and the Channels view comes back without taking the keyboard.
     func restoreViewState(_ state: ContentViewState, for key: String, content: NSView) {
         guard let view = content as? HomeDockView, let state = saved.removeValue(forKey: key) else { return }
         if let messages = state.messages { view.messages?.restore(messages) }
-        if state.mode == .channels, state.mode.isEnabled { view.switchTo(.channels) }
+        view.restore(state.mode)
     }
 
     /// Runs `body` on store tab `tabID`'s view now, or once the tab first shows.
@@ -91,12 +94,27 @@ final class HomeDockTab: InternalPageProvider {
         pending[tabID, default: []].append(body)
     }
 
-    /// The docked Home's view in the live tree, once its tab has shown.
+    /// The docked Home's view in the live tree, once its tab has shown (nil while it is discarded).
     static func view(_ services: AppServices) -> HomeDockView? {
+        guard let found = dockTab(services) else { return nil }
+        return found.provider.views[found.key]
+    }
+
+    /// The conversation Home shows, without showing it: the classic page's, else the docked
+    /// Messages view's, live or discarded (`memoryDiscardInternalPages`: the tab still stands for
+    /// what its view showed), so an action needs no live view. Nil before the dock first shows.
+    static func homeConversation(_ services: AppServices) -> ConversationID? {
+        if services.home.dock.isClassic { return AppActions.shownPage(services)?.shown }
+        guard let found = dockTab(services) else { return nil }
+        if let view = found.provider.views[found.key] { return view.messages?.shown }
+        return found.provider.saved[found.key]?.messages?.shown
+    }
+
+    /// The docked Home's provider and its tab's provider key.
+    private static func dockTab(_ services: AppServices) -> (provider: HomeDockTab, key: String)? {
         guard let tab = services.home.homeWorkspace.flatMap(HomeDock.pageTab(in:))?.tab,
               let provider = services.pages.provider(.homeDock) as? HomeDockTab else { return nil }
-        let key = services.pages.storeKey(of: tab.id) ?? tab.id
-        return provider.views[key]
+        return (provider, services.pages.storeKey(of: tab.id) ?? tab.id)
     }
 
     /// The page command that moves the Channels list (`home.moveConversation`, hostMove.ts).

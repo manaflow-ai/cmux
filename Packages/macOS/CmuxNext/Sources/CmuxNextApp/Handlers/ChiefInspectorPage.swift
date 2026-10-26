@@ -45,48 +45,50 @@ final class ChiefInspectorPageService: InternalPageProvider {
         return services?.pages.show(.chiefInspector, in: window, focus: focus) != nil
     }
 
-    /// The server each tab inspects, by key: a view made again after a discard keeps its server.
+    /// The server each tab inspects, by key, from its first view on: the server it was opened for,
+    /// else the first server that served it. A view made again after a discard asks the same one.
     private var tabMachines: [String: String] = [:]
+    /// The tabs that had a first view: a later view never reads the service-wide ``machineID``.
+    private var opened: Set<String> = []
     /// Each tab's page, while its view exists.
     private var pages: [String: PageWebView] = [:]
-    /// The route a tab whose view was discarded opens on again.
-    private var restoredRoutes: [String: String] = [:]
 
     func makeView(for key: String, in window: WindowController?) -> NSView {
-        // Each tab keeps the server it was opened for; a tab restored at
-        // launch (no open request yet) takes the first server that serves
-        // chief-inspect.
-        let opened = tabMachines[key] ?? machineID
-        if let opened { tabMachines[key] = opened }
-        let provider = ChiefInspectorPageProvider { [weak self] in
-            guard let machines = self?.services?.machines else { return nil }
-            let server = opened.flatMap(machines.server)
-                ?? machines.servers.first { $0.daemon.supports(DaemonCapability.chiefInspect.rawValue) }
-            return server?.daemon.connection
-        }
+        // A tab's first view takes the server of the open request; a tab restored at launch (no
+        // open request yet) takes the first server that serves chief-inspect, once it asks.
+        if opened.insert(key).inserted { tabMachines[key] = machineID }
+        let provider = ChiefInspectorPageProvider { [weak self] in self?.connection(forTab: key) }
         let routes = [PageRoute(prefix: "cmux.chief_inspector.", provider: provider)]
-        let request = PageOpenRequest(descriptor: .chiefInspector, routes: routes, route: restoredRoutes.removeValue(forKey: key))
-        guard let page = services?.webUI.open(request) else { return NSView() }
+        guard let page = services?.webUI.open(PageOpenRequest(descriptor: .chiefInspector, routes: routes)) else { return NSView() }
         pages[key] = page
         return page
     }
 
+    /// Tab `key`'s server's daemon connection; the first serving server becomes the tab's own.
+    private func connection(forTab key: String) -> DaemonConnection? {
+        guard let machines = services?.machines else { return nil }
+        if let machine = tabMachines[key] { return machines.server(machine)?.daemon.connection }
+        guard let server = machines.servers.first(where: { $0.daemon.supports(DaemonCapability.chiefInspect.rawValue) }) else { return nil }
+        tabMachines[key] = server.machineID
+        return server.daemon.connection
+    }
+
     func tabClosed(_ key: String) {
         tabMachines[key] = nil
-        restoredRoutes[key] = nil
+        opened.remove(key)
         pages.removeValue(forKey: key)?.close()
     }
+
+    /// The server tab `key` inspects; nil until its first view opened for one or asked one.
+    func machine(ofTab key: String) -> String? { tabMachines[key] }
 
     // MARK: Discard (`memoryDiscardInternalPages`)
 
     /// Ten minutes hidden: the page only reads, and a new page asks the brain again.
     func discardPolicy(for key: String) -> ContentDiscardPolicy { .standard }
 
-    /// The discard closed the page with its view; the tab keeps its server and the page's route.
-    func viewDiscarded(_ key: String) {
-        guard let page = pages.removeValue(forKey: key) else { return }
-        restoredRoutes[key] = page.route
-    }
+    /// The discard closed the page with its view; the tab keeps its server.
+    func viewDiscarded(_ key: String) { pages[key] = nil }
 }
 
 /// `cmux.chief_inspector.get {path, query}`: one read-only inspector call,
