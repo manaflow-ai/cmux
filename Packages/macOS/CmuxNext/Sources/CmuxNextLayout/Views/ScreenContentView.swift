@@ -68,11 +68,11 @@ final class ScreenContentView: NSView {
     /// A row divider drag's heights, shown until the next layout arrives
     /// (gesture state; the model keeps no copy, rows.md Z1).
     var rowDragPreview: (column: ColumnID, heights: [RowHeight])?
-    /// The strip camera as it shows: during a fling on the render server (`StripPanContainerView.fling`)
+    /// The strip camera as it shows: during a fling on the render server (`StripClipContainerView.fling`)
     /// the reducer's spring rests on the fling's target and this is where the strip is on the way. A
     /// write takes the camera back from the fling first (``takeCameraFromServer()``).
     var scroll: SpringValue {
-        get { panContainer.fling == nil ? scrollState.spring : flingCamera }
+        get { stripContainer.fling == nil ? scrollState.spring : flingCamera }
         set {
             takeCameraFromServer()
             scrollState.spring = newValue
@@ -93,8 +93,16 @@ final class ScreenContentView: NSView {
     var scrollbarFlash = false
     /// The canvas this screen shows, its camera and a pointer drag (ScreenContentView+Canvas).
     var canvasState = ScreenCanvasState()
-    /// A user pan of this screen stepped the layout and has not ended yet (`applyPresentation`).
+    /// Layout motion the CPU step does not own has not ended yet: a user pan of this screen stepped the
+    /// layout (`applyPresentation`), or render-server springs run (``renderSpringsInFlight``).
     var userMotionActive = false
+    /// Render-server spring calls of this screen's panes and dividers that have not landed
+    /// (`ScreenContentView+RenderMotion.swift`).
+    var renderSpringsInFlight = 0
+    /// A close on the render server that has not landed and still owns the camera (`springCloseOnRenderServer`).
+    var renderClose: RenderClose?
+    /// The render-server springs still carrying panes and dividers, what a later change starts from.
+    var renderTracks = RenderTracks()
     /// A strip pan event showed in the current display frame (``presentPan()``); the frame's tick
     /// clears it (``displayFrameBegan()``).
     var panPresentedInFrame = false
@@ -102,11 +110,9 @@ final class ScreenContentView: NSView {
     var panPresentationPending = false
     /// Frame ticks the pan still keeps after its last event (``displayFrameBegan()``).
     var panTicksLeft = 0
-    /// The strip's motion container (`ScreenContentView+StripPan.swift`): its hosts and dividers while
-    /// `motion.renderServer` is on.
-    let panContainer = StripPanContainerView()
-    /// The strip's hosts and dividers are in ``panContainer`` (the last `ensureStacking`).
-    var stripInPanContainer = false
+    /// The strip's dividers sit in the strip container with its hosts (the last `ensureStacking`), so a
+    /// pan on the container moves them (`ScreenContentView+StripPan.swift`).
+    var stripDividersInContainer = false
     /// While the container carries the pan, the strip offset its views are laid out at; nil when
     /// they are laid out at the camera.
     var panBase: CGFloat?
@@ -115,9 +121,13 @@ final class ScreenContentView: NSView {
     /// The strip shift the last visibility pass saw and how far a pan can go from it before a pane
     /// enters or leaves (``recordVisibilitySpan()``).
     var visibilitySpan: (shift: CGFloat, span: PanVisibilitySpan)?
-    /// Pane strip clips computed, cumulative (PaneMotionWorkTests: per frame it is the panes that
-    /// moved or whose covers changed, not every pane).
+    /// Pane clips computed, cumulative (PaneMotionWorkTests): a spring or a pan beside docks computes none.
     var stripClipsComputed = 0
+    /// Moves on with any change to the hosts' frames, alphas, clips or order (`PaneHostView.pageCovers`).
+    var coverVersion = 0
+    /// The strip's panes sit in this view, which clips them to the strip's range by its bounds
+    /// (`StripClipContainerView`); the docks stack above it.
+    let stripContainer = StripClipContainerView(frame: .zero)
     init(screenID: ScreenID, layout: ScreenLayout, context: LayoutViewContext,
          paneMotionVariant: @escaping () -> PaneMotionVariant = { LayoutTunables.paneMotionVariant.value }) {
         self.screenID = screenID
@@ -130,7 +140,7 @@ final class ScreenContentView: NSView {
         super.init(frame: .zero)
         wantsLayer = true
         layer?.masksToBounds = true
-        addSubview(panContainer)
+        addSubview(stripContainer)
     }
     @available(*, unavailable)
     required init?(coder: NSCoder) {
@@ -145,7 +155,6 @@ final class ScreenContentView: NSView {
         let changed = newSize != frame.size
         super.setFrameSize(newSize)
         guard changed else { return }
-        panContainer.frame = CGRect(origin: .zero, size: newSize)
         // A hidden screen (another of the workspace's screens shows) lays out once, when it shows:
         // each live-resize tick re-ran its full geometry, pane and divider reconcile.
         if isHidden { needsReconcileOnShow = true } else { reconcileAndScroll(keepsMotion: hasMotion && window?.inLiveResize != true) }
@@ -235,6 +244,8 @@ final class ScreenContentView: NSView {
         takeCameraFromServer()
         let shown = rowDragPreview.map { layout.settingRowHeights($0.heights, for: $0.column) } ?? layout
         let before = geometry
+        // A new structure starts from what shows, render-server springs included (`takeRenderSpringsBack`).
+        if structural { takeRenderSpringsBack() }
         // One style read per pass: it is resolved from the settings.
         let style = context.style
         reconcilePasses += 1
@@ -303,7 +314,7 @@ final class ScreenContentView: NSView {
             } else {
                 let host = context.host(for: pane)
                 // Under the zooming pane and the dividers: `reconcileDock` ranks it (`ensureStacking`).
-                if !holds(host) { move(host, to: hostParent(for: pane, inContainer: usesPanContainer)) }
+                if !holds(host) { move(host, to: hostParent(for: pane)) }
                 // Opaque from its first frame: an arriving pane grows in from its edge, never fades.
                 var frame = AnimatedFrame(arrivals[pane]?.seed ?? target)
                 if arrivals[pane] != nil { SplitMotion.ride(&frame, panes: shownBefore, skipping: Set(arrivals.keys)) }
@@ -346,7 +357,7 @@ final class ScreenContentView: NSView {
                 view.onDrag = { [weak self] event in self?.handleDrag(kind: kind, event: event) }
                 view.onPointerChange = { [weak self] event in self?.refreshDividerHover(at: event) }
                 // Ranked by `reconcileDock` (`ensureStacking`).
-                dividerParent(for: kind, inContainer: usesPanContainer).addSubview(view)
+                dividerParent(for: kind, inContainer: dividersInStripContainer).addSubview(view)
                 dividerViews[kind] = view
             }
             view.lineThickness = style.dividerThickness
@@ -422,6 +433,7 @@ final class ScreenContentView: NSView {
     func releaseCovered(all: Bool = false) {
         for pane in zoomMotion.settled(all: all) where paneFrames[pane] == nil && !context.livePanes.contains(pane) {
             context.release(pane)
+            coverVersion &+= 1
         }
     }
 

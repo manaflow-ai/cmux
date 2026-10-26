@@ -1,5 +1,5 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR cb66b76b27d6af323d88e6c50c65226de2a2ef09009dcab5c68a8205bfd94675. */
+/* cmux-tui mux protocol 12, IR 07f25cd97f355ba0c33e4e9958a84c274851a8c72048a29a69edad5286828785. */
 
 
 /** JSON accepted by the wire codec. bigint is serialized as an exact JSON integer. */
@@ -90,6 +90,19 @@ export type AgentRecord = {
 
 export type AgentReportSource = "socket" | "hook";
 
+/** Opaque JSON: The result acpmux answered for the call (permission_respond, acp.trust.get or acp.trust.set), passed through unchanged; acpmux owns its shape. */
+export type AgentSessionAcpmuxReply = JsonValue;
+
+export type AgentSessionAnsweredBy = {
+  /** The device the person answered on: 1 to 128 of [A-Za-z0-9_.:-]. */
+  "device": string;
+  /** The feed item the person answered: 1 to 128 of [A-Za-z0-9_.:-]. */
+  "feed_item": string;
+};
+
+/** Opaque JSON: acpmux's own _acpmux/attach or _acpmux/events page ({session, events, hasMore, lastSeq}; events only on agent-session-events), passed through unchanged except that a page over 8 MiB is cut and gets hasMore:true. acpmux owns the record shape. */
+export type AgentSessionPage = JsonValue;
+
 export type AgentSessionSource = {
   /** The agent kind the chat was started with. */
   "harness"?: (string) | null;
@@ -100,6 +113,9 @@ export type AgentSessionSource = {
   /** The acpmux session id; null for a new chat until bind-conversation-tab-session. */
   "session"?: (string) | null;
 };
+
+/** Opaque JSON: One acpmux session summary from _acpmux/sessions, as acpmux writes it (sessionId, startedBy, spawnedBy and the rest); acpmux owns its shape. */
+export type AgentSessionSummary = JsonValue;
 
 export type AgentSource = "plugin" | "detected" | "socket" | "hook";
 
@@ -563,6 +579,8 @@ export type DetachReason = "network" | "disconnected-by" | "host-shutdown" | "su
 
 export type EmptyResult = {
 };
+
+export type EventCause = "frontend" | "automation";
 
 export type ExportLayoutResult = {
   "layout": Layout;

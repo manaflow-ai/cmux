@@ -25,8 +25,9 @@ Rules, each a table below:
   spawns       SPAWNS_TERMINAL (the daemon commands that may start a
                terminal host); it must hold every Swift
                `TerminalSpawningRequest` command
-  clients      sdk for every command; macos for the ipc-census Q1 names,
-               cli for the Q14 names; ios is kept when set by hand
+  clients      sdk for every command; macos for the ipc-census Q1 names and
+               the MACOS_CALL_SITES names, cli for the Q14 names; ios is
+               kept when set by hand
 
 Stdlib only, plus the schema validator in cmux-tui/bindings/codegen.
 """
@@ -137,6 +138,9 @@ FAMILIES: dict[str, tuple[int, str, tuple[str, ...]]] = {
     "apps": (0x12, "The app supervisor (apps-v1, server/apps.rs): installs, mounts, runs, logs and app op providers.", (
         "apps-*", "cancel-request",
     )),
+    "agent-sessions": (0x13, "Agent chat tabs attached to this machine's acpmux sessions.", (
+        "agent-session-*",
+    )),
 }
 
 EVENT_FAMILIES: dict[str, tuple[int, str, tuple[str, ...]]] = {
@@ -173,13 +177,16 @@ EVENT_FAMILIES: dict[str, tuple[int, str, tuple[str, ...]]] = {
 # WidgetInputHandler, content/common/input/widget_input_handler.mojom).
 # bulk: large reads (journal and history reads, attachment bytes, icon
 # assets); a write stays control, so a later control command that names what
-# it wrote cannot pass it. background: stats; else control.
+# it wrote cannot pass it. background: stats; else control. An agent chat's
+# prompt, cancel and permission answer are the person's input to the attached
+# session (p05-ipc-018: input for attach data, control otherwise).
 
 COMMAND_PRIORITY: dict[str, tuple[str, ...]] = {
     "input": (
         "send", "send-key", "paste-image", "browser-key", "browser-key-press", "browser-mouse",
         "browser-mouse-guarded", "browser-wheel", "browser-wheel-guarded", "browser-insert-text",
         "resize-attached-view", "scroll-surface",
+        "agent-session-prompt", "agent-session-cancel", "agent-session-permission",
     ),
     "bulk": (
         "terminal-events", "terminal-history", "terminal-read-range", "read-scrollback",
@@ -224,6 +231,7 @@ READ_ONLY = (
     "cloud-conversation-thread", "cloud-conversation-runs", "cloud-conversation-run",
     "cloud-participant-avatar-get", "cloud-attachment-read", "feed-local-list", "trace-status",
     "agent-cli-intents-list", "agent-cli-update-job-resolve",
+    "agent-session-events", "agent-session-media",
 )
 MEMORY = (
     "send", "send-key", "paste-image", "copy", "scroll-surface", "browser-key", "browser-key-press",
@@ -253,6 +261,12 @@ MEMORY = (
     "browser-host-provider",
     # Admits a snapshot on the stream's gate (collapse and 500 ms throttle).
     "snapshot-request",
+    # Agent chat attachments and what they send to acpmux, which keeps the
+    # session and the folder trust itself; children also records the chats
+    # the tab may file. agent-session-start binds the tab, a journaled write.
+    "agent-session-attach", "agent-session-observe", "agent-session-detach",
+    "agent-session-prompt", "agent-session-cancel", "agent-session-permission",
+    "agent-session-children", "agent-session-trust",
 )
 # apps-set and the App Store mutations of apps-store write apps.json before
 # they apply and reply (apps/supervisor.rs `set`). The agent CLI update ledger
@@ -355,6 +369,31 @@ def census_names(queue: str) -> set[str]:
     return {hit["key"] for hit in json.loads(result.stdout)}
 
 
+# Swift clients that send daemon commands by wire name (`call("name", ...)`),
+# not through a request type with `static let command`, the only form census
+# Q1 sees. The file's literals with the prefix are macos names; a pushed event
+# name among them names no command and changes nothing.
+MACOS_CALL_SITES: dict[str, str] = {
+    f"{SWIFT_SOURCES}/CmuxNextDaemon/AgentSession/AgentSessionAttachClient.swift": "agent-session-",
+}
+
+
+def swift_call_site_names() -> set[str]:
+    """The wire names the MACOS_CALL_SITES Swift files spell."""
+
+    names: set[str] = set()
+    for relative, prefix in MACOS_CALL_SITES.items():
+        try:
+            text = (ROOT / relative).read_text(encoding="utf-8")
+        except (OSError, UnicodeError) as error:
+            raise AssignError(f"MACOS_CALL_SITES: cannot read {relative}: {error}") from error
+        found = set(re.findall(rf'"({re.escape(prefix)}[a-z0-9-]+)"', text))
+        if not found:
+            raise AssignError(f"MACOS_CALL_SITES: {relative} spells no {prefix}* name")
+        names |= found
+    return names
+
+
 def _match_brace(text: str, open_: int) -> int:
     depth = 0
     for index in range(open_, len(text)):
@@ -402,7 +441,7 @@ def swift_spawning_commands() -> set[str]:
 class Sources:
     """The name sets read outside the schema, loaded only when a command needs them."""
 
-    macos: Callable[[], set[str]] = lambda: census_names("Q1")
+    macos: Callable[[], set[str]] = lambda: census_names("Q1") | swift_call_site_names()
     cli: Callable[[], set[str]] = lambda: census_names("Q14")
     swift_spawning: Callable[[], set[str]] = swift_spawning_commands
 

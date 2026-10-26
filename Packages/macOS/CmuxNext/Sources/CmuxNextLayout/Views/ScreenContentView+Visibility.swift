@@ -60,7 +60,7 @@ extension ScreenContentView {
     /// panes it shows on its way to rest too: the strip's viewport is swept over the translation left.
     func visiblePanes() -> Set<PaneID> {
         var result: Set<PaneID> = []
-        let left = panContainer.fling == nil ? 0 : panContainer.shownTranslation
+        let left = stripContainer.fling == nil ? 0 : stripContainer.shownTranslation
         let uncovered = uncoveredRect.union(uncoveredRect.offsetBy(dx: left, dy: 0))
         for (pane, frame) in paneFrames {
             // A strip pane wholly under a docked column is hidden.

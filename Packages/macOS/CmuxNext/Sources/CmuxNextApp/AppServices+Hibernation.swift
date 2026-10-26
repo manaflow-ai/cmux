@@ -29,6 +29,8 @@ extension AppServices {
         }
         hibernation.activity.isEnabled = features.isEnabled(.memorySaverBackgroundActivity)
         hibernation.discardsGrowingFrozenPages = features.isEnabled(.frozenGrowthDiscard)
+        hibernation.discardsAppPages = features.isEnabled(.memoryDiscardPageTabs)
+        hibernation.discardsStreamedPages = features.isEnabled(.memoryDiscardRemoteTabs)
         hibernation.openerGroup = { [weak self] key in self?.openerGroup(of: key) ?? [key] }
         let agentPages = AgentPageHibernation(services: self)
         memoryHistograms.follow(hibernation, agentPages: agentPages)

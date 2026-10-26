@@ -2,27 +2,39 @@ import AppKit
 import CmuxNextDesign
 import QuartzCore
 
-/// The column strip's motion container (p03-rendering-026): with `motion.renderServer` on, the strip's
-/// pane hosts and dividers sit in this view, and a strip pan moves all of them with one property of
-/// its layer, the `sublayerTransform` translation. Not their frames, and not this view's bounds: each
-/// of those makes AppKit recompute the visible rect, tracking areas and cursor rects of every view
-/// under it, on every pan event. Chrome scrolls the same way: the scroll offset is one transform node
-/// over the scrolled contents (`cc/trees/transform_node.h` `scroll_offset`), which
-/// `cc/input/threaded_input_handler.cc` moves per input event, and the main thread's geometry
-/// catches up at its commit.
+/// The column strip's clip as layer structure (p03-rendering-023): the strip's pane hosts sit in this
+/// view, whose layer masks to its bounds, so one rect clips every strip pane whatever its spring or the
+/// strip's pan does, and no host carries a mask for it. Docked columns are this view's siblings, stacked
+/// above it (`ScreenContentView.rank`). Chrome clips a scroller's contents the same way: a clip node on
+/// the scroller's container layer, not a mask per child (`cc/trees/clip_node.h`,
+/// `ui/views/controls/scroll_view.cc` `contents_viewport_`).
 ///
-/// The frame is the screen's bounds and the bounds origin zero, so a subview's frame is in the
-/// screen's coordinates. ``translation`` is where the strip shows minus where its views are laid
-/// out (x, points). AppKit does not know it: hit testing here applies it (``hitTest(_:)``), and a
-/// reader of a subview's geometry adds it (``ScreenContentView/placedFrame(of:)``).
-final class StripPanContainerView: NSView {
+/// A host stays in it while one of its panes zooms (no host changes parent for a zoom, so the focused
+/// pane keeps its keys): the container is then lifted, its frame the whole screen and stacked above
+/// the docks, and the hosts that stay under the zooming pane keep the strip's range through masks of
+/// their own, set once when the zoom starts (`ScreenContentView.heldStripClip`).
+///
+/// Its bounds origin is its frame origin, so a host's frame here is in the screen's coordinates, as it
+/// is directly in the screen: moving a host between the two keeps its frame.
+///
+/// It is also the strip's motion container (p03-rendering-026): with `motion.renderServer` on, a strip
+/// pan moves its hosts (and the strip's dividers, which then sit here too) with one property of its
+/// layer, the `sublayerTransform` translation, under the fixed clip of its bounds. Not their frames,
+/// and not its bounds: each of those makes AppKit recompute the visible rect, tracking areas and
+/// cursor rects of every view under it, on every pan event. Chrome scrolls the same way: the scroll
+/// offset is one transform node under the scroller's clip node (`cc/trees/transform_node.h`
+/// `scroll_offset`), which `cc/input/threaded_input_handler.cc` moves per input event; the main
+/// thread's geometry catches up at its commit. ``translation`` is where the strip shows minus where
+/// its views are laid out (x, points). AppKit does not know it: hit testing here applies it
+/// (``hitTest(_:)``), and a reader of a subview's geometry adds it (`ScreenContentView.placedFrame(of:)`).
+final class StripClipContainerView: NSView {
     /// The layer key path the pan sets and the fling springs.
     static let translationKeyPath = "sublayerTransform.translation.x"
 
     /// A fling on the render server: one additive spring of the translation (and of the overlay
-    /// layers that show with the strip) from `displacement` to rest, started with `velocity`.
-    /// Its record solves what shows at any time with the closed form the render server runs
-    /// (Chrome keeps the same record for a compositor scroll animation:
+    /// layers that show with the strip) from `displacement` to rest, started at `velocity`. Its
+    /// record solves what shows at any time with the closed form the render server runs (Chrome
+    /// keeps the same record for a compositor scroll animation:
     /// `cc/animation/scroll_offset_animation_curve.cc` `GetValue`).
     struct Fling {
         var displacement: CGFloat
@@ -35,6 +47,10 @@ final class StripPanContainerView: NSView {
         var serial: Int
     }
 
+    /// The strip's range (the screen's coordinates) the hosts show in: the frame, unless lifted.
+    private(set) var range: CGRect = .zero
+    /// True while a zoom of one of its hosts lifts the clip (`place(range:liftedTo:)`).
+    private(set) var isLifted = false
     /// The translation the layer's model holds.
     private(set) var translation: CGFloat = 0
     /// The fling running on the render server, if any.
@@ -45,11 +61,12 @@ final class StripPanContainerView: NSView {
     /// The media clock the fling's record reads (`CACurrentMediaTime`, the render server's timebase).
     private let now: () -> CFTimeInterval
 
-    init(now: @escaping () -> CFTimeInterval = { CACurrentMediaTime() }) {
+    init(frame frameRect: NSRect, now: @escaping () -> CFTimeInterval = { CACurrentMediaTime() }) {
         self.now = now
-        super.init(frame: .zero)
+        super.init(frame: frameRect)
         wantsLayer = true
-        // The screen lays the hosts out: a container resize moves none of them.
+        layer?.masksToBounds = true
+        // The hosts' frames are the layout's; a clip that moves resizes none of them.
         autoresizesSubviews = false
     }
 
@@ -59,6 +76,19 @@ final class StripPanContainerView: NSView {
     }
 
     nonisolated override var isFlipped: Bool { true }
+
+    /// Clips the hosts to `range` (the screen's coordinates), or to `lifted` (the screen's bounds) while
+    /// a zoom of one of them is in flight. Returns true when the frame changed.
+    @discardableResult
+    func place(range: CGRect, liftedTo lifted: CGRect?) -> Bool {
+        self.range = range
+        isLifted = lifted != nil
+        let rect = lifted ?? range
+        guard frame != rect || bounds.origin != rect.origin else { return false }
+        frame = rect
+        setBoundsOrigin(rect.origin)
+        return true
+    }
 
     /// What shows now: the model translation plus the fling's displacement, and the fling's velocity.
     var shown: (translation: CGFloat, velocity: CGFloat) {
@@ -137,8 +167,9 @@ final class StripPanContainerView: NSView {
         NSPoint(x: windowPoint.x - shownTranslation, y: windowPoint.y)
     }
 
-    /// Hits the subview that shows under `point` (the superview's coordinates): the point moved by
-    /// the translation that shows, a fling's included. A point between the views goes to the screen.
+    /// Hits the subview that shows under `point` (the superview's coordinates): inside the clip, the
+    /// point moved by the translation that shows, a fling's included. Clicks outside every subview go
+    /// to the screen, as they do with no container.
     override func hitTest(_ point: NSPoint) -> NSView? {
         guard !isHidden, let superview else { return nil }
         let local = convert(point, from: superview)

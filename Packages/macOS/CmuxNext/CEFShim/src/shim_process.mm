@@ -445,7 +445,9 @@ int cmux_shim_initialize(const char* framework_dir, const char* main_bundle_path
   h.key = key;
 
   CefSettings settings;
-  settings.external_message_pump = true;
+  // cmux in process pumps CEF from its own run loop (schedule -> do_work);
+  // the Chromium Host passes no schedule_fn and runs CefRunMessageLoop.
+  settings.external_message_pump = schedule != nullptr;
   settings.no_sandbox = false;  // helpers enter the sandbox themselves
   settings.persist_session_cookies = false;  // see RequestContextFor
   if (log_severity) {

@@ -20,9 +20,20 @@ enum ActionRouting {
             }
             let previous = services.routedDaemon
             services.routedDaemon = routed ?? previous
-            body()
+            personScoped(body)
             services.routedDaemon = previous
         }
+    }
+
+    /// Runs a person's action run in a person ``DaemonCommandScope``, so the echoes of what it
+    /// sends apply as `person` (plans/cmux-next/chrome-parity/p06-scheduler.md, "Person cause, app
+    /// side"). The run's effective origin decides (``ActionRunScope/current``, which a nested run
+    /// takes from the outer one), never the handed invocation's: a script's handler that performs
+    /// another action with a default invocation stays the script's. A run inside a control-socket
+    /// scope keeps that scope.
+    static func personScoped(_ body: () -> Void) {
+        guard ActionRunScope.current?.origin == .user, DaemonCommandScope.current == nil else { return body() }
+        DaemonCommandScope.$current.withValueInTask(DaemonCommandScope.person(), operation: body)
     }
 
     /// The daemon owning the invocation's explicit target (`target`, else a

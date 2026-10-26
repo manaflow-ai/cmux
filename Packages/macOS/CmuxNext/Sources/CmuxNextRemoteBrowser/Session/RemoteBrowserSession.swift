@@ -4,7 +4,7 @@ import CmuxNextCompat
 public import CmuxNextRemoteView
 public import Foundation
 
-#if DEBUG
+#if DEBUG || CMUX_BENCH_HOOKS
 /// One remote tab's rb/1 session: the rd transport (frames, service
 /// messages, service input), the Rust client reducer and the native UI.
 /// Host bodies go through the reducer; its effects drive the pane (menus,
@@ -252,8 +252,10 @@ public final class RemoteBrowserSession: RemoteBrowserPageChannel {
         transport.sendService(.object(["t": .string("rb.history"), "op": .string(op.rawValue)]))
     }
 
+    /// The host hears it, and the open popups' decoders pause and start with the page's.
     public func setVisible(_ visible: Bool) {
         transport.sendService(.object(["t": .string("rb.visibility"), "visible": .bool(visible)]))
+        surfaces.setVisible(visible)
     }
 
     public func load(_ url: URL) {

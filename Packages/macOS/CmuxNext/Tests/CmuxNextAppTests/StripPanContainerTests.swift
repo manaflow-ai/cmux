@@ -64,19 +64,24 @@ import Testing
 
     static let strip: [PaneID] = ["top", "middle", "bottom", "p2", "p3"]
 
-    @Test func offTheStripStaysInTheScreenAsBefore() {
+    @Test func offThePanMovesTheHostsAsBefore() throws {
         let w = Window(renderServer: false)
-        #expect(w.screen.panContainer.subviews.isEmpty)
-        for pane in Self.strip { #expect(w.root.context.hosts[pane]?.superview === w.screen) }
-        #expect(w.screen.dividerViews.values.allSatisfy { $0.superview === w.screen })
+        #expect(w.screen.dividerViews.values.allSatisfy { $0.superview === w.screen }, "the dividers stay in the screen")
+        let host = try #require(w.root.context.hosts["p2"])
+        let before = host.frame
+        w.pan(at: try w.center("p2"), events: 5, dx: -4)
+        #expect(w.screen.stripContainer.translation == 0 && w.screen.stripContainer.translationSets == 0)
+        #expect(host.frame.minX < before.minX - 1, "the CPU path moves the host's frame")
+        w.scroll(at: try w.center("p2"), phase: .ended)
+        w.settle()
     }
 
     @Test func onTheStripsHostsAndDividersSitInTheMotionContainer() {
         let w = Window(renderServer: true)
-        for pane in Self.strip { #expect(w.root.context.hosts[pane]?.superview === w.screen.panContainer) }
+        for pane in Self.strip { #expect(w.root.context.hosts[pane]?.superview === w.screen.stripContainer) }
         #expect(!w.screen.dividerViews.isEmpty)
-        #expect(w.screen.dividerViews.values.allSatisfy { $0.superview === w.screen.panContainer })
-        #expect(w.screen.panContainer.frame == w.screen.bounds)
+        #expect(w.screen.dividerViews.values.allSatisfy { $0.superview === w.screen.stripContainer })
+        #expect(w.screen.stripContainer.frame == w.screen.bounds)
     }
 
     @Test func fiftyPanEventsSetOneLayerPropertyEachAndNoFrame() throws {
@@ -89,7 +94,7 @@ import Testing
         let dividerFrames = dividers.map(\.frame)
         let shownBefore = try #require(w.root.frame(of: "p2"))
         #expect(w.scroll(at: point, phase: .began), "the layout takes the Command gesture")
-        let sets = screen.panContainer.translationSets
+        let sets = screen.stripContainer.translationSets
         let passes = w.root.visibilityUpdates
         for _ in 0..<50 {
             #expect(w.scroll(at: point, dx: -4, phase: .changed))
@@ -98,7 +103,7 @@ import Testing
         }
         #expect(hosts.map(\.frame) == frames, "no host frame set during the pan")
         #expect(dividers.map(\.frame) == dividerFrames, "no divider frame set during the pan")
-        #expect(screen.panContainer.translationSets - sets == 50, "one layer property per event")
+        #expect(screen.stripContainer.translationSets - sets == 50, "one layer property per event")
         #expect(w.root.visibilityUpdates - passes < 50, "the visibility pass runs only when a pane crosses an edge")
         #expect(screen.panTicksLeft == 0 && !screen.panPresentedInFrame, "a pan on the container keeps no display frames")
         let shownAfter = try #require(w.root.frame(of: "p2"))
@@ -147,13 +152,13 @@ import Testing
         let released = screen.scroll.value
         w.scroll(at: point, phase: .ended)
         let camera = screen.scrollState.spring
-        let flings = Motion.panes.renderSpring(.scroll).animates(StripPanContainerView.translationKeyPath, in: screen.panContainer)
+        let flings = Motion.panes.renderSpring(.scroll).animates(StripClipContainerView.translationKeyPath, in: screen.stripContainer)
         if flings {
-            #expect(screen.panContainer.fling != nil, "the fling runs on the render server")
+            #expect(screen.stripContainer.fling != nil, "the fling runs on the render server")
             #expect(camera.value == camera.target && camera.velocity == 0, "the reducer rests on the fling's target")
             #expect(!screen.hasMotion, "the CPU steps nothing")
             #expect(screen.laidOutStripOffset == camera.target, "the views are laid out at the target, once")
-            #expect(screen.panContainer.translation == 0)
+            #expect(screen.stripContainer.translation == 0)
             #expect(abs(screen.scroll.value - released) < 50, "the strip shows where it was released, on its way")
             let frames = Self.strip.compactMap { w.root.context.hosts[$0]?.frame }
             for _ in 0..<5 { _ = w.root.advanceFrame(1.0 / 120) }
@@ -162,7 +167,7 @@ import Testing
         } else {
             w.settle()
         }
-        #expect(screen.panContainer.fling == nil && screen.panContainer.translation == 0)
+        #expect(screen.stripContainer.fling == nil && screen.stripContainer.translation == 0)
         let host = try #require(w.root.context.hosts["p2"])
         #expect(try #require(w.root.frame(of: "p2")).minX == w.root.convert(host.frame, from: host.superview).minX,
                 "at rest the strip shows where it is laid out")
@@ -177,13 +182,13 @@ import Testing
         let point = try w.center("p2")
         w.pan(at: point, events: 10, dx: -12)
         w.scroll(at: point, phase: .ended)
-        try #require(screen.panContainer.fling != nil, "the fling runs on the render server on this host")
+        try #require(screen.stripContainer.fling != nil, "the fling runs on the render server on this host")
         let target = screen.scrollState.spring.target
         w.pan(at: point, events: 1, dx: -4)
-        #expect(screen.panContainer.fling == nil, "the gesture took the camera")
+        #expect(screen.stripContainer.fling == nil, "the gesture took the camera")
         #expect(screen.panBase == target, "the views stay laid out at the fling's target")
         // What shows is the reducer's camera: the views' offset less the container's translation.
-        #expect(abs(screen.layoutOffset - screen.panContainer.translation - screen.scrollState.spring.value) < 0.001)
+        #expect(abs(screen.layoutOffset - screen.stripContainer.translation - screen.scrollState.spring.value) < 0.001)
         w.scroll(at: point, phase: .ended)
         screen.finishPanFling()
         w.settle()
@@ -193,10 +198,10 @@ import Testing
         Motion.reduceMotionOverride = false
         defer { Motion.reduceMotionOverride = nil }
         var time: CFTimeInterval = 100
-        let container = StripPanContainerView(now: { time })
+        let container = StripClipContainerView(frame: .zero, now: { time })
         container.frame = CGRect(x: 0, y: 0, width: 1000, height: 800)
         let spring = Motion.panes.renderSpring(.scroll)
-        try #require(spring.animates(StripPanContainerView.translationKeyPath, in: container), "movement is off on this host")
+        try #require(spring.animates(StripClipContainerView.translationKeyPath, in: container), "movement is off on this host")
         let landed = Counter()
         #expect(container.startFling(from: -300, velocity: -2000, spring: spring, with: []) { landed.value += 1 })
         #expect(container.translation == 0, "the model rests at zero")
@@ -213,7 +218,7 @@ import Testing
 
     @Test func hitTestingMapsThePointThroughTheTranslation() {
         let parent = NSView(frame: CGRect(x: 0, y: 0, width: 1000, height: 800))
-        let container = StripPanContainerView()
+        let container = StripClipContainerView(frame: .zero)
         container.frame = parent.bounds
         parent.addSubview(container)
         let child = NSView(frame: CGRect(x: 600, y: 0, width: 400, height: 800))

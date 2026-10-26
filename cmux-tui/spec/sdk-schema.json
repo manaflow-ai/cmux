@@ -158,6 +158,11 @@
    "id": 18,
    "description": "The app supervisor (apps-v1, server/apps.rs): installs, mounts, runs, logs and app op providers.",
    "next_ordinal": 14
+  },
+  "agent-sessions": {
+   "id": 19,
+   "description": "Agent chat tabs attached to this machine's acpmux sessions.",
+   "next_ordinal": 11
   }
  },
  "types": {
@@ -9997,6 +10002,42 @@
     "symbol is the nearest exported symbol, mangled, or null for a local function."
    ]
   },
+  "AgentSessionAnsweredBy": {
+   "kind": "object",
+   "fields": {
+    "device": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false,
+     "description": "The device the person answered on: 1 to 128 of [A-Za-z0-9_.:-]."
+    },
+    "feed_item": {
+     "type": {
+      "kind": "scalar",
+      "name": "string"
+     },
+     "presence": "required",
+     "nullable": false,
+     "description": "The feed item the person answered: 1 to 128 of [A-Za-z0-9_.:-]."
+    }
+   },
+   "additional_properties": false
+  },
+  "AgentSessionPage": {
+   "kind": "opaque_json",
+   "reason": "acpmux's own _acpmux/attach or _acpmux/events page ({session, events, hasMore, lastSeq}; events only on agent-session-events), passed through unchanged except that a page over 8 MiB is cut and gets hasMore:true. acpmux owns the record shape."
+  },
+  "AgentSessionAcpmuxReply": {
+   "kind": "opaque_json",
+   "reason": "The result acpmux answered for the call (permission_respond, acp.trust.get or acp.trust.set), passed through unchanged; acpmux owns its shape."
+  },
+  "AgentSessionSummary": {
+   "kind": "opaque_json",
+   "reason": "One acpmux session summary from _acpmux/sessions, as acpmux writes it (sessionId, startedBy, spawnedBy and the rest); acpmux owns its shape."
+  },
   "AgentCLIIntent": {
    "kind": "object",
    "fields": {
@@ -10850,6 +10891,13 @@
     }
    },
    "additional_properties": false
+  },
+  "EventCause": {
+   "kind": "enum",
+   "values": [
+    "frontend",
+    "automation"
+   ]
   }
  },
  "commands": {
@@ -20015,6 +20063,807 @@
    "method_id": 1802,
    "priority": "control",
    "durability": "reply_before_journal",
+   "stream_scoped": true,
+   "clients": [
+    "macos",
+    "sdk"
+   ]
+  },
+  "agent-session-attach": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "agent-session-attach-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "surface": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "required",
+      "nullable": false,
+      "description": "The agent chat tab: an agent_session tab of this daemon's store."
+     },
+     "after_seq": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "description": "Records after this seq (oldest first)."
+     },
+     "before_seq": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "description": "Records before this seq (newest first)."
+     },
+     "limit": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "description": "Records per page, clamped to 1..500 (default 200)."
+     },
+     "kinds": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "scalar",
+        "name": "string"
+       }
+      },
+      "presence": "optional",
+      "nullable": true,
+      "description": "At most 32 acpmux record kinds or categories, each 1 to 64 bytes of [a-z_.]."
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "AgentSessionPage"
+   },
+   "stream": null,
+   "constraints": [
+    "A malformed request or an unknown param is agent_session.bad_request, answered before the trust check. Then only trusted local (Unix) connections pass: WebSocket clients and the remote relay are refused with agent_session.not_trusted, and a daemon without an acpmux socket answers agent_session.unavailable.",
+    "The session always comes from the tab's store record: no param names a session, cwd, command, agent or MCP server.",
+    "The tab must be an agent_session tab of this store with a bound session that acpmux resolves exactly, else agent_session.unknown_tab. 8 attachments per connection and 64 per daemon (agent_session.limit).",
+    "Subscribes the connection to the tab's session and answers the attach page; on a tab already attached in this mode it only pages, and on one observed it is agent_session.mode_conflict.",
+    "Live records then arrive as agent-session-record, permission requests as agent-session-permission and status changes as agent-session-changed; agent-session-closed ends the attachment. A record never overtakes the attach reply. See spec/commands.md.",
+    "limit is clamped to 1..500 (default 200), never refused. kinds holds at most 32 entries of 1 to 64 bytes of [a-z_.], else agent_session.bad_request. A page holds at most 8 MiB of records, the rest left for the next page with hasMore."
+   ],
+   "method_id": 4864,
+   "priority": "control",
+   "durability": "memory",
+   "stream_scoped": true,
+   "clients": [
+    "macos",
+    "sdk"
+   ]
+  },
+  "agent-session-observe": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "agent-session-observe-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "surface": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "required",
+      "nullable": false,
+      "description": "The agent chat tab: an agent_session tab of this daemon's store."
+     },
+     "after_seq": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "description": "Records after this seq (oldest first)."
+     },
+     "before_seq": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "description": "Records before this seq (newest first)."
+     },
+     "limit": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "description": "Records per page, clamped to 1..500 (default 200)."
+     },
+     "kinds": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "scalar",
+        "name": "string"
+       }
+      },
+      "presence": "optional",
+      "nullable": true,
+      "description": "At most 32 acpmux record kinds or categories, each 1 to 64 bytes of [a-z_.]."
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "AgentSessionPage"
+   },
+   "stream": null,
+   "constraints": [
+    "A malformed request or an unknown param is agent_session.bad_request, answered before the trust check. Then only trusted local (Unix) connections pass: WebSocket clients and the remote relay are refused with agent_session.not_trusted, and a daemon without an acpmux socket answers agent_session.unavailable.",
+    "The session always comes from the tab's store record: no param names a session, cwd, command, agent or MCP server.",
+    "Creates a read-only attachment with agent-session-attach's rules and answers the same page; agent-session-prompt, -cancel and -permission on it are agent_session.read_only before acpmux is called.",
+    "On a tab this connection attached with agent-session-attach it is agent_session.mode_conflict and the attachment is unchanged; the same mode again only pages.",
+    "limit is clamped to 1..500 (default 200), never refused. kinds holds at most 32 entries of 1 to 64 bytes of [a-z_.], else agent_session.bad_request. A page holds at most 8 MiB of records, the rest left for the next page with hasMore."
+   ],
+   "method_id": 4865,
+   "priority": "control",
+   "durability": "memory",
+   "stream_scoped": true,
+   "clients": [
+    "macos",
+    "sdk"
+   ]
+  },
+  "agent-session-events": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "agent-session-attach-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "surface": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "required",
+      "nullable": false,
+      "description": "The agent chat tab: an agent_session tab of this daemon's store."
+     },
+     "after_seq": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "description": "Records after this seq (oldest first)."
+     },
+     "before_seq": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "description": "Records before this seq (newest first)."
+     },
+     "limit": {
+      "type": {
+       "kind": "scalar",
+       "name": "uint64"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "description": "Records per page, clamped to 1..500 (default 200)."
+     },
+     "kinds": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "scalar",
+        "name": "string"
+       }
+      },
+      "presence": "optional",
+      "nullable": true,
+      "description": "At most 32 acpmux record kinds or categories, each 1 to 64 bytes of [a-z_.]."
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "AgentSessionPage"
+   },
+   "stream": null,
+   "constraints": [
+    "A malformed request or an unknown param is agent_session.bad_request, answered before the trust check. Then only trusted local (Unix) connections pass: WebSocket clients and the remote relay are refused with agent_session.not_trusted, and a daemon without an acpmux socket answers agent_session.unavailable.",
+    "The session always comes from the tab's store record: no param names a session, cwd, command, agent or MCP server.",
+    "Needs an attachment of surface on this connection (agent-session-attach or agent-session-observe), else agent_session.not_attached.",
+    "At most 8 calls run per attachment (agent_session.limit) and acpmux has 5 s to answer (agent_session.timeout, agent_session.refused).",
+    "Pages the attached session's log as acpmux's _acpmux/events.",
+    "limit is clamped to 1..500 (default 200), never refused. kinds holds at most 32 entries of 1 to 64 bytes of [a-z_.], else agent_session.bad_request. A page holds at most 8 MiB of records, the rest left for the next page with hasMore."
+   ],
+   "method_id": 4866,
+   "priority": "control",
+   "durability": "read_only",
+   "stream_scoped": true,
+   "clients": [
+    "macos",
+    "sdk"
+   ]
+  },
+  "agent-session-prompt": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "agent-session-attach-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "surface": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "required",
+      "nullable": false,
+      "description": "The agent chat tab: an agent_session tab of this daemon's store."
+     },
+     "prompt_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false,
+      "description": "1 to 128 letters, digits, '-' or '_'."
+     },
+     "text": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false,
+      "description": "One text prompt, at most 64 KiB."
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "object",
+    "fields": {
+     "prompt_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "turn_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": true,
+      "description": "The turn acpmux started or queued, as it answered."
+     },
+     "queued": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "required",
+      "nullable": false,
+      "description": "acpmux queued the prompt behind a running turn."
+     }
+    },
+    "additional_properties": false
+   },
+   "stream": null,
+   "constraints": [
+    "A malformed request or an unknown param is agent_session.bad_request, answered before the trust check. Then only trusted local (Unix) connections pass: WebSocket clients and the remote relay are refused with agent_session.not_trusted, and a daemon without an acpmux socket answers agent_session.unavailable.",
+    "The session always comes from the tab's store record: no param names a session, cwd, command, agent or MCP server.",
+    "Needs an attachment of surface on this connection (agent-session-attach or agent-session-observe), else agent_session.not_attached.",
+    "At most 8 calls run per attachment (agent_session.limit) and acpmux has 5 s to answer (agent_session.timeout, agent_session.refused).",
+    "Refused with agent_session.read_only on an observation (agent-session-observe) attachment.",
+    "Sends one ACP text content block and answers once acpmux recorded it; the reply streams as agent-session-record."
+   ],
+   "method_id": 4867,
+   "priority": "input",
+   "durability": "memory",
+   "stream_scoped": true,
+   "clients": [
+    "macos",
+    "sdk"
+   ]
+  },
+  "agent-session-cancel": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "agent-session-attach-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "surface": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "required",
+      "nullable": false,
+      "description": "The agent chat tab: an agent_session tab of this daemon's store."
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "object",
+    "fields": {},
+    "additional_properties": false
+   },
+   "stream": null,
+   "constraints": [
+    "A malformed request or an unknown param is agent_session.bad_request, answered before the trust check. Then only trusted local (Unix) connections pass: WebSocket clients and the remote relay are refused with agent_session.not_trusted, and a daemon without an acpmux socket answers agent_session.unavailable.",
+    "The session always comes from the tab's store record: no param names a session, cwd, command, agent or MCP server.",
+    "Needs an attachment of surface on this connection (agent-session-attach or agent-session-observe), else agent_session.not_attached.",
+    "Refused with agent_session.read_only on an observation (agent-session-observe) attachment.",
+    "Cancels the session's running turn: a notification to acpmux that never waits for an answer and is outside the per-attachment call limit."
+   ],
+   "method_id": 4868,
+   "priority": "input",
+   "durability": "memory",
+   "stream_scoped": true,
+   "clients": [
+    "macos",
+    "sdk"
+   ]
+  },
+  "agent-session-permission": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "agent-session-attach-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "surface": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "required",
+      "nullable": false,
+      "description": "The agent chat tab: an agent_session tab of this daemon's store."
+     },
+     "permission_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false,
+      "description": "A request acpmux announced on this attachment."
+     },
+     "option_id": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false,
+      "description": "The chosen option, 1 to 256 bytes."
+     },
+     "decision_nonce": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "description": "64 lowercase hex characters."
+     },
+     "person_decision": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "description": "64 lowercase hex characters: the person's decision proof."
+     },
+     "answered_by": {
+      "type": {
+       "kind": "ref",
+       "name": "AgentSessionAnsweredBy"
+      },
+      "presence": "optional",
+      "nullable": true
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "AgentSessionAcpmuxReply"
+   },
+   "stream": null,
+   "constraints": [
+    "A malformed request or an unknown param is agent_session.bad_request, answered before the trust check. Then only trusted local (Unix) connections pass: WebSocket clients and the remote relay are refused with agent_session.not_trusted, and a daemon without an acpmux socket answers agent_session.unavailable.",
+    "The session always comes from the tab's store record: no param names a session, cwd, command, agent or MCP server.",
+    "Needs an attachment of surface on this connection (agent-session-attach or agent-session-observe), else agent_session.not_attached.",
+    "At most 8 calls run per attachment (agent_session.limit) and acpmux has 5 s to answer (agent_session.timeout, agent_session.refused).",
+    "Refused with agent_session.read_only on an observation (agent-session-observe) attachment.",
+    "Answers a permission request acpmux announced on this attachment once; an unknown one is agent_session.unknown_permission and a failed answer can be sent again. The daemon never answers by itself.",
+    "decision_nonce, person_decision and answered_by are checked for shape only and passed to acpmux unchanged as _meta.acpmux; acpmux decides."
+   ],
+   "method_id": 4869,
+   "priority": "input",
+   "durability": "memory",
+   "stream_scoped": true,
+   "clients": [
+    "macos",
+    "sdk"
+   ]
+  },
+  "agent-session-detach": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "agent-session-attach-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "surface": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "required",
+      "nullable": false,
+      "description": "The agent chat tab: an agent_session tab of this daemon's store."
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "object",
+    "fields": {},
+    "additional_properties": false
+   },
+   "stream": null,
+   "constraints": [
+    "A malformed request or an unknown param is agent_session.bad_request, answered before the trust check. Then only trusted local (Unix) connections pass: WebSocket clients and the remote relay are refused with agent_session.not_trusted, and a daemon without an acpmux socket answers agent_session.unavailable.",
+    "The session always comes from the tab's store record: no param names a session, cwd, command, agent or MCP server.",
+    "Ends this connection's attachment of surface, if any. Closing the connection ends all of its attachments."
+   ],
+   "method_id": 4870,
+   "priority": "control",
+   "durability": "memory",
+   "stream_scoped": true,
+   "clients": [
+    "macos",
+    "sdk"
+   ]
+  },
+  "agent-session-children": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "agent-session-children-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "surface": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "required",
+      "nullable": false,
+      "description": "The agent chat tab: an agent_session tab of this daemon's store."
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "object",
+    "fields": {
+     "sessions": {
+      "type": {
+       "kind": "array",
+       "items": {
+        "kind": "ref",
+        "name": "AgentSessionSummary"
+       }
+      },
+      "presence": "required",
+      "nullable": false,
+      "description": "At most 256 summaries and 8 MiB, in acpmux's order."
+     }
+    },
+    "additional_properties": false
+   },
+   "stream": null,
+   "constraints": [
+    "A malformed request or an unknown param is agent_session.bad_request, answered before the trust check. Then only trusted local (Unix) connections pass: WebSocket clients and the remote relay are refused with agent_session.not_trusted, and a daemon without an acpmux socket answers agent_session.unavailable.",
+    "The session always comes from the tab's store record: no param names a session, cwd, command, agent or MCP server.",
+    "Needs an attachment of surface on this connection (agent-session-attach or agent-session-observe), else agent_session.not_attached.",
+    "At most 8 calls run per attachment (agent_session.limit) and acpmux has 5 s to answer (agent_session.timeout, agent_session.refused).",
+    "Lists the chats the tab's session started on this machine (startedBy or spawnedBy at any depth), never the session itself, another chat of the machine or a peer daemon's session.",
+    "From then on the attachment follows those chats: their session changes also arrive as agent-session-changed, and each may be filed under this store's registry: host."
+   ],
+   "method_id": 4871,
+   "priority": "control",
+   "durability": "memory",
+   "stream_scoped": true,
+   "clients": [
+    "macos",
+    "sdk"
+   ]
+  },
+  "agent-session-media": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "agent-session-attach-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "surface": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "required",
+      "nullable": false,
+      "description": "The agent chat tab: an agent_session tab of this daemon's store."
+     },
+     "path": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false,
+      "description": "An image the session wrote: png, jpg, jpeg, gif or webp, at most 4096 bytes."
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "object",
+    "fields": {
+     "mimeType": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": true,
+      "description": "The image type acpmux reported."
+     },
+     "data": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false,
+      "description": "The image bytes in standard base64, at most 10 MiB decoded."
+     }
+    },
+    "additional_properties": false
+   },
+   "stream": null,
+   "constraints": [
+    "A malformed request or an unknown param is agent_session.bad_request, answered before the trust check. Then only trusted local (Unix) connections pass: WebSocket clients and the remote relay are refused with agent_session.not_trusted, and a daemon without an acpmux socket answers agent_session.unavailable.",
+    "The session always comes from the tab's store record: no param names a session, cwd, command, agent or MCP server.",
+    "Needs an attachment of surface on this connection (agent-session-attach or agent-session-observe), else agent_session.not_attached.",
+    "At most 8 calls run per attachment (agent_session.limit) and acpmux has 5 s to answer (agent_session.timeout, agent_session.refused).",
+    "Reads one image of the attached session from its host acpmux (_acpmux/media_open and _acpmux/media_range); another extension, an empty image or one over 10 MiB is agent_session.bad_request."
+   ],
+   "method_id": 4872,
+   "priority": "control",
+   "durability": "read_only",
+   "stream_scoped": true,
+   "clients": [
+    "macos",
+    "sdk"
+   ]
+  },
+  "agent-session-start": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "agent-session-start-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "surface": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "required",
+      "nullable": false,
+      "description": "The agent chat tab: an agent_session tab of this daemon's store."
+     },
+     "harness": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "description": "The agent kind acpmux resolves from its config: 1 to 64 letters, digits, '_', '.' or '-'."
+     },
+     "cwd": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false,
+      "description": "An absolute folder of this machine, at most 4096 bytes."
+     },
+     "home_confirmed": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": false,
+      "description": "The person chose the home folder as the chat's folder."
+     },
+     "require_person_key": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": false,
+      "description": "Start only when acpmux holds a person key for person_instance (agent-session-start-keyed-reason-v1)."
+     },
+     "person_instance": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "optional",
+      "nullable": true,
+      "description": "The acpmux run the caller holds a person key for: 1 to 128 of [A-Za-z0-9_.:-]."
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "object",
+    "fields": {
+     "surface": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "required",
+      "nullable": false
+     },
+     "session": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false,
+      "description": "The new acpmux session, bound to the tab."
+     },
+     "conversation": {
+      "type": {
+       "kind": "ref",
+       "name": "ConversationTabRecord"
+      },
+      "presence": "required",
+      "nullable": false
+     }
+    },
+    "additional_properties": false
+   },
+   "stream": null,
+   "constraints": [
+    "A malformed request or an unknown param is agent_session.bad_request, answered before the trust check. Then only trusted local (Unix) connections pass: WebSocket clients and the remote relay are refused with agent_session.not_trusted, and a daemon without an acpmux socket answers agent_session.unavailable.",
+    "The tab must be an agent_session tab of this store whose host is this store's registry: host and that has no session (agent_session.unknown_tab, agent_session.bound).",
+    "cwd follows agent-session-trust's home folder rule (agent_session.above_home, agent_session.home_unconfirmed) and must already be trusted (agent_session.untrusted_folder).",
+    "A team VM is agent_session.team_vm_blocked and a VM of unknown kind agent_session.host_unverified. The session starts with policy ask and must be in an asking mode, else agent_session.not_asking.",
+    "With require_person_key, a run without the caller's key is agent_session.needs_keyed_start with data {reason, safe_to_restart, live_agents, remote_sessions}. See spec/commands.md."
+   ],
+   "method_id": 4873,
+   "priority": "control",
+   "durability": "reply_before_journal",
+   "stream_scoped": true,
+   "clients": [
+    "macos",
+    "sdk"
+   ]
+  },
+  "agent-session-trust": {
+   "authority": "local-admin",
+   "since": 12,
+   "capability": "agent-session-trust-v1",
+   "request": {
+    "kind": "object",
+    "fields": {
+     "surface": {
+      "type": {
+       "kind": "ref",
+       "name": "Id"
+      },
+      "presence": "required",
+      "nullable": false,
+      "description": "The agent chat tab: an agent_session tab of this daemon's store."
+     },
+     "cwd": {
+      "type": {
+       "kind": "scalar",
+       "name": "string"
+      },
+      "presence": "required",
+      "nullable": false,
+      "description": "An absolute folder of this machine, at most 4096 bytes, no control characters."
+     },
+     "level": {
+      "type": {
+       "kind": "enum",
+       "values": [
+        "trusted",
+        "untrusted",
+        "unknown"
+       ]
+      },
+      "presence": "optional",
+      "nullable": true,
+      "description": "The person's answer; absent reads the folder's trust. unknown forgets the answer."
+     },
+     "home_confirmed": {
+      "type": {
+       "kind": "scalar",
+       "name": "boolean"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "default": false,
+      "description": "The person chose the home folder as the chat's folder."
+     }
+    },
+    "additional_properties": false
+   },
+   "result": {
+    "kind": "ref",
+    "name": "AgentSessionAcpmuxReply"
+   },
+   "stream": null,
+   "constraints": [
+    "A malformed request or an unknown param is agent_session.bad_request, answered before the trust check. Then only trusted local (Unix) connections pass: WebSocket clients and the remote relay are refused with agent_session.not_trusted, and a daemon without an acpmux socket answers agent_session.unavailable.",
+    "Without level it answers acpmux's acp.trust.get {cwd} reply ({cwd, level, harnesses?, decided?}); with level, acpmux's acp.trust.set reply. A client sends level only for the person's own answer.",
+    "trusted for / or a folder above the home folder is agent_session.above_home; the home folder takes trusted only with home_confirmed, else agent_session.home_unconfirmed.",
+    "The tab must be an agent_session tab whose host names this store (agent_session.unknown_tab); at most 8 calls run at once (agent_session.limit)."
+   ],
+   "method_id": 4874,
+   "priority": "control",
+   "durability": "memory",
    "stream_scoped": true,
    "clients": [
     "macos",
@@ -30495,6 +31344,17 @@
       "nullable": true,
       "since": 12,
       "description": "The terminal agent's last prompt (at most 200 characters), kept in daemon memory only: never journaled or persisted; null when none since the agent started or the daemon restarted."
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -30629,6 +31489,17 @@
       },
       "presence": "required",
       "nullable": false
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -30789,6 +31660,17 @@
       },
       "presence": "required",
       "nullable": true
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -30837,6 +31719,17 @@
       },
       "presence": "required",
       "nullable": true
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -30869,6 +31762,17 @@
       },
       "presence": "required",
       "nullable": false
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -30893,6 +31797,17 @@
       },
       "presence": "required",
       "nullable": false
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -31027,6 +31942,17 @@
       },
       "presence": "required",
       "nullable": false
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -31148,6 +32074,17 @@
       },
       "presence": "required",
       "nullable": false
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -31284,6 +32221,17 @@
       },
       "presence": "required",
       "nullable": false
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -31376,6 +32324,17 @@
       },
       "presence": "optional",
       "nullable": false
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false,
@@ -31429,6 +32388,17 @@
       },
       "presence": "required",
       "nullable": false
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -31511,6 +32481,17 @@
       "nullable": false,
       "since": 12,
       "capability": "layout-delta-v1"
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -31607,6 +32588,17 @@
       "nullable": false,
       "since": 12,
       "capability": "notification-reply-v1"
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -31766,6 +32758,17 @@
       },
       "presence": "required",
       "nullable": false
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -31798,6 +32801,17 @@
       },
       "presence": "required",
       "nullable": false
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -32504,6 +33518,17 @@
       },
       "presence": "required",
       "nullable": false
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -32536,6 +33561,17 @@
       },
       "presence": "required",
       "nullable": false
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -32568,6 +33604,17 @@
       },
       "presence": "required",
       "nullable": false
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -32600,6 +33647,17 @@
       },
       "presence": "required",
       "nullable": false
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -32672,6 +33730,17 @@
       },
       "presence": "required",
       "nullable": true
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -32729,6 +33798,17 @@
       "presence": "required",
       "nullable": true,
       "since": 7
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -33041,6 +34121,17 @@
       },
       "presence": "required",
       "nullable": false
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -33089,6 +34180,17 @@
       },
       "presence": "required",
       "nullable": false
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -33130,6 +34232,17 @@
       "presence": "optional",
       "nullable": false,
       "since": 7
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -33154,6 +34267,17 @@
       },
       "presence": "required",
       "nullable": false
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -33272,6 +34396,17 @@
       },
       "presence": "required",
       "nullable": false
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -33660,6 +34795,17 @@
       },
       "presence": "required",
       "nullable": true
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -33855,6 +35001,17 @@
       },
       "presence": "required",
       "nullable": false
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -33905,6 +35062,17 @@
       },
       "presence": "optional",
       "nullable": false
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -34111,6 +35279,17 @@
       },
       "presence": "required",
       "nullable": false
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -34151,6 +35330,17 @@
       },
       "presence": "required",
       "nullable": false
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -34194,6 +35384,17 @@
       },
       "presence": "required",
       "nullable": false
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -34250,6 +35451,17 @@
       },
       "presence": "required",
       "nullable": true
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -34298,6 +35510,17 @@
       },
       "presence": "required",
       "nullable": false
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -34349,6 +35572,17 @@
       },
       "presence": "required",
       "nullable": false
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -34389,6 +35623,17 @@
       },
       "presence": "required",
       "nullable": true
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -34429,6 +35674,17 @@
       },
       "presence": "required",
       "nullable": true
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -34473,6 +35729,17 @@
       },
       "presence": "required",
       "nullable": false
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -34521,6 +35788,17 @@
       },
       "presence": "required",
       "nullable": false
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -34585,6 +35863,17 @@
       },
       "presence": "required",
       "nullable": false
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -34657,6 +35946,17 @@
       },
       "presence": "optional",
       "nullable": false
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -34729,6 +36029,17 @@
       },
       "presence": "optional",
       "nullable": false
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -34788,6 +36099,17 @@
       },
       "presence": "optional",
       "nullable": false
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -34836,6 +36158,17 @@
       },
       "presence": "optional",
       "nullable": false
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -34892,6 +36225,17 @@
       },
       "presence": "optional",
       "nullable": false
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -34948,6 +36292,17 @@
       },
       "presence": "optional",
       "nullable": false
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -34988,6 +36343,17 @@
       },
       "presence": "optional",
       "nullable": false
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -35052,6 +36418,17 @@
       },
       "presence": "optional",
       "nullable": false
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -35092,6 +36469,17 @@
       },
       "presence": "optional",
       "nullable": true
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -35132,6 +36520,17 @@
       },
       "presence": "optional",
       "nullable": true
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -35212,6 +36611,17 @@
       },
       "presence": "optional",
       "nullable": false
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -35260,6 +36670,17 @@
       },
       "presence": "optional",
       "nullable": false
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -35355,6 +36776,17 @@
       "presence": "required",
       "nullable": true,
       "description": "When the hook observed the event; null on clear."
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false
@@ -35395,6 +36827,17 @@
       },
       "presence": "required",
       "nullable": true
+     },
+     "cause": {
+      "type": {
+       "kind": "ref",
+       "name": "EventCause"
+      },
+      "presence": "optional",
+      "nullable": false,
+      "since": 12,
+      "capability": "event-cause-v1",
+      "description": "What set the event off, for a connection that echoed event-cause-v1 in set-client-info: frontend for a request of the verified app, automation for any other request; absent when the daemon or a program set it off on its own. A scheduling hint only; it grants nothing."
      }
     },
     "additional_properties": false

@@ -630,7 +630,18 @@
       "apps-provider-register",
       "apps-agent-inventory-changed",
       "apps-provider-result",
-      "cancel-request"
+      "cancel-request",
+      "agent-session-attach",
+      "agent-session-observe",
+      "agent-session-events",
+      "agent-session-prompt",
+      "agent-session-cancel",
+      "agent-session-permission",
+      "agent-session-detach",
+      "agent-session-children",
+      "agent-session-media",
+      "agent-session-start",
+      "agent-session-trust"
     ],
     "provider-authority": [
       "mark-workspaces-provider-managed",

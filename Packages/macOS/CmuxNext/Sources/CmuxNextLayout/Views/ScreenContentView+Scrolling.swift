@@ -45,7 +45,7 @@ extension ScreenContentView {
     @discardableResult
     func center(_ pane: PaneID, animated: Bool, reveal: Bool = false) -> Bool {
         scrollbarFlash = true
-        scrollRidesFrames = false
+        cpuTakesCamera()
         return apply(reduceCamera(reveal ? .reveal(pane, animated: animated && !context.reduceMotion) : .center(pane, animated: animated && !context.reduceMotion)))
     }
 
@@ -60,13 +60,13 @@ extension ScreenContentView {
     /// A scrollbar track click: rest on `offset` (ColumnScrollEvent.page).
     func page(to offset: CGFloat) {
         scrollbarFlash = true
-        scrollRidesFrames = false
+        cpuTakesCamera()
         motionTurn { apply(reduceCamera(.page(to: offset, animated: !context.reduceMotion))) }
     }
 
     func beginUserScroll() {
         // The user takes the camera over from a close in flight: its snap springs on the scroll spring.
-        scrollRidesFrames = false
+        cpuTakesCamera()
         // And from a fling on the render server, where it shows.
         takeCameraFromServer()
         scrollState.reduce(.gestureBegan)
@@ -75,12 +75,12 @@ extension ScreenContentView {
     func userScroll(deltaX: CGFloat, timestamp: TimeInterval) {
         scrollState.reduce(.gestureChanged(deltaX: deltaX, time: timestamp))
         scrollbarFlash = true
-        // On the motion container: one layer property, no frame. Else the panes move (`presentPan`).
+        // On the strip container: one layer property, no frame. Else the panes move (`presentPan`).
         if !presentPanOnContainer() { presentPan() }
     }
 
     /// Ends a trackpad gesture: projects the fling and springs to a snap point. After a pan on the
-    /// motion container the fling runs on the render server (`startPanFling`), else on the CPU.
+    /// strip container the fling runs on the render server (`startPanFling`), else on the CPU.
     func endUserScroll(timestamp: TimeInterval) {
         scrollbarFlash = true
         // The landing presents the strip (now, or on the fling's frames): nothing waits for a tick.
@@ -101,7 +101,7 @@ extension ScreenContentView {
     /// One mouse wheel notch: move to the adjacent snap point.
     func discreteScroll(direction: Int) {
         scrollbarFlash = true
-        scrollRidesFrames = false
+        cpuTakesCamera()
         motionTurn { apply(reduceCamera(.wheel(direction: direction, animated: !context.reduceMotion))) }
     }
 
@@ -110,7 +110,7 @@ extension ScreenContentView {
     /// that moves it takes the camera first (``takeCameraFromServer()``), so it moves from where the
     /// strip shows.
     private func reduceCamera(_ event: ColumnScrollEvent) -> ColumnScrollEffects {
-        guard panContainer.fling != nil else { return scrollState.reduce(event) }
+        guard stripContainer.fling != nil else { return scrollState.reduce(event) }
         var probe = scrollState
         let effects = probe.reduce(event)
         if probe.spring == scrollState.spring {

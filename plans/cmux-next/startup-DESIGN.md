@@ -200,7 +200,7 @@ awk '/func applicationDidFinishLaunching/,/^    func applicationShouldTerminate/
 | 71 | `services.projectsImport.start(` | afterFirstFrame if Home shows, else afterStartup | main | 027 | Projects import. |
 | 72 | `services.registerDeviceHubDebug(` | afterFirstFrame | main | 019 | Control method group (debug methods). |
 | 73 | `services.registerMacScreenDebug(` | afterFirstFrame | main | 019 | Control method group (debug methods). |
-| 74 | `services.remoteLocalhost.follow(` | afterStartup | main | 029 | Remote localhost forwarding settings. |
+| 74 | `services.remoteLocalhost.follow(` | afterStartup | main | 029 | Remote localhost forwarding settings. Gone (021): `MachineRegistry.makeRemoteLocalhost(following:)` and the `settings` `didSet` follow. |
 | 75 | `services.startChromiumRuntime(` | afterFirstFrame (pane) | main | 079 | Runtime pack check; wires the engine reason a browser pane reads. |
 | 76 | `services.startCloud(` | afterFirstFrame | main | 020 | Cloud context; no cloud connect before the first frame (027). |
 | 77 | `services.terminalTheme.follow(` | critical: `TerminalTheme.follow` | main | 079 | See the allowlist. |
@@ -275,7 +275,7 @@ Starts inside the initializer, outside Q1 and Q1b. 031: init holds no `start()` 
 | S2 | `SidebarSnapshotStore(file:)` (sync read) | main() read | `.lane(.files, .userBlocking)` | 075 | The sidebar's first frame reads it; becomes a LaunchRead. |
 | S3 | `CrashRecoveryService(...)` (`AppRunMarker` read and write) | main() read, write afterFirstFrame | `.lane(.files, .userBlocking)` | 075 | Crash recovery decides the restore; the read is a LaunchRead. |
 | S4 | `AppCrashReporting(environment:)` (Sentry, crash forwarders) | root (handlers), integrations afterStartup | `.lane(.files, .bestEffort)` | 032, 078 | Crash and signal handlers at launch; forwarders and session I/O after startup. |
-| S5 | `remoteTerminals.start()` | afterFirstFrame if a remote workspace shows, else afterStartup | main | 021 | Restored remote workspace reconnects. |
+| S5 | `remoteTerminals.start()` | onDemand: the first mount of a remote-terminal tab (a restored window's selected one in its first frame), open, close or move | main | 021 | Restored remote workspace reconnects. Done (021): `AppServices.remoteTerminals` starts it when made. No post: the first frame that shows such a tab needs the service to mount it, and nothing follows a session no tab shows. Its tab chip (`RemoteTerminalService.badge(for:machines:)`) reads only the machines and makes none. |
 | S6 | `surfaceInvariant.observeWindowOcclusion()` | afterFirstFrame | main | 031 | Occlusion observer. |
 | S7 | `updater.attach(sheet:services:simulating:)`, `serverUpdates.start(registry:)` | afterStartup | main | 031 | Update sheet and server updates. |
 | S8 | `input.start(services:)` | afterFirstFrame | main | 031 | Input verification observers. |
@@ -292,25 +292,25 @@ Target <= 3 (cache, windows, keyRouter).
 |---|---|---|---|---|
 | Q1-1 | `_ = cloud` | onDemand once 020 splits out the auth; until then critical by reader, no gain | 020 (auth split assigned here) | Two readers run before the first frame: the `ManagedPolicyBridge.start` critical post reads `cloud.auth` (O20), and the `services.settings` `didSet` reads `cloud.hostReplica` (O45). Removing `_ = cloud` alone defers nothing. 020 makes `CloudAuth` its own `AppServices` member that `CloudService` takes by init, passes the bridge only that auth, and moves the host replica follow into the Cloud start post; then `startCloud` is the first reader. |
 | Q1-2 | `_ = feed` | onDemand | 020 | Built by its first reader. |
-| Q1-3 | `_ = rightSidebarSections` | onDemand; icon build afterStartup `.lane(.cpu, .idle)` | 022 | The right sidebar is not in the first frame unless shown. |
-| Q1-4 | `_ = ssh` | onDemand | 021 | SSH machines start after startup (017). |
+| Q1-3 | `_ = rightSidebarSections` | onDemand; afterStartup `RightSidebar.prewarm` on main posts the icon build `RightSidebar.icons` on `.lane(.cpu, .idle)` | 022 | The right sidebar is not in the first frame unless shown. A panel built first (a window restored with it shown) posts the same build at afterFirstFrame and shows empty buttons until the images land; no main turn decodes a symbol. |
+| Q1-4 | `_ = ssh` | onDemand | 021 | SSH machines start after startup (017). Done (021): made by the `SSH.start` post or a remote action; `AppServices.ssh` sets the install offer and the current policy when made. |
 | Q1-5 | `_ = cache` | keep | - | `TabContentCache`: every pane reads it. 024 makes its CEF engine a factory. |
 | Q1-6 | `_ = themes` | onDemand (built by the `Themes.start` post) | 022 (assigned here) | The spec's 020-024 lists leave it out; its first reader is critical anyway. |
-| Q1-7 | `_ = terminalColors` | onDemand (built by its first reader, the config-change hook or `TerminalTheme.follow`) | 022 (assigned here) | Same: no task named it. |
-| Q1-8 | `_ = remoteLocalhost` | onDemand | 021 | Its follow runs after startup (Q2 74). |
-| Q1-9 | `_ = emptyWorkspaces` | onDemand | 022 | Repair runs when a workspace empties. |
+| Q1-7 | `_ = terminalColors` | keep (022 found it must stay) | - | `TerminalColorSync` is an observer with no reader before the first frame (`TerminalTheme.follow` does not read it; only a Ghostty config change does). Built late, the daemons answer the first terminals' OSC 10/11/12 queries without the painted colors. Making it lazy needs a reader in the Daemon.start post first. |
+| Q1-8 | `_ = remoteLocalhost` | onDemand | 021 | Its follow runs after startup (Q2 74). Done (021): made by a remote machine's browser tab (its route, store or loopback chip), a machine browser, or a remote machine's connection; this Mac's pages ask `RemoteLocalhostService.routesToThisMac` and make none. It takes the current settings in the turn it is made, then follows them. |
+| Q1-9 | `_ = emptyWorkspaces` | onDemand; afterStartup `EmptyWorkspaceRepair.observe` on main | 022 | A window's content builds it before its frame; with no window shown, the post starts its store observation. |
 | Q1-10 | `_ = keyRouter` | keep | - | Keys work from the first frame. |
 | Q1-11 | `_ = resources` | onDemand | 022 | Built by its first reader. |
 | Q1-12 | `_ = windows` | keep | - | `WindowManager`: the restore. |
 | Q1-13 | `_ = dragSession` | onDemand | 022 | First drag. |
 | Q1-14 | `_ = previews` | onDemand | 022 | First tab preview. |
-| Q1-15 | `_ = remoteTerminals` | onDemand (its start is S5) | 021 | Restored remote workspaces. |
+| Q1-15 | `_ = remoteTerminals` | onDemand (its start is S5) | 021 | Restored remote workspaces. Done (021). |
 | Q1-16 | `_ = palette` | onDemand | 023 | Bindings and hooks afterFirstFrame; a palette key before that builds it in the key's turn. |
 | Q1-17 | `_ = configActions` | onDemand (its start is Q2 54) | 022 | Custom actions. |
 | Q1-18 | `_ = chromiumWarmup` | onDemand | 024 | CEFEngine factory; the warm-up runs on the scheduler (018). |
 
-022 now owns 8 builds (the spec says 6). The extra 2 are Q1-6 and Q1-7. With them, and with 020's auth
-split for Q1-1, Q1 reaches the spec's target of 3. Without the auth split Q1-1 stays built before the
+022 owns 8 builds (the spec says 6). The extra 2 are Q1-6 and Q1-7. 022 made 7 lazy and kept Q1-7 (above), so
+with 020's auth split for Q1-1, Q1 reaches 4, one above the spec's target of 3, until Q1-7 gets its reader. Without the auth split Q1-1 stays built before the
 first frame (by the critical `ManagedPolicyBridge.start`), so it does not count toward the target.
 
 ## 7. Q1b stored initializers (42)
