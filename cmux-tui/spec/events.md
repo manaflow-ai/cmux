@@ -701,8 +701,9 @@ the next socket. The daemon keeps the live socket's last set and sends it again
 right after each `cloud-conversation-subscribe` reply (after the
 `cloud-subscription-state` event) while the socket is `live`, so a client that
 lost events and subscribes again gets the current set without waiting for a
-change. A socket that ends clears that set before it sends the empty one, so a
-replay that races the end is always followed by the empty set.
+change. A replay, a new owner set and a socket's end go out one at a time, in
+the order they change that kept set: a replay that races the socket's end goes
+out before the empty set, never after it, and never after a newer owner set.
 
 ### terminal-registry-changed
 

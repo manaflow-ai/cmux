@@ -266,6 +266,11 @@ struct Inner {
     shutdown: AtomicBool,
     /// Cloud HTTP requests running now (bounded by `max_concurrent_requests`).
     requests_in_flight: AtomicUsize,
+    /// Held across each presence cache change or replay and its emit, so the
+    /// emits go out in cache order: a replay never follows the socket's empty
+    /// set, nor an owner set newer than it. Taken before `subscriptions`; the
+    /// sink only queues the event.
+    presence_order: Mutex<()>,
 }
 
 /// The daemon's cloud link. Cheap to clone; all clones share one state.
@@ -305,6 +310,7 @@ impl CloudConversations {
                 wake: Condvar::new(),
                 shutdown: AtomicBool::new(false),
                 requests_in_flight: AtomicUsize::new(0),
+                presence_order: Mutex::new(()),
             }),
         }
     }
@@ -950,6 +956,7 @@ impl CloudConversations {
     /// The live socket's last presence set follows, so a page that lost
     /// events and subscribes again has the current set without a change.
     pub fn announce_state(&self, target: &Target) {
+        let _order = self.inner.presence_order.lock().unwrap_or_else(PoisonError::into_inner);
         let events = self
             .inner
             .subscriptions
@@ -957,10 +964,9 @@ impl CloudConversations {
             .unwrap_or_else(PoisonError::into_inner)
             .get(target)
             .map(|subscription| {
-                // Only a live socket's set: a socket that is going away has none to tell. A
-                // replay that races the socket's end is followed by its empty set (the
-                // socket's end clears this cache, then emits the empty set), so a client
-                // always ends on the right set.
+                // Only a live socket's set: a socket that is going away has none to tell.
+                // `presence_order` orders this replay with the socket's end (which clears
+                // the cache and emits the empty set) and with a newer owner set.
                 let live = subscription.state.state == "live";
                 (subscription.state.event(target), subscription.presence.clone().filter(|_| live))
             });
@@ -1209,6 +1215,24 @@ impl Inner {
         }
     }
 
+    /// The live socket's new owner set of `target`: kept for later
+    /// subscribers and emitted, in order with replays (`presence_order`).
+    fn show_presence(&self, target: &Target, event: CloudEvent) {
+        let _order = self.presence_order.lock().unwrap_or_else(PoisonError::into_inner);
+        self.keep_presence(target, Some(event.clone()));
+        self.emit(event);
+    }
+
+    /// `target`'s socket ended: nothing is kept, and the set it showed
+    /// empties (`ended`), in order with replays (`presence_order`).
+    fn end_presence(&self, target: &Target, ended: Option<CloudEvent>) {
+        let _order = self.presence_order.lock().unwrap_or_else(PoisonError::into_inner);
+        self.keep_presence(target, None);
+        if let Some(event) = ended {
+            self.emit(event);
+        }
+    }
+
     /// Keeps `target`'s last presence set for later subscribers (`None`: its
     /// socket is no longer live).
     fn keep_presence(&self, target: &Target, presence: Option<CloudEvent>) {
@@ -1345,10 +1369,10 @@ fn run_driver(inner: &Arc<Inner>, target: Target) {
                     inner.emit(event.with_account(account));
                 }
                 // The owner sends who views again only to the next socket.
-                inner.keep_presence(&target, None);
-                if let Some(event) = stream.presence_ended() {
-                    inner.emit(event.with_account(account));
-                }
+                inner.end_presence(
+                    &target,
+                    stream.presence_ended().map(|event| event.with_account(account)),
+                );
                 ended
             }
         };
@@ -1468,9 +1492,10 @@ fn pump(
                         StreamAction::Emit(event) => {
                             let event = event.with_account(account);
                             if matches!(event, CloudEvent::Presence { .. }) {
-                                inner.keep_presence(target, Some(event.clone()));
+                                inner.show_presence(target, event);
+                            } else {
+                                inner.emit(event);
                             }
-                            inner.emit(event);
                         }
                         StreamAction::Live => {
                             reporter.report("live", None, account);
@@ -1498,4 +1523,98 @@ fn valid_selfhost_user(user: &str) -> bool {
     (6..=80).contains(&user.len())
         && user.starts_with("user_")
         && user.bytes().all(|byte| byte.is_ascii_alphanumeric() || b"_.-".contains(&byte))
+}
+
+#[cfg(test)]
+mod presence_order_tests {
+    use super::*;
+    use std::sync::mpsc;
+
+    struct NoBackend;
+
+    impl CloudBackend for NoBackend {
+        fn post(
+            &self,
+            _: &str,
+            _: Option<&str>,
+            _: Option<&str>,
+            _: &Value,
+        ) -> Result<HttpReply, TransportError> {
+            Err(TransportError("offline".into()))
+        }
+        fn connect(
+            &self,
+            _: &str,
+            _: Option<&str>,
+            _: Option<&str>,
+        ) -> Result<Box<dyn CloudWire>, ConnectError> {
+            Err(ConnectError::Unavailable("offline".into()))
+        }
+    }
+
+    fn presence(viewing: bool) -> CloudEvent {
+        let participants = if viewing { vec![("user_ana".to_string(), true)] } else { Vec::new() };
+        CloudEvent::Presence { conversation: "conv_1".into(), participants, account: None }
+    }
+
+    /// A replay that is mid-emit when the socket ends still goes out before
+    /// the socket's empty set: the clients end on no viewers, never on the
+    /// dead socket's set.
+    #[test]
+    fn a_replay_racing_the_socket_end_goes_out_before_the_empty_set() {
+        let service = CloudConversations::new(Arc::new(NoBackend));
+        let target = Target::Conversation("conv_1".into());
+        service.inner.subscriptions.lock().unwrap().insert(
+            target.clone(),
+            Subscription {
+                clients: BTreeSet::from([1]),
+                idle_since: None,
+                state: SocketState { state: "live", reason: None, account: None },
+                outbox: Vec::new(),
+                typing_by: None,
+                viewing: BTreeSet::new(),
+                presence: Some(presence(true)),
+            },
+        );
+        let emitted: Arc<Mutex<Vec<CloudEvent>>> = Arc::default();
+        let (paused_tx, paused) = mpsc::channel::<()>();
+        let (resume, resume_rx) = mpsc::channel::<()>();
+        let resume_rx = Mutex::new(resume_rx);
+        let log = emitted.clone();
+        service.set_sink(Arc::new(move |event| {
+            let pause = matches!(event, CloudEvent::SubscriptionState { .. });
+            log.lock().unwrap().push(event);
+            // The replay pauses after the state, before its presence set.
+            if pause {
+                let _ = paused_tx.send(());
+                let _ = resume_rx.lock().unwrap().recv();
+            }
+        }));
+        let replay = {
+            let (service, target) = (service.clone(), target.clone());
+            std::thread::spawn(move || service.announce_state(&target))
+        };
+        paused.recv().unwrap();
+        let (ended_tx, ended) = mpsc::channel::<()>();
+        let end = {
+            let (inner, target) = (service.inner.clone(), target.clone());
+            std::thread::spawn(move || {
+                inner.end_presence(&target, Some(presence(false)));
+                let _ = ended_tx.send(());
+            })
+        };
+        assert!(
+            ended.recv_timeout(Duration::from_millis(200)).is_err(),
+            "the socket's end waits for the replay in flight"
+        );
+        resume.send(()).unwrap();
+        replay.join().unwrap();
+        end.join().unwrap();
+        let emitted = emitted.lock().unwrap();
+        assert!(matches!(emitted[0], CloudEvent::SubscriptionState { .. }));
+        assert_eq!(emitted[1..], [presence(true), presence(false)]);
+        // Nothing is kept for a later subscribe: the socket is gone.
+        drop(emitted);
+        assert!(service.inner.subscriptions.lock().unwrap()[&target].presence.is_none());
+    }
 }
