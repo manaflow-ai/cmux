@@ -29,6 +29,7 @@ ROOT = HERE.parents[3]
 GAPS = HERE.parents[1] / "every-action-gaps.json"
 RECORD = action_fixtures.GAP_CLOSURES / "session.json"
 SWIFT = ROOT / "Packages/macOS/CmuxNext/Sources"
+PROGRAM = ROOT / "plans/cmux-next/chrome-parity/p15-oracle.md"
 GAP = lambda why: {"skipped": why, "skip_kind": "gap"}
 # The argument gaps of this family's prefixes, as the sweep wrote them before the fixture.
 ARGUMENT_GAPS = {"needs a room argument", "needs a sidebar-section argument", "needs a agent-chat argument"}
@@ -164,6 +165,20 @@ class RecordTests(unittest.TestCase):
                       and i not in closed | reasoned)
         self.assertEqual(left, [], "an argument gap of this family neither closed nor reasoned")
 
+    def test_every_id_left_open_moves_to_a_follow_up_the_program_defines(self):
+        self.assertEqual(self.record["follow_up"], session.FOLLOW_UP)
+        for ident, why in self.record["reasoned"].items():
+            with self.subTest(ident=ident):
+                self.assertTrue(why.startswith(session.FOLLOW_UP), f"{ident}'s reason does not name its follow-up")
+        plan = PROGRAM.read_text()
+        number = session.FOLLOW_UP.rsplit("-", 1)[1]
+        self.assertRegex(plan, rf"\n\| {number} \| [^\n]*\| MQ-action-gaps \|\n", "the task table has no row for it")
+        detail = re.search(rf"\n\*\*{number} [^\n]*\n(.*?)\n\n", plan, re.S)
+        self.assertIsNotNone(detail, "the task details have no paragraph for it")
+        for ident in [*self.record["reasoned"], "sidebar.chat.togglePin"]:
+            self.assertIn(ident.split(".")[-1], detail.group(1), f"{session.FOLLOW_UP} does not take {ident}")
+        self.assertIn(f"history chat, {number})", plan, "270 does not point its history chat at the follow-up")
+
     def test_the_record_names_its_fixture_and_task(self):
         self.assertEqual(self.record["family"], "session")
         self.assertEqual(self.record["task"], "p15-oracle-086")
@@ -191,6 +206,17 @@ class CatalogTests(unittest.TestCase):
             with self.subTest(ident=ident):
                 self.holds(self.descriptor(ident, r'CatalogArgument\.roomRoom'),
                            "CmuxNextActions/Catalog/ProfileActionCatalog.swift", f"{ident} takes roomRoom")
+
+    def test_why_the_priority_ids_stay_open_still_holds(self):
+        """session.json `reasoned`: a Priority row is a lane of the app's acpmux, which the sweep's launch cannot
+        start an agent in, and each restore turns the view off again. When one of these stops holding, close the ids."""
+        self.holds(r'stores: \[AgentLaneStore\] = \[\.shared, \.chief\]', "CmuxNextAgentLanes/AgentPriorityChats.swift",
+                   "the Priority rows are the app acpmux's lanes")
+        self.holds(r'preferences\.priorityViewEnabled \? nil : SidebarPriorityPanel\.unavailableReason',
+                   "CmuxNextApp/SidebarSections/SidebarPriorityRowActions.swift", "the row actions need the view on")
+        sweep = (HERE.parents[1] / "every-action-sweep.py").read_text()
+        self.assertIn('"ACPMUX_AGENT_LAUNCH": "deny"', sweep, "the sweep's acpmux may start an agent now")
+        self.assertIn('rpc("settings.set", {"path": path, "value": a})', sweep, "restore_settings no longer puts settings back")
 
     def test_the_section_argument_and_the_ids_the_fixture_names(self):
         self.holds(self.descriptor("workspaceGroup.addToSection", r'ActionArgument\(name: "section",.*?\.target\(\.sidebarSection\)'),

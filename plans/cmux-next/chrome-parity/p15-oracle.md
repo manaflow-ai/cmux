@@ -584,6 +584,7 @@ Dropped or merged draft items: 022 and 045 (replaced by 026 and 191); 025 merged
 | 271 | Facet: a workspace group's color, icon and archived mark | S | 20-28 | 036, 075 | |
 | 272 | Facet: the top band's items | S | 20-28 | 036, 075 | |
 | 273 | Pin Chat with no target refuses | S | 20-28 | 075, 270 | |
+| 274 | Gap fixtures: a chat in the sweep's acpmux, the Priority view per sample | M | 20-36 | 046, 086 | MQ-action-gaps |
 | 290 | Open Conversation refuses an unknown id | S | 20-28 | 076 | |
 | 291 | Select Conversation 1-9 is a focus action | S | 20-28 | 076 | |
 | 292 | No picker or ask for a socket run without an argument | S | 20-28 | 076 | |
@@ -1014,7 +1015,7 @@ the three kinds (a fixed id, or a `$step:` value such as make-group's created gr
 `driver_app.action_target` to `workspace-group:`, `sidebar-section:` and `sidebar-item:`, and add `target` to the
 generator's tuning keys. The 13 section and 3 item cases that now expect the noSuchSection or noSuchItem
 refusal, and the 5 toggles blocked below, run their success path on `sec_top` and `itm_home`
-(sidebar.chat.togglePin also needs a history chat, 086), and workspaceGroup.collapseOthers folds a second group.
+(sidebar.chat.togglePin also needs a history chat, 274), and workspaceGroup.collapseOthers folds a second group.
 workspaceGroup.moveToWindow (blocked `live-value`) takes its window from a newWindow setup step's created window as a
 `$step:` value. build_case adds a restore that runs a
 TOGGLES action again, also after an action step that expects an error, so a refused toggle would fail at restore-1.
@@ -1051,6 +1052,29 @@ command it did not run, chrome/browser/ui/browser_command_controller.cc). The ca
 chat-pin-silent-no-target) turns to `error: control.unavailable`; it is a toggle, so it needs 270's rule of no restore
 after an error step. Test: SidebarChatPinBindingTests (no target: the run is refused, no pin changes); fleet, the
 case green twice.
+
+**274 Gap fixtures: a chat in the sweep's acpmux, the Priority view per sample.** Files: `every-action-sweep.py`,
+`oracle/action_fixtures/__init__.py`, `oracle/action_fixtures/session_states.py`, `session_states_test.py`,
+`tests/oracle/gap-closures/session.json`. 086 leaves sidebar.priority.markRead, snooze and togglePin open (session.json
+`reasoned`, `follow_up`), and 270's sidebar.chat.togglePin case has no history chat. Both need a chat in the app's own
+acpmux: a Priority row is a lane of AgentLaneStore.shared or .chief (AgentPriorityChats, filled by AgentTurnStateFeed's
+`_acpmux/watch`), a history chat an entry of that daemon's chat index (SidebarChatHistoryFeed). The sweep launches
+with `ACPMUX_AGENT_LAUNCH=deny`, so session/new refuses, and the mock agent's seeded chats live in the page's
+in-memory daemon (`webviews/src/agent-session/acpmux/mock.ts`), which no app store reads. Launch the sweep's acpmux
+with the perf corpus's replay agent as the only harness it may start (`agent_replay.py install` and `launch_env`:
+`ACPMUX_AGENT_LAUNCH=only:replay`, its own `CMUX_NEXT_ACPMUX_ROOT` and `XDG_CONFIG_HOME`), and have an ArgumentFixture
+for (sidebar.priority.*, `chat`) make one chat there per launch (session/new on `replay` in the sweep's scratch
+folder, one replayed turn so the row is not idle) and name it `agent-chat:<session id>` once the Priority entries
+list it; 270's history chat is that chat after its tab closes. The Priority row actions are unavailable while
+`sidebar.priorityView.enabled` is off, its default, and each restore's restore_settings turns it off again; a family
+has no per-sample settings step (PREPARE runs actions, an ArgumentFixture runs once per row). Add a family `SETTINGS`
+table, {action id: {setting path: value}}, that the sweep sets through `settings.set` in ready() before describe and
+that restore_settings takes back like any other change (load_families refuses an id two tables set). Chrome
+reference: chrome/browser/ui/browser_commands_unittest.cc and chrome/test/base/testing_profile.cc make the profile
+state a command needs inside the test (prefs through the test's PrefService) and drop it after. Test:
+session_states_test.py (the fixture names the made chat, SETTINGS is set before each sample and back after it, the
+plan runs the 3 ids); every-action-sweep.py --plan-only; fleet, `every-action-sweep.py --only` the 3 ids and
+sidebar.chat.togglePin green twice.
 
 The workspace, home and space action cases (076, `tests/oracle/corpus/actions/workspace/_tuning.json`) found four
 divergences. Each case records today's answer and its note names the task below; the task changes the case's tuning

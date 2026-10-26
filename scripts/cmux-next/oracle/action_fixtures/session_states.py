@@ -24,8 +24,11 @@ sidebar_doc/model.rs), so close_new's close of that workspace removes the item t
 drawn dimmed, for every later row.
 
 Not here: a nested group. A subgroup may have no personal-group row (WorkspaceGroupHandlers newSubgroup), so the
-topology does not list it and close_new cannot take it back. The 3 sidebar.priority ids stay gaps (session.json
-`reasoned`).
+topology does not list it and close_new cannot take it back. Nor the 3 sidebar.priority ids and the history chat
+p15-oracle-270 needs for sidebar.chat.togglePin: they move to p15-oracle-274 (session.json `reasoned` and `follow_up`).
+Both need a chat in the app's own acpmux (a Priority row is an AgentLaneStore lane, a history chat an entry of that
+daemon's chat index), which the sweep's launch cannot make (ACPMUX_AGENT_LAUNCH=deny; the mock agent's chats stay in
+its page), and the Priority view on for each sample, which no family step can set (restore_settings turns it off).
 
 Chrome reference (chromium/src): chrome/browser/ui/tabs/tab_strip_model_unittest.cc and
 chrome/browser/ui/browser_commands_unittest.cc build the tab groups and windows a test needs inside the test, through
@@ -37,6 +40,7 @@ from __future__ import annotations
 from typing import Any, Mapping, Optional, Tuple
 
 FAMILY = "session"
+FOLLOW_UP = "p15-oracle-274"  # closes the ids session.json `reasoned` keeps open
 
 SPACE = "Oracle Space"  # no colon: `room:<name>` parses as one target id
 SPACE_TARGET = f"room:{SPACE}"
