@@ -20,7 +20,7 @@ struct PageLifecycleCacheTests {
         let rig = try Rig()
         defer { rig.close() }
         let key = rig.openPageTab()
-        #expect(rig.cache.pageDiscards == nil, "the test wired memoryDiscardInternalPages")
+        #expect(rig.cache.contentOwners.isEmpty, "the test wired memoryDiscardInternalPages")
         let view = try #require(rig.services.pages.view(for: key))
         #expect(view.content is PageWebView)
 
