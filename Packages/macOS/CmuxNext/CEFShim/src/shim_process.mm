@@ -352,6 +352,23 @@ static void BindForkApi(const char* framework_binary) {
   CMUX_BIND(set_drag_source_handler, "cmux_set_drag_source_handler");
   CMUX_BIND(browser_drag_source_ended, "cmux_browser_drag_source_ended");
   CMUX_BIND(browser_drag_target_enter_source, "cmux_browser_drag_target_enter_source");
+  CMUX_BIND(set_color_chooser_handler, "cmux_set_color_chooser_handler");
+  CMUX_BIND(color_chooser_choose, "cmux_color_chooser_choose");
+  CMUX_BIND(color_chooser_end, "cmux_color_chooser_end");
+  CMUX_BIND(set_device_chooser_handler, "cmux_set_device_chooser_handler");
+  CMUX_BIND(device_chooser_answer, "cmux_device_chooser_answer");
+  CMUX_BIND(set_desktop_media_handler, "cmux_set_desktop_media_handler");
+  CMUX_BIND(desktop_media_answer, "cmux_desktop_media_answer");
+  CMUX_BIND(set_lock_handler, "cmux_set_lock_handler");
+  CMUX_BIND(browser_pointer_lock_answer, "cmux_browser_pointer_lock_answer");
+  CMUX_BIND(browser_keyboard_lock_answer, "cmux_browser_keyboard_lock_answer");
+  CMUX_BIND(browser_exit_pointer_lock, "cmux_browser_exit_pointer_lock");
+  CMUX_BIND(browser_exit_keyboard_lock, "cmux_browser_exit_keyboard_lock");
+  CMUX_BIND(browser_send_locked_mouse_move, "cmux_browser_send_locked_mouse_move");
+  CMUX_BIND(browser_set_page_display, "cmux_browser_set_page_display");
+  CMUX_BIND(tab_entry_page_state, "cmux_tab_entry_page_state");
+  CMUX_BIND(tab_page_state_watch, "cmux_tab_page_state_watch");
+  CMUX_BIND(tab_restore_entries, "cmux_tab_restore_entries");
   CMUX_BIND(tab_renderer_state, "cmux_tab_renderer_state");
 #undef CMUX_BIND
 }
