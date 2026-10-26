@@ -118,7 +118,7 @@ final class HangReportsController {
         settingsObservation = Task { [weak self, weak settings] in
             guard let settings else { return }
             await settings.waitForLoad(atLeast: 1)
-            guard await Task.detached(priority: .utility, operation: { !managedDisables() }).value else {
+            guard await Task.detached(priority: Task.currentPriority, operation: { !managedDisables() }).value else {
                 await self?.apply(false, settingOn: false)
                 return
             }
