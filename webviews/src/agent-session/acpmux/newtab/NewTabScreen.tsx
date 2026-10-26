@@ -75,6 +75,7 @@ import { screenSections, type ScreenTemplate } from "./templates";
 import { type Translate, useT } from "../i18n";
 import { ChromeArea } from "../../../ui/HideableChrome";
 import { Popover } from "../../../ui/Popover";
+import { PromptFocus } from "../promptFocus";
 import { useEscapingPopup } from "../../../ui/popupHost";
 import { usePopupHost } from "../../../ui/UiProvider";
 import { UI_ANCHOR_GAP } from "../../../ui/anchor";
@@ -347,7 +348,7 @@ export function NewTabScreen(props: Props) {
     attachments,
     setAttachments,
     pending: reading,
-    loading,
+    unsettled,
     cancel,
     retry,
     attachError,
@@ -362,7 +363,7 @@ export function NewTabScreen(props: Props) {
     ...(props.upload ? { upload: props.upload } : {}),
     ...(props.localPaths ? { localPaths: props.localPaths } : {}),
   });
-  const holdForAttachments = useSendWhenAttached(loading);
+  const holdForAttachments = useSendWhenAttached(unsettled);
   // WEB-SWAP: a web update's reload would lose what this page holds only in its state: a typed
   // query (the location comes back with the page) and staged attachments (pages/shared/webSwap.ts).
   useWebSwapHold(
@@ -1212,8 +1213,10 @@ export function NewTabScreen(props: Props) {
     </>
   );
   // The composer: in the stage layout at the foot of the page, else at its top.
+  // A model pick puts the keyboard back in the field (promptFocus.ts).
+  const focusField = () => field.current?.focus();
   const composerCard = (
-    <>
+    <PromptFocus value={focusField}>
       {/* One card, the agent composer's (Composer.tsx; Leo 2026-10-13): the field on top, then the
           bar with the agent's model chip, the mic and Send. The location strip with the project the
           chat starts in heads it, as text over the card (ComposerContext, the composer's own; hq#1957
@@ -1326,7 +1329,7 @@ export function NewTabScreen(props: Props) {
           </div>
         )}
       </div>
-    </>
+    </PromptFocus>
   );
   // The ambient widgets (weather, machines): their own row under the field, so they never move it;
   // with the stage, whose composer sits at the foot, the row is in the stage, after the widgets. The

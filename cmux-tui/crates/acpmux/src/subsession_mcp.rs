@@ -109,7 +109,8 @@ fn tools() -> Value {
                     "sessionId": {"type": "string"},
                     "text": {"type": "string"},
                     "deliver": {"type": "string", "enum": ["next_step", "after_turn", "interrupt"], "description": "after_turn (default): queued behind the running turn. next_step: into the running turn, read at its next tool step (use it when the receiver must change course now). interrupt: stop the running turn, then run this."},
-                    "interrupt": {"type": "boolean", "description": "The same as deliver: interrupt."}
+                    "interrupt": {"type": "boolean", "description": "The same as deliver: interrupt."},
+                    "attachments": {"type": "array", "items": {"type": "string"}, "maxItems": crate::attach::MAX_FILES, "description": "Files to send with it, as absolute paths on this machine (a screenshot, a log): an image reaches the receiver as an image, any other file as a link to its saved copy. At most 8 MiB a file and 10 MiB together."}
                 },
                 "required": ["sessionId", "text"]
             }
@@ -226,6 +227,23 @@ fn sent_text(r: &Value) -> String {
     }
 }
 
+/// `send_message`'s `attachments` (absolute paths) as the files' blocks (`attach.rs`): this server
+/// reads them, as the agent's own user on its own machine.
+async fn with_attachments(mut args: Value) -> Result<Value> {
+    let Some(paths) = args.get("attachments").filter(|v| !v.is_null()) else { return Ok(args) };
+    let paths: Vec<std::path::PathBuf> = paths
+        .as_array()
+        .ok_or_else(|| anyhow::anyhow!("attachments must be a list of file paths"))?
+        .iter()
+        .map(|p| p.as_str().map(std::path::PathBuf::from).filter(|p| p.is_absolute()))
+        .collect::<Option<_>>()
+        .ok_or_else(|| anyhow::anyhow!("each attachment is an absolute file path"))?;
+    let blocks =
+        tokio::task::spawn_blocking(move || crate::attach::blocks_from_paths(&paths)).await??;
+    args["attachments"] = Value::Array(blocks);
+    Ok(args)
+}
+
 /// A daemon refusal as the agent reads it: the daemon's message is the advice.
 fn refusal(e: anyhow::Error) -> Value {
     error_result(format!("{e:#}"))
@@ -250,8 +268,11 @@ async fn call(daemon: &Client, params: &Value) -> Value {
             Ok(r) => ok(serde_json::to_string_pretty(&r).unwrap_or_default(), r),
             Err(e) => refusal(e),
         },
-        "send_message" => match request(method::MUX_SUBSESSION_SEND, args).await {
-            Ok(r) => ok(sent_text(&r), r),
+        "send_message" => match with_attachments(args).await {
+            Ok(args) => match request(method::MUX_SUBSESSION_SEND, args).await {
+                Ok(r) => ok(sent_text(&r), r),
+                Err(e) => refusal(e),
+            },
             Err(e) => refusal(e),
         },
         "stop_session" => match request(method::MUX_SUBSESSION_STOP, args).await {
