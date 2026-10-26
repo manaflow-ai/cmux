@@ -3,6 +3,7 @@ import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextHibernation
 @testable import CmuxNextPages
+import CmuxNextPagesTestSupport
 import CmuxNextSettings
 @testable import CmuxNextWakeups
 import Foundation
@@ -323,7 +324,7 @@ struct PageLifecycleTests {
         defer { try? FileManager.default.removeItem(at: root) }
         try Data("<!doctype html><title>Page</title>".utf8).write(to: root.appendingPathComponent("index.html"))
         let host = WebUIHost(chromium: nil, openPanel: nil,
-                             memoryPressure: MemoryPressureEvents(source: ManualMemoryPressureSource()),
+                             memory: QuietMemoryRegistry(),
                              clock: PageTestClock.never)
         host.lifecycle = lifecycle
         let descriptor = PageDescriptor(id: "test.page-lifecycle", resource: "page-lifecycle", processGroup: .viewer, namespaces: [])
@@ -588,7 +589,7 @@ struct PageLifecycleTests {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         try Data("<!doctype html><title>Page</title>".utf8).write(to: root.appendingPathComponent("index.html"))
         let host = WebUIHost(chromium: nil, openPanel: nil,
-                             memoryPressure: MemoryPressureEvents(source: ManualMemoryPressureSource()),
+                             memory: QuietMemoryRegistry(),
                              clock: PageTestClock.never)
         host.lifecycle = lifecycle
         let descriptor = PageDescriptor(id: "test.page-keep-alive", resource: "page-keep-alive", processGroup: .viewer, namespaces: [])

@@ -1,5 +1,6 @@
 import CmuxNextCompat
 import CmuxNextPages
+import CmuxNextPagesTestSupport
 import Foundation
 import Testing
 @testable import CmuxNextChiefViews
@@ -10,13 +11,6 @@ import Testing
 @Suite(.serialized)
 @MainActor
 struct ChiefViewsPageHostTests {
-    /// A memory pressure source that never reports pressure: these tests do not drive the page lifecycle.
-    private nonisolated final class QuietMemoryPressureSource: MemoryPressureSource {
-        func start(delivering deliver: @escaping @MainActor @Sendable (MemoryPressureLevel) -> Void) {}
-        func cancel() {}
-        var currentLevel: MemoryPressureLevel { .normal }
-    }
-
     /// A root for the gallery's page when the generated page bundle is missing on the test runner.
     /// The first registration wins (`PageID.registerBundledRoot`) and the bundled directory, when
     /// present, is served before it, so this never moves a real page.
@@ -34,8 +28,7 @@ struct ChiefViewsPageHostTests {
 
     @Test func thePageOpensThroughTheGivenHost() throws {
         try #require(Self.registeredRoot)
-        let host = WebUIHost(chromium: nil, openPanel: nil,
-                             memoryPressure: MemoryPressureEvents(source: QuietMemoryPressureSource()))
+        let host = WebUIHost(chromium: nil, openPanel: nil, memory: QuietMemoryRegistry())
         let view = try #require(ChiefViewsPage(host: Self.noApp, webUI: host).makeView())
         #expect(host.openPages.map(ObjectIdentifier.init) == [ObjectIdentifier(view)])
         #expect(host.registry.pages(id: PageDescriptor.chiefViews.id).contains { $0 === view })

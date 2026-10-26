@@ -176,8 +176,8 @@ extension EnergyReport {
                            setting: services.settings?.snapshot.energySaver ?? EnergySaverSetting.defaultValue,
                            sessionOverride: driver.isOffForSession, simulated: services.energyMonitor.isSimulated),
             wakeQueue: WakeQueue(entries: wakeUps.count, coalescedFires: wakeUps.coalescedFires),
-            // No fork Energy Saver call yet (p14-energy-030) and no early-pass count yet (p14-energy-018).
-            cef: CEF(saver: .unsupported, earlyPasses: nil),
+            // No early-pass count yet (p14-energy-018).
+            cef: CEF(saver: CEF.Saver(applied: services.cache.chromium.built?.energySaverApplied), earlyPasses: nil),
             idle: services.energy.idle.stats,
             tabs: AppProcesses.tabRenderers(services)
         )
