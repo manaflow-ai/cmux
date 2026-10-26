@@ -20,6 +20,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1]
 SCRIPT = ROOT / "scripts" / "ci" / "gh_budget_wait.sh"
 TICK = ROOT / ".github" / "workflows" / "nightly-next-tick.yml"
+AUTO_RESUME = ROOT / ".github" / "workflows" / "auto-resume-nightly-notarization.yml"
 
 # The fake gh: `api rate_limit` reports an exhausted core budget that reset a moment ago (so a
 # wait is the secondary-limit backoff, capped by GH_BUDGET_WAIT_MAX_SECONDS); any other call fails for
@@ -117,7 +118,11 @@ class WrapperTests(unittest.TestCase):
     def test_a_secondary_limit_in_the_json_body_counts(self) -> None:
         h = self.harness(refusals=1, GH_BUDGET_WAIT_MAX_SECONDS="1",
                     FAKE_ERROR='{"message": "You have exceeded a secondary rate limit"}')
-        h.gh("api", "x")  # refused again (the job's wait is spent): not logged twice
+        result = h.gh("api", "x")
+        self.assertEqual(result.returncode, 0, result)
+        self.assertEqual(result.stdout, "ok api x\n")
+        self.assertEqual(h.calls().count("call api x"), 2)  # refused once, then sent again
+        self.assertEqual(h.waited(), 1)
 
     def test_a_caller_reading_stderr_with_stdout_gets_only_the_data(self) -> None:
         # nightly-next-legacy-requirement.sh and -recovery-lineage.sh compare `$(gh api ... 2>&1)` exactly.
@@ -157,7 +162,11 @@ class WrapperTests(unittest.TestCase):
 
     def test_a_429_counts(self) -> None:
         h = self.harness(refusals=1, GH_BUDGET_WAIT_MAX_SECONDS="1", FAKE_ERROR="HTTP 429: Too Many Requests")
-        h.gh("api", "x")  # refused again (the job's wait is spent): not logged twice
+        result = h.gh("api", "x")
+        self.assertEqual(result.returncode, 0, result)
+        self.assertEqual(result.stdout, "ok api x\n")
+        self.assertEqual(h.calls().count("call api x"), 2)
+        self.assertEqual(h.waited(), 1)
 
     def test_another_failure_is_not_retried(self) -> None:
         h = self.harness(FAKE_FAIL="HTTP 404: Not Found")
@@ -178,6 +187,35 @@ class WrapperTests(unittest.TestCase):
         (h.state / "refusals").write_text("1")
         self.assertEqual(h.gh("api", "y").returncode, 1)
         self.assertEqual(h.calls().count("call api y"), 1)
+
+    def test_a_wait_is_counted_before_it_sleeps(self) -> None:
+        # A caller's timeout can kill the wrapper mid-wait; the wait must already be in the ledger.
+        h = self.harness(refusals=1, GH_BUDGET_WAIT_MAX_SECONDS="30")
+        with self.assertRaises(subprocess.TimeoutExpired):
+            subprocess.run([str(h.shim), "api", "repos/o/r"], env=h.env, capture_output=True,
+                           text=True, timeout=3)
+        self.assertEqual(h.waited(), 30)
+
+    def test_an_unwritable_ledger_stops_the_wait(self) -> None:
+        # A wait the ledger cannot record would be invisible to later steps: the refusal stands.
+        if os.geteuid() == 0:
+            self.skipTest("root writes through a read-only directory")
+        h = self.harness(refusals=1, GH_BUDGET_WAIT_MAX_SECONDS="30")
+        ledger_dir = h.runner_temp / "gh-budget-wait"
+        ledger_dir.mkdir(exist_ok=True)
+        ledger_dir.chmod(0o500)
+        self.addCleanup(ledger_dir.chmod, 0o700)
+        result = h.gh("api", "repos/o/r")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("rate limit exceeded", result.stderr)
+        self.assertEqual(h.calls().count("call api repos/o/r"), 1)
+
+    def test_a_malformed_ledger_counts_as_spent(self) -> None:
+        h = self.harness(refusals=1, GH_BUDGET_WAIT_MAX_SECONDS="60")
+        (h.runner_temp / "gh-budget-wait").mkdir(exist_ok=True)
+        (h.runner_temp / "gh-budget-wait" / "waited").write_text("garbage")
+        self.assertEqual(h.gh("api", "x").returncode, 1)
+        self.assertEqual(h.calls().count("call api x"), 1)
 
     def test_attempts_are_bounded(self) -> None:
         h = self.harness(refusals=9, GH_BUDGET_WAIT_MAX_SECONDS="60", GH_BUDGET_WAIT_ATTEMPTS="2")
@@ -231,6 +269,26 @@ class TickTests(unittest.TestCase):
             if "GH_TOKEN" in step.get("env", {}):
                 self.assertGreater(i, install, step.get("name"))
         self.assertGreaterEqual(int(job["timeout-minutes"]), 15 + 60)
+
+
+class AutoResumeTests(unittest.TestCase):
+    """auto-resume-nightly-notarization.yml publishes a finished, signed nightly with main's publisher."""
+
+    def test_publish_jobs_wait_through_rate_limits(self) -> None:
+        import yaml
+        doc = yaml.safe_load(AUTO_RESUME.read_text(encoding="utf-8"))
+        for name in ("publish", "republish-deltas"):
+            job = doc["jobs"][name]
+            self.assertEqual(job["env"]["CMUX_RELEASE_RATE_LIMIT_SECONDS"], "1800", name)
+            steps = job["steps"]
+            runs = [step.get("run", "") for step in steps]
+            install = runs.index("bash scripts/ci/gh_budget_wait.sh --install")
+            self.assertTrue(steps[install - 1].get("uses", "").startswith("actions/checkout@"), name)
+            publisher = next(i for i, run in enumerate(runs) if "publish-release-assets.py" in run)
+            self.assertLess(install, publisher, name)
+            # No step timeout shorter than the publisher's 30 minutes plus the wrapper's hour.
+            self.assertGreaterEqual(int(steps[publisher].get("timeout-minutes", 360)), 30, name)
+            self.assertGreaterEqual(int(job.get("timeout-minutes", 360)), 120, name)
 
 
 if __name__ == "__main__":
