@@ -298,6 +298,10 @@ public enum DaemonCapability: String, CaseIterable, Sendable {
     /// that machine and streams their changes, and a listed child opens in a tab of that machine
     /// (a Cloud VM chat's sub-sessions on the Mac). Without it the chat shows no children.
     case agentSessionChildren = "agent-session-children-v1"
+    /// `agent-session-typing` and `agent-session-view`, and the `agent-session-presence` event:
+    /// who is in an attached chat (chat multiplayer, hq#4389). Without it a chat of that machine
+    /// shows no one else, and the person's typing and view stay on this Mac.
+    case agentSessionPresence = "agent-session-presence-v1"
     /// Page tabs on the store: the `page` source of a conversation tab (App Store, Settings,
     /// Debug Settings), so they move and split like any tab (cmux-tui/spec/commands.md).
     case pageTabs = "page-tabs-v1"

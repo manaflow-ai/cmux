@@ -29,6 +29,8 @@ nonisolated extension AcpmuxPaneMethods {
         "_acpmux/attach": (["sessionId", "limit", "maxBytes", "kinds", "eventStream", "visible"], []),
         "_acpmux/detach": (["sessionId"], []),
         "_acpmux/view": (["sessionId", "visible"], []),
+        // Whether this pane types in a shared chat, never its text (multiplayer/presenceClient.ts).
+        "_acpmux/typing": (["sessionId", "on"], []),
         "_acpmux/warm": (["sessionIds", "limit"], []),
         "_acpmux/kill": (["sessionId", "purge"], []),
         // `ifLive`: `fork` or `open` once the person chose, for a chat still live in its own app.

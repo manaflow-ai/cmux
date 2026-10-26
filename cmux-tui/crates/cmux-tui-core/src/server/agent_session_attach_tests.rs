@@ -140,7 +140,7 @@ fn serve(stream: UnixStream, frames: Sender<Value>) {
             // (agent_session_children_tests.rs).
             "_acpmux/sessions" => Some(machine_sessions()),
             "_acpmux/events" => Some(json!({"events": [], "hasMore": false, "lastSeq": 1})),
-            "_acpmux/permission_respond" => Some(json!({})),
+            "_acpmux/permission_respond" | "_acpmux/typing" | "_acpmux/view" => Some(json!({})),
             // `acpmux.transfer.v1` with the guarded receive (agent_transfer_tests.rs).
             method if method.starts_with("_acpmux/transfer_") => transfer_reply(method, params),
             "session/prompt" => {
@@ -477,6 +477,8 @@ fn every_verb(surface: SurfaceId) -> Vec<Value> {
         json!({"id":5,"cmd":"agent-session-permission","surface":surface,
                "permission_id":"perm_attach","option_id":"allow"}),
         json!({"id":6,"cmd":"agent-session-detach","surface":surface}),
+        json!({"id":7,"cmd":"agent-session-typing","surface":surface,"on":true}),
+        json!({"id":8,"cmd":"agent-session-view","surface":surface,"visible":true}),
     ]
 }
 
@@ -772,6 +774,82 @@ fn cancel_goes_to_the_pinned_session() {
     assert_eq!(sent["method"], json!("session/cancel"));
     assert_eq!(sent["params"], json!({"sessionId": SESSION}));
     assert!(sent.get("id").is_none(), "cancel is a notification");
+}
+
+// MARK: Presence
+
+/// Chat multiplayer (hq#4389): the person's typing and view go to acpmux on the tab's own session,
+/// and who is in the chat comes back as `agent-session-presence`, for that session only.
+#[test]
+fn typing_and_view_go_to_the_pinned_session_and_presence_streams_back() {
+    let mut fake = FakeAcpmux::start("presence");
+    let mux = mux_with(&fake, "asa-presence");
+    let identity = run(&mux, json!({"cmd":"identify"}));
+    assert!(
+        identity["capabilities"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|value| value == agent_session_attach::AGENT_SESSION_PRESENCE_CAPABILITY)
+    );
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut client = Client::connect(&mux, "presence");
+    let attached = attach(&mut client, surface);
+    let _ = fake.frame();
+    let _ = client.event(WAIT).expect("the early record");
+    assert_eq!(attached["ok"], json!(true), "{attached}");
+    for (frame, method, params) in [
+        (
+            json!({"cmd":"agent-session-typing","surface":surface,"on":true}),
+            "_acpmux/typing",
+            json!({"sessionId": SESSION, "on": true}),
+        ),
+        (
+            json!({"cmd":"agent-session-view","surface":surface,"visible":false}),
+            "_acpmux/view",
+            json!({"sessionId": SESSION, "visible": false}),
+        ),
+    ] {
+        let reply = client.request(frame);
+        assert_eq!(reply["ok"], json!(true), "{reply}");
+        let sent = fake.frame();
+        assert_eq!(sent["method"], json!(method));
+        assert_eq!(sent["params"], params, "the session is the tab's own; nothing else is passed");
+    }
+    for bad in [
+        json!({"cmd":"agent-session-typing","surface":surface}),
+        json!({"cmd":"agent-session-typing","surface":surface,"on":"yes"}),
+        json!({"cmd":"agent-session-typing","surface":surface,"on":true,"sessionId":"acp_other"}),
+        json!({"cmd":"agent-session-view","surface":surface,"visible":true,
+               "_meta":{"acpmux":{"author":{"id":"tailnet:x","name":"x"}}}}),
+    ] {
+        assert_code(&client.request(bad), "agent_session.bad_request");
+    }
+    fake.no_frame();
+    let people = json!({"sessionId": SESSION, "participants": [
+        {"id": "owner", "name": "Owner", "devices": 2, "viewing": true, "typing": false}]});
+    fake.notify("_acpmux/presence", json!({"sessionId": "acp_other", "participants": []}));
+    fake.notify("_acpmux/presence", people.clone());
+    let event = client.event(WAIT).expect("the chat's presence");
+    assert_eq!(event["event"], json!("agent-session-presence"));
+    assert_eq!(event["surface"], json!(surface));
+    assert_eq!(event["presence"], people);
+    assert!(client.event(Duration::from_millis(200)).is_none(), "no other chat's presence");
+}
+
+#[test]
+fn typing_needs_an_attachment() {
+    let fake = FakeAcpmux::start("typing-unattached");
+    let mux = mux_with(&fake, "asa-typing-unattached");
+    let surface = agent_tab(&mux, Some(SESSION));
+    let mut client = Client::connect(&mux, "typing-unattached");
+    for frame in [
+        json!({"cmd":"agent-session-typing","surface":surface,"on":true}),
+        json!({"cmd":"agent-session-view","surface":surface,"visible":true}),
+    ] {
+        assert_code(&client.request(frame), "agent_session.not_attached");
+    }
+    fake.no_connection();
 }
 
 #[test]
