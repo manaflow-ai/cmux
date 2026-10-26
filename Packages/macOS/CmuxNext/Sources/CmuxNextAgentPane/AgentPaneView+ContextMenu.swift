@@ -10,81 +10,6 @@ public extension Notification.Name {
     static let cmuxNextInspectUIElement = Notification.Name("cmux.next.inspect-ui-element")
 }
 
-/// The agent pane's web view on the old host: WebKit's context menu goes through the pane
-/// (``AgentPaneView/editContextMenu(_:)``). On the page host the shared view's
-/// `contextMenuEditor` does the same.
-// webview-allow: the old agent host (agent.pageHost off, or a dev-server page); the page host picks the engine otherwise
-final class AgentPaneWKWebView: WKWebView {
-    var contextMenuEditor: (@MainActor (NSMenu) -> Void)?
-    /// Files the person dropped on the page, with their URLs: a real gesture page script can't make
-    /// (``AgentPaneUpload``, ``AgentPaneDroppedPaths``).
-    var onFilesDropped: (@MainActor ([URL]) -> Void)?
-    /// A paste is about to reach the page (``AgentPaneDroppedPaths``).
-    var onPaste: (@MainActor () -> Void)?
-
-    override func performDragOperation(_ sender: any NSDraggingInfo) -> Bool {
-        if let onFilesDropped {
-            let urls = AgentPaneDroppedPaths.fileURLs(on: sender.draggingPasteboard)
-            if !urls.isEmpty { onFilesDropped(urls) }
-        }
-        return super.performDragOperation(sender)
-    }
-
-    @objc func paste(_ sender: Any?) {
-        onPaste?()
-        webKitPaste(sender)
-    }
-
-    /// Keeps macOS's AutoFill out of this view's context menu (``PageMenuAutoFill``).
-    private let menuAutoFill = PageMenuAutoFill()
-
-    override var inputContext: NSTextInputContext? {
-        menuAutoFill.hidesInputContext() ? nil : super.inputContext
-    }
-
-    /// No caret accessory over the composer, as on the page host (``PageWKWebView``): the
-    /// system's input source / Caps Lock bubble beside the caret of an empty prompt covered the
-    /// + button (Leo, 2026-10-21).
-    @objc var preferredTextAccessoryPlacement: NSTextCursorAccessoryPlacement { .invisible }
-
-    override func mouseDown(with event: NSEvent) {
-        menuAutoFill.noteContextClick(event)
-        super.mouseDown(with: event)
-    }
-
-    override func rightMouseDown(with event: NSEvent) {
-        menuAutoFill.noteContextClick(event)
-        super.rightMouseDown(with: event)
-    }
-
-    override func willOpenMenu(_ menu: NSMenu, with event: NSEvent) {
-        menuAutoFill.menuWillOpen()
-        contextMenuEditor?(menu)
-        super.willOpenMenu(menu, with: event)
-    }
-
-    override func didCloseMenu(_ menu: NSMenu, with event: NSEvent?) {
-        menuAutoFill.menuDidClose()
-        super.didCloseMenu(menu, with: event)
-    }
-}
-
-/// Receives the page's report of the message under the pointer (`cmuxAgentContextMenu`), sent on
-/// `contextmenu` before WebKit asks the host for the menu. Holds the view weakly (the user content
-/// controller retains its handlers).
-final class AgentPaneContextMenuReporter: NSObject, WKScriptMessageHandler {
-    weak var view: AgentPaneView?
-
-    init(view: AgentPaneView) {
-        self.view = view
-    }
-
-    func userContentController(_ controller: WKUserContentController, didReceive message: WKScriptMessage) {
-        guard let view, message.webView === view.webView, message.frameInfo.isMainFrame else { return }
-        view.receiveContextMenuReport(message.body)
-    }
-}
-
 /// The target of a context-menu item that runs a closure; the item keeps it alive
 /// (`representedObject`, since `target` is weak).
 final class AgentPaneMenuAction: NSObject {
@@ -109,7 +34,8 @@ final class AgentPaneMenuAction: NSObject {
 }
 
 extension AgentPaneView {
-    /// The page's message handler for ``AgentPaneContextMenuReporter``.
+    /// The page's message handler for its report of the message under the pointer
+    /// (`cmuxAgentContextMenu`), sent on `contextmenu` before the engine asks the host for the menu.
     static let contextMenuHandler = "cmuxAgentContextMenu"
 
     /// Routes WebKit's context menu through the pane and listens for the page's reports. Also takes
@@ -128,38 +54,24 @@ extension AgentPaneView {
             guard AgentPanePersonInput.currentIsPerson else { return }
             self?.model.droppedPaths.stash(AgentPaneDroppedPaths.fileURLs(on: .general), kind: .paste)
         }
-        let edit: @MainActor (NSMenu) -> Void = { [weak self] menu in self?.editContextMenu(menu) }
-        if let page {
-            (page.onFilesDropped, page.onPaste) = (dropped, pasted)
-            // Both engines: the page host relays the report (a Chromium page's menu waits for it).
-            page.addMessageHandler(Self.contextMenuHandler) { [weak self] body in
-                self?.receiveContextMenuReport(body)
-                // A More press opens its own menu: no right-click menu waits for it.
-                if AgentPaneContextMenu.popUpAnchor(report: body) == nil { self?.menuReports.reported() }
-            }
-            page.chromiumMenuWait = { [weak self] in await self?.menuReports.untilReported() }
-            page.contextMenuEditor = edit
-            return
+        (page.onFilesDropped, page.onPaste) = (dropped, pasted)
+        // Both engines: the page host relays the report (a Chromium page's menu waits for it).
+        page.addMessageHandler(Self.contextMenuHandler) { [weak self] body in
+            self?.receiveContextMenuReport(body)
+            // A More press opens its own menu: no right-click menu waits for it.
+            if AgentPaneContextMenu.popUpAnchor(report: body) == nil { self?.menuReports.reported() }
         }
-        if let view = webView as? AgentPaneWKWebView { (view.onFilesDropped, view.onPaste) = (dropped, pasted) }
-        // Never add the handler twice (WebKit throws).
-        webView.configuration.userContentController.removeScriptMessageHandler(forName: Self.contextMenuHandler, contentWorld: .page)
-        webView.configuration.userContentController.add(AgentPaneContextMenuReporter(view: self), contentWorld: .page,
-                                                        name: Self.contextMenuHandler)
-        (webView as? AgentPaneWKWebView)?.contextMenuEditor = edit
+        page.chromiumMenuWait = { [weak self] in await self?.menuReports.untilReported() }
+        page.contextMenuEditor = { [weak self] menu in self?.editContextMenu(menu) }
     }
 
     /// Undoes ``installContextMenu()`` when the pane closes.
     func removeContextMenu() {
-        webView.configuration.userContentController.removeScriptMessageHandler(forName: Self.contextMenuHandler, contentWorld: .page)
-        page?.removeMessageHandler(Self.contextMenuHandler)
-        page?.chromiumMenuWait = nil
-        page?.contextMenuEditor = nil
-        page?.onFilesDropped = nil
-        page?.onPaste = nil
-        (webView as? AgentPaneWKWebView)?.contextMenuEditor = nil
-        (webView as? AgentPaneWKWebView)?.onFilesDropped = nil
-        (webView as? AgentPaneWKWebView)?.onPaste = nil
+        page.removeMessageHandler(Self.contextMenuHandler)
+        page.chromiumMenuWait = nil
+        page.contextMenuEditor = nil
+        page.onFilesDropped = nil
+        page.onPaste = nil
     }
 
     /// The page's report for the menu about to open (nil: the pointer is not on a message). A
@@ -186,14 +98,13 @@ extension AgentPaneView {
     /// More (…) on a message's action row: the menu a right-click on that message opens, with the
     /// same items, under the button (`anchor`, CSS px in the page's viewport).
     private func popUpMessageMenu(target: AgentPaneMessageTarget?, anchor: CGRect) {
-        let view: NSView = page?.focusView ?? webView
+        let view: NSView = page.focusView
         guard let target, view.window != nil else { return }
         let menu = NSMenu()
         fillContextMenu(menu, target: target, selection: nil)
         guard !menu.items.isEmpty else { return }
-        // View points per CSS px, as the page host (`uiScale` times its zoom) or the pane's WebKit view shows it.
-        let zoom: CGFloat = page.map { CGFloat(Double(DesignSettings.shared.uiScale) * $0.additionalZoom) }
-            ?? webView.pageZoom * webView.magnification
+        // View points per CSS px, as the page host shows it (`uiScale` times its zoom).
+        let zoom = CGFloat(Double(DesignSettings.shared.uiScale) * page.additionalZoom)
         let left = anchor.minX * zoom, bottom = anchor.maxY * zoom + 2
         menu.popUp(positioning: nil, at: NSPoint(x: left, y: view.isFlipped ? bottom : view.bounds.height - bottom), in: view)
     }

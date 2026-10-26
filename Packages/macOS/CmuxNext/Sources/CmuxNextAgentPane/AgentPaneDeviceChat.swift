@@ -44,6 +44,6 @@ extension AgentPaneDeviceChat {
     /// Pushes `chats` to `view`'s page (not an AgentPaneView extension: that type is at its size limit).
     @MainActor static func push(_ chats: [AgentPaneDeviceChat], to view: AgentPaneView) {
         let event = AgentPageEvent.deviceChats(shown(chats, in: view))
-        view.deliver([event], scripts: ["window.cmuxAcpmuxBridge?.applyDeviceChats?.(\(event.value.compactText));"])
+        view.deliver([event])
     }
 }

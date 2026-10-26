@@ -29,18 +29,13 @@ extension AgentPaneView {
         model.transport.onRemoteApprovalsOff = { [weak self] approvals in self?.showRemoteApprovalsOff(approvals) }
         model.transport.deliver = { [weak self] event, done in
             guard let self else { return done() }
-            if let pageEvents = self.pageEvents {
-                pageEvents.transportDidOpen(event.connection)
-                // The page host's events carry no completion: the next push may follow next turn.
-                if !pageEvents.publish(.transport(event)) {
-                    self.model.transport.close(connection: event.connection)
-                }
-                // task-owner: one completion for the pacer, on the main actor
-                Task { @MainActor in done() }
-            } else {
-                // The completion runs once the page has run the push.
-                self.webView.evaluateJavaScript(event.script) { _, _ in done() }
+            self.pageEvents.transportDidOpen(event.connection)
+            // The page host's events carry no completion: the next push may follow next turn.
+            if !self.pageEvents.publish(.transport(event)) {
+                self.model.transport.close(connection: event.connection)
             }
+            // task-owner: one completion for the pacer, on the main actor
+            Task { @MainActor in done() }
         }
     }
 
@@ -93,7 +88,7 @@ extension AgentPaneView {
     /// The same for an event in the Chromium page's own window (a child of the pane's window): a key
     /// while the page has the keyboard, or a click on the page.
     private func judgeChromium(_ event: NSEvent, eventWindow: NSWindow?) {
-        guard page?.showsChromium == true, let eventWindow, AgentPanePersonInput.isPerson(event) else { return }
+        guard page.showsChromium, let eventWindow, AgentPanePersonInput.isPerson(event) else { return }
         switch event.type {
         case .keyDown:
             // CEF can leave its child window non-key while a native file picker or attachment
