@@ -2291,3 +2291,91 @@ async fn a_host_a_daemon_left_while_it_started_ends_under_mdm_off_by_the_argv_it
         "the next daemon adopted the --yolo agent on the argv its chat was created with"
     );
 }
+
+/// Review 51 of #23322: what a saved chat says of its modes can be older than what its harness last
+/// reported (the daemon died before it saved them). A host a restart left that reported a
+/// full-access mode, or a full-access value of its mode option, ends under MDM's off although the
+/// saved chat says it asks: the next daemon reads what the host reported back from the log.
+#[tokio::test]
+async fn a_left_host_ends_under_mdm_off_by_the_modes_it_reported_not_the_saved_ones() {
+    for (tag, env, moved) in [
+        ("mdmstalemode", json!({"FAKE_FULL_ACCESS": "1"}), "set-mode: full-access"),
+        ("mdmstaleopt", json!({"FAKE_MODE_OPTION": "1"}), "set-mode-option: full-access"),
+    ] {
+        let mut daemon = Daemon::new(tag, "ask");
+        daemon.sigterm();
+        let fake = json!({"argv": ["python3", FAKE], "env": env});
+        let config = json!({"harnesses": {"fake": fake}, "defaultHarness": "fake",
+                            "permissionPolicy": "ask"});
+        std::fs::write(daemon.home.join("config.json"), config.to_string()).unwrap();
+        daemon.start();
+        let session = new_session(&daemon).await;
+        let mut rpc = daemon.rpc().await;
+        let prompt = json!({"sessionId": session, "prompt": [{"type": "text", "text": moved}]});
+        rpc.call("session/prompt", prompt).await;
+        let harness_pid = daemon.host_record(&session)["harness_pid"].as_i64().unwrap();
+        daemon.sigterm();
+        drop(rpc);
+        assert!(alive(harness_pid), "{tag}: SIGTERM ended the agent");
+        // The saved chat as a daemon that died before it saved the report would leave it: asking.
+        let saved = daemon.home.join("sessions").join(&session).join("session.json");
+        let mut meta: Value = serde_json::from_slice(&std::fs::read(&saved).unwrap()).unwrap();
+        if let Some(modes) = meta.get_mut("modes").filter(|m| m["currentModeId"] == "full-access") {
+            modes["currentModeId"] = json!("normal");
+        }
+        for o in meta.get_mut("configOptions").and_then(Value::as_array_mut).into_iter().flatten() {
+            if o["currentValue"] == "full-access" {
+                o["currentValue"] = json!("normal");
+            }
+        }
+        std::fs::write(&saved, meta.to_string()).unwrap();
+
+        record_mdm_off(&daemon);
+        daemon.start();
+        assert!(
+            gone_within(harness_pid, Duration::from_secs(10)),
+            "{tag}: the next daemon adopted a full-access agent on the modes its chat saved earlier"
+        );
+    }
+}
+
+/// Review 51 of #23322: a host a restart left in full access whose end by its nonce fails (the
+/// debug seam `ACPMUX_TEST_HOST_END_FAILS`) is never reached again under MDM's off. What says it
+/// runs in full access stays, and each prompt is refused while that host may still run.
+#[tokio::test]
+async fn a_full_access_host_whose_end_failed_is_never_reached_under_mdm_off() {
+    let mut daemon = Daemon::with_env("mdmendfail", "ask", &[("ACPMUX_TEST_HOST_END_FAILS", "1")]);
+    daemon.sigterm();
+    let fake = json!({"argv": ["python3", FAKE], "env": {"FAKE_NO_MODES": "1"}});
+    let config =
+        json!({"harnesses": {"fake": fake}, "defaultHarness": "fake", "permissionPolicy": "ask"});
+    std::fs::write(daemon.home.join("config.json"), config.to_string()).unwrap();
+    daemon.start();
+    let session = new_session(&daemon).await;
+    let mut rpc = daemon.rpc().await;
+    let moved = json!({"sessionId": session,
+                       "prompt": [{"type": "text", "text": "set-mode: bypassPermissions"}]});
+    rpc.call("session/prompt", moved).await;
+    let host = daemon.host_record(&session);
+    let harness_pid = host["harness_pid"].as_i64().unwrap();
+    daemon.sigterm();
+    drop(rpc);
+    assert!(alive(harness_pid), "SIGTERM ended the agent");
+
+    record_mdm_off(&daemon);
+    daemon.start();
+    let mut rpc = daemon.rpc().await;
+    let prompt = json!({"sessionId": session, "prompt": [{"type": "text", "text": "hi"}]});
+    for attempt in 0..2 {
+        let r = rpc.reply("session/prompt", prompt.clone()).await;
+        assert_eq!(
+            r["error"]["data"]["reason"], "full_access_off",
+            "attempt {attempt}: a full-access agent whose end failed was reached again: {r}"
+        );
+    }
+    assert!(alive(harness_pid), "the seam did not keep the host running");
+    for pid in [host["harness_pid"].as_i64(), host["host_pid"].as_i64()].into_iter().flatten() {
+        // SAFETY: process groups this test's daemon created (its host record).
+        unsafe { libc::killpg(pid as i32, libc::SIGKILL) };
+    }
+}
