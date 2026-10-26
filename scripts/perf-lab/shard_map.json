@@ -6,7 +6,7 @@
           "index": 0,
           "seconds": {
             "T1": 22360,
-            "T2": 36810
+            "T2": 37200
           },
           "stories": {
             "T1": [
@@ -101,18 +101,21 @@
               "cef-resize-sync-stress",
               "cli-storm",
               "cli-storm-stress",
+              "cmd-n-paint",
               "column-resize-live",
               "command-pan-stress",
               "daemon-spawn",
               "devtools-resize-live",
               "drag-daemon",
               "fsync",
+              "home-typing-still",
               "idle-budget",
               "idle-budget-stress",
               "idle-budget-webkit",
               "launch-after-reboot",
               "layout-loop-stress",
               "new-surfaces-stress",
+              "new-workspace-typing",
               "pane-chromium",
               "pane-scale",
               "pane-zoom",
@@ -140,7 +143,7 @@
         {
           "index": 0,
           "seconds": {
-            "T2": 36810
+            "T2": 37200
           },
           "stories": {
             "T2": [
@@ -172,18 +175,21 @@
               "cef-resize-sync-stress",
               "cli-storm",
               "cli-storm-stress",
+              "cmd-n-paint",
               "column-resize-live",
               "command-pan-stress",
               "daemon-spawn",
               "devtools-resize-live",
               "drag-daemon",
               "fsync",
+              "home-typing-still",
               "idle-budget",
               "idle-budget-stress",
               "idle-budget-webkit",
               "launch-after-reboot",
               "layout-loop-stress",
               "new-surfaces-stress",
+              "new-workspace-typing",
               "pane-chromium",
               "pane-scale",
               "pane-zoom",

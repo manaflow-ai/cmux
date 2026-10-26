@@ -92,7 +92,9 @@ items; `DispatchQueue.blockingSync`), processes (`blockingPosixSpawn`, `Process.
 LocalAuthentication, AX, window lists, Launch Services and `NSWorkspace`, ServiceManagement, host resolution,
 `sysctl`/`proc`), SQLite, ImageIO and image decodes, and size-gated CPU work. The kinds are `BlockingKind`:
 file-io, fs-metadata, socket-read, socket-write, sync-wait, ipc-reply, process-spawn, process-wait,
-process-reap, lock-wait, system-call, system-query, sqlite, sleep, cpu-intensive and wrong-lane.
+process-reap, lock-wait, system-call, system-query, sqlite, sleep, cpu-intensive, wrong-lane and
+priority-inversion (the main thread awaits a BackgroundWork item stated below `.userBlocking` while input work runs
+on the main task board; record only).
 
 Rust checked forms live in `cmux-tui/crates/cmux-threads`: `checked::fs`, `checked::process`, `checked::sync`
 (`recv`, `recv_timeout`, `join`, condvar waits, `sleep`), `checked::block_on`, `checked::ipc_reply`,
@@ -204,7 +206,10 @@ per process, built where the session opens (`mux/construct.rs`, label `mux`).
   After `beginShutdown` the cap is lifted so block-shutdown items finish (Chrome's `OnShutdownStarted` sets
   `max_best_effort_tasks_` to `max_tasks_`).
 - Startup fence: best-effort and idle posts wait until launch settles (`beginBestEffortFence` /
-  `endBestEffortFence`); an awaited item never waits for the fence.
+  `endBestEffortFence`); an awaited item never waits for the fence. The app raises it once
+  (`raiseLaunchFence`, from `LaunchOrder.BestEffortFence` in `main()`) and lowers it once, at startup complete
+  or after its 3 s cap, whichever comes first; the cap's one-shot timer exists only while the fence is up, and
+  shutdown lifts the fence and cancels the cap.
 - QoS by priority: the table in "QoS and task priority" below. Daemon workers keep one class for life (`fg`
   user-initiated, `be` utility, `idle` background), named `mux-<lane>-<fg|be|idle>` (lane `files`, `sys`,
   `cpu`); on Linux a `mux-launch` thread (user-initiated) starts them.

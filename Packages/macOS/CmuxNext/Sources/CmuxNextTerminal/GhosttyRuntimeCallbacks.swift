@@ -1,8 +1,12 @@
 import AppKit
 import GhosttyNextKit
 
-/// Carries a C pointer across an actor hop. Only sound where Ghostty
-/// documents the pointer as valid until the matching completion call.
+/// Carries a Ghostty C handle across threads: the module's one reviewed
+/// pointer hand-off. Swift never reads through it; Ghostty's contract keeps
+/// each kind valid: a clipboard request state until its completion call, a
+/// cloned config until it is freed, and a surface until `ghostty_surface_free`,
+/// which ``TerminalOutputLane/close()`` fences.
+// crash-allow: an immutable C address passed back to libghostty, never dereferenced in Swift; the handle's lifetime is Ghostty's documented contract above
 nonisolated struct UncheckedPointer: @unchecked Sendable {
     let raw: UnsafeMutableRawPointer?
 }

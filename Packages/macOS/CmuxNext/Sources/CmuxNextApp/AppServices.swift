@@ -157,7 +157,8 @@ final class AppServices {
     #endif
     /// The main-thread blocking detector's handle (threading-model.md): the Debug menu, `debug.blocking` and the hang report sink (``BlockingReportSink``).
     let blocking = BlockingDetector.forProcess()
-    /// The local daemon's wire counters (`debug.daemon.wire`); nil in a release build.
+    /// The local daemon's wire counters (`debug.daemon.wire`); nil in a release build without
+    /// the opt-in feature `ipcMethodLatencyFieldData`.
     let wireStats: DaemonWireStats?
     /// The observers' per-owner counts (`debug.observations`): each observer kind interns its owner here when it is
     /// built. It is the main-thread scheduler's one ledger, so every `VisibleObservation` records into it too.
@@ -297,9 +298,17 @@ final class AppServices {
     }()
     private(set) lazy var phoneFeedback = PhoneChiefFeedback(home: home)
     /// Every declared feature's value (`schemas/features/features.d`, Chrome's `base::FeatureList`):
-    /// resolved once in init (crash reporting reads it first) from this build's channel and the launch environment
-    /// (`CMUX_ENABLE_FEATURES`, `CMUX_DISABLE_FEATURES`). Tests set their own before the services that read it are built.
+    /// resolved once in init (crash reporting reads it first): the composition root's (``launchFeatures(_:)``, built
+    /// before the daemon connects), else built the same way. Tests set their own before the services that read it are built.
     var features: FeatureList
+
+    /// Every declared feature's value for this launch: this build's channel and the launch
+    /// environment (`CMUX_ENABLE_FEATURES`, `CMUX_DISABLE_FEATURES`). The composition root builds it
+    /// once, before anything that reads a feature.
+    static func launchFeatures(_ environment: AppEnvironment) -> FeatureList {
+        FeatureList(registry: FeatureRegistry(), channel: Feature.Channel(environment.build.kind),
+                    overrides: FeatureOverrides(environment: ProcessInfo.processInfo.environment))
+    }
     /// The windows' frame-aligned pointer input (p04-input-030), one coalescer per window shared by every consumer, as
     /// Chromium has one input queue per frame widget. It is the application's own `frameInput`, the one `sendEvent`
     /// flushes before discrete input (a test's app has none: its own). Read only while a feature below uses it.
@@ -617,9 +626,10 @@ final class AppServices {
          wireStats: DaemonWireStats? = nil, hangWatch: (any HangWatchScoping)? = TraceRuntime.shared.hangWatch,
          energyMonitor: EnergyMonitor = EnergyMonitor(), inputTap: InputEventTap = InputEventTap(),
          launchImageHold: LaunchImageHold = LaunchImageHold(), launchStartup: StartupScheduler? = nil,
-         crashKeys: CrashKeySlots? = nil, appearance: AppearanceSignals = DesignSettings.shared.signals) {
+         crashKeys: CrashKeySlots? = nil, appearance: AppearanceSignals = DesignSettings.shared.signals,
+         features: FeatureList? = nil) {
         self.appearance = appearance
-        let work = work ?? BackgroundWork(hangs: hangWatch)
+        let work = work ?? BackgroundWork(hangs: hangWatch, inputTurns: mainWork.budget.board)
         self.work = work
         self.energyMonitor = energyMonitor
         // First: the black-box ring is attached to TraceRuntime.shared, so every trace point records from here
@@ -656,8 +666,8 @@ final class AppServices {
         popups = BrowserPopupWindows(contextMenus: contextMenus, mainWork: mainWork)
         self.environment = environment; self.agentPaneEnvironment = agentPaneEnvironment
         crashRecovery = CrashRecoveryService(bundleID: environment.launch.bundleID, marksRun: environment.marksRun, crashKeys: crashKeys)
-        features = FeatureList(registry: FeatureRegistry(), channel: Feature.Channel(environment.build.kind), overrides: FeatureOverrides(environment: ProcessInfo.processInfo.environment))
-        crashReporting = AppCrashReporting(environment: environment, afterStartup: .init(handlersFirst: features.isEnabled(.sentryHandlersFirst), startup: launchStartup))  // after the run marker's handlers
+        self.features = features ?? Self.launchFeatures(environment)
+        crashReporting = AppCrashReporting(environment: environment, afterStartup: .init(handlersFirst: self.features.isEnabled(.sentryHandlersFirst), startup: launchStartup))  // after the run marker's handlers
         DebugTimings.markLaunch("services.crash_reporting")
         machines = MachineRegistry(local: daemon)
         machines.isFeatureDisabled = { [registry] in registry.disabledFeatures.contains($0) }

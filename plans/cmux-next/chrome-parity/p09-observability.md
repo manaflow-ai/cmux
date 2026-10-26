@@ -1336,6 +1336,22 @@ Paths are relative to the repo root. `S/` = `Packages/macOS/CmuxNext/Sources/`, 
 - Acceptance: The off path is one load (review). Fork CI passes. The gitlink bump is in the same push as
   049.
 - Test phase: fleet: GhosttyNextKit build and the cmux compile.
+- As built (ghostty-next branch `cp/p09-observability-048`; 049 writes against this interface):
+  - `ghostty_set_trace_hook(const ghostty_trace_hook_s*)`. The record `{callback, ctx}` is owned by the
+    embedder and never changes or is freed while the process runs. The fork keeps one atomic pointer to it,
+    so a callback and its ctx can never be paired wrongly. NULL, or a NULL callback, turns the hook off.
+  - `ghostty_trace_hook_cb(void* ctx, ghostty_trace_event_e event, uint64_t surface, uint64_t seq)`.
+    `surface` is `ghostty_surface_trace_id(surface)`: nonzero and never reused. The surface pointer is not
+    used, because a present queued to main can arrive after `ghostty_surface_free`, when a new surface can
+    have the same address.
+  - Events: `FRAME_BEGIN` (seq = the number the frame gets if the draw commits) and `FRAME_END` (seq = the
+    committed frame, or 0 when nothing was drawn). They come from Metal `drawFrameStart`/`drawFrameEnd`,
+    not from Thread.zig, so the main-thread display-pass draws are included. `GPU_DONE` comes from the
+    completed handler. `CONTENTS_SET` comes when the frame's IOSurface becomes the layer contents (one
+    frame can be reported twice in a host-size change: count the first). `IO_WRITE` (seq = byte count)
+    comes before a MANUAL surface's `io_write_cb`. `SURFACE_DESTROY` comes after `ghostty_surface_free`.
+  - The gitlink and the CmuxGhosttyKit pin stay where they are: the bump is made with 049, after the fork
+    PR is merged and its GhosttyNextKit release is out.
 
 ### 049 cmux registers the Ghostty hook
 - Files: S/CmuxNextTerminal/GhosttyTraceHook.swift, S/CmuxNextTerminal/TerminalSurfaceView.swift.
