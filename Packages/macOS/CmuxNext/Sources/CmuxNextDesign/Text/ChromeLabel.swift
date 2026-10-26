@@ -135,11 +135,14 @@ open class ChromeLabel: NSView {
 
     override public init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
+        // A size change redraws through `setFrameSize`; the glyphs keep their pixel size meanwhile.
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
         apply(LabelDefaults.label)
     }
 
     public required init?(coder: NSCoder) {
         super.init(coder: coder)
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
         apply(LabelDefaults.label)
     }
 

@@ -18,6 +18,7 @@ final class SidebarSectionHeaderView: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay // updateLayer sets colors only
         name.lineBreakMode = .byTruncatingTail
         name.maximumNumberOfLines = 1
         chevron.alphaValue = 0

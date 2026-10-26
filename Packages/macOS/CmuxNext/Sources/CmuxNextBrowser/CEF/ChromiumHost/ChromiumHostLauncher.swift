@@ -4,36 +4,6 @@ import CmuxNextCompat
 import Darwin
 import Foundation
 
-/// How a Chromium host process ended.
-nonisolated struct ChromiumHostExit: Equatable, Sendable, CustomStringConvertible {
-    /// The signal that ended it (SIGKILL, SIGSEGV, SIGTRAP for a CHECK), or nil for an exit.
-    var signal: Int32?
-    /// The exit status when it exited.
-    var status: Int32?
-
-    var description: String {
-        if let signal { return "signal \(signal)" }
-        return "exit \(status ?? -1)"
-    }
-
-    /// The exit statuses of a host that could not start (`kExit*` in
-    /// `ChromiumHost/src/chromium_host_wire.h`), with what each means.
-    static let startFailures: [Int32: String] = [
-        64: "launched without the wire",
-        65: "the Chromium framework did not load",
-        66: "the Chromium fork is older than the host needs",
-        67: "CefInitialize failed",
-    ]
-
-    /// Why the host could not start, when it exited with one of
-    /// ``startFailures``; nil for a crash, a signal or any other exit. A new
-    /// host would fail the same way, so the session does not restart it.
-    var startFailure: String? {
-        guard signal == nil, let status, let reason = Self.startFailures[status] else { return nil }
-        return "could not start (exit \(status)): \(reason)"
-    }
-}
-
 /// A started host: its pid and cmux's ends of the wire (frames from the host
 /// on `readFD`, to it on `writeFD`).
 nonisolated struct ChromiumHostProcessHandle: Sendable {

@@ -95,6 +95,7 @@ class SidebarItemRowView: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay // updateLayer sets colors only
         for decoration in [pill, chip] {
             decoration.actions = ["backgroundColor": NSNull(), "bounds": NSNull(), "position": NSNull(),
                                   "borderColor": NSNull(), "borderWidth": NSNull()]

@@ -24,6 +24,7 @@ final class BookmarkBarItemView: NSView {
         self.node = node
         super.init(frame: .zero)
         wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay
         layer?.cornerCurve = .continuous
         icon.image = image
         icon.imageScaling = .scaleProportionallyDown
