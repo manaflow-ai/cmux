@@ -67,10 +67,6 @@ final class AppServices {
     /// The app's one main-thread scheduler (from the composition root), passed by init to the
     /// local daemon and to the Cloud, SSH and server services for their machines.
     let mainWork: MainWorkScheduler
-    /// The app's change causes (one per app, beside ``mainWork``): whoever applies a change scopes its
-    /// cause (``ObservationCauses/withCause(_:_:)``), and observers that schedule work read it
-    /// (the sidebar's `SidebarRowFeed`). A change outside any scope is a program's.
-    let causes = ObservationCauses()
     /// Agent panes' git reads, one link per machine (AgentPaneGitReads.swift).
     private(set) lazy var agentGit = AgentPaneGitLinks(machines: machines)
     let machines: MachineRegistry

@@ -34,9 +34,11 @@ fileprivate final class SidebarRowWatchCancel {
 /// unchanged row behind.
 ///
 /// Each dirty row keeps the cause of the change that marked it, and each
-/// cause has its own flush (``init(cause:schedule:)``), which maps the rows
-/// of its cause and higher: a person's row change never waits behind, or
-/// pays for, the rows automation marked.
+/// cause has its own flushes (``init(cause:rowsPerBudgetedFlush:schedule:)``),
+/// which map only the rows of that cause, in the order they were marked: a
+/// person's row change neither waits behind nor pays for the rows automation
+/// marked. A program or automation flush maps a bounded slice of rows, so a
+/// budgeted queue spreads a burst of them over frames.
 @MainActor
 public final class SidebarRowFeed {
     /// Maps one row from its store; runs on the main actor (the feed and its callers are main-actor).
@@ -69,8 +71,10 @@ public final class SidebarRowFeed {
     private var entries: [WorkspaceID: Entry] = [:]
     /// The dirty rows, each with the cause of the change that marked it.
     private var dirty: [WorkspaceID: ObservationCause] = [:]
-    /// The causes with a flush scheduled and not run yet (bit `rawValue`).
-    private var scheduledFlushes: UInt8 = 0
+    /// Per cause (index `rawValue`): its dirty rows in marking order, and its scheduled flushes.
+    private var lanes = [SidebarRowLane](repeating: SidebarRowLane(), count: ObservationCause.allCases.count)
+    /// The rows one program or automation flush maps (person and frontend flushes map all of theirs).
+    private let rowsPerBudgetedFlush: Int
     private var pass: UInt64 = 0
     /// The by-value inputs of the last pass, and whether a pass since the last `fill` changed them.
     private var inputs: AnyHashable?
@@ -91,11 +95,12 @@ public final class SidebarRowFeed {
     /// The cause of the change being made now (the app's ``ObservationCauses/currentCause``).
     private let cause: @MainActor () -> ObservationCause
 
-    /// `schedule` defaults to the next main-actor turn. Every flush is ``ObservationCause/program``.
+    /// `schedule` defaults to the next main-actor turn. Every flush is ``ObservationCause/program``
+    /// and maps every dirty row: one flush per turn.
     public convenience init(schedule: Schedule? = nil) {
         // task-owner: the feed; one flush per main-actor turn after the store's batch applies
         let plain = schedule ?? { work in Task { @MainActor in work() } }
-        self.init(cause: { .program }, schedule: { _, work in plain(work) })
+        self.init(cause: { .program }, rowsPerBudgetedFlush: .max, schedule: { _, work in plain(work) })
     }
 
     /// A feed whose flushes carry their change's cause.
@@ -103,9 +108,13 @@ public final class SidebarRowFeed {
     /// - Parameters:
     ///   - cause: The cause of the change being made now, read when a change marks a row (in the
     ///     change's own turn).
+    ///   - rowsPerBudgetedFlush: The rows one program or automation flush maps; each further slice
+    ///     is a flush of its own, so a budgeted queue runs as many as fit a frame.
     ///   - schedule: Runs one flush later, with its cause.
-    public init(cause: @escaping @MainActor () -> ObservationCause, schedule: @escaping CausedSchedule) {
+    public init(cause: @escaping @MainActor () -> ObservationCause, rowsPerBudgetedFlush: Int = 16,
+                schedule: @escaping CausedSchedule) {
         self.cause = cause
+        self.rowsPerBudgetedFlush = max(1, rowsPerBudgetedFlush)
         self.schedule = schedule
     }
 
@@ -127,6 +136,7 @@ public final class SidebarRowFeed {
         for entry in entries.values { disarm(entry) }
         entries.removeAll()
         dirty.removeAll()
+        for index in lanes.indices { lanes[index].dropRows() }
     }
 
     /// The row of `id` for the structural pass: the last mapped row, or a
@@ -219,18 +229,20 @@ public final class SidebarRowFeed {
         entry.armed = false
         if let marked = dirty[id], marked >= cause { return }
         dirty[id] = cause
-        let bit: UInt8 = 1 << cause.rawValue
-        guard scheduledFlushes & bit == 0 else { return }
-        scheduledFlushes |= bit
+        guard lanes[cause.rawValue].add(id, rowsPerFlush: rowsPerFlush(cause)) else { return }
         schedule(cause) { [weak self] in self?.flush(cause) }
     }
 
-    /// Maps the dirty rows of `cause` and higher causes again.
+    /// One flush of `cause` maps all its rows when the person or the frontend caused them, else a slice.
+    private func rowsPerFlush(_ cause: ObservationCause) -> Int {
+        cause >= .frontend ? .max : rowsPerBudgetedFlush
+    }
+
+    /// Maps again the next rows `cause` marked (a row raised to a higher cause since is that
+    /// cause's, and a row mapped since is skipped).
     private func flush(_ cause: ObservationCause) {
-        scheduledFlushes &= ~(1 << cause.rawValue)
-        guard !dirty.isEmpty else { return }
-        var ids: [WorkspaceID] = []
-        for (id, marked) in dirty where marked >= cause { ids.append(id) }
+        let ids = lanes[cause.rawValue].take(rowsPerFlush(cause)) { self.dirty[$0] == cause }
+        guard !ids.isEmpty else { return }
         for id in ids { dirty[id] = nil }
         var changed: [SidebarWorkspace] = []
         SidebarPerfCounters.timed {
@@ -243,5 +255,55 @@ public final class SidebarRowFeed {
             }
         }
         if !changed.isEmpty { onChange?(changed) }
+    }
+}
+
+/// One cause's dirty rows of a ``SidebarRowFeed``, in marking order, and its scheduled flushes: each
+/// flush takes up to its slice of rows, and a mark that finds no room left in the scheduled ones
+/// asks for one more.
+private struct SidebarRowLane {
+    private var ids: [WorkspaceID] = []
+    private var head = 0
+    /// Rows the scheduled flushes can still take before another must be scheduled.
+    private var room = 0
+    /// Flushes scheduled and not run yet.
+    private var scheduled = 0
+
+    /// Adds `id`; true when the caller must schedule a flush for it.
+    mutating func add(_ id: WorkspaceID, rowsPerFlush: Int) -> Bool {
+        ids.append(id)
+        let needsFlush = room == 0
+        if needsFlush {
+            room = rowsPerFlush
+            scheduled += 1
+        }
+        room -= 1
+        return needsFlush
+    }
+
+    /// One scheduled flush runs: the next `limit` rows still marked by this lane's cause (`isMarked`).
+    mutating func take(_ limit: Int, isMarked: (WorkspaceID) -> Bool) -> [WorkspaceID] {
+        scheduled = max(0, scheduled - 1)
+        if scheduled == 0 { room = 0 }
+        var taken: [WorkspaceID] = []
+        while head < ids.count, taken.count < limit {
+            let id = ids[head]
+            head += 1
+            if isMarked(id) { taken.append(id) }
+        }
+        if head == ids.count {
+            ids.removeAll(keepingCapacity: true)
+            head = 0
+        } else if head >= 64, head * 2 >= ids.count {
+            ids.removeFirst(head)
+            head = 0
+        }
+        return taken
+    }
+
+    /// Forgets the rows (the feed reset); flushes already scheduled still run and find none.
+    mutating func dropRows() {
+        ids.removeAll()
+        head = 0
     }
 }

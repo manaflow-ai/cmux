@@ -48,15 +48,18 @@ final class SidebarBridge {
     /// Rows of the spaces beside the current one, for swipe pages (R99).
     let spaceCache = SpaceSectionsCache()
     /// Each listed row's content, observed per row: a status change patches one row, not the sidebar (rows lane).
-    /// Its flushes run on the display frame, so a frame's row patches and its scroll update commit together.
-    /// Each flush carries the cause of the store change that marked its rows (`services.causes`), so a
-    /// person's or the frontend's row patch never waits for the budget automation's patches draw on.
+    /// Its flushes run on the display frame of the app's scheduler, so a frame's row patches and its scroll update
+    /// commit together. They are budgeted `visible` work, which yields to a person's pending input, except the
+    /// flushes of rows a person's or the frontend's change marked (the cause the change was scoped with on
+    /// `mainWork.causes`): those run in the person's input-response pass or on the next frame, unbudgeted
+    /// (`FrameBatchQueue.enqueue(cause:_:)`). Program and automation rows flush in slices, as many a frame as
+    /// the budget lets run.
     let rowFeed: SidebarRowFeed
 
     init(services: AppServices, state: WindowState) {
         self.services = services
         self.state = state
-        let frames = FrameBatcher(owner: "SidebarRows"), causes = services.causes
+        let frames = FrameBatcher(owner: "SidebarRows", budgeted: .visible, on: services.mainWork), causes = services.mainWork.causes
         rowFeed = SidebarRowFeed(cause: { causes.currentCause }, schedule: { cause, work in frames.queue.enqueue(cause: cause, work) })
         container = SidebarContainerView(model: model)
         model.onIntent = { [weak self] intent in self?.handle(intent) }

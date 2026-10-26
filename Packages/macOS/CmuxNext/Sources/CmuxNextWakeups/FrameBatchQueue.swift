@@ -13,9 +13,10 @@
 ///   and keeps the rest for the next frame. The first task of a frame always runs.
 ///
 /// Work names its cause (``enqueue(cause:_:)``). In a budgeted queue, work a person or the app's
-/// own frontend caused is never budgeted: it runs on the next frame of the queue's scheduler with
-/// the frame-locked clients, ahead of every budgeted class, or sooner when the input-response pass
-/// runs it before the input turn's commit (``runUnbudgeted()``). The rest keeps the class budget.
+/// own frontend caused is never budgeted. The person's goes to the ``InputResponsePass`` of the
+/// queue's budget while the person's turn is open, so it runs before that turn's commit; otherwise
+/// it, and the frontend's, runs on the next frame of the queue's scheduler with the frame-locked
+/// clients, ahead of every budgeted class. The rest keeps the class budget.
 /// Chrome gives a posted task its priority from what asked for it, not from the queue it is on
 /// (`base/task/task_traits.h`, `TaskPriority::USER_BLOCKING`;
 /// `third_party/blink/renderer/platform/scheduler/main_thread/main_thread_scheduler_impl.cc`,
@@ -26,7 +27,7 @@
 /// ```swift
 /// let requests = FrameBatchQueue(owner: "Control.frames", budgeted: .automation, on: mainWork)
 /// requests.enqueue { handle(request) }
-/// rows.enqueue(cause: causes.currentCause) { feed.flush() }
+/// rows.enqueue(cause: mainWork.causes.currentCause) { feed.flush() }
 /// ```
 @MainActor
 public final class FrameBatchQueue {
@@ -34,20 +35,18 @@ public final class FrameBatchQueue {
     public let owner: String
     /// Its work's class: ``MainWorkClass/frame`` for a frame queue, else the budgeted class.
     public let workClass: MainWorkClass
-    /// The budget, class and interned owner of a budgeted queue; nil for a frame queue. The queue
-    /// holds the budget, not the scheduler, so the scheduler can own queues of its own
-    /// (``MainWorkScheduler/post(_:owner:file:line:_:)``) without a retain cycle.
-    private let budgeted: (budget: MainFrameBudget, workClass: MainWorkClass, owner: MainTaskOwner)?
-    /// A budgeted queue's scheduler (its ``MainWorkScheduler/frames``), which ticks its unbudgeted
-    /// work with the frame clients; nil for a frame queue.
-    private let frames: FrameScheduler?
+    /// The budget, class, interned owner and frame scheduler (``MainWorkScheduler/frames``, which
+    /// ticks the queue's person and frontend work with the frame clients) of a budgeted queue; nil
+    /// for a frame queue. The queue holds these, not the ``MainWorkScheduler``, so the scheduler can
+    /// own queues of its own (``MainWorkScheduler/post(_:owner:file:line:_:)``) without a retain cycle.
+    private let budgeted: (budget: MainFrameBudget, workClass: MainWorkClass, owner: MainTaskOwner, frames: FrameScheduler)?
     /// Queued work from ``head`` on (a run slot is cleared so its captures go at once); the
     /// array is compacted when it empties, or when the run prefix is most of it.
     private var pending: [Item] = []
     private var head = 0
     private let client: FrameClient
-    /// A budgeted queue's person and frontend work, in order: it runs whole on the next frame
-    /// (``unbudgetedClient``) or in the input-response pass, never under the class budget.
+    /// A budgeted queue's person and frontend work that the input-response pass did not take, in
+    /// order: it runs whole on the next frame (``unbudgetedClient``), never under the class budget.
     private var unbudgeted: [@MainActor () -> Void] = []
     /// Ticks ``unbudgeted`` as frame work on the budgeted queue's scheduler; made with the first such
     /// work, so a queue that never gets any has one client.
@@ -75,7 +74,6 @@ public final class FrameBatchQueue {
         self.owner = owner
         workClass = .frame
         budgeted = nil
-        frames = nil
         let target = Target()
         client = FrameClient(owner: owner, isAnimation: false, on: scheduler) { _ in target.queue?.drainAll() ?? false }
         target.queue = self
@@ -93,8 +91,7 @@ public final class FrameBatchQueue {
     public init(owner: String, budgeted: BudgetedWorkClass, on work: MainWorkScheduler) {
         self.owner = owner
         workClass = budgeted.workClass
-        self.budgeted = (work.budget, budgeted.workClass, work.budget.board.owner(owner))
-        frames = work.frames
+        self.budgeted = (work.budget, budgeted.workClass, work.budget.board.owner(owner), work.frames)
         let target = Target()
         client = FrameClient(owner: owner, budgeted: budgeted, on: work) { _, _ in target.queue?.drainBudgeted() ?? false }
         target.queue = self
@@ -107,52 +104,48 @@ public final class FrameBatchQueue {
         client.activate()
     }
 
-    /// Queues `work`, which `cause` caused. In a budgeted queue, ``ObservationCause/person`` and
-    /// ``ObservationCause/frontend`` work runs unbudgeted on the next frame (after person and
-    /// frontend work queued before it), or in the input-response pass; other causes queue as
-    /// ``enqueue(_:)`` does. A frame queue runs all its work every frame, whatever its cause.
+    /// Queues `work`, which `cause` caused. In a budgeted queue, ``ObservationCause/person`` work
+    /// goes to the budget's ``InputResponsePass`` (it runs before the person's turn commits); when no
+    /// pass takes it (none, or the person's turn is not open), it and ``ObservationCause/frontend``
+    /// work run unbudgeted on the next frame, after such work queued before them. Other causes
+    /// queue as ``enqueue(_:)`` does. A frame queue runs all its work every frame, whatever its cause.
     ///
     /// - Parameters:
     ///   - cause: Who caused the change `work` shows (the app's current change cause when it was made).
     ///   - work: The work.
     public func enqueue(cause: ObservationCause, _ work: @escaping @MainActor () -> Void) {
-        guard cause >= .frontend, let ticker = unbudgetedTicker() else { return enqueue(work) }
+        guard cause >= .frontend, let budgeted else { return enqueue(work) }
+        if cause == .person, let pass = budgeted.budget.inputResponsePass, pass.enqueue(owner: budgeted.owner, work) { return }
         unbudgeted.append(work)
-        ticker.activate()
+        unbudgetedTicker(on: budgeted.frames).activate()
     }
 
-    /// Work queued and not run yet (both kinds).
+    /// Work queued and not run yet (both kinds; not what the input-response pass took).
     public var count: Int { pending.count - head + unbudgeted.count }
 
-    /// Person and frontend work queued in a budgeted queue and not run yet.
+    /// Person and frontend work waiting for the next frame in a budgeted queue.
     package var unbudgetedCount: Int { unbudgeted.count }
 
-    /// Runs the queue's person and frontend work now, unbudgeted, in order (work it queues meanwhile
-    /// waits for the next frame). The input-response pass calls it before the input turn's commit.
-    ///
-    /// - Returns: How many tasks it ran.
-    @discardableResult
-    package func runUnbudgeted() -> Int {
-        guard !unbudgeted.isEmpty, let budgeted else { return 0 }
-        let work = unbudgeted
-        unbudgeted.removeAll(keepingCapacity: true)
-        for task in work { budgeted.budget.run(.frame, owner: budgeted.owner) { task() } }
-        return work.count
-    }
-
-    /// The frame client of ``unbudgeted``, made on first use; nil for a frame queue.
-    private func unbudgetedTicker() -> FrameClient? {
+    /// The frame client of ``unbudgeted``, made on first use.
+    private func unbudgetedTicker(on frames: FrameScheduler) -> FrameClient {
         if let unbudgetedClient { return unbudgetedClient }
-        guard let frames else { return nil }
         let target = Target()
         target.queue = self
         let made = FrameClient(owner: owner + ".person", isAnimation: false, on: frames) { _ in
-            guard let queue = target.queue else { return false }
-            queue.runUnbudgeted()
-            return !queue.unbudgeted.isEmpty
+            target.queue?.drainUnbudgeted() ?? false
         }
         unbudgetedClient = made
         return made
+    }
+
+    /// Runs the person and frontend work queued before this frame, in order, unbudgeted; true
+    /// while work queued meanwhile is left for the next frame.
+    private func drainUnbudgeted() -> Bool {
+        guard let budgeted else { return false }
+        let work = unbudgeted
+        unbudgeted.removeAll(keepingCapacity: true)
+        for task in work { budgeted.budget.run(.frame, owner: budgeted.owner) { task() } }
+        return !unbudgeted.isEmpty
     }
 
     // MARK: Posted work (MainWorkScheduler.post)
