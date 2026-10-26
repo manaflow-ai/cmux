@@ -4,6 +4,8 @@
 import { turnFiles, type TurnFile } from "../diff";
 import type { AcpmuxActivity, AcpmuxRow } from "../model";
 import { isSubagentGroup } from "../subagents/subagentRows";
+import { mcpCall, mcpPlainName } from "../conversation/mcpCalls";
+import { editedPaths } from "../toolPaths";
 import { transcriptPullRequests, type SummaryPullRequest } from "./transcriptPullRequests";
 
 export type { PullRequestState, SummaryPullRequest } from "./transcriptPullRequests";
@@ -12,7 +14,8 @@ type Tool = NonNullable<AcpmuxActivity["tool"]>;
 
 export type SummarySubagent = { id: string; title: string; state: "running" | "done" | "failed" };
 export type SummaryWakeup = { id: string; text: string; cron?: string };
-export type SummarySource = { url?: string; label: string };
+export type SummarySourceKind = "url" | "pullRequest" | "issue" | "file" | "mcp";
+export type SummarySource = { url?: string; label: string; kind?: SummarySourceKind };
 export type SummaryBackgroundTask = {
   id: string;
   command: string;
@@ -30,8 +33,6 @@ export type SessionSummary = {
   sources: SummarySource[];
   backgroundTasks: SummaryBackgroundTask[];
 };
-
-const URL = /https?:\/\/[^\s"'<>)]+/;
 
 const tools = (rows: readonly AcpmuxRow[]): Tool[] =>
   rows.flatMap((row) => (row.kind === "activity" ? (row.items ?? []).flatMap((item) => item.tool ?? []) : []));
@@ -85,17 +86,44 @@ function scheduled(all: readonly Tool[]): SummaryWakeup[] {
     });
 }
 
-/// Pages fetched and searches run, once each, in the order first read.
-function sources(all: readonly Tool[]): SummarySource[] {
+const GITHUB_PR_URL = /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/pull\/\d+(?:\/[^\s]*)?$/;
+const GITHUB_ISSUE_URL = /^https:\/\/github\.com\/[\w.-]+\/[\w.-]+\/issues\/\d+(?:\/[^\s]*)?$/;
+const sourceKey = (source: SummarySource) => `${source.kind ?? "url"}:${source.url ?? source.label}`;
+
+/// Pages, files, MCP calls and read-only PR/issue references, in the order first encountered.
+function sources(
+  rows: readonly AcpmuxRow[],
+  all: readonly Tool[],
+  pullRequests: readonly SummaryPullRequest[],
+): SummarySource[] {
   const seen = new Map<string, SummarySource>();
+  const add = (source: SummarySource) => {
+    const key = sourceKey(source);
+    if (!seen.has(key)) seen.set(key, source);
+  };
+  for (const pr of pullRequests)
+    if (!pr.changed && !pr.opened)
+      add({ url: pr.url, label: pr.title ?? `${pr.repo} #${pr.number}`, kind: pr.mentioned ? "issue" : "pullRequest" });
   for (const tool of all) {
-    if (tool.kind !== "fetch") continue;
-    const text = `${tool.title} ${tool.inputSummary ?? ""}`;
-    const url = URL.exec(text)?.[0];
-    const label = url ? url.replace(/^https?:\/\/(www\.)?/, "").replace(/\/$/, "") : tool.title;
-    const key = url ?? label;
-    if (!seen.has(key)) seen.set(key, { url, label });
+    const text = `${tool.title} ${tool.inputSummary ?? ""} ${tool.output ?? ""}`;
+    for (const match of text.matchAll(/https?:\/\/[^\s"'<>)]+/g)) {
+      const url = match[0]!.replace(/[.,;:!?]+$/, "");
+      if (GITHUB_PR_URL.test(url)) continue;
+      add({
+        url,
+        label: url.replace(/^https?:\/\/(www\.)?/, "").replace(/\/$/, ""),
+        kind: GITHUB_ISSUE_URL.test(url) ? "issue" : "url",
+      });
+    }
+    if (tool.kind === "read") for (const path of editedPaths(tool)) add({ label: path, kind: "file" });
+    const call = mcpCall(tool);
+    if (call) add({ label: mcpPlainName(call), kind: "mcp" });
   }
+  for (const row of rows)
+    if (row.kind === "activity")
+      for (const tool of (row.items ?? []).flatMap((item) => (item.tool ? [item.tool] : [])))
+        if (tool.kind === "read")
+          for (const location of tool.locations ?? []) add({ label: location.path, kind: "file" });
   return [...seen.values()];
 }
 
@@ -159,7 +187,7 @@ export function sessionSummary(rows: readonly AcpmuxRow[], repository?: string |
     pullRequests: inspector ? pullRequests : pullRequests.filter((pr) => !pr.mentioned),
     outputs: turnFiles(rows as AcpmuxRow[]),
     subagents: subagents(rows, all),
-    sources: sources(all),
+    sources: sources(rows, all, pullRequests),
     backgroundTasks: backgroundTasks(rows, all),
   };
 }

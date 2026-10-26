@@ -14,6 +14,7 @@ import {
   ChangesSection,
   changesOrder,
   glyphState,
+  visibleChanges,
   type InspectorPullRequestStatus,
 } from "../src/agent-session/acpmux/inspector/ChangesSection";
 import type { SummaryPullRequest } from "../src/agent-session/acpmux/summary/sessionSummary";
@@ -230,4 +231,11 @@ test("open ones come first, the most recently touched first, then the merged and
   expect(changesOrder(touched, {}).map((item) => item.number)).toEqual([1, 2, 4, 3]);
   expect(glyphState(pr("a/x", 5), { mergeable: "conflicting" })).toBe("conflicting");
   expect(glyphState(pr("a/x", 6, "merged"), { mergeable: "conflicting" })).toBe("merged");
+});
+
+test("visible Changes excludes read-only PR references", () => {
+  const created = { ...pr("a/x", 1), changed: true };
+  const inspected = { ...pr("a/x", 2), opened: false, changed: undefined, mentioned: true };
+  const edited = { ...pr("a/x", 3), opened: false, changed: true };
+  expect(visibleChanges([created, inspected, edited], {})).toEqual([created, edited]);
 });

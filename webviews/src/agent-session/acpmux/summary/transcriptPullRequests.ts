@@ -1,5 +1,6 @@
-// Every pull request a chat created, merged, steered or named, across repositories, read from its
-// transcript (the Inspector's Changes, Claude Code desktop's). The sources, in transcript order:
+// Every pull request a chat created, changed or named, across repositories, read from its transcript.
+// Changes consumes the created/mutated rows; read-only references feed Session Info's Sources. The
+// findings are collected in transcript order:
 //
 // - a `gh pr create` or `glaeda-gh post pr` call: the pull request URL it printed, which the chat
 //   opened, with the `--title` it gave;
@@ -31,6 +32,9 @@ export type SummaryPullRequest = {
   closedAt?: number;
   /// The chat opened it (`gh pr create`, `glaeda-gh post pr`); false for one it only touched or named.
   opened: boolean;
+  /// The chat changed it after opening it (for example, edit, comment, review, merge or close).
+  /// A pull request is a Change when this is true or `opened` is true.
+  changed?: boolean;
   /// Only named, never acted on as a pull request: it may be an issue.
   mentioned?: boolean;
   /// Where in the transcript the chat last touched or named it (rises with each row), for order.
@@ -92,11 +96,25 @@ const SWITCHES = new Set([
   "--json-only",
 ]);
 const SETTLES: Record<string, PullRequestState> = { merge: "merged", close: "closed", reopen: "open" };
+/// Read-only `gh pr` calls are references. Mutating calls belong in Changes.
+const MUTATING = new Set(["merge", "close", "edit", "comment", "review", "ready", "reopen", "lock", "unlock"]);
 
 const succeeded = (tool: Tool) => tool.status === "completed" && (tool.exitCode ?? 0) === 0;
 const urlOf = (repo: string, number: number) => `https://github.com/${repo}/pull/${number}`;
 /// A command without the text it carries as data.
 const bare = (command: string) => command.replace(HEREDOC, "$3\n").replace(QUOTED, " ");
+
+/// `gh pr view --json title` commonly returns JSON, while `--jq .title` returns one plain line.
+/// Keep this local to the transcript so rows never fall back to an untitled `#N` when the call
+/// already fetched the title.
+function outputTitle(tool: Tool): string | undefined {
+  const output = tool.output?.trim();
+  if (!output) return undefined;
+  const json = /["']title["']\s*:\s*["']((?:\\.|[^"'])*)["']/.exec(output)?.[1];
+  if (json) return json.replace(/\\(.)/g, "$1").trim() || undefined;
+  if (/\b(?:gh\s+pr\s+view|gh\s+pr\s+edit)\b/.test(tool.command ?? "") && !output.includes("\n")) return output;
+  return undefined;
+}
 
 /// `name`: a repository by its name (`glaeda #12`); one the transcript never names is the word
 /// before a bare `#N` ("Merged #12") when `orFolder`, else nothing.
@@ -105,8 +123,8 @@ type Ref = { kind: "full"; repo: string } | { kind: "name"; name: string; orFold
 /// resolve its `#N` and `repo #N`.
 type Finding =
   | { how: "opened"; repo: string; number: number; title?: string }
-  | { how: "touched"; ref: Ref; number: number }
-  | { how: "mentioned"; ref: Ref; number: number }
+  | { how: "touched"; ref: Ref; number: number; changed?: boolean; title?: string }
+  | { how: "mentioned"; ref: Ref; number: number; changed?: boolean; title?: string }
   | { how: "settle"; ref: Ref; number: number; state: PullRequestState; at?: number };
 
 /// The pull request a call names: its first argument, after the flags and their values.
@@ -146,7 +164,18 @@ function toolFindings(tool: Tool): Finding[] {
   for (const match of plain.matchAll(CALL)) {
     const target = callTarget(match[2] ?? "");
     if (!target) continue;
-    found.push({ how: "touched", ref: target.ref, number: target.number });
+    const action = match[1];
+    const titleMatch = action === "edit" ? TITLE.exec(tool.command ?? "") : undefined;
+    const title =
+      outputTitle(tool) ??
+      (titleMatch ? (titleMatch[1] ?? titleMatch[2] ?? titleMatch[3])?.replace(/\\(.)/g, "$1") : undefined);
+    found.push({
+      how: "touched",
+      ref: target.ref,
+      number: target.number,
+      ...(match[0].startsWith("gh-merge-green") || (action && MUTATING.has(action)) ? { changed: true } : {}),
+      ...(title ? { title } : {}),
+    });
     const state = match[0].startsWith("gh-merge-green") ? "merged" : SETTLES[match[1] ?? ""];
     if (state)
       found.push({ how: "settle", ref: target.ref, number: target.number, state, at: tool.endedAt ?? tool.startedAt });
@@ -269,7 +298,14 @@ export function transcriptPullRequests(
         : folder;
 
   const found = new Map<string, SummaryPullRequest>();
-  const note = (repo: string, number: number, how: "opened" | "touched" | "mentioned", at: number, title?: string) => {
+  const note = (
+    repo: string,
+    number: number,
+    how: "opened" | "touched" | "mentioned",
+    at: number,
+    title?: string,
+    changed = false,
+  ) => {
     if (number <= 0) return;
     const url = urlOf(repo, number);
     const pr = found.get(url);
@@ -281,6 +317,7 @@ export function transcriptPullRequests(
         ...(title ? { title } : {}),
         state: "open",
         opened: how === "opened",
+        ...(changed || how === "opened" ? { changed: true } : {}),
         ...(how === "mentioned" ? { mentioned: true } : {}),
         touched: at,
       });
@@ -289,18 +326,19 @@ export function transcriptPullRequests(
     pr.touched = at;
     if (how !== "mentioned") delete pr.mentioned;
     if (how === "opened") pr.opened = true;
+    if (changed || how === "opened") pr.changed = true;
     if (title && !pr.title) pr.title = title;
   };
   perRow.forEach((findings, index) => {
     const at = index + 1;
     for (const finding of findings) {
       if (finding.how === "opened") {
-        note(finding.repo, finding.number, "opened", at, finding.title);
+        note(finding.repo, finding.number, "opened", at, finding.title, true);
         continue;
       }
       const repo = resolve(finding.ref);
       if (finding.how !== "settle") {
-        if (repo) note(repo, finding.number, finding.how, at);
+        if (repo) note(repo, finding.number, finding.how, at, finding.title, finding.changed);
         continue;
       }
       // Without a repository (no `-R`, no folder), a merge names every one with its number.

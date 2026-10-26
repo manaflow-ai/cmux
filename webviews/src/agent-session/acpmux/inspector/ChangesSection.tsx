@@ -1,5 +1,5 @@
 // The Inspector's Changes, after Claude Code desktop's: every pull request the chat opened or
-// touched, open ones first, then the ended ones, newest first within each. A row is its
+// mutated, open ones first, then the ended ones, newest first within each. A row is its
 // title, then `repo #N`, the lines it changes (a hover splits them into Code, Tests, Generated and
 // Docs), its comments, and at the end its failing checks (with how many already fail on its base
 // branch, dimmed: those are not this pull request's) or a green dot when they pass. Its state is
@@ -107,12 +107,16 @@ export function glyphState(pr: SummaryPullRequest, live: InspectorPullRequestSta
 
 const ended = (state: PullRequestGlyphState) => state === "merged" || state === "closed";
 
-/// The pull requests Changes lists: one the agent only named in a reply (`#N` can be an issue)
-/// once the App has read it as a pull request.
+/// Changes contains only pull requests this session created or mutated. Read-only PR and issue
+/// references stay in Sources, even after the App has read them as pull requests.
 export const visibleChanges = (
   pullRequests: readonly SummaryPullRequest[],
   statuses: Readonly<Record<string, InspectorPullRequestStatus>>,
-): SummaryPullRequest[] => pullRequests.filter((pr) => !pr.mentioned || statuses[pr.url]?.state !== undefined);
+): SummaryPullRequest[] =>
+  pullRequests.filter((pr) => {
+    void statuses;
+    return pr.changed === true || pr.opened;
+  });
 
 /// The rows in Claude's order: the ones still open (drafts and conflicting ones included) first,
 /// then the merged and closed, the most recently touched or named first within each.

@@ -69,6 +69,7 @@ import { ConnectorsSection } from "./ConnectorsSection";
 import { ContextSection } from "./ContextSection";
 import { EnvironmentSection } from "./EnvironmentSection";
 import { InspectorSection } from "./InspectorSection";
+import { SourcesSection } from "./SourcesSection";
 import { SUBAGENT_HEADER, SubagentBanner, SubagentTitle } from "./SubagentScopeHeader";
 import { subagentProcesses, subagentSummary, withChatEnds, type SubagentScope } from "./subagentScope";
 import {
@@ -821,7 +822,7 @@ export function ChatInspector({
   peerKinds?: Readonly<Record<string, "ssh" | "cloud">>;
   repository?: string;
   /// What the chat produced (sessionSummary).
-  made?: Pick<SessionSummary, "outputs" | "pullRequests" | "scheduled">;
+  made?: Pick<SessionSummary, "outputs" | "pullRequests" | "scheduled"> & Partial<Pick<SessionSummary, "sources">>;
   links?: readonly OutputLink[];
   artifacts?: number;
   /// The documents the chat produced (OutputsSection `outputArtifacts`).
@@ -928,6 +929,7 @@ export function ChatInspector({
   }, [revealed, onRevealed]);
   const scheduled = made?.scheduled ?? [];
   const pullRequests = visibleChanges(made?.pullRequests ?? [], statuses);
+  const sources = made?.sources ?? [];
   const outputs = (made?.outputs ?? []) as readonly TurnFile[];
   const mcp = summary?.mcpServers ?? [];
   const reconnect = mcp.filter((server) => server.status === "failed").length;
@@ -1017,6 +1019,17 @@ export function ChatInspector({
       )}
     </InspectorSection>
   );
+  const sourcesSection = sources.length > 0 && (
+    <InspectorSection
+      id="sources"
+      title={t("summary.sources")}
+      open={state.sources}
+      onOpenChange={fold("sources")}
+      meta={value(String(sources.length))}
+    >
+      <SourcesSection sources={sources} onOpenBeside={onOpenUrl} />
+    </InspectorSection>
+  );
   const outputsShown = outputs.length + links.length + artifacts + (onOpenDocument ? documents.length : 0) > 0;
   const outputsSection = outputsShown && (
     <InspectorSection id="outputs" title={t("rail.outputs")} open={state.outputs} onOpenChange={fold("outputs")}>
@@ -1086,9 +1099,10 @@ export function ChatInspector({
         {connectors}
       </div>
       {/* What it made. */}
-      {(changes || outputsSection) && (
+      {(changes || sourcesSection || outputsSection) && (
         <div className="acpmux-chat-inspector-group" data-group="made">
           {changes}
+          {sourcesSection}
           {outputsSection}
         </div>
       )}

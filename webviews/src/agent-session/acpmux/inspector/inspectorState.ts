@@ -14,6 +14,7 @@ export type InspectorSectionId =
   | "context"
   | "connectors"
   | "changes"
+  | "sources"
   | "servers"
   | "subagents"
   | "tasks"
@@ -30,6 +31,7 @@ export const DEFAULT_SECTIONS: InspectorSections = {
   context: false,
   connectors: false,
   changes: true,
+  sources: true,
   servers: true,
   subagents: true,
   tasks: true,

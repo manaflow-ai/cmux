@@ -287,6 +287,8 @@
 .acpmux-chat-inspector-section .ui-disclosure-trigger:hover,
 .acpmux-chat-inspector-row--button:hover:not(:disabled),
 .acpmux-chat-inspector-pr:hover,
+.acpmux-chat-inspector-source:hover,
+.acpmux-chat-inspector-source__link:hover,
 .acpmux-chat-inspector-task__open:hover:not(:disabled),
 .acpmux-chat-inspector-icon-button:hover:not(:disabled),
 button.acpmux-chat-inspector-port:hover,
@@ -680,6 +682,45 @@ button.acpmux-chat-inspector-port:hover,
   margin-top: 4px;
 }
 .acpmux-chat-inspector-pr-fold {
+  margin-top: 2px;
+}
+.acpmux-chat-inspector-source {
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  height: var(--ui-row-height);
+  padding: 0 8px;
+  border-radius: var(--acpmux-inspector-row-radius);
+}
+.acpmux-chat-inspector-source__link {
+  min-width: 0;
+  flex: 1 1 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: var(--ui-row-height);
+  padding: 0;
+  border-radius: var(--acpmux-inspector-row-radius);
+  color: inherit;
+  text-decoration: none;
+  cursor: default;
+}
+.acpmux-chat-inspector-source__link:focus-visible {
+  outline: 1.5px solid var(--agent-text);
+  outline-offset: -1.5px;
+}
+.acpmux-chat-inspector-source__link > svg,
+.acpmux-chat-inspector-source > svg {
+  flex: none;
+  color: var(--agent-muted);
+}
+.acpmux-chat-inspector-source__label {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.acpmux-chat-inspector-sources-fold {
   margin-top: 2px;
 }
 .acpmux-chat-inspector-breakdown__rows {
