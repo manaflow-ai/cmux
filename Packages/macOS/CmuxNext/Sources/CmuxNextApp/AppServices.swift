@@ -616,8 +616,8 @@ final class AppServices {
         keyRouter.onTyping = { [weak self] window in self?.notifications.noteTyping(in: window) }
         // A mouse-down after AppKit dispatched it (focus has moved to the clicked pane). A click anywhere
         // ends link hints and a waiting chord (it may move the keyboard).
-        mouseDownSubscription = inputTap.subscribe(.button, phase: .afterDispatch) { [weak self] event in
-            guard let self, event.type == .leftMouseDown || event.type == .rightMouseDown || event.type == .otherMouseDown else { return }
+        mouseDownSubscription = inputTap.subscribePresses(.mouseDown, phase: .afterDispatch) { [weak self] event in
+            guard let self else { return }
             notifications.noteMouseDown(in: event.window, at: event.locationInWindow)
             browserHost?.noteInput(event)
             linkHints.cancel()

@@ -27,8 +27,8 @@ struct InputEventTapTests {
     @Test func aSubscriberHearsOnlyItsClasses() throws {
         let tap = InputEventTap()
         let log = Log()
-        let keySubscription = tap.subscribe(.key) { _ in log.calls.append("key") }
-        let buttonSubscription = tap.subscribe(.button, phase: .afterDispatch) { _ in log.calls.append("button") }
+        let keySubscription = tap.subscribe(class: .key) { _ in log.calls.append("key") }
+        let buttonSubscription = tap.subscribe(class: .button, phase: .afterDispatch) { _ in log.calls.append("button") }
 
         try Self.dispatch(Self.key(), through: tap)
         try Self.dispatch(Self.mouse(.leftMouseDown), through: tap)
@@ -55,8 +55,8 @@ struct InputEventTapTests {
         let tap = InputEventTap()
         let heard = Log()
         let intercepted = Log()
-        let subscription = tap.subscribe(.button, window: .window(mine)) { event in heard.windows.append(event.windowNumber) }
-        let intercept = tap.intercept(.button, order: .standard, window: .window(mine)) { event in
+        let subscription = tap.subscribe(class: .button, window: .window(mine)) { event in heard.windows.append(event.windowNumber) }
+        let intercept = tap.subscribe(class: .button, phase: .intercept(order: .standard), window: .window(mine)) { event in
             intercepted.windows.append(event.windowNumber)
             return .pass
         }
@@ -102,11 +102,11 @@ struct InputEventTapTests {
     @Test func interceptsRunInTheirDeclaredOrder() throws {
         let tap = InputEventTap()
         let log = Log()
-        let standard = tap.intercept(.key, order: .standard) { _ in log.calls.append("standard"); return .pass }
-        let layout = tap.intercept(.key, order: .layout) { _ in log.calls.append("layout"); return .pass }
-        let popupA = tap.intercept(.key, order: .popup) { _ in log.calls.append("popupA"); return .pass }
-        let modal = tap.intercept(.key, order: .modal) { _ in log.calls.append("modal"); return .pass }
-        let popupB = tap.intercept(.key, order: .popup) { _ in log.calls.append("popupB"); return .pass }
+        let standard = tap.subscribe(class: .key, phase: .intercept(order: .standard)) { _ in log.calls.append("standard"); return .pass }
+        let layout = tap.subscribe(class: .key, phase: .intercept(order: .layout)) { _ in log.calls.append("layout"); return .pass }
+        let popupA = tap.subscribe(class: .key, phase: .intercept(order: .popup)) { _ in log.calls.append("popupA"); return .pass }
+        let modal = tap.subscribe(class: .key, phase: .intercept(order: .modal)) { _ in log.calls.append("modal"); return .pass }
+        let popupB = tap.subscribe(class: .key, phase: .intercept(order: .popup)) { _ in log.calls.append("popupB"); return .pass }
 
         let result = tap.deliverIntercepts(try Self.key())
 
@@ -118,10 +118,10 @@ struct InputEventTapTests {
     @Test func aConsumingInterceptStopsLaterInterceptsButNotObservers() throws {
         let tap = InputEventTap()
         let log = Log()
-        let observer = tap.subscribe(.key) { _ in log.calls.append("observe") }
-        let first = tap.intercept(.key, order: .modal) { _ in log.calls.append("modal"); return .consume }
-        let later = tap.intercept(.key, order: .standard) { _ in log.calls.append("standard"); return .pass }
-        let after = tap.subscribe(.key, phase: .afterDispatch) { _ in log.calls.append("after") }
+        let observer = tap.subscribe(class: .key) { _ in log.calls.append("observe") }
+        let first = tap.subscribe(class: .key, phase: .intercept(order: .modal)) { _ in log.calls.append("modal"); return .consume }
+        let later = tap.subscribe(class: .key, phase: .intercept(order: .standard)) { _ in log.calls.append("standard"); return .pass }
+        let after = tap.subscribe(class: .key, phase: .afterDispatch) { _ in log.calls.append("after") }
 
         let consumed = try Self.dispatch(Self.key(), through: tap)
 
@@ -135,9 +135,9 @@ struct InputEventTapTests {
     @Test func aCancelledOrReleasedSubscriptionStopsAtOnce() throws {
         let tap = InputEventTap()
         let log = Log()
-        let keep = tap.subscribe(.key) { _ in log.calls.append("kept") }
-        let cancel = tap.subscribe(.key) { _ in log.calls.append("cancelled") }
-        var release: InputSubscription? = tap.intercept(.key, order: .standard) { _ in log.calls.append("released"); return .pass }
+        let keep = tap.subscribe(class: .key) { _ in log.calls.append("kept") }
+        let cancel = tap.subscribe(class: .key) { _ in log.calls.append("cancelled") }
+        var release: InputSubscription? = tap.subscribe(class: .key, phase: .intercept(order: .standard)) { _ in log.calls.append("released"); return .pass }
 
         try Self.dispatch(Self.key(), through: tap)
         cancel.cancel()
@@ -154,10 +154,10 @@ struct InputEventTapTests {
     @Test func aSubscriptionMadeOrCancelledInAHandlerTakesEffectFromTheNextEvent() throws {
         let tap = InputEventTap()
         let log = Log()
-        let starter = tap.subscribe(.key) { _ in
-            if log.late == nil { log.late = tap.subscribe(.key) { _ in log.calls.append("late") } }
+        let starter = tap.subscribe(class: .key) { _ in
+            if log.late == nil { log.late = tap.subscribe(class: .key) { _ in log.calls.append("late") } }
         }
-        log.own = tap.subscribe(.key) { _ in
+        log.own = tap.subscribe(class: .key) { _ in
             log.calls.append("own")
             log.own?.cancel()
         }
@@ -171,10 +171,76 @@ struct InputEventTapTests {
         withExtendedLifetime(starter) {}
     }
 
+    /// An observer that starts a drag on mouse-down and subscribes the drag's after-dispatch button
+    /// handler (for the mouse-up) must not hear the mouse-down that started it.
+    @Test func aSubscriptionMadeInOneStageDoesNotHearTheSameEventInALaterStage() throws {
+        let tap = InputEventTap()
+        let log = Log()
+        let starter = tap.subscribe(class: .button) { event in
+            guard event.type == .leftMouseDown, log.late == nil else { return }
+            log.late = tap.subscribe(class: .button, phase: .afterDispatch) { event in log.calls.append("after \(event.type.rawValue)") }
+            log.own = tap.subscribe(class: .button, phase: .intercept(order: .dragSession)) { _ in
+                log.calls.append("intercept")
+                return .consume
+            }
+        }
+
+        let down = try Self.mouse(.leftMouseDown)
+        #expect(!Self.dispatch(down, through: tap), "the intercept made during this event's observe stage did not run")
+        #expect(log.calls.isEmpty, "neither later stage of the same event called the new subscriptions")
+        #expect(tap.subscriberCount(.button, stage: .afterDispatch) == 1)
+
+        let up = try Self.mouse(.leftMouseUp)
+        #expect(Self.dispatch(up, through: tap))
+        #expect(log.calls == ["intercept", "after \(up.type.rawValue)"], "the next event reaches both")
+        withExtendedLifetime(starter) {}
+    }
+
+    // MARK: presses
+
+    /// The no-activate guard's signal: a person's key-down or mouse-down, gated per event by `while`.
+    @Test func aPressSubscriberHearsOnlyKeyAndMouseDownsWhileActive() throws {
+        let tap = InputEventTap()
+        let log = Log()
+        let subscription = tap.subscribePresses([.keyDown, .mouseDown], while: { !log.open }) { _ in log.count += 1 }
+
+        for event in [try Self.key(), try Self.key(type: .keyUp), try Self.key(type: .flagsChanged),
+                      try Self.mouse(.rightMouseDown), try Self.mouse(.rightMouseUp), try Self.mouse(.leftMouseDragged),
+                      try Self.scroll()] {
+            Self.dispatch(event, through: tap)
+        }
+        #expect(log.count == 2, "a key-down and a mouse-down; ups, flags, drags and scrolls are not presses")
+
+        log.open = true  // the app's own synthetic input is dispatching
+        try Self.dispatch(Self.key(), through: tap)
+        try Self.dispatch(Self.mouse(.leftMouseDown), through: tap)
+        #expect(log.count == 2)
+        #expect(tap.subscriberCount(.scroll, stage: .observe) == 0, "only the press classes are subscribed")
+        withExtendedLifetime(subscription) {}
+    }
+
+    /// The click work after dispatch runs for every mouse-down, also one an intercept consumed.
+    @Test func anAfterDispatchMouseDownSubscriberHearsConsumedDowns() throws {
+        let tap = InputEventTap()
+        let log = Log()
+        let clicks = tap.subscribePresses(.mouseDown, phase: .afterDispatch) { event in log.calls.append("\(event.type.rawValue)") }
+        let modal = tap.subscribe(class: .button, phase: .intercept(order: .modal)) { event in
+            event.type == .otherMouseDown ? .consume : .pass
+        }
+
+        let types: [NSEvent.EventType] = [.leftMouseDown, .leftMouseUp, .rightMouseDown, .otherMouseDown, .otherMouseUp]
+        for type in types { try Self.dispatch(Self.mouse(type), through: tap) }
+
+        #expect(log.calls == [NSEvent.EventType.leftMouseDown, .rightMouseDown, .otherMouseDown].map { "\($0.rawValue)" },
+                "ups are not clicks; the consumed down still counts")
+        #expect(tap.subscriberCount(.key, stage: .afterDispatch) == 0)
+        withExtendedLifetime((clicks, modal)) {}
+    }
+
     @Test func theWhilePredicateGatesEachCall() throws {
         let tap = InputEventTap()
         let log = Log()
-        let subscription = tap.intercept(.key, order: .popup, while: { log.open }) { _ in log.count += 1; return .consume }
+        let subscription = tap.subscribe(class: .key, phase: .intercept(order: .popup), while: { log.open }) { _ in log.count += 1; return .consume }
 
         #expect(try !Self.dispatch(Self.key(), through: tap), "inactive: the event passes")
         log.open = true
@@ -222,18 +288,29 @@ struct InputEventTapTests {
 
     // MARK: cost
 
-    /// Delivering through every stage to live subscribers allocates nothing per event, compared
-    /// with the same loop that does not deliver (the Debug loop allocates by itself).
+    /// Delivering through every stage to live subscribers, window-scoped ones included, allocates
+    /// nothing per event, compared with the same loop that does not deliver (the Debug loop allocates
+    /// by itself).
     @Test func aDispatchAllocatesNothing() throws {
+        _ = NSApplication.shared
+        let mine = Self.window()
+        let other = Self.window()
+        defer { for window in [mine, other] { window.orderOut(nil) } }
         let tap = InputEventTap()
         let log = Log()
         let subscriptions = [
-            tap.subscribe(.all) { _ in log.count += 1 },
+            tap.subscribe(class: .all) { _ in log.count += 1 },
             tap.observe(.all, windowNumber: nil) { _ in log.count += 1 },
-            tap.intercept(.all, order: .standard, while: { log.count >= 0 }) { _ in log.count += 1; return .pass },
-            tap.subscribe(.all, phase: .afterDispatch) { _ in log.count += 1 },
+            tap.subscribe(class: .all, phase: .intercept(order: .standard), while: { log.count >= 0 }) { _ in log.count += 1; return .pass },
+            tap.subscribe(class: .all, phase: .afterDispatch) { _ in log.count += 1 },
+            // Scoped: one hears `mine`'s events, the other never matches and looks up the owner window.
+            tap.subscribe(class: .all, window: .window(mine)) { _ in log.count += 1 },
+            tap.observe(.all, windowNumber: other.windowNumber) { _ in log.count += 1 },
+            tap.subscribe(class: .all, phase: .intercept(order: .layout), window: .window(other)) { _ in log.count += 1; return .pass },
+            tap.subscribe(class: .all, phase: .afterDispatch, window: .window(mine)) { _ in log.count += 1 },
         ]
-        let events = [try Self.key(), try Self.mouse(.leftMouseDown), try Self.mouse(.mouseMoved), try Self.scroll()]
+        let events = [try Self.key(), try Self.mouse(.leftMouseDown), try Self.mouse(.mouseMoved), try Self.scroll(),
+                      try Self.mouse(.leftMouseDown, in: mine), try Self.mouse(.leftMouseDragged, in: mine)]
         for event in events { Self.dispatch(event, through: tap) }
         var sink = 0
         func allocations(delivering: Bool) -> Int? {
@@ -256,18 +333,22 @@ struct InputEventTapTests {
         let delivered = allocations(delivering: true)
 
         #expect(delivered == baseline, "the loop alone made \(baseline)")
-        #expect(log.count > 16_000)
+        #expect(log.count > 26_000, "the scoped subscribers heard `mine`'s events too")
         withExtendedLifetime(subscriptions) {}
     }
 
     // MARK: helpers
 
-    /// Runs `event` through the tap as `CmuxApplication.sendEvent` does; true when an intercept consumed it.
+    /// Runs `event` through the tap as `CmuxApplication.sendEvent` does (one dispatch scope around the
+    /// three stages); true when an intercept consumed it.
     @discardableResult
     private static func dispatch(_ event: NSEvent, through tap: InputEventTap) -> Bool {
-        tap.deliverObserve(event)
-        let consumed = tap.deliverIntercepts(event) == .consume
-        tap.deliverAfterDispatch(event)
+        var consumed = false
+        tap.dispatching {
+            tap.deliverObserve(event)
+            consumed = tap.deliverIntercepts(event) == .consume
+            tap.deliverAfterDispatch(event)
+        }
         return consumed
     }
 
@@ -279,9 +360,10 @@ struct InputEventTapTests {
         return window
     }
 
-    private static func key(keyCode: UInt16 = 0, modifiers: NSEvent.ModifierFlags = []) throws -> NSEvent {
+    private static func key(type: NSEvent.EventType = .keyDown, keyCode: UInt16 = 0,
+                            modifiers: NSEvent.ModifierFlags = []) throws -> NSEvent {
         _ = NSApplication.shared
-        return try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: modifiers, timestamp: 1,
+        return try #require(NSEvent.keyEvent(with: type, location: .zero, modifierFlags: modifiers, timestamp: 1,
                                              windowNumber: 0, context: nil, characters: "a",
                                              charactersIgnoringModifiers: "a", isARepeat: false, keyCode: keyCode))
     }

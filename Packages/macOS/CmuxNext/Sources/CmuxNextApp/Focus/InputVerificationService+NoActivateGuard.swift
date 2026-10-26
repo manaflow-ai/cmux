@@ -67,12 +67,10 @@ extension InputVerificationService {
             MainActor.assumeIsolated { guardian.windowDidBecomeKey() } // main-proof: observer on queue: .main
         })
         let application = NSApp as? CmuxApplication
-        keyboardGuardSubscription = tap.subscribe([.key, .button]) { event in
-            switch event.type {
-            case .keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown:
-                if application?.currentEventIsSynthetic != true { guardian.userInput() }
-            default: break
-            }
+        // A person's key or mouse press; the app's own synthetic input is not one.
+        keyboardGuardSubscription = tap.subscribePresses([.keyDown, .mouseDown],
+                                                         while: { application?.currentEventIsSynthetic != true }) { _ in
+            guardian.userInput()
         }
         // Keep the no-activate invariant immediate. The previous app is
         // populated asynchronously below so this path never waits on

@@ -4,13 +4,22 @@ public import AppKit
 // when an observer runs, where an intercept sits among the others, what an intercept returns and which
 // windows a subscription hears.
 extension InputEventTap {
-    /// When an observer runs in the event's dispatch.
+    /// When an observer runs in the event's dispatch. Its handler returns nothing: it cannot stop the
+    /// event. The third phase, `.intercept(order:)`, is ``InterceptPhase``: its handler returns an
+    /// ``InterceptResult``, so at a call site the phase picks the handler type and never the reverse.
     public enum Phase: Sendable, Equatable {
-        /// Before the key router and any responder; an observer cannot stop the event.
+        /// Before the key router and any responder.
         case observe
         /// After AppKit dispatched the event (focus has moved to a clicked pane), also when an
         /// intercept consumed it. A key the key router consumed never gets here.
         case afterDispatch
+    }
+
+    /// The phase of an intercept: after the key router and before AppKit dispatches the event, where
+    /// AppKit's local monitors ran. Its handler returns whether it consumed the event.
+    public enum InterceptPhase: Sendable, Equatable {
+        /// In `order` among the other intercepts (``InterceptOrder``'s table).
+        case intercept(order: InterceptOrder)
     }
 
     /// The three delivery stages of one event, in order: observers, intercepts, after-dispatch observers.

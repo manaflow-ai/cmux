@@ -83,6 +83,12 @@ final class CmuxApplication: NSApplication, CEFAppProtocol {
     func setHandlingSendEvent(_ value: Bool) { handlingSendEvent = value }
 
     override func sendEvent(_ event: NSEvent) {
+        // One tap dispatch scope per event: a subscription made in one stage never hears this event.
+        guard let inputTap else { return dispatchInput(event) }
+        inputTap.dispatching { dispatchInput(event) }
+    }
+
+    private func dispatchInput(_ event: NSEvent) {
         guard let inputDispatch else { return route(event) }
         inputDispatch.dispatching(event) { route(event) }
     }

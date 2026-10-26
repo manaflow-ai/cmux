@@ -26,11 +26,14 @@ public protocol InputObserving: AnyObject {
     func observe(_ classes: InputEventClasses, windowNumber: Int?,
                  _ handler: @escaping @MainActor (InputEventRecord) -> Void) -> InputSubscription
 
-    /// The last event the app dispatched, nil before the first.
+    /// The last event the app dispatched, nil before the first. Every key, flags-changed and pointer
+    /// event replaces it, so outside dispatch read the current modifiers from it instead of
+    /// `NSEvent.modifierFlags`.
     var lastDispatched: InputEventRecord? { get }
 
     /// The last pointer event (button, move, drag or scroll) the app dispatched, nil before the first:
-    /// read it outside dispatch instead of `NSEvent.mouseLocation` or `NSEvent.modifierFlags`.
+    /// read the pointer's place from it outside dispatch instead of `NSEvent.mouseLocation`. Its
+    /// modifiers are that event's, not the current ones (a Shift press does not replace it).
     var lastPointer: InputEventRecord? { get }
 }
 

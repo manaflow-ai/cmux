@@ -12,17 +12,19 @@ public import CmuxNextInputCore
 /// render_widget_host_impl.cc` keeps typed `InputEventObserver` lists and `KeyPressEventCallback`s on
 /// the widget the event goes to, not process-wide monitors.
 ///
-/// The application object calls the three delivery points:
+/// The application object calls the three delivery points inside one dispatch scope:
 ///
 /// ```swift
-/// tap.deliverObserve(event)                        // before the key router
-/// if tap.deliverIntercepts(event) == .pass { super.sendEvent(event) }
-/// tap.deliverAfterDispatch(event)
+/// tap.dispatching {
+///     tap.deliverObserve(event)                        // before the key router
+///     if tap.deliverIntercepts(event) == .pass { super.sendEvent(event) }
+///     tap.deliverAfterDispatch(event)
+/// }
 /// ```
 ///
 /// Subscribing, cancelling or releasing a subscription inside a handler is safe: a list is never
-/// changed while it is delivered; the change lands when the outermost delivery ends, and the new
-/// subscription hears the next event.
+/// changed while it is delivered. A new subscription is added when the event's dispatch scope ends
+/// (``dispatching(_:)``), so it never hears the event that made it, in any stage; it hears the next.
 ///
 /// The App's composition root makes one, gives it to the application object, and passes it to every
 /// owner by init (core and service owners as ``InputObserving``).
@@ -34,21 +36,13 @@ public final class InputEventTap: InputObserving {
         case intercept(@MainActor (NSEvent) -> InterceptResult)
     }
 
-    /// Which windows one entry hears.
-    private enum ScopeKind {
-        case any
-        /// The entry's `window`.
-        case window
-        /// The window with the entry's `windowNumber`.
-        case number
-    }
-
     /// One subscription in one class list (a subscription to several classes has one entry in each).
+    /// Copying one only retains: its window scope is a ``WindowKey`` it holds strongly, so a delivery
+    /// loop takes no weak-reference lock per subscriber.
     private struct Entry {
         let flag: InputSubscriptionFlag
-        let scope: ScopeKind
-        weak var window: NSWindow?
-        let windowNumber: Int
+        /// The window whose events count; nil for every window.
+        let scope: WindowKey?
         let order: InterceptOrder
         let active: (@MainActor () -> Bool)?
         let handler: Handler
@@ -58,7 +52,7 @@ public final class InputEventTap: InputObserving {
     private var observers = Array(repeating: ContiguousArray<Entry>(), count: InputEventClass.allCases.count)
     private var intercepts = Array(repeating: ContiguousArray<Entry>(), count: InputEventClass.allCases.count)
     private var afterDispatch = Array(repeating: ContiguousArray<Entry>(), count: InputEventClass.allCases.count)
-    /// Deliveries running now (nested dispatches add one each). Lists change only at 0.
+    /// Dispatch scopes and deliveries running now (nested ones add one each). Lists change only at 0.
     private var delivering = 0
     /// Subscriptions made during a delivery: added when it ends.
     private var pending: [(entry: Entry, classes: InputEventClasses, stage: Stage)] = []
@@ -67,9 +61,11 @@ public final class InputEventTap: InputObserving {
     /// The other-app monitors of ``globalObserve(_:_:)``.
     private var globalMonitors: [GlobalMonitor] = []
 
-    /// The last event the app dispatched, nil before the first.
+    /// The last event the app dispatched, nil before the first. Its modifiers are the current ones:
+    /// every key, flags-changed and pointer event replaces it.
     public private(set) var lastDispatched: InputEventRecord?
-    /// The last button, move, drag or scroll event the app dispatched, nil before the first.
+    /// The last button, move, drag or scroll event the app dispatched, nil before the first: where the
+    /// pointer is. Its modifiers are that event's; read the current ones from ``lastDispatched``.
     public private(set) var lastPointer: InputEventRecord?
     /// Owner-set states that per-key work checks in O(1) instead of searching for (``Flags``).
     public private(set) var flags: Flags = []
@@ -80,7 +76,7 @@ public final class InputEventTap: InputObserving {
     // MARK: Subscribing
 
     /// Calls `handler` with each event of `classes` in `phase`, until the returned subscription is
-    /// cancelled or released.
+    /// cancelled or released. The intercept phase, `.intercept(order:)`, is the other `subscribe`.
     ///
     /// - Parameters:
     ///   - classes: The event classes to receive.
@@ -89,40 +85,40 @@ public final class InputEventTap: InputObserving {
     ///   - active: Asked before each call; the handler runs only while it returns true. It must be O(1).
     ///   - handler: Main-thread work for one event.
     /// - Returns: The subscription; keep it in a stored property.
-    public func subscribe(_ classes: InputEventClasses, phase: Phase = .observe, window: WindowScope = .anyWindow,
+    public func subscribe(class classes: InputEventClasses, phase: Phase = .observe, window: WindowScope = .anyWindow,
                           while active: (@MainActor () -> Bool)? = nil,
-                          _ handler: @escaping @MainActor (NSEvent) -> Void) -> InputSubscription {
-        let (flag, entry) = makeEntry(window: window, order: .standard, active: active, handler: .event(handler))
-        add(entry, classes: classes, stage: phase == .observe ? .observe : .afterDispatch)
-        return InputSubscription(flag: flag)
+                          handler: @escaping @MainActor (NSEvent) -> Void) -> InputSubscription {
+        let stage: Stage = phase == .observe ? .observe : .afterDispatch
+        return subscribe(classes, stage: stage, order: .standard, window: window, active: active, handler: .event(handler))
     }
 
     /// Calls `handler` with each event of `classes` after the key router and before AppKit dispatches
-    /// it, in `order` among the other intercepts, until the returned subscription is cancelled or
-    /// released. A handler that returns ``InterceptResult/consume`` stops the event: later intercepts and
-    /// AppKit do not get it; observers already had it and after-dispatch observers still get it.
+    /// it, in `phase`'s order among the other intercepts, until the returned subscription is cancelled
+    /// or released. A handler that returns ``InterceptResult/consume`` stops the event: later intercepts
+    /// and AppKit do not get it; observers already had it and after-dispatch observers still get it.
     ///
     /// - Parameters:
     ///   - classes: The event classes to receive.
-    ///   - order: Where this intercept runs (``InterceptOrder``'s table).
+    ///   - phase: `.intercept(order:)`: where this intercept runs (``InterceptOrder``'s table).
     ///   - window: The windows whose events count.
     ///   - active: Asked before each call; the handler runs only while it returns true. It must be O(1).
     ///   - handler: Main-thread work for one event; returns whether it consumed the event.
     /// - Returns: The subscription; keep it in a stored property.
-    public func intercept(_ classes: InputEventClasses, order: InterceptOrder, window: WindowScope = .anyWindow,
+    public func subscribe(class classes: InputEventClasses, phase: InterceptPhase, window: WindowScope = .anyWindow,
                           while active: (@MainActor () -> Bool)? = nil,
-                          _ handler: @escaping @MainActor (NSEvent) -> InterceptResult) -> InputSubscription {
-        let (flag, entry) = makeEntry(window: window, order: order, active: active, handler: .intercept(handler))
-        add(entry, classes: classes, stage: .intercept)
-        return InputSubscription(flag: flag)
+                          handler: @escaping @MainActor (NSEvent) -> InterceptResult) -> InputSubscription {
+        switch phase {
+        case .intercept(let order):
+            subscribe(classes, stage: .intercept, order: order, window: window, active: active, handler: .intercept(handler))
+        }
     }
 
     /// ``InputObserving``: an observer that gets ``InputEventRecord`` values, for core and service owners.
     public func observe(_ classes: InputEventClasses, windowNumber: Int?,
                         _ handler: @escaping @MainActor (InputEventRecord) -> Void) -> InputSubscription {
         let flag = InputSubscriptionFlag()
-        let entry = Entry(flag: flag, scope: windowNumber == nil ? .any : .number, window: nil,
-                          windowNumber: windowNumber ?? 0, order: .standard, active: nil, handler: .record(handler))
+        let entry = Entry(flag: flag, scope: windowNumber.map { WindowKey(number: $0) }, order: .standard, active: nil,
+                          handler: .record(handler))
         add(entry, classes: classes, stage: .observe)
         return InputSubscription(flag: flag)
     }
@@ -180,6 +176,15 @@ public final class InputEventTap: InputObserving {
 
     // MARK: Delivery
 
+    /// Runs `body`, one event's dispatch through the three stages, as one delivery: a subscription
+    /// made in any stage is added when it ends, so none hears the event that made it. The application
+    /// object wraps each event's dispatch in it; a nested dispatch joins the outermost.
+    public func dispatching(_ body: () -> Void) {
+        delivering += 1
+        defer { endDelivery() }
+        body()
+    }
+
     /// Records `event` as the last dispatched (and last pointer) event and calls its class's observers.
     /// The application object calls it for every event, before the key router.
     public func deliverObserve(_ event: NSEvent) {
@@ -195,11 +200,12 @@ public final class InputEventTap: InputObserving {
         guard !observers[index].isEmpty else { return }
         delivering += 1
         defer { endDelivery() }
+        var windows = EventWindows(event, window: record.windowNumber, owner: record.ownerWindowNumber)
         var position = 0
         while position < observers[index].count {
             let entry = observers[index][position]
             position += 1
-            guard matches(entry, event: event, record: record) else { continue }
+            guard matches(entry, &windows) else { continue }
             switch entry.handler {
             case .event(let handler): handler(event)
             case .record(let handler): handler(record)
@@ -216,11 +222,12 @@ public final class InputEventTap: InputObserving {
         guard !intercepts[index].isEmpty else { return .pass }
         delivering += 1
         defer { endDelivery() }
+        var windows = EventWindows(event)
         var position = 0
         while position < intercepts[index].count {
             let entry = intercepts[index][position]
             position += 1
-            guard matches(entry, event: event, record: nil), case .intercept(let handler) = entry.handler else { continue }
+            guard matches(entry, &windows), case .intercept(let handler) = entry.handler else { continue }
             if handler(event) == .consume { return .consume }
         }
         return .pass
@@ -234,45 +241,36 @@ public final class InputEventTap: InputObserving {
         guard !afterDispatch[index].isEmpty else { return }
         delivering += 1
         defer { endDelivery() }
+        var windows = EventWindows(event)
         var position = 0
         while position < afterDispatch[index].count {
             let entry = afterDispatch[index][position]
             position += 1
-            guard matches(entry, event: event, record: nil), case .event(let handler) = entry.handler else { continue }
+            guard matches(entry, &windows), case .event(let handler) = entry.handler else { continue }
             handler(event)
         }
     }
 
     // MARK: Internals
 
-    private func makeEntry(window: WindowScope, order: InterceptOrder, active: (@MainActor () -> Bool)?,
-                           handler: Handler) -> (InputSubscriptionFlag, Entry) {
+    private func subscribe(_ classes: InputEventClasses, stage: Stage, order: InterceptOrder, window: WindowScope,
+                           active: (@MainActor () -> Bool)?, handler: Handler) -> InputSubscription {
         let flag = InputSubscriptionFlag()
-        let entry = switch window {
-        case .anyWindow:
-            Entry(flag: flag, scope: .any, window: nil, windowNumber: 0, order: order, active: active, handler: handler)
-        case .window(let window):
-            Entry(flag: flag, scope: .window, window: window, windowNumber: 0, order: order, active: active, handler: handler)
+        let scope: WindowKey? = switch window {
+        case .anyWindow: nil
+        case .window(let window): WindowKey(window: window)
         }
-        return (flag, entry)
+        add(Entry(flag: flag, scope: scope, order: order, active: active, handler: handler), classes: classes, stage: stage)
+        return InputSubscription(flag: flag)
     }
 
-    /// Whether `entry` gets an event of `event`'s window now. `record`, when given, has the window numbers.
-    private func matches(_ entry: Entry, event: NSEvent, record: InputEventRecord?) -> Bool {
+    /// Whether `entry` gets the event whose window numbers `windows` reads, now.
+    private func matches(_ entry: Entry, _ windows: inout EventWindows) -> Bool {
         if entry.flag.isCancelled {
             needsCompaction = true
             return false
         }
-        switch entry.scope {
-        case .any: break
-        case .window:
-            guard let window = entry.window, let eventWindow = event.window else { return false }
-            guard eventWindow === window || InputEventRecord.ownerWindow(of: eventWindow) === window else { return false }
-        case .number:
-            // Records exist for observers only, the one phase that takes window numbers.
-            guard let record, entry.windowNumber == record.windowNumber || entry.windowNumber == record.ownerWindowNumber
-            else { return false }
-        }
+        if let scope = entry.scope, !windows.belongs(to: scope.number) { return false }
         return entry.active?() ?? true
     }
 

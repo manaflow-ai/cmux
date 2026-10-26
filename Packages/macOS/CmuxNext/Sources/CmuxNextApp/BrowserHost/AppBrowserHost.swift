@@ -153,7 +153,7 @@ final class AppBrowserHost {
         // AppServices.settings follows from its didSet; a controller set before the host is followed here.
         if let settings = services?.settings { follow(settings) }
         watchDaemonConnection()
-        inputSubscription = services?.inputTap.subscribe([.key, .scroll]) { [weak self] event in
+        inputSubscription = services?.inputTap.subscribe(class: [.key, .scroll]) { [weak self] event in
             if event.type == .keyDown || event.type == .scrollWheel { self?.noteInput(event) }
         }
     }

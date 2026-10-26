@@ -33,20 +33,27 @@ final class InputVerificationService {
         let monitor = InputInvariantMonitor(tag: tag)
         monitor.services = services
         self.monitor = monitor
-        // The journal records keys, buttons, drags and scrolls; pointer moves carry no focus.
-        journalSubscription = services.inputTap.subscribe([.key, .flags, .button, .drag, .scroll]) { event in
-            journal.record(event)
-            switch event.type {
-            case .keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown, .leftMouseUp: monitor.noteChange()
-            default: break
-            }
-        }
+        journalSubscription = Self.subscribeJournal(journal, to: services.inputTap) { monitor.noteChange() }
         observeWindowGeometry(journal: journal, monitor: monitor)
         // M1: a mirror write outside daemon apply and the intent overlay is
         // checked (and reported) once input settles.
         services.daemon.store.onMirrorViolation = { [weak monitor] _ in monitor?.noteChange() }
         services.cache.presentationChanges.subscribe("input-monitor") { [weak monitor] in monitor?.noteChange() }
         startNoActivateGuard(tap: services.inputTap)
+    }
+
+    /// Records each key, flags, button, drag and scroll event from `tap` into `journal` before the key
+    /// router (pointer moves carry no focus), and calls `noteChange` on a press or a left mouse-up (the
+    /// invariant monitor's trigger).
+    static func subscribeJournal(_ journal: InputJournal, to tap: InputEventTap,
+                                 noteChange: @escaping @MainActor () -> Void) -> InputSubscription {
+        tap.subscribe(class: [.key, .flags, .button, .drag, .scroll]) { event in
+            journal.record(event)
+            switch event.type {
+            case .keyDown, .leftMouseDown, .rightMouseDown, .otherMouseDown, .leftMouseUp: noteChange()
+            default: break
+            }
+        }
     }
 
     /// A cmux window moved or resized by any source (a drag, an
