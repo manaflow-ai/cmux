@@ -17168,127 +17168,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "New Terminal on Machine"
+            "value": "New Terminal Workspace on Machine"
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "マシンで新規ターミナル"
+            "value": "マシンで新規ターミナルワークスペース"
           }
         },
         "ar": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "طرفية جديدة على الجهاز"
+            "value": "مساحة عمل طرفية جديدة على الجهاز"
           }
         },
         "bs": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Novi terminal na mašini"
+            "value": "Novi terminalski radni prostor na mašini"
           }
         },
         "da": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ny terminal på maskine"
+            "value": "Nyt terminalarbejdsområde på maskine"
           }
         },
         "de": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Neues Terminal auf Maschine"
+            "value": "Neuer Terminal-Arbeitsbereich auf Maschine"
           }
         },
         "es": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nuevo terminal en la máquina"
+            "value": "Nuevo espacio de trabajo de terminal en la máquina"
           }
         },
         "fr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nouveau terminal sur la machine"
+            "value": "Nouvel espace de travail terminal sur la machine"
           }
         },
         "it": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nuovo terminale sulla macchina"
+            "value": "Nuovo spazio di lavoro terminale sulla macchina"
           }
         },
         "km": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Terminal ថ្មីលើម៉ាស៊ីន"
+            "value": "កន្លែងធ្វើការ Terminal ថ្មីលើម៉ាស៊ីន"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "기기에서 새 터미널"
+            "value": "기기에서 새 터미널 워크스페이스"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Ny terminal på maskin"
+            "value": "Nytt terminalarbeidsområde på maskin"
           }
         },
         "pl": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Nowy terminal na maszynie"
+            "value": "Nowy obszar roboczy terminala na maszynie"
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Novo Terminal na Máquina"
+            "value": "Novo Espaço de Trabalho de Terminal na Máquina"
           }
         },
         "ru": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Новый терминал на машине"
+            "value": "Новое рабочее пространство терминала на машине"
           }
         },
         "th": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "เทอร์มินัลใหม่บนเครื่อง"
+            "value": "เวิร์กสเปซเทอร์มินัลใหม่บนเครื่อง"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Makinede Yeni Terminal"
+            "value": "Makinede Yeni Terminal Çalışma Alanı"
           }
         },
         "uk": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Новий термінал на машині"
+            "value": "Новий робочий простір термінала на машині"
           }
         },
         "vi": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "Terminal mới trên máy"
+            "value": "Không gian làm việc terminal mới trên máy"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "在机器上新建终端"
+            "value": "在机器上新建终端工作区"
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "needs_review",
-            "value": "在機器上開新終端機"
+            "value": "在機器上新增終端機工作區"
           }
         }
       }

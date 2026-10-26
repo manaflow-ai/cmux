@@ -356,6 +356,9 @@ extension SettingsSchema {
         "agents.trust.autoTrust": .userOnly,
         "agents.trust.projectRoots": .userOnly,
         "agents.trust.ownOrgs": .userOnly,
+        // Which hosts an ssh:// link from another app connects to without asking: only the person
+        // trusts a host, so a page or an agent cannot add one and skip the confirmation.
+        "ssh.linkAllowedHosts": .network,
         // What reaches this Mac from outside and what leaves it: only the person opens phone access.
         "phone.allowConnections": .network,
         "phone.startSessions": .network,

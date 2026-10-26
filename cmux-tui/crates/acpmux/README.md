@@ -226,6 +226,17 @@ and the subscribe. `done` means a turn ended while no client was attached. `send
 `prompt_stalled` (exit 1) when the agent produces nothing for 30 s (`--stall 0` disables); the
 turn keeps running. `run --retries N` retries only agent-internal errors that produced nothing.
 
+The daemon supports durable wake subscriptions through the local socket methods
+`_acpmux/watch_add`, `_acpmux/watch_ls`, and `_acpmux/watch_rm` (`durable-watches-v1`).
+Add takes `to`, explicit nonempty `sessions` (including `HOST/name`), `until`, optional
+`match`, and `once` (only true is supported). It delivers batched ordinary messages with reply excerpts
+and inspection commands. Watches and undelivered messages survive restart; an offline peer
+produces one notice without resolving. Failed deliveries remain visible in the list and retry
+on a relevant session/peer change or restart. A one-shot watch is removed after delivery.
+Unreadable watch state is preserved as `watches.json.bad-<timestamp>`; the daemon starts
+with no watches. Older cursor fields default safely. Peer replay uses eight workers.
+The CLI and MCP watch tools are not exposed yet; `acpmux wait` remains the script interface.
+
 Agents spawned by acpmux get `ACPMUX_ENV=1`, `ACPMUX_SESSION_ID`, `ACPMUX_SESSION_NAME` and
 `ACPMUX_SOCKET`, and `@` names that session (`acpmux last @`), so an agent can drive its own
 session and siblings. The event log carries `turn_started` and `turn_result`
@@ -1183,7 +1194,10 @@ carry `turnId` (and `promptId`); `turn_result.turnSeq` is the seq of `turn_start
 turn's `turn_result` has `errorText` and `errorCode`, and `errorChunkSeqs` when the harness had
 streamed that same text as an ordinary message. A terminal error that Codex reports in-band
 (`_meta.codex.error` without `willRetry`) fails the turn even when Codex then ends it normally.
-Session summaries carry `lastTurn`; `acpmux wait` exits 1 when a resolved session's last turn failed. When Codex abandons a partial answer after a
+Session summaries carry `lastTurn`; `acpmux wait` exits 1 when a resolved session's last turn failed, and
+`--print` then prints that turn's error (`error` under `--json`), never the reply of the turn
+before it, with the automatic retry that waits, if one does (`retry`: what it waits out and when
+it runs). When Codex abandons a partial answer after a
 dropped stream and redelivers it, acpmux records `message_superseded {oldMessageId,
 newMessageId}` before the redelivery. Other harnesses send no such signal.
 

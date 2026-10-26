@@ -330,6 +330,9 @@ pub mod method {
     /// `side` tag, valued with that session), which keeps it off the lists.
     pub const MUX_SIDE: &str = "_acpmux/side";
     pub const MUX_WAIT: &str = "_acpmux/wait";
+    pub const MUX_WATCH_ADD: &str = "_acpmux/watch_add";
+    pub const MUX_WATCH_LS: &str = "_acpmux/watch_ls";
+    pub const MUX_WATCH_RM: &str = "_acpmux/watch_rm";
     /// Start the agent children for the most recent project sessions.
     pub const MUX_WARM: &str = "_acpmux/warm";
     /// The harness the pane is about to switch to: a hidden session for it
