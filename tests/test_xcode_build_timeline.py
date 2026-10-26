@@ -80,6 +80,14 @@ class TimelineTests(unittest.TestCase):
         self.assertEqual(summary["tasks"], 14)
         self.assertEqual(summary["task_wall_seconds"], 381.0)
 
+    def test_every_cache_remark_xcode_writes_is_read(self):
+        for remark, outcome in (("Cache hit", "hit"), ("cache key query hit", "hit"),
+                                ("local cache found for key: 0~abc", "hit"), ("Cache miss", "miss"),
+                                ("cache key query miss", "miss"), ("compile job missed the cache", "miss"),
+                                ("Compiling", "unknown")):
+            with self.subTest(remark=remark):
+                self.assertEqual(timeline.cache_outcome(task("Compiling a.swift", 1.0, messages=[remark])), outcome)
+
     def test_the_slowest_tasks_lead_with_their_target(self):
         slowest = timeline.summarize(LOG, top=3)["slowest"]
         self.assertEqual([(task["seconds"], task["target"]) for task in slowest],

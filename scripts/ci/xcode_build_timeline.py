@@ -45,8 +45,10 @@ KINDS = (
     ("c-compile", r"\bCompileC\b|\bCompil(?:e|ing)\b[^\n]*\.(?:c|m|mm|cpp|cc)\b|PrecompileModule|\bClang\b"),
 )
 KIND_RES = tuple((kind, re.compile(pattern, re.IGNORECASE | re.MULTILINE)) for kind, pattern in KINDS)
-HIT = re.compile(r"cache hit|replay(?:ed|ing)? (?:from )?(?:the )?cache|cache key query hit", re.IGNORECASE)
-MISS = re.compile(r"cache miss", re.IGNORECASE)
+# Xcode's compilation-cache remarks (build_metrics.py reads the same ones from the text log).
+HIT = re.compile(r"cache hit|replay(?:ed|ing)? (?:from )?(?:the )?cache|cache key query hit|local cache found for key",
+                 re.IGNORECASE)
+MISS = re.compile(r"cache miss|cache key query miss|\bmiss(?:ed|es)?\b[^\n]*\bcache\b", re.IGNORECASE)
 TOP = 15
 
 
