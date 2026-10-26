@@ -1,6 +1,6 @@
-//! A session started from inside another session is linked to it (`hub/lane_reports.rs`): the
-//! lane carries the tag `lane.reportsTo` naming its parent. A run tied to its connection, a
-//! session the person starts, or one started under a closed parent carries none.
+//! A session started from inside another session is linked to it and carries the tag
+//! `lane.reportsTo` naming it; a run tied to its connection, a session the person starts, or one
+//! started under a closed parent carries none (`hub/lane_reports.rs`).
 
 #![cfg(unix)]
 
@@ -23,9 +23,10 @@ const FAKE: &str = concat!(env!("CARGO_MANIFEST_DIR"), "/tests/fake_agent.py");
 const TAG: &str = "lane.reportsTo";
 
 fn hub() -> Arc<Hub> {
-    let _ = &HERMETIC;
     let mut cfg: Config = serde_json::from_value(json!({
-        "harnesses": {"fake": {"argv": ["python3", FAKE]}},
+        "harnesses": {
+            "fake": {"argv": ["python3", FAKE]},
+        },
         "defaultHarness": "fake",
         "permissionPolicy": "approve-all",
     }))
