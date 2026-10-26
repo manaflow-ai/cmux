@@ -174,8 +174,8 @@ cooperatively.
 ## 5. Permissions
 
 ```bash
-acpmux pending                               # every pending request with option ids
-acpmux session allow NAME [OPTION]           # or: acpmux session deny NAME
+acpmux pending                               # every pending request, and how to answer it
+acpmux session deny NAME                     # allowing is the cmux app's alone (the chat's permission card)
 acpmux session rules NAME '{"autoDeny": ["rm -rf"], "ask": ["execute"]}'
 acpmux run --on-permission deny|fail …       # never hang a script on a prompt (fail = exit 5)
 ```

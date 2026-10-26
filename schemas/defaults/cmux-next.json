@@ -784,6 +784,8 @@
     "setting.window.titlebar": "minimal",
     "setting.window.titlebarButtons": "hover",
     "setting.window.trafficLightClearance": 72,
+    "setting.workspaces.autoArchive.idleDays": 3,
+    "setting.workspaces.autoArchive.style": "suggest",
     "setting.workspaces.autoName": true,
     "setting.workspaces.newPlacement": "top",
     "steps-aside.yieldsToCodeEditor": ["all common vscode shortcuts", "focusDown", "focusLocation", "focusUp", "globalSearch", "groupSelectedWorkspaces", "moveSurfaceToPaneDown", "moveSurfaceToPaneLeft", "moveSurfaceToPaneRight", "moveSurfaceToPaneUp", "openBrowser", "palette.newAgentChat", "space.next", "space.previous", "splitRight", "toggleChecklistItemComplete", "toggleSplitZoom"],

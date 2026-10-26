@@ -45,7 +45,32 @@ export type AttachResult = {
   /** More records lie beyond this page. */
   hasMore: boolean;
   lastSeq: number;
+  /** Who has the chat open now, this attachment included (`hub/presence.rs`). */
+  presence: PresenceNote;
   session: SessionDetail;
+} & Record<string, unknown>;
+
+/**
+ * The person a request comes from (`hub/author.rs`): stamped by the daemon that admitted
+ * them, and accepted only from the unix socket or a peer forwarding for its own.
+ */
+export interface Author {
+  /** `tailnet:<login>` until accounts are mapped, then `user_…`; one line of at most 256 bytes. */
+  id: string;
+  login?: (string | null);
+  /** One line of 1 to 64 characters. */
+  name: string;
+  node?: (string | null);
+}
+
+export type AuthorMeta = {
+  acpmux?: (AuthorMetaFields | null);
+} & Record<string, unknown>;
+
+/** `_meta.acpmux` of a request that may name its person; other fields pass. */
+export type AuthorMetaFields = {
+  /** None: the chat's owner. */
+  author?: (Author | null);
 } & Record<string, unknown>;
 
 export type ChangedSession = (SessionSummary | PurgedSession);
@@ -80,6 +105,26 @@ export type Enforcement = {
    * default), or `unknown`.
    */
   policy: string;
+} & Record<string, unknown>;
+
+/** The facts of a typed failure (`errorKind`); only the keys that apply are present. */
+export type ErrorDetails = {
+  /** The program that could not start. */
+  binary?: (string | null);
+  cwd?: (string | null);
+  exitCode?: (number | null);
+  freeBytes?: (number | null);
+  /** When the peer last answered (RFC 3339). */
+  lastSeenAt?: (string | null);
+  /** The folder whose disk is full or low. */
+  path?: (string | null);
+  /** The peer, by its name in `acpmux host ls`. */
+  peer?: (string | null);
+  /** The message is held in the durable outbox and goes when the peer or daemon is back. */
+  queued?: (boolean | null);
+  retryAfterMs?: (number | null);
+  signal?: (string | null);
+  totalBytes?: (number | null);
 } & Record<string, unknown>;
 
 /**
@@ -161,10 +206,20 @@ export type LastMessage = {
 export type LastTurn = {
   /** Why a turn ended without an answer, e.g. `outcome_unknown`. */
   detail?: (string | null);
+  details?: (ErrorDetails | null);
   endedAt: number;
+  /**
+   * What kind of failure a failed turn was (`recovery.rs`): `disk.full`, `disk.low`,
+   * `peer.unreachable`, `daemon.restarting`, `spawn.failed` or `agent.exited`. A client
+   * treats a kind it does not know as a plain error. The same key is on a request's error
+   * `data` and on the `turn_error` and `turn_result` records.
+   */
+  errorKind?: (string | null);
   errorSource?: (string | null);
   errorText?: (string | null);
   promptId?: (string | null);
+  /** One sentence saying what to do about the failure. */
+  recovery?: (string | null);
   /** `completed`, `failed` or `cancelled`. */
   status?: (string | null);
   stopReason?: (string | null);
@@ -254,6 +309,19 @@ export type McpServerSummary = {
 } & Record<string, unknown>;
 
 export type MessageRole = "agent" | "user";
+
+/**
+ * One person in a chat. The hub never marks the caller's own entry: a connection may carry
+ * several people, so the client compares ids (a caller with no author is `owner`).
+ */
+export type Participant = {
+  /** How many connections carry this person in the chat. */
+  devices: number;
+  id: string;
+  name: string;
+  typing: boolean;
+  viewing: boolean;
+} & Record<string, unknown>;
 
 export type PermissionBatching = {
   maxItems: number;
@@ -360,6 +428,8 @@ export type PermissionPending = {
 
 export interface PermissionRespondParams {
   _meta?: (RequestMeta | null);
+  /** Claude Code AskUserQuestion annotations beside the answers, by question text: `{preview?, notes?}`. */
+  annotations?: unknown;
   /** A question's answers, by question. */
   answers?: unknown;
   /** The option chosen; absent cancels the request. */
@@ -369,6 +439,16 @@ export interface PermissionRespondParams {
 }
 
 export type PermissionRespondResult = Record<string, unknown>;
+
+/**
+ * `_acpmux/presence`, to every connection attached to the chat on each change, and
+ * `presence` in the `_acpmux/attach` reply. Never in the log, `_acpmux/events` or an export.
+ */
+export type PresenceNote = {
+  /** One per person, by id; at most 32 besides the owner. */
+  participants: Participant[];
+  sessionId: string;
+} & Record<string, unknown>;
 
 /**
  * `_acpmux/process/background` (Ctrl-B): the chat whose running work goes
@@ -873,7 +953,22 @@ export type TurnSummary = {
   turnSeq: number;
 } & Record<string, unknown>;
 
+/**
+ * `_acpmux/typing`: at most 2 a second per connection (`typing.rate_limited`); an `on`
+ * lapses after 8 s. The connection must be attached to the chat.
+ */
+export interface TypingParams {
+  _meta?: (AuthorMeta | null);
+  on: boolean;
+  sessionId: string;
+}
+
 export interface ViewParams {
+  /**
+   * An author changes only that person's presence (`hub/presence.rs`), not whether the
+   * chat counts as shown.
+   */
+  _meta?: (AuthorMeta | null);
   sessionId: string;
   /** The attached client shows the chat (`hub/seen.rs`). */
   visible: boolean;
