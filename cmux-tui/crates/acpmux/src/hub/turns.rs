@@ -345,6 +345,8 @@ impl Hub {
             m.preview = Some(String::new());
             m.turn_count += 1;
         }
+        // A turn on lane reports only reports nothing (`lane_reports.rs`).
+        self.lane_turn_started(session, provenance.as_ref());
         // A family prompt (`subsessions.rs`) never clears the floor a Web
         // turn left: only a local turn the person or a client starts does.
         let family = super::subsession_guard::is_family_prompt(run.provenance.as_ref());
@@ -774,6 +776,7 @@ impl Hub {
         }
         self.save_meta(session);
         self.send_offer_result(session);
+        self.lane_turn_ended(session);
         result
     }
 
@@ -835,6 +838,8 @@ impl Hub {
             self.set_status(session, SessionStatus::Disconnected);
         }
         self.save_meta(session);
+        // The turn was counted: its lane's parent hears it failed (`lane_reports.rs`).
+        self.lane_turn_ended(session);
     }
 
     /// Waits until the inbound loop handled every agent message queued before
