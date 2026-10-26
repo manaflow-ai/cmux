@@ -72,6 +72,7 @@ pub use route_switch::HarnessRestarts;
 pub(crate) use route_switch::route_error;
 pub(crate) use turn_errors::is_limit_error;
 mod git_watch;
+mod lane_reports;
 mod offer_results;
 mod offers;
 mod secrets;
@@ -115,6 +116,7 @@ pub(crate) use peers::{
 mod permission_groups;
 mod permissions;
 pub mod person;
+pub mod presence;
 mod processes;
 mod pull_requests;
 pub(crate) mod questions;
@@ -425,12 +427,16 @@ pub struct Hub {
     pub web_token: WebToken,
     /// This launch's person key (`person.rs`): who may allow and grant.
     pub person: person::PersonGate,
+    /// Who has each chat open and who types in it, in memory only (`presence.rs`).
+    pub presence: presence::Presence,
     /// How long a move may go without its client (`transfer_watch.rs`).
     pub(super) transfer_lease: StdMutex<std::time::Duration>,
     /// How long Ctrl-B waits for Claude Code's answer (`processes.rs`).
     pub(super) background_timeout: StdMutex<std::time::Duration>,
     /// Chats agents offered the person, still open (`offers.rs`).
     pub(super) offers: offers::Offers,
+    /// Which session each lane reports to (`lane_reports.rs`).
+    pub(super) lane_reports: lane_reports::LaneReports,
     /// Open sub-sessions per parent and starts in flight (`subsessions.rs`).
     pub(super) subsessions: subsessions::Index,
     /// Run slots of each session's sub-sessions (`subsession_runs.rs`).
@@ -534,10 +540,12 @@ impl Hub {
             health: Arc::new(crate::harness_health::HealthService::new()),
             web_token: WebToken::new(String::new()),
             person: Default::default(),
+            presence: Default::default(),
             workflow_index: Default::default(),
             transfer_lease: StdMutex::new(transfer_watch::TRANSFER_LEASE),
             background_timeout: StdMutex::new(processes::STOP_TIMEOUT),
             offers: Default::default(),
+            lane_reports: Default::default(),
             subsessions: Default::default(),
             subsession_runs: Default::default(),
             open_waits: Default::default(),
