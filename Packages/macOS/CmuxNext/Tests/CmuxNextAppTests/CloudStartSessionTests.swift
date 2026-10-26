@@ -206,9 +206,9 @@ struct CloudStartSessionTests {
         let (gate, open) = AsyncStream<Void>.makeStream()
         let (entered, enter) = AsyncStream<Void>.makeStream()
         defer { open.finish(); enter.finish() }
-        var creates = 0
+        let creates = Box(0)
         let create: @MainActor () async throws -> CloudMachineSession = {
-            creates += 1
+            creates.value += 1
             enter.yield()
             for await _ in gate { break }
             return f.session
@@ -224,7 +224,7 @@ struct CloudStartSessionTests {
         open.yield()
         let one = try await first.value
         let two = try await second.value
-        #expect(creates == 1)
+        #expect(creates.value == 1)
         #expect(one === f.session && two === f.session)
     }
 
