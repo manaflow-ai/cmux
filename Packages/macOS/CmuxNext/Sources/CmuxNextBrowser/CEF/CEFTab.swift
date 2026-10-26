@@ -292,7 +292,7 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCover
             pendingRestore = nil
             // 1 = restored; fork API 10 reports why not (-1 committed entries,
             // -2 navigation not dropped, -3 state does not decode).
-            let code = state.withCString { runtime.shim?.tabRestoreNavigation(browser, $0) } ?? 0
+            let code = runtime.shim?.tabRestoreNavigation(browser, state) ?? 0
             host.lifecycleTrace.record(id, "restore-navigation \(code == 1 ? "ok" : "failed(\(code))")")
             if code != 1, let url = pendingURL { runtime.shim?.loadURL(browser, url.absoluteString) }
         }

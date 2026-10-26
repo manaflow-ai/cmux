@@ -25,8 +25,9 @@ import Observation
 final class AgentTabStore {
     let host: any AgentPaneHostProviding
     /// The app's made-ahead open panel for agent panes' file pickers (nil, in tests, shows none) and
-    /// its page host (`AppServices.webUI`) every agent pane opens its page through, and the agent pages' WebKit warm-up.
-    private let openPanel: MadeAheadOpenPanel?, webUI: WebUIHost, warmup: AgentPageWarmup?
+    /// its page host (`AppServices.webUI`) every agent pane opens its page through, the agent pages' WebKit warm-up, and
+    /// whether a new pane's page may show in Chromium (feature `agentChromium`, `AppServices.agentChromiumChat`).
+    private let openPanel: MadeAheadOpenPanel?, webUI: WebUIHost, warmup: AgentPageWarmup?, chromiumChat: @MainActor () -> Bool
     /// Where each chat rested and its unsent chips, which every pane's page reads and writes (``AgentPaneChatStores``).
     let chatStores: AgentPaneChatStores
     /// Gives each press to the agent pane it goes to (one input tap subscription per window).
@@ -231,7 +232,7 @@ final class AgentTabStore {
     /// `chatStores`, the chats' kept places and chips (``wired(to:)`` puts them beside the launch snapshot; tests keep none).
     init(build: BuildIdentity?, registry: ActionRegistry, work: any MayBlockRunner, webUI: WebUIHost, input: InputEventTap, environment: [String: String] = ProcessInfo.processInfo.environment,
          showcase: Bool = false, linkScheme: String? = nil, settings: SettingsController? = nil,
-         openPanel: MadeAheadOpenPanel? = nil, warmup: AgentPageWarmup? = nil, defaults: UserDefaults = .standard,
+         openPanel: MadeAheadOpenPanel? = nil, warmup: AgentPageWarmup? = nil, chromiumChat: @escaping @MainActor () -> Bool = { true }, defaults: UserDefaults = .standard,
          mainWork: MainWorkScheduler = MainWorkScheduler(budget: MainFrameBudget()), chatStores: AgentPaneChatStores = .keepsNothing) {
         gestureRouter = AgentPaneGestureRouter(input: input)
         self.mainWork = mainWork
@@ -240,7 +241,7 @@ final class AgentTabStore {
            let saved = try? JSONDecoder().blockingDecode([String: String].self, from: data) {
             adoptions = saved
         }
-        (self.openPanel, self.warmup, self.chatStores) = (openPanel, warmup, chatStores)
+        (self.openPanel, self.warmup, self.chromiumChat, self.chatStores) = (openPanel, warmup, chromiumChat, chatStores)
         self.webUI = webUI
         self.work = work
         actionRegistry = registry
@@ -522,7 +523,7 @@ final class AgentTabStore {
         AgentPaneNewTabFrame.shared.pageMade(model)
         model.linkScheme = linkScheme
         guard let source, let view = AgentPaneView(model: model, work: work, source: source, renderRate: renderRate, webUI: webUI, openPanel: openPanel, warmup: warmup, gestures: gestureRouter,
-                                                    chatStores: chatStores) else { return nil }
+                                                    chatStores: chatStores, chromiumChat: chromiumChat()) else { return nil }
         DebugTimings.markLaunch("agent_pane.view_created")
         view.customization = customization.current
         view.shortcuts = shortcuts

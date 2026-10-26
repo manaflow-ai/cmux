@@ -19,7 +19,7 @@ import os
 /// `QuitFailureAlert` (Retry or Quit Anyway). Remote sessions are never ended.
 @MainActor
 final class QuitCoordinator {
-    let origins = QuitOriginTracker()
+    let origins: QuitOriginTracker
     private(set) var sheet: QuitAlert?
     /// "Some sessions did not end", while it shows.
     private(set) var failureAlert: QuitFailureAlert?
@@ -48,6 +48,7 @@ final class QuitCoordinator {
     init(services: AppServices) {
         self.services = services
         unsaved = services.quitUnsaved
+        origins = QuitOriginTracker(workspaceEvents: services.workspaceEvents)
     }
 
     /// Records the origin, then starts AppKit's termination. A second Cmd-Q
@@ -89,8 +90,9 @@ final class QuitCoordinator {
         let origin = origins.consume(appleEventReason: Self.quitReason())
         let behavior = services.settings?.snapshot.quitBehavior ?? QuitBehaviorSetting.fallback
         logger.info("quit origin=\(String(describing: origin), privacy: .public) behavior=\(behavior.rawValue, privacy: .public)")
-        // [services]: the quit task pins the app's services until it ends (cx-6so P1b).
-        Task { @MainActor [services] in
+        // [services]: the quit task pins the app's services until it ends (cx-6so P1b). The rest of the quit a person
+        // (or the system) asked for, at user-blocking priority; it drains BackgroundWork itself, so shutdown lets it run on.
+        services.work.task(.userBlocking, shutdown: .continueOnShutdown) { @MainActor [self, services] in
             // Unsaved documents come first (R96 quit hook). Answering that
             // question is the quit's one dialog: the sessions are not asked
             // about after it (#17501).
@@ -115,7 +117,7 @@ final class QuitCoordinator {
     /// The unsaved step for `origin` (`QuitUnsavedStep.resolve`).
     private func resolveUnsaved(_ origin: QuitOrigin) async -> Bool {
         let window = sheetWindow()
-        return await QuitUnsavedStep.resolve(origin, registry: unsaved, scope: window.map { .window($0) } ?? .app,
+        return await QuitUnsavedStep.resolve(origin, registry: unsaved, scope: window.map { .window($0) } ?? .app, work: services.work,
                                              writeDrafts: { [drafts = services.recoveryDrafts] in await drafts.writePending() })
     }
 
@@ -137,7 +139,8 @@ final class QuitCoordinator {
                 self.isQuitting = false
                 sender.reply(toApplicationShouldTerminate: false)
             case .quit(let choice, let remember):
-                Task { @MainActor [services] in
+                // The rest of the person's answer, as above: it drains BackgroundWork itself.
+                self.services.work.task(.userBlocking, shutdown: .continueOnShutdown) { @MainActor [services = self.services] in
                     await self.complete(choice, remember: remember, sender)
                     withExtendedLifetime(services) {} // pins the app's services until the quit ends
                 }
@@ -156,6 +159,8 @@ final class QuitCoordinator {
         // From here the quit is decided: an end before AppKit's reply (a
         // SIGKILL after a bounded wait, a slow Chromium shutdown) is still
         // a quit the user asked for, not a crash.
+        // A quit while inactive records its idle period now, before any quit work or the daemon's stop is in it.
+        services.idleWakeups?.reportTriggered()
         // Awaited (bounded) so `quitting` is on disk before the quit can end
         // the process; the write itself runs off the main thread.
         await services.crashRecovery.quitBegan()

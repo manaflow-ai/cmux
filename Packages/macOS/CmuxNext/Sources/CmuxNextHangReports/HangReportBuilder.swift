@@ -1,6 +1,7 @@
 public import CmuxNextCompat
 public import CmuxNextInputCore
 public import CmuxNextTrace
+import CmuxNextWakeups
 public import Foundation
 
 /// Builds a ``HangReport`` by allow-list: it copies only the fields of hang-reports-DESIGN.md
@@ -76,7 +77,11 @@ public nonisolated struct HangReportBuilder: Sendable {
         // longest-first cut nor the body cap (which drops from the end) pushes them out.
         let blocking = wireSchema.carriesBlocking ? Array(watchdog.blocking.prefix(StallAggregate.maxSamples)) : []
         let timed = (metricKitHangs + watchdog.hangs + watchdog.stalls).sorted { $0.durationMs > $1.durationMs }
-        report.hangs = blocking + Array(timed.prefix(HangReport.maxHangs - blocking.count))
+        report.hangs = (blocking + Array(timed.prefix(HangReport.maxHangs - blocking.count))).map { sample in
+            var sample = sample
+            sample.mainTask = wireSchema.carriesTaskAttribution ? sample.mainTask.map(Self.safeTask) : nil
+            return sample
+        }
         report.cpuExceptions = Array(metricKit.flatMap(\.cpuExceptions).sorted { $0.cpuMs > $1.cpuMs }
             .prefix(HangReport.maxCPUExceptions)
             .map { CPUExceptionSample(cpuMs: $0.cpuMs, sampledMs: $0.sampledMs, frames: frames($0.callStackTree)) })
@@ -191,6 +196,21 @@ public nonisolated struct HangReportBuilder: Sendable {
     /// A ratio in 0...1000 ms per s, else nil.
     static func safeRatio(_ value: Double) -> Double? {
         value.isFinite && value >= 0 && value <= 1_000 ? value : nil
+    }
+
+    /// Owner names that come from the person's own configuration (`cmuxConfig.<command name>`), never sent.
+    static let userNamedOwnerPrefixes = ["cmuxConfig."]
+
+    /// `task` with its class one of ``MainWorkClass``'s names or ``HangSample/MainTask/unattributed`` (else
+    /// `unattributed`), and its owner a code-defined identifier of at most 64 letters, digits, `.`, `_` and `-`
+    /// that names no user configuration (else ``HangSample/MainTask/other``).
+    static func safeTask(_ task: HangSample.MainTask) -> HangSample.MainTask {
+        let unattributed = HangSample.MainTask.unattributed
+        let classes = MainWorkClass.allCases.map(\.description) + [unattributed]
+        let taskClass = classes.contains(task.taskClass) ? task.taskClass : unattributed
+        let identifier = task.owner.range(of: #"^[A-Za-z][A-Za-z0-9._-]{0,63}$"#, options: .regularExpression) != nil
+        let userNamed = userNamedOwnerPrefixes.contains { task.owner.hasPrefix($0) }
+        return HangSample.MainTask(owner: identifier && !userNamed ? task.owner : HangSample.MainTask.other, taskClass: taskClass)
     }
 
     /// `yyyy-MM-dd`, else `1970-01-01`.

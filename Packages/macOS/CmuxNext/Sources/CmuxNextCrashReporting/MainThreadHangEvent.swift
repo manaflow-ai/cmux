@@ -16,12 +16,39 @@ public nonisolated struct MainThreadHangEvent: Sendable {
     /// What the main thread was in when sampled (the watchdog's `Hang.phase`, `cef_pump`), as the
     /// `main_thread_phase` tag; nil sets no tag.
     public let phase: String?
+    /// What the main thread ran: the scheduled task's owner, class and posting location and the
+    /// run-loop turn so far (the `hang_owner` and `hang_class` tags, the `hang_location` and `turn_ms`
+    /// extras); nil sets none.
+    public let attribution: Attribution?
 
-    public init(duration: Duration, addresses: [UInt], otherThreads: [(name: String, addresses: [UInt])] = [], phase: String? = nil) {
+    /// The work a hang is attributed to (the watchdog's `HangAttribution`).
+    public struct Attribution: Sendable, Equatable {
+        /// The scheduled task's owner (an action id or a queue owner), or `unattributed`.
+        public var owner: String
+        /// Its class (`input`, `frame`, `userBlocking`, `visible`, `automation`, `background`,
+        /// `idle`), or `unattributed`.
+        public var taskClass: String
+        /// Where it was posted (`Module/File.swift:line`); nil when unposted or unattributed.
+        public var location: String?
+        /// How long the main run-loop turn had run.
+        public var turn: Duration
+
+        /// - Parameter turnNanos: How long the main run-loop turn had run, in nanoseconds.
+        public init(owner: String, taskClass: String, location: String?, turnNanos: UInt64) {
+            self.owner = owner
+            self.taskClass = taskClass
+            self.location = location
+            self.turn = .nanoseconds(Int64(clamping: turnNanos))
+        }
+    }
+
+    public init(duration: Duration, addresses: [UInt], otherThreads: [(name: String, addresses: [UInt])] = [], phase: String? = nil,
+                attribution: Attribution? = nil) {
         self.duration = duration
         self.addresses = addresses
         self.otherThreads = otherThreads
         self.phase = phase
+        self.attribution = attribution
     }
 
     public func event() -> Event {
@@ -74,6 +101,12 @@ public nonisolated struct MainThreadHangEvent: Sendable {
         event.tags = ["hang_source": "main_thread_watchdog"]
         if let phase { event.tags?["main_thread_phase"] = phase }
         event.extra = ["hang_ms": Int(duration / .milliseconds(1))]
+        if let attribution {
+            event.tags?["hang_owner"] = attribution.owner
+            event.tags?["hang_class"] = attribution.taskClass
+            event.extra?["turn_ms"] = Int(attribution.turn / .milliseconds(1))
+            if let location = attribution.location { event.extra?["hang_location"] = location }
+        }
         return event
     }
 
@@ -149,9 +182,10 @@ extension CrashReporter {
     /// this on its own thread, at most once per stall and per interval).
     /// Does nothing when crash reporting is off.
     public nonisolated func reportHang(duration: Duration, addresses: [UInt],
-                                       otherThreads: [(name: String, addresses: [UInt])] = [], phase: String? = nil) {
+                                       otherThreads: [(name: String, addresses: [UInt])] = [], phase: String? = nil,
+                                       attribution: MainThreadHangEvent.Attribution? = nil) {
         guard isStarted else { return }
         SentrySDK.capture(event: MainThreadHangEvent(duration: duration, addresses: addresses, otherThreads: otherThreads,
-                                                     phase: phase).event())
+                                                     phase: phase, attribution: attribution).event())
     }
 }

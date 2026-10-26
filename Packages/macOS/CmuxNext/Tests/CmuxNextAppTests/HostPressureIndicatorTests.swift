@@ -1,29 +1,39 @@
 import AppKit
 @testable import CmuxNextApp
 import CmuxNextDesign
+import CmuxNextFeatures
 import CmuxNextHostPressure
 import Testing
+
+/// App services whose launch features have `hostPressure` on or off (`CMUX_ENABLE_FEATURES`), as the
+/// launch resolves it once; the Debug toggle `hostPressure.enabled` is read only by that launch.
+@MainActor private func hostPressureServices(_ on: Bool) -> AppServices {
+    let overrides = FeatureOverrides(environmentEnabled: on ? [Feature.hostPressure.name] : [])
+    return AppServices(environment: AppEnvironment.current(["CMUX_NEXT_SHOWCASE": "1"]),
+                       features: FeatureList(registry: FeatureRegistry(), channel: .dev, overrides: overrides))
+}
 
 /// The top-row host pressure indicator (cmuxterm-hq#2995): Debug Settings forces a level with
 /// sample numbers for captures, and the popover shows the load against its limit, then acpmux's
 /// other reasons in its words.
 @MainActor @Suite struct HostPressureIndicatorTests {
-    private static func store(forcing force: HostPressureForce?, enabled: Bool? = nil) -> TunableStore {
+    private static func store(forcing force: HostPressureForce?, toggle: Bool? = nil) -> TunableStore {
         let store = TunableStore()
         store.register(HostPressureTunables.all)
         store.activate(file: nil)
         if let force { _ = store.set(HostPressureTunables.force.key, force.tunableValue) }
-        if let enabled { _ = store.set(HostPressureTunables.enabled.key, enabled.tunableValue) }
+        if let toggle { _ = store.set(HostPressureTunables.enabled.key, toggle.tunableValue) }
         return store
     }
 
     /// Whether the test's window can be seen (it stands in for occlusion and minimizing).
     private final class Visibility { var visible = true }
 
-    private static func indicator(store: TunableStore, visibility: Visibility, notifications: NotificationCenter = NotificationCenter(),
+    private static func indicator(store: TunableStore, visibility: Visibility, feature: Bool = true,
+                                  notifications: NotificationCenter = NotificationCenter(),
                                   made: @escaping (HostPressureService) -> Void = { _ in })
         -> HostPressureIndicatorView {
-        HostPressureIndicatorView(services: AppServices(environment: AppEnvironment.current(["CMUX_NEXT_SHOWCASE": "1"])), store: store,
+        HostPressureIndicatorView(services: hostPressureServices(feature), store: store,
                                   notifications: notifications,
                                   windowVisible: { _ in visibility.visible },
                                   service: {
@@ -33,11 +43,14 @@ import Testing
                                   }) {}
     }
 
-    @Test func theToggleShipsOffAndOffNeverMakesTheService() {
+    /// Off, the indicator never makes the service, even with the Debug toggle turned on after launch: the
+    /// toggle is the feature's launch-time override, so the code uses the value `features.list` reports.
+    @Test func theFeatureShipsOffAndOffNeverMakesTheService() {
         #expect(HostPressureTunables.enabled.defaultValue == false)
-        let store = Self.store(forcing: .critical)
+        #expect(Feature.Channel.allCases.allSatisfy { !Feature.hostPressure.defaults.value(for: $0) })
+        let store = Self.store(forcing: .critical, toggle: true)
         var made = 0
-        let indicator = Self.indicator(store: store, visibility: Visibility()) { _ in made += 1 }
+        let indicator = Self.indicator(store: store, visibility: Visibility(), feature: false) { _ in made += 1 }
         indicator.reconcile()
         #expect(!indicator.sampling.samples)
         #expect(!indicator.isSampling)
@@ -46,7 +59,7 @@ import Testing
     }
 
     @Test func itSamplesOnlyWhileOnAndVisible() async {
-        let store = Self.store(forcing: nil, enabled: true)
+        let store = Self.store(forcing: nil)
         let visibility = Visibility()
         var service: HostPressureService?
         let indicator = Self.indicator(store: store, visibility: visibility) { service = $0 }
@@ -62,11 +75,11 @@ import Testing
         #expect(service?.subscriberCount == 0)
         #expect(await service?.monitorIsRunning() == false)
 
-        // Visible again: it samples again; the toggle going off stops it the same way.
+        // Visible again: it samples again; hidden again, it stops the same way and shows nothing.
         visibility.visible = true
         indicator.reconcile()
         #expect(await service?.monitorIsRunning() == true)
-        _ = store.set(HostPressureTunables.enabled.key, false.tunableValue)
+        visibility.visible = false
         indicator.reconcile()
         #expect(!indicator.isSampling)
         #expect(await service?.monitorIsRunning() == false)
@@ -77,7 +90,7 @@ import Testing
     /// The real notification path: the window's occlusion change, the app's unhide and the
     /// window's close each reconcile the indicator in a window.
     @Test func windowAndAppNotificationsStartAndStopSampling() async {
-        let store = Self.store(forcing: nil, enabled: true)
+        let store = Self.store(forcing: nil)
         let visibility = Visibility()
         var service: HostPressureService?
         let center = NotificationCenter()
@@ -121,7 +134,7 @@ import Testing
     }
 
     @Test func aSubscriptionReleasedWithoutCancelStillUnsubscribes() async {
-        let service = HostPressureService(acpmux: nil, memoryPressure: { _ in (.normal, {}) }, store: Self.store(forcing: nil, enabled: true))
+        let service = HostPressureService(acpmux: nil, memoryPressure: { _ in (.normal, {}) }, store: Self.store(forcing: nil))
         var subscription: HostPressureSubscription? = HostPressureSubscription(service)
         #expect(service.subscriberCount == 1)
         #expect(subscription != nil)
@@ -135,7 +148,7 @@ import Testing
     /// Joining and leaving in one main-actor turn queues a start and then a stop: the start
     /// must not run the monitor (and its timer) at all.
     @Test func aStartOvertakenByTheLastLeaveStartsNothing() async {
-        let service = HostPressureService(acpmux: nil, memoryPressure: { _ in (.normal, {}) }, store: Self.store(forcing: nil, enabled: true))
+        let service = HostPressureService(acpmux: nil, memoryPressure: { _ in (.normal, {}) }, store: Self.store(forcing: nil))
         service.subscribe()
         service.unsubscribe()
         #expect(await !service.monitorIsRunning())
@@ -146,7 +159,7 @@ import Testing
         service.stop()
     }
 
-    @Test func theGateIsTheToggleAndTheWindow() {
+    @Test func theGateIsTheFeatureAndTheWindow() {
         #expect(HostPressureSampling(enabled: true, windowVisible: true).samples)
         #expect(!HostPressureSampling(enabled: true, windowVisible: false).samples)
         #expect(!HostPressureSampling(enabled: false, windowVisible: true).samples)
@@ -218,24 +231,28 @@ import Testing
         #expect(HostPressureTunables.banner.value(in: store) == true)
     }
 
-    @Test func aForcedLevelCountsAsSeenOnlyWithTheToggleOnAndInAWindow() {
+    @Test func aForcedLevelCountsAsSeenOnlyWithTheFeatureOnAndInAWindow() {
         let store = TunableStore()
         store.register(HostPressureTunables.all)
         store.activate(file: nil)
         _ = store.set(HostPressureTunables.force.key, HostPressureForce.critical.tunableValue)
         var made: HostPressureService?
-        let indicator = HostPressureIndicatorView(services: AppServices(environment: AppEnvironment.current(["CMUX_NEXT_SHOWCASE": "1"])),
-                                                  store: store, windowVisible: { _ in false },
-                                                  service: {
-                                                      let service = HostPressureService(acpmux: nil, memoryPressure: { _ in (.normal, {}) }, store: store)
-                                                      made = service
-                                                      return service
-                                                  }) {}
+        func indicator(feature: Bool) -> HostPressureIndicatorView {
+            HostPressureIndicatorView(services: hostPressureServices(feature), store: store, windowVisible: { _ in false },
+                                      service: {
+                                          let service = HostPressureService(acpmux: nil, memoryPressure: { _ in (.normal, {}) }, store: store)
+                                          made = service
+                                          return service
+                                      }) {}
+        }
         let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 200, height: 100), styleMask: [.titled], backing: .buffered, defer: true)
         window.isReleasedWhenClosed = false
+        let off = indicator(feature: false)
+        window.contentView?.addSubview(off)
+        #expect(!off.sampling.samples) // the feature is off
+        off.removeFromSuperview()
+        let indicator = indicator(feature: true)
         window.contentView?.addSubview(indicator)
-        #expect(!indicator.sampling.samples) // the toggle is off
-        _ = store.set(HostPressureTunables.enabled.key, true.tunableValue)
         #expect(indicator.sampling.samples) // forced: an occluded window counts as seen
         indicator.removeFromSuperview()
         #expect(!indicator.sampling.samples) // out of its window, a forced level never samples
@@ -249,8 +266,8 @@ import Testing
     }
 }
 
-/// The critical banner itself, driven through its toast (Codex on #24518: no test drove it). Debug
-/// `hostPressure.enabled` and `hostPressure.banner` on, the level forced to critical (the sample
+/// The critical banner itself, driven through its toast (Codex on #24518: no test drove it). The feature
+/// `hostPressure` and Debug `hostPressure.banner` on, the level forced to critical (the sample
 /// numbers, no timer read), windows that count as seen, and a toast center whose host records the
 /// toast views so the test presses their close and Show Details buttons as a click does.
 @MainActor @Suite(.serialized) struct HostPressureBannerToastTests {
@@ -276,7 +293,7 @@ import Testing
         init() {
             store.register(HostPressureTunables.all)
             store.activate(file: nil)
-            for key in [HostPressureTunables.enabled.key, HostPressureTunables.banner.key] { _ = store.set(key, true.tunableValue) }
+            _ = store.set(HostPressureTunables.banner.key, true.tunableValue)
             _ = store.set(HostPressureTunables.force.key, HostPressureForce.critical.tunableValue)
             toasts = CmuxToastCenter(host: host)
             service = HostPressureService(acpmux: nil, memoryPressure: { _ in (.normal, {}) }, store: store)
@@ -285,7 +302,7 @@ import Testing
         /// A window whose indicator samples (it counts as seen while it is in one).
         func window() -> (window: NSWindow, indicator: HostPressureIndicatorView) {
             let service = service
-            let indicator = HostPressureIndicatorView(services: AppServices(environment: AppEnvironment.current(["CMUX_NEXT_SHOWCASE": "1"])),
+            let indicator = HostPressureIndicatorView(services: hostPressureServices(true),
                                                       store: store, notifications: NotificationCenter(), windowVisible: { $0 != nil },
                                                       service: { service }, toasts: toasts) {}
             let window = NSWindow(contentRect: CGRect(x: 0, y: 0, width: 600, height: 400), styleMask: [.titled],

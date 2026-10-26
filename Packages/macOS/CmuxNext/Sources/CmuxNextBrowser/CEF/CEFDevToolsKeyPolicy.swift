@@ -28,6 +28,8 @@ extension CEFRuntime {
     /// process, NULL in host mode, where no key waits on cmux.
     func installDevToolsKeyPolicy() {
         guard let shim else { return }
-        shim.devToolsSetKeyHandler(devToolsKeyPolicy == .preKeyHook ? cefDevToolsKeyCallback : nil)
+        // SAFETY: the handler is a C function of the shim's key_fn type (or NULL); the shim calls it with the
+        // context it was initialized with, the runtime, which lives for the process once started.
+        unsafe shim.devToolsSetKeyHandler(devToolsKeyPolicy == .preKeyHook ? cefDevToolsKeyCallback : nil)
     }
 }

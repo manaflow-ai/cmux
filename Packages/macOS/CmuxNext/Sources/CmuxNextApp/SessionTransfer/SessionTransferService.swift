@@ -95,8 +95,13 @@ nonisolated struct SessionTransferPeer: Sendable {
 @MainActor
 final class SessionTransferService {
     private(set) weak var services: AppServices?
+    /// The app's main-thread scheduler: the one main read of the nonisolated discovery, and the tab waits.
+    private nonisolated let mainWork: MainWorkScheduler
 
-    init(services: AppServices) { self.services = services }
+    init(services: AppServices) {
+        self.services = services
+        mainWork = services.mainWork
+    }
 
     /// How long a moved agent waits for its conversation tab (the old poll's 20 × 250 ms).
     static let conversationTabLimit: Duration = .seconds(5)
@@ -145,7 +150,9 @@ final class SessionTransferService {
     /// admits only its own terminals).
     /// With `only` (a socket path or tag), a refusal by that peer throws.
     nonisolated func discover(only source: String? = nil) async throws -> [SessionTransferPeer] {
-        let current = await MainActor.run { services?.environment.launch }
+        let current = await mainWork.apply(.automation, owner: "SessionTransfer.discover") { [weak self] in
+            self?.services?.environment.launch
+        }
         let ownPID = Int(ProcessInfo.processInfo.processIdentifier)
         let paths = ControlSocketPath.shared.peerSocketPaths().filter { $0 != current?.socketPath }
         var peers: [SessionTransferPeer] = []
@@ -187,7 +194,9 @@ final class SessionTransferService {
     /// peer chooses the commands its sessions reopen with.
     nonisolated static func isOwnedSocket(_ path: String) -> Bool {
         var info = stat()
-        guard lstat(path, &info) == 0 else { return false }
+        // SAFETY: lstat reads the NUL-terminated copy of `path` made for the call and writes one struct stat
+        // into `info`, a local live for the call.
+        guard unsafe lstat(path, &info) == 0 else { return false }
         return (info.st_mode & S_IFMT) == S_IFSOCK && info.st_uid == getuid()
     }
 
@@ -265,24 +274,17 @@ final class SessionTransferService {
 
     /// Whether the store lists a conversation tab in `workspace`. The tree
     /// mirrors the create asynchronously, so this waits for it, up to
-    /// `conversationTabLimit`.
+    /// `conversationTabLimit`: an ``ObservedCondition`` on the workspace's index entry, bounded by a
+    /// ``MainDeadline`` (automation: a sibling build asked).
     func hasConversationTab(_ workspace: String) async throws -> Bool {
-        guard let store = services?.daemon.store else { throw Failure.unavailable }
-        let listed = Task { @MainActor () -> Bool in
-            let opened = ObservationStream({
-                store.workspaces.first(where: { $0.key?.rawValue == workspace })?.screens
-                    .flatMap(\.panes).flatMap(\.tabs).contains(where: { $0.kind == .conversation }) ?? false
-            })
-            for await found in opened where found { return true }
-            return false
+        guard let services else { throw Failure.unavailable }
+        let store = services.daemon.store
+        let listed: @MainActor () -> Bool = {
+            store.workspace(id: workspace)?.screens.flatMap(\.panes).flatMap(\.tabs).contains { $0.kind == .conversation } ?? false
         }
-        let bound = DemandTimer(owner: "SessionTransfer.conversationTab")
-        bound.scheduleOnMain(after: Self.conversationTabLimit) {
-            listed.cancel()
-        }
-        let found = await listed.value
-        bound.cancel()
-        return found
+        await ObservedCondition(owner: "SessionTransfer.conversationTab", .automation, on: mainWork)
+            .until(timeout: Self.conversationTabLimit, deadlines: services.mainDeadlines, listed)
+        return listed()
     }
 
     private func firstPane(of workspace: String, connection: DaemonConnection) async throws -> CmuxNextDaemon.PaneID? {

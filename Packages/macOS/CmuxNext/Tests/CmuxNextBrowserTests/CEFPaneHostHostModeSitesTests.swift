@@ -43,7 +43,7 @@ import Testing
         #expect(page.frame == host.hostView.bounds)
 
         // A later window of the same pane names the same page view (one token on the wire).
-        #expect(host.pageParent() == Self.token(page))
+        #expect(host.pageParent() == CEFParentView(token: page.wireToken))
         // Another pane's page view has a token of its own.
         let (other, otherTab) = Self.pane(runtime)
         other.ensureCreated(otherTab)
@@ -322,8 +322,8 @@ import Testing
     /// A hosted page gets page-ownable keys first (`KeyRouter.Facts.pageReportsUnhandledKeys`) only
     /// while its page view has the keyboard and its host reports the chords the page leaves
     /// unhandled. Until the input route lands, cmux runs its actions before the page as before.
-    @Test func aHostedPageHasTheKeysOnlyWhileItsHostReportsThem() throws {
-        let (runtime, root) = try Self.runtime(hostMode: true)
+    @Test func aHostedPageHasTheKeysOnlyWhileItsHostReportsThem() async throws {
+        let (runtime, root) = try await Self.runtime(hostMode: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let (host, tab, window) = try Self.presentedPopupPane(runtime)
         defer { window.close() }
@@ -340,8 +340,8 @@ import Testing
 
     /// KEY_UNHANDLED for a chord: with no cmux action held for it (this tab has no key router), the
     /// held key goes to the menus, once; a report from another browser takes nothing.
-    @Test func anUnhandledChordGoesToTheMenusOnce() throws {
-        let (runtime, root) = try Self.runtime(hostMode: true)
+    @Test func anUnhandledChordGoesToTheMenusOnce() async throws {
+        let (runtime, root) = try await Self.runtime(hostMode: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let (host, _, window) = try Self.presentedPopupPane(runtime)
         defer { window.close() }

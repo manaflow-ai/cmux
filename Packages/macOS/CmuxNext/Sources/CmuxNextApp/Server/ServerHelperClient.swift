@@ -2,7 +2,6 @@ import CmuxNextCompat
 import CmuxNextServerHelper
 import CmuxNextWakeups
 import Foundation
-import ServiceManagement
 
 /// The app side of the cmux server's privileged helper (plans/cmux-next/server.md 9.4).
 /// The helper is a LaunchDaemon the app bundle carries in
@@ -24,8 +23,6 @@ enum ServerHelperClient {
         case failed(String)
     }
 
-    private static var service: SMAppService { SMAppService.daemon(plistName: ServerHelperConstants().plistName) }
-
     static var isBundled: Bool {
         let bundle = Bundle.main.bundleURL
         let fileManager = FileManager.default
@@ -33,35 +30,13 @@ enum ServerHelperClient {
             && fileManager.isExecutableFile(atPath: bundle.appending(path: ServerHelperConstants().bundleProgram).path)
     }
 
-    /// Registers the helper. Idempotent: an enabled helper stays enabled. Call it
-    /// from an explicit user action only: it may open System Settings.
-    static func register() throws(Failure) {
-        guard isBundled else { throw .notInBuild }
-        switch service.status {
-        case .enabled:
-            return
-        case .requiresApproval:
-            SMAppService.openSystemSettingsLoginItems()
-            throw .requiresApproval
-        default:
-            do {
-                try service.register()
-            } catch {
-                throw .failed(String(describing: error))
-            }
-            if service.status == .requiresApproval {
-                SMAppService.openSystemSettingsLoginItems()
-                throw .requiresApproval
-            }
-        }
-    }
-
-    /// Applies (or reverts) one allowlisted fix through the helper, after registering it.
-    /// `willCall` runs once the app is signed and the helper is registered and
-    /// allowed, just before the request goes out (the fix ledger records there,
-    /// so a build or helper that can never run writes nothing); if it throws,
-    /// nothing is sent.
-    static func run(_ fix: ServerFix, revert: Bool = false,
+    /// Applies (or reverts) one allowlisted fix through the helper, after registering it
+    /// (`helper`'s launchd calls run on the system lane; it may open System Settings, so
+    /// call it from an explicit user action only). `willCall` runs once the app is signed
+    /// and the helper is registered and allowed, just before the request goes out (the fix
+    /// ledger records there, so a build or helper that can never run writes nothing); if it
+    /// throws, nothing is sent.
+    static func run(_ fix: ServerFix, revert: Bool = false, helper: ServerServiceRegistration,
                     willCall: @MainActor () async throws -> Void = {}) async throws(Failure) {
         // Check our own signature first: an ad hoc app must not register a root
         // daemon that can never serve it.
@@ -69,7 +44,8 @@ enum ServerHelperClient {
               let label = ServerHelperConstants().machServiceName(appBundleID: bundleID),
               let requirement = ServerHelperConstants().helperRequirement(teamID: ServerHelperListener.ownTeamIdentifier())
         else { throw .unsigned }
-        try register()
+        guard isBundled else { throw .notInBuild }
+        try await helper.enable(requiresApproval: Failure.requiresApproval, failed: Failure.failed)
         do {
             try await willCall()
         } catch {

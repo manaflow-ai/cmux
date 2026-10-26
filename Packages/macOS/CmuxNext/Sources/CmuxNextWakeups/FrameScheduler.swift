@@ -184,11 +184,16 @@ public final class FrameScheduler: NSObject {
     public private(set) var frameRate: FrameRate?
     /// Energy Saver's ambient cap and the ambient clients waiting out display sleep (FrameScheduler+Energy.swift).
     var energyState = AmbientEnergyState()
+    /// Its motion and commit-window frame sequences (FrameSequenceTracker.swift).
+    public let sequences: FrameSequenceTracker
 
-    /// - Parameter displays: The clock to subscribe to (the app's: ``appDisplays``).
+    /// - Parameters:
+    ///   - displays: The clock to subscribe to (the app's: ``appDisplays``).
+    ///   - sequences: Its frame sequences (nil: one on the app's trace runtime).
     init(name: String, host: Host, displays: DisplayClock, clock: any Clock<Duration> = ContinuousClock(),
-         ledger: WakeupLedger = .shared, budget: MainFrameBudget?) {
+         ledger: WakeupLedger = .shared, budget: MainFrameBudget?, sequences: FrameSequenceTracker? = nil) {
         self.budget = budget
+        self.sequences = sequences ?? FrameSequenceTracker()
         self.name = name
         switch host {
         case .screen: isScreenHost = true
@@ -201,17 +206,6 @@ public final class FrameScheduler: NSObject {
         self.clock = clock
         reportsUnbudgeted = budget == nil
         super.init()
-    }
-
-    /// Owners of the clients that are ticking now.
-    public var activeClients: [String] {
-        clients.values.filter(\.isActive).map(\.owner).sorted()
-    }
-
-    /// A frame-locked client (``MainWorkClass/frame``: a spring, an autoscroll, a drain) is ticking:
-    /// a late tick of this scheduler is a late frame.
-    public var hasActiveFrameClients: Bool {
-        clients.values.contains { $0.isActive && $0.workClass == .frame }
     }
 
     /// Its display's link's last refresh period (a 60 Hz frame before the first link frame).
@@ -284,6 +278,7 @@ public final class FrameScheduler: NSObject {
     func displayLinkDidChange(exists: Bool) {
         guard isSubscribed else { return }
         ticksOnLink = exists
+        sequences.linkDidChange()
     }
 
     /// The clock moved it to `id` (its screen changed or went away): it ticks on `id`'s link from its
@@ -352,6 +347,7 @@ public final class FrameScheduler: NSObject {
         lastTimestamp = nil
         lastTargetTimestamp = nil
         handoff = nil
+        sequences.closeAll()
         guard let subscribed else { return }
         isSubscribed = false
         ticksOnLink = false
@@ -393,9 +389,9 @@ public final class FrameScheduler: NSObject {
 
     /// Starts this scheduler's part of a frame: its tick (with its own elapsed time) and, on the
     /// budget holder, the budget's frame window. `offLink`: the stall deadline ticks it, not the link
-    /// (``ticksOffLink``).
+    /// (``ticksOffLink``). `seen`: someone can see its window (false for a hidden window's stall-rate tick).
     func beginFrame(timestamp: CFTimeInterval?, refreshInterval: Double?, targetTimestamp: CFTimeInterval?,
-                    offLink: Bool) -> FrameTick {
+                    offLink: Bool, seen: Bool = true) -> FrameTick {
         frames &+= 1
         // When the tick runs on main, not the frame's vsync time: the guard measures main's lateness.
         let ranAt = displayClock.now()
@@ -415,6 +411,8 @@ public final class FrameScheduler: NSObject {
         if clients.values.contains(where: { $0.isActive && $0.isAnimation }) {
             ExpectedActivity.shared.note(.animationFrame)
         }
+        // A tick with no vsync while its link runs for a window someone sees: the vsyncs it missed are drops.
+        sequences.frameBegan(linkFrame, vsyncsGoOn: seen && isRunning)
         budget?.beginFrame(timestamp: timestamp, targetTimestamp: targetTimestamp, refreshInterval: refreshInterval, ranAt: ranAt)
         // A stalled frame keeps refreshInterval nil (`SwitchFrameTimer` reads nil as a stall), but is
         // still shown one link interval after it starts (Chrome's synthetic sources: frame_time + interval).

@@ -1,10 +1,10 @@
 /* This file is generated. Do not edit by hand. */
-/* cmux-tui mux protocol 12, IR 6f30c3bf72c6bbdc5d0b28f9221b6a582f1cc82ede99888633ff61589fdadc36. */
+/* cmux-tui mux protocol 12, IR 42e0256cc80059e27ca003116e524f484be7fe4c6a5b5226a76fc05737e79958. */
 
 
 export const SDK_SCHEMA_VERSION = 2 as const;
 export const MUX_PROTOCOL_VERSION = 12 as const;
-export const SDK_IR_SHA256 = "6f30c3bf72c6bbdc5d0b28f9221b6a582f1cc82ede99888633ff61589fdadc36" as const;
+export const SDK_IR_SHA256 = "42e0256cc80059e27ca003116e524f484be7fe4c6a5b5226a76fc05737e79958" as const;
 export const PROTOCOL = {
   "id_type": "uint64",
   "javascript_id_policy": "All protocol identifiers are uint64 JSON numbers. JavaScript and TypeScript SDKs must decode them losslessly as bigint (or validated decimal strings at their public boundary), and must not expose IEEE-754 number ids. Pairing request ids, revisions, timestamps, frame sequences, and reservation ids follow the same rule.",
@@ -20864,6 +20864,7 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           }
         },
         "surface": {
+          "default": null,
           "nullable": true,
           "presence": "optional",
           "type": {
@@ -34850,7 +34851,6 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
       "additional_properties": false,
       "fields": {
         "favicon_url": {
-          "default": null,
           "nullable": true,
           "presence": "optional",
           "type": {
@@ -34868,7 +34868,6 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           }
         },
         "profile_id": {
-          "default": null,
           "description": "Move the frontend browser tab to this browser profile; null clears its profile.",
           "nullable": true,
           "presence": "optional",
@@ -35064,7 +35063,6 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           }
         },
         "snapshot": {
-          "default": null,
           "nullable": true,
           "presence": "optional",
           "type": {
@@ -35081,7 +35079,6 @@ export const COMMAND_SCHEMAS: Readonly<Record<string, CommandSchema>> = {
           }
         },
         "title": {
-          "default": null,
           "nullable": true,
           "presence": "optional",
           "type": {

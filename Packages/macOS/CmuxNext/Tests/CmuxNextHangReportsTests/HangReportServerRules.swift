@@ -32,7 +32,7 @@ struct HangReportServerRules {
         case 2:
             return HangRules(keys: hangKeys, sources: ["metrickit", "watchdog"], kinds: ["hang", "stall"])
         case 3:
-            return HangRules(keys: hangKeys.union(["blocking"]), sources: ["metrickit", "watchdog", "detector"],
+            return HangRules(keys: hangKeys.union(["blocking", "task"]), sources: ["metrickit", "watchdog", "detector"],
                              kinds: ["hang", "stall", "blocking"])
         default:
             return nil
@@ -43,6 +43,8 @@ struct HangReportServerRules {
     static let blockingKeys: Set<String> = ["kind", "context"]
     static let blockingKinds = Set(BlockingKind.allCases.map(\.rawValue))
     static let blockingContexts = Set(BlockingContext.allCases.map(\.rawValue))
+    /// Schema 3's `hangs[].task` (p06-scheduler-203): on a watchdog hang only, the owner and class.
+    static let taskKeys: Set<String> = ["owner", "class"]
 
     /// Every way `body` breaks the rules of the schema it names; empty when the server would take it.
     static func violations(in body: Data) -> [String] {
@@ -66,6 +68,15 @@ struct HangReportServerRules {
         if !rules.kinds.contains(kind) { found.append("\(path).kind \(kind)") }
         for (index, frame) in ((hang["frames"] as? [[String: Any]]) ?? []).enumerated() {
             found += extraKeys(frame, allowed: frameKeys, at: "\(path).frames[\(index)]")
+        }
+        if let task = hang["task"] {
+            if source != "watchdog" || kind != "hang" { found.append("\(path).task on a \(source) \(kind)") }
+            if let task = task as? [String: Any] {
+                found += extraKeys(task, allowed: taskKeys, at: "\(path).task")
+                if !(task["owner"] is String) || !(task["class"] is String) { found.append("\(path).task fields") }
+            } else {
+                found.append("\(path).task is not an object")
+            }
         }
         // Schema 3: a blocking object exactly on a detector sample of kind blocking, with no duration.
         let isBlocking = source == "detector" || kind == "blocking"

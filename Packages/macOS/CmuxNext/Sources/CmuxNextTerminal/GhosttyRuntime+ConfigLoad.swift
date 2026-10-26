@@ -43,11 +43,15 @@ extension GhosttyRuntime {
             self.recordUserConfigLoad(built)
             self.adoptedDuringReload = false
             self.applyColorTransitionToSurfaces()
-            ghostty_app_update_config(app, built.config)
+            // SAFETY: `app` is the live app (never freed); update_config copies what it keeps from
+            // the built config, which this reply still owns.
+            unsafe ghostty_app_update_config(app, built.config)
             // Ghostty answers with CONFIG_CHANGE on this thread: the config it
             // applied carries the light/dark variant, `built` does not (it
             // would put a dark app's chrome back on the light variant).
-            if self.adoptedDuringReload { built.free() } else { self.replaceConfig(built.config) }
+            // SAFETY: the built config leaves this reply by exactly one path: freed, or handed to
+            // the runtime's `config`.
+            if self.adoptedDuringReload { built.free() } else { unsafe self.replaceConfig(built.config) }
         }
     }
 

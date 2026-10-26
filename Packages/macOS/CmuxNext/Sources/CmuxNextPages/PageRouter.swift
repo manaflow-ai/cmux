@@ -48,6 +48,11 @@ public final class PageRouter {
     public weak var lifecycle: (any PageDeliveryLifecycle)?
     /// Events kept while delivery is held, per subscription, by the stream's ``PageFrozenDelivery``.
     var held = PageDeliveryHold()
+    /// Why ``held`` holds (PageRouter+Hold.swift): it releases once no reason is left.
+    var holdReasons: Set<PageDeliveryHoldReason> = []
+    /// Sends what the host's script pipeline keeps for the next frame now: a built-in command or a
+    /// host call was just sent and must not wait a frame (``PageWebView`` sets it).
+    var deliverNow: (@MainActor () -> Void)?
     #if DEBUG || CMUX_BENCH_HOOKS
     /// Whether the page's view is hidden, as its ``PageWebView`` tells the engine (`debug.webui`).
     public internal(set) var debugPageHidden = false
@@ -66,19 +71,9 @@ public final class PageRouter {
     /// Rebinds a pooled router to a new document and ends every operation owned by the old page.
     func rebind(descriptor: PageDescriptor, routes: [PageRoute]) {
         reset()
-        // The hold followed the old claim's visibility; the new owner's lifecycle holds it again.
-        held = PageDeliveryHold()
+        renewHold()
         self.descriptor = descriptor
         self.routes = routes.sorted { $0.prefix.count > $1.prefix.count }
-    }
-
-    /// The script that delivers `envelope` to the page.
-    /// One buffer: the envelope's JSON is appended in place, never built and copied.
-    public nonisolated static func receiveScript(_ envelope: JSONValue) -> String {
-        var script = "window.__cmuxPageReceive && window.__cmuxPageReceive("
-        envelope.appendCompactText(to: &script)
-        script += ");"
-        return script
     }
 
     // MARK: Page to host
@@ -312,6 +307,7 @@ public final class PageRouter {
         guard !subs.isEmpty else { return false }
         lifecycle?.thawForDelivery()
         for sub in subs { emit(sub: sub, .object(data)) }
+        deliverNow?()
         return true
     }
 
@@ -348,6 +344,7 @@ public final class PageRouter {
             pendingCalls[id] = continuation
             started(id)
             send(["t": "call", "id": .number(Double(id)), "op": .string(op), "params": params])
+            deliverNow?()
         }
     }
 

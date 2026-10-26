@@ -39,7 +39,8 @@ final class SurfaceFrameEncoder {
         self.sourceHeight = sourceHeight
         (width, height) = Self.encodedSize(width: sourceWidth, height: sourceHeight)
         var transfer: VTPixelTransferSession?
-        guard VTPixelTransferSessionCreate(allocator: kCFAllocatorDefault, pixelTransferSessionOut: &transfer) == noErr,
+        // SAFETY: VideoToolbox writes one +1 session to the local `transfer`, live for the call.
+        guard unsafe VTPixelTransferSessionCreate(allocator: kCFAllocatorDefault, pixelTransferSessionOut: &transfer) == noErr,
               let transfer else { return nil }
         VTSessionSetProperty(transfer, key: kVTPixelTransferPropertyKey_ScalingMode, value: kVTScalingMode_Normal)
         self.transfer = transfer
@@ -57,7 +58,9 @@ final class SurfaceFrameEncoder {
         ]
         var created: VTCompressionSession?
         for spec in specs where created == nil {
-            VTCompressionSessionCreate(
+            // SAFETY: no output callback and no refcon (frames go to per-frame output handlers);
+            // VideoToolbox writes one +1 session to the local `created`, live for the call.
+            unsafe VTCompressionSessionCreate(
                 allocator: kCFAllocatorDefault, width: Int32(width), height: Int32(height), codecType: kCMVideoCodecType_H264,
                 encoderSpecification: spec as CFDictionary, imageBufferAttributes: attributes as CFDictionary,
                 compressedDataAllocator: nil, outputCallback: nil, refcon: nil, compressionSessionOut: &created)
@@ -117,18 +120,23 @@ final class SurfaceFrameEncoder {
     func encode(_ surface: IOSurface, forceKeyframe: Bool,
                 completion: @escaping @Sendable ((data: Data, keyframe: Bool)?) -> Void) {
         var wrapped: Unmanaged<CVPixelBuffer>?
-        guard CVPixelBufferCreateWithIOSurface(kCFAllocatorDefault, surface, nil, &wrapped) == kCVReturnSuccess,
-              let source = wrapped?.takeRetainedValue(),
+        // SAFETY: Core Video writes one +1 buffer to the local `wrapped`, live for the call; the
+        // next line takes that +1 exactly once.
+        guard unsafe CVPixelBufferCreateWithIOSurface(kCFAllocatorDefault, surface, nil, &wrapped) == kCVReturnSuccess,
+              // SAFETY: as above, the +1 buffer Core Video just made, taken once.
+              let source = unsafe wrapped?.takeRetainedValue(),
               let pool = VTCompressionSessionGetPixelBufferPool(session) else { return completion(nil) }
         var made: CVPixelBuffer?
-        CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, pool, &made)
+        // SAFETY: Core Video writes one +1 buffer to the local `made`, live for the call.
+        unsafe CVPixelBufferPoolCreatePixelBuffer(kCFAllocatorDefault, pool, &made)
         guard let target = made, VTPixelTransferSessionTransferImage(transfer, from: source, to: target) == noErr else {
             return completion(nil)
         }
         frameIndex += 1
         let pts = CMTime(value: frameIndex, timescale: 60)
         let properties = forceKeyframe ? [kVTEncodeFrameOptionKey_ForceKeyFrame: true] as CFDictionary : nil
-        let status = VTCompressionSessionEncodeFrame(
+        // SAFETY: no info flags out-pointer; the output handler gets the frame.
+        let status = unsafe VTCompressionSessionEncodeFrame(
             session, imageBuffer: target, presentationTimeStamp: pts, duration: .invalid,
             frameProperties: properties, infoFlagsOut: nil, outputHandler: Self.outputHandler(completion))
         if status != noErr { completion(nil) }
@@ -160,24 +168,34 @@ final class SurfaceFrameEncoder {
         if keyframe, let format = CMSampleBufferGetFormatDescription(sample) {
             // The format names how many parameter sets it holds (H.264: SPS and PPS); copy each once.
             var count = 0
-            _ = CMVideoFormatDescriptionGetH264ParameterSetAtIndex(
+            // SAFETY: Core Media writes only the set count, to the local `count`; every other out-pointer is nil.
+            _ = unsafe CMVideoFormatDescriptionGetH264ParameterSetAtIndex(
                 format, parameterSetIndex: 0, parameterSetPointerOut: nil, parameterSetSizeOut: nil,
                 parameterSetCountOut: &count, nalUnitHeaderLengthOut: nil)
             for index in 0..<min(count, 8) {
                 var pointer: UnsafePointer<UInt8>?
                 var size = 0
-                guard CMVideoFormatDescriptionGetH264ParameterSetAtIndex(
+                // SAFETY: Core Media writes the set's pointer and size to the locals `pointer` and
+                // `size`; the pointer is into the format description, which `sample` keeps alive.
+                guard unsafe CMVideoFormatDescriptionGetH264ParameterSetAtIndex(
                     format, parameterSetIndex: index, parameterSetPointerOut: &pointer, parameterSetSizeOut: &size,
-                    parameterSetCountOut: nil, nalUnitHeaderLengthOut: nil) == noErr, let pointer else { continue }
+                    parameterSetCountOut: nil, nalUnitHeaderLengthOut: nil) == noErr,
+                    // SAFETY: copies the address Core Media wrote; nothing is read through it here.
+                    let pointer = unsafe pointer else { continue }
                 out.append(contentsOf: startCode)
-                out.append(UnsafeBufferPointer(start: pointer, count: size))
+                // SAFETY: `pointer` has `size` bytes (Core Media said so above) inside the format
+                // description, alive through this function; Data copies them now.
+                unsafe out.append(UnsafeBufferPointer(start: pointer, count: size))
             }
         }
         let total = CMBlockBufferGetDataLength(block)
         var raw = [UInt8](repeating: 0, count: total)
         let status = raw.withUnsafeMutableBytes { destination -> OSStatus in
-            guard let base = destination.baseAddress else { return -1 }
-            return CMBlockBufferCopyDataBytes(block, atOffset: 0, dataLength: total, destination: base)
+            // SAFETY: nil only for an empty block, which fails the copy as before.
+            guard let base = unsafe destination.baseAddress else { return -1 }
+            // SAFETY: Core Media copies exactly `total` bytes, the block's whole length, into
+            // `raw`, which has `total` bytes, during the call only.
+            return unsafe CMBlockBufferCopyDataBytes(block, atOffset: 0, dataLength: total, destination: base)
         }
         guard status == noErr else { return nil }
         var offset = 0

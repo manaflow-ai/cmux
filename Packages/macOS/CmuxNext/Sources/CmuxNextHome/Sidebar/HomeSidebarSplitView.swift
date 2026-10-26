@@ -57,7 +57,7 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
         setHoldingPriority(.defaultHigh, forSubviewAt: 0)
         delegate = self
         setAccessibilityIdentifier("cmux.home.split")
-        sidebar.onContentChange = { [weak self] in self?.needsLayout = true }
+        sidebar.onContentChange = { [weak self] in self?.foldMayHaveChanged() }
         loneRailWatch = followLoneConversationTunable()
     }
 
@@ -151,6 +151,12 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
             && !HomeSidebarHeaderLayout.isCompact(width: own) && !HomeTunables.loneConversationRail.value(in: tunables)
     }
 
+    /// An input of ``foldsLoneConversation`` changed (the list's content, the tunable, the saved
+    /// width): a layout folds or shows the list only when the answer differs from what shows.
+    private func foldMayHaveChanged() {
+        if foldsLoneConversation != list.isHidden { needsLayout = true }
+    }
+
     /// Hides or shows the list for ``foldsLoneConversation``; true while it is folded.
     private func foldLoneConversation() -> Bool {
         let fold = foldsLoneConversation
@@ -173,7 +179,7 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
         FrameObservation(owner: "home.split.loneRail", delivery: .visible(visibility), on: mainWork) { [tunables] in
             HomeTunables.loneConversationRail.value(in: tunables)
         } onChange: { [weak self] _ in
-            self?.needsLayout = true
+            self?.foldMayHaveChanged()
         }
     }
 
@@ -200,9 +206,9 @@ public final class HomeSidebarSplitView: NSSplitView, NSSplitViewDelegate {
     }
 
     private func place(_ width: CGFloat) {
-        // A folded list has no divider to move: the next layout shows it if the width needs it.
+        // A folded list has no divider to move: a layout shows it if the width needs it.
         guard !list.isHidden else {
-            needsLayout = true
+            foldMayHaveChanged()
             return
         }
         placing = true

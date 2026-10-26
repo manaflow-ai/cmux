@@ -1,6 +1,7 @@
 import CmuxNextCompat
 import CmuxNextFeed
 import CmuxNextUpdater
+import CmuxNextWakeups
 import Foundation
 
 /// Installed updates in the Feed (Leo 2026-10-20): the first launch of a new cmux version posts
@@ -49,32 +50,44 @@ enum UpdateFeedPosting {
                                 notes: notes, appcast: nil)
     }
 
-    /// The highlights an earlier look saw (``highlights(_:held:)``).
+    /// The highlights an earlier look saw (``highlights(_:held:)``), and whether the follow is over.
     @MainActor final class Held {
         var highlights: UpdateHighlights?
+        var finished = false
+        /// The follow's observation once made, so a later post ends it.
+        weak var observation: ServiceObservation<UpdateHighlights?>?
+
+        func finish() {
+            finished = true
+            observation?.cancel()
+        }
     }
 
     /// Follows the Updated card's highlights and posts the card once they list changes. On a
     /// launch with no update it waits with the services (an update record only appears at launch,
-    /// so it never posts then).
-    static func follow(_ services: AppServices, defaults: UserDefaults = .standard) -> Task<Void, Never> {
+    /// so it never posts then). A service observation (the post writes the feed and the defaults,
+    /// whatever shows) in the background class: nobody waits on the card. It stops after the one
+    /// post, or when the services release it (`AppServices.updateFeedObservation`).
+    static func follow(_ services: AppServices, defaults: UserDefaults = .standard) -> ServiceObservation<UpdateHighlights?> {
         let updater = services.updater
         let held = Held()
-        // task-owner: AppServices.updateFeedObservation: ends after the one post, or with the services.
-        return Task { [weak services] in
-            for await highlights in ObservationStream({ Self.highlights(updater, held: held.highlights) }) {
-                guard let services else { return }
-                held.highlights = highlights
-                switch step(highlights, posted: defaults.string(forKey: postedKey), at: Date()) {
-                case .wait: continue
-                case .done: return
-                case let .post(card):
-                    services.feed.post(update: card)
-                    defaults.set(card.to, forKey: postedKey)
-                    return
-                }
+        let observation = ServiceObservation(.background, owner: "UpdateFeedPosting.follow", on: services.mainWork) {
+            Self.highlights(updater, held: held.highlights)
+        } apply: { [weak services] highlights in
+            guard let services, !held.finished else { return }
+            held.highlights = highlights
+            switch step(highlights, posted: defaults.string(forKey: postedKey), at: Date()) {
+            case .wait: return
+            case .done: held.finish()
+            case let .post(card):
+                services.feed.post(update: card)
+                defaults.set(card.to, forKey: postedKey)
+                held.finish()
             }
         }
+        // The first look, in the init, may have finished already.
+        if held.finished { observation.cancel() } else { held.observation = observation }
+        return observation
     }
 
     /// Debug: a sample cmux card and a sample Claude Code card, posted at once whatever was posted
