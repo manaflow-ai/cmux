@@ -7,7 +7,7 @@ import Foundation
 /// chosen preview and notes) when there are any, so that machine's daemon counts the answer as the
 /// person's and a relay can neither swap nor add them. Without it every such answer was
 /// refused as "accepted only from the cmux app" (Leo, 2026-10-21).
-extension AcpmuxSecretKey {
+nonisolated extension AcpmuxSecretKey {
     /// `personDecision` of a relayed answer; nil when the answers or annotations have no canonical
     /// form (a fractional number, which no question answer has). The annotations' digest is a
     /// seventh part only when there are annotations, as acpmux reads it.
