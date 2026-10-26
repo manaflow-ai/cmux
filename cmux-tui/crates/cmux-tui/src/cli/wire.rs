@@ -127,7 +127,7 @@ fn run_once(global: &GlobalArgs, mut plan: RequestPlan, tries: &retry::Tries) ->
         &mut reader,
         caller_route,
         &socket_route,
-        true,
+        super::caller_place::Pass::Selectors,
     ) {
         return code;
     }
@@ -168,7 +168,7 @@ fn run_once(global: &GlobalArgs, mut plan: RequestPlan, tries: &retry::Tries) ->
         &mut reader,
         caller_route,
         &socket_route,
-        false,
+        super::caller_place::Pass::DaemonBrowser,
     ) {
         return code;
     }
@@ -255,12 +255,12 @@ fn place_caller(
     plan: &mut RequestPlan,
     request: &mut Value,
     encoded: &mut Vec<u8>,
-    reader: &mut BufReader<Box<dyn cmux_tui_core::platform::transport::Stream>>,
+    reader: &mut BufReader<Box<dyn transport::Stream>>,
     caller_route: bool,
     socket: &super::resolve::SocketRoute<'_>,
-    app_may_open_browser: bool,
+    pass: super::caller_place::Pass,
 ) -> Result<(), i32> {
-    match super::caller_place::apply(global, plan, reader, caller_route, socket, app_may_open_browser)
+    match super::caller_place::apply(global, plan, reader, caller_route, socket, pass)
     {
         Ok(true) => {
             request["params"] = plan.params.clone();

@@ -255,6 +255,7 @@ fn registered_caller_workspace(
 
 /// [`caller_place`], waiting for the caller's terminal to be placed (see
 /// [`registered_caller_workspace`]).
+#[cfg_attr(not(unix), allow(dead_code))]
 pub(super) fn registered_caller_place(
     reader: &mut Reader,
     route: &Map<String, Value>,

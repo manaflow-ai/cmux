@@ -28,8 +28,13 @@ const OWN_TAB: &str = "tab_44444444444444444444444444444444";
 const OWN_TERMINAL: &str = "term_55555555555555555555555555555555";
 /// The workspace the person looks at.
 const FRONT_WS: &str = "ws_77777777777777777777777777777777";
+const FRONT_SCREEN: &str = "screen_66666666666666666666666666666666";
 const FRONT_PANE: &str = "pane_88888888888888888888888888888888";
+/// Another machine.
+const MACHINE: &str = "machine_99999999999999999999999999999999";
 const URL: &str = "http://127.0.0.1:8765/page.html";
+/// Stands for the fake daemon's socket path in a test's arguments.
+const SOCKET: &str = "{daemon socket}";
 static NEXT_DIR: AtomicU64 = AtomicU64::new(0);
 
 #[test]
@@ -95,7 +100,42 @@ fn focused_is_the_pane_the_person_looks_at() {
     let run = Run::new().app(App::Placed).terminal().cli(&["--json", "pane", "focused", "split"]);
     let split = run.mutation("pane.split");
     assert_eq!(split["workspace"], FRONT_WS, "{}", run.stderr());
+    assert_eq!(split["screen"], FRONT_SCREEN);
     assert_eq!(split["pane"], FRONT_PANE);
+    assert!(!run.daemon_operations().contains(&"terminal.get".to_owned()));
+}
+
+#[test]
+fn another_machine_keeps_its_own_current() {
+    let run =
+        Run::new().terminal().cli(&["--json", "--machine", MACHINE, "pane", "current", "split"]);
+    let split = run.mutation("pane.split");
+    assert_eq!(split["machine"], MACHINE, "{}", run.stderr());
+    assert_eq!(split["workspace"], "current");
+    assert_eq!(split["pane"], "current");
+    assert!(!run.daemon_operations().contains(&"terminal.get".to_owned()));
+}
+
+#[test]
+fn current_under_another_workspace_id_is_its_active_pane_even_for_an_unplaced_chat() {
+    // The app is unreachable, so the chat cannot be placed; the command
+    // names the workspace by id, so it does not need the chat's place.
+    let run = Run::new().agent().cli(&[
+        "--json", "tab", "create", "terminal", "--workspace", FRONT_WS, "--pane", "current",
+    ]);
+    let split = run.mutation("tab.create_terminal");
+    assert_eq!(split["workspace"], FRONT_WS, "{}", run.stderr());
+    assert_eq!(split["pane"], "current");
+}
+
+#[test]
+fn current_under_the_callers_own_workspace_id_is_the_callers_pane() {
+    let run = Run::new().terminal().cli(&[
+        "--json", "tab", "create", "terminal", "--workspace", OWN_WS, "--pane", "current",
+    ]);
+    let split = run.mutation("tab.create_terminal");
+    assert_eq!(split["workspace"], OWN_WS, "{}", run.stderr());
+    assert_eq!(split["pane"], OWN_PANE);
 }
 
 #[test]
@@ -116,8 +156,8 @@ fn a_shell_outside_cmux_keeps_the_daemons_current() {
 }
 
 #[test]
-fn another_session_keeps_its_own_current() {
-    let run = Run::new().terminal().cli(&["--json", "--session", "current", "pane", "current", "split"]);
+fn a_named_socket_keeps_its_own_current() {
+    let run = Run::new().terminal().cli(&["--json", "--socket", SOCKET, "pane", "current", "split"]);
     let split = run.mutation("pane.split");
     assert_eq!(split["pane"], "current", "{}", run.stderr());
     assert!(!run.daemon_operations().contains(&"terminal.get".to_owned()));
@@ -214,8 +254,9 @@ impl Run {
         let mut command = Command::new(env!("CARGO_BIN_EXE_cmux-tui"));
         // A missing socket: the app is unreachable.
         command.arg("--app-socket").arg(&app_socket);
+        let socket = daemon_socket.display().to_string();
         command
-            .args(args)
+            .args(args.iter().map(|arg| if *arg == SOCKET { socket.as_str() } else { arg }))
             .env("CMUX_TUI_SOCKET", &daemon_socket)
             .env_remove("CMUX_MUX_SOCKET")
             .env_remove("CMUX_TUI_TERMINAL_ID")
@@ -339,7 +380,7 @@ fn app_response(mode: App, request: &Value) -> Value {
             App::Unplaced => json!({"caller": {"agent_session": "01a17599", "found": false}}),
         },
         "snapshot.get" => json!({"topology": {"focus": {"window": "win_a",
-            "workspace": FRONT_WS, "pane": FRONT_PANE}}}),
+            "workspace": FRONT_WS, "screen": FRONT_SCREEN, "pane": FRONT_PANE}}}),
         other => {
             return json!({"id": request["id"], "ok": false, "error": {"code": "unknown_method",
                 "message": format!("unexpected {other}"), "data": {}}});

@@ -104,7 +104,7 @@ pub(super) enum CliOutcome {
 }
 
 /// [`placement`] for `cmux tab create terminal` run by an agent
-/// (`CMUX_AGENT_SESSION`) with no `--workspace`, `--screen` or `--pane`, on
+/// (`CMUX_AGENT_SESSION`, or a Chief turn's `CMUX_CALLER_HOME_CHAT`) with no `--workspace`, `--screen` or `--pane`, on
 /// the request's own connection. A person's terminal keeps the daemon's
 /// default, the pane they type in.
 #[cfg(unix)]
@@ -120,7 +120,8 @@ pub(super) fn apply_cli(
 
     let creates_terminal =
         matches!(plan.operation, WireOperation::Typed(ResourceOperation::TabCreateTerminal));
-    let agent = std::env::var("CMUX_AGENT_SESSION").is_ok_and(|session| !session.is_empty());
+    // An agent chat, or a Chief turn the app places beside the Home chat.
+    let agent = super::caller_place::Caller::from_env(|key| std::env::var(key).ok()).agent;
     let Some(params) = plan.params.as_object_mut() else { return CliOutcome::Unchanged };
     if !creates_terminal || !agent || !names_no_place(params) {
         return CliOutcome::Unchanged;

@@ -49,17 +49,28 @@ impl Caller {
     }
 }
 
+/// Which part of [`apply`] runs. The CLI rewrites the selectors once,
+/// before any request leaves; a browser tab no app opened gets its place
+/// after the app path, and only that, because the first pass's `current`
+/// already means the daemon's active object there.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(super) enum Pass {
+    /// `current` and `focused`, and a terminal tab with no place.
+    Selectors,
+    /// A browser tab with no place that no app opened.
+    DaemonBrowser,
+}
+
 /// The parent selectors a creation with no place gets from a terminal
-/// caller, so the new tab opens in the caller's pane rather than the
-/// daemon's active one. An agent chat's creations go beside its chat
+/// caller in `pass`, so the new tab opens in the caller's pane rather than
+/// the daemon's active one. An agent chat's creations go beside its chat
 /// instead (beside.rs, the app's `openBrowser`), and a browser tab in a
 /// session an app owns opens next to the caller's tab through the app
-/// (frontend_browser.rs), so a browser tab is filled only once no app
-/// opened it (`app_may_open_browser` false).
-pub(super) fn no_place_parents(operation: &WireOperation, app_may_open_browser: bool) -> &'static [&'static str] {
-    match operation {
-        WireOperation::Typed(ResourceOperation::TabCreateTerminal) => &["workspace", "screen", "pane"],
-        WireOperation::Typed(ResourceOperation::TabCreateBrowser) if !app_may_open_browser => {
+/// (frontend_browser.rs).
+pub(super) fn no_place_parents(operation: &WireOperation, pass: Pass) -> &'static [&'static str] {
+    match (operation, pass) {
+        (WireOperation::Typed(ResourceOperation::TabCreateTerminal), Pass::Selectors)
+        | (WireOperation::Typed(ResourceOperation::TabCreateBrowser), Pass::DaemonBrowser) => {
             &["workspace", "screen", "pane"]
         }
         _ => &[],
@@ -67,30 +78,44 @@ pub(super) fn no_place_parents(operation: &WireOperation, app_may_open_browser: 
 }
 
 /// Fills `current` for each of `parents` when `params` names no place, so
-/// [`caller_scope::apply`] puts the caller's ids there.
-pub(super) fn fill_no_place(params: &mut Map<String, Value>, parents: &[&str]) {
+/// [`caller_scope::apply`] puts the caller's ids there; whether it did.
+pub(super) fn fill_no_place(params: &mut Map<String, Value>, parents: &[&str]) -> bool {
     if parents.is_empty() || !super::beside::names_no_place(params) {
-        return;
+        return false;
     }
     for parent in parents {
         params.insert((*parent).into(), json!("current"));
     }
+    true
 }
 
-/// Rewrites the `current` and `focused` selectors of `plan` (and fills the
-/// place of a terminal caller's creation that names none). `Ok(true)` when
-/// the params changed and the request must be encoded again.
+/// Rewrites the `current` and `focused` selectors of `plan` and fills the
+/// place of a terminal caller's creation that names none, as `pass` says.
+/// `Ok(true)` when the params changed and the request must be encoded
+/// again.
 pub(super) fn apply(
     global: &GlobalArgs,
     plan: &mut RequestPlan,
     reader: &mut Reader,
     caller_route: bool,
     socket: &SocketRoute<'_>,
-    app_may_open_browser: bool,
+    pass: Pass,
 ) -> Result<bool, Failure> {
     let caller = Caller::from_env(|key| std::env::var(key).ok());
-    let parents = no_place_parents(&plan.operation, app_may_open_browser);
+    let parents = no_place_parents(&plan.operation, pass);
     let Some(params) = plan.params.as_object_mut() else { return Ok(false) };
+    // Another machine's daemon knows neither this terminal nor the app's ids.
+    let caller_route = caller_route
+        && params.get("machine").is_none_or(|machine| machine.as_str() == Some("current"));
+    let terminal_caller = caller_route && !caller.agent && caller.terminal.is_some();
+    if pass == Pass::DaemonBrowser {
+        if !terminal_caller || !fill_no_place(params, parents) {
+            return Ok(false);
+        }
+        let place = caller_place(global, reader, socket, &caller, params)?;
+        caller_scope::apply(params, place.as_ref(), None);
+        return Ok(true);
+    }
     if !caller_route {
         // Another session: neither the caller nor the app's focus is there.
         if !caller_scope::wants_focus(params) {
@@ -99,7 +124,7 @@ pub(super) fn apply(
         caller_scope::apply(params, None, None);
         return Ok(true);
     }
-    if !caller.agent && caller.terminal.is_some() {
+    if terminal_caller {
         fill_no_place(params, parents);
     }
     let wants_caller = caller_scope::wants_caller(params);
@@ -107,10 +132,28 @@ pub(super) fn apply(
     if !wants_caller && !wants_focus {
         return Ok(false);
     }
-    let place = if wants_caller { caller_place(global, reader, socket, &caller, params)? } else { None };
+    let place = match outermost(params) {
+        // `current` at the top is the caller's place: no answer, no guess.
+        Some(CURRENT) => caller_place(global, reader, socket, &caller, params)?,
+        // Under an id, `current` is the caller's only inside its own
+        // place; a caller that cannot be found keeps the daemon's.
+        Some(_) if wants_caller => {
+            caller_place(global, reader, socket, &caller, params).ok().flatten()
+        }
+        _ => None,
+    };
     let focus = if wants_focus { app_focus(global) } else { None };
     caller_scope::apply(params, place.as_ref(), focus.as_ref());
     Ok(true)
+}
+
+const CURRENT: &str = "current";
+
+/// The outermost structural selector `params` names.
+fn outermost(params: &Map<String, Value>) -> Option<&str> {
+    ["workspace", "screen", "pane", "tab"]
+        .into_iter()
+        .find_map(|level| params.get(level).and_then(Value::as_str))
 }
 
 /// The caller's own workspace, screen, pane and tab; `None` when the
@@ -198,18 +241,19 @@ mod tests {
             .as_object()
             .cloned()
             .unwrap_or_default();
-        fill_no_place(&mut params, no_place_parents(&terminal, false));
+        assert!(fill_no_place(&mut params, no_place_parents(&terminal, Pass::Selectors)));
         assert_eq!(params["workspace"], "current");
         assert_eq!(params["pane"], "current");
 
         let mut named = json!({"pane": "pane_x"}).as_object().cloned().unwrap_or_default();
-        fill_no_place(&mut named, no_place_parents(&terminal, false));
+        assert!(!fill_no_place(&mut named, no_place_parents(&terminal, Pass::Selectors)));
         assert!(named.get("workspace").is_none());
 
         let browser = WireOperation::Typed(ResourceOperation::TabCreateBrowser);
-        assert!(no_place_parents(&browser, true).is_empty());
-        assert_eq!(no_place_parents(&browser, false).len(), 3);
+        assert!(no_place_parents(&browser, Pass::Selectors).is_empty());
+        assert_eq!(no_place_parents(&browser, Pass::DaemonBrowser).len(), 3);
+        assert!(no_place_parents(&terminal, Pass::DaemonBrowser).is_empty());
         let split = WireOperation::Typed(ResourceOperation::PaneSplit);
-        assert!(no_place_parents(&split, false).is_empty());
+        assert!(no_place_parents(&split, Pass::Selectors).is_empty());
     }
 }
