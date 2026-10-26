@@ -15,8 +15,8 @@ Chrome reference (chromium/src):
 
 Usage:
     switches.py --check [--registry DIR]      exit 0: every switch passes; 1: findings; 2: bad usage
-    switches.py --expired [--today YYYY-MM-DD] one line per switch whose `expires` day has come
-                                               (exit 0: none, 1: some)
+    switches.py --expired [--today YYYY-MM-DD] one deletion task per switch whose `expires` day has come
+                                               (exit 0: none, 1: some, 2: a file whose day is unreadable)
     switches.py --selftest                    the refusal table below, on temporary registries
 `oracle.py switches ARGS` runs this script with ARGS.
 
@@ -32,6 +32,11 @@ Usage:
   and an `expected_differences` list that diff.py refuses.
 `--check` does not read the date: an expired switch is the `--expired` queue (task 171), not a refusal.
 
+`--expired` (MQ-switch-expiry) prints, by `expires` day then name, one line per switch:
+    NAME expired=DAY owner=OWNER key=app:KEY|daemon:KEY catalog=PATH default=ARM keep=ARM delete=P1,P2,...
+`keep` is the `planned` arm. `delete` is the old arm's `old_paths` (only when `keep` is new) and the
+registry file; the owner also removes KEY's case from `catalog` and its reads. Values are shell-quoted.
+
 Catalog contracts this file reads (the producing tasks must keep them):
 - APP_CATALOG declares `enum RefactorSwitchKey: String` with one `case name = "raw.value"` (or a bare
   `case name`, raw value = name) per switch. A site names a switch as `RefactorSwitchKey.name` or as
@@ -44,12 +49,15 @@ from __future__ import annotations
 import argparse
 import datetime as dt
 import importlib
+import io
 import json
 import re
+import shlex
 import shutil
 import sys
 import tempfile
-from dataclasses import dataclass
+from contextlib import redirect_stderr, redirect_stdout
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Sequence, Set, Tuple
 
@@ -342,25 +350,66 @@ def check(roots: Roots) -> Tuple[List[Finding], int]:
 
 
 # ---------------------------------------------------------------------------------------------------------
-# --expired
+# --expired (task p15-oracle-171): the MQ-switch-expiry queue, one deletion task per switch
 
 
-def expired(registry: Path, today: dt.date, repo: Path = REPO) -> List[str]:
-    """One deletion line per switch whose `expires` day is today or earlier, by day then name."""
-    rows: List[Tuple[dt.date, str, str]] = []
-    for path in sorted(registry.glob("*.json")):
-        data, _ = load_entry(path)
+@dataclass(frozen=True)
+class DeletionTask:
+    """What the owner deletes when a switch's `expires` day has come (chrome tools/flags/list-flags.py
+    --expired-by lists the flags past their milestone the same way: one row per flag, with its owners)."""
+
+    name: str
+    expires: dt.date
+    owner: str
+    key: str
+    catalog: str
+    default: str
+    keep: str
+    delete: Tuple[str, ...]
+
+    def line(self) -> str:
+        """`NAME expired=DAY owner=O key=app:K catalog=PATH default=A keep=A delete=P1,P2`, shell-quoted
+        values (`shlex.split` reads it back), so an owner with a space stays one field."""
+        fields = (("expired", str(self.expires)), ("owner", self.owner), ("key", self.key),
+                  ("catalog", self.catalog), ("default", self.default), ("keep", self.keep),
+                  ("delete", ",".join(self.delete)))
+        return " ".join([shlex.quote(self.name)] + [f"{label}={shlex.quote(value)}" for label, value in fields])
+
+
+def deletion_task(path: Path, data: Dict[str, Any], day: dt.date, roots: Roots) -> DeletionTask:
+    """The registry file always goes; the old arm's files go only when the refactor keeps the new arm.
+    A switch planned at `old` is a refactor given up: its old paths stay and the key's reads go."""
+    keep = str(data.get("planned", "-"))
+    if "app_key" in data:
+        key, catalog = f"app:{data['app_key']}", roots.app_catalog
+    else:
+        key, catalog = f"daemon:{data.get('daemon_key', '-')}", roots.daemon_catalog
+    old_paths = [str(old) for old in data.get("old_paths") or []] if keep == "new" else []
+    return DeletionTask(name=path.stem, expires=day, owner=str(data.get("owner") or "-"), key=key,
+                        catalog=relative(catalog, roots.repo), default=str(data.get("default", "-")), keep=keep,
+                        delete=tuple(old_paths + [relative(path, roots.repo)]))
+
+
+def expired(roots: Roots, today: dt.date) -> Tuple[List[DeletionTask], List[Finding]]:
+    """The deletion tasks of every switch whose `expires` day is today or earlier, by day then name, and
+    the files whose day cannot be read: such a file is reported, never dropped from the queue unseen."""
+    if not roots.registry.is_dir():
+        raise UsageError(f"{roots.registry}: no registry directory")
+    tasks: List[DeletionTask] = []
+    unread: List[Finding] = []
+    for path in sorted(roots.registry.glob("*.json")):
+        where = relative(path, roots.repo)
+        data, error = load_entry(path)
         if data is None:
+            unread.append(Finding(where, f"{error or 'unreadable'}; its expiry is unknown (run --check)"))
             continue
         day = parse_day(data.get("expires"))
-        if day is None or day > today:
+        if day is None:
+            unread.append(Finding(where, f"expires {data.get('expires')!r} is not a day (YYYY-MM-DD); its expiry is unknown"))
             continue
-        key = f"app:{data['app_key']}" if "app_key" in data else f"daemon:{data.get('daemon_key')}"
-        old = ",".join(data.get("old_paths") or []) or "-"
-        line = (f"{path.stem} expired {day} owner={data.get('owner', '-')} key={key} "
-                f"planned={data.get('planned', '-')} old_paths={old} file={relative(path, repo)}")
-        rows.append((day, path.stem, line))
-    return [line for _, _, line in sorted(rows)]
+        if day <= today:
+            tasks.append(deletion_task(path, data, day, roots))
+    return sorted(tasks, key=lambda task: (task.expires, task.name)), unread
 
 
 # ---------------------------------------------------------------------------------------------------------
@@ -522,6 +571,93 @@ def selftest_closures() -> List[str]:
     return failures
 
 
+# (label, files {stem: entry}, today, the --expired lines, the unreadable stems)
+SELFTEST_EXPIRED: Sequence[Tuple[str, Dict[str, Dict[str, Any]], dt.date, List[str], List[str]]] = (
+    ("a past date is one deletion task",
+     {"layer-hosting": selftest_entry(created="2026-09-01", expires="2026-09-10")}, dt.date(2026, 10, 26),
+     ["layer-hosting expired=2026-09-10 owner=perf-lead key=app:browser.layer-hosting "
+      "catalog=Sources/RefactorSwitches.swift default=old keep=new delete=Sources/Old.swift,registry/layer-hosting.json"],
+     []),
+    ("the day before expires lists nothing", {"layer-hosting": selftest_entry()}, dt.date(2026, 11, 7), [], []),
+    ("the expires day itself is expired", {"layer-hosting": selftest_entry()}, dt.date(2026, 11, 8),
+     ["layer-hosting expired=2026-11-08 owner=perf-lead key=app:browser.layer-hosting "
+      "catalog=Sources/RefactorSwitches.swift default=old keep=new delete=Sources/Old.swift,registry/layer-hosting.json"],
+     []),
+    ("by day, then by name, whatever the file order",
+     {"zeta": selftest_entry(name="zeta", expires="2026-10-30"),
+      "holder": daemon_entry(expires="2026-11-01"),
+      "alpha": selftest_entry(name="alpha", expires="2026-10-30", old_paths=None),
+      "later": selftest_entry(name="later", expires="2026-11-08")},
+     dt.date(2026, 11, 1),
+     ["alpha expired=2026-10-30 owner=perf-lead key=app:browser.layer-hosting "
+      "catalog=Sources/RefactorSwitches.swift default=old keep=new delete=registry/alpha.json",
+      "zeta expired=2026-10-30 owner=perf-lead key=app:browser.layer-hosting "
+      "catalog=Sources/RefactorSwitches.swift default=old keep=new delete=Sources/Old.swift,registry/zeta.json",
+      "holder expired=2026-11-01 owner=perf-lead key=daemon:holder catalog=switches.rs default=old keep=new "
+      "delete=registry/holder.json"],
+     []),
+    ("a refactor planned at old keeps its old paths",
+     {"layer-hosting": selftest_entry(planned="old", default="new")}, dt.date(2026, 11, 8),
+     ["layer-hosting expired=2026-11-08 owner=perf-lead key=app:browser.layer-hosting "
+      "catalog=Sources/RefactorSwitches.swift default=new keep=old delete=registry/layer-hosting.json"],
+     []),
+    ("an owner with a space stays one field",
+     {"layer-hosting": selftest_entry(owner="Lawrence Chen", old_paths=["Sources/Old.swift", "Sources"])},
+     dt.date(2026, 11, 8),
+     ["layer-hosting expired=2026-11-08 owner='Lawrence Chen' key=app:browser.layer-hosting "
+      "catalog=Sources/RefactorSwitches.swift default=old keep=new "
+      "delete=Sources/Old.swift,Sources,registry/layer-hosting.json"],
+     []),
+    ("an unreadable expiry is reported, the rest still listed",
+     {"layer-hosting": selftest_entry(expires="2026-02-30"), "holder": daemon_entry(expires="2026-10-30")},
+     dt.date(2026, 11, 8),
+     ["holder expired=2026-10-30 owner=perf-lead key=daemon:holder catalog=switches.rs default=old keep=new "
+      "delete=registry/holder.json"],
+     ["layer-hosting"]),
+)
+
+# (CLI arguments after --registry, a broken file beside the two switches, exit code, stdout line count)
+SELFTEST_EXPIRED_CLI: Sequence[Tuple[Tuple[str, ...], bool, int, int]] = (
+    (("--today", "2026-10-29"), False, 0, 0),
+    (("--today", "2026-11-08"), False, 1, 2),
+    (("--today", "2026-10-29"), True, 2, 0),
+    (("--today", "2026-11-08"), True, 2, 2),
+)
+
+
+def selftest_expired(tmp: Path) -> List[str]:
+    """--expired on the table above, its line round trip through shlex, the CLI exit codes, and the
+    missing registry directory."""
+    failures: List[str] = []
+    for label, files, today, want_lines, want_unread in SELFTEST_EXPIRED:
+        tasks, unread = expired(selftest_tree(tmp, files, None), today)
+        lines = [task.line() for task in tasks]
+        stems = [Path(finding.path).stem for finding in unread]
+        if lines != want_lines or stems != want_unread:
+            failures.append(f"--expired {label}: got {lines}, unreadable {stems}")
+        for task, line in zip(tasks, lines):
+            fields = shlex.split(line)
+            if fields[0] != task.name or f"owner={task.owner}" not in fields:
+                failures.append(f"--expired {label}: {line!r} does not split back into its fields")
+    for extra, broken, want_code, want_count in SELFTEST_EXPIRED_CLI:
+        roots = selftest_tree(tmp, {"layer-hosting": selftest_entry(), "holder": daemon_entry(expires="2026-10-30")}, None)
+        if broken:
+            (roots.registry / "broken.json").write_text("{", encoding="utf-8")
+        out, err = io.StringIO(), io.StringIO()
+        with redirect_stdout(out), redirect_stderr(err):
+            code = main(["--expired", "--registry", str(roots.registry), *extra])
+        printed = out.getvalue().splitlines()
+        if code != want_code or len(printed) != want_count or broken != ("broken.json" in err.getvalue()):
+            failures.append(f"--expired {list(extra)} (broken file: {broken}): exit {code}, stdout {printed}, "
+                            f"stderr {err.getvalue()!r}")
+    try:
+        expired(replace(roots, registry=roots.repo / "none"), dt.date(2026, 11, 8))
+        failures.append("--expired on a missing registry directory did not refuse")
+    except UsageError:
+        pass
+    return failures
+
+
 def selftest() -> int:
     failures = selftest_closures()
     with tempfile.TemporaryDirectory(prefix="oracle-switches-") as name:
@@ -535,25 +671,15 @@ def selftest() -> int:
                 ok = bool(messages) and all(want in m for m in messages)
             if not ok:
                 failures.append(f"{label}: want {'pass' if not want else repr(want)}, got {messages}")
-        roots = selftest_tree(tmp, {"layer-hosting": selftest_entry(), "holder": daemon_entry(expires="2026-10-30")}, None)
-        lines = expired(roots.registry, dt.date(2026, 11, 8), roots.repo)
-        want_lines = [
-            "holder expired 2026-10-30 owner=perf-lead key=daemon:holder planned=new old_paths=- file=registry/holder.json",
-            "layer-hosting expired 2026-11-08 owner=perf-lead key=app:browser.layer-hosting planned=new "
-            "old_paths=Sources/Old.swift file=registry/layer-hosting.json",
-        ]
-        if lines != want_lines:
-            failures.append(f"--expired on 2026-11-08: got {lines}")
-        if expired(roots.registry, dt.date(2026, 10, 29), roots.repo):
-            failures.append("--expired on 2026-10-29 lists a switch that has not expired")
+        failures.extend(selftest_expired(tmp))
         missing = selftest_tree(tmp, {"layer-hosting": selftest_entry(), "holder": daemon_entry()}, None)
         missing.app_catalog.unlink()
         missing.daemon_catalog.unlink()
         messages = [str(f) for f in check(missing)[0]]
         if not (len(messages) == 2 and APP_CATALOG_TASK in messages[1] and DAEMON_CATALOG_TASK in messages[0]):
             failures.append(f"missing catalogs: got {messages}")
-    # The closure table, the refusal table, two --expired days and the missing catalogs.
-    total = len(SELFTEST_CLOSURES) + len(SELFTEST_CASES) + 3
+    # The closure, refusal, --expired and --expired CLI tables, the missing registry and the missing catalogs.
+    total = len(SELFTEST_CLOSURES) + len(SELFTEST_CASES) + len(SELFTEST_EXPIRED) + len(SELFTEST_EXPIRED_CLI) + 2
     for failure in failures:
         print(f"FAIL {failure}")
     print(f"selftest: {total - len(failures)}/{total} pass")
@@ -578,10 +704,12 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             return selftest()
         if args.expired:
             today = args.today or dt.datetime.now(dt.timezone.utc).date()
-            lines = expired(args.registry, today)
-            for line in lines:
-                print(line)
-            return 1 if lines else 0
+            tasks, unread = expired(Roots(registry=args.registry.resolve()), today)
+            for task in tasks:
+                print(task.line())
+            for finding in unread:
+                print(f"switches --expired: {finding}", file=sys.stderr)
+            return 2 if unread else 1 if tasks else 0
         findings, count = check(Roots(registry=args.registry.resolve()))
     except UsageError as error:
         print(f"switches: {error}", file=sys.stderr)
