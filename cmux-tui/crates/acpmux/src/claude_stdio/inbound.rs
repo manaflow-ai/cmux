@@ -881,9 +881,12 @@ impl Translator {
         let task = line.get("task_id").and_then(Value::as_str).unwrap_or("");
         // SendMessage resumed an agent that failed: its task starts again under the SendMessage
         // call, and it is that subagent running again (its lines still name its Agent call).
-        if sub == "task_started"
-            && let Some((tool, child)) = self.failed_agents.lock().await.remove(task)
-        {
+        let resumed = {
+            let mut failed = self.failed_agents.lock().await;
+            let at = failed.iter().position(|(agent, _, _)| !task.is_empty() && agent == task);
+            at.filter(|_| sub == "task_started").and_then(|at| failed.remove(at))
+        };
+        if let Some((_, tool, child)) = resumed {
             self.subagents.lock().await.insert(tool.clone(), child.clone());
             self.background_subagents.lock().await.insert(tool.clone());
             self.subagent_tasks.lock().await.insert(task.to_owned(), tool);
@@ -988,11 +991,11 @@ impl Translator {
         if let Some(agent) = agent {
             update.set("agentId", json!(agent));
             let mut failed = self.failed_agents.lock().await;
-            // Only the newest few wait for a resume: an old failure is not resumed any more.
+            failed.retain(|(a, _, _)| *a != agent);
             if failed.len() >= MAX_FAILED_AGENTS {
-                failed.clear();
+                failed.pop_front();
             }
-            failed.insert(agent, (tool.to_owned(), child.to_owned()));
+            failed.push_back((agent, tool.to_owned(), child.to_owned()));
         }
     }
 

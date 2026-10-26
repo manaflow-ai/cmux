@@ -318,3 +318,22 @@ async fn a_failed_foreground_agent_says_why() {
     assert_eq!(out[1].1["agentId"], "a1");
     assert!(out[1].1["error"].as_str().unwrap().contains("529"), "{out:?}");
 }
+
+/// Past `MAX_FAILED_AGENTS` failures the oldest is forgotten, never the newer ones: a resume of
+/// a newer one still says it runs again, and one forgotten still streams as its own.
+#[tokio::test]
+async fn failed_agents_past_the_limit_forget_only_the_oldest() {
+    let t = Translator::new("acp-1".into(), "default", "haiku", "default");
+    for n in 0..=MAX_FAILED_AGENTS {
+        let (tool, task) = (format!("toolu_{n}"), format!("a{n}"));
+        t.inbound(&background_spawn_line(&tool)).await;
+        t.inbound(&failed_503(&task, &tool)).await;
+    }
+    let resume = |task: &str| json!({"type": "system", "subtype": "task_started", "task_id": task, "tool_use_id": "toolu_send", "is_backgrounded": true});
+    assert!(updates(&t.inbound(&resume("a0")).await).is_empty(), "the oldest is forgotten");
+    let out = updates(&t.inbound(&resume("a1")).await);
+    assert_eq!(out[0].1["state"], "running", "{out:?}");
+    assert_eq!(out[0].1["subagentSessionId"], "acp-1/toolu_1");
+    let lines = late_lines("toolu_0");
+    assert_eq!(updates(&t.inbound(&lines[0]).await)[0].0, "acp-1/toolu_0");
+}
