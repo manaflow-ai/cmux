@@ -464,8 +464,10 @@ final class CloudService {
             do {
                 try await api.setIdlePause(machine.id, minutes: idlePause)
                 machine.idlePauseMinutes = idlePause
-                // A refresh may have listed the machine meanwhile: its session holds the record.
+                // A refresh may have listed the machine meanwhile: its session holds the record, and a
+                // list read before the PUT must not put the old value back.
                 machines.session(machine.id)?.machine.idlePauseMinutes = idlePause
+                listGeneration += 1
             } catch {
                 logger.error("idle pause for \(machine.id, privacy: .public) not stored: \(String(describing: error), privacy: .public)")
             }
@@ -479,7 +481,8 @@ final class CloudService {
 
     /// `POST /api/vm` with the request's one idempotency key. The server answers
     /// `503 vm_operation_in_progress` when provisioning outlasts its answer deadline and goes on
-    /// creating: the same key is sent again (the server answers the machine once it exists), up
+    /// creating, and `409 vm_create_in_progress` to the same key while it still has no provider
+    /// machine: the same key is sent again (the server answers the machine once it exists), up
     /// to ``inProgressRetries`` times, waiting ``inProgressDelay`` between, so a slow create still
     /// ends with its machine and its bootstrap.
     static func createWithKey(_ api: CloudAPIClient, name: String?, request: CloudMachineRequest, idlePause: Int?,
@@ -489,7 +492,8 @@ final class CloudService {
         for _ in 0..<inProgressRetries {
             do {
                 return try await send()
-            } catch let CloudAPIError.http(status, code, _) where status == 503 && code == "vm_operation_in_progress" {
+            } catch let CloudAPIError.http(status, code, _)
+                        where (status == 503 && code == "vm_operation_in_progress") || (status == 409 && code == "vm_create_in_progress") {
                 // wakeup-allow: bounded same-key retry of a create the server reports still in progress
                 try await ContinuousClock().sleep(for: inProgressDelay)
             }
