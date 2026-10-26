@@ -97,6 +97,11 @@ public final class DisplayClock {
     /// Display links made since creation, stall rebuilds included (debug.wakeups).
     public private(set) var linksMade: UInt64 = 0
 
+    /// The display links ``FrameScheduler/app`` and the window schedulers on this clock tick on, and
+    /// their frames: the ``MainWorkScheduler`` waits for none to run before a long idle period, and
+    /// their frames open short ones. The budgeted scheduler does not report here.
+    public let unbudgetedLinks: UnbudgetedFrameLinks
+
     /// Each display's link runs at the highest ``FrameClient/rate`` armed on it (feature
     /// `frameRateClasses`); false: every link runs at ``FrameRate/motion``, whatever its clients ask.
     public var followsClientRates: Bool {
@@ -123,6 +128,7 @@ public final class DisplayClock {
                 mediaTime: @escaping @MainActor () -> CFTimeInterval = { CACurrentMediaTime() },
                 followsClientRates: Bool = false, presents: FramePresentEstimate? = nil) {
         self.presents = presents ?? FramePresentEstimate()
+        unbudgetedLinks = UnbudgetedFrameLinks()
         self.followsClientRates = followsClientRates
         self.hub = hub
         self.makeLink = makeLink
@@ -481,7 +487,7 @@ public final class DisplayClock {
         guard !display.stall.isScheduled else { return }
         display.stallTimerArms += 1
         let id = display.id
-        display.stall.schedule(after: delay) { @MainActor [weak self] in self?.stallTimerFired(id) }
+        display.stall.scheduleOnMain(after: delay) { [weak self] in self?.stallTimerFired(id) }
     }
 
     /// Half a millisecond of slack: a timer that fires on its deadline is not early by float rounding.

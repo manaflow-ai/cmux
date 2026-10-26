@@ -197,7 +197,7 @@ final class ChromeIconButton: NSButton {
     override func mouseDown(with event: NSEvent) {
         showedHoldMenu = false
         if menuProvider != nil, isEnabled {
-            holdTimer.schedule(after: .milliseconds(400)) { @MainActor [weak self] in self?.showHoldMenu() }
+            holdTimer.scheduleOnMain(after: .milliseconds(400)) { [weak self] in self?.showHoldMenu() }
         }
         super.mouseDown(with: event)
         holdTimer.cancel()

@@ -1,0 +1,2576 @@
+[
+ {
+  "location": "crates/cmux-tui-core/src/server/bounded_outbound.rs:469:21",
+  "kind": "condvar-wait",
+  "thread": "mux-line-out",
+  "fixture": false,
+  "modes": [
+   "record",
+   "panic"
+  ],
+  "overflow": false,
+  "processes": 756,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/server/origin_gate.rs:458:19",
+  "kind": "fs",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 755,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/server/origin_gate.rs:459:23",
+  "kind": "fs",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 755,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/server/line_connection.rs:165:13",
+  "kind": "join",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record",
+   "panic"
+  ],
+  "overflow": false,
+  "processes": 748,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/server/connection_scheduler.rs:356:21",
+  "kind": "join",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 712,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/surface/directory.rs:104:37",
+  "kind": "sqlite",
+  "thread": "surface-N-host",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 291,
+  "thread_names": 303
+ },
+ {
+  "location": "crates/cmux-tui-core/src/resource_api.rs:558:9",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 225,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/surface/directory.rs:201:19",
+  "kind": "sqlite",
+  "thread": "surface-N-host",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 194,
+  "thread_names": 26
+ },
+ {
+  "location": "crates/cmux-tui-core/src/surface/directory.rs:201:19",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 124,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/resource_router/topology.rs:327:10",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 121,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/terminal_host_runtime/unix/standby.rs:39:21",
+  "kind": "process-spawn",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 121,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/surface.rs:739:23",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 120,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/terminal_host_runtime/shared/attachment/launch.rs:283:26",
+  "kind": "ipc-reply",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 120,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/resource_router.rs:261:34",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 113,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/resource_router/topology.rs:327:10",
+  "kind": "recv",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 112,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/resource_router/effects.rs:39:10",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 79,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/resource_router/effects.rs:57:10",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 79,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/resource_router/content.rs:385:26",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 73,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/mux/terminal_exit.rs:208:41",
+  "kind": "sqlite",
+  "thread": "surface-N-host",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 44,
+  "thread_names": 7
+ },
+ {
+  "location": "crates/cmux-tui-core/src/server/agent_session_link.rs:123:22",
+  "kind": "ipc-reply",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 42,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/server/agent_session_link.rs:123:35",
+  "kind": "recv",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 42,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/resource_router/topology.rs:287:10",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 41,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/resource_router/topology/workspace_order.rs:35:30",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 35,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/server/cmd_attach.rs:525:12",
+  "kind": "recv",
+  "thread": "mux-attach-out",
+  "fixture": false,
+  "modes": [
+   "record",
+   "panic"
+  ],
+  "overflow": false,
+  "processes": 35,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/server/chief_registry_resource.rs:173:5",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 30,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/surface/hosted_reader.rs:299:21",
+  "kind": "sqlite",
+  "thread": "surface-N-host",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 30,
+  "thread_names": 293
+ },
+ {
+  "location": "crates/cmux-tui-core/src/surface/hosted_reader.rs:299:21",
+  "kind": "recv",
+  "thread": "surface-N-host",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 29,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/surface/hosted_reader.rs:280:21",
+  "kind": "recv",
+  "thread": "surface-N-host",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 27,
+  "thread_names": 7
+ },
+ {
+  "location": "crates/cmux-tui-core/src/surface/hosted_reader.rs:280:21",
+  "kind": "sqlite",
+  "thread": "surface-N-host",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 27,
+  "thread_names": 7
+ },
+ {
+  "location": "crates/cmux-tui-core/src/surface/hosted_reader/reconnect.rs:253:31",
+  "kind": "sqlite",
+  "thread": "surface-N-host",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 26,
+  "thread_names": 3
+ },
+ {
+  "location": "crates/cmux-tui-core/src/surface/directory.rs:104:37",
+  "kind": "sqlite",
+  "thread": "surface-N-reader",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 25,
+  "thread_names": 76
+ },
+ {
+  "location": "crates/cmux-tui-core/src/server/conversation_resource.rs:91:27",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 24,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/server/conversations.rs:601:9",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 24,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/surface/rehost.rs:170:17",
+  "kind": "sqlite",
+  "thread": "surface-N-host",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 24,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/server/conversation_events.rs:40:10",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 22,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/terminal_host_runtime/shared/attachment/launch.rs:68:5",
+  "kind": "ipc-reply",
+  "thread": "surface-N-host",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 20,
+  "thread_names": 3
+ },
+ {
+  "location": "crates/cmux-tui-core/src/history_ops/ledger.rs:45:10",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 17,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/resource_router/effects.rs:165:30",
+  "kind": "recv",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 17,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/surface/directory.rs:201:19",
+  "kind": "sqlite",
+  "thread": "surface-N-reader",
+  "fixture": false,
+  "modes": [
+   "record",
+   "panic"
+  ],
+  "overflow": false,
+  "processes": 17,
+  "thread_names": 76
+ },
+ {
+  "location": "crates/cmux-tui-core/src/surface/rehost.rs:147:13",
+  "kind": "recv",
+  "thread": "surface-N-host",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 17,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/surface/rehost.rs:147:13",
+  "kind": "sqlite",
+  "thread": "surface-N-host",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 17,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/history_ops/ledger.rs:66:10",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 16,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/resource_router/auxiliary.rs:81:10",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 16,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/server/journal_stream.rs:176:32",
+  "kind": "recv",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 13,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/server/journal_stream.rs:176:32",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 13,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/surface/hosted_reader/reconnect.rs:253:31",
+  "kind": "recv",
+  "thread": "surface-N-host",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 11,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/state/closed_history.rs:726:47",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 10,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/surface/exit_state.rs:155:13",
+  "kind": "sqlite",
+  "thread": "surface-N-reader",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 8,
+  "thread_names": 58
+ },
+ {
+  "location": "crates/cmux-tui-core/src/terminal_host_runtime/unix/adopt_launch.rs:316:17",
+  "kind": "process-spawn",
+  "thread": "surface-N-host",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 8,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/git_ops/checkpoint/ledger.rs:138:10",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 7,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/git_ops/checkpoint/ledger.rs:55:10",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 7,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/git_ops/checkpoint/store.rs:337:9",
+  "kind": "fs",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 7,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/mux/notifications.rs:187:22",
+  "kind": "fs",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 7,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/mux/notifications.rs:188:29",
+  "kind": "fs",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 7,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/mux/terminal_archive.rs:230:60",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 7,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/mux/terminal_archive.rs:237:67",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 7,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/server/chief_registry_resource.rs:786:22",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 7,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/surface/hosted_reader.rs:314:13",
+  "kind": "sleep",
+  "thread": "surface-N-host",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 7,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/terminal_host_runtime/unix/adopt_launch.rs:467:26",
+  "kind": "ipc-reply",
+  "thread": "surface-N-host",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 7,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/git_ops/worktree.rs:53:5",
+  "kind": "process-wait",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 6,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/mux/notifications.rs:187:22",
+  "kind": "fs",
+  "thread": "surface-N-host",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 6,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/mux/notifications.rs:188:29",
+  "kind": "fs",
+  "thread": "surface-N-host",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 6,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/resource_router/open_url.rs:379:13",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 6,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/resource_router/open_url.rs:396:13",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 6,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/state/closed_history.rs:744:34",
+  "kind": "recv",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 6,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/state/closed_history.rs:744:34",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 6,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/surface/hosted_reader/reconnect.rs:272:35",
+  "kind": "sqlite",
+  "thread": "surface-N-host",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 6,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/browser_profile_ops.rs:167:10",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 5,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/browser_profile_ops.rs:167:48",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 5,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/history_ops/trail.rs:219:31",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 5,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/history_ops/trail.rs:227:22",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 5,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/journal_checkpoint.rs:61:9",
+  "kind": "recv",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 5,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/journal_checkpoint.rs:69:25",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 5,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/journal_checkpoint.rs:71:10",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 5,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/mux/terminal_archive.rs:197:13",
+  "kind": "fs",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 5,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/mux/terminal_archive.rs:201:39",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 5,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/mux/terminal_archive.rs:69:30",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 5,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/resource_router.rs:473:10",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 5,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/resource_router.rs:540:10",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 5,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/resource_router.rs:569:18",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 5,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/resource_router.rs:681:26",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 5,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/resource_router.rs:728:30",
+  "kind": "recv",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 5,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/resource_router/auxiliary.rs:106:10",
+  "kind": "recv",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 5,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/resource_router/auxiliary.rs:106:10",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 5,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/resource_router/browser_engine.rs:47:21",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 5,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/server/journal_stream.rs:245:17",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 5,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/state/frontend_browser_keys.rs:172:18",
+  "kind": "recv",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 5,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/state/frontend_browser_keys.rs:172:18",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 5,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/browser_profile_ops.rs:207:10",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 4,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/browser_profile_ops.rs:232:10",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 4,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/mux/terminal_exit_wait.rs:92:41",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 4,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/resource_router.rs:79:23",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 4,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/resource_router/content.rs:199:9",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 4,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/resource_router/content.rs:644:10",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 4,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/resource_router/open_url.rs:668:14",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 4,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/server/cmd_attach.rs:279:16",
+  "kind": "recv",
+  "thread": "mux-render-attach-out",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 4,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/server/cmd_attach.rs:396:16",
+  "kind": "recv",
+  "thread": "mux-attach-out",
+  "fixture": false,
+  "modes": [
+   "panic",
+   "record"
+  ],
+  "overflow": false,
+  "processes": 4,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/state/closed_history.rs:729:30",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 4,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/surface/directory.rs:119:21",
+  "kind": "recv",
+  "thread": "surface-N-host",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 4,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/surface/directory.rs:119:21",
+  "kind": "sqlite",
+  "thread": "surface-N-host",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 4,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/surface/directory.rs:201:19",
+  "kind": "lock-wait",
+  "thread": "surface-N-host",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 4,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/browser_profile_ops.rs:121:24",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 3,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/git_ops/checkpoint/ledger.rs:99:10",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 3,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/history_ops/commands.rs:44:10",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 3,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/history_ops/hidden_doc.rs:25:28",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 3,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/history_ops/merged.rs:296:14",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 3,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/mux/conversations.rs:324:14",
+  "kind": "lock-wait",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 3,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/resource_router.rs:261:34",
+  "kind": "lock-wait",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 3,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/resource_router/topology/workspace_mutations.rs:20:10",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 3,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/server/chief_control.rs:151:26",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 3,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/server/chief_registry_resource.rs:955:13",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 3,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/server/conversation_resource.rs:101:18",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 3,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/server/journal_stream.rs:397:29",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 3,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/state/closed_history.rs:1044:29",
+  "kind": "recv",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 3,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/state/closed_history.rs:1044:29",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 3,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/surface/hosted_reader/reconnect.rs:253:31",
+  "kind": "lock-wait",
+  "thread": "surface-N-host",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 3,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/surface/hosted_reader/reconnect.rs:272:35",
+  "kind": "recv",
+  "thread": "surface-N-host",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 3,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/surface/reconnect_backoff.rs:90:9",
+  "kind": "sleep",
+  "thread": "surface-N-host",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 3,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/git_ops/diff.rs:90:5",
+  "kind": "process-wait",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 2,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/git_ops/worktree_apply.rs:58:5",
+  "kind": "process-wait",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 2,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/git_ops/worktree_remove.rs:51:5",
+  "kind": "process-wait",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 2,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/history_ops/merged.rs:115:18",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 2,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/history_ops/merged.rs:116:55",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 2,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/history_ops/trail.rs:304:19",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 2,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/mux/conversations.rs:219:14",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 2,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/mux/terminal_exit.rs:208:41",
+  "kind": "sqlite",
+  "thread": "surface-N-reader",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 2,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/mux/terminal_exit.rs:629:9",
+  "kind": "sleep",
+  "thread": "surface-N-host",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 2,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/resource_router.rs:261:34",
+  "kind": "recv",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 2,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/resource_router/browser_engine.rs:126:14",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 2,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/resource_router/open_url.rs:191:10",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 2,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/resource_router/open_url.rs:630:18",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 2,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/resource_router/session.rs:32:14",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 2,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/server/chief_registry_resource.rs:248:5",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 2,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/server/chief_registry_resource.rs:283:5",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 2,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/server/chief_registry_resource.rs:298:5",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 2,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/server/journal_stream.rs:176:32",
+  "kind": "lock-wait",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 2,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/state/home.rs:42:18",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 2,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/surface/directory.rs:104:37",
+  "kind": "lock-wait",
+  "thread": "surface-N-host",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 2,
+  "thread_names": 2
+ },
+ {
+  "location": "crates/cmux-tui-core/src/surface/exit_state.rs:155:13",
+  "kind": "recv",
+  "thread": "surface-N-reader",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 2,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/surface/pending_bells.rs:43:21",
+  "kind": "recv",
+  "thread": "surface-N-host",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 2,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/surface/pending_bells.rs:43:21",
+  "kind": "sqlite",
+  "thread": "surface-N-host",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 2,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/surface/reconnect_backoff.rs:108:9",
+  "kind": "sleep",
+  "thread": "surface-N-host",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 2,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/apps/supervisor.rs:440:45",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 1,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/apps/supervisor.rs:441:37",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 1,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/browser_profile_ops.rs:94:10",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 1,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/git_ops.rs:135:5",
+  "kind": "process-wait",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 1,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/git_ops.rs:180:5",
+  "kind": "process-wait",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 1,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/git_ops/commit.rs:117:5",
+  "kind": "process-wait",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 1,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/git_ops/list.rs:30:5",
+  "kind": "process-wait",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 1,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/git_ops/push.rs:48:5",
+  "kind": "process-wait",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 1,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/history_ops/closed.rs:45:10",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 1,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/history_ops/closed.rs:95:13",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 1,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/history_ops/hidden_doc.rs:59:19",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 1,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/journal_hooks.rs:291:13",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 1,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/mux/feed_local.rs:444:18",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 1,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/mux/notifications.rs:187:22",
+  "kind": "fs",
+  "thread": "surface-N-reader",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 1,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/mux/notifications.rs:188:29",
+  "kind": "fs",
+  "thread": "surface-N-reader",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 1,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/mux/terminal_archive.rs:197:13",
+  "kind": "fs",
+  "thread": "mux-pty-input",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 1,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/mux/terminal_archive.rs:201:39",
+  "kind": "sqlite",
+  "thread": "mux-pty-input",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 1,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/mux/terminal_archive.rs:69:30",
+  "kind": "sqlite",
+  "thread": "mux-pty-input",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 1,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/resource_api.rs:119:14",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 1,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/resource_router/browser_engine.rs:77:10",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 1,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/resource_router/content.rs:681:10",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 1,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/resource_router/effects.rs:165:30",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 1,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/resource_router/effects.rs:188:10",
+  "kind": "recv",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 1,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/resource_router/open_url.rs:479:14",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 1,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/resource_router/open_url.rs:553:18",
+  "kind": "recv",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 1,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/resource_router/open_url.rs:553:18",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 1,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/resource_router/open_url.rs:568:14",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 1,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/resource_router/topology.rs:256:10",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 1,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/resource_router/topology/workspace_mutations.rs:41:10",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 1,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/server/chief_registry_resource.rs:173:5",
+  "kind": "lock-wait",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 1,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/server/chief_registry_resource.rs:270:5",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 1,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/server/conversation_events.rs:40:10",
+  "kind": "lock-wait",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 1,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/server/conversation_resource.rs:114:18",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 1,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/server/conversation_resource.rs:91:27",
+  "kind": "lock-wait",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 1,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/server/journal_stream.rs:227:17",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 1,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/server/journal_stream.rs:95:17",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 1,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/server/line_connection.rs:165:13",
+  "kind": "join",
+  "thread": "mux-remote-conn",
+  "fixture": false,
+  "modes": [
+   "panic",
+   "record"
+  ],
+  "overflow": false,
+  "processes": 1,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/server/line_connection.rs:90:17",
+  "kind": "join",
+  "thread": "mux-remote-conn",
+  "fixture": false,
+  "modes": [
+   "panic"
+  ],
+  "overflow": false,
+  "processes": 1,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/server/session_event_stream.rs:124:51",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 1,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/server/session_event_stream.rs:484:9",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 1,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/state/closed_history.rs:669:26",
+  "kind": "recv",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 1,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/state/closed_history.rs:669:26",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 1,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/state/closed_history.rs:678:29",
+  "kind": "recv",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 1,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/state/closed_history.rs:678:29",
+  "kind": "sqlite",
+  "thread": "mux-conn",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 1,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/surface/construct.rs:319:9",
+  "kind": "process-spawn",
+  "thread": "mux-pty-input",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 1,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/surface/directory.rs:119:21",
+  "kind": "sqlite",
+  "thread": "surface-N-reader",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 1,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/surface/directory.rs:201:19",
+  "kind": "sqlite",
+  "thread": "mux-pty-input",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 1,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/surface/hosted_reader/output.rs:17:13",
+  "kind": "sleep",
+  "thread": "surface-N-host",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 1,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui/src/session/mod.rs:1311:21",
+  "kind": "sqlite",
+  "thread": "mux-pty-input",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 1,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui/src/session/mod.rs:1536:18",
+  "kind": "sqlite",
+  "thread": "mux-pty-input",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 1,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui/src/session/mod.rs:1600:29",
+  "kind": "sqlite",
+  "thread": "mux-pty-input",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 1,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui/src/session/mod.rs:1637:21",
+  "kind": "sqlite",
+  "thread": "mux-pty-input",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 1,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui/src/session/mod.rs:1688:18",
+  "kind": "sqlite",
+  "thread": "mux-pty-input",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 1,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui/src/session/mod.rs:1813:29",
+  "kind": "sqlite",
+  "thread": "mux-pty-input",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 1,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui/src/session/mod.rs:1857:29",
+  "kind": "sqlite",
+  "thread": "mux-pty-input",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 1,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui/src/session/mod.rs:1893:40",
+  "kind": "sqlite",
+  "thread": "mux-pty-input",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 1,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui/src/session/mod.rs:1919:24",
+  "kind": "sqlite",
+  "thread": "mux-pty-input",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 1,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui/src/session/mod.rs:2053:18",
+  "kind": "sqlite",
+  "thread": "mux-pty-input",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 1,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui/src/session/mod.rs:2075:21",
+  "kind": "sqlite",
+  "thread": "mux-pty-input",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 1,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui/src/session/mod.rs:2108:18",
+  "kind": "sqlite",
+  "thread": "mux-pty-input",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 1,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui/src/session/mod.rs:2139:21",
+  "kind": "sqlite",
+  "thread": "mux-pty-input",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 1,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui/src/session/mod.rs:2173:40",
+  "kind": "sqlite",
+  "thread": "mux-pty-input",
+  "fixture": false,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 1,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/apps/storage.rs:194:15",
+  "kind": "sqlite",
+  "thread": "<unnamed>",
+  "fixture": true,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 1,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/echo_thread_tests.rs:30:9",
+  "kind": "sleep",
+  "thread": "echo-thread-test-site",
+  "fixture": true,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 1,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/state/router_blocking_tests.rs:69:9",
+  "kind": "sqlite",
+  "thread": "mux-conn-state-test",
+  "fixture": true,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 1,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/state/router_blocking_tests.rs:88:26",
+  "kind": "sqlite",
+  "thread": "mux-conn-state-test",
+  "fixture": true,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 1,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/state/router_blocking_tests.rs:91:13",
+  "kind": "sqlite",
+  "thread": "mux-conn-state-test",
+  "fixture": true,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 1,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/store_lock_blocking_tests.rs:47:25",
+  "kind": "sqlite",
+  "thread": "mux-conn-store-test",
+  "fixture": true,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 1,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/store_lock_blocking_tests.rs:49:32",
+  "kind": "sqlite",
+  "thread": "mux-conn-store-test",
+  "fixture": true,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 1,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/workspace_registry/registry_connection_blocking_tests.rs:74:18",
+  "kind": "sqlite",
+  "thread": "mux-conn-blocking-test",
+  "fixture": true,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 1,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/src/workspace_registry/registry_connection_blocking_tests.rs:98:39",
+  "kind": "sqlite",
+  "thread": "mux-conn-reentry-test",
+  "fixture": true,
+  "modes": [
+   "record"
+  ],
+  "overflow": false,
+  "processes": 1,
+  "thread_names": 1
+ },
+ {
+  "location": "crates/cmux-tui-core/tests/registry_blocking_panic.rs:21:30",
+  "kind": "sqlite",
+  "thread": "mux-conn-panic-test",
+  "fixture": true,
+  "modes": [
+   "panic"
+  ],
+  "overflow": false,
+  "processes": 1,
+  "thread_names": 1
+ }
+]

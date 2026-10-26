@@ -139,7 +139,7 @@ final class UIGraphicsImageRenderer {
 
 // MARK: Images
 
-final class UIImage {
+final class UIImage: Sendable { // cmux: immutable (every stored property a let); MediaCache hands it across threads
     enum Orientation { case up }
     enum RenderingMode { case automatic, alwaysOriginal, alwaysTemplate }
     enum SymbolWeight { case ultraLight, thin, light, regular, medium, semibold, bold, heavy, black

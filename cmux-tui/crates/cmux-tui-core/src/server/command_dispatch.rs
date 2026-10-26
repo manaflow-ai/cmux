@@ -65,6 +65,7 @@ pub(super) fn handle_command_with_cancellation(
             command_history::handle(mux, client, command)
         }
         Command::ServerStats { include } => cmd_server::server_stats(mux, client, include),
+        Command::DebugDaemonLocks => cmd_server::daemon_locks(mux, client),
         Command::TraceStart(params) => {
             cmd_server::trace_control(mux, client, || trace_control::start_call(&params))
         }

@@ -2,6 +2,7 @@ import AppKit
 import CmuxNextActions
 import CmuxNextBridge
 import CmuxNextBrowser
+import CmuxNextCompat
 import CmuxNextFileGrid
 import CmuxNextFiles
 import CmuxNextScreenshots
@@ -17,6 +18,8 @@ final class ScreenshotsPageService {
     private weak var services: AppServices?
     /// One cache for every Screenshots page (and, later, the Finder pane's grids).
     let thumbnails = ThumbnailCache()
+    /// The thumbnail cache's memory consumer registration (`memoryFileHomeCaches`; nil while off).
+    private var thumbnailsMemory: AsyncMemoryConsumerRegistration?
     private let workspace = AppScreenshotsWorkspace()
     /// Drops, renames and trashes go through the Files pane's operations.
     private let files = FileOperator()
@@ -31,6 +34,7 @@ final class ScreenshotsPageService {
 
     init(services: AppServices) {
         self.services = services
+        thumbnailsMemory = AppMemoryConsumers(services: services).registerFileGridThumbnails(thumbnails)
     }
 
     /// Selects the active window's Screenshots tab, else opens one beside the

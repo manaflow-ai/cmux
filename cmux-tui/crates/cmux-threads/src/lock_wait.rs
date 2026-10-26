@@ -107,6 +107,28 @@ impl AtomicName {
 
 thread_local! {
     static CURRENT_NAME: Cell<Option<NameBytes>> = const { Cell::new(None) };
+    /// Nanoseconds this thread has waited for locks, every wait counted.
+    static THREAD_WAITED_NANOS: Cell<u64> = const { Cell::new(0) };
+}
+
+/// Adds `waited` to the calling thread's lock wait total
+/// ([`thread_lock_wait_nanos`]). [`LockHolder`] counts its contended waits
+/// here; a lock with its own wait timing (the daemon's registry mutex) adds
+/// its waits too, so one request's lock wait is the change of the total over
+/// its handler (Chrome's per-task `ThreadTicks` delta in
+/// base/task/common/task_annotator.cc, with lock waits as the counter).
+#[inline]
+pub fn note_thread_lock_wait(waited: Duration) {
+    let nanos = u64::try_from(waited.as_nanos()).unwrap_or(u64::MAX);
+    let _ = THREAD_WAITED_NANOS.try_with(|total| total.set(total.get().saturating_add(nanos)));
+}
+
+/// Nanoseconds the calling thread has waited for locks since it started
+/// ([`note_thread_lock_wait`]). Only differences of two reads on one thread
+/// mean anything.
+#[inline]
+pub fn thread_lock_wait_nanos() -> u64 {
+    THREAD_WAITED_NANOS.try_with(Cell::get).unwrap_or(0)
 }
 
 /// The calling thread's name, read from std once per thread. An unnamed
@@ -319,6 +341,7 @@ impl<'a> Contended<'a> {
     /// up), so a thread that held it during the wait.
     fn end(self, lock: &'static str, site: &'static Location<'static>) {
         let waited = self.since.elapsed();
+        note_thread_lock_wait(waited);
         if waited >= LOCK_WAIT_BUDGET {
             record(lock, self.lock.holder_bytes(), waited, site);
         }
@@ -542,6 +565,27 @@ mod tests {
             .expect("waiter");
         holder.join().expect("holder");
         result
+    }
+
+    /// A contended wait adds to the waiter's own lock wait total, an
+    /// uncontended acquisition adds nothing, and another thread's total
+    /// does not move.
+    #[test]
+    fn a_contended_wait_adds_to_the_waiting_threads_total() {
+        let before_here = thread_lock_wait_nanos();
+        let (waited, uncontended) =
+            contend("lock-wait-total-holder", "lock-wait-total-waiter", |(lock, holder)| {
+                let start = thread_lock_wait_nanos();
+                drop(holder.lock_mutex("test.total", here(), lock).expect("lock"));
+                let after_wait = thread_lock_wait_nanos();
+                drop(holder.lock_mutex("test.total", here(), lock).expect("lock"));
+                (after_wait - start, thread_lock_wait_nanos() - after_wait)
+            });
+        assert!(waited >= u64::try_from(HOLD.as_nanos()).unwrap(), "{waited} ns");
+        assert_eq!(uncontended, 0, "a try that succeeds is not a wait");
+        assert_eq!(thread_lock_wait_nanos(), before_here, "the total is per thread");
+        note_thread_lock_wait(Duration::from_micros(3));
+        assert_eq!(thread_lock_wait_nanos() - before_here, 3_000);
     }
 
     #[test]

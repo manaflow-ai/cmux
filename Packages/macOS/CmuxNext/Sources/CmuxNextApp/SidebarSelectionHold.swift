@@ -24,7 +24,7 @@ final class SidebarSelectionHold {
     func offer(_ selected: SidebarItem?) {
         if case .workspace(let id)? = selected, model.selectedItem != selected, !model.lists(id) {
             held = .some(selected)
-            backstop.schedule(after: Self.limit) { @MainActor [weak self] in self?.flush() }
+            backstop.scheduleOnMain(after: Self.limit) { [weak self] in self?.flush() }
             return
         }
         held = nil

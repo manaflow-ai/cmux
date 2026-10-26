@@ -43,6 +43,8 @@ Per mode:
            paste through cmux's Edit menu, and Chromium's native UI from the host (context menu, <select>, alert,
            file picker; each in a fresh host) with the frontmost pid and the host's activation counters; IME, find
            and drag are listed as not forwarded.
+  ime      helper, with --ime: the host's TEXT_INPUT_STATE pushes per keystroke into the focused field against the
+           fork's text input changes (ime_row; pass: <= 1 push per key).
   identity helper: the host is a second executable of cmux.app (cmux's bundle id): its LaunchServices type
            (UIElement: no Dock icon, menu bar or Cmd-Tab entry), the frontmost app after the input rows and after
            `open -b <bundle id>` and during 10 clicks with a key each (never the host; the host's own activation and
@@ -69,8 +71,21 @@ Per mode:
            with --stress: idle wakes in the same three scenarios, and key and click to paint and the stall in
            both modes, in the STRESS session too (the probe opened in its measured pane).
 
-Debug build (reload.sh), not Release: the numbers compare the two paths, they are not shipping latencies.
+--native-ui runs instead the hosted widget rows (chromium_host_native_ui.py, p01-process-066): date, datalist,
+popup window, DevTools docked and in a window, an extension popup and a side panel, each shown by cmux from the
+host's layer context (`debug.cef` `host_widgets`), with feature chromiumHostWidgets on and two test extensions.
+
+A Debug or bench build (reload.sh --config bench: debug.chromium_host, its measure call and the tunables file
+answer there for a development bundle, p12-perf-process-221), never Release: the numbers compare the two paths,
+they are not shipping latencies. `build` in the report is the bundle's config.
 Not a gate: exit 1 only when a mode could not run (no host app, refused fork API, launch failure).
+
+Percentiles (n/p50/p95/p99/max) are scripts/perf-lab/perf_stats.py's (linear interpolation) over the raw values:
+the page reports each event's delta, never its own summary. Every series is also one cmux-perf-result/v1 file in
+--out through BenchApp.record (browser_engine_bench_report.py): `chromium_host.<session>.<mode>.<metric>` in story
+chromium-host (key and click to paint and to the next animation frame, frame intervals, long frames, pump share);
+the report lists them under `results_v1`. hop_us and ping_us stay in the report only: debug.chromium_host.measure
+answers percentiles, not samples, so the story claims no hot path (cef-host-input) until it returns the samples.
 
 On a fleet GUI host:
   python3 scripts/cmux-next/chromium-host-bench.py --app "<cmux DEV tag.app>" --out DIR [--count 60]
@@ -79,22 +94,40 @@ import argparse, json, os, pathlib, signal, struct, subprocess, sys, tempfile, t
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
-from bench_launch import BenchApp, LaunchError, RecordError, build_sha  # noqa: E402
+from bench_launch import BenchApp, LaunchError, RecordError, build_config, build_sha, tag_of  # noqa: E402
+import browser_engine_bench_report as results  # noqa: E402
 import chromium_host_baseline  # noqa: E402
+import chromium_host_native_ui  # noqa: E402
 
-parser = argparse.ArgumentParser()
-parser.add_argument("--app", required=True)
-parser.add_argument("--out", required=True)
-parser.add_argument("--count", type=int, default=60)
-parser.add_argument("--modes", default="inproc,helper")
-parser.add_argument("--json", help="also write the result here (a fleet measure entry's report.json)")
-parser.add_argument("--stress", action="store_true", help="also measure the pump share in the STRESS session")
-parser.add_argument("--pump-seconds", type=float, default=10.0)
-parser.add_argument("--host-switches", default="", help="more Chromium switches for the host, comma-separated (diagnosis)")
-parser.add_argument("--baseline", action="store_true", help="task p01-process-005: stall 9a, 10-tab idle wakes, census, rows")
-parser.add_argument("--idle-settle-seconds", type=float, default=35.0, help="wait before the 10-tab idle sample")
-opts = parser.parse_args()
-os.makedirs(opts.out, exist_ok=True)
+
+def parse(argv=None):
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--app", required=True)
+    parser.add_argument("--out", required=True)
+    parser.add_argument("--count", type=int, default=60,
+                        help="keys and clicks per mode; above about 60 the helper's title passes TITLE_LIMIT")
+    parser.add_argument("--modes", default="inproc,helper")
+    parser.add_argument("--json", help="also write the result here (a fleet measure entry's report.json)")
+    parser.add_argument("--stress", action="store_true", help="also measure the pump share in the STRESS session")
+    parser.add_argument("--pump-seconds", type=float, default=10.0)
+    parser.add_argument("--host-switches", default="", help="more Chromium switches for the host, comma-separated (diagnosis)")
+    parser.add_argument("--ime", action="store_true", help="helper: TEXT_INPUT_STATE pushes per keystroke (ime_row)")
+    parser.add_argument("--native-ui", action="store_true", help="only the hosted widget rows (chromium_host_native_ui.py)")
+    parser.add_argument("--baseline", action="store_true", help="task p01-process-005: stall 9a, 10-tab idle wakes, census, rows")
+    parser.add_argument("--idle-settle-seconds", type=float, default=35.0, help="wait before the 10-tab idle sample")
+    parser.add_argument("--tag", help="the lab runner's tag of --app (checked against the bundle's name)")
+    parser.add_argument("--session", choices=["light"], default="light",
+                        help="result-v1 session of the run (--stress adds the stress session's pump share)")
+    parser.add_argument("--story", default=results.CHROMIUM_HOST_STORY, help="result-v1 story")
+    parser.add_argument("--build-config", choices=["bench", "bench-checks", "release", "debug"],
+                        help="result-v1 build config of a bench-hooks bundle that does not stamp it (BenchApp.record)")
+    args = parser.parse_args(argv)
+    if args.tag is not None and tag_of(f"cmux DEV {args.tag}.app") != tag_of(args.app):
+        parser.error(f"--tag {args.tag!r} is not the tag of --app {args.app!r}")
+    return args
+
+
+opts = None  # parse()'s options, set by __main__
 
 PAGE = """<!doctype html><meta charset=utf-8><title>host probe</title>
 <style>html,body{margin:0;height:100%;background:#204080;color:#fff;font:16px system-ui}
@@ -121,13 +154,22 @@ function sample(list, paint, e) {
   // The frame that shows the change: the next animation frame after the event.
   requestAnimationFrame(() => { list.push(performance.now() - at); paint.push(+wall().toFixed(3)); report(); });
 }
-addEventListener('keydown', e => { if (e.key === 'p') { window.__pace(3000); return; } document.getElementById('t').style.outline = '2px solid #' + (S.key.length % 9) + 'f0'; sample(S.key, S.key_paint, e); }, true);
-addEventListener('mousedown', e => { document.getElementById('b').textContent = 'click ' + S.click.length; sample(S.click, S.click_paint, e); }, true);
-function pct(list, q) { if (!list.length) return null; const s = [...list].sort((a, b) => a - b); return +s[Math.round(q * (s.length - 1))].toFixed(2); }
-function summary(list) { return {n: list.length, p50: pct(list, 0.5), p95: pct(list, 0.95), max: pct(list, 1)}; }
-function report() { document.title = 'probe ' + JSON.stringify({key: summary(S.key), click: summary(S.click), raf: summary(S.raf), raf_raw: S.raf.map(v => +v.toFixed(2)), key_paint: S.key_paint, click_paint: S.click_paint, focus: S.focus, blur: S.blur, has_focus: document.hasFocus(), active: (document.activeElement || {}).id || null, field: document.getElementById('t').value.length, caret: document.getElementById('t').selectionStart, dialogs: S.dialogs, menus: S.menus}); }
+// `p` starts the pacing run, `r` drops its intervals once the bench read them: both keep the title short (below).
+addEventListener('keydown', e => {
+  if (e.key === 'p') { window.__pace(3000); return; }
+  if (e.key === 'r') { e.preventDefault(); S.raf = []; report(); return; }
+  document.getElementById('t').style.outline = '2px solid #' + (S.key.length % 9) + 'f0'; sample(S.key, S.key_paint, e);
+}, true);
+// Only clicks on the button are samples: the click that focuses the field is not one of the bench's measured clicks.
+addEventListener('mousedown', e => { if (e.target.id !== 'b') return; e.target.textContent = 'click ' + S.click.length; sample(S.click, S.click_paint, e); }, true);
+// Raw deltas only: the bench takes every percentile from perf_stats. The helper reads this title through the host
+// (CEF OnTitleChange), and Blink cuts a title at mojom::kMaxTitleChars (4096, Document::DispatchDidReceiveTitle in
+// third_party/blink/renderer/core/dom/document.cc): __pace drops the key and click lists the bench already read,
+// and `r` the intervals, so the title stays below it (TITLE_LIMIT).
+const raw = list => list.map(v => +v.toFixed(2));
+function report() { document.title = 'probe ' + JSON.stringify({key_raw: raw(S.key), click_raw: raw(S.click), raf_raw: raw(S.raf), key_paint: S.key_paint, click_paint: S.click_paint, focus: S.focus, blur: S.blur, has_focus: document.hasFocus(), active: (document.activeElement || {}).id || null, field: document.getElementById('t').value.length, caret: document.getElementById('t').selectionStart, dialogs: S.dialogs, menus: S.menus}); }
 window.__pace = function(ms) {
-  S.raf = []; const box = document.getElementById('box'); box.classList.add('go');
+  S.key = []; S.click = []; S.key_paint = []; S.click_paint = []; S.raf = []; const box = document.getElementById('box'); box.classList.add('go');
   let last = null; const end = performance.now() + ms;
   function tick(t) { if (last !== null) S.raf.push(t - last); last = t; if (t < end) requestAnimationFrame(tick); else { box.classList.remove('go'); report(); } }
   requestAnimationFrame(tick);
@@ -135,6 +177,9 @@ window.__pace = function(ms) {
 window.__reset = function() { S.key = []; S.click = []; S.raf = []; S.key_paint = []; S.click_paint = []; report(); };
 report();
 </script>"""
+
+# Blink's mojom::kMaxTitleChars: a longer document.title reaches the browser cut, and the probe's JSON with it.
+TITLE_LIMIT = 4096
 
 TUNABLES = {"version": 1, "values": {"browserHost.helper": True, "browserResize.layerHosting": True}}
 RESULT = {"build": "Debug", "modes": {}, "notes": []}
@@ -347,37 +392,57 @@ def wait(check, seconds, step=0.1):
     return None
 
 
+# {mode: {metric: per-event values, None for a lost event}}: drive()'s raw series for result-v1
+# (browser_engine_bench_report.chromium_host_series).
+SAMPLES = {}
+
+
+def paint_deltas(sent, painted):
+    """Each sent event's send-to-paint ms, matched in order; None for each event past the last paint (lost)."""
+    painted = painted or []
+    n = min(len(sent), len(painted))
+    return [p - s for s, p in zip(sent[:n], painted[:n])] + [None] * (len(sent) - n)
+
+
 def paired(sent, painted):
     """Send-to-paint percentiles (ms) of events matched in order; None when the page reported none. Only as many as
     painted; a count below len(sent) means events were lost and the pairs may be shifted (the row says so)."""
     if not painted:
         return None
-    n = min(len(sent), len(painted))
-    out = percentiles([p - s for s, p in zip(sent[:n], painted[:n])])
+    out = results.percentiles(paint_deltas(sent, painted))
     out["sent"] = len(sent)
     return out
 
 
-def percentiles(values):
-    if not values:
-        return None
-    s = sorted(values)
-    at = lambda q: round(s[round(q * (len(s) - 1))], 3)
-    return {"n": len(s), "p50": at(0.5), "p95": at(0.95), "p99": at(0.99), "max": round(s[-1], 3)}
+def padded(values, expected):
+    """`values` with a None for each of the `expected` events that gave none (a missed run in result-v1)."""
+    values = list(values or [])
+    return values + [None] * max(0, expected - len(values))
 
 
 def main():
+    os.makedirs(opts.out, exist_ok=True)
     tunables = os.path.join(opts.out, "debug-tunables.json")
     json.dump(TUNABLES, open(tunables, "w"))
     probe = os.path.join(opts.out, "probe.html")
     open(probe, "w").write(PAGE)
     url = pathlib.Path(probe).as_uri()
     env = {"CMUX_NEXT_DEBUG_TUNABLES_FILE": tunables}
+    if opts.native_ui:
+        native = os.path.join(opts.out, "native-ui.html")
+        open(native, "w").write(chromium_host_native_ui.PAGE)
+        url = pathlib.Path(native).as_uri()
+        env.update(chromium_host_native_ui.launch_env(chromium_host_native_ui.write_extensions(opts.out)))
     if opts.host_switches:
         env["CMUX_NEXT_CHROMIUM_HOST_SWITCHES"] = opts.host_switches
         RESULT["host_switches"] = opts.host_switches
-    app = BenchApp(opts.app, out=opts.out, env=env)
+    app = BenchApp(opts.app, out=opts.out, env=env, build_config=opts.build_config, perf_session=opts.session)
     APP_LOG["path"] = app.log_path
+    try:
+        RESULT["build"] = build_config(app.app, app.binary, opts.build_config)
+    except RecordError as error:
+        RESULT["build"] = None
+        RESULT["notes"].append(str(error))
     ok = True
     try:
         app.launch()
@@ -388,7 +453,9 @@ def main():
         RESULT["cef"] = {"fork_api": (cef.get("windows") or {}).get("fork_api"), "unavailable": cef.get("unavailable"),
                          "fallback": cef.get("fallback")}
         DEFAULTS["launch"] = defaults_snapshot(app_bundle_id())
-        modes = opts.modes.split(",")
+        modes = [] if opts.native_ui else opts.modes.split(",")
+        if opts.native_ui:
+            RESULT["modes"]["native_ui"], ok = chromium_host_native_ui.run(rpc, wait, lambda script: page_eval(rpc, script, None), url)
         inproc_tab = None
         if "inproc" in modes:
             inproc_tab = run_inproc(rpc, url)
@@ -417,15 +484,22 @@ def main():
         RESULT["error"] = error.reason
         ok = False
     finally:
-        if opts.baseline:
-            RESULT["baseline_rows"] = chromium_host_baseline.rows(RESULT, time.strftime("%Y-%m-%d", time.gmtime()))
-            with open(os.path.join(opts.out, "baseline-rows.md"), "w") as out:
-                out.write("\n".join(RESULT["baseline_rows"]) + "\n")
-        for path in filter(None, [os.path.join(opts.out, "chromium-host-bench.json"), opts.json]):
-            with open(path, "w") as out:
-                json.dump(RESULT, out, indent=2)
-        print("CHROMIUM-HOST-BENCH " + json.dumps(RESULT), flush=True)
-        app.stop()
+        try:
+            if opts.baseline:
+                RESULT["baseline_rows"] = chromium_host_baseline.rows(RESULT, time.strftime("%Y-%m-%d", time.gmtime()))
+                with open(os.path.join(opts.out, "baseline-rows.md"), "w") as out:
+                    out.write("\n".join(RESULT["baseline_rows"]) + "\n")
+            if app.features is not None and SAMPLES:  # a launch that answered features.list and measured a mode
+                RESULT["results_v1"] = results.record_all(app, results.chromium_host_series(
+                    SAMPLES, RESULT["modes"], session=opts.session, story=opts.story))
+        finally:
+            try:
+                for path in filter(None, [os.path.join(opts.out, "chromium-host-bench.json"), opts.json]):
+                    with open(path, "w") as out:
+                        json.dump(RESULT, out, indent=2)
+                print("CHROMIUM-HOST-BENCH " + json.dumps(RESULT), flush=True)
+            finally:
+                app.stop()
     return 0 if ok else 1
 
 
@@ -438,8 +512,9 @@ def probe_stats(title):
         return None
 
 
-def drive(rpc, mode, title_of, key_target, mouse_target, click_point):
-    """Keys, clicks and pacing for one mode; title_of() reads the page's summary title."""
+def drive(rpc, mode, title_of, key_target, mouse_target, click_point, record=True):
+    """Keys, clicks and pacing for one mode; title_of() reads the page's summary title. `record` keeps the raw
+    series in SAMPLES (the run's own session); the --baseline STRESS rows pass False."""
     row = {}
     # Focus the text field with one click first.
     rpc("debug.mouse", {**mouse_target, **click_point("t")})
@@ -451,37 +526,48 @@ def drive(rpc, mode, title_of, key_target, mouse_target, click_point):
         if i == 0:
             row["first_key_reply"] = reply
         time.sleep(1 / 30)  # test harness: one key per two frames, so samples do not share a frame
-    stats = wait(lambda: (probe_stats(title_of()) or {}).get("key", {}).get("n", 0) >= opts.count and probe_stats(title_of()), 10)
+    stats = wait(lambda: len((probe_stats(title_of()) or {}).get("key_raw") or []) >= opts.count and probe_stats(title_of()), 10)
     stats = stats or probe_stats(title_of()) or {}
     # key_to_raf_ms: from the page's handler to the frame (in-page clock). key_to_paint_ms: from cmux's send to that
     # frame, one wall clock at both ends; matched in order (n says how many keys arrived).
-    row["key_to_raf_ms"] = stats.get("key")
+    samples = SAMPLES.setdefault(mode, {}) if record else {}
+    samples["key_to_raf"] = padded(stats.get("key_raw"), opts.count)
+    samples["key_to_paint"] = paint_deltas(key_sent, stats.get("key_paint"))
+    row["key_to_raf_ms"] = results.percentiles(stats.get("key_raw") or [])
     row["key_to_paint_ms"] = paired(key_sent, stats.get("key_paint"))
     click_sent = []
     for i in range(opts.count):
         click_sent.append(time.time() * 1000)
         rpc("debug.mouse", {**mouse_target, **click_point("b")})
         time.sleep(1 / 30)  # test harness: as above
-    stats = wait(lambda: (probe_stats(title_of()) or {}).get("click", {}).get("n", 0) >= opts.count and probe_stats(title_of()), 10)
+    stats = wait(lambda: len((probe_stats(title_of()) or {}).get("click_raw") or []) >= opts.count and probe_stats(title_of()), 10)
     stats = stats or probe_stats(title_of()) or {}
-    row["click_to_raf_ms"] = stats.get("click")
-    # The first click focused the field: it is not in click_sent.
-    row["click_to_paint_ms"] = paired(click_sent, (stats.get("click_paint") or [])[-len(click_sent):])
-    row.update(pace(rpc, key_target, title_of))
+    # The page samples only clicks on the button, so the focus click above is not in its lists: they start with
+    # this loop's first click.
+    clicks = (stats.get("click_raw") or [])[:len(click_sent)]
+    click_paint = (stats.get("click_paint") or [])[:len(click_sent)]
+    samples["click_to_raf"] = padded(clicks, opts.count)
+    samples["click_to_paint"] = paint_deltas(click_sent, click_paint)
+    row["click_to_raf_ms"] = results.percentiles(clicks)
+    row["click_to_paint_ms"] = paired(click_sent, click_paint)
+    row.update(pace(rpc, key_target, title_of, samples=samples))
     if opts.baseline:
         row["stall"] = stall_row(rpc, key_target, title_of)
     return row
 
 
-def pace(rpc, key_target, title_of, during=None):
+def pace(rpc, key_target, title_of, during=None, samples=None):
     """The key `p` starts a 3 s animation in the page; the page records its frame intervals. `during()` runs
-    while it animates and returns what it did."""
+    while it animates and returns what it did; `samples` (drive()'s result-v1 series) gets the intervals."""
     rpc("debug.key", {**key_target, "key": "p"})
     did = during() if during else None
     if not during:
         time.sleep(3.6)  # test harness: the page animates for 3 s
     raw = (probe_stats(title_of()) or {}).get("raf_raw") or []
-    row = {"raf_ms": percentiles(raw)}
+    rpc("debug.key", {**key_target, "key": "r"})  # read: the page drops the intervals from its title
+    if samples is not None:
+        samples["raf_interval"] = raw
+    row = {"raf_ms": results.percentiles(raw)}
     if raw and RESULT.get("refresh_hz"):
         period = 1000 / RESULT["refresh_hz"]
         row["long_frames"] = sum(1 for v in raw if v > 1.5 * period)
@@ -620,11 +706,11 @@ def run_stress_pump(rpc, url, helper):
     stress["idle"] = idle_scenarios(rpc)
     # The probe in the measured pane: keys, clicks, pacing and the 9a stall with the whole STRESS session behind it.
     page, click_point, _ = open_inproc_probe(rpc, url, "stress")
-    stress["inproc"] = (drive(rpc, "inproc", lambda: page("document.title"), {"target": "page"}, {"target": "page"}, click_point)
-                        if page else {"error": click_point})
+    stress["inproc"] = (drive(rpc, "inproc", lambda: page("document.title"), {"target": "page"}, {"target": "page"}, click_point,
+                              record=False) if page else {"error": click_point})
     if helper:
         # The same probe in the host, over the measured pane (the host's page view moves there).
-        stress["helper"] = run_host_probe(rpc, f"{url}?probe=stress-host")
+        stress["helper"] = run_host_probe(rpc, f"{url}?probe=stress-host", record=False)
 
 
 def topology(rpc):
@@ -763,7 +849,7 @@ def focused_pane_border(rpc):
                  if pane and p.get("pane") == pane and isinstance(p.get("border"), list)), None)
 
 
-def run_host_probe(rpc, url):
+def run_host_probe(rpc, url, record=True):
     """Keys, clicks, pacing and (with --baseline) the 9a stall with the probe in the host over the focused pane.
     `url` carries a query of its own: the row waits for that page, fresh (no keys yet), not an earlier probe."""
     reply = rpc("debug.chromium_host", {"op": "open", "url": url, "focus": True}) or {}
@@ -774,14 +860,15 @@ def run_host_probe(rpc, url):
     def fresh(state):
         stats = probe_stats(state.get("title")) or {}
         return (state if state.get("shown_context_id") and query in (state.get("url") or "")
-                and (stats.get("key") or {}).get("n") == 0 else None)
+                and stats.get("key_raw") == [] else None)
     if not wait(lambda: fresh(rpc("debug.chromium_host") or {}), 90, 0.25):
         return {"error": "the host page never showed the probe", "state": rpc("debug.chromium_host") or {}}
     border = focused_pane_border(rpc)
     if not border:
         return {"error": "no geometry for the focused pane (debug.focus, debug.pane_chrome)"}
     time.sleep(0.5)  # test harness: the shown context's first frame reaches the screen
-    return drive(rpc, "helper", lambda: (rpc("debug.chromium_host") or {}).get("title"), {}, {}, host_click_point(border))
+    return drive(rpc, "helper", lambda: (rpc("debug.chromium_host") or {}).get("title"), {}, {}, host_click_point(border),
+                 record=record)
 
 
 def run_helper(rpc, url, inproc_tab):
@@ -864,6 +951,8 @@ def run_helper(rpc, url, inproc_tab):
     row["fork_api"] = state.get("fork_api")
 
     row["input"] = input_rows(rpc, url, title, click_point, borders, host_pid)
+    if opts.ime:
+        bounded(row, "ime", lambda: ime_row(rpc, title, click_point))
 
     # Kill: cmux keeps running, a new host loads the saved page.
     before = rpc("debug.chromium_host") or {}
@@ -922,7 +1011,7 @@ def input_rows(rpc, url, title, click_point, borders, host_pid):
     pid and the host's activation counters. IME, find (Cmd-F) and drag are not forwarded by the prototype (slice 2,
     section 4 of the design): rows say so instead of testing."""
     rows = {}
-    stats = lambda: probe_stats(title()) or {}
+    page_state = lambda: probe_stats(title()) or {}
     counters = lambda: rpc("debug.chromium_host.measure", {"op": "input"}) or {}
 
     def front_ok():
@@ -931,10 +1020,10 @@ def input_rows(rpc, url, title, click_point, borders, host_pid):
 
     # 1. Typing and the caret: the field holds what was typed, has the focus, and the caret is at its end.
     rpc("debug.mouse", click_point("t"))
-    before = stats().get("field") or 0
+    before = page_state().get("field") or 0
     for _ in range(5):
         rpc("debug.key", {"key": "a"})
-    after = wait(lambda: (lambda st: st if (st.get("field") or 0) >= before + 5 else None)(stats()), 5) or stats()
+    after = wait(lambda: (lambda st: st if (st.get("field") or 0) >= before + 5 else None)(page_state()), 5) or page_state()
     rows["typing"] = {"field_before": before, "field_after": after.get("field"), "active": after.get("active"),
                       "has_focus": after.get("has_focus"), "caret": after.get("caret")}
     rows["typing"]["pass"] = (after.get("field") or 0) >= before + 5 and after.get("active") == "t" and \
@@ -943,12 +1032,12 @@ def input_rows(rpc, url, title, click_point, borders, host_pid):
     # 2. Focus out of the page (a click on the left pane) and back (a click on the page): one blur, one focus.
     # run_helper opened the page with focus before it was hosted, so on fork API 30 that first focus went through
     # emulation: has_focus_out must still be False once the page is detached (the host turns emulation off).
-    start = stats()
+    start = page_state()
     left = min(borders, key=lambda b: b[0])
     rpc("debug.mouse", {"x": left[0] + left[2] / 2, "y": left[1] + left[3] / 2})
-    out = wait(lambda: (lambda st: st if (st.get("blur") or 0) > (start.get("blur") or 0) else None)(stats()), 5) or stats()
+    out = wait(lambda: (lambda st: st if (st.get("blur") or 0) > (start.get("blur") or 0) else None)(page_state()), 5) or page_state()
     rpc("debug.mouse", click_point("t"))
-    back = wait(lambda: (lambda st: st if (st.get("focus") or 0) > (out.get("focus") or 0) else None)(stats()), 5) or stats()
+    back = wait(lambda: (lambda st: st if (st.get("focus") or 0) > (out.get("focus") or 0) else None)(page_state()), 5) or page_state()
     rows["focus_moves"] = {"blur": (out.get("blur") or 0) - (start.get("blur") or 0),
                            "focus": (back.get("focus") or 0) - (out.get("focus") or 0),
                            "has_focus_out": out.get("has_focus"), "has_focus_back": back.get("has_focus")}
@@ -956,13 +1045,13 @@ def input_rows(rpc, url, title, click_point, borders, host_pid):
         out.get("has_focus") is False and back.get("has_focus") is True
 
     # 3. Copy and paste through cmux's Edit menu (Cmd-A, Cmd-C, Delete, Cmd-V): the field's text comes back.
-    typed = stats().get("field") or 0
+    typed = page_state().get("field") or 0
     rpc("debug.key", {"key": "a", "modifiers": ["cmd"]})
     rpc("debug.key", {"key": "c", "modifiers": ["cmd"]})
     rpc("debug.key", {"key": "delete"})
-    cleared = wait(lambda: (lambda st: st if st.get("field") == 0 else None)(stats()), 5) or stats()
+    cleared = wait(lambda: (lambda st: st if st.get("field") == 0 else None)(page_state()), 5) or page_state()
     rpc("debug.key", {"key": "v", "modifiers": ["cmd"]})
-    pasted = wait(lambda: (lambda st: st if st.get("field") == typed else None)(stats()), 5) or stats()
+    pasted = wait(lambda: (lambda st: st if st.get("field") == typed else None)(page_state()), 5) or page_state()
     rows["copy_paste"] = {"typed": typed, "cleared": cleared.get("field"), "pasted": pasted.get("field")}
     rows["copy_paste"]["pass"] = typed > 0 and cleared.get("field") == 0 and pasted.get("field") == typed
 
@@ -973,7 +1062,7 @@ def input_rows(rpc, url, title, click_point, borders, host_pid):
         action()
         time.sleep(1.5)  # test harness: the UI opens (a menu, a dialog, a panel)
         end_counters = counters()
-        out = {"front_is_host": not front_ok(), "page": {k: stats().get(k) for k in ("dialogs", "menus")},
+        out = {"front_is_host": not front_ok(), "page": {k: page_state().get(k) for k in ("dialogs", "menus")},
                "activations": (end_counters.get("activations") or 0) - (start_counters.get("activations") or 0),
                "key_windows": (end_counters.get("key_windows") or 0) - (start_counters.get("key_windows") or 0)}
         out["pass"] = not out["front_is_host"] and out["activations"] == 0 and out["key_windows"] == 0
@@ -995,6 +1084,40 @@ def input_rows(rpc, url, title, click_point, borders, host_pid):
                              "drag": "drag and drop is not forwarded (slice 4)",
                              "permission_prompt": "needs a page that asks (camera/location), not in the probe"}
     return rows
+
+
+IME_STATS = ("changes", "pushes", "frames", "unsent", "watches")
+
+
+def ime_row(rpc, title, click_point):
+    """--ime: TEXT_INPUT_STATE pushes per keystroke (task p01-process-044). The host folds the fork's text input
+    notifications of one display frame into one push, so a keystroke whose renderer notifications land in two frames
+    costs two; this row measures it. Keys go into the focused field one per 1/15 s (several frames apart, so two
+    keys never share a frame); the host's counters (kOpTextInputStats: changes, pushes, frames, unsent, watches)
+    are read before and after through `debug.chromium_host.measure {op: text_input}`. Pass: pushes per key <= 1,
+    no unsent push. Until cmux's host session asks the host for them (the remote shim's text input watch, tasks 014b
+    and 043), the row says the counters are unavailable instead of passing."""
+    counters = lambda: rpc("debug.chromium_host.measure", {"op": "text_input"}) or {}
+    before = counters()
+    if not all(isinstance(before.get(key), (int, float)) for key in IME_STATS):
+        return {"unavailable": "the app does not answer debug.chromium_host.measure text_input", "reply": before,
+                "pass": None}
+    stats = lambda: probe_stats(title()) or {}
+    rpc("debug.mouse", click_point("t"))
+    start_field = stats().get("field") or 0
+    for _ in range(opts.count):
+        rpc("debug.key", {"key": "a"})
+        time.sleep(1 / 15)  # test harness: keys several frames apart
+    wait(lambda: (stats().get("field") or 0) >= start_field + opts.count, 10)
+    time.sleep(0.2)  # test harness: the last key's frame flushes
+    after = counters()
+    delta = {key: (after.get(key) or 0) - (before.get(key) or 0) for key in IME_STATS if key != "watches"}
+    keys = (stats().get("field") or 0) - start_field
+    row = {"keys": keys, "watches": after.get("watches"), **delta}
+    row["pushes_per_key"] = round(delta["pushes"] / keys, 3) if keys else None
+    row["changes_per_key"] = round(delta["changes"] / keys, 3) if keys else None
+    row["pass"] = bool(keys) and delta["pushes"] <= keys and delta["unsent"] == 0
+    return row
 
 
 def run_lifetime(app, url):
@@ -1089,4 +1212,5 @@ def run_lifetime(app, url):
 
 
 if __name__ == "__main__":
+    opts = parse()
     sys.exit(main())

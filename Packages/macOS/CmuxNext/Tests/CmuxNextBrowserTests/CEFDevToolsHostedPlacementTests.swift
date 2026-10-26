@@ -23,8 +23,8 @@ import Testing
 
     // MARK: Placement
 
-    @Test func hostModePlacesTheHostedPageViewBeforeTheOpenCommand() throws {
-        let (runtime, root) = try Self.runtime(hostMode: true)
+    @Test func hostModePlacesTheHostedPageViewBeforeTheOpenCommand() async throws {
+        let (runtime, root) = try await Self.runtime(hostMode: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let tab = Self.tab(runtime)
         let controller = tab.devToolsController
@@ -52,23 +52,23 @@ import Testing
         #expect(DevToolsSpy.placements.count == 1)
     }
 
-    @Test func eachOpeningCommandPlacesFirst() throws {
+    @Test func eachOpeningCommandPlacesFirst() async throws {
         for command in [BrowserDevToolsCommand.show, .console, .inspectElement, .toggle] {
-            let (runtime, root) = try Self.runtime(hostMode: true)
+            let (runtime, root) = try await Self.runtime(hostMode: true)
             defer { try? FileManager.default.removeItem(at: root) }
             let tab = Self.tab(runtime)
             tab.devToolsController.perform(command)
             #expect(DevToolsSpy.log.first == "place \(Self.page)", "\(command) asked for DevTools unplaced")
         }
-        let (runtime, root) = try Self.runtime(hostMode: true)
+        let (runtime, root) = try await Self.runtime(hostMode: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let tab = Self.tab(runtime)
         tab.devToolsController.perform(.close)
         #expect(DevToolsSpy.placements.isEmpty, "closing needs no placement")
     }
 
-    @Test func inProcessThePlacementStaysInWillOpenWithTheHostViewPointer() throws {
-        let (runtime, root) = try Self.runtime(hostMode: false)
+    @Test func inProcessThePlacementStaysInWillOpenWithTheHostViewPointer() async throws {
+        let (runtime, root) = try await Self.runtime(hostMode: false)
         defer { try? FileManager.default.removeItem(at: root) }
         let tab = Self.tab(runtime)
         let controller = tab.devToolsController
@@ -88,10 +88,10 @@ import Testing
 
     // MARK: Context
 
-    @Test func hostModeADockedDevToolsShowsTheContextOfTheHostsReply() throws {
-        let (runtime, root) = try Self.runtime(hostMode: true)
+    @Test func hostModeADockedDevToolsShowsTheContextOfTheHostsReply() async throws {
+        let (runtime, root) = try await Self.runtime(hostMode: true)
         defer { try? FileManager.default.removeItem(at: root) }
-        let route = try #require(runtime.hostReplies)
+        let replies = try #require(runtime.hostStart?.replies)
         let tab = Self.tab(runtime)
         let controller = tab.devToolsController
         controller.perform(.show)
@@ -104,21 +104,21 @@ import Testing
         #expect(DevToolsSpy.layerHosting == [Self.devTools], "the host is asked for the DevTools page window's context")
         #expect(controller.views?.host.layerHosting.isForkBacked == false, "the fork's layer hosting is in process only")
         #expect(hosted.contextID == 0, "a context showed before the host answered")
-        route.replies.resolve(DevToolsSpy.layerHostingTokens[0], fields: Self.int32(Int32(bitPattern: 0x8000_0024)))
+        replies.resolve(DevToolsSpy.layerHostingTokens[0], fields: Self.int32(Int32(bitPattern: 0x8000_0024)))
         #expect(hosted.contextID == 0x8000_0024)
     }
 
-    @Test func hostModeAReplyAfterTheDevToolsClosedShowsNothing() throws {
-        let (runtime, root) = try Self.runtime(hostMode: true)
+    @Test func hostModeAReplyAfterTheDevToolsClosedShowsNothing() async throws {
+        let (runtime, root) = try await Self.runtime(hostMode: true)
         defer { try? FileManager.default.removeItem(at: root) }
-        let route = try #require(runtime.hostReplies)
+        let replies = try #require(runtime.hostStart?.replies)
         let tab = Self.tab(runtime)
         let controller = tab.devToolsController
         Self.open(runtime, controller)
         let hosted = try #require(controller.hostedPage)
 
         runtime.handle(.devToolsClosed(browser: Self.page, devTools: Self.devTools))
-        route.replies.resolve(DevToolsSpy.layerHostingTokens[0], fields: Self.int32(77))
+        replies.resolve(DevToolsSpy.layerHostingTokens[0], fields: Self.int32(77))
 
         #expect(hosted.contextID == 0)
         #expect(!tab.devTools.isOpen)
@@ -127,8 +127,8 @@ import Testing
 
     /// The placement stands across DevTools closes: a close only sends it again (a new size), with the
     /// same page view token (one host view per tab, never one per open), and the next open needs none.
-    @Test func hostModeThePlacementStandsAcrossDevToolsCloses() throws {
-        let (runtime, root) = try Self.runtime(hostMode: true)
+    @Test func hostModeThePlacementStandsAcrossDevToolsCloses() async throws {
+        let (runtime, root) = try await Self.runtime(hostMode: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let tab = Self.tab(runtime)
         let controller = tab.devToolsController
@@ -149,8 +149,8 @@ import Testing
         #expect(tab.devTools.isOpen)
     }
 
-    @Test func hostModeAnUndockedDevToolsShowsInTheDevToolsPanel() throws {
-        let (runtime, root) = try Self.runtime(hostMode: true)
+    @Test func hostModeAnUndockedDevToolsShowsInTheDevToolsPanel() async throws {
+        let (runtime, root) = try await Self.runtime(hostMode: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let tab = Self.tab(runtime)
         let controller = tab.devToolsController
@@ -171,8 +171,8 @@ import Testing
 
     /// Chromium runs the page menu's Inspect in the host: the menu places first, so that DevTools
     /// opens docked in the hosted page view at once, with no close and no second open.
-    @Test func hostModeThePageMenuPlacesBeforeChromiumsInspect() throws {
-        let (runtime, root) = try Self.runtime(hostMode: true)
+    @Test func hostModeThePageMenuPlacesBeforeChromiumsInspect() async throws {
+        let (runtime, root) = try await Self.runtime(hostMode: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let tab = Self.tab(runtime)
         let controller = tab.devToolsController
@@ -195,8 +195,8 @@ import Testing
     /// An open Chromium started before anything placed lands in a top-level window of the host: it
     /// closes and a show runs once, placed. A reopen that is still unplaced was made after the
     /// placement (the host's fault) and stays closed, so this cannot loop.
-    @Test func hostModeAnUnplacedOpenClosesAndShowsOncePlaced() throws {
-        let (runtime, root) = try Self.runtime(hostMode: true)
+    @Test func hostModeAnUnplacedOpenClosesAndShowsOncePlaced() async throws {
+        let (runtime, root) = try await Self.runtime(hostMode: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let tab = Self.tab(runtime)
         let controller = tab.devToolsController
@@ -223,8 +223,8 @@ import Testing
     /// The placed/unplaced decision comes from the event, not from cmux's state: a command cmux sends
     /// while an unplaced open is under way only focuses that DevTools, so when it opens unplaced
     /// (after cmux placed) it closes and the command runs again, placed, keeping its target.
-    @Test func hostModeACommandDuringAnUnplacedOpenRunsAgainPlaced() throws {
-        let (runtime, root) = try Self.runtime(hostMode: true)
+    @Test func hostModeACommandDuringAnUnplacedOpenRunsAgainPlaced() async throws {
+        let (runtime, root) = try await Self.runtime(hostMode: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let tab = Self.tab(runtime)
         let controller = tab.devToolsController
@@ -245,8 +245,8 @@ import Testing
 
     // MARK: Key policy (task 033)
 
-    @Test func hostModeInstallsNoDevToolsKeyHandler() throws {
-        let (runtime, root) = try Self.runtime(hostMode: true)
+    @Test func hostModeInstallsNoDevToolsKeyHandler() async throws {
+        let (runtime, root) = try await Self.runtime(hostMode: true)
         defer { try? FileManager.default.removeItem(at: root) }
 
         runtime.installDevToolsKeyPolicy()
@@ -255,8 +255,8 @@ import Testing
         #expect(DevToolsSpy.keyHandlers == [false], "host mode must leave the DevTools key_fn NULL")
     }
 
-    @Test func inProcessInstallsThePreKeyHook() throws {
-        let (runtime, root) = try Self.runtime(hostMode: false)
+    @Test func inProcessInstallsThePreKeyHook() async throws {
+        let (runtime, root) = try await Self.runtime(hostMode: false)
         defer { try? FileManager.default.removeItem(at: root) }
 
         runtime.installDevToolsKeyPolicy()
@@ -267,8 +267,8 @@ import Testing
 
     // MARK: Toggle (task 033)
 
-    @Test func hostModeASecondToggleBeforeOpenedCloses() throws {
-        let (runtime, root) = try Self.runtime(hostMode: true)
+    @Test func hostModeASecondToggleBeforeOpenedCloses() async throws {
+        let (runtime, root) = try await Self.runtime(hostMode: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let tab = Self.tab(runtime)
         let controller = tab.devToolsController
@@ -293,8 +293,8 @@ import Testing
 
     /// A DevTools cmux closed before the host's OPENED never shows: the close on the wire closes it.
     /// It keeps no room in the pane, and focus never moves into it (the person may be in another pane).
-    @Test func hostModeAnOpenClosedBeforeItOpenedNeverShows() throws {
-        let (runtime, root) = try Self.runtime(hostMode: true)
+    @Test func hostModeAnOpenClosedBeforeItOpenedNeverShows() async throws {
+        let (runtime, root) = try await Self.runtime(hostMode: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let tab = Self.tab(runtime)
         let observer = DevToolsObserverSpy()
@@ -318,8 +318,8 @@ import Testing
         #expect(!observer.changes.contains { $0.isOpen })
     }
 
-    @Test func hostModeAToggleOfAnOpenDevToolsCloses() throws {
-        let (runtime, root) = try Self.runtime(hostMode: true)
+    @Test func hostModeAToggleOfAnOpenDevToolsCloses() async throws {
+        let (runtime, root) = try await Self.runtime(hostMode: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let tab = Self.tab(runtime)
         let controller = tab.devToolsController
@@ -337,8 +337,8 @@ import Testing
     /// Four presses inside one host round trip (key repeat): show, close, show, then the host makes
     /// D1, closes it and makes D2. Each answer takes the change it answers, so the fourth press closes
     /// D2 and DevTools ends closed.
-    @Test func hostModeTogglesInFlightAreAnsweredInWireOrder() throws {
-        let (runtime, root) = try Self.runtime(hostMode: true)
+    @Test func hostModeTogglesInFlightAreAnsweredInWireOrder() async throws {
+        let (runtime, root) = try await Self.runtime(hostMode: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let tab = Self.tab(runtime)
         let controller = tab.devToolsController
@@ -364,8 +364,8 @@ import Testing
         #expect(!controller.isOpenOrRequested)
     }
 
-    @Test func hostModeAnUnplacedOpenClosedBeforeItOpenedIsNotReopened() throws {
-        let (runtime, root) = try Self.runtime(hostMode: true)
+    @Test func hostModeAnUnplacedOpenClosedBeforeItOpenedIsNotReopened() async throws {
+        let (runtime, root) = try await Self.runtime(hostMode: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let tab = Self.tab(runtime)
         let controller = tab.devToolsController
@@ -381,8 +381,8 @@ import Testing
         #expect(!tab.devTools.isOpen)
     }
 
-    @Test func hostModeAnOpenTheHostNeverAnsweredDoesNotStickTheToggle() throws {
-        let (runtime, root) = try Self.runtime(hostMode: true)
+    @Test func hostModeAnOpenTheHostNeverAnsweredDoesNotStickTheToggle() async throws {
+        let (runtime, root) = try await Self.runtime(hostMode: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let tab = Self.tab(runtime)
         let controller = tab.devToolsController
@@ -397,8 +397,8 @@ import Testing
 
     /// A host that died with an open in flight never answers it: the tab's next browser (the restarted
     /// host's) starts with nothing in flight, so Cmd-Opt-I opens.
-    @Test func hostModeANewBrowserStartsWithNothingInFlight() throws {
-        let (runtime, root) = try Self.runtime(hostMode: true)
+    @Test func hostModeANewBrowserStartsWithNothingInFlight() async throws {
+        let (runtime, root) = try await Self.runtime(hostMode: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let tab = Self.tab(runtime)
         let controller = tab.devToolsController
@@ -415,8 +415,8 @@ import Testing
     }
 
     /// In process Chromium answers in the command's turn: the toggle reads only the open state.
-    @Test func inProcessTheToggleReadsTheOpenState() throws {
-        let (runtime, root) = try Self.runtime(hostMode: false)
+    @Test func inProcessTheToggleReadsTheOpenState() async throws {
+        let (runtime, root) = try await Self.runtime(hostMode: false)
         defer { try? FileManager.default.removeItem(at: root) }
         let tab = Self.tab(runtime)
         let controller = tab.devToolsController
@@ -441,15 +441,13 @@ import Testing
     }
 
     /// A runtime that outlives the test (a tab's scheduled work reads it through an unowned
-    /// reference); in host mode with a reply route over the host start's table.
-    private static func runtime(hostMode: Bool) throws -> (CEFRuntime, URL) {
+    /// reference); in host mode attached to the spy, whose REPLYs resolve in the host start's table.
+    private static func runtime(hostMode: Bool) async throws -> (CEFRuntime, URL) {
         DevToolsSpy.reset()
         let root = FileManager.default.temporaryDirectory.appending(path: "cef-devtools-hosted-\(UUID().uuidString)", directoryHint: .isDirectory)
         let runtime = CEFRuntime(shim: try CEFShimLibrary.resolving(DevToolsSpy.symbol), storage: CEFProfileStorage(root: root))
         if hostMode {
-            let hostStart = CEFHostStart(supervisor: NoDevToolsHost())
-            runtime.hostStart = hostStart
-            runtime.hostReplies = try CEFHostReplyRoute(symbol: DevToolsSpy.symbol, replies: hostStart.replies)
+            runtime.hostStart = try await HostRepliesHarness.attachedHost(over: { DevToolsSpy.symbol($0) })
         }
         _ = Unmanaged.passRetained(runtime)
         return (runtime, root)
@@ -472,13 +470,6 @@ import Testing
     /// An EncodeFields body with one int32 field (chromium_host_tlv.h: type 1, tag 0, length 4).
     private static func int32(_ value: Int32) -> [UInt8] {
         [1, 0, 4, 0] + withUnsafeBytes(of: value.littleEndian) { Array($0) }
-    }
-}
-
-/// Never attaches: these tests drive DevTools against the spy shim and never start Chromium.
-@MainActor private final class NoDevToolsHost: ChromiumHostSupervising {
-    func attachment() async throws(ChromiumHostAttachError) -> ChromiumHostAttachment {
-        throw .cannotStart("not started in this test")
     }
 }
 
@@ -513,7 +504,7 @@ private nonisolated enum DevToolsSpy {
     }
 
     static func symbol(_ name: String) -> UnsafeMutableRawPointer? {
-        let lastReplyToken: CEFHostReplyRoute.LastReplyTokenFn = { DevToolsSpy.lastToken }
+        let lastReplyToken: CEFRemoteShim.LastReplyTokenFn = { DevToolsSpy.lastToken }
         let setKeyHandler: @convention(c) (CEFShimLibrary.KeyFn?) -> Void = { handler in
             DevToolsSpy.keyHandlers.append(handler != nil)
         }
