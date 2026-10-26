@@ -117,3 +117,21 @@ final class ThreadStackSampler: @unchecked Sendable {
         address & 0x0000_7FFF_FFFF_FFFF
     }
 }
+
+extension ThreadStackSampler {
+    /// Samples a registered hang-watch thread by its port (the `mach_thread_self()` its slot or its
+    /// lane job stored), for ``ThreadHangReporter``. Watchdog thread only.
+    ///
+    /// Empty for a null port, for the calling thread (suspending itself would never resume) and for
+    /// a thread that already ended (its port is a dead name until the slot releases it, so
+    /// `thread_suspend` fails and nothing else is sampled in its place).
+    ///
+    /// - Parameters:
+    ///   - port: The thread's port.
+    ///   - maxFrames: The most frames kept.
+    /// - Returns: Return addresses, innermost first.
+    static func sampleRegistered(port: thread_act_t, maxFrames: Int = 64) -> [UInt] {
+        guard port != thread_act_t(MACH_PORT_NULL), port != pthread_mach_thread_np(pthread_self()) else { return [] }
+        return ThreadStackSampler(thread: port, maxFrames: maxFrames).sample()
+    }
+}

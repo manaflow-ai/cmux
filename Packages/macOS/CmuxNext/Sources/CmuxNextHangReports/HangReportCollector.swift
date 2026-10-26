@@ -26,13 +26,22 @@ public final class HangReportCollector: Sendable {
     /// Runs a resolution job; the default is a detached utility task. Tests run it inline.
     private let schedule: @Sendable (@escaping @Sendable () -> Void) -> Void
 
+    /// Whether a registered thread's hang becomes an entry (``noteThreadHang(thread:overdueNanos:addresses:)``).
+    private let keepsThreadHangs: Bool
+
     /// Makes the value from its parts.
+    ///
+    /// - Parameter keepsThreadHangs: Whether registered threads' hangs are kept; by default only once
+    ///   the report schema carries ``HangSample/thread`` (the schema 2 server refuses an unknown key,
+    ///   and that would lose the whole report).
     public init(resolve: @escaping Resolve,
+                keepsThreadHangs: Bool = HangReport.schemaVersion >= HangSample.threadSchemaVersion,
                 schedule: @escaping @Sendable (@escaping @Sendable () -> Void) -> Void = { job in
                     // task-owner: one short resolution per sampled stall; nothing to cancel.
                     Task.detached(priority: .utility) { job() }
                 }) {
         self.resolve = resolve
+        self.keepsThreadHangs = keepsThreadHangs
         self.schedule = schedule
     }
 
@@ -66,6 +75,16 @@ public final class HangReportCollector: Sendable {
         let ms = Self.milliseconds(durationNanos)
         guard aggregate.withLock({ $0.wantsHangSample(durationMs: ms) }) else { return }
         keepLater(HangSample(source: .watchdog, kind: .hang, durationMs: ms, frames: []), addresses: addresses)
+    }
+
+    /// One registered thread past its hang-watch deadline (watchdog thread, from the app's
+    /// `ThreadHangReporter`): a hang entry that names the thread, its duration how far past its
+    /// deadline it was. Dropped unless the collector keeps thread hangs (``init(resolve:keepsThreadHangs:schedule:)``).
+    public func noteThreadHang(thread: String, overdueNanos: UInt64, addresses: [UInt]) {
+        guard keepsThreadHangs, isEnabled, !addresses.isEmpty else { return }
+        let ms = Self.milliseconds(overdueNanos)
+        guard aggregate.withLock({ $0.wantsHangSample(durationMs: ms) }) else { return }
+        keepLater(HangSample(source: .watchdog, kind: .hang, durationMs: ms, frames: [], thread: thread), addresses: addresses)
     }
 
     /// Takes what was recorded and starts over.

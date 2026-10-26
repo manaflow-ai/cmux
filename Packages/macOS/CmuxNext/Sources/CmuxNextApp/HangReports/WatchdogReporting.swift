@@ -5,7 +5,8 @@ import CmuxNextDaemon
 import CmuxNextHangReports
 
 /// Where the main-thread watchdog's findings go (moved out of `AppDelegate`): each hang still
-/// running after 2 s to crash reporting with its stack and to a file per hang; each finished lag
+/// running after 2 s to crash reporting with its stack and to a file per hang; each registered
+/// thread past its hang-watch deadline to crash reporting with that thread's stack; each finished lag
 /// spike of 250 ms and up to crash reporting (rate-limited); and both to opt-in hang reports
 /// (``HangReportsController``), whose sink does nothing while they are off.
 @MainActor
@@ -22,6 +23,14 @@ enum WatchdogReporting {
             reporter.reportHang(duration: hang.duration, addresses: hang.addresses, otherThreads: hang.otherThreads.map { ($0.name, $0.addresses) })
             collector?.noteHang(durationNanos: Self.nanos(hang.duration), addresses: hang.addresses)
         }
+        // A registered thread or lane past its hang-watch deadline (the monitor on the watchdog's
+        // thread captures it): its own Sentry event tagged hang.thread, and a hang-report entry.
+        let threadHangs = ThreadHangReporter()
+        threadHangs.onHang = { hang in
+            reporter.reportThreadHang(thread: hang.name, overdue: hang.overdue, addresses: hang.addresses)
+            collector?.noteThreadHang(thread: hang.name, overdueNanos: Self.nanos(hang.overdue), addresses: hang.addresses)
+        }
+        watchdog.attach(threadHangs: threadHangs)
         // ~/Library/Logs/<bundle id>/hangs, listed in Debug Settings > Hangs.
         watchdog.episodes = HangFileTunables.recorder(bundleID: Bundle.main.bundleIdentifier)
         let lagSpikes = LagSpikeReporter(reporter: reporter)

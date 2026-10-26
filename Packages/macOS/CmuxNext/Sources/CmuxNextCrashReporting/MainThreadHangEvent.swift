@@ -58,15 +58,7 @@ public nonisolated struct MainThreadHangEvent: Sendable {
                 return thread
             }
         }
-        event.debugMeta = images.map { image in
-            let meta = DebugMeta()
-            meta.type = "macho"
-            meta.debugID = image.uuid
-            meta.imageAddress = Self.hex(image.base)
-            meta.imageSize = NSNumber(value: image.size)
-            meta.codeFile = image.path
-            return meta
-        }
+        event.debugMeta = Self.debugMeta(images)
         event.tags = ["hang_source": "main_thread_watchdog"]
         event.extra = ["hang_ms": Int(duration / .milliseconds(1))]
         return event
@@ -75,8 +67,22 @@ public nonisolated struct MainThreadHangEvent: Sendable {
     /// The most frames the other threads add to one event (about 100 bytes each without a package).
     static let otherFrameLimit = 2_000
 
+    /// One `macho` debug image per image, so the server symbolicates the frames from the uploaded
+    /// debug files.
+    static func debugMeta(_ images: [Image]) -> [DebugMeta] {
+        images.map { image in
+            let meta = DebugMeta()
+            meta.type = "macho"
+            meta.debugID = image.uuid
+            meta.imageAddress = hex(image.base)
+            meta.imageSize = NSNumber(value: image.size)
+            meta.codeFile = image.path
+            return meta
+        }
+    }
+
     /// Sentry frames run outermost first; a sample lists innermost first.
-    private static func stacktrace(_ addresses: [UInt], images: [Image], packages: Bool) -> SentryStacktrace {
+    static func stacktrace(_ addresses: [UInt], images: [Image], packages: Bool) -> SentryStacktrace {
         let frames: [Frame] = addresses.reversed().map { address in
             let frame = Frame()
             frame.instructionAddress = hex(UInt64(address))
@@ -139,6 +145,56 @@ public nonisolated struct MainThreadHangEvent: Sendable {
     }
 }
 
+/// A crash-reporting event for a registered hang-watch thread past its deadline
+/// (``CrashReporter/reportThreadHang(thread:overdue:addresses:)``, from the app's
+/// `ThreadHangReporter`): the thread's name and stack, with the debug images that hold its frames, as
+/// ``MainThreadHangEvent`` sends the main thread's. Chrome's HangWatcher dump of a hung IO or pool
+/// thread (base/threading/hang_watcher.cc, `DoDumpWithoutCrashing`).
+public nonisolated struct ThreadHangEvent: Sendable {
+    /// The thread's or lane's catalog name (`terminal-output`, `daemon-reader`).
+    public let thread: String
+    /// How far past its deadline the thread was when it was sampled.
+    public let overdue: Duration
+    /// Return addresses, innermost first.
+    public let addresses: [UInt]
+
+    /// An event from its parts.
+    public init(thread: String, overdue: Duration, addresses: [UInt]) {
+        self.thread = thread
+        self.overdue = overdue
+        self.addresses = addresses
+    }
+
+    /// The Sentry event: one `ThreadHang` exception on the hung thread, tagged `hang.thread`, and
+    /// grouped by that name and the stack.
+    public func event() -> Event {
+        let event = Event(level: .error)
+        event.platform = "cocoa"
+        let overdueMs = Int(overdue / .milliseconds(1))
+        let hang = Exception(value: "\(thread) busy \(overdueMs) ms past its hang-watch deadline", type: "ThreadHang")
+        let mechanism = Mechanism(type: "hang_watch")
+        mechanism.handled = true
+        hang.mechanism = mechanism
+        let images = MainThreadHangEvent.images(for: addresses)
+        hang.stacktrace = MainThreadHangEvent.stacktrace(addresses, images: images, packages: true)
+        hang.threadId = NSNumber(value: 0)
+        event.exceptions = [hang]
+        let hung = SentryThread(threadId: NSNumber(value: 0))
+        hung.name = thread
+        hung.isMain = NSNumber(value: false)
+        hung.current = NSNumber(value: true)
+        hung.crashed = NSNumber(value: true)
+        hung.stacktrace = hang.stacktrace
+        event.threads = [hung]
+        event.debugMeta = MainThreadHangEvent.debugMeta(images)
+        event.tags = ["hang_source": "hang_watch", "hang.thread": thread]
+        event.extra = ["overdue_ms": overdueMs]
+        // One issue per thread name and stack: two lanes stuck in the same code stay apart.
+        event.fingerprint = ["thread-hang", thread, "{{ default }}"]
+        return event
+    }
+}
+
 extension CrashReporter {
     /// Sends a main-thread hang that is still running (the watchdog calls
     /// this on its own thread, at most once per stall and per interval).
@@ -147,5 +203,12 @@ extension CrashReporter {
                                        otherThreads: [(name: String, addresses: [UInt])] = []) {
         guard isStarted else { return }
         SentrySDK.capture(event: MainThreadHangEvent(duration: duration, addresses: addresses, otherThreads: otherThreads).event())
+    }
+
+    /// Sends a registered thread's hang (the app's `ThreadHangReporter` calls this on the watchdog
+    /// thread, at most once per thread name and interval). Does nothing when crash reporting is off.
+    public nonisolated func reportThreadHang(thread: String, overdue: Duration, addresses: [UInt]) {
+        guard isStarted else { return }
+        SentrySDK.capture(event: ThreadHangEvent(thread: thread, overdue: overdue, addresses: addresses).event())
     }
 }

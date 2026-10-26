@@ -103,6 +103,7 @@ public final class MainThreadWatchdog: Sendable {
     }
     private let stallSink = Mutex<(@Sendable (HangRecord) -> Void)?>(nil)
     let episodeSink = Mutex<HangEpisodeRecorder?>(nil) // ``episodes``
+    let threadHangSink = Mutex<ThreadHangReporter?>(nil) // ``attach(threadHangs:)``
     /// Finished stalls of a hang's length by beat, the newest few, until their file takes one (+Episodes).
     let hangEnds = Mutex<[(beat: UInt64, nanos: UInt64)]>([])
     private let hangNanos: UInt64
