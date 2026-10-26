@@ -336,6 +336,12 @@ pub struct StartRequest {
     /// Work in a new git worktree of the folder's repository
     /// (`subsession_worktree.rs`) instead of the folder itself.
     pub worktree: bool,
+    /// `_meta.acpmux.forceAdmit` (`acpmux new --parent --force-admit`):
+    /// admitted past this host's refusal, logged (`admission.rs`).
+    pub force_admit: bool,
+    /// A refusal may name this host and its paths: false for a Web client, here or
+    /// through a peer (`server/requests.rs`).
+    pub local: bool,
 }
 
 /// A sub-session's new worktree (and the folder it was made from) until its
@@ -651,6 +657,21 @@ impl Hub {
         let model = req.model.as_deref();
         let decided =
             self.subsession_place_check(parent, pm, &folder, &harness, model, &short).await?;
+        // A sub-session is a new session: it needs room on this host (`admission.rs`).
+        // Before the worktree, so a refusal makes none.
+        let who = format!("session {}", parent.id);
+        let admitted = self
+            .admit_new(super::admission::Ask {
+                force: req.force_admit,
+                // Set by the server only where the caller may force (`server/requests.rs`).
+                can_force: req.force_admit,
+                person: false,
+                who: &who,
+                local: req.local,
+                // A child's name is made unique before this (`unique_name`).
+                name: None,
+            })
+            .await?;
         // Its worktree is made, and its harness spawns, only in the very folder checked.
         let (cwd, worktree) = if req.worktree {
             folder.still_here()?;
@@ -694,7 +715,7 @@ impl Hub {
             }),
             ..Default::default()
         };
-        let probe = self.new_session(request).await?;
+        let probe = admitted.run(self.new_session(request)).await?;
         // From here every refusal closes the child: it never runs unchecked.
         if let Err(e) = self.settle_subsession(parent, pm, &probe, &cwd, req.name.as_deref()).await
         {

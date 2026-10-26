@@ -326,6 +326,16 @@ impl Hub {
             drop(guard);
             return Err(e);
         }
+        // A lane's report to a parent whose close began since `queue_slot` checked is refused
+        // (`lane_reports.rs`). Checked once the turn is set: `kill` marks the close before it
+        // clears the turn, so a close that began any time before this check is seen.
+        if super::queue::refuses_closing_run(session, run.provenance.as_ref()) {
+            *session.turn.lock().unwrap_or_else(|e| e.into_inner()) = None;
+            let e = super::queue::closing_error();
+            self.refuse_dequeued(session, waiting, &prompt_id, &turn_id, client, &e);
+            drop(guard);
+            return Err(e);
+        }
         // An agent message's turn takes the agent messages waiting behind it (`digest.rs`), once
         // the turn has started, so none leaves the queue for a turn that never runs. A forum push
         // is no agent's message: it never leads one.
@@ -634,7 +644,8 @@ impl Hub {
                 self.save_meta(session);
             }
         }
-        // Quit Everything already recorded this turn as cancelled.
+        // Quit Everything already recorded this turn as cancelled. It ends the lane's parent too and
+        // no agent starts after it, so the lane reports nothing (`lane_reports.rs`).
         if self.settled_by_shutdown.lock().unwrap().contains(turn_id) {
             return result;
         }
@@ -792,6 +803,7 @@ impl Hub {
         }
         self.save_meta(session);
         self.send_offer_result(session);
+        self.lane_turn_ended(session, true);
         result
     }
 
@@ -859,6 +871,9 @@ impl Hub {
             self.set_status(session, SessionStatus::Disconnected);
         }
         self.save_meta(session);
+        // The turn was counted: its lane's parent hears it failed, with no reply of its own
+        // (`lane_reports.rs`).
+        self.lane_turn_ended(session, false);
     }
 
     /// Waits until the inbound loop handled every agent message queued before
