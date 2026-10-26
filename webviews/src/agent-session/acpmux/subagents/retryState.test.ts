@@ -3,6 +3,7 @@ import { describe, expect, test } from "bun:test";
 import { translate } from "../i18n";
 import { sessionEntry } from "../sessionList";
 import { SubagentFold } from "./subagentFold";
+import { subsessionInfo } from "./subsessions";
 import {
   askPrompt,
   readRetry,
@@ -65,6 +66,13 @@ describe("the adapter reads acpmux's retry", () => {
       nextAt: 1_792_000_010_000,
     });
     expect(sessionEntry({ sessionId: "s", retry: null }).retry).toBeUndefined();
+  });
+
+  test("a sub-session acpmux refused to retry stays failed and says why", () => {
+    const failed = { sessionId: "s", startedBy: "chat", lane: { state: "failed", error: "folder is gone" }, retry: null };
+    expect(subsessionInfo(sessionEntry(failed))).toMatchObject({ state: "failed", error: "folder is gone" });
+    const waiting = { ...failed, retry: FIXTURE.sessionRetry };
+    expect(subsessionInfo(sessionEntry(waiting)).error).toBeUndefined();
   });
 });
 

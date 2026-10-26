@@ -34,6 +34,8 @@ export type SubsessionInfo = {
   model?: string;
   /// acpmux's retry of its failed turn, while one waits (retryState.ts).
   retry?: RetryState;
+  /** Why its turn failed, while it is failed (acpmux's `lane.error`). */
+  error?: string;
 };
 
 /// What a sub-session waiting on the person waits for, in one line: a question (and its first
@@ -85,6 +87,7 @@ export function subsessionInfo(entry: AcpmuxSessionEntry): SubsessionInfo {
     ...(entry.waitsForSlot ? { slot: true as const } : {}),
     ...(entry.model ? { model: entry.model } : {}),
     ...(entry.retry ? { retry: entry.retry } : {}),
+    ...(state === "failed" && !entry.retry && entry.laneError ? { error: entry.laneError } : {}),
   };
 }
 

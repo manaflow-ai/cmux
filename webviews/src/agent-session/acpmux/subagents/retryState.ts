@@ -10,10 +10,12 @@
 //
 // The daemon's field names live in ``readRetry`` and ``RETRY_METHOD`` alone.
 import type { StringKey, Translate } from "../i18n";
+import type { RetrySummary } from "../protocol/generated/types";
 import type { Subagent } from "./subagentFold";
 
-/// A retry acpmux has scheduled: which attempt of how many, why, and when it runs (epoch ms).
-export type RetryState = { attempt: number; of: number; reason?: string; nextAt?: number };
+/// A retry acpmux has scheduled: which attempt of how many, why, and when it runs (epoch ms). The
+/// session row's is acpmux's `RetrySummary`; a subagent's carries the same four fields.
+export type RetryState = Pick<RetrySummary, "attempt" | "of"> & Partial<Pick<RetrySummary, "nextAt">> & { reason?: string };
 
 /// acpmux's on-demand retry: `{sessionId, subagentId?}` answers `{promptId, turnId?, kind}`.
 export const RETRY_METHOD = "_acpmux/retry";

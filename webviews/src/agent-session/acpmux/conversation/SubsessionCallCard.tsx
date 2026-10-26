@@ -73,7 +73,8 @@ function SessionCard({
   const retry = live?.retry;
   const state = retry ? "working" : (live?.state ?? fallback?.state);
   const waiting = live ? live.waiting : fallback?.waiting;
-  const doing = waiting ? waitingLine(t, waiting) : live?.doing;
+  // A failed one says why (acpmux's lane error), a retry acpmux refused included.
+  const doing = waiting ? waitingLine(t, waiting) : (live?.doing ?? (state === "failed" ? live?.error : undefined));
   const shown = note?.state === state ? note : undefined;
   const target = sessionId
     ? { id: sessionId, parent: null, name: live?.name ?? name, state: "failed", child: sessionId }
