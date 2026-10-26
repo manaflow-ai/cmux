@@ -2,6 +2,7 @@ public import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
 public import CmuxNextInput
+public import CmuxNextWakeups
 import Observation
 import QuartzCore
 
@@ -197,7 +198,7 @@ public final class SavedGroupsBarView: NSView {
     /// The windows' frame-aligned pointer input (feature `pointerFrameHover`): a frame interval's first move
     /// hovers at once and the rest once at its frame, at the latest point (Chromium's rAF-aligned moves,
     /// main_thread_event_queue.cc). Nil: each move hovers at once.
-    public var hoverFrameInput: PointerFrameCoalescers? {
+    public var hoverFrameInput: FrameInputCoalescers? {
         get { hoverMoves.frames }
         set { hoverMoves.frames = newValue }
     }

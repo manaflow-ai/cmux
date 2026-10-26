@@ -1,6 +1,7 @@
 public import AppKit
 import CmuxNextDesign
 public import CmuxNextInput
+public import CmuxNextWakeups
 import QuartzCore
 // Hit testing, hover, clicks, context menu, and wheel scrolling.
 extension TabStripView {
@@ -113,7 +114,7 @@ extension TabStripView {
 
     /// The windows' frame-aligned pointer input (feature `pointerFrameHover`): a frame interval's first move
     /// hovers at once and the rest once at its frame, at the latest point. Nil: each move hovers at once.
-    public var hoverFrameInput: PointerFrameCoalescers? {
+    public var hoverFrameInput: FrameInputCoalescers? {
         get { hoverMoves.frames }
         set { hoverMoves.frames = newValue }
     }

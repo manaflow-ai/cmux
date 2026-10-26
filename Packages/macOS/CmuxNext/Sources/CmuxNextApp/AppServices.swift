@@ -286,15 +286,16 @@ final class AppServices {
     lazy var features = FeatureList(registry: FeatureRegistry(), channel: Feature.Channel(environment.build.kind),
                                     overrides: FeatureOverrides(environment: ProcessInfo.processInfo.environment))
     /// The windows' frame-aligned pointer input (p04-input-030), one coalescer per window shared by every consumer, as
-    /// Chromium has one input queue per frame widget. Made on first use, only while a feature below uses it.
-    private lazy var pointerFrames = PointerFrameCoalescers(tap: inputTap, mainWork: mainWork)
+    /// Chromium has one input queue per frame widget. It is the application's own `frameInput`, the one `sendEvent`
+    /// flushes before discrete input (a test's app has none: its own). Read only while a feature below uses it.
+    private lazy var pointerFrames: FrameInputCoalescers = (NSApp as? CmuxApplication)?.frameInput ?? FrameInputCoalescers()
     /// Resize drags (feature `pointerFrameDrags`): pane dividers, column and row edges, both sidebars' resize edges
     /// and the DevTools divider move on a frame interval's first drag event and once more at its frame. Nil while it
     /// is off: each drag event moves them.
-    private(set) lazy var dragFrameInput: PointerFrameCoalescers? = features.isEnabled(.pointerFrameDrags) ? pointerFrames : nil
+    private(set) lazy var dragFrameInput: FrameInputCoalescers? = features.isEnabled(.pointerFrameDrags) ? pointerFrames : nil
     /// Hover (feature `pointerFrameHover`): the sidebar list, rail and space bar, and the tab strips hover on a frame
     /// interval's first move and once more at its frame, at the latest point. Nil while it is off: each move hovers.
-    private(set) lazy var hoverFrameInput: PointerFrameCoalescers? = features.isEnabled(.pointerFrameHover) ? pointerFrames : nil
+    private(set) lazy var hoverFrameInput: FrameInputCoalescers? = features.isEnabled(.pointerFrameHover) ? pointerFrames : nil
     /// The Task Manager page and Kill Process (`TaskManagerPageService`).
     private(set) lazy var taskManager = TaskManagerPageService(services: self)
     /// The Todo page: a workspace's checklist (`workspace-checklist-v1`).

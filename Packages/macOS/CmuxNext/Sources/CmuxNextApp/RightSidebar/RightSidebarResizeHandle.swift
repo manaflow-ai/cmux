@@ -1,6 +1,7 @@
 import AppKit
 import CmuxNextDesign
 import CmuxNextInput
+import CmuxNextWakeups
 
 /// The grab strip on the right sidebar's edge facing the content: a drag
 /// resizes the sidebar. Invisible at rest; a hairline fades in while the
@@ -21,7 +22,7 @@ final class RightSidebarResizeHandle: NSView {
     /// frame interval's first event and once more at its frame, to the latest point, as Chromium
     /// delivers rAF-aligned moves (`third_party/blink/renderer/platform/widget/input/
     /// main_thread_event_queue.cc`). Nil: every drag event resizes at once.
-    var pointerFrames: PointerFrameCoalescers?
+    var pointerFrames: FrameInputCoalescers?
     /// This drag's consumer of its window's coalescer, from mouse-down to mouse-up.
     private var frameDrag: PointerFrameConsumer?
     /// The sidebar edge the strip sits on (`.minX` beside content on its left, `.maxX` on its right).

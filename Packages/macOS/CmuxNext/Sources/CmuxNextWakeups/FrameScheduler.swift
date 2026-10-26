@@ -231,8 +231,8 @@ public final class FrameScheduler: NSObject {
     /// Its display's link exists and runs, and this scheduler ticks on it.
     public var isRunning: Bool { subscribed.map { displayClock.isRunning($0) } ?? false }
 
-    /// This scheduler's continuous input, coalesced to its frames and delivered before its frame
-    /// clients (made on first use; dropped with the scheduler's window).
+    /// This scheduler's continuous input, delivered before its frame clients (made on first use; kept, with
+    /// its work dropped, when its window closes, so a window shown again keeps it). Get it through ``FrameInputCoalescers``.
     public var input: FrameInputCoalescer {
         if let madeInput { return madeInput }
         let made = FrameInputCoalescer(scheduler: self, clock: clock, ledger: ledger)
@@ -361,7 +361,6 @@ public final class FrameScheduler: NSObject {
     /// Drops the subscription and every client (the window closed).
     public func invalidate() {
         madeInput?.invalidate()
-        madeInput = nil
         for client in clients.values { client.detach() }
         clients.removeAll()
         budgetedOrder.removeAll()

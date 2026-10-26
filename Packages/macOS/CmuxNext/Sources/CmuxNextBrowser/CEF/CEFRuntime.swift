@@ -67,7 +67,7 @@ final class CEFRuntime {
     var input: InputEventTap?
     /// The windows' frame-aligned pointer input of the last `CEFEngine` made (feature
     /// `pointerFrameDrags`): the DevTools divider's drag. Nil: each drag event moves it.
-    var pointerFrames: PointerFrameCoalescers?
+    var pointerFrames: FrameInputCoalescers?
     /// A tab registered with no input tap: logged once.
     var reportedMissingInput = false
 

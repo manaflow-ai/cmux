@@ -5,7 +5,7 @@ import CmuxNextInput
 import Testing
 
 /// Sidebar hover once per frame (feature `pointerFrameHover`, p04-input-033) on p04-input-030's
-/// `PointerFrameCoalescer`, as Chromium delivers rAF-aligned moves (main_thread_event_queue.cc): the
+/// `FrameInputCoalescer`, as Chromium delivers rAF-aligned moves (main_thread_event_queue.cc): the
 /// first move of a frame interval hovers in its own turn, the rest of the interval once at the frame,
 /// at the latest point. Enter, exit and a press are discrete: they land the pending moves first, so a
 /// click after fast moves acts on the row under its own point. The list, the space bar and the rail.
