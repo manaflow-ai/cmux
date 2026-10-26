@@ -4089,7 +4089,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : true,
+      "default" : false,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.updates",
@@ -4097,7 +4097,7 @@
       },
       "help" : {
         "key" : "settings.updates.downloadAutomatically.help",
-        "text" : "Off: a found update waits, and one click downloads and installs it."
+        "text" : "Off: cmux still checks for updates and shows Update Available; one click downloads and installs it. On by default in NIGHTLY and DEV builds."
       },
       "kept_on_reset_all" : false,
       "key" : "updates.downloadAutomatically",
@@ -4122,7 +4122,7 @@
       "summary" : null,
       "title" : {
         "key" : "settings.updates.downloadAutomatically",
-        "text" : "Download Updates Automatically"
+        "text" : "Download and Install Updates Automatically"
       },
       "validation" : "portable"
     },
@@ -4492,7 +4492,7 @@
       "consumers" : [
         "cmux-next"
       ],
-      "default" : 900,
+      "default" : 600,
       "default_label" : null,
       "group" : {
         "key" : "settings.group.updates",
