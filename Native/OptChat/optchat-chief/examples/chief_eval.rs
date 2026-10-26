@@ -987,9 +987,19 @@ fn run_case(case: &Case, opts: &Opts, root: &Path) -> Value {
             model: Model::new(&opts.base_url, opts.key.clone()),
         }),
     };
-    let chat = Arc::new(
-        OptChat::open_with(dir.join("chat"), config, compactor, Arc::new(SystemClock)).unwrap(),
-    );
+    // The memory takes a lock socket in its directory: a short path under
+    // /tmp keeps it inside SUN_LEN whatever --out is (a675); the case
+    // directory links to it.
+    let chat_dir = PathBuf::from(format!(
+        "/tmp/ce-{}-{}",
+        std::process::id(),
+        short_hash(&dir.display().to_string())
+    ));
+    let _ = std::fs::remove_dir_all(&chat_dir);
+    std::fs::create_dir_all(&chat_dir).unwrap();
+    let _ = std::os::unix::fs::symlink(&chat_dir, dir.join("chat"));
+    let chat =
+        Arc::new(OptChat::open_with(&chat_dir, config, compactor, Arc::new(SystemClock)).unwrap());
     let mut history = String::new();
     for item in &case.history {
         let text = label(item);

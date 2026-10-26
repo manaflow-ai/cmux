@@ -21,9 +21,11 @@ on:
 permissions:
   contents: read
   id-token: write
+# One run at a time, never cancelled: the branch moves every few minutes, and
+# a cancelled run scores nothing.
 concurrency:
   group: chief-evals-${{ github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: false
 jobs:
   evals:
     runs-on: ubuntu-24.04
