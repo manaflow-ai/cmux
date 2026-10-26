@@ -62,7 +62,7 @@ pub fn classify(path: &Path, temp_dir: &Path) -> Option<Unstable> {
             _ => None,
         })
         .collect();
-    if names.iter().any(|n| *n == "_work") {
+    if runner_work(path) {
         return Some(Unstable::RunnerWork);
     }
     let temp_roots = [
@@ -80,6 +80,37 @@ pub fn classify(path: &Path, temp_dir: &Path) -> Option<Unstable> {
         return Some(Unstable::BuildTree);
     }
     None
+}
+
+/// Whether `path` is under a CI runner's `_work` folder: an `_work` inside an
+/// `actions-runner*` folder, or one with the runner's `_diag` beside it. A
+/// person's own folder named `_work` is not one.
+fn runner_work(path: &Path) -> bool {
+    path.ancestors().skip(1).any(|dir| {
+        dir.file_name() == Some(std::ffi::OsStr::new("_work"))
+            && dir.parent().is_some_and(|runner| {
+                runner
+                    .file_name()
+                    .is_some_and(|n| n.to_string_lossy().starts_with("actions-runner"))
+                    || runner.join("_diag").is_dir()
+            })
+    })
+}
+
+/// Whether `exe` is an app's bundled binary (`X.app/Contents/...`), or runs
+/// from macOS App Translocation (a quarantined app opened where it was
+/// downloaded runs from `/private/var/folders/.../AppTranslocation/<id>/d/`).
+/// The app owns such a daemon's life: never refused, only warned about.
+fn bundled(exe: &Path) -> bool {
+    let names: Vec<_> = exe
+        .components()
+        .filter_map(|c| match c {
+            Component::Normal(n) => Some(n.to_string_lossy()),
+            _ => None,
+        })
+        .collect();
+    names.iter().any(|n| n == "AppTranslocation")
+        || names.windows(2).any(|w| w[0].ends_with(".app") && w[1] == "Contents")
 }
 
 /// What starting a daemon from `exe` for state folder `home` does.
@@ -112,12 +143,14 @@ pub fn verdict(
         why.phrase()
     );
     match why {
-        Unstable::RunnerWork | Unstable::Temp if !allow => Verdict::Refuse(format!(
-            "{line}. Refused for {}: install acpmux (`acpmux host setup HOST` from another machine, \
+        Unstable::RunnerWork | Unstable::Temp if !allow && !bundled(exe) => {
+            Verdict::Refuse(format!(
+                "{line}. Refused for {}: install acpmux (`acpmux host setup HOST` from another machine, \
              or copy it to ~/.local/bin/acpmux) and run that, give this one its own ACPMUX_HOME, \
              or pass {ALLOW_FLAG} ({ALLOW_ENV}=1)",
-            home.display()
-        )),
+                home.display()
+            ))
+        }
         _ => Verdict::Warn(line),
     }
 }
@@ -225,6 +258,35 @@ mod tests {
             );
             assert!(matches!(v(exe, "/Users/cmux/.acpmux", false), Verdict::Warn(_)), "{exe}");
         }
+    }
+
+    #[test]
+    fn an_app_bundle_is_never_refused_even_translocated() {
+        // A quarantined cmux.app opened from ~/Downloads: its first launch must start the daemon.
+        let translocated = "/private/var/folders/xc/abc/T/AppTranslocation/0F1E2D3C/d/cmux.app/Contents/Resources/bin/acpmux";
+        assert!(matches!(v(translocated, "/Users/cmux/.acpmux", false), Verdict::Warn(_)));
+        let dev_app_in_tmp = "/tmp/abr-1/app/cmux DEV x.app/Contents/Resources/bin/acpmux";
+        assert!(matches!(v(dev_app_in_tmp, "/Users/cmux/.acpmux", false), Verdict::Warn(_)));
+        // Not a bundle: a folder that only ends in .app, with no Contents under it.
+        assert!(matches!(v("/tmp/x.app/acpmux", "/Users/cmux/.acpmux", false), Verdict::Refuse(_)));
+    }
+
+    #[test]
+    fn only_a_runner_work_folder_counts_not_any_folder_named_work() {
+        assert_eq!(
+            classify(Path::new("/Users/leo/clients/_work/bin/acpmux"), Path::new(TMP)),
+            None
+        );
+        assert_eq!(
+            v("/Users/leo/clients/_work/bin/acpmux", "/Users/cmux/.acpmux", false),
+            Verdict::Stable
+        );
+        // An `_work` with the runner's `_diag` beside it, whatever the runner folder is called.
+        let root = std::env::temp_dir().join(format!("acpmux-exe-path-{}", std::process::id()));
+        std::fs::create_dir_all(root.join("runner/_diag")).unwrap();
+        let exe = root.join("runner/_work/cmux/target/release/acpmux");
+        assert_eq!(classify(&exe, Path::new(TMP)), Some(Unstable::RunnerWork));
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     #[test]

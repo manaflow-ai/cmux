@@ -164,8 +164,14 @@ pub async fn run(opts: DaemonOptions) -> Result<()> {
     // home folder: nothing the daemon or a child does relative to its cwd may
     // walk the user's folders (LAUNCH-NO-TCC-PROMPTS).
     let _ = std::env::set_current_dir(home());
-    // Before the lock: a refused start leaves the home to the daemon that should own it.
-    exe_path::check_start(opts.allow_unstable_path)?;
+    // Before the lock: a refused start leaves the home to the daemon that should own it. The
+    // launcher (a client, the app, the mux host) reads why on the readiness line and shows it.
+    if let Err(e) = exe_path::check_start(opts.allow_unstable_path) {
+        if let Some(fd) = opts.ready_fd {
+            write_ready(fd, &serde_json::json!({"ready": false, "refused": format!("{e:#}")}));
+        }
+        return Err(e);
+    }
     let lock = home().join("daemon.lock");
     let _lock_file = match acquire_lock(&lock) {
         Ok(lock) => lock,
@@ -959,6 +965,15 @@ where
     }
 }
 
+/// The refusal a started daemon wrote on its readiness line, if it refused to start.
+fn refused_line(ready: &str) -> Option<String> {
+    serde_json::from_str::<Value>(ready.trim())
+        .ok()?
+        .get("refused")
+        .and_then(Value::as_str)
+        .map(str::to_owned)
+}
+
 /// Whether a started daemon's readiness line says another daemon holds the lock.
 fn lock_held(ready: &str) -> bool {
     serde_json::from_str::<Value>(ready.trim())
@@ -1081,6 +1096,11 @@ async fn start_daemon() -> Result<String> {
 }
 
 fn not_ready(path: &std::path::Path, ready: &str, error: &anyhow::Error) -> anyhow::Error {
+    // A daemon that refused to start says why on its readiness line (`exe_path.rs`): that
+    // text, not "exited before it was ready", is what the person needs to read.
+    if let Some(refused) = refused_line(ready) {
+        return anyhow!("{refused}");
+    }
     let why = if ready.trim().is_empty() {
         "exited before it was ready"
     } else {
@@ -1104,6 +1124,22 @@ fn open_daemon_log(path: &std::path::Path) -> Result<std::fs::File> {
 #[cfg(all(test, unix))]
 mod state_file_tests {
     use super::*;
+
+    #[test]
+    fn a_refusal_on_the_readiness_line_is_the_error_text() {
+        let line = r#"{"ready":false,"refused":"acpmux: this daemon's executable /tmp/a/acpmux is in a temporary folder"}"#;
+        let err = not_ready(std::path::Path::new("/s"), line, &anyhow!("connect failed"));
+        assert_eq!(
+            err.to_string(),
+            "acpmux: this daemon's executable /tmp/a/acpmux is in a temporary folder"
+        );
+        assert_eq!(refused_line(r#"{"ready":false,"lockHeld":true}"#), None);
+        assert!(
+            not_ready(std::path::Path::new("/s"), "", &anyhow!("x"))
+                .to_string()
+                .contains("exited before")
+        );
+    }
 
     #[test]
     fn daemon_log_refuses_a_symlink() {
