@@ -22,7 +22,7 @@ import Foundation
     /// The keyed waits this index's changes resume; kept across ``rebuild(_:)``.
     let waiters: StoreWaiters
 
-    init(waiters: StoreWaiters = StoreWaiters()) {
+    init(waiters: StoreWaiters) {
         self.waiters = waiters
     }
 

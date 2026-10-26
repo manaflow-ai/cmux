@@ -1571,8 +1571,8 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             name: "CmuxNextDaemonTests",
             // CmuxNextCompat: the tests import it directly (Mutex); undeclared, an incremental build kept a
             // test object compiled against its older interface (an undefined Mutex.withLock symbol at link).
-            // CmuxNextWakeupsTestSupport: ManualClock for the injected-clock deadlines (StoreWaitersTests).
-            dependencies: ["CmuxNextCompat", "CmuxNextDaemon", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextWakeupsTestSupport"],
+            // CmuxNextWakeups: StoreWaitersTests drive the store's deadline queue on a timer of their own.
+            dependencies: ["CmuxNextCompat", "CmuxNextDaemon", "CmuxNextTrace", "CmuxNextMetrics", "CmuxNextWakeups"],
             swiftSettings: daemonSwiftSettings
         ),
         // Links libghostty (GhosttyNextKit, whose macOS archive has the lib

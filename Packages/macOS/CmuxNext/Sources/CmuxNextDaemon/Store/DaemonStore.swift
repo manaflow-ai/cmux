@@ -113,7 +113,7 @@ public final class DaemonStore: StateResourceQueries {
     @ObservationIgnored public var notificationLimit = 200
 
     /// O(1) lookups kept in step with the records (StoreIndex.swift).
-    @ObservationIgnored var index = StoreIndex()
+    @ObservationIgnored var index: StoreIndex
     var tabsBySurface: [SurfaceID: TabModel] { index.tabsBySurface }
     var panesByHandle: [PaneID: PaneModel] { index.panesByHandle }
     var screensByHandle: [ScreenID: ScreenModel] { index.screensByHandle }
@@ -200,7 +200,13 @@ public final class DaemonStore: StateResourceQueries {
     /// instead of `workspaces`, whose order every move changes.
     public internal(set) var workspaceSetRevision: UInt64 = 0
 
-    public init() {}
+    /// - Parameter waitDeadlines: Where the timeouts of the keyed waits (``waitForTab(surface:timeout:)``,
+    ///   StoreWaiters.swift) go: the main thread's one deadline queue (`MainWorkScheduler.wakeUps`). nil
+    ///   (tests, fixtures): a queue of the store's own.
+    public init(waitDeadlines: MainWakeUpQueue? = nil) {
+        let queue = waitDeadlines ?? MainWakeUpQueue(energy: EnergyPolicySource())
+        index = StoreIndex(waiters: StoreWaiters(deadlines: AlignedWakeups(queue: queue)))
+    }
 
     // MARK: Lookup (O(1))
 

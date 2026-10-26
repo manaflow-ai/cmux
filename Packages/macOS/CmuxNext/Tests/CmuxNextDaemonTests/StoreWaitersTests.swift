@@ -1,15 +1,19 @@
+import CmuxNextCompat
 @testable import CmuxNextDaemon
-import CmuxNextWakeupsTestSupport
+@testable import CmuxNextWakeups
 import Testing
 
 /// Keyed waits on the store (p06-scheduler-027): a waiter for one record reads its condition only
 /// when that record's key changes, resumes in the apply that lists (or drops) it, and resumes with
-/// nil on its timeout or when its task is cancelled.
-@MainActor @Suite struct StoreWaitersTests {
+/// nil on its timeout or when its task is cancelled. The timeouts are entries on the store's
+/// MainWakeUpQueue; the test moves its uptime and fires it.
+@MainActor @Suite(.timeLimit(.minutes(1))) struct StoreWaitersTests {
     private static let handle: WorkspaceHandle = 1
     private static let screen: ScreenID = 100
     private static let pane: PaneID = 10
     private static let otherPane: PaneID = 20
+    /// A timeout no test reaches (the rig's uptime moves only when a test advances it).
+    private static let never: Duration = .seconds(3_600)
 
     /// Workspace 1 with two panes: tab 1 in pane 10, tab 2 in pane 20.
     private static func tree() -> DaemonTree {
@@ -19,8 +23,8 @@ import Testing
         return DaemonTree(workspaceRevision: 1, workspaces: [WorkspaceSnapshot(id: handle, key: nil, name: "w1", screens: screens)])
     }
 
-    private func loadedStore() -> DaemonStore {
-        let store = DaemonStore()
+    private func loadedStore(_ rig: DeadlineRig? = nil) -> DaemonStore {
+        let store = DaemonStore(waitDeadlines: (rig ?? DeadlineRig()).queue)
         store.apply(snapshot: Self.tree())
         return store
     }
@@ -30,18 +34,12 @@ import Testing
                                            entity: tab)))
     }
 
-    /// Lets the waiting tasks run to their suspension (they start on this actor once it yields).
-    private func registered(_ count: Int, in store: DaemonStore, sourceLocation: SourceLocation = #_sourceLocation) async throws {
-        for _ in 0..<1_000 where store.waiters.pendingCount < count { await Task.yield() }
-        try #require(store.waiters.pendingCount == count, "waiters registered", sourceLocation: sourceLocation)
-    }
-
     @Test func aTabWaiterReadsNothingOnAThousandOtherInsertsAndResumesInItsApply() async throws {
         let store = loadedStore()
-        let bySurface = Task { await store.waitForTab(surface: 5_000, timeout: nil) }
-        let byID = Task { await store.waitForTab(id: "tab_target", timeout: nil) }
-        let byResource = Task { await store.waitForTab(resource: "tab_target", timeout: nil) }
-        try await registered(3, in: store)
+        let bySurface = Task { await store.waitForTab(surface: 5_000, timeout: Self.never) }
+        let byID = Task { await store.waitForTab(id: "tab_target", timeout: Self.never) }
+        let byResource = Task { await store.waitForTab(resource: "tab_target", timeout: Self.never) }
+        await store.waiters.untilPending(3)
         let before = store.waiters.evaluations
 
         for surface in 2_000..<3_000 { add(TabSnapshot(surface: SurfaceID(rawValue: UInt64(surface))), to: store) }
@@ -57,18 +55,40 @@ import Testing
         #expect(await byResource.value === tab)
     }
 
+    @Test func aTabAnIntentShowsResumesItsWaitersInTheIntentsTurn() async throws {
+        let rig = DeadlineRig()
+        let store = loadedStore(rig)
+        let provisional = ProvisionalTab()
+        let bySurface = Task { await store.waitForTab(surface: provisional.surface, timeout: Self.never) }
+        let byID = Task { await store.waitForTab(id: provisional.id, timeout: Self.never) }
+        await store.waiters.untilPending(2)
+        let before = store.waiters.evaluations
+
+        store.intend(.renameTab(surface: 1, name: "renamed"), transaction: .generate())
+        #expect(store.waiters.evaluations == before, "an intent on another tab read a waiter condition")
+
+        let snapshot = provisional.conversation(ConversationTabRef(agentSession: AgentSessionRef(host: "install:test", hostName: nil)))
+        store.intend(.createTab(pane: Self.pane, provisional: snapshot), transaction: .generate())
+        #expect(store.waiters.pendingCount == 0, "the intend turn resumed the tab's waiters")
+        #expect(store.waiters.evaluations - before == 2)
+        let tab = try #require(store.tab(surface: provisional.surface))
+        #expect(await bySurface.value === tab)
+        #expect(await byID.value === tab)
+        #expect(rig.queue.count == 0, "the resumes cancelled their timeouts")
+    }
+
     @Test func aListedTabReturnsAtOnce() async {
         let store = loadedStore()
-        let tab = await store.waitForTab(surface: 1, timeout: nil)
+        let tab = await store.waitForTab(surface: 1, timeout: Self.never)
         #expect(tab === store.tab(surface: 1))
         #expect(store.waiters.pendingCount == 0)
     }
 
     @Test func aWorkspaceWaiterResumesWhenItsWorkspaceIsAdded() async throws {
         let store = loadedStore()
-        let byID = Task { await store.waitForWorkspace(id: "handle:7", timeout: nil) }
-        let byResource = Task { await store.waitForWorkspace(resource: "ws_7", timeout: nil) }
-        try await registered(2, in: store)
+        let byID = Task { await store.waitForWorkspace(id: "handle:7", timeout: Self.never) }
+        let byResource = Task { await store.waitForWorkspace(resource: "ws_7", timeout: Self.never) }
+        await store.waiters.untilPending(2)
         let before = store.waiters.evaluations
         add(TabSnapshot(surface: 9), to: store)
         #expect(store.waiters.evaluations == before, "a tab insert read a workspace waiter")
@@ -84,24 +104,24 @@ import Testing
     }
 
     @Test func waitLoadedResumesWithTheFirstSnapshot() async throws {
-        let store = DaemonStore()
-        let loaded = Task { await store.waitLoaded(timeout: nil) }
-        try await registered(1, in: store)
+        let store = DaemonStore(waitDeadlines: DeadlineRig().queue)
+        let loaded = Task { await store.waitLoaded(timeout: Self.never) }
+        await store.waiters.untilPending(1)
         store.apply(snapshot: Self.tree())
         #expect(store.waiters.pendingCount == 0)
         #expect(await loaded.value)
-        #expect(await store.waitLoaded(timeout: nil), "a loaded store returns at once")
+        #expect(await store.waitLoaded(timeout: Self.never), "a loaded store returns at once")
     }
 
     @Test func waitConnectionResumesOnlyForAMatchingState() async throws {
         let store = loadedStore()
         let failed = Task {
-            await store.waitConnection(timeout: nil) { state in
+            await store.waitConnection(timeout: Self.never) { state in
                 if case .failed = state { return true }
                 return false
             }
         }
-        try await registered(1, in: store)
+        await store.waiters.untilPending(1)
         _ = DaemonConnectionChange.disconnected("socket closed").apply(to: store)
         #expect(store.waiters.pendingCount == 1, "a disconnect does not match")
         store.markFailed("incompatible daemon")
@@ -112,9 +132,9 @@ import Testing
     @Test func aMovedTabIsNotGoneAndAClosedOneIs() async throws {
         let store = loadedStore()
         let tab = try #require(store.tab(surface: 1))
-        let bySurface = Task { await store.waitTabGone(surface: 1, timeout: nil) }
-        let byID = Task { await store.waitTabGone(id: tab.id, timeout: nil) }
-        try await registered(2, in: store)
+        let bySurface = Task { await store.waitTabGone(surface: 1, timeout: Self.never) }
+        let byID = Task { await store.waitTabGone(id: tab.id, timeout: Self.never) }
+        await store.waiters.untilPending(2)
 
         // tab-drag-v1: the moved tab's tab-changed names its new pane (drop and re-key in one apply).
         _ = store.apply(.tabChanged(TabDelta(workspace: Self.handle, screen: Self.screen, pane: Self.otherPane, surface: 1, index: 1,
@@ -131,8 +151,8 @@ import Testing
 
     @Test func aSnapshotThatDropsATabResumesItsGoneWaiter() async throws {
         let store = loadedStore()
-        let gone = Task { await store.waitTabGone(surface: 2, timeout: nil) }
-        try await registered(1, in: store)
+        let gone = Task { await store.waitTabGone(surface: 2, timeout: Self.never) }
+        await store.waiters.untilPending(1)
         let pane = PaneSnapshot(id: Self.pane, tabs: [TabSnapshot(surface: 1)])
         let screen = ScreenSnapshot(id: Self.screen, layout: .leaf(Self.pane), panes: [pane])
         let workspace = WorkspaceSnapshot(id: Self.handle, key: nil, name: "w1", screens: [screen])
@@ -141,45 +161,127 @@ import Testing
         #expect(store.waiters.pendingCount == 0)
     }
 
-    @Test func aTimeoutResumesWithNil() async throws {
-        let store = loadedStore()
-        let clock = ManualClock()
-        let waiter = Task { await store.waitForTab(surface: 404, timeout: .seconds(2), clock: clock) }
-        try await clock.waitForSleeper()
-        clock.advance(by: .seconds(1))
-        #expect(store.waiters.pendingCount == 1)
-        clock.advance(by: .seconds(1))
-        #expect(await waiter.value == nil)
+    @Test func aTimeoutResumesWithNilAndALaterInsertReadsNothing() async throws {
+        let rig = DeadlineRig()
+        let store = loadedStore(rig)
+        let waiter = Task { await store.waitForTab(surface: 404, timeout: .seconds(2)) }
+        await store.waiters.untilPending(1)
+        rig.advance(by: .seconds(1))
+        #expect(store.waiters.pendingCount == 1, "not due before its timeout")
+        rig.advance(by: .seconds(1))
         #expect(store.waiters.pendingCount == 0)
-        // A tab listed after the timeout resumes nothing.
+        #expect(await waiter.value == nil)
+
+        let before = store.waiters.evaluations
         add(TabSnapshot(surface: 404), to: store)
         #expect(store.tab(surface: 404) != nil)
+        #expect(store.waiters.evaluations == before, "a tab listed after the timeout read no waiter")
     }
 
-    @Test func aResumedWaiterCancelsItsTimer() async throws {
-        let store = loadedStore()
-        let clock = ManualClock()
-        let waiter = Task { await store.waitForTab(surface: 405, timeout: .seconds(2), clock: clock) }
-        try await clock.waitForSleeper()
+    /// The waiting task holds the store, so an owner that lets go of it (a torn-down service, a test
+    /// store out of scope) cannot strand the wait: its timeout still resumes it.
+    @Test func aWaitOnAStoreItsOwnerDroppedStillTimesOut() async throws {
+        let rig = DeadlineRig()
+        var store: DaemonStore? = loadedStore(rig)
+        let waiter = Task { [store] in await store?.waitForTab(surface: 404, timeout: .seconds(1)) }
+        await store?.waiters.untilPending(1)
+        store = nil
+        rig.advance(by: .seconds(1))
+        #expect(await waiter.value == nil)
+        #expect(rig.queue.count == 0)
+    }
+
+    @Test func theBoolAndConnectionWaitsTimeOut() async throws {
+        let rig = DeadlineRig()
+        let unloaded = DaemonStore(waitDeadlines: rig.queue)
+        let store = loadedStore(rig)
+        let loaded = Task { await unloaded.waitLoaded(timeout: .seconds(1)) }
+        let gone = Task { await store.waitTabGone(surface: 1, timeout: .seconds(1)) }
+        let id = try #require(store.tab(surface: 2)).id
+        let goneByID = Task { await store.waitTabGone(id: id, timeout: .seconds(1)) }
+        let failed = Task {
+            await store.waitConnection(timeout: .seconds(1)) { state in
+                if case .failed = state { return true }
+                return false
+            }
+        }
+        await unloaded.waiters.untilPending(1)
+        await store.waiters.untilPending(3)
+        #expect(rig.queue.count == 4, "the four timeouts share the store's one deadline queue")
+
+        rig.advance(by: .seconds(1))
+        #expect(await loaded.value == false)
+        #expect(await gone.value == false)
+        #expect(await goneByID.value == false)
+        #expect(await failed.value == nil)
+        #expect(unloaded.waiters.pendingCount == 0)
+        #expect(store.waiters.pendingCount == 0)
+    }
+
+    @Test func aResumedWaiterCancelsItsTimeout() async throws {
+        let rig = DeadlineRig()
+        let store = loadedStore(rig)
+        let waiter = Task { await store.waitForTab(surface: 405, timeout: .seconds(2)) }
+        await store.waiters.untilPending(1)
+        #expect(rig.queue.count == 1)
         add(TabSnapshot(surface: 405), to: store)
         #expect(await waiter.value === store.tab(surface: 405))
-        #expect(clock.sleeperCount == 0, "the resume cancelled the deadline's sleep")
-        clock.advance(by: .seconds(2))
+        #expect(rig.queue.count == 0, "the resume cancelled its deadline")
+        rig.advance(by: .seconds(2))
         #expect(store.waiters.pendingCount == 0)
     }
 
     @Test func cancellingTheWaitingTaskResumesWithNil() async throws {
-        let store = loadedStore()
-        let waiter = Task { await store.waitForWorkspace(id: "handle:404", timeout: nil) }
-        try await registered(1, in: store)
+        let rig = DeadlineRig()
+        let store = loadedStore(rig)
+        let waiter = Task { await store.waitForWorkspace(id: "handle:404", timeout: Self.never) }
+        await store.waiters.untilPending(1)
         waiter.cancel()
         #expect(await waiter.value == nil)
         #expect(store.waiters.pendingCount == 0)
+        #expect(rig.queue.count == 0, "the cancel dropped its deadline")
 
         // Cancelled before it runs: it returns nil without filing a waiter.
-        let cancelled = Task { await store.waitForTab(surface: 404, timeout: nil) }
+        let cancelled = Task { await store.waitForTab(surface: 404, timeout: Self.never) }
         cancelled.cancel()
         #expect(await cancelled.value == nil)
         #expect(store.waiters.pendingCount == 0)
+    }
+}
+
+/// The store's MainWakeUpQueue on a timer that never touches the run loop and an uptime only the
+/// test moves: ``advance(by:)`` moves it and runs the queue's fire, as the timer's callout would.
+@MainActor private final class DeadlineRig {
+    let queue: MainWakeUpQueue
+    private let uptime: TestUptime
+
+    init() {
+        let uptime = TestUptime()
+        self.uptime = uptime
+        queue = MainWakeUpQueue(energy: EnergyPolicySource(), ledger: WakeupLedger(uptime: { 0 }), uptime: { uptime.now }) { _ in
+            IdleWakeUpTimer()
+        }
+    }
+
+    func advance(by duration: Duration) {
+        uptime.advance(by: duration)
+        queue.fire()
+    }
+}
+
+/// A timer the queue arms and parks; the rig fires the queue itself.
+private final class IdleWakeUpTimer: MainWakeUpTimer {
+    func arm(at date: UInt64, tolerance: UInt64, now: UInt64) {}
+    func park() {}
+}
+
+/// The rig's uptime in ns: the queue reads it from any thread, only the test's main actor moves it.
+private final class TestUptime: Sendable {
+    private let value = Atomic<UInt64>(0)
+
+    var now: UInt64 { value.load(ordering: .relaxed) }
+
+    func advance(by duration: Duration) {
+        value.store(now + duration.nanosecondCount, ordering: .relaxed)
     }
 }
