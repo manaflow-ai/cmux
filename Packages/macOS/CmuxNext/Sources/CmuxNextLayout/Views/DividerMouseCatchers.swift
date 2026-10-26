@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextDesign
 
 /// Divider hit areas over Chromium pages.
 ///
@@ -124,10 +125,12 @@ final class DividerMouseCatcherView: NSView {
     }
 
     /// Whether the pointer is over this catcher now: its panel shows, takes the mouse, and holds
-    /// the pointer. A seam for tests, which have no screen pointer.
+    /// the pointer. Read on the turn after an enter, outside its dispatch. A seam for tests, which
+    /// have no screen pointer.
     lazy var isPointerOver: () -> Bool = { [weak self] in
         guard let self, let panel = self.window, panel.isVisible, panel.alphaValue > 0, !panel.ignoresMouseEvents,
               !self.isHiddenOrHasHiddenAncestor else { return false }
+        // global-input-allow: next turn, outside dispatch; the pointer may have left before its exit is handled.
         return self.convert(self.bounds, to: nil).contains(panel.convertPoint(fromScreen: NSEvent.mouseLocation))
     }
     /// The cursor set queued after an enter, while it is pending (tests await it).
@@ -167,25 +170,17 @@ final class DividerMouseCatcherView: NSView {
     override func otherMouseDown(with event: NSEvent) { forward(event) }
     override func otherMouseUp(with event: NSEvent) { forward(event) }
 
+    // The event's own screen point (`screenLocation`): the panel moves while a divider drags.
     override func scrollWheel(with event: NSEvent) {
         guard let parent = window?.parent, let content = parent.contentView else { return }
-        let point = content.convert(parent.convertPoint(fromScreen: screenPoint(of: event)), from: nil)
+        let point = content.convert(parent.convertPoint(fromScreen: event.screenLocation), from: nil)
         content.hitTest(point)?.scrollWheel(with: event)
-    }
-
-    /// The event's screen point. The panel moves while a divider drags, so
-    /// the event's own global location is used, not the panel's frame.
-    private func screenPoint(of event: NSEvent) -> NSPoint {
-        guard let location = event.cgEvent?.location, let height = NSScreen.screens.first?.frame.height else {
-            return window?.convertPoint(toScreen: event.locationInWindow) ?? .zero
-        }
-        return NSPoint(x: location.x, y: height - location.y)
     }
 
     private func forward(_ event: NSEvent) {
         guard let parent = window?.parent,
               let forwarded = NSEvent.mouseEvent(
-                  with: event.type, location: parent.convertPoint(fromScreen: screenPoint(of: event)),
+                  with: event.type, location: parent.convertPoint(fromScreen: event.screenLocation),
                   modifierFlags: event.modifierFlags, timestamp: event.timestamp, windowNumber: parent.windowNumber,
                   context: nil, eventNumber: event.eventNumber, clickCount: event.clickCount, pressure: event.pressure
               )

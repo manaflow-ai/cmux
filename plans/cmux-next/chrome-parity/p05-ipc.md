@@ -779,6 +779,22 @@ Tests/CmuxNextIPCTests/FrameReaderTests.swift. Change: recvmsg into pooled refco
 and 0xFF frames; no-copy slices only for OUTPUT/SNAPSHOT/REPLAY payloads >= 4 KiB; copy JSON lines and small
 frames; fd FIFO. Acceptance: golden fixtures decode like Rust; large OUTPUT payload base address lies in the read
 buffer; a held small event retains <= its own size; bad input gives a typed error. Test: SWIFT(FrameReaderTests).
+Interface (057's fuzz `Subject` calls exactly this; change both together): `FrameReader(limits:
+FrameReader.Limits(maxLine: Int, maxFramePayload: UInt32))`, a limit of 0 accepted (only empty lines or empty
+payloads pass); `negotiateFrames()`; besides the recvmsg path, `push(_: UnsafeRawBufferPointer)` that copies bytes
+received elsewhere, allowed at any time, also after `markEndOfStream()` and after a bad message; `markEndOfStream()`;
+`next() throws(BadMessage) -> Message?` (nil: needs bytes, or a clean end), `Message` an enum of exactly
+`.json(line)` and `.frame(Frame)`, the line an owned `Collection<UInt8>` without its `\n` that stays valid after
+later calls (not a `String`); `Frame.header.encode() -> [UInt8]` gives the 16 wire bytes and `Frame.payload` is a
+`Collection<UInt8>`; `BadMessage.reason: String` is the Rust `BadMessage::reason()` string. Rules: the order of
+checks and the reason strings of cmux-ipc reader.rs and frame.rs (050). A message boundary at 0xFF is a frame:
+`frames_not_negotiated` before `negotiateFrames()`; once its 16 header bytes are there, `unknown_kind`, then
+`oversize` (len > min(maxFramePayload, 32 MiB)), then for call kinds `unknown_priority` and `unknown_flags`, for
+stream-data kinds stream 0 is `data_on_control_stream`; a partial frame at the end of stream is `truncated`. Any
+other boundary starts a JSON line up to `\n`: longer than maxLine (delimiter excluded) is `line_too_long`, also
+before its `\n` arrives; bytes that are not strict UTF-8 are `invalid_utf8` (the reader checks, not the JSON
+decoder); at the end of stream an unterminated trailing line is a message. The first bad message is the answer of
+every later call, whatever bytes come after it.
 
 **p05-ipc-055 Swift FrameWriter.** Files: app:CmuxNextIPC/FrameWriter.swift,
 app:CmuxNextDaemon/Connection/SocketWriter.swift, Tests/CmuxNextIPCTests/FrameWriterTests.swift. Change:
