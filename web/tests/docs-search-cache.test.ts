@@ -52,7 +52,9 @@ test("restores identical search assets and rebuilds after dependency or generato
   fixture = mkdtempSync(path.join(tmpdir(), "cmux-docs-cache-"));
   const web = path.join(fixture, "web");
   mkdirSync(path.join(web, "tools"), { recursive: true });
-  for (const directory of ["app", "i18n", "messages", "node_modules"]) {
+  // `data` holds the cmux-next docs pages and the generated CLI and settings references the
+  // generator imports (cf81808803b); without it the fixture's build cannot resolve them.
+  for (const directory of ["app", "data", "i18n", "messages", "node_modules"]) {
     symlinkSync(path.join(webRoot, directory), path.join(web, directory), "dir");
   }
   const script = path.join(web, "tools", "build-docs-search.mjs");

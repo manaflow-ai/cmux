@@ -15,7 +15,8 @@
 //! answers (`peer_status.rs`, `peer_health.rs`), so whatever a terminal or the
 //! app prints is at most [`MAX_PROBLEMS`] entries, each a short lowercase check
 //! name and one line of at most [`MAX_DETAIL`] characters with no control
-//! characters, and a `since` only when it is a valid RFC 3339 time.
+//! characters, a `since` only when it is a valid RFC 3339 time, and a
+//! `severity` only when it is `warning` or `critical` (the disk floors).
 
 use serde_json::{Value, json};
 use std::path::PathBuf;
@@ -83,7 +84,7 @@ pub(crate) fn sanitize(problems: &Value) -> Value {
     Value::Array(list.iter().filter_map(entry).take(MAX_PROBLEMS).collect())
 }
 
-/// One `{check, detail, since?}`, or `None` for an entry that is not the contract's.
+/// One `{check, detail, since?, severity?}`, or `None` for an entry that is not the contract's.
 fn entry(v: &Value) -> Option<Value> {
     let check = v.get("check")?.as_str()?.trim().to_ascii_lowercase();
     let word = |c: char| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-' || c == '_';
@@ -97,6 +98,9 @@ fn entry(v: &Value) -> Option<Value> {
     let mut out = json!({"check": check, "detail": detail});
     if let Some(ms) = v.get("since").and_then(Value::as_str).and_then(rfc3339_ms) {
         out["since"] = json!(super::iso(ms));
+    }
+    if let Some(level @ ("warning" | "critical")) = v.get("severity").and_then(Value::as_str) {
+        out["severity"] = json!(level);
     }
     Some(out)
 }
@@ -244,6 +248,28 @@ mod tests {
         }
         let huge = vec![b' '; MAX_FILE as usize + 1];
         assert_eq!(parse(&huge, NOW), said);
+    }
+
+    #[test]
+    fn a_known_severity_passes_and_any_other_is_dropped() {
+        let bytes = file(
+            "2026-10-25T11:59:00Z",
+            json!([
+                {"check": "disk", "detail": "low", "severity": "warning"},
+                {"check": "disk", "detail": "full", "severity": "critical"},
+                {"check": "disk", "detail": "odd", "severity": "PANIC"},
+                {"check": "cmux", "detail": "unit", "severity": 3},
+            ]),
+        );
+        assert_eq!(
+            parse(&bytes, NOW),
+            json!([
+                {"check": "disk", "detail": "low", "severity": "warning"},
+                {"check": "disk", "detail": "full", "severity": "critical"},
+                {"check": "disk", "detail": "odd"},
+                {"check": "cmux", "detail": "unit"},
+            ])
+        );
     }
 
     #[test]

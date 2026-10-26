@@ -5,6 +5,9 @@
 // editor does; the person's click on Save, Undo or a backend is the gesture the host confirms.
 // A Chief with no picture of its own wears the chosen pet character (`home.chiefPetMascot`, orb
 // by default, whether or not the pet floats), as every other Chief surface does: never a letter.
+// The Engine row (`home.chiefEngine`, Leo's list 89(3)) leads the card: which Chief Home opens,
+// Auto (this Mac's optchat-chief while it runs, else Hosted; #64), This Mac or Hosted. Each
+// Chief's own harness stays in its editor.
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { ChiefPage } from "../../home-channels/ChiefPage";
 import { ChiefHost, HostChiefEditor } from "../../home-channels/chiefEditing";
@@ -18,8 +21,14 @@ import {
 } from "../../home-channels/types";
 import { formatString, type Strings } from "../../shared/i18n";
 import { useRowState, useStore } from "../context";
+import { rowsByKey } from "../schema";
 import { locale, t } from "../strings";
 import { CHIEF_PET_MASCOT, CHIEF_PET_MASCOTS } from "./ChiefPetCard";
+import { SettingRow } from "./SettingRow";
+
+export const CHIEF_ENGINE = "home.chiefEngine";
+/** The rows this card draws in place of their group. */
+export const CHIEFS_ROWS: ReadonlySet<string> = new Set([CHIEF_ENGINE]);
 
 type Open = { kind: "new" } | { kind: "edit"; id: string } | null;
 
@@ -46,7 +55,7 @@ function backendLine(chief: HomeChief, backends: readonly HomeChiefBackend[], st
     .join(" · ");
 }
 
-export function ChiefsCard() {
+export function ChiefsCard({ focus = null }: { focus?: string | null }) {
   const store = useStore();
   const host = useMemo(() => new ChiefHost(store.chiefCalls), [store]);
   const strings = useMemo(settingsStrings, []);
@@ -144,6 +153,7 @@ export function ChiefsCard() {
       <p className="row-help" data-intro="">
         {t(unavailable ? "chief.settings.unavailable" : "chief.settings.intro")}
       </p>
+      <EngineRow focused={focus === CHIEF_ENGINE} />
       {chiefs && chiefs.length === 0 && !unavailable && <p className="row-help">{t("chief.settings.empty")}</p>}
       {chiefs && chiefs.length > 0 && (
         <div className="rows" data-chiefs="">
@@ -179,4 +189,14 @@ export function ChiefsCard() {
       )}
     </section>
   );
+}
+
+/** The Engine row, as the page's group list would draw it (a search result's `?focus=` reveals it). */
+function EngineRow({ focused }: { focused: boolean }) {
+  const row = rowsByKey.get(CHIEF_ENGINE);
+  return row ? (
+    <div className="rows" data-engine="">
+      <SettingRow row={row} focused={focused} />
+    </div>
+  ) : null;
 }
