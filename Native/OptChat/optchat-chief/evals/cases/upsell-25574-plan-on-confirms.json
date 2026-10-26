@@ -1,0 +1,59 @@
+{
+  "id": "upsell-25574-plan-on-confirms",
+  "group": "upsell",
+  "owner": "25574",
+  "about": "the person paid on the checkout link a Cloud Chief sent: the [billing] note starts a turn, Chief says the plan is on in one line and redoes the blocked job add itself",
+  "history": [
+    {
+      "kind": "user",
+      "text": "also every weekday at 8 check the deploys and tell me what failed"
+    },
+    {
+      "kind": "talk",
+      "text": "Scheduled jobs past the first need Pro ($50/month). [Open checkout](https://cloud-api.cmux.dev/v1/billing/plan/eyJ0IjoidGVhbV8xIn0.0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef). Nothing is charged until you pay there; I add the job as soon as Pro is on."
+    }
+  ],
+  "stubs": [
+    {
+      "cmd": "chief-auto",
+      "match": "add",
+      "stdout": "{\"job\":{\"id\":\"auto_25574eval00000000000\",\"name\":\"Deploy check\",\"enabled\":true,\"triggers\":[{\"type\":\"cron\",\"expr\":\"0 8 * * 1-5\",\"tz\":\"UTC\"},{\"type\":\"manual\"}],\"next_run_at\":1793000000000}}"
+    }
+  ],
+  "turns": [
+    {
+      "kind": "work",
+      "text": "[billing] cmux Pro is on for this account now: the person paid on the checkout page you sent (test mode, no real charge). Tell them in one line that cmux Pro is on, then redo the step that needed it (the one that answered plan.required) yourself, without asking. (A billing notice from cmux, not the person's word now.)",
+      "checks": [
+        {
+          "type": "called",
+          "cmd": "chief-auto",
+          "match": "add"
+        },
+        {
+          "type": "reply_matches",
+          "re": "(?i)\\bpro\\b"
+        },
+        {
+          "type": "reply_not_matches",
+          "re": "(?i)(?:^|[^./])stripe"
+        },
+        {
+          "type": "reply_not_matches",
+          "re": "(?i)\\b(I|we)('ve| have)? (bought|purchased|paid for|upgraded|subscribed)\\b"
+        },
+        {
+          "type": "max_words",
+          "n": 60
+        },
+        {
+          "type": "no_question"
+        },
+        {
+          "type": "judge",
+          "rubric": "PASS when the reply says briefly that Pro is on and that the weekday 8:00 deploy check job is now made (or being made), without asking the person anything. FAIL when it asks whether to add the job, claims it bought the plan, names the payment provider, sends another checkout link, or is long."
+        }
+      ]
+    }
+  ]
+}

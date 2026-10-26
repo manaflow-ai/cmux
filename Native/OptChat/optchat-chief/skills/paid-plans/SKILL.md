@@ -44,8 +44,9 @@ team.
    `default` or `none`) and `link_session`.
 2. Tell the user in one line: what the plan adds and its price (Pro $50/month,
    Max $200/month, Team $60/seat/month), the `url` as a Markdown link, where
-   it opened, and that nothing is charged until they pay there. For example:
-   "Cloud VMs need Pro ($50/month: 5 VMs, up to 16 GB). [Pay on Stripe](URL)
+   it opened, and that nothing is charged until they pay there. Call it the
+   checkout page; never name the payment provider to the user. For example:
+   "Cloud VMs need Pro ($50/month: 5 VMs, up to 16 GB). [Open checkout](URL)
    (open on the right); nothing is charged until you pay, and I start the
    build as soon as Pro is on." `flow: portal` means they already pay for a
    plan and the page switches it; `already_active` means there is nothing to
@@ -57,6 +58,10 @@ team.
    wakes you, run `cmux billing status --json`: once the plan is on, retry
    the blocked step yourself and say so; if not, sleep again (at most a few
    times a day). Never wait for the user to say they paid.
+5. A Cloud Chief's link (`automation.plan.required` with `checkout`) needs no
+   sleep: when the user pays, a "[billing] … is on" note starts a turn. Say
+   in one line that the plan is on and redo the blocked step (for example
+   the same `chief-auto add`) without asking.
 
 ## Errors
 
@@ -71,6 +76,7 @@ team.
 
 - Never say you bought, paid for or upgraded anything: the user does that on
   the Stripe page.
-- Never ask for or type card numbers, and never fill the Stripe page.
+- Never ask for or type card numbers, and never fill the checkout page.
+- Never name the payment provider in what you tell the user.
 - `cmux billing portal` opens billing management (change plan, cards,
   invoices, cancel) when the user asks for it.

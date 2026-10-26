@@ -69,10 +69,48 @@ export const teamPlanPaid = (plan: string | null) => plan !== null && INFERENCE_
 export const personalPlanPaid = (plan: string | null) => plan !== null && INFERENCE_PERSONAL_PLAN_IDS.has(plan)
 
 /**
- * TeamDO.inferencePlan: the answer for `entity`. `stackUser` is set only for the caller's own
- * personal team (route.ts); a shared team needs its live mirrored Stack team.
+ * A plan bought through a Chief's test-mode checkout link (plan-checkout.ts). The sign-in service's
+ * plan is written only by web billing, so a paid test session is kept here instead: one row per team,
+ * the session that paid it and its subscription (a cancelled subscription removes it). TeamDO honors
+ * it only off production (`testGrants`), where the payment service is in test mode.
  */
-export const inferencePlanOf = async (sql: SqlStorage, state: TeamState | null, entity: string, stack: StackServer | undefined, stackUser: string | undefined, user: string, now = Date.now()): Promise<PlanAnswer> => {
+const ensureGrant = (sql: SqlStorage) => {
+  sql.exec(`CREATE TABLE IF NOT EXISTS test_plan_grant (id INTEGER PRIMARY KEY CHECK (id = 1), plan TEXT NOT NULL, session TEXT NOT NULL, subscription TEXT, granted_at INTEGER NOT NULL)`)
+}
+
+/** Records a paid test session's plan; `added` is false when this session was already granted. */
+export const grantTestPlan = (sql: SqlStorage, plan: string, session: string, subscription: string | null, now: number): { added: boolean } => {
+  ensureGrant(sql)
+  const same = sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM test_plan_grant WHERE id = 1 AND session = ?`, session).one().n > 0
+  if (same) return { added: false }
+  sql.exec(`INSERT INTO test_plan_grant (id, plan, session, subscription, granted_at) VALUES (1, ?, ?, ?, ?) ON CONFLICT (id) DO UPDATE SET plan = excluded.plan, session = excluded.session, subscription = excluded.subscription, granted_at = excluded.granted_at`, plan, session, subscription, now)
+  return { added: true }
+}
+
+/** Removes the grant its subscription made (the subscription was cancelled); true when one went. */
+export const revokeTestPlan = (sql: SqlStorage, subscription: string): boolean => {
+  if (!hasGrantTable(sql)) return false
+  return sql.exec(`DELETE FROM test_plan_grant WHERE id = 1 AND subscription = ?`, subscription).rowsWritten > 0
+}
+
+/** The granted test plan, or null (no table create on a read). */
+export const testPlanGrant = (sql: SqlStorage): string | null =>
+  hasGrantTable(sql) ? (sql.exec<{ plan: string }>(`SELECT plan FROM test_plan_grant WHERE id = 1`).toArray()[0]?.plan ?? null) : null
+
+const hasGrantTable = (sql: SqlStorage) => sql.exec<{ n: number }>(`SELECT COUNT(*) AS n FROM sqlite_master WHERE type = 'table' AND name = 'test_plan_grant'`).one().n > 0
+
+/**
+ * TeamDO.inferencePlan: the answer for `entity`. `stackUser` is set only for the caller's own
+ * personal team (route.ts); a shared team needs its live mirrored Stack team. With `testGrants`
+ * (off production), a test plan grant makes an unpaid or unreadable answer paid with that plan.
+ */
+export const inferencePlanOf = async (sql: SqlStorage, state: TeamState | null, entity: string, stack: StackServer | undefined, stackUser: string | undefined, user: string, now = Date.now(), testGrants = false): Promise<PlanAnswer> => {
+  const answer = await sourcePlanOf(sql, state, entity, stack, stackUser, user, now)
+  const granted = testGrants && !(answer.ok && answer.paid) ? testPlanGrant(sql) : null
+  return granted === null ? answer : { ok: true, paid: true, user_limit_usd: memberLimit(state, user).limit_usd, plan: granted }
+}
+
+const sourcePlanOf = async (sql: SqlStorage, state: TeamState | null, entity: string, stack: StackServer | undefined, stackUser: string | undefined, user: string, now: number): Promise<PlanAnswer> => {
   const team = state?.team ?? null
   const limit = memberLimit(state, user).limit_usd
   const read = (fetch: (s: StackServer) => Promise<string | null>) =>

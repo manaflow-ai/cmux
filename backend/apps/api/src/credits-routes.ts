@@ -5,6 +5,7 @@ import { personalTeamIdFor } from "./domains/user.ts"
 import type { Env } from "./env.ts"
 import { callerOf, type Fail } from "./home-attachments.ts"
 import { readRawBody } from "./ingress/verify.ts"
+import { grantPlanSession, PLAN_KIND, revokePlanSubscription } from "./plan-checkout.ts"
 
 /**
  * Prepaid credits over HTTP (credits.ts, credits-checkout.ts). The team is the caller's current team
@@ -17,7 +18,8 @@ import { readRawBody } from "./ingress/verify.ts"
  *   GET  /v1/credits/checkout/<signed link>?usd=<n>   anyone with the link: 303 to the payment page
  *   GET  /v1/credits/checkout/done?session_id=...     the return page; grants a paid session once
  *   GET  /v1/credits/checkout/cancelled               the cancel page
- *   POST /v1/hooks/stripe/credits             the payment service's signed webhook (STRIPE_CREDITS_WEBHOOK_SECRET)
+ *   POST /v1/hooks/stripe/credits             the payment service's signed webhook (STRIPE_CREDITS_WEBHOOK_SECRET);
+ *                                             it also grants a Chief's test plan checkout (plan-checkout.ts)
  *
  * User-facing text says "Cloud credits" and "billing", never a vendor name.
  */
@@ -92,7 +94,11 @@ export const handleCredits = async (request: Request, env: Env, sub: string | un
   return Response.redirect(s.url, 303)
 }
 
-/** checkout.session.completed and .async_payment_succeeded of a credits session grant it; other events are acknowledged. */
+/**
+ * checkout.session.completed and .async_payment_succeeded of a credits session grant it, of a plan
+ * session (a Chief's upsell link) turn the test plan on; customer.subscription.deleted of a plan
+ * subscription turns it off. Other events are acknowledged.
+ */
 export const handleCreditsWebhook = async (request: Request, env: Env): Promise<Response> => {
   const secret = env.STRIPE_CREDITS_WEBHOOK_SECRET
   if (!secret) return Response.json({ error: "not found" }, { status: 404 })
@@ -105,7 +111,14 @@ export const handleCreditsWebhook = async (request: Request, env: Env): Promise<
     console.warn(JSON.stringify({ msg: "credits.webhook_live_refused" }))
     return Response.json({ received: true, granted: false })
   }
+  const object = event.data?.object ?? {}
+  const kind = (object.metadata as Record<string, string> | null | undefined)?.kind
+  if (event.type === "customer.subscription.deleted" && kind === PLAN_KIND) return Response.json({ received: true, revoked: await revokePlanSubscription(env, object as Parameters<typeof revokePlanSubscription>[1]) })
   if (event.type !== "checkout.session.completed" && event.type !== "checkout.session.async_payment_succeeded") return Response.json({ received: true })
-  const r = await grantPaidSession(env, (event.data?.object ?? {}) as Parameters<typeof grantPaidSession>[1])
+  if (kind === PLAN_KIND) {
+    const p = await grantPlanSession(env, object as Parameters<typeof grantPlanSession>[1])
+    return Response.json({ received: true, granted: p.ok && p.added })
+  }
+  const r = await grantPaidSession(env, object as Parameters<typeof grantPaidSession>[1])
   return Response.json({ received: true, granted: r.ok && r.added })
 }
