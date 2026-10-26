@@ -202,6 +202,56 @@ class Storm(unittest.TestCase):
         self.assertIn("error", bench.ipc16_verdict(latency(1.0), {**storm, "split": {"n": 0}}, cover))
 
 
+def method_row(samples_us):
+    """An `ipc_methods` row as the daemon builds it: nearest-rank bucket upper bounds, exact max."""
+    ordered = sorted(samples_us)
+    latency_us = {key: bench.bucket_upper_bound(bench.bucket_index(bench.pick(ordered, q)))
+                  for key, q in bench.METHOD_PERCENTILES}
+    return {"method": "ping", "id": 257, "latency_us": {"count": len(ordered), **latency_us, "max": ordered[-1]}}
+
+
+class DaemonMethods(unittest.TestCase):
+    """ops.OP.daemon_methods: the bench's client samples against the daemon's ipc_methods row."""
+
+    def test_buckets_are_the_shared_vector(self):
+        fixture = json.loads((SOURCE / "cmux-tui/spec/fixtures/ipc-method-latency/buckets.json").read_text())
+        for row in fixture["buckets"]:
+            self.assertEqual(bench.bucket_index(row["micros"]), row["bucket"], row)
+            self.assertEqual(bench.bucket_upper_bound(row["bucket"]), row["upper_bound"], row)
+
+    def test_the_same_requests_agree_within_one_bucket(self):
+        samples_us = [20 + (i * i * i) // 12_500 + (i * 37) % 101 for i in range(1000)]
+        # The client sees each round trip 30 us later than the daemon queues its reply.
+        client_ms = [(us + 30) / 1000 for us in samples_us]
+        agreement = bench.daemon_agreement(client_ms, None, method_row(samples_us))
+        self.assertTrue(agreement["within_one_bucket"], agreement)
+        self.assertEqual(agreement["n"], 1000)
+        self.assertEqual(agreement["id"], 257)
+        self.assertEqual(set(agreement["bucket_delta"]), {"p50", "p95", "p99", "max"})
+        self.assertTrue(all(delta >= 0 for delta in agreement["bucket_delta"].values()), agreement)
+
+    def test_a_far_daemon_row_is_not_within_one_bucket(self):
+        samples_us = [100] * 50
+        agreement = bench.daemon_agreement([1.0] * 50, None, method_row(samples_us))
+        self.assertFalse(agreement["within_one_bucket"], agreement)
+        self.assertGreater(agreement["bucket_delta"]["p50"], 1)
+
+    def test_untimed_requests_of_the_method_are_a_skip(self):
+        row = method_row([100] * 10)
+        self.assertIn("ran before", bench.daemon_agreement([0.1] * 3, method_row([100] * 7), row)["skipped"])
+        self.assertIn("counted 10", bench.daemon_agreement([0.1] * 3, None, row)["skipped"])
+        self.assertIn("no ipc_methods row", bench.daemon_agreement([0.1], None, None)["skipped"])
+
+    def test_report_prints_each_compared_method(self):
+        agreement = bench.daemon_agreement([0.1] * 4, None, method_row([90] * 4))
+        res = {"ops": {"ping": {**latency(0.1, n=4), "daemon_methods": {"ping": agreement}},
+                       "send": {**latency(0.1, n=4), "daemon_methods": {"skipped": "no section"}}}}
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            bench.report("small", res)
+        self.assertIn("PERF-DAEMON-METHOD small ping ping n=4 within_one_bucket=True", out.getvalue())
+
+
 class Pump(unittest.TestCase):
     def test_pump_zero_reads_what_is_readable(self):
         with tempfile.TemporaryDirectory() as tmp:

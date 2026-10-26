@@ -182,7 +182,7 @@ final class BlockingViolationTable: Sendable {
     private func recordedSite(_ kind: BlockingKind, fileID: StaticString, line: UInt) -> Int? {
         guard allowance == nil else { return nil }
         #if DEBUG
-        if mode == .trap && kind != .lockWait {
+        if mode == .trap && !kind.isRecordOnly {
             Self.trap("blocking \(kind.rawValue) on the main thread at \(fileID):\(line): move it off the main thread, or "
                 + "wrap it in allowBlocking(<reviewed reason>) (plans/cmux-next/threading-model.md)")
         }

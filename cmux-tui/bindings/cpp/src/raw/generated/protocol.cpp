@@ -12774,6 +12774,184 @@ Result<ServerStatsLockWaits> Codec<ServerStatsLockWaits>::decode(const Json& val
     return result;
 }
 
+Result<Json> Codec<ServerStatsMethodLatency>::encode(const ServerStatsMethodLatency& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_class_ = encode_value(value.class_);
+    if (!encoded_class_) return std::move(encoded_class_).error();
+    object.emplace("class", std::move(encoded_class_).value());
+    auto encoded_handler_us = encode_value(value.handler_us);
+    if (!encoded_handler_us) return std::move(encoded_handler_us).error();
+    object.emplace("handler_us", std::move(encoded_handler_us).value());
+    if (value.id) {
+        auto encoded = encode_value(*value.id);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("id", std::move(encoded).value());
+    } else {
+        object.emplace("id", Json(nullptr));
+    }
+    auto encoded_latency_us = encode_value(value.latency_us);
+    if (!encoded_latency_us) return std::move(encoded_latency_us).error();
+    object.emplace("latency_us", std::move(encoded_latency_us).value());
+    auto encoded_lock_wait_us = encode_value(value.lock_wait_us);
+    if (!encoded_lock_wait_us) return std::move(encoded_lock_wait_us).error();
+    object.emplace("lock_wait_us", std::move(encoded_lock_wait_us).value());
+    auto encoded_method = encode_value(value.method);
+    if (!encoded_method) return std::move(encoded_method).error();
+    object.emplace("method", std::move(encoded_method).value());
+    auto encoded_trace_id = encode_value(value.trace_id);
+    if (!encoded_trace_id) return std::move(encoded_trace_id).error();
+    object.emplace("trace_id", std::move(encoded_trace_id).value());
+    return Json(std::move(object));
+}
+
+Result<ServerStatsMethodLatency> Codec<ServerStatsMethodLatency>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    ServerStatsMethodLatency result{};
+    const Json* field_class_ = value.find("class");
+    if (!field_class_) {
+        return make_error(ErrorCode::decode, "missing required field 'class'");
+    }
+    if (field_class_) {
+        auto decoded = decode_value<std::string>(*field_class_);
+        if (!decoded) return std::move(decoded).error();
+        result.class_ = std::move(decoded).value();
+    }
+    const Json* field_handler_us = value.find("handler_us");
+    if (!field_handler_us) {
+        return make_error(ErrorCode::decode, "missing required field 'handler_us'");
+    }
+    if (field_handler_us) {
+        auto decoded = decode_value<ServerStatsPercentiles>(*field_handler_us);
+        if (!decoded) return std::move(decoded).error();
+        result.handler_us = std::move(decoded).value();
+    }
+    const Json* field_id = value.find("id");
+    if (!field_id) {
+        return make_error(ErrorCode::decode, "missing required field 'id'");
+    }
+    if (field_id) {
+        if (field_id->is_null()) {
+            result.id.reset();
+        } else {
+            auto decoded = decode_value<std::uint16_t>(*field_id);
+            if (!decoded) return std::move(decoded).error();
+            result.id = std::move(decoded).value();
+        }
+    }
+    const Json* field_latency_us = value.find("latency_us");
+    if (!field_latency_us) {
+        return make_error(ErrorCode::decode, "missing required field 'latency_us'");
+    }
+    if (field_latency_us) {
+        auto decoded = decode_value<ServerStatsPercentiles>(*field_latency_us);
+        if (!decoded) return std::move(decoded).error();
+        result.latency_us = std::move(decoded).value();
+    }
+    const Json* field_lock_wait_us = value.find("lock_wait_us");
+    if (!field_lock_wait_us) {
+        return make_error(ErrorCode::decode, "missing required field 'lock_wait_us'");
+    }
+    if (field_lock_wait_us) {
+        auto decoded = decode_value<ServerStatsPercentiles>(*field_lock_wait_us);
+        if (!decoded) return std::move(decoded).error();
+        result.lock_wait_us = std::move(decoded).value();
+    }
+    const Json* field_method = value.find("method");
+    if (!field_method) {
+        return make_error(ErrorCode::decode, "missing required field 'method'");
+    }
+    if (field_method) {
+        auto decoded = decode_value<std::string>(*field_method);
+        if (!decoded) return std::move(decoded).error();
+        result.method = std::move(decoded).value();
+    }
+    const Json* field_trace_id = value.find("trace_id");
+    if (!field_trace_id) {
+        return make_error(ErrorCode::decode, "missing required field 'trace_id'");
+    }
+    if (field_trace_id) {
+        auto decoded = decode_value<std::uint16_t>(*field_trace_id);
+        if (!decoded) return std::move(decoded).error();
+        result.trace_id = std::move(decoded).value();
+    }
+    return result;
+}
+
+Result<Json> Codec<ServerStatsPercentiles>::encode(const ServerStatsPercentiles& value) {
+    (void)value;
+    Json::Object object;
+    auto encoded_count = encode_value(value.count);
+    if (!encoded_count) return std::move(encoded_count).error();
+    object.emplace("count", std::move(encoded_count).value());
+    auto encoded_max = encode_value(value.max);
+    if (!encoded_max) return std::move(encoded_max).error();
+    object.emplace("max", std::move(encoded_max).value());
+    auto encoded_p50 = encode_value(value.p50);
+    if (!encoded_p50) return std::move(encoded_p50).error();
+    object.emplace("p50", std::move(encoded_p50).value());
+    auto encoded_p95 = encode_value(value.p95);
+    if (!encoded_p95) return std::move(encoded_p95).error();
+    object.emplace("p95", std::move(encoded_p95).value());
+    auto encoded_p99 = encode_value(value.p99);
+    if (!encoded_p99) return std::move(encoded_p99).error();
+    object.emplace("p99", std::move(encoded_p99).value());
+    return Json(std::move(object));
+}
+
+Result<ServerStatsPercentiles> Codec<ServerStatsPercentiles>::decode(const Json& value) {
+    auto source = value.as_object();
+    if (!source) return std::move(source).error();
+    ServerStatsPercentiles result{};
+    const Json* field_count = value.find("count");
+    if (!field_count) {
+        return make_error(ErrorCode::decode, "missing required field 'count'");
+    }
+    if (field_count) {
+        auto decoded = decode_value<std::uint64_t>(*field_count);
+        if (!decoded) return std::move(decoded).error();
+        result.count = std::move(decoded).value();
+    }
+    const Json* field_max = value.find("max");
+    if (!field_max) {
+        return make_error(ErrorCode::decode, "missing required field 'max'");
+    }
+    if (field_max) {
+        auto decoded = decode_value<std::uint64_t>(*field_max);
+        if (!decoded) return std::move(decoded).error();
+        result.max = std::move(decoded).value();
+    }
+    const Json* field_p50 = value.find("p50");
+    if (!field_p50) {
+        return make_error(ErrorCode::decode, "missing required field 'p50'");
+    }
+    if (field_p50) {
+        auto decoded = decode_value<std::uint64_t>(*field_p50);
+        if (!decoded) return std::move(decoded).error();
+        result.p50 = std::move(decoded).value();
+    }
+    const Json* field_p95 = value.find("p95");
+    if (!field_p95) {
+        return make_error(ErrorCode::decode, "missing required field 'p95'");
+    }
+    if (field_p95) {
+        auto decoded = decode_value<std::uint64_t>(*field_p95);
+        if (!decoded) return std::move(decoded).error();
+        result.p95 = std::move(decoded).value();
+    }
+    const Json* field_p99 = value.find("p99");
+    if (!field_p99) {
+        return make_error(ErrorCode::decode, "missing required field 'p99'");
+    }
+    if (field_p99) {
+        auto decoded = decode_value<std::uint64_t>(*field_p99);
+        if (!decoded) return std::move(decoded).error();
+        result.p99 = std::move(decoded).value();
+    }
+    return result;
+}
+
 Result<Json> Codec<ServerStatsRegistryLock>::encode(const ServerStatsRegistryLock& value) {
     (void)value;
     Json::Object object;
@@ -13445,6 +13623,11 @@ Result<Json> Codec<ServerStatsResult>::encode(const ServerStatsResult& value) {
         if (!encoded) return std::move(encoded).error();
         object.emplace("ipc", std::move(encoded).value());
     }
+    if (value.ipc_methods) {
+        auto encoded = encode_value(*value.ipc_methods);
+        if (!encoded) return std::move(encoded).error();
+        object.emplace("ipc_methods", std::move(encoded).value());
+    }
     if (value.journal_writer) {
         auto encoded = encode_value(*value.journal_writer);
         if (!encoded) return std::move(encoded).error();
@@ -13518,6 +13701,12 @@ Result<ServerStatsResult> Codec<ServerStatsResult>::decode(const Json& value) {
         auto decoded = decode_value<ServerStatsIpc>(*field_ipc);
         if (!decoded) return std::move(decoded).error();
         result.ipc = std::move(decoded).value();
+    }
+    const Json* field_ipc_methods = value.find("ipc_methods");
+    if (field_ipc_methods) {
+        auto decoded = decode_value<std::vector<ServerStatsMethodLatency>>(*field_ipc_methods);
+        if (!decoded) return std::move(decoded).error();
+        result.ipc_methods = std::move(decoded).value();
     }
     const Json* field_journal_writer = value.find("journal_writer");
     if (!field_journal_writer) {

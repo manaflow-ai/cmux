@@ -52,6 +52,18 @@ public enum BlockingKind: String, Sendable, CaseIterable {
     /// A kernel or directory query (`sysctl`, `proc_pidinfo`, `proc_pidpath`, `proc_listpids`, `getpwuid`):
     /// usually short, but it waits on a kernel lock or for opendirectoryd.
     case systemQuery = "system-query"
+    /// The main thread awaits a BackgroundWork item stated below `.userBlocking` while a person's input action
+    /// is open (``recordAwaitedLowPriorityWork(fileID:line:)``): the action's result waits behind lower-priority
+    /// work. The main thread does not block (it awaits), so this kind is recorded only, never a trap, and its
+    /// site counts awaits without time. Chrome's rule: work a person waits for is `USER_BLOCKING`
+    /// (base/task/task_traits.h).
+    case priorityInversion = "priority-inversion"
+
+    /// Whether a site of this kind is recorded only, in every mode: ``lockWait`` (its measured wait includes the
+    /// main thread's own scheduling delay) and ``priorityInversion`` (an await, not a wait).
+    public var isRecordOnly: Bool {
+        self == .lockWait || self == .priorityInversion
+    }
 
     /// The longest contended ``Mutex`` wait the main thread may do before the detector records
     /// it (2 ms, lead decision 2026-10-24: a short critical section is allowed, as Chrome allows

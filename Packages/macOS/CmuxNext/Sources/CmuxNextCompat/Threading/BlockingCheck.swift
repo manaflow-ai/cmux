@@ -80,6 +80,23 @@ public func assertBlockingAllowed(_ kind: BlockingKind, fileID: StaticString = #
     #endif
 }
 
+/// Records a ``BlockingKind/priorityInversion`` site at `fileID`:`line` when called on the main thread: the caller
+/// (BackgroundWork's awaited `run`) found work stated below `.userBlocking` awaited while a person's input action
+/// is open. Record only in every mode, counted without time; off the main thread and inside
+/// ``allowBlocking(_:_:)`` it records nothing. Release compiles it to nothing.
+///
+/// - Parameters:
+///   - fileID: The awaiting code's `#fileID`.
+///   - line: The awaiting code's `#line`.
+@inlinable @inline(__always)
+public func recordAwaitedLowPriorityWork(fileID: StaticString, line: UInt) {
+    #if DEBUG || CMUX_BLOCKING_CHECKS
+    if pthread_main_np() != 0 {
+        BlockingViolationTable.mainThreadBlocked(.priorityInversion, fileID: fileID, line: line)
+    }
+    #endif
+}
+
 /// Runs `body` with blocking allowed on the main thread for one reviewed reason
 /// (Chrome's `ScopedAllowBlocking`).
 ///

@@ -691,6 +691,10 @@
         "id": 2575,
         "priority": "control"
       },
+      "debug-daemon-locks": {
+        "id": 274,
+        "priority": "background"
+      },
       "delete-bookmark": {
         "id": 3076,
         "priority": "control"

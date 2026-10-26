@@ -2635,6 +2635,7 @@ use connection_frame::{
 };
 #[cfg(test)]
 use connection_frame::{handle_connection_frame, handle_request};
+pub(crate) use request_spans::method_latency_stats;
 use request_head::RequestHead;
 use request_spans::{AsyncReply, RequestArrival, RequestMethod, RequestSpan, request_id_hash};
 
