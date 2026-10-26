@@ -145,7 +145,21 @@ import json, sys
 d = json.load(sys.stdin)
 print("passed %s, failed %s, skipped %s" % (d.get("passedTests"), d.get("failedTests"), d.get("skippedTests")))
 ' || echo "no result bundle")"
-  grep -E "error:|failed|Test Suite .* (passed|failed)" "$work/test.log" | tail -30 > "$out/test-failures.txt" || true
+  # The failed test cases and their messages, from the result bundle.
+  xcrun xcresulttool get test-results tests --path "$work/kit.xcresult" --compact 2>/dev/null | python3 -c '
+import json, sys
+def walk(node, path):
+    if node.get("nodeType") == "Test Case" and node.get("result") == "Failed":
+        print("FAILED:", " / ".join(path))
+        for child in node.get("children", []):
+            if child.get("nodeType") == "Failure Message":
+                print("   ", child.get("name"))
+    for child in node.get("children", []):
+        walk(child, path + [child.get("name", "")])
+for root in json.load(sys.stdin).get("testNodes", []):
+    walk(root, [root.get("name", "")])
+' > "$out/test-failures.txt" 2>/dev/null || true
+  cat "$out/test-failures.txt"
   note "- CmuxMobileKit tests (iOS simulator): exit $test_status, $counts, $((SECONDS - t0)) s"
 fi
 
