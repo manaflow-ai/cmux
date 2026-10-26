@@ -7,9 +7,7 @@ import QuartzCore
 /// shader (BT.709, 1:1 pixels). Every call runs on `queue`, a serial render
 /// queue off the main thread; `nextDrawable` may wait there for one of the
 /// two drawables, never on the main thread.
-nonisolated final class MetalYUVRenderer: @unchecked Sendable {
-    // @unchecked: every mutable member (texture cache, the layer's drawable
-    // size) is touched only on `queue`; the rest is immutable after init.
+nonisolated final class MetalYUVRenderer: @unchecked Sendable { // crash-allow: render runs only on the serial `queue`, so the texture cache and the layer's drawableSize and nextDrawable are used on one thread (the main thread sets only the layer's contentsScale); every other member is an immutable let
     let queue = DispatchQueue(label: "cmux.remote-view.render", qos: .userInteractive)
     private let layer: CAMetalLayer
     private let commandQueue: any MTLCommandQueue
@@ -64,9 +62,9 @@ nonisolated final class MetalYUVRenderer: @unchecked Sendable {
         encoder.setFragmentBytes(&fullRange, length: MemoryLayout<Float>.size, index: 0)
         encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 3)
         encoder.endEncoding()
-        // The cache textures must outlive the GPU's reads.
-        let retained = RetainedTextures(luma: luma, chroma: chroma)
-        commands.addCompletedHandler { _ in retained.release() }
+        // The cache textures must outlive the GPU's reads: the completed handler holds them.
+        let retained = [RemoteFrameBuffer(luma), RemoteFrameBuffer(chroma)]
+        commands.addCompletedHandler { _ in withExtendedLifetime(retained) {} }
         commands.present(drawable)
         commands.commit()
         return true
@@ -125,18 +123,4 @@ nonisolated final class MetalYUVRenderer: @unchecked Sendable {
         return float4(saturate(rgb), 1.0);
     }
     """
-}
-
-/// Keeps the cache textures alive until the command buffer completes.
-private nonisolated final class RetainedTextures: @unchecked Sendable {
-    // @unchecked: written once at init, cleared once by the completion handler.
-    private var textures: [CVMetalTexture]
-
-    init(luma: CVMetalTexture, chroma: CVMetalTexture) {
-        textures = [luma, chroma]
-    }
-
-    func release() {
-        textures.removeAll()
-    }
 }

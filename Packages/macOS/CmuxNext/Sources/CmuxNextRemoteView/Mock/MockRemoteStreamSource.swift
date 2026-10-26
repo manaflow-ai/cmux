@@ -16,8 +16,11 @@ public nonisolated final class MockRemoteStreamSource: RemoteViewStreamSource {
     public let height: Int
     private let queue = DispatchQueue(label: "cmux.remote-view.mock-host", qos: .userInitiated)
     private let state: Mutex<State>
-    // Touched only on `queue`.
-    private nonisolated(unsafe) let encoder: SyntheticFrameEncoder?
+    /// Used only on `queue`, so the lock is never contended; it is held across an encode,
+    /// whose output handler takes `state`, never this lock.
+    private let encoder: Mutex<SyntheticFrameEncoder?>
+    /// False when VideoToolbox has no encoder for `codec` here.
+    public let canEncode: Bool
 
     private struct State {
         var units: AsyncStream<RemoteAccessUnit>.Continuation?
@@ -39,12 +42,11 @@ public nonisolated final class MockRemoteStreamSource: RemoteViewStreamSource {
         self.codec = codec
         self.width = width
         self.height = height
-        encoder = SyntheticFrameEncoder(codec: codec, width: width, height: height)
+        let encoder = SyntheticFrameEncoder(codec: codec, width: width, height: height)
+        canEncode = encoder != nil
+        self.encoder = Mutex(encoder)
         state = Mutex(State(status: status))
     }
-
-    /// False when VideoToolbox has no encoder for `codec` here.
-    public var canEncode: Bool { encoder != nil }
 
     public func accessUnits() -> AsyncStream<RemoteAccessUnit> {
         let (stream, continuation) = AsyncStream.makeStream(of: RemoteAccessUnit.self, bufferingPolicy: .bufferingNewest(8))
@@ -121,7 +123,13 @@ public nonisolated final class MockRemoteStreamSource: RemoteViewStreamSource {
     }
 
     private func encodeNext() {
-        guard let encoder, let buffer = encoder.makeBuffer() else { return }
+        encoder.withLock { encoder in
+            if let encoder { encodeNext(with: encoder) }
+        }
+    }
+
+    private func encodeNext(with encoder: SyntheticFrameEncoder) {
+        guard let buffer = encoder.makeBuffer() else { return }
         let (scene, frame, keyframe) = state.withLock { state in
             state.scene.counter &+= 1
             defer {
