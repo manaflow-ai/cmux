@@ -21,6 +21,12 @@
 // a shutdown op, closes every browser and ends the loop; a host that has
 // not ended kQuitLimitSeconds after that _exits, so a hung UI thread or a
 // hung CefInitialize never leaves an orphaned host behind.
+//
+// Energy Saver: this process is the page's browser process, so the saver's
+// browser-side work runs here, as Chrome's BatterySaverModeManager runs it in
+// its browser process (host_energy_saver.h). cmux's Chromium switches come in
+// INITIALIZE, the set the app runs in process with (CEFSwitches); the host
+// fits them to its own message loop and adds TimerSlackMac (host_switches.h).
 
 #import <AppKit/AppKit.h>
 #import <QuartzCore/QuartzCore.h>
@@ -53,6 +59,7 @@
 #include "chromium_host_wire.h"
 #include "cmux_cef_shim.h"
 #include "host_dispatch.h"
+#include "host_switches.h"
 #include "host_user_input.h"
 #include "shim_internal.h"
 
@@ -470,6 +477,9 @@ int main(int argc, char* argv[]) {
       cmux_host::CheckInFenceInbox(Arg(args, cmux_host::kResizeFenceSwitch));
   cmux_host::PageResizes page_resizes(fence_inbox.get(), &cmux_shim_browser_set_resize_fence);
   host.SetPageResizes(&page_resizes);
+  // cmux_shim_load bound the fork's cmux_cef_set_energy_saver (p14-energy-029) when it has
+  // it; without it the HELLO lists no saver and kOpEnergySaver changes nothing.
+  if (cmux_shim::fork_api().set_energy_saver) host.SetEnergySaver(&cmux_shim_set_energy_saver);
   // Main thread only, like `host`. The input ring (task 041) attaches its
   // dispatch here (AttachInput) and hands each frame to AddInput; until then
   // no frame comes and cmux stamps no ordered op with an input seq.
@@ -511,8 +521,9 @@ int main(int argc, char* argv[]) {
   int status = host_main.exit_status();
   if (!host_main.quit_before_start() && host_main.request()) {
     const cmux_host::InitializeRequest& request = *host_main.request();
+    const std::vector<std::string> host_switches = cmux_host::HostSwitches(request.switches);
     std::vector<const char*> switches;
-    for (const std::string& entry : request.switches) switches.push_back(entry.c_str());
+    for (const std::string& entry : host_switches) switches.push_back(entry.c_str());
     switches.push_back(nullptr);
     auto c_str = [](const std::optional<std::string>& value) { return value ? value->c_str() : nullptr; };
     // The framework this host loaded at start; cmux names the same directory.

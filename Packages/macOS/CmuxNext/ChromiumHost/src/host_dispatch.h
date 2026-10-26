@@ -34,6 +34,10 @@
 //                                              answered with i32 joined
 //   kOpTextInputStats                          no fields: answered with the text
 //                                              input push counters (host_text_input.h)
+//   kOpEnergySaver                              the app's Energy Saver: i32 version, i32 enabled,
+//                                              str exempt scheme (host_energy_saver.h); the
+//                                              host's shim applies it after initialize, and a
+//                                              token is answered with i32 its result
 //   kOpGeometryStats                            no fields: answered with GeometryStats as
 //                                              i64 frames, applied, unchanged, unplaced
 //                                              (chromium-host-bench.py geometry row)
@@ -60,7 +64,8 @@
 // task 014); everything else after it.
 //
 // Messages the host sends:
-//   kOpHello   str kWireID, StrList of the optional exports its shim defines;
+//   kOpHello   str kWireID, StrList of the optional exports its shim defines
+//              (and kEnergySaverHelloName when its fork has the saver);
 //              once, after the MIRRORs whose only refresh is attach
 //   kOpMirror  i32 mirror op, bytes key (EncodeFields), then bytes value
 //              (EncodeFields), or no value: cmux forgets the key
@@ -89,6 +94,7 @@
 #include "chromium_host_control.h"
 #include "chromium_host_tlv.h"
 #include "chromium_host_wire.h"
+#include "host_energy_saver.h"
 #include "host_mirror.h"
 #include "host_resize.h"
 #include "host_text_input.h"
@@ -280,6 +286,13 @@ class HostContext {
   // nullptr resizes with no fence.
   void SetPageResizes(PageResizes* resizes) { resizes_ = resizes; }
 
+  // cmux_shim_set_energy_saver's signature.
+  using EnergySaverFn = int (*)(int enabled, const char* exempt_scheme);
+  // The host shim's saver when its fork has cmux_cef_set_energy_saver
+  // (browser_host_main.mm, before Attach, which then lists
+  // kEnergySaverHelloName); nullptr takes kOpEnergySaver and changes nothing.
+  void SetEnergySaver(EnergySaverFn energy_saver) { energy_saver_ = energy_saver; }
+
  private:
   enum class State { kPreinit, kInitializing, kRunning, kEnded };
   struct HeldEvent {
@@ -316,6 +329,8 @@ class HostContext {
   // `chromium_id`'s page view takes `geometry` when it changed.
   void PlaceBrowser(int chromium_id, const PageGeometry& geometry);
   bool HandlePageResize(const control::Message& message);
+  // kOpEnergySaver: false for a malformed op.
+  bool HandleEnergySaver(const control::Message& message);
   // Keeps `token`'s size for the next op that opens its view (view_sizes_).
   void RememberViewSize(uint64_t token, int32_t width, int32_t height);
   // Watches `chromium_id`'s text input in the fork: its result (0 refused).
@@ -410,6 +425,7 @@ class HostContext {
   // Browsers cmux watches the text input of, by Chromium id.
   TextInputPushes text_input_;
   PageResizes* resizes_ = nullptr;
+  EnergySaverFn energy_saver_ = nullptr;
   // Text input watches of minted ids whose creation has not come, by the
   // minted id: the watch tokens Bind arms and answers. Bounded with
   // pending_binds_ (AwaitsCreation).

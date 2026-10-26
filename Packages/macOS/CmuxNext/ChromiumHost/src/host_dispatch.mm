@@ -131,6 +131,7 @@ void HostContext::Attach() {
   for (const auto& entry : kOptionalExports) {
     if (OptionalExport(entry.op)) exports.push_back(entry.name);
   }
+  if (energy_saver_) exports.push_back(kEnergySaverHelloName);
   TlvWriter hello;
   hello.Str(kWireID);
   hello.StrList(exports.data(), static_cast<int>(exports.size()));
@@ -189,7 +190,7 @@ void HostContext::Handle(control::Message& message) {
     case State::kPreinit:
       if (message.op == kOpInitialize) {
         if (!HandleInitialize(message)) Bad("a malformed initialize");
-      } else if (IsMirrorOp(message.op) || message.op == kOpPageResize) {
+      } else if (IsMirrorOp(message.op) || message.op == kOpPageResize || message.op == kOpEnergySaver) {
         waiting_.push_back(std::move(message));  // CEF state: read once initialize returned
       } else {
         Dispatch(message);  // a preinit op: the remote shim sends nothing else before initialize
@@ -228,6 +229,10 @@ void HostContext::Handle(control::Message& message) {
       }
       if (message.op == kOpPageResize) {
         if (!HandlePageResize(message)) Bad("a malformed page resize");
+        return;
+      }
+      if (message.op == kOpEnergySaver) {
+        if (!HandleEnergySaver(message)) Bad("a malformed energy saver");
         return;
       }
       if (IsMirrorOp(message.op)) return Watch(message.op, message.fields);
@@ -298,6 +303,23 @@ bool HostContext::HandlePageResize(const control::Message& message) {
   if (message.token != 0) {
     TlvWriter reply;
     reply.I32(joined ? 1 : 0);
+    Reply(message.token, reply);
+  }
+  return true;
+}
+
+// The shim's call runs after CefInitialize returned (it is on the main
+// thread, as cmux_shim_set_energy_saver requires): a message from before
+// waited in waiting_.
+bool HostContext::HandleEnergySaver(const control::Message& message) {
+  const std::optional<EnergySaver> saver = DecodeEnergySaver(message.fields);
+  if (!saver) return false;
+  const int result = energy_saver_ ? energy_saver_(saver->enabled ? 1 : 0,
+                                                   saver->exempt_scheme ? saver->exempt_scheme->c_str() : nullptr)
+                                   : 0;
+  if (message.token != 0) {
+    TlvWriter reply;
+    reply.I32(result);
     Reply(message.token, reply);
   }
   return true;

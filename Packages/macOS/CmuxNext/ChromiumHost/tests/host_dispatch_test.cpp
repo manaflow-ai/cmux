@@ -21,6 +21,7 @@
 #include "chromium_host_input_ring.h"
 #include "cmux_cef_shim.h"
 #include "host_dispatch.h"
+#include "host_switches.h"
 
 #include "generated/host_dispatch.inc"
 
@@ -1087,6 +1088,109 @@ void PageDisplayFollowsCreation() {
   Expect(shim.calls, {"display 3 4 -1440,200"}, "a created browser's display goes to the fork at once");
 }
 
+// The host shim's cmux_shim_set_energy_saver, as SetEnergySaver takes it (task p14-energy-045).
+int RecordEnergySaver(int enabled, const char* exempt_scheme) {
+  shim.calls.push_back("saver " + std::to_string(enabled) + " " + (exempt_scheme ? exempt_scheme : "<null>"));
+  return 1;
+}
+
+Message EnergySaverOp(uint32_t token, int32_t version, int32_t enabled, const char* scheme) {
+  Writer w;
+  w.I32(version);
+  w.I32(enabled);
+  w.Str(scheme);
+  return Op(kOpEnergySaver, token, w);
+}
+
+// The app's Energy Saver reaches the host's fork once CefInitialize returned, on each edge cmux
+// sends; the HELLO says whether the fork has it, and a host without it takes the op and changes
+// nothing. A frame with no version (0) or with fields version 1 does not have is bad.
+void EnergySaverReachesTheFork() {
+  {
+    Fixture f;
+    f.host.SetEnergySaver(&RecordEnergySaver);
+    f.host.Attach();
+    const std::vector<std::string> sent = f.Sent();
+    Check(!sent.empty() && sent.back() == "hello cmux_shim_tab_set_frozen " + std::string(kEnergySaverHelloName),
+          "a host whose fork has the saver lists it in its hello: " + Join(sent));
+    f.host.OnMessages({Hello()});
+    f.host.OnMessages({EnergySaverOp(0, kEnergySaverVersion, 1, "cmux-page")});
+    Check(shim.calls.empty(), "before initialize the saver waits");
+    Writer init;
+    for (const char* path : {"/fw", "/app", "/helper", "/root"}) init.Str(path);
+    init.Str(nullptr);
+    init.I32(0);
+    init.Str(nullptr);
+    init.Str(nullptr);
+    init.StrList(nullptr, 0);
+    f.host.OnMessages({Op(kOpInitialize, 1, init)});
+    Check(shim.calls.empty(), "while initialize runs the saver waits");
+    f.host.Resume();
+    Expect(shim.calls, {"saver 1 cmux-page"}, "after initialize the saver reaches the fork");
+    shim.calls.clear();
+    f.Sent();
+    f.host.OnMessages({EnergySaverOp(0, kEnergySaverVersion, 0, "cmux-page"),
+                       EnergySaverOp(7, kEnergySaverVersion, 1, nullptr)});
+    Expect(shim.calls, {"saver 0 cmux-page", "saver 1 <null>"}, "each edge, in order; no scheme is no exemption");
+    Expect(f.Sent(), {"reply 7 1"}, "a token is answered with the fork call's result");
+
+    // A later version only appends fields: the host reads version 1's and applies them.
+    shim.calls.clear();
+    Writer later;
+    later.I32(kEnergySaverVersion + 1);
+    later.I32(0);
+    later.Str("cmux-page");
+    later.I32(30);
+    f.host.OnMessages({Op(kOpEnergySaver, 0, later)});
+    Expect(shim.calls, {"saver 0 cmux-page"}, "a later version's frame applies its version 1 fields");
+    Expect(f.delegate.calls, {"initialize /root"}, "and is not bad");
+  }
+  {
+    Fixture f;
+    f.Start();
+    f.host.OnMessages({EnergySaverOp(9, kEnergySaverVersion, 1, "cmux-page")});
+    Check(shim.calls.empty(), "a host whose fork has no saver calls nothing");
+    Expect(f.Sent(), {"reply 9 0"}, "and answers 0");
+  }
+  auto bad = [](Message message, const char* what) {
+    Fixture f;
+    f.host.SetEnergySaver(&RecordEnergySaver);
+    f.Start();
+    f.host.OnMessages({std::move(message)});
+    Check(shim.calls.empty(), std::string(what) + ": nothing reaches the fork");
+    Expect(f.delegate.calls, {"initialize /root", "bad a malformed energy saver"}, what);
+  };
+  bad(EnergySaverOp(0, 0, 1, "cmux-page"), "a frame with no version");
+  bad(EnergySaverOp(0, -1, 1, "cmux-page"), "a negative version");
+  bad(EnergySaverOp(0, kEnergySaverVersion, 2, "cmux-page"), "enabled neither 0 nor 1");
+  {
+    Writer extra;
+    extra.I32(kEnergySaverVersion);
+    extra.I32(1);
+    extra.Str(nullptr);
+    extra.I32(30);
+    bad(Op(kOpEnergySaver, 0, extra), "version 1 with a field it does not have");
+  }
+  {
+    Writer short_frame;
+    short_frame.I32(kEnergySaverVersion);
+    bad(Op(kOpEnergySaver, 0, short_frame), "a frame without its fields");
+  }
+}
+
+// The switches the host starts Chromium with: cmux's set, without the external pump's slice (the
+// host runs CefRunMessageLoop), with TimerSlackMac on (host_switches.h).
+void HostSwitchesFitTheHostsLoop() {
+  const std::vector<std::string> app = {"cmux-tabbed-windows", "cmux-pump-time-slice-us=2000",
+                                        "enable-features=AlignWakeUps,BatterySaverModeAlignWakeUps",
+                                        "disable-stack-profiler"};
+  const std::vector<std::string> want = {"cmux-tabbed-windows",
+                                         "enable-features=AlignWakeUps,BatterySaverModeAlignWakeUps",
+                                         "disable-stack-profiler", "enable-features=TimerSlackMac"};
+  Expect(cmux_host::HostSwitches(app), want, "the app's switches fitted to the host's message loop");
+  Expect(cmux_host::HostSwitches({}), {"enable-features=TimerSlackMac"}, "TimerSlackMac with no app switches");
+}
+
 }  // namespace
 
 int main() {
@@ -1111,6 +1215,8 @@ int main() {
   GeometryOnlyOnChange();
   GeometryStatsReply();
   WipeZeroes();
+  EnergySaverReachesTheFork();
+  HostSwitchesFitTheHostsLoop();
   if (failures) return EXIT_FAILURE;
   std::puts("chromium-host-dispatch tests: ok");
   return EXIT_SUCCESS;
