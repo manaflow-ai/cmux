@@ -23,6 +23,9 @@
   "requires": [
     "resource_api"
   ],
+  "switches": [
+    "terminal-holder"
+  ],
   "platforms": [
     "linux",
     "mac"
@@ -59,19 +62,22 @@
       "args": {
         "method": "terminal.close",
         "params": {
-          "expected_revision": -1
+          "expected_revision": "999"
         },
         "idempotencyKey": "terminal-close-error.call"
       },
       "expect": {
         "outcome": "error",
-        "error": "validation.invalid"
+        "error": "revision.conflict",
+        "errorDetails": {
+          "expected": "999"
+        }
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "expected_revision breaks its catalog type (value must be an unsigned decimal string); the daemon's catalog check refuses it"
+      "note": "a stale expected_revision: the close is refused before the shell is touched"
     }
   ],
   "invariants": [

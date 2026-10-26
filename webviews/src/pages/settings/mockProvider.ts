@@ -256,6 +256,16 @@ export class MockSettingsProvider {
         if (this.host.voice_input) this.setHost({ ...this.host, voice_input: { on: params.on === true } });
         return {};
       },
+      // Experimental > Feature Flags: the choice applies at the next launch, so only next_local changes.
+      "cmux.settings.features.set": (params) => {
+        const features = this.host.features;
+        if (!features?.local_overrides) throw new ProtocolError("cmux.page.unavailable", "no local feature choices");
+        const next = { ...features.next_local };
+        if (typeof params.on === "boolean") next[params.name as string] = params.on;
+        else delete next[params.name as string];
+        this.setHost({ ...this.host, features: { ...features, next_local: next } });
+        return {};
+      },
       // Agents > Chiefs (ChiefsCard): the host's page relay to the Chief owner and harness center.
       "cmux.chief.profile.list": () => ({ chiefs: this.chiefs }),
       "cmux.chief.profile.avatar.get": (params) => ({ avatar: this.chiefAvatars.get(params.chief as string) ?? null }),
@@ -842,6 +852,8 @@ export class MockSettingsProvider {
     },
     terminal: { ghostty_config: "~/.config/ghostty/config", shell_integration: "zsh" },
     ghostty_diagnostics: [],
+    // Feature featureFlagsCard is off by default: no Feature Flags card.
+    features: null,
     computer_use: { phase: "ready", accessibility: true, screen_recording: false, helper: "cmux Computer Use" },
     settings_file: "/Users/me/.config/cmux/cmux-next.json",
     backdrops: [

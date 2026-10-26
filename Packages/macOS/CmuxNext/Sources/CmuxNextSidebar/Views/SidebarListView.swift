@@ -84,6 +84,10 @@ final class SidebarListView: NSView {
     var hoveredKey: SidebarRowKey?
     /// The hovered row changed (nil: off every row); the App prewarms a hidden page ahead of the click.
     var onHoverRow: ((SidebarRowKey?) -> Void)?
+    /// A press on a row: the workspace row it switches to only on the release (`sidebar.multiView`, a row of
+    /// a multi-selection), nil when it switches on the press or switches nothing. The App prewarms that
+    /// row's page while the button is down (`intentPrewarmPress`).
+    var onPressRow: ((SidebarRowKey?) -> Void)?
     /// The list's hover moves (feature `pointerFrameHover`): with `hoverFrameInput`, a frame interval's first
     /// move hovers at once and the rest once at its frame, at the latest point; without it, each move hovers.
     private(set) lazy var hoverMoves = PointerFrameHover(owner: "SidebarListView.hover", view: self) { [weak self] point in

@@ -24,6 +24,7 @@ final class SidebarNowPlayingPlayButton: NSButton {
         isBordered = false
         imagePosition = .imageOnly
         wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay // repaints on a state change or a new size (setFrameSize)
         target = self
         action = #selector(pressed)
         refusesFirstResponder = true
@@ -40,8 +41,16 @@ final class SidebarNowPlayingPlayButton: NSButton {
 
     override var isHighlighted: Bool { didSet { if isHighlighted != oldValue { needsDisplay = true } } }
 
+    override func setFrameSize(_ newSize: NSSize) {
+        let changed = newSize != frame.size
+        super.setFrameSize(newSize)
+        // The disc's radius is layout's; the cell's image is AppKit's, so it repaints at the new size.
+        if changed { needsLayout = true; needsDisplay = true }
+    }
+
     override func layout() {
         super.layout()
+        layer?.cornerRadius = bounds.height / 2
         // The glyph is a bit under half the disc, nudged right for Play's triangle.
         let side = (bounds.height * 0.42).rounded()
         guard side > 0, side != renderedSide else { return }
@@ -52,7 +61,6 @@ final class SidebarNowPlayingPlayButton: NSButton {
     }
 
     override func updateLayer() {
-        layer?.cornerRadius = bounds.height / 2
         performWithTheme {
             layer?.backgroundColor = Palette.accentFill.cgColor
             contentTintColor = Palette.onAccent

@@ -162,6 +162,13 @@ public final class AgentPaneLaunchImages {
         while held.count > heldLimit { dropOldestHeld() }
     }
 
+    /// Holds `data`, tab `key`'s frame encoded already (the picture its page took as it hid, kept by the
+    /// page lifecycle), as ``hold(_:_:size:appearance:)`` holds one.
+    public func hold(_ key: String, encoded data: Data, size: NSSize, appearance: NSAppearance.Name?) {
+        guard size.width > 0 else { return }
+        held[key] = (data, size, appearance)
+    }
+
     /// The tab closed or showed its live page: its held frame goes.
     public func drop(_ key: String) {
         removeHeld(key)

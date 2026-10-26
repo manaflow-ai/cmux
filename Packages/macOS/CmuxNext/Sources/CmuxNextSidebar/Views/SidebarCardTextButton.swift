@@ -18,6 +18,7 @@ final class SidebarCardTextButton: NSView {
     override init(frame: NSRect) {
         super.init(frame: frame)
         wantsLayer = true
+        layerContentsRedrawPolicy = .onSetNeedsDisplay // updateLayer sets colors only
         focusRingType = .none
         layer?.cornerCurve = .continuous
         label.lineBreakMode = .byClipping

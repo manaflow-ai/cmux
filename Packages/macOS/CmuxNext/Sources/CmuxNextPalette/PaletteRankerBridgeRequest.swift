@@ -1,7 +1,14 @@
 import Foundation
 
 nonisolated struct PaletteRankerBridgeRequest: Encodable {
-    let operation: String
+    /// What the ranker does (cmux-palette-ranker's `request.operation`): a typed query, or the
+    /// empty query's sections. An in-process FFI call, not a daemon operation.
+    nonisolated enum Operation: String, Encodable {
+        case rank
+        case rankEmpty
+    }
+
+    let operation: Operation
     /// Nil when the context already holds this `version`'s entries (installed once per version).
     let entries: [PaletteRankerBridgeEntry]?
     let version: Int?
