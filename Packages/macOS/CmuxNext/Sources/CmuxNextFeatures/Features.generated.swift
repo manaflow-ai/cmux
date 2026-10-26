@@ -138,12 +138,12 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
-    /// A top page (Home, History, Bookmarks, an app page) hidden past its page's timeout lets its view go and keeps a small record of its scroll and selection, and at most the Mac's budget of hidden top pages stay live across all windows; showing it builds the page again as the person left it.
+    /// A top page that records itself (classic Home: conversation, search, list scroll) hidden past its timeout lets its view go, and at most the Mac's budget of hidden top pages stay live across windows; showing it builds it again as left. Web pages and unsent input stay live.
     public static let topPageDiscard = Feature(
         index: 8,
         name: "topPageDiscard",
         owner: "PL-memory",
-        description: "A top page (Home, History, Bookmarks, an app page) hidden past its page's timeout lets its view go and keeps a small record of its scroll and selection, and at most the Mac's budget of hidden top pages stay live across all windows; showing it builds the page again as the person left it.",
+        description: "A top page that records itself (classic Home: conversation, search, list scroll) hidden past its timeout lets its view go, and at most the Mac's budget of hidden top pages stay live across windows; showing it builds it again as left. Web pages and unsent input stay live.",
         kind: .labs,
         process: .app,
         chromiumFeature: nil,

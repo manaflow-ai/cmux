@@ -96,20 +96,41 @@ enum TopPages {
     }
 }
 
-/// Classic Home follows the top pages' discard policy: its record names the shown conversation,
-/// whose composer draft the store keeps (`HomeStore.draft(for:)`), and a New Message draft, which
-/// no store keeps, holds the page.
+/// Classic Home follows the top pages' discard policy (p07-memory-023). Its record names the shown
+/// conversation, whose composer draft the store keeps (`HomeStore.draft(for:)`), the list's search
+/// and the list's scroll. The transcript opens again at its newest message, as opening any
+/// conversation does: it pages its messages in, so a raw offset would not point at the same place.
+/// A New Message draft (chosen recipients and a body in the page's own composer store) holds the page.
 extension TopHomePageView: PageDiscardable {
+    /// The key of the list's scroll in the record.
+    static let listScrollKey = "home.list"
+
     func holdsUnsavedInput(_ view: NSView) -> Bool {
         newMessage.map { !$0.isEmpty } ?? false
     }
 
     func saveViewState(_ view: NSView, into state: inout PageViewState) {
         state.selection = shown?.rawValue
+        let query = list.searchQuery
+        state.search = query.isEmpty ? nil : query
+        let origin = list.scrollOrigin
+        state.scroll = origin == .zero ? [:] : [Self.listScrollKey: origin]
     }
 
+    /// The rows arrive after the page is built (its inbox observation), so the list's scroll waits
+    /// for them (``applyPendingListScroll()``).
     func restoreViewState(_ state: PageViewState, in view: NSView) {
-        guard let selection = state.selection else { return }
-        show(ConversationID(selection))
+        if let search = state.search { list.setSearch(search) }
+        if let selection = state.selection { show(ConversationID(selection)) }
+        pendingListScroll = state.scroll[Self.listScrollKey]
+        applyPendingListScroll()
+    }
+
+    /// Scrolls the list back to where a discarded page left it, once the list holds its rows.
+    func applyPendingListScroll() {
+        guard let origin = pendingListScroll, !rows.isEmpty else { return }
+        pendingListScroll = nil
+        list.layoutSubtreeIfNeeded()
+        list.scroll(to: origin)
     }
 }

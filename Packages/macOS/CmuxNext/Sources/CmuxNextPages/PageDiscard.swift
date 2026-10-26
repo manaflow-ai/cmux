@@ -17,43 +17,57 @@ public nonisolated enum PageDiscardPolicy: Hashable, Sendable {
 /// What a discarded page keeps so it shows again as the person left it, Chrome's `PageState` of a
 /// discarded tab's last entry (third_party/blink/public/common/page_state/page_state.h, which holds
 /// each frame's scroll offset and form state) for a native page:
-/// - the visible origin of each scroll view (a list, a transcript), by its place in the view tree;
-/// - what the page names itself (``selection``: Home's shown conversation).
+/// - the visible origin of each scroll view (a list), by its place in the view tree or a name the
+///   page gives it;
+/// - what the page names itself (``selection``: Home's shown conversation, whose composer draft
+///   its store keeps);
+/// - the search query the person typed (``search``).
 ///
-/// Text that no model keeps (a search query, a draft no store holds) is form input: the page
-/// stays instead (``PageDiscardable/holdsUnsavedInput(_:)``, ``holdsTypedText(_:)``).
+/// Input the record cannot hold (a draft no store keeps) is form input: the page stays instead
+/// (``PageDiscardable/holdsUnsavedInput(_:)``).
 public nonisolated struct PageViewState: Equatable, Sendable {
     /// Each scrolled scroll view's visible origin, keyed by its path from the page's view.
     public var scroll: [String: CGPoint]
     /// The item the page shows (Home: the conversation id).
     public var selection: String?
+    /// The page's search query; nil when none is typed.
+    public var search: String?
 
-    public init(scroll: [String: CGPoint] = [:], selection: String? = nil) {
+    public init(scroll: [String: CGPoint] = [:], selection: String? = nil, search: String? = nil) {
         self.scroll = scroll
         self.selection = selection
+        self.search = search
     }
 }
 
-/// A page's say in its discard: a page provider, or a native page's view. Every member has a
-/// default, so a page that says nothing goes on ``PageDiscardPolicy/standard`` and comes back with
+/// A page's say in its discard: a page provider, or a native page's view. Only a page with an
+/// owner is ever discarded; a page without one stays for its window's life, since nothing would
+/// record or restore what it shows. An owner that says nothing more goes on
+/// ``PageDiscardPolicy/standard``, is kept while an editable field holds text, and comes back with
 /// its scroll offsets.
 @MainActor
 public protocol PageDiscardable: AnyObject {
     /// When the page's hidden view may go.
     var pageDiscardPolicy: PageDiscardPolicy { get }
-    /// The page holds input no model keeps; the discard planner keeps it at any pressure (the lead rule).
+    /// The page holds input its record does not keep; the discard planner keeps it at any pressure
+    /// (the lead rule).
     func holdsUnsavedInput(_ view: NSView) -> Bool
-    /// Adds what the page names to the record made of `view` (the scroll is in it already).
+    /// Adds what the page names to the record made of `view` (its scroll offsets are in it already).
     func saveViewState(_ view: NSView, into state: inout PageViewState)
-    /// The rebuilt `view` shows `state`; the scroll is restored after this.
+    /// The rebuilt `view`, now the window's content, shows `state`. A page whose content arrives
+    /// later (a list its store fills) applies its scroll once that content exists.
     func restoreViewState(_ state: PageViewState, in view: NSView)
 }
 
 extension PageDiscardable {
     public var pageDiscardPolicy: PageDiscardPolicy { .standard }
-    public func holdsUnsavedInput(_ view: NSView) -> Bool { false }
+    public func holdsUnsavedInput(_ view: NSView) -> Bool { PageViewState.holdsTypedText(view) }
     public func saveViewState(_ view: NSView, into state: inout PageViewState) {}
-    public func restoreViewState(_ state: PageViewState, in view: NSView) {}
+    /// A page built whole in its initializer: the scroll offsets once it is laid out.
+    public func restoreViewState(_ state: PageViewState, in view: NSView) {
+        view.layoutSubtreeIfNeeded()
+        state.restoreScroll(in: view)
+    }
 }
 
 @MainActor
