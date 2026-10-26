@@ -7,7 +7,8 @@
 /// ``CEFPageWindowWidgets``).
 ///
 /// `cef-native-ui-live.py` checks each kind on the fleet, in the order of ``allCases``, and its row
-/// names are ``checkName``.
+/// names are ``checkName``. No fork sends ``CEFForkTabEvent/pageWindowWidget`` yet, and no fleet run has
+/// checked a ``route`` (`plans/cmux-next/chrome-parity/p03-rendering-046-native-ui.md`, Status).
 nonisolated enum CEFNativeWidget: Int, CaseIterable, Sendable {
     /// `<select>` popups.
     case selectPopup = 0
@@ -36,7 +37,8 @@ nonisolated enum CEFNativeWidget: Int, CaseIterable, Sendable {
     /// A `views::Widget` child of the page window the fork reports by no other kind.
     case otherPageWidget = 12
 
-    /// Where the widget shows on an attached page.
+    /// Where the widget should show on an attached page, read from ``chromiumSource``. A fleet run of
+    /// `cef-native-ui-live.py` on a Track B build confirms or changes it.
     var route: CEFNativeWidgetRoute {
         switch self {
         case .selectPopup, .colorPicker, .datePicker, .inputMethod, .linkDragOut, .accessibility, .tooltip, .cursor:
@@ -119,28 +121,33 @@ nonisolated enum CEFNativeWidgetRoute: Equatable, Sendable {
     case chromiumView
     /// cmux shows it from the host view (its context menu, its file drop relay), as before Track B.
     case host
-    /// Per-widget fallback: the page window orders in, transparent and over the host view, while the widget
-    /// is open, and the page's pixels stay in the attached view (``CEFPageWindowWidgets``).
+    /// Per-widget fallback: while the widget is open the page window orders in over the host view,
+    /// transparent and ignoring the mouse, so the widget (its own child window) shows and the page's pixels
+    /// and clicks stay in the attached view (``CEFPageWindowWidgets``).
     case pageWindow
 }
 
 /// One ``CEFForkTabEvent/pageWindowWidget`` report: `value` is the widget's kind shifted left by one, with
 /// bit 0 set when the page window orders in for it and clear when it orders out.
 nonisolated struct CEFPageWindowWidgetEvent: Equatable, Sendable {
-    var widget: CEFNativeWidget
+    /// The fork's kind: a ``CEFNativeWidget`` raw value, or a kind a newer fork added. It stays raw, so two
+    /// unknown kinds stay two widgets in ``CEFPageWindowWidgets``.
+    var kind: Int
     var shown: Bool
 
     init(widget: CEFNativeWidget, shown: Bool) {
-        self.widget = widget
+        kind = widget.rawValue
         self.shown = shown
     }
 
-    /// A kind this app does not know yet is still a widget over the page window (``CEFNativeWidget/otherPageWidget``).
     init(value: Int) {
-        widget = CEFNativeWidget(rawValue: value >> 1) ?? .otherPageWidget
+        kind = value >> 1
         shown = value & 1 != 0
     }
 
+    /// A kind this app does not know yet is still a widget over the page window (``CEFNativeWidget/otherPageWidget``).
+    var widget: CEFNativeWidget { CEFNativeWidget(rawValue: kind) ?? .otherPageWidget }
+
     /// The tab event's value for this report (fork tests and fakes).
-    var value: Int { widget.rawValue << 1 | (shown ? 1 : 0) }
+    var value: Int { kind << 1 | (shown ? 1 : 0) }
 }

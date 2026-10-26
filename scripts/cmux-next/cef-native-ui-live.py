@@ -10,27 +10,36 @@ on a page attached to its host view (Track B):
                  pick the second option: the page's value changes
   context-menu   an HID right click: the page sees `contextmenu` and cmux's menu shows (capture); Escape
   autofill       a <datalist> input: typing opens Chromium's dropdown (an autofill popup, a views::Widget of the
-                 page window); Down, Return fill it. On an attached page the fork orders the page window in for
-                 it: debug.cef tracker.page_window_widget_shows grows by one (recorded; the value is the row)
+                 page window); Down, Return fill it, and a page window shows for it: a visible content child
+                 window of the cmux window while it is open, or debug.cef page_window_widget_shows_by_kind["2"]
+                 grows (the per-widget fallback, whose fork side is not written yet: this row fails until it is)
   color-picker   an HID click on <input type=color> shows the shared NSColorPanel (debug.window_list)
-  date-picker    a button calls showPicker() on <input type=date>: a popup window of the app shows
-                 (debug.window_list, a new visible window); Escape closes it
-  print-preview  a button calls window.print(): a new visible window or a page-window widget shows; Escape
+  date-picker    a button calls showPicker() on <input type=date>: a new visible RenderWidgetPopupWindow shows
+                 (Chromium's PopupWindowMac, debug.window_list); Escape closes it
+  print-preview  a button calls window.print(): Chromium's print preview shows, as a new visible
+                 NativeWidgetMacNSWindow (a views dialog) or a page-window widget of kind 5
+                 (page_window_widget_shows_by_kind["5"]); a system print panel does not count. Escape
   ime            Option-E then E on the US layout (a dead key: marked text, then commit): the input reads "é" and
                  the page saw compositionstart (the page's view is the NSTextInputClient; cmux adds none)
-  file-drop-in   MANUAL: drag a file from Finder onto the drop zone; the zone lists its name
-                 (CEFFileDragRelay on the host view, its scope rules unchanged)
+  file-drop-in   PERSON: the run prints a prompt and waits (--drop-wait, 60 s) for a person to drag a file from
+                 Finder onto the drop zone; the zone lists its name (CEFFileDragRelay on the host view, its scope
+                 rules unchanged). It fails on timeout
   link-drag-out  an HID drag of the page's link: the page sees dragstart and dragend (the drag session ran)
   accessibility  ax-tour.sh --dump of the app finds the page's button by its accessible name (AX turns on for it)
   tooltip        the pointer rests on an element with a title: a tooltip window of the app shows (debug.window_list)
-  cursor         MANUAL: the pointer over the `cursor: pointer` box; the capture (with the cursor) shows a hand
+  cursor         REVIEW: the pointer over the `cursor: pointer` box; the capture (with the cursor) shows a hand
 
-Also recorded (`facts`): the visible content child windows of the cmux window before and after the tour
-(debug.layers; 0 on an attached page, DC8b) and the debug.cef tracker counters.
+Before the tour, the `attached` row checks DC8b on the probe page: no visible content child window of the cmux
+window (debug.layers `child_windows`, role `content`), so the page is attached to its host view (Track B, 044 and
+045). Also recorded (`facts`): those child windows before and after the tour and the debug.cef tracker counters.
+Each row records `observed_route` where the run can tell it (`CEFNativeWidgetRoute`: chromiumView, host,
+pageWindow): the value that sets `CEFNativeWidget.route`.
 
-A MANUAL row passes only with --manual-ok after a person looked at its capture (and its automatic part passed);
-without it, it is a failed row with the steps to do, so a run never claims what nobody saw. Each row writes OUT/native-ui-<row>.png (a screencapture of
-the window with the cursor) and OUT/native-ui.json holds every row.
+A REVIEW row (context-menu, cursor) is `pending-review` after the run, and the run fails: a person looks at its
+capture and confirms it in a second step, so a run never claims what nobody saw:
+  cef-native-ui-live.py --confirm OUT/native-ui.json --rows context-menu,cursor
+sets `checked_by_person` on those rows and passes each whose automatic part passed. Each row writes
+OUT/native-ui-<row>.png (a screencapture of the window with the cursor) and OUT/native-ui.json holds every row.
 
 Run on a GUI fleet host with input, never a laptop:
   nx-remote --needs gui --needs input --app-from-fleet cmux --tag T --ref SHA -- \\
@@ -39,13 +48,38 @@ Run on a GUI fleet host with input, never a laptop:
 import argparse, ctypes, glob, json, os, pathlib, signal, socket, subprocess, sys, tempfile, time
 
 parser = argparse.ArgumentParser()
-parser.add_argument("--app", required=True)
-parser.add_argument("--tag", required=True)
+parser.add_argument("--app")
+parser.add_argument("--tag")
 parser.add_argument("--out", default="/tmp")
 parser.add_argument("--only", default="", help="comma-separated rows to run (default: all)")
-parser.add_argument("--manual-ok", default="", help="comma-separated MANUAL rows a person checked in their capture")
+parser.add_argument("--drop-wait", type=float, default=60, help="seconds file-drop-in waits for a person's drop")
 parser.add_argument("--keep", action="store_true", help="leave the app running")
+parser.add_argument("--confirm", metavar="NATIVE_UI_JSON",
+                    help="after a person reviewed the captures: mark --rows as checked in that run's record, then exit")
+parser.add_argument("--rows", default="", help="with --confirm: comma-separated REVIEW rows the person checked")
 opts = parser.parse_args()
+
+
+def confirm(path, names):
+    """The second step of a REVIEW row: a person looked at that run's capture, so the row is checked now."""
+    record = json.load(open(path))
+    reviewable = {r["check"] for r in record["rows"] if r.get("review")}
+    if not names or not names <= reviewable:
+        sys.exit(f"--rows must name REVIEW rows of {path} ({sorted(reviewable)}), got {sorted(names)}")
+    for r in record["rows"]:
+        if r["check"] in names:
+            r["observed"]["checked_by_person"] = True
+            r["ok"] = bool(r["observed"].get("automatic_ok"))
+            r["status"] = "pass" if r["ok"] else "fail"
+    json.dump(record, open(path, "w"), indent=2)
+    print(json.dumps([{k: r.get(k) for k in ("check", "status")} for r in record["rows"]]))
+    sys.exit(0 if all(r["ok"] for r in record["rows"]) else 1)
+
+
+if opts.confirm:
+    confirm(opts.confirm, {name for name in opts.rows.split(",") if name})
+if not opts.app or not opts.tag:
+    parser.error("--app and --tag are required for a run")
 
 TAG, APP = opts.tag, os.path.abspath(opts.app.rstrip("/"))
 SOCKET = f"/tmp/cmux-debug-{TAG}.sock"
@@ -60,7 +94,6 @@ WINDOW = (80, 80, 1400, 900)
 ORDER = ["select", "context-menu", "autofill", "color-picker", "date-picker", "print-preview", "ime",
          "file-drop-in", "link-drag-out", "accessibility", "tooltip", "cursor"]
 ONLY = {name for name in opts.only.split(",") if name}
-MANUAL_OK = {name for name in opts.manual_ok.split(",") if name}
 ROWS, TAB, FACTS = [], {}, {}
 
 # Every control sits at a fixed fraction of the page (fx, fy), so the HID points need no layout read.
@@ -224,23 +257,32 @@ def visible_ids():
 
 
 def content_children():
-    """Visible content child windows of the cmux windows (page windows ordered in)."""
+    """Visible content child windows of the cmux windows (page windows ordered in; debug.layers `child_windows`)."""
     return sum(1 for window in (rpc("debug.layers") or {}).get("windows") or []
-               for child in window.get("children") or [] if child.get("role") == "content" and child.get("visible"))
+               for child in window.get("child_windows") or [] if child.get("role") == "content" and child.get("visible"))
 
 
 def tracker():
     return (rpc("debug.cef") or {}).get("tracker") or {}
 
 
-def row(name, ok, observed, manual=None):
-    if manual is not None:
-        ok = bool(ok) and name in MANUAL_OK
-        observed = dict(observed, manual=manual, checked_by_person=ok)
-    observed = dict(observed, capture=capture(name))
-    ROWS.append({"check": name, "ok": bool(ok), "manual": manual is not None, "observed": observed})
-    label = ("PASS" if ok else "FAIL") + (" (manual)" if manual is not None else "")
-    print(f"{label} | {name} | {json.dumps(observed)[:400]}", flush=True)
+def widget_shows(kind):
+    """Page-window widget shows of fork kind `kind` (a CEFNativeWidget raw value) so far."""
+    return (tracker().get("page_window_widget_shows_by_kind") or {}).get(str(kind), 0)
+
+
+def row(name, ok, observed, review=None, capture_it=True):
+    """One record. A REVIEW row stays pending until `--confirm` (a person looked at this run's capture)."""
+    if capture_it:
+        observed = dict(observed, capture=capture(name))
+    if review is not None:
+        observed = dict(observed, review=review, automatic_ok=bool(ok), checked_by_person=False)
+        status = "pending-review" if ok else "fail"
+        ok = False
+    else:
+        status = "pass" if ok else "fail"
+    ROWS.append({"check": name, "ok": bool(ok), "status": status, "review": review is not None, "observed": observed})
+    print(f"{status.upper()} | {name} | {json.dumps(observed)[:400]}", flush=True)
 
 
 def events():
@@ -268,12 +310,13 @@ def check_context_menu():
     click(at("blank"), right=True)
     seen = wait(lambda: "contextmenu" in events(), 3)
     time.sleep(0.4)  # test harness: cmux's menu shows
-    row("context-menu", bool(seen), {"events": events()}, manual="cmux's page menu shows at the pointer in the capture")
+    row("context-menu", bool(seen), {"events": events(), "observed_route": "host"},
+        review="cmux's page menu shows at the pointer in the capture")
     key("escape")
 
 
 def check_autofill():
-    before = tracker().get("page_window_widget_shows", 0)
+    before = widget_shows(2)
     click(at("datalist"))
     time.sleep(0.3)  # test harness: focus lands in the input
     key("a")
@@ -281,24 +324,29 @@ def check_autofill():
     time.sleep(0.8)  # test harness: Chromium's dropdown opens
     shot = capture("autofill-open")
     during = content_children()
+    shows = widget_shows(2) - before
     key("down")
     key("return")
     value = wait(lambda: page("dl.value.length > 2 ? dl.value : ''"), 3)
-    row("autofill", value in ("apple", "apricot"),
-        {"value": page("dl.value"), "page_window_widget_shows": tracker().get("page_window_widget_shows", 0) - before,
-         "content_children_open": during, "open_capture": shot})
+    page_window = during >= 1 or shows >= 1
+    row("autofill", value in ("apple", "apricot") and page_window,
+        {"value": page("dl.value"), "page_window_widget_shows": shows, "content_children_open": during,
+         "observed_route": "pageWindow" if page_window else None, "open_capture": shot})
 
 
-def check_window_opens(name, point, expect):
-    """A click at `point` shows an app window `expect` accepts (debug.window_list); Escape closes it."""
+def check_window_opens(name, point, expect, widget_kind=None):
+    """A click at `point` shows a new visible app window `expect` accepts (debug.window_list), or a page-window
+    widget of fork kind `widget_kind`; the row records which one matched. Escape closes it."""
     before = visible_ids()
-    shows_before = tracker().get("page_window_widget_shows", 0)
+    shows_before = widget_shows(widget_kind) if widget_kind is not None else 0
     click(at(point))
     opened = wait(lambda: [w for w in windows() if w.get("visible") and w.get("id") not in before and expect(w)], 5)
-    shows = tracker().get("page_window_widget_shows", 0) - shows_before
+    shows = widget_shows(widget_kind) - shows_before if widget_kind is not None else 0
+    matched = "page-window-widget" if shows > 0 else (opened[0].get("class") if opened else None)
     row(name, bool(opened) or shows > 0,
         {"opened": [{k: w.get(k) for k in ("class", "kind", "parent", "level")} for w in opened or []],
-         "page_window_widget_shows": shows})
+         "page_window_widget_shows": shows, "matched": matched,
+         "observed_route": "pageWindow" if shows > 0 else ("chromiumView" if opened else None)})
     # Escape closes the date picker and print preview; the color panel stays open (it changes no later row).
     key("escape")
 
@@ -315,8 +363,16 @@ def check_ime():
 
 
 def check_file_drop_in():
-    row("file-drop-in", True, {"zone": page("drop.textContent")},
-        manual="drag a file from Finder onto 'drop a file here'; the zone shows the file's name")
+    default = "drop a file here"
+    print(f"PERSON | file-drop-in | drag a file from Finder onto '{default}' within {opts.drop_wait:.0f} s", flush=True)
+
+    def dropped():
+        text = page("drop.textContent")
+        return text if text and text != default else None
+    zone = wait(dropped, opts.drop_wait, 0.5)
+    row("file-drop-in", bool(zone) and zone != "none",
+        {"zone": zone or page("drop.textContent"), "waited_s": opts.drop_wait,
+         "observed_route": "host" if zone and zone != "none" else None})
 
 
 def check_link_drag_out():
@@ -351,7 +407,8 @@ def check_tooltip():
 def check_cursor():
     mouse(5, at("hand"))
     time.sleep(0.5)  # test harness: the cursor updates
-    row("cursor", True, {}, manual="the capture shows a pointing-hand cursor over 'pointer cursor'")
+    row("cursor", True, {"observed_route": "chromiumView"},
+        review="the capture shows a pointing-hand cursor over 'pointer cursor'")
 
 
 CHECKS = {
@@ -359,8 +416,13 @@ CHECKS = {
     "context-menu": check_context_menu,
     "autofill": check_autofill,
     "color-picker": lambda: check_window_opens("color-picker", "color", lambda w: "ColorPanel" in (w.get("class") or "")),
-    "date-picker": lambda: check_window_opens("date-picker", "pick", lambda w: True),
-    "print-preview": lambda: check_window_opens("print-preview", "print", lambda w: True),
+    # Chromium's PopupWindowMac is a RenderWidgetPopupWindow (content/app_shim_remote_cocoa/popup_window_mac.mm).
+    "date-picker": lambda: check_window_opens("date-picker", "pick",
+                                              lambda w: "RenderWidgetPopupWindow" in (w.get("class") or "")),
+    # Print preview is a views dialog (NativeWidgetMacNSWindow) or a page-window widget of kind 5, never NSPrintPanel.
+    "print-preview": lambda: check_window_opens("print-preview", "print",
+                                                lambda w: "NativeWidgetMacNSWindow" in (w.get("class") or ""),
+                                                widget_kind=5),
     "ime": check_ime,
     "file-drop-in": check_file_drop_in,
     "link-drag-out": check_link_drag_out,
@@ -408,6 +470,9 @@ def main():
         FACTS["input_source"] = sources.stdout.strip() or None
         FACTS["content_children_before"] = content_children()
         FACTS["tracker_before"] = tracker()
+        # DC8b: the probe page is attached to its host view (Track B): no page window ordered in.
+        row("attached", FACTS["content_children_before"] == 0,
+            {"content_children": FACTS["content_children_before"]}, capture_it=False)
         click(at("blank"))  # the first click may only activate the app
         time.sleep(0.3)  # test harness: activation settles
         for name in ORDER:

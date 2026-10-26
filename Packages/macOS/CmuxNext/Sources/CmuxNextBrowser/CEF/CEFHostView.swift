@@ -36,13 +36,19 @@ final class CEFHostView: NSView {
     /// Hands files dragged in from another app to the shown page (`CEFFileDragRelay`).
     let fileDrag = CEFFileDragRelay()
     /// Layer hosting (fork API 26) of the page window over this view (`CEFLayerHosting`).
-    let layerHosting = CEFLayerHosting()
+    let layerHosting: CEFLayerHosting
     /// Widgets that order an attached page's window in over this view (`CEFPageWindowWidgets`).
     let pageWindowWidgets = CEFPageWindowWidgets()
     /// Takes a `cef.geometry` instant per geometry post (tests set one on their own trace runtime).
     var signposter = Signposter.cef
 
-    override init(frame: NSRect) {
+    override convenience init(frame: NSRect) {
+        self.init(frame: frame, layerHosting: CEFLayerHosting())
+    }
+
+    /// - Parameter layerHosting: the page's layer hosting; tests pass one with a fake fork and their own turn.
+    init(frame: NSRect, layerHosting: CEFLayerHosting) {
+        self.layerHosting = layerHosting
         super.init(frame: frame)
         wantsLayer = true
         updateBackground()

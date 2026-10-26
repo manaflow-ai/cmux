@@ -37,41 +37,67 @@ extension CEFHostView: ChildWindowContent {
     var drawsInChildWindow: Bool { layerHosting.page == nil || pageWindowWidgets.isShowingPageWindow }
 }
 
-/// The per-widget fallback of an attached page (p03-rendering-046): the widgets the fork shows on the page
-/// window (``CEFNativeWidgetRoute/pageWindow``: autofill, print preview) order that window in, transparent and
-/// over the host view, for as long as one is open. Chrome hangs those on the Browser's widget; the page's
-/// pixels, input and the rest of its native UI stay in the attached view.
+/// The per-widget fallback of an attached page (p03-rendering-046): the widgets the fork shows on a Chromium
+/// window's page window (``CEFNativeWidgetRoute/pageWindow``: autofill, print preview) order that window in,
+/// transparent, ignoring the mouse and over the host view, for as long as one is open. Chrome hangs those on
+/// the Browser's widget; the page's pixels, input and the rest of its native UI stay in the attached view.
 ///
-/// While one is open, the host draws in a child window again (``CEFHostView/drawsInChildWindow``): the layout
-/// moves its pane by frames, not by layer transforms a child window cannot follow, and the fork is told to
-/// place the window over the host at once (`changed`), not at the next move.
+/// The state is per Chromium window, as the fork orders in a window, not a tab: the runtime gives a show to
+/// the host that owns the reported window (`CEFRuntime` `.pageWindowWidget`). While one is open, the host draws
+/// in a child window again (``CEFHostView/drawsInChildWindow``): the layout moves its pane by frames, not by
+/// layer transforms a child window cannot follow, and the fork is told to place the window over the host at
+/// once (`changed`), not at the next move.
 @MainActor
 final class CEFPageWindowWidgets {
-    /// The widgets each browser of the pane shows on its page window now.
-    private(set) var open: [Int32: Set<CEFNativeWidget>] = [:]
+    /// A browser's widgets on one Chromium window's page window.
+    nonisolated struct Owner: Hashable, Sendable {
+        var window: Int32
+        var browser: Int32
+    }
+
+    /// The fork kinds (``CEFPageWindowWidgetEvent/kind``, raw) each owner shows now.
+    private(set) var open: [Owner: Set<Int>] = [:]
     /// Called when the page window starts or stops showing for a widget.
     var changed: (() -> Void)?
 
-    /// Some widget keeps the page window ordered in.
+    /// Some widget keeps a page window ordered in over this host.
     var isShowingPageWindow: Bool { !open.isEmpty }
 
-    /// A ``CEFForkTabEvent/pageWindowWidget`` report for `browser`.
-    func report(_ event: CEFPageWindowWidgetEvent, browser: Int32) {
+    /// A ``CEFForkTabEvent/pageWindowWidget`` report of `browser` on Chromium window `window`.
+    func report(_ event: CEFPageWindowWidgetEvent, window: Int32, browser: Int32) {
+        let owner = Owner(window: window, browser: browser)
         let wasShowing = isShowingPageWindow
-        var widgets = open[browser] ?? []
+        var kinds = open[owner] ?? []
         if event.shown {
-            guard widgets.insert(event.widget).inserted else { return }
-            CEFHostView.trackerStats.pageWindowWidgetShows += 1
+            guard kinds.insert(event.kind).inserted else { return }
+            CEFHostView.trackerStats.pageWindowWidgetShowsByKind[event.kind, default: 0] += 1
         } else {
-            guard widgets.remove(event.widget) != nil else { return }
+            guard kinds.remove(event.kind) != nil else { return }
         }
-        open[browser] = widgets.isEmpty ? nil : widgets
+        open[owner] = kinds.isEmpty ? nil : kinds
         if isShowingPageWindow != wasShowing { changed?() }
     }
 
-    /// `browser` closed: its widgets went with its window.
+    /// `browser` closed: its widgets went with it, on every window.
     func browserClosed(_ browser: Int32) {
-        guard open.removeValue(forKey: browser) != nil else { return }
-        if !isShowingPageWindow { changed?() }
+        let wasShowing = isShowingPageWindow
+        open = open.filter { $0.key.browser != browser }
+        if isShowingPageWindow != wasShowing { changed?() }
+    }
+}
+
+extension CEFRuntime {
+    /// A ``CEFForkTabEvent/pageWindowWidget`` report. The fork orders in the reported window's page window, so a
+    /// show goes to the host that owns that window (a popup tab still in its opener's window is the opener
+    /// host's). A close goes to every host, as the tab may have moved windows since; only the holder changes.
+    func pageWindowWidgetReported(_ event: CEFPageWindowWidgetEvent, window: Int32, browser: Int32) {
+        for host in hosts.values where !event.shown || host.owns(window: window) {
+            host.hostView.pageWindowWidgets.report(event, window: window, browser: browser)
+        }
+    }
+
+    /// `browser` closed: no host keeps a page window in for its widgets.
+    func pageWindowWidgetsBrowserClosed(_ browser: Int32) {
+        for host in hosts.values { host.hostView.pageWindowWidgets.browserClosed(browser) }
     }
 }
