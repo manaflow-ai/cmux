@@ -542,7 +542,9 @@ final class CEFRuntime {
         // unretained context every callback gets back stays valid (CEFRuntime.from).
         let context = unsafe Unmanaged.passUnretained(self).toOpaque()
         // The shim sets `external_message_pump` from this callback: in process only, where the app pumps.
-        let schedule: CEFShimLibrary.ScheduleFn? = if case .inProcess = library { cefScheduleCallback } else { nil }
+        // SAFETY: the callback is a C function of `cmux_shim_schedule_fn`; its context is `context`, the runtime,
+        // which lives for the process once started.
+        let schedule: CEFShimLibrary.ScheduleFn? = if case .inProcess = library { unsafe cefScheduleCallback } else { nil }
         // Chromium never opens a window (fork API 8) nor focuses a page cmux did not focus.
         // SAFETY: the handler is a C function of `cmux_shim_window_request_fn`; its context is `context`, the
         // runtime, which lives for the process once started.

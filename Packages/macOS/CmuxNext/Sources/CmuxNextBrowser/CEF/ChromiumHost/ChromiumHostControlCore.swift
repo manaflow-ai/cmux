@@ -84,7 +84,8 @@ nonisolated final class ChromiumHostControlCore: Sendable {
         var initial = State(fd: fd, outbox: ChromiumHostControlOutbox(quotaBytes: options.quotaBytes,
                                                                        quotaMessages: options.quotaMessages))
         var wake: [Int32] = [-1, -1]
-        if Darwin.pipe(&wake) == 0 {
+        // SAFETY: pipe writes two Int32 descriptors, the two elements `wake` holds, during the call.
+        if unsafe Darwin.pipe(&wake) == 0 {
             for end in wake {
                 _ = fcntl(end, F_SETFL, fcntl(end, F_GETFL) | O_NONBLOCK)
                 _ = fcntl(end, F_SETFD, FD_CLOEXEC)
@@ -196,7 +197,9 @@ nonisolated final class ChromiumHostControlCore: Sendable {
                          pollfd(fd: wakeRead, events: Int16(POLLIN), revents: 0)]
             // Whole frames wait in `buffer` and the inbox has room: take them
             // now, whether or not the socket brings more.
-            let ready = Darwin.poll(&polls, 2, plan.wantsRead && framesWait ? 0 : plan.timeoutMilliseconds)
+            let timeout = plan.wantsRead && framesWait ? 0 : plan.timeoutMilliseconds
+            // SAFETY: poll reads and writes `polls.count` pollfd entries, the count given, during the call.
+            let ready = unsafe Darwin.poll(&polls, nfds_t(polls.count), timeout)
             if ready < 0, errno != EINTR {
                 end(.ioError)
                 break
