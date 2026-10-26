@@ -47,7 +47,7 @@ import Testing
     @Test func aNotificationRowNamesItsProducer() {
         let harness = Harness()
         defer { harness.window.orderOut(nil) }
-        #expect(harness.view.accessibilityLabel == "Build finished, Terminal Programs, cmux, All green")
+        #expect(harness.view.accessibilityLabel() == "Build finished, Terminal Programs, cmux, All green")
     }
 
     /// A ledger row from a daemon that does not report a source reads as it
@@ -55,6 +55,6 @@ import Testing
     @Test func aRowWithoutAProducerKeepsTheWorkspaceAlone() {
         let harness = Harness(source: nil)
         defer { harness.window.orderOut(nil) }
-        #expect(harness.view.accessibilityLabel == "Build finished, cmux, All green")
+        #expect(harness.view.accessibilityLabel() == "Build finished, cmux, All green")
     }
 }
