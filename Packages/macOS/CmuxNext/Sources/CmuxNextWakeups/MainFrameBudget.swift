@@ -93,6 +93,8 @@ public final class MainFrameBudget {
     /// Set by the ``MainWorkScheduler``: asks its display link for a tick, so an open input
     /// response gets the tick render that closes it even while no budgeted client is active.
     var requestTick: (@MainActor () -> Void)?
+    /// Told when a response opens or closes (the ``InputResponsePass`` sets itself here).
+    weak var inputResponsePass: InputResponsePass?
 
     /// - Parameters:
     ///   - budgets: Per-class budgets (default: the measured split in ``Budgets``).
@@ -171,6 +173,7 @@ public final class MainFrameBudget {
     public func noteDiscreteInput(expectsFrame: Bool) {
         record(response.noteInput(expectsFrame: expectsFrame, at: uptimeNanos()))
         if expectsFrame { requestTick?() }
+        inputResponsePass?.inputResponseChanged()
     }
 
     /// The render pass of a display-link tick of the budget's scheduler ended. It closes the input
@@ -193,6 +196,7 @@ public final class MainFrameBudget {
         guard let closed else { return }
         if closed.capped { stats.inputResponseCapHits += 1 }
         stats.maxInputResponseNanos = max(stats.maxInputResponseNanos, closed.nanos)
+        inputResponsePass?.inputResponseChanged()
     }
 
     /// The scheduled work this window may hold in all: ``Budgets/total``, less what the last render
