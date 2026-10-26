@@ -25,6 +25,7 @@ extension PageWebView {
     /// a rubber-band scroll. WebKit draws it; a Chromium page is see-through there (``PageChromiumPage/setSeeThrough(_:)``),
     /// so the view under the page shows.
     public var underPageColor: NSColor {
+        // glass-opaque-allow: WKWebView's under-page color property, not the NSColor system fill; it holds the caller's theme color, clear by default
         get { webView.underPageBackgroundColor }
         set { webView.underPageBackgroundColor = newValue }
     }

@@ -1,5 +1,6 @@
 public import AppKit
 public import CmuxNextPages
+import WebKit
 
 /// A New Tab agent pane as the app's one preload (``PagePreloadSlot``, p13-webui-044): the slot
 /// holds the pane in its parking and hands it to Cmd-T in the key's turn. Its own type, not an
@@ -36,7 +37,7 @@ public final class AgentPanePreloadPage: PreloadablePage {
         }
     }
 
-    /// The page's picture as it draws now (``PageWebView/snapshot()``), the slot's cover. None for a Chromium page:
+    /// The WebKit engine's picture of the page as it draws now, the slot's cover. None for a Chromium page:
     /// Chromium draws in its own window over the pane, so a cover under it shows through its clear
     /// areas (2026-10-24), and its picture paints those areas black. None while the page waits
     /// rendering: it keeps its own frame, at the size it painted, for its move into a pane.
@@ -45,10 +46,8 @@ public final class AgentPanePreloadPage: PreloadablePage {
             pane.redraw.rememberFrame(of: pane, appearance: pane.effectiveAppearance.bestMatch(from: [.aqua, .darkAqua]))
             return body(nil)
         }
-        guard !pane.pageDrawsOverCovers, pane.page.snapshotKeepsClearAreas else { return body(nil) }
-        // task-owner: one cover picture; answers `body` once, nil when the page is gone or drew nothing
-        Task { @MainActor [weak page = pane.page] in
-            let image = await page?.snapshot()
+        guard !pane.pageDrawsOverCovers, let webKit = pane.page.webKitEngine else { return body(nil) }
+        webKit.takeSnapshot(with: nil) { image, _ in
             body(image?.cgImage(forProposedRect: nil, context: nil, hints: nil))
         }
     }
