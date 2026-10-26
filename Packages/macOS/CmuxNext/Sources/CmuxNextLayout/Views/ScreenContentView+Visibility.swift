@@ -55,14 +55,16 @@ extension ScreenContentView {
 
     // MARK: Visibility and hit testing
 
-    /// Panes whose displayed sweep (``displayedSweep(of:)``) meets the viewport. During a fling on the render
-    /// server, the panes it shows on its way to rest too: the strip's viewport is swept over the translation left.
-    func visiblePanes() -> Set<PaneID> {
+    /// Panes whose sweep (``displayedSweeps()``) meets the viewport. During a fling on the render server, the
+    /// panes it shows on its way to rest too: the strip's viewport is swept over the fling's whole way.
+    func visiblePanes() -> Set<PaneID> { visiblePanes(displayedSweeps()) }
+
+    /// ``visiblePanes()`` for the sweeps of one pass.
+    func visiblePanes(_ sweeps: [PaneID: CGRect]) -> Set<PaneID> {
         var result: Set<PaneID> = []
-        let left = stripContainer.fling == nil ? 0 : stripContainer.shownTranslation
-        let uncovered = uncoveredRect.union(uncoveredRect.offsetBy(dx: left, dy: 0))
+        let uncovered = flingViewport
         for (pane, frame) in paneFrames where max(frame.alpha.value, frame.alpha.target) > 0.01 {
-            guard let sweep = displayedSweep(of: pane) else { continue }
+            guard let sweep = sweeps[pane] else { continue }
             // A strip pane wholly under a docked column is hidden.
             let overlap = sweep.intersection(geometry.scrolls(pane: pane) ? uncovered : bounds)
             if !overlap.isNull, overlap.width > 0.5, overlap.height > 0.5 { result.insert(pane) }
@@ -70,29 +72,52 @@ extension ScreenContentView {
         return result
     }
 
-    /// Panes whose displayed sweep lies within one viewport width of the
+    /// Panes whose sweep lies within one viewport width of the
     /// viewport on either side (architecture.md 4): visible panes plus the
     /// off-screen columns a short scroll brings in. Their content stays
     /// alive, paused, so scrolling back shows it at once.
-    func keepAlivePanes() -> Set<PaneID> {
-        var sweeps: [PaneID: CGRect] = [:]
-        for pane in paneFrames.keys { sweeps[pane] = displayedSweep(of: pane) }
-        return KeepAliveBand.panes(displayed: sweeps, viewport: bounds)
-    }
+    func keepAlivePanes() -> Set<PaneID> { keepAlivePanes(displayedSweeps()) }
 
-    /// Every place `pane` shows between now and its rest, in local coordinates (``ScreenVisibilityPlan/sweep(shown:rest:track:)``):
-    /// where it shows now, where it rests with each camera at its rest, and where each render-server spring that
-    /// carries it started.
-    func displayedSweep(of pane: PaneID) -> CGRect? {
-        guard let frame = paneFrames[pane] else { return nil }
-        let row = baseGeometry.rowColumnOfPane[pane].flatMap { rowScrolls[$0]?.state.restOffset } ?? 0
-        let area = baseGeometry.scrollAreaOfPane[pane].flatMap { areaScrolls[$0]?.state.restOffset } ?? 0
-        let rest = frame.targetRect.offsetBy(dx: (geometry.scrolls(pane: pane) ? restStripShift : 0) - area, dy: -row)
-        return ScreenVisibilityPlan.sweep(shown: displayedRect(frame.rect, pane: pane), rest: rest, track: renderTracks.panes[pane])
+    /// ``keepAlivePanes()`` for the sweeps of one pass.
+    func keepAlivePanes(_ sweeps: [PaneID: CGRect]) -> Set<PaneID> { KeepAliveBand.panes(displayed: sweeps, viewport: bounds) }
+
+    /// The whole way each pane goes from now to its rest, in local coordinates: its rest with every camera at its
+    /// rest, grown by how far each spring that moves it still reaches (``RectExcursion``): its CPU frame spring,
+    /// the render-server springs of its plan (``renderTracks``) and the cameras that carry it (the strip's, its row
+    /// column's, its scroll area's). Velocity and bounce carry a spring past its rest; the sweep holds that too,
+    /// so no frame on the way shows a pane outside it.
+    func displayedSweeps() -> [PaneID: CGRect] {
+        let policy = Motion.panes.policy, now = renderClockTime
+        let camera = cameraSpring(policy: policy), areaSpring = policy.spring(.scroll)
+        let strip = isUserScrolling ? Excursion.zero : camera.excursion(of: scrollState.spring).negated
+        var sweeps: [PaneID: CGRect] = [:]
+        for (pane, frame) in paneFrames {
+            let scrolls = geometry.scrolls(pane: pane)
+            let row = baseGeometry.rowColumnOfPane[pane].flatMap { rowScrolls[$0]?.state }
+            let area = baseGeometry.scrollAreaOfPane[pane].flatMap { areaScrolls[$0]?.state }
+            let rest = frame.targetRect.offsetBy(dx: (scrolls ? restStripShift : 0) - (area?.restOffset ?? 0), dy: -(row?.restOffset ?? 0))
+            var reach = RectExcursion(frame, on: frameSpring(of: pane, policy: policy))
+            if let track = renderTracks.panes[pane] { reach.add(track, at: now) }
+            if scrolls { reach.x.add(strip) }
+            if let area, !area.isGestureActive { reach.x.add(areaSpring.excursion(of: area.spring).negated) }
+            if let row, !row.isGestureActive { reach.y.add(camera.excursion(of: row.spring).negated) }
+            sweeps[pane] = reach.sweep(around: rest)
+        }
+        return sweeps
     }
 
     /// The strip's view shift with its camera at rest (at the finger while a pan holds it).
     var restStripShift: CGFloat { isUserScrolling ? stripShift : geometry.viewShift(offset: scrollState.spring.target) }
+
+    /// Where strip content shows (``uncoveredRect``) over the whole way of a fling on the render server
+    /// (`StripClipContainerView.fling`): the translation it shows now, its rest, and its overshoot.
+    private var flingViewport: CGRect {
+        let uncovered = uncoveredRect
+        guard let fling = stripContainer.fling else { return uncovered }
+        let rest = stripContainer.translation, shown = stripContainer.shown
+        let reach = fling.spring.excursion(displacement: shown.translation - rest, velocity: shown.velocity)
+        return uncovered.union(uncovered.offsetBy(dx: rest + reach.low, dy: 0)).union(uncovered.offsetBy(dx: rest + reach.high, dy: 0))
+    }
 
     /// The pane under `localPoint`: a docked column's pane above the strip.
     func pane(at localPoint: NSPoint) -> PaneID? {

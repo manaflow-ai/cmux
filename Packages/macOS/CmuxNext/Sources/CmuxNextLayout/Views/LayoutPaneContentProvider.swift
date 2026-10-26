@@ -55,6 +55,9 @@ final class LayoutViewContext {
     /// A user gesture ended, or a screen's render-server springs landed, with nothing left to spring: the motion
     /// it started ends.
     var userMotionEnded: () -> Void = {}
+    /// A screen's render-server springs all landed, a pan held across the landing or not: the visibility pass
+    /// narrows to the rest (`LayoutRootView.updateVisibilityIfPlanChanged`).
+    var renderSpringsLanded: () -> Void = {}
     /// Whether the window shows content in child windows placed from pane frames (Chromium pages,
     /// R3): those windows follow host frames, not a layer translation, so a strip pan moves the
     /// frames then (`ScreenContentView.pansOnContainer`).

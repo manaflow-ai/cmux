@@ -1,7 +1,7 @@
 import AppKit
 import CmuxNextDesign
 /// Renders one screen: a split tree, or a horizontally scrolling strip of
-/// columns. Pane and divider frames rest in content space (``LayoutFrames``); the
+/// columns. Pane and divider frames are springs in content space (``LayoutFrames``); the
 /// displayed frame subtracts the scroll offset.
 final class ScreenContentView: NSView {
     let screenID: ScreenID
@@ -22,8 +22,17 @@ final class ScreenContentView: NSView {
     var geometry: ScreenGeometry
     /// Where each pane and divider rests, and the CPU's spring toward that rest while it steps the motion. A
     /// motion the render server took rests here in the change's turn; its plan (``renderTracks``) holds where
-    /// each pane sweeps until it lands.
+    /// each pane sweeps until it lands. The springs stay until p03-rendering-022c removes CPU stepping.
     var panePlacement = LayoutFrames<PaneID>(), dividerPlacement = LayoutFrames<DividerHandleView.Kind>()
+    /// The panes' and dividers' CPU springs (``panePlacement``), in place: a step mutates one entry, no copy.
+    var paneFrames: [PaneID: AnimatedFrame] {
+        get { panePlacement.springs }
+        _modify { yield &panePlacement.springs }
+    }
+    var dividerFrames: [DividerHandleView.Kind: AnimatedFrame] {
+        get { dividerPlacement.springs }
+        _modify { yield &dividerPlacement.springs }
+    }
     private(set) var dividerViews: [DividerHandleView.Kind: DividerHandleView] = [:]
     /// Panes growing in from a split's edge (`PaneArrival.split`), and the dock columns that change added.
     var arriving: Set<PaneID> = [], newDockColumns: Set<ColumnID> = []
@@ -73,6 +82,16 @@ final class ScreenContentView: NSView {
     /// A row divider drag's heights, shown until the next layout arrives
     /// (gesture state; the model keeps no copy, rows.md Z1).
     var rowDragPreview: (column: ColumnID, heights: [RowHeight])?
+    /// The strip camera as it shows: during a fling on the render server (`StripClipContainerView.fling`)
+    /// the reducer's spring rests on the fling's target and this is where the strip is on the way. A
+    /// write takes the camera back from the fling first (``takeCameraFromServer()``).
+    var scroll: SpringValue {
+        get { stripContainer.fling == nil ? scrollState.spring : flingCamera }
+        set {
+            takeCameraFromServer()
+            scrollState.spring = newValue
+        }
+    }
     var isUserScrolling: Bool { scrollState.isGestureActive }
     var reportScrollOnSettle = false
     /// The focus the scroll last followed; a window resize re-syncs with it.
@@ -112,7 +131,7 @@ final class ScreenContentView: NSView {
     /// The strip offset the last layout pass placed the hosts and dividers at (``applyPresentation(force:)``).
     var laidOutStripOffset: CGFloat = 0
     /// The strip shift the last visibility pass saw and how far a pan can go from it before a pane
-    /// enters or leaves (``recordVisibilitySpan()``).
+    /// enters or leaves (``recordVisibilitySpan(_:)``).
     var visibilitySpan: (shift: CGFloat, span: PanVisibilitySpan)?
     /// Pane clips computed, cumulative (PaneMotionWorkTests): a spring or a pan beside docks computes none.
     var stripClipsComputed = 0

@@ -51,14 +51,14 @@ extension ScreenContentView {
     }
 
     // MARK: Animation
-    /// The panes' and dividers' CPU springs (``panePlacement``), in place: a step mutates one entry, no copy.
-    var paneFrames: [PaneID: AnimatedFrame] {
-        get { panePlacement.springs }
-        _modify { yield &panePlacement.springs }
+    /// The spring ``step(_:policy:)`` moves `pane`'s frame on: its zoom's token, else the change's frame spring.
+    func frameSpring(of pane: PaneID, policy: MotionPolicy) -> SpringParameters {
+        policy.spring(zoomMotion.spring(for: pane, fallback: motionState.frameSpring))
     }
-    var dividerFrames: [DividerHandleView.Kind: AnimatedFrame] {
-        get { dividerPlacement.springs }
-        _modify { yield &dividerPlacement.springs }
+    /// The spring ``step(_:policy:)`` moves the strip camera and each row column's on: a close's frame spring
+    /// while the camera rides it (``scrollRidesFrames``), else the scroll spring.
+    func cameraSpring(policy: MotionPolicy) -> SpringParameters {
+        policy.spring(scrollRidesFrames ? motionState.frameSpring : .scroll)
     }
     /// Motion the CPU steps: a fling on the render server is not (the reducer's spring rests on its target).
     var hasMotion: Bool {

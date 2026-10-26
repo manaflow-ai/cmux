@@ -184,10 +184,9 @@ public final class LayoutRootView: NSView {
         driver.onFrame = { [weak self] dt in self?.advanceFrame(dt) ?? false }
         context.wireOverlaySync(to: self)
         context.userMotionStepped = { [weak self] in self?.setLayoutInMotion(true) }
+        context.renderSpringsLanded = { [weak self] in self?.updateVisibilityIfPlanChanged() }
         context.userMotionEnded = { [weak self] in
-            guard let self else { return }
-            self.updateVisibilityIfPlanChanged() // render-server springs landed: narrow to the rest
-            guard !self.screenViews.values.contains(where: \.hasMotion), !self.driver.isRunning else { return }
+            guard let self, !self.screenViews.values.contains(where: \.hasMotion), !self.driver.isRunning else { return }
             self.setLayoutInMotion(false)
             // The render server's springs landed after the CPU's last frame: the run rests here.
             if !self.rendersMotion { self.motionTrace.endRun() }
@@ -600,25 +599,32 @@ public final class LayoutRootView: NSView {
     /// `updateVisibility()` calls (`debug.layout_counters` `update_visibility`): a spring wants <= 2 (p03-rendering DC2).
     public var visibilityUpdates: UInt64 { presence.passes }
 
-    /// A visibility pass when the active screen's plan (`ScreenVisibilityPlan`) changed since the last one.
-    func updateVisibilityIfPlanChanged() {
-        if visibilityPlan != presence.plan { updateVisibility() }
+    /// A visibility pass when the active screen's plan (`ScreenVisibilityPlan`) changed since the last one. A display
+    /// frame asks this: the check builds no plan (``ScreenVisibilityPlan/matches(_:)``).
+    func updateVisibilityIfPlanChanged() { // perf-hot: 4ms motion-frame
+        let screen = visibilityScreen
+        if let plan = presence.plan, let screen, plan.matches(screen) { return }
+        if presence.plan == nil, screen == nil { return }
+        updateVisibility()
     }
 
-    private var visibilityPlan: ScreenVisibilityPlan? {
-        isLive ? model.activeScreenID.flatMap { screenViews[$0] }.map { ScreenVisibilityPlan($0) } : nil
+    /// The screen a visibility pass reads: the active one, while the root is live.
+    private var visibilityScreen: ScreenContentView? {
+        isLive ? model.activeScreenID.flatMap { screenViews[$0] } : nil
     }
 
     func updateVisibility() {
         var visible: Set<PaneID> = []
         var keepAlive: Set<PaneID> = []
-        if isLive, let active = model.activeScreenID, let view = screenViews[active] {
-            visible = view.visiblePanes()
-            keepAlive = view.keepAlivePanes().union(visible)
+        let screen = visibilityScreen
+        if let view = screen {
+            let sweeps = view.displayedSweeps()
+            visible = view.visiblePanes(sweeps)
+            keepAlive = view.keepAlivePanes(sweeps).union(visible)
             // A strip pan event inside this span reports nothing: it skips the pass (`LayoutRootView+Scroll`).
-            view.recordVisibilitySpan()
+            view.recordVisibilitySpan(sweeps)
         }
-        guard let changes = presence.record(visible: visible, keepAlive: keepAlive, plan: visibilityPlan) else { return }
+        guard let changes = presence.record(visible: visible, keepAlive: keepAlive, plan: screen.map { ScreenVisibilityPlan($0) }) else { return }
         model.reportVisiblePanes(visible, keepAlive: keepAlive)
         for (pane, now) in changes { context.provider?.panePresenceDidChange(pane, presence: now) }
     }

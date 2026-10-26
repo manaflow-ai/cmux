@@ -5,7 +5,8 @@ import CmuxNextDesign
 /// the rect the model's geometry gives it, and the spring that carries it there while the CPU steps the
 /// motion (`motion.renderServer` off, or a kind the render server does not take). A motion the render server
 /// took rests here in the change's turn; where each pane sweeps on its way is the plan's
-/// (`ScreenContentView.RenderTracks`) until it lands.
+/// (`ScreenContentView.RenderTracks`) until it lands. The rest is still each spring's target: p03-rendering-022c,
+/// which removes CPU stepping, keeps only the rests here.
 struct LayoutFrames<Key: Hashable> {
     /// Each frame's CPU spring: its target is the rest, its value what shows.
     var springs: [Key: AnimatedFrame] = [:]
