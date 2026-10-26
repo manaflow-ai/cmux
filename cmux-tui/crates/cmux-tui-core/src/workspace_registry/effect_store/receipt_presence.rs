@@ -7,6 +7,7 @@
 use super::*;
 
 impl WorkspaceRegistry {
+    #[track_caller]
     pub fn has_resource_receipt(
         &self,
         idempotency_key: &str,

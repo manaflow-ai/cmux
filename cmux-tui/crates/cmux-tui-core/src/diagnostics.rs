@@ -549,6 +549,9 @@ pub struct ServerStatsSnapshot {
     /// Present only when the request names `write_path` in `include`.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub write_path: Option<WritePathSnapshot>,
+    /// Present only when the request names `request_path_io` in `include`.
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub request_path_io: Option<crate::request_path::RequestPathIoSnapshot>,
 }
 
 pub const SERVER_STATS_SCHEMA: u32 = 1;

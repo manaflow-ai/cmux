@@ -219,7 +219,7 @@ fn named_socket(
             if let Some(path) = answering() {
                 return Ok(path);
             }
-            std::thread::sleep(std::time::Duration::from_millis(50));
+            crate::request_path::sleep(std::time::Duration::from_millis(50));
         }
     }
     crate::chief_brains::tools_socket(chief).map_err(|(reason, message)| failed(reason, message))

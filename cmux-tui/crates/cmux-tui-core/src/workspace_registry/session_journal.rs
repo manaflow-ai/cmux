@@ -1160,6 +1160,7 @@ pub(crate) fn append_journal_record(
 }
 
 impl WorkspaceRegistry {
+    #[track_caller]
     pub fn session_journal_after(
         &self,
         sequence: u64,
@@ -1175,6 +1176,7 @@ impl WorkspaceRegistry {
     /// fixed, so it can be neither an agent-hook nor an agent-plugin event.
     /// Replaying such a reducer through this read costs the other records,
     /// not the output history.
+    #[track_caller]
     pub(crate) fn session_journal_without_output_after(
         &self,
         sequence: u64,
@@ -1188,6 +1190,7 @@ impl WorkspaceRegistry {
     /// decoding any records. Reducer recovery uses this to reject a stale
     /// snapshot cursor while remaining valid when the journal has compacted
     /// its earliest records.
+    #[track_caller]
     pub fn session_journal_head(&self) -> anyhow::Result<u64> {
         query_journal_head(&self.connection.get())
     }
@@ -1195,6 +1198,7 @@ impl WorkspaceRegistry {
     /// Persisted fold position of one journal reducer: (version, cursor,
     /// snapshot). A version mismatch on load discards the snapshot so the
     /// reducer re-folds from the journal head.
+    #[track_caller]
     pub(crate) fn journal_reducer_state(
         &self,
         reducer_id: &str,
@@ -1224,6 +1228,7 @@ impl WorkspaceRegistry {
 
     /// Durably record a reducer's fold position and state snapshot. Cursor
     /// values are stored as strings so 64-bit sequences survive JSON.
+    #[track_caller]
     pub(crate) fn put_journal_reducer_state(
         &self,
         reducer_id: &str,
@@ -1247,6 +1252,7 @@ impl WorkspaceRegistry {
     /// The most recently started journal output stream for one terminal:
     /// its generation and the exclusive end offset of its journaled bytes.
     #[cfg(test)]
+    #[track_caller]
     pub(crate) fn terminal_stream_latest(
         &self,
         terminal_id: &str,
@@ -1281,6 +1287,7 @@ impl WorkspaceRegistry {
     /// terminal exit snapshot for exited ones) and readers see the coverage
     /// clamp through the window's start offset.
     #[cfg(test)]
+    #[track_caller]
     pub(crate) fn terminal_output_records_after(
         &self,
         terminal_id: &str,

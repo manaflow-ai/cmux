@@ -320,59 +320,61 @@ class Sheriff:
     def set_state(self, group_id: int, to_state: str, *, reason: str | None = None,
                   culprit_sha: str | None = None) -> HistoryEntry:
         """Moves a group one legal step and records it; refuses anything else with a typed error."""
+        return self._write(lambda: self.apply_state(group_id, to_state, reason=reason, culprit_sha=culprit_sha))
+
+    def apply_state(self, group_id: int, to_state: str, *, reason: str | None = None,
+                    culprit_sha: str | None = None) -> HistoryEntry:
+        """set_state inside the caller's open write transaction (the store's `_write`), so an automatic actor
+        (pinpoint_exec.py) moves a group with the same rules and in the same transaction as its own rows."""
         session = self._actor()
         reason = (reason or "").strip() or None
         if to_state not in STATES:
             raise IllegalTransition(f"unknown state {to_state!r}; states are {', '.join(STATES)}")
-
-        def write() -> HistoryEntry:
-            row = self._group_row(group_id)
-            from_state = row["state"]
-            if to_state not in TRANSITIONS.get(from_state, frozenset()):
-                allowed = ", ".join(sorted(TRANSITIONS.get(from_state, ()))) or "nothing (closed)"
-                raise IllegalTransition(f"group {group_id}: {from_state} -> {to_state} is not allowed; "
-                                        f"{from_state} goes to {allowed}")
-            if reason is None and (to_state in REASON_REQUIRED or (from_state, to_state) in BACKWARD):
-                raise MissingReason(f"group {group_id}: {from_state} -> {to_state} needs --reason")
-            if to_state == "accepted" and (self._lead_session is None or session != self._lead_session):
-                lead = self._lead_session or f"none configured ({LEAD_FILE} beside the store)"
-                raise NotPerformanceLead(f"group {group_id}: only the Performance Lead's session accepts a "
-                                         f"regression; {session} is not {lead}")
-            culprit, verified = row["culprit_sha"], bool(row["culprit_verified"])
-            if to_state == "culprit":
-                named = (culprit_sha or "").strip().lower()
-                if not _SHA.fullmatch(named):
-                    raise SheriffError(f"group {group_id}: culprit needs --culprit SHA (7-40 hex digits)")
-                # Verification (verify.py) belongs to one commit; any other commit starts unverified.
-                same = culprit is not None and (culprit.startswith(named) or named.startswith(culprit))
-                culprit, verified = (max(culprit, named, key=len), verified) if same else (named, False)
-            elif culprit_sha is not None:
-                raise SheriffError(f"group {group_id}: --culprit goes only with the culprit state")
-            elif (from_state, to_state) == ("culprit", "bisecting"):
-                culprit, verified = None, False  # the culprit did not hold
-            now = self._now()
-            holder = self._holder(row, now)
-            if holder not in (None, session) and session != self._lead_session:
-                raise Claimed(f"group {group_id} is held by {holder}; take it after the lease or ask that session")
-            if to_state == "fixed":
-                recovery = self._recovery(group_id)
-                if not recovery.recovered:
-                    raise NotRecovered(f"group {group_id} stays {from_state}: the series has not recovered "
-                                       f"({recovery.explain()})")
-            closing_reason = reason if to_state in TERMINAL else row["reason"]
-            if to_state in TERMINAL:
-                claim = (None, None)
-            elif holder == session:
-                claim = (session, _stamp(now))  # the holder's own move renews its lease
-            else:
-                claim = (row["holder"], row["held_at"])
-            self._db.execute(
-                "UPDATE alert_groups SET state = ?, culprit_sha = ?, culprit_verified = ?, reason = ?, "
-                "holder = ?, held_at = ?, updated_at = ? WHERE id = ?",
-                (to_state, culprit, int(verified), closing_reason, *claim, _stamp(now), group_id))
-            return self._append(group_id, from_state, to_state, session, reason, now)
-
-        return self._write(write)
+        row = self._group_row(group_id)
+        from_state = row["state"]
+        if to_state not in TRANSITIONS.get(from_state, frozenset()):
+            allowed = ", ".join(sorted(TRANSITIONS.get(from_state, ()))) or "nothing (closed)"
+            raise IllegalTransition(f"group {group_id}: {from_state} -> {to_state} is not allowed; "
+                                    f"{from_state} goes to {allowed}")
+        if reason is None and (to_state in REASON_REQUIRED or (from_state, to_state) in BACKWARD):
+            raise MissingReason(f"group {group_id}: {from_state} -> {to_state} needs --reason")
+        if to_state == "accepted" and (self._lead_session is None or session != self._lead_session):
+            lead = self._lead_session or f"none configured ({LEAD_FILE} beside the store)"
+            raise NotPerformanceLead(f"group {group_id}: only the Performance Lead's session accepts a "
+                                     f"regression; {session} is not {lead}")
+        culprit, verified = row["culprit_sha"], bool(row["culprit_verified"])
+        if to_state == "culprit":
+            named = (culprit_sha or "").strip().lower()
+            if not _SHA.fullmatch(named):
+                raise SheriffError(f"group {group_id}: culprit needs --culprit SHA (7-40 hex digits)")
+            # Verification (verify.py) belongs to one commit; any other commit starts unverified.
+            same = culprit is not None and (culprit.startswith(named) or named.startswith(culprit))
+            culprit, verified = (max(culprit, named, key=len), verified) if same else (named, False)
+        elif culprit_sha is not None:
+            raise SheriffError(f"group {group_id}: --culprit goes only with the culprit state")
+        elif (from_state, to_state) == ("culprit", "bisecting"):
+            culprit, verified = None, False  # the culprit did not hold
+        now = self._now()
+        holder = self._holder(row, now)
+        if holder not in (None, session) and session != self._lead_session:
+            raise Claimed(f"group {group_id} is held by {holder}; take it after the lease or ask that session")
+        if to_state == "fixed":
+            recovery = self._recovery(group_id)
+            if not recovery.recovered:
+                raise NotRecovered(f"group {group_id} stays {from_state}: the series has not recovered "
+                                   f"({recovery.explain()})")
+        closing_reason = reason if to_state in TERMINAL else row["reason"]
+        if to_state in TERMINAL:
+            claim = (None, None)
+        elif holder == session:
+            claim = (session, _stamp(now))  # the holder's own move renews its lease
+        else:
+            claim = (row["holder"], row["held_at"])
+        self._db.execute(
+            "UPDATE alert_groups SET state = ?, culprit_sha = ?, culprit_verified = ?, reason = ?, "
+            "holder = ?, held_at = ?, updated_at = ? WHERE id = ?",
+            (to_state, culprit, int(verified), closing_reason, *claim, _stamp(now), group_id))
+        return self._append(group_id, from_state, to_state, session, reason, now)
 
     def recovery(self, group_id: int) -> Recovery:
         self._group_row(group_id)

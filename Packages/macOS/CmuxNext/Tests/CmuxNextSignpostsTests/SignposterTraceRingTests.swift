@@ -47,7 +47,7 @@ struct SignposterTraceRingTests {
         return id
     }
 
-    /// Runs every public emit method once: 9 intervals (18 records) and 3 events.
+    /// Runs every public emit method once: 10 intervals (20 records) and 3 events.
     private func emitEverything(_ runtime: TraceRuntime) {
         let action = signposter(.action, runtime)
         action.end(.actionPerform, action.begin(.actionPerform, "id=test"))
@@ -65,6 +65,8 @@ struct SignposterTraceRingTests {
         stall.end(.stallMainTask, stall.begin(.stallMainTask, taskClass: "visible", owner: "test", classID: 2, ownerID: 9))
         stall.event(.stallOverBudget, "class=visible")
         stall.event(.stallOverBudget, "class=visible", arg0: 7, arg1: 8)
+        let launch = signposter(.launch, runtime)
+        launch.end(.launchStartupTask, launch.begin(.launchStartupTask, "name=Test.step priority=critical", arg0: 1))
     }
 
     @Test("With the categories off, no emit method writes a record")
@@ -81,9 +83,9 @@ struct SignposterTraceRingTests {
     @Test("With the categories on, every begin, end, event and flow hop writes one record")
     func onWritesEveryEmit() {
         let runtime = TraceRuntime(role: .app)
-        enable(runtime, .action, .key, .stall)
+        enable(runtime, .action, .key, .stall, .launch)
         emitEverything(runtime)
-        #expect(records(runtime) == 9 * 2 + 3)
+        #expect(records(runtime) == 10 * 2 + 3)
     }
 
     @Test("A name records only under its own category's flag")
@@ -168,6 +170,23 @@ struct SignposterTraceRingTests {
         #expect(records[0].arg0 >> 32 & 0xFF == 4)
         #expect(records[1].arg0 == Signposter.EndCode.nestedLoop)
         #expect(records[0].tNanos < records[1].tNanos)
+    }
+
+    @Test("launch.startup_task decodes as B then E with its arg0; launch.startup_complete is an instant")
+    func startupTaskRecordsCarryTheirNumbers() throws {
+        let log = RecordLog()
+        let runtime = log.runtime()
+        enable(runtime, .launch)
+        let launch = signposter(.launch, runtime)
+        launch.end(.launchStartupTask, launch.begin(.launchStartupTask, "name=Theme.apply priority=critical", arg0: 1))
+        launch.event(.launchStartupComplete, "reason=failsafe", arg0: 8, arg1: 3)
+        let records = log.records
+        try #require(records.count == 3)
+        #expect(records.map(\.phase) == [.begin, .end, .instant])
+        #expect(records.map(\.name) == [74, 74, 75])
+        #expect(records[0].arg0 == 1)
+        #expect(records[1].arg0 == Signposter.EndCode.ended)
+        #expect(records[2].arg0 == 8 && records[2].arg1 == 3)
     }
 
     @Test("The overloads without numbers write code 0, which no given entrypoint or class writes")
@@ -274,7 +293,7 @@ struct SignposterTraceRingTests {
             #expect(!name.opensThreadSlice, "\(name) ends at a CommitBoundary")
         }
         for name: SignpostName in [.actionPerform, .stallMainTask, .cefPump, .motionFrame, .stallCreateSurface, .taskRun,
-                                   .ghosttyRender] {
+                                   .ghosttyRender, .launchStartupTask] {
             #expect(name.opensThreadSlice, "\(name)")
         }
     }

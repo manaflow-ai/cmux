@@ -30,9 +30,11 @@ public final class WebKitEngine: BrowserEngine {
     /// The newest main-frame load per tab held for that check; only it may
     /// show the interstitial.
     var certificateAdmissions: [BrowserTabID: Int] = [:]
-    /// Low Power Mode keeps every open and new tab near 60 fps.
-    public let lowPowerMode: LowPowerMode
-    private var lowPowerModeObservation: LowPowerModeObservation?
+    /// Low Power Mode keeps every open and new tab near 60 fps. The App sets it from its energy
+    /// monitor at launch and on each change; open tabs follow a change.
+    public var lowPowerMode: Bool {
+        didSet { if lowPowerMode != oldValue { applyRenderRate(lowPowerMode: lowPowerMode) } }
+    }
     /// Open tabs, which follow a Low Power Mode change.
     private let openTabs = NSHashTable<WebKitTab>.weakObjects()
     /// The highest rate of a window's display (tests replace it).
@@ -81,7 +83,7 @@ public final class WebKitEngine: BrowserEngine {
         faviconLoader: any BrowserFaviconLoading = BrowserFaviconLoader.shared,
         downloadsDirectory: URL = DownloadDestination.defaultDirectory,
         applicationNameForUserAgent: String? = "Version/26.0 Safari/605.1.15",
-        lowPowerMode: LowPowerMode = .system
+        lowPowerMode: Bool = false
     ) {
         self.fileInput = fileInput
         self.stores = stores
@@ -90,9 +92,6 @@ public final class WebKitEngine: BrowserEngine {
         self.downloadsDirectory = downloadsDirectory
         self.applicationNameForUserAgent = applicationNameForUserAgent
         self.lowPowerMode = lowPowerMode
-        lowPowerModeObservation = lowPowerMode.observe { [weak self] enabled in
-            self?.applyRenderRate(lowPowerMode: enabled)
-        }
     }
 
     public func makeTab(_ configuration: BrowserTabConfiguration) async throws -> any BrowserTab {
@@ -170,7 +169,7 @@ public final class WebKitEngine: BrowserEngine {
     private func prepare(_ configuration: WKWebViewConfiguration) {
         // The display's full rate (120 Hz on ProMotion); near 60 fps in Low
         // Power Mode. Open tabs follow a later change (applyRenderRate).
-        WebKitRenderRate.apply(fullRate: WebKitRenderRate.prefersFullRate(lowPowerMode: lowPowerMode.isEnabled),
+        WebKitRenderRate.apply(fullRate: WebKitRenderRate.prefersFullRate(lowPowerMode: lowPowerMode),
                                to: configuration.preferences)
         // Native element fullscreen takes over the display; the pane shim
         // replaces it (PaneFullscreenScript).

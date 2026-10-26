@@ -105,6 +105,9 @@ public final class DesignSettings {
     /// The `ui.animations.{newTab,newWorkspace}` kinds on: new tabs by default
     /// (`AnimationKindsSetting.defaultEnabled`), new workspaces off.
     public var enabledAnimations: Set<MotionKind> = [.newTab]
+    /// Feature `frameRateClasses`, set once at launch by the composition root: looping indicators
+    /// ask the render server for their own rate (``MotionPolicy/pacesLoops``).
+    public var loopsFollowFrameRate = false
     /// `ui.paneAnimations`: pane layout changes spring when true (see
     /// `Motion.animatesPaneLayout`); on by default.
     public var paneAnimations = true

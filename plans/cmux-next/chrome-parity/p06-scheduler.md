@@ -1027,6 +1027,17 @@ Each file is in exactly one task. Section 8 lists the planned cut (FG300-FG346),
   in one 8 ms bucket → 1 wakeup; precise ones are exact; cancelling all of them cancels the
   bucket.
 - Test phase: fleet AlignedWakeupsTests; bench_idle.py.
+- As built: AlignedWakeups is the placement layer on p14-energy-013's `MainWakeUpQueue` (its one
+  CFRunLoopTimer), not its own sleeps. `AlignedWakeups.Placement` (`.precise`, `.flexible`, `.hidden`)
+  is the resolved form of 011's `TimerAlignment`: `MainDeadline` maps `.whenHidden(node)` to `.hidden`
+  while the node is hidden and not exempt, else to `.flexible`. Hidden entries sit in a second heap
+  that runs only in a fire at or after each entry's whole uptime second, so they never ride an earlier
+  visible fire (Blink fences its throttled queue the same way). Blink also runs tasks that fall due in
+  the 3 ms after the wake-up; cmux holds those for their own second, so a re-arming hidden owner runs at
+  most once per second. DemandTimer sleeps with `WakeLeeway`'s tolerance by default (`.zero` for exact).
+- Follow-up (p06-scheduler-012b, after 011 lands): `MainDeadline` places through `AlignedWakeups` on
+  the composition root's `MainWakeUpQueue`. Until then no production deadline goes through
+  AlignedWakeups, and bench_idle.py measures only the DemandTimer tolerance.
 
 **p06-scheduler-013: FrameInputCoalescer.**
 - Files: `FrameInputCoalescer.swift` (new), `CmuxApplication.swift`,

@@ -406,6 +406,68 @@ mod daemon_spawn {
         assert_eq!(error.kind(), std::io::ErrorKind::NotFound);
     }
 
+    /// `exec` replaces the process as `execve` does, on every Unix (a
+    /// wrapper's launch of the real agent): the new image runs with this
+    /// process's stdout, gets the `inherit_fd` descriptors, keeps a
+    /// descriptor this process holds without close-on-exec (a `<(...)` or
+    /// `3<file` the person's shell gave the wrapper) and keeps an ignored
+    /// SIGHUP ignored (`nohup`). The exec runs in a re-run of this test
+    /// binary, which it replaces.
+    #[test]
+    fn exec_keeps_inherited_descriptors_and_ignored_signals() {
+        const FIXTURE: &str = "CMUX_PROCESS_EXEC_FIXTURE";
+        if std::env::var_os(FIXTURE).is_some() {
+            let (keep, inherited) = inheritable_pipe();
+            let inherited = inherited.as_raw_fd();
+            // SAFETY: sets the disposition of this single-purpose fixture process.
+            assert_ne!(unsafe { libc::signal(libc::SIGHUP, libc::SIG_IGN) }, libc::SIG_ERR);
+            let script = format!(
+                "echo replaced; [ -e /dev/fd/5 ] && echo kept-five; \
+                 [ -e /dev/fd/{inherited} ] && echo kept-inherited; \
+                 kill -HUP $$; echo survived-hup; exit 0"
+            );
+            let error = Command::new("/bin/sh")
+                .args(["-c", &script])
+                .inherit_fd(keep.as_fd(), 5)
+                .unwrap()
+                .exec();
+            panic!("exec failed: {error}");
+        }
+        let output = Command::new(std::env::current_exe().unwrap())
+            .args([
+                "--exact",
+                "daemon_spawn::exec_keeps_inherited_descriptors_and_ignored_signals",
+                "--nocapture",
+                "--test-threads=1",
+            ])
+            .env(FIXTURE, "1")
+            .output()
+            .unwrap();
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        assert!(output.status.success(), "{output:?}");
+        assert!(stdout.contains("replaced"), "the program did not run: {stdout}");
+        assert!(stdout.contains("kept-five"), "the given descriptor was lost: {stdout}");
+        assert!(
+            stdout.contains("kept-inherited"),
+            "a descriptor without close-on-exec did not reach the image: {stdout}"
+        );
+        assert!(stdout.contains("survived-hup"), "an ignored SIGHUP was reset: {stdout}");
+    }
+
+    #[test]
+    fn get_envs_lists_what_the_builder_sets_and_removes() {
+        let mut command = Command::new("true");
+        command.env("SET", "1").env_remove("GONE");
+        let envs: Vec<_> = command.get_envs().collect();
+        assert_eq!(
+            envs,
+            [
+                (std::ffi::OsStr::new("GONE"), None),
+                (std::ffi::OsStr::new("SET"), Some(std::ffi::OsStr::new("1"))),
+            ]
+        );
+    }
+
     /// The fix for the macOS race (review 1 and 2 of pl-holder-11): a
     /// descriptor this process has open without close-on-exec, as a received
     /// PTY master or ring segment is between `recvmsg` and its `fcntl`, does not

@@ -256,6 +256,7 @@ pub(crate) fn effect_receipt_actor(connection: &Connection, key: &str) -> anyhow
 #[cfg(test)]
 impl super::WorkspaceRegistry {
     /// The stored actor of the mutation `key`, if it is in the ledger.
+    #[track_caller]
     pub(crate) fn resource_mutation_actor_for_test(
         &self,
         key: &str,
@@ -269,6 +270,7 @@ impl super::WorkspaceRegistry {
 /// (`prepare_resource_effect_for`, `prepare_resource_creation_for`).
 #[cfg(test)]
 impl super::WorkspaceRegistry {
+    #[track_caller]
     pub fn prepare_resource_effect(
         &mut self,
         idempotency_key: &str,
@@ -291,6 +293,7 @@ impl super::WorkspaceRegistry {
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[track_caller]
     pub fn prepare_resource_creation(
         &mut self,
         correlation_key: &str,

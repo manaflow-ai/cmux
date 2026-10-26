@@ -7,6 +7,7 @@ impl Mux {
     /// `SurfaceId` is monotonic, so without this every closed tab would
     /// leak an entry forever and `list-agents` would keep reporting dead
     /// surfaces as live agents.
+    #[track_caller]
     pub(super) fn purge_surface_side_tables(&self, surface: SurfaceId) {
         let lifecycle = self.lock_client_sizing_lifecycle();
         let mut sizing = self.client_sizing.lock().unwrap();
@@ -51,6 +52,7 @@ impl Mux {
         self.close_placement_feed_items(surface);
     }
 
+    #[track_caller]
     pub(super) fn purge_terminal_side_tables(&self, terminal_id: &TerminalPublicId) {
         let pending_cleanup = {
             let mut registry = self.workspace_registry.lock().unwrap();
@@ -89,6 +91,7 @@ impl Mux {
         self.close_terminal_feed_items(terminal_id);
     }
 
+    #[track_caller]
     pub(super) fn purge_terminal_runtime_side_tables(&self, runtime: &Surface) {
         if let Some(runtime_id) = runtime.terminal_runtime_id() {
             self.reserved_in_process_terminals.lock().unwrap().remove(&runtime_id);
@@ -110,6 +113,7 @@ impl Mux {
         }
     }
 
+    #[track_caller]
     pub fn shutdown(&self) {
         let screen_checkpoint = self.wants_shutdown_checkpoint();
         self.shutting_down.store(true, Ordering::Release);
@@ -159,6 +163,7 @@ impl Mux {
 
     /// Stop the terminal readers and the journal writer; with
     /// `screen_checkpoint`, checkpoint the terminal screens in between.
+    #[track_caller]
     pub(super) fn finalize_terminal_journal(&self, context: &str, screen_checkpoint: bool) {
         if self.journal_ingress.is_closed() {
             self.output_store.shutdown(self);

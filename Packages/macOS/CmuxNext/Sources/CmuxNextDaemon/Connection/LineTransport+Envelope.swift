@@ -1,6 +1,17 @@
 import Foundation
 
 extension LineTransport {
+    /// Where one `cmux.protocol/2` stream line goes (`route`).
+    enum StreamRoute {
+        /// A control-sequence stream (`session.events`): counted with the raw events.
+        case control
+        /// The dedicated connection's stream handler (`SessionJournalRead`).
+        case handler(@Sendable (_ streamID: String, _ line: Data) -> Void)
+        /// A stream nobody registered (one whose open failed): dropped, so it never
+        /// reaches the store under another event's sequence.
+        case unrouted
+    }
+
     /// Routing fields of a raw protocol line or a `cmux.protocol/2`
     /// response. Resource responses carry the request id as a decimal
     /// string and a structured `error` object `{code, message, details,
