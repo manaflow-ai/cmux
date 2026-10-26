@@ -50,7 +50,14 @@ final class TerminalSurfaceView: UIView {
     private var fontSize = CmuxMobilePreferences.terminalFontSize()
     private var defaultsObserver: (any NSObjectProtocol)?
 
-    override init(frame: CGRect) {
+    override convenience init(frame: CGRect) {
+        self.init(frame: frame, inForeground: { UIApplication.shared.applicationState != .background })
+    }
+
+    /// - Parameter inForeground: whether the app is in the foreground now
+    ///   (tests pass their own; the default reads `UIApplication`).
+    init(frame: CGRect, inForeground: @escaping @MainActor () -> Bool) {
+        self.inForeground = inForeground
         super.init(frame: frame)
         backgroundColor = CmuxMobileGhosttyApp.background
         isOpaque = true
@@ -131,7 +138,9 @@ final class TerminalSurfaceView: UIView {
     // MARK: Occlusion
 
     /// The app is in the background: nothing on screen is seen.
-    private var appInBackground = UIApplication.shared.applicationState == .background
+    /// Whether the app is in the foreground now (`init(frame:inForeground:)`).
+    private let inForeground: @MainActor () -> Bool
+    private lazy var appInBackground = !inForeground()
     private var appStateObservers: [any NSObjectProtocol] = []
     /// The last value given to `ghostty_surface_set_occlusion` (true = draws).
     private(set) var drawsFrames: Bool?
