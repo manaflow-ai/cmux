@@ -11,7 +11,8 @@ const healthy = (over: Record<string, string> = {}) =>
     run: "0",
     result: "success",
     health: '{"schema": 1, "checkedAt": "2026-10-25T21:00:00Z", "problems": [], "fixed": []}',
-    scope: `8192 ${Math.floor(MEM * 0.7)} ${Math.floor(MEM * 0.8)}`,
+    scope: `8192 ${Math.floor(MEM * 0.7)} ${Math.floor(MEM * 0.8)} 0`,
+    userslice: String(Math.floor(MEM * 0.9)),
     memtotal: String(MEM),
     usermanager: "OOMScoreAdjust=-900 MemoryMin=67108864",
     userservice: "200",
@@ -30,6 +31,8 @@ describe("cmux-machine-health in the cmux VM image", () => {
     // The timer is enabled but not started for the rest of the bake; it starts as the last step before the snapshot.
     expect(machineHealthBakeCommand()).toStartWith("python3 /root/cmux-machine-health install --no-start && rm -f /root/cmux-machine-health && ");
     expect(machineHealthBakeCommand()).not.toContain("systemctl start cmux-machine-health.timer");
+    expect(machineHealthBakeCommand()).toContain("cmux-machine-health run --check-only");
+    expect(machineHealthBakeCommand()).not.toContain("systemctl start cmux-machine-health.service");
     expect(MACHINE_HEALTH_ARM_COMMAND).toContain("systemctl start cmux-machine-health.timer");
     const bake = readFileSync(new URL("../scripts/cmux-vm-image/bake.ts", import.meta.url), "utf8");
     const arm = bake.indexOf('"machine-health-arm"');
@@ -50,7 +53,9 @@ describe("cmux-machine-health in the cmux VM image", () => {
     expect(machineHealthSmokeProblems(healthy({ run: "1", result: "timeout" }))).toEqual(["one pass: exit 1, result timeout"]);
     expect(machineHealthSmokeProblems(healthy({ health: "{" }))).toEqual(["health file: not JSON: {"]);
     expect(machineHealthSmokeProblems(healthy({ health: '{"schema": 1, "checkedAt": "2026-10-25T21:00:00Z", "problems": [{"check": "dns"}], "fixed": []}' }))).toEqual(['health file problems: [{"check":"dns"}]']);
-    expect(machineHealthSmokeProblems(healthy({ scope: "max max max" }))[0]).toStartWith("session scope limits: pids.max max");
+    expect(machineHealthSmokeProblems(healthy({ scope: "max max max max" }))[0]).toStartWith("session scope limits: pids.max max");
+    expect(machineHealthSmokeProblems(healthy({ scope: `8192 ${Math.floor(MEM * 0.7)} ${Math.floor(MEM * 0.8)} max` }))[0]).toContain("memory.swap.max max");
+    expect(machineHealthSmokeProblems(healthy({ userslice: "infinity" }))).toEqual([`user.slice MemoryMax: infinity of ${MEM} (want 90%)`]);
     expect(machineHealthSmokeProblems(healthy({ usermanager: "OOMScoreAdjust=100 MemoryMin=0" }))).toEqual(["user manager: OOMScoreAdjust=100 MemoryMin=0"]);
     expect(machineHealthSmokeProblems(healthy({ userservice: "-900" }))).toEqual(["user service OOM score: -900 (want 200, not the manager's -900)"]);
   });

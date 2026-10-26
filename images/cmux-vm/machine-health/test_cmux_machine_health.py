@@ -25,6 +25,7 @@ class FakeHost:
         self.hygiene = False
         self.heal = {}  # restarted unit -> callable
         self.step = 0.1  # seconds each command takes
+        self.manager_alive = True
 
     def now(self):
         return self.t
@@ -73,8 +74,9 @@ class FakeHost:
     def remove(self, path):
         self.calls.append(f"rm {path}")
 
-    def set_oom_score(self, pid, score):
-        self.calls.append(f"oom {pid} {score}")
+    def set_oom_score(self, pid, score, unit):
+        self.calls.append(f"oom {pid} {score} {unit}")
+        return self.manager_alive
 
     def run(self, argv, timeout):
         self.t += self.step
@@ -224,13 +226,16 @@ class HealthTests(unittest.TestCase):
         self.assertIn("disk: CRITICAL: 1.0 GB free on /, under the hard floor of 3.0 GB", details(h))
 
     def test_a_corrupt_state_file_is_ignored_and_the_report_still_written(self):
-        for state in ("[]", '{"last": [], "since": 3, "fixed": {}}', '{"last": {"fix:dns": "soon"}, "fixed": [1, {"check": 2}]}'):
+        for state in ("[]", '{"last": [], "since": 3, "fixed": {}}', '{"last": {"fix:dns": "soon"}, "fixed": [1, {"check": 2}]}',
+                      '{"since": {"dns:github.com": "/home/leo/.ssh token=abc"}, "fixed": [{"check": "dns", "action": "x", "at": "/root/secret"}, {"check": "rm -rf /home/leo", "action": "y", "at": "2026-10-25T00:00:00Z"}]}'):
             host = FakeHost()
             host.resolving = set()
             host.files[cmh.STATE_FILE] = state
             h = run(host)
             self.assertEqual(details(h), ["DNS: github.com does not resolve"], state)
             self.assertEqual([f["action"] for f in h["fixed"]], ["restarted systemd-resolved"], state)
+            self.assertNotIn("/home", json.dumps(h), state)
+            self.assertNotIn("abc", json.dumps(h), state)
 
     def test_dns_names_must_be_host_names_so_none_can_carry_a_credential(self):
         for bad in (["https://user:pw@example.com"], ["a b"], ["-x.com"], ["x" * 300]):
@@ -284,10 +289,34 @@ class InstallTests(unittest.TestCase):
     def test_a_running_user_manager_is_protected_only_once_its_services_get_200(self):
         host, out = self.install(["install"])
         self.assertIn("systemctl kill --kill-whom=main --signal=SIGRTMIN+25 user@1000.service", host.calls)
-        self.assertIn("oom 4242 -900", host.calls)
+        self.assertIn("oom 4242 -900 user@1000.service", host.calls)
         host, out = self.install(["install"], default="100")
         self.assertFalse(any(c.startswith("oom ") for c in host.calls))
         self.assertIn("user@1000.service: not protected until it starts again (DefaultOOMScoreAdjust 100)", out)
+
+    def test_a_manager_that_went_away_is_not_reported_protected(self):
+        real = FakeHost.__init__
+        FakeHost.__init__ = lambda self: (real(self), setattr(self, "manager_alive", False))[0]
+        try:
+            _, out = self.install(["install"])
+        finally:
+            FakeHost.__init__ = real
+        self.assertIn("user@1000.service: not protected until it starts again", out)
+
+    @unittest.skipUnless(os.path.isdir("/proc/self"), "Linux /proc")
+    def test_the_oom_write_refuses_a_process_that_is_not_the_units_manager(self):
+        self.assertFalse(cmh.Host().set_oom_score(os.getpid(), 0, "user@0.service"))
+        self.assertFalse(cmh.Host().set_oom_score(2**22 + 1, 0, "user@0.service"))
+
+    def test_a_check_only_pass_reports_and_starts_no_fix(self):
+        host = FakeHost()
+        host.resolving, host.free, host.hygiene = set(), 1 * cmh.GB, True
+        with contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(cmh.main(["run", "--check-only"], host=host), 0)
+        h = json.loads(host.files[cmh.HEALTH_FILE])
+        self.assertEqual([p["check"] for p in h["problems"]], ["dns", "disk"])
+        self.assertEqual(h["fixed"], [])
+        self.assertFalse(any(c.startswith(("systemctl restart", "systemd-run")) for c in host.calls), host.calls)
 
     def test_install_no_start_enables_without_starting(self):
         host, _ = self.install(["install", "--no-start"])

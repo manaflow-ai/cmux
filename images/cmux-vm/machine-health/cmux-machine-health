@@ -112,9 +112,28 @@ class Host:
                 return
             yield True
 
-    def set_oom_score(self, pid, score):
-        with open(f"/proc/{pid}/oom_score_adj", "w") as f:
-            f.write(f"{score}\n")
+    def set_oom_score(self, pid, score, unit):
+        """Write the score only if pid is still unit's manager: the /proc/PID directory fd stays
+        bound to the process it was opened for (a reused PID fails with ESRCH), so the identity
+        check and the write are about the same process. False when it is gone or not that unit."""
+        try:
+            d = os.open(f"/proc/{pid}", os.O_RDONLY | os.O_DIRECTORY)
+        except OSError:
+            return False
+        try:
+            with open("cgroup", dir_fd=d) as f:
+                cgroup = f.read()
+            with open("comm", dir_fd=d) as f:
+                comm = f.read().strip()
+            if f"/{unit}/" not in cgroup or comm != "systemd":
+                return False
+            with open("oom_score_adj", "w", dir_fd=d) as f:
+                f.write(f"{score}\n")
+            return True
+        except OSError:
+            return False
+        finally:
+            os.close(d)
 
     def which(self, name):
         return shutil.which(name, path=PATH)
@@ -179,14 +198,16 @@ class Host:
 
 
 class Pass:
-    def __init__(self, host, config, state):
-        self.host, self.config = host, config
+    def __init__(self, host, config, state, heal=True):
+        self.host, self.config, self.heal = host, config, heal
         self.start = host.mono()
         state = state if isinstance(state, dict) else {}
         since, last, fixed = state.get("since"), state.get("last"), state.get("fixed")
-        self.since_was = {k: v for k, v in since.items() if isinstance(v, str)} if isinstance(since, dict) else {}
+        stamp = lambda v: isinstance(v, str) and re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", v) is not None
+        self.since_was = {k: v for k, v in since.items() if isinstance(k, str) and stamp(v)} if isinstance(since, dict) else {}
         self.last = {k: v for k, v in last.items() if isinstance(v, (int, float)) and not isinstance(v, bool)} if isinstance(last, dict) else {}
-        state = {"fixed": [f for f in fixed if isinstance(f, dict) and all(isinstance(f.get(k), str) for k in ("check", "action", "at"))] if isinstance(fixed, list) else []}
+        ok = lambda f: isinstance(f, dict) and f.get("check") in ORDER and isinstance(f.get("action"), str) and stamp(f.get("at"))
+        state = {"fixed": [{"check": f["check"], "action": clean(f["action"]), "at": f["at"]} for f in fixed if ok(f)] if isinstance(fixed, list) else []}
         self.since, self.problems, self.new_fixed = {}, [], []
         self.fixed_was = state.get("fixed", [])
 
@@ -202,7 +223,7 @@ class Pass:
         """True at most once per every_s for this fix, and only with needs_s left in this run. A
         last time in the future (the clock went back) does not block."""
         now = self.host.now()
-        if self.left() < needs_s or 0 <= now - self.last.get(key, 0) < every_s:
+        if not self.heal or self.left() < needs_s or 0 <= now - self.last.get(key, 0) < every_s:
             return False
         self.last[key] = now
         return True
@@ -352,14 +373,14 @@ def check_config(given):
         raise SystemExit("; ".join(problems))
 
 
-def run_pass(host):
+def run_pass(host, heal=True):
     config, config_error = load_config(host)
     state = {}
     try:
         state = host.read_json(STATE_FILE) or {}
     except (OSError, ValueError):
         pass
-    p = Pass(host, config, state)
+    p = Pass(host, config, state, heal)
     if config_error:
         p.problem("loop", "loop:config", config_error)
     for name, fn in (("disk", p.check_disk), ("ram", p.check_ram), ("dns", p.check_dns)):
@@ -390,8 +411,7 @@ def protect_running_managers(host):
                 break
             host.sleep(0.5)
         pid = host.run(["systemctl", "show", "-p", "MainPID", "--value", unit], 5)[1].strip()
-        if default == "200" and pid.isdigit() and pid != "0":
-            host.set_oom_score(int(pid), -900)
+        if default == "200" and pid.isdigit() and pid != "0" and host.set_oom_score(int(pid), -900, unit):
             print(f"{unit}: re-executed; OOM score -900 now, its services get 200")
         else:
             print(f"{unit}: not protected until it starts again (DefaultOOMScoreAdjust {default or 'unknown'})")
@@ -428,7 +448,8 @@ def main(argv=None, host=None):
     host = host or Host()
     ap = argparse.ArgumentParser(prog="cmux-machine-health", description=__doc__.split("\n")[0])
     sub = ap.add_subparsers(dest="cmd")
-    sub.add_parser("run", help="one pass (the default)")
+    runp = sub.add_parser("run", help="one pass (the default)")
+    runp.add_argument("--check-only", action="store_true", help="check and report, start no fix (an image bake's own pass)")
     ins = sub.add_parser("install", help="install the script, timer and guard drop-ins; enable the timer")
     ins.add_argument("--config", help="a JSON config to install as " + CONFIG_FILE)
     ins.add_argument("--no-start", action="store_true", help="enable the timer without starting it (an image bake starts it last)")
@@ -451,7 +472,7 @@ def main(argv=None, host=None):
         if not mine:
             print("another pass is running")
             return 0
-        health = run_pass(host)
+        health = run_pass(host, heal=not getattr(args, "check_only", False))
     print(f"{len(health['problems'])} problems reported, {len(health['fixed'])} fixes in 24 h")
     return 0
 
