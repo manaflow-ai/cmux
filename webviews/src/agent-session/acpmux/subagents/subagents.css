@@ -635,11 +635,11 @@ button.cv-subagent > :last-child {
   margin-inline-start: 6px;
   color: var(--agent-accent);
   cursor: pointer;
-  font-size: 12px;
+  font-size: var(--text-detail);
   line-height: 18px;
 }
 .cv-subagent-retry {
-  padding: 0 7px;
+  padding: 0 8px;
   border: 1px solid color-mix(in srgb, var(--agent-accent) 34%, transparent);
   border-radius: 6px;
 }
@@ -664,7 +664,7 @@ button.cv-subagent > :last-child {
   flex: none;
   margin-inline-start: 6px;
   color: var(--cv-text-dim);
-  font-size: 12px;
+  font-size: var(--text-detail);
 }
 .cv-subsession__retry {
   display: flex;
