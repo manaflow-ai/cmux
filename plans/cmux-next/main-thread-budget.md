@@ -94,3 +94,5 @@ CLI storm reorders the sidebar and changes statuses; `debug.key` does not take a
 as key latency) and `bench_cli_storm.py` (throughput before/after), light and STRESS, on a GUI host with the input
 grant that passes `bench_launch.py check`.
 Guard: churn-phase key to frame p95 < 8 ms and max main-thread stall < 8 ms. Results: perf-lead.md section 5.
+The p06 scheduler program's before and after runs, and the instruments each done check still needs, are in
+perf-lead.md section 5, "p06 scheduler test phase".
