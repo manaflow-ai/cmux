@@ -16,17 +16,59 @@ pub(super) fn attach(hub: &Hub, conn: &Conn, s: &crate::hub::Session, opts: SubO
         hub.started_at,
     ));
     match conn.subs.lock().unwrap_or_else(|e| e.into_inner()).insert(s.id.clone(), opts) {
+        // A peer's chat of the same raw id counted nothing here: this attachment is new.
         None => hub.attach_count(s, 1, !hidden),
+        Some(before) if before.remote => hub.attach_count(s, 1, !hidden),
         Some(before) if before.hidden != hidden => hub.set_visible(s, !hidden),
+        Some(_) => {}
+    }
+}
+
+/// Subscribe `conn` to a peer's chat `id` (`peer_forward.rs`), marked remote under the same lock,
+/// so this daemon's own chat of that raw id is never counted for it.
+/// It counts no attachment here. `opts` replaces the options (an attach); None keeps them (a prompt, load,
+/// resume or fork). One raw id holds one subscription per connection: an attachment this
+/// connection held to this daemon's own chat of that id ends first, as a detach would.
+pub(super) fn subscribe_remote(hub: &Hub, conn: &Conn, id: &str, opts: Option<SubOpts>) {
+    let mut subs = conn.subs.lock().unwrap_or_else(|e| e.into_inner());
+    let before = subs.get(id).cloned();
+    if let Some(local) = before.as_ref().filter(|b| !b.remote) {
+        conn.unbind_mailbox_receipt(id);
+        if let Ok(s) = hub.resolve(id) {
+            hub.attach_count(&s, -1, !local.hidden);
+        }
+    }
+    let mut next = opts.or(before).unwrap_or_default();
+    next.remote = true;
+    subs.insert(id.to_owned(), next);
+}
+
+/// Subscribe `conn` to this daemon's chat `s` with default options, counting it attached when
+/// that is new (`requests::attach`: a prompt, load, resume or fork here). A subscription to a
+/// peer's chat of the same raw id becomes this one.
+pub(super) fn subscribe_local(hub: &Hub, conn: &Conn, s: &crate::hub::Session) {
+    let mut subs = conn.subs.lock().unwrap_or_else(|e| e.into_inner());
+    match subs.get_mut(&s.id) {
+        None => {
+            subs.insert(s.id.clone(), SubOpts::default());
+            hub.attach_count(s, 1, true);
+        }
+        Some(opts) if opts.remote => {
+            opts.remote = false;
+            hub.attach_count(s, 1, !opts.hidden);
+        }
         Some(_) => {}
     }
 }
 
 /// `_acpmux/detach`.
 pub(super) fn detach(hub: &Hub, conn: &Conn, s: &crate::hub::Session) {
-    if let Some(before) = conn.subs.lock().unwrap_or_else(|e| e.into_inner()).remove(&s.id) {
+    let mut subs = conn.subs.lock().unwrap_or_else(|e| e.into_inner());
+    if let Some(before) = subs.remove(&s.id) {
         conn.unbind_mailbox_receipt(&s.id);
-        hub.attach_count(s, -1, !before.hidden);
+        if !before.remote {
+            hub.attach_count(s, -1, !before.hidden);
+        }
     }
 }
 
@@ -38,8 +80,10 @@ pub(super) fn view(hub: &Hub, conn: &Conn, params: &Value) -> Result<Value, RpcE
         .and_then(Value::as_bool)
         .ok_or_else(|| RpcError::invalid_params("visible must be true or false"))?;
     let mut subs = conn.subs.lock().unwrap_or_else(|e| e.into_inner());
+    // A peer's chat of the same raw id is not this one: its visibility is the peer's to count.
     let sub = subs
         .get_mut(&s.id)
+        .filter(|sub| !sub.remote)
         .ok_or_else(|| RpcError::invalid_params("attach to the session before _acpmux/view"))?;
     if sub.hidden == visible {
         sub.hidden = !visible;
@@ -62,7 +106,10 @@ pub(super) fn release_all(hub: &Hub, conn: &Conn) {
         conn.subs.lock().unwrap_or_else(|e| e.into_inner()).drain().collect();
     for (id, opts) in subs {
         conn.unbind_mailbox_receipt(&id);
-        if let Ok(s) = hub.resolve(&id) {
+        // A peer's chat counted no attachment here, whatever local chat shares its raw id.
+        if !opts.remote
+            && let Ok(s) = hub.resolve(&id)
+        {
             hub.attach_count(&s, -1, !opts.hidden);
         }
     }

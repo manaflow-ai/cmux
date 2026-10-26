@@ -261,6 +261,12 @@
     },
     {
       "kind": "request",
+      "name": "_acpmux/subsession/retry",
+      "params": true,
+      "result": true
+    },
+    {
+      "kind": "request",
       "name": "_acpmux/subsession/send",
       "params": true,
       "result": true
@@ -384,6 +390,16 @@
       "name": "_acpmux/agent_pair_resume",
       "params": true,
       "result": true
+    },
+    {
+      "kind": "request",
+      "name": "_acpmux/retry",
+      "params": {
+        "$ref": "#/types/RetryParams"
+      },
+      "result": {
+        "$ref": "#/types/RetryResult"
+      }
     },
     {
       "kind": "request",
@@ -2681,6 +2697,35 @@
       },
       "type": "object"
     },
+    "RetryKind": {
+      "description": "What `_acpmux/retry` retried: the chat's own turn, or one of its subagents.",
+      "enum": [
+        "turn",
+        "subagent"
+      ],
+      "type": "string"
+    },
+    "RetryParams": {
+      "additionalProperties": false,
+      "description": "`_acpmux/retry` (the Retry button, `acpmux retry`): retry the chat's failed last turn now,\nin the same session (`hub/auto_resume/retry_turn.rs`).",
+      "properties": {
+        "sessionId": {
+          "description": "The chat's id, name or unique prefix.",
+          "type": "string"
+        },
+        "subagentId": {
+          "description": "One of the chat's failed subagents to resume instead. Refused for now\n(`retry.subagent_unsupported`), never taken as the chat's own turn.",
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "sessionId"
+      ],
+      "type": "object"
+    },
     "RetryReason": {
       "description": "Why a turn is retried (`hub::turn_errors::resume_cause`): the provider or the gateway had no\ncapacity (HTTP 503 or 529, overloaded, no account free), the connection dropped, or the\nagent process died mid-turn.",
       "enum": [
@@ -2689,6 +2734,28 @@
         "agent_exited"
       ],
       "type": "string"
+    },
+    "RetryResult": {
+      "description": "What `_acpmux/retry` sent: the prompt `promptId` (`P~resume-n`, the next attempt of the\nfailed prompt) and the turn it started.",
+      "properties": {
+        "kind": {
+          "$ref": "#/types/RetryKind"
+        },
+        "promptId": {
+          "type": "string"
+        },
+        "turnId": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "promptId",
+        "kind"
+      ],
+      "type": "object"
     },
     "RetrySummary": {
       "description": "An automatic retry of a failed turn that waits (`hub/auto_resume.rs`): attempt `attempt`\nof `of`, at `nextAt` (epoch ms). It sends the prompt `promptId~resume-<attempt>` in the same\nsession, for the cut turn `turnId`.",
