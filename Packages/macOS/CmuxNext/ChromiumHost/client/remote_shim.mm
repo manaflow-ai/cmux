@@ -880,4 +880,10 @@ CMUX_SHIM_EXPORT int cmux_shim_browser_set_resize_fence(int browser_id, unsigned
   return 0;
 }
 
+// The host turns cursor events on itself (browser_host_main.mm): its page windows never show, so
+// every page cursor comes to cmux as CMUX_SHIM_CURSOR. There is nothing for cmux to choose.
+CMUX_SHIM_EXPORT void cmux_shim_set_cursor_events(int enabled) {
+  (void)enabled;
+}
+
 }  // extern "C"

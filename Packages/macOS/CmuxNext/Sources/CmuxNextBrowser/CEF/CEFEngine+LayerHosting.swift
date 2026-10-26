@@ -4,7 +4,15 @@ extension CEFEngine {
     @discardableResult
     public func usingLayerHostingByDefault(_ enabled: Bool) -> CEFEngine {
         let runtime = CEFRuntime.shared
-        runtime.layerHostingTrackA = enabled ? (runtime.layerHostingTrackA ?? []) : nil
+        runtime.pageHosting.trackA = enabled ? (runtime.pageHosting.trackA ?? []) : nil
+        return self
+    }
+
+    /// Feature `cefAttachedPages` (p03-rendering-045): a pane's tabs attach Chromium's own view in the pane
+    /// where the fork has the call (`CEFAttachedPages`). Applies to page windows made from now on.
+    @discardableResult
+    public func usingAttachedPages(_ enabled: Bool) -> CEFEngine {
+        CEFRuntime.shared.pageHosting.attachesViews = enabled
         return self
     }
 }

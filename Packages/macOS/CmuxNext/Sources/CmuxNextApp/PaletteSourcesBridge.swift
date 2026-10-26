@@ -178,12 +178,14 @@ enum PaletteSourcesBridge {
         }
 
         func renameTab(id: String, to title: String) {
+            // view-observation-allow: locateTab is one MachineTabIndex lookup (R-index's target), not an observation
             guard let (tab, pane) = services.locateTab(id) else { return }
             let surface = tab.surface
             services.daemon(for: pane).send("rename-surface") { connection in try await connection.renameTab(surface, to: title) }
         }
 
         func closeTab(id: String) {
+            // view-observation-allow: locateTab is one MachineTabIndex lookup (R-index's target), not an observation
             guard let (_, pane) = services.locateTab(id), let controller = services.paneController(for: pane) else { return }
             controller.close([StripTabID(id)])
         }
