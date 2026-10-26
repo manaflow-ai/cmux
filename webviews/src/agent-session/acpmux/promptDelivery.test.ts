@@ -1,7 +1,7 @@
 // Each prompt the pane sends carries where it is on its way (plans/cmux-next/composer-delivery-DESIGN.md):
 // sending, then delivered once acpmux took it, read once the agent started on it, or failed with the
-// hop it stopped at. A send with no answer says so and then fails, Retry sends the same prompt id
-// again (acpmux runs a prompt id once), and a late acceptance still lands. Every prompt's
+// hop it stopped at. A send with no answer stays pending; the native relay retries its approved
+// original with the same prompt id, and a late acceptance still lands. Every prompt's
 // `_meta.acpmux` holds only keys the host lets through (policy.json `known_params`): Retry once
 // sent `resend`, which only the host may set, and the host refused every Retry.
 import { afterAll, beforeAll, expect, jest, test } from "bun:test";
@@ -76,7 +76,7 @@ test("a prompt goes from sending to delivered to read", async () => {
   }
 });
 
-test("a send with no answer says it is still sending, fails, and Retry sends the same prompt id again", async () => {
+test("a slow acknowledgement stays pending past the former failure deadline and accepts a late ack", async () => {
   const { AcpmuxDirectClient, deliveryTiming } = await import("./direct");
   const { MockAcpmuxSocket, mockHost } = await import("./mock");
   const timing = { ...deliveryTiming };
@@ -107,12 +107,12 @@ test("a send with no answer says it is still sending, fails, and Retry sends the
     void client.send("anyone there").catch(() => undefined);
     await settle(() => mine()?.delivery?.slow === true);
     expect(mine()?.delivery?.state).toBe("sending");
-    await settle(() => mine()?.failed === true);
-    expect(mine()?.delivery).toMatchObject({ state: "failed", hop: "acpmux", code: "timeout" });
+    await new Promise((resolve) => setTimeout(resolve, deliveryTiming.failMs + 20));
+    expect(mine()?.failed).toBeFalsy();
+    expect(mine()?.delivery?.state).toBe("sending");
+    expect(client.swapHold()).toBe("composer.send-untaken");
+    expect(prompts.length).toBe(1);
     const promptId = mine()!.delivery!.promptId;
-    void client.retryPrompt(mine()!.id).catch(() => undefined);
-    await settle(() => prompts.length === 2);
-    expect(prompts[1]._meta.acpmux.promptId).toBe(promptId);
     // The host refuses a page prompt with a key outside its policy (transport.intent_invalid).
     for (const prompt of prompts) {
       const unknown = Object.keys(prompt._meta.acpmux).filter((key) => !allowedPromptMeta.includes(key));
@@ -122,10 +122,48 @@ test("a send with no answer says it is still sending, fails, and Retry sends the
     hooks!.deliver({
       jsonrpc: "2.0",
       method: "_acpmux/prompt_accepted",
-      params: { sessionId: prompts[1].sessionId, promptId, turnId: "t", queued: false },
+      params: { sessionId: prompts[0].sessionId, promptId, turnId: "t", queued: false },
     });
     await settle(() => mine()?.delivery?.state === "delivered");
     expect(mine()?.failed).toBeFalsy();
+  } finally {
+    Object.assign(deliveryTiming, timing);
+    client.close?.();
+  }
+});
+
+test("a busy session keeps an unacknowledged eight-image prompt queued with previews", async () => {
+  const { AcpmuxDirectClient, deliveryTiming } = await import("./direct");
+  const { MockAcpmuxSocket, mockHost } = await import("./mock");
+  const timing = { ...deliveryTiming };
+  Object.assign(deliveryTiming, { slowMs: 20, failMs: 80 });
+  const socket = new MockAcpmuxSocket(() => Promise.resolve());
+  const hooks = socket as unknown as Hooks & { emit(target: string, step: unknown): void };
+  const answer = hooks.answer.bind(socket);
+  const prompts: any[] = [];
+  hooks.answer = (method, params) => {
+    if (method !== "session/prompt") return answer(method, params);
+    prompts.push(params);
+    return new Promise(() => undefined);
+  };
+  let snapshot: { rows: Row[]; isWorking?: boolean; queue?: Array<{ id: string; images?: unknown[] }> } = { rows: [] };
+  const client = await AcpmuxDirectClient.connect(mockHost, (next) => (snapshot = next as typeof snapshot), undefined,
+    () => socket as unknown as WebSocket);
+  const attachments = Array.from({ length: 8 }, (_, n) => ({
+    id: `shot-${n}`, kind: "image" as const, name: `shot-${n}.png`, mimeType: "image/png", size: 3, data: "YWJj",
+  }));
+  try {
+    hooks.emit(mockHost.sessionId!, { mux: "turn_started", msg: {} });
+    await settle(() => snapshot.isWorking === true);
+    void client.send("keep all screenshots", attachments, "slow-busy").catch(() => undefined);
+    await settle(() => snapshot.queue?.some((entry) => entry.id === "slow-busy") === true);
+    await new Promise((resolve) => setTimeout(resolve, deliveryTiming.failMs + 40));
+    expect(snapshot.rows.some((row) => row.failed)).toBe(false);
+    expect(snapshot.queue?.find((entry) => entry.id === "slow-busy")?.images).toHaveLength(8);
+    expect(prompts).toHaveLength(1);
+    expect(prompts[0].prompt.filter((block: { type: string }) => block.type === "image")).toHaveLength(8);
+    expect(prompts[0]._meta.acpmux.promptId).toBe("slow-busy");
+    expect(client.swapHold()).toBe("composer.send-untaken");
   } finally {
     Object.assign(deliveryTiming, timing);
     client.close?.();
