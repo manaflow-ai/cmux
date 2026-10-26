@@ -66,32 +66,49 @@ export function providerOf(model: VariantModel): {
 /// provider join: two bare ids are two models. `current` is the running row's id: its group lands it.
 /// A provider's row is named without the provider ("Z.ai/GLM 5.3" is "GLM 5.3"); the menu names the
 /// provider beside it. Rows whose ids name different vendors ("openrouter/qwen/coder-3",
-/// "together/mistral/coder-3") are different models even when their last segments match.
+/// "together/mistral/coder-3") are different models even when their last segments match. A row
+/// that names no vendor ("qwen/coder-3") joins the model of the vendor its provider is, else the
+/// only model with its last segment; when that is ambiguous it is its own model.
 export function groupVariants<T extends VariantModel>(models: readonly T[], current?: string): ModelGroup<T>[] {
-  const groups: ModelGroup<T>[] = [];
-  const byKey = new Map<string, { group: ModelGroup<T>; vendor?: string }[]>();
-  for (const model of models) {
-    const { provider, key, vendor, name, tag } = providerOf(model);
-    const offer = { model, provider: provider ?? "" };
-    const found = provider
-      ? byKey.get(key)?.find((candidate) => !candidate.vendor || !vendor || candidate.vendor === vendor)
-      : undefined;
-    if (found) {
-      const group = found.group;
-      group.offers.push(offer);
-      if (model.id === current) group.model = model;
-      group.tag ??= tag;
-      found.vendor ??= vendor;
-      continue;
-    }
-    const next: ModelGroup<T> = {
-      model,
-      name: provider ? name : model.name,
-      ...(tag ? { tag } : {}),
-      offers: [offer],
-    };
-    groups.push(next);
-    if (provider) byKey.set(key, [...(byKey.get(key) ?? []), { group: next, ...(vendor ? { vendor } : {}) }]);
-  }
-  return groups;
+  type Group = { key: string; vendor?: string; rows: number[] };
+  const read = models.map((model) => providerOf(model));
+  const groups: Group[] = [];
+  const byKey = new Map<string, Group[]>();
+  const add = (index: number, vendor?: string) => {
+    const group: Group = { key: read[index]!.key, ...(vendor ? { vendor } : {}), rows: [index] };
+    groups.push(group);
+    byKey.set(group.key, [...(byKey.get(group.key) ?? []), group]);
+  };
+  // Rows that name their vendor first, so a row that does not can find its vendor's model.
+  read.forEach((row, index) => {
+    if (!row.provider) return add(index);
+    if (!row.vendor) return;
+    const group = byKey.get(row.key)?.find((candidate) => candidate.vendor === row.vendor);
+    if (group) group.rows.push(index);
+    else add(index, row.vendor);
+  });
+  read.forEach((row, index) => {
+    if (!row.provider || row.vendor) return;
+    const own = models[index]!.id.split("/")[0]!.toLowerCase();
+    const candidates = byKey.get(row.key) ?? [];
+    const group =
+      candidates.find((candidate) => candidate.vendor === own) ??
+      (candidates.length === 1 ? candidates[0] : candidates.find((candidate) => !candidate.vendor));
+    if (group && read[group.rows[0]!]!.provider) group.rows.push(index);
+    else add(index);
+  });
+  return groups
+    .map((group) => group.rows.sort((a, b) => a - b))
+    .sort((a, b) => a[0]! - b[0]!)
+    .map((rows): ModelGroup<T> => {
+      const first = read[rows[0]!]!;
+      const tag = rows.map((index) => read[index]!.tag).find(Boolean);
+      const running = rows.find((index) => models[index]!.id === current);
+      return {
+        model: models[running ?? rows[0]!]!,
+        name: first.provider ? first.name : models[rows[0]!]!.name,
+        ...(tag ? { tag } : {}),
+        offers: rows.map((index) => ({ model: models[index]!, provider: read[index]!.provider ?? "" })),
+      };
+    });
 }
