@@ -78,6 +78,7 @@ members = [
     "crates/cmux-rd-proto",
     "crates/cmux-rd-core",
     "crates/cmux-rd-engine",
+    "crates/cmux-vnc",
     "crates/cmux-encode",
     "crates/cmux-remote-browser",
     "crates/cmux-local-auth",
@@ -143,6 +144,7 @@ default-members = [
     "crates/cmux-rd-proto",
     "crates/cmux-rd-core",
     "crates/cmux-rd-engine",
+    "crates/cmux-vnc",
     "crates/cmux-encode",
     "crates/cmux-remote-browser",
     "crates/cmux-local-auth",
@@ -226,6 +228,7 @@ cmux-app-host = { path = "crates/cmux-app-host", default-features = false }
 cmux-terminal-sizing = { path = "crates/cmux-terminal-sizing" }
 cmux-mobile-core = { path = "crates/cmux-mobile-core" }
 cmux-cloud-wire = { path = "crates/cmux-cloud-wire" }
+cmux-vnc = { path = "crates/cmux-vnc" }
 anyhow = "1"
 async-trait = "0.1"
 axum = { version = "0.8", features = ["ws", "macros"] }
