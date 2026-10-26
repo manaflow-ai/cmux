@@ -5,6 +5,7 @@ import { sessionEntry } from "../sessionList";
 import { SubagentFold } from "./subagentFold";
 import { subsessionInfo } from "./subsessions";
 import { finishedTrayItems, trayItems } from "./runningTray";
+import { sessionStateText, sessionStatus } from "../inspector/ChildSessionRows";
 import {
   SUBAGENT_RETRY,
   sessionRetry,
@@ -173,6 +174,13 @@ describe("the fold keeps a subagent's retry", () => {
     const chat = { sessionId: "s", title: "Push relay", state: "failed" as const, retry: FIXTURE.subagentRetry };
     expect(trayItems([], [], [chat], false).map((item) => item.id)).toEqual(["s"]);
     expect(finishedTrayItems([], [chat])).toEqual([]);
+    // The summary card's started-chat rows and counts read it too.
+    expect(sessionStatus(chat)).toBe("running");
+    expect(sessionStateText(translate, chat)).toEqual({
+      text: "Retrying (2/4) after a capacity error",
+      working: true,
+    });
+    expect(sessionStatus({ ...chat, state: "idle" })).toBe("done");
   });
 
   test("a last try that succeeds is no give-up", () => {

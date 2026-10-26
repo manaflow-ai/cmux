@@ -21,7 +21,7 @@ import { Avatar, elapsed, running, useNow } from "../subagents/SubagentGroup";
 import { agentTone } from "../subagents/agentTones";
 import type { Subagent } from "../subagents/subagentFold";
 import { subagentStatus, subagentStatusLabel, type SubagentStatus } from "../summary/SubagentStatusList";
-import { orderedSessions, sessionStatus, sessionStateLabel } from "./ChildSessionRows";
+import { orderedSessions, sessionStatus, sessionStateText } from "./ChildSessionRows";
 import "./SubagentsSection.css";
 import { InspectorFold } from "./InspectorSection";
 
@@ -166,7 +166,7 @@ export function SubagentsSection({
     identity: child.sessionId,
     name: child.title,
     status: sessionStatus(child),
-    state: t(sessionStateLabel(child)),
+    state: sessionStateText(t, child).text,
     icon: "agent.chat",
     depth: 0,
     at: child.createdAt ?? 0,

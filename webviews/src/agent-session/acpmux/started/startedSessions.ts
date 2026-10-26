@@ -52,7 +52,7 @@ export type StartedSession = {
   doing?: string;
   /// The tool part of `doing` (sessionList.ts `doingTool`), with it.
   doingTool?: string;
-  /// acpmux's retry of its failed turn while one waits, for the tray (with `doing` asked for).
+  /// acpmux's retry of its failed turn while one waits (retryState.ts ``sessionRetry``).
   retry?: RetryState;
 };
 
@@ -149,7 +149,7 @@ export function startedSessions(
         ...(entry.createdAt !== undefined ? { createdAt: entry.createdAt } : {}),
         ...(doing && entry.doing ? { doing: entry.doing } : {}),
         ...(doing && entry.doing && entry.doingTool ? { doingTool: entry.doingTool } : {}),
-        ...(doing && entry.retry ? { retry: entry.retry } : {}),
+        ...(entry.retry ? { retry: entry.retry } : {}),
       };
     })
     .sort((a, b) => (a.createdAt ?? Infinity) - (b.createdAt ?? Infinity));
