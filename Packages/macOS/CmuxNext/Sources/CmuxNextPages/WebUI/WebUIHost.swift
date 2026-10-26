@@ -1,6 +1,7 @@
 public import CmuxNextCompat
 public import CmuxNextDesign
 import AppKit
+public import CmuxNextWakeups
 public import WebKit
 
 /// The app's one owner of cmux pages (plans/cmux-next/chrome-parity/p13-webui.md 3.A): it makes
@@ -46,6 +47,10 @@ public final class WebUIHost {
     /// (``PageCrashRecovery``); without the lifecycle each page keeps its own and reloads at once. The
     /// composition root sets them with the lifecycle: Chromium's grouping and how to read a renderer.
     package var crashGroups = PageCrashGroups()
+    /// The windows' frame-aligned pointer input (feature `pointerFrameHover`, the App's
+    /// `hoverFrameInput`): each page this host opens gets it for its popup's rows
+    /// (``PageWebView/popupHoverFrameInput``). Nil: each move hovers at once.
+    public let hoverFrameInput: FrameInputCoalescers?
     /// The clock of each opened page's Chromium deadline (tests pass one that never fires).
     private let clock: any Clock<Duration>
     /// A page starts its document, and its renderer, at its first show, not when it opens
@@ -69,12 +74,14 @@ public final class WebUIHost {
     ///   - clock: The Chromium deadline's clock.
     ///   - processGroups: The shared WebKit processes (a test passes its own to read the groups).
     ///   - startsPagesAtFirstShow: Pages start their document at their first show (``startsPagesAtFirstShow``).
+    ///   - hoverFrameInput: The frame-aligned pointer input of the pages' popups; nil: each move.
     public init(chromium: (any PageChromiumHosting)?, openPanel: MadeAheadOpenPanel?,
                 memory: any MemoryConsumerRegistry, registry: PageRegistry = PageRegistry(),
                 clock: any Clock<Duration> = ContinuousClock(), processGroups: WebProcessGroups = WebProcessGroups(),
-                startsPagesAtFirstShow: Bool = false) {
+                startsPagesAtFirstShow: Bool = false, hoverFrameInput: FrameInputCoalescers? = nil) {
         self.chromium = chromium
         self.startsPagesAtFirstShow = startsPagesAtFirstShow
+        self.hoverFrameInput = hoverFrameInput
         self.openPanel = openPanel
         self.registry = registry
         self.clock = clock
@@ -107,6 +114,7 @@ public final class WebUIHost {
         if lifecycle != nil { view.crash.groups = crashGroups }
         // The view joined processGroups (PageWebView(request:...) passes them on these terms).
         view.crash.sharesWebKitProcess = request.options.sharesWebKitProcess && view.engineDecision.engine == .webKit
+        view.popupHoverFrameInput = hoverFrameInput
         opened.add(view)
         #if DEBUG || CMUX_BENCH_HOOKS
         observeOracleState(of: view)
