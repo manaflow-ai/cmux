@@ -32,6 +32,10 @@ public final class WebUIHost {
     /// content lifecycle; a page it holds leaves it on ``close(_:)``. Nil while `pageLifecycle` is off:
     /// the composition root sets it.
     package var lifecycle: PageLifecycle?
+    /// The crash budget of each renderer group (p13-webui.md 3.C). A page opened while ``lifecycle``
+    /// is set uses its group's and reloads a crash it had while hidden when it shows
+    /// (``PageCrashRecovery``); without the lifecycle each page keeps its own and reloads at once.
+    package let crashGroups = PageCrashGroups()
     /// The clock of each opened page's Chromium deadline (tests pass one that never fires).
     private let clock: any Clock<Duration>
     /// Every page this host opened and has not closed. Weak, so a view a provider drops without
@@ -73,6 +77,7 @@ public final class WebUIHost {
                                      registry: registry, processGroups: processGroups) else { return nil }
         // Read when the Chromium page reaches the host, after this turn; set before then.
         view.chromiumClock = clock
+        if lifecycle != nil { view.crash.groups = crashGroups }
         opened.add(view)
         #if DEBUG || CMUX_BENCH_HOOKS
         observeOracleState(of: view)
@@ -80,8 +85,8 @@ public final class WebUIHost {
         return view
     }
 
-    /// Ends `view`: its routes, bridge and engine page, and drops it from the host's lists. Safe to
-    /// call twice and for a view this host did not open (it is only closed).
+    /// Ends `view`: its routes, bridge and engine page, and drops it from the host's lists and its own
+    /// crash budget. Safe to call twice and for a view this host did not open (it is only closed).
     ///
     /// - Parameter view: The page to end.
     public func close(_ view: PageWebView) {
@@ -89,6 +94,7 @@ public final class WebUIHost {
         opened.remove(view)
         registry.remove(view)
         lifecycle?.forget(view)
+        crashGroups.forget(ObjectIdentifier(view))
     }
 
     /// A configuration in the process pool and data store of the grouped WebKit pages

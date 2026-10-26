@@ -198,6 +198,8 @@ extension PageWebView {
         public var deliveriesWhileHidden: Int
         /// Native script pushes (theme, glass, document attributes) while hidden.
         public var pushesWhileHidden: Int
+        /// Reloads after a crash (``PageCrashRecovery/reloads``); a crash while hidden waits for the show.
+        public var crashReloads = 0
     }
 
     /// The page's `debug.webui` fields now.
@@ -207,7 +209,7 @@ extension PageWebView {
                hiddenForSeconds: censusState.hiddenSince.map { max(0, now().timeIntervalSince($0)) },
                loading: !loaded, parked: isParkedSpare, pooled: isPooled,
                deliveriesWhileHidden: router.debugDeliveriesWhileHidden,
-               pushesWhileHidden: censusState.pushesWhileHidden)
+               pushesWhileHidden: censusState.pushesWhileHidden, crashReloads: crash.reloads)
     }
 
     /// Zeroes the while-hidden counters (`debug.webui {reset: true}`, a bench's window start).
