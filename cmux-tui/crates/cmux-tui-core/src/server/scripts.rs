@@ -173,6 +173,14 @@ fn answer_later(
     }
 }
 
+/// The `cmd` names this module answers (server/routes.rs).
+pub(in crate::server) const ROUTES: &[crate::server::routes::Route] =
+    &[crate::server::routes::Route {
+        names: &[crate::server::routes::RouteName::Prefix("script-")],
+        stage: crate::server::FrameStage::Scripts,
+        entry: |line| try_handle(line.mux, line.client, line.message, line.writer),
+    }];
+
 /// Handles a `script-*` command; `None` when the message is not one.
 pub(super) fn try_handle(
     mux: &Arc<Mux>,
@@ -183,7 +191,7 @@ pub(super) fn try_handle(
     if !message.contains("\"script-") {
         return None;
     }
-    let value: Value = serde_json::from_str(message).ok()?;
+    let value: Value = crate::line_parses::parse(message).ok()?;
     if !value.get("cmd").and_then(Value::as_str)?.starts_with("script-") {
         return None;
     }

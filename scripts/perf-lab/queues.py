@@ -19,11 +19,16 @@ are the reference forms; these functions are the canonical ones, with the plan's
   MQ13  bench-gaps       debug methods and env names that bench scripts use and that a
                          `--config bench` build (DEBUG off, CMUX_BENCH_HOOKS on) does not compile
                          (DEBUG_ONLY_BY_DESIGN names the script uses that stay Debug-only, each with its reason)
+  MQ15  typecheck        Swift function and closure bodies that took 100 ms or more to type-check in the builder
+                         story incremental-build, one file per item: by default from the newest stored waterfall
+                         run (--latest: its typecheck-queue attachment, by digest, in the lab store --db or
+                         $CMUX_PERF_LAB_DB), or from a run folder (--dir) or a compiler log (--log)
 
     python3 scripts/perf-lab/queues.py --all --counts          # one line per queue
     python3 scripts/perf-lab/queues.py bench-migration --files # MQ-B, one path per line
     python3 scripts/perf-lab/queues.py mq5                     # items with where and why
     python3 scripts/perf-lab/queues.py bench-gaps --json
+    python3 -I scripts/perf-lab/lab.py queue typecheck --latest # the same command line through lab.py
 
 Chromium keeps its debt queues the same way: a checked-in query per kind of debt
 (tools/metrics/histograms/expired_histograms_allowlist.txt and its generator, the
@@ -38,11 +43,13 @@ import importlib.util
 import json
 import os
 import re
+import sqlite3
 import sys
 from collections.abc import Callable, Iterator
 from dataclasses import asdict, dataclass
 
-ROOT = os.path.abspath(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", ".."))
+HERE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.abspath(os.path.join(HERE, "..", ".."))
 GEN_FEATURES = os.path.join(ROOT, "scripts", "cmux-next", "gen-features.py")
 
 SKIP_DIRS = frozenset({".git", ".build", "node_modules", "__pycache__", ".venv", "venv", "target", "tests"})
@@ -516,6 +523,97 @@ def bench_gaps(root: str = ROOT) -> list[Item]:
 
 
 # ---------------------------------------------------------------------------------------------
+# MQ15: slow type-check bodies from the builder story incremental-build
+
+INCREMENTAL_BUILD_STORY = os.path.join(HERE, "stories", "incremental_build.py")
+DB_ENV = "CMUX_PERF_LAB_DB"
+
+
+@dataclass(frozen=True)
+class TypecheckSource:
+    """Where MQ15 reads the queue: a compiler log, a run folder, or (neither) the lab store's newest run."""
+
+    db: str | None = None
+    run_dir: str | None = None
+    log: str | None = None
+
+
+def _incremental_build():
+    name = "perf_lab_incremental_build_story"
+    if name not in sys.modules:
+        spec = importlib.util.spec_from_file_location(name, INCREMENTAL_BUILD_STORY)
+        module = importlib.util.module_from_spec(spec)
+        sys.modules[name] = module
+        try:
+            spec.loader.exec_module(module)
+        except BaseException:
+            del sys.modules[name]
+            raise
+    return sys.modules[name]
+
+
+def _stored_typecheck_queue(story, db: str | None) -> dict:
+    """The typecheck-queue attachment of the newest incremental-build waterfall run in the lab store."""
+    db = db or os.environ.get(DB_ENV)
+    if not db:
+        raise QueueError(f"no lab store: pass --db or set ${DB_ENV}, or read a run folder (--dir) or a log (--log)")
+    if not os.path.isfile(db):
+        raise QueueError(f"{db}: no lab store there")
+    try:
+        lab = story.store.Store(db)
+    except (story.store.StoreError, sqlite3.Error) as error:
+        raise QueueError(f"{db}: {error}") from None
+    try:
+        run = lab.latest_run(story.STORY)
+        if run is None:
+            raise QueueError(f"{db}: no {story.STORY} waterfall run stored yet")
+        where = f"run {run['run_uuid']} at {run['sha'][:12]}"
+        digest = next((item["digest"] for item in json.loads(run["attachments_json"])
+                       if isinstance(item, dict) and item.get("kind") == story.QUEUE_KIND), None)
+        if digest is None:
+            raise QueueError(f"{where} has no {story.QUEUE_KIND} attachment (its warm Swift build failed)")
+        data = lab.attachment(digest)
+    except sqlite3.Error as error:
+        raise QueueError(f"{db}: {error} (a store older than this lab.py: ingest once to migrate it)") from None
+    finally:
+        lab.close()
+    if data is None:
+        raise QueueError(f"{where} names {story.QUEUE_KIND} {digest} and the store does not hold it; ingest the "
+                         "run's result folder again")
+    return json.loads(data)
+
+
+def typecheck_document(root: str, source: TypecheckSource) -> dict:
+    """The MQ15 queue document (stories/incremental_build.py typecheck_queue) from SOURCE."""
+    story = _incremental_build()
+    if source.log is not None:
+        try:
+            return story.typecheck_queue(_read(source.log), story.Path(root))
+        except OSError as error:
+            raise QueueError(f"{source.log}: {error}") from None
+    if source.run_dir is not None:
+        path = os.path.join(source.run_dir, story.QUEUE_FILE)
+        try:
+            return json.loads(_read(path))
+        except (OSError, ValueError) as error:
+            raise QueueError(f"{path}: {error}") from None
+    return _stored_typecheck_queue(story, source.db)
+
+
+def _body(body: dict) -> str:
+    name = "closure" if body["declaration"] == "closure" else f"{body['declaration']} {body['subject']}"
+    return f"{name} :{body['line']} {body['ms']:g} ms"
+
+
+def slow_typecheck(root: str = ROOT, source: TypecheckSource | None = None) -> list[Item]:
+    """MQ15: one item per file, files by their slowest body then path (the story's order)."""
+    queue = typecheck_document(root, source or TypecheckSource())
+    return [Item(task["file"], f"{task['file']}:{task['functions'][0]['line']}",
+                 ", ".join(_body(body) for body in task["functions"]))
+            for task in queue["tasks"]]
+
+
+# ---------------------------------------------------------------------------------------------
 # Catalog and command line
 
 @dataclass(frozen=True)
@@ -523,7 +621,8 @@ class Queue:
     mq: str
     name: str
     title: str
-    run: Callable[[str], list[Item]]
+    run: Callable[..., list[Item]]
+    reads_typecheck_source: bool = False  # run(root, TypecheckSource) instead of run(root)
 
 
 QUEUES = (
@@ -534,7 +633,12 @@ QUEUES = (
     Queue("MQ6", "features", "perf-path tunables not yet features", unmigrated_features),
     Queue("MQ-B", "bench-migration", "bench-migration queue (MQ1 | MQ2 | MQ3)", bench_migration),
     Queue("MQ13", "bench-gaps", "bench-config gaps", bench_gaps),
+    Queue("MQ15", "typecheck", "Swift bodies at the 100 ms type-check limit or over (incremental-build)",
+          slow_typecheck, reads_typecheck_source=True),
 )
+
+# lab.py reads this literal with ast; `lab.py queue ...` takes this module's command line.
+LAB_COMMANDS = {"queue": "the perf program's machine queues (MQ1..MQ15): queue NAME | --all [--counts|--files|--json]"}
 
 
 def find(name: str) -> Queue:
@@ -545,26 +649,42 @@ def find(name: str) -> Queue:
     raise QueueError("unknown queue %r; known: %s" % (name, ", ".join(q.name for q in QUEUES)))
 
 
-def main(argv: list[str] | None = None) -> int:
-    parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+def add_arguments(command: str, parser: argparse.ArgumentParser) -> None:
     parser.add_argument("queue", nargs="?", help="a queue name or MQ id (%s)" % ", ".join(q.name for q in QUEUES))
     parser.add_argument("--all", action="store_true", help="every queue")
     shape = parser.add_mutually_exclusive_group()
     shape.add_argument("--counts", "--count", action="store_true", help="only the number of items")
     shape.add_argument("--files", action="store_true", help="only the item keys, one per line")
     shape.add_argument("--json", action="store_true", help="items as JSON")
+    typecheck = parser.add_argument_group("MQ15 typecheck", "where the type-check queue comes from")
+    source = typecheck.add_mutually_exclusive_group()
+    source.add_argument("--latest", action="store_true",
+                        help="the newest stored incremental-build waterfall run's attachment (the default)")
+    source.add_argument("--dir", default=None, help="a story run's output folder (its typecheck-queue.json)")
+    source.add_argument("--log", default=None, help="a compiler log of a -warn-long-function-bodies=100 build")
+    typecheck.add_argument("--db", default=None, help=f"the lab store for --latest (default ${DB_ENV})")
     parser.add_argument("--root", default=ROOT, help=argparse.SUPPRESS)
-    args = parser.parse_args(argv)
+
+
+def _run_queue(queue: Queue, args: argparse.Namespace) -> list[Item]:
+    if queue.reads_typecheck_source:
+        return queue.run(args.root, TypecheckSource(db=args.db, run_dir=args.dir, log=args.log))
+    return queue.run(args.root)
+
+
+def run(command: str, args: argparse.Namespace) -> int:
     if bool(args.all) == bool(args.queue):
-        parser.error("name one queue or pass --all")
+        print("queues: name one queue or pass --all", file=sys.stderr)
+        return 2
     try:
         queues = list(QUEUES) if args.all else [find(args.queue)]
     except QueueError as error:
-        parser.error(str(error))
+        print(f"queues: {error}", file=sys.stderr)
+        return 2
     results = {}
     for queue in queues:
         try:
-            results[queue] = queue.run(args.root)
+            results[queue] = _run_queue(queue, args)
         except QueueError as error:
             print("%s %s: %s" % (queue.mq, queue.name, error), file=sys.stderr)
             results[queue] = None
@@ -582,6 +702,20 @@ def main(argv: list[str] | None = None) -> int:
         if not args.files:
             print("%s items" % ("error" if items is None else len(items)))
     return 1 if any(items is None for items in results.values()) else 0
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.split("\n")[0])
+    add_arguments("queue", parser)
+    args = parser.parse_args(argv)
+    if bool(args.all) == bool(args.queue):
+        parser.error("name one queue or pass --all")
+    if args.queue:
+        try:
+            find(args.queue)
+        except QueueError as error:
+            parser.error(str(error))
+    return run("queue", args)
 
 
 if __name__ == "__main__":

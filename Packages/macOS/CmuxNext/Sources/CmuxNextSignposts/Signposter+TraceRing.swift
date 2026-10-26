@@ -12,6 +12,8 @@ extension Signposter {
         static let missed: UInt64 = 1
         /// The work ran a nested run loop that waited for the person (`loop=nested`).
         static let nestedLoop: UInt64 = 2
+        /// Committed after asking another process to draw, before it presented (`end=page_activated`).
+        static let pageActivated: UInt64 = 3
 
         /// The code of a ``CommitBoundary`` end.
         static func of(_ outcome: CommitBoundary.Outcome) -> UInt64 {

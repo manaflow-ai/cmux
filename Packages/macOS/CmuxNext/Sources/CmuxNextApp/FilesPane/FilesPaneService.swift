@@ -166,7 +166,7 @@ final class FilesPaneService: InternalPageProvider {
         ContentViewState(scroll: (content as? FilesPaneView)?.contentScroll)
     }
 
-    func restoreViewState(_ state: ContentViewState, for key: String, content: NSView) {
+    func restoreViewState(_ state: ContentViewState, for key: String, content: NSView) async {
         guard let scroll = state.scroll else { return }
         (content as? FilesPaneView)?.scrollContent(to: scroll)
     }

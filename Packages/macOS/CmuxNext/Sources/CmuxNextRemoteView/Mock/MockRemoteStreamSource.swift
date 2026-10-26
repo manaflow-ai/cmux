@@ -14,7 +14,7 @@ public nonisolated final class MockRemoteStreamSource: RemoteViewStreamSource {
     public let codec: RemoteVideoCodec
     public let width: Int
     public let height: Int
-    private let queue = DispatchQueue(label: "cmux.remote-view.mock-host")
+    private let queue = DispatchQueue(label: "cmux.remote-view.mock-host", qos: .userInitiated)
     private let state: Mutex<State>
     // Touched only on `queue`.
     private nonisolated(unsafe) let encoder: SyntheticFrameEncoder?

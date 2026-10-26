@@ -175,9 +175,9 @@ final class CEFSpareWindow {
             MainRunLoopBlock.perform { [weak taken] in
                 guard let taken, let blank = taken.placeholder, taken.tabs.count == 1 else { return }
                 taken.placeholder = nil
+                // Its last tab leaves: `removed` takes it out of the routing table (`CEFRuntime.hostEmptied`).
                 taken.removed(blank)
                 blank.close()
-                runtime.hosts[taken.key] = nil
             }
             return
         }
@@ -196,9 +196,9 @@ final class CEFSpareWindow {
             guard let spare = hosts[each], let blank = spare.placeholder else { continue }
             hosts[each] = nil
             spare.placeholder = nil
+            // No longer a spare: `removed` takes it out of the routing table (`CEFRuntime.hostEmptied`).
             spare.removed(blank)
             blank.close()
-            runtime.hosts[spare.key] = nil
         }
     }
 
