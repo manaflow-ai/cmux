@@ -32,10 +32,16 @@ jobs:
       trusted_ref: ${{ steps.trust.outputs.trusted_ref }}
     steps:
       # Both lookups below share this client. It names the HTTP status, the
-      # API message and the request id when GitHub refuses a request, and it
-      # retries a bounded number of times on rate limits (403 or 429 that say
-      # so), server errors, network errors and, for a full commit SHA, a 404
-      # or 422 that may be a commit GitHub has not yet indexed for this token.
+      # API message, the rate-limit headers and the request id when GitHub
+      # refuses a request, and it retries a bounded number of times on rate
+      # limits (403 or 429 that say so), server errors, network errors and,
+      # for a full commit SHA, a 404 or 422.
+      #
+      # The job's token draws on the repository's Actions installation rate
+      # limit, which other workflows share. On 2026-10-26 that limit refused
+      # the commits lookup with 403 "API rate limit exceeded for
+      # installation" (runs 40390735963, 40390967082, 40250717721); a retry
+      # two seconds later succeeded (run 40392089700).
       - name: Write GitHub API client
         run: |
           set -euo pipefail
@@ -74,7 +80,15 @@ jobs:
               details = [f"HTTP {error.code} {error.reason}"]
               if message:
                   details.append(message)
-              for name in ("x-ratelimit-remaining", "retry-after", "x-github-request-id"):
+              for name in (
+                  "x-ratelimit-resource",
+                  "x-ratelimit-limit",
+                  "x-ratelimit-used",
+                  "x-ratelimit-remaining",
+                  "x-ratelimit-reset",
+                  "retry-after",
+                  "x-github-request-id",
+              ):
                   if headers.get(name):
                       details.append(f"{name}={headers.get(name)}")
               return ": ".join(details[:2]) + "".join(f" {d}" for d in details[2:]), body

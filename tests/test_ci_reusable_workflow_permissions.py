@@ -645,7 +645,7 @@ def test_resolver_retries_rate_limits_and_server_errors_a_bounded_number_of_time
     result, outputs, calls = _run_resolver(
         {
             "/repos/manaflow-ai/cmux/commits/main": [
-                (403, {"x-ratelimit-remaining": "0"}, {"message": "API rate limit exceeded"}),
+                (403, {"x-ratelimit-remaining": "0", "x-ratelimit-resource": "core", "x-ratelimit-limit": "15000"}, {"message": "API rate limit exceeded for installation."}),
                 (429, {"retry-after": "0"}, {"message": "secondary rate limit"}),
                 (502, {}, {"message": "Server Error"}),
                 (200, {}, {"sha": SHA}),
@@ -656,6 +656,8 @@ def test_resolver_retries_rate_limits_and_server_errors_a_bounded_number_of_time
     )
     assert result.returncode == 0, result
     assert outputs["sha"] == SHA, outputs
+    assert "attempt 1/4: HTTP 403 Forbidden: API rate limit exceeded for installation." in result.stderr, result.stderr
+    assert "x-ratelimit-resource=core x-ratelimit-limit=15000 x-ratelimit-remaining=0" in result.stderr, result.stderr
 
     result, outputs, calls = _run_resolver({"/repos/manaflow-ai/cmux/commits/main": [(503, {}, {"message": "Unavailable"})]}, "main")
     assert result.returncode == 1, result
