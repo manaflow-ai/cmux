@@ -78,21 +78,10 @@ Lawrence wants prototypes for all lanes. Before you commit a user-facing design,
 
 ## Perf numbers: lab try receipts (added 2026-10-26)
 
-Use a perf lab try job when you need before and after numbers for a change. Do not measure on the local Mac, and do not add a CI step for it.
+Measure perf on the fleet, never on the local Mac, and do not add a CI step for it. Budget numbers come from the light and STRESS benches in [perf-lead.md](perf-lead.md#1-targets). For before and after numbers of one change, use a perf lab try job when `scripts/perf-lab/lab.py try` is on your base (p12 tasks 005 and 018); until then, give the perf-lead.md bench numbers for the base and the head.
 
 ```bash
 python3 -I scripts/perf-lab/lab.py try --base <base sha> --head <head sha> --stories <a,b> --wait
 ```
 
-- Push both commits first. The lab builds both shas and uses a batch-tip build when one exists.
-- Each story runs 20 ABBA attempts per arm on one free fleet Mac (`--attempts` changes the count). Both arms run on the same host.
-- To measure a feature flag, give the same sha as base and head and add `--feature <name>=on` (or `=off`). The flag changes the head arm only.
-- A wait timeout leaves the job running. Do not start a second try for the same request: run the same command again to wait for the running job.
-- The command prints one receipt line per metric, in this fixed format:
-
-  ```text
-  Perf try <story>.<metric> @<host-class>: base p50/p95/p99 -> head p50/p95/p99 (delta %), MWU p, KS p, strict DIFFERENT|SAME|UNKNOWN (floored X), job <id>
-  ```
-
-- `strict` is the headline verdict: DIFFERENT only at p <= 0.01, where p = min(MWU p, KS p). `floored X` is the bisect verdict (DIFFERENT at p <= 0.05). Report the strict verdict. Do not report a floored DIFFERENT as a change.
-- Paste the receipt lines without changes in the commit message or the PR body. A perf claim without a receipt is not evidence. The rules are in [p12-perf-process.md](chrome-parity/p12-perf-process.md#36-pinpoint) (section 3.6 and rule R5).
+Paste the receipt lines without changes in the commit message or the PR body. The receipt format, the feature-flag arm, how to wait again after a timeout, and which verdict supports which claim are in [perf try receipts](../../skills/cmux-testing/SKILL.md#perf-try-receipts).
