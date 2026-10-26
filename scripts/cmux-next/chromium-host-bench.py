@@ -27,6 +27,10 @@ Per mode:
            only: `pump_share` idle (page shown, nothing happens) and while the page scrolls (one wheel event per frame),
            light and, with --stress, in the STRESS session (perf-stress-session.py, its Chromium pages selected).
            Key callbacks Chromium makes from cmux's own event dispatch are not in it (they run outside a pass).
+  tcc      opt-in (`--modes inproc,tcc`; it runs before helper, so the host starts inside its window): a host page
+           asks for camera, mic, location, Local Network, Screen Recording and Bluetooth, and each row passes when
+           macOS charges the request to cmux, not to the host or a helper; the keychain row passes when the host
+           read "Chromium Safe Storage" with no prompt (chromium_host_tcc.py has the evidence and the rules).
 
 Debug build (reload.sh), not Release: the numbers compare the two paths, they are not shipping latencies.
 Not a gate: exit 1 only when a mode could not run (no host app, refused fork API, launch failure).
@@ -48,6 +52,7 @@ parser.add_argument("--modes", default="inproc,helper")
 parser.add_argument("--json", help="also write the result here (a fleet measure entry's report.json)")
 parser.add_argument("--stress", action="store_true", help="also measure the pump share in the STRESS session")
 parser.add_argument("--pump-seconds", type=float, default=10.0)
+parser.add_argument("--keychain-service", default="Chromium Safe Storage", help="the tcc mode's OSCrypt keychain item")
 opts = parser.parse_args()
 os.makedirs(opts.out, exist_ok=True)
 
@@ -143,6 +148,8 @@ def main():
         if "inproc" in modes:
             inproc_tab = run_inproc(rpc, url)
             ok = ok and inproc_tab is not None
+        if "tcc" in modes:
+            ok = run_tcc(rpc) and ok
         if "helper" in modes:
             ok = run_helper(rpc, url, inproc_tab) and ok
         if opts.stress:
@@ -246,6 +253,31 @@ def run_stress_pump(rpc):
     RESULT["stress_session"] = summary
     # Scroll goes to the focused pane's page: a Chromium page in STRESS (selected chromium).
     RESULT["modes"].setdefault("inproc", {}).setdefault("pump_share", {})["stress"] = pump_share(rpc, None)
+
+
+def run_tcc(rpc):
+    """TCC attribution rows on a host page of its own pane (chromium_host_tcc.py); False when the page never showed."""
+    import chromium_host_tcc as tcc
+    pages, log = tcc.Pages(), tcc.LogStream()
+    url, lan = pages.start()
+    log.start()
+    try:
+        rpc("action.run", {"action": "splitRight", "focus": True, "origin": "script"}, timeout=60)
+        rows = tcc.TccRows(
+            tcc.Bundle.read(opts.app),
+            open_host=lambda page: rpc("debug.chromium_host", {"op": "open", "url": page}) or {},
+            title=lambda: (rpc("debug.chromium_host") or {}).get("title"),
+            press=lambda key: rpc("debug.key", {"key": key}),
+            allow=lambda: rpc("action.run", {"action": "browser.prompt.allow", "origin": "script"}),
+            seams=tcc.Seams(log=log), keychain_service=opts.keychain_service)
+        result = rows.run(url)
+    finally:
+        log.stop()
+        pages.stop()
+    result.update({"lan_address": lan, "lan_hits": pages.lan_hits, "log_error": log.error})
+    RESULT["modes"]["tcc"] = result
+    tcc.print_rows(result, lambda line: print(line, flush=True))
+    return not result.get("error")
 
 
 def run_helper(rpc, url, inproc_tab):
