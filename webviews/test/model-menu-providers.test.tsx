@@ -498,6 +498,69 @@ test("search groups provider offers into one result", async () => {
   expect(rows.filter((row) => nameOf(row) === "DeepSeek V4 Pro")).toHaveLength(1);
 });
 
+test("search keeps the running provider selected", async () => {
+  await mount("deepseek/deepseek-v4-pro", true, railed);
+  await typeSearch("DeepSeek V4 Pro");
+  const rows = modelRows(menus()[0]!);
+  expect(rows.filter((row) => nameOf(row) === "DeepSeek V4 Pro")).toHaveLength(1);
+  expect(rows.find((row) => nameOf(row) === "DeepSeek V4 Pro")?.getAttribute("aria-checked")).toBe("true");
+});
+
+test("duplicate bare catalog rows remain one compact row", async () => {
+  const catalog = [
+    {
+      id: "opencode",
+      name: "OpenCode",
+      models: [
+        { id: "claude-sonnet-5-5", name: "Sonnet 5.5" },
+        { id: "claude-sonnet-5-5", name: "Sonnet 5.5", unavailable: "offline" },
+      ],
+    },
+  ];
+  await mount(undefined, true, catalog);
+  expect(modelRows(menus()[0]!).filter((row) => nameOf(row) === "Sonnet 5.5")).toHaveLength(1);
+});
+
+test("a current duplicate's available landing stays in the compact picks", async () => {
+  const catalog = [
+    {
+      id: "opencode",
+      name: "OpenCode",
+      models: [
+        { id: "model-a", name: "Model A" },
+        { id: "model-b", name: "Model B" },
+        { id: "model-c", name: "Model C" },
+        { id: "model-d", name: "Model D" },
+        { id: "openrouter/qwen/Coder-3", name: "Coder 3", unavailable: "offline" },
+        { id: "openrouter/qwen/coder-3", name: "Coder 3" },
+      ],
+    },
+  ];
+  await mount("openrouter/qwen/Coder-3", true, catalog);
+  expect(modelRows(menus()[0]!).map(nameOf)).toContain("Coder 3");
+});
+
+test("expanded search reserves provider rows for each logical result", async () => {
+  const catalog = [
+    {
+      id: "opencode",
+      name: "OpenCode",
+      models: Array.from({ length: 12 }, (_, index) => [
+        { id: `openrouter/model-${index}`, name: `Model ${index}` },
+        { id: `together/model-${index}`, name: `Model ${index}` },
+      ]).flat(),
+    },
+  ];
+  await mount(undefined, true, catalog, "expanded");
+  await typeSearch("Model");
+  const body = menus()[0]!.querySelector<HTMLElement>(".acpmux-quick-body")!;
+  const spacerRows = body
+    .querySelector<HTMLElement>(".acpmux-quick-spacer")!
+    .querySelectorAll(":scope > .acpmux-quick-item").length;
+  const shownRows = body.querySelectorAll('[role^="menuitem"]').length;
+  expect(spacerRows).toBeGreaterThanOrEqual(shownRows);
+});
+
 test("a running model stays in the compact picks after an unavailable group", async () => {
   const catalog = [
     {
