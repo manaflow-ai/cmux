@@ -299,20 +299,21 @@ impl Hub {
         let legacy_root = dirs::home_dir()
             .map(|home| home.join(".cmux-harness").join("sessions"))
             .filter(|legacy| legacy != root);
-        let (pi_root, journal_root, pi_session_path, session_bytes) =
-            match Self::harness_pi_session(root, agent_id) {
-                Ok((path, bytes)) => (root.to_path_buf(), root.to_path_buf(), path, bytes),
-                Err(error) => {
-                    let legacy = legacy_root.ok_or(error)?;
+        let (journal_root, pi_session_path, session_bytes) =
+            match Self::harness_pi_session_optional(root, agent_id)? {
+                Some((path, bytes)) => (root.to_path_buf(), path, bytes),
+                None => {
+                    let legacy = legacy_root.ok_or_else(|| {
+                        anyhow::anyhow!("Pi session file for ACP session id is missing")
+                    })?;
                     let durable = legacy
                         .parent()
                         .map(|parent| parent.join("durable"))
                         .ok_or_else(|| anyhow::anyhow!("invalid legacy harness root"))?;
                     let (path, bytes) = Self::harness_pi_session(&legacy, agent_id)?;
-                    (legacy, durable, path, bytes)
+                    (durable, path, bytes)
                 }
             };
-        let _ = pi_root;
         let journal = journal_root.join(agent_id).join("journal.ndjson");
         let pi_filename = pi_session_path
             .file_name()
@@ -415,6 +416,7 @@ impl Hub {
             .parent()
             .ok_or_else(|| anyhow::anyhow!("invalid target session store root"))?;
         let journal_dir = root.join(agent_id);
+        let journal_dir_was_present = std::fs::symlink_metadata(&journal_dir).is_ok();
         if let Ok(meta) = std::fs::symlink_metadata(&journal_dir) {
             if meta.file_type().is_symlink() || !meta.file_type().is_dir() {
                 return Err(anyhow::anyhow!("target durable session is not a real directory"));
@@ -432,7 +434,9 @@ impl Hub {
             return Err(anyhow::anyhow!("target already has a Pi session for this ACP id"));
         }
         let pi_target = if replace_durable {
-            Self::harness_pi_session(root, agent_id)?.0
+            Self::harness_pi_session_optional(root, agent_id)?
+                .map(|(path, _)| path)
+                .unwrap_or_else(|| root.join(pi_filename))
         } else {
             root.join(pi_filename)
         };
@@ -507,6 +511,9 @@ impl Hub {
             }
             if backed_pi {
                 let _ = std::fs::rename(&session_backup, &pi_target);
+            }
+            if !journal_dir_was_present {
+                let _ = std::fs::remove_dir(&journal_dir);
             }
             return Err(e);
         }

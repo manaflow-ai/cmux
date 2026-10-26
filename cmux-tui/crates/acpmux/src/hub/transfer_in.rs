@@ -80,6 +80,33 @@ impl Hub {
         moved
     }
 
+    /// Recover an outer session store staged for a replacement before a daemon crash.
+    pub(super) fn recover_staged_replacements(&self) {
+        let Some(probe) = self.store.session_dir("__cmux_harness_recovery_probe__") else {
+            return;
+        };
+        let Some(root) = probe.parent() else { return };
+        let Ok(entries) = std::fs::read_dir(root) else { return };
+        for entry in entries.flatten() {
+            let name = entry.file_name().to_string_lossy().into_owned();
+            let Some(id) =
+                name.strip_prefix(".").and_then(|n| n.strip_suffix(".replacement-backup"))
+            else {
+                continue;
+            };
+            if !super::transfer::is_plain_id(id) {
+                let _ = std::fs::remove_dir_all(entry.path());
+                continue;
+            }
+            let target = root.join(id);
+            if std::fs::symlink_metadata(&target).is_ok() {
+                let _ = std::fs::remove_dir_all(entry.path());
+            } else {
+                let _ = std::fs::rename(entry.path(), target);
+            }
+        }
+    }
+
     pub(super) async fn transfer_receive(&self, params: &Value) -> Result<Value, RpcError> {
         let manifest = params.get("manifest").cloned().unwrap_or(Value::Null);
         let guard = match params.get("guard") {
@@ -283,7 +310,10 @@ impl Hub {
         }
         let source_store = if replacing_durable { self.store.session_dir(id) } else { None };
         let source_store_backup = if let Some(source_store) = source_store.as_ref() {
-            let backup = dir.join("source-store");
+            let backup = source_store
+                .parent()
+                .map(|parent| parent.join(format!(".{id}.replacement-backup")))
+                .ok_or_else(|| transfer_error("store", "source store has no parent"))?;
             if std::fs::symlink_metadata(source_store).is_ok() {
                 if std::fs::symlink_metadata(&backup).is_ok() {
                     return Err(transfer_error("store", "source-store backup path is occupied"));

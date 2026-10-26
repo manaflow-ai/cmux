@@ -42,6 +42,7 @@ fn copy_legacy_tree(src: &Path, dst: &Path) -> std::io::Result<()> {
             let entry = entry?;
             copy_legacy_tree(&entry.path(), &dst.join(entry.file_name()))?;
         }
+        std::fs::File::open(dst)?.sync_all()?;
     } else if meta.file_type().is_file() {
         if std::fs::symlink_metadata(dst).is_ok() {
             return Err(std::io::Error::new(
@@ -50,6 +51,7 @@ fn copy_legacy_tree(src: &Path, dst: &Path) -> std::io::Result<()> {
             ));
         }
         std::fs::copy(src, dst)?;
+        std::fs::File::open(dst)?.sync_all()?;
     } else {
         return Err(std::io::Error::new(
             std::io::ErrorKind::InvalidData,
@@ -68,11 +70,12 @@ fn copy_legacy_atomic(src: &Path, dst: &Path) -> std::io::Result<()> {
     }
     let name = dst.file_name().and_then(|n| n.to_str()).unwrap_or("state");
     let tmp = dst.with_file_name(format!(".{name}.migrating"));
-    if std::fs::symlink_metadata(&tmp).is_ok() {
-        return Err(std::io::Error::new(
-            std::io::ErrorKind::AlreadyExists,
-            "migration staging path is occupied",
-        ));
+    if let Ok(meta) = std::fs::symlink_metadata(&tmp) {
+        if meta.file_type().is_dir() {
+            std::fs::remove_dir_all(&tmp)?;
+        } else {
+            std::fs::remove_file(&tmp)?;
+        }
     }
     copy_legacy_tree(src, &tmp)?;
     if let Some(parent) = dst.parent() {
