@@ -58,7 +58,12 @@ pub(in crate::server) async fn new_on(
     p: Value,
 ) -> Result<Value, RpcError> {
     let method = crate::rpc::method::SESSION_NEW;
-    peer.request(method, p).await.map_err(|e| explain(peer, params, e))
+    peer.request(method, p).await.map_err(|e| {
+        let (build, served_peer) =
+            (peer.remote_build(), peer.served_as().as_deref() == Some("peer"));
+        update_first(&e, &peer.name, build.as_deref(), served_peer, params)
+            .unwrap_or_else(|| explain(peer, params, e))
+    })
 }
 
 /// `e`, with `data.host`, `data.try` (and `data.runOn` when it runs on HOST) and the command
@@ -114,17 +119,40 @@ fn explain(peer: &crate::peer::Peer, params: &Value, e: RpcError) -> RpcError {
 }
 
 /// A start with no folder that `peer_name` refused as outside its roots, from a peer of
-/// another build that names no `servedAs`: one older than the peer scratch folder (#24442),
-/// which treats an absent folder as the home folder. Its way out is updating it, then the
-/// same command. None for any other refusal.
+/// another build that serves this daemon as a peer (`served_peer`, its handshake) but names no
+/// `servedAs` in the refusal: one older than the peer scratch folder (#24442), which treats
+/// an absent folder as the home folder. Its way out is updating it, then the same command;
+/// the peer's own folder rule is unchanged. None for any other refusal.
 fn update_first(
     e: &RpcError,
     peer_name: &str,
     build: Option<&str>,
+    served_peer: bool,
     params: &Value,
 ) -> Option<RpcError> {
-    let _ = (e, peer_name, build, params);
-    None
+    let named_folder = params.get("cwd").is_some_and(|c| !c.is_null());
+    let served = e.data.as_ref().and_then(|d| d.get("servedAs")).is_some();
+    if !served_peer || named_folder || served || build == Some(crate::hub::BUILD) {
+        return None;
+    }
+    if reason_of(e).as_deref() != Some(CWD_OUTSIDE_ROOTS) {
+        return None;
+    }
+    let update = format!("acpmux host update {peer_name}");
+    let then = command(params, &Start::of(params), Some(peer_name), false).render(None);
+    let message = format!(
+        "{}: {peer_name} runs acpmux build {} (this daemon: {}), from before a start with no folder runs in a scratch folder there; run `{update}`, then `{then}`",
+        e.message,
+        build.unwrap_or("unknown"),
+        crate::hub::BUILD
+    );
+    Some(RpcError::new(e.code, message).with_data(json!({
+        "reason": "peer_version_skew",
+        "refused": CWD_OUTSIDE_ROOTS,
+        "host": peer_name,
+        "try": update,
+        "then": then,
+    })))
 }
 
 /// `inner` as run on the peer's machine: through ssh to `dest` (an `ssh://` peer's checked
@@ -642,7 +670,8 @@ newlines')"#
         let argv = json!(["new", "--host", "gcp-codex-lane-1", "-m", "claude", "hi"]);
         let params = json!({"_meta": {"acpmux": {"harness": "claude", "argv": argv}}});
         let old = Some("972843ddd 2026-10-22");
-        let e = update_first(&refused(), "gcp-codex-lane-1", old, &params).expect("an update hint");
+        let e = update_first(&refused(), "gcp-codex-lane-1", old, true, &params)
+            .expect("an update hint");
         let data = e.data.clone().unwrap();
         assert_eq!(data["reason"], "peer_version_skew");
         assert_eq!(data["refused"], CWD_OUTSIDE_ROOTS);
@@ -652,10 +681,12 @@ newlines')"#
         assert!(e.message.contains("`acpmux host update gcp-codex-lane-1`"), "{}", e.message);
         // A folder named, a peer that says how it served us, or one of this build: as before.
         let named = json!({"cwd": "/tmp/x", "_meta": {"acpmux": {"argv": argv}}});
-        assert!(update_first(&refused(), "gcp-codex-lane-1", old, &named).is_none());
+        assert!(update_first(&refused(), "gcp-codex-lane-1", old, true, &named).is_none());
         let told = refused().with_data(json!({"reason": CWD_OUTSIDE_ROOTS, "servedAs": "remote"}));
-        assert!(update_first(&told, "gcp-codex-lane-1", old, &params).is_none());
+        assert!(update_first(&told, "gcp-codex-lane-1", old, true, &params).is_none());
         let same = Some(crate::hub::BUILD);
-        assert!(update_first(&refused(), "gcp-codex-lane-1", same, &params).is_none());
+        assert!(update_first(&refused(), "gcp-codex-lane-1", same, true, &params).is_none());
+        // A peer that serves this daemon as Web refuses no folder on any build: no update hint.
+        assert!(update_first(&refused(), "gcp-codex-lane-1", old, false, &params).is_none());
     }
 }
