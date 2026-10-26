@@ -152,7 +152,8 @@ nonisolated struct AcpmuxPeerUpdateSource: Sendable {
         try FileManager.default.moveItem(at: staging, to: file)
     }
 
-    /// The app's: its daemon's status, its bundled acpmux, the policy's directory.
+    /// The app's: its daemon's status, its bundled acpmux (its `--version` bounded by
+    /// `versionBound`), the policy's directory.
     static func live(_ acpmux: AcpmuxEnvironment, directory: URL, versionBound: Duration = .seconds(10),
                      download: @escaping @Sendable (_ artifact: String, _ executable: URL) async throws -> (file: URL, commit: String))
         -> AcpmuxPeerUpdateSource {
@@ -165,7 +166,8 @@ nonisolated struct AcpmuxPeerUpdateSource: Sendable {
                 let status = AcpmuxPeerUpdateStatus(result)
                 return status.daemon.serves(home: acpmux.home) ? status : nil
             },
-            bundledBuild: { await AcpmuxVersionHandoff.bundledBuild(acpmux) },
+            // Bounded: the launch offer, a reconnect check and the sweep each wait on it.
+            bundledBuild: { await DaemonUpdatePolicy.bundledBuild(of: acpmux.executable, within: versionBound) },
             command: AcpmuxPeerUpdateCommand(executable: acpmux.executable, environment: environment),
             download: { artifact in try await download(artifact, acpmux.executable) },
             directory: directory,
@@ -178,9 +180,11 @@ extension DaemonUpdatePolicy {
     /// carve-out: a once flag for the synchronous ``startOnce(build:environment:download:)``; no await under the lock.
     private nonisolated static let started = OSAllocatedUnfairLock(initialState: false)
 
-    /// Whether this app updates its daemon's ssh peers. Not yet decided by anything.
+    /// Whether this app updates its daemon's ssh peers: not a DEV build attached to another app's
+    /// daemon (`CMUX_NEXT_ACPMUX_ATTACH`, ``AcpmuxEnvironment/attachHome(build:environment:userHome:)``),
+    /// whose peers are that daemon's owner's to update.
     nonisolated static func updatesPeers(build: BuildIdentity?, environment: [String: String]) -> Bool {
-        true
+        AcpmuxEnvironment.attachHome(build: build, environment: environment) == nil
     }
 
     /// Once per launch, in the background, after the app's acpmux is up (``AcpmuxHost/prewarm()``):
@@ -197,6 +201,10 @@ extension DaemonUpdatePolicy {
             return !done
         }
         guard first, AgentPaneTunables.updatePeersAutomatically.value else { return }
+        guard updatesPeers(build: build, environment: environment) else {
+            DaemonUpdatePolicy.logger.info("daemon update skipped: attached to another app's acpmux")
+            return
+        }
         // task-owner: once per launch; ends when the peers are offered (the shared policy updates them)
         Task.detached(priority: .utility) {
             let bin = Bundle.main.resourceURL?.appendingPathComponent("bin", isDirectory: true)
