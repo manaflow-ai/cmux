@@ -287,6 +287,21 @@ struct MainWakeUpQueueTests {
         #expect(rig.timer.arms.last == FakeWakeUpTimer.Arm(date: 2_000 * Self.ms, tolerance: 200 * Self.ms))
     }
 
+    @Test("A hidden entry keeps its whole-second fence under the saver: it never snaps to the 32 ms grid")
+    func hiddenEntryIgnoresTheSaverGrid() {
+        let energy = EnergyPolicySource()
+        let rig = WakeUpQueueRig(energy: energy, start: 10_000 * Self.ms + 1)
+        let log = RunLog()
+        rig.queue.insertHidden(owner: "hidden", after: .milliseconds(100)) { log.ran.append(1) }
+        #expect(rig.timer.armedDate == 11_000 * Self.ms)
+
+        energy.update(EnergyPolicy(saverReason: .setting))
+
+        #expect(rig.timer.armedDate == 11_000 * Self.ms, "the saver moves only flexible sub-second entries")
+        rig.fire()
+        #expect(log.ran == [1])
+    }
+
     @Test("A released queue stops observing the energy policy")
     func releasedQueueStopsObserving() {
         let energy = EnergyPolicySource()
