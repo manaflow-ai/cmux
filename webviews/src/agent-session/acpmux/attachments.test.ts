@@ -260,3 +260,86 @@ test("tokens read against the ids leave the person's U+FFFC on either side as te
   // Read against no ids, the first token-shaped run is taken: only the ids can tell.
   expect(inlineTokenSpans(text, () => true)[0]!.id).toBe("before");
 });
+
+// Review (Astra, e082): the person's U+FFFC and word after an attachment and before a second token
+// of its id were read as the second token's: the words were lost and the id went twice.
+test("a second token of a placed id never takes the person's U+FFFC before it", () => {
+  const one = strip(image("one"));
+  const sent = placeInline(`${inlineToken("one")} ${MARK}word${inlineToken("one")}`, [one]);
+  expect(sent.text).toBe(`${inlineToken("one")} ${MARK}word`);
+  expect(sent.attachments.map((attachment) => attachment.id)).toEqual(["one"]);
+  expect(blockShape(promptBlocks(sent.text, sent.attachments))).toEqual(["image", ` ${MARK}word`]);
+  // The second token is told from text by its id alone, though it is no second place.
+  const spans = inlineTokenSpans(
+    `${inlineToken("one")} ${MARK}word${inlineToken("one")}`,
+    (id, placed) => id === "one" && !placed.has(id),
+  );
+  expect(spans.map((span) => [span.id, span.known, span.place])).toEqual([
+    ["one", true, true],
+    ["one", true, false],
+  ]);
+});
+
+test("a path id's token keeps the person's U+FFFC before it as text", () => {
+  const link = linkAttachment("/tmp/my file~1 100%.pdf", false);
+  const draft = `${MARK}see${inlineToken(link.id)} ${MARK}word${inlineToken(link.id)}`;
+  const sent = placeInline(draft, [link]);
+  expect(sent.text).toBe(`${MARK}see${inlineToken(link.id)} ${MARK}word`);
+  expect(blockShape(promptBlocks(sent.text, sent.attachments))).toEqual([
+    `${MARK}see`,
+    "file:///tmp/my%20file~1%20100%25.pdf",
+    ` ${MARK}word`,
+  ]);
+});
+
+// Review (Astra, e082): read without the attachments, `word` was taken for the token and `one`
+// was left as text; read against them, every reader agrees with placement.
+test("ids and cleanup read against the attachments agree with placement", () => {
+  const draft = `${MARK}word${inlineToken("one")} tail`;
+  const known = (id: string) => id === "one";
+  expect(inlineTokenIds(draft, known)).toEqual(["one"]);
+  expect(withoutInlineTokens(draft, known)).toBe(`${MARK}word tail`);
+  expect(placeInline(draft, [strip(image("one"))]).text).toBe(draft);
+  // A second token of one id is no second place.
+  expect(inlineTokenIds(`${inlineToken("a")}${inlineToken("b")}${inlineToken("a")}`, () => true)).toEqual(["a", "b"]);
+  // A stale token beside a placed one goes; the person's lone U+FFFC stays.
+  expect(withoutInlineTokens(`${MARK} a${inlineToken("gone")}${inlineToken("one")}`, known)).toBe(`${MARK} a`);
+  // Text with no token of a known id is the person's, as written.
+  expect(withoutInlineTokens(`a${MARK}b${MARK}c`, known)).toBe(`a${MARK}b${MARK}c`);
+});
+
+// Review (Astra, e082): a recording the model cannot hear is taken out before the prompt goes; its
+// token was then sent to the agent as text.
+test("a token of an attachment taken out of the prompt goes as nothing", () => {
+  const dropped = (id: string) => id === "v";
+  expect(promptBlocks(`say ${inlineToken("v")}`, [], { dropped })).toEqual([{ type: "text", text: "say " }]);
+  expect(promptText(`say ${inlineToken("v")}${MARK}`, [], { dropped })).toBe(`say ${MARK}`);
+  // Beside an attachment still placed, a stale token is the composer's and goes with no hint.
+  expect(blockShape(promptBlocks(`say ${inlineToken("v")} then${inlineToken("one")}`, [image("one")]))).toEqual([
+    "say  then",
+    "image",
+  ]);
+  // The person's U+FFFC and an older composer's bare marks are text and places as before.
+  expect(promptBlocks(`a${MARK}b`, [], { dropped })).toEqual([{ type: "text", text: `a${MARK}b` }]);
+  expect(blockShape(promptBlocks(`a${MARK}b${MARK}c`, [image("x"), image("y")], { dropped }))).toEqual([
+    "a",
+    "image",
+    "b",
+    "image",
+    "c",
+  ]);
+  const sent = placeInline(`say ${inlineToken("v")}${inlineToken("one")}`, [strip(image("one"))], { dropped });
+  expect(sent.text).toBe(`say ${inlineToken("one")}`);
+});
+
+// Review (Astra, e082): the strip ranked an id by its last place, the prompt by its first.
+test("the strip orders by each id's first place, as the prompt does", () => {
+  const [a, b] = [strip(image("a")), strip(image("b"))];
+  expect(orderedByMarks([a, b], ["b", "a", "b"]).map((attachment) => attachment.id)).toEqual(["b", "a"]);
+  const draft = `${inlineToken("b")}${inlineToken("a")}${inlineToken("b")}`;
+  expect(placeInline(draft, [a, b]).attachments.map((attachment) => attachment.id)).toEqual(["b", "a"]);
+  expect(orderedByMarks([a, b], inlineTokenIds(draft, () => true)).map((attachment) => attachment.id)).toEqual([
+    "b",
+    "a",
+  ]);
+});
