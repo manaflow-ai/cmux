@@ -2013,12 +2013,9 @@ jobs:
   # restore them by the same key instead of running bun and Vite+ themselves; a push to
   # feat-cmux-next fills the cache every pull request can read. A pull request builds them
   # only for a routed tier that restores them (swift test, daemon tests, generated files).
-  # A DEV daily run (direct or same-tree) builds them for the commit it compiles, next to the
-  # DEV Release compile, which restores them instead of building them on its Mac when this
-  # job (or the push of the same sources) has stored them by the time it gets there.
   web-bundles:
     needs: path_route
-    if: ${{ (inputs.dev_daily == true || inputs.same_tree_sha == '') && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository || contains(github.event.pull_request.labels.*.name, 'full-ci')) && (needs.path_route.outputs.swift == 'true' || needs.path_route.outputs.daemon == 'true' || needs.path_route.outputs.generated == 'true')) }}
+    if: ${{ inputs.dev_daily != true && inputs.same_tree_sha == '' && (github.event_name != 'pull_request' || (github.event.pull_request.head.repo.full_name == github.repository || contains(github.event.pull_request.labels.*.name, 'full-ci')) && (needs.path_route.outputs.swift == 'true' || needs.path_route.outputs.daemon == 'true' || needs.path_route.outputs.generated == 'true')) }}
     name: cmux-next web bundles (source-keyed cache)
     runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name != github.repository && 'blacksmith-32vcpu-ubuntu-2404' || !startsWith(vars.LINUX_RUNNER, 'blacksmith-') && vars.LINUX_RUNNER || 'blacksmith-32vcpu-ubuntu-2404' }}
     timeout-minutes: 15
@@ -2032,8 +2029,6 @@ jobs:
     steps:
       - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
         with:
-          # Same-tree mode compiles the commit the tree was probed for (cmux-scheme-compile).
-          ref: ${{ inputs.same_tree_sha || '' }}
           persist-credentials: false
 
       # runs-on can resolve to vars.LINUX_RUNNER, which may name a self-hosted
@@ -2070,15 +2065,6 @@ jobs:
           key: cmux-next-web-bundles-v1-${{ steps.web-bundle-key.outputs.key }}
           enableCrossOsArchive: true
 
-      # A miss spends most of its time in `bun install` with an empty package cache (about
-      # 60 of 104 s, run 40360791277). ci-web.yml's webviews jobs keep the same cache.
-      - name: Cache the webviews Bun package cache
-        if: steps.web-bundle-cache.outputs.cache-hit != 'true'
-        uses: actions/cache@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: ~/.bun/install/cache
-          key: bun-webviews-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('webviews/bun.lock') }}
-
       - name: Build the web bundles for this source key
         if: steps.web-bundle-cache.outputs.cache-hit != 'true'
         run: scripts/cmux-next/build-web-bundles.sh --out-root "$GITHUB_WORKSPACE/web-bundles-out"
@@ -2095,8 +2081,7 @@ jobs:
       # them from there much faster than from the GitHub cache, and every
       # pull request whose web sources match feat-cmux-next's hits. The `any`
       # namespace is shared by every OS (the bundles are platform-independent).
-      # A key that is already stored is not uploaded again. A DEV daily run does not publish:
-      # its DEV Release compile reads this run's GitHub cache entry when R2 has no copy.
+      # A key that is already stored is not uploaded again.
       - name: Publish the web bundles to R2 (feat-cmux-next push)
         if: ${{ github.repository == 'manaflow-ai/cmux' && github.event_name == 'push' && github.ref == 'refs/heads/feat-cmux-next' }}
         continue-on-error: true
@@ -4430,57 +4415,9 @@ jobs:
 
       # The app's web bundles are build output (cx-vn5); the "Verify web
       # bundles" phase refuses an app built without them, and this job's app is
-      # the dogfood artifact. The Linux web-bundles job builds them once per
-      # source key (web-bundle-key.py --source) and stores them under it; this
-      # job installs that tree when it finds it and builds them itself, with bun
-      # and node, only when it does not. Restored or built, they are the same
-      # bytes: the key hashes every input and the pinned bun, and the build runs
-      # on node on both (build-web-bundles.sh).
-      # A mini reuses its workspace: start from no restored tree, so nothing a
-      # previous job restored there can be installed with this key's bundles.
-      - name: Source key of the web bundles
-        id: web-bundle-key
-        if: ${{ inputs.dev_daily != true || steps.dev-product.outputs.hit != 'true' }}
-        continue-on-error: true
-        run: |
-          rm -rf web-bundles-out
-          echo "key=$(python3 scripts/cmux-next/web-bundle-key.py . --source)" >> "$GITHUB_OUTPUT"
-
-      # R2 first (feat-cmux-next's bundles, published by the web-bundles job of
-      # its pushes; no credential), then this run's GitHub cache entry.
-      - name: Restore the web bundles from R2
-        id: web-bundle-r2
-        if: ${{ steps.web-bundle-key.outputs.key != '' }}
-        continue-on-error: true
-        uses: ./.github/actions/cache-restore
-        env:
-          CI_CACHE_R2_PUBLIC_URL: https://ci-cache-next.cmux.com
-          CI_CACHE_R2_NAMESPACE: any
-        with:
-          backend: r2
-          path: web-bundles-out
-          key: cmux-next-web-bundles-v1-${{ steps.web-bundle-key.outputs.key }}
-
-      - name: Restore the web bundles built for this source key
-        id: web-bundle-cache
-        if: ${{ steps.web-bundle-r2.outputs.cache-hit != 'true' && steps.web-bundle-key.outputs.key != '' }}
-        continue-on-error: true
-        uses: actions/cache/restore@27d5ce7f107fe9357f9df03efb73ab90386fccae # v5.0.5
-        with:
-          path: web-bundles-out
-          key: cmux-next-web-bundles-v1-${{ steps.web-bundle-key.outputs.key }}
-          enableCrossOsArchive: true
-
-      # --from checks the tree is complete and that its generated inspector page
-      # is the committed one, then installs and stamps it. A refusal builds below.
-      - name: Install the restored web bundles
-        id: web-bundles-from
-        if: ${{ (steps.web-bundle-r2.outputs.cache-hit == 'true' || steps.web-bundle-cache.outputs.cache-hit == 'true') && steps.web-bundle-key.outputs.key != '' }}
-        continue-on-error: true
-        run: scripts/cmux-next/build-web-bundles.sh --from web-bundles-out
-
+      # the dogfood artifact.
       - name: Setup Bun
-        if: ${{ (inputs.dev_daily != true || steps.dev-product.outputs.hit != 'true') && steps.web-bundles-from.outcome != 'success' }}
+        if: ${{ inputs.dev_daily != true || steps.dev-product.outputs.hit != 'true' }}
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: "1.4.4"
@@ -4488,19 +4425,19 @@ jobs:
       # The minis share ~/.bun with workflows that install another bun; this
       # job runs on its own copy of the pinned one (private-bun.sh).
       - name: Give this job its own bun
-        if: ${{ (inputs.dev_daily != true || steps.dev-product.outputs.hit != 'true') && steps.web-bundles-from.outcome != 'success' }}
+        if: ${{ inputs.dev_daily != true || steps.dev-product.outputs.hit != 'true' }}
         run: scripts/cmux-next/private-bun.sh
 
       # The webviews app's `vp build` must run on node: on bun it emits
       # different bytes (build-web-bundles.sh).
       - name: Setup Node
-        if: ${{ (inputs.dev_daily != true || steps.dev-product.outputs.hit != 'true') && steps.web-bundles-from.outcome != 'success' }}
+        if: ${{ inputs.dev_daily != true || steps.dev-product.outputs.hit != 'true' }}
         uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6.4.0
         with:
           node-version: "24.22.1"
 
       - name: Build the web bundles
-        if: ${{ (inputs.dev_daily != true || steps.dev-product.outputs.hit != 'true') && steps.web-bundles-from.outcome != 'success' }}
+        if: ${{ inputs.dev_daily != true || steps.dev-product.outputs.hit != 'true' }}
         run: scripts/cmux-next/build-web-bundles.sh
 
       - name: Compile the cmux scheme

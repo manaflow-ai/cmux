@@ -117,33 +117,14 @@ fi
 if [ "$MODE" = from ]; then
   # The inspector page stays committed (optchat-chief compiles it in with
   # include_str!, and the brain build runs no bundle step): never removed here.
-  for path in "$PANE" "$PAGES" "$ACTIVITY" "$APP" "$PALETTE/palette-ranker.js" "$INSPECTOR/index.html"; do
+  for path in "$PANE" "$PAGES" "$ACTIVITY" "$APP" "$PALETTE/palette-ranker.js"; do
     [ -e "$FROM_ROOT/$path" ] || { echo "error: $FROM_ROOT has no $path; build the web bundles instead" >&2; exit 1; }
   done
-  # The check an in-tree build runs (build-optchat-inspector-web.sh --check): the page the
-  # prebuilt tree generated for this source key must be the committed one.
-  if ! cmp -s "$FROM_ROOT/$INSPECTOR/index.html" "$ROOT/$INSPECTOR/index.html"; then
-    echo "error: generated file is stale; run scripts/cmux-next/build-optchat-inspector-web.sh and commit: $INSPECTOR/index.html" >&2
-    exit 1
-  fi
   rm -f "$STAMP"
-  # An --out-root tree holds only what the builders wrote. The files a commit keeps in these
-  # directories (their GENERATED.md notes, which the app bundles) stay as the checkout has
-  # them, as an in-tree build leaves them: set aside, the directory replaced, put back.
-  KEEP="$(mktemp -d)"
-  trap 'rm -rf "$KEEP"' EXIT
   for path in "$PANE" "$PAGES" "$ACTIVITY" "$APP"; do
-    git -C "$ROOT" ls-files -- "$path" | while IFS= read -r kept; do
-      [ -f "$ROOT/$kept" ] || continue
-      mkdir -p "$KEEP/$(dirname "$kept")"
-      cp -p "$ROOT/$kept" "$KEEP/$kept"
-    done
     rm -rf "${ROOT:?}/$path"
     mkdir -p "$(dirname "${ROOT:?}/$path")"
     cp -R "$FROM_ROOT/$path" "$ROOT/$path"
-    if [ -d "$KEEP/$path" ]; then
-      cp -Rp "$KEEP/$path/." "$ROOT/$path/"
-    fi
   done
   cp "$FROM_ROOT/$PALETTE/palette-ranker.js" "$ROOT/$PALETTE/palette-ranker.js"
   python3 "$KEY" "$ROOT" --stamp > "$STAMP.tmp"
