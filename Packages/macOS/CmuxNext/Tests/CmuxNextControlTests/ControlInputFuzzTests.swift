@@ -37,7 +37,10 @@ import Testing
 
     @Test func oneInputTakesAnyBytes() throws {
         let run = try FuzzRun("ControlInput.oneInput", seed: 0xC0_18, iterations: 512)
-        try run.forEachInput(run.corpus(seeds: [Data(), Data("tab:a".utf8)]), Self.oneInput)
+        // Choice tapes, not text: a length, alphabet indices, then the envelope.
+        // [5, 0, 1, 2, 3, 1, 0] is "_cmux_capability_v1 tab:a".
+        let tapes: [[UInt8]] = [[], [5, 0, 1, 2, 3, 1, 0]]
+        try run.forEachInput(run.corpus(seeds: tapes.map { Data($0) }), Self.oneInput)
     }
 
     /// Durations past Int.max milliseconds saturate (Int(seconds) * 1_000 trapped).

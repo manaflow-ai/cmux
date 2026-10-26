@@ -1,10 +1,13 @@
 import Foundation
 
-/// The one random source of the seeded property tests: xorshift64 (13, 7, 17), the
-/// generator the suites used privately before this package.
+/// The one random source of the seeded property tests: xorshift64 (13, 7, 17). The
+/// algorithm is pinned (a test checks it against a reference), so a replay line
+/// printed today replays on a later version of this package.
 ///
 /// It has two modes. Seeded, it is a plain generator: the same seed gives the same
-/// choices, so a failure replays from its seed. Replaying bytes, each choice reads
+/// choices. `FuzzRun` seeds one per iteration (`derivedSeed`), so the suites keep
+/// their seeds and iteration counts but explore other inputs than their old private
+/// generators, which drew every iteration from one stream. Replaying bytes, each choice reads
 /// the next bytes of the input (eight for `next()`, as few as the range needs for
 /// `below(_:)`, little endian), as LLVM's `FuzzedDataProvider`
 /// (compiler-rt/include/fuzzer/FuzzedDataProvider.h) does; a coverage-guided fuzzer
@@ -34,8 +37,9 @@ public struct FuzzRNG: RandomNumberGenerator, Sendable {
         tape = [UInt8](input)
     }
 
-    /// The seed of stream `stream` of `seed` (splitmix64 of the pair): long mode's
-    /// later rounds start from these, so each round explores new choices.
+    /// The seed of stream `stream` of `seed` (splitmix64 of the pair). `FuzzRun` gives
+    /// iteration `i` stream `i`, in default and long mode alike, so iterations draw
+    /// unrelated choices and any one of them can be rebuilt from the seed alone.
     public static func derivedSeed(_ seed: UInt64, stream: UInt64) -> UInt64 {
         var z = seed &+ (stream &* 0x9E37_79B9_7F4A_7C15)
         z = (z ^ (z >> 30)) &* 0xBF58_476D_1CE4_E5B9
@@ -97,6 +101,18 @@ public struct FuzzRNG: RandomNumberGenerator, Sendable {
         var out = Data(capacity: count)
         for _ in 0..<count { out.append(byte()) }
         return out
+    }
+
+    /// Exactly `count` random bytes (zeros once a replayed input is used up).
+    public mutating func bytes(count: Int) -> [UInt8] {
+        (0..<max(count, 0)).map { _ in byte() }
+    }
+
+    /// A UUID from 16 drawn bytes, so a body that needs identifiers stays a function of its choices.
+    public mutating func uuid() -> UUID {
+        let b = bytes(count: 16)
+        return UUID(uuid: (b[0], b[1], b[2], b[3], b[4], b[5], b[6], b[7],
+                           b[8], b[9], b[10], b[11], b[12], b[13], b[14], b[15]))
     }
 
     /// Between 0 and `limit - 1` characters drawn from `alphabet`.

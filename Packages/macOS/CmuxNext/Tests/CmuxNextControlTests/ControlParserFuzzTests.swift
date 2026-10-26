@@ -48,7 +48,9 @@ import Testing
 
     @Test func oneInputTakesAnyBytes() throws {
         let run = try FuzzRun("ControlParser.oneInput", seed: 0xC0DE, iterations: 512)
-        let seeds = Self.pieces.map { Data($0.utf8) }
-        try run.forEachInput(run.corpus(seeds: seeds), mutator: FuzzMutator(dictionary: seeds), Self.oneInput)
+        // Choice tapes, not JSON: a first byte picks the branch (odd: piece lines, even: raw bytes),
+        // then a piece count and piece indices. [1, 7, 0, 4, 7, 4, 5, 10, 1] spells {"method":null}.
+        let tapes: [[UInt8]] = [[0], [1], [1, 7, 0, 4, 7, 4, 5, 10, 1]]
+        try run.forEachInput(run.corpus(seeds: tapes.map { Data($0) }), Self.oneInput)
     }
 }

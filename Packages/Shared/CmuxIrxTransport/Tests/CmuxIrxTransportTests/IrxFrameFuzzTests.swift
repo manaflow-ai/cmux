@@ -61,7 +61,8 @@ import Testing
 
     @Test func oneInputTakesAnyBytes() throws {
         let run = try FuzzRun("IrxFrame.oneInput", seed: 0x63, iterations: 512)
-        try run.forEachInput(run.corpus(seeds: [Data()]), Self.oneInput)
+        // Choice tapes, one per branch: even bytes go to anyBytes, odd ones to alignedChunking.
+        try run.forEachInput(run.corpus(seeds: [Data([0]), Data([1])]), Self.oneInput)
     }
 
     @Test func controlFrameCodecRefusesOversizeAndRoundTripsJSON() throws {

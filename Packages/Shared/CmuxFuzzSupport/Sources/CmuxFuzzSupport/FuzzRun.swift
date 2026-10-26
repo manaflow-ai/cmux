@@ -1,25 +1,29 @@
 import Foundation
 
 /// One seeded property-test run: `iterations` iterations by default; in long mode
-/// (`CMUX_FUZZ_SECONDS`) it goes on until that many seconds have passed.
+/// (`CMUX_FUZZ_SECONDS`, `CMUX_FUZZ_DEADLINE`) it goes on until its time is up;
+/// `CMUX_FUZZ_ITERATIONS` sets the count exactly, for a replay.
 ///
 /// Iteration `i` draws from its own generator, seeded with
-/// `FuzzRNG.derivedSeed(seed, stream: i)`, so a failure is named by the run's
-/// seed and the iteration and replays with `CMUX_FUZZ_SEED`. The body throws to
-/// fail (`FuzzRun.check`, or the decoder's own error where a value is required); the
-/// run stops at the first failure, keeps the input under `CMUX_FUZZ_ARTIFACTS`
-/// and throws `FuzzError.failed`.
+/// `FuzzRNG.derivedSeed(seed, stream: i)`, in default and long mode alike, so the
+/// run's seed and the iteration name every input. A failure prints the variables
+/// that replay it (`FuzzFailure.replay`): the seed and an iteration count that ends
+/// with the failing iteration, which also replays a body that keeps state across
+/// iterations. The body throws to fail (`FuzzRun.check`, or the decoder's own error
+/// where a value is required); the run stops at the first failure, keeps the input
+/// under `CMUX_FUZZ_ARTIFACTS` and throws `FuzzError.failed`.
 public struct FuzzRun: Sendable {
     public let name: String
     /// The suite's seed, or `CMUX_FUZZ_SEED` when it is set.
     public let seed: UInt64
+    /// The suite's iteration count, or `CMUX_FUZZ_ITERATIONS` when it is set.
     public let iterations: Int
     public let environment: FuzzEnvironment
 
     public init(_ name: String, seed: UInt64, iterations: Int, environment: FuzzEnvironment) {
         self.name = name
         self.seed = environment.seed ?? seed
-        self.iterations = max(iterations, 0)
+        self.iterations = max(environment.iterations ?? iterations, 0)
         self.environment = environment
     }
 
@@ -43,7 +47,7 @@ public struct FuzzRun: Sendable {
         var iteration = 0
         while continues(after: iteration, deadline: deadline) {
             var rng = generator(for: iteration)
-            try artifacts?.noteInflight(seed: seed, iteration: iteration, input: nil)
+            try note(iteration: iteration, input: nil, artifacts: artifacts)
             try attempt(iteration: iteration, input: nil, artifacts: artifacts) { try body(&rng) }
             iteration += 1
         }
@@ -61,7 +65,7 @@ public struct FuzzRun: Sendable {
         defer { artifacts?.finish() }
         let inputs = corpus.inputs
         for (index, input) in inputs.enumerated() {
-            try artifacts?.noteInflight(seed: seed, iteration: -1 - index, input: input)
+            try note(iteration: -1 - index, input: input, artifacts: artifacts)
             try attempt(iteration: -1 - index, input: input, artifacts: artifacts) { try body(input) }
         }
         let deadline = self.deadline()
@@ -71,7 +75,7 @@ public struct FuzzRun: Sendable {
             let base = inputs.isEmpty || rng.oneIn(8) ? rng.bytes(256) : inputs[rng.below(inputs.count)]
             let partner = inputs.isEmpty ? nil : inputs[rng.below(inputs.count)]
             let input = mutator.mutate(base, crossingWith: partner, using: &rng)
-            try artifacts?.noteInflight(seed: seed, iteration: iteration, input: input)
+            try note(iteration: iteration, input: input, artifacts: artifacts)
             try attempt(iteration: iteration, input: input, artifacts: artifacts) { try body(input) }
             iteration += 1
         }
@@ -86,8 +90,8 @@ public struct FuzzRun: Sendable {
     // MARK: - Driving
 
     private func deadline() -> ContinuousClock.Instant? {
-        guard let seconds = environment.seconds, seconds > 0 else { return nil }
-        return ContinuousClock.now.advanced(by: .seconds(min(seconds, 1e9)))
+        guard let budget = environment.longModeBudget(from: Date()) else { return nil }
+        return ContinuousClock.now.advanced(by: .seconds(min(budget, 1e9)))
     }
 
     private func continues(after iteration: Int, deadline: ContinuousClock.Instant?) -> Bool {
@@ -101,6 +105,12 @@ public struct FuzzRun: Sendable {
         return try FuzzArtifacts(directory: directory, name: name)
     }
 
+    private func note(iteration: Int, input: Data?, artifacts: FuzzArtifacts?) throws(FuzzError) {
+        guard let artifacts else { return }
+        let replay = FuzzFailure.replayLine(name: name, seed: seed, iteration: iteration, corpus: environment.corpus)
+        try artifacts.noteInflight(seed: seed, iteration: iteration, replay: replay, input: input)
+    }
+
     private func attempt(
         iteration: Int, input: Data?, artifacts: FuzzArtifacts?, _ body: () throws -> Void
     ) throws(FuzzError) {
@@ -109,7 +119,7 @@ public struct FuzzRun: Sendable {
         } catch {
             var failure = FuzzFailure(
                 name: name, seed: seed, iteration: iteration, input: input,
-                reason: String(describing: error), artifact: nil
+                reason: String(describing: error), artifact: nil, corpus: environment.corpus
             )
             failure.artifact = try artifacts?.keep(failure)
             throw FuzzError.failed(failure)

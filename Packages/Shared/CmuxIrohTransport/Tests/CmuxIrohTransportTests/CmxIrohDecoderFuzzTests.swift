@@ -126,8 +126,12 @@ import Testing
 
     @Test func oneInputTakesAnyBytes() throws {
         let run = try FuzzRun("CmxIrohDecoder.oneInput", seed: 0x75, iterations: 512)
+        // Choice tapes: one per branch of `oneInput`, and for the raw-bytes branch (4) a tape whose
+        // byte count and bytes are a real encoded stream header, so the decoder starts from one.
         let codec = try CmxIrohStreamHeaderCodec()
-        let seeds = try Self.streamHeaders().map { try codec.encode($0) } + [try Self.lanTXTSample()]
-        try run.forEachInput(run.corpus(seeds: seeds), Self.oneInput)
+        let branches: [[UInt8]] = [[0, 0], [0, 1], [1], [2], [3], [4]]
+        let encodedHeaders = try Self.streamHeaders().map { try codec.encode($0) }.filter { $0.count < 256 }
+        let tapes = branches.map { Data($0) } + encodedHeaders.map { Data([4, UInt8($0.count)]) + $0 }
+        try run.forEachInput(run.corpus(seeds: tapes), Self.oneInput)
     }
 }

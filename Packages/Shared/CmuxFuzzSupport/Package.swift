@@ -4,7 +4,8 @@ import PackageDescription
 
 // Seeded property tests for decoders and state machines (p10-stability-016): one
 // xorshift RNG, byte and token mutators, a corpus loader, long mode
-// (CMUX_FUZZ_SECONDS, CMUX_FUZZ_SEED) and failing inputs written to
+// (CMUX_FUZZ_SECONDS, CMUX_FUZZ_DEADLINE), replay (CMUX_FUZZ_SEED,
+// CMUX_FUZZ_ITERATIONS) and failing inputs written to
 // CMUX_FUZZ_ARTIFACTS. Test-only: only test targets depend on it. It imports
 // Foundation alone, so the Linux libFuzzer wrappers (p10-stability-182) can reuse
 // each suite's `oneInput(_:)` body. These are seeded property tests, not

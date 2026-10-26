@@ -113,7 +113,8 @@ import Testing
                 copy[key] = extremes[rng.below(extremes.count)]
             }
         }
-        guard let data = try? JSONSerialization.data(withJSONObject: copy) else { return 0 }
+        // Sorted keys: the byte mutation below must see the same bytes in every process.
+        guard let data = try? JSONSerialization.data(withJSONObject: copy, options: [.sortedKeys]) else { return 0 }
         var decoded = 0
         for input in [data, mutate(data, &rng)] {
             if let frame = try? MobileTerminalRenderGridFrame.decode(input) {
@@ -125,12 +126,25 @@ import Testing
         return decoded
     }
 
-    @Test(arguments: [grid, scrolledDelta])
-    func renderGridFramesFromMutatedJSONDecodeAndReplayOrThrow(_ base: Data) throws {
-        _ = try MobileTerminalRenderGridFrame.decode(base)  // the base itself decodes
-        let object = try Self.renderGridObject(base)
+    /// A render-grid base frame. The run name carries it: the cases of the parameterized test run
+    /// at the same time, and each needs its own artifact files and replay line.
+    enum RenderGridBase: String, CaseIterable, Sendable {
+        case grid, scrolledDelta
+
+        var data: Data {
+            switch self {
+            case .grid: MobileProtocolFuzzTests.grid
+            case .scrolledDelta: MobileProtocolFuzzTests.scrolledDelta
+            }
+        }
+    }
+
+    @Test(arguments: RenderGridBase.allCases)
+    func renderGridFramesFromMutatedJSONDecodeAndReplayOrThrow(_ base: RenderGridBase) throws {
+        _ = try MobileTerminalRenderGridFrame.decode(base.data)  // the base itself decodes
+        let object = try Self.renderGridObject(base.data)
         var decoded = 0
-        try FuzzRun("MobileProtocol.renderGrid", seed: 0x53, iterations: 3_000).forEach { rng in
+        try FuzzRun("MobileProtocol.renderGrid.\(base.rawValue)", seed: 0x53, iterations: 3_000).forEach { rng in
             decoded += Self.renderGridFrame(object: object, &rng)
         }
         #expect(decoded > 100, "the mutations must also produce frames that decode")
@@ -206,11 +220,11 @@ import Testing
     }
 
     static func deliveryAndAcknowledgement(_ rng: inout FuzzRNG) throws {
-        let delivery = MobileTerminalInputDelivery(surfaceID: UUID(), streamID: UUID(), sequence: rng.next())
+        let delivery = MobileTerminalInputDelivery(surfaceID: rng.uuid(), streamID: rng.uuid(), sequence: rng.next())
         try FuzzRun.check(MobileTerminalInputDelivery(decoding: delivery.encoded()) == delivery, "a delivery did not round-trip")
         let status = MobileTerminalInputAcknowledgement.Status(rawValue: UInt8(1 + rng.below(7))) ?? .applied
         let ack = MobileTerminalInputAcknowledgement(
-            status: status, streamID: UUID(), sequence: rng.next(), expected: rng.next()
+            status: status, streamID: rng.uuid(), sequence: rng.next(), expected: rng.next()
         )
         try FuzzRun.check(MobileTerminalInputAcknowledgement(decoding: ack.encoded()) == ack, "an acknowledgement did not round-trip")
         _ = MobileTerminalInputDelivery(decoding: mutate(delivery.encoded(), &rng))
@@ -228,7 +242,7 @@ import Testing
     /// Whole frames get a marker each; a malformed tail is forwarded unchanged.
     static func laneScoping(_ rng: inout FuzzRNG) throws {
         let scope = MobileEventLaneScope()
-        let surface = UUID()
+        let surface = rng.uuid()
         let marker = scope.marker(surfaceID: surface)
         var block = Data()
         var frames = 0
@@ -276,6 +290,8 @@ import Testing
 
     @Test func oneInputTakesAnyBytes() throws {
         let run = try FuzzRun("MobileProtocol.oneInput", seed: 0x59, iterations: 512)
-        try run.forEachInput(run.corpus(seeds: [Self.grid, Self.scrolledDelta]), Self.oneInput)
+        // Choice tapes, one per branch of `oneInput` (the render grid branch once per base).
+        let tapes: [[UInt8]] = [[0], [1], [2, 0], [2, 1], [3], [4], [5], [6], [7]]
+        try run.forEachInput(run.corpus(seeds: tapes.map { Data($0) }), Self.oneInput)
     }
 }

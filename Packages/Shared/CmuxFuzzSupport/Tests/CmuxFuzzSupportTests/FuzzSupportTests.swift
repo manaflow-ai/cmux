@@ -14,8 +14,10 @@ import Testing
         #expect(fromZero.contains { $0 != 0 })
     }
 
-    /// The suites' old private generator: xorshift64 (13, 7, 17), `next() % n` for `below`.
-    @Test func seededDrawsMatchTheSuitesPreviousGenerator() {
+    /// The algorithm is pinned to a reference xorshift64 (13, 7, 17), `next() % n` for `below`, so a
+    /// replay line (`CMUX_FUZZ_SEED`, `CMUX_FUZZ_ITERATIONS`) printed today still replays after a change
+    /// to this package.
+    @Test func seededDrawsArePinnedSoOldReplayLinesStillReplay() {
         var state: UInt64 = 0xDEAD_BEEF_CAFE_F00D
         func reference() -> UInt64 {
             state ^= state << 13
@@ -31,6 +33,23 @@ import Testing
         }
         let byte = rng.byte()
         #expect(byte == UInt8(truncatingIfNeeded: reference()))
+    }
+
+    @Test func exactBytesAndUUIDsAreFunctionsOfTheChoices() {
+        var a = FuzzRNG(seed: 12)
+        var b = FuzzRNG(seed: 12)
+        let first = a.bytes(count: 40)
+        let second = b.bytes(count: 40)
+        #expect(first.count == 40 && first == second)
+        let firstID = a.uuid()
+        let secondID = b.uuid()
+        #expect(firstID == secondID)
+        var tape = FuzzRNG(replaying: Data((1...16).map { UInt8($0) }))
+        let fromTape = tape.uuid()
+        #expect(fromTape.uuidString == "01020304-0506-0708-090A-0B0C0D0E0F10")
+        var empty = FuzzRNG(replaying: Data())
+        let zeros = empty.bytes(count: 3)
+        #expect(zeros == [0, 0, 0])
     }
 
     @Test func derivedSeedsDifferPerStream() {
@@ -152,11 +171,33 @@ import Testing
         let plain = try FuzzEnvironment(variables: ["CMUX_FUZZ_SEED": "42", "CMUX_FUZZ_SECONDS": "0"])
         #expect(plain == FuzzEnvironment(seed: 42))
         #expect(!plain.isLongMode)
+        let replay = try FuzzEnvironment(variables: [
+            "CMUX_FUZZ_DEADLINE": "1800000000", "CMUX_FUZZ_ITERATIONS": "150001", "CMUX_FUZZ_SECONDS": "300",
+        ])
+        #expect(replay.deadline == Date(timeIntervalSince1970: 1_800_000_000))
+        #expect(replay.iterations == 150_001)
+        #expect(!replay.isLongMode, "a replay count turns long mode off")
+    }
+
+    /// The budget is the earlier end of the per-run seconds and the process deadline, never negative.
+    @Test func longModeBudgetTakesTheEarlierEnd() {
+        let now = Date(timeIntervalSince1970: 1_000)
+        let perRun = FuzzEnvironment(seconds: 300)
+        let shared = FuzzEnvironment(deadline: now.addingTimeInterval(120))
+        let both = FuzzEnvironment(seconds: 60, deadline: now.addingTimeInterval(120))
+        let over = FuzzEnvironment(deadline: now.addingTimeInterval(-5))
+        #expect(perRun.longModeBudget(from: now) == 300)
+        #expect(shared.longModeBudget(from: now) == 120)
+        #expect(both.longModeBudget(from: now) == 60)
+        #expect(over.longModeBudget(from: now) == 0)
+        #expect(FuzzEnvironment().longModeBudget(from: now) == nil)
+        #expect(FuzzEnvironment(seconds: 300, iterations: 4).longModeBudget(from: now) == nil)
     }
 
     @Test(arguments: zip(
-        ["CMUX_FUZZ_SECONDS", "CMUX_FUZZ_SECONDS", "CMUX_FUZZ_SECONDS", "CMUX_FUZZ_SEED", "CMUX_FUZZ_SEED"],
-        ["soon", "-1", "inf", "0xZZ", "-3"]
+        ["CMUX_FUZZ_SECONDS", "CMUX_FUZZ_SECONDS", "CMUX_FUZZ_SECONDS", "CMUX_FUZZ_SEED", "CMUX_FUZZ_SEED",
+         "CMUX_FUZZ_DEADLINE", "CMUX_FUZZ_DEADLINE", "CMUX_FUZZ_ITERATIONS", "CMUX_FUZZ_ITERATIONS"],
+        ["soon", "-1", "inf", "0xZZ", "-3", "tomorrow", "-1", "-1", "1.5"]
     ))
     func aValueThatDoesNotParseIsAnError(_ name: String, _ value: String) {
         #expect(throws: FuzzError.badVariable(name: name, value: value)) {
@@ -205,8 +246,70 @@ import Testing
         } catch FuzzError.failed(let failure) {
             #expect(failure.name == "fails" && failure.seed == 0xAB && failure.iteration == 3)
             #expect(failure.reason.contains("the fourth fails"))
-            #expect(failure.replay.hasPrefix("CMUX_FUZZ_SEED=0xab"))
+            #expect(failure.replay == "CMUX_FUZZ_SEED=0xab CMUX_FUZZ_ITERATIONS=4 (iteration 3 of fails)")
         }
+    }
+
+    /// A long-mode failure past the default iterations replays from its printed variables alone, with
+    /// no time budget, even for a body that keeps state across iterations.
+    @Test func aLongModeFailurePastTheIterationsReplaysFromItsLine() throws {
+        func step(_ rng: inout FuzzRNG, _ draws: inout [UInt64]) throws {
+            let draw = rng.next()
+            let total = draws.reduce(0, &+) &+ draw
+            draws.append(draw)
+            try FuzzRun.check(draws.count < 25, "fails at the 25th iteration, total \(total)")
+        }
+        let long = FuzzRun("long.fails", seed: 0x5EED, iterations: 10, environment: FuzzEnvironment(seconds: 600))
+        var longDraws: [UInt64] = []
+        var found: FuzzFailure?
+        do {
+            try long.forEach { rng in try step(&rng, &longDraws) }
+        } catch FuzzError.failed(let failure) {
+            found = failure
+        }
+        let failure = try #require(found)
+        #expect(failure.iteration == 24)
+        #expect(failure.replay == "CMUX_FUZZ_SEED=0x5eed CMUX_FUZZ_ITERATIONS=25 (iteration 24 of long.fails)")
+
+        let replayEnvironment = try FuzzEnvironment(variables: failure.replayVariables)
+        let replay = FuzzRun("long.fails", seed: 0x1, iterations: 10, environment: replayEnvironment)
+        var replayDraws: [UInt64] = []
+        var replayed: FuzzFailure?
+        do {
+            try replay.forEach { rng in try step(&rng, &replayDraws) }
+        } catch FuzzError.failed(let failure) {
+            replayed = failure
+        }
+        #expect(replayed?.iteration == 24 && replayed?.reason == failure.reason)
+        #expect(replayDraws == longDraws)
+    }
+
+    @Test func aProcessDeadlineEndsLongModeAndAPastOneLeavesTheDefaultIterations() throws {
+        let past = FuzzRun("past", seed: 1, iterations: 6, environment: FuzzEnvironment(deadline: Date(timeIntervalSinceNow: -1)))
+        let pastCount = try past.forEach { _ in }
+        #expect(pastCount == 6)
+        let soon = FuzzRun("soon", seed: 1, iterations: 2, environment: FuzzEnvironment(deadline: Date(timeIntervalSinceNow: 0.05)))
+        let started = ContinuousClock.now
+        let ran = try soon.forEach { _ in }
+        #expect(ran > 2 && ContinuousClock.now - started < .seconds(30))
+        let exact = FuzzRun("exact", seed: 1, iterations: 6, environment: FuzzEnvironment(seconds: 600, iterations: 3))
+        let exactCount = try exact.forEach { _ in }
+        #expect(exactCount == 3)
+    }
+
+    @Test func theInflightRecordCarriesTheReplayLineOfTheCurrentIteration() throws {
+        let root = try Self.temporaryDirectory()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let run = FuzzRun("Inflight", seed: 0x22, iterations: 3, environment: FuzzEnvironment(artifacts: root))
+        var records: [String] = []
+        try run.forEach { _ in
+            let data = try Data(contentsOf: root.appendingPathComponent("Inflight.inflight"))
+            records.append(String(decoding: data, as: UTF8.self))
+        }
+        #expect(records.count == 3)
+        #expect(records.last?.contains("replay: CMUX_FUZZ_SEED=0x22 CMUX_FUZZ_ITERATIONS=3 (iteration 2 of Inflight)") == true)
+        let left = try FileManager.default.contentsOfDirectory(atPath: root.path)
+        #expect(left.isEmpty)
     }
 
     @Test func inputRunsStartWithTheCorpusAsItIs() throws {
@@ -248,6 +351,7 @@ import Testing
             Issue.record("the run did not fail")
         } catch FuzzError.failed(let failure) {
             #expect(failure.iteration == -2 && failure.input == Data("bad".utf8))
+            #expect(failure.replay == "CMUX_FUZZ_SEED=0x10 CMUX_FUZZ_ITERATIONS=0 (corpus input 1 of Kept/Run)")
             let artifact = try #require(failure.artifact)
             #expect(artifact.lastPathComponent == "Kept_Run-10--2.txt")
             let kept = try Data(contentsOf: artifact.deletingPathExtension().appendingPathExtension("input"))

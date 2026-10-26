@@ -135,6 +135,7 @@ import Testing
 
     @Test func oneInputTakesAnyBytes() throws {
         let run = try FuzzRun("RenderIndex.oneInput", seed: 0x5EEE, iterations: 32)
-        try run.forEachInput(run.corpus(seeds: [Data()])) { try Self.oneInput($0) }
+        // Choice tapes, one per branch: even bytes go to the viewport steps, odd ones to the row sets.
+        try run.forEachInput(run.corpus(seeds: [Data([0]), Data([1])])) { try Self.oneInput($0) }
     }
 }

@@ -5,7 +5,9 @@ import Foundation
 /// write, so the current input is written before each iteration
 /// (`<name>.inflight`, `<name>.inflight.input`) and is still there after the
 /// crash; a finished run removes those files. A thrown failure is kept as
-/// `<name>-<seed>-<iteration>.txt` (and `.input`).
+/// `<name>-<seed>-<iteration>.txt` (and `.input`). The files are named by the run
+/// name, so two runs that go at the same time need two names (a parameterized test
+/// puts its argument in the name).
 struct FuzzArtifacts {
     let directory: URL
     let base: String
@@ -34,9 +36,9 @@ struct FuzzArtifacts {
         return text.isEmpty || text.allSatisfy({ $0 == "." }) ? "run" : text
     }
 
-    /// Records the iteration about to run, so a trap leaves it behind.
-    func noteInflight(seed: UInt64, iteration: Int, input bytes: Data?) throws(FuzzError) {
-        let line = "name=\(base) seed=0x\(String(seed, radix: 16)) iteration=\(iteration)\n"
+    /// Records the iteration about to run and its replay line, so a trap leaves them behind.
+    func noteInflight(seed: UInt64, iteration: Int, replay: String, input bytes: Data?) throws(FuzzError) {
+        let line = "name=\(base) seed=0x\(String(seed, radix: 16)) iteration=\(iteration)\nreplay: \(replay)\n"
         do {
             try Self.overwrite(record, with: Data(line.utf8))
             try Self.overwrite(input, with: bytes ?? Data())
