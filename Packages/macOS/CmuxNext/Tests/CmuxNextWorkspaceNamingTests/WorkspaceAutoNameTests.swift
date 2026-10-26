@@ -1,3 +1,4 @@
+import CmuxNextDaemon
 @testable import CmuxNextWorkspaceNaming
 import Testing
 
