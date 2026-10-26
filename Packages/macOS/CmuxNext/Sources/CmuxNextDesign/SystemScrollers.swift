@@ -1,5 +1,5 @@
 public import AppKit
-import CmuxNextWakeups
+public import CmuxNextWakeups
 
 /// Every scroller in cmux is thin and never a gray track, whatever the macOS
 /// "Show scroll bars" setting (SCROLLBARS-THIN, Leo 2026-10-12: "never a
@@ -12,8 +12,9 @@ import CmuxNextWakeups
 /// Pages read `pageValue`, the setting itself: WebKit draws legacy bars for
 /// "Always", which the shared web rules (webviews/src/scrollers.ts) thin.
 /// The setting is tracked live through
-/// `NSScroller.preferredScrollerStyleDidChangeNotification` (one ``AppEvents``
-/// subscription for the process, no polling), applied in the notice's own turn.
+/// `NSScroller.preferredScrollerStyleDidChangeNotification`: the composition root
+/// keeps one subscription on the app's ``AppEvents`` (``follow(settingChangesOn:)``, no
+/// polling), applied in the notice's own turn.
 @MainActor
 public struct SystemScrollers {
     public init() {}
@@ -30,9 +31,6 @@ public struct SystemScrollers {
 
     private static var followed: [WeakScrollView] = []
     private static var observers: [Observer] = []
-    private static var notifications: EventSubscription?
-    /// Where the setting's notice arrives (one observer for every scroll view).
-    private static let events = AppEvents(center: .default)
 
     /// Gives `scrollView` ``nativeStyle`` now and after every change of the setting (AppKit resets
     /// a scroll view to the system's style then). One that scrolls sideways too gets the shared
@@ -48,7 +46,6 @@ public struct SystemScrollers {
         scrollView.scrollerStyle = nativeStyle
         followed.removeAll { $0.value == nil || $0.value === scrollView }
         followed.append(WeakScrollView(scrollView))
-        startObserving()
     }
 
     /// Gives `scrollView` the shared ``ThinScroller`` and follows it like ``follow(_:)``: the
@@ -78,13 +75,13 @@ public struct SystemScrollers {
     public static func observe(_ owner: AnyObject, _ onChange: @escaping @MainActor (NSScroller.Style) -> Void) {
         observers.removeAll { $0.owner == nil }
         observers.append(Observer(owner: owner, onChange: onChange))
-        startObserving()
     }
 
-    private static func startObserving() {
-        guard notifications == nil else { return }
-        // Process lifetime: one subscription for every scroll view and observer.
-        notifications = events.subscribe(NSScroller.preferredScrollerStyleDidChangeNotification, owner: "SystemScrollers") {
+    /// Follows the setting's notice on `events` (the app's ``AppEvents``): every followed scroll view and
+    /// observer gets the new style in the notice's turn. The composition root keeps the subscription for the
+    /// app's life; releasing it stops following.
+    public static func follow(settingChangesOn events: AppEvents) -> EventSubscription {
+        events.subscribe(NSScroller.preferredScrollerStyleDidChangeNotification, owner: "SystemScrollers") {
             systemStyleDidChange()
         }
     }

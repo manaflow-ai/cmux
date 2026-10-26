@@ -57,15 +57,24 @@ import Testing
     }
 
     /// The scroll bar setting's notice re-styles the followed scroll views and tells the observers in
-    /// its own turn (a Task reading the notices ran them one main-queue job later).
+    /// its own turn (a Task reading the notices ran them one main-queue job later), through the one
+    /// subscription the composition root keeps; released, it stops.
     @Test func theScrollBarSettingAppliesInItsNoticesTurn() {
+        let center = NotificationCenter()
+        let events = AppEvents(center: center)
         let owner = NSObject()
         var styles: [NSScroller.Style] = []
         SystemScrollers.preferredStyleOverride = .legacy
         defer { SystemScrollers.preferredStyleOverride = nil }
         SystemScrollers.observe(owner) { styles.append($0) }
-        NotificationCenter.default.post(name: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil)
+        var watch: EventSubscription? = SystemScrollers.follow(settingChangesOn: events)
+        center.post(name: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil)
         #expect(styles == [.legacy], "the setting's notice did not reach the observer in its own turn")
+        #expect(events.subscriberCount(NSScroller.preferredScrollerStyleDidChangeNotification) == 1)
+        watch?.cancel()
+        watch = nil
+        center.post(name: NSScroller.preferredScrollerStyleDidChangeNotification, object: nil)
+        #expect(styles == [.legacy], "a released subscription still re-styled the scrollers")
         withExtendedLifetime(owner) {}
     }
 }

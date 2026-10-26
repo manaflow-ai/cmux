@@ -505,6 +505,7 @@ final class AppServices {
             .view(SidebarContainerView.self, is: .sidebar), .view(LayoutRootView.self, is: .layout)])
     }
     private var mouseDownSubscription: InputSubscription?  // a click after dispatch (start)
+    private var scrollerStyleWatch: EventSubscription?  // the scroll bar setting's notice, for every native scroller
     private(set) lazy var keyRouter: KeyRouter = KeyRouter(registry: registry, inputDispatch: inputDispatch)  // first read in init (no IUO)
     private(set) lazy var routeKeyDown: (NSEvent, NSWindow?) -> Bool = PerfLabCanaryKeyDown(features: { [weak self] in self?.features })
         .wrap { [weak self] (event: NSEvent, window: NSWindow?) in self?.keyRouter.interceptKeyDown(event, in: window) ?? false }  // debug.key calls it too
@@ -868,6 +869,7 @@ final class AppServices {
             windowHints.cancel()
             keyRouter.cancelChord()
         }
+        scrollerStyleWatch = SystemScrollers.follow(settingChangesOn: appEvents)
         AppMemoryConsumers(services: self).registerMemoryConsumers()  // AppServices+Memory.swift
     }
     /// Builds and starts the browser host's engine provider once, from its launch post (p08-startup-031). Its
