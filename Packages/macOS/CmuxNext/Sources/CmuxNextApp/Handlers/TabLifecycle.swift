@@ -19,7 +19,9 @@ enum TabLifecycle {
     /// `asTab`: a tab in the focused pane whatever `newTerminal.opensWorkspace` and
     /// `layout.newPanePlacement` say (Cmd-T with `tabs.terminalFirst`, #23021).
     static func newTerminal(_ ctx: AppActionContext, _ invocation: ActionInvocation, slot: NewTabSlot.Target? = nil, asTab: Bool = false) {
-        NewTerminalTrace.shared.markAction() // create.tab's action instant; DEBUG: `debug.new_terminal_trace`
+        #if DEBUG || CMUX_BENCH_HOOKS
+        if NewTerminalTrace.shared.isArmed { NewTerminalTrace.shared.markAction() } // `debug.new_terminal_trace`
+        #endif
         guard let focused = ctx.daemonPane(invocation) else { return }
         let cwd = invocation["cwd"]?.stringValue
         // `--keep`: the terminal outlives its tab (a background terminal made on purpose).

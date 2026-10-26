@@ -124,6 +124,7 @@ public final class TerminalSession {
     private let echoStages: TerminalEchoStages
     private var eventsTask: Task<Void, Never>?
     private var writerTask: Task<Void, Never>?
+    var createStages = NewTerminalTrace.CreateStages() // the new tab's create.tab while it waits (traceCreate)
     /// Tasks an owner ties to this session's lifetime: ``close()`` cancels them.
     public var closeCancels: [Task<Void, Never>] = []
     /// Latest `.resize` grid, re-applied to a swapped-in surface.
@@ -209,7 +210,7 @@ public final class TerminalSession {
         // The first grid report fired inside the surface init, before
         // `session` was set; report it now.
         surfaceView.updateSurfaceSize(forceReport: true)
-        traceSurfaceCreated(io: io) // create.tab's surface_created instant (NewTerminalTrace)
+        traceSurfaceCreated(io: io) // DEBUG: `debug.new_terminal_trace` (Release: the cache's traceCreate)
     }
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
@@ -522,7 +523,7 @@ public final class TerminalSession {
     /// land at (``TerminalIO/resizeOnMain(cols:rows:final:window:)``).
     func surfaceDidReport(grid: TerminalGridSize, pixelWidth: Int, pixelHeight: Int, final: Bool = false) {
         guard ownsGeometry else { return }
-        if final { traceFinalGrid(grid) } // create.tab's final_grid instant (NewTerminalTrace)
+        if final { traceFinalGrid(grid) } // a new tab's create.tab final_grid stage while it waits (NewTerminalTrace)
         // An IO with a main-actor path takes every grid there, so a final grid never overtakes, or
         // is overtaken by, an older grid still in the ordered input stream.
         if io.resizeOnMain(cols: grid.columns, rows: grid.rows, final: final, window: surfaceView.window) { return }

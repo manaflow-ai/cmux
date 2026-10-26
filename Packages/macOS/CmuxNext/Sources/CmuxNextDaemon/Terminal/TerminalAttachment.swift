@@ -98,6 +98,9 @@ public actor TerminalAttachment: TerminalByteChannel {
     ///   host still answers with a byte replay when its version differs.
     /// - Parameter hangs: watches the reader's handling of each output line
     ///   (``LineTransport``'s `daemon.line` scope); nil watches nothing.
+    /// - Parameter createIntent: the `create.tab` intent id of the new tab whose terminal this first attach
+    ///   shows (``NewTerminalTrace/FirstAttach``): its stages are that create's instants. 0: a restore or a
+    ///   reattach, which writes none.
     public static func attach(
         endpoint: DaemonEndpoint,
         target: Target,
@@ -108,17 +111,18 @@ public actor TerminalAttachment: TerminalByteChannel {
         images: Bool = false,
         clientName: String = "cmux-next-terminal",
         device: TerminalSizingDevice? = nil,
-        hangs: (any HangWatchScoping)? = nil
+        hangs: (any HangWatchScoping)? = nil,
+        createIntent: UInt64 = 0
     ) async throws -> TerminalAttachment {
         DaemonLaunchTimings.shared.mark("terminal.attach_start")
-        NewTerminalTrace.shared.mark(.attachStart, surface: target.surface.rawValue) // create.tab stage instant
+        NewTerminalTrace.shared.attachEvent(.attachStart, surface: target.surface.rawValue, intent: createIntent)
         let transport = try await LineTransport.open(path: endpoint.socketPath, bridge: endpoint.bridge, role: .terminalAttach,
                                                      stats: endpoint.wireStats, hangs: hangs)
         let attachment = TerminalAttachment(transport: transport, surface: target.surface)
         do {
             try await attachment.open(target: target, size: size, claimGeometry: claimGeometry,
                                       snapshotVersion: snapshotVersion, localHistory: localHistory,
-                                      images: images, clientName: clientName, device: device)
+                                      images: images, clientName: clientName, device: device, createIntent: createIntent)
         } catch {
             transport.close()
             throw error
@@ -139,7 +143,7 @@ public actor TerminalAttachment: TerminalByteChannel {
 
     private func open(target: Target, size: CellSize, claimGeometry: Bool, snapshotVersion: UInt16?,
                       localHistory: Bool, images: Bool, clientName: String,
-                      device: TerminalSizingDevice?) async throws {
+                      device: TerminalSizingDevice?, createIntent: UInt64) async throws {
         let queue = queue
         let control = control
         let resolvedSurface = resolvedSurface
@@ -205,7 +209,7 @@ public actor TerminalAttachment: TerminalByteChannel {
         )
         // The reply carries the replay (up to 32 MiB): a longer, still bounded deadline.
         let response = try await DaemonConnection.perform(request, on: transport, timeout: .seconds(10))
-        NewTerminalTrace.shared.mark(.attachReplied, surface: target.surface.rawValue) // create.tab stage instant
+        NewTerminalTrace.shared.attachEvent(.attachReplied, surface: target.surface.rawValue, intent: createIntent)
         control.value.withLock { control in
             control.lease = response.lease
             control.lastReported = size
@@ -227,7 +231,7 @@ public actor TerminalAttachment: TerminalByteChannel {
         }
         queue.arm()
         DaemonLaunchTimings.shared.mark("terminal.attach_end")
-        NewTerminalTrace.shared.mark(.attachEnd, surface: target.surface.rawValue) // create.tab stage instant
+        NewTerminalTrace.shared.attachEvent(.attachEnd, surface: target.surface.rawValue, intent: createIntent)
     }
 
     /// Passes `state` on with this view's participant, newest generation only. The participant is

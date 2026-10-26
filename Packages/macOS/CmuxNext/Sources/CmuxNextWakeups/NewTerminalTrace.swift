@@ -5,19 +5,21 @@ import CmuxNextTrace
 
 /// A new terminal's stages, from the New Terminal Tab action to its first visible prompt (cx-6so.58).
 ///
-/// Every build (p09-observability task 043): the stages that run once per terminal write a
-/// ``SignpostName/createTab`` instant into the trace ring (``event(_:arg1:)``): the action, the attach's
-/// start, reply and end, the session's surface and a layout spring's final grid. `arg0` is the stage
-/// (``Mark/traceCode``); `arg1` is the daemon surface for the attach stages, the grid for `final_grid`
-/// (``gridBits(columns:rows:)``) and 0 for the others. They fall inside the new tab's `create.tab` async
-/// slice (task 030), from the key's turn to its first themed frame, as Chrome marks the steps of one
-/// navigation with instants beside its async `NavigationRequest` slice
-/// (content/browser/renderer_host/navigation_request.cc). Off, a stage costs one relaxed load of the
-/// `create` category flag; on, one 32-byte ring record with no lock, allocation or text.
+/// Every build (p09-observability task 043): a terminal that a new tab's open ``CreateTabInterval`` waits for
+/// writes its once-per-create stages as ``SignpostName/createTab`` instants keyed by that interval's intent id,
+/// the async id of its `create.tab` slice (task 030): the request and its reply, the pane listing the daemon's
+/// tab, the view's session, the view's first attach (start, reply, end) and a layout spring's final grid while
+/// the tab still waits. `arg0` holds the stage in bits 0-7 (``Mark/traceCode``) and its value above
+/// (``stageArg(_:value:)``: the daemon surface, or the grid of ``gridValue(columns:rows:)``); `arg1` is the
+/// intent id, flagged ``TraceRuntime/RecordFlags/asyncID``. Chrome keys every step of a navigation to its
+/// `NavigationRequest`'s id the same way (content/browser/renderer_host/navigation_request.cc, nestable async
+/// instants on `TRACE_ID_LOCAL(this)`). A restore, a reattach, a close's or a split's resize and a refused
+/// action carry no intent, so they write nothing; the action itself is the slice's begin. Off, a stage costs
+/// one relaxed load of the `create` category flag; on, one 32-byte ring record with no lock, allocation or text.
 ///
 /// DEBUG and bench builds also keep one stage timeline per `debug.new_terminal_trace` run (the `#if`
 /// extension below). Disarmed (every run but a trace run) that costs a mark site one relaxed atomic load
-/// of ``isArmed`` more and nothing else. ``begin()`` arms one trace; the first terminal id minted after
+/// of ``isArmed`` and nothing else. ``begin()`` arms one trace; the first terminal id minted after
 /// the action binds it, and every later mark is keyed by that id, or by what the id leads to: the tab's
 /// surface (`tab_added` names it), and the session, output lane and layer of the view whose IO attaches
 /// to that surface. Each mark records its first time only. ``finish(timedOut:)`` disarms and keeps the
@@ -53,9 +55,9 @@ public final class NewTerminalTrace: Sendable {
             }
         }
 
-        /// The stage's number in a `create.tab` instant's `arg0`: 16 + its position, above the kinds (1...5)
-        /// a stand-in instant holds there (``CreateTabInterval/Kind/traceCode``). Fixed: rings written by an
-        /// older build decode with the same numbers, so a new stage goes at the end.
+        /// The stage's number in bits 0-7 of a stage instant's `arg0`: 16 + its position, above the kinds (1...5)
+        /// a stand-in instant holds in its `arg0` (``CreateTabInterval/Kind/traceCode``). Fixed: rings written by
+        /// an older build decode with the same numbers, so a new stage goes at the end.
         public var traceCode: UInt64 { 16 + UInt64(rawValue) }
     }
 
@@ -70,49 +72,13 @@ public final class NewTerminalTrace: Sendable {
         self.trace = trace
     }
 
-    /// Writes stage `mark`'s `create.tab` instant; `arg1` as the type's doc says.
-    public func event(_ mark: Mark, arg1: UInt64 = 0) {
-        trace.event(.createTab, arg0: mark.traceCode, arg1: arg1)
+    /// Writes stage `mark` of the create whose intent id is `intent` (0: no create waits, nothing), with `value`
+    /// in `arg0` as the type's doc says. Main-actor sites hold the interval instead (NewTerminalTrace+CreateStages.swift).
+    public func event(_ mark: Mark, intent: UInt64, value: UInt64 = 0) {
+        guard intent != 0 else { return }
+        trace.write(name: SignpostName.createTab.rawValue, categoryBit: SignpostName.createTab.traceCategory.traceBit,
+                    phase: .instant, flags: .asyncID, arg0: Self.stageArg(mark, value: value), arg1: intent)
     }
-
-    /// Stage `mark` of the terminal whose session is `session` (its final grid): the instant and, in DEBUG,
-    /// the running trace's mark when `session` is the bound terminal's view.
-    public func event(_ mark: Mark, session: ObjectIdentifier, arg1: UInt64 = 0) {
-        event(mark, arg1: arg1)
-        #if DEBUG || CMUX_BENCH_HOOKS
-        guard isArmed else { return }
-        let now = Self.now()
-        update { record, watch in if watch.session == session { record.set(mark, now) } }
-        #endif
-    }
-
-    /// The new terminal action ran (its handler's entry).
-    public func markAction() {
-        event(.action)
-        #if DEBUG || CMUX_BENCH_HOOKS
-        guard isArmed else { return }
-        let now = Self.now()
-        update { record, _ in record.set(.action, now) }
-        #endif
-    }
-
-    /// Stage `mark` of daemon surface `surface` (the attach): the instant and, in DEBUG, the running trace's
-    /// mark when `surface` is the bound terminal's.
-    public func mark(_ mark: Mark, surface: UInt64) {
-        event(mark, arg1: surface)
-        #if DEBUG || CMUX_BENCH_HOOKS
-        guard isArmed else { return }
-        let now = Self.now()
-        update { record, _ in if record.surface == surface { record.set(mark, now) } }
-        #endif
-    }
-
-    /// A grid as one instant argument: the columns in the high 32 bits, the rows in the low 32.
-    public static func gridBits(columns: Int, rows: Int) -> UInt64 {
-        UInt64(UInt32(clamping: columns)) << 32 | UInt64(UInt32(clamping: rows))
-    }
-
-    private static func now() -> UInt64 { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) }
 }
 
 #if DEBUG || CMUX_BENCH_HOOKS
@@ -194,6 +160,27 @@ extension NewTerminalTrace {
     /// The last `count` finished traces, oldest first.
     public func recent(_ count: Int) -> [Record] {
         state.withLock { Array($0.finished.suffix(max(count, 0))) }
+    }
+
+    /// The new terminal action ran (its handler's entry).
+    public func markAction() {
+        guard isArmed else { return }
+        let now = Self.now()
+        update { record, _ in record.set(.action, now) }
+    }
+
+    /// Marks `mark` for the bound terminal's surface `surface` (the attach).
+    public func mark(_ mark: Mark, surface: UInt64) {
+        guard isArmed else { return }
+        let now = Self.now()
+        update { record, _ in if record.surface == surface { record.set(mark, now) } }
+    }
+
+    /// Marks `mark` for the bound terminal's session `session` (its final grid).
+    public func mark(_ mark: Mark, session: ObjectIdentifier) {
+        guard isArmed else { return }
+        let now = Self.now()
+        update { record, watch in if watch.session == session { record.set(mark, now) } }
     }
 
     /// A terminal id was minted: the first one after the action binds the trace.
@@ -334,7 +321,7 @@ extension NewTerminalTrace {
     }
 
     /// Runs `body` on the running trace's record and watch (nothing when none runs).
-    fileprivate func update(_ body: (inout Record, inout Watch) -> Void) {
+    private func update(_ body: (inout Record, inout Watch) -> Void) {
         state.withLock { state in
             guard var record = state.current else { return }
             body(&record, &state.watch)
@@ -351,6 +338,8 @@ extension NewTerminalTrace {
             return value
         }
     }
+
+    private static func now() -> UInt64 { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) }
 }
 
 extension NewTerminalTrace.Record {

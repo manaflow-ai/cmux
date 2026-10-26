@@ -3,13 +3,16 @@ import CmuxNextTerminalGeometry
 import CmuxNextWakeups
 
 extension TerminalSession {
-    /// The surface reported the grid its pane's layout spring will land at (a split, which makes the new
-    /// terminal, or a close), at the spring's start: the `final_grid` instant of ``NewTerminalTrace``, in every
-    /// build, with the grid in `arg1`. A `debug.new_terminal_trace` run marks it for the traced terminal; the
-    /// DEBUG ``TerminalFinalGridTrace`` below times the grid's way to the PTY and to the drawn frame.
+    /// The surface reported the grid its pane's layout spring will land at, at the spring's start. In every build,
+    /// the `final_grid` stage of the new tab this session shows while that tab waits for its first frame
+    /// (``NewTerminalTrace/CreateStages``); a split's or a close's resize of any other terminal writes nothing. A
+    /// `debug.new_terminal_trace` run marks it for the traced terminal; the DEBUG ``TerminalFinalGridTrace`` below
+    /// times the grid's way to the PTY and to the drawn frame.
     func traceFinalGrid(_ grid: TerminalGridSize) {
-        NewTerminalTrace.shared.event(.finalGrid, session: ObjectIdentifier(self),
-                                      arg1: NewTerminalTrace.gridBits(columns: grid.columns, rows: grid.rows))
+        createStages.event(.finalGrid, value: NewTerminalTrace.gridValue(columns: grid.columns, rows: grid.rows))
+        #if DEBUG || CMUX_BENCH_HOOKS
+        NewTerminalTrace.shared.mark(.finalGrid, session: ObjectIdentifier(self))
+        #endif
     }
 }
 
