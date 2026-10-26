@@ -583,6 +583,7 @@ fn blocking_wait_cannot_overtake_input_queued_behind_a_clear_barrier() {
             request: Request { id: Some(json!(id)), cmd },
             arrival: RequestArrival::now(),
             cause: crate::event_cause::EventCause::Program,
+            frame_call: None,
             retained_bytes: 0,
             _bytes_permit: admission.try_reserve_bytes(0).unwrap(),
         });
@@ -623,6 +624,7 @@ fn guarded_browser_pointer_input_overtakes_an_unrelated_clear_barrier() {
             request: Request { id: Some(json!(1)), cmd },
             arrival: RequestArrival::now(),
             cause: crate::event_cause::EventCause::Program,
+            frame_call: None,
             retained_bytes: 0,
             _bytes_permit: admission.try_reserve_bytes(0).unwrap(),
         });
@@ -1103,4 +1105,31 @@ fn client_detach_purges_attach_backlog_before_terminal_event() {
     let terminal: Value = serde_json::from_str(&outbound.try_pop().unwrap()).unwrap();
     assert_eq!(terminal, json!({"event": "detached", "surface": 41, "reason": "network"}));
     assert_eq!(outbound.try_pop(), None);
+}
+
+/// `sequence_depth` samples every arrival, also one a full sequence
+/// refuses: those are the saturation samples (`server-stats` `ipc`).
+#[test]
+fn sequence_depth_records_the_arrival_a_full_sequence_refuses() {
+    let mux = test_mux();
+    let scheduler =
+        Arc::new(ConnectionSurfaceScheduler::new(mux.surface_operation_admission.clone()));
+    // No dispatcher drains the sequence, so every request stays in it.
+    scheduler.state.lock().unwrap().dispatcher_started = true;
+    let (writer, outbound) = captured_writer();
+    for id in 0..CONNECTION_SURFACE_QUEUE_CAPACITY {
+        let mut ping = Some(Request { id: Some(json!(id)), cmd: Command::Ping });
+        assert_eq!(scheduler.dispatch(mux.clone(), 0, &mut ping, 0, writer.clone()), Some(true));
+    }
+    let mut refused = Some(Request { id: Some(json!("over")), cmd: Command::Ping });
+    assert_eq!(scheduler.dispatch(mux.clone(), 0, &mut refused, 0, writer), Some(true));
+    assert!(refused.is_none(), "the full sequence refused it");
+    let reply = pop_json(&outbound);
+    assert_eq!((reply["id"].clone(), reply["ok"].clone()), (json!("over"), json!(false)));
+    let depth = mux.ipc_stats().snapshot().sequence_depth;
+    let arrivals = u64::try_from(CONNECTION_SURFACE_QUEUE_CAPACITY).unwrap() + 1;
+    assert_eq!(depth.count, arrivals);
+    assert_eq!(depth.max, arrivals, "the refused arrival met a full sequence");
+    scheduler.close();
+    scheduler.finish_dispatcher();
 }
