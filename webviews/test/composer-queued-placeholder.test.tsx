@@ -245,21 +245,26 @@ for (const method of ["click", "return"] as const) {
   test(`an empty trust-read block allows ${method} to send the draft`, async () => {
     const sent: string[] = [];
     let handle: ComposerHandle | null = null;
-    await render(started(), {}, {
-      handle: (value) => void (handle = value),
-      onSend: (text) => {
-        sent.push(text);
-        return true;
+    await render(
+      started(),
+      {},
+      {
+        handle: (value) => void (handle = value),
+        onSend: (text) => {
+          sent.push(text);
+          return true;
+        },
       },
-    });
+    );
     await act(async () => handle!.restore("Use the cache", []));
     const send = host.querySelector<HTMLButtonElement>(".acpmux-send:not(.acpmux-cancel)")!;
     expect(send.disabled).toBe(false);
     await act(async () => {
       if (method === "click") send.click();
-      else host.querySelector<HTMLElement>("[role=combobox]")!.dispatchEvent(
-        new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }),
-      );
+      else
+        host
+          .querySelector<HTMLElement>("[role=combobox]")!
+          .dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
     });
     expect(sent).toEqual(["Use the cache"]);
   });
@@ -273,21 +278,25 @@ test("a trust read keeps the running turn's steer and queue choices", async () =
 test("a concrete trust block keeps the draft for click and Return", async () => {
   const sent: string[] = [];
   let handle: ComposerHandle | null = null;
-  await render(started(), { reason: "trust.answerFirst" }, {
-    handle: (value) => void (handle = value),
-    onSend: (text) => {
-      sent.push(text);
-      return true;
+  await render(
+    started(),
+    { reason: "trust.answerFirst" },
+    {
+      handle: (value) => void (handle = value),
+      onSend: (text) => {
+        sent.push(text);
+        return true;
+      },
     },
-  });
+  );
   await act(async () => handle!.restore("Keep this draft", []));
   const send = host.querySelector<HTMLButtonElement>(".acpmux-send:not(.acpmux-cancel)")!;
   expect(send.disabled).toBe(true);
   await act(async () => {
     send.click();
-    host.querySelector<HTMLElement>("[role=combobox]")!.dispatchEvent(
-      new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }),
-    );
+    host
+      .querySelector<HTMLElement>("[role=combobox]")!
+      .dispatchEvent(new window.KeyboardEvent("keydown", { key: "Enter", bubbles: true, cancelable: true }));
   });
   expect(sent).toEqual([]);
   expect(host.querySelector("[role=combobox]")!.textContent).toContain("Keep this draft");
@@ -296,18 +305,24 @@ test("a concrete trust block keeps the draft for click and Return", async () => 
 test("a pending folder choice is a hard stop even for a trust-resend handle", async () => {
   const sent: string[] = [];
   let handle: ComposerHandle | null = null;
-  await render(started(), {}, {
-    blockSend: true,
-    handle: (value) => void (handle = value),
-    onSend: (text) => {
-      sent.push(text);
-      return true;
+  await render(
+    started(),
+    {},
+    {
+      blockSend: true,
+      handle: (value) => void (handle = value),
+      onSend: (text) => {
+        sent.push(text);
+        return true;
+      },
     },
-  });
+  );
   await act(async () => handle!.restore("Choose a folder first", []));
   expect(host.querySelector<HTMLButtonElement>(".acpmux-send:not(.acpmux-cancel)")!.disabled).toBe(true);
   let accepted: boolean | undefined;
-  await act(async () => { accepted = handle!.send(); });
+  await act(async () => {
+    accepted = handle!.send();
+  });
   expect(accepted).toBe(false);
   expect(sent).toEqual([]);
   expect(host.querySelector("[role=combobox]")!.textContent).toContain("Choose a folder first");
