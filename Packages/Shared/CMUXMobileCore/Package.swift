@@ -15,6 +15,9 @@ let package = Package(
             targets: ["CMUXMobileCore"]
         ),
     ],
+    dependencies: [
+        .package(path: "../CmuxFuzzSupport"),
+    ],
     targets: [
         .target(
             name: "CMUXMobileCore",
@@ -23,7 +26,7 @@ let package = Package(
         ),
         .testTarget(
             name: "CMUXMobileCoreTests",
-            dependencies: ["CMUXMobileCore"],
+            dependencies: ["CMUXMobileCore", .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport")],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
     ]
