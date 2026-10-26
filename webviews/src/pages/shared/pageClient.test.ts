@@ -84,6 +84,17 @@ describe("takePageRestore", () => {
     });
   });
 
+  test("the bridge client takes the restore when it is made, before the page renders", () => {
+    const handler: ReplyHandler = { postMessage: async () => ({ t: "ok", id: 1 }) };
+    const target: Record<string, unknown> = {
+      [RESTORE_NAME]: { wasDiscarded: true, state: { draft: "hello" } },
+    };
+    const client = new BridgePageClient(handler, target);
+    expect(client.restore).toEqual({ wasDiscarded: true, state: { draft: "hello" } });
+    expect(RESTORE_NAME in target).toBe(false);
+    expect(new BridgePageClient(handler, {}).restore).toBeNull();
+  });
+
   test("a document that was not discarded gets nothing", () => {
     expect(takePageRestore({})).toBeNull();
     expect(takePageRestore({ [RESTORE_NAME]: { wasDiscarded: false, state: 1 } })).toBeNull();

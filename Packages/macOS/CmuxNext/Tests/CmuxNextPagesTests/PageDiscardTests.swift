@@ -63,6 +63,12 @@ struct PageDiscardTests {
         #expect(page.calls.count == calls, "the discard called into the page")
         #expect(page.evaluations.count == evaluations, "the discard ran a script in the page")
         #expect(!view.loadState.isLoading, "a discarded page reads as loading and blocks its lifecycle")
+        // The old document may still post (a message WebKit queued before the discard, its
+        // `pagehide`): the router stays closed until the restore, so no provider sees it.
+        let late = await view.router.handle(["t": "sub", "id": 2, "stream": "test.discard.changed"])
+        #expect(late["t"]?.stringValue == "err", "a discarded shell took a subscription")
+        #expect(provider.live == 0)
+        #expect(view.router.subscriptionCount == 0)
         // The shell keeps its route; nothing loads until it shows.
         view.open(route: "/b")
         #expect(view.route == "#/b")
@@ -85,6 +91,65 @@ struct PageDiscardTests {
         #expect(!view.discardPage())
         #expect(!view.isDiscarded)
         #expect(view.webKitView.navigationDelegate === view)
+    }
+
+    /// The pool's parked spare refuses (the pool owns its life); a pooled host a page claimed is a page
+    /// like any other: it discards, and its show brings it back.
+    @Test func aClaimedPooledHostDiscardsAndTheParkedSpareRefuses() throws {
+        let configuration = WKWebViewConfiguration()
+        let view = PageWebView(descriptor: descriptor, configuration: configuration,
+                               inputReadiness: PageInputReadiness(configuration: configuration), routes: [], route: "#/a",
+                               options: .standard, surface: nil, dynamicResources: nil, pooled: true, load: false,
+                               chromium: nil)
+        defer { view.close() }
+        #expect(view.isPooled)
+        let parking = PageHostParking()
+        parking.addSubview(view)
+        #expect(view.isParkedSpare)
+        #expect(!view.discardPage())
+        #expect(!view.isDiscarded)
+        #expect(PageWebViewLifecycle(view).lifecycleKeepReasons.contains(.preload),
+                "the lifecycle plans a discard the parked spare refuses")
+
+        // Claimed: out of the parking, into a page's place.
+        view.removeFromSuperview()
+        #expect(!view.isParkedSpare)
+        #expect(!PageWebViewLifecycle(view).lifecycleKeepReasons.contains(.preload))
+        #expect(view.discardPage())
+        #expect(view.isDiscarded)
+        view.restoreDiscardedPage()
+        #expect(!view.isDiscarded)
+    }
+
+    /// Through the lifecycle: a page that refuses its discard (it is concealed but still shows in its
+    /// window) keeps its state, so the lifecycle never reports a page discarded that holds its document.
+    @Test func aRefusedDiscardLeavesTheLifecycleStateUnchanged() throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let rig = LifecycleDeadlineRig()
+        let lifecycle = PageLifecycle(deadlines: rig.scheduler)
+        let view = try makeView(nil)
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 300), styleMask: [.borderless],
+                              backing: .buffered, defer: true)
+        window.isReleasedWhenClosed = false
+        window.contentView?.addSubview(view)
+        defer {
+            view.close()
+            view.removeFromSuperview()
+        }
+        view.loaded = true
+        let target = PageWebViewLifecycle(view)
+        lifecycle.hide("tab", page: target)
+        rig.advance(to: .seconds(900))
+        lifecycle.runPass()
+        #expect(!view.isDiscarded)
+        #expect(lifecycle.state(of: "tab") != .discarded, "the lifecycle reports a refused discard as done")
+        #expect(lifecycle.nextPassAt != nil, "nothing looks at the refused page again")
+
+        // Hidden in AppKit too: the next pass discards it.
+        view.isHidden = true
+        lifecycle.runPass()
+        #expect(view.isDiscarded)
+        #expect(lifecycle.state(of: "tab") == .discarded)
     }
 
     /// 10 discard and restore cycles make one engine page per restore from the same host and close
@@ -126,6 +191,10 @@ struct PageDiscardTests {
         view.restoreDiscardedPage()
 
         #expect(view.showsDiscardSnapshot)
+        #expect(view.drawsDiscardSnapshot)
+        let restore = try #require(view.lastRestoreTimes)
+        #expect(restore.covered == restore.started, "the snapshot went over the page after the show's turn")
+        #expect(restore.painted == nil)
         let cover = try #require(view.discardShell.cover)
         #expect(cover.superlayer === view.layer)
         #expect(cover.frame == view.bounds)
@@ -156,6 +225,27 @@ struct PageDiscardTests {
         #expect(!view.webKitView.configuration.userContentController.userScripts.contains { $0.source.contains(PageWebView.restoreGlobal) })
         #expect(view.discardShell.snapshot == nil)
         #expect(view.discardShell.state == nil)
+        #expect(view.lastRestoreTimes?.painted == view.paintedUptime)
+        #expect(view.lastRestoreTimes?.painted != nil)
+    }
+
+    /// A discarded page with a kept snapshot draws it as its next frame, before its show: the pane
+    /// holds nothing for it (InternalPageView reads this). One with no snapshot waits for its paint.
+    @Test func aDiscardedPageWithASnapshotHasAFrameBeforeItsShow() async throws {
+        defer { try? FileManager.default.removeItem(at: root) }
+        let hosting = FakeChromiumHosting()
+        let view = try makeView(hosting)
+        defer { view.close() }
+        await view.chromiumStart?.value
+        #expect(view.discardPage())
+        #expect(!view.drawsDiscardSnapshot, "no snapshot was kept: the page has no frame to show")
+        view.restoreDiscardedPage()
+        await view.chromiumStart?.value
+
+        view.keepForDiscard(snapshot: try Self.image(), state: nil)
+        #expect(view.discardPage())
+        #expect(!view.hasPainted)
+        #expect(view.drawsDiscardSnapshot)
     }
 
     /// A WebKit page leaves its document with no delegate, so nothing of it reaches the host, and
@@ -181,6 +271,7 @@ struct PageDiscardTests {
         let script = PageWebView.restoreScript(["wasDiscarded": true, "state": .null], token: "t1")
         #expect(script.contains(#"sessionStorage.getItem("cmux.page.restore.t1")"#))
         #expect(script.contains(#"window.__cmuxPageRestore = {"#))
+        #expect(script.contains(#"Object.defineProperty(document, "wasDiscarded""#))
     }
 
     /// Through the lifecycle: a discard-blocking keep reason keeps a page past its discard time; once

@@ -1,4 +1,5 @@
 import AppKit
+public import Foundation
 import CmuxNextSettings
 import QuartzCore
 import WebKit
@@ -21,6 +22,19 @@ struct PageDiscardShell {
     var restoreScript: WKUserScript?
     /// A restore waits for the first paint (one waiter, however many discards come before it).
     var awaitsPaint = false
+    /// The last restore's times on the uptime clock (`debug.page` `restore`); nil before the first.
+    var lastRestore: PageRestoreTimes?
+}
+
+/// When a discarded page's restore ran and drew, on the host uptime clock (`systemUptime` seconds),
+/// for `debug.page` and the bench's discarded-page rows.
+public struct PageRestoreTimes: Equatable, Sendable {
+    /// The restore ran (the show's turn).
+    public var started: TimeInterval
+    /// The snapshot layer went over the page in that turn; nil when no snapshot was kept.
+    public var covered: TimeInterval?
+    /// The restored document's first painted frame; nil until it paints.
+    public var painted: TimeInterval?
 }
 
 @MainActor
@@ -33,6 +47,16 @@ extension PageWebView {
 
     /// True while the hide-time snapshot covers the page (the restore runs, the new document has not painted).
     var showsDiscardSnapshot: Bool { discardShell.cover != nil }
+
+    /// True when the page's next frame is its discard snapshot: it shows it now, or it is discarded
+    /// with one that its show draws in the key's turn. A pane shows such a page at once (no paint
+    /// hold), as it does a page under its last picture.
+    public var drawsDiscardSnapshot: Bool {
+        showsDiscardSnapshot || (discardShell.isDiscarded && discardShell.snapshot != nil)
+    }
+
+    /// The last restore's times (`debug.page`); nil when the page was never restored.
+    public var lastRestoreTimes: PageRestoreTimes? { discardShell.lastRestore }
 
     /// Keeps what the page's hide took for a later discard (p13-webui-088 calls it on hide, before a
     /// freeze): the last shown frame and the state the page saved. A later hide replaces both.
@@ -51,18 +75,22 @@ extension PageWebView {
     /// drops a background tab's renderer and keeps its navigation entry: the document and the engine
     /// page end, and the shell keeps descriptor, route, the hide-time snapshot and state. It makes no
     /// call into the page (a frozen page could not answer one) and finishes in this turn: the
-    /// router's subscriptions and calls end with no envelope sent, the Chromium page closes (the
-    /// fork's in-place discard replaces the close in p13-webui-031), and the WebKit view leaves its
-    /// document for an empty one with no delegate, so nothing of the old page reaches the host.
+    /// router closes (its subscriptions and calls end with no envelope sent) and stays closed until
+    /// the restore, so nothing the old document still posts (a queued message, its `pagehide`)
+    /// reaches a provider; the Chromium page closes (the fork's in-place discard replaces the close
+    /// in p13-webui-031), and the WebKit view leaves its document for an empty one with no delegate.
     ///
     /// - Returns: True when the page is discarded (again: nothing more happens); false when refused:
-    ///   it shows, or it is a pooled host, whose document reloads only through a claim.
+    ///   it shows, or it is the pool's parked spare, whose life the pool owns. A claimed pooled host
+    ///   is a page like any other.
     @discardableResult
     func discardPage() -> Bool {
         if discardShell.isDiscarded { return true }
-        guard !isPooled, !isShownForDiscard else { return false }
+        guard !isParkedSpare, !isShownForDiscard else { return false }
+        // First: from here the page loads nothing, so ending its document below reports no load.
+        discardShell.isDiscarded = true
         popupHost?.dismiss()
-        router.reset()
+        router.close()
         _ = claimState.end()
         endChromium()
         chromiumUserEventUptime = nil
@@ -70,13 +98,9 @@ extension PageWebView {
         scriptTarget.bridge = bridge
         endWebKitDocument()
         removeRestoreCover()
-        // No load runs while discarded, and the pass that discards the page needs no word of it.
-        loadState.set(loading: true)
         loaded = false
-        loadState.set(loading: false)
         paintedUptime = nil
         resumeLoadWaiters()
-        discardShell.isDiscarded = true
         return true
     }
 
@@ -109,8 +133,12 @@ extension PageWebView {
     func restoreDiscardedPage() {
         guard discardShell.isDiscarded else { return }
         discardShell.isDiscarded = false
+        let now = ProcessInfo.processInfo.systemUptime
         coverWithSnapshot()
+        discardShell.lastRestore = PageRestoreTimes(started: now, covered: showsDiscardSnapshot ? now : nil)
         installRestoreScript()
+        // Open again for the new document, with no subscription of the old one.
+        router.reset()
         loadState.set(loading: true, page: self)
         paintedUptime = nil
         if !discardShell.awaitsPaint {
@@ -132,6 +160,7 @@ extension PageWebView {
     /// hide-time snapshot and state, which a shown page no longer needs (its next hide keeps new ones).
     private func finishRestore() {
         discardShell.awaitsPaint = false
+        discardShell.lastRestore?.painted = paintedUptime
         removeRestoreCover()
         discardShell.snapshot = nil
         discardShell.state = nil
@@ -172,12 +201,16 @@ extension PageWebView {
     /// The script that hands `payload` to the first document of this restore only: a Chromium page
     /// keeps its new-document scripts for later documents (a reload after a crash), which must not
     /// read a discard's old state, so the tab's session storage marks `token` as used.
+    ///
+    /// The document also reads `document.wasDiscarded` as true, as a Chrome document does after a
+    /// discard (third_party/blink/renderer/core/dom/document.h, `Document::wasDiscarded`).
     nonisolated static func restoreScript(_ payload: JSONValue, token: String) -> String {
         let key = JSONValue.string("cmux.page.restore." + token).compactText
         return """
         (() => {
         try { if (sessionStorage.getItem(\(key))) return; sessionStorage.setItem(\(key), "1"); } catch (_) {}
         window.\(restoreGlobal) = \(payload.compactText);
+        try { Object.defineProperty(document, "wasDiscarded", { value: true, configurable: true }); } catch (_) {}
         })();
         """
     }

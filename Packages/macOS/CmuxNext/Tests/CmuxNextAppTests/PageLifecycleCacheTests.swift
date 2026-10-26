@@ -149,7 +149,10 @@ struct PageLifecycleCacheTests {
         var lifecycleKeepReasons: Set<PageLifecyclePlanner.KeepReason> { [] }
         func reportsReasonChanges(to lifecycle: PageLifecycle) {}
         func freeze() { log.lines.append("freeze \(name)") }
-        func discard() { log.lines.append("discard \(name)") }
+        func discard() -> Bool {
+            log.lines.append("discard \(name)")
+            return true
+        }
 
         func thaw() {
             log.lines.append("thaw \(name)")

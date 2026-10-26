@@ -20,7 +20,9 @@ package protocol PageLifecycleTarget {
     /// resumes, after a discard it loads again behind its picture. Does nothing on a running page.
     func thaw()
     /// Hidden or frozen to discarded: the document goes, the shell keeps route, state and picture.
-    func discard()
+    /// - Returns: False when the page refused (it shows after all): it keeps its state, and a later
+    ///   pass tries again.
+    func discard() -> Bool
 }
 
 /// A ``PageWebView`` as the lifecycle drives it. Freeze, and thaw of a frozen page, are no-ops until
@@ -36,11 +38,13 @@ package struct PageWebViewLifecycle: PageLifecycleTarget {
     package var lifecycleGroup: String? { view?.descriptor.processGroup.rawValue }
 
     /// Loading while its document loads (``PageLoadState``: Chrome's kLoading reads the
-    /// page's loading state, which also ends while the page is hidden), and focused while it holds its
-    /// window's first responder.
+    /// page's loading state, which also ends while the page is hidden), focused while it holds its
+    /// window's first responder, and preload while it is the pool's parked spare (the pool owns its
+    /// life; a claimed pooled host is a page like any other).
     package var lifecycleKeepReasons: Set<PageLifecyclePlanner.KeepReason> {
         guard let view else { return [] }
         var reasons: Set<PageLifecyclePlanner.KeepReason> = []
+        if view.isParkedSpare { reasons.insert(.preload) }
         if view.loadState.isLoading { reasons.insert(.loading) }
         if let responder = view.window?.firstResponder as? NSView, responder.isDescendant(of: view) { reasons.insert(.focused) }
         return reasons
@@ -50,7 +54,7 @@ package struct PageWebViewLifecycle: PageLifecycleTarget {
 
     package func freeze() {}
     package func thaw() { view?.restoreDiscardedPage() }
-    package func discard() { view?.discardPage() }
+    package func discard() -> Bool { view?.discardPage() ?? false }
 }
 
 /// The page lifecycle controller (plans/cmux-next/chrome-parity/p13-webui.md 3.C): it takes each
@@ -251,11 +255,15 @@ package final class PageLifecycle {
         for key in gone { remove(key) }
         let plan = planner.plan(pages, conditions: conditions)
         mostRecentlyHidden = nil
+        var refused = false
         for decision in plan.decisions.values {
-            perform(decision)
+            if !perform(decision) { refused = true }
             if decision.keptBy.contains(.mostRecentlyUsed) { mostRecentlyHidden = decision.key }
         }
         if let next = plan.nextCheck { arm(at: now + .seconds(next)) }
+        // A refused discard is due still: the next pass tries again at the discard pace, as Chrome's
+        // discarder takes a tab it could not discard on its next pass.
+        if refused { arm(at: now + .seconds(planner.timing.pace(at: conditions.pressure).interval)) }
         didRunPass?()
     }
 
@@ -263,21 +271,24 @@ package final class PageLifecycle {
     /// discarded); it thaws a frozen page only for a reason that appeared since
     /// (``PageLifecyclePlanner/KeepReason/thawsFrozenPage``: loading, focus, a setting), never for time
     /// alone: the most recently used one, or a longer recently visible window after Low Power Mode ends.
-    private func perform(_ decision: PageLifecyclePlanner.Decision) {
-        guard var entry = entries[decision.key], entry.state != decision.state else { return }
+    ///
+    /// - Returns: False when the page refused its discard: it keeps the state it was in.
+    private func perform(_ decision: PageLifecyclePlanner.Decision) -> Bool {
+        guard var entry = entries[decision.key], entry.state != decision.state else { return true }
         switch (entry.state, decision.state) {
         case (.hidden, .frozen):
             entry.target.freeze()
         case (.hidden, .discarded), (.frozen, .discarded):
-            entry.target.discard()
+            guard entry.target.discard() else { return false }
         case (.frozen, .hidden):
-            guard decision.keptBy.contains(where: \.thawsFrozenPage) else { return }
+            guard decision.keptBy.contains(where: \.thawsFrozenPage) else { return true }
             entry.target.thaw()
         default:
-            return
+            return true
         }
         entry.state = decision.state
         entries[decision.key] = entry
+        return true
     }
 
     // MARK: Helpers

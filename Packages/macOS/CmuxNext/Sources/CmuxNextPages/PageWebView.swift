@@ -75,7 +75,8 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public static var openPanel: MadeAheadOpenPanel?
     /// This page's file chooser (its web view holds the UI delegate weakly).
     private var fileChooser: PageOpenPanel?
-    var loaded = false { didSet { loadState.set(loading: !loaded, page: self) } }
+    /// A discarded page has no document, so it loads nothing until its restore starts a load.
+    var loaded = false { didSet { loadState.set(loading: !loaded && !isDiscarded, page: self) } }
     /// The document's load as the page lifecycle reads it (its `.loading`); each change tells the lifecycle.
     let loadState = PageLoadState()
     var loadWaiters: [CheckedContinuation<Void, Never>] = []
