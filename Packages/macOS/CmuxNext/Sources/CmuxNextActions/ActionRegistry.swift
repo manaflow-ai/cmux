@@ -1,4 +1,5 @@
 public import AppKit
+public import CmuxNextWakeups
 public import Observation
 
 /// A catalog descriptor joined with its bound handler, if any. The palette
@@ -137,6 +138,9 @@ public final class ActionRegistry {
     /// Wraps every handler run with its invocation. The App routes the run
     /// to the machine that owns the invocation's explicit target.
     @ObservationIgnored public var invocationScope: (@MainActor (ActionInvocation, () -> Void) -> Void)?
+    /// Each handler run's changes take its origin's cause here (``ActionOrigin/observationCause``,
+    /// `MainWorkScheduler.causes`); nil: the cause current where it was performed.
+    @ObservationIgnored public var causes: ObservationCauses?
     /// Each sees every handler run just before it runs, with the run's effective origin (a run
     /// nested in a CLI run is the CLI's): the sidebar animates only changes its user asked for.
     @ObservationIgnored public var willRunObservers: [@MainActor (ActionID, ActionOrigin) -> Void] = []

@@ -505,7 +505,7 @@ final class AppServices {
         (self.launchImages, self.relaunchWake, self.launchImageHold) = (launchImages, relaunchWake, launchImageHold)
         actionBudget = ActionBudgetMonitor(board: mainWork.budget.board)
         updater = UpdaterService(work: work)
-        registry = ActionRegistry.standard(runTiming: SignpostActionRunTiming(monitor: actionBudget))
+        registry = ActionRegistry.standard(runTiming: SignpostActionRunTiming(monitor: actionBudget), causes: mainWork.causes)
         DaemonService.launchMark = { DebugTimings.markLaunch($0) }  // before any daemon service starts
         self.mainWork = mainWork
         inputDispatch = InputDispatchContext(scrollFrames: ScrollFrameSignpost(),
