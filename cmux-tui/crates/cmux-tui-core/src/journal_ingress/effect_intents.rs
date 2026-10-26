@@ -86,6 +86,7 @@ impl JournalIngressSender {
             return EffectSend::NotQueued(intent);
         }
         if self.state.disk_full.is_full() {
+            self.state.disk_full.refused_waiter(&self.state);
             return EffectSend::Sent(Err(anyhow::anyhow!(super::disk_full::WAITER_ERROR)));
         }
         let (completion, result) = sync_channel(1);

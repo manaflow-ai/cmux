@@ -26,6 +26,9 @@
 //! - With nothing kept there is nothing to retry: admission opens again, and
 //!   the next waiter's own commit (which fails at once on a full disk)
 //!   answers it.
+//! - A refused waiter also wakes the writer to try again now (at most once
+//!   per `RETRY_INITIAL`), so once there is room the next caller finds the
+//!   journal back within a second, not after the backoff's 60 s.
 //!
 //! The retry wait ends early when admission closes (shutdown), and the
 //! writer then stops as it does at a deadline during shutdown.
@@ -67,11 +70,25 @@ pub(super) struct DiskFullState {
     full: AtomicBool,
     announced: AtomicBool,
     dropped: AtomicU64,
+    last_nudge: std::sync::Mutex<Option<std::time::Instant>>,
 }
 
 impl DiskFullState {
     pub(super) fn is_full(&self) -> bool {
         self.full.load(Ordering::Acquire)
+    }
+
+    /// A waiter was refused: wake the writer's retry wait, at most once per
+    /// `RETRY_INITIAL`, so recovery does not wait out the backoff.
+    pub(super) fn refused_waiter(&self, state: &JournalIngressState) {
+        let now = std::time::Instant::now();
+        let mut last = self.last_nudge.lock().recover_poison();
+        if last.is_some_and(|last| now.duration_since(last) < retry_bounds().0) {
+            return;
+        }
+        *last = Some(now);
+        drop(last);
+        state.publish_queue_space();
     }
 
     /// A background event found its queue full while the disk is full.
@@ -354,8 +371,15 @@ mod tests {
             "a full disk must not fail the journal writer for good"
         );
 
-        // Room again: the kept output commits, and new output follows it.
+        // Room again: the writer's next try commits the kept output (a
+        // refused waiter wakes it), and new output follows it.
         mux.set_registry_max_page_count_for_test(Some(1 << 30)).unwrap();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while mux.journal_disk_full_for_test() {
+            assert!(Instant::now() < deadline, "the writer did not resume once there was room");
+            let _ = mux.flush_terminal_journal();
+            std::thread::sleep(Duration::from_millis(20));
+        }
         mux.flush_terminal_journal().unwrap();
         mux.journal_terminal_output(terminal_id, generation, b"after".to_vec());
         mux.flush_terminal_journal().unwrap();

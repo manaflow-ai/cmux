@@ -1006,6 +1006,7 @@ impl JournalIngressSender {
                 }
                 // A waiter is answered now, not at its deadline.
                 if self.state.disk_full.is_full() {
+                    self.state.disk_full.refused_waiter(&self.state);
                     return Err((disk_full::WAITER_ERROR.into(), Box::new(pending)));
                 }
                 // Count before the event is visible to the writer, which may
