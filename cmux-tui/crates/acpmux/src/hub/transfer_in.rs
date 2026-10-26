@@ -130,7 +130,11 @@ impl Hub {
             {
                 continue;
             }
-            let committed = value.get("phase").and_then(Value::as_str) == Some("committed");
+            let phase = value.get("phase").and_then(Value::as_str).unwrap_or("");
+            if phase != "staged" && phase != "committed" {
+                continue;
+            }
+            let committed = phase == "committed";
             if committed {
                 let _ = std::fs::remove_dir_all(&entry.path());
             } else {
@@ -201,7 +205,18 @@ impl Hub {
             else {
                 continue;
             };
+            let landed = if super::transfer::is_plain_id(outer_id) {
+                let mut landed = false;
+                let _ = self.store.scan(outer_id, 0, &mut |event: EventRecord| {
+                    landed |= event.kind == "transferred_in";
+                    !landed
+                });
+                landed
+            } else {
+                false
+            };
             let outer_committed = phase == "committed"
+                || landed
                 || std::fs::read(root.join(format!(".{outer_id}.replacement-state.json")))
                     .ok()
                     .and_then(|raw| serde_json::from_slice::<Value>(&raw).ok())
@@ -518,8 +533,20 @@ impl Hub {
                     None,
                 );
                 if !stored {
-                    self.recover_staged_replacements();
-                    let _ = self.kill(&session, true).await;
+                    if source_store_backup.is_none() {
+                        self.recover_staged_replacements();
+                        let _ = self.kill(&session, true).await;
+                    } else {
+                        let _ = self.kill(&session, true).await;
+                        if let Some((source_store, backup)) = source_store_backup.as_ref() {
+                            let _ = std::fs::remove_dir_all(source_store);
+                            let _ = std::fs::rename(backup, source_store);
+                            let _ = std::fs::remove_file(
+                                backup.with_extension("replacement-state.json"),
+                            );
+                        }
+                        self.recover_staged_replacements();
+                    }
                     return Err(transfer_error("store", "could not durably record transferred_in"));
                 }
                 if let Err(error) = self.finalize_harness_state(&session.meta()) {
