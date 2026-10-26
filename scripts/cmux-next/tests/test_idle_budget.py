@@ -1356,6 +1356,138 @@ class FiveSessionsTests(unittest.TestCase):
         with self.assertRaises(bench_launch.CredentialsError):
             bench_launch.agent_sign_in_env(os.path.join(self.folder, "missing.env"))
 
+    BOTH_PAIRS = ("CMUX_DOGFOOD_STACK_EMAIL=me@x.dev\nCMUX_DOGFOOD_STACK_PASSWORD=mine\n"
+                  "CMUX_UITEST_STACK_EMAIL=agent@x.dev\nCMUX_UITEST_STACK_PASSWORD=theirs\n")
+
+    def test_the_fleet_secrets_file_with_both_pairs_is_left_to_the_apps_own_lookup(self):
+        """The fleet layout holds the dogfood and the agent pair in one file. Named by CMUX_AUTH_CREDENTIALS_FILE the
+        app takes the dogfood pair first and refuses it as another account; found by its ambient lookup, the agent
+        profile and the declared account pick the agent pair (DogfoodCredentials.decide)."""
+        import bench_launch
+        home = os.path.join(self.folder, "home")
+        os.makedirs(os.path.join(home, ".secrets"))
+        path = os.path.join(home, ".secrets", "cmuxterm-dev.env")
+        with open(path, "w") as handle:
+            handle.write(self.BOTH_PAIRS)
+        os.chmod(path, 0o600)
+        with unittest.mock.patch.dict(os.environ, {"HOME": home}):
+            env = bench_launch.agent_sign_in_env()
+            self.assertEqual(env, bench_launch.agent_sign_in_env(path))
+        self.assertEqual(env, {"CMUX_DEV_AUTH_ACCOUNT": "agent@x.dev", "CMUX_DEV_AUTH_PROFILE": "agent"})
+        self.assertNotIn("theirs", json.dumps(env))
+
+    def test_another_file_with_the_dogfood_pair_is_refused(self):
+        import bench_launch
+        with self.assertRaises(bench_launch.CredentialsError) as raised:
+            bench_launch.agent_sign_in_env(self.credentials(self.BOTH_PAIRS))
+        self.assertIn("CMUX_DOGFOOD_STACK_EMAIL", str(raised.exception))
+        self.assertNotIn("mine", str(raised.exception))
+        commented = self.credentials("# CMUX_DOGFOOD_STACK_PASSWORD=x\nCMUX_UITEST_STACK_EMAIL=\"agent@x.dev\"\n")
+        self.assertEqual(bench_launch.agent_sign_in_env(commented)["CMUX_DEV_AUTH_ACCOUNT"], "agent@x.dev")
+
+    # Signed in, then signed out: no session after it restores the account.
+
+    def auth_app(self, signed_in, end_session_signs_out=True):
+        """An app whose auth.status follows debug.cloud.end_session; `log` lists every call and the stop."""
+        state = {"signed_in": signed_in}
+        log = []
+
+        def rpc(method, params=None, timeout=30):
+            log.append(method)
+            if method == "debug.cloud.end_session" and end_session_signs_out:
+                state["signed_in"] = False
+            if method == "auth.status":
+                return {"signed_in": state["signed_in"], "restoring": False, "email": "agent@x.dev", "backend": "b"}
+            return {"ended": True}
+        process = types.SimpleNamespace(poll=lambda: None if "stop" not in log else 0, pid=7)
+        return types.SimpleNamespace(rpc=rpc, process=process, stop=lambda: log.append("stop")), log
+
+    def test_a_signed_in_session_signs_out_before_the_app_stops(self):
+        app, log = self.auth_app(signed_in=True)
+        rig = ib.SessionRig("signed-in", "debug")
+        rig.account = "agent@x.dev"
+        rig.after_launch(app)
+        self.assertTrue(rig.shape["signed_in"])
+        with unittest.mock.patch.object(ib.time, "sleep", lambda _s: None):
+            self.assertEqual(rig.teardown(app), [])
+        self.assertEqual(log[-3:], ["debug.cloud.end_session", "auth.status", "stop"])
+        self.assertEqual(rig.shape["sign_out"], {"signed_out": True, "error": ""})
+
+    def test_a_sign_out_that_does_not_end_is_reported_and_the_app_still_stops(self):
+        app, log = self.auth_app(signed_in=True, end_session_signs_out=False)
+        rig = ib.SessionRig("signed-in", "debug")
+        rig.account = "agent@x.dev"
+        with unittest.mock.patch.object(ib, "SIGN_OUT_WAIT_S", 0):
+            errors = rig.teardown(app)
+        self.assertEqual(log[-1], "stop")
+        self.assertEqual(len(errors), 1)
+        self.assertIn("sign-out: still signed in", errors[0])
+
+    def test_every_other_session_runs_signed_out(self):
+        app, log = self.auth_app(signed_in=False)
+        rig = ib.SessionRig("light", "release")
+        rig.after_launch(app)
+        self.assertEqual((rig.shape["signed_in"], log), (False, ["auth.status"]))
+        self.assertEqual(rig.teardown(app), [])
+        self.assertEqual(log, ["auth.status", "stop"])  # no sign-out of a session that never signed in
+
+    def test_a_restored_sign_in_is_ended_before_an_unsigned_session(self):
+        app, log = self.auth_app(signed_in=True)
+        rig = ib.SessionRig("light-hidden", "release")
+        with unittest.mock.patch.object(ib.time, "sleep", lambda _s: None):
+            rig.after_launch(app)
+        self.assertEqual(rig.shape["left_signed_in"], {"signed_out": True, "error": ""})
+        self.assertFalse(rig.shape["signed_in"])
+        stuck, _log = self.auth_app(signed_in=True, end_session_signs_out=False)
+        with unittest.mock.patch.object(ib.time, "sleep", lambda _s: None), \
+                unittest.mock.patch.object(ib, "sign_out", lambda app: {"signed_out": False, "error": "still signed in"}), \
+                self.assertRaises(ib.SessionShapeError) as raised:
+            ib.SessionRig("light", "release").after_launch(stuck)
+        self.assertIn("did not sign out: still signed in", str(raised.exception))
+
+    # signed-in-display-sleep (D13: signed-in app <= light-hidden with the display asleep).
+
+    def test_display_sleep_session_sleeps_the_display_and_wakes_it_at_the_teardown(self):
+        commands = []
+        run = lambda argv, **kw: commands.append(argv[0]) or types.SimpleNamespace(returncode=0, stderr="")
+        app = types.SimpleNamespace(rpc=lambda *a, **k: {"windows": [{"kind": "main", "occluded": True, "key": True}]},
+                                    process=types.SimpleNamespace(poll=lambda: 0), stop=lambda: commands.append("stop"))
+        rig = ib.SessionRig("signed-in-display-sleep", "debug", run=run)
+        rig.after_activate(app)
+        self.assertEqual(commands, ["pmset"])
+        self.assertTrue(rig.shape["display_sleep"]["main"][0]["occluded"])
+        self.assertEqual(rig.teardown(app), [])
+        self.assertEqual(commands, ["pmset", "stop", "caffeinate"])  # the app stops first, then the display wakes
+        failing = lambda argv, **kw: types.SimpleNamespace(returncode=1, stderr="not allowed")
+        with self.assertRaises(ib.SessionShapeError) as raised:
+            ib.SessionRig("signed-in-display-sleep", "debug", run=failing).after_activate(app)
+        self.assertIn("pmset exit 1: not allowed", str(raised.exception))
+
+    def test_display_sleep_row_is_relative_to_light_hidden(self):
+        budget = ib.load_budget(ib.BUDGET_FILE)
+        self.assertEqual(ib.session_budget(budget, "signed-in-display-sleep")["relative"],
+                         [{"to": "light-hidden", "of": "app", "field": "wakeups_per_s", "max_ratio": 1.0}])
+        self.assertEqual(ib.session_config("signed-in-display-sleep"), ib.session_config("signed-in"))
+        asleep = ib.aggregate({"processes": [row("app", 30, 0.6)]})
+        hidden = ib.aggregate({"processes": [row("app", 30, 0.5)]})
+        overs, notes = ib.cross_overs(budget, {"signed-in-display-sleep": asleep, "light-hidden": hidden})
+        self.assertEqual([n for n in notes if n.startswith("signed-in-display-sleep")], [])  # light-hidden's own vs light
+        self.assertEqual([session for session, _over in overs], ["signed-in-display-sleep"])
+        quiet = ib.aggregate({"processes": [row("app", 30, 0.4)]})
+        self.assertEqual(ib.cross_overs(budget, {"signed-in-display-sleep": quiet, "light-hidden": hidden})[0], [])
+        _overs, alone = ib.cross_overs(budget, {"signed-in-display-sleep": quiet})
+        self.assertIn("reference session light-hidden not measured", alone[0])
+
+    def test_signed_in_rows_on_a_debug_build_are_reported_not_judged(self):
+        entry = {"over": [["app+daemon", "wakeups_per_s", 1.1, 1.0]], "not_judged": []}
+        notes = ib.unjudged_on_debug("signed-in", entry, "debug")
+        self.assertEqual(entry["over"], [])
+        self.assertEqual(entry["not_judged"], notes)
+        self.assertIn("app+daemon wakeups_per_s: 1.1 over 1.0 on a Debug build", notes[1])
+        kept = {"over": [["app", "wakeups_per_s", 2.0, 1.0]], "not_judged": []}
+        self.assertEqual(ib.unjudged_on_debug("light", kept, "debug"), [])
+        self.assertEqual(kept["over"], [["app", "wakeups_per_s", 2.0, 1.0]])  # other sessions keep their judgement
+
     def test_signed_in_needs_a_debug_build(self):
         self.assertIsNone(ib.sign_in_refusal("debug"))
         for config in ("release", "bench-hooks"):
@@ -1419,18 +1551,46 @@ class FiveSessionsTests(unittest.TestCase):
             ib.start_cover(silent, seconds=5)
         self.assertIn("no display", str(raised.exception))
 
-    def test_benchhelper_has_the_cover_command(self):
-        source = (HERE.parent / "perf-bench" / "benchhelper.swift").read_text()
-        self.assertIn('case "cover":', source)
-        self.assertIn('"covering %.0fx%.0f\\n"', source)
-        self.assertIn("window.level = .normal", source)
-        self.assertIn("orderFrontRegardless()", source)
-
-    def test_home_and_cover_run_after_the_activation(self):
+    def test_home_runs_after_the_activation(self):
         calls = []
         app = types.SimpleNamespace(rpc=lambda method, params=None, timeout=30: calls.append((method, params)) or {})
         ib.SessionRig("home", "release").after_activate(app)
         self.assertEqual(calls, [("action.run", {"action": "home.show", "args": {}, "focus": False, "origin": "script"})])
+
+    def fake_helper(self):
+        helper = os.path.join(self.folder, "benchhelper")
+        with open(helper, "w") as handle:
+            handle.write('#!/bin/sh\n[ "$1" = cover ] || exit 2\necho "covering 1920x1080"\nexec sleep 60\n')
+        os.chmod(helper, 0o755)
+        return helper
+
+    def test_the_cover_waits_until_the_app_is_occluded_and_no_longer_active(self):
+        """Another app's window in front: occluded alone (cmux still key under the cover) is not the shape."""
+        replies = iter([{"windows": [{"kind": "main", "occluded": True, "key": True}]},
+                        {"windows": [{"kind": "main", "occluded": True, "key": False}]}])
+        methods = []
+        app = types.SimpleNamespace(rpc=lambda method, params=None, timeout=10: methods.append(method) or next(replies))
+        rig = ib.SessionRig("occluded", "release")
+        rig.helper = self.fake_helper()
+        with unittest.mock.patch.object(ib.time, "sleep", lambda _s: None):
+            rig.after_activate(app)
+        self.addCleanup(ib.stop_process, rig.cover)
+        self.assertIsNone(rig.cover.poll())  # the cover runs through the settle and the window
+        self.assertEqual(methods, ["debug.window_list", "debug.window_list"])
+        self.assertEqual(rig.shape["cover"], {"main": [{"key": False, "visible": None, "occluded": True,
+                                                        "miniaturized": None, "alpha": None}], "any_key": False})
+        self.assertEqual(rig.teardown(None), [])
+        self.assertIsNotNone(rig.cover.poll())  # the teardown ends it
+
+    def test_an_app_that_stays_active_under_the_cover_is_refused(self):
+        still_key = types.SimpleNamespace(rpc=lambda *a, **k: {"windows": [{"kind": "main", "occluded": True, "key": True}]})
+        with self.assertRaises(ib.SessionShapeError) as raised:
+            ib.wait_occluded(still_key, 0, inactive=True)
+        self.assertIn("occluded and inactive", str(raised.exception))
+        unknown = types.SimpleNamespace(rpc=lambda *a, **k: {"error": "no such method"})
+        with self.assertRaises(ib.SessionShapeError):
+            ib.wait_occluded(unknown, 0, inactive=True)
+        self.assertEqual(ib.wait_occluded(still_key, 0)["any_key"], True)  # occluded alone: minimized's, display sleep's
 
     # app-quit.
 
@@ -1453,6 +1613,62 @@ class FiveSessionsTests(unittest.TestCase):
         self.assertIn("still runs 1 s after quitKeepSessions", late["error"])
         app.process = types.SimpleNamespace(poll=lambda: 0)
         self.assertEqual(app.quit_keep_sessions()["error"], "the app is not running")
+
+    def test_app_quit_reads_no_socket_after_the_quit_and_stops_after_the_window(self):
+        """main()'s app-quit: quitKeepSessions after the settle, QUIT_SETTLE_S, the window over QuitTree with no app
+        (measure(None)), no window_state or sample read, then app.stop (which ends the daemons) last."""
+        events = []
+        teardown = types.SimpleNamespace(processes=lambda: [(11, "/x/cmux DEV t.app/Contents/Resources/bin/cmux-tui server")])
+
+        class FakeBench:
+            def __init__(self, app, out, env, config):
+                self.app, self.tag, self.teardown, self.launched_env = app, "t", teardown, {}
+                self.process = types.SimpleNamespace(pid=10, poll=lambda: 0 if "quit" in events else None)
+                events.append("new")
+
+            def launch(self):
+                events.append("launch")
+
+            def rpc(self, method, params=None, timeout=30):
+                events.append(("rpc-after-quit" if "quit" in events else "rpc", method))
+                return {"signed_in": False, "restoring": False} if method == "auth.status" else {}
+
+            def activate(self):
+                return {"activated": True, "error": ""}
+
+            def quit_keep_sessions(self):
+                events.append("quit")
+                return {"quit": True, "seconds": 0.5, "error": ""}
+
+            def stop(self):
+                events.append("stop")
+
+        def measure(app, instance, seconds, read_anim=None):
+            events.append(("measure", app, type(instance).__name__))
+            return {"seconds": seconds, "ends": {}, "processes": [{**row("daemon", 8, 0.05), "ran": []}]}
+
+        import bench_launch
+        app_path = bundle(self.folder, debug=False)
+        sleeps = []
+        with unittest.mock.patch.object(bench_launch, "BenchApp", FakeBench), \
+                unittest.mock.patch.object(bench_launch, "seed_hang_report_consent", lambda _app: ""), \
+                unittest.mock.patch.multiple(ib, measure=measure, fresh_session=lambda _app: {}, threads=lambda _pid: {},
+                                             host_facts=lambda: {"host": "h", "macos": "26"},
+                                             sample_threads=lambda *a: events.append("sample")), \
+                unittest.mock.patch.object(ib.procs, "Instance", lambda app, pid: types.SimpleNamespace(pid=pid)), \
+                unittest.mock.patch.object(ib.time, "sleep", sleeps.append), \
+                contextlib.redirect_stdout(io.StringIO()) as out, self.assertRaises(SystemExit) as raised:
+            ib.main(["--app", app_path, "--sessions", "app-quit", "--out", os.path.join(self.folder, "out")])
+        self.assertEqual(raised.exception.code, 0)
+        quit_at = events.index("quit")
+        self.assertEqual([e for e in events[quit_at:] if isinstance(e, tuple) and e[0] == "rpc-after-quit"], [])
+        self.assertEqual(events[quit_at + 1:], [("measure", None, "QuitTree"), "stop"])
+        self.assertIn(ib.QUIT_SETTLE_S, sleeps)
+        self.assertIn('IDLE-BUDGET-SHAPE app-quit {"signed_in": false, "quit": {"quit": true', out.getvalue())
+        with open(os.path.join(self.folder, "out", "idle-budget.json")) as handle:
+            report = json.load(handle)
+        self.assertEqual(report["session_exits"], {"app-quit": 0})
+        self.assertNotIn("window_state", report["sessions"]["app-quit"]["result"])
 
     def test_quit_tree_is_the_tags_processes(self):
         teardown = types.SimpleNamespace(processes=lambda: [(11, "/x/cmux DEV t.app/Contents/Resources/bin/cmux-tui server"),
@@ -1531,6 +1747,36 @@ class FiveSessionsTests(unittest.TestCase):
         fresh = os.path.join(self.folder, "fresh", "BrowserImport")
         ib.SeededStore(fresh, {"sources.json": []}).write().restore()
         self.assertFalse(os.path.exists(fresh))
+
+    def test_a_restore_that_cannot_move_the_store_back_reports_and_keeps_it_aside(self):
+        store = os.path.join(self.folder, "BrowserImport")
+        os.makedirs(store)
+        seeded = ib.SeededStore(store, {"sources.json": []}).write()
+        with unittest.mock.patch.object(ib.os, "rename", side_effect=OSError(16, "Resource busy")):
+            problem = seeded.restore()
+        self.assertIn("the earlier store stays at", problem)
+        self.assertTrue(os.path.isdir(store + ".bench-prev"))
+
+    def test_the_app_stops_before_the_churn_fixtures_go(self):
+        """The app's Keep in Sync watch reads the History file and writes the import store: both stay until it ended.
+        A failing step does not skip the later ones."""
+        store = os.path.join(self.folder, "BrowserImport")
+        os.makedirs(store)
+        rig = ib.SessionRig("external-churn", "release")
+        rig.scratch = os.path.join(self.folder, "scratch")
+        os.makedirs(rig.scratch)
+        rig.store = ib.SeededStore(store, {"sources.json": []}).write()
+        seen = []
+
+        def stop():
+            seen.append((os.path.isdir(rig.scratch), os.path.exists(store + ".bench-prev")))
+            raise RuntimeError("debug.quit timed out")
+        app = types.SimpleNamespace(process=types.SimpleNamespace(poll=lambda: None), stop=stop)
+        errors = rig.teardown(app)
+        self.assertEqual(seen, [(True, True)])  # the fixtures were still there while the app stopped
+        self.assertEqual(errors, ["app: RuntimeError: debug.quit timed out"])
+        self.assertFalse(os.path.exists(rig.scratch))
+        self.assertFalse(os.path.exists(store + ".bench-prev"))  # restored anyway
 
     def test_import_store_only_of_a_tagged_bundle(self):
         tagged = bundle(os.path.join(self.folder, "a"), debug=False)

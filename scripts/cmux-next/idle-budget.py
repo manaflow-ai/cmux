@@ -36,14 +36,21 @@ Sessions (--sessions):
   tabs-static   the launch pane with 5 WebKit and 10 Chromium tabs hidden behind 1 shown static Chromium tab,
                 every page tab_pages' static page; the settle lasts past `browser.freezeHiddenTabs`
   minimized     the light session with its window minimized (action minimizeWindow)
-  occluded      the light session with benchhelper's opaque full-screen window over it (`benchhelper cover`, another
-                app's window in front; debug.window_list must report every main window occluded)
+  occluded      the light session with benchhelper's opaque full-screen window over it (`benchhelper cover`: another
+                app that activates and shows its key window in front; debug.window_list must report every main window
+                occluded and no window of the app key, so the app resigned active)
   home          the light session with Home selected (action home.show; xbench's idle-wakeups-home, D6)
   signed-in     the light session signed in as the host's staging agent test account (CMUX_UITEST_STACK_* of
-                --signed-in-credentials, the fleet secrets file: the app reads it, the bench passes its path and the
-                account's email only, so no secret or token reaches a log or the report), with Phone Access and the
-                GitHub feed on and both keep-awake settings off; auth.status must report the account signed in. The
-                app signs a test account in only in a Debug build (DogfoodCredentials), so it is refused on another build
+                --signed-in-credentials, default the fleet secrets file, which the app reads itself; the bench passes
+                the account's email and the agent profile only, so no secret or token reaches a log or the report),
+                with Phone Access and the GitHub feed on and both keep-awake settings off; auth.status must report the
+                account signed in, and the app signs out (debug.cloud.end_session) before it stops. The app signs a
+                test account in only in a Debug build (DogfoodCredentials): the session is refused on another build,
+                and on a Debug build its own rows are reported, not judged (not the code users run)
+  signed-in-display-sleep  signed-in with `pmset displaysleepnow` after the activation (the display wakes at the
+                teardown); judged by its relative row: app <= light-hidden of the same run (D13)
+  Every session other than the signed-in ones runs signed out: a sign-in the app restores is ended first, and each
+  session's `shape.signed_in` records which it ran as.
   app-quit      the light session quit after the settle with the sessions kept (action quitKeepSessions), then settled
                 QUIT_SETTLE_S again: the window measures what keeps running without the app (daemon, holders, terminal
                 hosts, acpmux; TagTeardown's process set of the tag)
@@ -109,11 +116,15 @@ Use (fleet only, a host with a GUI console session; never on a laptop in use):
   On the fleet through the allowlisted entry (STRESS needs the 1920 x 1080 virtual display):
     scripts/measure/split-spring.sh --suite=idle-budget --vdisplay=120 -- --sessions tabs-static,energy-saver
     scripts/measure/split-spring.sh --suite=idle-budget --vdisplay=120 -- \\
-        --sessions home,occluded,app-quit,external-churn,signed-in
+        --sessions home,occluded,app-quit,external-churn      (Release + CMUX_BENCH_HOOKS: these four can --gate)
+  The signed-in sessions need a Debug build of the same tag (no --gate; their own rows are not judged there):
+    python3 scripts/cmux-next/idle-budget.py --app "<...>/Debug/cmux DEV <tag>.app" --out DIR \\
+        --sessions light-hidden,signed-in,signed-in-display-sleep
 
 Output: one `IDLE-BUDGET-MACHINE {json}` line, one `IDLE-BUDGET-ROW {json}` line per session and process
 kind, IDLE-BUDGET-ENERGY / -STATE / -ASSERTION / -ANIM / -CHROME lines, IDLE-BUDGET-SHAPE {json} for what a session
-built (the cover, Home, the sign-in, the quit, the churn counts), IDLE-BUDGET-REFUSED for a saver mismatch, an
+built (signed in or not, the cover, Home, the sign-in and sign-out, the display sleep, the quit, the churn counts),
+IDLE-BUDGET-TEARDOWN for a teardown step that failed (the later steps still run), IDLE-BUDGET-REFUSED for a saver mismatch, an
 unread rAF rate or a failed or unequal chrome-static, IDLE-BUDGET-THERMAL for a marked session, a Markdown table,
 and --json with every sample.
 """
@@ -1231,8 +1242,11 @@ TABS_CONFIG = {"browser": {"freezeHiddenTabs": FREEZE_HIDDEN_TABS_S}}
 TABS_STATIC = {"webkit_hidden": 5, "chromium_hidden": 10, "shown": "static"}
 # signed-in: Phone Access and the GitHub feed on (both off by default), keep-awake still off (D11, D13).
 SIGNED_IN_CONFIG = {"phone": {"allowConnections": True}, "feed": {"github": {"enabled": True}}}
-# Seconds auth.status has to report the test account signed in after the launch.
+# Seconds auth.status has to report the test account signed in after the launch, and signed out after the sign-out.
 SIGN_IN_WAIT_S = 90
+SIGN_OUT_WAIT_S = 60
+# Seconds an unsigned session waits for the app's restore of a stored sign-in to end (auth.status `restoring`).
+RESTORE_WAIT_S = 30
 # app-quit: seconds after the app's exit before the window (the daemon's own wind-down after its client left).
 QUIT_SETTLE_S = 30
 # external-churn: writes per second into the watched project, and seconds between two Chrome History visits.
@@ -1240,10 +1254,10 @@ CHURN_WRITES_PER_S = 10
 HISTORY_PERIOD_S = 5
 # The sessions (the docstring describes each). Keys: config (merged into BASE_CONFIG: session_config), hide,
 # minimize, cover (benchhelper's full-screen window over the app), home (Home selected), sign_in (the agent test
-# account), quit (quitKeepSessions after the settle; the window measures what is left), churn (external-churn's
-# writers), stress, static (STRESS without its rAF spinner), tabs (build_tabs's plan), settle_min (seconds), saver
-# (the energy saver state the session asks for; --gate refuses a window that shows another), anim (read the
-# animated page's rAF count at both ends).
+# account), display_sleep (`pmset displaysleepnow` after the activation), quit (quitKeepSessions after the settle;
+# the window measures what is left), churn (external-churn's writers), stress, static (STRESS without its rAF
+# spinner), tabs (build_tabs's plan), settle_min (seconds), saver (the energy saver state the session asks for;
+# --gate refuses a window that shows another), anim (read the animated page's rAF count at both ends).
 SESSIONS = {
     "light": {},
     "light-webkit": {"config": {"browser": {"defaultEngine": "webkit"}}},
@@ -1252,6 +1266,7 @@ SESSIONS = {
     "occluded": {"cover": True},
     "home": {"home": True},
     "signed-in": {"config": SIGNED_IN_CONFIG, "sign_in": True},
+    "signed-in-display-sleep": {"config": SIGNED_IN_CONFIG, "sign_in": True, "display_sleep": True},
     "app-quit": {"quit": True},
     "external-churn": {"churn": True, "hide": True},
     "stress": {"stress": True},
@@ -1439,17 +1454,19 @@ def minimize(app):
     raise SessionShapeError(f"the window is not minimized after 10 s: {window_state(app)}")
 
 
-def wait_occluded(app, seconds=10):
-    """Waits until debug.window_list reports every main window occluded; returns the window state, or raises
+def wait_occluded(app, seconds=10, inactive=False, what="the cover"):
+    """Waits until debug.window_list reports every main window occluded and, with `inactive`, no window of the app
+    key (the app resigned active, as under another app's window); returns the window state, or raises
     SessionShapeError with the last one."""
     deadline = time.monotonic() + seconds
     while True:
         state = window_state(app)
         main = state.get("main") or []
-        if main and all(w.get("occluded") for w in main):
+        if main and all(w.get("occluded") for w in main) and not (inactive and state.get("any_key") is not False):
             return state
         if time.monotonic() >= deadline:
-            raise SessionShapeError(f"the app's windows are not occluded {seconds:g} s after the cover: {state}")
+            wanted = "occluded and inactive" if inactive else "occluded"
+            raise SessionShapeError(f"the app's windows are not {wanted} {seconds:g} s after {what}: {state}")
         time.sleep(0.2)  # bench: bounded wait for the window server's occlusion change to reach the app
 
 
@@ -1466,33 +1483,73 @@ def start_cover(helper_path, seconds=10):
 
 
 def stop_process(process, seconds=10):
-    """Ends a process this script started (TERM, then KILL) and closes its pipes; returns what it wrote to stderr."""
-    if process.poll() is None:
-        process.terminate()
+    """Ends a process this script started (TERM, then KILL) and closes its pipes; returns what it wrote to stderr,
+    or why it could not be ended. Never raises."""
     try:
-        _out, errors = process.communicate(timeout=seconds)
-    except subprocess.TimeoutExpired:
-        process.kill()
-        _out, errors = process.communicate(timeout=seconds)
+        if process.poll() is None:
+            process.terminate()
+        try:
+            _out, errors = process.communicate(timeout=seconds)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            _out, errors = process.communicate(timeout=seconds)
+    except (OSError, ValueError, subprocess.SubprocessError) as error:
+        return f"pid {process.pid} not ended: {type(error).__name__}: {error}"[:200]
     return (errors or "").strip()
 
 
+def command_error(run, argv):
+    """Runs `argv` through `run` (subprocess.run's signature); returns "" or the error. Never raises."""
+    try:
+        done = run(argv, capture_output=True, text=True, timeout=30)
+    except (OSError, subprocess.SubprocessError) as error:
+        return f"{argv[0]}: {error}"[:200]
+    return "" if done.returncode == 0 else f"{argv[0]} exit {done.returncode}: {(done.stderr or '').strip()[:200]}"
+
+
+def sleep_display(run=subprocess.run):
+    """`pmset displaysleepnow` (no root needed); returns "" or the error."""
+    return command_error(run, ["pmset", "displaysleepnow"])
+
+
+def wake_display(run=subprocess.run):
+    """Wakes the display as user activity does (`caffeinate -u`: a 2 s user-active assertion); returns "" or the
+    error."""
+    return command_error(run, ["caffeinate", "-u", "-t", "2"])
+
+
 def sign_in_refusal(build_config):
-    """Why the signed-in session cannot run on this build, or None: the app signs a test account in from a
-    credentials file only in a Debug build (CloudAuth: a release build never reads one)."""
+    """Why the signed-in sessions cannot run on this build, or None: the app signs a test account in from the fleet
+    secrets only in a Debug build (CloudAuth: a release build never reads them)."""
     if build_config != "debug":
-        return (f"a {build_config} build signs no test account in (CloudAuth reads CMUX_AUTH_CREDENTIALS_FILE in a "
-                "Debug build only); measure signed-in on a Debug build")
+        return (f"a {build_config} build signs no test account in (CloudAuth's dev sign-in runs in a Debug build "
+                "only); measure the signed-in sessions on a Debug build")
     return None
 
 
-def signed_in_state(reply, account):
-    """auth.status reduced to what the report keeps: signed in, still restoring, whether the account is the test
-    account, the backend. The email itself is never kept."""
+def unjudged_on_debug(session, entry, build_config):
+    """A signed-in session's own rows on a Debug build (the only build that signs a test account in) are reported,
+    not judged: a Debug build is not the code users run. Its overs move into `not_judged`; returns the new notes.
+    Its `relative` rows compare two sessions of the same build and are still judged (cross_overs)."""
+    if not SESSIONS[session].get("sign_in") or build_config != "debug":
+        return []
+    overs, entry["over"] = entry.get("over") or [], []
+    notes = [f"{session}: own rows not judged on a Debug build (not the code users run)"]
+    notes += [f"{session} {over[0]} {over[1]}: {over[2]} over {over[3]} on a Debug build" for over in overs]
+    entry.setdefault("not_judged", []).extend(notes)
+    return notes
+
+
+def signed_in_state(reply, account=None):
+    """auth.status reduced to what the report keeps: signed in, still restoring, the backend and, with `account`,
+    whether the account is the test account. The email itself is never kept."""
     reply = reply if isinstance(reply, dict) else {}
-    email = reply.get("email") if isinstance(reply.get("email"), str) else ""
-    return {"signed_in": reply.get("signed_in") is True, "restoring": reply.get("restoring") is True,
-            "account_matches": bool(email) and email.lower() == account.lower(), "backend": reply.get("backend")}
+    state = {"signed_in": reply.get("signed_in") is True, "restoring": reply.get("restoring") is True,
+             "backend": reply.get("backend")}
+    if account is not None:
+        email = reply.get("email") if isinstance(reply.get("email"), str) else ""
+        state["account_matches"] = bool(email) and email.lower() == account.lower()
+    return state
 
 
 def wait_signed_in(app, account, seconds=SIGN_IN_WAIT_S):
@@ -1508,6 +1565,33 @@ def wait_signed_in(app, account, seconds=SIGN_IN_WAIT_S):
         if time.monotonic() >= deadline:
             raise SessionShapeError(f"the test account is not signed in {seconds:g} s after the launch: {state}")
         time.sleep(0.5)  # bench: bounded wait for the app's own sign-in
+
+
+def wait_auth_settled(app, seconds=RESTORE_WAIT_S):
+    """auth.status (signed_in_state, no account) once the app's restore of a stored sign-in ended, or the last
+    state after `seconds`."""
+    deadline = time.monotonic() + seconds
+    while True:
+        state = signed_in_state(read_rpc(app, "auth.status"))
+        if not state["restoring"] or time.monotonic() >= deadline:
+            return state
+        time.sleep(0.5)  # bench: bounded wait for the app's own restore
+
+
+def sign_out(app, seconds=SIGN_OUT_WAIT_S):
+    """Ends the app's Cloud session (debug.cloud.end_session: CloudAuth.signOut, which clears the stored tokens and
+    `cmux.auth.hasTokens`; the tokens live in the data protection Keychain, which only the app reaches) and waits
+    until auth.status reports it signed out. Returns {"signed_out": bool, "error": str}."""
+    reply = read_rpc(app, "debug.cloud.end_session")
+    deadline = time.monotonic() + seconds
+    while True:
+        state = signed_in_state(read_rpc(app, "auth.status"))
+        if not state["signed_in"] and not state["restoring"]:
+            return {"signed_out": True, "error": ""}
+        if time.monotonic() >= deadline:
+            return {"signed_out": False,
+                    "error": f"still signed in {seconds:g} s after debug.cloud.end_session: {json.dumps(reply)[:200]}"}
+        time.sleep(0.5)  # bench: bounded wait for the app's own sign-out
 
 
 class QuitTree:
@@ -1602,10 +1686,17 @@ class SeededStore:
         return self
 
     def restore(self):
+        """Removes the seeded store and moves the earlier one back; returns "" or why it could not (the earlier
+        store then stays at `aside`, and the next write refuses to run over it). Never raises."""
         shutil.rmtree(self.directory, ignore_errors=True)
-        if self.moved:
+        if not self.moved:
+            return ""
+        try:
             os.rename(self.aside, self.directory)
-            self.moved = False
+        except OSError as error:
+            return f"the earlier store stays at {self.aside}: {error.strerror or error}"
+        self.moved = False
+        return ""
 
 
 def make_project(folder):
@@ -1668,21 +1759,25 @@ class SessionRig:
     """What a session builds around the app and takes down after it: the launch env of the signed-in account,
     the fixtures made before the launch (external-churn's project, Chrome History and import store; the cover's
     helper, compiled before the app runs), the shape made after the launch and after the activation (the sign-in,
-    the terminal in the project, Home, the cover, the churn), and their teardown (`close`). `shape` is what it built,
-    for the report; it never holds a secret."""
+    or the check that the app runs signed out; the terminal in the project, Home, the cover, the display sleep, the
+    churn), and their teardown (`teardown`). `shape` is what it built, for the report; it never holds a secret.
+    `run` runs pmset and caffeinate (subprocess.run's signature)."""
 
-    def __init__(self, session, build_config, credentials=None, helper_cache=None):
+    def __init__(self, session, build_config, credentials=None, helper_cache=None, run=subprocess.run):
         self.spec = SESSIONS[session]
         self.build_config = build_config
         self.credentials = credentials
         self.helper_cache = helper_cache
+        self.run = run
         self.account = self.helper = self.cover = self.churn = self.store = self.scratch = None
         self.project = self.history = None
+        self.display_slept = False
         self.shape = {}
 
     def env(self, base):
-        """The launch env: `base`, plus the agent account's sign-in for signed-in (SessionShapeError on a build that
-        signs no test account in, or a credentials file the app would not read)."""
+        """The launch env: `base`, plus the agent account's sign-in for a signed-in session (SessionShapeError on a
+        build that signs no test account in, or a credentials file the app would not read or that signs another
+        account in)."""
         if not self.spec.get("sign_in"):
             return base
         refusal = sign_in_refusal(self.build_config)
@@ -1715,21 +1810,39 @@ class SessionRig:
         self.shape["keep_in_sync"] = {"store": store, "history": self.history}
 
     def after_launch(self, app):
+        """The sign-in of a signed-in session. Any other session runs signed out: a sign-in the app restored (one an
+        earlier run did not end) is ended in the app (`left_signed_in`), or the session is refused. `signed_in`
+        records which it ran as."""
         if self.account:
             self.shape["sign_in"] = wait_signed_in(app, self.account)
+            self.shape["signed_in"] = True
+        else:
+            state = wait_auth_settled(app)
+            if state["signed_in"]:
+                ended = self.shape["left_signed_in"] = sign_out(app)
+                if not ended["signed_out"]:
+                    raise SessionShapeError(f"the app restored a stored sign-in and did not sign out: {ended['error']}")
+            self.shape["signed_in"] = False
         if self.project:
             run_action(app, "terminal.sendText", {"text": f"cd {shlex.quote(self.project)} && clear\n"})
             self.shape["project"] = self.project
 
     def after_activate(self, app):
-        """After the activation and any hide or minimize: Home, the cover, then the churn (it runs through the settle
-        and the window)."""
+        """After the activation and any hide or minimize: Home; the cover, until the app is occluded and no longer
+        active (another app's window in front); the display sleep, until the app is occluded; then the churn (it
+        runs through the settle and the window)."""
         if self.spec.get("home"):
             run_action(app, "home.show")
             self.shape["home"] = True
         if self.helper:
             self.cover = start_cover(self.helper)
-            self.shape["cover"] = wait_occluded(app)
+            self.shape["cover"] = wait_occluded(app, inactive=True)
+        if self.spec.get("display_sleep"):
+            error = sleep_display(self.run)
+            if error:
+                raise SessionShapeError(f"the display did not sleep: {error}")
+            self.display_slept = True
+            self.shape["display_sleep"] = wait_occluded(app, 15, what="pmset displaysleepnow")
         if self.project:
             self.churn = ExternalChurn(self.project, self.history).start()
 
@@ -1739,14 +1852,44 @@ class SessionRig:
             self.shape["churn"] = self.churn.stop()
         return self.shape
 
-    def close(self):
-        self.after_window()
+    def teardown(self, app):
+        """Takes the session down in this order: the churn's writes stop; a signed-in app signs out while it still
+        runs (`shape.sign_out`); the app stops (`app.stop`); then the cover ends, the display wakes, the import store
+        comes back and the scratch folder goes. Every step runs whatever an earlier one raised; returns the steps'
+        errors."""
+        errors = []
+
+        def step(name, work):
+            try:
+                problem = work()
+            except Exception as error:  # noqa: BLE001 - recorded; the later steps still run
+                problem = f"{type(error).__name__}: {error}"
+            if problem:
+                errors.append(f"{name}: {problem}"[:300])
+
+        step("churn", lambda: self.after_window() and None)  # its counts (and a write error) go into `shape`
+        if app is not None:
+            process = getattr(app, "process", None)
+            if self.account and process is not None and process.poll() is None:
+                step("sign-out", lambda: self.sign_out(app))
+            step("app", app.stop)
         if self.cover is not None:
-            stop_process(self.cover)
+            step("cover", self.stop_cover)
+        if self.display_slept:
+            step("display", lambda: wake_display(self.run))
         if self.store is not None:
-            self.store.restore()
+            step("store", self.store.restore)
         if self.scratch:
-            shutil.rmtree(self.scratch, ignore_errors=True)
+            step("scratch", lambda: shutil.rmtree(self.scratch, ignore_errors=True))
+        return errors
+
+    def stop_cover(self):
+        stop_process(self.cover)
+        return f"benchhelper cover pid {self.cover.pid} still runs" if self.cover.poll() is None else None
+
+    def sign_out(self, app):
+        self.shape["sign_out"] = sign_out(app, SIGN_OUT_WAIT_S)
+        return self.shape["sign_out"]["error"]
 
 
 def bundle_build_config(app):
@@ -1925,8 +2068,8 @@ def main(argv=None):
                         help="xbench's benchhelper cache (the chrome-static reference and occluded's cover window)")
     parser.add_argument("--signed-in-credentials", default=None,
                         help="signed-in's 0600 file with the agent test account (CMUX_UITEST_STACK_*; default the fleet "
-                        "secrets file ~/.secrets/cmuxterm-dev.env); the app reads it, the bench passes its path and "
-                        "the email only")
+                        "secrets file ~/.secrets/cmuxterm-dev.env, which the app finds itself; another file is passed "
+                        "by path and must hold no CMUX_DOGFOOD_STACK_* pair); the bench passes no secret")
     opts, _unknown = parser.parse_known_args(argv)
     budget = load_budget(opts.budget)
     if opts.xbench:
@@ -1968,7 +2111,7 @@ def main(argv=None):
         pages = IdlePages() if spec.get("tabs") else None
         try:
             app = BenchApp(opts.app, out=os.path.join(out, session), env=rig.env(env), config=session_config(session))
-            entry = {"fresh_session": fresh_session(app)}
+            entry = {"fresh_session": fresh_session(app), "shape": rig.shape}  # a failed session keeps its shape too
             report["sessions"][session] = entry
             consent = bench_launch.seed_hang_report_consent(app.app)
             if consent:
@@ -2018,6 +2161,7 @@ def main(argv=None):
             if opts.sample and measured_app:
                 result["sample"] = sample_threads(app.process.pid, opts.sample, os.path.join(out, session, "sample-app.txt"))
             entry.update(summarize(session, result, budget))
+            unjudged_on_debug(session, entry, build_config)
             kinds, overs, notes = entry["kinds"], [tuple(o) for o in entry["over"]], entry["not_judged"]
             for name, values in kinds.items():
                 print("IDLE-BUDGET-ROW " + json.dumps({"session": session, "kind": name, **values}), flush=True)
@@ -2066,11 +2210,15 @@ def main(argv=None):
             if isinstance(error, KeyboardInterrupt):
                 raise
         finally:
-            rig.close()
-            if app is not None:
-                app.stop()
-            if pages is not None:
-                pages.close()
+            try:
+                teardown_errors = rig.teardown(app)  # the app stops before its fixtures go (SessionRig.teardown)
+                if teardown_errors:
+                    report["sessions"].setdefault(session, {})["teardown_errors"] = teardown_errors
+                for problem in teardown_errors:
+                    print(f"IDLE-BUDGET-TEARDOWN {session} {problem}", flush=True)
+            finally:
+                if pages is not None:
+                    pages.close()
     cross, cross_notes, chrome_refused = judge_across(report, budget, CHROME_SESSION in sessions)
     for note in cross_notes:
         print(f"IDLE-BUDGET-NOT-JUDGED {note}", flush=True)
