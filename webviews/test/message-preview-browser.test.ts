@@ -125,4 +125,30 @@ await requireBrowserLane("message-preview-browser.test.ts", async () => {
     await page.locator(".cv-received__body").waitFor();
     expect(await intact(".cv-received__text")).toEqual({ mask: "none", split: 0, visible: true });
   });
+  for (const direction of ["received", "sent"] as const) {
+    test(`Tab reveals clipped ${direction} code controls before they can be used`, async () => {
+      await open("code-first");
+      const row = page.locator(direction === "received" ? ".cv-received" : ".cv-message");
+      const toggle = row.locator(direction === "received" ? ".cv-received__toggle" : ".cv-agentmsg__toggle");
+      const text = row.locator(direction === "received" ? ".cv-received__text" : ".cv-message__text");
+      if (direction === "sent") await toggle.click();
+      await row.locator(".cv-codeblock button").first().waitFor({ state: "attached" });
+      await page.waitForFunction((selector) => document.querySelector<HTMLElement>(selector)?.style.maxHeight === "0px",
+        direction === "received" ? ".cv-received__text" : ".cv-message__text");
+      await toggle.focus();
+      let reached = false;
+      for (let step = 0; step < 12; step++) {
+        await page.keyboard.press("Tab");
+        reached = await text.evaluate((box) => box.contains(document.activeElement));
+        if (reached) break;
+      }
+      expect(reached).toBe(true);
+      expect(await text.evaluate((box) => {
+        const control = document.activeElement!.getBoundingClientRect();
+        const clip = box.getBoundingClientRect();
+        return control.top >= clip.top && control.bottom <= clip.bottom;
+      })).toBe(true);
+      expect(await text.evaluate((box) => box.style.maxHeight)).toBe("");
+    });
+  }
 });

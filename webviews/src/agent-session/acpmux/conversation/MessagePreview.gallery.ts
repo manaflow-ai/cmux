@@ -23,6 +23,7 @@ const cards = chat([
     1,
   ),
 ]);
+const codeReport = `\`\`\`ts\n${Array.from({ length: 32 }, (_, i) => `const preview_${i} = ${i};`).join("\n")}\n\`\`\``;
 
 export default agentPaneEntry({
   id: "agent-pane.message-preview",
@@ -34,6 +35,15 @@ export default agentPaneEntry({
     "agent-session/acpmux/conversation/MessageCard.tsx",
   ],
   variants: {
+    "code-first": {
+      note: "A tall code card is kept whole. Tab into its controls reveals the full message.",
+      snapshot: chat([
+        received(codeReport, 2),
+        activity([tool("SendMessage", "other", "completed", {
+          inputSummary: JSON.stringify({ to: "preview-lane", message: codeReport }),
+        })], 1),
+      ]),
+    },
     "one-line": {
       note: "Existing Minimal Mode: one line with an ellipsis; open to read the whole message.",
       snapshot: cards,
