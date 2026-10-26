@@ -21504,7 +21504,7 @@ impl Client {
     }
     /**Start proving you control a domain
 
-    Start proving you control a domain. Requires the domain:write scope. Reserves the domain for your team while the challenge is pending (another team's request is 409; an unverified reservation lapses after 7 days). Names under the managed zone cannot be verified. Service keys, agent keys and resource-allowlisted keys cannot create these resources; allowlisted keys see only the ids they list.
+    Start proving you control a domain. Requires the domain:write scope. Reserves the domain for your team while the challenge is pending (another team's request is 409; an unverified reservation lapses 7 days after your team's first request, and another request does not extend it). Names under the managed zone cannot be verified. Service keys, agent keys and resource-allowlisted keys cannot create these resources; allowlisted keys see only the ids they list.
 
     Sends a `POST` request to `/v1/domain-verifications`
 
@@ -25392,7 +25392,7 @@ impl Client {
     }
     /**Change a client session's Linux user
 
-    Replace the one Linux user the session's tokens (existing and future) may act as on this VM. Exactly one user: a session is never unrestricted. Setting the current user again is not an error. A revoked session is 404. Requires the vm:exec scope.
+    Replace the one Linux user the session's tokens (existing and future) may act as on this VM. Exactly one user: a session is never unrestricted. Setting the current user again is not an error. A revoked session is 404. A change that raced another change of the same session and lost is 409; the session keeps the winner's user, on the grant too. Requires the vm:exec scope.
 
     Sends a `PUT` request to `/v1/vms/{vmId}/client-sessions/{sessionId}/linux-user`
 
@@ -25447,6 +25447,7 @@ impl Client {
             401u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
             403u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
             404u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
+            409u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
             429u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
             503u16 => Err(Error::ErrorResponse(ResponseValue::stream(response))),
             _ => Err(Error::UnexpectedResponse(response)),

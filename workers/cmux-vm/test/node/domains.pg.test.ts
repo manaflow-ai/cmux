@@ -10,8 +10,8 @@ import ownership from "../../migrations/0001_cmux_vm_ownership.sql?raw";
 import domainsTls from "../../migrations/0018_cmux_vm_domains_tls.sql?raw";
 import { DomainStore, sqlDomainStoreLayer, type DomainStoreService, type TlsRuleRow } from "../../src/db/domains.ts";
 import { SqlClient, StoreError } from "../../src/db/sql.ts";
-import { newDomainId, newDomainVerificationId, newForwardAuthId, newTlsRuleId } from "../../src/lib/domain-ids.ts";
-import { newVmId, TenantId, UpstreamId } from "../../src/lib/ids.ts";
+import { newDomainId, newDomainVerificationId, newForwardAuthId, newTlsRuleId, type ForwardAuthId } from "../../src/lib/domain-ids.ts";
+import { newVmId, TenantId, UpstreamId, type VmId } from "../../src/lib/ids.ts";
 
 const A = TenantId.make("team_alpha");
 const B = TenantId.make("team_bravo");
@@ -40,7 +40,7 @@ const liveVm = async (tenant: TenantId, vmId: string) => {
 const deleteVm = async (vmId: string) => {
   await pg.query("UPDATE cmux_vm.resources SET deleted_at = now() WHERE cmux_id = $1", [vmId]);
 };
-const ruleOn = (tenant: TenantId, domain: string, vmId: string, forwardAuthId: string | null = null): TlsRuleRow => ({
+const ruleOn = (tenant: TenantId, domain: string, vmId: VmId, forwardAuthId: ForwardAuthId | null = null): TlsRuleRow => ({
   id: newTlsRuleId(), tenantId: tenant, upstreamId: UpstreamId.make(`tls-${crypto.randomUUID()}`), domain, vmIds: [vmId], forwardAuthId,
   spec: { domain, protocol: "http", direction: "ingress", source: { public: true }, destination: { vmId, port: 3000 }, forwardAuthId, match: null, headerNames: [], description: null },
   createdBy: "user:test", createdAt: new Date(), updatedAt: new Date(),
