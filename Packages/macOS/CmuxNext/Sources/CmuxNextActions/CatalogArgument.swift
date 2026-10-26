@@ -203,6 +203,12 @@ nonisolated enum CatalogArgument {
                        kind: .string, isRequired: false)
     }
 
+    /// `cloud deliver-secrets --repo OWNER/NAME`: whose repo-scoped secrets the machine gets.
+    static var secretRepoString: ActionArgument {
+        ActionArgument(name: "repo", title: String(localized: "argument.secretRepo", defaultValue: "Repository", bundle: .module),
+                       kind: .string, isRequired: false)
+    }
+
     /// The idle auto-pause choice (`cloudSetIdlePause`): Off, or the minutes
     /// of idle after which cmux Cloud pauses the machine. The server
     /// (`web/services/vms/idlePause.ts`) takes exactly these values.

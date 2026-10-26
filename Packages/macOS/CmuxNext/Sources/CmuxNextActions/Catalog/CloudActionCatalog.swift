@@ -264,6 +264,15 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
                 symbol: "gearshape.2", surfaces: [.palette], requires: [.cloudWorkspace],
                 arguments: [CatalogArgument.machineConfigString], targets: [.machine], cliName: "cloud apply-machine-config"
             ),
+            // `cmux cloud deliver-secrets --target machine:<id>`: values of the declared secret names, over the
+            // machine's daemon link (CloudMachineSecrets); `cmux cloud secret set` stores them (Rust CLI).
+            ActionDescriptor(
+                id: "cloudDeliverSecrets",
+                title: String(localized: "action.cloudDeliverSecrets", defaultValue: "Deliver Secrets to Machine", bundle: .module),
+                keywords: ["vm", "cloud", "secrets", "env", "keychain", "config"], category: .cloud,
+                symbol: "key.horizontal", surfaces: [.palette], requires: [.cloudWorkspace],
+                arguments: [CatalogArgument.secretRepoString], targets: [.machine], cliName: "cloud deliver-secrets"
+            ),
             ActionDescriptor(
                 id: "cloudSetIdlePause",
                 title: String(localized: "action.cloudSetIdlePause", defaultValue: "Pause When Idle…", bundle: .module),
@@ -326,7 +335,7 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
             // Each answers its machine's id (and the workspace's) once the server is done, so a CLI
             // caller hears a failure instead of OK, and can name the result in the next command.
             "palette.cloud.fork", "palette.cloud.restore", "newCloudWorkspace", "cloudRenameMachine", "cloudKillMachine",
-            "cloudResizeMachine", "cloudApplyMachineConfig",
+            "cloudResizeMachine", "cloudApplyMachineConfig", "cloudDeliverSecrets",
         ]
         for index in actions.indices where waitsForResult.contains(actions[index].id) {
             actions[index].waitsForResult = true

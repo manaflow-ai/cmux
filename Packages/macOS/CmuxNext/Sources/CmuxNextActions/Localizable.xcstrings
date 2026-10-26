@@ -31074,6 +31074,33 @@
         "uk": {"stringUnit": {"state": "needs_review", "value": "Конфігурація машини"}},
         "vi": {"stringUnit": {"state": "needs_review", "value": "Cấu hình máy"}}
       }
+    },
+    "argument.secretRepo": {
+      "comment": "cloud deliver-secrets argument: the repository (OWNER/NAME) whose repo-scoped secrets the machine gets.",
+      "extractionState": "manual",
+      "localizations": {
+        "en": {"stringUnit": {"state": "translated", "value": "Repository"}},
+        "ja": {"stringUnit": {"state": "translated", "value": "リポジトリ"}},
+        "de": {"stringUnit": {"state": "needs_review", "value": "Repository"}},
+        "fr": {"stringUnit": {"state": "needs_review", "value": "Dépôt"}},
+        "es": {"stringUnit": {"state": "needs_review", "value": "Repositorio"}},
+        "ar": {"stringUnit": {"state": "needs_review", "value": "المستودع"}},
+        "ko": {"stringUnit": {"state": "needs_review", "value": "저장소"}},
+        "zh-Hans": {"stringUnit": {"state": "needs_review", "value": "仓库"}},
+        "zh-Hant": {"stringUnit": {"state": "needs_review", "value": "儲存庫"}},
+        "bs": {"stringUnit": {"state": "needs_review", "value": "Repozitorij"}},
+        "da": {"stringUnit": {"state": "needs_review", "value": "Repository"}},
+        "it": {"stringUnit": {"state": "needs_review", "value": "Repository"}},
+        "km": {"stringUnit": {"state": "needs_review", "value": "ឃ្លាំង"}},
+        "nb": {"stringUnit": {"state": "needs_review", "value": "Repo"}},
+        "pl": {"stringUnit": {"state": "needs_review", "value": "Repozytorium"}},
+        "pt-BR": {"stringUnit": {"state": "needs_review", "value": "Repositório"}},
+        "ru": {"stringUnit": {"state": "needs_review", "value": "Репозиторий"}},
+        "th": {"stringUnit": {"state": "needs_review", "value": "ที่เก็บ"}},
+        "tr": {"stringUnit": {"state": "needs_review", "value": "Depo"}},
+        "uk": {"stringUnit": {"state": "needs_review", "value": "Репозиторій"}},
+        "vi": {"stringUnit": {"state": "needs_review", "value": "Kho mã"}}
+      }
     }
   },
   "version": "1.0"
