@@ -65,13 +65,26 @@ tab's page window covers the pane (`foreign_pages`).
   pages no longer count in (or evict terminals from) that LRU; hibernation
   manages their memory.
 - Workspace switches park the previous workspace (`WindowController.parked`):
-  its layout view leaves the window but its panes stay in the keep-alive
-  band (mounted, paused, never evicted). Switching back swaps the view in
-  within the frame: no pane controller rebuild, no surface re-attach, no
-  blank frame. Budget: at most 8 parked workspaces per window and as many
-  parked panes in total as the terminal warm set (4 to 12); pressure warning
-  one workspace of up to 2 panes, critical none. Many small workspaces stay
-  warm; a few large ones do not crowd memory.
+  its layout view leaves the window and its panes stay mounted and paused;
+  only their GPU surfaces leave, under the terminal warm set's LRU. Switching
+  back swaps the view in within the frame: no pane controller rebuild, no
+  blank frame. By default a window keeps every workspace it showed until it
+  closes, and critical memory pressure tears all parked workspaces down at
+  once (`releaseParked`), except the ones the window keeps: the workspace
+  under a top page and the ones on screen beside the shown one
+  (`sidebar.multiView`).
+- With `memoryDiscardParkedWorkspaces` (labs, default off; p07-memory-032,
+  taking back 6f04ec90105) one `ParkedWorkspaceBudget` holds every window's
+  parked workspaces to `SubsystemBudget.parkedWorkspaces` (RAM/2048 MiB,
+  4 to 16): past it the least recently parked one that is not kept is torn
+  down, as Chrome's `FrameEvictionManager` culls saved frames; kept ones
+  count but stay. With `memoryDiscardParkedIdleTimeout` too, one hidden
+  15 minutes goes even within the budget. Critical pressure sets the budget
+  to 0 through the memory coordinator, which releases one workspace per
+  slice. Each look runs on one background `MainDeadline` after the switch's
+  turn and tears down at most one workspace; nothing polls. A torn-down
+  workspace mounts again when shown, with its view-only state (strip and
+  screen bar scroll) reset until p07-memory-033's `WorkspaceViewRecord`.
 - No screenshot or PNG decode on the main thread on hide.
 
 Bench: `scripts/cmux-next/bench-tab-switch.sh <tag>` (Ctrl-Tab held over 20
