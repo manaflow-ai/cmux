@@ -6,9 +6,10 @@ import MessagesLabSidebar
 
 /// The vendored Home transcript and conversation list cannot see `Motion` (they are
 /// MessagesLab's code), so their Reduce Motion reads a value their host pushes. This pushes
-/// `Motion.reduceMotion` (the system setting, calm mode and the tests' pin, cx-sya4n) and, on a
-/// change, re-applies it to the live views, so a Reduce Motion change stills or restarts their
-/// loops as it does every cmux loop. Its one ``AppearanceSignals`` subscription is the only
+/// `Motion.reduceMotion` (the system setting, calm mode and the tests' pin, cx-sya4n) and their
+/// loop gate (`hostStillsLoops` = `!animatesLoops`: Energy Saver, the speed or the category off,
+/// p14-energy-027) and, on a change, re-applies them to the live views, so a change stills or
+/// restarts their loops as it does every cmux loop. Its one ``AppearanceSignals`` subscription is the only
 /// listener: the views observe nothing themselves (p06-scheduler-043). Installed by the views that
 /// host them, before their first frame.
 @MainActor
@@ -22,10 +23,13 @@ final class HomeReduceMotion {
         Self.push()
         // The list's pin drag reads the gate when a movement starts (speed off, Reduce Motion, settings).
         CmuxSidebarView.movementGate = { Motion.sidebar.animatesMovement }
-        // The message box's dictation waveform follows the input level only while Home's loops run.
-        MessagesLabHomeView.voiceMotionGate = { Motion.home.animatesLoops }
-        observer = DesignSettings.shared.signals.subscribe([.reduceMotion], owner: "HomeReduceMotion") { [weak self] in
-            Self.push()
+        // The message box's dictation waveform follows the person's voice: it moves unless Reduce
+        // Motion or Home's motion is off, Energy Saver or not (person-started motion, p14-energy-027).
+        MessagesLabHomeView.voiceMotionGate = { Motion.home.animatesBlinks }
+        // `.motion` too: Energy Saver, the speed and the motion switches still or restart the loops.
+        observer = DesignSettings.shared.signals.subscribe([.reduceMotion, .motion], owner: "HomeReduceMotion") { [weak self] in
+            // Only a changed value re-applies: a running typing row restarts its dots from now.
+            guard Self.push() else { return }
             self?.applyToViews()
         }
     }
@@ -45,10 +49,19 @@ final class HomeReduceMotion {
         shared.views.add(list)
     }
 
-    private static func push() {
+    /// Pushes Reduce Motion and each view's loop gate (`hostStillsLoops`: Energy Saver, the speed off,
+    /// the category off); true when a value the views read changed.
+    @discardableResult
+    private static func push() -> Bool {
         let reduce = Motion.reduceMotion
+        let transcriptStill = !Motion.home.animatesLoops, listStill = !Motion.sidebar.animatesLoops
+        let changed = MessagesLabHomeView.reduceMotionOverride != reduce || CmuxSidebarView.reduceMotionOverride != reduce
+            || MessagesLabHomeView.hostStillsLoops != transcriptStill || CmuxSidebarView.hostStillsLoops != listStill
         MessagesLabHomeView.reduceMotionOverride = reduce
         CmuxSidebarView.reduceMotionOverride = reduce
+        MessagesLabHomeView.hostStillsLoops = transcriptStill
+        CmuxSidebarView.hostStillsLoops = listStill
+        return changed
     }
 
     private func applyToViews() {
