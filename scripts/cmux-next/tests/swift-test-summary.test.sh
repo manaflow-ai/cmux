@@ -14,6 +14,23 @@ fail() { printf '%s\n' "$@" >&2; exit 1; }
 mkdir -p "$TMP/bin"
 cat > "$TMP/bin/swift" <<'EOF'
 #!/usr/bin/env bash
+# `swift test list` enumerates the built bundle without running anything; the
+# wrapper compares its names with the results the run reported. STUB_DISCOVERED
+# is that list, STUB_DISCOVERED_STATUS its exit status; with neither set, it
+# lists exactly the tests the canned run output says finished, so a case that
+# is not about under-reporting sees a complete run.
+if [[ "${1:-}" == test && "${2:-}" == list ]]; then
+  if [[ -n "${STUB_DISCOVERED:-}" ]]; then
+    printf '%s\n' "$STUB_DISCOVERED"
+  else
+    sed -n 's/^✔ Test \([^ ]*\) passed after .*/APackageTests.ASuite\/\1/p;
+            s/^✘ Test \([^ ]*\) failed after .*/APackageTests.ASuite\/\1/p;
+            s/^✘ Test \([^ ]*\) with [0-9]* test cases\? failed after .*/APackageTests.ASuite\/\1/p;
+            s/^✔ Test \([^ ]*\) with [0-9]* test cases\? passed after .*/APackageTests.ASuite\/\1/p;
+            s/^➜ Test \([^ ]*\) skipped.*/APackageTests.ASuite\/\1/p' "$STUB_OUTPUT"
+  fi
+  exit "${STUB_DISCOVERED_STATUS:-0}"
+fi
 cat "$STUB_OUTPUT"
 # A test that never returns: the wrapper has to end it.
 [[ -z "${STUB_SLEEP:-}" ]] || sleep "$STUB_SLEEP"
@@ -25,6 +42,7 @@ chmod +x "$TMP/bin/swift"
 # STUB_PATH goes ahead of the stub swift on PATH (a slow tee).
 run() {
   export STUB_OUTPUT="$TMP/$1.out" STUB_STATUS="$2" GITHUB_STEP_SUMMARY="$TMP/$1.summary"
+  export STUB_DISCOVERED="${STUB_DISCOVERED:-}" STUB_DISCOVERED_STATUS="${STUB_DISCOVERED_STATUS:-0}"
   : > "$GITHUB_STEP_SUMMARY"
   status=0
   # The sampler's log lives in this test's own TMPDIR: on CI the check runs beside
@@ -181,5 +199,75 @@ grep -q 'stuckHere()' <<<"$stuck" || fail "the stuck error does not name stuckHe
 if grep -q 'aPasses\|eachFails' <<<"$stuck"; then fail "the stuck error names a finished test" "$stuck"; fi
 grep -q '::1 test still running' <<<"$stuck" || fail "the stuck error miscounts" "$stuck"
 grep -q 'stuckHere()' <<<"$summary" || fail "the step summary does not name the stuck test" "$summary"
+
+# A run that reports fewer tests than `swift test list` discovered fails, even
+# with its summary line and exit 0. This is the shape that read as a pass: the
+# helper called exit() part-way, so the tests it never reached left no line at
+# all, and the summary counted only the ones that did run. Tests that never
+# started cannot be found in the log, which is why the count comes from
+# discovery and not from the log's own "started" lines.
+cat > "$TMP/short.out" <<'EOF'
+◇ Test run started.
+◇ Test aPasses() started.
+✔ Test aPasses() passed after 0.001 seconds.
+✔ Test run with 1 test in 1 suite passed after 0.002 seconds.
+EOF
+STUB_DISCOVERED='APackageTests.ASuite/aPasses()
+APackageTests.ASuite/neverRan()
+APackageTests.BSuite/neverRanEither()' run short 0
+unset STUB_DISCOVERED
+[[ "$status" != 0 ]] || fail "a run that reported 1 of 3 discovered tests exited 0" "$out"
+under=$(grep '^::error title=cmux-next swift test under-reported' <<<"$out" || true)
+[[ -n "$under" ]] || fail "no under-reported ::error line" "$out"
+grep -q '2 of 3 discovered tests never reported' <<<"$under" || fail "the error does not count 2 of 3" "$under"
+grep -q 'neverRan()' <<<"$under" || fail "the error does not name neverRan()" "$under"
+grep -q 'neverRanEither()' <<<"$under" || fail "the error does not name neverRanEither()" "$under"
+if grep -q 'aPasses' <<<"$under"; then fail "the error names a test that did report" "$under"; fi
+grep -q 'neverRan()' <<<"$summary" || fail "the step summary does not name neverRan()" "$summary"
+
+# A complete run is not flagged: every discovered test reported, including a
+# skip and a parameterized test, whose console line gives only its own name.
+cat > "$TMP/whole.out" <<'EOF'
+◇ Test run started.
+◇ Test aPasses() started.
+✔ Test aPasses() passed after 0.001 seconds.
+✔ Test cases(n:) with 2 test cases passed after 0.001 seconds.
+➜ Test needsADisplay() skipped: "no window session"
+✔ Test run with 4 tests in 1 suite passed after 0.003 seconds.
+EOF
+STUB_DISCOVERED='APackageTests.ASuite/aPasses()
+APackageTests.ASuite/cases(n:)
+APackageTests.ASuite/needsADisplay()' run whole 0
+unset STUB_DISCOVERED
+[[ "$status" == 0 ]] || fail "a complete run exited $status" "$out"
+[[ "$out" != *"under-reported"* ]] || fail "a complete run was called under-reported" "$out"
+
+# A red test counts as reported: the guard is about tests that never ran, and
+# must not turn one red test into a second, confusing error.
+cat > "$TMP/redreported.out" <<'EOF'
+◇ Test run started.
+◇ Test aFails() started.
+✘ Test aFails() recorded an issue at AFileTests.swift:12:9: Expectation failed: 1 == 2
+✘ Test aFails() failed after 0.010 seconds with 1 issue.
+✘ Test run with 1 test in 1 suite failed after 0.011 seconds with 1 issue.
+EOF
+STUB_DISCOVERED='APackageTests.ASuite/aFails()' run redreported 1
+unset STUB_DISCOVERED
+[[ "$status" == 1 ]] || fail "a red run with full coverage exited $status, not 1" "$out"
+[[ "$out" != *"under-reported"* ]] || fail "a reported red test was called under-reported" "$out"
+
+# Discovery that fails is not a pass: the run cannot be checked, so it fails
+# and says so rather than trusting the summary line.
+STUB_DISCOVERED_STATUS=1 run whole 0
+STUB_DISCOVERED_STATUS=0
+[[ "$status" != 0 ]] || fail "a run whose discovery failed exited 0" "$out"
+grep '^::error' <<<"$out" | grep -q 'discovery failed' || fail "the error does not say discovery failed" "$out"
+
+# A filter that matched nothing while Swift Testing still ran is a mistake, not
+# a pass: an empty discovery list proves nothing about the run.
+STUB_DISCOVERED=' ' run whole 0
+unset STUB_DISCOVERED
+[[ "$status" != 0 ]] || fail "a run that discovered no test exited 0" "$out"
+grep '^::error' <<<"$out" | grep -q 'named no test' || fail "the error does not say no test was discovered" "$out"
 
 echo "ok swift-test-summary"
