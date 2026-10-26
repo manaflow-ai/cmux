@@ -80,16 +80,20 @@ struct InternalPageDiscardPolicyCoverageTestsBatch4 {
         #expect(service.keepReasons(for: "memory").isEmpty)
     }
 
-    @Test func aRebuiltMemoryInspectorShowsItsSearchAgain() throws {
+    @Test func aRebuiltMemoryInspectorShowsItsNodesAndSearchAgain() throws {
         let services = Self.services()
         let service = ChiefMemoryPageService(services: services)
         _ = service.makeView(for: "memory", in: nil)
-        try #require(service.model(for: "memory")).query = "deploy"
+        try #require(service.model(for: "memory")).restore(trail: ["0+8", "0+3"], query: "deploy")
         service.viewDiscarded("memory")
         #expect(service.model(for: "memory") == nil, "the discarded view's model goes with it")
-        let rebuilt = service.makeView(for: "memory", in: nil)
-        service.restoreViewState(ContentViewState(), for: "memory", content: rebuilt)
-        #expect(service.model(for: "memory")?.query == "deploy")
+        _ = service.makeView(for: "memory", in: nil)
+        let rebuilt = try #require(service.model(for: "memory"))
+        #expect(rebuilt.trail == ["0+8", "0+3"])
+        #expect(rebuilt.query == "deploy")
+        service.tabClosed("memory")
+        _ = service.makeView(for: "memory", in: nil)
+        #expect(service.model(for: "memory")?.trail.isEmpty == true, "a closed tab's state goes with it")
     }
 
     // MARK: homeTab

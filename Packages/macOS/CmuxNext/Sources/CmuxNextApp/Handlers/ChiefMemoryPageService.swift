@@ -172,6 +172,9 @@ final class ChiefMemoryPageService: InternalPageProvider {
             defer { self?.confirming.remove(key) }
             return await CmuxDialogCenter.shared.present(spec, in: scope).button == ChiefMemoryInspectorView.deleteButton
         }
+        // A view made again after a discard opens on the nodes and search it showed; its first
+        // reload reads the last node.
+        if let shown = saved.removeValue(forKey: key) { model.restore(trail: shown.trail, query: shown.query) }
         models[key] = model
         let view = NSHostingView(rootView: ChiefMemoryInspectorView(model: model))
         anchor.view = view
@@ -201,22 +204,11 @@ final class ChiefMemoryPageService: InternalPageProvider {
         return [.unsavedEdits]
     }
 
-    /// The tab stays with its route (its Chief); its opened nodes and search wait for its next view.
+    /// The tab stays with its route (its Chief); its opened nodes and search wait for its next view
+    /// (``makeView(for:in:)``).
     func viewDiscarded(_ key: String) {
         guard let model = models.removeValue(forKey: key) else { return }
         saved[key] = SavedView(trail: model.trail, query: model.query)
-    }
-
-    /// The rebuilt view searches and opens the nodes again, outermost first, as the person did.
-    func restoreViewState(_ state: ContentViewState, for key: String, content: NSView) {
-        guard let view = saved.removeValue(forKey: key), let model = models[key] else { return }
-        model.query = view.query
-        guard !view.trail.isEmpty || !view.query.isEmpty else { return }
-        // task-owner: one read per saved node and one search; ends with the last answer
-        Task { @MainActor in
-            for name in view.trail { await model.open(name) }
-            if !view.query.isEmpty { await model.search() }
-        }
     }
 
     func route(for key: String) -> String? { routes[key]?.description }

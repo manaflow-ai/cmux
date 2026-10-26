@@ -113,6 +113,13 @@ public final class ChiefMemoryInspectorModel {
         error = nil
     }
 
+    /// Opens on `trail` (outermost first) with `query` in the search field: what a tab whose view
+    /// was discarded showed. The next ``reload()`` reads the last node.
+    public func restore(trail: [String], query: String) {
+        self.trail = trail
+        self.query = query
+    }
+
     /// Drops the edit.
     public func cancelEdit() {
         editing = nil
