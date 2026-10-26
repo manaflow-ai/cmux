@@ -215,6 +215,16 @@ async fn agents_start_children_within_their_width_and_depth_limits() {
     // A session acts only on its own family.
     let e = pa.refused("_acpmux/subsession/stop", json!({"sessionId": b})).await;
     assert_eq!(e["data"]["reason"], "subsessions.not_family", "{e}");
+    // retry_session is held to the same ownership as stop_session, then to the retry's rules.
+    let e = pa.refused("_acpmux/subsession/retry", json!({"sessionId": b})).await;
+    assert_eq!(e["data"]["reason"], "subsessions.not_family", "{e}");
+    let e = p.refused("_acpmux/subsession/retry", json!({"sessionId": a})).await;
+    assert_eq!(e["data"]["reason"], "retry.nothing_failed", "{e}");
+    let e = p.refused("_acpmux/subsession/retry", json!({"sessionId": a, "subagentId": "x"})).await;
+    assert_eq!(e["data"]["reason"], "retry.unknown_subagent", "{e}");
+    // Nor its own parent: a session retries only its own sub-sessions.
+    let e = pa.refused("_acpmux/subsession/retry", json!({"sessionId": parent})).await;
+    assert_eq!(e["data"]["reason"], "subsessions.not_family", "{e}");
     // A child reports to its parent.
     pa.ok("_acpmux/subsession/send", json!({"sessionId": parent, "text": "echo from a"})).await;
     // It never stops its parent's turn.

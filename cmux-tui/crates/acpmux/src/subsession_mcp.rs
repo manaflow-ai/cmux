@@ -102,14 +102,15 @@ fn tools() -> Value {
         },
         {
             "name": "send_message",
-            "description": "Send a message to one of your sub-sessions (or to your parent session, to report or to ask for a higher limit). To a working session it queues behind the running turn by default, and the result says where it waits. deliver: next_step puts it into the running turn instead, read at the agent's next tool step (an agent that cannot take a message mid-turn gets it when the turn ends; the result's delivery says which); interrupt stops the turn first. A message to your parent always waits for its turn to end. The receiver's chat shows it came from you.",
+            "description": "Send a message to one of your sub-sessions (or to your parent session, to report or to ask for a higher limit). To a working session it goes into the running turn by default, read at the agent's next tool step; it never cancels the tool call the agent runs (an agent that cannot take a message mid-turn gets it when the turn ends; the result's delivery says which, and where it waits). deliver: after_turn queues it behind the running turn instead; interrupt stops the turn first (never your parent's). The receiver's chat shows it came from you.",
             "inputSchema": {
                 "type": "object",
                 "properties": {
                     "sessionId": {"type": "string"},
                     "text": {"type": "string"},
-                    "deliver": {"type": "string", "enum": ["next_step", "after_turn", "interrupt"], "description": "after_turn (default): queued behind the running turn. next_step: into the running turn, read at its next tool step (use it when the receiver must change course now). interrupt: stop the running turn, then run this."},
-                    "interrupt": {"type": "boolean", "description": "The same as deliver: interrupt."}
+                    "deliver": {"type": "string", "enum": ["next_step", "after_turn", "interrupt"], "description": "next_step (default): into the running turn, read at its next tool step. after_turn: queued behind the running turn, read when it ends. interrupt: stop the running turn, then run this (not to your parent)."},
+                    "interrupt": {"type": "boolean", "description": "The same as deliver: interrupt."},
+                    "attachments": {"type": "array", "items": {"type": "string"}, "maxItems": crate::attach::MAX_FILES, "description": "Files to send with it, as absolute paths on this machine (a screenshot, a log): an image reaches the receiver as an image, any other file as a link to its saved copy. At most 8 MiB a file and 10 MiB together."}
                 },
                 "required": ["sessionId", "text"]
             }
@@ -124,6 +125,18 @@ fn tools() -> Value {
                     "close": {"type": "boolean"}
                 },
                 "required": ["sessionId"]
+            }
+        },
+        {
+            "name": "retry_session",
+            "description": "Retry a sub-session's failed last turn now, in the same session, taking over a retry that waits after a transient error (a 503, an overload, a dropped connection): its failed prompt is sent again, or a continuation when the turn had already done some work. With subagent, resume that failed subagent of the sub-session instead: a waiting automatic retry fires now, or its agent is told to resume it with SendMessage. Refused while a turn runs or is about to start (retry.busy, never queued for a subagent), when nothing failed or the subagent can no longer be retried (retry.nothing_failed, data.why says why: resumed, replaced, ended, skipped, ...), for a subagent it does not have (retry.unknown_subagent), or when it asks less than you (subsessions.receiver_asks_less). Returns the retry's promptId and kind (turn or subagent); use wait_for_sessions to read the result.",
+            "inputSchema": {
+                "type": "object",
+                "properties": {
+                    "session": {"type": "string", "description": "The sub-session's sessionId."},
+                    "subagent": {"type": "string", "description": "One of its failed subagents (an Agent-tool subagent that failed on a transient error), by id or agent id: its agent is told to resume it now with SendMessage, instead of retrying the turn. Refused with retry.nothing_failed when it is not failed or cannot be retried, retry.unknown_subagent when there is no such subagent."}
+                },
+                "required": ["session"]
             }
         },
         {
@@ -213,9 +226,9 @@ fn sent_text(r: &Value) -> String {
         }
         "queued" => {
             let sooner = if r["steering"].as_bool().unwrap_or(false) {
-                "To reach it sooner send with deliver: next_step, or interrupt to stop the turn."
+                "To reach it sooner send without deliver (it goes into the running turn at its next tool step)."
             } else {
-                "Its agent takes no message mid-turn; interrupt stops the turn to reach it sooner."
+                "Its agent takes no message mid-turn, so it waits for the turn to end."
             };
             format!(
                 "Queued behind its running turn (position {}, {queue} queued): it reads it when that turn ends. {sooner}",
@@ -224,6 +237,40 @@ fn sent_text(r: &Value) -> String {
         }
         _ => "Sent: it started a turn with it.".to_owned(),
     }
+}
+
+/// `send_message`'s `attachments` (absolute paths) as the files' blocks (`attach.rs`): this server
+/// reads them, as the agent's own user on its own machine.
+async fn with_attachments(mut args: Value) -> Result<Value> {
+    let Some(paths) = args.get("attachments").filter(|v| !v.is_null()) else { return Ok(args) };
+    let paths: Vec<std::path::PathBuf> = paths
+        .as_array()
+        .ok_or_else(|| anyhow::anyhow!("attachments must be a list of file paths"))?
+        .iter()
+        .map(|p| p.as_str().map(std::path::PathBuf::from).filter(|p| p.is_absolute()))
+        .collect::<Option<_>>()
+        .ok_or_else(|| anyhow::anyhow!("each attachment is an absolute file path"))?;
+    let blocks =
+        tokio::task::spawn_blocking(move || crate::attach::blocks_from_paths(&paths)).await??;
+    args["attachments"] = Value::Array(blocks);
+    Ok(args)
+}
+
+/// `retry_session`'s `{session, subagent?}` (`sessionId` taken too) as the daemon's params.
+fn retry_params(args: &Value) -> Value {
+    let session = args.get("session").or_else(|| args.get("sessionId"));
+    let mut params = json!({"sessionId": session.cloned().unwrap_or(Value::Null)});
+    if let Some(subagent) = args.get("subagent").filter(|v| !v.is_null()) {
+        params["subagentId"] = subagent.clone();
+    }
+    params
+}
+
+/// `retry_session`'s one line.
+fn retried_text(r: &Value) -> String {
+    let prompt = r["promptId"].as_str().unwrap_or_default();
+    let turn = r["turnId"].as_str().map(|t| format!(" started turn {t}")).unwrap_or_default();
+    format!("Retrying: prompt {prompt}{turn}. Use wait_for_sessions to get its result.")
 }
 
 /// A daemon refusal as the agent reads it: the daemon's message is the advice.
@@ -250,12 +297,19 @@ async fn call(daemon: &Client, params: &Value) -> Value {
             Ok(r) => ok(serde_json::to_string_pretty(&r).unwrap_or_default(), r),
             Err(e) => refusal(e),
         },
-        "send_message" => match request(method::MUX_SUBSESSION_SEND, args).await {
-            Ok(r) => ok(sent_text(&r), r),
+        "send_message" => match with_attachments(args).await {
+            Ok(args) => match request(method::MUX_SUBSESSION_SEND, args).await {
+                Ok(r) => ok(sent_text(&r), r),
+                Err(e) => refusal(e),
+            },
             Err(e) => refusal(e),
         },
         "stop_session" => match request(method::MUX_SUBSESSION_STOP, args).await {
             Ok(r) => ok(serde_json::to_string_pretty(&r).unwrap_or_default(), r),
+            Err(e) => refusal(e),
+        },
+        "retry_session" => match request(method::MUX_SUBSESSION_RETRY, retry_params(&args)).await {
+            Ok(r) => ok(retried_text(&r), r),
             Err(e) => refusal(e),
         },
         "answer_question" => match request(method::MUX_SUBSESSION_ANSWER, args).await {
@@ -361,6 +415,27 @@ mod tests {
         assert!(rules.contains(&format!("cmux.{CMUX_APP_TOOL}(")), "{rules}");
         assert!(rules.contains(&format!("cmux.{CMUX_APP_TAB_TOOL}(")), "{rules}");
         assert!(!rules.contains("agent_report"), "agent.report needs a terminal: {rules}");
+    }
+
+    /// `retry_session` takes the contract's `{session, subagent?}` and sends `_acpmux/subsession/retry`'s
+    /// `{sessionId, subagentId?}`.
+    #[test]
+    fn retry_session_names_the_session_and_maps_its_arguments() {
+        let tools = tools();
+        let retry = tools
+            .as_array()
+            .and_then(|t| t.iter().find(|t| t["name"] == "retry_session"))
+            .expect("retry_session")
+            .clone();
+        assert_eq!(retry["inputSchema"]["required"], json!(["session"]), "{retry}");
+        assert!(retry["inputSchema"]["properties"]["subagent"].is_object(), "{retry}");
+        assert_eq!(
+            retry_params(&json!({"session": "s1", "subagent": "a1"})),
+            json!({"sessionId": "s1", "subagentId": "a1"})
+        );
+        assert_eq!(retry_params(&json!({"sessionId": "s2"})), json!({"sessionId": "s2"}));
+        let text = retried_text(&json!({"promptId": "p~resume-1", "turnId": "t2", "kind": "turn"}));
+        assert!(text.starts_with("Retrying: prompt p~resume-1 started turn t2."), "{text}");
     }
 
     /// `host` documents `auto` and `auto-build`, and a placed start says why

@@ -48,8 +48,18 @@ pub fn status_indicator(summary: &Value) -> Option<&'static str> {
 
 /// The keys of a turn's result kept as the session's `lastTurn` (its `detail` names why a turn
 /// ended without an answer, e.g. `outcome_unknown`).
-pub(super) const LAST_TURN_KEYS: [&str; 7] =
-    ["turnId", "promptId", "status", "stopReason", "errorText", "errorSource", "detail"];
+pub(super) const LAST_TURN_KEYS: [&str; 10] = [
+    "turnId",
+    "promptId",
+    "status",
+    "stopReason",
+    "errorText",
+    "errorSource",
+    "detail",
+    "errorKind",
+    "recovery",
+    "details",
+];
 
 impl Hub {
     /// Ends a turn no one heard the outcome of (`outcome_unknown`: a daemon restart, or a host
@@ -273,6 +283,8 @@ impl Hub {
         let turn = session.turn();
         let stall_after = self.config.try_read().ok().and_then(|c| c.stalled_turn());
         let heard_at = session.last_model_at.load(Ordering::Relaxed);
+        // After `turn`: a retry's turn that started since is seen there (`retry_row`).
+        let (retry, retry_deciding) = self.retry_row(session, m.last_turn.as_ref());
         let summary = SessionSummary {
             session_id: m.id.clone(),
             name: m.name.clone(),
@@ -341,6 +353,8 @@ impl Hub {
                     prompt: q.preview,
                     queued_at: q.queued_at,
                     held: q.held,
+                    from_agent: q.run.agent.clone(),
+                    author: crate::author::listed(q.run.provenance.as_ref()),
                     // By attachment id: `_acpmux/attachment` reads each back.
                     images: super::prompt_images::named(&q.run.blocks)
                         .into_iter()
@@ -379,6 +393,9 @@ impl Hub {
             state_seq: session.state_seq.load(Ordering::SeqCst),
             unread: m.unread,
             last_turn: m.last_turn.clone(),
+            // A retry of its failed last turn waits, or is being decided (`auto_resume.rs`).
+            retry,
+            retry_deciding,
             attached: session.attached.load(Ordering::SeqCst) as u64,
             // Some attached client shows the chat (`hub/seen.rs`).
             shown: self.shown(session),
@@ -414,6 +431,10 @@ impl Hub {
         v["agentCapabilities"] = m.agent_capabilities.clone().unwrap_or(Value::Null);
         v["usage"] = m.usage.clone().unwrap_or(Value::Null);
         v["goal"] = m.goal.clone().unwrap_or(Value::Null);
+        // What the context holds by category, as Claude Code's /context says after each turn.
+        v["contextBreakdown"] = m.context_breakdown.clone().unwrap_or(Value::Null);
+        // The account's plan usage limits, as Claude Code's rate_limit_event last said them.
+        v["usageLimits"] = m.usage_limits.clone().unwrap_or(Value::Null);
         // The newest command list: a client that has it needs no read of the log for it.
         if let Some(commands) = &m.available_commands {
             v["availableCommands"] = commands.clone();
@@ -439,6 +460,12 @@ impl Hub {
         // Before the config lock: it may wait up to `host_pressure::SAMPLE_WAIT` for a sample.
         let host_pressure = self.host_pressure_status().await;
         let cfg = self.config.read().await;
+        // The space of acpmux's disk, `disk.low` with what to free under the floor. Blocking
+        // (statvfs and a bounded, cached folder walk), so off the async workers.
+        let low = cfg.disk_low_bytes.unwrap_or(crate::recovery::DISK_LOW_DEFAULT_BYTES);
+        let disk = tokio::task::spawn_blocking(move || crate::recovery::disk_status(low))
+            .await
+            .unwrap_or(Value::Null);
         let sessions = self.sessions();
         let mut live = 0;
         for s in &sessions {
@@ -468,6 +495,14 @@ impl Hub {
             "store": cfg.store,
             "sessions": sessions.len(),
             "liveAgents": live,
+            "disk": disk,
+            // macOS: whether this daemon's agents can read the login keychain
+            // (`daemon/login_session.rs`); absent elsewhere.
+            "loginSession": daemon_login_session(),
+            "ownHome": crate::daemon::login_placement::own_home(
+                &crate::config::home(),
+                &crate::config::default_home()
+            ),
             // `deny`: this daemon starts no agent process (cx-9ettq).
             "agentLaunch": crate::launch_policy::status_word(),
             // Hidden pre-created sessions; never counted above.
@@ -480,6 +515,7 @@ impl Hub {
             "permissionPolicy": cfg.permission_policy.to_string(),
             "peers": self.peers(),
             "remoteSessions": self.remote_sessions.lock().unwrap().len(),
+            "openWaits": self.open_waits.load(Ordering::SeqCst),
             "webUrl": web_url(&cfg),
             "listen": cfg.web_listener().map(|w| w.listen.clone()),
             "ready": self.startup_complete(),
@@ -508,3 +544,16 @@ pub(crate) fn runs_as_cmux_tui_acp<A: AsRef<std::ffi::OsStr>>(
 #[cfg(test)]
 #[path = "views_lane_tests.rs"]
 mod lane_tests;
+
+/// `true` when this daemon runs in the user's login session (its agents read the
+/// login keychain), `false` when it does not, `"unknown"` when its security session
+/// could not be read; null off macOS.
+fn daemon_login_session() -> Value {
+    #[cfg(target_os = "macos")]
+    return match crate::daemon::login_session::in_login_session() {
+        Some(here) => Value::Bool(here),
+        None => Value::String("unknown".into()),
+    };
+    #[cfg(not(target_os = "macos"))]
+    Value::Null
+}
