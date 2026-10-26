@@ -112,5 +112,23 @@ struct ExtensionActionButtonTests {
         #expect(!h.button.isHighlighted)
         h.button.mouseUp(with: release)
         #expect(h.runs == 0)
+        #expect(h.moves.isEmpty && h.ends.isEmpty, "a plain press reported a drag")
+    }
+
+    /// The button leaves its window during a reorder drag (a render unpins or removes it): the drag ends once
+    /// at offset 0, the start index, so the toolbar clears every shift and reorders nothing; a stray release
+    /// reports nothing more.
+    @Test func aReorderDragEndsAtItsStartWhenTheButtonLeavesItsWindow() throws {
+        let h = Harness()
+        defer { h.window.close() }
+        let release = try h.event(.leftMouseUp, dx: 24)
+        h.button.mouseDown(with: try h.event(.leftMouseDown))
+        h.button.mouseDragged(with: try h.event(.leftMouseDragged, dx: ExtensionActionButton.dragThreshold + 17))
+        #expect(h.moves == [ExtensionActionButton.dragThreshold + 17])
+        h.button.removeFromSuperview()
+        #expect(h.ends == [0], "the drag did not end at its start index")
+        h.button.mouseUp(with: release)
+        #expect(h.ends == [0], "the stray release ended the drag again")
+        #expect(h.runs == 0)
     }
 }

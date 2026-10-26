@@ -11,7 +11,8 @@ final class ExtensionActionButton: NSButton, PointerHoverReporting {
     var onRun: (() -> Void)?
     var onMenu: ((CGPoint) -> Void)?
     /// Drag to reorder (pinned order): whether a drag may start, then the
-    /// horizontal offset while dragging and when released.
+    /// horizontal offset while dragging and when released (0 when the button
+    /// leaves its window mid-drag).
     var canDrag: (() -> Bool)?
     var onDragMoved: ((CGFloat) -> Void)?
     var onDragEnded: ((CGFloat) -> Void)?
@@ -157,10 +158,12 @@ final class ExtensionActionButton: NSButton, PointerHoverReporting {
 
     override func viewDidMoveToWindow() {
         super.viewDidMoveToWindow()
-        // Out of the window, the press's mouse-up never comes here: end the press.
-        if window == nil, press != nil {
-            press = nil
+        // Out of the window, the press's mouse-up never comes here: end the press. A reorder drag
+        // ends at offset 0, its start index, so the toolbar clears the shifts and moves nothing.
+        if window == nil, let press {
+            self.press = nil
             isHighlighted = false
+            if press.dragging { onDragEnded?(0) }
         }
         hover?.refresh()
     }
