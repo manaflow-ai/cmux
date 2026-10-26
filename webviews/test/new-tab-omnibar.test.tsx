@@ -235,10 +235,10 @@ test("a prompt's top row asks the agent, with a web search under it", async () =
   expect(calls).toEqual([["ask", "claude", "why is the reddit scraper slow", undefined, "claude-opus-5-5"]]);
 });
 
-// Lucas 2026-10-26: the arrows wrapped from the last row to the first and never came back to the
-// chat field. The field sits between the last row and the first: Down from the last row and Up
-// from the top row return to it (no row highlighted), and Return there sends the prompt.
-test("Down past the last row and Up past the top row come back to the field", async () => {
+// Lucas 2026-10-26: the arrows wrapped through the rows and never came back to the chat field.
+// Down on the last row still wraps to the top row, but Up on the top row returns to the field (no
+// row highlighted), and Return there sends the prompt.
+test("Down on the last row wraps to the top; Up on the top row comes back to the field", async () => {
   const calls: unknown[][] = [];
   await render(calls);
   const field = await type("why is the reddit scraper slow");
@@ -252,14 +252,14 @@ test("Down past the last row and Up past the top row come back to the field", as
   for (let step = 1; step < count; step += 1) await press("ArrowDown");
   expect(highlighted()).toBe(count - 1);
   await press("ArrowDown");
-  expect(highlighted()).toBe(-1);
-  await press("ArrowDown");
   expect(highlighted()).toBe(0);
   await press("ArrowUp");
   expect(highlighted()).toBe(-1);
   await press("ArrowUp");
   expect(highlighted()).toBe(count - 1);
-  await press("ArrowDown");
+  for (let step = 1; step < count; step += 1) await press("ArrowUp");
+  expect(highlighted()).toBe(0);
+  await press("ArrowUp");
   expect(highlighted()).toBe(-1);
 
   await press("Enter");

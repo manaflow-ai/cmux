@@ -192,15 +192,15 @@ export function omnibarRows(query: string, kind: TabKind, context: OmnibarContex
   return [...first, ...scored.slice(0, MAX_ROWS - first.length - 1), last];
 }
 
-/// The selection after Down/Ctrl-N (`step` 1) or Up/Ctrl-P (`step` -1). The field itself (-1, no
-/// row: Enter sends the prompt) sits between the last row and the first, so the arrows always
-/// come back to it: Down from the last row and Up from the first row return to the field, and
-/// from the field Down takes the first row and Up the last.
+/// The selection after Down/Ctrl-N (`step` 1) or Up/Ctrl-P (`step` -1) (Lucas 2026-10-26): Down
+/// on the last row wraps to the first, and Up on the first row returns to the field (-1, no row:
+/// Return sends the prompt), so the caret can move again. From the field Down takes the first row
+/// and Up the last.
 export function stepSelection(current: number, step: 1 | -1, count: number): number {
   if (count === 0) return -1;
-  const next = current + step;
-  if (next >= count) return -1;
-  return next < -1 ? count - 1 : next;
+  if (current < 0) return step === 1 ? 0 : count - 1;
+  if (step === 1) return (current + 1) % count;
+  return current - 1;
 }
 
 /// The row Enter takes before the arrows move: the typed text's own row. None for an
