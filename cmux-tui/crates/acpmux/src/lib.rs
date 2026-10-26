@@ -21,6 +21,8 @@ pub mod agent_displays;
 pub mod agent_host;
 pub mod agent_link;
 pub mod agent_tools;
+pub mod attach;
+pub mod author;
 pub mod beads;
 pub mod byo_endpoint;
 pub mod capabilities;
@@ -52,6 +54,8 @@ pub mod hub;
 mod job;
 pub mod launch_credential;
 pub mod launch_policy;
+#[cfg(target_os = "linux")]
+pub(crate) mod linux_sandbox;
 pub mod live_models;
 pub mod local_stream;
 pub mod login_env;

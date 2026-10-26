@@ -84,6 +84,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
+        Command::Retry(args) => crate::cli::retry::run(args, json_out).await,
         Command::Rename { session, new_name } => {
             let client = connect(true).await?;
             let id = resolve_id(&client, &session).await?;
@@ -422,7 +423,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
             }
             Ok(())
         }
-        Command::Peer(cmd) => {
+        Command::Host(cmd) => {
             let client = connect(true).await?;
             let v = match cmd {
                 PeerCmd::Add { name, url, token } => {
@@ -477,14 +478,13 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
                     return crate::cli::hosts::update(client, name, all, opts, json_out).await;
                 }
                 PeerCmd::Enroll { host, name, harnesses, remote_binary, reverse } => {
-                    let plan = crate::cli::host_enroll::Plan {
-                        name: name.unwrap_or_else(|| crate::cli::hosts::short_name(&host)),
+                    let plan = crate::cli::host_enroll::Plan::enroll(
                         host,
-                        port: crate::peer::SSH_PEER_PORT,
+                        name,
                         harnesses,
                         remote_binary,
                         reverse,
-                    };
+                    );
                     return crate::cli::host_enroll::run(client, plan, true, json_out).await;
                 }
                 PeerCmd::Doctor { target, fix, harnesses, remote_binary, reverse } => {
@@ -558,8 +558,7 @@ pub(super) async fn run(cmd: Command, json_out: bool, _suppress_reads: bool) -> 
         | Command::UniichatAgent { .. }
         | Command::Session(_)
         | Command::Daemon(_)
-        | Command::Harness(_)
-        | Command::Host(_) => {
+        | Command::Harness(_) => {
             unreachable!()
         }
         _ => Err(anyhow!("command routed to the wrong dispatch family")),

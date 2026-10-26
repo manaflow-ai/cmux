@@ -643,7 +643,8 @@ pub fn write(paths: &Paths, setup: &SessionSetup) -> io::Result<()> {
     // Each pack's CLI and git with the Chief's own login when it has one
     // (toolpacks.rs; the GitHub pack's gh as before).
     remove_if_present(&paths.bin.join("git-credential-chief"))?;
-    let shims = crate::toolpacks::wrappers(&packs);
+    let mut shims = crate::toolpacks::wrappers(&packs);
+    shims.extend(crate::toolpacks::script_wrappers(&paths.home, &packs));
     // A pack turned off or removed takes its wrapper with it.
     for entry in std::fs::read_dir(&paths.bin)?.flatten() {
         let name = entry.file_name().to_string_lossy().into_owned();

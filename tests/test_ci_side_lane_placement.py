@@ -256,6 +256,46 @@ LIGHT = "glaeda-light-xcode-26.6"
 SNAPSHOT = ROOT / "tests/fixtures/side-lane-placement/fleet-2026-10-20T2222Z.json"
 
 
+FAST = "glaeda-fast-light-xcode-26.6"
+
+
+class FastRoute(unittest.TestCase):
+    """The fast tier takes its reserved label only while a runner carrying it is idle (2026-10-25:
+    15 runs' fast tiers queued an hour behind the two runners left on the light fast label)."""
+
+    def test_an_idle_fast_runner_takes_the_fast_tier(self):
+        runners = [runner("mini-a-glaeda-3", labels=(FAST,)), runner("mini-b-glaeda-3", busy=True, labels=(FAST,))]
+        self.assertEqual(placement.fast_route({"FAST_LABEL": FAST}, runners), FAST)
+
+    def test_a_busy_offline_or_unread_fast_pool_routes_nothing(self):
+        busy = [runner("mini-a-glaeda-3", busy=True, labels=(FAST,)),
+                runner("mini-b-glaeda-3", status="offline", labels=(FAST,))]
+        self.assertEqual(placement.fast_route({"FAST_LABEL": FAST}, busy), "")
+        self.assertEqual(placement.fast_route({"FAST_LABEL": FAST}, []), "")
+        self.assertEqual(placement.fast_route({"FAST_LABEL": FAST}, None), "")
+        self.assertEqual(placement.fast_route({}, [runner("mini-a-glaeda-3", labels=(FAST,))]), "")
+
+    def test_the_fast_tier_leaves_jobs_and_the_cascade_only_when_routed(self):
+        trimmed = placement.without_fast({"JOBS": "fast-tier swift-canary", "CASCADE_RUNS": " fast-tier swift-canary  "})
+        self.assertEqual(trimmed["JOBS"], "swift-canary")
+        self.assertEqual(trimmed["CASCADE_RUNS"], " swift-canary ")
+        self.assertEqual(placement.without_fast({"CASCADE_RUNS": " fast-tier "})["CASCADE_RUNS"], "")
+
+    def test_main_writes_fast_runner(self):
+        idle = [runner("mini-a-glaeda-3", labels=(FAST,)), runner("mini-b-glaeda-1", busy=True)]
+        for runners, expected in ((idle, FAST), (idle[1:], "")):
+            with self.subTest(expected=expected), tempfile.TemporaryDirectory() as tmp:
+                output = Path(tmp) / "out"
+                values = env(JOBS="fast-tier " + " ".join(JOBS), FAST_LABEL=FAST, CASCADE_RUNS=" fast-tier ",
+                             GITHUB_OUTPUT=str(output), ROUTE_TOKEN="t", GITHUB_REPOSITORY="manaflow-ai/cmux")
+                with mock.patch.object(placement.pool, "GitHub") as github, \
+                        mock.patch.object(placement.cascade, "read", return_value=(None, None, None)), \
+                        contextlib.redirect_stdout(io.StringIO()):
+                    github.return_value.runners.return_value = runners
+                    placement.main(values)
+                self.assertIn(f"fast_runner={expected}\n", output.read_text())
+
+
 class SpillToCompatiblePool(unittest.TestCase):
     def setUp(self):
         self.assertIsNotNone(placement, "scripts/ci/side_lane_placement.py is missing")
@@ -506,7 +546,7 @@ class CmuxNextWiring(unittest.TestCase):
                     free["needs"][self.PLACEMENT]["outputs"]["retry_runner"] = FALLBACK
                     self.assertEqual(evaluate(expression, free), FALLBACK)
                     # The fast tier's own fast-lane mini is left the same way.
-                    free["vars"]["CI_FAST_LANE_RUNNER"] = "glaeda-fast-std-xcode-26.6"
+                    free["needs"][self.PLACEMENT]["outputs"]["fast_runner"] = "glaeda-fast-std-xcode-26.6"
                     self.assertEqual(evaluate(expression, free), FALLBACK)
                     # With no free slot it waits behind the fleet, never in a Blacksmith queue, as attempt 3 does.
                     full = self.context("2", runner=STD, triggering_actor=bot)

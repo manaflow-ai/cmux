@@ -310,6 +310,10 @@ nonisolated enum CloudActionCatalog: ActionCatalogGroup {
         for index in actions.indices where waitsForResult.contains(actions[index].id) {
             actions[index].waitsForResult = true
         }
+        // What each one does and returns, for `action describe` and the MCP tools (CloudActionDescriptions).
+        for index in actions.indices {
+            actions[index].description = actions[index].description ?? CloudActionDescriptions.text[actions[index].id]
+        }
         return actions
     }
 }

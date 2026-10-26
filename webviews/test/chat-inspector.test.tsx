@@ -5,13 +5,13 @@
 // it used (Context), its MCP servers (Connectors), the pull requests it opened or touched
 // (Changes), its subagents and the chats its agent started, a Cloud VM's included, its background
 // commands and what it produced (Outputs). It is open by
-// default, stays open (or closed) across chat panes, floats outside the chat's layout so it never
+// default, stays open (or closed) in each chat pane on its own, floats outside the chat's layout so it never
 // reflows the chat (the chat's column moves left only when both fit that way; Settings Push always
 // takes a column), hides a section with nothing in it, and shows five pull
 // requests under Changes and five running subagents, each then Show more (Claude Code desktop's).
 import { readFileSync } from "node:fs";
 
-import { afterEach, beforeEach, expect, setSystemTime, test } from "bun:test";
+import { afterEach, beforeEach, expect, setSystemTime, spyOn, test } from "bun:test";
 import { act, useState, type ReactNode } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { JSDOM } from "jsdom";
@@ -43,6 +43,8 @@ import {
   type StartedSession,
 } from "../src/agent-session/acpmux/started/startedSessions";
 import type { Subagent } from "../src/agent-session/acpmux/subagents/subagentFold";
+import * as subagentGroup from "../src/agent-session/acpmux/subagents/SubagentGroup";
+import * as tones from "../src/agent-session/acpmux/subagents/agentTones";
 import { sessionSummary } from "../src/agent-session/acpmux/summary/sessionSummary";
 import { activity, assistant, chat, tool } from "../src/gallery/fixtures/acpmux";
 
@@ -246,12 +248,14 @@ test("the Inspector opens with a first chat: its environment, context use and ou
   expect(inspectorState().open).toBe(false);
 });
 
-test("open, closed, folds and width hold in every chat pane, following another pane's change", async () => {
+test("open, closed, folds and width are this pane's, and another pane's change never reaches it", async () => {
+  // Leo, 2026-10-25: "it opens and closes on the other side too when you do one... they should all be
+  // individual per pane".
   const container = installDom(true);
   await render(container, localChat);
   await click(head(section(container, "context")!));
   await click(toggle(container)!);
-  // Another chat tab mounts closed, with Context still open from the first.
+  // The same pane drawn again (a chat shown again) keeps its state: closed, Context open.
   await act(async () => root!.unmount());
   root = undefined;
   await render(container, localChat);
@@ -259,13 +263,47 @@ test("open, closed, folds and width hold in every chat pane, following another p
   await click(toggle(container)!);
   expect(section(container, "context")!.textContent).toContain("48K / 200K");
   expect(inspectorState().sections.context).toBe(true);
+  await click(toggle(container)!);
 
-  // Another pane closes it: this one follows its storage event.
+  // Another pane opens its own: this one stays closed.
   await act(async () => {
-    localStorage.setItem("cmux.agentPane.inspector.open", "0");
+    localStorage.setItem("cmux.agentPane.inspector.open", "1");
     window.dispatchEvent(new StorageEvent("storage", { key: "cmux.agentPane.inspector.open" }));
   });
   expect(panel(container)).toBeNull();
+  expect(toggle(container)?.getAttribute("aria-pressed")).toBe("false");
+});
+
+test("a pane switched to another chat shows that chat's Inspector at once, never playing the last one out", async () => {
+  const container = installDom(true);
+  const chatB = { ...localChat, sessionId: "chat-b" };
+  // Chat B was left closed, chat A open.
+  await render(container, chatB);
+  await click(toggle(container)!);
+  expect(panel(container)).toBeNull();
+  await render(container, localChat);
+  await click(toggle(container)!);
+  expect(panel(container)).not.toBeNull();
+  // Every phase change of an Inspector panel while the pane switches to chat B (chat A's panel
+  // turning to `leaving` is the last chat's panel playing out over chat B).
+  const phases: string[] = [];
+  const observer = new MutationObserver((records) => {
+    for (const record of records)
+      phases.push(`${record.oldValue} -> ${(record.target as HTMLElement).getAttribute("data-presence")}`);
+  });
+  observer.observe(container, { subtree: true, attributeOldValue: true, attributeFilter: ["data-presence"] });
+  await render(container, chatB);
+  await act(async () => undefined);
+  phases.push(...observer.takeRecords().map((record) => `${record.oldValue} ->`));
+  observer.disconnect();
+  expect({ phases, panel: panel(container), pressed: toggle(container)?.getAttribute("aria-pressed") }).toEqual({
+    phases: [],
+    panel: null,
+    pressed: "false",
+  });
+  // And back to chat A: open again, as it was left.
+  await render(container, localChat);
+  expect(panel(container)).not.toBeNull();
 });
 
 test("a cloud session names its host; no usage and nothing produced have no sections", async () => {
@@ -763,7 +801,7 @@ test("Subagents names each running one on its line, and folds the ended ones int
   const subagents = section(container, "subagents")!;
   expect(meta(subagents)).toBe("3 running · 1 failed · 39 done");
   // No row of identical avatars and no "+N": the running ones by name, oldest first.
-  expect(subagents.querySelector(".cv-subagent-avatar")).toBeNull();
+  expect(subagents.querySelector(".acpmux-chat-inspector-subagents__running .cv-subagent-avatar")).toBeNull();
   expect(subagents.textContent).not.toMatch(/\+\d/);
   expect(lines(subagents)).toEqual([
     ["Agent 0", "Running"],
@@ -781,6 +819,10 @@ test("Subagents names each running one on its line, and folds the ended ones int
   // The ended ones are one row, folded.
   const ended = endedRow(subagents)!;
   expect(ended.textContent).toBe("39 done · 1 failed");
+  // The compact completed summary previews four agents without replacing their named rows.
+  expect(ended.querySelectorAll(".cv-subagent-avatar")).toHaveLength(4);
+  expect(ended.querySelector('[aria-hidden="true"]')?.querySelectorAll(".cv-subagent-avatar")).toHaveLength(4);
+  expect(ended.querySelector(".acpmux-wave-item")).toBeNull();
   expect(ended.getAttribute("aria-expanded")).toBe("false");
   expect(lines(subagents)).toHaveLength(3);
   await click(ended);
@@ -797,6 +839,47 @@ test("Subagents names each running one on its line, and folds the ended ones int
   expect(shown).toEqual(["agent-1", "agent-8"]);
   await click(ended);
   expect(subagents.querySelector(".acpmux-chat-inspector-subagents__list")).toBeNull();
+});
+
+test("200 streamed tokens do not render the completed avatar preview again", async () => {
+  const container = installDom(true);
+  const avatarRenders = spyOn(subagentGroup, "Avatar");
+  const toneHashes = spyOn(tones, "agentTone");
+  const completed = Array.from({ length: 31 }, (_, index) => subagent(index, "completed"));
+  const paint = async (tokens: number, agents = completed) => {
+    await act(async () => {
+      root ??= createRoot(container);
+      root.render(
+        <>
+          <p>{"token ".repeat(tokens)}</p>
+          {/* Streaming rows/views rebuild the folded agents: new array and objects each update. */}
+          <ChatInspector agents={agents.map((agent) => ({ ...agent, tokens }))} />
+        </>,
+      );
+    });
+  };
+  try {
+    await paint(0);
+    expect(avatarRenders).toHaveBeenCalledTimes(4);
+    const initialHashes = toneHashes.mock.calls.length;
+    for (let token = 1; token <= 200; token++) await paint(token);
+    expect(container.querySelector("p")?.textContent?.trim().split(" ")).toHaveLength(200);
+    expect(avatarRenders).toHaveBeenCalledTimes(4);
+    expect(toneHashes).toHaveBeenCalledTimes(initialHashes);
+    expect(endedRow(container)?.textContent).toBe("31 done");
+
+    // A new ended agent changes the preview; real changes must not be frozen by memoization.
+    await paint(201, [...completed, subagent(31, "completed")]);
+    expect(avatarRenders).toHaveBeenCalledTimes(8);
+    expect(endedRow(container)?.textContent).toBe("32 done");
+    // The same identity can receive corrected state/harness metadata after its first snapshot.
+    await paint(202, [...completed, { ...subagent(31, "failed"), harness: "codex" }]);
+    expect(avatarRenders).toHaveBeenCalledTimes(12);
+    expect(endedRow(container)?.querySelector(".cv-subagent-avatar")?.getAttribute("data-state")).toBe("failed");
+  } finally {
+    avatarRenders.mockRestore();
+    toneHashes.mockRestore();
+  }
 });
 
 test("a nested subagent waiting on the person stays under the one that spawned it", async () => {

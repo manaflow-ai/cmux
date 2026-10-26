@@ -621,8 +621,9 @@ class Wiring(unittest.TestCase):
         # compiles need full-ci again, except a member's dev-build scheme compile (its dogfood app).
         self.assertEqual(runs(labels=()), {"fast-tier", "swift-canary"})
         self.assertEqual(runs(labels=(), canary="false", scheme="false"), {"fast-tier"})
-        self.assertEqual(runs(fast_lane="glaeda-fast-std-xcode-26.6"),
-                         {"swift-canary", "cmux-scheme-compile", "release-compile"})
+        # The fast lane's label is a preference the placement takes only while it is idle
+        # (side_lane_placement.fast_route()), so the fast tier is always a cascade candidate.
+        self.assertEqual(runs(fast_lane="glaeda-fast-std-xcode-26.6"), set(CASCADED))
         self.assertEqual(runs("push", labels=(), canary="false"), {"fast-tier", "cmux-scheme-compile", "release-compile"})
         self.assertEqual(runs(labels=("dev-build",), association="CONTRIBUTOR"), {"fast-tier", "swift-canary"})
         self.assertEqual(runs(labels=("dev-build",)), {"fast-tier", "swift-canary", "cmux-scheme-compile"})
@@ -659,7 +660,8 @@ class Wiring(unittest.TestCase):
         job = self.jobs["macos-placement"]
         self.assertEqual(job["permissions"].get("actions"), "read")
         place = next(step for step in job["steps"] if step.get("id") == "place")
-        self.assertEqual(place["env"]["SNAPSHOT_TOKEN"], "${{ github.token }}")
+        # The pool snapshot reads with the glaeda read token (its own budget), else GITHUB_TOKEN.
+        self.assertEqual(place["env"]["SNAPSHOT_TOKEN"], "${{ steps.snapshot-read-token.outputs.token || github.token }}")
         for output in ("blacksmith_12_jobs", "blacksmith_6_jobs", "hosted_jobs", "hosted_runner",
                        "nightly_runner_ready"):
             self.assertEqual(job["outputs"][output], f"${{{{ steps.place.outputs.{output} }}}}")

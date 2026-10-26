@@ -1,6 +1,399 @@
 {
   "sourceLanguage": "en",
   "strings": {
+    "settings.group.import": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاستيراد"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uvoz"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importar"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importation"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importa"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "読み込み"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "នាំចូល"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "가져오기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importer"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importar"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Импорт"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "นำเข้า"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "İçe aktar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Імпорт"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nhập"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "导入"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "匯入"
+          }
+        }
+      }
+    },
+    "settings.browser.importEnabled": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Import from Other Browsers"
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "الاستيراد من متصفحات أخرى"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Uvoz iz drugih preglednika"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importér fra andre browsere"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Aus anderen Browsern importieren"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importar desde otros navegadores"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importer depuis d’autres navigateurs"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importa da altri browser"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "他のブラウザから読み込む"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "នាំចូលពីកម្មវិធីរុករកផ្សេងទៀត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 브라우저에서 가져오기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importer fra andre nettlesere"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importuj z innych przeglądarek"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Importar de outros navegadores"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Импорт из других браузеров"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "นำเข้าจากเบราว์เซอร์อื่น"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diğer Tarayıcılardan İçe Aktar"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Імпорт з інших браузерів"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nhập từ trình duyệt khác"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "从其他浏览器导入"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "從其他瀏覽器匯入"
+          }
+        }
+      }
+    },
+    "settings.browser.importEnabled.help": {
+      "extractionState": "manual",
+      "localizations": {
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Offers to bring bookmarks, history, passwords and sign-ins over from other browsers: Import from Browser in the File menu and the palette, and the import cards in Settings. Off hides them and nothing imports by itself. Data already imported stays."
+          }
+        },
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "يعرض نقل الإشارات المرجعية والسجل وكلمات المرور وجلسات تسجيل الدخول من متصفحات أخرى: «الاستيراد من المتصفح» في قائمة «ملف» ولوحة الأوامر، وبطاقات الاستيراد في «الإعدادات». عند الإيقاف تُخفى كلها ولا يُستورد شيء تلقائيًا. تبقى البيانات المستوردة سابقًا."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nudi prenos oznaka, historije, lozinki i prijava iz drugih preglednika: Uvoz iz preglednika u meniju Datoteka i paleti te kartice za uvoz u Postavkama. Isključeno ih skriva i ništa se ne uvozi samo od sebe. Već uvezeni podaci ostaju."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilbyder at hente bogmærker, historik, adgangskoder og logins fra andre browsere: Importér fra browser i menuen Arkiv og paletten samt importkortene i Indstillinger. Slået fra skjules de, og intet importeres af sig selv. Data, der allerede er importeret, bliver."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bietet an, Lesezeichen, Verlauf, Passwörter und Anmeldungen aus anderen Browsern zu übernehmen: „Aus Browser importieren“ im Menü „Ablage“ und in der Palette sowie die Importkarten in den Einstellungen. Aus blendet sie aus und nichts wird von selbst importiert. Bereits importierte Daten bleiben erhalten."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ofrece traer marcadores, historial, contraseñas e inicios de sesión de otros navegadores: Importar desde el navegador en el menú Archivo y en la paleta, y las tarjetas de importación en Ajustes. Desactivado los oculta y nada se importa por sí solo. Los datos ya importados se conservan."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Propose de récupérer les signets, l’historique, les mots de passe et les connexions d’autres navigateurs : Importer depuis le navigateur dans le menu Fichier et la palette, et les cartes d’importation dans Réglages. Désactivé, tout cela est masqué et rien n’est importé de soi-même. Les données déjà importées restent."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Propone di portare segnalibri, cronologia, password e accessi da altri browser: Importa da browser nel menu File e nella palette, e le schede di importazione in Impostazioni. Disattivato li nasconde e nulla viene importato da solo. I dati già importati restano."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "他のブラウザからブックマーク、履歴、パスワード、ログイン情報を取り込むよう提案します。ファイルメニューとパレットの「ブラウザから読み込む」、設定の読み込みカードです。オフにするとこれらは非表示になり、自動では何も読み込まれません。読み込み済みのデータは残ります。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ផ្តល់ជូនការនាំយកចំណាំ ប្រវត្តិ ពាក្យសម្ងាត់ និងការចូលគណនីពីកម្មវិធីរុករកផ្សេងទៀត៖ នាំចូលពីកម្មវិធីរុករក នៅក្នុងម៉ឺនុយ ឯកសារ និងផ្ទាំងពាក្យបញ្ជា ព្រមទាំងកាតនាំចូលនៅក្នុង ការកំណត់។ បិទ នឹងលាក់វា ហើយគ្មានអ្វីនាំចូលដោយខ្លួនឯងទេ។ ទិន្នន័យដែលបាននាំចូលរួចនៅដដែល។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "다른 브라우저의 북마크, 방문 기록, 암호, 로그인 정보를 가져오도록 제안합니다. 파일 메뉴와 팔레트의 '브라우저에서 가져오기', 설정의 가져오기 카드입니다. 끄면 모두 숨겨지고 저절로 가져오는 것은 없습니다. 이미 가져온 데이터는 유지됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tilbyr å hente bokmerker, historikk, passord og pålogginger fra andre nettlesere: Importer fra nettleser i Arkiv-menyen og paletten, og importkortene i Innstillinger. Av skjuler dem, og ingenting importeres av seg selv. Data som allerede er importert, blir værende."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Proponuje przeniesienie zakładek, historii, haseł i logowań z innych przeglądarek: Importuj z przeglądarki w menu Plik i palecie oraz karty importu w Ustawieniach. Wyłączone ukrywa je i nic nie importuje się samo. Już zaimportowane dane pozostają."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Oferece trazer favoritos, histórico, senhas e logins de outros navegadores: Importar do navegador no menu Arquivo e na paleta, e os cartões de importação em Ajustes. Desativado os oculta e nada é importado sozinho. Os dados já importados permanecem."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Предлагает перенести закладки, историю, пароли и входы из других браузеров: «Импорт из браузера» в меню «Файл» и палитре, а также карточки импорта в настройках. Если выключено, всё это скрыто и ничего не импортируется само. Уже импортированные данные остаются."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "เสนอให้นำบุ๊กมาร์ก ประวัติ รหัสผ่าน และการลงชื่อเข้าใช้มาจากเบราว์เซอร์อื่น ได้แก่ นำเข้าจากเบราว์เซอร์ ในเมนูไฟล์และพาเลต และการ์ดนำเข้าในการตั้งค่า เมื่อปิดจะซ่อนทั้งหมดและไม่มีการนำเข้าเอง ข้อมูลที่นำเข้าแล้วยังคงอยู่"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Diğer tarayıcılardan yer işaretlerini, geçmişi, parolaları ve oturum açma bilgilerini getirmeyi önerir: Dosya menüsünde ve palette Tarayıcıdan İçe Aktar ile Ayarlar'daki içe aktarma kartları. Kapalıyken bunlar gizlenir ve hiçbir şey kendiliğinden içe aktarılmaz. Önceden içe aktarılan veriler kalır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Пропонує перенести закладки, історію, паролі та входи з інших браузерів: «Імпорт з браузера» в меню «Файл» і палітрі, а також картки імпорту в налаштуваннях. Якщо вимкнено, усе це приховано й нічого не імпортується саме. Уже імпортовані дані залишаються."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Đề xuất chuyển dấu trang, lịch sử, mật khẩu và thông tin đăng nhập từ trình duyệt khác: Nhập từ trình duyệt trong menu Tệp và bảng lệnh, cùng các thẻ nhập trong Cài đặt. Tắt sẽ ẩn chúng và không có gì tự nhập. Dữ liệu đã nhập vẫn được giữ."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提议从其他浏览器导入书签、历史记录、密码和登录信息：“文件”菜单和命令面板中的“从浏览器导入”，以及设置中的导入卡片。关闭后这些都会隐藏，也不会自行导入任何内容。已导入的数据会保留。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "提議從其他瀏覽器匯入書籤、瀏覽記錄、密碼和登入資訊：「檔案」選單和命令面板中的「從瀏覽器匯入」，以及設定中的匯入卡片。關閉後這些都會隱藏，也不會自行匯入任何內容。已匯入的資料會保留。"
+          }
+        }
+      }
+    },
     "settings.deviceHub.url": {
       "extractionState": "manual",
       "localizations": {
@@ -80520,6 +80913,534 @@
         }
       }
     },
+    "settings.agentPane.attachmentView": {
+      "comment": "Settings > Agent Chat: the row that picks how attachments show in the composer and in sent messages",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "عرض المرفقات"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Prikaz priloga"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Visning af vedhæftninger"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Anhangsansicht"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Attachment View"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vista de adjuntos"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Affichage des pièces jointes"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Vista allegati"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "添付ファイルの表示"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ទិដ្ឋភាពឯកសារភ្ជាប់"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "첨부 파일 보기"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Visning av vedlegg"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Widok załączników"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Visualização de anexos"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вид вложений"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "มุมมองไฟล์แนบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Ek Görünümü"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Вигляд вкладень"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Chế độ xem tệp đính kèm"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "附件视图"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "附件檢視"
+          }
+        }
+      }
+    },
+    "settings.agentPane.attachmentView.help": {
+      "comment": "Settings > Agent Chat > Attachment View: help under the row",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "طريقة ظهور الصور والملفات في مربع الكتابة وفي الرسائل المرسلة. «ضمن النص» يضع كل واحد منها في النص حيث أضفته؛ «شريط» يعرضها في صف. تبقى الرسالة وترتيبها كما هما."
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Kako se slike i datoteke prikazuju u polju za pisanje i u poslanim porukama. U tekstu stavlja svaku tamo gdje ste je dodali; Traka ih prikazuje u redu. Poruka i njen redoslijed ostaju isti."
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvordan billeder og filer vises i skrivefeltet og i sendte beskeder. I teksten placerer hver enkelt, hvor du tilføjede den; Bånd viser dem på en række. Beskeden og dens rækkefølge forbliver den samme."
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Wie Bilder und Dateien im Eingabefeld und in gesendeten Nachrichten erscheinen. Im Text setzt jedes dorthin, wo du es hinzugefügt hast; Leiste zeigt sie in einer Reihe. Die Nachricht und ihre Reihenfolge bleiben gleich."
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "How pictures and files show in the composer and in sent messages. Inline puts each one in the text where you added it; Strip shows them in a row. The message and its order stay the same."
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cómo se muestran las imágenes y los archivos en el redactor y en los mensajes enviados. En el texto coloca cada uno donde lo añadiste; Tira los muestra en una fila. El mensaje y su orden no cambian."
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Comment les images et les fichiers s’affichent dans le champ de saisie et dans les messages envoyés. Dans le texte place chacun là où vous l’avez ajouté ; Bandeau les affiche sur une ligne. Le message et son ordre restent les mêmes."
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Come appaiono immagini e file nel campo di scrittura e nei messaggi inviati. Nel testo mette ciascuno dove l’hai aggiunto; Striscia li mostra in una fila. Il messaggio e il suo ordine restano invariati."
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "入力欄と送信済みメッセージでの画像とファイルの表示方法。インラインは追加した位置のテキスト内に置き、ストリップは1列に並べて表示します。メッセージとその順序は変わりません。"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "របៀបដែលរូបភាព និងឯកសារបង្ហាញក្នុងប្រអប់សរសេរ និងក្នុងសារដែលបានផ្ញើ។ ក្នុងអត្ថបទ ដាក់នីមួយៗនៅកន្លែងដែលអ្នកបានបន្ថែម; ឆ្នូត បង្ហាញពួកវាជាជួរ។ សារ និងលំដាប់របស់វានៅដដែល។"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "작성란과 보낸 메시지에서 사진과 파일이 표시되는 방식입니다. 인라인은 추가한 위치의 텍스트 안에 두고, 스트립은 한 줄로 보여 줍니다. 메시지와 순서는 그대로 유지됩니다."
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Hvordan bilder og filer vises i skrivefeltet og i sendte meldinger. I teksten plasserer hver der du la den til; Stripe viser dem på en rad. Meldingen og rekkefølgen forblir den samme."
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Jak obrazy i pliki wyświetlają się w polu wiadomości i w wysłanych wiadomościach. W tekście umieszcza każdy tam, gdzie go dodano; Pasek pokazuje je w rzędzie. Wiadomość i jej kolejność się nie zmieniają."
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Como imagens e arquivos aparecem no campo de escrita e nas mensagens enviadas. No texto coloca cada um onde você o adicionou; Faixa mostra-os em uma fileira. A mensagem e sua ordem continuam iguais."
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Как картинки и файлы показываются в поле ввода и в отправленных сообщениях. «В тексте» ставит каждый туда, куда вы его добавили; «Лента» показывает их в ряд. Сообщение и его порядок не меняются."
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "วิธีแสดงรูปภาพและไฟล์ในช่องเขียนข้อความและในข้อความที่ส่งแล้ว แบบในบรรทัดจะวางแต่ละรายการไว้ในข้อความตรงที่คุณเพิ่ม แบบแถบจะแสดงเรียงเป็นแถว ข้อความและลำดับยังคงเหมือนเดิม"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Resimlerin ve dosyaların yazma alanında ve gönderilen mesajlarda nasıl görüneceği. Satır İçi her birini eklediğiniz yere metnin içine koyar; Şerit bunları bir sırada gösterir. Mesaj ve sırası aynı kalır."
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Як зображення та файли показуються в полі введення і в надісланих повідомленнях. «У тексті» ставить кожне туди, куди ви його додали; «Стрічка» показує їх у ряд. Повідомлення та його порядок не змінюються."
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Cách ảnh và tệp hiển thị trong ô soạn và trong tin nhắn đã gửi. Nội dòng đặt từng mục vào văn bản tại chỗ bạn thêm; Dải hiển thị chúng thành một hàng. Tin nhắn và thứ tự của nó vẫn giữ nguyên."
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "图片和文件在输入框及已发送消息中的显示方式。“内嵌”将每个附件放在你添加它的文本位置；“横条”将它们排成一行显示。消息及其顺序保持不变。"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "圖片和檔案在輸入框及已傳送訊息中的顯示方式。「內嵌」會將每個附件放在你加入它的文字位置；「橫條」會將它們排成一列顯示。訊息及其順序保持不變。"
+          }
+        }
+      }
+    },
+    "settings.choice.agentChatAttachmentInline": {
+      "comment": "Settings > Agent Chat > Attachment View choice: each attachment sits in the text where it was added, as in Messages",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ضمن النص"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "U tekstu"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I teksten"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Im Text"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Inline"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "En el texto"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dans le texte"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nel testo"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "インライン"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ក្នុងអត្ថបទ"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "인라인"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "I teksten"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "W tekście"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "No texto"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "В тексте"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ในบรรทัด"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Satır İçi"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "У тексті"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Nội dòng"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "内嵌"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "內嵌"
+          }
+        }
+      }
+    },
+    "settings.choice.agentChatAttachmentStrip": {
+      "comment": "Settings > Agent Chat > Attachment View choice: attachments show together in one row",
+      "extractionState": "manual",
+      "localizations": {
+        "ar": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "شريط"
+          }
+        },
+        "bs": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Traka"
+          }
+        },
+        "da": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bånd"
+          }
+        },
+        "de": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Leiste"
+          }
+        },
+        "en": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Strip"
+          }
+        },
+        "es": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Tira"
+          }
+        },
+        "fr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Bandeau"
+          }
+        },
+        "it": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Striscia"
+          }
+        },
+        "ja": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ストリップ"
+          }
+        },
+        "km": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "ឆ្នូត"
+          }
+        },
+        "ko": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "스트립"
+          }
+        },
+        "nb": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Stripe"
+          }
+        },
+        "pl": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Pasek"
+          }
+        },
+        "pt-BR": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Faixa"
+          }
+        },
+        "ru": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Лента"
+          }
+        },
+        "th": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "แถบ"
+          }
+        },
+        "tr": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Şerit"
+          }
+        },
+        "uk": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Стрічка"
+          }
+        },
+        "vi": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "Dải"
+          }
+        },
+        "zh-Hans": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "横条"
+          }
+        },
+        "zh-Hant": {
+          "stringUnit": {
+            "state": "translated",
+            "value": "橫條"
+          }
+        }
+      }
+    },
     "settings.agentPane.spellChecking": {
       "extractionState": "manual",
       "localizations": {
@@ -111505,127 +112426,127 @@
         "en": {
           "stringUnit": {
             "state": "translated",
-            "value": "What a new chat may do without asking. Picking a mode in a chat sets it too, until you change this setting again."
+            "value": "What a new chat may do without asking. A mode you pick in a chat applies to that chat only."
           }
         },
         "ja": {
           "stringUnit": {
             "state": "translated",
-            "value": "新しいチャットが確認なしで行えることです。チャットでモードを選んでも設定されます。この設定をもう一度変更するまで有効です。"
+            "value": "新しいチャットが確認なしで行えることです。チャットで選んだモードはそのチャットにだけ適用されます。"
           }
         },
         "de": {
           "stringUnit": {
             "state": "translated",
-            "value": "Was ein neuer Chat ohne Nachfrage tun darf. Auch die Wahl eines Modus in einem Chat legt ihn fest, bis du diese Einstellung erneut änderst."
+            "value": "Was ein neuer Chat ohne Nachfrage tun darf. Ein Modus, den du in einem Chat wählst, gilt nur für diesen Chat."
           }
         },
         "fr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Ce qu’une nouvelle discussion peut faire sans demander. Choisir un mode dans une discussion le définit aussi, jusqu’à ce que vous modifiiez à nouveau ce réglage."
+            "value": "Ce qu’une nouvelle discussion peut faire sans demander. Un mode choisi dans une discussion ne s’applique qu’à cette discussion."
           }
         },
         "ar": {
           "stringUnit": {
             "state": "translated",
-            "value": "ما يمكن للمحادثة الجديدة فعله دون أن تسأل. اختيار وضع في محادثة يضبطه أيضًا، إلى أن تغيّر هذا الإعداد مرة أخرى."
+            "value": "ما يمكن للمحادثة الجديدة فعله دون أن تسأل. الوضع الذي تختاره في محادثة ينطبق على تلك المحادثة فقط."
           }
         },
         "es": {
           "stringUnit": {
             "state": "translated",
-            "value": "Lo que un chat nuevo puede hacer sin preguntar. Elegir un modo en un chat también lo establece, hasta que vuelvas a cambiar este ajuste."
+            "value": "Lo que un chat nuevo puede hacer sin preguntar. Un modo que elijas en un chat se aplica solo a ese chat."
           }
         },
         "zh-Hant": {
           "stringUnit": {
             "state": "translated",
-            "value": "新聊天不經詢問即可執行的操作。在聊天中選擇模式也會設定此項，直到你再次變更此設定。"
+            "value": "新聊天不經詢問即可執行的操作。在聊天中選擇的模式只套用於該聊天。"
           }
         },
         "zh-Hans": {
           "stringUnit": {
             "state": "translated",
-            "value": "新聊天无需询问即可执行的操作。在聊天中选择模式也会设置此项，直到你再次更改此设置。"
+            "value": "新聊天无需询问即可执行的操作。在聊天中选择的模式只应用于该聊天。"
           }
         },
         "ko": {
           "stringUnit": {
             "state": "translated",
-            "value": "새 채팅이 묻지 않고 할 수 있는 작업입니다. 채팅에서 모드를 고르면 이 설정을 다시 바꿀 때까지 그 모드가 적용됩니다."
+            "value": "새 채팅이 묻지 않고 할 수 있는 작업입니다. 채팅에서 고른 모드는 그 채팅에만 적용됩니다."
           }
         },
         "bs": {
           "stringUnit": {
             "state": "translated",
-            "value": "Šta novi razgovor smije raditi bez pitanja. Odabir načina u razgovoru također ga postavlja, dok ponovo ne promijenite ovu postavku."
+            "value": "Šta novi razgovor smije raditi bez pitanja. Način koji odaberete u razgovoru važi samo za taj razgovor."
           }
         },
         "da": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hvad en ny chat må gøre uden at spørge. Når du vælger en tilstand i en chat, gælder den også, indtil du ændrer denne indstilling igen."
+            "value": "Hvad en ny chat må gøre uden at spørge. En tilstand, du vælger i en chat, gælder kun for den chat."
           }
         },
         "it": {
           "stringUnit": {
             "state": "translated",
-            "value": "Cosa può fare una nuova chat senza chiedere. Anche scegliere una modalità in una chat la imposta, finché non modifichi di nuovo questa impostazione."
+            "value": "Cosa può fare una nuova chat senza chiedere. Una modalità scelta in una chat vale solo per quella chat."
           }
         },
         "km": {
           "stringUnit": {
             "state": "translated",
-            "value": "អ្វីដែលការជជែកថ្មីអាចធ្វើបានដោយមិនសួរ។ ការជ្រើសរើសរបៀបក្នុងការជជែកក៏កំណត់វាដែរ រហូតដល់អ្នកផ្លាស់ប្ដូរការកំណត់នេះម្ដងទៀត។"
+            "value": "អ្វីដែលការជជែកថ្មីអាចធ្វើបានដោយមិនសួរ។ របៀបដែលអ្នកជ្រើសរើសក្នុងការជជែកមួយ អនុវត្តចំពោះតែការជជែកនោះប៉ុណ្ណោះ។"
           }
         },
         "nb": {
           "stringUnit": {
             "state": "translated",
-            "value": "Hva en ny chat kan gjøre uten å spørre. Velger du en modus i en chat, gjelder den også, til du endrer denne innstillingen igjen."
+            "value": "Hva en ny chat kan gjøre uten å spørre. En modus du velger i en chat, gjelder bare for den chatten."
           }
         },
         "pl": {
           "stringUnit": {
             "state": "translated",
-            "value": "Co nowy czat może robić bez pytania. Wybranie trybu w czacie także go ustawia, dopóki ponownie nie zmienisz tego ustawienia."
+            "value": "Co nowy czat może robić bez pytania. Tryb wybrany w czacie dotyczy tylko tego czatu."
           }
         },
         "pt-BR": {
           "stringUnit": {
             "state": "translated",
-            "value": "O que um novo chat pode fazer sem perguntar. Escolher um modo em um chat também o define, até você alterar este ajuste de novo."
+            "value": "O que um novo chat pode fazer sem perguntar. Um modo escolhido em um chat vale só para aquele chat."
           }
         },
         "ru": {
           "stringUnit": {
             "state": "translated",
-            "value": "Что новый чат может делать без вопросов. Выбор режима в чате тоже задаёт его, пока вы снова не измените этот параметр."
+            "value": "Что новый чат может делать без вопросов. Режим, выбранный в чате, действует только в этом чате."
           }
         },
         "th": {
           "stringUnit": {
             "state": "translated",
-            "value": "สิ่งที่แชตใหม่ทำได้โดยไม่ต้องถาม การเลือกโหมดในแชตก็ตั้งค่านี้ด้วย จนกว่าคุณจะเปลี่ยนการตั้งค่านี้อีกครั้ง"
+            "value": "สิ่งที่แชตใหม่ทำได้โดยไม่ต้องถาม โหมดที่คุณเลือกในแชตจะใช้กับแชตนั้นเท่านั้น"
           }
         },
         "tr": {
           "stringUnit": {
             "state": "translated",
-            "value": "Yeni bir sohbetin sormadan yapabilecekleri. Bir sohbette mod seçmek de bunu ayarlar; bu ayarı yeniden değiştirene kadar geçerlidir."
+            "value": "Yeni bir sohbetin sormadan yapabilecekleri. Bir sohbette seçtiğiniz mod yalnızca o sohbet için geçerlidir."
           }
         },
         "uk": {
           "stringUnit": {
             "state": "translated",
-            "value": "Що новий чат може робити без запитань. Вибір режиму в чаті теж задає його, доки ви знову не зміните це налаштування."
+            "value": "Що новий чат може робити без запитань. Режим, вибраний у чаті, діє лише в цьому чаті."
           }
         },
         "vi": {
           "stringUnit": {
             "state": "translated",
-            "value": "Những gì cuộc trò chuyện mới được làm mà không cần hỏi. Chọn chế độ trong cuộc trò chuyện cũng đặt giá trị này, cho đến khi bạn đổi lại cài đặt này."
+            "value": "Những gì cuộc trò chuyện mới được làm mà không cần hỏi. Chế độ bạn chọn trong một cuộc trò chuyện chỉ áp dụng cho cuộc trò chuyện đó."
           }
         }
       }

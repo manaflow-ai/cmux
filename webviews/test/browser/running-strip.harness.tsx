@@ -6,7 +6,7 @@
 import { createRoot } from "react-dom/client";
 import { setPaneLanguage } from "../../src/agent-session/acpmux/i18n";
 import { SubagentTray } from "../../src/agent-session/acpmux/subagents/SubagentTray";
-import { trayItems } from "../../src/agent-session/acpmux/subagents/runningTray";
+import { finishedTrayItems, trayItems } from "../../src/agent-session/acpmux/subagents/runningTray";
 import "../../src/pages/shared/desktop.css";
 import "../../src/ui/glass/glass.css";
 import "../../src/ui/popupSurface.css";
@@ -65,6 +65,43 @@ const command = "cd /Users/you/fun/cmux-wt/chromium-transparency && RED=cb8f4178
             onOpen={() => {}}
             onOpenCommand={clickable ? () => {} : undefined}
             stopProcess={async () => {}}
+          />
+        </div>
+      </div>
+    </section>,
+  );
+};
+// Leo's panel (2026-10-25) at 118 agents: 2 running, 116 ended, in a dock `height` tall that
+// squeezes the tray as a short pane does.
+(window as unknown as { __showPanel: (height: number) => void }).__showPanel = (height) => {
+  const now = Date.now();
+  const agents = [
+    ...[0, 1].map((index) => ({
+      id: `run-${index}`,
+      parent: null,
+      name: `Run ${index}`,
+      state: "running",
+      startedAt: now - 60_000 + index,
+    })),
+    ...Array.from({ length: 116 }, (_, index) => ({
+      id: `done-${index}`,
+      parent: null,
+      name: `Done ${index}`,
+      state: "completed",
+      startedAt: now - 90_000,
+      endedAt: now - 80_000 + index,
+    })),
+  ];
+  view.render(
+    <section className="acpmux-shell" style={{ width: 720 }}>
+      <div className="acpmux-main" data-dock="float">
+        <div className="acpmux-dock" style={{ display: "flex", flexDirection: "column", height, overflow: "hidden" }}>
+          <SubagentTray
+            items={trayItems(agents, [], [], true)}
+            finished={finishedTrayItems(agents, [])}
+            working
+            waiting={new Set()}
+            onOpen={() => {}}
           />
         </div>
       </div>

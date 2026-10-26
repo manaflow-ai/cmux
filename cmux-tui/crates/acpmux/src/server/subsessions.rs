@@ -14,6 +14,8 @@
 //! - `start`'s `host`: `auto` or `auto-build` weighs this machine with the
 //!   placement engine first and refuses when it has no room; the reply's
 //!   `placed` says why it went ahead (`server/place.rs` `subsession_host`).
+//! - `_acpmux/subsession/retry {sessionId}`: the caller retries a descendant's failed last turn
+//!   now, as `_acpmux/retry` does (`hub/auto_resume/retry_turn.rs`); the same ownership as `stop`.
 //! - `_acpmux/subsession/answer {sessionId, permissionId, answers}`: the
 //!   caller answers a descendant's pending question, never a permission
 //!   prompt (`hub/subsession_answer.rs`).
@@ -169,7 +171,17 @@ async fn handle(
             let interrupt = params.get("interrupt").and_then(Value::as_bool).unwrap_or(false);
             let deliver = crate::hub::Delivery::parse(str_param(params, "deliver"), interrupt)?;
             let prompt_id = str_param(params, "promptId").map(str::to_owned);
-            hub.subsession_send(&caller, &target, text, deliver, prompt_id).await
+            // Files sent with it, as `send_message` reads them (`attach.rs`).
+            let attachments = match params.get("attachments") {
+                None | Some(Value::Null) => Vec::new(),
+                Some(Value::Array(blocks)) if crate::attach::all(blocks) => blocks.clone(),
+                Some(_) => {
+                    return Err(RpcError::invalid_params(
+                        "attachments must be attachment blocks (send_message reads the files)",
+                    ));
+                }
+            };
+            hub.subsession_send(&caller, &target, text, attachments, deliver, prompt_id).await
         }
         method::MUX_SUBSESSION_ANSWER => {
             let key = str_param(params, "sessionId")
@@ -189,6 +201,12 @@ async fn handle(
             let target = hub.subsession_write_target(&caller, key, false)?;
             let close = params.get("close").and_then(Value::as_bool).unwrap_or(false);
             hub.subsession_stop(&target, close).await
+        }
+        method::MUX_SUBSESSION_RETRY => {
+            let key = str_param(params, "sessionId")
+                .ok_or_else(|| RpcError::invalid_params("sessionId is required"))?;
+            let target = hub.subsession_write_target(&caller, key, false)?;
+            hub.subsession_retry(&caller, &target, str_param(params, "subagentId")).await
         }
         other => Err(RpcError::method_not_found(other)),
     }
