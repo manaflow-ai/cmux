@@ -1284,6 +1284,13 @@ name = "cmux-lock-rank"
 version = "0.1.0"
 
 [[package]]
+name = "cmux-memory"
+version = "0.1.0"
+dependencies = [
+ "libc",
+]
+
+[[package]]
 name = "cmux-mobile-core"
 version = "0.1.0"
 dependencies = [
@@ -1772,6 +1779,7 @@ dependencies = [
  "cmux-link",
  "cmux-local-auth",
  "cmux-lock-rank",
+ "cmux-memory",
  "cmux-panic-log",
  "cmux-process",
  "cmux-pty",
