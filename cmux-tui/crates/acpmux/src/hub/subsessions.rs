@@ -225,6 +225,11 @@ impl Index {
         short
     }
 
+    /// The open children of `parent`.
+    pub(super) fn open_children(&self, parent: &str) -> Vec<String> {
+        self.lock().open.get(parent).map(|s| s.iter().cloned().collect()).unwrap_or_default()
+    }
+
     /// How many children of `parent` are open.
     pub fn open_count(&self, parent: &str) -> u32 {
         self.lock().open.get(parent).map_or(0, |s| s.len() as u32)

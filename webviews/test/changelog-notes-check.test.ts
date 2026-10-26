@@ -225,3 +225,24 @@ test("a curated headline repeated by an older nightly in the page range is repor
     `page (10 nightlies) duplicate ${headline}`,
   );
 });
+
+// JournalPage gives each release day its own heading; the update span has no
+// curated heading. A heading from yesterday cannot duplicate today's row.
+test("a previous-day heading does not block a current summary with the same title", () => {
+  const { notes } = at("3917159104301");
+  const title = "A shared release title";
+  const empty = { ...clean(notes), highlights: [], changes: [], items: [], summary: [] };
+  const current: ReleaseNotes = {
+    ...empty,
+    date: "2026-10-20",
+    whatsNew: undefined,
+    summary: [{ group: "fixed", title }],
+  };
+  const older = {
+    ...withEntries(empty, [digestEntry("curated-older", "An older feature", "Its own detail.")]),
+    build: "3917061587901",
+    date: "2026-10-19",
+  };
+  older.whatsNew!.headline = { en: title };
+  expect(checkNightlyNotes(current, [older])).toEqual([]);
+});
