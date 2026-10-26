@@ -20,10 +20,12 @@
   "preconditions": [
     "hermetic state root",
     "no other cmux-tui on the state root",
-    "git on PATH; tests/oracle/fixtures/git/oracle.json built under $CASE_ROOT/repos before the first step (make_repo.py build_for_case): fixed dates, a local bare origin, no other remote"
+    "git on PATH; tests/oracle/fixtures/git/oracle.json built under $CASE_ROOT/repos before the first step (make_repo.py build_for_case): fixed dates, a local bare origin, no other remote",
+    "HOME is the case's own folder under $CASE_ROOT, as for every case with a generated repository"
   ],
   "requires": [
-    "resource_api"
+    "resource_api",
+    "git_repo"
   ],
   "platforms": [
     "linux",
@@ -63,6 +65,6 @@
     "verify the socket and state root are gone"
   ],
   "untested": [
-    "no case folder is one the project store takes: every case root is under /tmp (oracle.py DEFAULT_STATE_BASE /tmp/o, spec 3G) and state/projects.rs Refusals refuses every path under /tmp, /var/folders and the home folder (validation.invalid refused_path); follow-up to p15-oracle-200: a case folder outside those roots for project.add"
+    "no case folder is one the project store takes: every case root is under /tmp (oracle.py DEFAULT_STATE_BASE /tmp/o, spec 3G) and state/projects.rs Refusals refuses every path under /tmp, /var/folders and the home folder (validation.invalid refused_path); follow-up to p15-oracle-200: a case folder outside those roots for project.add; no product offers git_repo yet: the case runner of p15-oracle-023 does not build fixture.repo (make_repo.build_for_case, then $CASE_ROOT expanded) in the per-case HOME of p15-oracle-200; the daemon product gets git_repo with them, and the git family's first VM run follows"
   ]
 }

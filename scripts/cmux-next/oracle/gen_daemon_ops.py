@@ -33,7 +33,8 @@ capabilities (`chromium` for a daemon-rendered browser, which needs a cmux-brows
 and a `gap`: why no product can run the success case yet, naming the task that closes it, and a `repo`: the
 generated git repository (tests/oracle/fixtures/git/<repo>.json, case-v1 fixture.repo) the driver builds under
 $CASE_ROOT/repos before the first step; a `remote` is then a plain name of that repository's remotes, and a path
-under $CASE_ROOT/repos one of its folders. coverage.json lists every
+under $CASE_ROOT/repos one of its folders. Such a case requires the `git_repo` capability, which no product has
+until its driver builds the repository, so its operation is excluded (REPO_GAP). coverage.json lists every
 operation with its family, cases, fixture steps, broken field, placeholders (fields with a fixed id, not a fixture
 object: the tuning work), known gap, tuning and the capabilities of cases that need more than resource_api. An
 operation counts as covered only when its success case has no placeholder and no known or tuned gap; the rest are
@@ -126,16 +127,33 @@ PRECONDITION_FIELDS = frozenset({"expected_revision", "if_revision", "expected_r
                                  "expected_name_revision"})
 UNKNOWN_PARAMETER = "oracle_unknown"
 ERROR_CODE = "validation.invalid"
-# hermetic_env.py ROOT_TOKEN (p15-oracle-200): the case's state root. A path under it is local to the case.
-ROOT_TOKEN = "$CASE_ROOT"
-# hermetic_env.py REPOS_DIR: where make_repo.py builds the case's fixture.repo.
-REPOS_ROOT = f"{ROOT_TOKEN}/repos"
 # git_ops/push.rs: `remote` names a configured remote, never a URL or a path.
 REMOTE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+# case-v1 capability of a case with fixture.repo: the product's driver builds the repository first.
+REPO_CAPABILITY = "git_repo"
 
 
 class GenError(Exception):
     """The catalog, the fixture or a tuning file cannot make the suite."""
+
+
+@functools.lru_cache(maxsize=None)
+def make_repo() -> Any:
+    """tests/oracle/fixtures/git/make_repo.py: it owns the repository fixture format, the case root token and
+    the folder the repositories are built in."""
+    spec = importlib.util.spec_from_file_location("oracle_make_repo", REPO_FIXTURES / "make_repo.py")
+    if spec is None or spec.loader is None:
+        raise GenError(f"{REPO_FIXTURES / 'make_repo.py'}: cannot be loaded")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module  # dataclasses read the module of each class they make
+    spec.loader.exec_module(module)
+    return module
+
+
+# The case's state root, as case values write it (a path under it is local to the case), and the folder of its
+# generated repositories: make_repo.py's, the one copy.
+ROOT_TOKEN: str = make_repo().ROOT_TOKEN
+REPOS_ROOT: str = make_repo().REPOS_ROOT
 
 
 # ------------------------------------------------------------------------------------------------ catalog
@@ -494,8 +512,8 @@ KNOWN_GAPS: Dict[str, str] = {
     "closed.reopen": "a fresh daemon has no closed group to reopen; the family task closes one first",
 }
 KNOWN_GAP_PREFIXES: Tuple[Tuple[str, str], ...] = (
-    ("git.", f"the standard fixture has no git repository; a git case names a generated one in fixture.repo "
-             f"(tests/oracle/fixtures/git, built under {REPOS_ROOT})"),
+    ("git.", "no `repo` tuning in git/_tuning.json: the standard fixture has no git repository, so the git "
+             "operation needs a generated one (tests/oracle/fixtures/git, p15-oracle-068)"),
 )
 FAMILY_TASK = {"browser": "p15-oracle-061", "sidebar": "p15-oracle-062", "session": "p15-oracle-063",
                "workspace": "p15-oracle-064", "terminal": "p15-oracle-065", "layout": "p15-oracle-066",
@@ -843,6 +861,12 @@ OK = {"outcome": "ok", "receipt": "mutation_result"}
 ENGINE_PRECONDITION = "a cmux-browser provider attached to the case daemon (the daemon launches no browser)"
 REPO_PRECONDITION = (f"git on PATH; tests/oracle/fixtures/git/{{repo}}.json built under {REPOS_ROOT} before the first "
                      "step (make_repo.py build_for_case): fixed dates, a local bare origin, no other remote")
+# git.worktree.create writes ~/.cmux/worktrees/<repo>/<name> (git_ops/worktree.rs); build_for_case refuses another HOME.
+HOME_PRECONDITION = f"HOME is the case's own folder under {ROOT_TOKEN}, as for every case with a generated repository"
+# Why no product runs a case with fixture.repo yet: none offers REPO_CAPABILITY (oracle.py PRODUCTS).
+REPO_GAP = (f"no product offers {REPO_CAPABILITY} yet: the case runner of p15-oracle-023 does not build fixture.repo "
+            f"(make_repo.build_for_case, then {ROOT_TOKEN} expanded) in the per-case HOME of p15-oracle-200; the "
+            f"daemon product gets {REPO_CAPABILITY} with them, and the git family's first VM run follows")
 
 
 def known_gap(operation: str) -> Optional[str]:
@@ -872,7 +896,8 @@ def case_doc(case_id: str, operation: str, family: str, kind: str, request: Requ
     fixture: Dict[str, Any] = {"seed": f"{SUITE}.{slug(operation)}", "network": "offline", "clock": "virtual"}
     if request.repo:
         fixture["repo"] = request.repo
-        preconditions.append(REPO_PRECONDITION.format(repo=request.repo))
+        requires.append(REPO_CAPABILITY)
+        preconditions += [REPO_PRECONDITION.format(repo=request.repo), HOME_PRECONDITION]
     doc: Dict[str, Any] = {
         "$schema": SCHEMA_REF,
         "corpusVersion": 1,
@@ -1039,18 +1064,6 @@ def tuned_value(value: Any) -> Any:
     return value
 
 
-@functools.lru_cache(maxsize=None)
-def make_repo() -> Any:
-    """tests/oracle/fixtures/git/make_repo.py: it owns the repository fixture format."""
-    spec = importlib.util.spec_from_file_location("oracle_make_repo", REPO_FIXTURES / "make_repo.py")
-    if spec is None or spec.loader is None:
-        raise GenError(f"{REPO_FIXTURES / 'make_repo.py'}: cannot be loaded")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[spec.name] = module  # dataclasses read the module of each class they make
-    spec.loader.exec_module(module)
-    return module
-
-
 def repo_fixture(name: Any, where: str) -> Any:
     """The RepoFixture `name` names; make_repo.py refuses a fixture whose origin is not a bare repository
     beside the checkout, so every remote a case can reach is under the case root."""
@@ -1166,7 +1179,7 @@ def generate(catalog: Catalog, tuning: Mapping[str, Mapping[str, Any]]) -> Dict[
             if broken else f"tuned to {code}")
         # A tuned success case takes the operation over from KNOWN_GAPS; its own gap names the task that closes it.
         success_tuning = tuned.get("success", {})
-        tuned_gap = success_tuning.get("gap")
+        tuned_gap = "; ".join(filter(None, (success_tuning.get("gap"), success.repo and REPO_GAP))) or None
         gap = tuned_gap if "success" in tuned else known_gap(operation)
         files[f"{ok_id}.json"] = case_doc(ok_id, operation, family, "success", success, OK,
                                           success_tuning.get("note", "every required field from its catalog type"),
@@ -1592,10 +1605,41 @@ class GenDaemonOpsSelfTest(unittest.TestCase):
         self.assertIn(REPO_PRECONDITION.format(repo="oracle"), case["preconditions"])
         self.assertEqual(files["git-commit-error.json"]["fixture"]["repo"], "oracle", "the error case starts from success")
 
+    def test_a_generated_repository_needs_a_capability_no_product_has_yet(self) -> None:
+        """A case with fixture.repo requires git_repo, which no product offers until its driver builds the
+        repository (p15-oracle-023, p15-oracle-200): no runner picks the case up, and coverage excludes the
+        operation instead of counting expectations no daemon has checked."""
+        repo = {"repo": "oracle", "params": {"path": f"{REPOS_ROOT}/oracle"}}
+        files = generate(self.catalog, {"git.commit": {"success": repo}})
+        coverage = files[COVERAGE]
+        for kind in ("ok", "error"):
+            case = files[f"git-commit-{kind}.json"]
+            self.assertEqual(case["requires"], ["resource_api", REPO_CAPABILITY], kind)
+            self.assertIn(HOME_PRECONDITION, case["preconditions"], kind)
+        self.assertEqual(coverage["excluded"]["git.commit"], REPO_GAP)
+        self.assertEqual(files["git-commit-ok.json"]["untested"], [REPO_GAP])
+        self.assertRegex(REPO_GAP, "p15-oracle-023.*p15-oracle-200")
+        gap = "the store refuses it (p15-oracle-204)"
+        files = generate(self.catalog, {"git.commit": {"success": {**repo, "gap": gap}}})
+        self.assertEqual(files[COVERAGE]["excluded"]["git.commit"], f"{gap}; {REPO_GAP}")
+        # An untuned git operation says what it lacks: a `repo` tuning.
+        self.assertIn("no `repo` tuning", generate(self.catalog, {})[COVERAGE]["excluded"]["git.commit"])
+        # One owner of the token, the repository folder and the capability: make_repo.py and oracle.py.
+        self.assertEqual((ROOT_TOKEN, REPOS_ROOT), (make_repo().ROOT_TOKEN, make_repo().REPOS_ROOT))
+        spec = importlib.util.spec_from_file_location("oracle_cli", HERE / "oracle.py")
+        assert spec is not None and spec.loader is not None
+        oracle = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = oracle
+        spec.loader.exec_module(oracle)
+        self.assertIn(REPO_CAPABILITY, oracle.CAPABILITIES)
+        self.assertEqual([product for product, caps in oracle.PRODUCTS.items() if REPO_CAPABILITY in caps], [])
+
     def test_the_git_family_tuning(self) -> None:
         """tests/oracle/corpus/daemon-ops/git/_tuning.json (p15-oracle-068): each git, project and stash mutation
         has a success and a typed-error case. A git case runs on the generated repository by path, with no
-        workspace selector; only project.add's success cannot run yet (every case root is under /tmp)."""
+        workspace selector and requires git_repo, which no product offers until the case runner builds the
+        repository (REPO_GAP), so the git operations are excluded; so is project.add (every case root is under /tmp).
+        The stash and the other project operations run on the standard fixture."""
         tuning = load_tuning(DEFAULT_OUT, self.catalog)
         files = generate(self.catalog, tuning)
         family = sorted(op for op in self.catalog.mutations() if family_of(op) == "git")
@@ -1608,7 +1652,12 @@ class GenDaemonOpsSelfTest(unittest.TestCase):
         for operation in family:
             entry = coverage["operations"][operation]
             self.assertEqual(entry["placeholders"], [], operation)
-            self.assertEqual(operation in coverage["excluded"], operation == "project.add", operation)
+            git = operation.startswith("git.")
+            self.assertEqual(operation in coverage["excluded"], git or operation == "project.add", operation)
+            success_repo = files[entry["cases"]["success"].split("/", 1)[1] + ".json"]["fixture"].get("repo")
+            self.assertEqual(success_repo == "oracle", git or operation == "project.add", operation)
+            if success_repo:
+                self.assertIn(REPO_GAP, coverage["excluded"][operation], operation)
             for kind in ("success", "error"):
                 case = files[entry["cases"][kind].split("/", 1)[1] + ".json"]
                 call = case["steps"][-1]
@@ -1617,6 +1666,9 @@ class GenDaemonOpsSelfTest(unittest.TestCase):
                     self.assertEqual(call["target"], SCOPE, f"{operation} {kind}: a path, no selector")
                     self.assertNotIn("fx-workspace", [step["id"] for step in case["steps"]], operation)
                 self.assertEqual(case["fixture"].get("repo") == "oracle", REPOS_ROOT in text, f"{operation} {kind}")
+                has_repo = "repo" in case["fixture"]
+                self.assertEqual(REPO_CAPABILITY in case["requires"], has_repo, f"{operation} {kind}")
+                self.assertEqual(HOME_PRECONDITION in case["preconditions"], has_repo, f"{operation} {kind}")
                 self.assertNotRegex(text, r"\$CASE_ROOT/(?!repos/oracle(?:-feature)?\")", f"{operation} {kind}")
             expect = files[entry["cases"]["error"].split("/", 1)[1] + ".json"]["steps"][-1]["expect"]
             if operation in handler_errors:

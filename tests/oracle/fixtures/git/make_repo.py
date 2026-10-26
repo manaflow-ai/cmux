@@ -3,8 +3,12 @@
 
 A case whose `fixture.repo` is NAME gets `tests/oracle/fixtures/git/NAME.json` built under
 `$CASE_ROOT/repos/` before its first step: the driver calls `build_for_case` with the case, its state root
-and its hermetic environment (hermetic_env.py, p15-oracle-200). Stdlib only, Python 3.9+, safe under
-`python3 -I`.
+and its hermetic environment (hermetic_env.py, p15-oracle-200). Such a case requires the case-v1
+capability `git_repo`; a product offers it only once its driver makes that call. Stdlib only, Python 3.9+,
+safe under `python3 -I`.
+
+This module owns the repository folder of a case (ROOT_TOKEN, REPOS_DIR, REPOS_ROOT) and the local-remote
+rule (`require_local_remote`); gen_daemon_ops.py imports them from here, and hermetic_env.py is to do the same.
 
 Chrome reference: depot_tools testing_support/git_test_utils.py builds each test repository from a
 schema (GitRepoSchema) with the author and committer date of every commit taken from a fixed start and
@@ -44,9 +48,10 @@ from pathlib import Path
 from typing import Any, Callable, Dict, List, Mapping, Optional, Sequence, Tuple
 
 HERE = Path(__file__).resolve().parent
-# hermetic_env.py ROOT_TOKEN and REPOS_DIR (p15-oracle-200): case values write the state root as the token.
+# Case values write the case's state root as ROOT_TOKEN; its generated repositories are under REPOS_ROOT.
 ROOT_TOKEN = "$CASE_ROOT"
 REPOS_DIR = "repos"
+REPOS_ROOT = f"{ROOT_TOKEN}/{REPOS_DIR}"
 SECONDS_PER_COMMIT = 60
 # Where a case-less build (--build, the self test) finds git; a driver passes the case's own PATH.
 DEFAULT_PATH = "/usr/local/bin:/usr/bin:/bin"
@@ -142,9 +147,8 @@ class RepoFixture:
 
     def tokens(self) -> Dict[str, str]:
         """The fixture's folders as case values write them (under ROOT_TOKEN)."""
-        base = f"{ROOT_TOKEN}/{REPOS_DIR}"
-        paths = {"work": f"{base}/{self.name}", "origin": f"{base}/{self.origin}"}
-        paths.update({f"worktree:{w.branch}": f"{base}/{w.path}" for w in self.worktrees})
+        paths = {"work": f"{REPOS_ROOT}/{self.name}", "origin": f"{REPOS_ROOT}/{self.origin}"}
+        paths.update({f"worktree:{w.branch}": f"{REPOS_ROOT}/{w.path}" for w in self.worktrees})
         return paths
 
     def commit_count(self) -> int:
@@ -302,16 +306,32 @@ class Builder:
         return Built(work, origin, worktrees, tuple(ids))
 
 
+def under(path: Path, case_root: Path) -> bool:
+    resolved, root = Path(path).resolve(), Path(case_root).resolve()
+    return resolved == root or root in resolved.parents
+
+
 def require_local_remote(url: str, case_root: Path) -> Path:
-    """The folder of a remote URL that is a path under the case root, or FixtureError (the rule of
-    hermetic_env.py require_local_remote, p15-oracle-200: no other host, no folder outside the case)."""
+    """The folder of a remote URL that is a path under the case root, or FixtureError: no other host, no
+    folder outside the case. The one copy of this rule; hermetic_env.py (p15-oracle-200) imports it."""
     path = Path(url[len("file://"):] if url.startswith("file:///") else url)
     if not path.is_absolute() or url.startswith("//"):
         raise FixtureError(f"remote {url!r} is not a local path under the case root")
-    resolved, root = path.resolve(), Path(case_root).resolve()
-    if resolved != root and root not in resolved.parents:
-        raise FixtureError(f"remote {url!r} is outside the case root {root}")
-    return resolved
+    if not under(path, case_root):
+        raise FixtureError(f"remote {url!r} is outside the case root {Path(case_root).resolve()}")
+    return path.resolve()
+
+
+def require_case_home(env: Mapping[str, str], case_root: Path) -> Path:
+    """The case's HOME, a folder under its state root, or FixtureError. git.worktree.create writes
+    ~/.cmux/worktrees/<repo>/<name> (git_ops/worktree.rs, platform::home_dir()): with a shared HOME,
+    parallel cases take each other's worktree names and leave branches in the runner's own home."""
+    home = env.get("HOME") or ""
+    root = Path(case_root).resolve()
+    if not Path(home).is_absolute() or not under(Path(home), root) or Path(home).resolve() == root:
+        raise FixtureError(f"HOME {home!r} is not a folder under the case root {root}: "
+                           "git.worktree.create writes under ~/.cmux/worktrees")
+    return Path(home).resolve()
 
 
 def check_local_remotes(builder: Builder, repository: Path) -> Dict[str, List[Path]]:
@@ -332,10 +352,11 @@ def build(fixture: RepoFixture, case_root: Path, env: Mapping[str, str], *, run:
 def build_for_case(case: Mapping[str, Any], case_root: Path, env: Mapping[str, str], *,
                    run: Runner = subprocess.run, directory: Path = HERE) -> Optional[Built]:
     """The driver's hook: builds the case's `fixture.repo` under its state root before the first step, or
-    does nothing for a case without one."""
+    does nothing for a case without one. The case's HOME must be its own folder under the state root."""
     name = (case.get("fixture") or {}).get("repo")
     if name is None:
         return None
+    require_case_home(env, case_root)
     return build(RepoFixture.load(name, directory), case_root, env, run=run)
 
 
@@ -419,8 +440,23 @@ class MakeRepoSelfTest(unittest.TestCase):
         self.assertIsNotNone(built)
         with self.assertRaisesRegex(FixtureError, "exists"):
             build_for_case({"fixture": {"repo": "oracle"}}, root, self.env(root))
+        other = self.root("s")
         with self.assertRaisesRegex(FixtureError, "no-such"):
-            build_for_case({"fixture": {"repo": "no-such"}}, self.root("s"), self.env(root))
+            build_for_case({"fixture": {"repo": "no-such"}}, other, self.env(other))
+
+    def test_build_for_case_needs_a_home_under_the_case_root(self) -> None:
+        """git.worktree.create writes under ~/.cmux/worktrees (git_ops/worktree.rs): a case whose HOME is the
+        runner's or another case's is refused before anything is built."""
+        root, elsewhere = self.root("r"), self.root("elsewhere")
+        case = {"fixture": {"repo": "oracle"}}
+        for home in (None, "", "home", str(elsewhere / "home"), str(root), f"{root}/home/../../elsewhere"):
+            env = {key: value for key, value in self.env(root).items() if key != "HOME"}
+            if home is not None:
+                env["HOME"] = home
+            with self.subTest(home=home), self.assertRaisesRegex(FixtureError, "HOME .* is not a folder under"):
+                build_for_case(case, root, env)
+        self.assertFalse((root / REPOS_DIR).exists(), "nothing is built for a refused case")
+        self.assertIsNotNone(build_for_case(case, root, self.env(root)))
 
     def test_the_tokens_name_the_built_folders(self) -> None:
         root = self.root("r")

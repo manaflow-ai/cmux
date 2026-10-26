@@ -125,9 +125,11 @@ RUN_SCHEMA = "cmux-oracle-run-v1"
 COMPARISON_SCHEMA = "cmux-oracle-comparison-v2"
 RESULTS = ("Pass", "Failure", "Crash", "Timeout")
 SLOW_MULTIPLIER = 5
-CAPABILITIES = frozenset({"resource_api", "actions", "keys", "gui", "chromium", "restart", "mcp", "tui"})
+CAPABILITIES = frozenset({"resource_api", "actions", "keys", "gui", "chromium", "restart", "mcp", "tui", "git_repo"})
 # WPT runs one suite against several products; a case runs on a product only when the
-# product has every capability the case `requires`.
+# product has every capability the case `requires`. git_repo (a case with fixture.repo): the
+# driver builds the repository with make_repo.build_for_case first; no driver does yet
+# (p15-oracle-023, p15-oracle-200), so no product has it.
 PRODUCTS: Dict[str, frozenset] = {
     "daemon": frozenset({"resource_api", "restart"}),
     "cli": frozenset({"resource_api", "restart"}),
