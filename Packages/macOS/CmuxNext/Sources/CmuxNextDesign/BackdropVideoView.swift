@@ -1,5 +1,6 @@
 public import AppKit
 public import AVFoundation
+public import CmuxNextCompat
 import CmuxNextWakeups
 public import CmuxNextDesignTokens
 
@@ -30,13 +31,13 @@ public final class BackdropVideoView: NSView {
     public var visibleOverride: Bool? { didSet { update() } }
     /// Tests: the windows above this one, in place of the screen's.
     public var windowsAboveOverride: (() -> [BackdropCoverage.Window])?
-    private let players: BackdropVideoPlayers
+    let players: BackdropVideoPlayers
     private var observers: [(NotificationCenter, NSObjectProtocol)] = []
     private var readyObservation: NSKeyValueObservation?
     private var screensAsleep = false
     private var sessionInactive = false
-    private var coverage = BackdropCoverage()
-    private let coverageTimer = DemandTimer(owner: "backdrop-video-coverage")
+    var coverage = BackdropCoverage()
+    let coverageTimer = DemandTimer(owner: "backdrop-video-coverage")
 
     public init(frame frameRect: NSRect, players: BackdropVideoPlayers = .shared) {
         self.players = players
@@ -146,7 +147,7 @@ public final class BackdropVideoView: NSView {
         CATransaction.commit()
     }
 
-    private func update() {
+    func update() {
         guard let url, playerLayer.player != nil else { return stopCoverage() }
         if seen {
             startCoverage()
@@ -154,33 +155,6 @@ public final class BackdropVideoView: NSView {
             stopCoverage()
         }
         players.setPlaying(wantsPlayback, seen: canBeSeen, url, viewer: ObjectIdentifier(self))
-    }
-
-    /// Samples how much of the window other windows hide, and rests or resumes the video on it.
-    public func sampleCoverage() {
-        guard let window else { return }
-        let above = windowsAboveOverride?() ?? BackdropCoverage.windows(above: window.windowNumber)
-        let resting = coverage.resting
-        coverage.sample(BackdropCoverage.covered(Self.screenFrame(window.frame), by: above, ignoring: Self.descendants(of: window)))
-        if coverage.resting != resting { update() }
-    }
-
-    /// The numbers of a window's child windows, theirs, and so on: its overlay panel and page windows.
-    static func descendants(of window: NSWindow) -> Set<Int> {
-        var numbers: Set<Int> = []
-        var pending = window.childWindows ?? []
-        while let child = pending.popLast() {
-            // A child never put on screen has no number yet; 0 would hide every unnumbered window.
-            if child.windowNumber > 0 { numbers.insert(child.windowNumber) }
-            pending += child.childWindows ?? []
-        }
-        return numbers
-    }
-
-    /// A window frame in CGWindowList's space: origin at the top left of the main display.
-    static func screenFrame(_ frame: NSRect) -> CGRect {
-        let top = NSScreen.screens.first?.frame.maxY ?? frame.maxY
-        return CGRect(x: frame.minX, y: top - frame.maxY, width: frame.width, height: frame.height)
     }
 
     private func startCoverage() {
@@ -276,6 +250,9 @@ public final class BackdropVideoPlayers {
     public var releaseAfter: Duration = .seconds(60)
 
     private let clock: any Clock<Duration>
+
+    /// The lanes a view lists the windows above it on (the app's, set at launch); nil samples no coverage.
+    public var lanes: (any MayBlockRunner)?
 
     /// `clock` times ``releaseAfter`` (tests step a manual one).
     public init(clock: any Clock<Duration> = ContinuousClock()) {

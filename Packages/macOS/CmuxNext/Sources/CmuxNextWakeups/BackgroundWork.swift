@@ -124,7 +124,8 @@ public final class BackgroundWork: Sendable {
         lanes = BlockingLane.allCases.map { lane in
             switch lane {
             case .files: LaneScheduler(label: "\(label).\(lane)", policy: .perPriority, mayBlock: true)
-            case .system: LaneScheduler(label: "\(label).\(lane)", policy: .shared(width: Self.systemWidth), mayBlock: true)
+            case .system: LaneScheduler(label: "\(label).\(lane)", policy: .shared(width: Self.systemWidth, reserved: Self.systemReserved),
+                                        mayBlock: true, caps: [.hostResolution: Self.hostResolutionCap])
             // The .cpu lane is sized to the cores: a blocking seam in one of its items is a wrong-lane violation.
             case .cpu: LaneScheduler(label: "\(label).\(lane)", policy: .shared(width: max(1, cpuWidth)), mayBlock: false)
             }
@@ -135,6 +136,15 @@ public final class BackgroundWork: Sendable {
     /// lookups (`kDefaultMaxSystemTasks`, net/dns/host_resolver_manager.cc). A system call can hang for
     /// its own timeout (`getaddrinfo` up to 30 s); one hung call must not hold every later one.
     public static let systemWidth = 6
+
+    /// How many of the ``systemWidth`` slots only a ``WorkPriority/userBlocking`` item takes: lower work that
+    /// hangs never holds the slot a person's keychain read or Accessibility call needs (Chrome's
+    /// `PrioritizedDispatcher::Limits::reserved_slots`, net/base/prioritized_dispatcher.h).
+    public static let systemReserved = 1
+
+    /// How many host resolutions (``runHostResolution(_:shutdown:fileID:line:_:)``) run at once inside
+    /// ``BlockingLane/system``: a hung resolver holds at most this many slots, never the keychain's or AX's.
+    public static let hostResolutionCap = 4
 
     /// The number of performance cores minus one (at least one), so CPU-bound background work always
     /// leaves a performance core to the main thread and the render threads.
@@ -175,9 +185,11 @@ public final class BackgroundWork: Sendable {
                                  site: CallSite(fileID: fileID, line: line), body)
     }
 
-    private func enqueue<T: Sendable>(_ id: UInt64, on lane: BlockingLane, at priority: WorkPriority,
-                                      shutdown: ShutdownBehavior, site: CallSite,
-                                      _ body: @escaping @Sendable () throws -> T) async throws -> T {
+    /// Queues `body` on `lane` at `priority` (in the `cap` class, if any) and awaits it. The caller has
+    /// checked cancellation and boosted `priority`.
+    func enqueue<T: Sendable>(_ id: UInt64, on lane: BlockingLane, at priority: WorkPriority, cap: LaneCap? = nil,
+                              shutdown: ShutdownBehavior, site: CallSite,
+                              _ body: @escaping @Sendable () throws -> T) async throws -> T {
         let scheduler = lanes[lane.rawValue]
         return try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<T, any Error>) in
@@ -187,7 +199,7 @@ public final class BackgroundWork: Sendable {
                     return continuation.resume(throwing: CancellationError())
                 }
                 // Checked under the lane's lock, so a cancel either finds the item queued or stops it here.
-                submitted(scheduler.submit(job, at: priority, posted: false, unless: { Task.isCancelled }), job, on: lane)
+                submitted(scheduler.submit(job, at: priority, posted: false, cap: cap, unless: { Task.isCancelled }), job, on: lane)
             }
         } onCancel: {
             scheduler.remove(id)?.abandon()
@@ -317,7 +329,7 @@ public final class BackgroundWork: Sendable {
         }
     }
 
-    private func nextID() -> UInt64 {
+    func nextID() -> UInt64 {
         state.withLock { $0.takeID() }
     }
 

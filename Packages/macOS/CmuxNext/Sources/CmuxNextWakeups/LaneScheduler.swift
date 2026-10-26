@@ -10,7 +10,11 @@ import Dispatch
 /// ``CmuxNextCompat/BlockingKind/wrongLane`` site (Debug and bench-checks builds). A `perPriority` lane (files) has one slot per
 /// ``WorkPriority``, so each priority is serial and a best-effort write never sits in front of a
 /// user-blocking read. A `shared` lane (system, cpu) has `width` slots for every priority and starts the
-/// highest-priority pending item first.
+/// highest-priority pending item first; `reserved` of them run only ``WorkPriority/userBlocking`` items, so
+/// lower work that hangs never holds the last slot a person waits for. An item of a ``LaneCap`` class runs only
+/// while fewer than the class's cap run, so one hung kind (a resolver) leaves the lane's other slots to the
+/// rest. Chrome's `PrioritizedDispatcher` (net/base/prioritized_dispatcher.h, `Limits::reserved_slots`), which
+/// `HostResolverManager` runs its system DNS tasks through.
 ///
 /// While a best-effort fence is up (``fence()``), a posted ``WorkPriority/idle`` or
 /// ``WorkPriority/bestEffort`` item stays queued in post order; an item someone awaits still runs at its
@@ -18,18 +22,32 @@ import Dispatch
 final class LaneScheduler: Sendable {
     enum Policy: Sendable {
         case perPriority
-        case shared(width: Int)
+        /// `width` slots for every priority, `reserved` of them (at most `width - 1`) for user-blocking items only.
+        case shared(width: Int, reserved: Int = 0)
     }
 
     private struct Entry {
         var job: LaneJob
         /// Nobody awaits it, so a best-effort fence holds it when its level is at most best effort.
         var posted: Bool
+        /// The capped class it belongs to, if any.
+        var cap: LaneCap?
+    }
+
+    /// What one busy slot runs: its level and capped class.
+    private struct Running {
+        var priority: WorkPriority
+        var cap: LaneCap?
     }
 
     private struct State {
         var pending: [[Entry]] = Array(repeating: [], count: WorkPriority.allCases.count)
-        var busy: [Bool]
+        /// Per slot: what it runs, nil while it is free.
+        var running: [Running?]
+        /// Slots only a ``WorkPriority/userBlocking`` item may take.
+        let reserved: Int
+        /// How many items of each capped class may run at once.
+        let caps: [LaneCap: Int]
         var closed = false
         var fences = 0
 
@@ -37,16 +55,34 @@ final class LaneScheduler: Sendable {
         /// sets `CanRunPolicy::kAll` once shutdown has started).
         var fenced: Bool { fences > 0 && !closed }
 
-        /// The index of the first item at `level` that may start now.
-        func next(at level: WorkPriority) -> Int? {
+        /// The capped classes that run as many items as their cap allows.
+        var fullCaps: Set<LaneCap> {
+            guard !caps.isEmpty else { return [] }
+            var counts: [LaneCap: Int] = [:]
+            for case let cap? in running.map({ $0?.cap }) { counts[cap, default: 0] += 1 }
+            return Set(caps.compactMap { cap, limit in counts[cap, default: 0] >= limit ? cap : nil })
+        }
+
+        /// Whether an item below ``WorkPriority/userBlocking`` may take a slot: the reserved ones stay free.
+        var lowerMayStart: Bool {
+            running.lazy.filter { $0.map { $0.priority < .userBlocking } ?? false }.count < running.count - reserved
+        }
+
+        /// The index of the first item at `level` that may start now, skipping the `full` capped classes.
+        func next(at level: WorkPriority, full: Set<LaneCap>) -> Int? {
             let holdsPosted = fenced && level <= .bestEffort
-            return pending[level.rawValue].firstIndex { !(holdsPosted && $0.posted) }
+            return pending[level.rawValue].firstIndex { entry in
+                !(holdsPosted && entry.posted) && !(entry.cap.map { full.contains($0) } ?? false)
+            }
         }
 
         /// The highest level with an item that may start now, and that item's index.
         func highest() -> (level: WorkPriority, index: Int)? {
+            let full = fullCaps
+            let lower = lowerMayStart
             for level in WorkPriority.allCases.reversed() {
-                if let index = next(at: level) { return (level, index) }
+                if level < .userBlocking && !lower { return nil }
+                if let index = next(at: level, full: full) { return (level, index) }
             }
             return nil
         }
@@ -65,16 +101,24 @@ final class LaneScheduler: Sendable {
     // concurrency-allow: a short non-blocking critical section over the pending lists, taken from lane threads, cancel handlers and submitters that must not await (lock carve-out).
     private let state: Mutex<State>
 
-    init(label: String, policy: Policy, mayBlock: Bool) {
+    /// - Parameters:
+    ///   - caps: how many items of each ``LaneCap`` class run at once; a class without an entry is not capped.
+    init(label: String, policy: Policy, mayBlock: Bool, caps: [LaneCap: Int] = [:]) {
         self.policy = policy
         self.mayBlock = mayBlock
-        let names: [String] = switch policy {
-        case .perPriority: WorkPriority.allCases.map { "\(label).\($0)" }
-        case .shared(let width): (0..<max(1, width)).map { "\(label).\($0)" }
+        let names: [String], reserved: Int
+        switch policy {
+        case .perPriority:
+            names = WorkPriority.allCases.map { "\(label).\($0)" }
+            reserved = 0
+        case .shared(let width, let wanted):
+            names = (0..<max(1, width)).map { "\(label).\($0)" }
+            reserved = min(max(0, wanted), names.count - 1)
         }
         // The item's QoS (`.enforceQoS`) sets the thread's QoS; the queue itself has none.
         slots = names.map { DispatchQueue(label: $0, qos: .unspecified, autoreleaseFrequency: .workItem) }
-        state = Mutex(State(busy: Array(repeating: false, count: names.count)))
+        state = Mutex(State(running: Array(repeating: nil, count: names.count), reserved: reserved,
+                            caps: caps.mapValues { max(1, $0) }))
     }
 
     /// What ``submit(_:at:unless:)`` did with an item.
@@ -91,12 +135,13 @@ final class LaneScheduler: Sendable {
     /// ``remove(_:)`` either finds the item or makes this refuse it) or the lane is shut down and `job`
     /// may not run any more (only a ``ShutdownBehavior/blockShutdown`` item is still taken).
     /// A `posted` item (nobody awaits it) at ``WorkPriority/idle`` or ``WorkPriority/bestEffort`` waits
-    /// while a fence is up.
-    func submit(_ job: LaneJob, at priority: WorkPriority, posted: Bool, unless cancelled: () -> Bool) -> Submitted {
+    /// while a fence is up. An item of the `cap` class waits while the class runs its cap.
+    func submit(_ job: LaneJob, at priority: WorkPriority, posted: Bool, cap: LaneCap? = nil,
+                unless cancelled: () -> Bool) -> Submitted {
         let taken: (starts: [Start], level: WorkPriority)? = state.withLock { state in
             if cancelled() || (state.closed && job.shutdown != .blockShutdown) { return nil }
             let level = priority
-            state.pending[level.rawValue].append(Entry(job: job, posted: posted))
+            state.pending[level.rawValue].append(Entry(job: job, posted: posted, cap: cap))
             return (pump(&state), level)
         }
         guard let taken else { return .refused }
@@ -158,22 +203,25 @@ final class LaneScheduler: Sendable {
         var starts: [Start] = []
         switch policy {
         case .perPriority:
-            for level in WorkPriority.allCases where !state.busy[level.rawValue] {
-                guard let index = state.next(at: level) else { continue }
-                let job = state.pending[level.rawValue].remove(at: index).job
-                starts.append(Start(job: job, slot: level.rawValue, priority: level))
+            for level in WorkPriority.allCases where state.running[level.rawValue] == nil {
+                guard let index = state.next(at: level, full: state.fullCaps) else { continue }
+                starts.append(claim(level, index, slot: level.rawValue, in: &state))
             }
         case .shared:
-            for slot in state.busy.indices where !state.busy[slot] {
+            // Each pick marks its slot busy first, so the next pick sees the reserve and the caps it took.
+            for slot in state.running.indices where state.running[slot] == nil {
                 guard let pick = state.highest() else { break }
-                let job = state.pending[pick.level.rawValue].remove(at: pick.index).job
-                starts.append(Start(job: job, slot: slot, priority: pick.level))
+                starts.append(claim(pick.level, pick.index, slot: slot, in: &state))
             }
         }
-        for start in starts {
-            state.busy[start.slot] = true
-        }
         return starts
+    }
+
+    /// Takes the pending item `index` at `level` and marks `slot` busy with it.
+    private func claim(_ level: WorkPriority, _ index: Int, slot: Int, in state: inout State) -> Start {
+        let entry = state.pending[level.rawValue].remove(at: index)
+        state.running[slot] = Running(priority: level, cap: entry.cap)
+        return Start(job: entry.job, slot: slot, priority: level)
     }
 
     private func launch(_ starts: [Start]) {
@@ -193,7 +241,7 @@ final class LaneScheduler: Sendable {
 
     private func finish(_ id: UInt64, slot: Int) {
         let starts = state.withLock { state in
-            state.busy[slot] = false
+            state.running[slot] = nil
             return pump(&state)
         }
         launch(starts)

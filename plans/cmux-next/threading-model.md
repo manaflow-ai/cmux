@@ -94,8 +94,10 @@ CrashDeadline threads, LineTransport reader (daemon lines), LocalPTY read queue,
 MetalYUVRenderer. No BackgroundWork lane runs at it.
 
 Blocking work never runs on the cooperative pool: a process wait uses AsyncProcess (no thread waits); file I/O uses lane
-.files (serial per priority); a sync system call (getaddrinfo, Security, Launch Services, AX) uses lane .system (6 at
-once, Chrome kDefaultMaxSystemTasks); long CPU work uses lane .cpu (P-cores minus 1). ShutdownBehavior: skipOnShutdown
+.files (serial per priority); a sync system call (getaddrinfo, Security, Launch Services, AX, window lists) uses lane
+.system (6 at once, Chrome kDefaultMaxSystemTasks; 1 slot reserved for userBlocking and host resolution capped at 4
+through `runHostResolution`, Chrome's PrioritizedDispatcher reserved slots); long CPU work uses lane .cpu (P-cores
+minus 1). ShutdownBehavior: skipOnShutdown
 (default), continueOnShutdown, blockShutdown (quit awaits BackgroundWork.shutdown()).
 
 Donating waits (allowed for a short main-thread wait): os_unfair_lock, OSAllocatedUnfairLock, CmuxNextCompat.Mutex,
