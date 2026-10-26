@@ -1,6 +1,5 @@
 public import CmuxNextSettings
 import CmuxNextActions
-import CmuxNextTrace
 import Foundation
 import os
 
@@ -193,13 +192,11 @@ extension ControlRouter {
     }
 }
 
-/// Tab switch timeline marks (cx-asb1), `request` and `run`: trace-clock
-/// milliseconds (``TraceClock``, `CLOCK_UPTIME_RAW`), the clock of the trace
-/// ring and of Chromium's `base::TimeTicks` (base/time/time_mac.mm), so a
-/// bench lines them up with both. The log entry's own timestamp gives the wall
-/// time. Debug level: nothing is written unless a `log stream --level debug`
-/// reads category "tab-switch".
+/// Tab switch timeline marks (cx-asb1), `request` and `run`: the one helper
+/// for both Control marks. Debug level: nothing is written unless a
+/// `log stream --level debug` reads category "tab-switch".
 private let tabSwitchLog = Logger(subsystem: "com.cmuxterm.app.next", category: "tab-switch")
-func tabSwitchMark(_ name: String, clock: TraceClock = TraceClock()) {
-    tabSwitchLog.debug("tab-switch \(name, privacy: .public) \(Double(clock.nowNanos()) / 1e6, format: .fixed(precision: 3), privacy: .public)")
+func tabSwitchMark(_ name: String) {
+    // wall-clock: one timeline with the App and Browser tab-switch marks and the page's performance.timeOrigin
+    tabSwitchLog.debug("tab-switch \(name, privacy: .public) \(Date().timeIntervalSince1970 * 1_000, format: .fixed(precision: 3), privacy: .public)")
 }
