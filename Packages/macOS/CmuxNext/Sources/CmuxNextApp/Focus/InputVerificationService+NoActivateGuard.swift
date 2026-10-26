@@ -1,4 +1,5 @@
-@preconcurrency import AppKit
+import AppKit
+import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextInput
 import os
@@ -7,7 +8,7 @@ private enum NoActivateApplicationResolver {
     /// Resolves the PID off the main actor. AppKit's `processIdentifier`
     /// property can synchronously ask LaunchServices for dynamic properties.
     static func resolve(_ application: NSRunningApplication,
-                        completion: @escaping @MainActor (NSRunningApplication, pid_t) -> Void) {
+                        completion: @escaping @MainActor @Sendable (NSRunningApplication, pid_t) -> Void) {
         let reference = NoActivateApplicationReference(application)
         DispatchQueue.global(qos: .utility).async {
             let pid = reference.application.processIdentifier
@@ -17,7 +18,7 @@ private enum NoActivateApplicationResolver {
         }
     }
 
-    static func resolveFrontmost(completion: @escaping @MainActor (NSRunningApplication?, pid_t?) -> Void) {
+    static func resolveFrontmost(completion: @escaping @MainActor @Sendable (NSRunningApplication?, pid_t?) -> Void) {
         DispatchQueue.global(qos: .utility).async {
             let application = NSWorkspace.shared.frontmostApplication
             let reference = application.map(NoActivateApplicationReference.init)
@@ -46,11 +47,10 @@ extension InputVerificationService {
                                                                         restoredTo: giveBack.restoredTo))
         })
         keyboardGuard = guardian
-        let center = NotificationCenter.default
-        keyboardGuardObservers.append(NSWorkspace.shared.notificationCenter.addObserver(
-            forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { [weak guardian] note in
-            guard let guardian else { return }
-            guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
+        keyboardGuardObservers.append(MainActorObservation(
+            NSWorkspace.didActivateApplicationNotification, center: NSWorkspace.shared.notificationCenter,
+            read: { $0.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication }) { [weak guardian] app in
+            guard let guardian, let app else { return }
             let sequence = guardian.beginOtherAppActivation()
             NoActivateApplicationResolver.resolve(app) { [weak self, weak guardian] app, pid in
                 guard let self, let guardian, let current = self.keyboardGuard, current === guardian else { return }
@@ -59,15 +59,9 @@ extension InputVerificationService {
                 guardian.appDidBecomeActive()
             }
         })
-        keyboardGuardObservers.append(center.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { _ in
-            MainActor.assumeIsolated { guardian.appDidBecomeActive() } // main-proof: observer on queue: .main
-        })
-        keyboardGuardObservers.append(center.addObserver(forName: NSApplication.didResignActiveNotification, object: nil, queue: .main) { _ in
-            MainActor.assumeIsolated { guardian.appDidResignActive() } // main-proof: observer on queue: .main
-        })
-        keyboardGuardObservers.append(center.addObserver(forName: NSWindow.didBecomeKeyNotification, object: nil, queue: .main) { _ in
-            MainActor.assumeIsolated { guardian.windowDidBecomeKey() } // main-proof: observer on queue: .main
-        })
+        keyboardGuardObservers.append(MainActorObservation(NSApplication.didBecomeActiveNotification) { guardian.appDidBecomeActive() })
+        keyboardGuardObservers.append(MainActorObservation(NSApplication.didResignActiveNotification) { guardian.appDidResignActive() })
+        keyboardGuardObservers.append(MainActorObservation(NSWindow.didBecomeKeyNotification) { guardian.windowDidBecomeKey() })
         let application = NSApp as? CmuxApplication
         // A person's key or mouse press; the app's own synthetic input is not one.
         keyboardGuardSubscription = tap.subscribePresses([.keyDown, .mouseDown],
