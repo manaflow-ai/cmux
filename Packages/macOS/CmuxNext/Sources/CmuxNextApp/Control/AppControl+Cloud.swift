@@ -166,12 +166,13 @@ extension AppControl {
         } catch let error as CloudAPIError {
             throw runError(error)
         }
-        // A 2xx the app can't read says nothing about the run: `bad_response`, which the CLI
-        // treats as "the run may exist" on a create and waits through on a wait.
-        guard !data.isEmpty else { return .object([:]) }
-        do { return try JSONValue.parse(data) } catch {
+        // Every Run answer is a JSON object. A 2xx that isn't one (empty, unreadable, anything
+        // else) says nothing about the run: `bad_response`, which the CLI treats as "the run may
+        // exist" on a create, waits through on a wait, and as no answer on a cancel.
+        guard let answer = try? JSONValue.parse(data), case .object = answer else {
             throw ControlError(code: "bad_response", message: String(localized: "runs.error.badResponse", defaultValue: "cmux.com sent an answer the app couldn't read.", table: "Runs", bundle: .module))
         }
+        return answer
     }
 
     /// The control error a Run API failure answers with (internal for its tests).
