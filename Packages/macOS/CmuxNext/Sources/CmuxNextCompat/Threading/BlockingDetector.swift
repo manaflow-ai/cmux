@@ -42,8 +42,8 @@ public struct BlockingDetector: Sendable {
         #endif
     }
 
-    /// What a violation does (``BlockingMode/trap`` in a Debug build unless it was started with
-    /// `CMUX_BLOCKING_TRAP=0`; ``BlockingMode/record`` in every other build).
+    /// What a violation does (``BlockingMode/record`` in every build but a Debug build started with
+    /// `CMUX_BLOCKING_TRAP=1`).
     public var mode: BlockingMode {
         #if DEBUG || CMUX_BLOCKING_CHECKS
         table.mode
@@ -52,9 +52,8 @@ public struct BlockingDetector: Sendable {
         #endif
     }
 
-    /// What a violation on a shared pool thread does (``BlockingMode/trap`` in a Debug build unless it was started
-    /// with `CMUX_BLOCKING_TRAP_POOL=0`, or `CMUX_BLOCKING_TRAP=0` alone; ``BlockingMode/record`` in every other
-    /// build).
+    /// What a violation on a shared pool thread does (``BlockingMode/record`` in every build but a Debug build
+    /// started with `CMUX_BLOCKING_TRAP_POOL=1`).
     public var poolMode: BlockingMode {
         #if DEBUG || CMUX_BLOCKING_CHECKS
         table.poolMode

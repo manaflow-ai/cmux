@@ -24,11 +24,11 @@ internal import Dispatch
 ///
 /// The raw values are the names `debug.blocking` and the hang reports use, so they never change.
 public enum BlockingContext: String, Sendable, CaseIterable {
-    /// The main thread: blocking is a violation (Debug traps unless `CMUX_BLOCKING_TRAP=0`).
+    /// The main thread: blocking is a violation (`CMUX_BLOCKING_TRAP=1` traps in Debug).
     case main
     /// The Swift cooperative pool or a GCD root queue (`Task.detached`, an actor, `DispatchQueue.global`):
     /// threads shared by every task, about one per core, so one blocking call stalls the tasks queued behind it.
-    /// Blocking is a violation, recorded (Debug traps unless `CMUX_BLOCKING_TRAP_POOL=0`).
+    /// Blocking is a violation, recorded (`CMUX_BLOCKING_TRAP_POOL=1` traps in Debug).
     case pool
     /// A slot of a `BackgroundWork` lane that may block (`.files`, `.system`), Chrome's `MayBlock()` task: blocking
     /// allowed.

@@ -50,8 +50,8 @@ final class BlockingViolationTable: Sendable {
     static let pendingLimit = 64
 
     let mode: BlockingMode
-    /// What a pool violation does: ``BlockingMode/trap`` in a Debug build unless it was started with
-    /// `CMUX_BLOCKING_TRAP_POOL=0`, or with `CMUX_BLOCKING_TRAP=0` and no `CMUX_BLOCKING_TRAP_POOL`.
+    /// What a pool violation does: ``BlockingMode/record`` unless a Debug build was started with
+    /// `CMUX_BLOCKING_TRAP_POOL=1`.
     let poolMode: BlockingMode
     let lockWaitLimitNanos: UInt64
     let uptimeNanos: @Sendable () -> UInt64
@@ -90,12 +90,10 @@ final class BlockingViolationTable: Sendable {
     /// Makes a table.
     ///
     /// - Parameters:
-    ///   - environment: Read for the off switches `CMUX_BLOCKING_TRAP=0` (main, and the pool unless
-    ///     `CMUX_BLOCKING_TRAP_POOL` is set) and `CMUX_BLOCKING_TRAP_POOL=0` (Debug builds only, which trap without
-    ///     them; every other build records).
-    ///   - mode: A test's main-thread mode. With both modes nil the table reads `environment`; with either one
-    ///     set, the other nil one records, so a test's table never depends on how the test process was launched.
-    ///   - poolMode: A test's pool mode.
+    ///   - environment: Read for `CMUX_BLOCKING_TRAP=1` and `CMUX_BLOCKING_TRAP_POOL=1` (Debug builds only: every
+    ///     other build records).
+    ///   - mode: A test's main-thread mode; nil reads `environment`.
+    ///   - poolMode: A test's pool mode; nil reads `environment`.
     ///   - lockWaitLimitNanos: The longest main-thread ``Mutex`` wait that is not a violation.
     ///   - uptimeNanos: The clock a contended ``Mutex`` wait and a ``blockingCall(_:fileID:line:_:)`` violation are
     ///     measured with.
@@ -105,14 +103,8 @@ final class BlockingViolationTable: Sendable {
          uptimeNanos: @escaping @Sendable () -> UInt64 = { clock_gettime_nsec_np(CLOCK_UPTIME_RAW) },
          startsDrain: Bool = true) {
         #if DEBUG
-        if mode == nil && poolMode == nil {
-            let launched = Self.modes(environment: environment)
-            self.mode = launched.main
-            self.poolMode = launched.pool
-        } else {
-            self.mode = mode ?? .record
-            self.poolMode = poolMode ?? .record
-        }
+        self.mode = mode ?? (environment["CMUX_BLOCKING_TRAP"] == "1" ? .trap : .record)
+        self.poolMode = poolMode ?? (environment["CMUX_BLOCKING_TRAP_POOL"] == "1" ? .trap : .record)
         #else
         // A bench (and, to come, a Nightly) never stops the app, whatever it was asked.
         self.mode = .record
@@ -211,17 +203,7 @@ final class BlockingViolationTable: Sendable {
     }
 
     #if DEBUG
-    /// A Debug launch's main-thread and pool modes: both trap (Chrome's `DCHECK` in
-    /// base/threading/scoped_blocking_call.cc). `CMUX_BLOCKING_TRAP=0` records on the main thread, and on the pool
-    /// too unless `CMUX_BLOCKING_TRAP_POOL` is set; `CMUX_BLOCKING_TRAP_POOL=0` records on the pool. Any other value
-    /// traps.
-    static func modes(environment: [String: String]) -> (main: BlockingMode, pool: BlockingMode) {
-        let main: BlockingMode = environment["CMUX_BLOCKING_TRAP"] == "0" ? .record : .trap
-        let pool = environment["CMUX_BLOCKING_TRAP_POOL"].map { $0 == "0" ? BlockingMode.record : .trap } ?? main
-        return (main, pool)
-    }
-
-    /// Trap mode (Debug only, the default; `CMUX_BLOCKING_TRAP=0` and `CMUX_BLOCKING_TRAP_POOL=0` turn it off): stops
+    /// Trap mode (Debug only: `CMUX_BLOCKING_TRAP=1`, `CMUX_BLOCKING_TRAP_POOL=1` and the detector's tests): stops
     /// the process at the violation.
     private static func trap(_ message: String) -> Never {
         fatalError(message)

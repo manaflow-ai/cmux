@@ -297,33 +297,13 @@ struct BlockingPoolContextTests {
 
     // MARK: modes
 
-    #if DEBUG
-    /// Debug traps on the pool by default (task 021); `CMUX_BLOCKING_TRAP_POOL=0` turns only the pool off, and
-    /// `CMUX_BLOCKING_TRAP=0` turns both off unless `CMUX_BLOCKING_TRAP_POOL` says otherwise.
-    @Test func aDebugLaunchTrapsOnThePoolUnlessTurnedOff() {
-        #expect(BlockingViolationTable(environment: [:]).poolMode == .trap)
-        #expect(BlockingViolationTable(environment: ["CMUX_BLOCKING_TRAP_POOL": "1"]).poolMode == .trap)
-        #expect(BlockingViolationTable(environment: ["CMUX_BLOCKING_TRAP_POOL": ""]).poolMode == .trap)
-        #expect(BlockingViolationTable(environment: ["CMUX_BLOCKING_TRAP_POOL": "0"]).poolMode == .record)
-        #expect(BlockingViolationTable(environment: ["CMUX_BLOCKING_TRAP_POOL": "0"]).mode == .trap)
-        #expect(BlockingViolationTable(environment: ["CMUX_BLOCKING_TRAP": "0"]).poolMode == .record)
-        #expect(BlockingViolationTable(environment: ["CMUX_BLOCKING_TRAP": "0", "CMUX_BLOCKING_TRAP_POOL": "1"])
-                    .poolMode == .trap)
-        #expect(BlockingDetector(table: BlockingViolationTable(poolMode: .trap)).poolMode == .trap)
-    }
-
-    /// A test that sets one mode gets the other as record, whatever the test process was launched with.
-    @Test func aTestModeLeavesTheOtherModeRecording() {
-        let trapping = ["CMUX_BLOCKING_TRAP": "1", "CMUX_BLOCKING_TRAP_POOL": "1"]
-        #expect(BlockingViolationTable(environment: trapping, mode: .trap).poolMode == .record)
-        #expect(BlockingViolationTable(environment: trapping, poolMode: .trap).mode == .record)
-        #expect(BlockingViolationTable(environment: [:], mode: .record).poolMode == .record)
-    }
-    #endif
-
-    @Test func poolModeIsSetOnlyInDebug() {
+    @Test func poolModeRecordsUnlessAskedToTrap() {
+        #expect(BlockingViolationTable(environment: [:]).poolMode == .record)
+        #expect(BlockingViolationTable(environment: ["CMUX_BLOCKING_TRAP": "1"]).poolMode == .record)
         #if DEBUG
-        #expect(BlockingViolationTable(poolMode: .trap).poolMode == .trap)
+        #expect(BlockingViolationTable(environment: ["CMUX_BLOCKING_TRAP_POOL": "1"]).poolMode == .trap)
+        #expect(BlockingViolationTable(environment: ["CMUX_BLOCKING_TRAP_POOL": "1"]).mode == .record)
+        #expect(BlockingDetector(table: BlockingViolationTable(poolMode: .trap)).poolMode == .trap)
         #else
         // A bench (and, to come, a Nightly) never stops the app, whatever it was asked.
         #expect(BlockingViolationTable(environment: ["CMUX_BLOCKING_TRAP_POOL": "1"]).poolMode == .record)

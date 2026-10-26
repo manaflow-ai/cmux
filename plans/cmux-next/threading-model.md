@@ -14,20 +14,21 @@ How it is enforced:
   (a process spawn: screen.close stalled main 807 ms on one, 2026-10-24), `blockingXPCSendWithReply`, and a contended
   `Mutex` wait over 2 ms); code that calls them is checked, and slice (c) moves the raw calls onto them (see
   the next item). On the main thread outside `allowBlocking(<reason>)` a seam call is a violation, recorded once
-  per call site (`#fileID:#line`; two seam calls on one line share a site). Debug: stops at the call, Chrome's
-  `DCHECK` (the default since the sweep passed in record mode, p02-threads-021; a contended `Mutex` wait is
-  always recorded only: it is measured on the wall clock). Launch with `CMUX_BLOCKING_TRAP=0` to record instead:
-  one unified-log line per call site (`log stream --predicate 'category == "blocking"'`), the Debug menu's
-  "Main-Thread Blocking (N)" and the `debug.blocking` socket command. Bench builds (`reload.sh --config bench`,
+  per call site (`#fileID:#line`; two seam calls on one line share a site). Debug: one unified-log line per call site
+  (`log stream --predicate 'category == "blocking"'`), the Debug menu's "Main-Thread Blocking (N)" and the
+  `debug.blocking` socket command; launch with `CMUX_BLOCKING_TRAP=1` to stop at the call (a contended `Mutex`
+  wait is always recorded only: it is measured on the wall clock). Bench builds (`reload.sh --config bench`,
   `-DCMUX_BLOCKING_CHECKS`): recorded for `debug.blocking`, never a trap. Nightly: to come with the
   `nightly.yml` flag and PL-telemetry's hang-report sink (kind + image UUID + offset frames only, no paths or
-  names); it will never trap and has no log or menu. Release: compiled out. Daemon (`cmux-threads::blocking`):
-  a disallowed thread's blocking call records its site in every build and, in Debug, panics at the caller's
-  location; `CMUX_DAEMON_BLOCKING=record` turns the panic off. Release never panics.
+  names); it will never trap and has no log or menu. Release: compiled out. Debug records on the main thread and
+  the pool until the every-action sweep (p02-threads-300, RUN-1) shows 0 main and 0 pool sites; then task 021 makes
+  both trap by default. Daemon (`cmux-threads::blocking`): a disallowed thread's blocking call records its site in
+  every build and, in Debug, panics at the caller's location (Chrome's `DCHECK`); `CMUX_DAEMON_BLOCKING=record`
+  turns the panic off. Release never panics.
   The same seam call on a shared pool thread (the Swift cooperative pool, `Task.detached`, an actor, a GCD root
   queue such as `DispatchQueue.global`) is a violation too, recorded at its own `pool` site (`debug.blocking`
-  `context`, `contexts.pool`; not in the Debug menu); a Debug build stops at it unless launched with
-  `CMUX_BLOCKING_TRAP_POOL=0` (or `CMUX_BLOCKING_TRAP=0`, which turns off both). A `BackgroundWork` `.files` or `.system` item, a named queue, a named thread and `allowBlocking` may
+  `context`, `contexts.pool`; not in the Debug menu); launch a Debug build with `CMUX_BLOCKING_TRAP_POOL=1` to
+  stop at it. A `BackgroundWork` `.files` or `.system` item, a named queue, a named thread and `allowBlocking` may
   block. A `.cpu` item may not (the lane is sized to the cores): a seam in it records a `wrong-lane` site in the
   `cpu-lane` context, with the seam's own kind as its `seam_kind`, never a trap; run the item on `.files` for
   `file-io`, on `.system` for any other seam kind (p02-threads task 015). The pool

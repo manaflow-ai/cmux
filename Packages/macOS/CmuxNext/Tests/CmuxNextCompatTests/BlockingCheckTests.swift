@@ -9,7 +9,7 @@ import Testing
 @Suite(.serialized)
 struct BlockingCheckTests {
     #if DEBUG
-    // MARK: trap mode (Debug by default; CMUX_BLOCKING_TRAP=0 turns it off)
+    // MARK: trap mode (Debug: CMUX_BLOCKING_TRAP=1, and these tests)
 
     @Test func aFileReadOnTheMainThreadTraps() async {
         await #expect(processExitsWith: .failure) {
@@ -68,29 +68,17 @@ struct BlockingCheckTests {
         }
     }
 
-    @Test func withoutTheVariableADebugBuildTraps() async {
-        #expect(BlockingViolationTable(environment: [:]).mode == .trap)
+    @Test func theTrapEnvironmentVariableTurnsTrapModeOn() async {
         await #expect(processExitsWith: .failure) {
-            let table = BlockingViolationTable(environment: [:])
+            let table = BlockingViolationTable(environment: ["CMUX_BLOCKING_TRAP": "1"])
             await BlockingViolationTable.$scoped.withValue(table) {
                 await MainActor.run { _ = FileManager.checked.fileExists(atPath: "/") }
             }
         }
     }
 
-    @Test func theOffSwitchMakesADebugBuildRecord() async {
-        #expect(BlockingViolationTable(environment: ["CMUX_BLOCKING_TRAP": "0"]).mode == .record)
-        await #expect(processExitsWith: .success) {
-            let table = BlockingViolationTable(environment: ["CMUX_BLOCKING_TRAP": "0"])
-            await BlockingViolationTable.$scoped.withValue(table) {
-                await MainActor.run { _ = FileManager.checked.fileExists(atPath: "/") }
-            }
-        }
-    }
-
-    @Test func anyOtherValueOfTheVariableTraps() {
-        #expect(BlockingViolationTable(environment: ["CMUX_BLOCKING_TRAP": "1"]).mode == .trap)
-        #expect(BlockingViolationTable(environment: ["CMUX_BLOCKING_TRAP": ""]).mode == .trap)
+    @Test func withoutTheVariableADebugBuildRecords() {
+        #expect(BlockingViolationTable(environment: [:]).mode == .record)
     }
 
     @Test func theSameCallsOffTheMainThreadDoNotTrap() async {
@@ -127,7 +115,7 @@ struct BlockingCheckTests {
     #endif
 
     #if DEBUG || CMUX_BLOCKING_CHECKS
-    // MARK: record mode (Nightly, and Debug with CMUX_BLOCKING_TRAP=0)
+    // MARK: record mode (Nightly, and Debug by default)
 
     @MainActor @Test func recordModeRecordsEachCallSiteOnceAndCountsRepeats() async {
         let (table, recorder) = Self.recordingTable()

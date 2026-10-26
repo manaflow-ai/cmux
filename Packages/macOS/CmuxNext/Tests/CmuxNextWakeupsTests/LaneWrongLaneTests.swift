@@ -64,7 +64,7 @@ import Testing
         #expect(sites.first.map { $0.totalNanos >= $0.maxNanos } == true)
     }
 
-    /// Pool trap mode traps only on the pool: a seam in a `.cpu` job with the pool in trap mode is
+    /// `CMUX_BLOCKING_TRAP_POOL=1` traps only on the pool: a seam in a `.cpu` job with the pool in trap mode is
     /// still recorded, and the process goes on.
     @Test func aCPULaneJobNeverTrapsInPoolTrapMode() async throws {
         let table = BlockingViolationTable(mode: .trap, poolMode: .trap)
