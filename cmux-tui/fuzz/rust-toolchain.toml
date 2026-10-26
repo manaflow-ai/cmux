@@ -1,0 +1,6 @@
+# cargo fuzz needs nightly (-Zsanitizer=address); pinned for this folder only
+# (p10-stability.md risk 7).
+[toolchain]
+channel = "nightly-2026-10-20"
+profile = "minimal"
+components = ["rust-src", "llvm-tools-preview"]

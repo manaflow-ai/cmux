@@ -1,0 +1,72 @@
+# Coverage-guided fuzz targets for cmux-tui decoders (cargo fuzz, libFuzzer),
+# as Chromium's testing/libfuzzer targets. Its own workspace and lock with a
+# pinned nightly (rust-toolchain.toml): the main workspace's Cargo.toml and
+# Cargo.lock never change for it. scripts/cmux-next/rust-fuzz.sh runs it with
+# the resource limits (p10-stability-017).
+[package]
+name = "cmux-tui-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[workspace]
+
+[dependencies]
+libfuzzer-sys = "0.4"
+acpmux = { path = "../crates/acpmux" }
+serde_json = "1"
+tokio = { version = "1", features = ["rt", "time"] }
+toml = "0.8"
+
+# A panic, an overflow or a debug assertion is a finding, as in a debug build.
+[profile.release]
+debug = 1
+overflow-checks = true
+debug-assertions = true
+
+# acpmux (p10-stability-019): one target per decoder.
+
+[[bin]]
+name = "acpmux_rpc_parse"
+path = "fuzz_targets/acpmux_rpc_parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "acpmux_claude_stdio_lines"
+path = "fuzz_targets/acpmux_claude_stdio_lines.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "acpmux_pairing_ticket"
+path = "fuzz_targets/acpmux_pairing_ticket.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "acpmux_catalog_parse"
+path = "fuzz_targets/acpmux_catalog_parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "acpmux_routes_parse"
+path = "fuzz_targets/acpmux_routes_parse.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "acpmux_parse_answers"
+path = "fuzz_targets/acpmux_parse_answers.rs"
+test = false
+doc = false
+bench = false
