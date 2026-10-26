@@ -12,7 +12,7 @@ import CmuxNextWakeups
 /// is created the first time the tab is shown, so hidden background tabs
 /// cost nothing until selected.
 @Observable
-public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtensionActionHosting, BrowserDevToolsHosting, BrowserHangAnswering {
+public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserPageCovering, BrowserExtensionActionHosting, BrowserDevToolsHosting, BrowserHangAnswering {
     public let id: BrowserTabID
     public let engineKind: BrowserEngineKind = .cef
     public let profileID: BrowserProfileID
@@ -55,6 +55,8 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     public var occlusionRects: [CGRect] = [] {
         didSet { applyOcclusion() }
     }
+    /// A view shows in the page's place (``BrowserPageCovering``): the whole page is a hole.
+    @ObservationIgnored public var isPageCovered = false { didSet { if isPageCovered != oldValue { applyOcclusion() } } }
 
     /// DevTools of this page (docked in `contentView` or in a window).
     public internal(set) var devTools: BrowserDevToolsState
@@ -458,9 +460,6 @@ public final class CEFTab: BrowserTab, BrowserOcclusionHosting, BrowserExtension
     /// Whether the content lifecycle hid this page (read by the pane host
     /// when the tab's content view enters a window).
     var isContentHidden: Bool { isOccluded }
-
-    public func snapshot() async throws -> CGImage { try await CEFThumbnail.capture(self, CEFThumbnail.png) }
-    public func thumbnail() async throws -> CGImage { try await CEFThumbnail.capture(self, CEFThumbnail.params) }
 
     public func setZoom(_ zoom: Double) {
         machine.apply(.zoomChanged(zoom))
