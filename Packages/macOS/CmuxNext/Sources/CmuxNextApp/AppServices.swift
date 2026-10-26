@@ -443,7 +443,12 @@ final class AppServices {
     private(set) lazy var keyRouter: KeyRouter = KeyRouter(registry: registry, inputDispatch: inputDispatch)  // first read in init (no IUO)
     private(set) lazy var routeKeyDown: (NSEvent, NSWindow?) -> Bool = PerfLabCanaryKeyDown(features: { [weak self] in self?.features })
         .wrap { [weak self] (event: NSEvent, window: NSWindow?) in self?.keyRouter.interceptKeyDown(event, in: window) ?? false }  // debug.key calls it too
-    private(set) lazy var chromiumWarmup: ChromiumWarmup = ChromiumWarmup(engine: cache.cef, input: inputTap, memory: memoryCoordinator)  // first read by its afterFirstFrame start
+    private(set) lazy var menuTracking = MenuTrackingState()  // the one NSMenu tracking observer (not the run loop's eventTracking mode)
+    // Idle steps on the main-thread scheduler, gated on the person's input and on menus; first read by its afterFirstFrame start.
+    private(set) lazy var chromiumWarmup: ChromiumWarmup = ChromiumWarmup(
+        engine: cache.cef, idle: mainDeadlines, input: inputTap, memory: memoryCoordinator,
+        isTrackingMenu: { [menuTracking = self.menuTracking] in menuTracking.isTracking },
+        observeMenuEnd: { [menuTracking = self.menuTracking] in menuTracking.observeEnd($0) })
     /// The Settings window (Settings…, Cmd-,).
     private(set) lazy var settingsWindow = SettingsWindowService(services: self)
     /// The wallpaper choices, built off main and kept current by folder events (BackdropCatalogStore).
