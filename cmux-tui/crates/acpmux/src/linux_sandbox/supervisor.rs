@@ -136,7 +136,9 @@ fn resolve(task: RawFd, dir: i32, path: &str, flags: i32, nspid: &str) -> Result
         };
         let mut fs: statfs = unsafe { std::mem::zeroed() };
         checked(unsafe { fstatfs(pin.as_raw_fd(), &mut fs) }).map_err(|_| EACCES)?;
-        if fs.f_type as i64 == PROC_SUPER_MAGIC as i64 {
+        let fs_type = i64::try_from(fs.f_type).map_err(|_| EACCES)?;
+        let proc_magic = i64::try_from(PROC_SUPER_MAGIC).map_err(|_| EACCES)?;
+        if fs_type == proc_magic {
             if target != Path::new("/proc")
                 || queue.len() != 3
                 || magic.is_some()
