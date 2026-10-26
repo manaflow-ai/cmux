@@ -31,6 +31,15 @@ import { Fragment, type Node as ProseNode, type Slice } from "@milkdown/kit/pros
 import type { EditorView } from "@milkdown/kit/prose/view";
 import type { RemarkParser } from "@milkdown/kit/transformer";
 import { $prose, getMarkdown, replaceAll } from "@milkdown/kit/utils";
+import {
+  inlineAttachmentNode,
+  inlineIds as readInlineIds,
+  inlinePlugin,
+  insertInline as insertInlineNode,
+  placeTokens,
+  removeInline as removeInlineNode,
+  unplaceInline,
+} from "./composer/inlineNode";
 
 /// What the composer drives the field with, in place of a textarea's DOM API.
 export type MarkdownFieldHandle = {
@@ -80,6 +89,12 @@ export type MarkdownFieldHandle = {
   redo(): void;
   /// Selects the whole prompt (its context menu's Select All).
   selectAll(): void;
+  /// Places attachment ids at the current selection as editor atoms. False when inline mode is off.
+  insertInline(ids: readonly string[]): boolean;
+  /// Removes every atom with this attachment id.
+  removeInline(id: string): void;
+  /// The placed attachment ids in document order.
+  inlineIds(): string[];
 };
 
 export type PlainPrompt = { value: string; selectionStart: number; selectionEnd: number };
@@ -124,6 +139,12 @@ export type MarkdownFieldProps = {
   /// Whose selection the field keeps for a focus with no click (the composer's chat session): a
   /// selection kept under one key never comes back under another, even over the same text.
   selectionKey?: string;
+  /// Enables inline attachment atoms. Strip mode leaves U+FFFC tokens as ordinary text.
+  inlineAttachments?: boolean;
+  /// The known attachment ids that may become inline atoms. Unknown token text stays text.
+  isInlineAttachment?: (id: string) => boolean;
+  /// Receives the live DOM mount for each inline atom so the composer can draw its thumbnail/token.
+  onInlineViews?: (views: ReadonlyMap<string, HTMLElement>) => void;
 };
 
 /// Streaming agent updates replace the composer's snapshot while the prompt is unchanged. The
@@ -158,6 +179,9 @@ function sameMarkdownFieldProps(previous: MarkdownFieldProps, next: MarkdownFiel
     previous.onReturnInput === next.onReturnInput &&
     previous.onFirstInput === next.onFirstInput &&
     previous.plugins === next.plugins &&
+    previous.inlineAttachments === next.inlineAttachments &&
+    previous.isInlineAttachment === next.isInlineAttachment &&
+    previous.onInlineViews === next.onInlineViews &&
     sameMarkdownFieldAttributes(previous.attributes, next.attributes)
   );
 }
@@ -359,6 +383,9 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
     className,
     attributes,
     selectionKey,
+    inlineAttachments = false,
+    isInlineAttachment,
+    onInlineViews,
   },
   ref,
 ) {
@@ -402,6 +429,21 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
   const empty = useRef<HTMLSpanElement>(null);
   const attrs = useRef(attributes);
   attrs.current = attributes;
+  const inlineOptions = useRef({ enabled: inlineAttachments, known: isInlineAttachment, onViews: onInlineViews });
+  inlineOptions.current = { enabled: inlineAttachments, known: isInlineAttachment, onViews: onInlineViews };
+  const inlineViewMap = useRef(new Map<string, HTMLElement>());
+  const notifyInlineViews = () => inlineOptions.current.onViews?.(new Map(inlineViewMap.current));
+  const inlineViews = useRef({
+    add: (id: string, dom: HTMLElement) => {
+      inlineViewMap.current.set(id, dom);
+      notifyInlineViews();
+    },
+    remove: (id: string, dom: HTMLElement) => {
+      if (inlineViewMap.current.get(id) === dom) inlineViewMap.current.delete(id);
+      notifyInlineViews();
+    },
+  });
+  const inlineKnown = (id: string) => inlineOptions.current.enabled && (inlineOptions.current.known?.(id) ?? true);
   const applyAttributes = () => {
     const dom = view.current?.dom;
     if (!dom) return;
@@ -757,6 +799,8 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
       })
       .use(composerKeys)
       .use(surfacePlugins.current.map((plugin) => $prose(() => plugin)))
+      .use(inlineAttachmentNode)
+      .use(inlinePlugin(inlineViews.current, inlineKnown))
       .use(keepCaret)
       .use(blockKeys)
       .use(commonmark)
@@ -773,6 +817,7 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
         view.current = made.ctx.get(editorViewCtx);
         remark.current = made.ctx.get(remarkCtx);
         if (known.current) setDocument(known.current);
+        if (inlineOptions.current.enabled) placeTokens(view.current, inlineKnown);
         showPlaceholder(known.current);
         applyAttributes();
         if (pendingFocus.current) view.current.focus();
@@ -805,6 +850,14 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
     const tr = current.state.tr.insert(doc.content.size, schema.nodes.paragraph.create());
     current.dispatch(tr.setSelection(TextSelection.create(tr.doc, tr.doc.content.size - 1)));
   };
+
+  useLayoutEffect(() => {
+    const current = view.current;
+    if (!current) return;
+    if (inlineOptions.current.enabled) placeTokens(current, inlineKnown);
+    else unplaceInline(current);
+    notifyInlineViews();
+  }, [inlineAttachments, onInlineViews]);
 
   // A value from outside (a send cleared it, the menu wrote a command) replaces the document.
   useLayoutEffect(() => {
@@ -977,6 +1030,15 @@ const MarkdownFieldImpl = React.forwardRef<MarkdownFieldHandle, MarkdownFieldPro
           if (editor.current && view.current) applyFormat(editor.current, view.current, format, href);
         },
         formats: () => (view.current ? activeFormats(view.current.state) : new Set()),
+        insertInline: (ids) => {
+          const current = view.current;
+          return Boolean(current && inlineOptions.current.enabled && insertInlineNode(current, ids));
+        },
+        removeInline: (id) => {
+          const current = view.current;
+          if (current && inlineOptions.current.enabled) removeInlineNode(current, id);
+        },
+        inlineIds: () => (view.current ? readInlineIds(view.current) : []),
       }),
     [],
   );
