@@ -152,7 +152,8 @@ impl TurnKinds {
 /// One report, before it is written out.
 #[derive(Debug, Clone, PartialEq)]
 struct Report {
-    /// What makes two reports the same: the state, the reply and every pull request it names.
+    /// Its state and whole reply; with its pull requests, what makes two reports the same
+    /// ([`Report::key`]).
     content: String,
     /// The same for every try of this report.
     prompt_id: String,
@@ -166,6 +167,11 @@ struct Report {
 }
 
 impl Report {
+    /// What makes two reports the same: the state, the reply and every pull request it names.
+    fn key(&self) -> String {
+        format!("{}\n{}", self.content, self.prs.join(" "))
+    }
+
     fn text(&self) -> String {
         let mut t = format!(
             "[{}] {HEAD}{} ended, {}.\nSession: {}\nLast message: {}",
@@ -378,7 +384,7 @@ impl Hub {
     /// A local session's turn ended, or failed before its agent started (`turns.rs`): a lane's
     /// report of it is made now, from this turn's own records and state, and queued; delivery
     /// and its retries send that report and never read the lane again.
-    pub(super) fn lane_turn_ended(self: &Arc<Self>, session: &Arc<Session>) {
+    pub(super) fn lane_turn_ended(self: &Arc<Self>, session: &Arc<Session>, started: bool) {
         let turn = session.meta().turn_count;
         let on_reports = self.lane_turns().end(&session.id, turn);
         if !self.lane_links(|links| links.contains_key(&session.id)) {
@@ -386,7 +392,7 @@ impl Hub {
         }
         // A turn on reports only makes none, and leaves one still queued to go now.
         if !on_reports {
-            let report = self.lane_capture(session, turn);
+            let report = self.lane_capture(session, turn, started);
             self.lane_links(|links| {
                 if let Some(l) = links.get_mut(&session.id) {
                     l.ready = Some(replace_ready(report, l.ready.take()));
@@ -418,18 +424,7 @@ impl Hub {
         let now = now_ms();
         let due = self.lane_links(|links| {
             let l = links.get_mut(lane)?;
-            l.sent.retain(|t| now.saturating_sub(*t) < WINDOW_MS);
-            let ready = l.ready.as_ref()?;
-            if l.last.as_deref() == Some(ready.content.as_str()) {
-                l.ready = None;
-                return None;
-            }
-            if l.sent.len() >= MAX_REPORTS {
-                tracing::warn!(lane, "lane report held: {MAX_REPORTS} in the last 10 minutes");
-                return None;
-            }
-            let mut report = ready.clone();
-            report.prs = new_items(report.prs, &l.prs);
+            let report = due_report(l, now)?;
             Some((l.parent.clone(), report))
         });
         let Some((parent, report)) = due else { return };
@@ -442,16 +437,19 @@ impl Hub {
             if l.ready.as_ref().is_some_and(|r| r.prompt_id == report.prompt_id) {
                 l.ready = None;
             }
-            l.last = Some(report.content.clone());
+            l.last = Some(report.key());
             l.prs.extend(report.prs.iter().cloned());
             l.sent.push(now);
         });
     }
 
     /// The report of turn `turn` of `session`, which just ended.
-    fn lane_capture(&self, session: &Session, turn: u64) -> Report {
+    /// `started`: its agent ran it. A turn that failed before its agent started has no reply
+    /// of its own, so none is read (the last one is the turn before's).
+    fn lane_capture(&self, session: &Session, turn: u64, started: bool) -> Report {
         let summary = self.session_summary(session);
-        let reply = match self.lane_last_reply(&session.id, &summary) {
+        let read = if started { self.lane_last_reply(&session.id, &summary) } else { Ok(None) };
+        let reply = match read {
             Ok(reply) => reply.unwrap_or_default(),
             Err(e) => {
                 tracing::warn!(lane = %session.id, "lane report: its transcript did not read: {e}");
@@ -471,7 +469,7 @@ impl Hub {
         let name = summary.get("name").and_then(Value::as_str).unwrap_or(&session.id);
         let state = state(&summary);
         Report {
-            content: format!("{state}\n{reply}\n{}", prs.join(" ")),
+            content: format!("{state}\n{reply}"),
             prompt_id: format!("{PROMPT_PREFIX}{}", uuid::Uuid::new_v4()),
             name: name.to_owned(),
             session: session.id.clone(),
@@ -593,6 +591,24 @@ fn last_turn_records(
     Ok(out)
 }
 
+/// `l`'s queued report to deliver now, without the pull requests reported before: none when it
+/// is the same as the last (dropped) or past the cap (held).
+fn due_report(l: &mut Link, now: u64) -> Option<Report> {
+    l.sent.retain(|t| now.saturating_sub(*t) < WINDOW_MS);
+    let ready = l.ready.as_ref()?;
+    if l.last.as_deref() == Some(ready.key().as_str()) {
+        l.ready = None;
+        return None;
+    }
+    if l.sent.len() >= MAX_REPORTS {
+        tracing::warn!(lane = %ready.session, "lane report held: {MAX_REPORTS} in the last 10 minutes");
+        return None;
+    }
+    let mut report = ready.clone();
+    report.prs = new_items(report.prs, &l.prs);
+    Some(report)
+}
+
 /// A newer turn's report replaces one still queued, keeping the pull requests only that one
 /// named.
 fn replace_ready(mut newer: Report, queued: Option<Report>) -> Report {
@@ -618,6 +634,28 @@ mod tests {
             prs: prs.iter().map(|p| (*p).to_owned()).collect(),
             shas: vec![],
         }
+    }
+
+    #[test]
+    fn a_held_reports_pull_request_goes_with_a_newer_report_the_same_as_the_last() {
+        let (now, x) = (WINDOW_MS * 2, "https://github.com/o/r/pull/1");
+        // Turn 2's report went; turn 3's, naming X, is held at the cap.
+        let mut l = Link { last: Some(report(2, &[]).key()), ..Link::default() };
+        l.sent = vec![now; MAX_REPORTS];
+        l.ready = Some(report(3, &[x]));
+        assert_eq!(due_report(&mut l, now), None);
+        // Past the window, turn 4 repeats turn 2's report without X: X still goes.
+        let later = now + WINDOW_MS;
+        let mut same = report(4, &[]);
+        same.content = report(2, &[]).content;
+        l.ready = Some(replace_ready(same, l.ready.take()));
+        let got = due_report(&mut l, later).unwrap();
+        assert_eq!((got.turn, got.prs), (4, vec![x.to_owned()]));
+        // The very same report is dropped.
+        let mut l = Link { last: Some(report(2, &[]).key()), ..Link::default() };
+        l.ready = Some(report(2, &[]));
+        assert_eq!(due_report(&mut l, now), None);
+        assert!(l.ready.is_none());
     }
 
     #[test]

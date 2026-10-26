@@ -382,7 +382,12 @@ async fn lane_report_a_turn_whose_agent_cannot_start_reports_the_lane_blocked() 
         .await;
     let got = person.exactly(&coord, 2).await;
     let _ = std::fs::remove_file(&mark);
-    assert!(text(&got[1]).starts_with("[lane-x] lane report: turn 2 ended, blocked"), "{}", got[1]);
+    let t = text(&got[1]);
+    assert!(t.starts_with("[lane-x] lane report: turn 2 ended, blocked"), "{}", got[1]);
+    // The turn that never started has no reply: turn 1's is not passed off as its.
+    assert!(text(&got[0]).contains("Last message: answered"), "{}", got[0]);
+    assert!(t.contains("Last message: (no reply)"), "{t}");
+    assert!(!t.contains("answered") && !t.contains("Commits named"), "{t}");
 }
 
 #[tokio::test]
