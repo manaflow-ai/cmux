@@ -36,4 +36,8 @@ public final class ConfirmingPageProvider: PageProvider {
                           onEvent: @escaping @MainActor (JSONValue) -> Void) async throws -> PageSubscription {
         try await inner.subscribe(stream, filter: filter, context: context, onEvent: onEvent)
     }
+
+    /// The wrapped provider's streams stop and start with the page.
+    public func pageWillFreeze() { inner.pageWillFreeze() }
+    public func pageDidThaw() { inner.pageDidThaw() }
 }
