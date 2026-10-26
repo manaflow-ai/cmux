@@ -351,7 +351,7 @@ pub(crate) async fn stream_prompt(
                 }
             },
             // The turn it steered into ended, as the daemon tells it (`steer_reply.rs`).
-            end = async { end_wait.as_mut().expect("armed").await }, if end_wait.is_some() => break end,
+            end = ended(&mut end_wait), if end_wait.is_some() => break end,
             _ = tick => {
                 if let Some(d) = deadline
                     && tokio::time::Instant::now() >= d {
@@ -694,7 +694,7 @@ async fn collect_once(
                 }
             },
             // The turn it steered into ended, as the daemon tells it (`steer_reply.rs`).
-            end = async { end_wait.as_mut().expect("armed").await }, if end_wait.is_some() => break end,
+            end = ended(&mut end_wait), if end_wait.is_some() => break end,
             _ = tick => {
                 if let Some(d) = deadline
                     && tokio::time::Instant::now() >= d {
@@ -816,6 +816,14 @@ async fn collect_once(
     let stop_reason =
         result.get("stopReason").and_then(Value::as_str).unwrap_or("end_turn").to_owned();
     Ok(CollectResult { reply, stop_reason, permissions_asked: asked, permissions_denied: denied })
+}
+
+/// The end of the turn a steer went into, once `end_wait` is armed; never before.
+async fn ended(end_wait: &mut Option<crate::cli::steer_reply::EndWait>) -> Result<Value> {
+    match end_wait.as_mut() {
+        Some(wait) => wait.await,
+        None => std::future::pending().await,
+    }
 }
 
 /// The most JSON a page of the daemon's log may hold (`_acpmux/attach` `maxBytes`; it
