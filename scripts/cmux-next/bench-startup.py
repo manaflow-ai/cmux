@@ -58,14 +58,20 @@ before the reboot: seeding launches the app and would page it in.
 
 --out DIR writes cmux-perf-result/v1 through bench_launch.BenchApp.record, one
 file per series: `launch.<mode>.<mark>` (ms since process start) for
-RESULT_MARKS, `launch.<mode>.<mark>.missing_runs` (count) and, for cold,
+result_marks(profile), `launch.<mode>.<mark>.missing_runs` (count) and, for cold,
 `launch.cold.not_cold_runs`: runs the build itself classified other than cold
 (task 007's launch.temperature) are left out of the cold samples, so a warm
 launch is never reported as cold. A cold result needs --purge, --temperature
-cold or --after-reboot, and --out needs a --profile. The story is
-`launch-<mode>` (empty profile), `launch-<mode>-realistic` or
-`launch-after-reboot`, or --story; the features come from `features.list` on the
-first measured launch of each tag that reached its first content. Lab stories:
+cold or --after-reboot, and --out needs a --profile. The empty profile's
+measured launch is a first launch, which shows the agent New Tab page, so its
+first content is `first_content` (the first live terminal frame or the agent
+page's handshake, whichever came first); the realistic profile restores a
+terminal and writes `first_terminal_frame`. The story is `launch-<mode>` (empty
+profile), `launch-<mode>-realistic` or `launch-after-reboot` (empty profile
+only: a realistic --after-reboot result needs --story), or --story; the
+features come from `features.list`, read in each tag's first measured launch
+that answers it before it quits (a launch that never drew too, so its
+missing_runs still record). Lab stories:
 scripts/perf-lab/stories.d/launch-cold.json, launch-cold-realistic.json,
 launch-warm-realistic.json, launch-after-reboot.json, and launch-warm.json.
 
@@ -84,6 +90,10 @@ CMUXBuildConfiguration, checked against the executable. `release` and `bench`
 pass; `debug`, `bench-checks` (its blocking detector costs time on every
 checked call), a stamp the executable contradicts, and an unstamped bench-hooks
 bundle are refused. With --tag it takes the tag's newest optimized bundle.
+With --after-reboot it reads only the Info.plist stamp and the bundle's file
+names before the launch (scanning the executable would page it in, and the
+launch would not be the first since the boot), then checks the stamp against
+the executable after the launch, before any result is written.
 
 --order FIRST<SECOND[<THIRD...] checks each pair of a chain in every run.
 """
@@ -220,10 +230,10 @@ PERCENTILES = (95, 99)
 PURGE = "/usr/sbin/purge"
 # --after-reboot refuses a Mac up longer than this: the T2 runner starts the story right after the reboot's login.
 AFTER_REBOOT_MAX_UPTIME_S = 600
-# The marks written as result-v1 (`launch.<mode>.<mark>`): the launch target's frame (targets.json `launch`), the
-# first live terminal frame, and the perf cron's launch rows (launch-warm.json).
-RESULT_MARKS = ("first_window_frame_committed", FINAL_MARK, "did_finish_launching_end", "sidebar_rows_shown")
 TARGET_MARK = "first_window_frame_committed"
+# The empty profile's first content: a first launch shows the agent New Tab page, not a terminal (one_run), so its
+# result is whichever of the two arrived first.
+FIRST_CONTENT = "first_content"
 
 
 class Refused(SystemExit):
@@ -339,15 +349,17 @@ def tagged_apps(tag):
     return sorted(apps, key=lambda app: os.path.getmtime(os.path.join(app, "Contents/Info.plist")), reverse=True)
 
 
-def tagged_app(tag, optimized=False):
-    """The tag's newest DerivedData bundle. With `optimized`, its newest optimized one, so a later Debug rebuild of
-    the tag never hides its bench build; the newest when it has none, for require_optimized to refuse by name."""
+def tagged_app(tag, optimized=False, evidence=None):
+    """The tag's newest DerivedData bundle. With `optimized`, its newest optimized one by `evidence(app)` (default
+    executable_evidence), so a later Debug rebuild of the tag never hides its bench build; the newest when it has
+    none, for require_optimized to refuse by name."""
     apps = tagged_apps(tag)
     if not apps:
         raise SystemExit(f"no tagged app for {tag} under {DERIVED}/cmux-{tag}/Build/Products/"
                          f"({' or '.join(PRODUCT_CONFIGS)})")
     if optimized:
-        return next((app for app in apps if build_evidence(app, executable(app))[0]), apps[0])
+        evidence = evidence or executable_evidence
+        return next((app for app in apps if evidence(app)[0]), apps[0])
     return apps[0]
 
 
@@ -692,9 +704,9 @@ def check_after_reboot(tags, profile, run=subprocess.run, now=time.time):
                           "launches the app; seed it with one --profile realistic run before the reboot")
 
 
-def one_run(tag, mode, timeout, profile=None, purge_cold=False, purge_cache=purge, on_reached=None):
+def one_run(tag, mode, timeout, profile=None, purge_cold=False, purge_cache=purge, before_quit=None):
     """One measured launch's marks. `purge_cold` empties the file cache last before a --mode cold launch;
-    `on_reached(tag)` runs in the measured app once it reached its first content, before it quits."""
+    `before_quit(tag)` runs in the measured app before it quits, whether or not it reached its first content."""
     scratch = tempfile.mkdtemp(prefix=f"bench-startup-{tag}-")
     with open(os.path.join(scratch, "cmux.json"), "w") as out:
         out.write("{}\n")
@@ -738,8 +750,8 @@ def one_run(tag, mode, timeout, profile=None, purge_cold=False, purge_cache=purg
             launch.wait_for(STARTUP_COMPLETE, max(0.0, timeout - (time.monotonic() - started)))
         if HANG_THRESHOLD_MS:
             launch.stalls = launch_stalls(tag)
-        if reached and on_reached:
-            on_reached(tag)
+        if before_quit:
+            before_quit(tag)
     finally:
         launch.quit()
     if not reached:
@@ -922,7 +934,25 @@ def classified_not_cold(run):
     return name is not None and name != "cold"
 
 
-def result_series(mode, runs):
+def result_marks(profile):
+    """The marks written as result-v1 (`launch.<mode>.<mark>`): the launch target's frame (targets.json `launch`), the
+    first content, and the perf cron's launch rows (launch-warm.json). The first content is the first live terminal
+    frame where a terminal is restored (realistic); an empty profile's first launch shows the agent page instead,
+    so its first content is FIRST_CONTENT, never a first_terminal_frame series that no run could fill."""
+    first = FINAL_MARK if profile == "realistic" else FIRST_CONTENT
+    return (TARGET_MARK, first, "did_finish_launching_end", "sidebar_rows_shown")
+
+
+def result_value(run, mark):
+    """A run's ms for a result mark: FIRST_CONTENT is the earlier of the terminal frame and the agent handshake that
+    arrived; None when the mark never came."""
+    if mark == FIRST_CONTENT:
+        arrived = [run[name] for name in (FINAL_MARK, AGENT_MARK) if is_number(run.get(name))]
+        return min(arrived) if arrived else None
+    return run[mark] if is_number(run.get(mark)) else None
+
+
+def result_series(mode, runs, profile):
     """`(metric, unit, samples)` of one tag's runs in one mode, as result-v1 names them. A cold run that the build
     classified otherwise is no cold sample: launch.cold.not_cold_runs counts it."""
     series = []
@@ -930,8 +960,8 @@ def result_series(mode, runs):
         kept = [run for run in runs if not classified_not_cold(run)]
         series.append(("launch.cold.not_cold_runs", "count", [len(runs) - len(kept)]))
         runs = kept
-    for mark in RESULT_MARKS:
-        values = [run[mark] for run in runs if is_number(run.get(mark))]
+    for mark in result_marks(profile):
+        values = [value for value in (result_value(run, mark) for run in runs) if value is not None]
         if values:
             series.append((f"launch.{mode}.{mark}", "ms", values))
         series.append((f"launch.{mode}.{mark}.missing_runs", "count", [len(runs) - len(values)]))
@@ -971,7 +1001,8 @@ class Recorder:
         return self.apps[tag]
 
     def read_features(self, tag):
-        """The tag's features.list snapshot, read once, from the first measured launch that reached its content."""
+        """The tag's features.list snapshot, read once, from the first measured launch that answers it before it
+        quits; a launch that never drew counts, so its missing_runs still record."""
         app = self.app(tag)
         if app.features is not None:
             return
@@ -986,7 +1017,7 @@ class Recorder:
         story = self.story or default_story(mode, self.profile, self.after_reboot)
         app = self.app(tag)
         written = {}
-        for metric, unit, samples in result_series(mode, runs):
+        for metric, unit, samples in result_series(mode, runs, self.profile):
             try:
                 written[metric] = str(app.record(story, metric, unit, samples, better="lower", engine="none",
                                                  target_ref=target_of(mode, metric, self.profile)))
@@ -1006,6 +1037,20 @@ BUILD_CONFIGS = {
 }
 
 
+def stamp_evidence(app):
+    """`(optimized, why)` from the Info.plist stamp and the bundle's file names alone: no byte of the executable is
+    read, so a launch after it can still be the first since the boot. build_evidence checks the stamp against the
+    executable once that launch ended."""
+    if glob.glob(os.path.join(app, "Contents/MacOS/*.debug.dylib")):
+        return False, "a Debug build (Xcode's .debug.dylib beside the executable)"
+    stamped = info_plist(app).get(BUILD_CONFIG_KEY)
+    if stamped not in BUILD_CONFIGS:
+        return False, (f"a bundle without a known Info.plist {BUILD_CONFIG_KEY} ({stamped!r}), and an after-reboot "
+                       "run reads nothing else before its launch")
+    optimized, what = BUILD_CONFIGS[stamped]
+    return optimized, f"{what}; Info.plist {BUILD_CONFIG_KEY}={stamped}, its executable checked after the launch"
+
+
 def build_evidence(app, binary):
     """`(optimized, why)` for a bundle, from bench_launch.build_config: reload.sh's CMUXBuildConfiguration stamp,
     checked against the executable (Xcode's .debug.dylib, the bench-hooks marker). A stamp the bundle contradicts,
@@ -1021,14 +1066,20 @@ def build_evidence(app, binary):
     return optimized, f"{what}; an unstamped {bundle_kind(app, binary)} bundle"
 
 
-def require_optimized(tags):
-    """Refuses, before any launch, a tag whose build is not optimized: its numbers would not be launch numbers.
+def executable_evidence(app):
+    """build_evidence of a bundle and its main executable."""
+    return build_evidence(app, executable(app))
+
+
+def require_optimized(tags, evidence=executable_evidence):
+    """Refuses a tag whose build is not optimized: its numbers would not be launch numbers. `evidence(app)` is
+    executable_evidence, or stamp_evidence before an after-reboot launch (main checks the executable after it).
     A DerivedData tag resolves here to its newest optimized bundle (tagged_app), which every run then launches."""
     for tag in tags:
         if tag not in APPS and tag not in TAGGED:
-            TAGGED[tag] = tagged_app(tag, optimized=True)
+            TAGGED[tag] = tagged_app(tag, optimized=True, evidence=evidence)
         app = app_path(tag)
-        optimized, why = build_evidence(app, executable(app))
+        optimized, why = evidence(app)
         print(f"build: {tag} is {why} ({app})", flush=True)
         if not optimized:
             raise Refused(f"--require-optimized: tag {tag} is {why}; bench a Release or bench build "
@@ -1083,8 +1134,8 @@ def parse_args(argv):
                         help="one --mode cold launch, the first since a reboot (T2): exit 2 when the Mac is up over "
                              f"{AFTER_REBOOT_MAX_UPTIME_S} s or the tag already runs")
     parser.add_argument("--out", help="write cmux-perf-result/v1 files here (needs --profile)")
-    parser.add_argument("--story", help="result-v1 story (default launch-<mode>, launch-<mode>-realistic or "
-                                        "launch-after-reboot)")
+    parser.add_argument("--story", help="result-v1 story (default launch-<mode>, launch-<mode>-realistic or, for an "
+                                        "empty profile, launch-after-reboot)")
     parser.add_argument("--session", choices=["light"], default="light", help="result-v1 session")
     parser.add_argument("--build-config", choices=["bench", "bench-checks", "release", "debug"],
                         help="result-v1 build config of a bench-hooks bundle that does not stamp it (BenchApp.record)")
@@ -1119,6 +1170,9 @@ def parse_args(argv):
         if "cold" in (args.mode or ["cold", "warm"]) and not (args.purge_cold or args.after_reboot):
             parser.error("--out with --mode cold needs --purge or --after-reboot: a launch that only stopped the "
                          "daemon reads the file cache, and result-v1 never reports it as cold")
+        if args.after_reboot and args.profile != "empty" and not args.story:
+            parser.error("--out with --after-reboot and --profile realistic needs --story: launch-after-reboot is the "
+                         "empty profile's series")
     return args
 
 
@@ -1147,7 +1201,8 @@ def main():
     args.tag = list(dict.fromkeys(args.tag))
     RUN_TAGS.extend(args.tag)
     if args.require_optimized:
-        require_optimized(args.tag)
+        # Before a first-since-boot launch, reading the executable would page it in: the stamp only, until it ended.
+        require_optimized(args.tag, stamp_evidence if args.after_reboot else executable_evidence)
     modes = args.mode or ["cold", "warm"]
     # Before any launch: a cold run without the purge right, or an after-reboot run that is not one, stops here.
     if args.purge_cold and "cold" in modes:
@@ -1169,7 +1224,7 @@ def main():
             for index in range(args.runs):
                 for tag in args.tag:
                     marks = one_run(tag, mode, args.timeout, args.profile, args.purge_cold,
-                                    on_reached=recorder.read_features if recorder else None)
+                                    before_quit=recorder.read_features if recorder else None)
                     results[tag][mode].append(marks)
 
                     def shown(mark):
@@ -1200,6 +1255,8 @@ def main():
     if args.json:
         with open(args.json, "w") as out:
             json.dump(results, out, indent=1)
+    if args.require_optimized and args.after_reboot:
+        require_optimized(args.tag)  # the launch ended: now the stamp is checked against the executable
     if recorder:
         write_results(recorder, results)
     orders = args.order + (LAUNCH_ORDER if args.budget else [])

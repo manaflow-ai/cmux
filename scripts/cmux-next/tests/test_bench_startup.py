@@ -244,10 +244,19 @@ class FakeLaunch:
         FakeLaunch.events.append("quit")
 
 
+class Unreached(FakeLaunch):
+    """A launch that never drew: its first content never came before the timeout."""
+
+    def wait_for(self, mark, timeout, any_of=False):
+        return False
+
+
 class OneRunTests(unittest.TestCase):
     def setUp(self):
-        self.saved = {name: getattr(bs, name) for name in ("Launch", "app_pids", "tag_pids", "stop", "owner_pids")}
+        self.saved = {name: getattr(bs, name) for name in ("Launch", "app_pids", "tag_pids", "stop", "owner_pids",
+                                                           "reset_state")}
         FakeLaunch.events = []
+        bs.reset_state = lambda tag: None
         bs.Launch = FakeLaunch
         bs.app_pids = lambda tag: []
         bs.tag_pids = lambda tag: []
@@ -306,19 +315,35 @@ class OneRunTests(unittest.TestCase):
         bs.one_run("t", "warm", 5, purge_cold=True, purge_cache=self.purge)
         self.assertEqual(FakeLaunch.events, ["launch", "quit"])
 
-    def test_on_reached_runs_in_the_measured_app_before_it_quits(self):
+    def test_before_quit_runs_in_the_measured_app_before_it_quits(self):
         bs.one_run("t", "cold", 5, purge_cold=True, purge_cache=self.purge,
-                   on_reached=lambda tag: FakeLaunch.events.append(f"features {tag}"))
+                   before_quit=lambda tag: FakeLaunch.events.append(f"features {tag}"))
         self.assertEqual(FakeLaunch.events, ["stop", "purge", "launch", "features t", "quit"])
 
-    def test_on_reached_skips_a_launch_that_never_drew(self):
-        class Unreached(FakeLaunch):
-            def wait_for(self, mark, timeout, any_of=False):
-                return False
-
+    def test_before_quit_runs_in_a_launch_that_never_drew(self):
         bs.Launch = Unreached
-        quiet(bs.one_run, "t", "cold", 5, on_reached=lambda tag: FakeLaunch.events.append("features"))
-        self.assertNotIn("features", FakeLaunch.events)
+        quiet(bs.one_run, "t", "cold", 5, before_quit=lambda tag: FakeLaunch.events.append("features"))
+        self.assertEqual(FakeLaunch.events, ["stop", "launch", "features", "quit"],
+                         "a hung launch still names its features, so its missing_runs record")
+
+    def test_hung_launches_still_record_their_missing_runs(self):
+        bs.Launch = Unreached
+        recorder = bs.Recorder("/tmp/out", "empty", bench_app=FakeBenchApp, rpc=lambda *a, **k: {
+            "features": [], "features_hash": "h", "safe_mode": "off"})
+        saved = dict(bs.APPS)
+        bs.APPS["t"] = "/tmp/cmux DEV t.app"
+        try:
+            runs = [quiet(bs.one_run, "t", "cold", 5, "empty", before_quit=recorder.read_features)[0]
+                    for _ in range(3)]
+            code, out, _ = quiet(bs.write_results, recorder, {"t": {"cold": runs}})
+        finally:
+            bs.APPS.clear()
+            bs.APPS.update(saved)
+        self.assertIsNone(code, out)
+        records = {r[1]: r[3] for r in FakeBenchApp.made[-1].records}
+        self.assertEqual(records["launch.cold.first_content.missing_runs"], [3])
+        self.assertEqual(records["launch.cold.first_window_frame_committed.missing_runs"], [3])
+        self.assertNotIn("launch.cold.first_content", records, "no samples, no series")
 
 
 class RequireOptimizedTests(unittest.TestCase):
@@ -393,6 +418,27 @@ class RequireOptimizedTests(unittest.TestCase):
                          "without --require-optimized the newest build runs")
         pattern = bs.re.compile(bs.bundle_root("t"))
         self.assertTrue(pattern.search(bench) and pattern.search(debug), "both product folders are the tag's")
+
+    def test_after_reboot_reads_no_executable_before_the_launch(self):
+        def scan(*_):
+            raise AssertionError("the executable was read before the first launch since the boot")
+
+        bench = self.tagged("t", "Release", 60, configuration="bench", marker=True, executable="cmux")
+        self.tagged("t", "Debug", 0, configuration="debug", debug_dylib=True)
+        saved = bs.build_config, bl.bundle_kind, bs.bundle_kind
+        bs.build_config = bl.bundle_kind = bs.bundle_kind = scan
+        try:
+            code, out, _ = quiet(bs.require_optimized, ["t"], bs.stamp_evidence)
+            self.assertEqual(code, None, out)
+            self.assertEqual(bs.app_path("t"), bench, "the stamp alone finds the tag's bench build")
+            for tag, kwargs in (("plain", {}), ("dbg", {"configuration": "release", "debug_dylib": True}),
+                                ("checks", {"configuration": "bench-checks", "marker": True})):
+                bs.APPS[tag] = bundle(self.folder, tag, **kwargs)
+                self.assertEqual(quiet(bs.require_optimized, [tag], bs.stamp_evidence)[0], 2, tag)
+        finally:
+            bs.build_config, bl.bundle_kind, bs.bundle_kind = saved
+        code, _, err = self.check("liar", configuration="release", marker=True)
+        self.assertEqual(code, 2, "after the launch, the executable check still refuses a stamp it contradicts")
 
     def test_a_tag_with_only_a_debug_build_is_refused_with_the_bench_command(self):
         self.tagged("only", "Debug", 0, configuration="debug", debug_dylib=True)
@@ -529,7 +575,7 @@ class ResultSeriesTests(unittest.TestCase):
     def test_every_result_mark_and_its_missing_runs(self):
         runs = [{"first_window_frame_committed": 140.0 + i, "first_terminal_frame": 300.0 + i,
                  "did_finish_launching_end": 90.0} for i in range(4)] + [{"first_window_frame_committed": 150.0}]
-        series = {metric: (unit, samples) for metric, unit, samples in bs.result_series("warm", runs)}
+        series = {metric: (unit, samples) for metric, unit, samples in bs.result_series("warm", runs, "realistic")}
         self.assertEqual(series["launch.warm.first_window_frame_committed"],
                          ("ms", [140.0, 141.0, 142.0, 143.0, 150.0]))
         self.assertEqual(series["launch.warm.first_terminal_frame"], ("ms", [300.0, 301.0, 302.0, 303.0]))
@@ -544,11 +590,21 @@ class ResultSeriesTests(unittest.TestCase):
                 {"first_window_frame_committed": 125.0, "launch.temperature.lukewarm": 4.0},
                 {"first_window_frame_committed": 290.0},
                 {"first_window_frame_committed": 295.0, bs.TEMPERATURE: 0.0}]
-        series = {metric: samples for metric, _, samples in bs.result_series("cold", runs)}
+        series = {metric: samples for metric, _, samples in bs.result_series("cold", runs, "empty")}
         self.assertEqual(series["launch.cold.first_window_frame_committed"], [280.0, 290.0, 295.0],
                          "a named non-cold run is left out; no name, or a number, keeps the run")
         self.assertEqual(series["launch.cold.not_cold_runs"], [2])
         self.assertEqual(series["launch.cold.first_window_frame_committed.missing_runs"], [0])
+
+    def test_an_empty_profile_launch_that_ends_on_the_agent_page(self):
+        runs = [{"first_window_frame_committed": 140.0, bs.AGENT_MARK: 310.0 + i} for i in range(3)]
+        runs.append({"first_window_frame_committed": 150.0, bs.FINAL_MARK: 290.0, bs.AGENT_MARK: 330.0})
+        series = {metric: samples for metric, _, samples in bs.result_series("cold", runs, "empty")}
+        self.assertEqual(series["launch.cold.first_content"], [310.0, 311.0, 312.0, 290.0],
+                         "the first content that drew, the agent page or a terminal")
+        self.assertEqual(series["launch.cold.first_content.missing_runs"], [0])
+        self.assertFalse([m for m in series if m.startswith("launch.cold.first_terminal_frame")],
+                         "no series an empty profile's first launch could never fill")
 
     def test_stories_and_targets(self):
         self.assertEqual(bs.default_story("cold", "empty"), "launch-cold")
@@ -616,7 +672,7 @@ class RecorderTests(unittest.TestCase):
         self.assertEqual(frame, ("launch-cold", "launch.cold.first_window_frame_committed", "ms", [250.0], "lower",
                                  "none", "launch.cold"))
         self.assertTrue(all(r[0] == "launch-cold" for r in app.records))
-        self.assertTrue(written["launch.cold.first_terminal_frame"].endswith(".ndjson"))
+        self.assertTrue(written["launch.cold.first_content"].endswith(".ndjson"))
         self.assertIs(app.run, recorder.run, "every result of the invocation names one run")
 
     def test_a_story_override_and_the_realistic_profile(self):
@@ -688,8 +744,8 @@ class StoryCommandTests(unittest.TestCase):
                 patterns = [m["name"] for m in story["metrics"]]
                 for mode in args.mode:
                     self.assertEqual(bs.default_story(mode, args.profile, args.after_reboot), story["id"])
-                    written = [metric for metric, _, _ in bs.result_series(mode, [{}])]
-                    written += [f"launch.{mode}.{mark}" for mark in bs.RESULT_MARKS]
+                    written = [metric for metric, _, _ in bs.result_series(mode, [{}], args.profile)]
+                    written += [f"launch.{mode}.{mark}" for mark in bs.result_marks(args.profile)]
                     for metric in written:
                         self.assertTrue(any(re.fullmatch(p, metric) for p in patterns), metric)
                     for pattern in patterns:
@@ -724,6 +780,14 @@ class ResultArgsTests(unittest.TestCase):
         code, _, err = quiet(bs.parse_args, BASE + ["--mode", "warm", "--out", "o"])
         self.assertEqual(code, 2)
         self.assertIn("--out needs --profile", err)
+
+    def test_a_realistic_after_reboot_result_names_its_story(self):
+        argv = BASE + ["--after-reboot", "--profile", "realistic", "--out", "o"]
+        code, _, err = quiet(bs.parse_args, argv)
+        self.assertEqual(code, 2)
+        self.assertIn("launch-after-reboot is the empty profile's series", err)
+        self.assertEqual(bs.parse_args(argv + ["--story", "my-reboot"]).story, "my-reboot")
+        self.assertTrue(bs.parse_args(BASE + ["--after-reboot", "--profile", "empty", "--out", "o"]).out)
 
     def test_after_reboot_is_one_cold_run_without_purge(self):
         args = bs.parse_args(BASE + ["--after-reboot"])
