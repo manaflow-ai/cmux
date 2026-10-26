@@ -13,6 +13,15 @@ import Observation
 // PaneController.contextMenu(for: .newTabButton), the default-engine action
 // from SettingsHandlers.
 extension AppServices {
+    /// The cmux-shipped uBlock Origin's pinned folder (``AgentExtensionAccess/readTrustedBuiltInFolder(resources:)``,
+    /// a manifest read and hash), read once on `work`'s files lane: each tab's extension access
+    /// (``AppBrowserHostTabs/access(forTab:)``) and the Allow Agents prompt read it in memory (p02-threads-122).
+    static func preloadBuiltInAdBlockerFolder(on work: BackgroundWork) -> PreloadedValue<String?> {
+        let folder = PreloadedValue<String?> { AgentExtensionAccess.readTrustedBuiltInFolder() }
+        work.post(.userVisible, mayBlock: .files) { folder.load() }
+        return folder
+    }
+
     /// Starts the launch preload and the likelihood observers.
     func startChromiumWarmup() {
         let machines = machines
@@ -61,16 +70,25 @@ extension AppServices {
     /// The slot `cache` holds.
     func makeChromiumSlot() -> ChromiumEngineSlot {
         let pumpInput = features.isEnabled(.cefPumpInputPolicy) ? CEFPumpInputSeams(mainWork: mainWork) : nil
-        return ChromiumEngineSlot(stores: browserStores, waitDeadlines: mainWork.wakeUps, source: chromiumRuntime.source,
-                                  make: { [signInCallbacks, contextMenus, inputTap, crashKeys, launchStartup, pointerFrames = dragFrameInput,
-                                           chromiumFeatures = features.enabledChromiumFeatures, layerHosting = features.isEnabled(.cefLayerHosting)] stores, deadlines, source in
+        // The lanes whose startup fence holds a predicted start's framework read (p08-startup-045).
+        let prefetchWork = features.isEnabled(.cefPrefetchBehindFence) ? work : nil
+        // Host mode only: the host's widgets in cmux panels and panes (p01-process-066).
+        chromiumRuntime.source.showsHostWidgets = features.isEnabled(.chromiumHostWidgets)
+        // Restored pages start Chromium by their origin, the visible one after the first frame (p08-startup-040).
+        let launchOrder = features.isEnabled(.cefLaunchOrigin) ? launchStartup : nil
+        return ChromiumEngineSlot(stores: browserStores, waitDeadlines: mainWork.wakeUps, source: chromiumRuntime.source, launch: launchOrder,
+                                  make: { [signInCallbacks, contextMenus, inputTap, crashKeys, launchStartup, launchOrder, pointerFrames = dragFrameInput,
+                                           chromiumFeatures = features.enabledChromiumFeatures, layerHosting = features.isEnabled(.cefLayerHosting),
+                                           attachedPages = features.isEnabled(.cefAttachedPages), memoryCoordinator] stores, deadlines, source in
                                       // Chromium's start as launch marks (p08-startup-044); its first page paint counts until startup_complete.
                                       let launchMarks = CEFLaunchMarkHooks(receive: { DebugTimings.markLaunch($0) },
                                                                            isStarting: { launchStartup.map { $0.completion == nil } ?? false })
                                       return CEFEngine(source: source, stores: stores, signInCallbacks: signInCallbacks, lifecycleTrace: .shared,
                                                        contextMenus: contextMenus, waitDeadlines: deadlines, input: inputTap, crashKeys: crashKeys,
                                                        launchMarks: launchMarks, pumpInput: pumpInput, pointerFrames: pointerFrames,
-                                                       chromiumFeatures: chromiumFeatures).usingLayerHostingByDefault(layerHosting)
+                                                       chromiumFeatures: chromiumFeatures, prefetchWork: prefetchWork,
+                                                       launch: launchOrder).usingLayerHostingByDefault(layerHosting).usingAttachedPages(attachedPages)
+                                          .votingMemoryPressure(of: memoryCoordinator)
                                   },
                                   engineDidCreate: AppServices.chromiumEngineHook(crashRecovery: crashRecovery, reporter: crashReporting.reporter,
                                                                                   routes: { [weak self] in self?.routeChromiumRequests($0) }),

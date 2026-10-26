@@ -198,7 +198,7 @@ import Testing
             Spy.reset(forkAPI: forkAPI)
             Spy.exportsRendererPaths = exports
             root = FileManager.default.temporaryDirectory.appending(path: "cef-renderer-paths-\(UUID().uuidString)", directoryHint: .isDirectory)
-            runtime = CEFRuntime(shim: try Spy.library(), storage: CEFProfileStorage(root: root))
+            runtime = CEFRuntime.spy(shim: try Spy.library(), storage: CEFProfileStorage(root: root))
         }
 
         /// A tab whose browser 7 exists (AFTER_CREATED).

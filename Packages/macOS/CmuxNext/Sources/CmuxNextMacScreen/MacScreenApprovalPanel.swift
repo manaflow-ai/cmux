@@ -64,7 +64,7 @@ public final class MacScreenApprovalPrompt {
         answering = false
         expiry.cancel()
         if let next {
-            expiry.schedule(after: lifetime) { @MainActor [weak self] in
+            expiry.scheduleOnMain(after: lifetime) { [weak self] in
                 guard let self, current?.id == next.id else { return }
                 settled.insert(next.id)
                 update(self.hub()?.pendingRequests ?? [])

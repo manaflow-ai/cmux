@@ -49,6 +49,106 @@ R2 ships behind the Tunable `motion.renderServer`, default off. Task 022c turns 
 decision for Lawrence, with the measured reason and a capture of Cmd-D and Cmd-W with a Chromium pane (spec
 section 3, "Recorded decision"). Until then, the per-frame live resize of F4 is the default.
 
+#### Spike 016: the layer that carries a pane's springs
+
+**Status: incomplete. No run yet.** Task p03-rendering-016 compares two layers for the R2 springs. The harness is
+written, but nobody has run it, so this section records a hypothesis, not a decision. Task 022a must not depend
+on this choice until the results table below has numbers.
+
+The tests are `Packages/macOS/CmuxNext/Tests/CmuxNextLayoutTests/RenderMotionSpikeTests.swift` (the rig is in
+`RenderMotionSpikeRig.swift` in the same folder). The suite is opt-in: it runs only with `CMUX_RENDER_SPIKE=1`.
+It opens real windows, enters full screen and runs springs of several seconds, so a shared `swift test` (CI
+included) skips it.
+
+- **Backing layer:** the backing layer of `PaneHostView`. `ScreenContentView` writes it on each frame set, strip
+  clip and layout. It also carries the strip mask (`StripClipMaskLayer`) in rest coordinates.
+- **Motion container:** a layer-backed view around the host (`SpikeMotionContainerView`). Only motion code sizes
+  it. Its layer carries the springs and the rounded clip (`masksToBounds`, `cornerRadius`). The view keeps the
+  springs that it runs. If AppKit makes a new backing layer (`makeBackingLayer`), the view adds the springs to
+  the new layer with their begin times, so the drawn value continues.
+
+Each test springs a pane with the R2 shape: additive `CASpringAnimation`s of `position` and `bounds.size`, mass 1,
+critically damped, initial velocity 0, from (old model - new model) to 0. Then the test applies one disturbing
+event and reads `presentation()` at 25, 50 and 75 % of the way. It waits for each mark on a Core Animation
+completion, not a sleep. The error is the largest miss of the four components, after one frame of travel on
+each side of the read. The limit is 0.5 pt.
+
+The panes sit in a screen view whose `layout()` writes each pane's frame from its rest, as `ScreenContentView`
+does. Each event must first show that it did what it names, or the case fails: an event that changes geometry
+must write a new frame to the springing layer, and a layer replacement must give the view another layer. A case
+therefore cannot pass because its event did nothing.
+
+The tests assert the motion container's results: this is the hypothesis, and a red assertion is the result that
+changes the choice. They print the backing layer's results as `render-motion-spike` lines, for the table below.
+The events:
+
+| Event | What the test does mid-spring | Shown to have an effect by |
+|---|---|---|
+| control | Nothing. | (none) |
+| AppKit layout | The screen view lays the panes out 2 pt away, the content frame changes, the window lays out, and a zero-length animator group sets the frame of the springing view to its rest again. | a new frame on the springing layer |
+| ancestor setFrame | Moves and grows the screen view, then grows the window. The screen's layout writes the scaled frame. | a new frame |
+| `wantsLayer` | Sets `wantsLayer` of the springing view off, then on. | a new layer. Under a layer-backed ancestor, AppKit can keep the layer. The case then records "not a replacement" as a known issue and does not count. |
+| ancestor `wantsLayer` | Sets `wantsLayer` of the screen view off, then on. | as `wantsLayer` |
+| new backing layer | Sets the layer of the springing view to the result of its `makeBackingLayer()`. This is a real replacement, and it runs the re-add hook of the container. | a new layer |
+| window style change | Full-size content, transparent titlebar, the visible frame of the screen: the frame-view change of full screen, without the transition. | a new frame |
+| display move | Moves the window to another display. Runs only with two displays. Fleet minis have one virtual display, so this event is **not covered** until a run on a host with two displays. | the window's screen changed |
+| full screen | `toggleFullScreen` with a slow spring. The wait ends 0.5 s before the 25 % mark. A `swift test` process has no running `NSApplication`, and it may never enter full screen. Then the case is **not covered** (a known issue), not a pass. The OS probe below is a real app, and it covers full screen on every OS. | the window entered full screen |
+
+Clipping: a red leaf that is 40 pt larger than the pane on each side, as a `CALayerHost` of another
+`CAContext` (the Chromium page form) or as an IOSurface in `contents` (the producer form). The test reads window
+server pixels at rest and mid-spring (a near-frozen spring that holds the pane 120 x 80 pt smaller than its
+rest). The pixels must be red in the center and at the inside edge. They must not be red in the rounded corner
+or 6 pt past the presented right and top edges, where the rest frame and the leaf would show if the clip did
+not follow the spring.
+
+Cost: 12 masked panes (strip mask, rounded clip, an IOSurface leaf and a `CALayerHost` leaf in each) spring
+between two grids for `CMUX_RENDER_SPIKE_ROUNDS` rounds (`twelveMaskedPanesSpring`). Each round is a Points of
+Interest interval (`springs`, subsystem `com.cmuxterm.render-motion-spike`, message the layer) for an xctrace
+Animation Hitches recording. `scripts/cmux-next/render-motion-spike-hitches.py` reads the recording and prints
+hitches per interval for each layer. The test also prints how late each round's Core Animation completion
+lands after the spring's settling time (p50 and max). The test asserts no main-thread cost: the main thread
+does nothing while the springs run, so such a count would pass for both layers and prove nothing.
+
+**Hypothesis (not yet measured): the motion container.** The reasons:
+
+1. cmux owns the layer and the springs, not AppKit. If AppKit replaces the backing layer, the container adds
+   the springs again to the new layer. The "new backing layer" event tests this. Chrome keys an animation by
+   element id, not by the layer object, for the same reason (`cc/animation/animation_host.h`,
+   `cc/animation/element_animations.h`).
+2. The rounded clip is on the layer that moves, so the clip follows the presented bounds. On the backing layer,
+   the rounded clip is the `PaneClipView` at rest size, and only the square `masksToBounds` of the host moves.
+   The corners are then square mid-spring unless each dependent sublayer gets its own spring (task 029).
+3. The host keeps its rest frame. AppKit layout, the strip mask, tracking areas and cursor rects then read the
+   rest geometry. Hit testing mid-spring reads the presentation of the container (task 098).
+
+If a run shows that the container loses a spring in an event, change the hypothesis here. Then task 022a adds
+the same re-add hook to `PaneHostView` and uses its backing layer. Write the choice as a decision only after the
+table has numbers for macOS 26 and 27 and the hitch counts.
+
+Results (fill in from the `render-motion-spike` lines of the run; error in pt at 25 / 50 / 75 %):
+
+| Event | Motion container (26 / 27) | Backing layer (26 / 27) | Tart 14 / 15 (probe, behavior) |
+|---|---|---|---|
+| control, AppKit layout, ancestor setFrame | not run yet | not run yet | not run yet |
+| `wantsLayer`, ancestor `wantsLayer`, new backing layer | not run yet | not run yet | not run yet |
+| window style change, full screen | not run yet | not run yet | not run yet |
+| display move | not covered (one display) | not covered (one display) | not covered |
+| clip: `CALayerHost`, IOSurface, at rest and mid-spring | not run yet | not run yet | not in the probe |
+| 12 masked panes: render-server hitches per interval (xctrace), late landing p50 / max | not measured yet | not measured yet | not timing evidence |
+
+How to run (fleet only; VM timing is not perf evidence):
+
+- Behavior on macOS 26 and 27: `cmux-ci run --class isolated --ref SHA --script 'cd Packages/macOS/CmuxNext &&
+  CMUX_RENDER_SPIKE=1 swift test --filter RenderMotionSpikeTests'`.
+- Behavior on macOS 14 and 15 (and full screen in a real app on every OS): the OS probe
+  `scripts/fuzz/macos-matrix/probes/render-motion-survival.swift`,
+  `scripts/cmux-next/os-matrix.sh --build JOB --os 14,15,26 --suite exec:render-motion-survival`. The probe runs
+  the same events in a launched app. It exits 1 when the motion container loses a spring.
+- Hitches: on an aws-m4pro host at `--vdisplay=120`, start `xcrun xctrace record --template 'Animation Hitches'
+  --all-processes --time-limit 90s --output spike.trace`, and run `CMUX_RENDER_SPIKE=1 CMUX_RENDER_SPIKE_ROUNDS=40
+  swift test --filter twelveMaskedPanesSpring`. Then run `scripts/cmux-next/render-motion-spike-hitches.py
+  spike.trace --pid PID`, with PID from the test's `hitch-scenario` line.
+
 ### R3 Chromium pages are layers, with input in the same NSView
 
 | cmux | Chrome |

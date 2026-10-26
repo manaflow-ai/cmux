@@ -53,12 +53,27 @@ enum Kind : uint32_t {
   kMouse = 3,      // v0 x, v1 y (points, top left), v2 phase (0 move, 1 down, 2 up, 3 exit), v3 button
                    // (0 left, 1 middle, 2 right), v4 click count, flags = NSEventModifierFlags, t0 event time
   kWheel = 4,      // v0 x, v1 y, v2 dx, v3 dy (pixels), flags, t0
-  kKey = 5,        // v0 phase (0 down, 1 up, 2 flags changed), v1 key code, v2 repeat, flags, ch, unmod, t0
+  kKey = 5,        // v0 phase (0 down, 1 up, 2 flags changed), v1 key code, v2 repeat, flags, ch, unmod, t0;
+                   // the host sends it with cmux_shim::SendHostKeyEvent and the frame's input seq, which
+                   // KEY_UNHANDLED carries back for a chord the page leaves unhandled (p01-process-030).
+                   // v3 (ChromiumHostTextInput.KeyMark, p01-process-043): on a down, 0 the key and ch,
+                   // 1 an input method took it (VKEY_PROCESSKEY down, skip_if_unhandled, no char), 2 the
+                   // char ch only; on an up, 1 the up of that process key (skip_if_unhandled)
   kFocus = 6,      // v0 1 focused, 0 not
   kPing = 7,       // t0 cmux send time; the host answers kPong
-  kStats = 8,      // seq request id; the host answers kStatsReply with the same seq
+  kStats = 8,      // seq request id (never an input seq: not an IsOrderedInput kind); the host answers
+                   // kStatsReply with the same seq
   kQuit = 9,
   kEdit = 10,      // v0 0 copy, 1 cut, 2 paste, 3 select all, 4 undo, 5 redo
+  kIme = 11,       // one text input op of the page view's NSTextInputClient (ChromiumHostTextInputOp,
+                   // p01-process-043), in order with the key frames around it: v0 op (0 set composition,
+                   // 1 commit text, 2 finish composing, 3 cancel composition, 4 edit commands for the next
+                   // key down, 5 an edit command with no key), v1 v2 the selection in the text (op 0),
+                   // v3 v4 the field range the text replaces (ops 0 and 1; -1 -1 none), v5 clause count
+                   // (op 0); payload the text as UTF-16LE (ops 4 and 5: the command names joined by
+                   // '\n'), then per clause i32 start, i32 end, u32 color 0xAARRGGBB, u32 thick (0 or 1).
+                   // It has a payload, so it never rides the input ring.
+  kTextInputWatch = 12,  // v0 1: push kTextInputState after each change; 0: stop (task 044's watch)
   // host -> cmux
   kReady = 101,         // v0 fork API version, v1 host pid
   kContext = 102,       // v0 CAContext id (bits of a uint32)
@@ -72,6 +87,12 @@ enum Kind : uint32_t {
                         // 32 bits: times one of its windows became key (each undone at once)
   kError = 107,         // payload message
   kRendererGone = 108,  // v0 cef_termination_status_t
+  kTextInputState = 109,  // the focused field's text input state while watched (host_text_input.h's
+                          // TextInputState, p01-process-044): v0 ui::TextInputType, v1 flags, v2 v3
+                          // selection (-1 -1 unknown), v4 v5 composition (-1 -1 none); payload i32 caret
+                          // x, y, width, height, i32 text offset, i32 rect count, per composition
+                          // character i32 x, y, width, height (page-view points, top left), then the
+                          // text around the selection as UTF-16LE
 };
 
 struct Header {
@@ -125,6 +146,61 @@ inline bool Decode(const uint8_t in[kHeaderSize], Header* h) {
   h->unmod = Get<uint16_t>(in, 58);
   h->seq = Get<uint32_t>(in, 60);
   return h->payload <= kMaxPayload;
+}
+
+// One ordered input stream (task p01-process-092). Chrome sends input and the
+// view's state (focus, IME, edit commands, geometry) to the renderer host on
+// one ordered pipe, RenderWidgetHostNSViewHost
+// (content/common/render_widget_host_ns_view.mojom), so a key after a focus
+// change goes to the newly focused page and a click after a resize hits the
+// resized page. The host has two streams instead, the input ring (task 041)
+// and the control channel (chromium_host_control.h), and joins them back
+// into one order with a sequence number each way:
+//   - an input frame's (IsOrderedInput) `seq` is cmux's input sequence number
+//     (1, 2, ...; kPing and kStats keep `seq` as their request id and are not
+//     ordered: they keep only their place in the ring), and
+//     the high 32 bits of `t1` the control seq of the last control message
+//     cmux accepted before it (CtlSeqOf; the low 32 bits name the page, task
+//     041); the host dispatches it only once that control message is applied;
+//   - a control message carries its own control seq and the input seq of the
+//     last input frame cmux wrote before it (control::Message::ctl_seq and
+//     after_input); the host applies it only once that frame is dispatched.
+// control::OrderedStream holds each until the other side catches up. Seq 0 is
+// "none"; both counters skip it when they wrap (NextSeq).
+inline uint32_t CtlSeqOf(const Header& h) {
+  return static_cast<uint32_t>(h.t1 >> 32);
+}
+inline void SetCtlSeq(Header* h, uint32_t ctl_seq) {
+  h->t1 = (h->t1 & uint64_t{0xffffffff}) | (static_cast<uint64_t>(ctl_seq) << 32);
+}
+
+// The kinds whose `seq` is an input seq on the ordered stream: input and the
+// view state the ring carries with it. kNavigate, kPing, kStats and kQuit are
+// not: OrderedStream hands them on in ring order with no seq check.
+inline bool IsOrderedInput(const Header& h) {
+  switch (h.kind) {
+    case kGeometry:
+    case kMouse:
+    case kWheel:
+    case kKey:
+    case kFocus:
+    case kEdit:
+      return true;
+    default:
+      return false;
+  }
+}
+
+// The seq after `seq`, skipping 0.
+inline uint32_t NextSeq(uint32_t seq) {
+  return seq == UINT32_MAX ? 1 : seq + 1;
+}
+
+// Whether `a` is `b` or comes before it, in serial number arithmetic (RFC 1982)
+// so the order holds across a wrap: the two are never 2^31 apart, as no side
+// holds that many frames.
+inline bool SeqAtOrBefore(uint32_t a, uint32_t b) {
+  return static_cast<int32_t>(a - b) <= 0;
 }
 
 // A frame the reader thread hands to the UI thread.
@@ -207,9 +283,12 @@ class FrameQueue {
   }
 
  private:
-  // Folds `next` into `waiting` when it only updates it.
+  // Folds `next` into `waiting` when it only updates it: never across an
+  // ordered control message (another CtlSeqOf), which `waiting` must still
+  // meet before it, nor across pages (t1's low bits, task 041).
   static bool Coalesce(Header* waiting, const Header& next) {
     if (next.payload != 0 || waiting->payload != 0) return false;
+    if (waiting->t1 != next.t1) return false;
     if (IsPointerMove(*waiting) && IsPointerMove(next) && waiting->flags == next.flags &&
         waiting->v[5] == next.v[5]) {
       *waiting = next;  // the newest position, buttons and event time

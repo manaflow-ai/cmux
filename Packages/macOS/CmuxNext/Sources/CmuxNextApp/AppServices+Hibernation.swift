@@ -9,6 +9,7 @@ import CmuxNextMemory
 import CmuxNextResources
 import CmuxNextSettings
 import CmuxNextWakeups
+import CoreGraphics
 
 // Browser hibernation and the memory-budgeted warm sets
 // (plans/cmux-next/tab-lifecycle.md).
@@ -34,28 +35,46 @@ extension AppServices {
         hibernation.discardsAppPages = features.isEnabled(.memoryDiscardPageTabs)
         hibernation.discardsStreamedPages = features.isEnabled(.memoryDiscardRemoteTabs)
         hibernation.openerGroup = { [weak self] key in self?.openerGroup(of: key) ?? [key] }
+        hibernation.ranksUrgentDiscards = features.isEnabled(.memoryUrgentDiscardRanking)
         let agentPages = AgentPageHibernation(services: self)
         memoryHistograms.follow(hibernation, agentPages: agentPages)
         hibernation.agentPages = agentPages
         hibernation.follow(settings)
         hibernation.start()
-        if features.isEnabled(.intentPrewarmHover) { startIntentPrewarm(over: hibernation) }
+        startIntentPrewarm(over: hibernation)
         AppMemoryConsumers(services: self).registerHibernationSnapshots(hibernation)  // AppServices+Memory.swift
-        cache.warmSetRelease = WarmSetRelease(host: cache, normalCapacity: WarmSetBudget.standard.terminalCapacity, registry: memoryCoordinator)
+        cache.warmSetRelease = WarmSetRelease(host: cache, normalCapacity: cache.normalWarmCapacity, registry: memoryCoordinator)
         _ = parkedWorkspaceBudget  // registers with the coordinator before any pressure change reads it
     }
 
-    /// The hover-dwell intent prewarm (p04-input-043) over `hibernation`, its weak warmer: one background-class
-    /// dwell deadline, the app's memory pressure, the feature's dwell and Energy Saver's inputs as its power.
+    /// The intent prewarm over `hibernation`, its weak warmer, with a background-class deadline per trigger whose
+    /// feature is on: the hover dwell (`intentPrewarmHover`, p04-input-043), the key steps (`directionalPrewarm`,
+    /// p04-input-044) and the press start on a row that commits on its release (`intentPrewarmPress`,
+    /// p04-input-042; no warmer work on a press's input turn). The app's memory pressure, the feature's dwell
+    /// and Energy Saver's inputs as its power. No feature on: no service.
     private func startIntentPrewarm(over hibernation: BrowserHibernation) {
+        let hovers = features.isEnabled(.intentPrewarmHover), steps = features.isEnabled(.directionalPrewarm)
+        let presses = features.isEnabled(.intentPrewarmPress)
+        guard hovers || steps || presses else { return }
         let service = IntentPrewarmService<String>(
             warmer: hibernation, memoryPressure: memoryPressure,
-            dwellTimer: MainDeadline(owner: "IntentPrewarm.hoverDwell", workClass: .background, scheduler: mainDeadlines),
+            dwellTimer: hovers ? MainDeadline(owner: "IntentPrewarm.hoverDwell", workClass: .background, scheduler: mainDeadlines) : nil,
+            stepTimer: steps ? MainDeadline(owner: "IntentPrewarm.keyStep", workClass: .background, scheduler: mainDeadlines) : nil,
+            pressStart: presses ? MainDeadline(owner: "IntentPrewarm.pressStart", workClass: .background, scheduler: mainDeadlines) : nil,
             dwell: Feature.intentPrewarmHover.durationParam("dwell") ?? .milliseconds(200))
         let power = energyMonitor.follow { [weak service] inputs in
             service?.power = IntentPrewarmPower(lowPowerMode: inputs.lowPowerMode, onBattery: inputs.onBattery)
         }
         hibernation.intentPrewarm = (service, power)
+        hibernation.prewarmKinds.decodeCover = { [weak self] picture, landed in self?.decodePrewarmCover(picture, landed: landed) }
+    }
+
+    /// The intent prewarm's cover decode: `picture` drawn into a bitmap on the `.cpu` lane, never on the main
+    /// thread, and handed to `landed` in a background-class main task (Chrome decodes images off its UI thread,
+    /// services/data_decoder/public/cpp/decode_image.h).
+    func decodePrewarmCover(_ picture: CGImage, landed: @escaping @MainActor @Sendable (CGImage) -> Void) {
+        work.run(.userVisible, mayBlock: .cpu) { BrowserPictureView.decoded(picture) }
+            .reply(on: mainWork, class: .background, owner: "IntentPrewarm.cover", landed)
     }
 
     /// The hibernation's measurements, after startup (p08-startup-029): the hourly footprint samples and,
@@ -89,6 +108,20 @@ extension AppServices {
             capacity: held ? budget.parkedWorkspaces : nil,
             idleTimeout: held && features.isEnabled(.memoryDiscardParkedIdleTimeout) ? budget.parkedIdleTimeout : nil,
             deadline: MainDeadline(owner: "ParkedWorkspaceBudget", workClass: .background, scheduler: mainDeadlines),
+            memory: memoryCoordinator)
+    }
+
+    /// The one list of hidden frames with `memoryHiddenFrameLRU` (p03-rendering-099): every evicted terminal's last
+    /// frame, as many unlocked as this Mac's memory allows, each culled after 5 min hidden on one background deadline,
+    /// all purged in the memory coordinator's release slices at a warning. Holders drop culled frames on a second
+    /// background deadline, never in the turn that culled them. Nil while off.
+    func makeHiddenFrameLRU() -> HiddenFrameLRU? {
+        guard features.isEnabled(.memoryHiddenFrameLRU) else { return nil }
+        let budget = SubsystemBudget.forThisMac(gpuResidentAvailable: false)
+        return HiddenFrameLRU(
+            softLimit: HiddenFrameLRU.softLimit(physicalMiB: budget.physicalMiB),
+            deadline: MainDeadline(owner: "HiddenFrameLRU.cull", workClass: .background, scheduler: mainDeadlines),
+            evictions: MainDeadline(owner: "HiddenFrameLRU.evict", workClass: .background, scheduler: mainDeadlines),
             memory: memoryCoordinator)
     }
 }

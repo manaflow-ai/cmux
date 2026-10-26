@@ -34,6 +34,13 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
     /// The tab's own page window (`CEFTab.isPageWindow(_:)`).
     func isPageWindow(_ window: NSWindow) -> Bool { tab.isPageWindow(window) }
 
+    /// The one renderer that runs the page's frames, the page's renderer for its crash budget
+    /// (`PageCrashGroups`); nil before the browser exists or while frames run in more than one.
+    var soleRendererClientID: Int32? {
+        guard case .chromiumRendererClients(let clients) = tab.contentProcesses, clients.count == 1 else { return nil }
+        return clients[0]
+    }
+
     var onEvent: ((PageChromiumEvent) -> Void)? {
         didSet { listen() }
     }
@@ -129,6 +136,14 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
 
     func setVisible(_ visible: Bool) { tab.setContentVisible(visible) }
 
+    /// The tab's page lifecycle (`CEFTab.setFrozen`: the fork's `SetPageFrozen`, DevTools before
+    /// fork API 29). A closed page changes nothing.
+    @discardableResult
+    func setFrozen(_ frozen: Bool) -> Bool {
+        guard !closed else { return false }
+        return tab.setFrozen(frozen)
+    }
+
     func setSeeThrough(_ seeThrough: Bool) { tab.pageSeeThrough = seeThrough }
 
     func close() {
@@ -168,14 +183,21 @@ final class CEFPageChromiumPage: PageChromiumPage, BrowserTabDelegate {
 }
 
 extension TabContent {
-    /// The tab whose page shows in a Chromium child window: a Chromium browser tab, or a cmux page
-    /// (an agent chat or New Tab page too) in Chromium.
-    var childWindowTab: (any BrowserTab)? {
+    /// The Chromium tab that shows this content's page, in either backend: a Chromium browser tab,
+    /// or a cmux page (an agent chat or New Tab page too) in Chromium.
+    var chromiumTab: (any BrowserTab)? {
         switch self {
-        case .browser(let entry): entry.tab.presentation == .childWindow ? entry.tab : nil
+        case .browser(let entry): entry.tab as? CEFTab
         case .page(let view): ((view.content as? PageWebView)?.chromiumPage as? CEFPageChromiumPage)?.tab
         case .agent(let view): (view.chromiumPage as? CEFPageChromiumPage)?.tab
         default: nil
         }
+    }
+
+    /// ``chromiumTab`` when its page shows in a Chromium child window: in process only. In host
+    /// mode the page is a view in the pane (``BrowserPresentation/inView``), so this is nil.
+    var childWindowTab: (any BrowserTab)? {
+        guard let tab = chromiumTab, tab.presentation == .childWindow else { return nil }
+        return tab
     }
 }

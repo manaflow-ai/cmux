@@ -209,32 +209,6 @@ extension EnergyReport {
         }
     }
 
-    /// Chromium's side of Energy Saver.
-    public struct CEF: Sendable, Equatable {
-        public enum Saver: String, Sendable {
-            case applied
-            /// The app makes no call into the fork's Energy Saver API (p14-energy-030).
-            case unsupported
-        }
-
-        public var saver: Saver
-        /// Delayed pump passes CEF re-asked for under 2 ms during the pass; nil while the pump does not
-        /// count them (p14-energy-018).
-        public var earlyPasses: Int?
-
-        public init(saver: Saver, earlyPasses: Int?) {
-            self.saver = saver
-            self.earlyPasses = earlyPasses
-        }
-
-        var json: JSONValue {
-            [
-                "energySaver": .string(saver.rawValue),
-                "earlyPasses": earlyPasses.map { JSONValue($0) } ?? .null,
-            ]
-        }
-    }
-
     /// One process of the app tree: its kind (`app`, `cef-renderer`, `daemon`, ...) and one sample.
     public struct ProcessSample: Sendable, Equatable {
         public var kind: String

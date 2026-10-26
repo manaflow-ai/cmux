@@ -95,7 +95,7 @@ final class PaneController: SurfacePresenter, PresentablePane {
         let parent: VisibilityNode? = workspace.flatMap { $0.visibilityNode }
         visibilityNode = parent.map { VisibilityNode("pane:\(pane.id)", own: own, parent: $0) }
             ?? VisibilityNode(root: "pane:\(pane.id)", own: own)
-        view = PaneContentView(stripModel: stripModel, reveal: services.launchReveal, input: services.inputTap)
+        view = PaneContentView(stripModel: stripModel, reveal: services.launchReveal, input: services.inputTap, node: visibilityNode, deadlines: services.mainDeadlines)
         stripModel.intentHandler = { [weak self] intent in self?.handle(intent) }
         view.stripView.previewProvider = services.previews
         view.stripView.hoverFrameInput = services.hoverFrameInput  // hover once per frame (`pointerFrameHover`)
@@ -462,8 +462,9 @@ final class PaneController: SurfacePresenter, PresentablePane {
         DebugTabSwitch.contentShown(self, key: key)
         if services.cache.createTabs.isWaiting { services.cache.createTabs.switched(from: previous, to: key, firstFrame: content?.createTabFirstFrame) } // create.tab: one hidden first ends unsampled
         // Terminals come in on their first frame (`LaunchSettle`), or at once with their frame from the last
-        // quit (`TerminalLaunchFrames`); other content (a page, an agent) is ready once shown.
-        if case .terminal(let terminal) = content, let key { if terminal.session.showLaunchFrame(key, beside: services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent(), in: view.contentHost, reveal: services.launchReveal) { DebugTimings.markLaunch("terminal.launch_frame_shown") } } else if content != nil { services.launchReveal.markReady(.pane) }
+        // quit (`TerminalLaunchFrames`); other content (a page, an agent) is ready once shown, and a page's
+        // first paint while shown is the launch's `first_page_frame`.
+        if case .terminal(let terminal) = content, let key { if terminal.session.showLaunchFrame(key, beside: services.environment.sidebarSnapshotFile?.url.deletingLastPathComponent(), in: view.contentHost, reveal: services.launchReveal) { DebugTimings.markLaunch("terminal.launch_frame_shown") } } else if let content { services.launchReveal.markReady(.pane); if let key { DebugTimings.markFirstPageFrame(of: content.view, node: services.cache.node(for: key)) } }
         // The content view exists now: the coordinator re-applies focus if
         // this pane has it (content is shown a frame after selection).
         if workspace?.isParked == false { BenchSpans.measure("switch.focus") { workspace?.focus.send(.contentPresented(pane: paneKey)) } }

@@ -3,23 +3,26 @@ import UIKit
 #else
 import AppKit
 #endif
+import os
 
 /// Message bubble outline: a rounded body plus the small hanging tail.
 enum BubblePath {
     /// UIKit's rounded rect uses its limited (pill) corner when half the height is under this times the radius.
     static let pillLimit: CGFloat = 1.528665
-    /// Bubble outlines by size (cells reuse them for the gradient mask).
-    private static var cache: [Key: CGPath] = [:]
+    /// Bubble outlines by size (cells reuse them for the gradient mask). cmux: the lock owns them (any thread may ask).
+    private static let cache = OSAllocatedUnfairLock<[Key: CGPath]>(initialState: [:])
     private struct Key: Hashable { var w: CGFloat; var h: CGFloat; var outgoing: Bool; var tail: Bool; var cw: CGFloat = 0; var ch: CGFloat = 0
         var circularEnds = false }
-    /// The bubble outline at the origin (main thread). `cornersOf`, `circularEnds`: as `make`.
+    /// The bubble outline at the origin. `cornersOf`, `circularEnds`: as `make`.
     static func cached(size: CGSize, outgoing: Bool, tail: Bool, cornersOf frame: CGSize? = nil, circularEnds: Bool = false) -> CGPath {
         let k = Key(w: size.width, h: size.height, outgoing: outgoing, tail: tail, cw: frame?.width ?? 0, ch: frame?.height ?? 0,
                     circularEnds: circularEnds)
-        if let p = cache[k] { return p }
-        if cache.count > 2000 { cache.removeAll() }
+        if let p = cache.withLock({ $0[k] }) { return p }
         let p = make(body: CGRect(origin: .zero, size: size), outgoing: outgoing, tail: tail, cornersOf: frame, circularEnds: circularEnds).cgPath
-        cache.updateValue(p, forKey: k)
+        cache.withLock { cache in
+            if cache.count > 2000 { cache.removeAll() }
+            cache.updateValue(p, forKey: k)
+        }
         return p
     }
     /// `cornersOf`: the body takes the rounded rect of this size, scaled to `r` (an outgoing text balloon drawn a
@@ -111,7 +114,7 @@ extension BubblePath {
 /// away and moved back with linear filtering (a bitmap placed at a fractional position) gives that profile within
 /// 0.03 on every edge with one shift per kind: 2+ lines drawn 0.225 px up and left and moved back right and down,
 /// 1 line drawn 0.14 px down and right and moved back up and left. The summed coverage (the edge place of
-/// RowDraw.balloon) does not change. Main thread only (the cache).
+/// RowDraw.balloon) does not change. Any thread (cmux: the templates are lock-owned).
 ///
 /// The cell masks its fill with a precomputed image of that balloon (one per kind, tail and screen scale, built once)
 /// stretched by Core Animation along its flat middle (`contentsCenter`): the caps keep their pixels 1:1 on the
@@ -123,7 +126,8 @@ enum SoftBalloon {
     private struct Template { let image: CGImage; let center: CGRect }
     /// `narrow`: a balloon narrower than its caps gets its own unstretched image (its width and left phase in device px).
     private struct Key: Hashable { let kind: Int; let tail: Bool; let scale: CGFloat; var narrow: [Int] = []; var circularEnds = false }
-    private static var cache: [Key: Template] = [:]
+    /// cmux: the lock owns the templates (row drawing asks on the render queues and the main thread).
+    private static let cache = OSAllocatedUnfairLock<[Key: Template]>(initialState: [:])
     /// Space around the frame (pt) and below it for the tail (it hangs 5.14 pt below the balloon).
     static let pad: CGFloat = 1, tailDrop: CGFloat = 6
     /// Template frames: 30 pt (1 line), 46 (2 lines), 62 (3 lines; taller rows stretch the middle row).
@@ -163,7 +167,7 @@ enum SoftBalloon {
     /// view and the highlight, draw the resting balloon's soft edge). false (ctx unchanged): no soft mask for this part
     /// (the caller draws the crisp shape). The caller saves and restores the state around it.
     static func clip(_ ctx: CGContext, frame f: CGRect, row p: PartRow, scale: CGFloat = Fixture.renderScale) -> Bool {
-        guard !crispCopy, let m = mask(frame: f, row: p, scale: scale), let gray = image(of: m, scale: scale) else { return false }
+        guard !inCrispCopy, let m = mask(frame: f, row: p, scale: scale), let gray = image(of: m, scale: scale) else { return false }
         // The mask image's first row is the frame's top: in a y-down context the image is drawn flipped about the frame.
         let r = m.frame
         let flipped = ctx.ctm.d < 0
@@ -175,9 +179,15 @@ enum SoftBalloon {
     }
 
     /// Main thread: inside `withCrispCopy(true)` `clip` returns false (a copy of a just-sent row: RowCell.crispEdge).
-    private static var crispCopy = false
+    /// cmux: the scope belongs to the main thread; a row bitmap drawn on a render queue meanwhile keeps its soft edge.
+    private static let crispCopy = OSAllocatedUnfairLock(initialState: false)
+    private static var inCrispCopy: Bool { Thread.isMainThread && crispCopy.withLock { $0 } }
     static func withCrispCopy(_ on: Bool, _ body: () -> Void) {
-        let was = crispCopy; crispCopy = on; defer { crispCopy = was }
+        let was = crispCopy.withLock { flag in
+            defer { flag = on }
+            return flag
+        }
+        defer { crispCopy.withLock { $0 = was } }
         body()
     }
 
@@ -219,8 +229,7 @@ enum SoftBalloon {
     /// `circularEnds`: a 1-line balloon with half-circle ends (BubblePath.make, RowDraw.circularEnds).
     private static func template(_ k: Kind, tail: Bool, scale s: CGFloat, narrow: [Int], frame f: CGRect, circularEnds: Bool) -> Template? {
         let key = Key(kind: k.rawValue, tail: tail, scale: s, narrow: narrow, circularEnds: circularEnds)
-        if let t = cache[key] { return t }
-        if cache.count > 200 { cache = cache.filter { $0.key.narrow.isEmpty } }
+        if let t = cache.withLock({ $0[key] }) { return t }
         let (cl, cr) = caps(k)
         let fh = templateHeight(k)
         let frame = narrow.isEmpty ? CGRect(x: 0, y: 0, width: 200, height: fh) : CGRect(x: f.minX, y: 0, width: f.width, height: fh)
@@ -275,7 +284,10 @@ enum SoftBalloon {
         let cy = h / 2
         let center = CGRect(x: CGFloat(cx) / CGFloat(w2), y: CGFloat(cy) / CGFloat(h), width: 1 / CGFloat(w2), height: 1 / CGFloat(h))
         let t = Template(image: image, center: center)
-        cache[key] = t
+        cache.withLock { cache in
+            if cache.count > 200 { cache = cache.filter { $0.key.narrow.isEmpty } }
+            cache[key] = t
+        }
         return t
     }
 }

@@ -35,7 +35,7 @@ struct PageLazinessTests {
 
     /// The WebKit pid of the page's web view; 0 while it has no WebContent process.
     private func webProcess(_ view: PageWebView) -> Int32 {
-        let webView = view.webKitView
+        let webView = view.webView
         guard webView.responds(to: NSSelectorFromString("_webProcessIdentifier")) else { return 0 }
         return (webView.value(forKey: "_webProcessIdentifier") as? NSNumber)?.int32Value ?? 0
     }
@@ -47,7 +47,7 @@ struct PageLazinessTests {
 
     private func makeHost(_ hosting: FakeChromiumHosting?, lazy: Bool = true) -> WebUIHost {
         WebUIHost(chromium: hosting, openPanel: nil,
-                  memoryPressure: MemoryPressureEvents(source: ManualMemoryPressureSource()),
+                  memory: QuietMemoryRegistry(),
                   clock: PageTestClock.never, startsPagesAtFirstShow: lazy)
     }
 
@@ -60,14 +60,14 @@ struct PageLazinessTests {
         view.scriptTarget.bridge = spy
         await settle()
         #expect(view.awaitsFirstShow)
-        #expect(view.webKitView.url == nil, "the hidden page loaded, which starts its WebContent process")
+        #expect(view.webView.url == nil, "the hidden page loaded, which starts its WebContent process")
         #expect(spy.evaluated.isEmpty, "a script reached the hidden page: WebKit launches its process to run it")
         #expect(webProcess(view) == 0, "the hidden page has a WebContent process")
         let window = shownWindow()
         defer { window.close() }
         window.contentView?.addSubview(view)
         #expect(!view.awaitsFirstShow)
-        #expect(view.webKitView.url == descriptor.url(route: "#/start"))
+        #expect(view.webView.url == descriptor.url(route: "#/start"))
         view.evaluate("1")
         #expect(spy.evaluated.last == "1", "a started page runs its scripts")
     }
@@ -125,10 +125,10 @@ struct PageLazinessTests {
         view.followAppearance(DesignSettings.shared.signals, node: tab)
         window.contentView?.addSubview(view)
         #expect(view.awaitsFirstShow)
-        #expect(view.webKitView.url == nil)
+        #expect(view.webView.url == nil)
         workspace.set(.visible)
         #expect(!view.awaitsFirstShow)
-        #expect(view.webKitView.url == descriptor.url())
+        #expect(view.webView.url == descriptor.url())
     }
 
     /// The page view itself unhidden while its workspace is still hidden: not shown yet.
@@ -187,7 +187,7 @@ struct PageLazinessTests {
         try tab.attach(to: shownPaneNode)
         shownPane.addSubview(view)
         #expect(!view.awaitsFirstShow, "the page moved into the shown pane never loads")
-        #expect(view.webKitView.url == descriptor.url())
+        #expect(view.webView.url == descriptor.url())
     }
 
     /// A covered window (another window in front, another Space) does not show its pages; the page
@@ -205,7 +205,7 @@ struct PageLazinessTests {
         state.value = .visible
         source.refresh()
         #expect(!view.awaitsFirstShow)
-        #expect(view.webKitView.url == descriptor.url())
+        #expect(view.webView.url == descriptor.url())
     }
 
     /// A panel that is not ordered in (a picker made ahead): AppKit's own answer keeps its page waiting.
@@ -241,11 +241,11 @@ struct PageLazinessTests {
         defer { host.close(view) }
         view.open(route: "/b")
         view.reload()
-        #expect(view.webKitView.url == nil, "a route or reload before the first show loaded the hidden page")
+        #expect(view.webView.url == nil, "a route or reload before the first show loaded the hidden page")
         let window = shownWindow()
         defer { window.close() }
         window.contentView?.addSubview(view)
-        #expect(view.webKitView.url == descriptor.url(route: "#/b"))
+        #expect(view.webView.url == descriptor.url(route: "#/b"))
     }
 
     @Test func aPageClosedBeforeItShowedNeverStarts() throws {
@@ -269,7 +269,7 @@ struct PageLazinessTests {
         let view = try #require(host.open(PageOpenRequest(descriptor: descriptor, root: root, routes: [])))
         defer { host.close(view) }
         #expect(!view.awaitsFirstShow)
-        #expect(view.webKitView.url == descriptor.url())
+        #expect(view.webView.url == descriptor.url())
     }
 
     /// The launch's `noteLikely()` makes no Settings spare until a pooled page was made visible:

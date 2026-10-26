@@ -4,9 +4,9 @@ import AppKit
 @testable import CmuxNextBrowser
 import CmuxNextDesign
 @testable import CmuxNextTabs
+import CmuxNextWakeups
 import Foundation
 import Testing
-import CmuxNextWakeups
 
 /// Perceived speed (#20516): closing a browser tab back to a New Tab page, or Cmd-W back to one,
 /// stalled the main thread 170-215 ms with almost no CPU. The page had left the window when the
@@ -41,7 +41,7 @@ import CmuxNextWakeups
         window.orderFrontRegardless()
 
         let page = try #require(AgentPaneView(model: AgentPaneModel(host: NoHost(), newTab: AgentPaneNewTab(kind: .agent)),
-                                              source: .bundled(file), webUI: .agentTabsTestHost(), gestures: .testing()))
+                                              work: BackgroundWork(label: "test.agent-pane"), source: .bundled(file), webUI: .agentTabsTestHost(), gestures: .testing()))
         defer { page.close() }
         let probe = WindowProbe()
         page.addSubview(probe)

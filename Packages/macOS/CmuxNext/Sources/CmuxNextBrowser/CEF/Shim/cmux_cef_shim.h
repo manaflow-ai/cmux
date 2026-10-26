@@ -188,6 +188,12 @@ typedef enum {
   // line (MIME types and ".ext"); s2 = the default path or file name. Chromium
   // shows no panel; a closed or crashed browser cancels it.
   CMUX_SHIM_FILE_DIALOG = 48,
+  // 49 to 53 are taken (plans/cmux-next/chromium-host-ops.json, optional_events).
+  // The page's cursor changed (CefDisplayHandler::OnCursorChange), only after
+  // cmux_shim_set_cursor_events(1): a = cef_cursor_type_t. For CT_CUSTOM (45)
+  // s1 = the image as PNG, base64; request = image pixels per DIP x 1000;
+  // b = the hotspot in image pixels, x in the low 32 bits, y in the high 32.
+  CMUX_SHIM_CURSOR = 54,
 } cmux_shim_event_kind_t;
 
 typedef enum {
@@ -330,6 +336,30 @@ CMUX_SHIM_EXPORT int cmux_shim_browser_set_resize_sync(int browser_id, int timeo
 // nothing in another process. UI thread.
 CMUX_SHIM_EXPORT int cmux_shim_browser_set_resize_fence(int browser_id, unsigned int fence_port,
                                                         unsigned int deadline_frames);
+// Fork API 34 (cmux_browser_set_embedder_visibility; p03-rendering-058): the
+// app gives browser_id's layer-hosted page its window-level visibility, as
+// Chrome's browser window gives its tabs theirs
+// (content/app_shim_remote_cocoa/web_contents_view_cocoa.mm), so the page
+// window's order and macOS's occlusion no longer decide it: a page whose
+// window never orders in keeps drawing while the app shows it.
+typedef enum {
+  // The page window's order and occlusion decide (the default).
+  CMUX_SHIM_EMBEDDER_VISIBILITY_WINDOW = 0,
+  // Visible: the page draws, ordered in or not.
+  CMUX_SHIM_EMBEDDER_VISIBILITY_VISIBLE = 1,
+  // Occluded: the page draws no frames and reads as hidden (after Chrome's
+  // one second of coalescing), as a tab of a covered Chrome window.
+  CMUX_SHIM_EMBEDDER_VISIBILITY_OCCLUDED = 2,
+  // Hidden: the page's compositor is suspended and the page is hidden.
+  CMUX_SHIM_EMBEDDER_VISIBILITY_HIDDEN = 3,
+} cmux_shim_embedder_visibility_t;
+// visibility is a cmux_shim_embedder_visibility_t; it applies while the page
+// is layer hosted (kept across hosting off and on). While it is not WINDOW
+// only the app changes the page's visibility (its parent view's hidden state
+// does not), and the page window is the input target only. Returns 1, or 0
+// for an unknown value or browser, a browser with no page window, or a fork
+// without the call. UI thread.
+CMUX_SHIM_EXPORT int cmux_shim_browser_set_embedder_visibility(int browser_id, int visibility);
 // Fork API 30: the helper-app browser process (plans/cmux-next/cef-helper-app-DESIGN.md).
 // Each returns 0 (or does nothing) when the fork lacks the call; the fork's
 // include/cef_cmux.h documents the semantics. UI thread only unless noted.
@@ -534,6 +564,13 @@ CMUX_SHIM_EXPORT void cmux_shim_do_work(void);
 // cmux_set_on_schedule_delayed (p14-energy-046), 0 otherwise: delayed work
 // then stays on schedule. NULL goes back to schedule.
 CMUX_SHIM_EXPORT int cmux_shim_set_schedule_delayed(cmux_shim_schedule_delayed_fn schedule_delayed);
+// Energy Saver on (enabled 1) or off in Chromium (fork cmux_cef_set_energy_saver,
+// p14-energy-029): frame sinks at 30 Hz, except pages of exempt_scheme
+// (NULL = none) and sinks with input in the last second; wake-ups aligned to
+// 32 ms; battery saver mode in every child process. Main thread, after
+// cmux_shim_initialize. Returns 1 when the fork took it, 0 when the fork
+// lacks the call (nothing changes).
+CMUX_SHIM_EXPORT int cmux_shim_set_energy_saver(int enabled, const char* exempt_scheme);
 
 // Creates a Chrome-style browser whose Chromium window tracks parent_view
 // (NSView*). profile_cache_path selects a request context (NULL = global).
@@ -1049,6 +1086,55 @@ CMUX_SHIM_EXPORT int cmux_shim_page_scheme_add_first_party_dynamic(const char* i
 // Returns 1 when the request was waiting, 0 when it ended or was answered.
 CMUX_SHIM_EXPORT int cmux_shim_page_resource_respond(int token, int status, const char* mime, const void* body,
                                                      size_t length);
+// cmux's vote in Chromium's memory pressure aggregator (fork
+// cmux_memory_pressure_vote, p07-memory-051): one voter next to Chromium's
+// own platform voter (content/browser/browser_main_loop.cc
+// CreateMemoryPressureMonitor); Chromium's listeners get the highest vote.
+// level: 0 none (withdraws cmux's vote), 1 moderate, 2 critical. The fork
+// calls MemoryPressureVoter::SetVote(level, /*notify_listeners=*/false), so
+// Chromium's listeners run only when the aggregate level changes, and a
+// kernel event that the platform voter also reports does not run them twice.
+// Inside the call run only the sync listeners (async ones are posted tasks
+// that run in later cmux_shim_do_work calls); in host library mode the call
+// is one post to the Chromium Host. Main thread, after cmux_shim_initialize.
+// Returns 1 when the fork took the vote, 0 when the fork lacks the call,
+// for a level out of range, or once quit began (nothing changes).
+CMUX_SHIM_EXPORT int cmux_shim_memory_pressure_vote(int level);
+// 1: page cursors come to the host as CMUX_SHIM_CURSOR and Chromium sets no
+// NSCursor of its own (the Chromium Host, whose page windows never show: the
+// page view in cmux shows the cursor). 0 (the default): Chromium sets the
+// cursor over its page window. UI thread.
+CMUX_SHIM_EXPORT void cmux_shim_set_cursor_events(int enabled);
+
+// Chromium tracing through stock CEF (include/cef_trace.h, CEFShim/src/shim_tracing.mm; task
+// p09-observability-050). These are not cmux_shim_* exports, so the Chromium Host wire does not
+// generate them: the host calls them for its TRACE_START and TRACE_STOP frames. Call begin and end
+// on any thread after cmux_shim_initialize: each posts its work to the browser UI thread and
+// returns 1, then its callback runs exactly once. It runs on the UI thread, also with a failure
+// value that Chromium gives on another thread (the shim posts it back), except while CEF shuts
+// down: then the failure value can come on any thread. A return of 0 means nothing was posted (CEF
+// is not running, or a bad argument) and the callback never runs.
+typedef void (*cmux_cef_trace_started_fn)(void* ctx, int ok);
+typedef void (*cmux_cef_trace_written_fn)(void* ctx, const char* path);
+// Starts recording in every Chromium process. categories is Chromium's category filter
+// ("toplevel,cc,viz,gpu,input,benchmark,disabled-by-default-..."); NULL or "" uses CEF's default.
+// CEF's API has no buffer size, so Chromium's record-until-full default applies.
+// started: ok = 1 when every process records, 0 when CEF refused (a recording already runs).
+CMUX_SHIM_EXPORT int cmux_cef_begin_tracing(const char* categories, cmux_cef_trace_started_fn started, void* ctx);
+// Stops recording and writes the trace to path, an absolute path that ends in ".json" (0 for any
+// other path). The file is Chromium's legacy JSON trace format: CEF's public API has only the JSON
+// file endpoint (TracingController::CreateFileEndpoint), no Perfetto protobuf output.
+// written: path when Chromium finished the recording, NULL when no recording ran or Chromium could
+// not move its temporary file into place. The path does not prove the file: Chromium reports it also
+// when it could not create the file (no directory, no write access) and ignores write errors (a full
+// disk gives a cut file), so stat and parse it off the main thread before reporting success. After
+// NULL, CEF can refuse every later begin until the app relaunches (its collecting_trace_data_ stays
+// set). The string is valid only during the call.
+CMUX_SHIM_EXPORT int cmux_cef_end_tracing(const char* path, cmux_cef_trace_written_fn written, void* ctx);
+// Chromium's trace clock now, in microseconds (CefNowFromSystemTraceTime: base::TimeTicks, which
+// is mach_absolute_time on macOS, the CLOCK_UPTIME_RAW clock). Any thread, after cmux_shim_load.
+// The trace's "ts" values use this clock; sample it next to the caller's clock for the offset.
+CMUX_SHIM_EXPORT int64_t cmux_cef_now_trace_us(void);
 
 #ifdef __cplusplus
 }

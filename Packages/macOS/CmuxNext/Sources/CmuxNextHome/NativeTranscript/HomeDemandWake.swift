@@ -7,7 +7,7 @@ final class HomeDemandWake: ChatWakeScheduler {
     private let timer = DemandTimer(owner: "Home.transcript.wake")
 
     func schedule(after seconds: Double, _ action: @escaping @MainActor @Sendable () -> Void) {
-        timer.schedule(after: .seconds(max(0, seconds))) { @MainActor in action() }
+        timer.scheduleOnMain(after: .seconds(max(0, seconds)), action)
     }
 
     func cancel() { timer.cancel() }

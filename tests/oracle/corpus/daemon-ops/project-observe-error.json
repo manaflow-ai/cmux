@@ -41,7 +41,7 @@
           "source": 7,
           "entries": [
             {
-              "path": "$CASE_ROOT/oracle",
+              "path": "/srv/oracle-project",
               "last_used_ms": "1"
             }
           ]
@@ -65,8 +65,5 @@
   "teardown": [
     "stop the case daemon",
     "verify the socket and state root are gone"
-  ],
-  "untested": [
-    "params.entries[0].path is a fixed placeholder, not a fixture object; git/_tuning.json tunes it"
   ]
 }

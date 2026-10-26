@@ -4,6 +4,10 @@ import IOSurface
 /// (a hidden surface's presented frame, an evicted terminal's last frame) are volatile while
 /// nothing shows them, so memory pressure takes them without a policy of ours, and they are made
 /// non-volatile again before they show. A purged frame is not shown.
+///
+/// Purgeable pages and the app-wide hidden frame list (`HiddenFrameLRU`, `memoryHiddenFrameLRU`) work
+/// together: the kernel takes a volatile frame's pages when it needs them, and the list drops the frame
+/// itself (its soft limit, its 5 min cull, a warning level), so neither waits for the other.
 extension IOSurface {
     /// kIOSurfacePurgeable* by value (IOSurfaceTypes.h): the imported Swift names differ by SDK.
     static let purgeableNonVolatile: UInt32 = 0

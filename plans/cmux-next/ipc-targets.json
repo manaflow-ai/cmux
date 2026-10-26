@@ -63,6 +63,17 @@
       "file": "cmux-tui/crates/cmux-threads/src/spawn.rs",
       "key": "<unresolved>",
       "reason": "Not a Q8 thread: cmux_threads::spawn is the QoS helper itself; it registers the thread and sets its declared QoS before the closure runs."
+    },
+    {
+      "queue": "Q11",
+      "file": "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/ResourceRelay.swift",
+      "reason": "The relay forwards a page's runtime-named op unchanged (react-pages.md 1.1) and the daemon validates its params against the catalog, as Chromium routes WebUI chrome.send messages by name (content/browser/webui/web_ui_impl.cc); no generated type can name an op chosen at run time."
+    },
+    {
+      "queue": "Q11",
+      "file": "Packages/macOS/CmuxNext/Sources/CmuxNextDaemon/Connection/ResourceOperationClient.swift",
+      "key": "resourceRequest",
+      "reason": "The typed funnel itself: it sends a generated ResourceRequestLine through DaemonConnection's one resource request path (p05-ipc-045)."
     }
   ],
   "ipc5_ops": [

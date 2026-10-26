@@ -78,6 +78,12 @@ final class LayoutViewContext {
     /// Presses the root's intercept handled while render-server springs ran on its active screen
     /// (`ScreenContentView.pressedPane(at:)`, `LayoutRootView.pressesMidRenderSpring`), cumulative.
     var pressesMidRenderSpring = 0
+    /// Scrolls the root's intercept sent through its full routing, with its pane hit tests and claim
+    /// queries (`LayoutRootView.routedScrolls`), cumulative; a page's plain scroll takes none.
+    var routedScrolls: UInt64 = 0
+    /// Scroll points the root's intercept converted from a child window into its own
+    /// (`LayoutRootView.scrollPointConversions`), cumulative; a page's plain scroll takes none.
+    var scrollPointConversions: UInt64 = 0
     /// The strip scrollbar's fade-out deadline clock.
     let scrollbarClock: any Clock<Duration>
     /// Where the pointer is now, in `window`'s coordinates; nil when it cannot
@@ -97,6 +103,8 @@ final class LayoutViewContext {
     /// The windows' frame-aligned pointer input for divider drags (``LayoutRootView/dragFrameInput``);
     /// nil: each drag event moves the divider at once.
     var dragFrameInput: FrameInputCoalescers?
+    /// A new divider drag's resampler (``LayoutRootView/dragResampler``); nil: drawn at the real pointer.
+    var dragResampler: () -> DragResampler? = { nil }
     /// A strip pan on the motion container shows at each display frame's time, resampled
     /// (feature `stripPanResampling`, ``LayoutRootView/resamplesStripPan``).
     var resamplesStripPan = false
@@ -133,6 +141,12 @@ final class LayoutViewContext {
     /// Pane layout changes spring (`ui.paneAnimations`, on by default; plans/cmux-next/motion.md rule 9).
     /// A test that pins `reduceMotionOverride` pins this too, so its springs run as before the setting.
     var animatesPaneLayout: Bool { reduceMotionOverride.map { !$0 } ?? Motion.panes.animatesPaneLayout }
+
+    /// A new drag's resampler (``dragResampler``); none under Reduce Motion, where a drag is drawn at the
+    /// real pointer.
+    func newDragResampler() -> DragResampler? {
+        reduceMotion ? nil : dragResampler()
+    }
 
     func host(for pane: PaneID) -> PaneHostView {
         if let host = hosts[pane] { return host }

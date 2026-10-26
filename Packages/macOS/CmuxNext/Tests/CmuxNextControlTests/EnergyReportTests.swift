@@ -194,6 +194,19 @@ struct EnergyReportTests {
         #expect(rendered?["perSecond"]?.doubleValue != nil)
     }
 
+    /// p14-energy-030: `cef.energySaver` is `applied` only when the built engine says the fork took the last
+    /// state; a refused or uncalled saver and no Chromium built yet are `unsupported`.
+    @Test func cefEnergySaverIsAppliedOnlyWhenTheEngineSaysSo() async {
+        #expect(EnergyReport.CEF.Saver(applied: true) == .applied)
+        #expect(EnergyReport.CEF.Saver(applied: false) == .unsupported)
+        #expect(EnergyReport.CEF.Saver(applied: nil) == .unsupported)
+        for (applied, name) in [(true, "applied"), (false, "unsupported")] {
+            var state = Self.state
+            state.cef = .init(saver: .init(applied: applied), earlyPasses: nil)
+            #expect(await Self.report(state: state)["cef"]?["energySaver"]?.stringValue == name)
+        }
+    }
+
     /// `tabs` (p14-energy-124): the sampled tab renderers, per tab. Two tabs on one renderer both show its
     /// whole usage and it names both. Only tab renderers count: an extension renderer (no client id) that a
     /// stale tab pid names is not one.

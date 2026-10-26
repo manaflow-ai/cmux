@@ -60,7 +60,9 @@
         "params": {
           "tabs": [
             "$step:fx-workspace#/value/tab_id"
-          ]
+          ],
+          "name": "oracle",
+          "color": "blue"
         },
         "idempotencyKey": "tab-group-create-ok.call"
       },
@@ -72,7 +74,7 @@
         "before",
         "settled"
       ],
-      "note": "every required field from its catalog type"
+      "note": "a named blue group of the fixture tab"
     }
   ],
   "invariants": [

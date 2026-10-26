@@ -28,7 +28,7 @@
     "channel": "Optional: input for ops sent on the input ring instead of the control channel (default control).",
     "optional_exports": "Top level: cmux_shim_* symbols CEFShimLibrary binds with r.optional (the fork API 29 renderer paths) that cmux_cef_shim.h does not declare. 3696a48e40a landed the app side before the shim, and the shim in CEFShim/src does not define them yet, so a declaration would promise symbols that nm cannot find in the real shim. Same fields as exports. Task 011 checks header exports plus these against CEFShimLibrary's r(...) and r.optional(...) names; the remote dylib (task 014) exports both. The commit that adds them to the shim moves the declarations into the header and these entries into exports.",
     "optional_events": "Top level: event kinds CEFShimEvent.swift decodes that cmux_shim_event_kind_t does not list yet (fork API 29); same fields as events and the same move into the header as optional_exports.",
-    "host_mode_rewrites": "Top level: Swift sites whose in-process behavior the remote shim cannot keep, and sites that stay as written in host mode: site (file and function under sources_root), exports, needs (after_attach, reply, pending_tab, host_exit, or kept: the site stays, change says why; a finished pending_tab site becomes kept), change, and task. --check-return-use and --check-pre-attach (task 011) accept a site only while it is listed here. --swift-sites (task 021) no longer lists a site listed with after_attach, host_exit or kept, nor an async or mint call in the token form (a closure handed to CEFRuntime.sendAsync, siteCall or profileWrite)."
+    "host_mode_rewrites": "Top level: Swift sites whose in-process behavior the remote shim cannot keep, and sites that stay as written in host mode: site (file and function under sources_root), exports, needs (after_attach, reply, pending_tab, host_exit, or kept: the site stays, change says why; a finished pending_tab site becomes kept), change, and task. --check-return-use and --check-pre-attach (task 011) accept a site only while it is listed here. --swift-sites (task 021) no longer lists a site listed with after_attach, host_exit or kept, nor an async call in the token form (a closure handed to CEFRuntime.sendAsync, siteCall or profileWrite), nor a mint_returns id call in the mint form (its id keys the wait for its reply_event)."
   },
   "pseudo_events": {
     "attach": "The host's hello after the control channel connects, before any op is applied. It carries every mirror key whose only refresh event is attach, and the optional_exports the host's shim defines."
@@ -318,6 +318,27 @@
       "reason": "A Mach port name means nothing in the host's IPC space, so no op carries one: the client returns 0 (a fork without the call) and sends nothing. Host mode's fence is a port right over XPC, an op of its own (task 052), owned by ChromiumHostPageView."
     },
     {
+      "name": "cmux_shim_browser_set_embedder_visibility",
+      "class": "post",
+      "args": [
+        {
+          "name": "browser_id",
+          "type": "int"
+        },
+        {
+          "name": "visibility",
+          "type": "int"
+        }
+      ],
+      "returns": "int",
+      "result_used_by": [],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "The app gives a hosted page its visibility as a one-way op in call order (p03-rendering-058), as Chrome's browser window tells its WebContents; the host's page windows never order in, so the app's value is the only one."
+    },
+    {
       "name": "cmux_shim_browser_set_detached_hosting",
       "class": "view",
       "args": [
@@ -379,7 +400,7 @@
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "Function-pointer arg. The host dispatches input on its own user-input queue (task 041/042); in the client this is a no-op that returns 1."
+      "reason": "Function-pointer arg. The host posts input to its own user-input queue (tasks 041 and 042), so no cmux task runs on Chromium's UI thread: the client (ChromiumHost/client/remote_shim_local.mm) returns 0, as when the fork lacks the call, and never runs fn, so the caller keeps ownership of context. Nothing crosses the wire."
     },
     {
       "name": "cmux_shim_browser_send_wheel",
@@ -455,7 +476,7 @@
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "Function-pointer arg. The client keeps fn per browser and calls it on main in the event batch from the host's TEXT_INPUT_STATE push (task 044); only the watch on/off crosses the wire."
+      "reason": "Function-pointer arg. The client (ChromiumHost/client/remote_shim_local.mm) keeps fn and context per browser and calls them on main in the event batch from the host's TEXT_INPUT_STATE push (task 044); only the watch on/off crosses the wire, once per change (replacing fn sends nothing). A start before attach or one the transport refuses returns 0; a stop returns 1; the host's exit ends every watch."
     },
     {
       "name": "cmux_shim_browser_accessibility_token",
@@ -522,7 +543,7 @@
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "Function-pointer arg. The client keeps fn and calls it on main from the host's DRAG_START push (task 051)."
+      "reason": "Function-pointer arg. The client (ChromiumHost/client/remote_shim_local.mm) keeps fn and context and calls them on main from the host's DRAG_START push (task 051); only installed/removed crosses the wire, when it differs from what the host last took, so a handler set before attach (or before a restarted host attaches) is sent at attach and a send the transport refused is sent at the next set or attach."
     },
     {
       "name": "cmux_shim_browser_drag_source_ended",
@@ -1155,6 +1176,29 @@
       "reason": "Function-pointer arg for the external message pump, which does not exist in host mode (CefRunMessageLoop runs in the host, task 034): the remote shim returns 0, and CEFRuntime calls it only in process (p14-energy-046)."
     },
     {
+      "name": "cmux_shim_set_energy_saver",
+      "class": "local",
+      "args": [
+        {
+          "name": "enabled",
+          "type": "int"
+        },
+        {
+          "name": "exempt_scheme",
+          "type": "const char*"
+        }
+      ],
+      "returns": "int",
+      "result_used_by": [
+        "CmuxNextBrowser/CEF/CEFEnergySaver.swift"
+      ],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "The Chromium Host takes Energy Saver as its own versioned wire message (p14-energy-045), not a generated op: the remote shim returns 0, so debug.energy reports it unsupported in host mode until then (p14-energy-030)."
+    },
+    {
       "name": "cmux_shim_create_window",
       "class": "mint",
       "args": [
@@ -1608,14 +1652,12 @@
         }
       ],
       "returns": "int",
-      "result_used_by": [
-        "CmuxNextBrowser/Engine/BrowserPagePrint.swift"
-      ],
+      "result_used_by": [],
       "mirror_key": null,
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "Returns 0 only when the browser is gone, which the client knows; printing in host mode is task 065."
+      "reason": "Returns 0 only when the browser is gone, which the client knows: BrowserPagePrint sends it one-way, as chrome::Print returns nothing; printing in host mode is task 065."
     },
     {
       "name": "cmux_shim_find",
@@ -1803,7 +1845,7 @@
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": "wire:REPLY",
-      "reason": "1 sent, 0 browser gone, -1 refused by Chromium; agent CDP later goes daemon to host directly (task 233)."
+      "reason": "1 sent, 0 browser gone, -1 refused by Chromium: CEFAgentRelay.send takes the token form (whenSettled) and turns 0, -1 or a gone host into a CDP error reply on the relay stream; a passed deadline makes up no error, since the real reply may still come; agent CDP later goes daemon to host directly (task 233)."
     },
     {
       "name": "cmux_shim_devtools_set_key_handler",
@@ -2175,7 +2217,7 @@
     },
     {
       "name": "cmux_shim_ext_set_enabled",
-      "class": "post",
+      "class": "async",
       "args": [
         {
           "name": "browser_id",
@@ -2202,12 +2244,12 @@
         "tab.ext_commands[*]",
         "tab.omnibox_keywords[*]"
       ],
-      "reply_event": null,
-      "reason": "Optimistic in the mirror; TAB_EVENT 7 confirms or reverts it. Its Bool site changes in task 026."
+      "reply_event": "wire:REPLY",
+      "reason": "Chromium's verdict (ExtensionService refuses what ManagementPolicy forbids) is known only in the host. BrowserExtensionStore refuses in the person's turn what the menus do not offer (canToggle), shows the change at once with the lists pending, and refreshes at the REPLY, which clears the pending marks: a refused change reverts, an applied one takes the host's lists. The action reports the REPLY's verdict (task 026)."
     },
     {
       "name": "cmux_shim_ext_uninstall",
-      "class": "post",
+      "class": "async",
       "args": [
         {
           "name": "browser_id",
@@ -2230,12 +2272,12 @@
         "tab.ext_commands[*]",
         "tab.omnibox_keywords[*]"
       ],
-      "reply_event": null,
-      "reason": "As ext_set_enabled: a refused uninstall shows when the list comes back unchanged."
+      "reply_event": "wire:REPLY",
+      "reason": "As ext_set_enabled: the store refuses what the menus do not offer (canRemove) and removes the card at once; the REPLY's refresh brings a refused card back."
     },
     {
       "name": "cmux_shim_ext_reload",
-      "class": "post",
+      "class": "async",
       "args": [
         {
           "name": "browser_id",
@@ -2258,12 +2300,12 @@
         "tab.ext_commands[*]",
         "tab.omnibox_keywords[*]"
       ],
-      "reply_event": null,
+      "reply_event": "wire:REPLY",
       "reason": "As ext_set_enabled."
     },
     {
       "name": "cmux_shim_ext_move_pinned",
-      "class": "post",
+      "class": "async",
       "args": [
         {
           "name": "browser_id",
@@ -2290,12 +2332,12 @@
         "tab.ext_commands[*]",
         "tab.omnibox_keywords[*]"
       ],
-      "reply_event": null,
+      "reply_event": "wire:REPLY",
       "reason": "As ext_set_enabled."
     },
     {
       "name": "cmux_shim_ext_set_pinned",
-      "class": "post",
+      "class": "async",
       "args": [
         {
           "name": "browser_id",
@@ -2322,7 +2364,7 @@
         "tab.ext_commands[*]",
         "tab.omnibox_keywords[*]"
       ],
-      "reply_event": null,
+      "reply_event": "wire:REPLY",
       "reason": "As ext_set_enabled."
     },
     {
@@ -2412,14 +2454,12 @@
         }
       ],
       "returns": "int",
-      "result_used_by": [
-        "CmuxNextBrowser/CEF/CEFExtensionBackend.swift"
-      ],
+      "result_used_by": [],
       "mirror_key": null,
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "Key path: the ext_commands mirror decides in the key's turn whether the key is an extension command, as Chrome's chrome/browser/extensions/extension_keybinding_registry.cc decides from its registered list; the run needs no answer (task 026)."
+      "reason": "Key path: the ext_commands mirror decides in the key's turn whether the key is an extension command, as Chrome's chrome/browser/extensions/extension_keybinding_registry.cc decides from its registered list; the store runs it only for an enabled extension and reads no answer (task 026)."
     },
     {
       "name": "cmux_shim_tab_move_to_window",
@@ -2801,14 +2841,12 @@
         }
       ],
       "returns": "int",
-      "result_used_by": [
-        "CmuxNextBrowser/CEF/CEFDownloads.swift"
-      ],
+      "result_used_by": [],
       "mirror_key": null,
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "Returns 0 for a gone browser or a refused scheme: the caller checks both (http, https, data, blob) before it posts; DOWNLOAD_STARTED follows."
+      "reason": "Returns 0 for a gone browser or a refused scheme: the caller checks the scheme (http, https, data, blob) and the browser's liveness (CEFRuntime.tabsByBrowser) before it posts and does not read the result; DOWNLOAD_STARTED follows, as DownloadManager::DownloadUrl returns nothing."
     },
     {
       "name": "cmux_shim_download_continue",
@@ -3531,7 +3569,7 @@
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": "wire:REPLY",
-      "reason": "Function-pointer arg (done). The client sends the request with a token; the host answers on a wire REPLY frame whose bytes go in a sealed shm fd (task 020) zeroed after done returns. The password is never CMUX_SHIM_REPLY text and is never logged."
+      "reason": "Function-pointer arg (done). The client (ChromiumHost/client/remote_shim_local.mm) keeps done and ctx by token and sends the request with it; the host answers on a wire REPLY frame whose bytes go in a sealed shm fd (task 020) zeroed after done returns; done runs exactly once, on main, and the host's exit ends a pending reveal with done(ctx, NULL, 0). The password is never CMUX_SHIM_REPLY text and is never logged."
     },
     {
       "name": "cmux_shim_password_export",
@@ -3624,14 +3662,12 @@
         }
       ],
       "returns": "int",
-      "result_used_by": [
-        "CmuxNextBrowser/CEF/ChromiumNetError.swift"
-      ],
+      "result_used_by": [],
       "mirror_key": null,
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": null,
-      "reason": "Returns 0 only when the browser is gone, which the client knows; ordered before the reload that follows it."
+      "reason": "Returns 0 only when the browser is gone, which the client knows; ChromiumNetError sends it one-way, ordered before the reload that follows it."
     },
     {
       "name": "cmux_shim_free_owned",
@@ -3923,7 +3959,7 @@
       "refresh_events": [],
       "pending_keys": [],
       "reply_event": "wire:REPLY",
-      "reason": "1 applied, 0 the model is not loaded (BOOKMARKS_EVENT loaded follows), -1 refused: host state."
+      "reason": "1 applied, 0 the model is not loaded (BOOKMARKS_EVENT loaded follows), -1 refused: host state, which CEFBookmarkBridge.sync takes in the token form (whenSettled); a refusal or a gone host forgets the store, a passed deadline keeps it."
     },
     {
       "name": "cmux_shim_page_scheme_add",
@@ -4044,6 +4080,40 @@
       "pending_keys": [],
       "reply_event": null,
       "reason": "Answers a PAGE_RESOURCE token; bodies over 64 KiB go in a sealed shm fd (task 020). Any thread."
+    },
+    {
+      "name": "cmux_shim_memory_pressure_vote",
+      "class": "post",
+      "args": [
+        {
+          "name": "level",
+          "type": "int"
+        }
+      ],
+      "returns": "int",
+      "result_used_by": [],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "cmux's memory pressure vote (p07-memory-051): the host's shim votes it into its own Chromium's aggregator, in call order; CEFMemoryPressureVote discards the result."
+    },
+    {
+      "name": "cmux_shim_set_cursor_events",
+      "class": "local",
+      "args": [
+        {
+          "name": "enabled",
+          "type": "int"
+        }
+      ],
+      "returns": "void",
+      "result_used_by": [],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "The Chromium Host turns cursor events on itself before initialize (its page windows never show; CURSOR events reach ChromiumHostPageView, task 045), so the remote export does nothing."
     }
   ],
   "events": [
@@ -4341,6 +4411,11 @@
       "kind": "CMUX_SHIM_FILE_DIALOG",
       "value": 48,
       "refreshes": []
+    },
+    {
+      "kind": "CMUX_SHIM_CURSOR",
+      "value": 54,
+      "refreshes": []
     }
   ],
   "optional_exports": [
@@ -4567,6 +4642,125 @@
       "reply_event": "wire:REPLY",
       "reason": "WebContents::Discard refuses a page Chromium counts visible, which only the host knows. In process CEFTab.discard() reads the answer and the page host closes the page on a refusal; in host mode the return only says the op was sent, so CEFShimLibrary binds no tabDiscard there and the page host closes the page until CEFTab.discard() awaits the reply (host_mode_rewrites, p13-webui-031).",
       "fork_api": 29
+    },
+    {
+      "name": "cmux_shim_widget_set_geometry",
+      "class": "post",
+      "args": [
+        {
+          "name": "widget_id",
+          "type": "int"
+        },
+        {
+          "name": "x",
+          "type": "int"
+        },
+        {
+          "name": "y",
+          "type": "int"
+        },
+        {
+          "name": "width",
+          "type": "int"
+        },
+        {
+          "name": "height",
+          "type": "int"
+        },
+        {
+          "name": "scale_milli",
+          "type": "int"
+        }
+      ],
+      "returns": "void",
+      "result_used_by": [],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "A hosted widget cmux places (WIDGET_CONTEXT kinds devTools, devToolsWindow, popupWindow) moved or resized: widget id, bottom left in AppKit screen points, size in points, backing scale x 1000. One value per widget, so a waiting one is replaced (StateKeyFor). The host sizes the widget to it, as NativeWidgetNSWindowBridge reports a window's bounds to the browser (task 066).",
+      "fork_api": 29
+    },
+    {
+      "name": "cmux_shim_widget_dismiss",
+      "class": "post",
+      "args": [
+        {
+          "name": "widget_id",
+          "type": "int"
+        }
+      ],
+      "returns": "void",
+      "result_used_by": [],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "The person closed a hosted widget in cmux (an undocked DevTools window's close button, a click away from an extension popup): cmux took it down already and the host closes the widget; its WIDGET_GONE follows (task 066).",
+      "fork_api": 29
+    },
+    {
+      "name": "cmux_shim_widget_send_input",
+      "class": "post",
+      "args": [
+        {
+          "name": "widget_id",
+          "type": "int"
+        },
+        {
+          "name": "kind",
+          "type": "int"
+        },
+        {
+          "name": "v0",
+          "type": "int"
+        },
+        {
+          "name": "v1",
+          "type": "int"
+        },
+        {
+          "name": "v2",
+          "type": "int"
+        },
+        {
+          "name": "v3",
+          "type": "int"
+        },
+        {
+          "name": "v4",
+          "type": "int"
+        },
+        {
+          "name": "v5",
+          "type": "int"
+        },
+        {
+          "name": "flags",
+          "type": "int64_t"
+        },
+        {
+          "name": "time_ns",
+          "type": "int64_t"
+        },
+        {
+          "name": "ch",
+          "type": "int"
+        },
+        {
+          "name": "unmod",
+          "type": "int"
+        }
+      ],
+      "returns": "void",
+      "result_used_by": [],
+      "mirror_key": null,
+      "refresh_events": [],
+      "pending_keys": [],
+      "reply_event": null,
+      "reason": "Input to a hosted widget, as a page view's input goes to its page: kind, v0..v5, flags, time_ns, ch and unmod are the fields of a ChromiumHostFrame of kind mouse, wheel, key, focus or edit (ChromiumHost/src/chromium_host_wire.h); the host sends it to the widget's RenderWidgetHost (task 066).",
+      "fork_api": 29,
+      "channel": "input"
     }
   ],
   "optional_events": [
@@ -4587,11 +4781,23 @@
       "value": 51,
       "refreshes": [],
       "reason": "Host mode only (task 019): the host refused a browser cmux minted. browser_id = the minted id, request = create_window's request (0 for tab_add and tab_duplicate). In process the shim's 0 return says it; the host's call returned the minted id or 1 when sent, so this event carries the refusal (HOST/src/host_client_ids.h, cmux_host::mint::kEventCreateFailed)."
+    },
+    {
+      "kind": "CMUX_SHIM_WIDGET_CONTEXT",
+      "value": 52,
+      "refreshes": [],
+      "reason": "A Views widget with a WebContents is shown or changed (fork task 173: extension popup, side panel, DevTools, popup window, InitAsPopup page popup): browser = owner, request = widget id, a = CAContext id | kind << 32, s1 = bounds x,y,width,height in DIPs from the primary display's top-left (the side panel's: from its page's top-left), s2 = title; ChromiumHostWidgetHost shows it (task 066)."
+    },
+    {
+      "kind": "CMUX_SHIM_WIDGET_GONE",
+      "value": 53,
+      "refreshes": [],
+      "reason": "The widget of WIDGET_CONTEXT closed: browser = owner, request = widget id (task 066)."
     }
   ],
   "host_mode_rewrites": [
     {
-      "site": "CmuxNextBrowser/CEF/CEFRuntime.swift: CEFRuntime.loadLibrary(_:signatureChecker:)",
+      "site": "CmuxNextBrowser/CEF/CEFLibraryLoader.swift: CEFLibraryLoader.load(_:)",
       "exports": [
         "cmux_shim_load"
       ],
@@ -4607,24 +4813,6 @@
       ],
       "needs": "kept",
       "change": "Both run only for CEFRuntimeBoot.inProcess: in host mode the host's NSApp runs Chromium and its own message loop (task 034), and CEFRuntime prepares nothing and starts no pump (task 015).",
-      "task": "p01-process-021"
-    },
-    {
-      "site": "CmuxNextBrowser/CEF/CEFRuntime+PasswordImport.swift: CEFRuntime.canImportPasswords() (computed property)",
-      "exports": [
-        "cmux_shim_password_entry_size"
-      ],
-      "needs": "kept",
-      "change": "The remote dylib returns its own sizeof(cmux_shim_password_entry), the layout that reads the rows Swift writes; the host checks its own layout when it decodes the wire. The comparison with ChromiumPasswordRows.stride keeps its meaning.",
-      "task": "p01-process-021"
-    },
-    {
-      "site": "CmuxNextBrowser/CEF/CEFRuntime+Events.swift: CEFRuntime.devTools(_:method:params:timeout:)",
-      "exports": [
-        "cmux_shim_devtools_call"
-      ],
-      "needs": "kept",
-      "change": "Already the mint form: the remote returns the client-minted message id (never 0) and DEVTOOLS_RESULT answers that id, a refused call included (a = 0), so the waiter keyed by the returned id resolves in both backends. synchronousDevToolsResults stays empty in host mode, where no result arrives inside the call.",
       "task": "p01-process-021"
     },
     {
@@ -4684,24 +4872,6 @@
       "task": "p01-process-021"
     },
     {
-      "site": "CmuxNextBrowser/CEF/CEFRuntime+Site.swift: CEFRuntime.sendSSLStatus(_:)",
-      "exports": [
-        "cmux_shim_ssl_status"
-      ],
-      "needs": "reply",
-      "change": "Becomes async (token + REPLY, as siteCall).",
-      "task": "p01-process-021"
-    },
-    {
-      "site": "CmuxNextBrowser/PageInfo/Engine/CEFTab+PageInfo.swift: pageInfoCertificateChain() and syncSecurityFromChromium()",
-      "exports": [
-        "cmux_shim_ssl_status"
-      ],
-      "needs": "reply",
-      "change": "Await sslStatus; syncSecurityFromChromium applies the security state when the reply comes, if the tab still shows the same entry.",
-      "task": "p01-process-022"
-    },
-    {
       "site": "CmuxNextBrowser/CEF/CEFTab+Freeze.swift: CEFTab.discard()",
       "exports": [
         "cmux_shim_tab_discard"
@@ -4709,25 +4879,6 @@
       "needs": "reply",
       "change": "Host mode binds no tabDiscard (CEFShimLibrary binds it only with no hostExports), so discard() answers false and the page host closes the page. It becomes async (token + REPLY, as siteCall) and marks the tab discarded only on the host's 1.",
       "task": "p01-process-018"
-    },
-    {
-      "site": "CmuxNextBrowser/CEF/CEFRuntime+Site.swift: CEFRuntime.contentSetting(_:url:kind:)",
-      "exports": [
-        "cmux_shim_content_setting"
-      ],
-      "needs": "reply",
-      "change": "Becomes async: Take the token with CEFHostStart.expectReply() and await it in CEFHostStart.replies as Int32; Page Info shows the setting when the reply comes.",
-      "task": "p01-process-021"
-    },
-    {
-      "site": "CmuxNextBrowser/CEF/CEFRuntime+ProfileProxy.swift: CEFRuntime.applyProfileProxy(_:)",
-      "exports": [
-        "cmux_shim_set_context_proxy_server",
-        "cmux_shim_context_proxy_state"
-      ],
-      "needs": "reply",
-      "change": "Becomes async: Take the token with CEFHostStart.expectReply() and await it in CEFHostStart.replies for the stored verdict and the proxy state; a page of the profile opens only after both replies say applied (fail closed, as now).",
-      "task": "p01-process-021"
     },
     {
       "site": "CmuxNextBrowser/CEF/CEFPaneHost+MachineProxy.swift: CEFPaneHost.sendMachineProxy(_:contextKey:)",
@@ -4764,51 +4915,6 @@
       "needs": "reply",
       "change": "Take the token with CEFHostStart.expectReply() and await it in CEFHostStart.replies; openExtensionPopup is set when the reply says the action ran.",
       "task": "p01-process-022"
-    },
-    {
-      "site": "CmuxNextBrowser/CEF/CEFExtensionBackend.swift: CEFExtensionBackend.openOptions(_:from:)",
-      "exports": [
-        "cmux_shim_ext_open_options"
-      ],
-      "needs": "reply",
-      "change": "Becomes async: Take the token with CEFHostStart.expectReply() and await it in CEFHostStart.replies; callers learn whether the options page opened from the reply.",
-      "task": "p01-process-026"
-    },
-    {
-      "site": "CmuxNextBrowser/CEF/CEFBookmarkBridge.swift: CEFBookmarkBridge.sync(store:treeJSON:)",
-      "exports": [
-        "cmux_shim_bookmarks_sync"
-      ],
-      "needs": "reply",
-      "change": "Becomes async: Take the token with CEFHostStart.expectReply() and await it in CEFHostStart.replies; a reply below 0 forgets the store, as the immediate result does now.",
-      "task": "p01-process-027"
-    },
-    {
-      "site": "CmuxNextBrowser/CEF/CEFOmniboxKeywords.swift: CEFOmniboxKeywords.suggestions(browser:extensionID:text:shim:)",
-      "exports": [
-        "cmux_shim_omnibox_input"
-      ],
-      "needs": "reply",
-      "change": "In host mode the call returns 1 once sent: take the token with CEFHostStart.expectReply() and await it in CEFHostStart.replies beside the OMNIBOX_SUGGESTIONS waiter; a reply of 0 (the extension does not listen) returns nil at once instead of at the suggestion timeout.",
-      "task": "p01-process-026"
-    },
-    {
-      "site": "CmuxNextBrowser/CEF/CEFAgentRelay.swift: CEFAgentRelay.send(_:)",
-      "exports": [
-        "cmux_shim_devtools_send"
-      ],
-      "needs": "reply",
-      "change": "In host mode the call returns 1 once sent, so .sent no longer says the browser took the message: take the token with CEFHostStart.expectReply() and await it in CEFHostStart.replies as Int32; send becomes async and reports .noBrowser or .refused from the reply.",
-      "task": "p01-process-027"
-    },
-    {
-      "site": "CmuxNextBrowser/CEF/CEFExtensionBackend.swift: CEFExtensionBackend.loadUnpacked(at:)",
-      "exports": [
-        "cmux_shim_ext_load_unpacked"
-      ],
-      "needs": "reply",
-      "change": "The `call { $0.extLoadUnpacked($1, path) } == 1` read is the client's 1 in host mode: take the token with CEFHostStart.expectReply() and await it in CEFHostStart.replies as Int32; loadUnpacked becomes async and returns whether the host loaded the extension.",
-      "task": "p01-process-026"
     },
     {
       "site": "CmuxNextBrowser/CEF/CEFPaneHost.swift: CEFPaneHost.ensureCreated(_:machineProxyApplied:)",

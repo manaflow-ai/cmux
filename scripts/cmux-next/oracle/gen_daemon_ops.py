@@ -28,17 +28,24 @@ Cases are flat in the suite directory, as every suite: `oracle.py` and the expec
 (`suite/case[/step]`) name a case by one path segment. The families of tasks 061-070 tune their operations in
 `<family>/_tuning.json` (oracle.py skips `_` files), which this generator reads, so regeneration keeps the tuning
 and stays byte-stable. A tuning changes params and target, the error code and the error details the error case
-asserts, and adds `before` steps (a mutation or a waitFor settle between the fixture and the call), `requires`
+asserts, and adds `before` steps (a mutation, a readOnly read whose reply a `$step:` reference uses, or a waitFor
+settle between the fixture and the call), `after` steps (waitFor settles after the call that assert the state it
+left, for example the split tree; the error case does not inherit the success case's), `requires`
 capabilities (`chromium` for a daemon-rendered browser, which needs a cmux-browser provider), `untested` reasons
-and a `gap`: why no product can run the success case yet, naming the task that closes it. coverage.json lists every
+and a `gap`: why no product can run the success case yet, naming the task that closes it, and a `repo`: the
+generated git repository (tests/oracle/fixtures/git/<repo>.json, case-v1 fixture.repo) the driver builds under
+$CASE_ROOT/repos before the first step; a `remote` is then a plain name of that repository's remotes, and a path
+under $CASE_ROOT/repos one of its folders. Such a case requires the `git_repo` capability, which no product has
+until its driver builds the repository, so its operation is excluded (REPO_GAP). coverage.json lists every
 operation with its family, cases, fixture steps, broken field, placeholders (fields with a fixed id, not a fixture
 object: the tuning work), known gap, tuning and the capabilities of cases that need more than resource_api. An
 operation counts as covered only when its success case has no placeholder and no known or tuned gap; the rest are
 excluded with the task that closes them. Covered is not a verdict: driver_daemon.py on the VM gives the first one.
 
 Usage:
-  gen_daemon_ops.py --out DIR          write the cases and coverage.json into DIR
-  gen_daemon_ops.py --out DIR --check  exit 1 when DIR differs from a fresh generation
+  gen_daemon_ops.py --out DIR          write the cases and coverage.json into DIR, and the Skip block of the
+                                       excluded success cases into DIR/../../Expectations.d/daemon-ops.txt
+  gen_daemon_ops.py --out DIR --check  exit 1 when DIR or that block differs from a fresh generation
   gen_daemon_ops.py --selftest         offline tests against the checked-in catalog
 """
 
@@ -46,7 +53,10 @@ from __future__ import annotations
 
 import argparse
 import copy
+import functools
 import hashlib
+import importlib.util
+import itertools
 import json
 import re
 import sys
@@ -61,12 +71,15 @@ REPO = HERE.parents[2]
 CATALOG = REPO / "cmux-tui" / "spec" / "resource-operations-v2.json"
 WORK = REPO / "plans" / "cmux-next" / "chrome-parity" / "WORK.tsv"
 DEFAULT_OUT = REPO / "tests" / "oracle" / "corpus" / "daemon-ops"
+CORPUS_DIR = DEFAULT_OUT.relative_to(REPO).as_posix()
 CASE_SCHEMA = REPO / "schemas" / "oracle" / "case-v1.schema.json"
 SUITE = "daemon-ops"
 GENERATOR = "scripts/cmux-next/oracle/gen_daemon_ops.py"
 SCHEMA_REF = "../../../../schemas/oracle/case-v1.schema.json"
 COVERAGE = "coverage.json"
 TUNING = "_tuning.json"
+# p15-oracle-068: the generated repositories a case names in fixture.repo, and their builder.
+REPO_FIXTURES = REPO / "tests" / "oracle" / "fixtures" / "git"
 
 # Task 061-070 families: the first segment of an operation name picks its family directory. A new first
 # segment is an error until it is given a family here.
@@ -120,12 +133,35 @@ PRECONDITION_FIELDS = frozenset({"expected_revision", "if_revision", "expected_r
                                  "expected_name_revision"})
 UNKNOWN_PARAMETER = "oracle_unknown"
 ERROR_CODE = "validation.invalid"
-# hermetic_env.py ROOT_TOKEN (p15-oracle-200): the case's state root. A path under it is local to the case.
-ROOT_TOKEN = "$CASE_ROOT"
+# git_ops/push.rs: `remote` names a configured remote, never a URL or a path.
+REMOTE_NAME = re.compile(r"^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$")
+# case-v1 capability of a case with fixture.repo: the product's driver builds the repository first.
+REPO_CAPABILITY = "git_repo"
+# case-v1 $defs/stepRef: a value from an earlier step's reply.
+STEP_REF = re.compile(r"^\$step:([a-z0-9][a-z0-9-]{0,63})#((?:/(?:[^~/]|~[01])*)*)$")
 
 
 class GenError(Exception):
     """The catalog, the fixture or a tuning file cannot make the suite."""
+
+
+@functools.lru_cache(maxsize=None)
+def make_repo() -> Any:
+    """tests/oracle/fixtures/git/make_repo.py: it owns the repository fixture format, the case root token and
+    the folder the repositories are built in."""
+    spec = importlib.util.spec_from_file_location("oracle_make_repo", REPO_FIXTURES / "make_repo.py")
+    if spec is None or spec.loader is None:
+        raise GenError(f"{REPO_FIXTURES / 'make_repo.py'}: cannot be loaded")
+    module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module  # dataclasses read the module of each class they make
+    spec.loader.exec_module(module)
+    return module
+
+
+# The case's state root, as case values write it (a path under it is local to the case), and the folder of its
+# generated repositories: make_repo.py's, the one copy.
+ROOT_TOKEN: str = make_repo().ROOT_TOKEN
+REPOS_ROOT: str = make_repo().REPOS_ROOT
 
 
 # ------------------------------------------------------------------------------------------------ catalog
@@ -432,7 +468,6 @@ FIXTURE: Tuple[FixtureStep, ...] = (
                 (("screen_group", "/value/id"), ("grouped_screen", "/value/screen_ids/0"))),
     FixtureStep("fx-workspace-group", "workspace_group.create", (), {"name": "oracle"}, (("workspace_group", "/value/id"),)),
     FixtureStep("fx-room", "room.create", (), {"name": "oracle"}, (("room", "/value/id"),)),
-    FixtureStep("fx-stash", "stash.create", (), {"tabs": [Handle("other_tab")], "name": "oracle"}, (("stash", "/value/stash_id"),)),
     FixtureStep("fx-notification", "notification.create", (), {"title": "oracle", "body": "oracle"},
                 (("notification", "/value/id"),)),
     FixtureStep("fx-checklist", "workspace_checklist.add", (("workspace", "workspace"),), {"text": "oracle"},
@@ -450,6 +485,9 @@ FIXTURE: Tuple[FixtureStep, ...] = (
     FixtureStep("fx-app-browser", "browser.profile.open", (("workspace", "workspace"), ("screen", "screen"), ("pane", "pane")),
                 {"url": "http://127.0.0.1:9/", "profile": Handle("browser_profile")},
                 (("app_browser", "/value/browser_id"), ("app_browser_tab", "/value/tab_id"))),
+    # state/stash.rs: a tabs stash takes web pages only (a terminal tab refuses the request) and `name` goes
+    # with `workspaces` only (stash_router.rs create_workspaces). The app-drawn http page is one on every daemon.
+    FixtureStep("fx-stash", "stash.create", (), {"tabs": [Handle("app_browser_tab")]}, (("stash", "/value/stash_id"),)),
 )
 FIXTURE_BY_ID = {step.id: step for step in FIXTURE}
 HANDLES: Dict[str, Tuple[str, str]] = {handle: (step.id, pointer) for step in FIXTURE for handle, pointer in step.provides}
@@ -482,7 +520,8 @@ KNOWN_GAPS: Dict[str, str] = {
     "closed.reopen": "a fresh daemon has no closed group to reopen; the family task closes one first",
 }
 KNOWN_GAP_PREFIXES: Tuple[Tuple[str, str], ...] = (
-    ("git.", "the fixture workspace has no git repository; the family task generates one under $CASE_ROOT"),
+    ("git.", "no `repo` tuning in git/_tuning.json: the standard fixture has no git repository, so the git "
+             "operation needs a generated one (tests/oracle/fixtures/git, p15-oracle-068)"),
 )
 FAMILY_TASK = {"browser": "p15-oracle-061", "sidebar": "p15-oracle-062", "session": "p15-oracle-063",
                "workspace": "p15-oracle-064", "terminal": "p15-oracle-065", "layout": "p15-oracle-066",
@@ -518,6 +557,16 @@ class Request:
     untested: List[str] = field(default_factory=list)
     # The error details the error case asserts (case-v1 expect.errorDetails, a subset of the reply's details).
     details: Optional[Dict[str, Any]] = None
+    # case-v1 fixture.agent: "mock" runs the case with the mock agent (mock_chief.py MockAgent).
+    agent: Optional[str] = None
+    # The generated repository the case needs (case-v1 fixture.repo, tests/oracle/fixtures/git/<repo>.json).
+    repo: Optional[str] = None
+    # Settle steps after the call whose waitFor asserts the state it left (the split tree after a layout change).
+    after: List[Dict[str, Any]] = field(default_factory=list)
+
+    def before_methods(self) -> Dict[str, str]:
+        """The before steps that call an operation: step id to method (what a `$step:` reference reads)."""
+        return {step["id"]: step["method"] for step in self.before if "method" in step}
 
 
 class Synth:
@@ -651,23 +700,32 @@ class Synth:
             return "1", "value must be a signed 32-bit integer"
         raise GenError(f"unknown primitive {name!r}")
 
-    def concrete(self, value: Any) -> Any:
-        """The value with each fixture handle replaced by a well-formed value of its catalog type."""
+    def concrete(self, value: Any, steps: Optional[Mapping[str, str]] = None) -> Any:
+        """The value with each fixture handle, and each `$step:` reference to a tuned before step (`steps`: step
+        id to its method), replaced by a well-formed value of its catalog type."""
         if isinstance(value, Handle):
             step_id, pointer = HANDLES[value.name]
-            step = FIXTURE_BY_ID[step_id]
-            t = self.catalog.type_at(self.catalog.operations[step.operation]["result"], pointer)
-            if t is None:
-                raise GenError(f"{step.id}: {pointer} is not in the result type of {step.operation}")
-            resolved, _ = self.catalog.resolve(t, {})
-            if resolved["kind"] == "resource_id":
-                return resource_id(resolved["resource"])
-            return self.primitive(resolved) if resolved["kind"] == "primitive" else self.structural(Request(step.operation), resolved, "", pointer, {})
+            return self.result_value(step_id, FIXTURE_BY_ID[step_id].operation, pointer)
+        reference = STEP_REF.match(value) if isinstance(value, str) else None
+        if reference and steps and reference.group(1) in steps:
+            return self.result_value(reference.group(1), steps[reference.group(1)], reference.group(2))
         if isinstance(value, dict):
-            return {key: self.concrete(item) for key, item in value.items()}
+            return {key: self.concrete(item, steps) for key, item in value.items()}
         if isinstance(value, list):
-            return [self.concrete(item) for item in value]
+            return [self.concrete(item, steps) for item in value]
         return value
+
+    def result_value(self, step_id: str, operation: str, pointer: str) -> Any:
+        """A well-formed value at `pointer` of the result of `operation` (the reply a `$step:` reference reads)."""
+        t = self.catalog.type_at(self.catalog.operations[operation]["result"], pointer)
+        if t is None:
+            raise GenError(f"{step_id}: {pointer} is not in the result type of {operation}")
+        resolved, _ = self.catalog.resolve(t, {})
+        if resolved["kind"] == "resource_id":
+            return resource_id(resolved["resource"])
+        if resolved["kind"] == "primitive":
+            return self.primitive(resolved)
+        return self.structural(Request(operation), resolved, "", pointer, {})
 
 
 # ------------------------------------------------------------------------------------------------- cases
@@ -826,6 +884,14 @@ OK = {"outcome": "ok", "receipt": "mutation_result"}
 # target it attaches to (resource_router/browser_engine.rs), so without one `tab.create_browser` is
 # engine_unavailable. The daemon product on the VM has none; the app product brings its browser host.
 ENGINE_PRECONDITION = "a cmux-browser provider attached to the case daemon (the daemon launches no browser)"
+REPO_PRECONDITION = (f"git on PATH; tests/oracle/fixtures/git/{{repo}}.json built under {REPOS_ROOT} before the first "
+                     "step (make_repo.py build_for_case): fixed dates, a local bare origin, no other remote")
+# git.worktree.create writes ~/.cmux/worktrees/<repo>/<name> (git_ops/worktree.rs); build_for_case refuses another HOME.
+HOME_PRECONDITION = f"HOME is the case's own folder under {ROOT_TOKEN}, as for every case with a generated repository"
+# Why no product runs a case with fixture.repo yet: none offers REPO_CAPABILITY (oracle.py PRODUCTS).
+REPO_GAP = (f"no product offers {REPO_CAPABILITY} yet: p15-oracle-243 makes the case runner build fixture.repo "
+            f"(make_repo.build_for_case, then {ROOT_TOKEN} expanded) in the per-case HOME; the daemon product gets "
+            f"{REPO_CAPABILITY} with it, and the git family's first VM run follows")
 
 
 def known_gap(operation: str) -> Optional[str]:
@@ -836,22 +902,29 @@ def known_gap(operation: str) -> Optional[str]:
 
 
 def case_doc(case_id: str, operation: str, family: str, kind: str, request: Request, expect: Mapping[str, Any],
-             note: str, gap: Optional[str] = None) -> Dict[str, Any]:
+             note: str, catalog: Catalog, gap: Optional[str] = None) -> Dict[str, Any]:
     """One case; `gap` is the untested line that says why its success cannot be checked yet."""
     steps = []
     used = [*handles_in(request.target), *handles_in(request.params), *handles_in(request.before),
-            *handles_in(request.details)]
+            *handles_in(request.details), *handles_in(request.after)]
     if request.details is not None:
         expect = {**expect, "errorDetails": refs(request.details)}
     for step_id in fixture_closure(used):
         fx = FIXTURE_BY_ID[step_id]
         steps.append(call_step(case_id, fx.id, fx.operation, {s: Handle(h) for s, h in fx.target}, fx.params, OK))
-    steps.extend(before_step(case_id, spec) for spec in request.before)
+    steps.extend(before_step(case_id, spec, catalog) for spec in request.before)
     steps.append(call_step(case_id, "call", operation, request.target, request.params, expect, ["before", "settled"], note))
+    steps.extend(before_step(case_id, spec, catalog) for spec in request.after)
     requires = ["resource_api", *(cap for cap in request.requires if cap != "resource_api")]
     preconditions = ["hermetic state root", "no other cmux-tui on the state root"]
     if "chromium" in requires:
         preconditions.append(ENGINE_PRECONDITION)
+    fixture: Dict[str, Any] = {"seed": f"{SUITE}.{slug(operation)}", "network": "offline", "clock": "virtual",
+                               **({"agent": request.agent} if request.agent else {})}
+    if request.repo:
+        fixture["repo"] = request.repo
+        requires.append(REPO_CAPABILITY)
+        preconditions += [REPO_PRECONDITION.format(repo=request.repo), HOME_PRECONDITION]
     doc: Dict[str, Any] = {
         "$schema": SCHEMA_REF,
         "corpusVersion": 1,
@@ -861,7 +934,7 @@ def case_doc(case_id: str, operation: str, family: str, kind: str, request: Requ
         "surface": "cmux-next-daemon",
         "source": {"repo": "manaflow-ai/cmux", "ref": "$RUN", "artifact": "$RUN"},
         "environment": {},
-        "fixture": {"seed": f"{SUITE}.{slug(operation)}", "network": "offline", "clock": "virtual"},
+        "fixture": fixture,
         "preconditions": preconditions,
         "requires": requires,
         "platforms": ["linux", "mac"],
@@ -878,19 +951,28 @@ def case_doc(case_id: str, operation: str, family: str, kind: str, request: Requ
     return doc
 
 
-def before_step(case_id: str, spec: Mapping[str, Any]) -> Dict[str, Any]:
-    """A tuning `before` step: a mutation call (method, target, params) or a settle that waits (waitFor)."""
+def before_step(case_id: str, spec: Mapping[str, Any], catalog: Catalog) -> Dict[str, Any]:
+    """A tuning `before` or `after` step: a call (method, target, params) or a settle that waits (waitFor). A read
+    call is a readOnly step that expects ok, with no idempotency key (reads forbid one); a later step names its
+    reply with `$step:<id>#<pointer>`."""
     if "waitFor" in spec:
-        return {"id": spec["id"], "op": "settle", "waitFor": copy.deepcopy(spec["waitFor"]),
-                "settleMaxMs": spec["waitFor"]["maxMs"]}
-    return call_step(case_id, spec["id"], spec["method"], spec.get("target") or {}, spec.get("params") or {}, OK)
+        return {"id": spec["id"], "op": "settle", "waitFor": refs(spec["waitFor"]), "settleMaxMs": spec["waitFor"]["maxMs"]}
+    method = spec["method"]
+    if catalog.operations[method].get("class") == "read":
+        return {"id": spec["id"], "op": "resource.call", "target": {**SCOPE, **refs(dict(spec.get("target") or {}))},
+                "args": {"method": method, "params": refs(dict(spec.get("params") or {}))}, "readOnly": True,
+                "expect": {"outcome": "ok"}}
+    return call_step(case_id, spec["id"], method, spec.get("target") or {}, spec.get("params") or {}, OK)
 
 
 # ---------------------------------------------------------------------------------------------- tuning
 
 
 TUNING_KINDS = ("success", "error")
-TUNING_KEYS = frozenset({"params", "target", "error", "note", "before", "requires", "untested", "gap", "details"})
+TUNING_KEYS = frozenset({"params", "target", "error", "note", "before", "after", "requires", "untested", "gap",
+                         "details", "agent", "repo"})
+# case-v1 fixture.agent values a tuning may set: the mock agent (mock_chief.py), or none (the default).
+TUNING_AGENTS = frozenset({"mock", "none"})
 # Keys that only one kind takes: the error code and details belong to the error case; a gap blocks the success case.
 KIND_ONLY_KEYS = {"error": "error", "details": "error", "gap": "success"}
 # A gap names the task that closes it (WORK.tsv ids, p15-oracle-204).
@@ -901,15 +983,17 @@ WAIT_MAX_MS = 30000
 # The capabilities a tuning may add (case-v1 capability); resource_api is every case's.
 TUNING_CAPABILITIES = frozenset({"chromium", "restart"})
 BEFORE_CALL_KEYS = frozenset({"id", "method", "target", "params"})
+BEFORE_CLASSES = frozenset({"mutation", "read"})
 BEFORE_WAIT_KEYS = frozenset({"id", "waitFor"})
 STEP_ID = re.compile(r"^[a-z0-9][a-z0-9-]{0,63}$")
 
 
 @dataclass(frozen=True)
 class TaskGraph:
-    """WORK.tsv's task ids and their depends_on: what a tuning gap may name as the task that closes it."""
+    """WORK.tsv's task ids, their depends_on and their files: what a tuning gap may name as the task that closes it."""
 
     depends_on: Mapping[str, Tuple[str, ...]]
+    files: Mapping[str, Tuple[str, ...]] = field(default_factory=dict)
 
     @classmethod
     def load(cls, path: Path = WORK) -> "TaskGraph":
@@ -917,7 +1001,15 @@ class TaskGraph:
             rows = [line.split("\t") for line in path.read_text(encoding="utf-8").splitlines()[1:] if line]
         except OSError as error:
             raise GenError(f"{path}: {error}") from None
-        return cls({row[0]: tuple(dep for dep in row[3].split(";") if dep) for row in rows if len(row) >= 4})
+        rows = [row for row in rows if len(row) >= 4]
+        return cls({row[0]: tuple(dep for dep in row[3].split(";") if dep) for row in rows},
+                   {row[0]: tuple(file for file in row[5].split(";") if file) for row in rows if len(row) >= 6})
+
+    def owns(self, task: str, directory: str) -> bool:
+        """Whether `task`'s files take in `directory` (repo-relative, ending in /): the directory itself, a file in
+        it, or a directory above it."""
+        return any(path == directory or path.startswith(directory) or (path.endswith("/") and directory.startswith(path))
+                   for path in self.files.get(task, ()))
 
     def done_before(self, task: str) -> frozenset:
         """`task` and every task it depends on, directly or not: all are done when `task` lands."""
@@ -941,17 +1033,23 @@ class TaskGraph:
         done = sorted(set(cited) & self.done_before(FAMILY_TASK[family]))
         if done:
             return f"names {done}, done before {FAMILY_TASK[family]} lands, so they close nothing"
+        # Only a task that edits the family's _tuning.json can remove the gap; another closes nothing by itself.
+        corpus = f"{CORPUS_DIR}/{family}/"
+        if not any(self.owns(task, corpus) for task in cited):
+            return f"names {sorted(set(cited))}, none of whose WORK.tsv files take in {corpus}, so none removes it"
         return None
 
 
 def load_tuning(out: Path, catalog: Catalog, tasks: Optional[TaskGraph] = None) -> Dict[str, Dict[str, Any]]:
     """`<out>/<family>/_tuning.json`: {"operations": {op: {"success"|"error": {params, target, error, details, note,
-    before, requires, untested, gap}}}}. A params or target value null removes the key; {"$fixture": NAME} is a
-    fixture handle. `before` (steps between the fixture and the call: {id, method, target, params} calls a mutation,
-    {id, waitFor} settles until a facet value holds), `requires` (capabilities beyond resource_api) and `untested`
-    replace the request's; the error case starts from the tuned success case. `details` (error only) is the subset
+    before, requires, untested, gap, agent}}}}. A params or target value null removes the key; {"$fixture": NAME} is a
+    fixture handle. `before` (steps between the fixture and the call: {id, method, target, params} calls a mutation
+    or a read, {id, waitFor} settles until a facet value holds), `requires` (capabilities beyond resource_api),
+    `untested` and `agent` (case-v1 fixture.agent: mock runs the mock agent of mock_chief.py) replace the request's; the error case starts from the tuned success case. `details` (error only) is the subset
     of the error's details the case asserts; `gap` (success only) says why no product can check the success yet and
-    names the task that closes it (`tasks`, WORK.tsv by default), so coverage excludes the operation."""
+    names the task that closes it (`tasks`, WORK.tsv by default), so coverage excludes the operation. `repo` names
+    the generated repository the case needs (tests/oracle/fixtures/git/<repo>.json, case-v1 fixture.repo); null
+    drops it. A value that looks like a real credential (CREDENTIAL_PATTERNS) is refused."""
     tuning: Dict[str, Dict[str, Any]] = {}
     for family in FAMILIES:
         path = out / family / TUNING
@@ -987,40 +1085,81 @@ def load_tuning(out: Path, catalog: Catalog, tasks: Optional[TaskGraph] = None) 
                     problem = tasks.gap_problem(spec["gap"], family)
                     if problem:
                         raise GenError(f"{path}: {operation}.{kind} gap {problem}")
+                secret = next(credential_values(spec, f"{operation}.{kind}"), None)
+                if secret:
+                    raise GenError(f"{path}: {secret}")
+                if spec.get("repo") is not None:
+                    repo_fixture(spec["repo"], f"{path}: {operation}.{kind}")
                 check_tuned_steps(f"{path}: {operation}.{kind}", spec, catalog)
             tuning[operation] = kinds
     return tuning
 
 
+# Values that are a real credential (key formats from cmux-tui/crates/acpmux/rules/secrets/gitleaks.toml): a case
+# runs offline with a mock agent and holds none, so a tuning that carries one is refused before it reaches a case.
+CREDENTIAL_PATTERNS: Tuple[Tuple[str, "re.Pattern[str]"], ...] = (
+    ("an Anthropic API key", re.compile(r"sk-ant-[A-Za-z0-9_-]{8,}")),
+    ("an OpenAI API key", re.compile(r"\bsk-(?:proj-)?[A-Za-z0-9_-]{20,}")),
+    ("a GitHub token", re.compile(r"\b(?:gh[pousr]_[A-Za-z0-9]{36}|github_pat_[A-Za-z0-9_]{22,})")),
+    ("an AWS access key id", re.compile(r"\b(?:AKIA|ASIA)[0-9A-Z]{16}\b")),
+    ("a Slack token", re.compile(r"\bxox[abposr]-[A-Za-z0-9-]{10,}")),
+    ("a Google API key", re.compile(r"\bAIza[0-9A-Za-z_-]{35}\b")),
+    ("a bearer token", re.compile(r"\bBearer\s+[A-Za-z0-9._~+/=-]{16,}")),
+    ("a private key", re.compile(r"-----BEGIN [A-Z ]*PRIVATE KEY-----")),
+)
+
+
+def credential_values(value: Any, path: str) -> Iterable[str]:
+    """Where a tuning value looks like a real credential, as `<path>: <kind>` (never the value itself)."""
+    if isinstance(value, str):
+        for kind, pattern in CREDENTIAL_PATTERNS:
+            if pattern.search(value):
+                yield f"{path} holds {kind}; daemon-op cases hold no real credentials"
+                return
+    elif isinstance(value, dict):
+        for key, item in value.items():
+            yield from credential_values(item, f"{path}.{key}")
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            yield from credential_values(item, f"{path}[{index}]")
+
+
 def check_tuned_steps(where: str, spec: Mapping[str, Any], catalog: Catalog) -> None:
-    """The before, requires and untested keys of one tuning kind."""
+    """The before, after, requires, untested and agent keys of one tuning kind. A before step calls a mutation,
+    or a read whose reply a later `$step:` reference uses (an id the fixture results do not give), or settles on
+    a waitFor; an after step only settles: its waitFor asserts the state the call left."""
+    if "agent" in spec and spec["agent"] not in TUNING_AGENTS:
+        raise GenError(f"{where}: agent takes only {sorted(TUNING_AGENTS)}")
     requires = spec.get("requires", [])
     if not isinstance(requires, list) or not set(requires) <= TUNING_CAPABILITIES:
         raise GenError(f"{where}: requires takes only {sorted(TUNING_CAPABILITIES)}")
     untested = spec.get("untested", [])
     if not isinstance(untested, list) or not all(isinstance(item, str) and item for item in untested):
         raise GenError(f"{where}: untested is a list of reasons")
-    before = spec.get("before", [])
-    if not isinstance(before, list):
-        raise GenError(f"{where}: before is a list of steps")
     taken = {step.id for step in FIXTURE} | {"call"}
-    for item in before:
-        keys = set(item) if isinstance(item, dict) else set()
-        shape = BEFORE_WAIT_KEYS if "waitFor" in keys else BEFORE_CALL_KEYS
-        if "id" not in keys or not keys <= shape or ("waitFor" not in keys and "method" not in keys):
-            raise GenError(f"{where}: a before step is {{id, method, target, params}} or {{id, waitFor}}, not {item!r}")
-        step_id = item["id"]
-        if not isinstance(step_id, str) or not STEP_ID.match(step_id) or step_id in taken:
-            raise GenError(f"{where}: before step id {step_id!r} is not a new step id")
-        taken.add(step_id)
-        if "waitFor" in item:
-            problem = wait_for_problem(item["waitFor"])
-            if problem:
-                raise GenError(f"{where}: before step {step_id} waitFor {problem}")
-        method = item.get("method")
-        if "method" in item and (method not in catalog.operations
-                                 or catalog.operations[method].get("class") != "mutation"):
-            raise GenError(f"{where}: before step {step_id} calls {method!r}, not a mutation of the catalog")
+    for key in ("before", "after"):
+        steps = spec.get(key, [])
+        if not isinstance(steps, list):
+            raise GenError(f"{where}: {key} is a list of steps")
+        for item in steps:
+            keys = set(item) if isinstance(item, dict) else set()
+            shape = BEFORE_WAIT_KEYS if "waitFor" in keys or key == "after" else BEFORE_CALL_KEYS
+            if "id" not in keys or not keys <= shape or ("waitFor" not in keys and "method" not in keys):
+                shapes = "an after step is {id, waitFor}" if key == "after" else \
+                    "a before step is {id, method, target, params} or {id, waitFor}"
+                raise GenError(f"{where}: {shapes}, not {item!r}")
+            step_id = item["id"]
+            if not isinstance(step_id, str) or not STEP_ID.match(step_id) or step_id in taken:
+                raise GenError(f"{where}: {key} step id {step_id!r} is not a new step id")
+            taken.add(step_id)
+            if "waitFor" in item:
+                problem = wait_for_problem(item["waitFor"])
+                if problem:
+                    raise GenError(f"{where}: {key} step {step_id} waitFor {problem}")
+            method = item.get("method")
+            if "method" in item and (method not in catalog.operations
+                                     or catalog.operations[method].get("class") not in BEFORE_CLASSES):
+                raise GenError(f"{where}: before step {step_id} calls {method!r}, not a mutation or read of the catalog")
 
 
 def wait_for_problem(wait: Any) -> Optional[str]:
@@ -1056,20 +1195,53 @@ def tuned_value(value: Any) -> Any:
     return value
 
 
-def non_local_remotes(value: Any, path: str) -> Iterable[str]:
-    """Git remotes that are not a path under the case root (hermetic_env.py require_local_remote refuses
-    them when the case runs; the generator refuses them before it writes a case)."""
+def repo_fixture(name: Any, where: str) -> Any:
+    """The RepoFixture `name` names; make_repo.py refuses a fixture whose origin is not a bare repository
+    beside the checkout, so every remote a case can reach is under the case root."""
+    module = make_repo()
+    try:
+        return module.RepoFixture.load(name, REPO_FIXTURES)
+    except module.FixtureError as error:
+        raise GenError(f"{where}: repo: {error}") from None
+
+
+def strings_in(value: Any, path: str) -> Iterable[Tuple[str, Any, str]]:
+    """(path, value, key) of every value under `value`; key is the dict key that holds it, or ''."""
     if isinstance(value, dict):
         for key, item in value.items():
-            if key == "remote" and not (isinstance(item, str) and item.startswith(f"{ROOT_TOKEN}/") and ".." not in item):
-                yield f"{path}.{key} {item!r} is not a remote under {ROOT_TOKEN}"
-            yield from non_local_remotes(item, f"{path}.{key}")
+            yield f"{path}.{key}", item, key
+            yield from strings_in(item, f"{path}.{key}")
     elif isinstance(value, list):
         for index, item in enumerate(value):
-            yield from non_local_remotes(item, f"{path}[{index}]")
+            yield f"{path}[{index}]", item, ""
+            yield from strings_in(item, f"{path}[{index}]")
+
+
+def repo_problems(request: Request) -> Iterable[str]:
+    """What keeps the request off the network and inside its generated repository: a `remote` is a plain
+    remote name of the case's repository (git_ops/push.rs resolves names among configured remotes only, and
+    the fixture's only remote is its bare origin under the case root), never a URL or a path; a path under
+    REPOS_ROOT is one of the case's repository folders."""
+    folders = sorted(repo_fixture(request.repo, request.operation).tokens().values()) if request.repo else []
+    parts = (("params", request.params), ("target", request.target),
+             *((f"before.{step.get('id')}.params", step.get("params") or {}) for step in request.before))
+    for part, value in parts:
+        for where, item, key in strings_in(value, part):
+            if key == "remote":
+                if not (isinstance(item, str) and REMOTE_NAME.match(item)):
+                    yield f"{where} {item!r} is not a configured remote's name: no URL, no path"
+                elif not request.repo:
+                    yield f"{where} names a remote, but the case has no generated repository (repo)"
+            if isinstance(item, str) and (item == REPOS_ROOT or item.startswith(f"{REPOS_ROOT}/")):
+                if ".." in item.split("/"):
+                    yield f"{where} {item!r} leaves its folder"
+                elif not any(item == folder or item.startswith(f"{folder}/") for folder in folders):
+                    yield f"{where} {item!r} is in no folder of the case's repository {request.repo!r}"
 
 
 def apply_tuning(request: Request, spec: Mapping[str, Any]) -> None:
+    if "repo" in spec:
+        request.repo = spec["repo"]
     if "before" in spec:
         request.before = [tuned_value(item) for item in spec["before"]]
     if "requires" in spec:
@@ -1078,6 +1250,10 @@ def apply_tuning(request: Request, spec: Mapping[str, Any]) -> None:
         request.untested = list(spec["untested"])
     if "details" in spec:
         request.details = tuned_value(spec["details"])
+    if "agent" in spec:
+        request.agent = None if spec["agent"] == "none" else spec["agent"]
+    if "after" in spec:
+        request.after = [tuned_value(item) for item in spec["after"]]
     for part in ("params", "target"):
         into = request.params if part == "params" else request.target
         for key, value in (spec.get(part) or {}).items():
@@ -1120,16 +1296,19 @@ def generate(catalog: Catalog, tuning: Mapping[str, Mapping[str, Any]]) -> Dict[
             broken_request, broken = error_request(synth, success)
         else:
             broken_request = copy.deepcopy(success)
+        # The after steps assert what the success left; the error case asserts only what its own tuning says.
+        broken_request.after = []
         apply_tuning(broken_request, error_tuning)
-        problem = synth.check.params(operation, synth.concrete(wire_params(success)))
+        problem = synth.check.params(operation, synth.concrete(wire_params(success), success.before_methods()))
         if problem is not None:
             raise GenError(f"{operation}: the success request fails the catalog check: {problem}")
-        if broken and synth.check.params(operation, synth.concrete(wire_params(broken_request))) is None:
+        if broken and synth.check.params(operation, synth.concrete(wire_params(broken_request),
+                                                                   broken_request.before_methods())) is None:
             raise GenError(f"{operation}: the error request passes the catalog check")
         for request in (success, broken_request):
-            remote = next(non_local_remotes(request.params, "params"), None)
-            if remote:
-                raise GenError(f"{operation}: {remote}")
+            problem = next(iter(repo_problems(request)), None)
+            if problem:
+                raise GenError(f"{operation}: {problem}")
         ok_id, error_id = f"{name}-ok", f"{name}-error"
         if len(error_id) > 64:
             raise GenError(f"{operation}: case id {error_id} is longer than 64")
@@ -1138,17 +1317,18 @@ def generate(catalog: Catalog, tuning: Mapping[str, Mapping[str, Any]]) -> Dict[
             if broken else f"tuned to {code}")
         # A tuned success case takes the operation over from KNOWN_GAPS; its own gap names the task that closes it.
         success_tuning = tuned.get("success", {})
-        tuned_gap = success_tuning.get("gap")
+        tuned_gap = "; ".join(filter(None, (success_tuning.get("gap"), success.repo and REPO_GAP))) or None
         gap = tuned_gap if "success" in tuned else known_gap(operation)
         files[f"{ok_id}.json"] = case_doc(ok_id, operation, family, "success", success, OK,
                                           success_tuning.get("note", "every required field from its catalog type"),
-                                          tuned_gap or (gap and f"{gap}; {family}/{TUNING} tunes it"))
+                                          catalog, tuned_gap or (gap and f"{gap}; {family}/{TUNING} tunes it"))
         files[f"{error_id}.json"] = case_doc(error_id, operation, family, "error", broken_request,
-                                             {"outcome": "error", "error": code}, error_note)
+                                             {"outcome": "error", "error": code}, error_note, catalog)
         entry: Dict[str, Any] = {
             "family": family,
             "cases": {"success": f"{SUITE}/{ok_id}", "error": f"{SUITE}/{error_id}"},
-            "fixture": [s["id"] for s in files[f"{ok_id}.json"]["steps"][:-1]],
+            "fixture": [s["id"] for s in itertools.takewhile(lambda step: step["id"] != "call",
+                                                             files[f"{ok_id}.json"]["steps"])],
             "error": {"code": code, **(broken or {})},
             "placeholders": sorted(set(success.placeholders)),
         }
@@ -1188,6 +1368,68 @@ def generate(catalog: Catalog, tuning: Mapping[str, Mapping[str, Any]]) -> Dict[
 
 def render(value: Any) -> str:
     return json.dumps(value, indent=2, ensure_ascii=False) + "\n"
+
+
+# ------------------------------------------------------------------------------------------ expectations
+
+# The success cases coverage excludes cannot pass until the task their reason names lands. Blink lists such a test
+# in TestExpectations with its bug (third_party/blink/web_tests/TestExpectations, `crbug.com/N path [ Skip ]`), so
+# a run counts it as expected, not as a failure. The generator owns one block of the suite's expectations file
+# (expectations.py: tests/oracle/Expectations.d/<suite>.txt); lines outside the block are kept.
+EXPECTATIONS_BEGIN = f"# BEGIN {GENERATOR}: the success cases coverage.json excludes, skipped until their task lands"
+EXPECTATIONS_END = f"# END {GENERATOR}"
+EXPECTATIONS_HEADER = (f"# {SUITE} expectations (format: scripts/cmux-next/oracle/expectations.py).\n"
+                       f"# {GENERATOR} writes the block below from coverage.json: edit the family\n"
+                       "# tuning, not the block. Lines outside the block are kept.\n")
+
+
+def expectations_path(out: Path) -> Path:
+    """`<oracle root>/Expectations.d/<suite>.txt` for a suite directory `<oracle root>/corpus/<suite>`."""
+    return out.parent.parent / "Expectations.d" / f"{SUITE}.txt"
+
+
+def expectation_lines(coverage: Mapping[str, Any]) -> List[str]:
+    """`<task> daemon-ops/<op>-ok [ Skip ]` per excluded operation; the task is the first one its reason names (a
+    tuned gap's closing task, or the family task that tunes a placeholder)."""
+    lines = []
+    for operation, reason in coverage["excluded"].items():
+        task = TASK_ID.search(reason)
+        if task is None:
+            raise GenError(f"{operation}: the exclusion reason names no task: {reason}")
+        lines.append(f"{task.group(0)} {coverage['operations'][operation]['cases']['success']} [ Skip ]")
+    return sorted(lines, key=lambda line: line.split(" ", 1)[1])
+
+
+def render_expectations(existing: str, lines: Sequence[str]) -> str:
+    """`existing` with the generator's block replaced by `lines` (or appended, with a header for a new file)."""
+    block = "\n".join([EXPECTATIONS_BEGIN, *lines, EXPECTATIONS_END]) + "\n"
+    begin, end = existing.find(EXPECTATIONS_BEGIN), existing.find(EXPECTATIONS_END)
+    if begin >= 0 and end > begin:
+        tail = existing[end + len(EXPECTATIONS_END):]
+        return existing[:begin] + block + (tail[1:] if tail.startswith("\n") else tail)
+    if begin >= 0 or end >= 0:
+        raise GenError(f"the {SUITE} expectations file has one of the generator's block markers without the other")
+    if not existing.strip():
+        return EXPECTATIONS_HEADER + block
+    return existing + ("" if existing.endswith("\n") else "\n") + block
+
+
+def expectations_drift(path: Path, coverage: Mapping[str, Any]) -> List[str]:
+    existing = path.read_text(encoding="utf-8") if path.is_file() else ""
+    if existing != render_expectations(existing, expectation_lines(coverage)):
+        return [f"{path.name}: the generated Skip block differs from coverage.json"]
+    return []
+
+
+def write_expectations(path: Path, coverage: Mapping[str, Any]) -> bool:
+    """Writes the block when it changed; True when the file was written."""
+    existing = path.read_text(encoding="utf-8") if path.is_file() else ""
+    text = render_expectations(existing, expectation_lines(coverage))
+    if text == existing:
+        return False
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(text, encoding="utf-8")
+    return True
 
 
 def owned_files(out: Path) -> List[str]:
@@ -1242,6 +1484,12 @@ def write(out: Path, files: Mapping[str, Any]) -> Tuple[int, int]:
 
 # --------------------------------------------------------------------------------------------- self test
 
+
+def _sibling_module(name: str) -> Any:
+    """A sibling oracle script, for the self tests that check against it."""
+    if str(HERE) not in sys.path:
+        sys.path.insert(0, str(HERE))
+    return __import__(name)
 
 class GenDaemonOpsSelfTest(unittest.TestCase):
     @classmethod
@@ -1384,14 +1632,29 @@ class GenDaemonOpsSelfTest(unittest.TestCase):
             ({"operations": {"pane.close": {"success": {"gap": "follow-up to p15-oracle-023"}}}},
              "names \\['p15-oracle-023'\\], done before p15-oracle-066"),
             ({"operations": {"pane.close": {"success": {"gap": "p15-oracle-066 tunes it"}}}}, "done before p15-oracle-066"),
+            # 204's files are the streams suite: it never edits the layout tuning, so it removes no layout gap.
+            ({"operations": {"pane.close": {"success": {"gap": "p15-oracle-204 streams it"}}}},
+             "none of whose WORK.tsv files take in tests/oracle/corpus/daemon-ops/layout/"),
             ({"operations": {"pane.close": {"error": {"details": {}}}}}, "details is a non-empty object"),
             ({"operations": {"pane.close": {"error": {"error": "home.pinned_first"}}}}, "not an error"),
             ({"operations": {"pane.close": {"retry": {}}}}, "takes only"),
             ({"rules": {}}, "unknown keys"),
             ({"operations": {"pane.close": {"success": {"requires": ["gui"]}}}}, "requires takes only"),
             ({"operations": {"pane.close": {"success": {"untested": [""]}}}}, "untested is a list"),
-            ({"operations": {"pane.close": {"success": {"before": [{"id": "x", "method": "workspace.list"}]}}}},
-             "not a mutation of the catalog"),
+            ({"operations": {"pane.close": {"success": {"before": [{"id": "x", "method": "workspace.nope"}]}}}},
+             "not a mutation or read of the catalog"),
+            ({"operations": {"pane.close": {"success": {"before": [{"id": "x", "method": "conversation.events"}]}}}},
+             "not a mutation or read of the catalog"),
+            ({"operations": {"pane.close": {"success": {"agent": "real"}}}}, "agent takes only"),
+            ({"operations": {"pane.close": {"success": {"before": [{"id": "x", "method": "browser.attach"}]}}}},
+             "not a mutation or read of the catalog"),
+            ({"operations": {"pane.close": {"success": {"after": [{"id": "x", "method": "screen.get"}]}}}},
+             "an after step is \\{id, waitFor\\}"),
+            ({"operations": {"pane.close": {"success": {"after": {"id": "x"}}}}}, "after is a list of steps"),
+            ({"operations": {"pane.close": {"success": {
+                "before": [{"id": "x", "method": "screen.get"}],
+                "after": [{"id": "x", "waitFor": {"pointer": "/daemon/session", "predicate": "exists", "maxMs": 1}}]}}}},
+             "after step id 'x' is not a new step id"),
             ({"operations": {"pane.close": {"success": {"before": [{"id": "fx-workspace", "method": "pane.split"}]}}}},
              "not a new step id"),
             ({"operations": {"pane.close": {"success": {"before": [{"id": "call", "waitFor": {}}]}}}}, "not a new step id"),
@@ -1399,6 +1662,20 @@ class GenDaemonOpsSelfTest(unittest.TestCase):
              "a before step is"),
             ({"operations": {"pane.close": {"success": {"before": [{"id": "x"}]}}}}, "a before step is"),
         ]
+        # Credential-shaped values, built here so this file holds no literal key a secret scanner would flag.
+        for kind, secret in (("an Anthropic API key", "sk-" + "ant-api03-" + "A" * 24),
+                             ("an OpenAI API key", "sk-" + "proj-" + "a1" * 12),
+                             ("a GitHub token", "gh" + "p_" + "B" * 36),
+                             ("an AWS access key id", "AK" + "IA" + "C" * 16),
+                             ("a Slack token", "xo" + "xb-" + "1" * 12),
+                             ("a Google API key", "AI" + "za" + "D" * 35),
+                             ("a bearer token", "Bear" + "er " + "e" * 20),
+                             ("a private key", "-----BEGIN RSA PRIV" + "ATE KEY-----")):
+            bad.append(({"operations": {"pane.close": {"success": {"params": {"pane": secret}}}}},
+                        f"pane.close.success.params.pane holds {kind}"))
+            bad.append(({"operations": {"pane.close": {"success": {"before": [
+                {"id": "x", "method": "pane.split", "params": {"argv": ["/bin/sh", "-c", f"echo {secret}"]}}]}}}},
+                f"pane.close.success.before\\[0\\].params.argv\\[2\\] holds {kind}"))
         live = {"pointer": "/daemon/session", "equals": "live", "maxMs": 100}
         for wait, message in (
                 ({"pointer": "/daemon/session"}, "maxMs None is not an integer"),
@@ -1429,11 +1706,20 @@ class GenDaemonOpsSelfTest(unittest.TestCase):
     def test_a_gap_names_a_task_that_is_not_done_before_the_family_task(self) -> None:
         tasks = TaskGraph({"p15-oracle-070": ("p15-oracle-060",), "p15-oracle-060": ("p15-oracle-023",),
                            "p15-oracle-023": (), "p15-oracle-237": ("p15-oracle-023", "p15-oracle-070"),
-                           "p14-energy-077b": ()})
+                           "p14-energy-077b": (), "p15-oracle-204": (), "p15-oracle-205": ()},
+                          {"p15-oracle-237": ("scripts/cmux-next/oracle/driver_daemon.py",
+                                              "tests/oracle/corpus/daemon-ops/misc/"),
+                           "p14-energy-077b": ("tests/oracle/corpus/daemon-ops/misc/_tuning.json",),
+                           "p15-oracle-205": ("tests/oracle/",),
+                           "p15-oracle-204": ("tests/oracle/corpus/streams/",)})
         self.assertEqual(tasks.done_before("p15-oracle-070"), {"p15-oracle-070", "p15-oracle-060", "p15-oracle-023"})
         for gap, problem in (
                 ("p15-oracle-237 proves the key", None),
                 ("after p14-energy-077b", None),
+                ("p15-oracle-205 owns the whole corpus", None),
+                ("p15-oracle-204 streams, then p15-oracle-237", None),
+                ("p15-oracle-204 streams it", "names ['p15-oracle-204'], none of whose WORK.tsv files take in "
+                                              "tests/oracle/corpus/daemon-ops/misc/, so none removes it"),
                 ("p15-oracle-237, then p15-oracle-023", "names ['p15-oracle-023'], done before p15-oracle-070 lands, "
                                                         "so they close nothing"),
                 ("p15-oracle-070", "names ['p15-oracle-070'], done before p15-oracle-070 lands, so they close nothing"),
@@ -1445,6 +1731,7 @@ class GenDaemonOpsSelfTest(unittest.TestCase):
         # The corpus's own gaps name tasks of the real WORK.tsv.
         work = TaskGraph.load()
         self.assertIn("p15-oracle-237", work.depends_on)
+        self.assertTrue(work.owns("p15-oracle-237", "tests/oracle/corpus/daemon-ops/misc/"))
         self.assertIn("p15-oracle-023", work.done_before("p15-oracle-070"))
 
     def test_before_steps_requires_and_untested_shape_the_case(self) -> None:
@@ -1534,6 +1821,83 @@ class GenDaemonOpsSelfTest(unittest.TestCase):
         self.assertEqual([s["id"] for s in bad["steps"]], ["call"])
         self.assertEqual(bad["steps"][-1]["args"]["params"], {"id": "itm_home"})
         self.assertEqual(bad["steps"][-1]["expect"], {"outcome": "error", "error": ERROR_CODE})
+
+    def test_after_steps_assert_what_the_call_left_and_a_read_gives_ids(self) -> None:
+        layout = "/daemon/session/screens/0/layout"
+        tuned = {"pane.split_ratio.set": {
+            "success": {"before": [{"id": "read-layout", "method": "screen.get", "target": {"screen": {"$fixture": "screen"}}}],
+                        "params": {"split_id": "$step:read-layout#/layout/root/split_id", "ratio": 0.25},
+                        "after": [{"id": "ratio", "waitFor": {"pointer": f"{layout}/root/ratio", "equals": 0.25, "maxMs": 5}},
+                                  {"id": "kept", "waitFor": {"pointer": f"{layout}/root/second/pane_id",
+                                                             "equals": {"$fixture": "other_pane"}, "maxMs": 5}}]},
+            "error": {"error": "operation.failed", "params": {"split_id": "split_0123456789abcdef0123456789abcdef"},
+                      "after": [{"id": "ratio-kept", "waitFor": {"pointer": f"{layout}/root/ratio", "equals": 0.5,
+                                                                 "maxMs": 5}}]}}}
+        files = generate(self.catalog, tuned)
+        ok, bad = files["pane-split-ratio-set-ok.json"], files["pane-split-ratio-set-error.json"]
+        # A fixture handle in an after step pulls its fixture step in; after steps follow the call.
+        self.assertEqual([s["id"] for s in ok["steps"]], ["fx-workspace", "fx-split", "read-layout", "call", "ratio", "kept"])
+        # A read is a readOnly step with no idempotency key (reads forbid one) and no receipt.
+        self.assertEqual(ok["steps"][2], {
+            "id": "read-layout", "op": "resource.call",
+            "target": {**SCOPE, "screen": "$step:fx-workspace#/value/screen_id"},
+            "args": {"method": "screen.get", "params": {}}, "readOnly": True, "expect": {"outcome": "ok"}})
+        self.assertEqual(ok["steps"][5], {"id": "kept", "op": "settle", "settleMaxMs": 5, "waitFor": {
+            "pointer": f"{layout}/root/second/pane_id", "equals": "$step:fx-split#/value/pane_id", "maxMs": 5}})
+        # The error case keeps the before steps but asserts only its own after steps.
+        self.assertEqual([s["id"] for s in bad["steps"]], ["fx-workspace", "read-layout", "call", "ratio-kept"])
+        self.assertEqual(files[COVERAGE]["operations"]["pane.split_ratio.set"]["fixture"],
+                         ["fx-workspace", "fx-split", "read-layout"])
+        self.assertNotIn("pane.split_ratio.set", files[COVERAGE]["excluded"])
+
+    def test_a_step_reference_to_a_before_call_is_checked_as_its_result_type(self) -> None:
+        steps = {"read-layout": "screen.get", "make": "pane.split"}
+        self.assertEqual(self.synth.concrete("$step:read-layout#/layout/root/split_id", steps), resource_id("split"))
+        self.assertEqual(self.synth.concrete(["$step:make#/value/screen_id"], steps), [resource_id("screen")])
+        # References to steps that are not before calls (the fixture, the call) stay as they are.
+        self.assertEqual(self.synth.concrete("$step:call#/value/pane_id", steps), "$step:call#/value/pane_id")
+        with self.assertRaisesRegex(GenError, "/layout/nothing is not in the result type of screen.get"):
+            self.synth.concrete("$step:read-layout#/layout/nothing", steps)
+        tuned = {"pane.split_ratio.set": {"success": {"params": {"split_id": "$step:fx-split#/value/pane_id"}}}}
+        with self.assertRaisesRegex(GenError, "fails the catalog check"):
+            generate(self.catalog, tuned)
+
+    def test_the_layout_family_tuning(self) -> None:
+        """tests/oracle/corpus/daemon-ops/layout/_tuning.json (p15-oracle-066): the 25 pane, column, layout, screen
+        and screen_group mutations. Every case ends with settle steps whose waitFor asserts the split tree (or the
+        screens and groups) the call left: the change on success, the unchanged tree after a refusal. Every error
+        is the daemon's own refusal with its details, not the catalog check's broken field, except the confirmation
+        an undo that closes a pane needs. All 25 are covered."""
+        tuning = load_tuning(DEFAULT_OUT, self.catalog)
+        files = generate(self.catalog, tuning)
+        coverage = files[COVERAGE]
+        layout = sorted(op for op in self.catalog.mutations() if family_of(op) == "layout")
+        self.assertEqual(len(layout), 25)
+        self.assertEqual(sorted(op for op in tuning if family_of(op) == "layout"), layout)
+        for operation in layout:
+            entry = coverage["operations"][operation]
+            self.assertNotIn(operation, coverage["excluded"], operation)
+            self.assertEqual((entry["placeholders"], entry["tuned"]), ([], ["error", "success"]), operation)
+            for kind in ("success", "error"):
+                steps = files[entry["cases"][kind].split("/", 1)[1] + ".json"]["steps"]
+                ids = [step["id"] for step in steps]
+                after = steps[ids.index("call") + 1:]
+                self.assertTrue(after, f"{operation} {kind}: no after step asserts the tree")
+                for step in after:
+                    self.assertEqual(step["op"], "settle", f"{operation} {kind}")
+                    self.assertTrue(step["waitFor"]["pointer"].startswith("/daemon/session/"), f"{operation} {kind}")
+            call = files[entry["cases"]["error"].split("/", 1)[1] + ".json"]["steps"]
+            expect = next(step for step in call if step["id"] == "call")["expect"]
+            self.assertNotIn("field", entry["error"], operation)
+            if operation != "screen.layout.undo":
+                self.assertIn("errorDetails", expect, operation)
+        # Ids the fixture results do not give come from a screen.get read before the call.
+        column = files["column-update-ok.json"]["steps"]
+        self.assertEqual([s["id"] for s in column], ["fx-workspace", "viewport-split", "read-layout", "call", "docked",
+                                                     "first-free"])
+        self.assertEqual(column[3]["args"]["params"]["column"], "$step:read-layout#/layout/root/columns/1/column_id")
+        self.assertEqual(files["screen-layout-undo-error.json"]["steps"][-2]["expect"],
+                         {"outcome": "error", "error": "confirmation.required"})
 
     def test_the_sidebar_family_tuning(self) -> None:
         """tests/oracle/corpus/daemon-ops/sidebar/_tuning.json (p15-oracle-062): each of the 22 sidebar mutations has
@@ -1670,12 +2034,273 @@ class GenDaemonOpsSelfTest(unittest.TestCase):
             "operation": "history.restore",
             "reason": "no history backup history:0000000000000000000000000000000a (it was restored, purged or expired)"})
 
-    def test_a_git_remote_outside_the_case_root_is_refused(self) -> None:
-        for remote in ("git@github.com:manaflow-ai/cmux.git", "/srv/repos/cmux.git", f"{ROOT_TOKEN}/../x.git", "origin"):
-            with self.subTest(remote=remote), self.assertRaisesRegex(GenError, "git.push: params.remote"):
-                generate(self.catalog, {"git.push": {"success": {"params": {"remote": remote}}}})
-        files = generate(self.catalog, {"git.push": {"success": {"params": {"remote": f"{ROOT_TOKEN}/repos/o.git"}}}})
-        self.assertEqual(files["git-push-ok.json"]["steps"][-1]["args"]["params"]["remote"], f"{ROOT_TOKEN}/repos/o.git")
+    def test_the_tab_family_tuning(self) -> None:
+        """tests/oracle/corpus/daemon-ops/tab/_tuning.json (p15-oracle-067): the 21 tab, tab_group, saved_tab_group
+        and closed mutations. Reopen and unpin run as round trips (a close or pin first, in the success case only);
+        each error is the handler's own refusal except tab.create_browser's, which keeps the catalog check so it is
+        the same with and without a browser engine. Only that success (a daemon-rendered browser) is excluded."""
+        sys.path.insert(0, str(HERE))
+        normalize = __import__("normalize")
+        checks = __import__("case_checks")
+        schema = json.loads(CASE_SCHEMA.read_text(encoding="utf-8"))
+        rules = checks.Rules(schema)
+        tuning = load_tuning(DEFAULT_OUT, self.catalog)
+        files = generate(self.catalog, tuning)
+        coverage = files[COVERAGE]
+        tab = sorted(op for op in self.catalog.mutations() if family_of(op) == "tab")
+        self.assertEqual(len(tab), 21)
+        self.assertEqual(sorted(op for op in tuning if family_of(op) == "tab"), tab)
+
+        def case(operation: str, kind: str) -> Dict[str, Any]:
+            return files[coverage["operations"][operation]["cases"][kind].split("/", 1)[1] + ".json"]
+
+        round_trips = {"closed.reopen": "tab.close", "closed.delete": "tab.close",
+                       "saved_tab_group.reopen": "tab_group.close", "tab.unpin": "tab.pin", "tab.focus": "tab.focus"}
+        for operation in tab:
+            entry = coverage["operations"][operation]
+            self.assertEqual(entry["placeholders"], [], operation)
+            self.assertEqual(operation in coverage["excluded"], operation == "tab.create_browser", operation)
+            for kind in ("success", "error"):
+                doc = case(operation, kind)
+                self.assertEqual(normalize.validate(doc, schema), [], f"{operation} {kind}")
+                self.assertEqual(checks.check_case(doc, rules), [], f"{operation} {kind}")
+                self.assertEqual(doc["steps"][-1]["args"]["method"], operation)
+                # Every refusal but the catalog check's names what it refused.
+                expect = doc["steps"][-1]["expect"]
+                self.assertEqual("errorDetails" in expect, kind == "error" and operation != "tab.create_browser",
+                                 f"{operation} {kind}")
+                before = [step["args"]["method"] for step in doc["steps"]
+                          if step["id"] != "call" and not step["id"].startswith("fx-")]
+                setup = round_trips.get(operation) if kind == "success" else None
+                expected = [setup] if setup else (["tab.pin"] if (operation, kind) == ("tab_group.add_tabs", "error") else [])
+                self.assertEqual(before, expected, f"{operation} {kind}")
+        self.assertEqual(case("tab.create_browser", "success")["requires"], ["resource_api", "chromium"])
+        self.assertEqual(case("tab.create_browser", "error")["requires"], ["resource_api"])
+        self.assertEqual(coverage["operations"]["tab.create_browser"]["error"]["code"], ERROR_CODE)
+        # The task the gap names owns the tab corpus (load_tuning refuses a gap whose tasks do not), and its plan
+        # section takes in this case.
+        self.assertIn("p15-oracle-239", coverage["excluded"]["tab.create_browser"])
+        self.assertTrue(TaskGraph.load().owns("p15-oracle-239", f"{CORPUS_DIR}/tab/"))
+        plan = (WORK.parent / "p15-oracle.md").read_text(encoding="utf-8")
+        self.assertIn("tab.create_browser", plan[plan.index("**239 "):].split("\n\n", 1)[0])
+        # The closed history is empty until a close: reopen's error is the missing newest group, its success the
+        # tab the before step closed.
+        self.assertEqual(case("closed.reopen", "error")["steps"][-1]["expect"]["errorDetails"],
+                         {"scope": "closed", "id": "newest"})
+        self.assertEqual(case("closed.reopen", "success")["steps"][-2]["target"]["tab"],
+                         "$step:fx-split#/value/tab_id")
+
+    def test_the_chief_family_tuning(self) -> None:
+        """tests/oracle/corpus/daemon-ops/chief/_tuning.json (p15-oracle-069): each of the 24 chief, conversation,
+        room, participant and agent mutations has a success and a typed-error case. The Chief brain and the
+        conversations are the mock agent's (fixture.agent mock, mock_chief.py); no case holds a credential. Every
+        error case asserts its refusal by typed keys, except the three whose refusal has none yet (p15-oracle-241).
+        The success cases that need a bound agent connection or the verified app name p15-oracle-240."""
+        gapped = {"agent.message.release", "agent.message.unsend", "conversation.draft"}
+        code_only = {"agent.report", "room.create", "room.delete"}
+        mock = {"chief.engine.set", "chief.stop", "chief.profile.adopt", "conversation.send", "conversation.typing",
+                "conversation.draft"}
+        tuning = load_tuning(DEFAULT_OUT, self.catalog)
+        files = generate(self.catalog, tuning)
+        chief = sorted(op for op in self.catalog.mutations() if family_of(op) == "chief")
+        self.assertEqual(len(chief), 24)
+        excluded = files[COVERAGE]["excluded"]
+        self.assertEqual(sorted(op for op in excluded if family_of(op) == "chief"), sorted(gapped))
+        skips = expectation_lines(files[COVERAGE])
+        for operation in chief:
+            entry = files[COVERAGE]["operations"][operation]
+            success_id = entry["cases"]["success"]
+            self.assertEqual(f"p15-oracle-240 {success_id} [ Skip ]" in skips, operation in gapped, operation)
+            if operation in gapped:
+                self.assertTrue(excluded[operation].startswith("no product runs it yet"), operation)
+                self.assertIn("p15-oracle-240", excluded[operation], operation)
+            else:
+                self.assertEqual(entry["placeholders"], [], operation)
+            ok = files[success_id.split("/", 1)[1] + ".json"]
+            self.assertEqual(ok["fixture"].get("agent"), "mock" if operation in mock else None, operation)
+            for kind in ("success", "error"):
+                case = files[entry["cases"][kind].split("/", 1)[1] + ".json"]
+                self.assertEqual(case["requires"], ["resource_api"], f"{operation} {kind}")
+                self.assertEqual(case["steps"][-1]["args"]["method"], operation)
+                self.assertIsNone(next(credential_values(case, operation), None), f"{operation} {kind}")
+            error = files[entry["cases"]["error"].split("/", 1)[1] + ".json"]["steps"][-1]["expect"]
+            self.assertEqual("errorDetails" in error, operation not in code_only, operation)
+            # Typed keys only: a reason is a token (no spaces), never message text.
+            reason = error.get("errorDetails", {}).get("reason", "")
+            self.assertRegex(reason, r"^[a-z_]*$", f"{operation}: the reason is a token, not prose")
+        send = files["conversation-send-ok.json"]["steps"]
+        self.assertEqual(send[0], {"id": "conversation", "op": "resource.call", "target": dict(SCOPE),
+                                   "args": {"method": "conversation.list", "params": {}}, "readOnly": True,
+                                   "expect": {"outcome": "ok"}})
+        self.assertEqual(send[-1]["args"]["params"]["conversation"], "$step:conversation#/0/id")
+        adopt = files["chief-profile-adopt-ok.json"]["steps"][-1]["args"]["params"]
+        self.assertEqual(adopt["participant_id"], _sibling_module("mock_chief").ADOPTABLE)
+        undo = [step["id"] for step in files["chief-profile-undo-ok.json"]["steps"]]
+        self.assertEqual(undo, ["fx-chief", "rename", "call"])
+        self.assertNotIn("rename", [step["id"] for step in files["chief-profile-undo-error.json"]["steps"]])
+        unpin = [step["id"] for step in files["room-unpin-ok.json"]["steps"]]
+        self.assertEqual(unpin, ["fx-workspace", "fx-room", "pin", "call"])
+
+    def test_each_excluded_success_case_is_a_skip_line_naming_its_task(self) -> None:
+        files = generate(self.catalog, load_tuning(DEFAULT_OUT, self.catalog))
+        coverage = files[COVERAGE]
+        lines = expectation_lines(coverage)
+        self.assertEqual(len(lines), len(coverage["excluded"]))
+        for operation, reason in coverage["excluded"].items():
+            task = TASK_ID.search(reason).group(0)
+            self.assertIn(f"{task} {coverage['operations'][operation]['cases']['success']} [ Skip ]", lines)
+        with self.assertRaisesRegex(GenError, "names no task"):
+            expectation_lines({"excluded": {"pane.close": "no reason"}, "operations": coverage["operations"]})
+        # The checked-in file is the expectations.py format, and every line parses with no diagnostic.
+        expectations = _sibling_module("expectations")
+        text = render_expectations("", lines)
+        entries, diagnostics = expectations.parse_text(text, "daemon-ops.txt", "expectations")
+        self.assertEqual((len(entries), diagnostics), (len(lines), []))
+        self.assertTrue(all(entry.results == frozenset({"Skip"}) for entry in entries))
+
+    def test_the_skip_block_keeps_hand_lines_and_check_finds_drift(self) -> None:
+        coverage = generate(self.catalog, {})[COVERAGE]
+        lines = expectation_lines(coverage)
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "Expectations.d" / f"{SUITE}.txt"
+            self.assertEqual(expectations_drift(path, coverage), [f"{SUITE}.txt: the generated Skip block differs "
+                                                                   "from coverage.json"])
+            self.assertTrue(write_expectations(path, coverage))
+            self.assertFalse(write_expectations(path, coverage))
+            self.assertEqual(expectations_drift(path, coverage), [])
+            hand = "#1234 daemon-ops/pane-close-ok [ Failure Pass ]\n"
+            path.write_text(hand + path.read_text(encoding="utf-8"), encoding="utf-8")
+            fewer = {**coverage, "excluded": dict(list(coverage["excluded"].items())[1:])}
+            self.assertEqual(len(expectations_drift(path, fewer)), 1)
+            self.assertTrue(write_expectations(path, fewer))
+            text = path.read_text(encoding="utf-8")
+            self.assertTrue(text.startswith(hand), "a line outside the block is kept")
+            self.assertEqual(text.count(EXPECTATIONS_BEGIN), 1)
+            dropped = coverage["operations"][next(iter(coverage["excluded"]))]["cases"]["success"]
+            self.assertNotIn(f" {dropped} [ Skip ]", text)
+            path.write_text(EXPECTATIONS_BEGIN + "\n", encoding="utf-8")
+            with self.assertRaisesRegex(GenError, "one of the generator's block markers"):
+                write_expectations(path, coverage)
+
+    def test_a_git_remote_is_a_name_of_the_generated_repository(self) -> None:
+        """git_ops/push.rs pushes only to a configured remote, and make_repo.py gives the fixture repository one:
+        its bare origin under the case root. So a case's remote is a plain name, never a URL or a path."""
+        repo = {"repo": "oracle", "params": {"path": f"{REPOS_ROOT}/oracle"}}
+        for remote in ("git@github.com:manaflow-ai/cmux.git", "https://example.invalid/x.git", "/srv/repos/cmux.git",
+                       f"{ROOT_TOKEN}/repos/oracle.git", "../x"):
+            with self.subTest(remote=remote), self.assertRaisesRegex(GenError, "git.push: params.remote .* no URL"):
+                generate(self.catalog, {"git.push": {"success": {**repo, "params": {**repo["params"], "remote": remote}}}})
+        with self.assertRaisesRegex(GenError, "git.push: before.push.params.remote"):
+            generate(self.catalog, {"git.push": {"success": {**repo, "before": [
+                {"id": "push", "method": "git.push", "params": {"remote": "file:///srv/x.git"}}]}}})
+        with self.assertRaisesRegex(GenError, "no generated repository"):
+            generate(self.catalog, {"git.push": {"success": {"params": {"remote": "origin"}}}})
+        files = generate(self.catalog, {"git.push": {"success": {**repo, "params": {**repo["params"], "remote": "origin"}}}})
+        self.assertEqual(files["git-push-ok.json"]["steps"][-1]["args"]["params"]["remote"], "origin")
+        self.assertEqual(files["git-push-ok.json"]["fixture"]["repo"], "oracle")
+
+    def test_a_repository_path_needs_its_repository(self) -> None:
+        for path, problem in ((f"{REPOS_ROOT}/oracle", "no folder of the case's repository None"),
+                              (f"{REPOS_ROOT}/other", "no folder of the case's repository 'oracle'"),
+                              (f"{REPOS_ROOT}/oracle/../other", "leaves its folder")):
+            repo = {"repo": "oracle"} if "None" not in problem else {}
+            with self.subTest(path=path), self.assertRaisesRegex(GenError, re.escape(problem)):
+                generate(self.catalog, {"git.commit": {"success": {**repo, "params": {"path": path}}}})
+        for name, problem in (("Not A Slug", "repo: repository fixture name"), ("no-such-repo", "no-such-repo.json")):
+            with self.subTest(repo=name), tempfile.TemporaryDirectory() as tmp:
+                (Path(tmp) / "git").mkdir()
+                (Path(tmp) / "git" / TUNING).write_text(json.dumps(
+                    {"operations": {"git.commit": {"success": {"repo": name}}}}), encoding="utf-8")
+                with self.assertRaisesRegex(GenError, problem):
+                    load_tuning(Path(tmp), self.catalog)
+        files = generate(self.catalog, {"git.commit": {"success": {"repo": "oracle", "params": {
+            "path": f"{REPOS_ROOT}/oracle/src"}}}})
+        case = files["git-commit-ok.json"]
+        self.assertEqual(case["fixture"]["repo"], "oracle")
+        self.assertIn(REPO_PRECONDITION.format(repo="oracle"), case["preconditions"])
+        self.assertEqual(files["git-commit-error.json"]["fixture"]["repo"], "oracle", "the error case starts from success")
+
+    def test_a_generated_repository_needs_a_capability_no_product_has_yet(self) -> None:
+        """A case with fixture.repo requires git_repo, which no product offers until its driver builds the
+        repository (p15-oracle-243): no runner picks the case up, and coverage excludes the
+        operation instead of counting expectations no daemon has checked."""
+        repo = {"repo": "oracle", "params": {"path": f"{REPOS_ROOT}/oracle"}}
+        files = generate(self.catalog, {"git.commit": {"success": repo}})
+        coverage = files[COVERAGE]
+        for kind in ("ok", "error"):
+            case = files[f"git-commit-{kind}.json"]
+            self.assertEqual(case["requires"], ["resource_api", REPO_CAPABILITY], kind)
+            self.assertIn(HOME_PRECONDITION, case["preconditions"], kind)
+        self.assertEqual(coverage["excluded"]["git.commit"], REPO_GAP)
+        self.assertEqual(files["git-commit-ok.json"]["untested"], [REPO_GAP])
+        # REPO_GAP names a task that still closes it, as a tuned gap must (TaskGraph.gap_problem).
+        self.assertIsNone(TaskGraph.load().gap_problem(REPO_GAP, "git"))
+        gap = "the store refuses it (p15-oracle-204)"
+        files = generate(self.catalog, {"git.commit": {"success": {**repo, "gap": gap}}})
+        self.assertEqual(files[COVERAGE]["excluded"]["git.commit"], f"{gap}; {REPO_GAP}")
+        # An untuned git operation says what it lacks: a `repo` tuning.
+        self.assertIn("no `repo` tuning", generate(self.catalog, {})[COVERAGE]["excluded"]["git.commit"])
+        # One owner of the token, the repository folder and the capability: make_repo.py and oracle.py.
+        self.assertEqual((ROOT_TOKEN, REPOS_ROOT), (make_repo().ROOT_TOKEN, make_repo().REPOS_ROOT))
+        spec = importlib.util.spec_from_file_location("oracle_cli", HERE / "oracle.py")
+        assert spec is not None and spec.loader is not None
+        oracle = importlib.util.module_from_spec(spec)
+        sys.modules[spec.name] = oracle
+        spec.loader.exec_module(oracle)
+        self.assertIn(REPO_CAPABILITY, oracle.CAPABILITIES)
+        self.assertEqual([product for product, caps in oracle.PRODUCTS.items() if REPO_CAPABILITY in caps], [])
+
+    def test_the_git_family_tuning(self) -> None:
+        """tests/oracle/corpus/daemon-ops/git/_tuning.json (p15-oracle-068): each git, project and stash mutation
+        has a success and a typed-error case. A git case runs on the generated repository by path, with no
+        workspace selector and requires git_repo, which no product offers until the case runner builds the
+        repository (REPO_GAP), so the git operations are excluded; so is project.add (every case root is under /tmp).
+        The stash and the other project operations run on the standard fixture."""
+        tuning = load_tuning(DEFAULT_OUT, self.catalog)
+        files = generate(self.catalog, tuning)
+        family = sorted(op for op in self.catalog.mutations() if family_of(op) == "git")
+        self.assertEqual(len(family), 18)
+        self.assertEqual(sorted(op for op in tuning if family_of(op) == "git"), family)
+        coverage = files[COVERAGE]
+        handler_errors = {"git.checkpoint.unpin": "managed_pin", "git.commit": "nothing_to_commit",
+                          "git.push": "no_remote", "git.worktree.apply": "not_a_worktree",
+                          "git.worktree.create": "base_not_found", "git.worktree.remove": "unpushed_commits"}
+        for operation in family:
+            entry = coverage["operations"][operation]
+            self.assertEqual(entry["placeholders"], [], operation)
+            git = operation.startswith("git.")
+            self.assertEqual(operation in coverage["excluded"], git or operation == "project.add", operation)
+            success_repo = files[entry["cases"]["success"].split("/", 1)[1] + ".json"]["fixture"].get("repo")
+            self.assertEqual(success_repo == "oracle", git or operation == "project.add", operation)
+            if success_repo:
+                self.assertIn(REPO_GAP, coverage["excluded"][operation], operation)
+            for kind in ("success", "error"):
+                case = files[entry["cases"][kind].split("/", 1)[1] + ".json"]
+                call = case["steps"][-1]
+                text = json.dumps(case["steps"])
+                if operation.startswith("git."):
+                    self.assertEqual(call["target"], SCOPE, f"{operation} {kind}: a path, no selector")
+                    self.assertNotIn("fx-workspace", [step["id"] for step in case["steps"]], operation)
+                self.assertEqual(case["fixture"].get("repo") == "oracle", REPOS_ROOT in text, f"{operation} {kind}")
+                has_repo = "repo" in case["fixture"]
+                self.assertEqual(REPO_CAPABILITY in case["requires"], has_repo, f"{operation} {kind}")
+                self.assertEqual(HOME_PRECONDITION in case["preconditions"], has_repo, f"{operation} {kind}")
+                self.assertNotRegex(text, r"\$CASE_ROOT/(?!repos/oracle(?:-feature)?\")", f"{operation} {kind}")
+            expect = files[entry["cases"]["error"].split("/", 1)[1] + ".json"]["steps"][-1]["expect"]
+            if operation in handler_errors:
+                self.assertEqual((expect["error"], expect["errorDetails"]["reason"]),
+                                 ("operation.failed", handler_errors[operation]), operation)
+        self.assertIn("p15-oracle-244", coverage["excluded"]["project.add"])
+        remove = files["git-worktree-remove-ok.json"]["steps"]
+        self.assertEqual([s["id"] for s in remove], ["worktree", "call"])
+        self.assertEqual(remove[-1]["args"]["params"], {"path": "$step:worktree#/value/root"})
+        # fx-stash stashes a web page, as state/stash.rs requires: the app-drawn http page of the fixture.
+        stash = files["stash-delete-ok.json"]["steps"]
+        self.assertEqual([s["id"] for s in stash], ["fx-workspace", "fx-browser-profile", "fx-app-browser", "fx-stash",
+                                                    "call"])
+        self.assertEqual(stash[3]["args"]["params"], {"tabs": ["$step:fx-app-browser#/value/tab_id"]})
+        # The repository the cases name: its only remote is its bare origin beside the checkout.
+        self.assertEqual(repo_fixture("oracle", "test").tokens()["origin"], f"{REPOS_ROOT}/oracle.git")
 
     def test_catalog_check_matches_the_daemon_rules(self) -> None:
         check = self.synth.check
@@ -1798,6 +2423,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     parser.add_argument("--out", type=Path, default=DEFAULT_OUT, help="the suite directory (default: the corpus)")
     parser.add_argument("--catalog", type=Path, default=CATALOG)
+    parser.add_argument("--expectations", type=Path,
+                        help="the suite's expectations file (default: <out>/../../Expectations.d/daemon-ops.txt)")
     parser.add_argument("--check", action="store_true", help="exit 1 when --out differs from a fresh generation")
     parser.add_argument("--selftest", action="store_true", help="run the offline self tests")
     args = parser.parse_args(argv)
@@ -1808,14 +2435,16 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         catalog = Catalog.load(args.catalog)
         files = generate(catalog, load_tuning(args.out, catalog))
         coverage = files[COVERAGE]
+        expectations = args.expectations or expectations_path(args.out)
         if args.check:
-            problems = drift(args.out, files)
+            problems = drift(args.out, files) + expectations_drift(expectations, coverage)
             for problem in problems:
                 print(f"gen_daemon_ops: {problem}", file=sys.stderr)
             print(f"gen_daemon_ops: {coverage['covered']}/{coverage['total']} operations, "
                   f"{'stale' if problems else 'up to date'}")
             return 1 if problems else 0
         written, removed = write(args.out, files)
+        written += write_expectations(expectations, coverage)
     except GenError as error:
         print(f"gen_daemon_ops: {error}", file=sys.stderr)
         return 2

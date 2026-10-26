@@ -135,7 +135,17 @@ public final class ChromiumHostSession {
         idleDeadline = idleExit.map {
             MainDeadline(owner: "ChromiumHostSession.idleExit", workClass: .background, scheduler: $0.deadlines)
         }
-        view.sink = { [weak self] frame in self?.send(frame) }
+        wireView()
+    }
+
+    private func wireView() {
+        // This wire stamps no input seq: no key comes back as KEY_UNHANDLED.
+        view.sink = { [weak self] frame in
+            _ = self?.send(frame)
+            return nil
+        }
+        // The same stream as the key frames: an op follows the frames sent before it.
+        view.textInputSink = { [weak self] op in _ = self?.send(ChromiumHostFrame(textInput: op)) }
         view.onGeometry = { [weak self] geometry in
             self?.geometry = geometry
             self?.send(geometry.frame)
@@ -193,7 +203,7 @@ public final class ChromiumHostSession {
         if !send(ChromiumHostFrame(.quit)) { return }  // send ended the host already
         let launcher = launcher, pid = pid
         // A deadline, not a wait: hostEnded cancels it.
-        quitDeadline.schedule(after: quitLimit) { @MainActor [weak self] in
+        quitDeadline.scheduleOnMain(after: quitLimit) { [weak self] in
             guard let self, self.connection === connection else { return }
             launcher.kill(pid)
         }
@@ -255,12 +265,15 @@ public final class ChromiumHostSession {
         case .exitedIdle: phaseText = "exited idle"
         }
         let backlog = connection?.backlog
-        return ["phase": phaseText, "pid": Int(pid), "fork_api": Int(forkAPI), "context_id": Int(contextID),
+        var fields: [String: Any] = [
+                "phase": phaseText, "pid": Int(pid), "fork_api": Int(forkAPI), "context_id": Int(contextID),
                 "shown_context_id": Int(view.contextID), "url": url, "title": title, "restarts": restarts,
                 "idle_exits": idleExits, "idle_exit_s": idleExit.map(Self.seconds) ?? 0,
                 "live": isLive, "idle_exit_armed": isIdleExitArmed, "stand_in": view.standIn != nil,
                 "exits": exits, "error": lastError ?? "", "log_file": configuration.logFile ?? "",
                 "wire_waiting": backlog?.waiting ?? 0, "wire_coalesced": Int(clamping: backlog?.coalesced ?? 0)]
+        for (name, count) in view.textInput.stats.report { fields[name] = count }
+        return fields
     }
 
     private static func seconds(_ duration: Duration) -> Double {
@@ -327,6 +340,8 @@ public final class ChromiumHostSession {
         connection.send(ChromiumHostFrame(.navigate, payload: Array(url.utf8)))
         if let geometry { connection.send(geometry.frame) }
         if view.window?.firstResponder === view { connection.send(ChromiumHostFrame(.focus, v: [1])) }
+        // The page view's NSTextInputClient answers from the state the host pushes (task 044).
+        connection.send(ChromiumHostFrame(.textInputWatch, v: [1]))
         let launcher = launcher
         tasks.append(
             Task { [weak self] in
@@ -373,6 +388,8 @@ public final class ChromiumHostSession {
             lastError = frame.text
         case .rendererGone:
             lastError = "renderer ended (status \(frame.v[0]))"
+        case .textInputState:
+            if let state = ChromiumHostTextInputState(frame: frame) { view.applyTextInputState(state) }
         default:
             break
         }
@@ -387,6 +404,8 @@ public final class ChromiumHostSession {
         tasks = []
         contextID = 0
         view.show(contextID: 0)
+        // The focused field ended with the host, and any composition in it.
+        view.applyTextInputState(ChromiumHostTextInputState())
         fillPageBackground()
         exits.append(exit.description)
         for waiter in pongs.values { waiter.resume(returning: nil) }
