@@ -16,12 +16,11 @@ public nonisolated struct AgentPaneScrollAnchor: Codable, Sendable, Equatable {
 /// Where each agent chat rested, by session, in a JSON file beside the launch snapshot, so a
 /// relaunch or a crash reopens a chat where the reader left it instead of at its latest message.
 /// The page reads its chat's place before it attaches (`chat.scrollAnchor.get`) and writes it once
-/// a scroll settles (`chat.scrollAnchor`); the most recent ``limit`` chats are kept.
+/// a scroll settles (`chat.scrollAnchor`); the most recent ``limit`` chats are kept. The App's one
+/// store reaches each page's provider by init (``AgentPaneChatStores``).
 @MainActor
 public final class AgentPaneScrollAnchors {
     public static let fileName = "agent-scroll-anchors.json"
-    /// The app's store; nil keeps no places (a test host, the gallery).
-    public static var shared: AgentPaneScrollAnchors?
     static let limit = 500
 
     private struct Entry: Codable, Equatable {

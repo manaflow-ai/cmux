@@ -107,13 +107,20 @@
       },
       "expect": {
         "outcome": "error",
-        "error": "operation.failed"
+        "error": "operation.failed",
+        "errorDetails": {
+          "extra": {
+            "code": "browser_rendered_by_app",
+            "browser_id": "$step:fx-app-browser#/value/browser_id",
+            "tab_id": "$step:fx-app-browser#/value/tab_id"
+          }
+        }
       },
       "checkpoint": [
         "before",
         "settled"
       ],
-      "note": "an app-drawn browser has no daemon CDP session: operation.failed with details.extra.code browser_rendered_by_app and the tab id, no receipt"
+      "note": "an app-drawn browser has no daemon CDP session (content.rs browser_rendered_by_app_error): operation.failed whose details.extra names browser_rendered_by_app, the browser and its tab, no receipt; engine_unavailable and browser_not_ready are operation.failed too and fail this case"
     }
   ],
   "invariants": [

@@ -21,6 +21,7 @@
 #include <optional>
 #include <string>
 
+#include "chromium_host_mint.h"
 #include "chromium_host_tlv.h"
 
 #define CMUX_REMOTE_EXPORT __attribute__((visibility("default")))
@@ -90,6 +91,14 @@ CMUX_REMOTE_EXPORT int cmux_remote_shim_attached(void);
 // (CEFForkFeatures reads this in host mode, not the remote dylib's own symbols).
 CMUX_REMOTE_EXPORT int cmux_remote_shim_host_has_export(const char* name);
 CMUX_REMOTE_EXPORT void cmux_remote_shim_get_stats(cmux_remote_shim_stats* out);
+// Main thread. The token of the latest op sent for a REPLY (an async op, a non-void preinit's
+// verdict): read right after the call, it names that call's answer, which the reply callback
+// delivers under it (task 018: CEFHostReplies awaits it). 0 when that call sent nothing.
+CMUX_REMOTE_EXPORT uint32_t cmux_remote_shim_last_reply_token(void);
+// Main thread. REPLY frames go to `reply(ctx, ...)` from now on, in place of the configured
+// callback and its ctx (task 018: CEFRemoteShim hands them to CEFHostReplies); NULL drops them
+// (replies_unhandled). The next cmux_remote_shim_configure sets them again.
+CMUX_REMOTE_EXPORT void cmux_remote_shim_set_reply(void* ctx, cmux_remote_reply_fn reply);
 
 }  // extern "C"
 
@@ -101,10 +110,10 @@ using TlvReader = cmux_host::control::TlvReader;
 
 class TlvWriter : public cmux_host::control::TlvWriter {
  public:
-  // An NSView* travels as its page view token (ChromiumHostPageView, task 040): the client
-  // numbers each view the first time it crosses and keeps the number on the view, so it dies
-  // with the view and is never another view's; NULL is 0.
-  void View(void* ns_view);
+  // A parent view argument (NSView* in the in-process ABI): in host mode cmux passes the token it
+  // minted for the page view (ChromiumHostPageView, CEFRuntime.mintPageViewToken: never 0, never
+  // reused), not a view pointer, and it travels as is; NULL is 0.
+  void View(void* view_token);
 };
 
 // Control channel; queued before the first attach (never dropped: past the channel's quota the
@@ -126,13 +135,13 @@ bool PostForReply(uint16_t op, uint32_t token, const TlvWriter& args);
 int32_t PostPreinit(uint16_t op, uint32_t token, const TlvWriter& args);
 // Never 0.
 uint32_t NextToken();
-// Browser and window ids from 1 << 20, so they never meet one Chromium assigned; DevTools
-// message ids below 2^30 (the header's shim-internal range), from 2^29 so they never meet the
-// host shim's own counter. 0 when the range is used up.
+// Browser ids from 1 << 20, so they never meet one Chromium assigned; DevTools message ids below
+// 2^30 (the header's shim-internal range), from 2^29 so they never meet the host shim's own
+// counter (chromium_host_mint.h; the host maps them, host_client_ids.h). 0 when the range is used up.
 int32_t MintID(uint16_t op);
-inline constexpr int32_t kFirstMintedBrowserID = 1 << 20;
-inline constexpr int32_t kFirstMintedDevToolsID = 1 << 29;
-inline constexpr int32_t kEndMintedDevToolsID = 1 << 30;
+inline constexpr int32_t kFirstMintedBrowserID = cmux_host::mint::kFirstBrowserID;
+inline constexpr int32_t kFirstMintedDevToolsID = cmux_host::mint::kFirstDevToolsID;
+inline constexpr int32_t kEndMintedDevToolsID = cmux_host::mint::kEndDevToolsID;
 // A malloc'd copy, freed by cmux_shim_free or cmux_shim_free_owned.
 char* Dup(const std::string& text);
 void MarkPending(uint16_t mirror_op, uint32_t token, const TlvWriter& key, uint32_t wildcards);

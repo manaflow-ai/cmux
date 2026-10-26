@@ -2,6 +2,7 @@ import CmuxNextBrowser
 import CmuxNextActions
 import CmuxNextAgentPane
 import CmuxNextDaemon
+import CmuxNextEnergy
 import CmuxNextFocus
 import CmuxNextPalette
 
@@ -13,7 +14,10 @@ extension AppServices {
     /// palette, before the key-window change it causes, so a click that
     /// closes it is judged with the overlay already gone (input-spec.md B7).
     func paletteBuilt(_ palette: PaletteController) {
-        palette.hiddenActionIDs = { AgentPaneTunables.pointerInspector.value ? [] : ["agentPane.togglePointerInspector"] }
+        // Energy Saver's session rows show only while they can act (neither while its feature is off).
+        palette.hiddenActionIDs = { [energy] in
+            energy.driver.paletteHiddenActionIDs.union(AgentPaneTunables.pointerInspector.value ? [] : ["agentPane.togglePointerInspector"])
+        }
         palette.onPresented = { DebugTimings.palettePresented($0) }
         // The key-down that opens the palette (a synthesized one under `debug.key`), for its input stage.
         palette.openingEventTimestamp = { [inputDispatch] in

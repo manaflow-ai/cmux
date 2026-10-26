@@ -148,6 +148,7 @@ struct CEFShimLibrary {
         tabGoToEntry = try r("cmux_shim_tab_go_to_entry")
         tabNavigationState = try r("cmux_shim_tab_navigation_state")
         visitCookies = try r("cmux_shim_visit_cookies")
+        rendererClientIDs = try r("cmux_shim_renderer_client_ids")
         createWindow = try r("cmux_shim_create_window")
         setBackgroundColor = try r("cmux_shim_set_background_color")
         popupWindowAttach = try r("cmux_shim_popup_window_attach")
@@ -271,7 +272,8 @@ has "$host" 'case kOpGoBack:' "the host has no case for go_back"
 has "$host" 'cmux_shim_go_back(ctx.Browser(arg_browser_id));' "the host does not map the browser id"
 has "$host" 'ctx.BindMintedOnEvent(kOpCreateWindow, minted_id, 4 /* CMUX_SHIM_ADDRESS */, arg_request, call_result);' \
   "the host does not bind a mint_returns sent id when its event comes"
-has "$host" 'ctx.BindMinted(kOpTabAdd, minted_id, call_result);' "the host does not bind the minted id"
+has "$host" 'ctx.BindMinted(kOpTabAdd, minted_id, call_result, arg_window_browser_id);' \
+  "the host does not bind the minted id with the op's browser as cmux sent it"
 has "$host" 'InstallPolicySetFocusRequestHandler(ctx, policy_installed);' "the policy is not installed"
 has "$host" '{-1, -1, kOpTabNavigationState},  // attach' "attach does not refresh the mirror"
 has "$host" '{5, 3, kOpTabNavigationState},  // CMUX_SHIM_TAB_EVENT:3' "sub-kind refresh missing"
@@ -348,7 +350,7 @@ struct TlvWriter {
 struct HostContext {
   int Browser(int32_t client_id); void* PageView(uint64_t token); void* OptionalExport(uint16_t op);
   void Ack(uint32_t token); void Reply(uint32_t token, const TlvWriter&);
-  void BindMinted(uint16_t op, int32_t minted, int64_t result);
+  void BindMinted(uint16_t op, int32_t minted, int64_t result, int32_t client_browser);
   void BindMintedOnEvent(uint16_t op, int32_t minted, int event_kind, int32_t request, int64_t started);
   void PushMirror(uint16_t op, const TlvWriter& key, const TlvWriter& value);
 };
@@ -415,6 +417,67 @@ expect 1 "CEFPopup.swift:3: cmux_shim_popup_window_attach is view; this caller r
 expect 0 $'CEFPopup.swift:3\tcmux_shim_popup_window_attach\tview\tview,result-read' "a view site that reads" -- \
   --root "$view" --swift-sites
 
+# An async site that reads its wire:REPLY answer in the call's turn is sync-reply until a
+# host_mode_rewrites entry (needs reply) moves it to the token API (task 018); one whose answer is an
+# event (visit_cookies: CMUX_SHIM_REPLY) reads only "sent" and is not.
+sync="$work/sync-reply"
+fixture "$sync"
+cat >"$sync/Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFProcesses.swift" <<'EOF'
+extension CEFCaller {
+    func ids(_ shim: CEFShimLibrary, _ out: UnsafeMutablePointer<Int32>) -> Int32 {
+        let count = shim.rendererClientIDs(1, out, 4)
+        guard shim.visitCookies(1, 9) == 1 else { return 0 }
+        return count
+    }
+}
+EOF
+expect 0 $'CEFProcesses.swift:3\tcmux_shim_renderer_client_ids\tasync\tasync,sync-reply' "an out-parameter read at once" -- \
+  --root "$sync" --swift-sites
+expect 0 $'CEFProcesses.swift:4\tcmux_shim_visit_cookies\tasync\tasync$' "an event-answered start" -- \
+  --root "$sync" --swift-sites
+edit_ops "$sync" 'd["host_mode_rewrites"] = [{"site": "CmuxNextBrowser/CEF/CEFProcesses.swift: CEFCaller.ids(_:_:)",
+  "exports": ["cmux_shim_renderer_client_ids"], "needs": "reply", "change": "awaits the reply", "task": "p01-process-022"}]'
+out="$(python3 "$gen" --root "$sync" --swift-sites)"
+grep -q 'sync-reply' <<<"$out" && fail "a host_mode_rewrites site is still sync-reply: $out"
+grep -q $'CEFProcesses.swift:3\tcmux_shim_renderer_client_ids\tasync\tasync$' <<<"$out" ||
+  fail "the rewritten site lost its async row: $out"
+
+# The same read through a closure: one passed inside a statement's head (CEFAgentRelay.send's
+# `switch text.withCString({ shim.devToolsSend(browser, $0) })`), and one given the library by a
+# function that takes a (CEFShimLibrary, ...) closure (CEFExtensionBackend's `call { $0.x($1) }`,
+# by `$0` or a named parameter, behind an `if` on the same line). A dropped result is no read.
+hidden="$work/sync-reply-closures"
+fixture "$hidden"
+cat >"$hidden/Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFProcesses.swift" <<'EOF'
+extension CEFCaller {
+    func sent(_ shim: CEFShimLibrary, _ out: UnsafeMutablePointer<Int32>) -> Bool {
+        switch "x".withCString({ _ in shim.rendererClientIDs(1, out, 4) }) {
+        case 1: return true
+        default: return false
+        }
+    }
+    func through(_ out: UnsafeMutablePointer<Int32>) -> Bool { call { $0.rendererClientIDs($1, out, 4) } }
+    func named(_ out: UnsafeMutablePointer<Int32>) -> Bool {
+        if out.pointee > 0 { return call { library, browser in library.rendererClientIDs(browser, out, 4) } }
+        return false
+    }
+    func dropped(_ out: UnsafeMutablePointer<Int32>) {
+        call { library, browser in
+            library.rendererClientIDs(browser, out, 4)
+            return 1
+        }
+    }
+    private func call(_ body: (CEFShimLibrary, Int32) -> Int32) -> Bool { body(library, 1) == 1 }
+}
+EOF
+out="$(python3 "$gen" --root "$hidden" --swift-sites)"
+for line in 3 8 10; do
+  grep -q "CEFProcesses.swift:$line"$'\tcmux_shim_renderer_client_ids\tasync\tasync,sync-reply' <<<"$out" ||
+    fail "the closure read on line $line is not sync-reply: $out"
+done
+grep -q $'CEFProcesses.swift:15\tcmux_shim_renderer_client_ids\tasync\tasync$' <<<"$out" ||
+  fail "a dropped closure result is listed as read: $out"
+
 # host_mode_rewrites accepts the listed function's calls of the listed exports, and nothing else.
 rewrite="$work/rewrite"
 fixture "$rewrite"
@@ -440,13 +503,70 @@ expect 1 "CEFReads.swift:7:" "only the head of a site names functions" -- --root
 edit_ops "$rewrite" 'd["host_mode_rewrites"][0]["site"] = "CmuxNextBrowser/CEF/CEFReads.swift: moves() and other()"'
 expect 0 "0 stand-in results read" "a site that names two functions" -- --root "$rewrite" --check-return-use
 
+# --swift-sites drops a site that is done (task p01-process-021): an async or mint call in the token
+# form (inside a closure handed to sendAsync, siteCall or profileWrite) and a site listed with needs
+# kept. A `reply` entry alone does not settle a site: its call must take the token form.
+settled="$work/settled"
+fixture "$settled"
+cat >"$settled/Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFAsync.swift" <<'EOF'
+extension CEFRuntime {
+    func cookies() async throws -> CEFSiteReply {
+        let reply = try await siteCall(1, what: "visit") { shim, id in shim.visitCookies(1, id) }
+        return reply
+    }
+
+    func sent() -> Int32 {
+        let answer = sendAsync { shim in
+            "x".withCString { _ in shim.visitCookies(1, 2) }
+        }
+        return 0
+    }
+
+    func direct(_ shim: CEFShimLibrary) -> Bool {
+        shim.visitCookies(1, 3) == 1
+    }
+
+    func window(_ shim: CEFShimLibrary) -> Int32 {
+        shim.createWindow(1, nil, 1, 1, nil)
+    }
+
+    func later(_ shim: CEFShimLibrary) {
+        let answer = sendAsync { _ in 0 }
+        _ = shim.visitCookies(1, 4)
+    }
+}
+EOF
+sites="$(python3 "$gen" --root "$settled" --swift-sites)"
+for line in 3 9; do
+  grep -q "CEFAsync.swift:$line"$'\t' <<<"$sites" && fail "a call in the token form is listed (line $line): $sites"
+done
+for line in 15 19 24; do
+  grep -q "CEFAsync.swift:$line"$'\t' <<<"$sites" || fail "a site not in the token form is not listed (line $line): $sites"
+done
+edit_ops "$settled" 'd["host_mode_rewrites"] = [
+  {"site": "CmuxNextBrowser/CEF/CEFAsync.swift: CEFRuntime.window(_:)", "exports": ["cmux_shim_create_window"],
+   "needs": "kept", "change": "returns the minted id", "task": "p01-process-021"},
+  {"site": "CmuxNextBrowser/CEF/CEFAsync.swift: CEFRuntime.direct(_:)", "exports": ["cmux_shim_visit_cookies"],
+   "needs": "reply", "change": "awaits the reply", "task": "p01-process-021"}]'
+expect 0 "" "kept and reply entries are valid" -- --root "$settled" --check-ops
+sites="$(python3 "$gen" --root "$settled" --swift-sites)"
+grep -q $'CEFAsync.swift:19\t' <<<"$sites" && fail "a kept site is listed: $sites"
+grep -q $'CEFAsync.swift:15\t' <<<"$sites" || fail "a reply entry settled a call not in the token form: $sites"
+edit_ops "$settled" 'd["host_mode_rewrites"][0]["needs"] = "later"'
+expect 1 "needs 'later' is not one of" "an unknown needs" -- --root "$settled" --check-ops
+
 # --check-pre-attach: a mirror read on the startup path (CEFRuntime.initialize and what it hands the
 # shim to) needs a host_mode_rewrites entry with needs after_attach.
 attach="$work/pre-attach"
 fixture "$attach"
+cat >"$attach/Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFLibraryLoader.swift" <<'EOF'
+nonisolated struct CEFLibraryLoader {
+    func load(_ shim: Int) -> Int { shim }
+}
+EOF
 cat >"$attach/Packages/macOS/CmuxNext/Sources/CmuxNextBrowser/CEF/CEFRuntime.swift" <<'EOF'
 final class CEFRuntime {
-    nonisolated static func loadLibrary() -> Int { 0 }
+    // The in-process load is CEFLibraryLoader.load, the other startup root.
 
     private func initialize(
         _ library: CEFLoadedLibrary,
@@ -544,6 +664,13 @@ refuse "rewrite needs" 'd["host_mode_rewrites"] = [{"site": "CmuxNextBrowser/CEF
   "exports": ["cmux_shim_go_back"], "needs": "later", "change": "x", "task": "p01-process-021"}]' "needs 'later' is not one of"
 refuse "rewrite of a missing file" 'd["host_mode_rewrites"] = [{"site": "CmuxNextBrowser/CEF/Gone.swift: Gone.f()",
   "exports": ["cmux_shim_go_back"], "needs": "reply", "change": "x", "task": "p01-process-021"}]' "Gone.swift does not exist"
+refuse "rewrite of a missing function" 'd["host_mode_rewrites"] = [{"site": "CmuxNextBrowser/CEF/CEFCaller.swift: CEFCaller.gone()",
+  "exports": ["cmux_shim_go_back"], "needs": "reply", "change": "x", "task": "p01-process-021"}]' "CEFCaller.gone is no function of"
+refuse "rewrite of a function that calls none of its exports" 'd["host_mode_rewrites"] = [{"site": "CmuxNextBrowser/CEF/CEFCaller.swift: CEFCaller.color(_:)",
+  "exports": ["cmux_shim_go_back"], "needs": "reply", "change": "x", "task": "p01-process-021"}]' \
+  "CEFCaller.color uses none of cmux_shim_go_back"
+edit_ops "$work/refuse" 'd["host_mode_rewrites"][0]["site"] = "CmuxNextBrowser/CEF/CEFCaller.swift: CEFCaller.back(_:)"'
+expect 0 "1 host-mode rewrites" "a rewrite of the function that calls its export" -- --root "$work/refuse" --check-ops
 refuse "after_attach on a post" 'd["host_mode_rewrites"] = [{"site": "CmuxNextBrowser/CEF/CEFCaller.swift: CEFCaller.back(_:)",
   "exports": ["cmux_shim_go_back"], "needs": "after_attach", "change": "x", "task": "p01-process-015"}]' \
   "needs after_attach is for mirror reads"

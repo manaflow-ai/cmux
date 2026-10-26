@@ -97,8 +97,10 @@ the executable after the launch, before any result is written.
 
 --order FIRST<SECOND[<THIRD...] checks each pair of a chain in every run. A
 term A|B is any one of the marks (the earliest that arrived): a launch marks
-launch.agent_page_warmup when the warm-up made its page and
-launch.agent_page_warmup_not_needed when an agent page had started WebKit first.
+launch.agent_page_warmup when the warm-up made its page,
+launch.agent_page_warmup_not_needed when an agent page had started WebKit first, and
+launch.agent_page_warmup_chromium when agent pages open in Chromium, so it made no
+WebKit page (p13-webui-046).
 """
 import argparse
 import glob
@@ -133,9 +135,13 @@ AGENT_MARK = "agent_pane.handshake_end"
 # Rows in launch order; a mark a build does not emit is left out.
 MARKS = [
     ("main_start", "process start -> main()"),
+    ("main.environment_frozen", "main: environment prepared and frozen"),
     ("main.warmup_started", "main: launch warm-up started"),
+    ("main.app_environment", "main: app environment and state paths"),
+    ("main.launch_reads", "main: launch reads posted"),
     ("main.prestart", "main: daemon prestart"),
-    ("main.nsapp", "main: NSApp and delegate"),
+    ("main.delegate", "main: launch order and delegate"),
+    ("main.nsapp", "main: NSApp set up"),
     ("main.run", "main: run()"),
     ("did_finish_launching_start", "AppKit ready (applicationDidFinishLaunching)"),
     ("dfl.settings_wait", "dfl: settings launch read in hand (waited on a cold disk)"),
@@ -162,6 +168,7 @@ MARKS = [
     ("launch.post_window_warmups", "warm-ups started (Chromium, spares, page hosts)"),
     ("launch.agent_page_warmup", "agent page WebKit warm-up made its page"),
     ("launch.agent_page_warmup_not_needed", "agent page WebKit warm-up not needed (a page started WebKit)"),
+    ("launch.agent_page_warmup_chromium", "agent page WebKit warm-up not made (agent pages open in Chromium)"),
     ("control.serving", "app control socket accepting (p08-startup-019)"),
     ("daemon.connect_start", "first connect attempt"),
     ("daemon.status_start", "server status spawn"),
@@ -206,6 +213,9 @@ MARKS = [
     ("startup_complete", "startup complete (StartupScheduler)"),
 ]
 STARTUP_COMPLETE = "startup_complete"
+# P1, main() on the main thread (p08-startup 033): from its first mark to NSApplication.run, per run.
+MAIN_SPAN = ("main_start", "main.run")
+MAIN_BUDGET_MS = 10.0
 # The completion's reason, an instant time mark `startup_complete.<reason>` sent with it (LaunchOrder).
 COMPLETION_INSTANT = STARTUP_COMPLETE + "."
 FAILSAFE = "failsafe"
@@ -215,7 +225,7 @@ REALISTIC_WORKSPACES = 24
 LAUNCH_ORDER = [
     "first_window_frame_committed<launch.non_paint_services",
     "first_window_frame_committed<launch.post_window_warmups",
-    "first_window_frame_committed<launch.agent_page_warmup|launch.agent_page_warmup_not_needed",
+    "first_window_frame_committed<launch.agent_page_warmup|launch.agent_page_warmup_not_needed|launch.agent_page_warmup_chromium",
 ]
 
 # Marks whose value is not a time (tasks 007, 108; startup-queue.py's VALUE_MARKS): never a row, a gap or an
@@ -904,6 +914,19 @@ def run_values(marks):
     return shown
 
 
+def main_span_summary(runs):
+    """The main() span (MAIN_SPAN) of each run as a spread against MAIN_BUDGET_MS: a distribution of per-run
+    spans, not the gap between two medians. None when no run has both marks (a build before them)."""
+    start, end = MAIN_SPAN
+    spans = [run[end] - run[start] for run in runs if is_number(run.get(start)) and is_number(run.get(end))]
+    if not spans:
+        return None
+    values = spread(spans)
+    cells = "  ".join(f"{column} {value:.1f}" for column, value in values.items())
+    over = sum(span > MAIN_BUDGET_MS for span in spans)
+    return f"  main(): {start} -> {end} ms {cells}  n {len(spans)}; {over} over {MAIN_BUDGET_MS:g} ms"
+
+
 def value_summary(runs, temperature=None):
     """Summary lines for the value marks: the temperature of each run (against --temperature), page-in and main
     CPU spreads, and the interrupted runs by number. None when no run sent one and no temperature was asked."""
@@ -1273,6 +1296,9 @@ def main():
             print(f"  {'phase':<46} {spread_header()} {'gap':>8}  n")
             for label, mark, values, gap, count in table(runs):
                 print(f"  {label:<46} {spread_cells(values)} {gap:>+8.0f}  {count}")
+            span = main_span_summary(runs)
+            if span:
+                print(span)
             for line in value_summary(runs, args.temperature):
                 print(line)
             if args.hangs:

@@ -131,14 +131,16 @@ public final class TraceBlackBox: Sendable {
 
     /// Creates `path` and its missing parents (mode 0700); true when it is a directory afterwards.
     private static func makeDirectory(_ path: String) -> Bool {
-        var info = stat()
-        if stat(path, &info) == 0 { return info.st_mode & S_IFMT == S_IFDIR }
-        var prefix = ""
-        for component in path.split(separator: "/", omittingEmptySubsequences: true) {
-            prefix += "/" + component
-            if mkdir(prefix, 0o700) != 0, errno != EEXIST { return false }
+        return blockingCall(.fileIO) {
+            var info = stat()
+            if stat(path, &info) == 0 { return info.st_mode & S_IFMT == S_IFDIR }
+            var prefix = ""
+            for component in path.split(separator: "/", omittingEmptySubsequences: true) {
+                prefix += "/" + component
+                if mkdir(prefix, 0o700) != 0, errno != EEXIST { return false }
+            }
+            return stat(path, &info) == 0 && info.st_mode & S_IFMT == S_IFDIR
         }
-        return stat(path, &info) == 0 && info.st_mode & S_IFMT == S_IFDIR
     }
 }
 

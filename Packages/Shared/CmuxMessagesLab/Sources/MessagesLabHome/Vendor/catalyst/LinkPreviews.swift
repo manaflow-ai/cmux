@@ -17,7 +17,10 @@ import UniformTypeIdentifiers
 /// fetch, and fetches start only when a message is sent or received
 /// (Store.apply), never while scrolling or paging. A failure or a `timeout`
 /// gives `done(nil)`: the caller shows the domain card.
-final class LinkPreviews: LinkPreviewFetching {
+/// cmux: main-actor, as its `fetch` precondition says (an isolated conformance); the page parsers
+/// are nonisolated (they run on the fetcher's queue; p10-stability-040).
+@MainActor
+final class LinkPreviews: @MainActor LinkPreviewFetching {
     static let shared = LinkPreviews()
     var timeout: TimeInterval = 8
     private var cache: [String: LinkMetadata?] = [:]
@@ -35,7 +38,7 @@ final class LinkPreviews: LinkPreviewFetching {
     private var index: URL { dir.appendingPathComponent("index.json") }
 
     /// A "no title" answer is kept this long (a later fix or a page change can then get one).
-    static let negativeTTL: TimeInterval = 24 * 3600
+    nonisolated static let negativeTTL: TimeInterval = 24 * 3600
     private var negativeAt: [String: Double] = [:]
     init() {
         if let d = try? Data(contentsOf: index), let saved = try? JSONDecoder().decode([String: Saved].self, from: d) {
@@ -101,7 +104,7 @@ final class LinkPreviews: LinkPreviewFetching {
     var lastRefusal: [String: LinkGuard.Refusal] = [:]
 
     /// `<meta property|name="…" content="…">` (either attribute order), entities decoded.
-    static func metaTags(_ html: String) -> [String: String] {
+    nonisolated static func metaTags(_ html: String) -> [String: String] {
         var out: [String: String] = [:]
         // no try! ; a pattern that fails to compile reads no tags.
         guard let re = try? NSRegularExpression(pattern: "<meta\\s+[^>]*>", options: [.caseInsensitive]),
@@ -122,7 +125,7 @@ final class LinkPreviews: LinkPreviewFetching {
     }
     /// "GitHub - manaflow-ai/cmux: …" shows as "manaflow-ai/cmux: …" (Messages,
     /// link-and-text take): a leading or trailing site name with a separator goes.
-    static func stripSite(_ t: String, _ site: String?) -> String {
+    nonisolated static func stripSite(_ t: String, _ site: String?) -> String {
         guard let site, !site.isEmpty else { return t }
         for sep in [" - ", " | ", " · ", " — ", ": "] {
             if t.hasPrefix(site + sep) { return String(t.dropFirst(site.count + sep.count)) }
@@ -131,13 +134,13 @@ final class LinkPreviews: LinkPreviewFetching {
         return t
     }
 
-    static func titleTag(_ html: String) -> String? {
+    nonisolated static func titleTag(_ html: String) -> String? {
         guard let re = try? NSRegularExpression(pattern: "<title[^>]*>([^<]*)</title>", options: [.caseInsensitive]),
               let m = re.firstMatch(in: html, range: NSRange(location: 0, length: min((html as NSString).length, 400_000))) else { return nil }
         let t = decode((html as NSString).substring(with: m.range(at: 1))).trimmingCharacters(in: .whitespacesAndNewlines)
         return t.isEmpty ? nil : t
     }
-    static func decode(_ s: String) -> String {
+    nonisolated static func decode(_ s: String) -> String {
         guard s.contains("&") else { return s }
         var t = s
         for (k, v) in [("&amp;", "&"), ("&quot;", "\""), ("&#39;", "'"), ("&#x27;", "'"), ("&apos;", "'"), ("&lt;", "<"), ("&gt;", ">"), ("&nbsp;", " ")] {
@@ -147,7 +150,7 @@ final class LinkPreviews: LinkPreviewFetching {
     }
 
     /// A stable file name per URL (String.hashValue changes per launch).
-    static func fnv1a(_ s: String) -> UInt64 {
+    nonisolated static func fnv1a(_ s: String) -> UInt64 {
         var h: UInt64 = 0xcbf29ce484222325
         for b in s.utf8 { h = (h ^ UInt64(truncatingIfNeeded: b)) &* 0x100000001b3 /* a byte widens exactly */ }
         return h
@@ -180,7 +183,7 @@ final class LinkPreviews: LinkPreviewFetching {
     }
 
     /// The removed system fallback is never an allowed transport, whatever the guarded result.
-    static func fallbackAllowed(_: LinkGuard.Refusal?) -> Bool { false }
+    nonisolated static func fallbackAllowed(_: LinkGuard.Refusal?) -> Bool { false }
 
     private func save() {
         var out: [String: Saved] = [:]

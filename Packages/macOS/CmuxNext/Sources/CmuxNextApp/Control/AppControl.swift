@@ -96,10 +96,14 @@ final class AppControl {
         let service = try ControlService.prepare(registry: registry, settings: settings, launch: launch,
                                                  frameSource: frames, watchdog: watchdog, mainWork: mainWork)
         self.service = service
+        AppMemoryConsumers(services: services).registerControlCaches(service)
         actionBudget = ActionBudgetReporter(monitor: services.actionBudget, naming: ActionReportNaming(catalog: Set(registry.descriptors.map(\.id.rawValue))),
                                             overBudget: watchdog.overBudget, sampling: recordsTaskBudgets,
                                             logsRuns: ControlService.isDebugBuild)
         services.restartControlListener = { [weak service] in try service?.restartListener() }
+        // A busy renderer's record names the Chromium tabs it serves (p14-energy-124), from the snapshot
+        // the cache publishes: the watchdog reads it off the main thread.
+        watchdog.busy.setTabSource { [directory = services.cache.tabRenderers] in directory.snapshot() }
         registerSyncBarrier(service.router, daemon: services.daemon)
         registerOracleSettle(service.router, services: services)
     }
@@ -145,7 +149,14 @@ final class AppControl {
         if let actionBudget { router.register([actionBudget.method(registry: services.registry)]) }
         // The local daemon's wire traffic, decodes, output copies and connections by role.
         if let wireStats = services.wireStats { router.register([DaemonWireControl(stats: wireStats).method]) }
-        router.register([DebugInput(sources: [InputTapDebugSource(tap: services.inputTap), DebugCEF.pumpInputSource(services.cache.chromium)]).method])
+        router.register([DebugInput(sources: [InputTapDebugSource(tap: services.inputTap), DebugCEF.pumpInputSource(services.cache.chromium),
+                                               ScrollViewAuditSource { [mainWork = services.mainWork] in
+                                                   await withCheckedContinuation { continuation in
+                                                       mainWork.postFromAnyThread(.automation, owner: "debug.input.scroll_views") {
+                                                           continuation.resume(returning: DebugInputScrollViews(auditing: NSApp.windows))
+                                                       }
+                                                   }
+                                               }]).method])
         router.register(DebugWindowsControl.methods(services) + [services.daemon.debugControlMethod { [weak services] in services?.windows.controllers.map { (id: $0.state.id, shows: $0.recoveryShows) } ?? [] }, services.daemon.debugDrainCostMethod])
     }
     #endif
@@ -257,13 +268,16 @@ extension AppControl {
     /// Socket focus policy: `open` makes the page first responder only with focus: true.
     private static func registerChromiumHostDebug(_ services: AppServices, on router: ControlRouter) {
         let chromiumHost = ChromiumHostPrototype(makeConfiguration: { ChromiumHostPrototype.bundledConfiguration() },
-                                                 tunables: TunableStore.shared, mainWork: services.mainWork)
+                                                 tunables: TunableStore.shared, mainWork: services.mainWork,
+                                                 deadlines: services.mainDeadlines,
+                                                 idleExitAfter: chromiumHostIdleExit(in: services.features))
         router.register([
             .mainActor("debug.chromium_host") { [weak services] call in
                 let controller = services?.windows.controllers.first
                 let pane = (call.params["pane"]?.stringValue ?? controller?.focus.state.pane).flatMap { controller?.content?.paneController(key: $0) }
                 let fields = chromiumHost.handle(op: call.params["op"]?.stringValue, url: call.params["url"]?.stringValue,
-                                                 over: pane?.view.contentHost, focus: call.params["focus"]?.boolValue == true)
+                                                 over: pane?.view.contentHost, focus: call.params["focus"]?.boolValue == true,
+                                                 idleExitSeconds: call.params["idle_exit_s"]?.doubleValue)
                 return .value(JSONValue(foundation: fields) ?? .null)
             },
             .async("debug.chromium_host.measure") { call in
@@ -272,6 +286,16 @@ extension AppControl {
                 return .object(fields.mapValues(JSONValue.number))
             }.withDeadline(.fixed(.seconds(60))),
         ])
+    }
+
+    /// The Chromium host's idle deadline: `chromiumHostIdleExit`'s `idleExitAfter` while the
+    /// feature is on, else nil (the host runs while its session does).
+    static func chromiumHostIdleExit(in features: FeatureList) -> Duration? {
+        guard features.isEnabled(.chromiumHostIdleExit) else { return nil }
+        for param in Feature.chromiumHostIdleExit.params where param.name == "idleExitAfter" {
+            if case .duration(let seconds, _, _) = param.value { return .seconds(seconds) }
+        }
+        return nil
     }
     #endif
 }

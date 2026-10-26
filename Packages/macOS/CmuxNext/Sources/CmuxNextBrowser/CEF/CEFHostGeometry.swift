@@ -5,7 +5,7 @@ import AppKit
 /// screen, the part of it its ancestors leave visible, the clip shape's inputs
 /// and the occlusion holes. Two equal values place, clip and mask the page
 /// window the same way, so a page update request that finds the value the
-/// fork last read has nothing to tell the fork (`CEFHostView.pagesNeedUpdate`).
+/// fork last read has nothing to tell the fork (`ChildWindowPageGeometry.pagesNeedUpdate`).
 nonisolated struct CEFHostGeometry: Equatable, Sendable {
     /// The host view's bounds on screen (the page window's frame).
     var screenRect: CGRect

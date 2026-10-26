@@ -2,7 +2,7 @@ import CmuxNextCompat
 
 extension TypingLatencyProbe {
     /// Names one terminal session's surfaces to the probe. The key router opens a press on it
-    /// (``TypingLatencyProbe/keyReachedTerminal(_:)``), Ghostty's write callback takes that surface's
+    /// (``TypingLatencyProbe/keyReachedTerminal(_:display:)``), Ghostty's write callback takes that surface's
     /// oldest unwritten press (``TypingLatencyProbe/inputWritten(on:)``), and the surface's output lane
     /// and frame mark by it. A plain value (``TypingLatencyProbe/makeSurfaceKey()``): a surface pays no
     /// allocation for the probe, and the presses it names live in the probe's own table, so they are

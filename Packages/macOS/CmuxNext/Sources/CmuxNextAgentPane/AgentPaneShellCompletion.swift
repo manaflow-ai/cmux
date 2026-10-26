@@ -1,3 +1,4 @@
+import CmuxNextCompat
 public import Foundation
 
 /// Tab in shell mode (`shell.complete`, webviews `shell/`): the user's own shell lists what can
@@ -52,6 +53,9 @@ public nonisolated struct AgentPaneShellCompletion: Sendable {
     private let home: String
     /// When the shell is killed (``deadline`` in the app; tests that do not test it pass a long one).
     private let timeout: Duration
+    /// Spawns the completion shells off the main actor. User-blocking and never clamped: the person pressed
+    /// Tab and waits for the list.
+    private let launcher = ChildProcessLauncher(label: "com.cmuxterm.next.child-launcher.shell-complete", priority: .userBlocking)
 
     public init(
         shell: String? = ProcessInfo.processInfo.environment["SHELL"],
@@ -86,7 +90,7 @@ public nonisolated struct AgentPaneShellCompletion: Sendable {
         let word = Self.word(in: line)
         let (arguments, extra) = invocation(line: line, word: word)
         let output = try await CompletionProcess.run(path: shell, arguments: arguments, environment: environment.merging(extra) { $1 },
-                                                     folder: folder, timeout: timeout)
+                                                     folder: folder, timeout: timeout, launcher: launcher)
         let parsed = Self.parse(output, engine: engine)
         var seen = Set<String>()
         var candidates: [Candidate] = []

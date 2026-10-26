@@ -1,4 +1,5 @@
 public import AppKit
+import CmuxNextCompat
 public import CmuxNextDesignTokens
 
 /// Where a card sits relative to its target.
@@ -38,8 +39,16 @@ public enum HoverCardPlacement: Sendable {
 /// translates (`HoverCardPanel+Morph.swift`), instead of popping to the new size.
 @MainActor
 final class HoverCardPanel: NSPanel {
-    /// Live instances (the debug single-card check counts them).
-    nonisolated(unsafe) static var liveInstances = 0
+    /// Live instances (the debug single-card check counts them): counted in init and in the deinit,
+    /// which may run off the main thread.
+    nonisolated static let liveInstances = Atomic<Int>(0)
+    /// Moves the count this window is on: +1 in init, -1 in the deinit, on the thread it runs on.
+    /// ``countLive(_:)`` (``liveInstances``), or a test's own count.
+    private nonisolated let countWindow: @Sendable (Int) -> Void
+
+    nonisolated static func countLive(_ delta: Int) {
+        liveInstances.add(delta, ordering: .relaxed)
+    }
 
     /// The card's material; its `contentView` holds the body.
     let glass: OverlaySurfaceView
@@ -89,7 +98,8 @@ final class HoverCardPanel: NSPanel {
     /// The scope the card draws in; a retarget within it adopts nothing again.
     private weak var adoptedScope: ThemeScope?
 
-    init() {
+    init(countWindow: @escaping @Sendable (Int) -> Void = HoverCardPanel.countLive) {
+        self.countWindow = countWindow
         // `PopupHostView` resets an overlay card to the popup radius; the host's radius below sets it back.
         // Bare themed glass, no solid card fill (`Glass.makeOverlayPanel`'s `cardFill`).
         glass = Glass.makeOverlayPanel(cornerRadius: Self.cornerRadius, cardFill: false)
@@ -97,7 +107,7 @@ final class HoverCardPanel: NSPanel {
         // behind the window (the sidebar, a terminal), as its Liquid Glass refracts it.
         glass.samplesBehindWindow = true
         super.init(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: true)
-        Self.liveInstances += 1
+        countWindow(1)
         let host = adoptPopupStyle(card: glass)
         host.travelMargin = Self.travel
         host.cornerRadius = Self.cornerRadius
@@ -111,10 +121,7 @@ final class HoverCardPanel: NSPanel {
 
     // cx-t7hu: not an isolated deinit; its runtime hop traps when released inside an action's task-local scope.
     nonisolated deinit {
-        guard Thread.isMainThread else { return } // main-proof: returns off the main thread
-        MainActor.assumeIsolated {
-            Self.liveInstances -= 1
-        }
+        countWindow(-1)
     }
 
     override var canBecomeKey: Bool { false }

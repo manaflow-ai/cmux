@@ -6,6 +6,7 @@ import CmuxNextTabs
 /// cache keeps one image per emoji and backing scale.
 @MainActor
 enum ScreenEmojiIcon {
+    // memory: fixed at most 65 images (emptied past 64): each one tab icon (16 pt) at its backing scale, under 10 KB at 3x
     private static var cache: [String: TabImage] = [:]
 
     static func icon(_ emoji: String) -> TabIcon {

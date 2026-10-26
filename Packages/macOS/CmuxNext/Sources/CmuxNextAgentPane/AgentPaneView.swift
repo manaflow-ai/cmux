@@ -124,17 +124,20 @@ public final class AgentPaneView: NSView {
     ///   - warmup: The app's agent page WebKit warm-up (`AppServices.agentPageWarmup`), which this page replaces.
     ///   - gestures: The app's gesture router over its input tap: the person's presses in this pane grant
     ///     its page a gesture, and its dictation's hold-to-talk hears the key-up.
+    ///   - chatStores: The app's chat stores (where each chat rested, its unsent chips); the default keeps nothing.
     public init?(model: AgentPaneModel, source: AgentPaneSource? = nil, renderRate: AgentPaneRenderRate = .capped,
-                 webUI: WebUIHost, openPanel: MadeAheadOpenPanel? = nil, warmup: AgentPageWarmup? = nil, gestures: AgentPaneGestureRouter) {
+                 webUI: WebUIHost, openPanel: MadeAheadOpenPanel? = nil, warmup: AgentPageWarmup? = nil, gestures: AgentPaneGestureRouter,
+                 chatStores: AgentPaneChatStores = .keepsNothing) {
         guard let source = source ?? Self.bundledPage.map({ AgentPaneSource.bundled($0) }) else { return nil }
         gestureRouter = gestures
         self.openPanel = openPanel
         (self.model, self.source, self.renderRate, self.warmup) = (model, source, renderRate, warmup)
         warmup?.agentPageMade()
-        let provider = AgentPageProvider { [weak model] _ in model }
+        let provider = AgentPageProvider(chatStores: chatStores) { [weak model] _ in model }
         // Needs you reads the pane's own acpmux (a Chief chat's is the Chief home's), never another.
         provider.pendingAsksSocket = { [weak model] in model?.pendingAsksSocket }
-        guard let page = AgentPanePageHost.makePage(root: source.directory, provider: provider, renderRate: renderRate, webUI: webUI)
+        guard let page = AgentPanePageHost.makePage(root: source.directory, provider: provider, renderRate: renderRate, webUI: webUI,
+                                                    chatOpen: model.chatOpen)
         else { return nil }
         self.page = page
         pageEvents = provider
@@ -238,9 +241,10 @@ public final class AgentPaneView: NSView {
         observeReduceMotion()
     }
 
-    /// Reduce Motion: the system setting, the tests' pin or calm mode.
+    /// Reduce Motion (the system setting, the tests' pin or calm mode) and the other motion
+    /// settings, Energy Saver included: the page's status loops follow them (`statusIndicators`).
     private func observeReduceMotion() {
-        reduceMotionWatch = appearanceSignals.subscribe([.reduceMotion], viewNode: visibilityNode, owner: "AgentPaneView") { [weak self] in
+        reduceMotionWatch = appearanceSignals.subscribe([.reduceMotion, .motion], viewNode: visibilityNode, owner: "AgentPaneView") { [weak self] in
             self?.applyTheme()
         }
     }

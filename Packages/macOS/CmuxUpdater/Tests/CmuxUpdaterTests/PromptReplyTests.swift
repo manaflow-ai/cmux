@@ -1,6 +1,5 @@
 import Foundation
 import Testing
-@preconcurrency import Sparkle
 @testable import CmuxUpdater
 
 /// The at-most-once prompt reply and causal dismissal boundaries.
@@ -10,8 +9,8 @@ import Testing
 /// diagnostic-only and cannot mutate current state.
 @MainActor
 @Suite struct PromptReplyTests {
-    private func makeItem(_ version: String) -> SUAppcastItem {
-        SUAppcastItem(dictionary: [
+    private func makeItem(_ version: String) -> UpdateAppcastItem {
+        UpdateAppcastItem(dictionary: [
             "title": "cmux \(version)",
             "pubDate": "Wed, 25 Mar 2026 12:00:00 +0000",
             "enclosure": [
@@ -20,7 +19,7 @@ import Testing
                 "sparkle:version": version,
                 "sparkle:shortVersionString": version,
             ],
-        ]) ?? SUAppcastItem.empty()
+        ]) ?? UpdateAppcastItem.empty()
     }
 
     /// The reply forwards the first choice only; the consumption bit flips exactly then.

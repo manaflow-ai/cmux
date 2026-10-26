@@ -18,11 +18,13 @@ extension TypingLatencyProbe {
 
     /// The key router handed the newest press to the terminal `surface` names: records its
     /// `app.key.terminal` hop (no CSV column has it), and that surface's write, output and frame hops
-    /// may mark it from now on. Nothing while the probe is off or no press is open.
-    public func keyReachedTerminal(_ surface: SurfaceKey) {
+    /// may mark it from now on. `display` is the display of the terminal's window, where the echo is presented
+    /// (``attach(presents:)``). Nothing while the probe is off or no press is open.
+    public func keyReachedTerminal(_ surface: SurfaceKey, display: UInt32? = nil) {
         guard isSampling, let flow = state.withLock({ state -> UInt64? in
             guard let newest = state.newest else { return nil }
             state.open[newest].surface = surface
+            state.open[newest].display = display
             return state.open[newest].flow
         }) else { return }
         if flowsStarted { emitHop(.appKeyTerminal, flow: flow) }

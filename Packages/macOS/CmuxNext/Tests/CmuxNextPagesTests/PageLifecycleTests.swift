@@ -3,6 +3,7 @@ import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextHibernation
 @testable import CmuxNextPages
+import CmuxNextPagesTestSupport
 import CmuxNextSettings
 @testable import CmuxNextWakeups
 import Foundation
@@ -323,7 +324,7 @@ struct PageLifecycleTests {
         defer { try? FileManager.default.removeItem(at: root) }
         try Data("<!doctype html><title>Page</title>".utf8).write(to: root.appendingPathComponent("index.html"))
         let host = WebUIHost(chromium: nil, openPanel: nil,
-                             memoryPressure: MemoryPressureEvents(source: ManualMemoryPressureSource()),
+                             memory: QuietMemoryRegistry(),
                              clock: PageTestClock.never)
         host.lifecycle = lifecycle
         let descriptor = PageDescriptor(id: "test.page-lifecycle", resource: "page-lifecycle", processGroup: .viewer, namespaces: [])
@@ -403,7 +404,7 @@ struct PageLifecycleTests {
         let (host, view, root) = try openKeepAlivePage()
         defer { try? FileManager.default.removeItem(at: root) }
         defer { host.close(view) }
-        let target = PageWebViewLifecycle(view)
+        let target = PageWebViewLifecycle(view, encoder: PageSnapshotEncoder { _, done in done(nil) })
         lifecycle.hide("tab", page: target)
         #expect(view.keepReasons.lifecycle === lifecycle)
         var id = 0.0
@@ -542,7 +543,7 @@ struct PageLifecycleTests {
         window.orderFrontRegardless()
         window.layoutIfNeeded()
         let other = page("other")
-        lifecycle.hide("tab", page: PageWebViewLifecycle(view))
+        lifecycle.hide("tab", page: PageWebViewLifecycle(view, encoder: PageSnapshotEncoder { _, done in done(nil) }))
         rig.advance(to: .seconds(5))
         lifecycle.hide("other", page: Target(page: other))
         try fireDuePass()
@@ -588,7 +589,7 @@ struct PageLifecycleTests {
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         try Data("<!doctype html><title>Page</title>".utf8).write(to: root.appendingPathComponent("index.html"))
         let host = WebUIHost(chromium: nil, openPanel: nil,
-                             memoryPressure: MemoryPressureEvents(source: ManualMemoryPressureSource()),
+                             memory: QuietMemoryRegistry(),
                              clock: PageTestClock.never)
         host.lifecycle = lifecycle
         let descriptor = PageDescriptor(id: "test.page-keep-alive", resource: "page-keep-alive", processGroup: .viewer, namespaces: [])

@@ -8,18 +8,36 @@ extension MessagesLabHomeView {
     /// setting, calm mode and the tests' pin); nil reads the system setting. The host also tells
     /// live views of a change (``applyReduceMotion()``): this view observes nothing itself.
     nonisolated public static var reduceMotionOverride: Bool? {
-        get { reduceMotionPin.withLock { $0 } }
-        set { reduceMotionPin.withLock { $0 = newValue } }
+        get { motionPins.withLock { $0.reduceMotion } }
+        set { motionPins.withLock { $0.reduceMotion = newValue } }
     }
-    nonisolated private static let reduceMotionPin = OSAllocatedUnfairLock<Bool?>(initialState: nil)
+
+    /// The host's own reason for the ambient loops (the typing dots and breath) to hold still,
+    /// besides Reduce Motion: cmux-next pushes `!Motion.home.animatesLoops` (Energy Saver, the
+    /// animation speed off, Home's motion off). The caret is the person's own field and does not
+    /// read it. The host also tells live views of a change (``applyReduceMotion()``).
+    nonisolated public static var hostStillsLoops: Bool {
+        get { motionPins.withLock { $0.stillsLoops } }
+        set { motionPins.withLock { $0.stillsLoops = newValue } }
+    }
+
+    /// What the host pushed: one lock for both values.
+    private struct MotionPins: Sendable {
+        var reduceMotion: Bool?
+        var stillsLoops = false
+    }
+    nonisolated private static let motionPins = OSAllocatedUnfairLock(initialState: MotionPins())
 
     /// Reduce Motion: the caret holds solid, the typing dots stand still and do not breathe.
     nonisolated static var reducesMotion: Bool {
         reduceMotionOverride ?? NSWorkspace.shared.accessibilityDisplayShouldReduceMotion
     }
 
+    /// The typing dots stand still and do not breathe: Reduce Motion or ``hostStillsLoops``.
+    nonisolated static var stillsLoops: Bool { hostStillsLoops || reducesMotion }
+
     /// Stills (or restarts) the caret blink and every typing row under this view: the host calls it
-    /// after it pushed a new ``reduceMotionOverride``.
+    /// after it pushed a new ``reduceMotionOverride`` or ``hostStillsLoops``.
     public func applyReduceMotion() {
         var views: [NSView] = [self]
         while let view = views.popLast() {

@@ -226,7 +226,7 @@ class GapsTests(unittest.TestCase):
 
     def test_value_marks_are_not_times(self):
         runs = [{"main_start": 10, "first_window_frame_committed": 200, "launch.pageins_first_frame": 4100,
-                 "launch.main_cpu_ms": 56.5, "launch.temperature": "warm", "launch.interrupted": None}] * 3
+                 "launch.pageins_run_loop_start": 3800, "launch.main_cpu_ms": 56.5, "launch.temperature": "warm", "launch.interrupted": None}] * 3
         hits = sq.mark_gaps(runs, 5.0, "t warm")
         self.assertEqual([(h["from"], h["to"], h["p50_ms"]) for h in hits],
                          [("main_start", "first_window_frame_committed", 190.0)])

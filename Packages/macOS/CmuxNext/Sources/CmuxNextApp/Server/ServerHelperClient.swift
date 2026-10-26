@@ -106,6 +106,7 @@ enum ServerHelperClient {
 }
 
 /// The privileged connection to this build's helper.
+// crash-allow: one immutable NSXPCConnection, configured and resumed in init; its proxy and invalidate calls are thread-safe.
 private final nonisolated class HelperConnection: @unchecked Sendable {
     private let connection: NSXPCConnection
 
