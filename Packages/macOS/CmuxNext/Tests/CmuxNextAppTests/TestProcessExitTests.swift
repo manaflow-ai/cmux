@@ -32,6 +32,11 @@ struct TestProcessExitTests {
     /// ends here instead.
     @Test func aStopOfTheOutermostRunLoopDoesNotEndTheTestRun() async throws {
         try #require(cmux_next_test_runloop_guard_installed() == 1)
+        // The whole guard rests on the drain queue's run not being the innermost one, so that is
+        // checked rather than assumed: its run, plus the one the guard holds open inside it. A
+        // toolchain that stopped running the main loop here, or ran it in a mode outside the
+        // common modes where the counting observer cannot see it, fails on this line and says so.
+        #expect(cmux_next_test_runloop_guard_depth() >= 2)
         let before = cmux_next_test_runloop_guard_reentries()
         cmux_next_test_runloop_guard_stop_outermost()
         let deadline = Date().addingTimeInterval(30)
