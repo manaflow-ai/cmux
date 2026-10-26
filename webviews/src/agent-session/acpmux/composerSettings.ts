@@ -108,7 +108,10 @@ if (typeof window !== "undefined") window.cmuxAcpmuxComposer = setComposerSettin
 
 /// The host's write of a composer setting: `pane.showContextUsage`, `pane.showDictation` or
 /// `pane.subagentPanes` with `show`.
-type ComposerHost = (method: "pane.showContextUsage" | "pane.showDictation" | "pane.subagentPanes", show: boolean) => void;
+type ComposerHost = (
+  method: "pane.showContextUsage" | "pane.showDictation" | "pane.subagentPanes",
+  show: boolean,
+) => void;
 let composerHost: ComposerHost | undefined;
 
 /// App's route to the host; a page with none (a gallery, a test) keeps its choice in the page.
