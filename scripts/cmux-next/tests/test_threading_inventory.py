@@ -1,6 +1,10 @@
 #!/usr/bin/env python3
 """threading-inventory.py (p02-threads-001) on fixture trees, and its acceptance counts on 772cdfc45ac.
 
+--task-graph (p02-threads-110) expands a fixture plan (files, folders, globs, `{a,b}`, a range over a queue
+placeholder, prose) and orders each shared file's owners into one per wave; on 772cdfc45ac it lists
+AcpmuxEnvironment+BuildHomeAdoption.swift under 036/038/047/060 and leaves 0 shared files per wave.
+
 The fixture has hits of every rule (main-blocking, raw-blocking, raw-blocking-ext, maybe-main-blocking, task-priority,
 thread-doc, cpu-intensive: raw JSON, property list, image and regex calls on the main thread, not off it in the
 main-actor target nor in another target), an `await backoff.wait(` that no rule reports, a sync main-actor function
@@ -816,6 +820,90 @@ class GroupTests(unittest.TestCase):
         self.assertEqual(labels, ["module:CmuxNextCore", "module:CmuxNextUI"])
 
 
+PLAN = [
+    {"id": "t-001", "files": [SRC + "CmuxNextCore/Reader.swift", SRC + "CmuxNextCore/{Graph,Wire}.swift"]},
+    {"id": "t-002", "files": [SRC + "CmuxNextCore/Reader.swift", SRC + "CmuxNextCore/New.swift (new)"],
+     "depends_on": ["t-003"]},
+    {"id": "t-003", "files": [SRC + "CmuxNextCore/Reader.swift"]},
+    {"id": "t-004", "files": [SRC + "CmuxNextCore/"]},
+    {"id": "t-005", "files": [SRC + "CmuxNextUI/*.swift"]},
+    {"id": "t-010..011", "files": [SRC + "<module>/"], "machine_queue": "MQ-1", "depends_on": ["t-001"]},
+    {"id": "t-020", "files": ["origin/some-branch (abc1234)", "the design's list"]},
+    {"id": "t-030", "files": [SRC + "CmuxNextUI/ (MQ-99 hits)"], "machine_queue": "MQ-99", "depends_on": ["t-404"]},
+]
+LISTING = [*FIXTURE, "Packages/macOS/CmuxNext/Package.swift"]
+
+
+class TaskGraphTests(unittest.TestCase):
+    """--task-graph (p02-threads-110): one owner per file per wave."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.graph = inventory.build_task_graph(tree(), LISTING, {"tasks": PLAN})
+        cls.shared = {path: (order, added) for path, order, added in cls.graph.shared}
+
+    def test_file_lists_expand(self):
+        files = {unit_id: set(unit.files) for unit_id, unit in self.graph.units.items()}
+        core = {p for p in FIXTURE if "/CmuxNextCore/" in p}
+        self.assertEqual(files["t-001"], {SRC + "CmuxNextCore/" + n for n in ("Reader.swift", "Graph.swift",
+                                                                            "Wire.swift")})
+        self.assertIn(SRC + "CmuxNextCore/New.swift", files["t-002"])  # a file the task creates
+        self.assertEqual(files["t-004"], core)
+        self.assertTrue(all(self.graph.units["t-004"].files.values()))  # a folder is directory-wide
+        self.assertEqual(files["t-005"], {p for p in FIXTURE if "/CmuxNextUI/" in p})
+        self.assertFalse(any(self.graph.units["t-005"].files.values()))  # a glob names its files
+
+    def test_range_placeholder_resolves_to_the_queue_hits_split_in_path_order(self):
+        # raw-blocking hits: Graph 3, Reader 4, Loader 1. Two ids cut them into runs of about equal weight.
+        self.assertEqual(set(self.graph.units["t-010"].files), {SRC + "CmuxNextCore/Graph.swift",
+                                                                 SRC + "CmuxNextCore/Reader.swift"})
+        self.assertEqual(set(self.graph.units["t-011"].files), {SRC + "CmuxNextUI/Loader.swift"})
+        self.assertTrue(all(self.graph.units["t-010"].files.values()))  # a module sweep goes after named files
+        self.assertEqual(self.graph.units["t-011"].entry, "t-010..011")
+        self.assertIn("t-001", self.graph.units["t-011"].depends_on)
+
+    def test_owners_ordered_by_id_dependencies_and_directory_wide_last(self):
+        # Files in path order: Graph.swift first orders t-001, then the directory-wide t-004 and t-010.
+        self.assertEqual(self.shared[SRC + "CmuxNextCore/Graph.swift"],
+                         (["t-001", "t-004", "t-010"], [("t-004", "t-001"), ("t-010", "t-004")]))
+        order, added = self.shared[SRC + "CmuxNextCore/Reader.swift"]
+        # t-002 waits for t-003 already; directory-wide t-004 and t-010 come after the tasks that name the file,
+        # and t-010 already waits for t-004.
+        self.assertEqual(order, ["t-001", "t-003", "t-002", "t-004", "t-010"])
+        self.assertEqual(added, [("t-003", "t-001"), ("t-004", "t-002")])
+        order, added = self.shared[SRC + "CmuxNextCore/Wire.swift"]
+        self.assertEqual((order, added), (["t-001", "t-004"], []))  # t-004 already waits for t-001 (Reader)
+
+    def test_one_owner_per_file_per_wave_after_the_edges(self):
+        self.assertGreater(inventory.shared_per_wave(self.graph.units, self.graph.waves_before), 0)
+        self.assertEqual(inventory.shared_per_wave(self.graph.units, self.graph.waves_after), 0)
+        owners: dict = {}
+        for unit in self.graph.units.values():
+            for path in unit.files:
+                owners.setdefault((self.graph.waves_after[unit.id], path), []).append(unit.id)
+        self.assertEqual([k for k, v in owners.items() if len(v) > 1], [])
+
+    def test_unreadable_entries_and_unknown_dependencies_are_reported(self):
+        self.assertEqual([(t, e) for t, e, _ in self.graph.unresolved if t == "t-020"],
+                         [("t-020", "origin/some-branch (abc1234)"), ("t-020", "the design's list")])
+        # A queue the inventory has no rule for takes its whole folder, said so.
+        notes = {t: n for t, _, n in self.graph.unresolved}
+        self.assertIn("whole folder", notes["t-030"])
+        self.assertEqual(set(self.graph.units["t-030"].files), {p for p in FIXTURE if "/CmuxNextUI/" in p})
+        self.assertEqual(self.graph.unknown_dependencies, [("t-030", "t-404")])
+
+    def test_a_cycle_is_an_error(self):
+        plan = [{"id": "a", "files": [], "depends_on": ["b"]}, {"id": "b", "files": [], "depends_on": ["a"]}]
+        with self.assertRaisesRegex(ValueError, "cycle"):
+            inventory.build_task_graph(tree(), LISTING, plan)
+
+    def test_design_ranges_split_into_their_ids(self):
+        for task_id, parts in inventory.RANGE_PARTS.items():
+            self.assertEqual(sum(count for count, _ in parts), len(inventory.range_ids(task_id)), task_id)
+        self.assertEqual(inventory.range_ids("p02-threads-060..101")[-1], "p02-threads-101")
+        self.assertEqual(len(inventory.range_ids("p02-threads-060..101")), 42)
+
+
 def git(repo: Path, *args: str) -> None:
     env = {**os.environ, "GIT_CONFIG_GLOBAL": os.devnull, "GIT_CONFIG_NOSYSTEM": "1", "GIT_AUTHOR_NAME": "t",
            "GIT_AUTHOR_EMAIL": "t@example.com", "GIT_COMMITTER_NAME": "t", "GIT_COMMITTER_EMAIL": "t@example.com"}
@@ -903,8 +991,33 @@ class CLITests(unittest.TestCase):
         self.assertEqual(snapshot(self.repo), before)
         self.assertEqual(snapshot(SCRIPTS), scripts_before)
 
+    def test_task_graph(self):
+        with tempfile.TemporaryDirectory() as outside:
+            plan = Path(outside) / "tasks.json"
+            programs = {"p": {"tasks": PLAN}, "q": {"tasks": [{"id": "x", "files": []}]}}
+            plan.write_text(json.dumps({"programs": programs}))
+            before = snapshot(self.repo)
+            lines = [json.loads(line) for line in
+                     self.run_main("--task-graph", str(plan), "--program", "p", "--jsonl").splitlines()]
+            self.assertEqual(snapshot(self.repo), before)
+            text = self.run_main("--task-graph", str(plan))
+        records = {r["file"]: r for r in lines if "file" in r}
+        reader = records[SRC + "CmuxNextCore/Reader.swift"]
+        self.assertEqual(reader["tasks"], ["t-001", "t-003", "t-002", "t-004", "t-010"])
+        self.assertEqual(reader["resolution"]["depends_on"], [["t-003", "t-001"], ["t-004", "t-002"]])
+        summary = lines[-1]["summary"]
+        self.assertEqual(summary["shared_per_wave"]["after"], 0)
+        self.assertEqual(summary["tasks"], 9)  # --program p: t-010..011 is two tasks, q's x is left out
+        self.assertIn("shared files per wave", text)
+        self.assertIn("unresolved t-020: the design's list (no path)", text)
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            inventory.main(["--repo", str(self.repo), "--task-graph", "plan.json", "--rule", "raw-blocking"])
+        with contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit):
+            inventory.main(["--repo", str(self.repo), "--program", "p"])  # --program needs --task-graph
+
 
 ACCEPTANCE_REV = "772cdfc45ac"
+DESIGN_PLAN = REPO / "plans/cmux-next/chrome-parity/design-result.json"
 
 
 def has_rev(rev: str) -> bool:
@@ -922,6 +1035,24 @@ class AcceptanceTests(unittest.TestCase):
         # 974 counted the primitive classes before p02-threads-002, which only adds classes (1097 with them).
         self.assertGreaterEqual(counts["raw-blocking"], 0.95 * 974, counts)
         self.assertGreaterEqual(counts["task-priority"], 120, counts)
+
+    @unittest.skipUnless(DESIGN_PLAN.is_file(), "the chrome-parity plan is not in this checkout")
+    def test_task_graph_on_the_design_revision(self):
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            inventory.main(["--repo", str(REPO), "--rev", ACCEPTANCE_REV, "--task-graph", str(DESIGN_PLAN),
+                            "--program", "p02-threads", "--jsonl"])
+        lines = [json.loads(line) for line in out.getvalue().splitlines()]
+        tasks = {r["file"].rsplit("/", 1)[-1]: r["tasks"] for r in lines if "file" in r}
+        adoption = set(tasks["AcpmuxEnvironment+BuildHomeAdoption.swift"])
+        self.assertLessEqual({f"p02-threads-{n}" for n in ("036", "038", "047", "060")}, adoption, adoption)
+        lanes = set(tasks["LaneScheduler.swift"])
+        self.assertLessEqual({f"p02-threads-{n}" for n in ("005", "015", "017", "114", "115", "116", "117", "118",
+                                                           "119", "123", "125")}, lanes, lanes)
+        summary = lines[-1]["summary"]
+        self.assertGreater(summary["shared_per_wave"]["before"], 0)
+        self.assertEqual(summary["shared_per_wave"]["after"], 0)
+        self.assertEqual(summary["unknown_dependencies"], [])
 
 
 if __name__ == "__main__":
