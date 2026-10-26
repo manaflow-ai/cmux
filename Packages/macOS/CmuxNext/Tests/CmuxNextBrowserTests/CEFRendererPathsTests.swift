@@ -123,7 +123,7 @@ import Testing
         let host = CEFPaneHost(key: CEFPaneKey(pane: BrowserPaneID(rawValue: "spare-\(UUID().uuidString)"), profile: .default), runtime: rig.runtime)
         let blank = CEFTab(id: .random(), profile: .default, host: host, runtime: rig.runtime)
         host.placeholder = blank
-        host.freezesPlaceholder = true
+        host.quietsPlaceholder = true
         host.add(blank)
         host.ensureCreated(blank)
         let request = try #require(rig.runtime.pendingWindows.keys.first)
