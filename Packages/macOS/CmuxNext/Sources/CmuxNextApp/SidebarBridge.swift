@@ -284,6 +284,13 @@ final class SidebarBridge {
         snapshotRecorder.record(model, window: state.id, services: services)
     }
 
+    /// Quit: a sidebar change still waiting for its idle task reaches the snapshot store now, before
+    /// the store's flush writes the file.
+    func flushSnapshot() async {
+        guard let state, let pending = snapshotRecorder.flushNow(model, window: state.id, services: services) else { return }
+        await services.sidebarSnapshots.record(pending.snapshot, window: state.id, sequence: pending.sequence)
+    }
+
     private func markReadyForReveal() {
         guard !isReadyForReveal else { return }
         isReadyForReveal = true
