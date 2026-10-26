@@ -141,6 +141,24 @@ describe("groupVariants", () => {
     ]);
   });
 
+  test("a row that names no vendor joins its own vendor's model, whatever the order", async () => {
+    const { groupVariants } = await variants();
+    const ids = (rows: { id: string }[]) =>
+      groupVariants(rows.map((row) => ({ ...row, name: row.id }))).map((group) =>
+        group.offers.map((offer) => offer.model.id),
+      );
+    expect(
+      ids([{ id: "together/mistral/coder-3" }, { id: "openrouter/qwen/coder-3" }, { id: "qwen/coder-3" }]),
+    ).toEqual([["together/mistral/coder-3"], ["openrouter/qwen/coder-3", "qwen/coder-3"]]);
+    expect(
+      ids([{ id: "qwen/coder-3" }, { id: "together/mistral/coder-3" }, { id: "openrouter/qwen/coder-3" }]),
+    ).toEqual([["qwen/coder-3", "openrouter/qwen/coder-3"], ["together/mistral/coder-3"]]);
+    // Two vendors and a provider that is neither: it is its own model.
+    expect(
+      ids([{ id: "together/mistral/coder-3" }, { id: "openrouter/qwen/coder-3" }, { id: "opencode/coder-3" }]),
+    ).toEqual([["together/mistral/coder-3"], ["openrouter/qwen/coder-3"], ["opencode/coder-3"]]);
+  });
+
   test("the running provider's row is the one its model lands", async () => {
     const { groupVariants } = await variants();
     expect(groupVariants(rows, "deepseek/deepseek-v4-pro")[0]!.model.id).toBe("deepseek/deepseek-v4-pro");
