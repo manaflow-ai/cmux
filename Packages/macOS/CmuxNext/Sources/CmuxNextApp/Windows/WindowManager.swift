@@ -76,6 +76,9 @@ final class WindowManager {
     /// outside the registry, then becomes the frontmost restored window (or the window of the
     /// first workspaces). Nil once it is registered.
     var launchWindowID: String?
+    /// The launch window's picture from the last quit for a window id, asked once by the first window (the launch
+    /// wiring sets it when `savedWindowPicture` is on and the picture's meta matches; p08-startup-059). Nil: none.
+    var launchPicture: ((String) -> CGImage?)?
     /// Windows placed by `TestWindowPlacement` so far (cascade ordinal).
     private var placedWindows = 0
     private(set) var isTerminating = false
@@ -320,20 +323,38 @@ final class WindowManager {
         if registry.value.isIncognito(window.id) { controller.showIncognitoBadge() }
         SidebarTabRowHandoff.install(on: controller, session: services.dragSession)
         controllers.append(controller)
-        // Its content goes in before it is ordered in (the launch snapshot's workspace, else the
-        // connecting state), so its first frame on screen draws it, never the backdrop alone; the
-        // controller's own observer would install it a main-actor hop later.
-        controller.showWorkspace(requested: state.workspaceID)
-        // A window none of whose workspaces is mirrored yet stays off screen
-        // until `contentDidAppear` (never an empty frame). The launch window
-        // (no workspaces) shows the connecting state at once.
-        if controller.content != nil || hasMirroredWorkspace(window) || window.workspaceIDs.isEmpty {
+        // Its content goes in before it is ordered in (the launch snapshot's workspace, else the connecting state), so
+        // its first frame on screen draws it, never the backdrop alone; the controller's own observer would install
+        // it a main-actor hop later. Under its launch picture the content is built after that frame (p08-startup-060).
+        if !coverWithLaunchPicture(controller) { controller.showWorkspace(requested: state.workspaceID) }
+        // A window none of whose workspaces is mirrored yet stays off screen until `contentDidAppear` (never an
+        // empty frame). The launch window (no workspaces) shows the connecting state at once, a covered one its picture.
+        if controller.content != nil || hasMirroredWorkspace(window) || window.workspaceIDs.isEmpty || controller.root.launchPicture != nil {
             present(controller)
         } else {
             awaitingContent[window.id] = false
         }
         if controllers.count == 1 { onFirstWindow?(controller) }
         return controller
+    }
+
+    /// The first window's first frame is its picture from the last quit over the bare window (p08-startup-060):
+    /// the workspace is built under it in an afterFirstFrame post, and the picture leaves region by region at each
+    /// region's first content: the sidebar's part at its rows, the main pane's at its tab strip and content, the
+    /// rest with the last of them (`LaunchPictureCover`, 2 s bound). False with no picture or past the first frame.
+    private func coverWithLaunchPicture(_ controller: WindowController) -> Bool {
+        defer { launchPicture = nil }
+        guard let startup = services.launchStartup, startup.log.phase == .beforeFirstFrame, let image = launchPicture?(controller.state.id) else { return false }
+        let root = controller.root
+        root.launchPicture = LaunchPictureCover(image: image, over: root, parts: [.init(until: [.sidebar], view: root.sidebar), .init(until: [.tabs, .pane], view: root.contentHost)],
+                                                reveal: services.launchReveal, deadlines: services.mainDeadlines)
+        DebugTimings.markLaunch("launch_picture_shown")
+        startup.post(.afterFirstFrame, "WindowManager.launchContent", on: .main) { [weak controller] in
+            guard let controller, !controller.tornDown else { return }
+            controller.showWorkspace(requested: controller.state.workspaceID)
+            if controller.workspaceObservation == nil { controller.observeWorkspace() }
+        }
+        return true
     }
 
     /// True when a machine reports at least one of `window`'s workspaces.
