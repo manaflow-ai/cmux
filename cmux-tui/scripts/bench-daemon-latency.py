@@ -29,7 +29,8 @@ Sections per scenario (keys of result["scenarios"][NAME]):
                send and list-workspaces: (delta over a burst - idle rate x
                burst time) / messages. `method` names the counter: macOS
                proc_pidinfo(PROC_PIDTASKINFO) unix + mach syscalls; Linux
-               /proc/PID/io syscr + syscw (read/write class only). Keys per
+               context switches only (its /proc syscall counters miss
+               sendmsg, recvmsg and poll; Linux rows are not perf evidence). Keys per
                op: messages, burst_s, syscalls_per_msg, ctx_per_msg,
                syscalls_idle_per_s, ctx_idle_per_s, and server_stats_ipc_per_msg
                (each numeric counter of `server-stats include=[ipc]`, such as
@@ -359,7 +360,9 @@ class ProcCounters:
             except OSError:
                 pass
         elif os.path.exists(f"/proc/{pid}/io"):
-            self.method = "linux /proc/PID/io syscr + syscw (read/write class only), task ctxt switches"
+            self.method = ("linux: context switches summed over live threads (/proc/PID/task/TID/status); no "
+                           "syscall count: /proc io syscr/syscw see only read/write-class calls, not sendmsg, "
+                           "recvmsg or poll")
 
     def sample(self):
         if self.method is None:
@@ -371,24 +374,19 @@ class ProcCounters:
                 return None
             return {"syscalls": info.syscalls_unix + info.syscalls_mach, "ctx": info.csw, "threads": info.threadnum}
         try:
-            fields = {}
-            with open(f"/proc/{self.pid}/io") as f:
-                for ln in f:
-                    k, v = ln.split(":", 1)
-                    fields[k] = int(v)
-            ctx = 0
             tasks = os.listdir(f"/proc/{self.pid}/task")
-            for tid in tasks:
-                try:
-                    with open(f"/proc/{self.pid}/task/{tid}/status") as f:
-                        for ln in f:
-                            if ln.startswith(("voluntary_ctxt_switches", "nonvoluntary_ctxt_switches")):
-                                ctx += int(ln.split(":", 1)[1])
-                except OSError:
-                    pass
-            return {"syscalls": fields["syscr"] + fields["syscw"], "ctx": ctx, "threads": len(tasks)}
-        except (OSError, KeyError, ValueError):
+        except OSError:
             return None
+        ctx = 0
+        for tid in tasks:
+            try:
+                with open(f"/proc/{self.pid}/task/{tid}/status") as f:
+                    for ln in f:
+                        if ln.startswith(("voluntary_ctxt_switches", "nonvoluntary_ctxt_switches")):
+                            ctx += int(ln.split(":", 1)[1])
+            except (OSError, ValueError):
+                pass  # the thread ended between listdir and open
+        return {"syscalls": None, "ctx": ctx, "threads": len(tasks)}
 
     def threads(self):
         s = self.sample()
@@ -668,13 +666,14 @@ def unserved_reason(err):
 # Out-of-process clients (no GIL contention with the measuring thread)
 
 
-def pinger_main(sock_path, start_at, stop_at, interval, queue):
+def pinger_main(sock_path, start_at, stop_at, stop, interval, queue):
+    """Pings on its own connection from start_at until `stop` is set or stop_at passes."""
     vals = []
     try:
         c = Conn(sock_path)
         while time.time() < start_at:
             time.sleep(0.005)
-        while time.time() < stop_at:
+        while time.time() < stop_at and not stop.is_set():
             ms, msg = c.timed("ping")
             if msg.get("ok"):
                 vals.append(ms)
@@ -711,9 +710,12 @@ def automation_main(sock_path, workspace, surface, start_at, stop_at, queue):
         queue.put({"samples": vals, "seconds": stop_at - start_at, "error": repr(e)})
 
 
+SPAWN = multiprocessing.get_context("spawn")
+
+
 def run_processes(targets):
-    """Starts one spawn process per (fn, args) and returns their queue results."""
-    ctx = multiprocessing.get_context("spawn")
+    """Starts one spawn process per (fn, args) and returns (processes, result queue)."""
+    ctx = SPAWN
     queue = ctx.Queue()
     procs = [ctx.Process(target=fn, args=(*args, queue), daemon=True) for fn, args in targets]
     for p in procs:
@@ -874,6 +876,19 @@ class Bench:
                 seen.add(s)
                 yield s
 
+    def first_terminal_resource_id(self, node):
+        """The first `terminal_resource_id` (term_...) of a list-workspaces tree, or None."""
+        if isinstance(node, dict):
+            if isinstance(node.get("terminal_resource_id"), str):
+                return node["terminal_resource_id"]
+            node = list(node.values())
+        if isinstance(node, list):
+            for value in node:
+                found = self.first_terminal_resource_id(value)
+                if found:
+                    return found
+        return None
+
     def first_surface(self, c):
         tree = must(c.call("list-workspaces"), "list-workspaces")
         return next(iter(self.surfaces(tree)))
@@ -986,13 +1001,15 @@ class Bench:
         env = dict(self.env)
         env["CMUX_TUI_SOCKET"] = self.sock_path
         c = Conn(self.sock_path)
-        surface = self.first_surface(c)
+        tree = must(c.call("list-workspaces"), "list-workspaces")
         c.close()
+        surface = next(iter(self.surfaces(tree)))
+        # The CLI names a terminal by its public id (term_...); older daemons have only the surface id.
+        selectors = [s for s in (self.first_terminal_resource_id(tree), str(surface)) if s]
         cmds = {
             "cli-ping": [["session", "current", "ping"], ["ping"]],
             "cli-workspace-list": [["workspace", "list"]],
-            "cli-terminal-write": [["terminal", str(surface), "write", "--text", ":\r"],
-                                   ["terminal", "current", "write", "--text", ":\r"]],
+            "cli-terminal-write": [["terminal", selector, "write", "--text", ":\r"] for selector in selectors],
         }
         out = {}
         for name, candidates in cmds.items():
@@ -1070,6 +1087,8 @@ class Bench:
             row = {"messages": n, "burst_s": round(burst_s, 4)}
             if os_counter and None not in (a, b, d):
                 for key in ("syscalls", "ctx"):
+                    if d[key] is None:
+                        continue
                     idle_rate = (b[key] - a[key]) / idle_s
                     row[f"{key}_per_msg"] = round(((d[key] - b[key]) - idle_rate * burst_s) / n, 3)
                     row[f"{key}_idle_per_s"] = round(idle_rate, 1)
@@ -1132,7 +1151,8 @@ class Bench:
             idle.append(ms)
             a.pump(interval)
         start_at = time.time() + 0.5
-        procs, queue = run_processes([(pinger_main, (self.sock_path, start_at, start_at + timeout, interval))])
+        stop = SPAWN.Event()
+        procs, queue = run_processes([(pinger_main, (self.sock_path, start_at, start_at + timeout, stop, interval))])
         while time.time() < start_at:
             a.pump(0.01)
         must(a.call("send", surface=surface, text="\r"), "send")
@@ -1143,10 +1163,11 @@ class Bench:
             same.append(ms)
             a.pump(interval)
         flood_s = time.perf_counter() - t0
-        for p in procs:
-            p.terminate()
+        stop.set()
         other = collect(procs, queue, 10)[0]
         a.close()
+        if "error" in other:
+            self.failed = True
         row = {
             f"idle-ping-same-{k}k": stats(idle),
             f"bulk{k}k-ping-same": stats(same),
@@ -1390,9 +1411,11 @@ def report(name, res):
         elif "error" in s:
             print(f"PERF-DAEMON-ERROR {name} {metric} {s['error']}", flush=True)
     for metric, s in (res.get("syscalls") or {}).items():
-        if isinstance(s, dict) and "syscalls_per_msg" in s:
-            print(f"PERF-DAEMON-SYSCALLS {name} {metric} syscalls/msg={s['syscalls_per_msg']} "
-                  f"ctx/msg={s['ctx_per_msg']} idle_syscalls/s={s['syscalls_idle_per_s']}", flush=True)
+        if isinstance(s, dict) and "ctx_per_msg" in s:
+            print(f"PERF-DAEMON-SYSCALLS {name} {metric} syscalls/msg={s.get('syscalls_per_msg', 'n/a')} "
+                  f"ctx/msg={s['ctx_per_msg']} idle_syscalls/s={s.get('syscalls_idle_per_s', 'n/a')}"
+                  + (f" ipc/msg={json.dumps(s['server_stats_ipc_per_msg'])}" if "server_stats_ipc_per_msg" in s else ""),
+                  flush=True)
     storm = res.get("automation_storm")
     if storm and "ipc16" in storm:
         print(f"PERF-DAEMON-IPC16 {name} " + " ".join(f"{k}={v}" for k, v in storm["ipc16"].items()), flush=True)
