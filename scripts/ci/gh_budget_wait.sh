@@ -89,9 +89,10 @@ wait_for_budget() {
   [ "$remaining" -gt 0 ] || return 1
   [ "$want" -le "$remaining" ] || want="$remaining"
   log_wait "$why; waiting ${want}s for the budget to reset (${spent}s waited in this job so far)"
-  sleep "$want"
+  # Reserved before sleeping, so a caller's timeout that kills this mid-wait still leaves it counted.
   mkdir -p "$ledger_dir"
   echo $((spent + want)) >"$ledger_dir/waited.$$" && mv -f "$ledger_dir/waited.$$" "$ledger_dir/waited"
+  sleep "$want"
 }
 
 if [ "${1:-}" = "--install" ]; then

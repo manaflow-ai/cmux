@@ -159,6 +159,14 @@ class WrapperTests(unittest.TestCase):
         self.assertEqual(h.gh("api", "y").returncode, 1)
         self.assertEqual(h.calls().count("call api y"), 1)
 
+    def test_a_wait_is_counted_before_it_sleeps(self) -> None:
+        # A caller's timeout can kill the wrapper mid-wait; the wait must already be in the ledger.
+        h = self.harness(refusals=1, GH_BUDGET_WAIT_MAX_SECONDS="30")
+        with self.assertRaises(subprocess.TimeoutExpired):
+            subprocess.run([str(h.shim), "api", "repos/o/r"], env=h.env, capture_output=True,
+                           text=True, timeout=3)
+        self.assertEqual(h.waited(), 30)
+
     def test_a_malformed_ledger_counts_as_spent(self) -> None:
         h = self.harness(refusals=1, GH_BUDGET_WAIT_MAX_SECONDS="60")
         (h.runner_temp / "gh-budget-wait").mkdir(exist_ok=True)
