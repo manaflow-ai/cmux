@@ -238,7 +238,9 @@ pub(crate) fn push_binary(r: &dyn Remote, bin: &str) -> Result<String> {
 fn push_update(r: &dyn Remote, local: &Path, running: Option<&str>) -> Result<String> {
     run(
         r,
-        &format!("mkdir -p ~/.local/bin && {MAKE_REMOTE_HOME} && rm -rf ~/.local/bin/.acpmux-new ~/.local/bin/acpmux.new && mkdir ~/.local/bin/.acpmux-new"),
+        &format!(
+            "mkdir -p ~/.local/bin && {MAKE_REMOTE_HOME} && rm -rf ~/.local/bin/.acpmux-new ~/.local/bin/acpmux.new && mkdir ~/.local/bin/.acpmux-new"
+        ),
     )?;
     r.push(local, "~/.local/bin/.acpmux-new/acpmux")?;
     let running = running.filter(|c| c.bytes().all(|b| b.is_ascii_hexdigit())).unwrap_or("");
