@@ -31,7 +31,12 @@ public final class CloudFeedSource: FeedSource {
     private var socket: URLSessionWebSocketTask?
     /// Bumped by every start, stop and reset: a finishing older connection never touches newer state.
     private var generation = 0
-    private var probe: Task<Void, Never>?
+    /// The pong deadline of the latest ``checkAlive()``: a later probe replaces it, its pong drops it.
+    private let probe: DemandTimer
+    /// Counts probes, so only the latest one's pong drops the deadline.
+    private var probes = 0
+    /// How long ``checkAlive()`` waits for the pong; a flexible deadline (WakeLeeway: 1 s leeway).
+    static let pongLimit: Duration = .seconds(10)
     private var stream = ""
     private var connected = false
     private var active = false
@@ -46,7 +51,8 @@ public final class CloudFeedSource: FeedSource {
         self.init(apiBaseURL: apiBaseURL, device: device, token: token, reconnect: Backoff(initial: .milliseconds(500), maximum: .seconds(30)), connect: nil)
     }
 
-    init(apiBaseURL: URL, device: String, token: @escaping TokenProvider, reconnect: Backoff, connect: Connect?) {
+    init(apiBaseURL: URL, device: String, token: @escaping TokenProvider, reconnect: Backoff, connect: Connect?,
+         clock: any Clock<Duration> = ContinuousClock()) {
         var c = URLComponents(url: apiBaseURL, resolvingAgainstBaseURL: false) ?? URLComponents()
         c.scheme = c.scheme == "http" ? "ws" : "wss"
         c.path = "/v1/wire/feed"
@@ -55,11 +61,14 @@ public final class CloudFeedSource: FeedSource {
         self.token = token
         self.reconnect = reconnect
         self.connect = connect
+        // timer-class-allow: off-main: the pong deadline only cancels the probed socket (thread-safe) and runs no main-thread job.
+        probe = DemandTimer(owner: "CloudFeedSource.pong", clock: clock)
     }
 
     public func start(_ sink: @escaping @MainActor (FeedSourceEvent) -> Void) {
         self.sink = sink
         runner?.cancel()
+        probe.cancel()
         generation += 1
         let generation = generation
         runner = Task { await self.run(generation) }
@@ -69,7 +78,7 @@ public final class CloudFeedSource: FeedSource {
         generation += 1
         runner?.cancel()
         runner = nil
-        probe?.cancel()
+        probe.cancel()
         socket?.cancel(with: .goingAway, reason: nil)
         socket = nil
         connected = false
@@ -92,20 +101,24 @@ public final class CloudFeedSource: FeedSource {
     /// no pong within 10 s closes it, and the run loop reconnects.
     public func checkAlive() {
         guard let socket, connected else { return }
-        probe?.cancel()
-        let generation = generation
-        let answered = PingState()
+        let answer = armPongLimit { socket.cancel(with: .goingAway, reason: nil) }
         socket.sendPing { error in
-            Task { @MainActor in
-                answered.done = true
-                if error != nil, generation == self.generation { socket.cancel(with: .goingAway, reason: nil) }
-            }
+            let failed = error != nil
+            Task { @MainActor in answer(failed) }
         }
-        // task-owner: CloudFeedSource.probe, one-shot pong deadline, cancelled by the next probe or stop.
-        probe = Task {
-            // wakeup-allow: one-shot 10 s pong deadline after a wake, network change or send; not periodic.
-            try? await ContinuousClock().sleep(for: .seconds(10))
-            if !Task.isCancelled, !answered.done, generation == self.generation { socket.cancel(with: .goingAway, reason: nil) }
+    }
+
+    /// Arms one probe's pong deadline: `close` runs at ``pongLimit``, off the main actor, unless the
+    /// returned answer, a later probe, a start or a stop comes first. A failed ping closes at once and
+    /// the latest probe's pong drops the deadline, while the connection that sent the ping is current.
+    func armPongLimit(close: @escaping @Sendable () -> Void) -> @MainActor @Sendable (_ failed: Bool) -> Void {
+        probes += 1
+        let id = probes
+        let generation = generation
+        probe.schedule(after: Self.pongLimit) { close() }
+        return { [weak self] failed in
+            guard let self, generation == self.generation else { return }
+            if failed { close() } else if id == probes { probe.cancel() }
         }
     }
 
@@ -303,10 +316,4 @@ nonisolated enum FeedWireFrame: Sendable {
             return .ignored
         }
     }
-}
-
-/// Whether a ping got its pong (main actor only).
-@MainActor
-private final class PingState {
-    var done = false
 }

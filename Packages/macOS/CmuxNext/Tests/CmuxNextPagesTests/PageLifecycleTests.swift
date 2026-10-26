@@ -1,9 +1,13 @@
+import AppKit
 import CmuxNextCompat
+import CmuxNextDesign
 import CmuxNextHibernation
 @testable import CmuxNextPages
+import CmuxNextSettings
 @testable import CmuxNextWakeups
 import Foundation
 import Testing
+import WebKit
 
 /// ``PageLifecycle`` takes show and hide from its caller (the content lifecycle), runs the planner
 /// only at its one one-shot deadline, thaws a page before its show returns, and does O(changed pages)
@@ -16,12 +20,15 @@ struct PageLifecycleTests {
         let name: String
         let log: Log
         var reasons: Set<PageLifecyclePlanner.KeepReason> = []
+        /// Its ``PageKeepReasons``, as a ``PageWebView`` holds them (p13-webui-032).
+        let keep = PageKeepReasons()
         var reasonReads = 0
         weak var lifecycle: PageLifecycle?
 
         init(_ name: String, log: Log) {
             self.name = name
             self.log = log
+            keep.owner = self
         }
     }
 
@@ -36,10 +43,13 @@ struct PageLifecycleTests {
         var lifecycleGroup: String? { "privileged" }
         var lifecycleKeepReasons: Set<PageLifecyclePlanner.KeepReason> {
             page.reasonReads += 1
-            return page.reasons
+            return page.reasons.union(page.keep.current)
         }
 
-        func reportsReasonChanges(to lifecycle: PageLifecycle) { page.lifecycle = lifecycle }
+        func reportsReasonChanges(to lifecycle: PageLifecycle) {
+            page.lifecycle = lifecycle
+            page.keep.lifecycle = lifecycle
+        }
         func keepHideSnapshot() {}
         func dropHideSnapshot() {}
         func freeze() { page.log.lines.append("freeze \(page.name)") }
@@ -335,6 +345,269 @@ struct PageLifecycleTests {
         host.close(view)
         #expect(lifecycle.state(of: "tab") == nil)
     }
+
+    // MARK: Keep reasons (p13-webui-032)
+
+    /// A host hold (a confirmation sheet) on a frozen page thaws it at the next pass, which it arms
+    /// for now; its end arms a pass, and the page freezes again with no show or hide.
+    @Test func aHostHoldThawsAFrozenPageAndItsEndLetsItFreezeAgain() throws {
+        let history = page("history"), cloud = page("cloud")
+        lifecycle.hide("h", page: Target(page: history))
+        rig.advance(to: .seconds(5))
+        lifecycle.hide("c", page: Target(page: cloud))
+        try fireDuePass()
+        #expect(lifecycle.state(of: "h") == .frozen)
+        rig.advance(to: .seconds(12))
+        history.keep.begin(.confirmation)
+        #expect(lifecycle.nextPassAt == .seconds(12))
+        try fireDuePass()
+        #expect(lifecycle.state(of: "h") == .hidden)
+        #expect(log.lines == ["freeze history", "thaw history"])
+        rig.advance(to: .seconds(20))
+        history.keep.end(.confirmation)
+        #expect(lifecycle.nextPassAt == .seconds(20))
+        try fireDuePass()
+        #expect(lifecycle.state(of: "h") == .frozen)
+        #expect(log.lines == ["freeze history", "thaw history", "freeze history"])
+    }
+
+    /// The host's holds are counted, and the page setting or ending a reason the host holds changes
+    /// nothing: page script cannot end the host's hold, and no pass is armed for it.
+    @Test func hostHoldsAreCountedAndThePageCannotEndOne() throws {
+        let history = page("history"), cloud = page("cloud")
+        lifecycle.hide("h", page: Target(page: history))
+        rig.advance(to: .seconds(5))
+        lifecycle.hide("c", page: Target(page: cloud))
+        try fireDuePass()
+        rig.advance(to: .seconds(12))
+        history.keep.begin(.fileDrop)
+        #expect(lifecycle.nextPassAt == .seconds(12))
+        try fireDuePass()
+        let armed = lifecycle.nextPassAt
+        history.keep.begin(.fileDrop)
+        history.keep.end(.fileDrop)
+        #expect(history.keep.current == [.fileDrop])
+        history.keep.setFromPage(.fileDrop, on: true)
+        history.keep.setFromPage(.fileDrop, on: false)
+        #expect(history.keep.current == [.fileDrop], "page script ended the host's hold")
+        #expect(lifecycle.nextPassAt == armed, "an unchanged reason armed a pass")
+        history.keep.end(.fileDrop)
+        #expect(history.keep.current.isEmpty)
+        history.keep.end(.fileDrop) // one end too many changes nothing
+        #expect(history.keep.current.isEmpty)
+    }
+
+    /// A real page: `cmux.page.keepAlive` sets only a reason page script may set, never one the host
+    /// or the planner owns, cannot end the host's hold, and its reasons end with a reload and a crash.
+    @Test func keepAliveAddsOnlyThePagesOwnReasonsAndThoseEndOnReloadAndCrash() async throws {
+        let (host, view, root) = try openKeepAlivePage()
+        defer { try? FileManager.default.removeItem(at: root) }
+        defer { host.close(view) }
+        let target = PageWebViewLifecycle(view)
+        lifecycle.hide("tab", page: target)
+        #expect(view.keepReasons.lifecycle === lifecycle)
+        var id = 0.0
+        func keepAlive(_ reason: String, _ on: Bool) async -> JSONValue {
+            id += 1
+            return await view.router.handle(Self.keepAliveCall(id: id, reason, on))
+        }
+
+        #expect(await keepAlive("user_edits", true)["t"]?.stringValue == "ok")
+        #expect(target.lifecycleKeepReasons.contains(.userEdits))
+        // Not the page's to set: the host's (what it observes itself, as Chrome's browser does), the
+        // planner's, an owner's, or no reason at all.
+        for reason in ["focused", "loading", "inspector", "confirmation", "popup", "file_drop", "dictation", "audible",
+                       "web_rtc", "connected_device", "web_lock", "recently_visible", "most_recently_used",
+                       "hibernation_off", "turn_running", "pinned", "nonsense"] {
+            let refused = await keepAlive(reason, true)
+            #expect(refused["code"]?.stringValue == "cmux.protocol.invalid_params", "\(reason)")
+        }
+        let malformed = await view.router.handle(.object([
+            "t": .string("call"), "id": .number(99), "op": .string(PageNativeOp.keepAlive),
+            "params": .object(["reason": .string("draft")]),
+        ]))
+        #expect(malformed["code"]?.stringValue == "cmux.protocol.invalid_params")
+        #expect(!target.lifecycleKeepReasons.contains(.draft))
+        // The host reads a drop; the page cannot end its hold.
+        view.keepReasons.begin(.fileDrop)
+        #expect(await keepAlive("file_drop", false)["code"]?.stringValue == "cmux.protocol.invalid_params")
+        #expect(target.lifecycleKeepReasons.contains(.fileDrop))
+
+        // A reload: a new document commits, and the old one's reasons end; the host's hold stays.
+        view.documentCommitted()
+        #expect(!target.lifecycleKeepReasons.contains(.userEdits))
+        #expect(target.lifecycleKeepReasons.contains(.fileDrop))
+        view.keepReasons.end(.fileDrop)
+
+        // A crash ends them too.
+        #expect(await keepAlive("draft", true)["t"]?.stringValue == "ok")
+        #expect(view.keepReasons.fromPage == [.draft])
+        view.contentProcessTerminated()
+        #expect(view.keepReasons.fromPage.isEmpty)
+        #expect(!target.lifecycleKeepReasons.contains(.draft))
+    }
+
+    /// A `cmux.page.keepAlive` the old document sent, still waiting to run when a reload commits
+    /// the new document, never lands on it: the new document's page client never sends its end.
+    @Test func aKeepAliveTheOldDocumentSentNeverLandsOnTheNewOne() async throws {
+        let (host, view, root) = try openKeepAlivePage()
+        defer { try? FileManager.default.removeItem(at: root) }
+        defer { host.close(view) }
+        let stale = Task { await view.router.handle(Self.keepAliveCall(id: 1, "user_edits", true)) }
+        // The call is registered and its work is queued, not run yet.
+        for _ in 0..<100 where view.router.inFlightCalls().isEmpty { await Task.yield() }
+        try #require(view.router.inFlightCalls().count == 1)
+        try #require(view.keepReasons.fromPage.isEmpty, "the call ran before the reload; the race is not reproduced")
+        view.documentCommitted()
+        let reply = await stale.value
+        #expect(reply["t"]?.stringValue == "err")
+        for _ in 0..<10 { await Task.yield() } // the cancelled call's work runs now, if it still can
+        #expect(view.keepReasons.fromPage.isEmpty, "the old document's reason held the new one")
+        // The new document's own call still sets its reason.
+        #expect(await view.router.handle(Self.keepAliveCall(id: 2, "user_edits", true))["t"]?.stringValue == "ok")
+        #expect(view.keepReasons.fromPage == [.userEdits])
+    }
+
+    /// A page confirmation (DialogPageConfirmationPresenter) holds the asking page's `confirmation`
+    /// reason from the sheet until its answer, found from the anchor up to its PageWebView.
+    @Test func aConfirmationSheetHoldsItsPageUntilItIsAnswered() async throws {
+        let (host, view, root) = try openKeepAlivePage()
+        defer { try? FileManager.default.removeItem(at: root) }
+        defer { host.close(view) }
+        let center = CmuxDialogCenter(host: SilentDialogHost())
+        let presenter = DialogPageConfirmationPresenter(center: center)
+        let answer = Task { await presenter.confirm(PageConfirmation(kind: .delete, name: "notes"), anchor: view.webKitView) }
+        for _ in 0..<100 where center.records.isEmpty { await Task.yield() }
+        let sheet = try #require(center.records.first)
+        #expect(view.keepReasons.current == [.confirmation])
+        #expect(center.press(sheet.id, button: "confirm"))
+        #expect(await answer.value)
+        #expect(view.keepReasons.current.isEmpty, "the answered sheet still holds its page")
+    }
+
+    /// A drop the host takes holds `fileDrop` from the drop until its owner has read it; a drag that
+    /// only passes over the page (which shows, so nothing can freeze it) holds nothing.
+    @Test func aDropTheHostTakesHoldsItsPageUntilItIsRead() async throws {
+        let web = PageWKWebView(frame: NSRect(x: 0, y: 0, width: 200, height: 200), configuration: .init())
+        let keep = PageKeepReasons()
+        web.keepReasons = keep
+        let file = URL(fileURLWithPath: "/tmp/cmux-page-keep-drop.png")
+        web.readDroppedFileURL = { _ in file }
+        var read: CheckedContinuation<Void, Never>?
+        web.fileDrop = PageFileDrop(accepts: { $0.isFileURL }, open: { _ in await withCheckedContinuation { read = $0 } })
+        let drag = PageFileDropDragTests.Drag(sequence: 1)
+        #expect(web.draggingEntered(drag) == .copy)
+        #expect(keep.current.isEmpty, "a drag over the page held it")
+        web.draggingExited(drag)
+        _ = web.draggingEntered(drag)
+        #expect(web.performDragOperation(drag))
+        #expect(keep.current == [.fileDrop])
+        for _ in 0..<100 where read == nil { await Task.yield() }
+        try #require(read != nil)
+        #expect(keep.current == [.fileDrop], "the hold ended before the read did")
+        read?.resume()
+        await web.dropRead?.value
+        #expect(keep.current.isEmpty, "the read drop still holds its page")
+    }
+
+    /// Web Inspector's open and close (WebKit's UI delegate) hold `inspector` on the page once,
+    /// and it stays across a reload: the inspector stays open on the view.
+    @Test func webInspectorHoldsItsPageWhileOpen() throws {
+        let (host, view, root) = try openKeepAlivePage()
+        defer { try? FileManager.default.removeItem(at: root) }
+        defer { host.close(view) }
+        let delegate = try #require(view.webKitView.uiDelegate as? PageUIDelegate)
+        delegate.webView(view.webKitView, didAttachLocalInspector: NSObject())
+        delegate.webView(view.webKitView, didAttachLocalInspector: NSObject())
+        #expect(view.keepReasons.current == [.inspector])
+        view.documentCommitted()
+        #expect(view.keepReasons.current == [.inspector])
+        delegate.webView(view.webKitView, willCloseLocalInspector: NSObject())
+        #expect(view.keepReasons.current.isEmpty)
+    }
+
+    /// The page's popup past the window's edge holds `popup` from its show to its hide, and the
+    /// hide arms a pass so a hidden page may freeze again.
+    @Test(.enabled("needs a screen: a popup shows only in a visible window") { await MainActor.run { NSScreen.main != nil } })
+    func aPopupHoldsItsPageWhileItShows() throws {
+        let (host, view, root) = try openKeepAlivePage()
+        defer { try? FileManager.default.removeItem(at: root) }
+        defer { host.close(view) }
+        let window = NSWindow(contentRect: NSRect(x: 200, y: 300, width: 500, height: 400), styleMask: [.titled],
+                              backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        defer { window.orderOut(nil) }
+        view.frame = NSRect(x: 0, y: 0, width: 500, height: 400)
+        window.contentView = view
+        window.orderFrontRegardless()
+        window.layoutIfNeeded()
+        let other = page("other")
+        lifecycle.hide("tab", page: PageWebViewLifecycle(view))
+        rig.advance(to: .seconds(5))
+        lifecycle.hide("other", page: Target(page: other))
+        try fireDuePass()
+        let menu: [String: Any] = ["items": [["id": "a", "label": "a"]], "anchor": ["left": 40, "top": 40, "right": 200, "bottom": 64],
+                                   "width": 160, "instant": true]
+        rig.advance(to: .seconds(12))
+        let shown = view.popup(PageNativeOp.popupShow, params: menu)
+        try #require(shown["shown"]?.boolValue == true)
+        #expect(view.keepReasons.current == [.popup])
+        #expect(lifecycle.nextPassAt == .seconds(12), "the popup's show armed no pass")
+        try fireDuePass()
+        rig.advance(to: .seconds(20))
+        _ = view.popup(PageNativeOp.popupHide, params: [:])
+        #expect(view.keepReasons.current.isEmpty)
+        #expect(lifecycle.nextPassAt == .seconds(20), "the popup's end armed no pass")
+    }
+
+    /// The agent pane's dictation (``PageKeepReasons/dictation(_:)``) thaws a frozen page while it
+    /// runs and lets it freeze again once it stops.
+    @Test func dictationThawsAFrozenPageAndItsEndLetsItFreezeAgain() throws {
+        let chat = page("chat"), cloud = page("cloud")
+        lifecycle.hide("h", page: Target(page: chat))
+        rig.advance(to: .seconds(5))
+        lifecycle.hide("c", page: Target(page: cloud))
+        try fireDuePass()
+        #expect(lifecycle.state(of: "h") == .frozen)
+        rig.advance(to: .seconds(12))
+        chat.keep.dictation(true)
+        try fireDuePass()
+        #expect(lifecycle.state(of: "h") == .hidden)
+        rig.advance(to: .seconds(20))
+        chat.keep.dictation(false)
+        try fireDuePass()
+        #expect(lifecycle.state(of: "h") == .frozen)
+        #expect(log.lines == ["freeze chat", "thaw chat", "freeze chat"])
+    }
+
+    // MARK: Keep reason helpers
+
+    /// A real page on a WebKit host, with the suite's lifecycle, and its root folder to remove.
+    private func openKeepAlivePage() throws -> (WebUIHost, PageWebView, URL) {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent("page-keep-alive-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        try Data("<!doctype html><title>Page</title>".utf8).write(to: root.appendingPathComponent("index.html"))
+        let host = WebUIHost(chromium: nil, openPanel: nil,
+                             memoryPressure: MemoryPressureEvents(source: ManualMemoryPressureSource()),
+                             clock: PageTestClock.never)
+        host.lifecycle = lifecycle
+        let descriptor = PageDescriptor(id: "test.page-keep-alive", resource: "page-keep-alive", processGroup: .viewer, namespaces: [])
+        let view = try #require(host.open(PageOpenRequest(descriptor: descriptor, root: root, routes: [])))
+        return (host, view, root)
+    }
+
+    private static func keepAliveCall(id: Double, _ reason: String, _ on: Bool) -> JSONValue {
+        .object([
+            "t": .string("call"), "id": .number(id), "op": .string(PageNativeOp.keepAlive),
+            "params": .object(["reason": .string(reason), "on": .bool(on)]),
+        ])
+    }
+}
+
+/// A dialog host that shows nothing: the sheet waits in its center until the test answers it.
+private final class SilentDialogHost: CmuxDialogHosting {
+    func show(_ dialog: CmuxDialogView, in scope: CmuxDialogScope, scopeGone: @escaping () -> Void) {}
+    func hide(_ dialog: CmuxDialogView) {}
 }
 
 /// The lifecycle's deadline scheduler on a wake-up queue whose timer never touches the run loop and

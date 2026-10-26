@@ -1,5 +1,5 @@
 import AppKit
-public import CmuxNextInput
+public import CmuxNextWakeups
 
 /// The live resize drag. It moves the width constraint directly on every
 /// drag the handle delivers (each event, or at most twice per frame with
@@ -9,7 +9,7 @@ extension SidebarContainerView {
     /// The windows' frame-aligned pointer input (feature `pointerFrameDrags`): a resize drag moves
     /// the width on a frame interval's first event and once more at its frame. Nil: each drag event
     /// moves it at once.
-    public var resizeFrameInput: PointerFrameCoalescers? {
+    public var resizeFrameInput: FrameInputCoalescers? {
         get { handle.pointerFrames }
         set { handle.pointerFrames = newValue }
     }

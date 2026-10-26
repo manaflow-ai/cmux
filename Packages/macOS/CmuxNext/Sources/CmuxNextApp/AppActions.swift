@@ -170,8 +170,16 @@ enum AppActions {
         registry.bind("quitEndEverything") { services.quit.requestQuit(.explicit(.endEverything)) }
         registry.bind("newWindow") { services.windows.newWindow(holdingKeysFrom: services.windows.active?.window) }
         registry.bind("newIncognitoWindow") { services.windows.newIncognitoWindow() }
-        registry.bind("closeWindow", isEnabled: { services.windows.active != nil }) {
-            services.windows.active?.window?.performClose(nil)
+        registry.bindEffect("closeWindow", isEnabled: { services.windows.active != nil }) { invocation in
+            let controller: WindowController?
+            if let target = invocation.target, target.kind == .window {
+                controller = services.windows.controllers.first { $0.state.id == target.id }
+                guard controller != nil else { return .refused(RefusalStrings.noWindow(target.id)) }
+            } else {
+                controller = services.windows.active
+            }
+            controller?.performClose(by: invocation.origin)
+            return .done
         }
         registry.bind("toggleFullScreen") { services.windows.active?.window?.toggleFullScreen(nil) }
         registry.bind("toggleSidebar") { services.windows.active?.sidebar.model.toggle() }

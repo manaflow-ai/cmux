@@ -29,21 +29,26 @@ report records the host, its macOS and each display's resolution line with its r
 
 Each key is `debug.key` with the client's send time as the event's timestamp (CLOCK_UPTIME_RAW), so the probe's
 `contents_ms` is send to the frame that shows the echo, the wait for the main thread included. Per phase: key to frame
-p50/p95/max, the main-thread stalls over 8 ms (`debug.hangs`, each naming the scheduled task it caught), the tasks past
+p50/p95/p99/max (scripts/perf-lab/perf_stats.py through typing_report.distribution), the main-thread stalls over 8 ms (`debug.hangs`, each naming the scheduled task it caught), the tasks past
 their class budget with stacks (`debug.hangs` over_budget), the scheduler counters (`debug.main_budget`), the agents'
-operation counts and latencies.
+operation counts and latencies. Each layout's key-to-frame samples, all rounds of a phase kind together, are also one
+cmux-perf-result/v1 file per series in --out (BenchApp.record): story --story (default `automation-typing`) for the
+light layout and `<story>-stress` for STRESS, metrics `idle.key_to_frame` and `automation.key_to_frame`, engine
+chromium (the browser agent's page).
 
   automation-typing-bench.py --app APP --out DIR [--json DIR/report.json] [--layouts light,stress] [--agents 10]
-      [--agent-hz 40] [--samples 120] [--rounds 1] [--ax] [--gate-p95-ms 8] [--gate-stall-ms 8]
+      [--agent-hz 40] [--samples 120] [--rounds 1] [--ax] [--gate-p95-ms 8] [--gate-stall-ms 8] [--story ID]
 
 Gates (exit 1): any layout's automation phase key-to-frame p95 over --gate-p95-ms, or a main-thread stall longer than
 --gate-stall-ms. Fleet: `cmux-ci run --class exclusive --measurement --label measure --script
 scripts/measure/split-spring.sh --ref SHA --artifact artifacts/split-spring/report.json --arg=--suite=automation-typing`.
 """
-import argparse, csv, importlib.util, json, os, pathlib, random, statistics, subprocess, sys, threading, time
+import argparse, csv, importlib.util, json, os, pathlib, random, subprocess, sys, threading, time
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
+import bench_tagged  # noqa: E402
+import typing_report  # noqa: E402
 from bench_launch import BenchApp, LaunchError  # noqa: E402
 
 
@@ -71,6 +76,8 @@ parser.add_argument("--ax", action="store_true", help="also walk the app's AX tr
 parser.add_argument("--rows", type=int, default=3000, help="rows on the browser agent's page")
 parser.add_argument("--gate-p95-ms", type=float)
 parser.add_argument("--gate-stall-ms", type=float)
+parser.add_argument("--story", default=typing_report.AUTOMATION_STORY,
+                    help="result-v1 story of the light layout; the stress layout's is <story>-stress")
 opts = parser.parse_args()
 LAYOUTS = [name for name in opts.layouts.split(",") if name]
 if not LAYOUTS or set(LAYOUTS) - {"light", "stress"}:
@@ -80,6 +87,7 @@ os.makedirs(OUT, exist_ok=True)
 PROBE = os.path.join(OUT, "typing.csv")
 results = {"host": load("action_signposts_bench", "action-signposts-bench.py").host_facts(), "opts": vars(opts), "log": [],
            "phases": []}
+SAMPLES = {}  # layout -> result-v1 metric -> key-to-frame samples, every round together
 
 
 def note(text):
@@ -87,13 +95,7 @@ def note(text):
     results["log"].append(text)
 
 
-def pct(values):
-    if not values:
-        return None
-    s = sorted(values)
-    pick = lambda p: s[min(len(s) - 1, int(round((len(s) - 1) * p)))]
-    return {"n": len(s), "p50": round(pick(0.5), 2), "p95": round(pick(0.95), 2), "max": round(s[-1], 2),
-            "mean": round(statistics.fmean(s), 2)}
+dist = typing_report.distribution
 
 
 def wait(check, seconds, step=0.25):
@@ -180,7 +182,7 @@ class Load(threading.Thread):
 
     def report(self, wall):
         return {"ops": self.ops, "failures": self.failures, "ops_per_s": round(self.ops / max(wall, 0.001), 1),
-                "op_ms": pct(self.ms)}
+                "op_ms": dist(self.ms)}
 
 
 def terminal_agents(tabs):
@@ -268,7 +270,8 @@ def type_keys(count, label):
     return trips, stalls
 
 
-def phase(name, loads, pid, ax=False):
+def phase(name, loads, pid, ax=False, series=None):
+    """One typing phase; `series` is (layout, metric) whose result-v1 samples get this phase's key-to-frame values."""
     rows_before = len(probe_rows())
     rpc("debug.hangs", {"clear": True})
     rpc("debug.main_budget", {"reset": True})
@@ -296,11 +299,14 @@ def phase(name, loads, pid, ax=False):
     budget = rpc("debug.main_budget", timeout=20)
     rows = probe_rows()[rows_before:]
     complete = [r for r in rows if r.get("complete") == "1" and r.get("contents_ms")]
+    if series:
+        layout, metric = series
+        SAMPLES.setdefault(layout, {}).setdefault(metric, []).extend(float(r["contents_ms"]) for r in complete)
     hangs = hangs if isinstance(hangs, dict) else {}
     entry = {
-        "phase": name, "wall_s": round(wall, 1), "keys": len(trips), "stalled_keys": stalls, "key_rpc_ms": pct(trips),
-        "complete": len(complete), "key_to_frame_ms": pct([float(r["contents_ms"]) for r in complete]),
-        "key_to_dispatch_ms": pct([float(r["dispatch_start_ms"]) for r in complete if r.get("dispatch_start_ms")]),
+        "phase": name, "wall_s": round(wall, 1), "keys": len(trips), "stalled_keys": stalls, "key_rpc_ms": dist(trips),
+        "complete": len(complete), "key_to_frame_ms": dist([float(r["contents_ms"]) for r in complete]),
+        "key_to_dispatch_ms": dist([float(r["dispatch_start_ms"]) for r in complete if r.get("dispatch_start_ms")]),
         "hangs": {k: hangs.get(k) for k in ("count", "max_ms", "total_ms", "frames_over_8_3ms", "max_gap_ms", "over_budget_count")},
         "hang_records": hangs.get("records"), "over_budget": hangs.get("over_budget"), "main_budget": budget,
         "loads": {load.name_: load.report(wall) for load in loads}, "ax": ax_out or ax_note,
@@ -334,18 +340,31 @@ def run_layout(layout, tabs, browser_tab, pid):
     time.sleep(4)
     type_keys(10, f"{layout}-warmup")
     for r in range(opts.rounds):
-        phase(f"{layout}-idle-{r}", [], pid)
+        phase(f"{layout}-idle-{r}", [], pid, series=(layout, "idle.key_to_frame"))
         loads = ([terminal_agents(tabs)] if tabs else []) + ([browser_agent(browser_tab)] if browser_tab else [])
-        phase(f"{layout}-automation-{r}", loads, pid, ax=opts.ax)
+        phase(f"{layout}-automation-{r}", loads, pid, ax=opts.ax, series=(layout, "automation.key_to_frame"))
     idle = [p for p in results["phases"] if p["phase"].startswith(f"{layout}-idle") and p.get("key_to_frame_ms")]
     busy = [p for p in results["phases"] if p["phase"].startswith(f"{layout}-automation") and p.get("key_to_frame_ms")]
     if not (idle and busy):
         return None
     return {"idle_p95_ms": max(p["key_to_frame_ms"]["p95"] for p in idle),
+            "idle_p99_ms": max(p["key_to_frame_ms"]["p99"] for p in idle),
             "automation_p95_ms": max(p["key_to_frame_ms"]["p95"] for p in busy),
+            "automation_p99_ms": max(p["key_to_frame_ms"]["p99"] for p in busy),
             "automation_max_ms": max(p["key_to_frame_ms"]["max"] for p in busy),
             "automation_stalls": sum(p["hangs"].get("count") or 0 for p in busy),
             "automation_stall_max_ms": max((p["hangs"].get("max_ms") or 0) for p in busy)}
+
+
+def record_results():
+    """One cmux-perf-result/v1 file per layout and series. The light and stress layouts share one launch, so each
+    layout's results name its own session and story (a lab series key has no session: store.series_key)."""
+    recorded = {}
+    for layout, series in SAMPLES.items():
+        APP.perf_session = layout  # BenchApp.record writes the session it holds; this launch measured both
+        recorded[layout] = bench_tagged.record_series(APP, typing_report.session_story(opts.story, layout), series,
+                                                      engine="chromium", log=note)
+    results["recorded"] = recorded
 
 
 def main():
@@ -388,6 +407,7 @@ def main():
     finally:
         results["summary"] = summary
         note(f"summary: {json.dumps(summary)}")
+        record_results()
         with open(opts.json or os.path.join(OUT, "report.json"), "w") as f:
             json.dump(results, f, indent=1, default=str)
         APP.stop()

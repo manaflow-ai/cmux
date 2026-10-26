@@ -67,7 +67,7 @@ final class CEFRuntime {
     var input: InputEventTap?
     /// The windows' frame-aligned pointer input of the last `CEFEngine` made (feature
     /// `pointerFrameDrags`): the DevTools divider's drag. Nil: each drag event moves it.
-    var pointerFrames: PointerFrameCoalescers?
+    var pointerFrames: FrameInputCoalescers?
     /// A tab registered with no input tap: logged once.
     var reportedMissingInput = false
 
@@ -115,7 +115,7 @@ final class CEFRuntime {
     var nextSiteReply: Int32 = 1
     var shutdownSequence: CEFShutdownSequence?
     var shutdownWaiter: CheckedContinuation<Void, Never>?
-    var shutdownTimeout: Task<Void, Never>?
+    var shutdownTimeout: AlignedWakeups.Ticket?  // quit's bound on the wait for Chromium's windows, on `wakeUps`
     /// Recent renderer and helper process failures (`debug.crashes`).
     let crashLog = BrowserCrashLog()
     /// Watches helper exits (GPU, utility, extension renderers) from start.

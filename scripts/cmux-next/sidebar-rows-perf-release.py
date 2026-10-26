@@ -7,7 +7,9 @@
 
 A Release build serves no `debug.*` socket method, so this script uses only the CLI (workspace
 create/list, terminal list/write), cua-driver (window, wheel input, accessibility reads) and
-xctrace. It launches `$NX_APP` itself (the window at 40,40 1100x820 on the last screen), makes
+xctrace. It launches the app (--app, default $NX_APP) through bench_launch.BenchApp (the bench
+env, an empty config, the window at 40,40 1100x820 on the last screen; the tag's saved workspaces
+stay, so every launch reuses them), makes
 `--count` workspaces (`--ticking` with a terminal, the others empty), and then, for each mode
 (ticks off, ticks on), records `--repeats` Animation Hitches traces of one gesture each: a
 sweep of real wheel events down the sidebar and back up (cua-driver `scroll`, `--steps` calls
@@ -15,12 +17,16 @@ of `--notches` line notches each way). In the ticks-on mode every ticking termin
 7501 every `--tick-ms`, alternating working and idle. Also measured: the app's CPU per tick in a
 tick window without input, and that the wheel moves the list (the accessibility row titles
 before and after an untraced sweep). Writes release-<label>.json to --out (default
-$NX_ARTIFACTS) and quits the app with $NX_APP_STOP.
+$NX_ARTIFACTS), the valid runs of each app as result-v1 (story sidebar-scroll-release,
+sidebar_bench_report.py; a --variants run of the same build stays in the report only), and quits
+each app (the in-app quit, then BenchApp.stop and the tag's daemons).
 """
-import argparse, json, os, re, shutil, statistics, subprocess, sys, tempfile, time
+import argparse, json, os, re, shutil, subprocess, sys, tempfile, time
 from concurrent.futures import ThreadPoolExecutor
 
 parser = argparse.ArgumentParser()
+parser.add_argument("--app", default=os.environ.get("NX_APP"), help="the app to measure (default $NX_APP)")
+parser.add_argument("--tag", help="the tag of --app (checked against its bundle name)")
 parser.add_argument("--label", default="run")
 parser.add_argument("--out", default=os.environ.get("NX_ARTIFACTS", "/tmp"))
 parser.add_argument("--count", type=int, default=1000)
@@ -58,20 +64,24 @@ if opts.b_app and not opts.b_tag:
     parser.error("--b-app needs --b-tag")
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-APP, TAG, STOP = os.environ.get("NX_APP"), os.environ.get("NX_APP_TAG", ""), os.environ.get("NX_APP_STOP")
-SOCKET = os.environ.get("NX_APP_SOCKET") or f"/tmp/cmux-debug-{TAG}.sock"
-CLI = os.environ.get("NX_APP_CLI") or (APP and os.path.join(APP, "Contents/Resources/bin/cmux"))
+sys.path.insert(0, HERE)  # the bench modules, also under `python3 -I`
+import sidebar_bench_report as report  # noqa: E402
+from bench_launch import BenchApp, socket_candidates, tag_of  # noqa: E402
+
+if not opts.app:
+    sys.exit("--app is required outside `nx-remote --needs input --app-from-fleet cmux` (NX_APP)")
+APP = os.path.realpath(opts.app)
+TAG = tag_of(APP)
+if opts.tag and opts.tag != TAG:
+    sys.exit(f"--tag {opts.tag} is not the tag of --app ({TAG})")
+SOCKET = socket_candidates(TAG)[0]
+CLI = os.path.join(APP, "Contents/Resources/bin/cmux")
 CUA = os.path.expanduser("~/.local/bin/cua-driver")
-if not APP or not STOP:
-    sys.exit("run inside `nx-remote --needs input --app-from-fleet cmux` (NX_APP, NX_APP_STOP)")
 if not os.access(CUA, os.X_OK):
     sys.exit("needs ~/.local/bin/cua-driver (nx-remote --needs input on a GUI host)")
 # A fresh cua-driver session label per run, started with start_session (an ended label is refused).
 CUA_SESSION = f"sbperf3-{os.getpid()}-{int(time.time())}"
 SCRATCH = tempfile.mkdtemp(prefix=f"sbperf3-{TAG}-")
-CONFIG, GHOSTTY = os.path.join(SCRATCH, "cmux.json"), os.path.join(SCRATCH, "ghostty")
-open(GHOSTTY, "w").write("")
-open(CONFIG, "w").write("{}")
 os.makedirs(opts.out, exist_ok=True)
 summary = {"label": opts.label, "tag": TAG, "count": opts.count, "ticking": opts.ticking, "tick_ms": opts.tick_ms,
            "steps": opts.steps, "notches": opts.notches}
@@ -113,28 +123,17 @@ def wait(predicate, seconds):
 
 
 def app_pid():
-    """The process that holds the tag's socket (an `open -n` command line need not name the bundle path),
-    else the newest process running the bundle's binary."""
-    for command in (["lsof", "-t", SOCKET], ["pgrep", "-n", "-f", os.path.join(os.path.realpath(APP), "Contents/MacOS")],
-                    ["pgrep", "-n", "-f", os.path.join(APP, "Contents/MacOS")]):
-        found = [int(p) for p in subprocess.run(command, capture_output=True, text=True).stdout.split() if int(p) != os.getpid()]
-        if found:
-            return found[0]
-    return None
+    """The PID of the app in use, while the process its BenchApp started runs; else None."""
+    bench = (CURRENT or {}).get("bench")
+    if bench is None or bench.process is None or bench.process.poll() is not None:
+        return None
+    return bench.process.pid
 
 
 def cpu_ns(pid):
-    sys.path.insert(0, HERE)
     from bench_idle import usage  # noqa: E402
     sample = usage(pid) if pid else None
     return sample[0] if sample else None
-
-
-def percentile(values, p):
-    if not values:
-        return None
-    ordered = sorted(values)
-    return round(ordered[min(len(ordered) - 1, int(p / 100 * len(ordered)))], 2)
 
 
 def perf_names():
@@ -143,7 +142,8 @@ def perf_names():
 
 
 def quit_app(sock):
-    """The in-app quit (action.run quitEndSessions, as NX_APP_STOP asks it) of the app serving `sock`."""
+    """The in-app quit (action.run quitEndSessions) of the app serving `sock`. A Release build serves no
+    `debug.quit`, which BenchApp.stop sends first, so the quit goes this way before it."""
     import socket as so
     try:
         with so.socket(so.AF_UNIX, so.SOCK_STREAM) as conn:
@@ -157,17 +157,37 @@ def quit_app(sock):
 
 
 def launch(frame="40,40,1100,820"):
-    # A copy of this tag left running by a cancelled run of this script: quit it first (never a kill).
-    if os.path.exists(SOCKET) and quit_app(SOCKET):
-        wait(lambda: app_pid() is None, 60)
-        print(f"quit a leftover {TAG} app", flush=True)
-    if os.path.exists(SOCKET):
-        os.unlink(SOCKET)
-    env = [*EXTRA_ENV, "CMUX_NEXT_NO_ACTIVATE=1", "CMUX_NEXT_SOCKET_MODE=automation", "CMUX_NEXT_TEST_WINDOW_SCREEN=last",
-           f"CMUX_NEXT_CONFIG_FILE={CONFIG}", f"CMUX_NEXT_GHOSTTY_CONFIG={GHOSTTY}", f"CMUX_NEXT_TEST_WINDOW_FRAME={frame}"]
-    subprocess.run(["open", "-n", APP, *[arg for pair in env for arg in ("--env", pair)]], check=True)
-    if not wait(lambda: os.path.exists(SOCKET) and cli("--json", "workspace", "list").returncode == 0, 120):
+    """Launches the app in use through its BenchApp (one per app, made at its first launch): the bench env, an empty
+    config, `frame` (x,y,w,h) on the last screen and the app's --variants env. The tag's saved state stays
+    (fresh_state=False): every launch of a tag reuses its perf workspaces. A Release build answers no `debug.*`, so the
+    launch is ready at `system.ping` and then waits for the CLI's workspace list."""
+    global SOCKET, CLI
+    bench = CURRENT.get("bench")
+    if bench is None:
+        env = dict(pair.split("=", 1) for pair in EXTRA_ENV)
+        bench = CURRENT["bench"] = BenchApp(CURRENT["app"], out=opts.out, env=env, config={}, screen="last",
+                                            fresh_state=False, log_name=f"app-{CURRENT['label']}.log")
+    bench.window = tuple(int(v) for v in frame.split(","))
+    bench.launch(ready="system.ping")
+    if bench.teardown:
+        bench.teardown.remember()  # one teardown for every launch of this app: arm its end() for this one
+    SOCKET, CLI = bench.socket, bench.cli
+    if not wait(lambda: cli("--json", "workspace", "list").returncode == 0, 120):
         sys.exit("FAIL the tagged app did not come up")
+
+
+def stop_app(app):
+    """Quits `app` (the in-app quit, then BenchApp.stop: TERM of its own PID if it does not exit, and the tag's
+    daemons and terminals)."""
+    bench = app.get("bench")
+    if bench is None or bench.process is None:
+        return
+    if bench.process.poll() is None and quit_app(bench.socket):
+        try:
+            bench.process.wait(60)
+        except subprocess.TimeoutExpired:
+            print(f"{app['label']}: no exit 60 s after the in-app quit", flush=True)
+    bench.stop()
 
 
 def make_workspaces():
@@ -392,8 +412,8 @@ def hitches(trace, pid):
     except Exception as error:  # noqa: BLE001 (export failures are reported, the run goes on)
         return {"error": f"export: {error}"}
     return {"hitches": len(durations), "total_ms": round(sum(durations), 1), "max_ms": round(max(durations), 2) if durations else None,
-            "app_updates": len(updates), "update_p50_ms": percentile(updates, 50), "update_p90_ms": percentile(updates, 90),
-            "updates_over_8_3_ms": len([u for u in updates if u > 8.34])}
+            "app_updates": len(updates), **report.update_stats(updates),
+            "updates_over_8_3_ms": len([u for u in updates if u > 8.34]), "updates_ms": updates}
 
 
 GENERIC = ("main", "start", "NSApplicationMain", "-[NSApplication run]", "_DPSNextEvent", "CFRunLoopRun", "__CFRunLoop",
@@ -519,18 +539,23 @@ def record(name, ticks, terms, profile):
     shutil.rmtree(xct_tmp, ignore_errors=True)
     if tick_end:
         time.sleep(max(0.0, tick_end - time.monotonic()) + 1)  # harness: the tick programs end before the next run
-    print(f"{name}: {json.dumps({k: v for k, v in result.items() if k != 'profile'})}", flush=True)
+    print(f"{name}: {json.dumps({k: v for k, v in result.items() if k not in ('profile', 'updates_ms')})}", flush=True)
     return result
 
 
 EXTRA_ENV = []
+CURRENT = None  # the app dict in use (use()): its label, bundle, tag, frame and, once launched, its BenchApp
 
 
 def use(app):
-    """Points the module's app globals (APP, TAG, SOCKET, CLI, Target, EXTRA_ENV) at `app`."""
-    global APP, TAG, SOCKET, CLI, EXTRA_ENV
+    """Points the module's app globals (CURRENT, APP, TAG, SOCKET, CLI, Target, EXTRA_ENV) at `app`."""
+    global CURRENT, APP, TAG, SOCKET, CLI, EXTRA_ENV
+    CURRENT = app
     EXTRA_ENV = list(app.get("env") or [])
-    APP, TAG, SOCKET, CLI = app["app"], app["tag"], app["socket"], app["cli"]
+    APP, TAG = app["app"], app["tag"]
+    bench = app.get("bench")
+    SOCKET = bench.socket if bench else socket_candidates(TAG)[0]
+    CLI = os.path.join(APP, "Contents/Resources/bin/cmux")
     if app.get("target"):
         Target.pid, Target.window_id, Target.scale, Target.point, Target.screen_point = app["target"]
 
@@ -547,19 +572,7 @@ def install_b():
     os.unlink(zpath)
     app = os.path.join(dest, f"cmux DEV {opts.b_tag}.app")
     subprocess.run(["codesign", "--force", "--deep", "--sign", "-", app], capture_output=True, check=True)
-    return {"label": opts.b_label, "app": app, "tag": opts.b_tag, "socket": f"/tmp/cmux-debug-{opts.b_tag}.sock",
-            "cli": os.path.join(app, "Contents/Resources/bin/cmux"), "frame": "760,40,740,820"}
-
-
-def stop_b(app):
-    """Quits the B app as NX_APP_STOP quits A: the in-app quit, then its terminal server."""
-    if not quit_app(app["socket"]):
-        print("B quit: no reply", flush=True)
-    wait(lambda: not os.path.exists(app["socket"]) or app_pid() is None, 30)
-    tui = os.path.join(app["app"], "Contents/Resources/bin/cmux-tui")
-    if os.access(tui, os.X_OK):
-        subprocess.run([tui, "--session", f"cmux-app-{app['tag']}", "server", "stop", "--end-terminals"],
-                       capture_output=True, timeout=60)
+    return {"label": opts.b_label, "app": app, "tag": opts.b_tag, "frame": "760,40,740,820"}
 
 
 def scrollbar_values():
@@ -695,7 +708,7 @@ def cmux_runs(app, i, first):
         out[mode] = record(f"{app['label']}-{mode}-{i}", mode == "ticks", app["terms"], i - opts.round_offset < opts.profile_runs)
         out[mode]["quiet"] = quiet
         time.sleep(2)  # harness: settle between runs
-    stop_b(app)
+    stop_app(app)
     note(app_pid() is None, f"{app['label']} round {i}: the app quit")
     return out
 
@@ -726,33 +739,52 @@ def run_clean(apps):
     return runs
 
 
+def valid_runs(rs):
+    """The runs whose recording worked, with no wheel error, and in which the app drew a frame per 1/60 s."""
+    return [r for r in rs if "total_ms" in r and not r.get("wheel_errors")
+            and r.get("app_updates", 0) >= 60 * r.get("gesture_s", 0)]
+
+
+def mode_summary(valid):
+    totals = [r["total_ms"] for r in valid]
+    return {"valid": len(valid), "hitch_total_ms": totals, "median_ms": report.median(totals),
+            "min_ms": min(totals) if totals else None, "max_ms": max(totals) if totals else None,
+            "update_p50_ms": report.median([r["update_p50_ms"] for r in valid if r.get("update_p50_ms")] or [0])}
+
+
 def summarize(runs, apps):
     for label, modes in runs.items():
         app = next((a for a in apps if a["label"] == label), {})
         out = summary.setdefault("apps", {}).setdefault(label, {"tag": app.get("tag"), "tick_window": app.get("tick_window")})
         for mode, rs in modes.items():
-            valid = [r for r in rs if "total_ms" in r and not r.get("wheel_errors")
-                     and r.get("app_updates", 0) >= 60 * r.get("gesture_s", 0)]
-            totals = [r["total_ms"] for r in valid]
-            out[mode] = {"valid": len(valid), "hitch_total_ms": totals, "hitches": [r.get("hitches") for r in valid],
-                         "median_ms": statistics.median(totals) if totals else None,
-                         "min_ms": min(totals) if totals else None, "max_ms": max(totals) if totals else None,
-                         "update_p50_ms": statistics.median([r["update_p50_ms"] for r in valid if r.get("update_p50_ms")] or [0]),
+            valid = valid_runs(rs)
+            out[mode] = {**mode_summary(valid), "hitches": [r.get("hitches") for r in valid],
                          "bounds": sorted({json.dumps(r.get("bounds"), sort_keys=True) for r in rs})}
             print(f"{label} {mode}: {out[mode]}", flush=True)
+
+
+def record_results(runs, apps):
+    """Each measured build's valid runs as result-v1, through its own BenchApp. A --variants app (the same build with
+    extra launch env) and the floors (no cmux code) stay in the report only."""
+    written = {}
+    for app in apps:
+        if app.get("env") or app.get("bench") is None or app["label"] not in runs:
+            continue
+        modes = {mode: valid_runs(rs) for mode, rs in runs[app["label"]].items()}
+        entries = report.release_series(opts.count, modes, app.get("tick_window"))
+        written[app["label"]] = report.record_all(app["bench"], entries)
+    return written
 
 
 import signal
 signal.signal(signal.SIGTERM, lambda *_: sys.exit("FAIL ended by SIGTERM (job cancel or input cap)"))
 summary["ptys_before"] = pty_count()
 print(f"ptys in use before: {summary['ptys_before']}", flush=True)
-A = {"label": opts.label, "app": APP, "tag": TAG, "socket": SOCKET, "cli": CLI,
-     "frame": "10,40,740,820" if opts.b_fleet_job else "40,40,1100,820"}
+A = {"label": opts.label, "app": APP, "tag": TAG, "frame": "10,40,740,820" if opts.b_fleet_job else "40,40,1100,820"}
 apps = [A]
 try:
     if opts.b_app:
-        apps.append({"label": opts.b_label, "app": opts.b_app, "tag": opts.b_tag, "socket": f"/tmp/cmux-debug-{opts.b_tag}.sock",
-                     "cli": os.path.join(opts.b_app, "Contents/Resources/bin/cmux"), "frame": opts.frame})
+        apps.append({"label": opts.b_label, "app": os.path.realpath(opts.b_app), "tag": opts.b_tag, "frame": opts.frame})
     elif opts.b_fleet_job:
         apps.append(install_b())
     if opts.clean:
@@ -766,6 +798,7 @@ try:
         runs = run_clean(apps)
         summary["runs"] = runs
         summarize(runs, apps)
+        summary["result_v1"] = record_results(runs, apps)
     else:
         for app in apps:
             prepare(app)
@@ -783,29 +816,22 @@ try:
         for app in apps:
             out = summary.setdefault("apps", {}).setdefault(app["label"], {"tag": app["tag"], "tick_window": app.get("tick_window")})
             for mode, rs in runs[app["label"]].items():
-                valid = [r for r in rs if "total_ms" in r and not r.get("wheel_errors")
-                         and r.get("app_updates", 0) >= 60 * r.get("gesture_s", 0)]
-                totals = [r["total_ms"] for r in valid]
-                out[mode] = {"valid": len(valid), "hitch_total_ms": totals,
-                             "median_ms": statistics.median(totals) if totals else None,
-                             "min_ms": min(totals) if totals else None, "max_ms": max(totals) if totals else None,
-                             "update_p50_ms": statistics.median([r["update_p50_ms"] for r in valid if r.get("update_p50_ms")] or [0])}
+                out[mode] = mode_summary(valid_runs(rs))
                 print(f"{app['label']} {mode}: {out[mode]}", flush=True)
+        summary["result_v1"] = record_results(runs, apps)
 finally:
     summary["failures"] = failures
     with open(os.path.join(opts.out, f"release-{opts.label}.json"), "w") as fh:
         json.dump(summary, fh, indent=1)
     b_alive = False
-    for app in apps[1:]:
+    for app in apps:
         try:
             use(app)
-            stop_b(app)
-            b_alive = b_alive or app_pid() is not None
+            stop_app(app)
+            b_alive = b_alive or (app is not A and app_pid() is not None)
         except Exception as error:  # noqa: BLE001 (cleanup goes on)
-            print(f"B stop: {error}", flush=True)
-            b_alive = True
-    use(A)
-    subprocess.run([STOP], check=False)
+            print(f"{app['label']} stop: {error}", flush=True)
+            b_alive = b_alive or app is not A
     try:
         cua("end_session", {})
     except Exception:  # noqa: BLE001

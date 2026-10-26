@@ -69,13 +69,35 @@ struct PointerCoalescingTests {
         #expect(queue.append(Self.scroll(.changed, dy: 3, at: 7)))
         #expect(!queue.append(Self.record(.leftMouseUp, x: 0, at: 8)), "discrete input is not queued")
         #expect(queue.hasDrag)
-        let drained = queue.drain()
+        var drained: [PointerCoalescedInput] = []
+        queue.drain { drained.append($0) }
         #expect(drained.map(\.kind) == [.drag, .move, .drag, .scroll, .scroll])
         #expect(drained.map(\.coalescedCount) == [2, 1, 1, 1, 2])
         #expect(drained.last?.scrollDelta == InputPoint(x: 0, y: 5))
         #expect(drained.last?.oldestTimestamp == 6)
         #expect(queue.isEmpty)
         #expect(!queue.hasDrag)
+    }
+
+    /// A drained or delivered drag gives its sample storage back, and the next drag reuses it: a steady
+    /// drag makes no buffer per frame. The pool is bounded.
+    @Test func drainedDragSamplesAreReusedByTheNextDrag() throws {
+        var queue = PointerCoalescingQueue()
+        queue.append(Self.record(.leftMouseDragged, x: 1, at: 1))
+        queue.append(Self.record(.mouseMoved, x: 2, at: 2))
+        queue.drain { _ in }
+        #expect(queue.spareSampleBuffers == 1, "a move has no samples to give back")
+        var single = try #require(queue.single(Self.record(.leftMouseDragged, x: 3, at: 3)))
+        #expect(queue.spareSampleBuffers == 0, "the next drag took the pooled buffer")
+        #expect(single.samples.map(\.location.x) == [3], "a reused buffer starts empty")
+        #expect(single.samples.capacity >= PointerCoalescedInput.sampleCapacity)
+        queue.recycle(&single)
+        #expect(queue.spareSampleBuffers == 1)
+        for index in 0..<10 {
+            var input = try #require(PointerCoalescedInput(Self.record(.leftMouseDragged, x: Double(index), at: 0)))
+            queue.recycle(&input)
+        }
+        #expect(queue.spareSampleBuffers == PointerCoalescingQueue.spareSampleLimit)
     }
 
     // MARK: Support

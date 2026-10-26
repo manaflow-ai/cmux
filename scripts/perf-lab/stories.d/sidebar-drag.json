@@ -1,0 +1,23 @@
+{
+  "id": "sidebar-drag",
+  "tier": "T1",
+  "description": "Sidebar document drag feel per display frame (sidebar-v2-drag-record.py, debug.mouse moves at 120 Hz): row into Pinned, tile into the list, group into Pinned, autoscroll and an Escape refusal; the main-thread drag update per frame, the largest step of a view that is not dragged, jumps, late frames and failed checks per scenario, light session.",
+  "command": ["scripts/cmux-next/sidebar-v2-drag-record.py"],
+  "session": "light",
+  "engine": "none",
+  "config": "bench",
+  "metrics": [
+    {"name": "sidebar_drag\\.light\\.[0-9]-[a-z-]+\\.work", "unit": "ms", "better": "lower",
+     "target_ref": {"path": "scripts/cmux-next/sidebar_v2_motion_checks.py", "key": "WORK_P95_MS"}},
+    {"name": "sidebar_drag\\.light\\.[0-9]-[a-z-]+\\.max_step", "unit": "unitless", "better": "lower",
+     "target_ref": {"path": "scripts/cmux-next/sidebar_v2_motion_checks.py", "key": "JUMP_PT"}},
+    {"name": "sidebar_drag\\.light\\.[0-9]-[a-z-]+\\.(jumps|late_frames|failed)", "unit": "count", "better": "lower"},
+    {"name": "sidebar_drag\\.light\\.harness\\.failed", "unit": "count", "better": "lower"}
+  ],
+  "repeats": 3,
+  "seconds": 90,
+  "needs": ["debug:debug.sidebar_rows", "debug:debug.mouse", "debug:debug.window_record", "debug:debug.toast",
+            "debug:debug.key"],
+  "owner": "a590",
+  "component": "Sidebar>Drag"
+}

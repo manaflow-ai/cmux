@@ -1,5 +1,6 @@
 import CmuxNextAgentActivity
 import CmuxNextAgentPane
+import CmuxNextWakeups
 import Foundation
 
 /// Files the person drops or pastes into a chat whose agent runs on an ssh peer (acpmux peering:
@@ -16,6 +17,8 @@ struct AgentPeerUploads {
     private struct Batch { var session: String; var remaining: [AgentPaneUploadBatchEntry]; var expires: Date }
     private static var stages: [String: Stage] = [:]
     private static var batches: [String: Batch] = [:]
+    /// How long a stage or a batch is kept after its last request.
+    private static let stageLifetime: TimeInterval = 10 * 60
     /// The peer chat tab `tab` shows: its session, the peer's name and the pane's acpmux.
     struct Target {
         var session: String
@@ -35,6 +38,7 @@ struct AgentPeerUploads {
 
     static func stager(tab: String, services: AppServices) -> AgentPaneUploadStager? {
         guard let target = target(tab: tab, services: services) else { return nil }
+        let expiry = services.peerUploadExpiry, work = services.work
         return { request, session in
             batches = batches.filter { $0.value.expires >= Date() }
             guard session == target.session else { return AgentPaneReply.failure(code: "upload_failed", message: AgentPeerUploadStrings.failed(target.machine)) }
@@ -44,7 +48,7 @@ struct AgentPeerUploads {
                     guard let batch = batches[batchToken], batch.session == target.session, batch.remaining.first?.name == name, batch.remaining.first?.size == size else { return AgentPaneReply.failure(code: "upload_failed", message: AgentPeerUploadStrings.failed(target.machine)) }
                     let remaining = Array(batch.remaining.dropFirst())
                     if remaining.isEmpty { batches.removeValue(forKey: batchToken) }
-                    else { batches[batchToken] = Batch(session: target.session, remaining: remaining, expires: Date().addingTimeInterval(10 * 60)) }
+                    else { batches[batchToken] = Batch(session: target.session, remaining: remaining, expires: Date().addingTimeInterval(stageLifetime)) }
                 }
                 guard size <= AgentPaneUpload.maximumPeerFileBytes else { return AgentPaneReply.failure(code: "too_large", message: AgentPeerUploadStrings.tooLarge(target.machine)) }
                 if let manifest {
@@ -54,37 +58,20 @@ struct AgentPeerUploads {
                 }
                 let token = UUID().uuidString.lowercased(), file = FileManager.default.temporaryDirectory.appending(path: "cmux-peer-staged-" + token + "-" + name)
                 guard FileManager.default.createFile(atPath: file.path, contents: nil, attributes: [.posixPermissions: 0o600]) else { return AgentPaneReply.failure(code: "upload_failed", message: AgentPeerUploadStrings.failed(target.machine)) }
-                stages[token] = Stage(target: target, file: file, name: name, size: size, received: 0, expires: Date().addingTimeInterval(10 * 60))
-                Task { @MainActor in
-                    // wakeup-allow: one-shot peer stage expiry; a later chunk refreshes the expiry date.
-                    try? await Task.sleep(for: .seconds(10 * 60))
-                    if let expired = stages[token], expired.expires <= Date() {
-                        stages.removeValue(forKey: token); try? FileManager.default.removeItem(at: expired.file)
-                    }
-                }
+                stages[token] = Stage(target: target, file: file, name: name, size: size, received: 0, expires: Date().addingTimeInterval(stageLifetime))
                 var reply: [String: Any] = ["token": token, "size": size, "chunkSize": 512 * 1024]
                 if let manifest, batchToken == nil, manifest.count > 1 {
                     let id = UUID().uuidString.lowercased()
-                    batches[id] = Batch(session: target.session, remaining: Array(manifest.dropFirst()), expires: Date().addingTimeInterval(10 * 60))
-                    Task { @MainActor in
-                        // wakeup-allow: one-shot peer batch expiry; the next batch request refreshes it.
-                        try? await Task.sleep(for: .seconds(10 * 60))
-                        if let batch = batches[id], batch.expires <= Date() { batches.removeValue(forKey: id) }
-                    }
+                    batches[id] = Batch(session: target.session, remaining: Array(manifest.dropFirst()), expires: Date().addingTimeInterval(stageLifetime))
                     reply["batchToken"] = id
                 }
+                armExpiry(expiry, work: work)
                 return AgentPaneReply.success(reply)
             case .chunk(let token, let offset, let data):
                 guard var stage = stages[token], stage.target.session == target.session, stage.received == offset, offset + data.count <= stage.size, data.count <= 512 * 1024 else { return AgentPaneReply.failure(code: "upload_failed", message: AgentPeerUploadStrings.failed(target.machine)) }
                 do { let handle = try FileHandle(forWritingTo: stage.file); try handle.seekToEnd(); try handle.write(contentsOf: data); try handle.close() } catch { return AgentPaneReply.failure(code: "upload_failed", message: AgentPeerUploadStrings.failed(target.machine)) }
-                stage.received += data.count; stage.expires = Date().addingTimeInterval(10 * 60); stages[token] = stage
-                Task { @MainActor in
-                    // wakeup-allow: one-shot peer stage expiry; a later chunk refreshes the expiry date.
-                    try? await Task.sleep(for: .seconds(10 * 60))
-                    if let expired = stages[token], expired.expires <= Date() {
-                        stages.removeValue(forKey: token); try? FileManager.default.removeItem(at: expired.file)
-                    }
-                }
+                stage.received += data.count; stage.expires = Date().addingTimeInterval(stageLifetime); stages[token] = stage
+                armExpiry(expiry, work: work)
                 return AgentPaneReply.success(["offset": stage.received])
             case .finish(let token):
                 guard let stage = stages[token], stage.target.session == target.session, stage.received == stage.size else { return AgentPaneReply.failure(code: "upload_failed", message: AgentPeerUploadStrings.failed(target.machine)) }
@@ -99,6 +86,25 @@ struct AgentPeerUploads {
                 return AgentPaneReply.success()
             }
         }
+    }
+
+    /// Takes out the stages and batches expired by `now`; answers the expired stages' files and the next expiry.
+    private static func purgeExpired(now: Date) -> (files: [URL], next: Date?) {
+        let expired = stages.filter { $0.value.expires <= now }
+        for token in expired.keys { stages.removeValue(forKey: token) }
+        batches = batches.filter { $0.value.expires > now }
+        return (expired.values.map(\.file), nextExpiry)
+    }
+
+    /// The earliest expiry date of a stage or a batch, nil when none is left.
+    private static var nextExpiry: Date? {
+        (stages.values.map(\.expires) + batches.values.map(\.expires)).min()
+    }
+
+    /// Points `expiry` at the earliest stage or batch expiry, or drops it when none is left
+    /// (``AgentChatUploads/armStageExpiry(_:next:work:now:purge:)``).
+    private static func armExpiry(_ expiry: MainDeadline, work: BackgroundWork) {
+        AgentChatUploads.armStageExpiry(expiry, next: nextExpiry, work: work) { purgeExpired(now: $0) }
     }
 
     /// Tab `tab`'s chat when its pane attaches to this Mac's acpmux and that acpmux lists its

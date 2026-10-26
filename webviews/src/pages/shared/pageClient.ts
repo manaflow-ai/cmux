@@ -99,6 +99,44 @@ export const PARKED_NAME = "__cmuxPageParked";
  */
 export const CLAIM_OP = "cmux.page.claim";
 
+/**
+ * Built in for every page (p13-webui-032): `{reason, on}` sets or ends one of the page's own keep
+ * reasons, which keep it from being frozen or discarded while hidden. The host refuses any other
+ * reason; the page can only add reasons, and they end with its document (reload, crash).
+ */
+export const KEEP_ALIVE_OP = "cmux.page.keepAlive";
+
+/**
+ * The keep reasons a page may set (the host's `PageKeepReasons.pageSettable`): what only its
+ * document knows. The host observes the rest itself (a drop it reads, dictation, Web Inspector).
+ */
+export type PageKeepReason = "user_edits" | "form_interaction" | "before_unload" | "draft" | "capture";
+
+/**
+ * The page's keep reasons as it last told the host: `set` sends `cmux.page.keepAlive` only when a
+ * reason starts or ends, so a store may call it on every state change (no IPC per keystroke). A
+ * host without the op (an older app) answers `unknown_op`, which is ignored.
+ */
+export class PageKeepAlive {
+  private readonly held = new Set<PageKeepReason>();
+
+  constructor(private readonly client: PageClient | null) {}
+
+  /** Whether the page last said `reason` holds. */
+  has(reason: PageKeepReason): boolean {
+    return this.held.has(reason);
+  }
+
+  set(reason: PageKeepReason, on: boolean): void {
+    if (this.held.has(reason) === on) return;
+    if (on) this.held.add(reason);
+    else this.held.delete(reason);
+    this.client?.call<unknown>(KEEP_ALIVE_OP, { reason, on }).catch((error: unknown) => {
+      if (!(isPageError(error) && error.code === "cmux.protocol.unknown_op")) console.warn("cmux keepAlive", error);
+    });
+  }
+}
+
 /** How many not-yet-registered subscriptions, and events per subscription, the client holds. */
 const EARLY_SUBS = 16;
 const EARLY_EVENTS = 64;
