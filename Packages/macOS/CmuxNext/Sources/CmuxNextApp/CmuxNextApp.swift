@@ -3,6 +3,7 @@ import CmuxNextAgentPane
 import CmuxNextCloud
 import CmuxNextControl
 import CmuxNextDaemon
+import CmuxNextInput
 import CmuxNextLaunch
 import CmuxNextMallocZone
 import CmuxNextSidebar
@@ -57,6 +58,8 @@ public struct CmuxNextApp {
         let hangWatch = TraceRuntime.shared.hangWatch
         let state = environment.sidebarSnapshotFile?.url.deletingLastPathComponent()
         let work = BackgroundWork(hangs: hangWatch, onRan: startupTrace?.laneJobSink)
+        // Idle and best-effort lane work waits for startup complete (Chrome's BeginBestEffortFence); the order made on it lowers it.
+        let fence = LaunchOrder.BestEffortFence(raisingOn: work)
         startupTrace?.start(writingOn: work) // its file is written on work's files lane, never here
         startupTrace?.whenClosed { work.stopReportingRuns() } // a closed trace costs the lanes nothing
         let launchImages = AgentPaneLaunchImages(state: state), relaunchWake = AgentPaneRelaunchWake(directory: state)
@@ -76,8 +79,12 @@ public struct CmuxNextApp {
         // Instantiate the CEF-ready subclass before anything touches NSApp.
         let app = CmuxApplication.shared
         (app as? CmuxApplication)?.refusesActivation = ProcessInfo.processInfo.environment["CMUX_NEXT_NO_ACTIVATE"] == "1"
+        // The launch's order owners: the main-thread scheduler and the StartupScheduler on it, passed by init.
+        // The one input tap (p04-input.md 3 (A)): the budget's pending input, control and services observe it.
+        let inputTap = InputEventTap()
+        let order = LaunchOrder(fence: fence, input: inputTap) { DebugTimings.markLaunch($0) }
         let delegate = AppDelegate(environment: environment, daemonPrestart: prestart, wireStats: wireStats,
-                                   startupTrace: startupTrace,
+                                   startupTrace: startupTrace, order: order, inputTap: inputTap,
                                    launchReads: (work, launchImages, relaunchWake))
         // Every main run-loop turn is timed and split on the main-thread scheduler's meter (MainTurnMeter).
         (app as? CmuxApplication)?.meterTurns(delegate.turnMeter)
