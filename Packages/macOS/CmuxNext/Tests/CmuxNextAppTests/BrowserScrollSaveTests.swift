@@ -15,7 +15,7 @@ struct BrowserScrollSaveTests {
     }
 
     @Test func leavingTheAppSavesTheShownPagesScrollPosition() async throws {
-        let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com/a")))
+        let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com/a"), origin: .user))
         tab.scrollPosition = { 640 }
         let sent = Sent()
         let center = NotificationCenter()

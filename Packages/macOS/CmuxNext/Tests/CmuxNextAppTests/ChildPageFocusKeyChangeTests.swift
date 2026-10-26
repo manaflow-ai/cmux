@@ -44,8 +44,8 @@ struct ChildPageFocusKeyChangeTests {
         init() {
             keys = Keys([cmux: "cmux", pageA: "pageA", pageB: "pageB"])
             let engine = MockBrowserEngine(kind: .cef)
-            a = engine.makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://a.example")))
-            b = engine.makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://b.example")))
+            a = engine.makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://a.example"), origin: .user))
+            b = engine.makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://b.example"), origin: .user))
             focus = ChildPageFocus(keys: keys) { [weak self] page, focused in
                 guard let self else { return }
                 let isA = page === self.a

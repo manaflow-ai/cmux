@@ -15,7 +15,7 @@ import Testing
     }
 
     func tab(after reports: [BrowserMediaState]) -> MockBrowserTab {
-        let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com/listen")))
+        let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com/listen"), origin: .user))
         for report in reports { tab.simulate(.mediaChanged(report)) }
         return tab
     }

@@ -33,7 +33,7 @@ import Testing
         services.popups.ordersWindowsIn = false
         let opener = NSWindow(contentRect: CGRect(x: 200, y: 100, width: 900, height: 700), styleMask: [.titled], backing: .buffered, defer: false)
         opener.isReleasedWhenClosed = false
-        let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://accounts.example.com/signin")))
+        let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://accounts.example.com/signin"), origin: .user))
         services.popups.open(tab, request: BrowserPopupRequest(size: CGSize(width: 480, height: 360)), from: opener, openerKey: "tab_opener")
         let popup = try #require(services.popups.window(for: tab))
         return Harness(services: services, tab: tab, popup: popup, opener: opener)

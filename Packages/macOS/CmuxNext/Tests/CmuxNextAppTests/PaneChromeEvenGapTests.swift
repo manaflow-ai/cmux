@@ -80,7 +80,7 @@ import Testing
     func theOmnibarRowHasTheSameGapAboveAndBelow(style: ChromeStyle) throws {
         defer { load(nil) }
         load(style)
-        let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com")))
+        let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com"), origin: .user))
         let window = window(CGSize(width: 1000, height: 600))
         defer { window.close() }
         let chrome = BrowserChromeView(tab: tab)
@@ -112,7 +112,7 @@ import Testing
     func theToolbarButtonsAreHeliumsSizeAndKeepTheRowsEvenGap(style: ChromeStyle) throws {
         defer { load(nil) }
         load(style)
-        let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com")))
+        let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com"), origin: .user))
         let window = window(CGSize(width: 1000, height: 600))
         defer { window.close() }
         let chrome = BrowserChromeView(tab: tab)

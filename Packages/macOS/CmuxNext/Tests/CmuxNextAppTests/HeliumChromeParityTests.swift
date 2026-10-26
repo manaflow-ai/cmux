@@ -17,7 +17,7 @@ import Testing
     }
 
     private func chrome(in window: NSWindow) -> BrowserChromeView {
-        let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com")))
+        let tab = MockBrowserEngine(kind: .cef).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com"), origin: .user))
         let chrome = BrowserChromeView(tab: tab)
         chrome.frame = NSRect(x: 0, y: 0, width: 1000, height: 600)
         window.contentView = chrome

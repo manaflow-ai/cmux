@@ -20,7 +20,7 @@ import Testing
     }
 
     static func tab(_ engine: BrowserEngineKind, libraryLoaded: Bool) -> MockBrowserTab {
-        let tab = MockBrowserEngine(kind: engine).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com/")))
+        let tab = MockBrowserEngine(kind: engine).makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://example.com/"), origin: .user))
         // The toggle probe answers whether the page already has the library.
         tab.evaluationResult = .bool(libraryLoaded)
         return tab

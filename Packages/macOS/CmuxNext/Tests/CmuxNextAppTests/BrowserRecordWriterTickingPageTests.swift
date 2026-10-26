@@ -17,7 +17,7 @@ import Testing
     }
 
     @Test func aTickingTitleStillWritesWithinOneWindow() async throws {
-        let page = MockBrowserEngine().makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://old.example/")))
+        let page = MockBrowserEngine().makeMockTab(BrowserTabConfiguration(initialURL: URL(string: "https://old.example/"), origin: .user))
         let gate = Gate()
         var sent: [BrowserRecordUpdate] = []
         let writer = BrowserRecordWriter(tab: page, recorded: BrowserRecord(url: "https://old.example/", title: "Old"),

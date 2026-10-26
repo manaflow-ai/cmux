@@ -22,7 +22,7 @@ import Testing
     }
 
     static func chrome(back: Int = 0) -> (BrowserChromeView, MockBrowserTab) {
-        let tab = MockBrowserEngine().makeMockTab(BrowserTabConfiguration(initialURL: nil))
+        let tab = MockBrowserEngine().makeMockTab(BrowserTabConfiguration(initialURL: nil, origin: .user))
         let entries = (0...back).map { BrowserNavigationEntry(url: URL(string: "https://example.com/\($0)"), title: "Page \($0)") }
         tab.navigation = BrowserNavigationList(entries: entries, current: back)
         return (BrowserChromeView(tab: tab), tab)
