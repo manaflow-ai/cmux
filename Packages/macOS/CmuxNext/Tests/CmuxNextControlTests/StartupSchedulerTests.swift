@@ -107,6 +107,100 @@ import Testing
         #expect(log.currentMainTask == nil)
     }
 
+    @Test func theWatchdogThreadReadsTheMainTaskThatIsBlockingMain() {
+        let f = StartupFixture()
+        let log = f.startup.log
+        let seen = StartupLaneRan()
+        f.startup.post(.critical, "Theme.apply", on: .main) {
+            let read = DispatchSemaphore(value: 0)
+            // The hang watchdog's thread reads while this main task is stuck.
+            Thread.detachNewThread {
+                seen.add("\(log.currentMainTask ?? "none") main=\(Thread.isMainThread)")
+                read.signal()
+            }
+            // concurrency-allow: a test's stand-in for a hung main task; the reader thread signals right after its read.
+            read.wait()
+        }
+        #expect(seen.names == ["Theme.apply main=false"])
+        #expect(log.currentMainTask == nil)
+    }
+
+    @Test func aDroppedRefHoldsStartupUntilTheFailsafe() async throws {
+        let f = StartupFixture()
+        // A restore closure that captured its ref is freed without calling it: the ref is gone, unreleased.
+        func takeAndDrop(_ startup: StartupScheduler) { _ = startup.hold("Restore.lost") }
+        takeAndDrop(f.startup)
+        // The next refs may get the freed ref's memory; their release must not end the lost hold.
+        for _ in 0..<8 { f.startup.hold("Pane.visible").release(.visiblePaneLoadedIdle) }
+        f.complete()
+        #expect(f.startup.completion == nil, "the lost ref still holds startup")
+        #expect(f.startup.heldRefs == ["Restore.lost"])
+        try await f.clock.waitForSleeper()
+        f.clock.advance(by: StartupScheduler.failsafeTimeout)
+        let completion = await withCheckedContinuation { (continuation: CheckedContinuation<StartupScheduler.Completion, Never>) in
+            f.startup.whenComplete { continuation.resume(returning: $0) }
+        }
+        #expect(completion.reason == .failsafe, "the lost ref shows in the reason histogram")
+    }
+
+    @Test func theLaunchPhaseSettleIsARefAndItsFailsafeIsTheOnlyOne() {
+        let phase = StartupPhase(clock: ManualClock(), ledger: WakeupLedger())
+        let f = StartupFixture(phase: phase)
+        f.startup.post(.afterStartup, "Palette.prepare", on: .main) { [ran = f.ran] in ran.names.append("Palette.prepare") }
+        #expect(!f.startup.failsafeArmed, "the phase's settle failsafe is the deadline")
+        #expect(f.clock.sleeperCount == 0)
+        f.complete()
+        #expect(f.startup.completion == nil, "the phase has not settled")
+        #expect(f.startup.heldRefs == ["Startup.launchPhase"])
+        phase.noteFirstFrame()
+        for reference in [StartupPhase.Reference.firstSnapshot, .restoreDone, .visiblePageIdle] { phase.markDone(reference) }
+        #expect(phase.phase == .settled)
+        f.hand.drain()
+        #expect(f.startup.completion?.reason == .launchPhaseSettled)
+        f.fire()
+        #expect(f.ran.names == ["Palette.prepare"])
+    }
+
+    @Test func theLaunchPhaseFailsafeCompletesStartupWhateverIsHeld() async throws {
+        let phaseClock = ManualClock()
+        let phase = StartupPhase(clock: phaseClock, ledger: WakeupLedger())
+        let f = StartupFixture(phase: phase)
+        let restore = f.startup.hold("WindowManager.restore")
+        f.complete()
+        try await phaseClock.waitForSleeper()
+        phaseClock.advance(by: .milliseconds(1_500))
+        try await phaseClock.waitForSleeper()
+        phaseClock.advance(by: .milliseconds(8_500))
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            phase.whenReached(.settled) { continuation.resume() }
+        }
+        #expect(phase.settleCause == .failsafe)
+        f.hand.drain()
+        #expect(f.startup.completion?.reason == .failsafe, "one deadline and one reason end the launch")
+        #expect(!restore.isReleased)
+    }
+
+    @Test func aRuleBrokenAfterCompletionIsStillRecorded() async {
+        let f = StartupFixture()
+        f.complete()
+        f.startup.post(.afterStartup, "Cache.trim", on: .main) {}
+        f.startup.post(.onDemand, "Lazy.service", on: .main) {}
+        f.startup.post(.critical, "Mystery.step", on: .main) {}
+        let startup = f.startup
+        let (seen, report) = AsyncStream.makeStream(of: String.self)
+        await Task.detached(priority: .medium) {
+            startup.post(.critical, "Mystery.read", on: .lane(.files, .bestEffort)) { report.yield("Mystery.read") }
+        }.value
+        var reports = seen.makeAsyncIterator()
+        let ranOnLane = await reports.next()
+        #expect(ranOnLane == "Mystery.read")
+        let violations = f.startup.log.violations
+        #expect(violations.map(\.name.description) == ["Lazy.service", "Mystery.step", "Mystery.read"])
+        #expect(violations.map(\.violation) == [.onDemandPosted, .notInCriticalAllowlist, .notInCriticalAllowlist])
+        #expect(!f.startup.log.records.contains { $0.name.description == "Cache.trim" },
+                "a post after completion that breaks no rule is not recorded")
+    }
+
     @Test func aCriticalNameOutsideTheAllowlistRunsAndIsRecorded() {
         let f = StartupFixture()
         f.startup.post(.critical, "Theme.apply", on: .main) {}
@@ -194,6 +288,33 @@ import Testing
         #expect(f.startup.log.phase == .quitting)
     }
 
+    @Test func afterBeginQuitNoQueuedOrLaterLaneTaskRuns() async {
+        let f = StartupFixture()
+        f.startup.post(.afterStartup, "Launch.cleanup", on: .lane(.files, .bestEffort)) { [ran = f.laneRan] in ran.add("Launch.cleanup") }
+        f.complete()
+        let (lane, report) = AsyncStream.makeStream(of: String.self)
+        let release = DispatchSemaphore(value: 0)
+        // The files lane is serial per priority: this item holds it, so the items after it queue behind it.
+        f.background.post(.bestEffort, mayBlock: .files) {
+            report.yield("blocker")
+            // concurrency-allow: a files-lane thread in a test, released below right after beginQuit.
+            release.wait()
+        }
+        f.startup.post(.afterStartup, "Spares.trim", on: .lane(.files, .bestEffort)) { [ran = f.laneRan] in ran.add("Spares.trim") }
+        var reports = lane.makeAsyncIterator()
+        let blocking = await reports.next()
+        #expect(blocking == "blocker")
+        f.startup.beginQuit()
+        f.startup.post(.critical, "Settings.read", on: .lane(.files, .bestEffort)) { [ran = f.laneRan] in ran.add("Settings.read") }
+        // Behind every startup item on the lane: when it runs, each has run or been dropped.
+        f.background.post(.bestEffort, mayBlock: .files) { report.yield("fence") }
+        release.signal()
+        let fence = await reports.next()
+        #expect(fence == "fence")
+        #expect(f.laneRan.names == ["Launch.cleanup"],
+                "released at completion, it ran before quit; nothing queued at quit or posted after it runs")
+    }
+
     @Test func noFailsafeTimerOutlivesCompletion() async throws {
         let f = StartupFixture()
         try await f.clock.waitForSleeper()
@@ -215,24 +336,30 @@ private final class StartupFixture {
     let hand: StartupHandHop
     let uptime: StartupTestUptime
     let mainWork: MainWorkScheduler
+    let background: BackgroundWork
     let startup: StartupScheduler
     let ran = StartupRan()
+    let laneRan = StartupLaneRan()
     private var timestamp = 0.0
 
-    init() {
+    /// - Parameter phase: The launch phase of the frame scheduler (default: already settled, so the
+    ///   scheduler arms its own failsafe on `clock`).
+    init(phase: StartupPhase = .settled()) {
         let clock = ManualClock()
         let input = StartupTestInput()
         let hand = StartupHandHop()
         let uptime = StartupTestUptime()
         // The frame scheduler's stall timer sleeps on its own clock, so the failsafe is the only sleeper on `clock`.
         let mainWork = MainWorkScheduler.testing(budget: MainFrameBudget(input: input, uptimeNanos: { uptime.now }),
-                                                 clock: ManualClock(), ledger: WakeupLedger()) { _ in StartupTestLink() }
+                                                 clock: ManualClock(), ledger: WakeupLedger(), startup: phase) { _ in StartupTestLink() }
+        let background = BackgroundWork(label: "test.startup")
         self.clock = clock
         self.input = input
         self.hand = hand
         self.uptime = uptime
         self.mainWork = mainWork
-        startup = StartupScheduler(mainWork: mainWork, background: BackgroundWork(label: "test.startup"), hop: hand.hop,
+        self.background = background
+        startup = StartupScheduler(mainWork: mainWork, background: background, hop: hand.hop,
                                    clock: clock, ledger: WakeupLedger(), criticalAllowlist: ["Theme.apply", "Settings.read"],
                                    log: StartupTaskLog())
     }
@@ -256,6 +383,15 @@ private final class StartupFixture {
 @MainActor
 private final class StartupRan {
     var names: [String] = []
+}
+
+/// Names recorded from lane and reader threads, in order.
+private final class StartupLaneRan: Sendable {
+    private let state = Mutex<[String]>([])
+
+    var names: [String] { state.withLock { $0 } }
+
+    func add(_ name: String) { state.withLock { $0.append(name) } }
 }
 
 /// A main hop the test runs by hand.

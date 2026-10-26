@@ -5,7 +5,9 @@
 ///
 /// Release a ref exactly once, with the reason it ends; a second release does nothing. A ref that
 /// is never released holds startup until the failsafe, which records the reason `failsafe`, so a
-/// lost ref shows in the reason histogram instead of hiding.
+/// lost ref shows in the reason histogram instead of hiding. The scheduler keys each ref by an
+/// ``id`` it never hands out twice, so a ref dropped unreleased stays held even after the
+/// allocator gives its memory to a later ref.
 ///
 /// ```swift
 /// let restore = startup.hold("WindowManager.restore")
@@ -15,12 +17,15 @@
 public final class StartupInProgressRef {
     /// What the ref waits for (`debug.startup` lists the refs still held).
     public let name: StaticString
+    /// The scheduler's key for this ref: unique per scheduler, never reused (0 for a ref that holds nothing).
+    public let id: UInt64
     /// True once released (or made after completion or quit, when it holds nothing).
     public private(set) var isReleased: Bool
     private weak var scheduler: StartupScheduler?
 
-    init(name: StaticString, scheduler: StartupScheduler?) {
+    init(name: StaticString, id: UInt64, scheduler: StartupScheduler?) {
         self.name = name
+        self.id = id
         self.scheduler = scheduler
         isReleased = scheduler == nil
     }
@@ -35,7 +40,8 @@ public final class StartupInProgressRef {
     }
 
     /// Why a hold ended; the last one is the startup completion reason
-    /// (Chrome's `Startup.BrowserStartupCompleteReason`).
+    /// (Chrome's `Startup.BrowserStartupCompleteReason`). Positions are fixed (the
+    /// `launch.startup_complete` ring record stores position + 1): append a new reason, never insert.
     public nonisolated enum Reason: String, Sendable, CaseIterable, CustomStringConvertible {
         /// The app finished registering its launch work (``StartupScheduler/finishRegistration()``).
         case registrationFinished
@@ -53,6 +59,9 @@ public final class StartupInProgressRef {
         case daemonUnavailable
         /// The failsafe deadline fired with refs still held.
         case failsafe
+        /// The launch's ``StartupPhase`` settled by its references (first snapshot, restore done,
+        /// visible page idle).
+        case launchPhaseSettled
 
         public var description: String { rawValue }
     }

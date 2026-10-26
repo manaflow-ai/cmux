@@ -1,9 +1,9 @@
 import CmuxNextCompat
-import CmuxNextSignposts
-import os
+public import CmuxNextSignposts
 
-/// What ``StartupScheduler`` ran at launch: one record per task posted before completion (for
-/// `debug.startup` and the StartupTrace ring), a launch signpost interval per task, and the main
+/// What ``StartupScheduler`` ran at launch: one record per task posted before completion, and per
+/// post that broke a rule at any time (for `debug.startup` and the StartupTrace ring), a
+/// `launch.startup_task` signpost interval per task (also a Release trace ring slice), and the main
 /// task running now, which the hang watchdog reads from its own thread.
 ///
 /// Chrome records the same per task (`Startup.AfterStartupTaskCount`,
@@ -12,11 +12,11 @@ import os
 /// main thread one atomic store per task: the name's address and length in one word, no lock.
 ///
 /// ```swift
-/// let log = StartupTaskLog(signposts: true)
+/// let log = StartupTaskLog(signposter: .launch)
 /// if let task = log.currentMainTask { report.startupTask = task }   // the watchdog's thread
 /// ```
 public final class StartupTaskLog: Sendable {
-    /// One task posted before startup completed.
+    /// One task posted before startup completed, or a post that broke a rule (``violation``).
     public struct Record: Sendable {
         /// The task's name.
         public let name: StaticString
@@ -65,7 +65,7 @@ public final class StartupTaskLog: Sendable {
 
     private struct State {
         var records: [Record] = []
-        /// False once startup completed: later posts are not recorded.
+        /// False once startup completed: later posts are recorded only when they break a rule.
         var open = true
     }
 
@@ -75,20 +75,25 @@ public final class StartupTaskLog: Sendable {
     private let current = Atomic<UInt64>(0)
     private let phaseValue = Atomic<Int>(Phase.beforeFirstFrame.rawValue)
     private let uptimeNanos: @Sendable () -> UInt64
-    private let signposter: OSSignposter?
+    private let signposter: Signposter?
 
     /// - Parameters:
-    ///   - signposts: Whether each task is a `startup.task` interval in the `launch` category (the app: true).
+    ///   - signposter: Where each task's `launch.startup_task` interval and the `launch.startup_complete`
+    ///     event go (the app: ``Signposter/launch``; tests: nil, or one on their own `TraceRuntime`).
     ///   - uptimeNanos: The clock (`CLOCK_UPTIME_RAW` nanoseconds); tests inject one they move.
-    public init(signposts: Bool = false, uptimeNanos: @escaping @Sendable () -> UInt64 = WakeupLedger.systemUptime) {
+    public init(signposter: Signposter? = nil, uptimeNanos: @escaping @Sendable () -> UInt64 = WakeupLedger.systemUptime) {
+        assert(signposter.map { $0.category == .launch } ?? true, "startup signposts are in the launch category")
         self.uptimeNanos = uptimeNanos
-        signposter = signposts ? OSSignposter(subsystem: SignpostCategory.subsystem, category: SignpostCategory.launch.rawValue) : nil
+        self.signposter = signposter
     }
+
+    /// The app's log: tasks and the completion on ``Signposter/launch`` (os_signpost and the process's trace ring).
+    public static func signposted() -> StartupTaskLog { StartupTaskLog(signposter: .launch) }
 
     /// The records so far, in post order.
     public var records: [Record] { state.withLock { $0.records } }
 
-    /// The records of posts that broke a rule.
+    /// The records of posts that broke a rule, before or after completion.
     public var violations: [Record] { records.filter { $0.violation != nil } }
 
     /// The main task running now (any thread), or nil between tasks.
@@ -105,17 +110,17 @@ public final class StartupTaskLog: Sendable {
         phaseValue.store(phase.rawValue, ordering: .releasing)
     }
 
-    /// Records a post; returns its record index, or nil once startup completed.
+    /// Records a post; returns its record index, or nil for a post after completion that broke no rule.
     func posted(_ name: StaticString, _ priority: StartupPriority, _ destination: StartupDestination, violation: Violation?) -> Int? {
         let now = uptimeNanos()
         return state.withLock { state -> Int? in
-            guard state.open else { return nil }
+            guard state.open || violation != nil else { return nil }
             state.records.append(Record(name: name, priority: priority, destination: destination, postedNanos: now, violation: violation))
             return state.records.count - 1
         }
     }
 
-    /// Stops recording new posts (startup completed; the held tasks keep their records).
+    /// Stops recording new posts that break no rule (startup completed; the held tasks keep their records).
     func close() {
         state.withLock { $0.open = false }
     }
@@ -125,13 +130,12 @@ public final class StartupTaskLog: Sendable {
     func run(_ record: Int?, _ name: StaticString, _ priority: StartupPriority, onMain: Bool, _ body: () -> Void) {
         let outer = onMain ? current.exchange(Self.pack(name), ordering: .acquiringAndReleasing) : 0
         let interval = signposter.map { signposter in
-            signposter.beginInterval("startup.task", id: signposter.makeSignpostID(),
-                                     "name=\(name.description, privacy: .public) priority=\(priority.description, privacy: .public)")
+            signposter.begin(.launchStartupTask, "name=\(name) priority=\(priority)", arg0: UInt64(priority.rawValue) + 1)
         }
         let start = uptimeNanos()
         body()
         let end = uptimeNanos()
-        if let signposter, let interval { signposter.endInterval("startup.task", interval) }
+        if let signposter, let interval { signposter.end(.launchStartupTask, interval) }
         if onMain { current.store(outer, ordering: .releasing) }
         guard let record else { return }
         state.withLock { state in
@@ -140,9 +144,12 @@ public final class StartupTaskLog: Sendable {
         }
     }
 
-    /// Marks the completion in the signpost stream (`startup.complete reason=<reason>`).
-    func completed(_ reason: StartupInProgressRef.Reason) {
-        signposter?.emitEvent("startup.complete", "reason=\(reason.rawValue, privacy: .public)")
+    /// Marks the completion in the signpost stream and the ring (`launch.startup_complete reason=<reason>`;
+    /// arg0 the reason's position + 1, arg1 the afterStartup tasks held until then).
+    func completed(_ reason: StartupInProgressRef.Reason, heldTasks: Int) {
+        guard let signposter else { return }
+        let position = StartupInProgressRef.Reason.allCases.firstIndex(of: reason).map { UInt64($0) + 1 } ?? 0
+        signposter.event(.launchStartupComplete, "reason=\(reason)", arg0: position, arg1: UInt64(heldTasks))
     }
 
     /// `name`'s address and length in one word (0 for a name with no pointer form or longer than 64 KiB).

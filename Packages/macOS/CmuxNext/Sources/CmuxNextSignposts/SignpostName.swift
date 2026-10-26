@@ -13,7 +13,8 @@
 /// task 000 that the lead merges.
 ///
 /// ``actionPerform``, ``actionCommit``, ``actionGate``, ``keyToFrame``, ``keyFlow``, ``scrollToFrame``,
-/// ``stallMainTask``, ``stallOverBudget``, ``stallMainTurn`` (the trace ring's), ``webuiOpen`` and ``webuiScheme`` have an emitter today. The other cases are
+/// ``stallMainTask``, ``stallOverBudget``, ``stallMainTurn`` (the trace ring's), ``launchStartupTask``,
+/// ``launchStartupComplete``, ``webuiOpen`` and ``webuiScheme`` have an emitter today. The other cases are
 /// **reserved**: the task and owner named on each add the emitter. Until then no build records them,
 /// and no bench or report may quote them. "Ring" on a reserved case gives its record phases and the
 /// meaning of `arg0` and `arg1` (the ring v1 record, plans/cmux-next/trace.md).
@@ -309,6 +310,17 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
     /// 100 us units (0xFFFF at 6.5 s or more). Per turn: never mirrored to MetricKit.
     case stallMainTurn = 73
 
+    // MARK: launch, continued (emitter: CmuxNextWakeups `StartupTaskLog`, task p08-startup-010)
+    /// One task the launch scheduler (`StartupScheduler`) runs, from its start to its return, on main or on
+    /// its lane. Message: `name=<Domain.step> priority=<critical|afterFirstFrame|afterStartup>`. Ring: B/E
+    /// (it begins and ends in one synchronous call on one thread); arg0 the priority's position + 1 (0 not
+    /// given). About a hundred per launch: never mirrored to MetricKit.
+    case launchStartupTask = 74
+    /// Startup completed (`StartupScheduler`'s completion, Chrome's `Startup.BrowserStartupCompleteReason`).
+    /// Message: `reason=<reason>`. Ring: instant; arg0 the reason's position + 1, arg1 the afterStartup tasks
+    /// held until then.
+    case launchStartupComplete = 75
+
     /// The name `os_signpost` records (a compile-time string, as the API requires).
     public var staticName: StaticString {
         switch self {
@@ -350,6 +362,8 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
         case .launchFirstFrame: "launch.first_frame"
         case .launchDaemonReady: "launch.daemon_ready"
         case .launchFirstTerminalOutput: "launch.first_terminal_output"
+        case .launchStartupTask: "launch.startup_task"
+        case .launchStartupComplete: "launch.startup_complete"
         case .stallMainTask: "stall.main_task"
         case .stallOverBudget: "stall.over_budget"
         case .stallMainTurn: "stall.main_turn"
@@ -404,7 +418,7 @@ public nonisolated enum SignpostName: UInt16, Sendable, Hashable, CaseIterable, 
         case .createTab, .createWorkspace: .create
         case .cefPump, .cefCreateBrowser, .cefGeometry, .cefHostInput: .cef
         case .launchProcessToMain, .launchFirstWindow, .launchFirstFrame, .launchDaemonReady,
-             .launchFirstTerminalOutput:
+             .launchFirstTerminalOutput, .launchStartupTask, .launchStartupComplete:
             .launch
         case .stallMainTask, .stallOverBudget, .stallMainTurn, .stallCreateSurface, .stallPaletteOpen, .stallIconPickerOpen: .stall
         case .daemonRequest: .daemon

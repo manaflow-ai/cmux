@@ -13,16 +13,25 @@ import CmuxNextCompat
 ///   at ``MainWorkClass/background``, one task per frame and behind pending input; on a lane at its
 ///   priority.
 /// - Completion is a ref count, as in Chrome: the implicit registration ref (``finishRegistration()``),
-///   the first-frame ref (``firstFrameCommitted()``) and every ``hold(_:)``. When the last one is
-///   released the completion is posted to a later main turn, which checks again; a failsafe
-///   (``failsafeTimeout``, a ``DemandTimer``) completes it with reason `failsafe`. The completion
-///   never fires after ``beginQuit()``, and its timer exists only before it.
+///   the first-frame ref (``firstFrameCommitted()``), the launch-phase ref (below) and every
+///   ``hold(_:)``. When the last one is released the completion is posted to a later main turn, which
+///   checks again; the failsafe completes it with reason `failsafe` whatever is still held. The
+///   completion never fires after ``beginQuit()``.
+/// - One launch, one completion: the scheduler reads the ``StartupPhase`` of its `mainWork`
+///   (p06-scheduler). While that phase is not settled, its settle is one more ref (released with
+///   ``StartupInProgressRef/Reason/launchPhaseSettled``), and the phase's settle failsafe (10 s from
+///   launch) is the scheduler's failsafe: no afterStartup task runs before the classes the settle
+///   opens, and one deadline and one reason end the launch. Only a scheduler whose phase is already
+///   settled (made after launch, tests) arms its own failsafe (``failsafeTimeout``, a ``DemandTimer``),
+///   which exists only until completion or ``beginQuit()``. Task 012 moves the phase's references
+///   (first snapshot, restore, visible page) to refs of this scheduler and settles the phase at its
+///   completion.
 /// - A post from another thread hops to main at ``WorkPriority/userVisible`` and is queued once there;
 ///   a lane post after completion goes straight to its lane.
 /// - After completion a post goes straight to its class. After ``beginQuit()`` nothing runs.
 ///
-/// Every task is a `startup.task` signpost interval and a ``StartupTaskLog`` record, and a main
-/// task is the watchdog's current task while it runs.
+/// Every task is a `launch.startup_task` signpost interval (and trace ring slice) and a ``StartupTaskLog``
+/// record, and a main task is the watchdog's current task while it runs.
 ///
 /// One instance per app, made in `main()` and passed by init; tests build their own.
 ///
@@ -35,8 +44,9 @@ import CmuxNextCompat
 /// ```
 @MainActor
 public final class StartupScheduler {
-    /// How long startup may take before the failsafe completes it. Chrome uses 3 min; cmux panes are
-    /// local, so a launch not complete in 10 s is a stuck daemon or a bug (p08-startup.md, 3A).
+    /// How long startup may take before the scheduler's own failsafe completes it (when its launch phase
+    /// was settled at init; else the phase's equal settle failsafe is the deadline). Chrome uses 3 min;
+    /// cmux panes are local, so a launch not complete in 10 s is a stuck daemon or a bug (p08-startup.md, 3A).
     public nonisolated static let failsafeTimeout: Duration = .seconds(10)
 
     /// The names a ``StartupPriority/critical`` post may have (<= 15; task 015 fills it from the
@@ -65,7 +75,7 @@ public final class StartupScheduler {
     /// Set by ``beginQuit()``; read by lane tasks before they start.
     private nonisolated let quitting = Atomic<Bool>(false)
     private let uptimeNanos: @Sendable () -> UInt64
-    private let allowlist: Set<String>
+    private nonisolated let allowlist: Set<String>
     private let failsafe: DemandTimer
     private let visibleWork: FrameBatchQueue
     private let idleOwner: MainTaskOwner
@@ -73,10 +83,15 @@ public final class StartupScheduler {
     private var firstFrameDone = false
     private var isQuitting = false
     private var completionPosted = false
+    /// Set when the launch phase settled by its failsafe: completion is due whatever is still held.
+    private var failsafePassed = false
     private var lastReason: StartupInProgressRef.Reason = .registrationFinished
-    private var refs: [ObjectIdentifier: StaticString] = [:]
+    /// The refs still held, by ``StartupInProgressRef/id`` (never reused, so a dropped ref stays held).
+    private var refs: [UInt64: StaticString] = [:]
+    private var lastRefID: UInt64 = 0
     private var registration: StartupInProgressRef?
     private var firstFrame: StartupInProgressRef?
+    private var launchPhase: StartupInProgressRef?
     private var heldAfterFirstFrame: [Pending] = []
     private var heldAfterStartup: [Pending] = []
     /// afterStartup main tasks released to the background class, run one per frame from ``idleHead``.
@@ -100,23 +115,25 @@ public final class StartupScheduler {
         case lane(StartupDestination.Lane, @Sendable () -> Void)
     }
 
-    /// Makes the scheduler and arms its failsafe.
+    /// Makes the scheduler: it waits for the settle of `mainWork`'s launch phase, or arms its own failsafe
+    /// when that phase is already settled.
     ///
     /// - Parameters:
-    ///   - mainWork: The app's main-thread scheduler (afterFirstFrame and afterStartup main tasks run as its batches).
+    ///   - mainWork: The app's main-thread scheduler (afterFirstFrame and afterStartup main tasks run as its
+    ///     batches); its ``MainWorkScheduler/startup`` phase is the launch this scheduler completes with.
     ///   - background: The app's lanes (lane tasks).
     ///   - hop: How off-main posts and the posted completion reach main (the app: ``StartupMainHop/userVisible``).
     ///   - clock: The failsafe's clock.
     ///   - ledger: Where the failsafe's wakeup is recorded.
     ///   - criticalAllowlist: The names a critical post may have.
-    ///   - failsafeTimeout: How long until the failsafe completes startup.
-    ///   - log: The records, signposts and the watchdog's current task (the app: signposts on).
+    ///   - failsafeTimeout: How long until the scheduler's own failsafe completes startup (a settled phase only).
+    ///   - log: The records, signposts and the watchdog's current task (the app: on ``Signposter/launch``).
     ///   - uptimeNanos: The clock of ``Completion/uptimeNanos``.
     public init(mainWork: MainWorkScheduler, background: BackgroundWork, hop: StartupMainHop = .userVisible,
                 clock: any Clock<Duration>, ledger: WakeupLedger = .shared,
                 criticalAllowlist: [StaticString] = StartupScheduler.criticalAllowlist,
                 failsafeTimeout: Duration = StartupScheduler.failsafeTimeout,
-                log: StartupTaskLog = StartupTaskLog(signposts: true),
+                log: StartupTaskLog = .signposted(),
                 uptimeNanos: @escaping @Sendable () -> UInt64 = WakeupLedger.systemUptime) {
         self.mainWork = mainWork
         self.background = background
@@ -127,11 +144,15 @@ public final class StartupScheduler {
         failsafe = DemandTimer(owner: "StartupScheduler.failsafe", clock: clock, ledger: ledger)
         visibleWork = FrameBatchQueue(owner: "Startup.afterFirstFrame", budgeted: .visible, on: mainWork)
         idleOwner = mainWork.budget.board.owner("Startup.afterStartup")
-        registration = StartupInProgressRef(name: "Startup.registration", scheduler: self)
-        firstFrame = StartupInProgressRef(name: "Startup.firstFrame", scheduler: self)
-        if let registration { refs[ObjectIdentifier(registration)] = registration.name }
-        if let firstFrame { refs[ObjectIdentifier(firstFrame)] = firstFrame.name }
-        failsafe.schedule(after: failsafeTimeout) { @MainActor [weak self] in self?.failsafeFired() }
+        registration = hold("Startup.registration")
+        firstFrame = hold("Startup.firstFrame")
+        let phase = mainWork.startup
+        if phase.phase < .settled {
+            launchPhase = hold("Startup.launchPhase")
+            phase.whenReached(.settled) { [weak self, weak phase] in self?.launchPhaseSettled(phase?.settleCause) }
+        } else {
+            failsafe.schedule(after: failsafeTimeout) { @MainActor [weak self] in self?.failsafeFired() }
+        }
     }
 
     // MARK: Posting
@@ -158,11 +179,14 @@ public final class StartupScheduler {
     ///   - work: The blocking work; it runs on a lane thread, never on main.
     public nonisolated func post(_ priority: StartupPriority, _ name: StaticString, on destination: StartupDestination.Lane,
                                  _ work: @escaping @Sendable () -> Void) {
-        let task = Pending(name: name, priority: priority, record: nil, work: .lane(destination, work))
-        if priority != .onDemand, completed.load(ordering: .acquiring), !quitting.load(ordering: .acquiring) {
-            submit(task, destination, work)
+        if completed.load(ordering: .acquiring), !quitting.load(ordering: .acquiring) {
+            // After completion no priority is held: record a broken rule, then straight to the lane.
+            let record = log.posted(name, priority, destination.destination, violation: violation(priority, name))
+            submit(Pending(name: name, priority: Self.running(priority), record: record, work: .lane(destination, work)),
+                   destination, work)
             return
         }
+        let task = Pending(name: name, priority: priority, record: nil, work: .lane(destination, work))
         hop.onMain { [self] in accept(task) }
     }
 
@@ -171,9 +195,10 @@ public final class StartupScheduler {
     /// - Parameter name: What it waits for (`WindowManager.restore`).
     /// - Returns: The ref; after completion or quit one that holds nothing.
     public func hold(_ name: StaticString) -> StartupInProgressRef {
-        guard completion == nil, !isQuitting else { return StartupInProgressRef(name: name, scheduler: nil) }
-        let ref = StartupInProgressRef(name: name, scheduler: self)
-        refs[ObjectIdentifier(ref)] = name
+        guard completion == nil, !isQuitting else { return StartupInProgressRef(name: name, id: 0, scheduler: nil) }
+        lastRefID += 1
+        let ref = StartupInProgressRef(name: name, id: lastRefID, scheduler: self)
+        refs[ref.id] = name
         return ref
     }
 
@@ -217,23 +242,33 @@ public final class StartupScheduler {
         observers.append(body)
     }
 
-    /// Whether the failsafe deadline is pending.
+    /// Whether the scheduler's own failsafe deadline is pending (never while its launch phase owns the deadline).
     public var failsafeArmed: Bool { failsafe.isScheduled }
 
     // MARK: Refs and completion
 
     func refReleased(_ ref: StartupInProgressRef, reason: StartupInProgressRef.Reason) {
-        guard refs.removeValue(forKey: ObjectIdentifier(ref)) != nil else { return }
+        guard refs.removeValue(forKey: ref.id) != nil else { return }
         lastReason = reason
-        guard refs.isEmpty, completion == nil, !isQuitting, !completionPosted else { return }
+        guard isDue, completion == nil, !isQuitting, !completionPosted else { return }
         completionPosted = true
         hop.later { [weak self] in self?.completeIfStillDue() }
     }
 
+    /// Every ref is released, or the launch phase's failsafe passed.
+    private var isDue: Bool { refs.isEmpty || failsafePassed }
+
     private func completeIfStillDue() {
         completionPosted = false
-        guard refs.isEmpty, completion == nil, !isQuitting else { return }
-        complete(lastReason)
+        guard isDue, completion == nil, !isQuitting else { return }
+        complete(failsafePassed ? .failsafe : lastReason)
+    }
+
+    /// The launch phase settled: its ref ends, and a failsafe settle ends the launch whatever is held.
+    private func launchPhaseSettled(_ cause: StartupPhase.SettleCause?) {
+        if cause == .failsafe { failsafePassed = true }
+        launchPhase?.release(cause == .failsafe ? .failsafe : .launchPhaseSettled)
+        launchPhase = nil
     }
 
     private func failsafeFired() {
@@ -249,7 +284,7 @@ public final class StartupScheduler {
         let done = Completion(reason: reason, uptimeNanos: uptimeNanos(), heldTasks: held.count)
         completion = done
         log.setPhase(.complete)
-        log.completed(reason)
+        log.completed(reason, heldTasks: held.count)
         for task in held { dispatch(task) }
         log.close()
         completed.store(true, ordering: .releasing)
@@ -267,19 +302,27 @@ public final class StartupScheduler {
         case .main: .main
         case .lane(let lane, _): lane.destination
         }
-        let violation: StartupTaskLog.Violation? = switch posted.priority {
-        case .critical: allowlist.contains(posted.name.description) ? nil : .notInCriticalAllowlist
-        case .onDemand: .onDemandPosted
-        case .afterFirstFrame, .afterStartup: nil
-        }
-        let record = log.posted(posted.name, posted.priority, destination, violation: violation)
-        let task = Pending(name: posted.name, priority: posted.priority == .onDemand ? .afterStartup : posted.priority,
-                           record: record, work: posted.work)
+        let record = log.posted(posted.name, posted.priority, destination, violation: violation(posted.priority, posted.name))
+        let task = Pending(name: posted.name, priority: Self.running(posted.priority), record: record, work: posted.work)
         switch task.priority {
         case .afterFirstFrame where !firstFrameDone: heldAfterFirstFrame.append(task)
         case .afterStartup where completion == nil: heldAfterStartup.append(task)
         case .critical, .afterFirstFrame, .afterStartup, .onDemand: dispatch(task)
         }
+    }
+
+    /// The rule a post at `priority` named `name` breaks, if any (checked before and after completion).
+    private nonisolated func violation(_ priority: StartupPriority, _ name: StaticString) -> StartupTaskLog.Violation? {
+        switch priority {
+        case .critical: allowlist.contains(name.description) ? nil : .notInCriticalAllowlist
+        case .onDemand: .onDemandPosted
+        case .afterFirstFrame, .afterStartup: nil
+        }
+    }
+
+    /// The priority a post runs at: an onDemand post runs as afterStartup.
+    private nonisolated static func running(_ priority: StartupPriority) -> StartupPriority {
+        priority == .onDemand ? .afterStartup : priority
     }
 
     private func releaseAfterFirstFrame() {
