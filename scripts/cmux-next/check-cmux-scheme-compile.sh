@@ -82,6 +82,10 @@ else
 fi
 remove_log=0
 remove_derived_data=0
+# With metrics on, each attempt also writes a result bundle (outside the
+# uploaded metrics directory), read once for the build timeline below.
+timeline_dir=""
+[[ -z "$metrics_dir" ]] || timeline_dir="$(mktemp -d "${TMPDIR:-/tmp}/cmux-scheme-timeline.XXXXXX")" || timeline_dir=""
 [[ -n "$metrics_dir" ]] || remove_log=1
 (( kept_path )) || remove_derived_data=1
 browser_sources="Packages/macOS/CmuxNext/Sources/CmuxNextBrowserImport/Resources/browser-sources.json"
@@ -100,6 +104,7 @@ on_exit() {
   [[ "${GITHUB_ACTIONS:-}" != true ]] || cmux_next_restore_workspace_resolved "$repo_root"
   if (( remove_log )); then rm -f "$log"; fi
   if (( remove_derived_data )); then rm -rf -- "$derived_data"; fi
+  if [[ -n "$timeline_dir" ]]; then rm -rf -- "$timeline_dir"; fi
 }
 trap on_exit EXIT
 swift_import_flags=""
@@ -116,6 +121,8 @@ build() {
   if [[ -n "$metrics_dir" ]]; then
     log="$metrics_dir/xcodebuild-attempt-${build_attempt}.log"
   fi
+  result_bundle=""
+  [[ -z "$timeline_dir" ]] || result_bundle="$timeline_dir/attempt-${build_attempt}.xcresult"
   xcode_args=(
     -project cmux.xcodeproj -scheme cmux -configuration "$configuration"
     -destination 'platform=macOS,arch=arm64'
@@ -133,6 +140,7 @@ build() {
   if (( use_cache )); then
     while IFS= read -r setting; do xcode_args+=("$setting"); done < <(cmux_next_cas_settings)
   fi
+  [[ -z "$result_bundle" ]] || xcode_args+=(-resultBundlePath "$result_bundle")
   CMUX_NEXT_SKIP_CEF=1 CMUX_SKIP_ZIG_BUILD=1 \
     "$repo_root/scripts/ci/run-xcodebuild-with-diagnostics.sh" -- \
     xcodebuild "${xcode_args[@]}" \
@@ -203,6 +211,12 @@ if (( status == 0 )) && [[ -n "$product_name" ]]; then
       || /usr/libexec/PlistBuddy -c "Add :$key string $product_name" "$plist"
   done
   echo "check-cmux-scheme-compile: $product_name.app from $built_name.app"
+fi
+# Where the time went: per task kind and the slowest tasks
+# (scripts/ci/xcode_build_timeline.py). Advisory; it never changes the verdict.
+if [[ -n "$timeline_dir" && -d "${result_bundle:-}" ]]; then
+  python3 "$repo_root/scripts/ci/xcode_build_timeline.py" --xcresult "$result_bundle" \
+    --json "$metrics_dir/build-timeline.json" || true
 fi
 # Prune the cache whatever the build's outcome; it never changes the verdict.
 [[ "$compilation_cache" != 1 ]] || ! (( kept_path )) || cmux_next_cas_bound "$repo_root" "$derived_data"

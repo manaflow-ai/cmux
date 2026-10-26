@@ -1925,3 +1925,7 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_nightly_step_coverage.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_xcode_build_timeline.py"
+lane = "linux-guard"
