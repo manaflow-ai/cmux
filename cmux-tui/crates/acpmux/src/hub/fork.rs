@@ -319,7 +319,11 @@ impl Hub {
             Made::Copy(_) | Made::Agent(..) => {}
         }
         self.store.save(&new.meta()).map_err(|e| RpcError::internal(e.to_string()))?;
-        self.sessions.lock().unwrap().insert(id.clone(), new.clone());
+        {
+            let mut sessions = self.sessions.lock().unwrap();
+            sessions.insert(id.clone(), new.clone());
+            super::admission::claim(&id);
+        }
         // Copy the transcript-relevant history so attach replays it.
         // Read one record at a time; only these kinds are parsed.
         const COPIED: &[&str] = &[

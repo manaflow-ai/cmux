@@ -324,6 +324,9 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
             if let Some(h) = &host {
                 meta["peer"] = json!(h);
             }
+            if args.force_admit {
+                meta["forceAdmit"] = json!(true);
+            }
             if let Some(n) = &launch.name {
                 meta["name"] = json!(n);
             }
