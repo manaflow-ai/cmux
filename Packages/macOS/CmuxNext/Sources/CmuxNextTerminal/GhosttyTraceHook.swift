@@ -54,10 +54,14 @@ public final class GhosttyTraceHook {
 
     /// What every hook call reads, from any thread.
     let recorder: Recorder
-    private let setter: Setter?
+    /// SAFETY: `ghostty_set_trace_hook` or a test's stand-in, set once in `init`; it is only called
+    /// with ``ghosttyTraceHook`` and `context`, or with nil and nil.
+    @safe private let setter: Setter?
     /// The recorder as the hook's `ctx`: retained once for the process, since a call already past Ghostty's
     /// load of the pointer may still run after the hook is cleared.
-    private let context: UnsafeMutableRawPointer
+    /// SAFETY: the retain in `init` is never released, so the address stays a live Recorder for
+    /// every hook call.
+    @safe private let context: UnsafeMutableRawPointer
     /// Whether the pointer is set now.
     public private(set) var isInstalled = false
     /// An echo stage sink is installed (``TerminalEchoStages/install(_:)``): its stages need the handoffs.
@@ -71,8 +75,10 @@ public final class GhosttyTraceHook {
     init(gate: TerminalContentsGate, trace: TraceRuntime = .shared, probe: TypingLatencyProbe = .shared,
          setter: Setter? = GhosttyTraceHook.linkedSetter()) {
         recorder = Recorder(gate: gate, trace: trace, probe: probe)
-        self.setter = setter
-        context = Unmanaged.passRetained(recorder).toOpaque()
+        // SAFETY: the setter the caller passed (`setter`'s note), stored once.
+        self.setter = unsafe setter
+        // SAFETY: one retain for the process, never released (`context`'s note).
+        context = unsafe Unmanaged.passRetained(recorder).toOpaque()
     }
 
     /// Whether the linked libghostty has the hook, so echo stages see frames without the DEBUG swizzle.
@@ -80,11 +86,20 @@ public final class GhosttyTraceHook {
 
     /// `ghostty_set_trace_hook` from the linked libghostty, looked up by name so cmux builds against a
     /// GhosttyNextKit from before p09-observability-048; nil there.
-    nonisolated static func linkedSetter() -> Setter? {
+    /// SAFETY: the lookup only reads the loaded images' symbol tables; calling the setter it returns
+    /// is the unsafe part, and each call is marked.
+    @safe nonisolated static func linkedSetter() -> Setter? {
         typealias SetHook = @convention(c) (Callback?, UnsafeMutableRawPointer?) -> Void
-        guard let symbol = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "ghostty_set_trace_hook") else { return nil }
-        let set = unsafeBitCast(symbol, to: SetHook.self)
-        return { callback, context in set(callback, context) }
+        // SAFETY: -2 is RTLD_DEFAULT (dlfcn.h), a handle value, not an address; the name is a
+        // NUL-terminated copy Swift passes for the call.
+        guard let symbol = unsafe dlsym(UnsafeMutableRawPointer(bitPattern: -2), "ghostty_set_trace_hook") else { return nil }
+        // SAFETY: the symbol is ghostty.h's `void ghostty_set_trace_hook(ghostty_trace_hook_cb, void *)`,
+        // which SetHook spells (this type's ABI note).
+        let set = unsafe unsafeBitCast(symbol, to: SetHook.self)
+        return { callback, context in
+            // SAFETY: as above; the arguments are the caller's (`setter`'s note).
+            unsafe set(callback, context)
+        }
     }
 
     /// Posts the GPU completion of each key echo frame handed over before it to `presents`, as visible work
@@ -113,9 +128,12 @@ public final class GhosttyTraceHook {
         guard wanted != isInstalled else { return }
         isInstalled = wanted
         if wanted {
-            setter(ghosttyTraceHook, context)
+            // SAFETY: the hook has ghostty_trace_hook_cb's signature and `context` is the recorder
+            // retained for the process (its note), so every call Ghostty makes gets a live one.
+            unsafe setter(ghosttyTraceHook, context)
         } else {
-            setter(nil, nil)
+            // SAFETY: nil clears the hook (this type's ABI note).
+            unsafe setter(nil, nil)
         }
     }
 }
@@ -213,16 +231,28 @@ extension GhosttyTraceHook {
 
         /// Sends GPU completions to `delivery` from now on; the first one given stays for the process.
         func deliverGPU(_ delivery: GPUDelivery) {
-            let retained = Unmanaged.passRetained(delivery)
-            let address = UInt64(UInt(bitPattern: retained.toOpaque()))
+            // SAFETY: one retain, kept for the process once its address is stored (`gpuDelivery`),
+            // else released at once below, since nothing else saw it.
+            let retained = unsafe Unmanaged.passRetained(delivery)
+            // SAFETY: as above; the address is only stored, as an integer.
+            let address = unsafe UInt64(UInt(bitPattern: retained.toOpaque()))
             if !gpuDelivery.compareExchange(expected: 0, desired: address, ordering: .acquiringAndReleasing).exchanged {
-                retained.release()
+                // SAFETY: as above.
+                unsafe retained.release()
             }
         }
 
-        /// The ``GPUDelivery`` given, read with no reference-count traffic.
-        private var gpuSink: Unmanaged<GPUDelivery>? {
-            UnsafeRawPointer(bitPattern: UInt(gpuDelivery.load(ordering: .acquiring))).map { Unmanaged.fromOpaque($0) }
+        /// Whether the app gave its ``GPUDelivery``.
+        private var deliversGPU: Bool { gpuDelivery.load(ordering: .acquiring) != 0 }
+
+        /// Runs `body` with the ``GPUDelivery`` given, borrowed with no reference-count traffic; nothing until
+        /// the app gives one.
+        private func withGPUDelivery(_ body: (GPUDelivery) -> Void) {
+            // SAFETY: a nonzero address is the GPUDelivery that deliverGPU retained for the process and
+            // never releases, so it is live; it is borrowed only for `body`.
+            guard let address = unsafe UnsafeRawPointer(bitPattern: UInt(gpuDelivery.load(ordering: .acquiring))) else { return }
+            // SAFETY: as above.
+            unsafe Unmanaged<GPUDelivery>.fromOpaque(address)._withUnsafeGuaranteedRef(body)
         }
 
         func record(_ event: Event, on surface: Surface, seq: UInt64) {
@@ -240,26 +270,23 @@ extension GhosttyTraceHook {
             case .contentsHandoff:
                 if gate.isOpen { surface.echoStage?.contentsSet() }
                 guard probe.isRecording else { return }
-                let delivery = gpuSink
-                let awaitsGPU = delivery != nil && surface.gpuDoneBelow.load(ordering: .acquiring) <= seq
+                let awaitsGPU = deliversGPU && surface.gpuDoneBelow.load(ordering: .acquiring) <= seq
                 let flows = probe.mark(.contents, surface: surface.key, awaitsGPU: awaitsGPU)
-                guard let delivery, awaitsGPU, !flows.isEmpty else { return }
-                deliver(surface.awaitGPU(flows, seq: seq), to: delivery)
+                guard awaitsGPU, !flows.isEmpty else { return }
+                deliver(surface.awaitGPU(flows, seq: seq))
             case .gpuDone:
                 trace.event(.frameGPUDone, arg0: surface.key.traceID, arg1: seq)
-                let finished = surface.gpuDidFinish(seq: seq)
-                guard let delivery = gpuSink, !finished.isEmpty else { return }
-                deliver(finished, to: delivery)
+                deliver(surface.gpuDidFinish(seq: seq))
             case .ioWrite:
                 return // Ghostty's io_write_cb marks the write (``TypingLatencyProbe/inputWritten(on:)``).
             }
         }
 
-        /// Posts each flow's GPU completion, now, to the presents.
-        private func deliver(_ flows: [UInt64], to delivery: Unmanaged<GPUDelivery>) {
+        /// Posts each flow's GPU completion, now, to the presents (the ``GPUDelivery`` given).
+        private func deliver(_ flows: [UInt64]) {
             guard !flows.isEmpty else { return }
             let nanos = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
-            delivery._withUnsafeGuaranteedRef { delivery in
+            withGPUDelivery { delivery in
                 let finished = delivery.finished
                 delivery.post { for flow in flows { finished(flow, nanos) } }
             }
@@ -271,10 +298,16 @@ extension GhosttyTraceHook {
 /// ``GhosttyTraceHook/Recorder``, `surface` the surface's ``SurfaceBridge``.
 // perf-hot: 0.05us terminal-key
 nonisolated func ghosttyTraceHook(_ context: UnsafeMutableRawPointer?, _ event: UInt32, _ surface: UInt64, _ seq: UInt64) {
-    guard let context, let event = GhosttyTraceHook.Event(rawValue: event),
-          let bridge = UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: surface)) else { return }
-    Unmanaged<GhosttyTraceHook.Recorder>.fromOpaque(context)._withUnsafeGuaranteedRef { recorder in
-        Unmanaged<SurfaceBridge>.fromOpaque(bridge)._withUnsafeGuaranteedRef { bridge in
+    // SAFETY: `context` is the recorder the hook retained for the process (GhosttyTraceHook's
+    // `context`); `surface` is a live surface's userdata, its SurfaceBridge, which outlives the
+    // surface, and each event of a surface fires before ghostty_surface_free returns (the ABI note).
+    // Both are borrowed for this call only.
+    guard let context = unsafe context, let event = GhosttyTraceHook.Event(rawValue: event),
+          let bridge = unsafe UnsafeMutableRawPointer(bitPattern: UInt(truncatingIfNeeded: surface)) else { return }
+    // SAFETY: as above.
+    unsafe Unmanaged<GhosttyTraceHook.Recorder>.fromOpaque(context)._withUnsafeGuaranteedRef { recorder in
+        // SAFETY: as above.
+        unsafe Unmanaged<SurfaceBridge>.fromOpaque(bridge)._withUnsafeGuaranteedRef { bridge in
             recorder.record(event, on: bridge.frames, seq: seq)
         }
     }

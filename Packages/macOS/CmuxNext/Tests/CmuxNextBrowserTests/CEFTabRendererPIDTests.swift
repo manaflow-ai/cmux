@@ -76,7 +76,7 @@ import Testing
         #expect(RendererPIDSpy.asked.count == asked, "a commit in the same load is no new phase")
 
         RendererPIDSpy.answer = 0
-        rig.runtime.handle(.renderTerminated(browser: 7, status: 2, code: 11, text: "crashed"))
+        rig.runtime.handle(.renderTerminated(browser: 7, status: 2, code: 11, text: "crashed", end: .first))
         #expect(directory.snapshot().first?.pid == nil, "the ended renderer is no longer the tab's")
 
         current = false

@@ -199,9 +199,9 @@ inline constexpr uint16_t kOpReply = 0x8002;  // host -> cmux: an async op's res
 inline constexpr uint16_t kOpMirror = 0x8003;  // host -> cmux: a mirror value
 inline constexpr uint16_t kOpAck = 0x8004;  // host -> cmux: a token's op ran
 inline constexpr int kEventKindCount = 54;
-inline constexpr char kShimAbiID[] = "56808ec773ee7bb07b501720c87d0601407704bdc3ba15827deb8604c000991b";
+inline constexpr char kShimAbiID[] = "d2ac77ce7917e7b26832fb6644ed28e85a003e68e1fd9bef14ab30a6830fee30";
 // Both sides' HELLO carries it: the op ids, classes and wire types of this generation.
-inline constexpr char kWireID[] = "4d849cb2fbcefbe6201802ec620e33c4e3c470b25a16d3d16318fc1e0f2cb7a9";
+inline constexpr char kWireID[] = "99baa16a9fc4c210b3113be41a83f73b2ecac33c279bc8875b81052a4f96cc77";
 // Exports the header does not declare yet (fork API symbols): the client sends one only to
 // a host whose HELLO lists its symbol.
 struct OptionalExport {

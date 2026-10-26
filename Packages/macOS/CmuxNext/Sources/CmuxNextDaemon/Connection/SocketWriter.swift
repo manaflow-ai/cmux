@@ -18,8 +18,11 @@ final class SocketWriter: Sendable {
 
     /// - Parameter qos: The drain queue's class, chosen by the owner from what the connection
     ///   carries (``DaemonWireStats/Role/writerQoS``).
-    init(fd: Int32, label: String, qos: DispatchQoS, limit: Int = FrameWriter.defaultLimit) {
-        writer = FrameWriter(sink: SocketFrameSink(fd: fd), label: label, qos: qos, limit: limit)
+    /// - Parameter target: A serial queue the drain runs on (its target), nil for none. A terminal attach
+    ///   passes its input lane's queue: a key written from that queue is sent to the socket on the same
+    ///   thread, after the lane's turn, with no second thread hop.
+    init(fd: Int32, label: String, qos: DispatchQoS, target: DispatchQueue? = nil, limit: Int = FrameWriter.defaultLimit) {
+        writer = FrameWriter(sink: SocketFrameSink(fd: fd), label: label, qos: qos, target: target, limit: limit)
     }
 
     /// Appends `bytes` at control priority, after everything written before at

@@ -5,6 +5,7 @@
 
 #include "include/cef_parser.h"
 #include "include/cef_values.h"
+#include "renderer_end.h"
 #include "shim_internal.h"
 
 using namespace cmux_shim;
@@ -33,23 +34,9 @@ int CreateWindowWith(int request, void* parent_view, int width, int height, cons
   return CefBrowserHost::CreateBrowser(info, MakeClient(request), url ? url : "", settings, extra_info, context) ? 1 : 0;
 }
 
-// The renderer client id of a frame identifier, 0 when it names none. A
-// frame identifier is "<render process host id>-<frame token>"
-// (frame_util::MakeFrameIdentifier); the host id is the renderer's
-// --renderer-client-id.
-int RendererClientIDOf(const std::string& identifier) {
-  const size_t dash = identifier.find('-');
-  if (dash == std::string::npos || dash == 0) return 0;
-  int id = 0;
-  for (size_t i = 0; i < dash; ++i) {
-    if (identifier[i] < '0' || identifier[i] > '9' || id > 100000000) return 0;
-    id = id * 10 + (identifier[i] - '0');
-  }
-  return id;
-}
-
 // The renderer client id of each frame of browser_id (the main frame and
-// every iframe, in its process or out of it): one entry per frame.
+// every iframe, in its process or out of it; RendererClientIdOf): one entry
+// per frame.
 std::vector<int> FrameRendererClientIDs(int browser_id) {
   std::vector<int> clients;
   CefRefPtr<CefBrowser> browser = BrowserById(browser_id);
@@ -58,7 +45,7 @@ std::vector<int> FrameRendererClientIDs(int browser_id) {
   browser->GetFrameIdentifiers(identifiers);
   clients.reserve(identifiers.size());
   for (const CefString& identifier : identifiers) {
-    const int id = RendererClientIDOf(identifier.ToString());
+    const int id = RendererClientIdOf(identifier.ToString());
     if (id > 0) clients.push_back(id);
   }
   return clients;
@@ -164,6 +151,7 @@ int cmux_shim_renderer_client_ids(int browser_id, int* out, int capacity) {
   if (!out || capacity <= 0) {
     return 0;
   }
+  // Each frame's render process host id, once.
   int count = 0;
   for (const int id : FrameRendererClientIDs(browser_id)) {
     bool seen = false;
