@@ -53,12 +53,12 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
-    /// A conversation tab hidden for 10 minutes (sooner at critical memory pressure) lets its laid-out transcript rows, their cells and bitmaps go and keeps its messages, draft, read state and scroll place; showing it lays out about 40 rows around that place again.
+    /// A conversation tab hidden 10 minutes (sooner at critical memory pressure) drops its transcript rows, cells, thread view and the bitmaps and images only they drew; it keeps messages, draft, read state and scroll place, and its show lays out about 40 rows there once, at the pane's size.
     public static let memoryDiscardConversations = Feature(
         index: 3,
         name: "memoryDiscardConversations",
         owner: "PL-memory",
-        description: "A conversation tab hidden for 10 minutes (sooner at critical memory pressure) lets its laid-out transcript rows, their cells and bitmaps go and keeps its messages, draft, read state and scroll place; showing it lays out about 40 rows around that place again.",
+        description: "A conversation tab hidden 10 minutes (sooner at critical memory pressure) drops its transcript rows, cells, thread view and the bitmaps and images only they drew; it keeps messages, draft, read state and scroll place, and its show lays out about 40 rows there once, at the pane's size.",
         kind: .labs,
         process: .app,
         chromiumFeature: nil,

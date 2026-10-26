@@ -9,7 +9,8 @@ package struct DiscardableLayout {
     package var isAtRest: () -> Bool
     /// Lets the laid-out state go; false, and nothing goes, while something moves.
     package var release: () -> Bool
-    /// Builds the laid-out state again, in the show's turn.
+    /// The content shows again: it builds the laid-out state at its next layout in its window, where its size is
+    /// the pane's (the lifecycle's show effect runs before the pane puts the view back).
     package var restore: () -> Void
 
     package init(isReleased: @escaping () -> Bool, isAtRest: @escaping () -> Bool, release: @escaping () -> Bool,
@@ -29,7 +30,7 @@ package struct DiscardableLayout {
 ///
 /// The lifecycle carries the discard as for page tabs (``ContentLifecycleOwner``): a show and a hide are the
 /// content's `reveal` and `conceal`, the discard is its `hibernate` event and `release` effect, and its next show
-/// the `restore` effect, which lays it out again and answers `mounted`.
+/// the `restore` effect, which asks the content for its layout again and answers `mounted`.
 @MainActor
 package final class LayoutDiscardHost<Token> {
     /// What the host asks of the content lifecycle that carries its discards (the App's content cache).
@@ -100,7 +101,7 @@ extension LayoutDiscardHost: ContentLifecycleOwner {
         return true
     }
 
-    /// The show lays the content out again, then it is live.
+    /// The show asks the content for its layout again (built at the view's next layout in its window), and it is live.
     package func restoreContent(_ key: String, token: Token) -> Bool {
         guard let content = layout(key) else { return false }
         content.restore()

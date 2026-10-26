@@ -517,6 +517,13 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     private var releasedAnchor: (key: String, y: CGFloat)?
     /// cmux: the message in the middle of the viewport when the rows went: the show measures exactly around it.
     private var releasedCenter: ID?
+    /// cmux: the view shows again (`restoreRows`): its host lays the rows out at its first layout in a window
+    /// (`layOutRestoredRows`), at the pane's size and scale then.
+    private(set) var restorePending = false
+    /// cmux: `layOutRestoredRows` builds the open thread view again: at once, as it was (no flight, no fade).
+    private var threadRestoring = false
+    /// cmux: the released rows this view laid out again (`layOutRestoredRows`; tests: one per show).
+    private(set) var restoredLayouts = 0
     private func layoutFrames() {
         clip.frame = bounds
         collection.frame = CGRect(x: 0, y: MessagesWindowView.cvTop, width: bounds.width, height: cvHeight)
@@ -559,7 +566,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
     /// waits for the next frame's tick.
     private var widthPassPending = false
     /// This view's width passes (`measureWhenSettled`; the static count is every view's).
-    private var ownWidthPasses = 0
+    private(set) var ownWidthPasses = 0 // cmux: read by the release tests (p07-memory-030)
     /// Width passes run, and width changes that only recorded their width (bench evidence).
     static var widthPasses = 0, widthPassesDeferred = 0
     /// cmux: width passes that derived every loaded message again (no rows of an earlier width pass to re-measure).
@@ -2244,7 +2251,7 @@ final class MessagesWindowView: UIView, UICollectionViewDataSource, UICollection
         // cmux: where each row of the open view drew before this rebuild (a row that stays glides from there).
         var oldFrames: [String: CGRect] = [:]
         if wasOpen && !drilled { for (v, spec) in zip(threadViews, threadSpecs) { oldFrames[spec.key] = v.frame } }
-        let still = reducesMotion
+        let still = reducesMotion || threadRestoring // cmux: a restored thread view shows as it was (`layOutRestoredRows`)
         threadSpecs = rows
         threadViews.forEach { $0.removeFromSuperview() }
         threadClosing = 0
@@ -3021,22 +3028,31 @@ extension MessagesWindowView {
     /// settled measure (`measureWhenSettled`).
     static let restoredMessages = 40
 
-    /// Rows and row cells this view holds: its laid-out rows and every cell, shown or pooled (0 once released).
-    var rowCacheCount: Int { model.count + ((collection as? RowRecycler)?.cellCount ?? collection.visibleCells.count) }
+    /// Rows and row views this view holds: its laid-out rows, every cell, shown or pooled, and the open thread view's
+    /// rows and header (0 once released).
+    var rowCacheCount: Int {
+        model.count + ((collection as? RowRecycler)?.cellCount ?? collection.visibleCells.count) + threadViews.count
+            + (threadHeaderView == nil ? 0 : 1)
+    }
 
     /// No row moves: no send flies to its row, no row fades in or out, no row springs.
     var rowsAtRest: Bool { morphs.isEmpty && fadingMorphs.isEmpty && !model.hasGhosts && ledger.isEmpty }
 
-    /// The view is hidden and its memory is wanted: its laid-out rows, their cells and the bitmaps they hold go. The
-    /// store keeps the messages, the draft and every later change; the first visible row keeps its window place for
-    /// `restoreRows`. Chrome's discard of a background tab keeps the tab and its navigation state the same way
-    /// (chrome/browser/resource_coordinator/tab_lifecycle_unit.cc). False, and nothing goes, while rows still move.
+    /// The view is hidden and its memory is wanted: its laid-out rows, their cells, the open thread view's rows and the
+    /// bitmaps, tiles and decoded media only they drew go. The store keeps the messages, the draft, the open thread and
+    /// every later change; the first visible row keeps its window place for the show. Chrome's discard of a background
+    /// tab keeps the tab and its navigation state the same way (chrome/browser/resource_coordinator/tab_lifecycle_unit.cc).
+    /// False, and nothing goes, while rows still move.
     @discardableResult
     func releaseRows() -> Bool {
-        guard !rowsReleased else { return true }
+        guard !rowsReleased else {
+            restorePending = false  // hidden again before its show laid it out
+            return true
+        }
         guard rowsAtRest else { return false }
         releasedAnchor = visibleAnchor()
         releasedCenter = messagesNearViewport(margin: 0).flatMap { store.state.conversation.messages[checked: ($0.lowerBound + $0.upperBound) / 2]?.id } // checked
+        let drawn = model.rows.map(\.spec) + threadSpecs
         rowsReleased = true
         widthDerived = nil
         widthPassPending = false
@@ -3045,16 +3061,74 @@ extension MessagesWindowView {
         layout.invalidateLayout()
         collection.reloadData()
         (collection as? RowRecycler)?.releaseCells()
+        releaseThreadView()
         CATransaction.commit()
+        evictDrawings(of: drawn)
         return true
     }
 
-    /// The view shows again: the rows are derived from the store at its current width and scale, measured exactly
-    /// for the `restoredMessages` around the released anchor (the newest ones when it was pinned), and the anchored
-    /// row takes its window place again; the other rows are measured off main once the width settles.
+    /// The open thread view's rows, header and backdrop go at once; the next `rebuildThread` builds them again.
+    private func releaseThreadView() {
+        threadViews.forEach { $0.removeFromSuperview() }
+        threadViews = []; threadSpecs = []; threadSources = [:]; threadShownPath = []
+        threadHeaderView?.removeFromSuperview(); threadHeaderView = nil
+        threadHeaderShown = nil; threadHeaderHits = []
+        threadClosing = 0  // a close still in flight finds its token gone
+        threadLayer.isHidden = true
+        threadBackdrop.animate(open: false, instant: true)
+        threadForceRebuild = true
+    }
+
+    /// The process-wide caches (row bitmaps, long-text tiles, decoded media) let go of what `specs` drew at this
+    /// view's scale, except what another live view's rows still draw (two panes on one conversation, one asset in two).
+    private func evictDrawings(of specs: [RowSpec]) {
+        let others = MessagesWindowView.live.allObjects.filter { $0 !== self && !$0.rowsReleased }
+        let kept = others.flatMap { $0.model.rows.map(\.spec) + $0.threadSpecs }
+        RowBitmaps.shared.evict(specs, keeping: kept, scale: renderScale)
+        TileCache.shared.evict(lineages: Set(specs.compactMap(Self.tileLineage)).subtracting(kept.compactMap(Self.tileLineage)))
+        MediaCache.shared.evict(refs: Set(specs.flatMap(Self.mediaRefs)).subtracting(kept.flatMap(Self.mediaRefs)), scale: renderScale)
+    }
+
+    /// The long-text lineage whose tiles a row draws (TiledBubble), nil for a row drawn as one bitmap.
+    private static func tileLineage(_ spec: RowSpec) -> Int? {
+        guard TiledBubble.applies(spec), case let .part(p) = spec.kind, case let .text(t, _) = p.part else { return nil }
+        return LongTextStore.shared.lineage(t)
+    }
+
+    /// The assets a row's drawing decodes (`Images.load`): an attachment's image or poster, a link's image, a map
+    /// snapshot (`Images.mapSnapshot`'s name), a thread preview's thumbnail.
+    static func mediaRefs(_ spec: RowSpec) -> [String] {
+        let part: Part?
+        switch spec.kind {
+        case let .part(p): part = p.part
+        case let .threadPreview(pv): part = pv.part
+        default: part = nil
+        }
+        switch part {
+        case let .attachment(a)?: return [a.asset, a.poster].compactMap { $0 }
+        case let .link(_, _, _, image?, _)?: return [image]
+        case let .location(lat, lon, _, _)?: return [String(format: "real/map-%.4f_%.4f.png", lat, lon)]
+        default: return []
+        }
+    }
+
+    /// The view shows again: its host lays the rows out at its first layout in a window (`layOutRestoredRows`), so
+    /// they are derived once, at the size and scale the pane gives it then, not at the size it was hidden at.
     func restoreRows() {
         guard rowsReleased else { return }
+        restorePending = true
+        setNeedsLayout()
+    }
+
+    /// The host's layout after the show (`restoreRows`), in a window: the rows are derived from the store at the
+    /// view's width and scale, measured exactly for the `restoredMessages` around the released anchor (the newest
+    /// ones when it was pinned), and the anchored row takes its window place again; the other rows are measured off
+    /// main once the width settles. An open thread view comes back as it was. Nothing without a pending show.
+    func layOutRestoredRows() {
+        guard rowsReleased, restorePending, bounds.width > 0 else { return }
         rowsReleased = false
+        restorePending = false
+        restoredLayouts += 1
         let st = store.state
         // A pin while released (a rebuild of the window) wins over the row that was at the top.
         let anchor = st.ui.scroll.pinnedToBottom ? nil : releasedAnchor
@@ -3075,12 +3149,13 @@ extension MessagesWindowView {
         _ = layout.rebaseIfNeeded(force: true)
         layout.invalidateLayout()
         restore(anchor)
-        // An open thread follows the replies that arrived while the rows were released.
+        // An open thread comes back with the replies that arrived while the rows were released.
+        threadRestoring = true
         rebuildThread(st, at: clock())
+        threadRestoring = false
         updateThumb()
         if rows.contains(where: \.estimated) { measureWhenSettled() }
-        // The host's native views follow the new content height (appkit-native: scroller and document height).
-        onWidthPass()
+        // The host's layout that called this places its native views (scroller, document height) after it.
     }
 
     /// The indices of the `restoredMessages` messages around message `id`, or the newest ones when `id` is nil
