@@ -133,10 +133,11 @@ const index = (builds: string[]): IndexEntry[] =>
 
 test("the Updated card names the build by when it was made and its commit", async () => {
   await renderCard(leo);
-  // Noon UTC is Oct 26 in every time zone from UTC-11 to UTC+11; the hour is the local one.
-  expect(host.querySelector(".wn-card-eyebrow")?.textContent).toMatch(
-    /^Updated to Nightly · Oct 26, \d{1,2}:00\s[AP]M$/,
-  );
+  // The local time zone's day and time (the next test pins the zone and checks the words).
+  const time = { month: "short", day: "numeric", hour: "numeric", minute: "2-digit" } as const;
+  const local = new Intl.DateTimeFormat("en-US", time).format(new Date(leo.builtAt!)).replace(/\s/g, " ");
+  const eyebrow = host.querySelector(".wn-card-eyebrow")?.textContent?.replace(/\s/g, " ");
+  expect(eyebrow).toBe(`Updated to Nightly · ${local}`);
   expect(host.querySelector(".wn-card-eyebrow")?.getAttribute("title")).toBe("1.0.0-nightly.4037004604601");
   // Until the notes index loads, the card knows the commit but not the newest build.
   expect(host.querySelector(".wn-card-build")?.textContent).toBe("Build a9d1434");
