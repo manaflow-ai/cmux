@@ -230,16 +230,25 @@ async fn the_daemon_compacts_a_chat_closed_weeks_ago_by_itself() {
     let hub = hub(&cfg, &root);
     hub.retention_worker();
     let marker = |id: &str| root.join("acpmux/sessions").join(id).join("events/compacted.json");
+    let complete = |id: &str| {
+        std::fs::read(marker(id))
+            .ok()
+            .and_then(|b| serde_json::from_slice::<Value>(&b).ok())
+            .is_some_and(|m| m["complete"] == true)
+    };
     let deadline = tokio::time::Instant::now() + Duration::from_secs(10);
-    while !marker("weeks-ago").exists() {
+    while !complete("weeks-ago") {
         assert!(tokio::time::Instant::now() < deadline, "no pass ran");
         tokio::time::sleep(Duration::from_millis(20)).await;
     }
-    let kinds = |id: &str| -> Vec<String> {
-        hub.events(id, 0, 100).unwrap().into_iter().map(|e| e.kind).collect()
+    let raw_text = |id: &str| -> String {
+        let log = hub.events(id, 0, 100).unwrap();
+        let kinds: Vec<&str> = log.iter().map(|e| e.kind.as_str()).collect();
+        assert_eq!(kinds, ["created", "user_message", "claude.assistant", "status"], "{id}");
+        log[2].msg["text"].as_str().unwrap().to_owned()
     };
-    assert_eq!(kinds("weeks-ago"), ["created", "user_message", "status"]);
-    assert_eq!(kinds("last-week"), ["created", "user_message", "claude.assistant", "status"]);
+    assert!(raw_text("weeks-ago").ends_with("removed by log retention]"));
+    assert_eq!(raw_text("last-week").len(), 5000);
     assert!(!marker("last-week").exists(), "a chat closed 7 days ago is kept whole");
     let listed: Vec<String> = hub.sessions().iter().map(|s| s.id.clone()).collect();
     assert!(listed.contains(&"weeks-ago".to_owned()), "{listed:?}");
