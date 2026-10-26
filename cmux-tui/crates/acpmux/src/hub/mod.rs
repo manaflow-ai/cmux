@@ -281,6 +281,12 @@ pub struct PromptOptions {
     /// A steer (`_meta.acpmux.interrupt`) that an agent which cannot steer takes as "stop the
     /// running turn and run this next" instead of waiting behind the queue.
     pub interrupt: bool,
+    /// A steer read now (`_meta.acpmux.steerNow`): steered into the running turn, it stops the
+    /// agent's current step at once, as Send now does for a waiting steer (`queue_edit.rs`
+    /// `step_now`); the turn runs on. The Chief's tell (Lawrence, 2026-10-26: "interrupt by
+    /// default"). A running subagent or background shell is never stopped for it
+    /// (claude_stdio `steer_now_tests.rs`).
+    pub steer_now: bool,
     /// With `interrupt`, the turn it was aimed at: only that turn stops. A send-now whose turn
     /// ended before the agent took it still goes next, but a turn that began meanwhile (another
     /// agent's message) runs on (Leo, 2026-10-21: "that might have accidentally swallowed up a

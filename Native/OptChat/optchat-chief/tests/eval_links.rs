@@ -112,7 +112,7 @@ fn text_with_nothing_to_link_is_unchanged() {
 mod common;
 
 /// The posted reply goes through the pass: a turn that writes a bare workspace id and a bare path
-/// of a file that exists posts both as links.
+/// of a file that exists posts both as links (the path on a Mac host only).
 #[test]
 fn the_posted_reply_links_a_bare_workspace_id_and_path() {
     use serde_json::json;
@@ -139,5 +139,10 @@ fn the_posted_reply_links_a_bare_workspace_id_and_path() {
         reply.contains(&format!("[workspace](cmux://workspace/{WS})")),
         "{reply}"
     );
-    assert!(reply.contains("](file://"), "{reply}");
+    // A Chief host on a cloud VM (Linux) links no paths: they are not this Mac's files.
+    assert_eq!(
+        reply.contains("](file://"),
+        cfg!(target_os = "macos"),
+        "{reply}"
+    );
 }

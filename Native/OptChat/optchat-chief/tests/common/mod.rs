@@ -983,6 +983,15 @@ impl AgentPort for FakeAgents {
         self.fake_steer(session, blocks, prompt_id, false)
     }
 
+    fn start_steer_now(
+        &self,
+        session: &str,
+        blocks: Vec<Value>,
+        prompt_id: &str,
+    ) -> Result<optchat_chief::acpmux::SteerWait, String> {
+        self.fake_steer(session, blocks, prompt_id, true)
+    }
+
     fn prewarm(
         &self,
         harness: &str,
