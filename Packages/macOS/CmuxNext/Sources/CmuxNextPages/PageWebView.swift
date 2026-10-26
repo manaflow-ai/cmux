@@ -42,14 +42,16 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public let inputReadiness: PageInputReadiness
     /// Delivers router envelopes in order, rendering large ones off the main actor.
     let scripts: PageScriptPipeline
-    /// The bridge the script FIFO and ``evaluateInPage(_:)`` use: WebKit's, or Chromium's while a Chromium page shows the document.
+    /// The bridge the script FIFO and ``pushes`` use: WebKit's, or Chromium's while a Chromium page shows the document.
     let scriptTarget: PageScriptTarget
     /// The engine the page shows in and, for WebKit, why (``PageEnginePolicy``).
     public internal(set) var engineDecision: PageEngineDecision
     /// The Chromium page while one shows the document (PageWebView+Chromium.swift).
     var chromiumSession: PageChromiumSession?
     /// What the page lifecycle froze the page in, nil while it runs (PageWebView+Lifecycle.swift).
-    var frozenEngine: PageFrozenEngine?
+    var frozenEngine: PageFrozenEngine? { didSet { if oldValue == nil, frozenEngine != nil { pushes.freezeStarted() } } }
+    /// The scripts native code runs in the page, held or thawing it first while it is frozen.
+    lazy var pushes = PageNativePushes(self)
     /// Rects in this view's coordinates where native UI of the window shows over the page
     /// (PageWebView+NativeRects.swift): a Chromium page leaves them uncovered. WebKit draws in the
     /// window's own view tree, under that UI, and needs none.
@@ -123,7 +125,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     private lazy var themeFollower = ThemeFollower(self) { [weak self] in self?.applyTheme() }
     /// The wallpaper still the page's glass lenses (`cmuxTheme.backdrop`), pushed after each theme and when
     /// the page's place settles (PageWebView+GlassMotion.swift).
-    lazy var glassFeed = GlassBackdropFeed(host: self, zoom: { [weak self] in self?.pageZoom ?? 1 }) { [weak self] in self?.evaluateInPage($0) }
+    lazy var glassFeed = GlassBackdropFeed(host: self, zoom: { [weak self] in self?.pageZoom ?? 1 }) { [weak self] in self?.pushGlass($0) }
     private var uiScaleObservation: Task<Void, Never>?
     /// The static status look (`WebTheme.statusIndicators`): the setting and Reduce Motion.
     private var statusLookObservation: Task<Void, Never>?
@@ -240,36 +242,6 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         debugRoot(for: descriptor) ?? PageSchemeHandler.bundledRoot(for: descriptor) ?? PageID.bundledRoot(for: descriptor.id)
     }
 
-    /// The script that sets `data-<name>` attributes on `<html>`; nil for none. Names keep only
-    /// lowercase letters, digits and dashes; values are JSON string literals.
-    ///
-    /// WebKit runs a document-start script once `<html>` exists, but Chromium runs a new-document
-    /// script (``PageChromiumDocumentScripts``) before the parser makes it, when
-    /// `document.documentElement` is null: setting the attributes then threw, and a Chromium page
-    /// (the agent chat by default) got none of them, so `data-needs-you="off"` never hid Needs you.
-    /// Without `<html>` the script waits for it with a MutationObserver, whose callback runs before
-    /// the page's first script.
-    nonisolated static func attributesScript(_ attributes: [String: String]) -> String? {
-        let safe = attributes.filter { name, _ in !name.isEmpty && name.allSatisfy { $0.isLowercase || $0.isNumber || $0 == "-" } }
-        guard !safe.isEmpty else { return nil }
-        let lines = safe.keys.sorted().map { name in
-            "document.documentElement.setAttribute(\(JSONValue.string("data-" + name).compactText), \(JSONValue.string(safe[name] ?? "").compactText));"
-        }
-        return """
-        (() => {
-        const set = () => {
-        \(lines.joined(separator: "\n"))
-        };
-        if (document.documentElement) { set(); return; }
-        new MutationObserver((_, observer) => {
-          if (!document.documentElement) return;
-          observer.disconnect();
-          set();
-        }).observe(document, { childList: true });
-        })();
-        """
-    }
-
     /// The DEBUG root override of a page (`CMUX_NEXT_PAGE_ROOT_cmux_history=/path`), else nil.
     nonisolated static func debugRoot(for descriptor: PageDescriptor) -> URL? {
         #if DEBUG
@@ -338,7 +310,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         // No script until the first show (``PageScriptTarget/hasDocument``); the engine that shows the document sets the bridge.
         let target = PageScriptTarget(hasDocument: !(load && startsAtFirstShow))
         scriptTarget = target
-        scripts = PageScriptPipeline { script in target.evaluate(script) }
+        scripts = PageScriptPipeline { script in target.evaluate(script) } // MQ12 held queue: the router holds envelopes while hidden
         let decision = Self.engineDecision(for: descriptor, options: options, hosting: chromium)
         engineDecision = pooled || !load ? decision.webKitOnly : decision
         super.init(frame: .zero)
@@ -455,7 +427,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     func applyUIScale() {
         webKitPieces?.view.pageZoom = pageZoom
         chromiumSession?.page.setZoom(pageZoom)
-        evaluateInPage(DesignSettings.shared.interfaceScaleScript)
+        pushes.run(DesignSettings.shared.interfaceScaleScript, whileFrozen: .latest(.interfaceScale))
         if loaded { glassFeed.refresh() } // the zoom moves the art's rect in CSS px
         repaintStandIn() // its title is zoomed as the page's text is
     }
@@ -484,7 +456,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         // pane's hold before the reloaded one drew (finishClaim runs the probe on acknowledgement).
         if repaintsAtNextLayout, !claimState.pending, window != nil, !bounds.isEmpty, !(superview is PageHostParking) {
             repaintsAtNextLayout = false
-            evaluateInPage(PagePaintProbe.script)
+            pushes.run(PagePaintProbe.script, whileFrozen: .latest(.paintProbe))
         }
     }
 
@@ -504,7 +476,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
             loadDocument(descriptor.url(route: fragment))
             return
         }
-        evaluateInPage("window.location.hash = \(JSONValue.string(fragment).compactText);")
+        pushes.run("window.location.hash = \(JSONValue.string(fragment).compactText);", whileFrozen: .latest(.route))
     }
 
     /// Sends a dispatcher command (`find` with optional `text`, `focusSearch`, `back`, `forward`,
@@ -646,7 +618,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         let theme = currentTheme()
         if force || theme.payloadJSON != appliedTheme {
             appliedTheme = theme.payloadJSON
-            evaluateInPage(theme.applyScript)
+            pushes.run(theme.applyScript, whileFrozen: .latest(.theme))
         }
         // After the theme, which sets `data-glass`; a forced push is a new document, which has no still yet.
         glassFeed.refresh(newDocument: force)

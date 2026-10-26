@@ -57,18 +57,18 @@ extension PageWebView {
     /// thaws first too). Chromium: the page thaws, and is shown only after. WebKit: the view is
     /// shown in its window again with the hidden-page throttling it had before the freeze, so a page
     /// the lifecycle keeps running while hidden is throttled no more than WebKit's own default.
-    /// Does nothing on a running page.
+    /// Then the pushes held while it was frozen run (``PageNativePushes/thawed()``). Does nothing on a running page.
     func thawPage() {
         guard let engine = frozenEngine else { return }
         frozenEngine = nil
         switch engine {
         case .chromium(let identity):
-            guard let page = chromiumSession?.page, ObjectIdentifier(page) == identity else { return }
-            page.setFrozen(false)
+            if let page = chromiumSession?.page, ObjectIdentifier(page) == identity { page.setFrozen(false) }
         case .webKit(let restoring):
             if let restoring { webView.configuration.preferences.setHiddenPageThrottling(restoring) }
             if chromiumSession == nil { webView.isHidden = false }
         }
+        pushes.thawed()
     }
 
     /// The frozen Chromium page ended and the page reopens in WebKit (``fallBackToWebKit(_:detail:)``):

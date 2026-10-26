@@ -89,6 +89,6 @@ extension PageWebView {
         }
         return true;
         """
-        _ = try? await webView.callAsyncJavaScript(script, contentWorld: .page)
+        _ = try? await webView.callAsyncJavaScript(script, contentWorld: .page) // MQ12 allowed: a parked spare never freezes
     }
 }
