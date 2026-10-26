@@ -745,6 +745,23 @@ nonisolated extension Feature {
         runtimeMutable: false
     )
 
+    /// A terminal hidden outside the keep-alive band lets its Ghostty GPU memory and renderer thread go while paused and gets them back before it draws; the warm set then grows. Needs a GhosttyNextKit pin with ghostty_surface_set_gpu_resident.
+    public static let terminalGPURelease = Feature(
+        index: 42,
+        name: "terminalGPURelease",
+        owner: "PL-memory",
+        description: "A terminal hidden outside the keep-alive band lets its Ghostty GPU memory and renderer thread go while paused and gets them back before it draws; the warm set then grows. Needs a GhosttyNextKit pin with ghostty_surface_set_gpu_resident.",
+        kind: .labs,
+        process: .app,
+        chromiumFeature: nil,
+        defaults: FeatureDefaults(dev: false, nightly: false, release: false),
+        expires: nil,
+        params: [],
+        stories: [],
+        sticky: false,
+        runtimeMutable: false
+    )
+
     /// Terminal pointer moves, drags and the trackpad scrolls a program with mouse reporting gets reach Ghostty on the first event of a display frame and once more at the frame, at the latest point or each phase's summed scroll; a button delivers what waits first and a scrollback scroll goes at once.
     public static let terminalPointerFrames = Feature(
         index: 43,
@@ -901,6 +918,7 @@ nonisolated extension Feature {
         .sidebarRowsNearViewport,
         .stripPanResampling,
         .taskManagerMemorySaved,
+        .terminalGPURelease,
         .terminalPointerFrames,
         .topPageDiscard,
         .vsyncHub,
@@ -954,6 +972,7 @@ nonisolated extension Feature {
         .sidebarRowsNearViewport,
         .stripPanResampling,
         .taskManagerMemorySaved,
+        .terminalGPURelease,
         .terminalPointerFrames,
         .topPageDiscard,
         .vsyncHub,
