@@ -65,7 +65,7 @@ function ProgressSparkline() {
     <svg
       className="workflow-gallery__sparkline"
       viewBox="0 0 100 44"
-      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- an inline SVG drawn from the workflow's own numbers; an <img> cannot draw it.
+      // oxlint-disable-next-line jsx-a11y/prefer-tag-over-role -- the geometry below is built from the workflow's own numbers; an <img> would need it serialized first and could not update it.
       role="img"
       aria-label="Workflow progress sparkline"
     >
