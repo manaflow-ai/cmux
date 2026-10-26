@@ -195,15 +195,16 @@ impl Hub {
     /// it): names, resumes, ends and failures of the chat's own subagents.
     pub(super) fn observe_subagents(self: &Arc<Self>, session: &Arc<Session>, events: &[Value]) {
         let _steps = self.subagent_retries.steps();
-        self.observe_entries(session, events);
-    }
-
-    /// [`Hub::observe_subagents`] under `steps`.
-    fn observe_entries(self: &Arc<Self>, session: &Arc<Session>, events: &[Value]) {
-        // A chat that closes retries nothing more: close took its retries under `steps`.
+        // A chat that closes retries nothing more. Checked once, under `steps`: close then
+        // either came first, or drains what this change left.
         if closing(session) {
             return;
         }
+        self.observe_entries(session, events);
+    }
+
+    /// [`Hub::observe_subagents`], its caller holding `steps` and having seen the chat open.
+    fn observe_entries(self: &Arc<Self>, session: &Arc<Session>, events: &[Value]) {
         let mut skipped = Vec::new();
         let mut schedule = Vec::new();
         {
@@ -291,6 +292,10 @@ impl Hub {
         let text = |k: &str| line.get(k).and_then(Value::as_str).filter(|v| !v.is_empty());
         let (Some(subtype), Some(task)) = (text("subtype"), text("task_id")) else { return };
         let _steps = self.subagent_retries.steps();
+        // As in `observe_subagents`: once, under `steps`.
+        if closing(session) {
+            return;
+        }
         match subtype {
             "task_started" => {
                 let resumed: Vec<(String, Failure)> = {

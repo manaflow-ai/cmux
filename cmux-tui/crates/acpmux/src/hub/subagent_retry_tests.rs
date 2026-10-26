@@ -185,3 +185,25 @@ async fn a_retry_prompt_skipped_while_it_waits_to_start_is_refused() {
     assert_eq!(refused.data.unwrap()["reason"], "subagent_retry.skipped");
     assert!(session.turn().is_none());
 }
+
+/// A forgotten agent resumed, then its raw 503 arriving while the chat closes: its entry ends
+/// not retryable.
+#[tokio::test]
+async fn a_raw_failure_while_the_chat_closes_leaves_it_not_retryable() {
+    let (hub, session, _conn) = chat(vec![60_000]).await;
+    hub.observe_subagents(&session, &[failed("s/t1")]);
+    settle().await;
+    let raw = |subtype: &str| {
+        json!({"type": "system", "subtype": subtype, "task_id": "agent-s/t1", "status": "failed",
+            "summary": "API Error: 503 no non-exhausted claude accounts available"})
+    };
+    hub.observe_task_line(&session, &raw("task_started"));
+    session.closing.store(true, Ordering::SeqCst);
+    hub.observe_task_line(&session, &raw("task_notification"));
+    hub.stop_subagent_retries(&session, true);
+    settle().await;
+    let entry = last_entry(&hub, &session, "s/t1").unwrap();
+    assert_eq!(entry["retryable"], false, "{entry}");
+    let got = outcomes(&hub, &session);
+    assert_eq!(got, ["scheduled", "skipped:resumed"], "nothing scheduled after close began");
+}
