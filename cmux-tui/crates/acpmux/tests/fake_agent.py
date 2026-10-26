@@ -1262,6 +1262,10 @@ def main():
             # choose it (not its argv).
             if os.environ.get("FAKE_NEW_MODE") and "modes" in result:
                 result["modes"]["currentModeId"] = os.environ["FAKE_NEW_MODE"]
+            # FAKE_STARTUP_MODE=<id>: the harness reports that mode while its session starts,
+            # before it answers session/new (one that declares no modes may still report one).
+            if os.environ.get("FAKE_STARTUP_MODE"):
+                update(new_sid, {"sessionUpdate": "current_mode_update", "currentModeId": os.environ["FAKE_STARTUP_MODE"]})
             send({"jsonrpc": "2.0", "id": rid, "result": result})
             # FAKE_EXIT_AFTER_NEW=1: the agent exits once its session starts,
             # before any prompt.

@@ -96,6 +96,9 @@ fn home(name: &str) -> PathBuf {
             "pinned-marked": {"argv": [marked_acp, "--yolo"]},
             "claude-pinned": {"kind": "claude-stdio",
                               "argv": [marked_claude, "--dangerously-skip-permissions"]},
+            // A profile that pins nothing whose harness's own settings start it in full access.
+            "self-full": {"argv": ["python3", FAKE_AGENT], "env": {"FAKE_FULL_ACCESS": "1",
+                          "FAKE_NEW_MODE": "full-access"}},
             // A harness with a full-access mode whose mode changes take 1.5 s to answer.
             "slow-switcher": {"argv": ["python3", FAKE_AGENT], "env": {"FAKE_PLAN_MODE": "1",
                               "FAKE_FULL_ACCESS": "1", "FAKE_SET_MODE_DELAY_MS": "1500"}},
@@ -470,6 +473,25 @@ const PROBES: &[Case] = &[
             assert!(ends(claude).await, "the live list of claude-pinned runs on under the off");
         })
     }),
+    (
+        "review 32: a probe whose session comes up in full access keeps nothing under the off",
+        |name| {
+            Box::pin(async move {
+                let (_dir, _daemon, mut app) = daemon(name, true).await;
+                app.push(off()).await;
+                let listed = app.call("_acpmux/models", json!({"refresh": true})).await;
+                let entry = listed["result"]["harnesses"]
+                    .as_array()
+                    .and_then(|all| all.iter().find(|h| h["harness"] == "self-full"))
+                    .cloned()
+                    .unwrap_or_default();
+                assert!(
+                    entry["probeError"].as_str().is_some_and(|e| e.contains("full access")),
+                    "a probe of self-full, in full access under the off, was kept: {entry}"
+                );
+            })
+        },
+    ),
 ];
 
 /// Runs `cases` one at a time and names every one that fails.

@@ -679,6 +679,31 @@ async fn under_an_mdm_off_a_pooled_agent_that_came_up_in_full_access_is_not_kept
     assert!(!taken(&daemon, &claimed), "a chat took the pooled agent in full access");
 }
 
+/// MDM forces `sessions.allowFullAccess` off (#23322, review 32): a harness that declares no modes
+/// and reports a full-access one while its pooled session starts is not kept either. The report is
+/// held with the entry's other traffic until a chat takes it, so the check reads it there.
+#[tokio::test(flavor = "multi_thread")]
+async fn under_an_mdm_off_a_pooled_agent_that_reported_full_access_at_start_is_not_kept() {
+    let mut fakeb = profile("b");
+    fakeb["env"]["FAKE_NO_MODES"] = json!("1");
+    fakeb["env"]["FAKE_STARTUP_MODE"] = json!("bypassPermissions");
+    let daemon = Daemon::with_fakeb("faheld", 0, &fakeb);
+    let mut rpc = daemon.rpc().await;
+    let home = daemon.home.clone();
+    let off = json!({"enabled": true, "discovery": false, "roots": [], "managedRoots": [],
+                     "allowFullAccess": false, "allowFullAccessManaged": true});
+    let pushed = rpc.call("_acpmux/chat_settings", off).await;
+    assert_eq!(pushed["applied"], true, "{pushed}");
+    let warmed =
+        rpc.call("_acpmux/prewarm", json!({"harness": "fakeb", "cwd": home, "wait": true})).await;
+    let kept = warmed["pool"]["entries"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .any(|e| e["harness"] == "fakeb" && e["state"] == "ready");
+    assert!(!kept, "a pooled agent that reported full access was kept under the MDM off: {warmed}");
+}
+
 /// `sessions.allowFullAccess` off and a pooled chat in full access whose harness never answers
 /// the switch to a mode that asks: taking it is bounded by the start budget like a cold start,
 /// so `session/new` fails with a deadline and ends the host instead of hanging on `spawn_lock`.
