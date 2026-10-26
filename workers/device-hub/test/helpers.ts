@@ -87,6 +87,8 @@ export function mockOutbound() {
     }
     const billing = /^(https:\/\/billing(?:-dev)?\.test)\/api\/billing\/plan$/.exec(url);
     if (billing) {
+      // workerd throws on `redirect: "error"` (a deployed hub then never gets an answer).
+      if (init?.redirect === "error") throw new TypeError("Invalid redirect value, must be one of \"follow\" or \"manual\"");
       const headers = new Headers(input instanceof Request ? input.headers : init?.headers);
       return billingResponse(billing[1]!, headers, init?.signal ?? (input instanceof Request ? input.signal : undefined));
     }

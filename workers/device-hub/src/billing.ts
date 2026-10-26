@@ -83,7 +83,8 @@ async function lookup(env: Env, userId: string, stackToken: string | null): Prom
       // Stack's server SDK reads the caller's session from `x-stack-auth`; the
       // backend verifies the token with Stack before it answers.
       headers: { accept: "application/json", "x-stack-auth": JSON.stringify({ accessToken: stackToken }) },
-      redirect: "error",
+      // Workers reject `redirect: "error"`; a redirect stays a non-200 here and fails closed.
+      redirect: "manual",
       signal: AbortSignal.timeout(timeoutMs(env)),
     });
   } catch (err) {
