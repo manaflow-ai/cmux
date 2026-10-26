@@ -39,10 +39,7 @@ export function pendingSpeed(
     return {
       id: "fast-mode",
       currentValue: "off",
-      options: [
-        { value: "off" },
-        { value: "on" },
-      ],
+      options: [{ value: "off" }, { value: "on" }],
     };
   return undefined;
 }
