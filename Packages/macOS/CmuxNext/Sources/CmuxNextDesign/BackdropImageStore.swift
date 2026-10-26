@@ -148,12 +148,13 @@ public final class BackdropImageStore {
             guard await downloads.file(for: art) != nil else { return nil }
             if let image = images[key] { return image }
         }
-        if key.id == BackdropSelection.desktopID, loads[key] == nil, let retired = retiredDesktopLoads {
-            // Every caller waits on the same chain; the first to resume starts the decode, the
-            // rest join it (loads[key] below).
+        // Every caller waits on the newest chain until none is newer (the desktop can move on
+        // again while it waits); the first to resume starts the decode, the rest join it below.
+        while key.id == BackdropSelection.desktopID, loads[key] == nil, let retired = retiredDesktopLoads {
             await retired.value
             guard !Task.isCancelled else { return nil }
             if let image = images[key] { return image }
+            if retiredDesktopLoads == retired { retiredDesktopLoads = nil }
         }
         let load: Task<Decoded?, Never>
         let generation = desktopGeneration
