@@ -28,23 +28,27 @@ public struct ArcSidebarReader {
         let items = Dictionary(objects(container["items"]).compactMap { item in (item["id"] as? String).map { ($0, item) } },
                                uniquingKeysWith: { first, _ in first })
         var result: [ImportedBookmark] = []
+        // Each container and list is read once: items name each other by id, so a damaged file can
+        // link a list into itself or into many parents.
+        var expanded: Set<String> = []
         // Favorites: the profile's top-apps container.
         for (profile, id) in pairs(container["topAppsContainerIDs"]) where profile == profileDirectory {
-            walk(id, items: items, path: ["Favorites"], depth: 0, into: &result)
+            walk(id, items: items, path: ["Favorites"], depth: 0, expanded: &expanded, into: &result)
         }
         for space in objects(container["spaces"]) where Self.profileDirectory(space["profile"]) == profileDirectory {
             let title = (space["title"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? "Space"
             let ids = space["containerIDs"] as? [Any] ?? []
             for (index, value) in ids.enumerated() where (value as? String) == "pinned" && index + 1 < ids.count {
                 guard let pinned = ids[index + 1] as? String else { continue }
-                walk(pinned, items: items, path: [title], depth: 0, into: &result)
+                walk(pinned, items: items, path: [title], depth: 0, expanded: &expanded, into: &result)
             }
         }
         return result
     }
 
-    private func walk(_ id: String, items: [String: [String: Any]], path: [String], depth: Int, into result: inout [ImportedBookmark]) {
-        guard depth < 64, let node = items[id] else { return }
+    private func walk(_ id: String, items: [String: [String: Any]], path: [String], depth: Int, expanded: inout Set<String>,
+                      into result: inout [ImportedBookmark]) {
+        guard depth < 64, let node = items[id], expanded.insert(id).inserted else { return }
         for childID in node["childrenIds"] as? [String] ?? [] {
             guard let child = items[childID] else { continue }
             let data = child["data"] as? [String: Any] ?? [:]
@@ -55,7 +59,7 @@ public struct ArcSidebarReader {
                 result.append(ImportedBookmark(title: title, url: url, folderPath: path, dateAdded: created))
             } else if data["list"] != nil || data["itemContainer"] != nil {
                 let name = (child["title"] as? String).flatMap { $0.isEmpty ? nil : $0 }
-                walk(childID, items: items, path: name.map { path + [$0] } ?? path, depth: depth + 1, into: &result)
+                walk(childID, items: items, path: name.map { path + [$0] } ?? path, depth: depth + 1, expanded: &expanded, into: &result)
             }
         }
     }

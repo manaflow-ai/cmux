@@ -27,7 +27,9 @@ public struct FirefoxSessionReader {
         let bytes = [UInt8](data)
         guard bytes.count > 12, Array(bytes[0..<8]) == magic else { return nil }
         let size = Int(PickleReader.uint32(bytes, at: 8))
-        guard size > 0, size <= maximumSize else { return nil }
+        // One LZ4 block byte yields at most 255 bytes (a match-length byte), so a larger size is a lie
+        // that would only allocate.
+        guard size > 0, size <= maximumSize, size / 255 <= bytes.count - 12 else { return nil }
         var output = [UInt8](repeating: 0, count: size)
         let written = bytes.withUnsafeBufferPointer { source in
             output.withUnsafeMutableBufferPointer { destination -> Int in
@@ -47,7 +49,8 @@ public struct FirefoxSessionReader {
             for tab in window["tabs"] as? [[String: Any]] ?? [] {
                 let entries = tab["entries"] as? [[String: Any]] ?? []
                 guard !entries.isEmpty else { continue }
-                let index = min(max((tab["index"] as? Int ?? entries.count) - 1, 0), entries.count - 1)
+                // `index` is 1-based; any other number (Int.min included) picks the nearest entry.
+                let index = min(max(tab["index"] as? Int ?? entries.count, 1), entries.count) - 1
                 guard let text = entries[index]["url"] as? String, let url = ImportableURL.parse(text) else { continue }
                 let title = (entries[index]["title"] as? String).flatMap { $0.isEmpty ? nil : $0 }
                 tabs.append(ImportedTab(url: url, title: title, window: windowIndex, pinned: tab["pinned"] as? Bool ?? false))

@@ -523,6 +523,12 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
             dependencies: ["CmuxNextImportSuggestions", "CmuxNextBrowserImport"],
             swiftSettings: daemonSwiftSettings
         ),
+        // Corrupted Chrome, Firefox and Safari profiles through every import reader (p10-stability-025).
+        .testTarget(
+            name: "CmuxNextBrowserImportTests",
+            dependencies: ["CmuxNextBrowserImport", "CmuxNextCompat", .product(name: "CmuxFuzzSupport", package: "CmuxFuzzSupport")],
+            swiftSettings: daemonSwiftSettings
+        ),
         // The cards' center: the scan schedule, the job runner and the `import.*` actions, for
         // Settings › Import (no Home or New Tab suggestion). The App supplies `ImportCardsHost`.
         .target(
@@ -2023,6 +2029,8 @@ let package = Package(
         // The Mac Home transcript: MessagesLabAppKitNative, vendored (home-mac.md).
         .package(path: "../../Shared/CmuxMessagesLab"),
         .package(path: "../../Shared/CmuxIrxTransport"),
+        // Seeded property tests (test targets only): p10-stability-016.
+        .package(path: "../../Shared/CmuxFuzzSupport"),
         // RFB (VNC) client for compatibility hosts in the remote view pane (remote-desktop.md 12).
         .package(path: "../../Shared/CmuxVNC"),
         .package(path: "../../Shared/CmuxScreenKit"),

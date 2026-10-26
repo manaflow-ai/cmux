@@ -4,8 +4,18 @@ public import Foundation
 /// and `WebBookmarkTypeLeaf` bookmarks. The Favorites bar, the Bookmarks
 /// menu and the Reading List get readable folder names.
 public struct SafariBookmarksParser {
-    /// Creates a reader for Safari bookmarks or history.
-    public init() {}
+    /// Entries read at most. A binary plist may name one folder from many parents, so a small damaged
+    /// file can describe a tree with more entries than memory holds; no real Bookmarks.plist comes near.
+    let maximumNodes: Int
+
+    /// Creates a reader for Safari bookmarks.
+    public init() {
+        self.init(maximumNodes: 1 << 20)
+    }
+
+    init(maximumNodes: Int) {
+        self.maximumNodes = maximumNodes
+    }
 
     public enum Failure: Error { case notBookmarks }
 
@@ -14,19 +24,23 @@ public struct SafariBookmarksParser {
             throw Failure.notBookmarks
         }
         var result: [ImportedBookmark] = []
-        walk(root, path: [], into: &result)
+        var remaining = maximumNodes
+        walk(root, path: [], depth: 0, remaining: &remaining, into: &result)
         return result
     }
 
-    private func walk(_ node: [String: Any], path: [String], into result: inout [ImportedBookmark]) {
+    private func walk(_ node: [String: Any], path: [String], depth: Int, remaining: inout Int, into result: inout [ImportedBookmark]) {
+        guard depth < 64 else { return }
         for child in node["Children"] as? [[String: Any]] ?? [] {
+            guard remaining > 0 else { return }
+            remaining -= 1
             switch child["WebBookmarkType"] as? String {
             case "WebBookmarkTypeLeaf":
                 guard let text = child["URLString"] as? String, let url = ImportableURL.parse(text) else { continue }
                 let title = ((child["URIDictionary"] as? [String: Any])?["title"] as? String).flatMap { $0.isEmpty ? nil : $0 }
                 result.append(ImportedBookmark(title: title ?? text, url: url, folderPath: path))
             case "WebBookmarkTypeList":
-                walk(child, path: path + [folderName(child["Title"] as? String ?? "")], into: &result)
+                walk(child, path: path + [folderName(child["Title"] as? String ?? "")], depth: depth + 1, remaining: &remaining, into: &result)
             default:
                 continue  // WebBookmarkTypeProxy: the History entry.
             }
