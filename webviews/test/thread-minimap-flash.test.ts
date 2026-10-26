@@ -72,6 +72,7 @@ await requireBrowserLane("thread-minimap-flash.test.ts", async () => {
     removedIds?: string[];
     before: Record<string, unknown>;
     after: Record<string, unknown>;
+    cardLayer?: { isolation?: string; willChange?: string };
   };
 
   const settle = (page: Page) =>
@@ -157,10 +158,14 @@ await requireBrowserLane("thread-minimap-flash.test.ts", async () => {
           let layerChanges = 0;
           let missingFrames = 0;
           let frameCount = 0;
+          let cardLayer: Result["cardLayer"];
           const started = performance.now();
           window.cmuxAfterPaint(() => {
             frameCount += 1;
-            if (JSON.stringify(snapshot()) !== initialLayer) layerChanges += 1;
+            const current = snapshot();
+            if (JSON.stringify(current) !== initialLayer) layerChanges += 1;
+            const card = current[".acpmux-minimap__card"];
+            if (card && !cardLayer) cardLayer = card as Result["cardLayer"];
             for (const id of visibleAtStart) {
               const node = scroller.querySelector<HTMLElement>(`.acpmux-row[data-row-id="${CSS.escape(id)}"]`);
               const box = node?.getBoundingClientRect();
@@ -183,6 +188,7 @@ await requireBrowserLane("thread-minimap-flash.test.ts", async () => {
               layerChanges,
               before,
               after,
+              cardLayer,
             });
             return false;
           });
@@ -282,6 +288,13 @@ await requireBrowserLane("thread-minimap-flash.test.ts", async () => {
         } | null;
         return rail?.isolation === "isolate" && rail.willChange?.includes("transform");
       }),
+    ).toBe(true);
+    expect(
+      results
+        .filter((result) => result.cardLayer)
+        .every(
+          (result) => result.cardLayer?.isolation === "isolate" && result.cardLayer.willChange?.includes("transform"),
+        ),
     ).toBe(true);
   });
 });

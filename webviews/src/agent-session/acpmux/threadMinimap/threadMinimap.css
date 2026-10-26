@@ -28,6 +28,11 @@
 .acpmux-minimap__rail {
   position: absolute;
   margin: 0;
+  /* Keep rail hover transforms and highlight opacity in their own compositing surface. The
+     transcript scroller has an edge mask; without a stable boundary Chromium can re-raster the
+     masked transcript whenever the rail's lit ticks or glass card changes (#25766). */
+  isolation: isolate;
+  will-change: transform;
   animation: acpmux-minimap-in var(--cmux-motion-micro) cubic-bezier(0.23, 1, 0.32, 1);
 }
 @keyframes acpmux-minimap-in {
@@ -287,6 +292,10 @@
   width: 320px;
   max-width: calc(100vw - 16px);
   box-sizing: border-box;
+  /* The card is portalled beside the masked scroller. Keep its backdrop blur in a stable layer so
+     opening or dismissing the preview does not invalidate the transcript's painted surface. */
+  isolation: isolate;
+  will-change: transform;
   /* The edge is an inset shadow one device pixel wide (--cmux-hairline, #20713); appearance.borders
      none clears it through --acpmux-minimap-rim. Glass, as the chat's other hover cards (the link
      preview, the tooltips): the tooltip tint over the shared blur, never an opaque fill (Leo
