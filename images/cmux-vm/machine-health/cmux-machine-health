@@ -43,6 +43,13 @@ DEFAULTS = {
     "ramFloorBytes": None,  # min(2 GiB, 10% of RAM)
     "hygieneCommands": None,  # argv lists; default: cmux-machine-hygiene --apply per /home user
 }
+# The only actions a pass writes; an older fixed entry is kept only when it is one of them.
+FIXED_ACTIONS = re.compile("|".join([
+    r"restarted systemd-resolved",
+    r"relinked /etc/resolv\.conf to the systemd-resolved stub",
+    r"restarted tailscaled so it picks systemd-resolved",
+    r"started disk hygiene \(\d+ of \d+ commands\)"
+]))
 HOSTNAME = re.compile(r"(?=.{1,253}$)[A-Za-z0-9_]([A-Za-z0-9_-]{0,62})(\.[A-Za-z0-9_]([A-Za-z0-9_-]{0,62}))*\.?")
 ORDER = ["dns", "disk", "ram", "loop"]
 MAX_PROBLEMS = 8
@@ -128,7 +135,8 @@ class Host:
                 os.close(fd)
 
         try:
-            if f"/{unit}/" not in read("cgroup") or read("comm").strip() != "systemd":
+            paths = [line.split(":", 2)[-1].strip() for line in read("cgroup").splitlines()]
+            if not any(f"/{unit}/" in path + "/" for path in paths) or read("comm").strip() != "systemd":
                 return False
             fd = os.open("oom_score_adj", os.O_WRONLY, dir_fd=d)
             try:
@@ -212,7 +220,7 @@ class Pass:
         stamp = lambda v: isinstance(v, str) and re.fullmatch(r"\d{4}-\d\d-\d\dT\d\d:\d\d:\d\dZ", v) is not None
         self.since_was = {k: v for k, v in since.items() if isinstance(k, str) and stamp(v)} if isinstance(since, dict) else {}
         self.last = {k: v for k, v in last.items() if isinstance(v, (int, float)) and not isinstance(v, bool)} if isinstance(last, dict) else {}
-        ok = lambda f: isinstance(f, dict) and f.get("check") in ORDER and isinstance(f.get("action"), str) and stamp(f.get("at"))
+        ok = lambda f: isinstance(f, dict) and f.get("check") in ORDER and isinstance(f.get("action"), str) and FIXED_ACTIONS.fullmatch(f["action"]) and stamp(f.get("at"))
         state = {"fixed": [{"check": f["check"], "action": clean(f["action"]), "at": f["at"]} for f in fixed if ok(f)] if isinstance(fixed, list) else []}
         self.since, self.problems, self.new_fixed = {}, [], []
         self.fixed_was = state.get("fixed", [])
@@ -338,7 +346,8 @@ def config_problems(given):
     """Why a config is unusable, or nothing; install refuses it, a pass uses the defaults."""
     if not isinstance(given, dict):
         return ["the config must be a JSON object"]
-    problems = [f"unknown config key {k}" for k in sorted(set(given) - set(DEFAULTS))]
+    unknown = set(given) - set(DEFAULTS)
+    problems = [f"{len(unknown)} unknown config keys (known: {', '.join(DEFAULTS)})"] if unknown else []
     for key in ("dnsNames",):
         if key in given and not (isinstance(given[key], list) and all(isinstance(x, str) and x for x in given[key])):
             problems.append(f"{key} must be a list of non-empty strings")

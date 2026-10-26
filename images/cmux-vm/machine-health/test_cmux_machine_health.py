@@ -168,10 +168,10 @@ class HealthTests(unittest.TestCase):
 
     def test_fixed_keeps_24_hours_and_at_most_20(self):
         host = FakeHost()
-        old = {"check": "dns", "action": "old", "at": cmh.iso(host.t - 90000)}
-        host.files[cmh.STATE_FILE] = json.dumps({"fixed": [old] + [{"check": "dns", "action": f"a{i}", "at": cmh.iso(host.t - 60)} for i in range(25)]})
+        old = {"check": "disk", "action": "started disk hygiene (9 of 9 commands)", "at": cmh.iso(host.t - 90000)}
+        host.files[cmh.STATE_FILE] = json.dumps({"fixed": [old] + [{"check": "disk", "action": f"started disk hygiene ({i} of 30 commands)", "at": cmh.iso(host.t - 60)} for i in range(25)]})
         fixed = run(host)["fixed"]
-        self.assertEqual((len(fixed), fixed[0]["action"]), (20, "a5"))
+        self.assertEqual((len(fixed), fixed[0]["action"]), (20, "started disk hygiene (5 of 30 commands)"))
 
     def test_a_broken_check_is_reported_and_the_others_still_run(self):
         host = FakeHost()
@@ -236,6 +236,31 @@ class HealthTests(unittest.TestCase):
             self.assertEqual([f["action"] for f in h["fixed"]], ["restarted systemd-resolved"], state)
             self.assertNotIn("/home", json.dumps(h), state)
             self.assertNotIn("abc", json.dumps(h), state)
+
+    def test_old_fixed_entries_are_kept_only_when_a_pass_could_have_written_them(self):
+        host = FakeHost()
+        at = cmh.iso(host.t - 60)
+        host.files[cmh.STATE_FILE] = json.dumps({"fixed": [
+            {"check": "dns", "action": "restarted systemd-resolved", "at": at},
+            {"check": "disk", "action": "started disk hygiene (1 of 1 commands)", "at": at},
+            {"check": "dns", "action": "curl -H 'Authorization: Bearer abc' https://x", "at": at},
+            {"check": "disk", "action": "started disk hygiene (1 of 1 commands); rm -rf /", "at": at},
+        ]})
+        self.assertEqual([f["action"] for f in run(host)["fixed"]], ["restarted systemd-resolved", "started disk hygiene (1 of 1 commands)"])
+
+    def test_an_unknown_config_key_is_never_echoed(self):
+        problems = cmh.config_problems({"token:secret": 1, "rm -rf /": 2})
+        self.assertTrue(problems[0].startswith("2 unknown config keys"), problems)
+        self.assertNotIn("secret", " ".join(problems))
+        self.assertNotIn("rm -rf", " ".join(problems))
+
+    @unittest.skipUnless(os.path.isdir("/proc/self"), "Linux /proc")
+    def test_the_oom_write_finds_the_unit_as_the_last_cgroup_component_too(self):
+        # This process is in no user@ unit; its own last component (whatever it is) must match.
+        with open("/proc/self/cgroup") as f:
+            last = f.read().strip().splitlines()[-1].split(":", 2)[-1].rstrip("/").rsplit("/", 1)[-1]
+        if last and open("/proc/self/comm").read().strip() != "systemd":
+            self.assertFalse(cmh.Host().set_oom_score(os.getpid(), 0, last), "comm must be systemd")
 
     def test_dns_names_must_be_host_names_so_none_can_carry_a_credential(self):
         for bad in (["https://user:pw@example.com"], ["a b"], ["-x.com"], ["x" * 300]):
