@@ -792,6 +792,16 @@ first frame.
 FirstPartyPageSchemes, `PageWebView.chromiumHosting`, 3 preference follows afterFirstFrame; reads on `.files`; an engine
 start awaits `profiles.loaded` by event. Acceptance: no engine starts before profiles load (test). Test: right profile in
 10 of 10 relaunches.
+As landed (deviation from the spec above): the gate is `TabContentCache.enginesAwait`, a `LaunchReadEvent` that
+`BrowserProfileService.load` wires and signals; the read's step makes the waiting tab's page itself, so a tab no pane
+shows gets one too. It gates every page whose profile the book chooses (a daemon tab's record); a session-local tab
+(incognito or default store), a machine-store page and a copy of a live page choose no profile from the book and are not
+held. A deferred restored page makes no engine and is not held. Only history's daemon sync and the location trail's scope
+moved to afterFirstFrame posts: FirstPartyPageSchemes, `PageWebView.chromiumHosting` and the engine, link-click and
+bookmark preference follows are read by the first page or the first frame, so they stay before it. The profile, bookmark
+and history reads were already off main (their file actors); they did not move to the `.files` lane.
+Startup/Startup+Browser.swift waits for 014's split. Test: a relaunch with a tab in a deleted profile opens it in the
+default store, and the profile's data is removed (`BrowserPagesAwaitProfilesTests`).
 
 **029 Q2 platform.** Files: `Startup/Startup+Platform.swift`. Change: KeepAwake, ComputerUseHelperDaemon, mobile,
 deviceHub, macScreenPages, remoteLocalhost, apps, updater.follow, hibernation, notifications.follow,
