@@ -828,15 +828,17 @@ let packageTargets: [Target] = uiLayerPreviewTargets + [
         ),
         // Energy Saver's power inputs (plans/cmux-next/chrome-parity/p14-energy.md D): Low Power Mode,
         // IOKit's power source and battery charge, the thermal state, each observed once for the app
-        // by EnergyMonitor. Only CmuxNextApp (the composition root) depends on it.
+        // by EnergyMonitor, and EnergyPolicyResolver, which turns them and energy.saver into the saver's
+        // reason (EnergySaverMode and EnergyPolicy are core values in CmuxNextWakeups). Only CmuxNextApp
+        // (the composition root) depends on it.
         .target(
             name: "CmuxNextEnergy",
-            dependencies: ["CmuxNextCompat"],
+            dependencies: ["CmuxNextCompat", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         .testTarget(
             name: "CmuxNextEnergyTests",
-            dependencies: ["CmuxNextEnergy"],
+            dependencies: ["CmuxNextEnergy", "CmuxNextWakeups"],
             swiftSettings: uiSwiftSettings
         ),
         // Host pressure (cmuxterm-hq#2995): the shared host budget's verdict (acpmux's
