@@ -11,7 +11,7 @@ import Testing
 @MainActor
 struct PageWebViewDebugPressTests {
     private let root: URL
-    private let descriptor = PageDescriptor(id: "test.press-page", resource: "press-page", namespaces: [])
+    private let descriptor = PageDescriptor(id: "test.press-page", resource: "press-page", processGroup: .solo, namespaces: [])
 
     init() throws {
         root = FileManager.default.temporaryDirectory.appendingPathComponent("page-press-\(UUID().uuidString)", isDirectory: true)

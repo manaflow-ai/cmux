@@ -40,7 +40,20 @@ pub struct Command {
     /// macOS: [`Command::inherit_like_std`].
     #[cfg(target_vendor = "apple")]
     pub(crate) inherit_like_std: bool,
-    /// Windows process creation flags ([`Command::creation_flags`]).
+    /// [`Command::current_dir_fd`]: the child's working directory, as a
+    /// descriptor. Replaces `cwd`.
+    #[cfg(unix)]
+    pub(crate) cwd_fd: Option<OwnedFd>,
+    /// [`Command::isolate`].
+    #[cfg(all(unix, not(target_vendor = "apple")))]
+    pub(crate) isolate: bool,
+    /// [`Command::process_group_fence`].
+    #[cfg(target_os = "linux")]
+    pub(crate) process_group_fence: bool,
+    /// [`Command::open_file_limit`].
+    #[cfg(unix)]
+    pub(crate) open_file_limit: Option<u64>,
+    /// [`Command::creation_flags`].
     #[cfg(windows)]
     pub(crate) creation_flags: u32,
 }
@@ -66,6 +79,14 @@ impl Command {
             inherit: Vec::new(),
             #[cfg(target_vendor = "apple")]
             inherit_like_std: false,
+            #[cfg(unix)]
+            cwd_fd: None,
+            #[cfg(all(unix, not(target_vendor = "apple")))]
+            isolate: false,
+            #[cfg(target_os = "linux")]
+            process_group_fence: false,
+            #[cfg(unix)]
+            open_file_limit: None,
             #[cfg(windows)]
             creation_flags: 0,
         }
@@ -131,10 +152,31 @@ impl Command {
         self.env.iter().map(|(key, value)| (key.as_os_str(), value.as_deref()))
     }
 
-    /// The child's working directory.
+    /// The child's working directory. Replaces an earlier
+    /// [`Command::current_dir_fd`].
     pub fn current_dir(&mut self, dir: impl AsRef<Path>) -> &mut Self {
         self.cwd = Some(dir.as_ref().to_owned());
+        #[cfg(unix)]
+        {
+            self.cwd_fd = None;
+        }
         self
+    }
+
+    /// The child's working directory is the directory open at `dir`
+    /// (`fchdir`; macOS: `posix_spawn_file_actions_addfchdir_np`), so a
+    /// rename or replacement of its path after it was opened does not move
+    /// the child. Replaces an earlier [`Command::current_dir`].
+    ///
+    /// # Errors
+    ///
+    /// When `dir` cannot be duplicated (the builder keeps its own copy until
+    /// the spawn).
+    #[cfg(unix)]
+    pub fn current_dir_fd(&mut self, dir: BorrowedFd<'_>) -> io::Result<&mut Self> {
+        self.cwd_fd = Some(dir.try_clone_to_owned()?);
+        self.cwd = None;
+        Ok(self)
     }
 
     /// The child's stdin (default: inherit; `output` defaults to null).
@@ -183,6 +225,50 @@ impl Command {
     /// controlling terminal.
     pub fn new_session(&mut self) -> &mut Self {
         self.new_session = true;
+        self
+    }
+
+    /// Give the child on Linux what the macOS spawn always gives it: every
+    /// descriptor other than 0-2 and the [`Command::inherit_fd`] ones closes
+    /// at the exec, also one opened without close-on-exec (by a C library,
+    /// say), and every signal starts at its default disposition with an empty
+    /// mask (std keeps an ignored signal ignored and the spawning thread's
+    /// mask; a shell started with SIGINT ignored never dies of Ctrl-C).
+    /// Chromium's `LaunchProcess` does both on every Linux launch
+    /// (base/process/launch_posix.cc: `CloseSuperfluousFds`,
+    /// `ResetChildSignalHandlersToDefaults`). On Linux it costs a fork where
+    /// std would `posix_spawn`, so it is for children that run arbitrary
+    /// programs for a long time (a terminal's shell). macOS does this for
+    /// every spawn; Windows has neither.
+    pub fn isolate(&mut self) -> &mut Self {
+        #[cfg(all(unix, not(target_vendor = "apple")))]
+        {
+            self.isolate = true;
+        }
+        self
+    }
+
+    /// Linux: the child and every process it starts can never leave the
+    /// process group they start in: `setsid` and `setpgid` fail with EPERM
+    /// (a seccomp filter, with `no_new_privs`). A process scope uses it so a
+    /// hook cannot escape the group the scope kills. Set after the child's
+    /// own [`Command::new_session`] and [`Command::process_group`].
+    #[cfg(target_os = "linux")]
+    pub fn process_group_fence(&mut self) -> &mut Self {
+        self.process_group_fence = true;
+        self
+    }
+
+    /// The child's soft `RLIMIT_NOFILE` (at most its hard limit), set before
+    /// its program runs. Linux: `setrlimit` before the exec. macOS:
+    /// `posix_spawn` cannot set a limit, so the child is `/bin/sh -c
+    /// 'ulimit -S -n N; exec "$@"'` that execs the program in the same
+    /// process (same pid, session and terminal); the program's `argv[0]` is
+    /// then its resolved path, and a [`Command::arg0`] makes the spawn fail
+    /// with `InvalidInput`.
+    #[cfg(unix)]
+    pub fn open_file_limit(&mut self, soft: u64) -> &mut Self {
+        self.open_file_limit = Some(soft);
         self
     }
 
@@ -295,7 +381,10 @@ impl Command {
     fn spawn_std(&mut self) -> io::Result<Child> {
         let child = self.std_command()?.spawn()?;
         #[cfg(unix)]
-        self.inherit.clear();
+        {
+            self.inherit.clear();
+            self.cwd_fd = None;
+        }
         Ok(Child::from_std(child))
     }
 
@@ -340,66 +429,55 @@ impl Command {
             if let Some(pgid) = self.process_group {
                 command.process_group(pgid);
             }
-            if self.new_session || !self.inherit.is_empty() || self.stdin_path.is_some() {
-                // The std path has no posix_spawn file actions: setsid and
-                // each inherited descriptor go in a pre_exec hook (only
-                // async-signal-safe calls; the copies are this builder's).
-                let new_session = self.new_session;
-                // (path, also onto 1, also onto 2): stdout and stderr not set
-                // become copies of the opened descriptor.
-                let stdin_path = match &self.stdin_path {
-                    Some(path) => Some((
-                        std::ffi::CString::new(std::os::unix::ffi::OsStrExt::as_bytes(
-                            path.as_os_str(),
-                        ))
-                        .map_err(|_| {
-                            io::Error::new(io::ErrorKind::InvalidInput, "a NUL byte in a path")
-                        })?,
-                        self.stdout.is_none(),
-                        self.stderr.is_none(),
-                    )),
-                    None => None,
+            #[cfg(target_os = "linux")]
+            let fence = self.process_group_fence;
+            #[cfg(not(target_os = "linux"))]
+            let fence = false;
+            if self.new_session
+                || !self.inherit.is_empty()
+                || self.stdin_path.is_some()
+                || self.cwd_fd.is_some()
+                || self.isolate
+                || fence
+                || self.open_file_limit.is_some()
+            {
+                // The std path has no posix_spawn file actions: what the
+                // child needs beyond std goes in one pre_exec hook (only
+                // async-signal-safe calls on data prepared here; the
+                // descriptors are this builder's copies).
+                crate::fd::lift_sources_above_targets(&mut self.inherit)?;
+                let setup = crate::child_setup::ChildSetup {
+                    new_session: self.new_session,
+                    cwd_fd: self.cwd_fd.as_ref().map(std::os::fd::AsRawFd::as_raw_fd),
+                    sweep: self.isolate.then(crate::child_setup::DescriptorSweep::new),
+                    // (path, also onto 1, also onto 2): stdout and stderr not
+                    // set become copies of the opened descriptor.
+                    stdin_path: match &self.stdin_path {
+                        Some(path) => Some((
+                            std::ffi::CString::new(std::os::unix::ffi::OsStrExt::as_bytes(
+                                path.as_os_str(),
+                            ))
+                            .map_err(|_| {
+                                io::Error::new(io::ErrorKind::InvalidInput, "a NUL byte in a path")
+                            })?,
+                            self.stdout.is_none(),
+                            self.stderr.is_none(),
+                        )),
+                        None => None,
+                    },
+                    inherit: self
+                        .inherit
+                        .iter()
+                        .map(|(fd, at)| (std::os::fd::AsRawFd::as_raw_fd(fd), *at))
+                        .collect(),
+                    process_group_fence: fence,
+                    open_file_limit: self.open_file_limit,
                 };
-                let inherit: Vec<(RawFd, RawFd)> = self
-                    .inherit
-                    .iter()
-                    .map(|(fd, at)| (std::os::fd::AsRawFd::as_raw_fd(fd), *at))
-                    .collect();
-                // SAFETY: setsid, dup2 and fcntl are async-signal-safe and
-                // touch only the child's own table.
+                // SAFETY: `ChildSetup::run` makes only async-signal-safe
+                // calls, allocates nothing, and touches only the child's own
+                // descriptors, signal dispositions and seccomp filter.
                 unsafe {
-                    command.pre_exec(move || {
-                        if new_session && libc::setsid() < 0 {
-                            return Err(io::Error::last_os_error());
-                        }
-                        // After setsid: a terminal opened here becomes the
-                        // controlling terminal of the new session.
-                        if let Some((path, onto_out, onto_err)) = &stdin_path {
-                            let fd = libc::open(path.as_ptr(), libc::O_RDWR);
-                            if fd < 0 {
-                                return Err(io::Error::last_os_error());
-                            }
-                            for (wanted, target) in [(true, 0), (*onto_out, 1), (*onto_err, 2)] {
-                                if wanted && fd != target && libc::dup2(fd, target) < 0 {
-                                    return Err(io::Error::last_os_error());
-                                }
-                            }
-                            if fd > 2 {
-                                libc::close(fd);
-                            }
-                        }
-                        for &(fd, at) in &inherit {
-                            let result = if fd == at {
-                                libc::fcntl(fd, libc::F_SETFD, 0)
-                            } else {
-                                libc::dup2(fd, at)
-                            };
-                            if result < 0 {
-                                return Err(io::Error::last_os_error());
-                            }
-                        }
-                        Ok(())
-                    });
+                    command.pre_exec(move || setup.run());
                 }
             }
         }

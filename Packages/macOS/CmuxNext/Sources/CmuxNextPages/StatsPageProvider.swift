@@ -5,7 +5,8 @@ public extension PageDescriptor {
     /// The Stats page (webviews/src/pages/stats, hq#1920): this computer's agent work, read only.
     /// Its one op `cmux.stats.summary` is relayed to the local acpmux, which folds its session logs;
     /// nothing leaves the machine.
-    static let stats = PageDescriptor(id: "cmux.stats", resource: "stats", namespaces: ["cmux.stats."])
+    static let stats = PageDescriptor(id: "cmux.stats", resource: "stats", processGroup: .privileged, namespaces: ["cmux.stats."],
+                                      opTables: [PageOpTable(namespace: "cmux.stats.", read: ["summary"])])
 }
 
 /// `cmux.stats.summary {days, tzOffsetMinutes}`: one `_acpmux/stats` request to this app's acpmux,

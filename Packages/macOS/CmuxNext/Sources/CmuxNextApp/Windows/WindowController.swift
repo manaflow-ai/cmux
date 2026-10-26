@@ -96,6 +96,9 @@ final class WindowController: NSWindowController, NSWindowDelegate {
         window.tabbingMode = .disallowed
         super.init(window: window)
         installHistoryButtons()
+        // The key tracker observes through the app's events before the
+        // content's material views reach the window.
+        WindowMaterialView.observeKeyFamily(of: window, through: services.appEvents)
         // Kind, scope and backdrop before the content view (the root paints
         // the backdrop: `WindowSurfacePainting`).
         window.install(kind: .main, content: root, scope: themeScope)
