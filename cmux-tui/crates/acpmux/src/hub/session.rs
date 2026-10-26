@@ -5,8 +5,9 @@ use super::*;
 /// The steers of a session's running turn that Send now can hurry (`Session::steer_now`).
 #[derive(Default)]
 pub(super) struct SteerNow {
-    /// Sent to the agent and not answered yet: it reads them when its current step ends.
-    pub(super) waiting: std::collections::HashSet<String>,
+    /// Sent to the agent and not answered yet: it reads them when its current step ends. Each
+    /// with the person who sent it (`author.rs`), `None` for the owner.
+    pub(super) waiting: std::collections::HashMap<String, Option<String>>,
     /// Queued prompts sent now: their steer stops the agent's current step.
     pub(super) step: std::collections::HashSet<String>,
 }
@@ -68,6 +69,10 @@ pub struct Session {
     /// launched yet, 1: with, 2: without), so forum rules follow the launch,
     /// not a profile reloaded since (`hub/tools.rs`).
     pub(super) launched_with_tools: std::sync::atomic::AtomicU8,
+    /// The profile env its running agent was started with (`Hub::ensure_child`): its family
+    /// defaults, preset, session env and route included. The read-only shell probe judges a
+    /// command in it (`permissions.rs`); None until this daemon starts an agent for it.
+    pub(super) launch_env: StdMutex<Option<std::collections::BTreeMap<String, String>>>,
     /// The chat's route changed during a turn: restart the harness on it when
     /// the turn ends (`route_switch.rs`).
     pub(super) route_switch: AtomicBool,
@@ -154,6 +159,10 @@ pub struct Session {
     pub(super) floor: remote_floor::FloorState,
     /// The subagents the agent reported, for attributing their updates.
     pub(super) subagents: StdMutex<crate::subagents::SubagentTree>,
+    /// Claude Code runs a turn, from its `system/init` to its `result`: one acpmux prompted, or
+    /// one it started itself for a task notification, which acpmux never prompted and
+    /// `turn` does not show (`subagent_retry.rs` waits for its end).
+    pub(super) harness_turn: AtomicBool,
     /// The commands its harness runs in the background (`processes.rs`).
     pub(super) processes: StdMutex<processes::ProcessTable>,
     /// Tool calls that run `gh pr create`, and the URL each printed so far, until they end

@@ -481,10 +481,21 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                 }
                 print_json(&info);
             } else if !one_shot {
-                println!("created {name} ({})", &id[..8.min(id.len())]);
+                let folder = v.pointer("/_meta/acpmux/cwd").and_then(Value::as_str);
+                let line =
+                    crate::cli::session_folder::created_line(&name, &id, host.as_deref(), folder);
+                println!("{line}");
                 if let Some(w) = v.pointer("/_meta/acpmux/worktree") {
                     let g = |k: &str| w.get(k).and_then(Value::as_str).unwrap_or_default();
                     println!("  worktree {} on {} from {}", g("root"), g("branch"), g("base"));
+                }
+                // Before it works: an allow it asks for is the app's alone.
+                if on_permission == OnPermission::Wait
+                    && let Ok(info) =
+                        client.request(method::MUX_INFO, json!({"sessionId": id})).await
+                    && let Some(note) = crate::question_answer::app_allow_note(&info, &name)
+                {
+                    eprintln!("{note}");
                 }
             }
             if let Some(text) = first {
@@ -636,6 +647,14 @@ pub(super) async fn run(cmd: Command, json_out: bool, suppress_reads: bool) -> R
                     ));
                 }
                 eprintln!("queued behind {}", parts.join(" and "));
+            }
+            // Before its first turn: an allow it asks for is the app's alone.
+            if !(quiet || json_out)
+                && on_permission == OnPermission::Wait
+                && info.get("turnCount").and_then(Value::as_u64) == Some(0)
+                && let Some(note) = crate::question_answer::app_allow_note(&info, &session)
+            {
+                eprintln!("{note}");
             }
             let opts = CollectOpts { timeout, on_permission, stall_secs: stall, retries: 0, steer };
             if quiet || json_out {

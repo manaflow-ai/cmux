@@ -79,6 +79,20 @@ const call = async (s: Started, vm: unknown) => {
 const inDO = runInDurableObject as unknown as (stub: unknown, cb: (instance: any) => Promise<unknown>) => Promise<any>
 const brainOf = (agent: string, conversation: string) => testEnv.CHIEF_BRAIN_DO.get(testEnv.CHIEF_BRAIN_DO.idFromName(`${agent}/${conversation}`))
 
+/**
+ * Waits until the brain has no turn running or queued, so the fake machine's last posts (its result note
+ * goes out on a timer after the reply is visible) end inside the test, never at teardown (CI run 40273548162).
+ */
+const settled = async (agent: string, conversation: string) => {
+  const brain = brainOf(agent, conversation)
+  for (let i = 0; i < 200; i++) {
+    const open = await inDO(brain, async (x) => x.ctx.storage.sql.exec(`SELECT COUNT(*) AS n FROM cb_inbox WHERE state = 'running' OR (state = 'queued' AND woke = 1)`).one().n as number)
+    if (open === 0) return new Promise((r) => setTimeout(r, 100))
+    await new Promise((r) => setTimeout(r, 50))
+  }
+  throw new Error("the brain still has a turn open")
+}
+
 describe("Chief jobs and the upsell", { timeout: 90_000 }, () => {
   it("a job the Chief makes runs in the cloud: its run starts a Chief turn with the job's prompt and the reply lands in the chat", async () => {
     const seen: Record<string, any> = {}
@@ -126,6 +140,7 @@ describe("Chief jobs and the upsell", { timeout: 90_000 }, () => {
     expect(JSON.stringify(mine.at(-1))).toContain("Digest: 3 PRs merged overnight.")
     // The job client ships to every turn machine, and a Chief tool cannot replace it.
     expect((cloud.started[1]!.input as any).files[".local/bin/chief-auto"]).toContain("auto_create")
+    await settled(a.chief.id, a.chief.main_conversation)
   })
 
   it("on the free plan the second job answers automation.plan.required with a test-mode Stripe Checkout link", async () => {
@@ -141,6 +156,7 @@ describe("Chief jobs and the upsell", { timeout: 90_000 }, () => {
     const a = await enabledChief("chief-jobs-free", null)
     expect((await send(a.token, a.chief.main_conversation, "f1", "every friday write the weekly report, and check deploys daily")).ok).toBe(true)
     await replies(a.token, a.chief.main_conversation, a.chief.id, 1)
+    await settled(a.chief.id, a.chief.main_conversation)
     expect(seen.first.status, JSON.stringify(seen.first.body)).toBe(200)
     expect(seen.second.status).toBe(402)
     expect(seen.second.body).toMatchObject({ code: "automation.plan.required", plan: "pro", test_mode: true })
@@ -190,5 +206,12 @@ describe("Chief jobs and the upsell", { timeout: 90_000 }, () => {
     expect(await brain.chiefJob({ ...job, charged_user: a.user })).toEqual({ ok: true })
     const rows = await inDO(brainOf(a.chief.id, a.chief.main_conversation), async (i) => i.ctx.storage.sql.exec(`SELECT text FROM cb_inbox WHERE message = ?`, `job:${job.run}`).toArray())
     expect(rows).toHaveLength(1)
+    // The queued note starts a turn: let it post before the test ends (no turn left running at teardown).
+    for (let i = 0; i < 60 && (await history(a.token, a.chief.main_conversation)).filter((m) => m.author === a.chief.id).length < 2; i++) {
+      await fireAlarm(brainOf(a.chief.id, a.chief.main_conversation))
+      await new Promise((r) => setTimeout(r, 50))
+    }
+    await replies(a.token, a.chief.main_conversation, a.chief.id, 2)
+    await settled(a.chief.id, a.chief.main_conversation)
   })
 })
