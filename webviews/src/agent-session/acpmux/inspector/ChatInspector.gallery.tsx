@@ -293,6 +293,7 @@ const full: Props = {
   onOpenOutput: () => undefined,
   onOpenSubagent: () => undefined,
   onSaveEnvironment: () => undefined,
+  onReconnectMcp: async () => undefined,
   remoteControl: { on: false, set: () => undefined },
 };
 
@@ -479,6 +480,7 @@ export default componentEntry<Props>({
     "agent-session/acpmux/inspector/chatFolders.ts",
     "agent-session/acpmux/inspector/ChildSessionRows.tsx",
     "agent-session/acpmux/inspector/ChangesSection.tsx",
+    "agent-session/acpmux/inspector/ConnectorsSection.tsx",
     "agent-session/acpmux/inspector/ContextSection.tsx",
     "agent-session/acpmux/inspector/PullRequestGlyph.tsx",
     "agent-session/acpmux/inspector/EnvironmentSection.tsx",
@@ -550,7 +552,7 @@ export default componentEntry<Props>({
       },
     },
     "context-connectors-open": {
-      note: "Context and Connectors open: the percent used with the tokens, the bar, used and free space with their shares; each MCP server with its status.",
+      note: "Context and Connectors open: the percent used with the tokens, the bar, used and free space with their shares; each MCP server with its status, the failed one with Reconnect.",
       props: { ...full, sections: { ...DEFAULT_SECTIONS, context: true, connectors: true } },
     },
     "context-breakdown": {
