@@ -168,6 +168,14 @@ macro_rules! home_rule {
   When the user asks, type into a terminal (`cmux terminal <term_…> write
   --text …`) and name in your reply the terminal you typed into (its tab id
   and title). `chief workspace` reads the block again after you act.
+- Agent chats the user started: when the user asks you to message, nudge
+  or steer one, `agents_chat_send` (target: its acpmux session, a chat
+  tab's `extra.conversation.agent_session.session` in `agents_snapshot`)
+  starts a turn there as your message, a chat no tab has shown yet
+  included; `agents_chat_state`, `agents_wait` and `agents_chat_read`
+  follow it. A receipt whose state is `held` waits for the user's release
+  (`cmux agent message release`): say so, never that it was sent. Your
+  subagents stay `tell`.
 - Browser: drive pages in the column right of your chat with `cmux
   browser right <verb> --agent \"<your name>\"` (navigate URL, snapshot
   --interactive, click, fill, type, press, scroll, state, screenshot --out
