@@ -137,14 +137,31 @@ def pump_text(share):
     return "; ".join(parts)
 
 
+SCENARIOS = (("app_visible", "app visible"), ("workspace_hidden", "workspace hidden"), ("app_hidden", "app hidden"))
+
+
 def wakes_text(row):
-    if not isinstance(row, dict) or row.get("error") or "wakes" not in row:
-        return (row or {}).get("error") if isinstance(row, dict) else None
-    wakes = row["wakes"]
-    kinds = ", ".join(f"{kind} {number(rate)}/s" for kind, rate in sorted((wakes.get("by_kind_per_s") or {}).items()))
-    return (f"{row.get('chromium_tabs')} Chromium tabs, {number(row.get('settle_s'))} s settle: app {number(wakes.get('app_wakeups_per_s'))}/s "
-            f"kernel wakeups, ledger {number(wakes.get('ledger_per_s'))}/s, pump {number(wakes.get('cef_pump_per_s'))}/s"
-            + (f"; {kinds}" if kinds else ""))
+    """An idle row of chromium-host-bench.py (idle_scenarios): its tab count, then each scenario's wakes."""
+    if not isinstance(row, dict):
+        return None
+    if row.get("error") or not row.get("scenarios"):
+        return row.get("error")
+    if row.get("chromium_tabs") is not None:
+        tabs = f"{row['chromium_tabs']} Chromium tabs"
+    else:
+        tabs = f"{row.get('browser_tabs')} browser tabs (Chromium and WebKit; the topology has no engine)"
+    parts = []
+    for key, label in SCENARIOS:
+        scenario = row["scenarios"].get(key) or {"error": "not run"}
+        wakes = scenario.get("wakes")
+        if not wakes:
+            parts.append(f"{label}: {scenario.get('error')}")
+            continue
+        kinds = ", ".join(f"{kind} {number(rate)}/s" for kind, rate in sorted((wakes.get("by_kind_per_s") or {}).items()))
+        parts.append(f"{label}: app {number(wakes.get('app_wakeups_per_s'))}/s kernel wakeups, ledger "
+                     f"{number(wakes.get('ledger_per_s'))}/s, pump {number(wakes.get('cef_pump_per_s'))}/s" + (f" ({kinds})" if kinds else ""))
+    return (f"{tabs}, {number(row.get('settle_s'))} s settle; " + "; ".join(parts)
+            + ". The ledger is the app's sanctioned wakes; macOS counts kernel wakeups per process, so the main thread's own is not split out")
 
 
 def key_text(row):
@@ -170,10 +187,15 @@ def census_text(row):
         return None
     if row.get("error"):
         return row["error"]
-    roles = (row.get("census") or {}).get("roles") or {}
-    parts = [f"{role} {r.get('processes')} proc / {r.get('threads')} thr (peak {r.get('peak_threads')}) / {number(r.get('rss_mb'))} MB"
+    report = row.get("census") or {}
+    roles = report.get("roles") or {}
+    memory = lambda r: (f"{number(r['unique_mb'])} MB unique" if r.get("unique_mb") is not None
+                        else f"{number(r.get('rss_mb'))} MB RSS")
+    parts = [f"{role} {r.get('processes')} proc / {r.get('threads')} thr (peak {r.get('peak_threads')}) / {memory(r)}"
              for role, r in roles.items() if isinstance(r, dict) and r.get("processes")]
-    return f"{row.get('terminals')} terminals: " + ("; ".join(parts) or "no roles")
+    session = report.get("session") or {}
+    return (f"{session.get('terminals')} terminals ({session.get('hidden_terminals')} hidden): "
+            + ("; ".join(parts) or "no roles"))
 
 
 def split_text(row):
@@ -182,29 +204,54 @@ def split_text(row):
     if row.get("error"):
         return row["error"]
     roles = ", ".join(f"{role} {number(mb)} MB" for role, mb in (row.get("per_role_mb") or {}).items())
-    return f"per hidden terminal (census {number(row.get('census_per_hidden_terminal_mb'))} MB, shared once): {roles}"
+    shared = row.get("shared_once_mb")
+    return (f"per added hidden terminal ({row.get('terminals_added')} added), {row.get('basis')}: {roles}"
+            + (f"; shared mappings (the byte ring among them), counted once, {number(shared)} MB" if shared is not None else "")
+            + f". Census per hidden terminal {number(row.get('census_per_hidden_terminal_mb'))} MB "
+            f"({row.get('census_per_hidden_terminal_basis')}). By process role: the census does not split the ring from "
+            "the VT state or the app surface")
 
 
-def memory_split(light, heavy):
-    """Per-role MB per added hidden terminal, from two census runs (light, heavy) and their terminal counts: each
-    role's RSS growth over the terminals the heavy session adds (a role that also grows with its pages reads high).
-    {"per_role_mb": {role: MB}, "census_per_hidden_terminal_mb", "terminals_added"} or {"error"}."""
-    for name, run in (("light", light), ("heavy", heavy)):
+def memory_split(before, heavy):
+    """Per-role MB per added hidden terminal, from a census of the session (`before`) and the heavy census after it,
+    with the hidden terminal counts each census read (its `session`). Each role's private memory growth, plus the
+    growth of the shared mappings counted once (total unique minus every role's private): they sum to the growth of
+    the cmux roles' unique memory. A role's own unique_mb is not used: a mapping two roles share (the byte ring,
+    holder and daemon) is in each. Without the census's region walk (no private memory) it falls back to RSS
+    growth, which counts a shared mapping in every role that maps it, and says so in `basis`.
+    {"per_role_mb", "shared_once_mb", "basis", "terminals_added", "census_per_hidden_terminal_mb",
+    "census_per_hidden_terminal_basis"} or {"error"}."""
+    for name, run in (("before heavy", before), ("heavy", heavy)):
         if not isinstance(run, dict) or run.get("error"):
             return {"error": f"census {name}: " + ((run or {}).get("error") if isinstance(run, dict) else "not run")}
-    added = (heavy.get("terminals") or 0) - (light.get("terminals") or 0)
+    report_before, report_heavy = before.get("census") or {}, heavy.get("census") or {}
+    hidden = lambda report: (report.get("session") or {}).get("hidden_terminals")
+    if hidden(report_before) is None or hidden(report_heavy) is None:
+        return {"error": "a census read no hidden terminal count (its session)"}
+    added = hidden(report_heavy) - hidden(report_before)
     if added <= 0:
-        return {"error": f"the heavy session adds no terminals ({light.get('terminals')} -> {heavy.get('terminals')})"}
-    roles_light = (light.get("census") or {}).get("roles") or {}
-    roles_heavy = (heavy.get("census") or {}).get("roles") or {}
+        return {"error": f"the heavy session adds no hidden terminals ({hidden(report_before)} -> {hidden(report_heavy)})"}
+    roles_before, roles_heavy = report_before.get("roles") or {}, report_heavy.get("roles") or {}
+    names = sorted(set(roles_before) | set(roles_heavy))
+    private_known = all((roles.get(role) or {}).get("private_mb") is not None
+                        for roles in (roles_before, roles_heavy) for role in names if (roles.get(role) or {}).get("processes"))
+    key = "private_mb" if private_known else "rss_mb"
+    value = lambda roles, role: float((roles.get(role) or {}).get(key) or 0)
     per_role = {}
-    for role in sorted(set(roles_light) | set(roles_heavy)):
-        rss = lambda roles: float((roles.get(role) or {}).get("rss_mb") or 0)
-        grown = rss(roles_heavy) - rss(roles_light)
-        if grown or role in roles_heavy:
+    for role in names:
+        grown = value(roles_heavy, role) - value(roles_before, role)
+        if grown or (roles_heavy.get(role) or {}).get("processes"):
             per_role[role] = round(grown / added, 3)
-    return {"per_role_mb": per_role, "terminals_added": added,
-            "census_per_hidden_terminal_mb": (heavy.get("census") or {}).get("per_hidden_terminal_mb")}
+    shared = None
+    if private_known:
+        unique = lambda report: float((report.get("totals") or {}).get("unique_mb") or 0)
+        shared_of = lambda report, roles: unique(report) - sum(value(roles, role) for role in names)
+        shared = round((shared_of(report_heavy, roles_heavy) - shared_of(report_before, roles_before)) / added, 3)
+    return {"per_role_mb": per_role, "shared_once_mb": shared, "terminals_added": added,
+            "basis": ("private memory per role, shared mappings counted once" if private_known else
+                      "RSS growth per role (no private memory in the census: a shared mapping counts in every role that maps it)"),
+            "census_per_hidden_terminal_mb": report_heavy.get("per_hidden_terminal_mb"),
+            "census_per_hidden_terminal_basis": report_heavy.get("per_hidden_terminal_basis")}
 
 
 # (row title, session, text of the result) for every number task 005 records.
@@ -218,13 +265,15 @@ def numbers(result):
         ("in-process Chromium pump share", "light", pump_text(pump.get("light"))),
         ("in-process Chromium pump share", "STRESS", pump_text(pump.get("stress"))),
         ("idle wakes, 10 Chromium tabs", "light", wakes_text((sessions.get("light") or {}).get("tabs10"))),
-        ("idle wakes, 10 Chromium tabs", "STRESS", wakes_text(stress.get("idle"))),
+        ("idle wakes, the STRESS tab mix", "STRESS", wakes_text(stress.get("idle"))),
         ("key and click to paint, in process", "light", key_text(inproc)),
         ("key and click to paint, in process", "STRESS", key_text(stress.get("inproc"))),
         ("key and click to paint, Chromium Host", "light", key_text(helper) if helper else None),
+        ("key and click to paint, Chromium Host", "STRESS", key_text(stress.get("helper"))),
         ("stall 9a, in process", "light", stall_text(inproc.get("stall"))),
         ("stall 9a, in process", "STRESS", stall_text((stress.get("inproc") or {}).get("stall"))),
         ("stall 9a, Chromium Host", "light", stall_text(helper.get("stall")) if helper else None),
+        ("stall 9a, Chromium Host", "STRESS", stall_text((stress.get("helper") or {}).get("stall"))),
         ("process census", "light", census_text(baseline.get("census_light"))),
         ("process census", "heavy", census_text(baseline.get("census_heavy"))),
         ("per-role memory split", "light to heavy", split_text(baseline.get("memory_split"))),
