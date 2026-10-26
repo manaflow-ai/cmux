@@ -57,7 +57,7 @@ extension CloudHandlers {
             } catch {
                 logger.error("\(label, privacy: .public) failed: \(String(describing: error), privacy: .public)")
                 if !captured { CloudPresenter.failure(error, in: window(context)) }
-                return .failure(ActionWorkFailure("\(label): \(error)"))
+                return .failure(ActionWorkFailure("\(label): \(CloudStrings.errorText(error))"))
             }
         }
         guard let pendingAfter else { return context.services.registry.track(result: inner) }

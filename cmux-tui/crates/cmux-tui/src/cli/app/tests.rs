@@ -256,6 +256,28 @@ fn action_run_maps_flags_to_target_and_arguments() {
 }
 
 #[test]
+fn both_agent_tab_command_forms_forward_the_peer_host() {
+    for words in [
+        vec!["agent", "open-tab", "session-id", "--target", "pane_0123", "--host", "cmux16"],
+        vec![
+            "action",
+            "run",
+            "agent.openSessionTab",
+            "--target",
+            "pane_0123",
+            "--session",
+            "session-id",
+            "--host",
+            "cmux16",
+        ],
+    ] {
+        let (_, params) = call(parse(&args(&words)).unwrap().unwrap());
+        assert_eq!(params["target"], "pane_0123");
+        assert_eq!(params["args"], json!({"session": "session-id", "host": "cmux16"}));
+    }
+}
+
+#[test]
 fn app_requests_wait_for_the_app_to_catch_up_with_the_daemon() {
     assert_eq!(
         with_read_barrier("action.run", json!({ "action": "x" })),

@@ -63,7 +63,7 @@ final class CloudMachineCreation: Identifiable {
     }
 
     func fail(_ error: any Error) {
-        phase = .failed(RefusalStrings.describe(error))
+        phase = .failed(CloudStrings.errorText(error))
     }
 
     func markReady(now: ContinuousClock.Instant = ContinuousClock().now) {

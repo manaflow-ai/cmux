@@ -2612,6 +2612,13 @@
         "client": {
           "type": "string"
         },
+        "fromAgent": {
+          "description": "The sending agent's name when it is another agent's message, null for the person's: an\napp draws it as a received message waiting for the turn, not as a composer row.",
+          "type": [
+            "string",
+            "null"
+          ]
+        },
         "held": {
           "description": "Waits behind a failed turn until the queue is resumed.",
           "type": "boolean"
@@ -2641,6 +2648,7 @@
       },
       "required": [
         "client",
+        "fromAgent",
         "held",
         "images",
         "prompt",
@@ -2671,6 +2679,53 @@
           ]
         }
       },
+      "type": "object"
+    },
+    "RetryReason": {
+      "description": "Why a turn is retried (`hub::turn_errors::resume_cause`): the provider or the gateway had no\ncapacity (HTTP 503 or 529, overloaded, no account free), the connection dropped, or the\nagent process died mid-turn.",
+      "enum": [
+        "capacity",
+        "transport",
+        "agent_exited"
+      ],
+      "type": "string"
+    },
+    "RetrySummary": {
+      "description": "An automatic retry of a failed turn that waits (`hub/auto_resume.rs`): attempt `attempt`\nof `of`, at `nextAt` (epoch ms). It sends the prompt `promptId~resume-<attempt>` in the same\nsession, for the cut turn `turnId`.",
+      "properties": {
+        "attempt": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "nextAt": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "of": {
+          "format": "uint64",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "promptId": {
+          "type": "string"
+        },
+        "reason": {
+          "$ref": "#/types/RetryReason"
+        },
+        "turnId": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "attempt",
+        "nextAt",
+        "of",
+        "promptId",
+        "reason",
+        "turnId"
+      ],
       "type": "object"
     },
     "SessionChanged": {
@@ -2944,6 +2999,17 @@
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
+        },
+        "retry": {
+          "anyOf": [
+            {
+              "$ref": "#/types/RetrySummary"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The automatic retry of its failed last turn that waits (`hub/auto_resume.rs`); null\nwhen none waits."
         },
         "rules": {
           "description": "The session has its own permission rules.",
@@ -3380,6 +3446,17 @@
           "format": "uint64",
           "minimum": 0,
           "type": "integer"
+        },
+        "retry": {
+          "anyOf": [
+            {
+              "$ref": "#/types/RetrySummary"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The automatic retry of its failed last turn that waits (`hub/auto_resume.rs`); null\nwhen none waits."
         },
         "rules": {
           "description": "The session has its own permission rules.",
