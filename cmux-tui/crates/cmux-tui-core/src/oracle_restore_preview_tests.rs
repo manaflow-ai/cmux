@@ -57,18 +57,24 @@ impl Drop for Session {
 }
 
 /// The live snapshot, its journal head and the preview of the latest
-/// checkpoint, with nothing written between them (one thread).
+/// checkpoint through that head: one cut, as the oracle driver reads it
+/// (`oracle-state`, then `oracle-restore-preview through`).
 fn cut(mux: &Mux) -> (Value, u64, OracleRestorePreview) {
     let (live, head) =
         crate::resource_api::public_session_snapshot_with_journal_head(mux).expect("snapshot");
-    (live, head, oracle_restore_preview(mux, "latest").expect("preview"))
+    (live, head, oracle_restore_preview(mux, "latest", Some(head)).expect("preview"))
 }
+
+/// The I9 difference of a preview that dropped `extra.state` changes.
+const STATE_CHANGES_NOT_REDUCED: &str = "extra: state changes not reduced";
 
 /// I9's differences, as invariants.py reports them: a compared section the
 /// preview lacks, a value that differs, or an id on one side only. Arrays
 /// of objects with an `id` compare by id: the reducer orders a collection
 /// by `index` then id, the live snapshot by topology, and each item's
-/// `index` and parent ids already hold its place.
+/// `index` and parent ids already hold its place. A preview that dropped
+/// state changes reports [`STATE_CHANGES_NOT_REDUCED`] instead of comparing
+/// `extra`, which it knows is the checkpoint's.
 fn i9_differences(live: &Value, head: u64, reply: &OracleRestorePreview) -> Vec<String> {
     let Some(preview) = &reply.preview else { return vec!["no preview".into()] };
     let mut out = Vec::new();
@@ -78,8 +84,13 @@ fn i9_differences(live: &Value, head: u64, reply: &OracleRestorePreview) -> Vec<
     if preview.unsupported_count > 0 {
         out.push(format!("unsupported required records: {:?}", preview.unsupported));
     }
+    if preview.state_changes_not_reduced > 0 {
+        out.push(STATE_CHANGES_NOT_REDUCED.into());
+    }
     for (name, section) in &reply.sections {
-        if *section != RestoreSection::Compared {
+        if *section != RestoreSection::Compared
+            || (*name == "extra" && preview.state_changes_not_reduced > 0)
+        {
             continue;
         }
         let Some(restored) = preview.session.get(name) else {
@@ -151,12 +162,12 @@ fn the_section_map_covers_every_session_snapshot_key() {
 #[test]
 fn a_session_without_a_checkpoint_has_no_preview_and_memory_has_no_reader() {
     let session = Session::open("i9-no-checkpoint");
-    let reply = oracle_restore_preview(session.mux(), "latest").unwrap();
+    let reply = oracle_restore_preview(session.mux(), "latest", None).unwrap();
     assert!(reply.preview.is_none());
     assert_eq!(reply.sections.len(), RESTORE_SECTIONS.len());
 
     let memory = Mux::new_for_test("i9-memory", SurfaceOptions::default());
-    let error = oracle_restore_preview(&memory, "latest").unwrap_err();
+    let error = oracle_restore_preview(&memory, "latest", None).unwrap_err();
     assert!(error.to_string().contains("persistent session"), "{error}");
 }
 
@@ -166,6 +177,11 @@ fn the_preview_after_a_fixed_script_equals_the_live_session() {
     let mux = session.mux();
     let first = mux.new_workspace(Some("one".into()), Some((80, 24))).unwrap();
     mux.create_journal_checkpoint("oracle_test", "i9-script").unwrap();
+    let (live, head, reply) = cut(mux);
+    let preview = reply.preview.as_ref().expect("a checkpoint exists");
+    assert_eq!(preview.state_changes_not_reduced, 0);
+    assert!(preview.session.contains_key("extra"), "extra is compared");
+    assert_eq!(i9_differences(&live, head, &reply), Vec::<String>::new());
     let pane = mux.with_state(|state| state.pane_of(first.id).unwrap());
     let right = mux.split(pane, SplitDir::Right, None).unwrap();
     let second = mux.new_workspace(Some("two".into()), Some((80, 24))).unwrap();
@@ -176,8 +192,32 @@ fn the_preview_after_a_fixed_script_equals_the_live_session() {
     let (live, head, reply) = cut(mux);
     let preview = reply.preview.as_ref().expect("a checkpoint exists");
     assert!(preview.head_sequence > preview.checkpoint_sequence, "records after the checkpoint");
-    assert_eq!(i9_differences(&live, head, &reply), Vec::<String>::new());
+    // The one difference is the tracked finding EXTRA_STATE_FINDING.
+    assert_eq!(i9_differences(&live, head, &reply), vec![STATE_CHANGES_NOT_REDUCED.to_string()]);
     assert_eq!(preview.session["workspaces"].as_array().map(Vec::len), Some(2));
+}
+
+/// I9 finding: the restore reducer counts `state_upsert`/`state_delete`
+/// changes but does not reduce them into `extra.state`, so a restore loses
+/// them (`fully_reducible` is false; spec/session-journal.md). Most
+/// topology ops carry such changes (sidebar items, placements, screen
+/// groups). This test fails once the reducer reduces them: then remove
+/// [`STATE_CHANGES_NOT_REDUCED`] from the walks' tracked findings.
+const EXTRA_STATE_FINDING: &str = "state changes are counted, not reduced into extra.state";
+
+#[test]
+fn i9_extra_state_finding_still_diverges() {
+    let session = Session::open("i9-extra-state");
+    let mux = session.mux();
+    mux.new_workspace(Some("one".into()), Some((80, 24))).unwrap();
+    mux.create_journal_checkpoint("oracle_test", "i9-extra-state").unwrap();
+    mux.new_workspace(Some("two".into()), Some((80, 24))).unwrap();
+    let (live, head, reply) = cut(mux);
+    let preview = reply.preview.as_ref().expect("a checkpoint exists");
+    assert!(preview.state_changes_not_reduced > 0, "{EXTRA_STATE_FINDING}: fixed, so remove it");
+    let preview_extra = &preview.session["extra"];
+    assert_ne!(live["extra"], *preview_extra, "the restore keeps the checkpoint's extra.state");
+    assert_eq!(i9_differences(&live, head, &reply), vec![STATE_CHANGES_NOT_REDUCED.to_string()]);
 }
 
 /// "No writer lock": the preview completes while this thread holds the
@@ -193,7 +233,8 @@ fn the_preview_reads_the_journal_without_the_registry_lock() {
     let (sender, receiver) = std::sync::mpsc::channel();
     let reader = mux.clone();
     let thread = std::thread::spawn(move || {
-        let reply = oracle_restore_preview(&reader, "latest").map(|reply| reply.preview.is_some());
+        let reply =
+            oracle_restore_preview(&reader, "latest", None).map(|reply| reply.preview.is_some());
         sender.send(reply.map_err(|error| error.to_string())).unwrap();
     });
     let reply = receiver.recv_timeout(Duration::from_secs(20));
@@ -361,25 +402,32 @@ fn run(mux: &Arc<Mux>, steps: &mut Steps, op: Op, index: usize) {
     }
 }
 
-/// One seeded walk of `WALK_STEPS` ops from `ops`, I9 checked after each.
-fn walk(seed: u64, ops: &[Op]) -> Result<(), String> {
+/// One seeded walk of `WALK_STEPS` ops from `ops`, I9 checked after each,
+/// except for the tracked finding [`EXTRA_STATE_FINDING`]: `extra` is
+/// compared at every cut with no state change since the checkpoint. The
+/// count of those cuts.
+fn walk(seed: u64, ops: &[Op]) -> Result<usize, String> {
     let session = Session::open(&format!("i9-walk-{seed}"));
     let mux = session.mux();
     let mut steps = Steps(seed);
     mux.new_workspace(Some("start".into()), Some((80, 24))).map_err(|e| e.to_string())?;
     mux.create_journal_checkpoint("oracle_test", "walk-start").map_err(|e| e.to_string())?;
     let mut done = Vec::with_capacity(WALK_STEPS);
+    let mut extra_compared = 0;
     for index in 0..WALK_STEPS {
         let op = steps.pick(ops).expect("ops");
         run(mux, &mut steps, op, index);
         done.push(op);
         let (live, head, reply) = cut(mux);
-        let differences = i9_differences(&live, head, &reply);
+        let mut differences = i9_differences(&live, head, &reply);
+        let before = differences.len();
+        differences.retain(|difference| difference != STATE_CHANGES_NOT_REDUCED);
+        extra_compared += usize::from(before == differences.len());
         if !differences.is_empty() {
             return Err(format!("seed {seed}, after {done:?}: {differences:#?}"));
         }
     }
-    Ok(())
+    Ok(extra_compared)
 }
 
 /// A `usize` test knob, or `default` when it is unset or not a number.
@@ -390,27 +438,30 @@ fn knob(name: &str, default: usize) -> usize {
 /// Run `CMUX_TUI_TEST_I9_WALKS` (default [`DEFAULT_WALKS`]) walks over
 /// `ops` on up to 32 threads, seeds from `CMUX_TUI_TEST_I9_FIRST_SEED`
 /// (default 0, so a long run can be split into seed ranges); panics with
-/// the first failures.
-fn assert_walks_hold(ops: &[Op]) {
+/// the first failures. Returns the cuts that compared `extra`.
+fn assert_walks_hold(ops: &[Op]) -> usize {
     let walks = knob("CMUX_TUI_TEST_I9_WALKS", DEFAULT_WALKS);
     let first = knob("CMUX_TUI_TEST_I9_FIRST_SEED", 0);
     let threads = std::thread::available_parallelism().map_or(4, |n| n.get()).min(32);
-    let failures: Vec<String> = std::thread::scope(|scope| {
+    let results: Vec<Result<usize, String>> = std::thread::scope(|scope| {
         let workers: Vec<_> = (0..threads)
             .map(|worker| {
                 scope.spawn(move || {
                     (first + worker..first + walks)
                         .step_by(threads)
-                        .filter_map(|seed| walk(seed as u64, ops).err())
+                        .map(|seed| walk(seed as u64, ops))
                         .collect::<Vec<_>>()
                 })
             })
             .collect();
         workers.into_iter().flat_map(|worker| worker.join().unwrap()).collect()
     });
+    let failures: Vec<&String> =
+        results.iter().filter_map(|result| result.as_ref().err()).collect();
     assert!(failures.is_empty(), "{} of {walks} walks broke I9:\n{}", failures.len(), {
-        failures.iter().take(3).cloned().collect::<Vec<_>>().join("\n")
+        failures.iter().take(3).map(|failure| failure.as_str()).collect::<Vec<_>>().join("\n")
     });
+    results.iter().filter_map(|result| result.as_ref().ok()).sum()
 }
 
 /// Ops whose journal records I9 finds do not restore the live session, with
@@ -449,7 +500,10 @@ fn i9_holds_after_every_step_of_seeded_walks() {
             None => !finding(*op),
         })
         .collect();
-    assert_walks_hold(&ops);
+    let extra_compared = assert_walks_hold(&ops);
+    if only.is_none() {
+        assert!(extra_compared > 0, "no cut compared extra: the walks no longer cover it");
+    }
 }
 
 #[test]

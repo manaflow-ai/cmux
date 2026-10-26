@@ -180,8 +180,12 @@ pub(crate) enum RestoreSection {
 /// `session.snapshot`, in its order. A new section fails
 /// `the_section_map_covers_every_session_snapshot_key` until it is added
 /// here, compared or excluded with a reason. The compared sections are the
-/// ones `journal_checkpoint::RestoreReducer` reduces: the resource
-/// collections, the session resource and the cursor.
+/// ones `journal_checkpoint::RestoreReducer` reduces (the resource
+/// collections, the session resource and the cursor) and `extra`, which it
+/// keeps at the checkpoint's value: it equals the live one only while no
+/// `state_upsert`/`state_delete` change followed the checkpoint, and
+/// [`RestorePreview::state_changes_not_reduced`] counts the ones that did
+/// (I9 fails on them, as on an unsupported record).
 pub(crate) const RESTORE_SECTIONS: [(&str, RestoreSection); 15] = [
     (
         "machine",
@@ -209,14 +213,7 @@ pub(crate) const RESTORE_SECTIONS: [(&str, RestoreSection); 15] = [
     ("frontend_projections", RestoreSection::Compared),
     ("sidebar_views", RestoreSection::Compared),
     ("cursor", RestoreSection::Compared),
-    (
-        "extra",
-        RestoreSection::Excluded {
-            reason: "extra.state changes ride in state_upsert/state_delete changes, which \
-                     the reducer counts (journal_replay.state_changes_not_reduced) but \
-                     does not reduce",
-        },
-    ),
+    ("extra", RestoreSection::Compared),
 ];
 
 /// The `oracle-restore-preview` reply.
@@ -241,18 +238,25 @@ pub(crate) struct RestorePreview {
     pub(crate) unsupported_count: u64,
     /// The first of them (`sequence`, `event_id`, `kind`), at most 1,024.
     pub(crate) unsupported: Vec<Value>,
+    /// `state_upsert`/`state_delete` changes of applied records that the
+    /// reducer does not reduce: `extra` keeps the checkpoint's value, so a
+    /// restore loses them.
+    pub(crate) state_changes_not_reduced: u64,
     /// The compared sections of the reduced `session.snapshot`.
     pub(crate) session: BTreeMap<&'static str, Value>,
 }
 
 /// Build the `oracle-restore-preview` reply for the checkpoint `selector`
-/// names (`latest` or a checkpoint id), on the journal reader path
-/// ([`Mux::oracle_restore_preview`]): no registry lock.
+/// names (`latest` or a checkpoint id), reduced through `through` (an
+/// `oracle-state` reply's `journal_head`) or the journal head, on the
+/// journal reader path ([`Mux::oracle_restore_preview`]): no registry lock.
 pub(crate) fn oracle_restore_preview(
     mux: &Mux,
     selector: &str,
+    through: Option<u64>,
 ) -> anyhow::Result<OracleRestorePreview> {
-    let preview = mux.oracle_restore_preview(selector)?.map(restore_preview).transpose()?;
+    let preview =
+        mux.oracle_restore_preview(selector, through)?.map(restore_preview).transpose()?;
     Ok(OracleRestorePreview { sections: BTreeMap::from(RESTORE_SECTIONS), preview })
 }
 
@@ -268,6 +272,15 @@ fn restore_preview(mut reduced: Value) -> anyhow::Result<RestorePreview> {
     let checkpoint_sequence = decimal("checkpoint_source_sequence")?;
     let head_sequence = decimal("head_sequence")?;
     let unsupported_count = decimal("unsupported_required_record_count")?;
+    let state_changes_not_reduced = match &reduced["state"]["journal_replay"] {
+        Value::Object(replay) => match replay.get("state_changes_not_reduced") {
+            None => 0,
+            Some(count) => count.as_str().and_then(|text| text.parse().ok()).ok_or_else(|| {
+                anyhow::anyhow!("restore preview state_changes_not_reduced is not a decimal string")
+            })?,
+        },
+        _ => 0,
+    };
     let Value::Object(mut snapshot) = reduced["state"]["session_snapshot"].take() else {
         anyhow::bail!("restore preview state has no session_snapshot object");
     };
@@ -288,6 +301,7 @@ fn restore_preview(mut reduced: Value) -> anyhow::Result<RestorePreview> {
         head_sequence,
         unsupported_count,
         unsupported,
+        state_changes_not_reduced,
         session,
     })
 }

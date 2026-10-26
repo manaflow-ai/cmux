@@ -53,7 +53,10 @@ I9 reads the daemon's `oracle-restore-preview` reply (spec/commands.md): the lat
 reduced through the journal head on a read-only journal reader, with the daemon's section map. At a
 checkpoint whose daemon facet has the preview's head as its `journalHead` (one cut), each section the map
 does not exclude with a reason must equal the live `session` facet's, after the facet's capture rules and
-volatile mask; a required record the reducer cannot apply fails too. This is Chromium's session restore
+volatile mask; a required record the reducer cannot apply fails too, and so does a state change it does not
+reduce (`stateChangesNotReduced`: `extra` is then the checkpoint's, so it is reported instead of compared).
+The daemon driver asks for the preview `through` the facet's `journalHead`, so both are one cut. This is
+Chromium's session restore
 check (chrome/browser/sessions/session_restore_browsertest.cc restores the commands SessionService wrote and
 compares the restored windows and tabs with the ones that wrote them), run on every checkpoint instead of
 once per test. A preview at another sequence, or with no journal checkpoint yet, is not checked.
@@ -87,10 +90,12 @@ Trace (`cmux.oracle.trace/v1`), for the product drivers (driver_daemon.py 023, d
 Step fields missing from the trace come from the case (`--case`), matched by step id; so does
 `allow_crashes` when the trace has none.
 
-Not run by any run yet: the driver protocol of oracle.py (017) returns canonical checkpoints only, and no
-driver writes this trace (raw checkpoints, replies, layoutCounters, teardown). A follow-up of 017, 023 and
-047 carries those fields in the driver result and makes `perform_run` turn a violation into a case
-Failure; until then `invariants.py check` runs on a trace file and `--selftest` on synthetic traces.
+Not run by oracle.py yet: its driver protocol (017) returns canonical checkpoints only. `driver_daemon.py
+run-case --trace TRACE.json` writes a partial trace (each step's id, op, raw checkpoints and I9's
+restorePreviews, through the facet's journalHead after a journal checkpoint at setup), so I9 runs on daemon
+cases. Replies, layoutCounters and teardown are in no driver trace yet. A follow-up of 017, 023 and 047
+carries them in the driver result and makes `perform_run` turn a violation into a case Failure; until then
+`invariants.py check` runs on a trace file and `--selftest` on synthetic traces.
 
 Report (`cmux.oracle.invariants/v1`): {"case", "violations": [{"invariant", "step", "checkpoint",
 "in": "snapshot"|"step"|"teardown", "pointer", "message"}], "notChecked": [{"invariant", "step",
@@ -964,9 +969,16 @@ class Checker:
                 self.violate("I9", state.step, state.checkpoint, "/daemon/journalHead",
                              f"{preview['unsupportedCount']} required journal record(s) the restore cannot apply: "
                              f"{json.dumps(preview.get('unsupported'))[:200]}")
+            dropped = preview.get("stateChangesNotReduced")
+            if dropped:
+                self.violate("I9", state.step, state.checkpoint, pointer("daemon", "session", "extra"),
+                             f"{dropped} state_upsert/state_delete change(s) the restore does not reduce: it keeps "
+                             f"the checkpoint's extra.state")
             restored = preview.get("session") or {}
             live = daemon.get("session") or {}
             for name in compared_sections(reply.get("sections") or {}, live):
+                if name == "extra" and dropped:
+                    continue
                 if name not in restored:
                     self.violate("I9", state.step, state.checkpoint, pointer("daemon", "session", name),
                                  f"{name} is a restorable section the preview lacks")
@@ -1409,10 +1421,9 @@ def _with_hidden_workspace(snapshot: Dict[str, Any]) -> Dict[str, Any]:
 RESTORE_SECTIONS = {
     **{name: {"restore": "compared"} for name in (
         "session", "workspaces", "screens", "panes", "tabs", "terminals", "browsers", "notifications", "agents",
-        "frontend_projections", "sidebar_views", "cursor")},
+        "frontend_projections", "sidebar_views", "cursor", "extra")},
     "machine": {"restore": "excluded", "reason": "the host the daemon runs on, not session state"},
     "clients": {"restore": "excluded", "reason": "the connections of this daemon process"},
-    "extra": {"restore": "excluded", "reason": "extra.state changes are not reduced"},
 }
 
 
@@ -1434,7 +1445,7 @@ def _restorable(schema: Mapping[str, Any], snapshot: Dict[str, Any]) -> Tuple[Di
 
 
 def _restore_reply(raw: Mapping[str, Any], head: int, unsupported: Sequence[Any] = (),
-                   sections: Optional[Mapping[str, Any]] = None) -> Dict[str, Any]:
+                   sections: Optional[Mapping[str, Any]] = None, state_changes: int = 0) -> Dict[str, Any]:
     """An oracle-restore-preview reply that restores `raw` through `head`."""
     sections = RESTORE_SECTIONS if sections is None else sections
     restored = {name: copy.deepcopy(value) for name, value in raw.items()
@@ -1442,7 +1453,7 @@ def _restore_reply(raw: Mapping[str, Any], head: int, unsupported: Sequence[Any]
     return {"sections": copy.deepcopy(sections),
             "preview": {"checkpointId": "checkpoint_1", "checkpointSequence": 1, "headSequence": head,
                         "unsupportedCount": len(unsupported), "unsupported": list(unsupported),
-                        "session": restored}}
+                        "stateChangesNotReduced": state_changes, "session": restored}}
 
 
 def _close_tab2(snapshot: Dict[str, Any]) -> Dict[str, Any]:
@@ -2114,9 +2125,22 @@ class InvariantsSelfTest(unittest.TestCase):
     def test_i9_an_exclusion_without_a_reason_is_compared(self) -> None:
         snapshot, raw = _restorable(self.schema, self.base)
         head = snapshot["facets"]["daemon"]["journalHead"]
-        sections = {**RESTORE_SECTIONS, "extra": {"restore": "excluded", "reason": " "}}
+        sections = {**RESTORE_SECTIONS, "machine": {"restore": "excluded", "reason": " "}}
         report = self.check(self.i9_trace(snapshot, _restore_reply(raw, head, sections=sections)))
+        self.assertEqual(self.ids(report), [("I9", "/daemon/session/machine")])
+
+    def test_i9_a_state_change_the_restore_does_not_reduce_fails(self) -> None:
+        """`extra` is compared while no state change followed the checkpoint; a dropped one fails once."""
+        snapshot, raw = _restorable(self.schema, self.base)
+        head = snapshot["facets"]["daemon"]["journalHead"]
+        stale = copy.deepcopy(raw)
+        stale["extra"] = {"state": {"closed": [{"id": "closed_1"}]}}
+        report = self.check(self.i9_trace(snapshot, _restore_reply(stale, head)))
+        extra = [at for _, at in self.ids(report)]
+        self.assertTrue(extra and all(at.startswith("/daemon/session/extra") for at in extra), extra)
+        report = self.check(self.i9_trace(snapshot, _restore_reply(stale, head, state_changes=2)))
         self.assertEqual(self.ids(report), [("I9", "/daemon/session/extra")])
+        self.assertIn("2 state_upsert/state_delete", report.violations[0].message)
 
     def test_cli_exit_codes(self) -> None:
         import io

@@ -546,7 +546,7 @@ impl Mux {
             .journal_checkpoint(selector)?
             .with_context(|| format!("journal checkpoint {selector:?} does not exist"))?;
         if let Some(reader) = self.journal_kernel.open_reader()? {
-            return crate::journal_checkpoint::restore_preview_on_reader(&checkpoint, reader);
+            return crate::journal_checkpoint::restore_preview_on_reader(&checkpoint, reader, None);
         }
 
         let mut reducer = crate::journal_checkpoint::RestoreReducer::new(&checkpoint)?;

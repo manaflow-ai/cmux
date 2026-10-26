@@ -87,10 +87,16 @@ fn answer(
         Some(Value::String(selector)) if !selector.is_empty() => selector,
         Some(_) => anyhow::bail!("bad request: {RESTORE_PREVIEW} checkpoint must be a string"),
     };
+    let through = match fields.remove("through") {
+        None => None,
+        Some(Value::Number(through)) if through.as_u64().is_some() => through.as_u64(),
+        Some(_) => anyhow::bail!("bad request: {RESTORE_PREVIEW} through must be a sequence"),
+    };
     if let Some(field) = fields.keys().next() {
         anyhow::bail!("bad request: {RESTORE_PREVIEW} takes no field {field:?}");
     }
-    Ok(serde_json::to_value(crate::oracle_state::oracle_restore_preview(mux, &selector)?)?)
+    let reply = crate::oracle_state::oracle_restore_preview(mux, &selector, through)?;
+    Ok(serde_json::to_value(reply)?)
 }
 
 #[cfg(test)]

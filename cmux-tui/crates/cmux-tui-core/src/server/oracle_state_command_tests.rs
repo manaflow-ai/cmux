@@ -97,9 +97,34 @@ fn oracle_restore_preview_answers_only_the_trusted_local_connection() {
     let named = json!({"id": 2, "cmd": RESTORE_PREVIEW, "checkpoint": "checkpoint_missing"});
     assert_eq!(reply_to(&mux, &local, named)["data"]["preview"], Value::Null);
 
+    // `through` is an earlier cut (an oracle-state reply's journal head):
+    // later records and later checkpoints do not move its preview.
+    let (_, cut) = crate::resource_api::public_session_snapshot_with_journal_head(&mux).unwrap();
+    mux.create_journal_checkpoint("oracle_test", "checkpoint_2").unwrap();
+    let later = mux.create_journal_checkpoint("oracle_test", "checkpoint_3").unwrap();
+    let later = later.checkpoint;
+    let (_, head) = crate::resource_api::public_session_snapshot_with_journal_head(&mux).unwrap();
+    assert!(later.source_sequence > cut && head > later.source_sequence);
+    let at_cut = reply_to(&mux, &local, json!({"id": 7, "cmd": RESTORE_PREVIEW, "through": cut}));
+    let preview = &at_cut["data"]["preview"];
+    assert_eq!(preview["headSequence"], cut, "{at_cut}");
+    assert!(preview["checkpointSequence"].as_u64().is_some_and(|at| at <= cut), "{at_cut}");
+    let at_head = reply_to(&mux, &local, json!({"id": 8, "cmd": RESTORE_PREVIEW, "through": head}));
+    assert_eq!(at_head["data"]["preview"]["headSequence"], head, "{at_head}");
+    assert_eq!(at_head["data"]["preview"]["checkpointId"], later.checkpoint_id, "{at_head}");
+    let named = json!({"id": 9, "cmd": RESTORE_PREVIEW, "checkpoint": later.checkpoint_id,
+                       "through": cut});
+    let refused = reply_to(&mux, &local, named);
+    assert!(refused["error"].as_str().unwrap().contains("is after journal sequence"), "{refused}");
+    let ahead = json!({"id": 10, "cmd": RESTORE_PREVIEW, "through": head + 1});
+    let refused = reply_to(&mux, &local, ahead);
+    assert!(refused["error"].as_str().unwrap().contains("is ahead of"), "{refused}");
+
     for (request, error) in [
         (json!({"id": 3, "cmd": RESTORE_PREVIEW, "checkpoint": 7}), "bad request"),
         (json!({"id": 4, "cmd": RESTORE_PREVIEW, "include": []}), "bad request"),
+        (json!({"id": 11, "cmd": RESTORE_PREVIEW, "through": "7"}), "bad request"),
+        (json!({"id": 12, "cmd": RESTORE_PREVIEW, "through": -1}), "bad request"),
     ] {
         let refused = reply_to(&mux, &local, request);
         assert!(refused["error"].as_str().unwrap().starts_with(error), "{refused}");

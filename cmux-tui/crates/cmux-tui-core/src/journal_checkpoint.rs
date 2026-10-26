@@ -273,24 +273,36 @@ pub(crate) fn restore_preview(
     reducer.finish(head_sequence)
 }
 
-/// The restore preview of `checkpoint` through the journal head, read on
-/// `reader`'s own read-only connection in one read transaction: sealed
-/// segments, then active rows. It takes no registry lock and never waits on
-/// the journal writer (`session.journal.restore.preview` and
-/// `oracle-restore-preview`).
+/// The restore preview of `checkpoint` through `through` (the journal head
+/// when `None`), read on `reader`'s own read-only connection in one read
+/// transaction: sealed segments, then active rows. It takes no registry
+/// lock and never waits on the journal writer
+/// (`session.journal.restore.preview` and `oracle-restore-preview`). The
+/// journal is append-only, so a preview through an earlier head is the
+/// preview of that cut whenever it is read.
 pub(crate) fn restore_preview_on_reader(
     checkpoint: &JournalCheckpoint,
     reader: SessionJournalReader,
+    through: Option<u64>,
 ) -> anyhow::Result<Value> {
     let mut reducer = RestoreReducer::new(checkpoint)?;
     let mut cursor = reader.restore_cursor(checkpoint.source_sequence)?;
-    let head_sequence = loop {
+    let head_sequence = 'pages: loop {
         let page = cursor.next_page(1024)?;
+        let end = through.unwrap_or(page.head_sequence);
+        anyhow::ensure!(
+            end <= page.head_sequence,
+            "cursor.invalid: journal sequence {end} is ahead of {}",
+            page.head_sequence
+        );
         for record in &page.records {
+            if record.sequence > end {
+                break 'pages end;
+            }
             reducer.apply(record)?;
         }
         if page.records.is_empty() {
-            break page.head_sequence;
+            break end;
         }
     };
     cursor.finish()?;
@@ -310,7 +322,8 @@ pub(crate) struct RestoreReducer {
     unsupported: Vec<Value>,
     /// `state_upsert`/`state_delete` changes of applied records: they
     /// change the snapshot's `extra.state` (`state::store`), which this
-    /// reducer does not reduce, so `extra` stays the checkpoint's.
+    /// reducer does not reduce, so `extra` stays the checkpoint's and the
+    /// preview is not `fully_reducible` (spec/session-journal.md).
     state_changes_not_reduced: u64,
     terminal_streams: HashMap<(String, String), TerminalReplayState>,
     last_sequence: u64,
@@ -464,7 +477,7 @@ impl RestoreReducer {
             "checkpoint_source_sequence":self.checkpoint_source_sequence.to_string(),
             "head_sequence":head_sequence.to_string(),
             "reducer_version":JOURNAL_REDUCER_VERSION,
-            "fully_reducible":self.unsupported_count == 0,
+            "fully_reducible":self.unsupported_count == 0 && self.state_changes_not_reduced == 0,
             "applied_required_records":self.applied.to_string(),
             "ignored_non_required_records":self.ignored.to_string(),
             "unsupported_required_record_count":self.unsupported_count.to_string(),

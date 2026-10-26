@@ -115,9 +115,11 @@ fn reducer_applies_resource_upserts_and_deletes() {
 }
 
 /// A workspace create also carries `state_upsert` changes (its sidebar item
-/// and placement). The record still restores its resources; the state
-/// changes are counted, not reduced, and the session revision follows the
-/// cursor (p15-oracle task 205, invariant I9).
+/// and placement). The record still restores its resources and the session
+/// revision follows the cursor; the state changes are counted, not
+/// reduced, so the preview is not `fully_reducible` (a restore keeps the
+/// checkpoint's `extra.state`; spec/session-journal.md, p15-oracle task
+/// 205, invariant I9).
 #[test]
 fn reducer_applies_a_record_with_state_changes_and_moves_the_session_revision() {
     let checkpoint = JournalCheckpoint {
@@ -162,17 +164,25 @@ fn reducer_applies_a_record_with_state_changes_and_moves_the_session_revision() 
         terminal_output: None,
     };
     let preview = restore_preview(&checkpoint, std::slice::from_ref(&record), 4).unwrap();
-    assert_eq!(preview["fully_reducible"], true, "{preview:#}");
+    assert_eq!(preview["fully_reducible"], false, "{preview:#}");
+    assert_eq!(preview["applied_required_records"], "1");
+    assert_eq!(preview["unsupported_required_record_count"], "0");
     let state = &preview["state"];
     assert_eq!(state["session_snapshot"]["workspaces"][0]["id"], "workspace_new");
     assert_eq!(state["session_snapshot"]["session"]["revision"], "2");
     assert_eq!(state["journal_replay"]["state_changes_not_reduced"], "2");
 
+    let mut resources_only = record.clone();
+    resources_only.payload["changes"].as_array_mut().unwrap().truncate(1);
+    let preview = restore_preview(&checkpoint, &[resources_only], 4).unwrap();
+    assert_eq!(preview["fully_reducible"], true, "{preview:#}");
+    assert!(preview["state"].get("journal_replay").is_none(), "{preview:#}");
+
     let mut malformed = record;
     malformed.payload["changes"][1] =
         json!({"kind":"state_upsert","sequence":1,"resource":"sidebar_item","id":"itm_w"});
     let preview = restore_preview(&checkpoint, &[malformed], 4).unwrap();
-    assert_eq!(preview["fully_reducible"], false, "a state upsert needs its value");
+    assert_eq!(preview["unsupported_required_record_count"], "1", "a state upsert needs its value");
 }
 
 #[test]

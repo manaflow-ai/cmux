@@ -988,7 +988,12 @@ read-only journal reader of its own, in one read transaction: it takes no
 registry lock and never waits on the journal writer.
 
 Params: `checkpoint` (optional string): a checkpoint id, or `latest` (the
-default).
+default). `through` (optional uint64): reduce through this journal sequence,
+not through the head. Send the `journal_head` of an `oracle-state` reply, so
+that the preview and that facet are one cut, even when records were written
+between the two requests. With `through`, `latest` is the latest checkpoint
+at or before it. A named checkpoint after it, or a `through` ahead of the
+journal head, is an error.
 
 Result:
 
@@ -1001,6 +1006,7 @@ object{
     headSequence:uint64,
     unsupportedCount:uint64,
     unsupported:array<object{sequence:decimal,event_id:string,kind:string}>,
+    stateChangesNotReduced:uint64,
     session:map<string,JsonValue>
   }
 }
@@ -1008,13 +1014,17 @@ object{
 
 `sections` maps every top-level key of `session.snapshot` to how I9 treats
 it: `compared`, or `excluded` with the reason the journal does not restore
-it (`machine`, `clients` and `extra` today). `preview` is null when the
-session has no journal checkpoint yet. `headSequence` is the journal head
-the reduction ended at: I9 compares it with a daemon facet whose
-`journal_head` is the same sequence. `unsupportedCount` counts required
-journal records the reducer could not apply (a restore loses them); at most
-1,024 of them are listed in `unsupported`. `session` holds the compared
-sections of the reduced snapshot.
+it (`machine` and `clients` today). `preview` is null when the session has
+no journal checkpoint yet. `headSequence` is the journal head the reduction
+ended at (`through` when it is given): I9 compares it with a daemon facet
+whose `journal_head` is the same sequence. `unsupportedCount` counts
+required journal records the reducer could not apply (a restore loses
+them); at most 1,024 of them are listed in `unsupported`.
+`stateChangesNotReduced` counts the `state_upsert`/`state_delete` changes
+of applied records, which the reducer does not reduce
+(`session-journal.md`, "Restoration"): `extra` is then the checkpoint's,
+and I9 fails on the lost changes instead of comparing it. `session` holds
+the compared sections of the reduced snapshot.
 
 Errors: `oracle state requires a trusted local connection`,
 `oracle restore preview requires a persistent session` (an in-memory
