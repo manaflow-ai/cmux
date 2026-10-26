@@ -53,6 +53,8 @@ class PublishRetries(unittest.TestCase):
             waits = [s for s in steps[attests[0] + 1 : attests[1]] if "gh_budget_wait.sh --reserve" in str(s.get("run", ""))]
             self.assertEqual(len(waits), 1, f"{job_name}: one bounded budget wait sits between the tries")
             self.assertEqual(waits[0].get("if"), gate)
+            # Without a token the wait silently skips and the retry hits the same empty budget.
+            self.assertEqual(waits[0].get("env", {}).get("GH_TOKEN"), "${{ github.token }}", f"{job_name}: the wait reads the budget with the job's token")
             self.assertGreaterEqual(
                 int(self.jobs[job_name]["timeout-minutes"]), 75,
                 f"{job_name}: the timeout must leave room for the hour the budget wait may take",
@@ -67,6 +69,15 @@ class PublishRetries(unittest.TestCase):
         self.assertNotIn("--retry-all-errors", command, "a 404 is how fetch learns a tree has no source.json yet")
         max_time = re.search(r"--max-time (\d+)", command)
         self.assertTrue(max_time and int(max_time.group(1)) >= 300, "a 100 MB companion needs more than 120 s")
+        retries = int(re.search(r"--retry (\d+)", command).group(1))
+        delay = re.search(r"--retry-delay (\d+)", command)
+        one_fetch = (retries + 1) * int(max_time.group(1)) + retries * (int(delay.group(1)) if delay else 0)
+        # publish-tree-windows runs publish-tree's steps; both must outlast one fetch's full retry budget.
+        for job_name in ("publish-tree", "publish-tree-windows"):
+            self.assertGreater(
+                int(self.jobs[job_name]["timeout-minutes"]) * 60, one_fetch,
+                f"{job_name}: its timeout cuts one fetch's retries ({one_fetch} s) short",
+            )
 
 
 if __name__ == "__main__":
