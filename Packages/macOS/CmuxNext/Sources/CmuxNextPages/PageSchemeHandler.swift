@@ -12,6 +12,10 @@ import WebKit
 /// goes to the page instance's ``PageDynamicResourceSource`` first and only: its answer, or a
 /// 404 with the same headers. The same containment rules apply (no `.` or `..` components).
 ///
+/// A `cmux-page://cmux.shared/` chunk in the handler's ``sharedChunks`` table is answered inside
+/// ``webView(_:start:)`` itself, with no task hop, while the bundle is served; a dev server, a dev
+/// override or a web update sends it down the async path with every other request.
+///
 /// Absorbed from the Settings lead's `SettingsPageSchemeHandler` (branch
 /// feat-cmux-next-settings-react), generalized to every page.
 final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
@@ -41,21 +45,29 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
     var fetchDevServer: @Sendable (URL) async -> (Data, HTTPURLResponse)? = { await PageDevServer.fetch($0) }
     /// The live override (``WebDevOverride/current``; tests replace it).
     var liveOverride: @Sendable () -> WebDevOverride = { WebDevOverride.current }
+    /// The bundled shared chunks answered in the request's turn, asked per request: the launch read
+    /// may end after the view is made, and a web update turns them off (``WebBundleOverlay/bundledShared``).
+    /// Nil serves them on the async path.
+    let sharedChunks: @Sendable () -> PageSharedChunkCache?
     /// Tasks started and not yet answered or stopped; a stopped task must not be answered.
     private var active: Set<ObjectIdentifier> = []
 
     init(page: PageDescriptor, root: URL, dynamicSource: (any PageDynamicResourceSource)? = nil,
-         devServer: PageDevServer? = PageDevServer.current) {
+         devServer: PageDevServer? = PageDevServer.current,
+         sharedChunks: @escaping @Sendable () -> PageSharedChunkCache? = { WebBundleOverlay.shared.bundledShared }) {
         self.devServer = devServer
+        self.sharedChunks = sharedChunks
         let served = Served(page: page, root: root.standardizedFileURL.resolvingSymlinksInPath(), dynamicSource: dynamicSource)
         let host = page.id.lowercased()
         resolve = { $0 == host ? served : nil }
     }
 
     /// Creates a handler whose page origin resolves to one of the supplied bundled pages.
-    init(resolve: @escaping (String) -> Served?, devServer: PageDevServer? = PageDevServer.current) {
+    init(resolve: @escaping (String) -> Served?, devServer: PageDevServer? = PageDevServer.current,
+         sharedChunks: @escaping @Sendable () -> PageSharedChunkCache? = { WebBundleOverlay.shared.bundledShared }) {
         self.resolve = resolve
         self.devServer = devServer
+        self.sharedChunks = sharedChunks
     }
 
     private func served(_ url: URL) -> Served? {
@@ -70,6 +82,12 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
     }
 
     func webView(_ webView: WKWebView, start task: any WKURLSchemeTask) {
+        if let reply = sharedReply(to: task.request) {
+            task.didReceive(reply.response)
+            if !reply.body.isEmpty { task.didReceive(reply.body) }
+            task.didFinish()
+            return
+        }
         WebDevOverrideWatcher.shared.served(webView) // a web-dev.json change reloads it
         let request = task.request
         guard request.httpMethod.map({ $0 == "GET" }) ?? true,
@@ -95,6 +113,29 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
             if !reply.body.isEmpty { task.didReceive(reply.body) }
             task.didFinish()
         }
+    }
+
+    /// The answer to a GET of a shared chunk from ``sharedChunks``, in the caller's turn. Nil (the
+    /// async path) without a table (none read yet, or a web update serves), for a file it lacks, a
+    /// navigation to the shared origin, or while a dev server or dev override serves.
+    func sharedReply(to request: URLRequest) -> Reply? {
+        guard let table = sharedChunks(), devServer == nil, request.httpMethod.map({ $0 == "GET" }) ?? true,
+              let url = request.url, request.mainDocumentURL != url,
+              let chunk = table.chunk(for: url),
+              !liveOverride().isActive
+        else { return nil }
+        return Self.reply(url: url, csp: .strict, status: 200, mimeType: chunk.mimeType, body: chunk.body,
+                          allowOrigin: firstPartyOrigin(of: request))
+    }
+
+    /// The request's `Origin` when it is a page origin this handler serves, else nil: a shared chunk
+    /// allows no other origin.
+    func firstPartyOrigin(of request: URLRequest) -> String? {
+        guard let origin = request.value(forHTTPHeaderField: "Origin"), let url = URL(string: origin),
+              url.scheme?.lowercased() == PageDescriptor.scheme, url.path.isEmpty || url.path == "/",
+              let host = url.host?.lowercased(), host != PageSharedChunkCache.host, resolve(host) != nil
+        else { return nil }
+        return "\(PageDescriptor.scheme)://\(host)"
     }
 
     /// The reply for a GET of `url`: a bundled file (nil when missing or outside the root, as
@@ -154,12 +195,18 @@ final class PageSchemeHandler: NSObject, WKURLSchemeHandler {
         reply(url: url, csp: page.csp, status: status, mimeType: mimeType, body: body)
     }
 
-    /// A response with `csp` and the other headers every page response carries.
-    nonisolated static func reply(url: URL, csp: PageCSP, status: Int, mimeType: String, body: Data) -> Reply {
-        let headers = [
+    /// A response with `csp` and the other headers every page response carries; `allowOrigin` adds
+    /// `Access-Control-Allow-Origin` for that one origin.
+    nonisolated static func reply(url: URL, csp: PageCSP, status: Int, mimeType: String, body: Data,
+                                  allowOrigin: String? = nil) -> Reply {
+        var headers = [
             "Content-Type": mimeType, "Content-Length": String(body.count), "Cache-Control": "no-store",
             "Content-Security-Policy": csp.header, "X-Content-Type-Options": "nosniff",
         ]
+        if let allowOrigin {
+            headers["Access-Control-Allow-Origin"] = allowOrigin
+            headers["Vary"] = "Origin"
+        }
         let response = HTTPURLResponse(url: url, statusCode: status, httpVersion: "HTTP/1.1", headerFields: headers)
             ?? HTTPURLResponse(url: url, mimeType: mimeType, expectedContentLength: body.count, textEncodingName: nil)
         return Reply(response: response, body: body)

@@ -34,6 +34,8 @@ public nonisolated final class WebBundleOverlay: Sendable {
         var bases: [Base] = []
         /// The launch check of the kept update; requests wait for it.
         var pending: Task<URL?, Never>?
+        /// The bundled shared chunks read at launch (``setBundledShared(_:)``).
+        var shared: PageSharedChunkCache?
     }
 
     private let state: Mutex<State>
@@ -89,6 +91,18 @@ public nonisolated final class WebBundleOverlay: Sendable {
 
     /// The update folder served now, nil for the bundle (or while the launch check runs).
     public var activeTree: URL? { state.withLock { $0.tree } }
+
+    /// Keeps the table of the bundled shared chunks the app read at launch
+    /// (``PageSharedChunkCache/loadBundled(runner:)``).
+    public func setBundledShared(_ table: PageSharedChunkCache?) {
+        state.withLock { $0.shared = table }
+    }
+
+    /// The bundled shared chunks, only while requests serve the bundle: nil while an update is active
+    /// or the launch check runs, so those requests take the scheme handler's async path.
+    public var bundledShared: PageSharedChunkCache? {
+        state.withLock { $0.tree == nil && $0.pending == nil ? $0.shared : nil }
+    }
 
     /// The folder to serve a request for the bundled root `bundled` from.
     public func root(for bundled: URL) async -> URL {

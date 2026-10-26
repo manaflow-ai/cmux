@@ -199,6 +199,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         FirstPartyPageSchemes.install()
         // Every cmux page view follows `browser.defaultEngine` (Chromium by default) through this one host.
         PageWebView.openPanel = services.openPanel
+        // task-owner: the one read of the bundled shared chunks; it ends by itself and sets the table once
+        Task { WebBundleOverlay.shared.setBundledShared(await PageSharedChunkCache.loadBundled(runner: services.work)) }
         PageWebView.chromiumHosting = ChromiumPageHost(
             cef: services.cache.cef,
             preference: { [weak services] in
