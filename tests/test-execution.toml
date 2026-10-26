@@ -1793,6 +1793,11 @@ path = "tests/test_check_concurrency_generic_deinit.py"
 lane = "linux-guard"
 
 [[test]]
+path = "tests/test_check_concurrency_display_links.py"
+lane = "manual"
+reason = "Agents run it themselves (no new CI tests, 2026-10-23): python3 -m unittest tests.test_check_concurrency_display_links."
+
+[[test]]
 path = "tests/test_guard_hooks_from_base.py"
 lane = "linux-guard"
 
@@ -1893,3 +1898,13 @@ reason = "Lawrence 2026-10-23: no new CI tests. p06_queue.py is a local planning
 path = "tests/test_ipc_census.py"
 lane = "manual"
 reason = "Lawrence 2026-10-23: no new CI tests. ipc-census.py is the p05-ipc queue report, not a gate; run python3 -I tests/test_ipc_census.py yourself after changing ipc-census.py or plans/cmux-next/ipc-targets.json (about 10 s, git only, no build)."
+
+[[test]]
+path = "tests/test_bench_webui.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. bench-webui.py is the p13-webui fleet bench, not a gate; run python3 -I tests/test_bench_webui.py yourself after changing bench-webui.py or scripts/measure/webui-bench.sh (under 1 s, no app, no build)."
+
+[[test]]
+path = "tests/test_bench_daemon_latency.py"
+lane = "manual"
+reason = "Lawrence 2026-10-23: no new CI tests. bench-daemon-latency.py is a fleet bench, not a gate; run python3 -I tests/test_bench_daemon_latency.py yourself after changing the bench or its runtime.Q16 record (about 1 s, no daemon, no build)."

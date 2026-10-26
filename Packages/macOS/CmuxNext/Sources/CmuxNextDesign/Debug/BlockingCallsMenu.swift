@@ -34,7 +34,7 @@ public final class BlockingCallsMenu: NSObject, NSMenuDelegate {
         submenu.delegate = self
         item.submenu = submenu
         item.representedObject = self  // the menu keeps this object alive
-        item.title = Self.title(detector.sites.count)
+        item.title = Self.title(Self.mainSites(detector).count)
         submenu.title = item.title
     }
 
@@ -49,7 +49,7 @@ public final class BlockingCallsMenu: NSObject, NSMenuDelegate {
 
     /// Refreshes the count (the Debug menu) or the site rows (the submenu) before a menu opens.
     public func menuNeedsUpdate(_ menu: NSMenu) {
-        let sites = detector.sites
+        let sites = Self.mainSites(detector)
         item.title = Self.title(sites.count)
         guard menu === submenu else { return }
         menu.removeAllItems()
@@ -64,6 +64,11 @@ public final class BlockingCallsMenu: NSObject, NSMenuDelegate {
         // Inside this submenu the short title reads right; the palette shows the action's full title.
         reset.title = String(localized: "debug.blockingCalls.reset", defaultValue: "Reset Counts", bundle: .module)
         menu.addItem(reset)
+    }
+
+    /// The main-thread sites: the menu is the main thread's; pool sites are in `debug.blocking`.
+    private static func mainSites(_ detector: BlockingDetector) -> [BlockingSite] {
+        detector.sites.filter { $0.context == .main }
     }
 
     private static func title(_ count: Int) -> String {

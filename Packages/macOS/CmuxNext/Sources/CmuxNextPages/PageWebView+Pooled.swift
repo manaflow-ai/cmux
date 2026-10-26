@@ -70,6 +70,7 @@ extension PageWebView {
     /// Starts the served bundle document after the pooled view has been parked.
     func startLoading() {
         guard !loaded, webView.url == nil else { return }
+        traceOpenRequested(.spare)
         webView.load(URLRequest(url: descriptor.url()))
     }
 

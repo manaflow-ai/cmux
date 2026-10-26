@@ -1,4 +1,5 @@
 @testable import CmuxNextApp
+import CmuxNextWakeups
 import Foundation
 import Testing
 
@@ -93,7 +94,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: folder) }
         let file = folder.appending(path: "notes.md")
         try Data("# Shared notes\n".utf8).write(to: file)
-        let server = MarkdownLiveShareServer()
+        let server = MarkdownLiveShareServer(work: BackgroundWork(label: "test.live-share"))
         defer { server.stop() }
         let link = try await server.link(for: file)
         #expect(link.host == "127.0.0.1")
@@ -118,7 +119,7 @@ import Testing
         defer { try? FileManager.default.removeItem(at: folder) }
         let file = folder.appending(path: "live.md")
         try Data("# One\n".utf8).write(to: file)
-        let server = MarkdownLiveShareServer()
+        let server = MarkdownLiveShareServer(work: BackgroundWork(label: "test.live-share"))
         defer { server.stop() }
         let link = try await server.link(for: file)
         let events = link.appending(path: "events")
