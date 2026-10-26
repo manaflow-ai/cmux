@@ -4669,6 +4669,7 @@
       "description" : "Where Cmd-N, the + button and the CLI put a new workspace in the sidebar. Pinned workspaces stay above it.",
       "enum" : [
         "top",
+        "beforeCurrent",
         "afterCurrent",
         "bottom"
       ],
