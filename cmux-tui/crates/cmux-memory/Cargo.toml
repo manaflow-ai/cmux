@@ -5,7 +5,7 @@ edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
 publish.workspace = true
-description = "Memory pressure and memory consumers for cmux's Rust processes (the daemon and acpmux): one kernel pressure source per process and a consumer registry, after Chrome's base/memory_coordinator"
+description = "Memory pressure and memory consumers for cmux's Rust processes (the daemon and acpmux): one kernel pressure source per process and a consumer registry, after Chrome's base/memory_coordinator; and DaemonBudget, the daemon's memory caps from installed RAM"
 
 [lints]
 workspace = true

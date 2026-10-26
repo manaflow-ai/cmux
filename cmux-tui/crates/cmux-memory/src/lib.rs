@@ -14,11 +14,18 @@
 //! event (`system_memory_pressure_evaluator_mac.cc`), on Linux one PSI trigger
 //! on `/proc/pressure/memory`. Other code (the app's `memory.limit` push) can set
 //! the level with [`MemoryRegistry::set_level`].
+//!
+//! [`DaemonBudget`] sizes the daemon's memory caps from installed RAM, as
+//! `SubsystemBudget.forMemory` does for the app
+//! (plans/cmux-next/chrome-parity/p07-memory.md, section B).
 
 use std::fmt;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::{Arc, Mutex, MutexGuard, PoisonError, Weak};
 
+pub use budget::DaemonBudget;
+
+pub mod budget;
 #[cfg(target_os = "linux")]
 mod pressure_linux;
 #[cfg(target_os = "macos")]
