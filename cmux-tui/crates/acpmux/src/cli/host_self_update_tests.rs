@@ -695,16 +695,50 @@ fn an_update_row_says_when_the_host_does_not_update_itself() {
     assert!(!up.status.unwrap_or_default().contains(AUTO_UPDATE_OFF));
 }
 
+/// A [`FakePeer`] that takes a script's stdin, as `host setup` writes the
+/// daemon config (`host update` feeds none, which the peer itself checks).
+struct SetupPeer(FakePeer);
+
+impl Remote for SetupPeer {
+    fn host(&self) -> &str {
+        self.0.host()
+    }
+
+    fn exec(&self, script: &str, stdin: Option<&[u8]>) -> Result<RemoteOut> {
+        use std::io::Write as _;
+        use std::process::Stdio;
+        let Some(input) = stdin else { return self.0.exec(script, None) };
+        let mut sh = self.0.sh(script);
+        sh.stdin(Stdio::piped()).stdout(Stdio::piped()).stderr(Stdio::piped());
+        let mut child = sh.spawn()?;
+        child.stdin.take().ok_or_else(|| anyhow::anyhow!("no stdin"))?.write_all(input)?;
+        let out = child.wait_with_output()?;
+        Ok(RemoteOut {
+            ok: out.status.success(),
+            stdout: String::from_utf8_lossy(&out.stdout).into_owned(),
+            stderr: String::from_utf8_lossy(&out.stderr).into_owned(),
+        })
+    }
+
+    fn spawn(&self, script: &str) -> Result<std::process::Child> {
+        self.0.spawn(script)
+    }
+
+    fn push(&self, local: &Path, remote: &str) -> Result<()> {
+        self.0.push(local, remote)
+    }
+}
+
 /// The same for `host setup` (and `host enroll --fix`): the install answers
 /// the reason beside the daemon's status.
 #[test]
 fn a_setup_says_when_the_host_does_not_update_itself() {
-    let peer = FakePeer::new("setup-auto-off");
+    let peer = SetupPeer(FakePeer::new("setup-auto-off"));
     let (_, off) = crate::cli::hosts::install_daemon(&peer, 47811, true).unwrap();
     assert_eq!(off, None);
 
-    let peer = FakePeer::new("setup-auto-off-theirs");
-    peer.write(&format!("{UNITS}/acpmux-update.service"), "[Service]\nExecStart=/bin/true\n");
+    let peer = SetupPeer(FakePeer::new("setup-auto-off-theirs"));
+    peer.0.write(&format!("{UNITS}/acpmux-update.service"), "[Service]\nExecStart=/bin/true\n");
     let (status, off) = crate::cli::hosts::install_daemon(&peer, 47811, true).unwrap();
     let why = off.unwrap_or_default();
     assert!(why.contains("acpmux-update.service is a unit acpmux did not write"), "{why}");
