@@ -74,6 +74,7 @@ final class LoadErrorView: NSView {
         updateColors()
     }
 
+    // visibility-walk-allow: four color stores (a layer color, three text colors) in the theme scope, no layout or text measure; cheaper than a deferral
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         updateColors()

@@ -65,6 +65,7 @@ final class PageGoneView: NSView {
         updateColors()
     }
 
+    // visibility-walk-allow: five color stores (a layer color, a tint, three text colors) in the theme scope, no layout or text measure; cheaper than a deferral
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         updateColors()

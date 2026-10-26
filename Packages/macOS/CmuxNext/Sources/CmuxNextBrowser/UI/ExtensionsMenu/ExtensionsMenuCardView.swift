@@ -25,6 +25,7 @@ final class ExtensionsMenuCardView: NSView {
     @available(*, unavailable)
     required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
 
+    // visibility-walk-allow: the glass tint of the bubble, which exists only while it is open over a shown page; nothing hidden to defer
     override func viewDidChangeEffectiveAppearance() {
         super.viewDidChangeEffectiveAppearance()
         applyColors()
