@@ -480,6 +480,8 @@ import Testing
     func attachment() async throws(ChromiumHostAttachError) -> ChromiumHostAttachment {
         throw .cannotStart("not started in this test")
     }
+
+    func observeHostEnds(_ ended: @escaping @MainActor () -> Void) {}
 }
 
 /// Records the DevTools changes a tab reports to cmux's focus model.
