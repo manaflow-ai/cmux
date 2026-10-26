@@ -7,9 +7,18 @@ import CmuxNextCompat
 public protocol FrameLink: AnyObject {
     var isPaused: Bool { get set }
     func invalidate()
+    /// Asks the link to fire at `range` (``DisplayClock``'s rate decision).
+    func requestFrameRate(_ range: CAFrameRateRange)
 }
 
-extension CADisplayLink: FrameLink {}
+extension FrameLink {
+    /// A link with no rate of its own (a test fake that is fired by hand) ignores the request.
+    public func requestFrameRate(_ range: CAFrameRateRange) {}
+}
+
+extension CADisplayLink: FrameLink {
+    @MainActor public func requestFrameRate(_ range: CAFrameRateRange) { preferredFrameRateRange = range }
+}
 
 /// The frame clock of a window (architecture.md 3 and 5): it subscribes to its display's one link
 /// on the shared ``DisplayClock`` only while at least one ``FrameClient`` is active, and leaves when
@@ -153,6 +162,9 @@ public final class FrameScheduler: NSObject {
     /// The budget its budgeted clients draw on: only a ``MainWorkScheduler``'s scheduler has one
     /// (and only that scheduler gets budgeted clients); nil for ``app`` and window schedulers.
     let budget: MainFrameBudget?
+    /// The highest ``FrameClient/rate`` of its active clients (nil while idle): what it asks of
+    /// its display's link (``DisplayClock``).
+    public private(set) var frameRate: FrameRate?
 
     /// - Parameter displays: The clock to subscribe to (the app's: ``appDisplays``).
     init(name: String, host: Host, displays: DisplayClock, clock: any Clock<Duration> = ContinuousClock(),
@@ -249,7 +261,8 @@ public final class FrameScheduler: NSObject {
         let key = ObjectIdentifier(client)
         clients[key] = client
         if client.workClass.isBudgeted, !budgetedOrder.contains(key) { budgetedOrder.append(key) }
-        guard !isSubscribed else { return }
+        guard !isSubscribed else { return updateFrameRate() }
+        frameRate = FrameRate.highest(of: clients.values.map(\.rate))
         let linksBefore = displayClock.linksMade
         lastTimestamp = nil
         lastTick = displayClock.now()
@@ -314,6 +327,16 @@ public final class FrameScheduler: NSObject {
     private func drop(_ id: ObjectIdentifier) {
         clients[id] = nil
         budgetedOrder.removeAll { $0 == id }
+        updateFrameRate()
+    }
+
+    /// Recomputes ``frameRate`` after a client came or went and, when it changed while subscribed,
+    /// tells the display, whose link may run at another rate now.
+    private func updateFrameRate() {
+        let rate = FrameRate.highest(of: clients.values.map(\.rate))
+        guard rate != frameRate else { return }
+        frameRate = rate
+        if let subscribed, rate != nil { displayClock.frameRateDidChange(on: subscribed) }
     }
 
     /// Leaves the display while idle: an idle window holds no subscription (and its display drops
@@ -337,6 +360,7 @@ public final class FrameScheduler: NSObject {
         for client in clients.values { client.detach() }
         clients.removeAll()
         budgetedOrder.removeAll()
+        frameRate = nil
         pause()
         closeObserver = nil
     }
