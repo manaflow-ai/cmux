@@ -68,6 +68,17 @@ public final class ScrollEdgeFadeView: NSView {
     private var maskedSize: CGSize = .zero
     private var maskedFraction: CGFloat = -1
 
+    /// How much of the list shows, from its top; nil shows all of it. A host that keeps the list
+    /// laid out taller than it shows while its bottom edge springs (the sidebar's card slot)
+    /// sets it; the fade bands ride on the shown edges.
+    public var shownHeight: CGFloat? {
+        didSet { if shownHeight != oldValue { updateFade(animated: false) } }
+    }
+
+    /// The mask that bounds what shows of the list. It is anchored at the list's top, so a
+    /// spring of its `bounds.size.height` moves only the shown bottom edge.
+    public var shownMask: CALayer { fadeMask }
+
     public init(scrollView: NSScrollView) {
         self.scrollView = scrollView
         super.init(frame: scrollView.frame)
@@ -149,14 +160,16 @@ public final class ScrollEdgeFadeView: NSView {
         guard let layer else { return }
         observeDocument(scrollView.documentView)
         let next = Self.hiddenEdges(of: scrollView)
-        let fade = Self.fadeFraction(height: layer.bounds.height)
+        let shown = shownRect(in: layer.bounds, topDown: Self.rendersTopDown(layer))
+        let fade = Self.fadeFraction(height: shown.height)
         maskedSize = layer.bounds.size
         maskedFraction = fade
         Motion.feedback.transaction(nil) {
             if layer.mask !== fadeMask { layer.mask = fadeMask }
-            fadeMask.frame = layer.bounds
-            // Gradient location 0 is the list's top on screen.
+            // Gradient location 0 and the anchor are the list's top on screen.
             let top: CGFloat = Self.rendersTopDown(layer) ? 0 : 1
+            fadeMask.anchorPoint = CGPoint(x: 0.5, y: top)
+            fadeMask.frame = shown
             fadeMask.startPoint = CGPoint(x: 0.5, y: top)
             fadeMask.endPoint = CGPoint(x: 0.5, y: 1 - top)
             fadeMask.locations = [0, fade, 1 - fade, 1].map { NSNumber(value: Double($0)) }
@@ -168,9 +181,16 @@ public final class ScrollEdgeFadeView: NSView {
     /// mask yet) it does the full one.
     func updateEdges() {
         guard let layer, layer.mask === fadeMask, layer.bounds.size == maskedSize,
-              Self.fadeFraction(height: layer.bounds.height) == maskedFraction else { return updateFade() }
+              Self.fadeFraction(height: shownRect(in: layer.bounds, topDown: true).height) == maskedFraction else { return updateFade() }
         observeDocument(scrollView.documentView)
         setEdges(Self.hiddenEdges(of: scrollView), animated: true)
+    }
+
+    /// The part of `bounds` that shows: all of it, or its top ``shownHeight`` points (`topDown`:
+    /// the layer's y runs down the screen).
+    private func shownRect(in bounds: CGRect, topDown: Bool) -> CGRect {
+        let height = min(max(0, shownHeight ?? bounds.height), bounds.height)
+        return CGRect(x: bounds.minX, y: topDown ? bounds.minY : bounds.maxY - height, width: bounds.width, height: height)
     }
 
     /// The band's share of the list height (the fade length, capped by the tunable).
