@@ -47,6 +47,12 @@ public final class LayoutRootView: NSView {
     private var lastSnapshot: Snapshot?
     /// The last reveal request applied; a newer one waits until its pane is in a screen's layout.
     private var appliedReveal: ColumnCenterRequest?
+    /// Each screen's last automation-caused structural change, in ``burstClock`` seconds (``landsAtOnce(_:steps:)``).
+    private var lastAutomationChange: [ScreenID: CFTimeInterval] = [:]
+    /// The clock of automation bursts; tests set their own.
+    var burstClock: () -> CFTimeInterval = { CACurrentMediaTime() }
+    /// Structural changes of automation bursts that landed with no spring, cumulative (diagnostics, tests).
+    private(set) var automationBurstSnaps = 0
     private var reportedVisible: Set<PaneID> = []
     private var reportedKeepAlive: Set<PaneID> = []
     var scrollLock: ScrollLock = .idle
@@ -326,6 +332,7 @@ public final class LayoutRootView: NSView {
         // reveal and the screen slide move only with `ui.paneAnimations` (motion.md rule 9).
         let chromeAnimated = previous != nil && canAnimate && !snapshot.gestureActive
         let animated = chromeAnimated && context.animatesPaneLayout
+        let automationSteps = model.takeAutomationSteps()
         var needsFrames = false
 
         if previous?.screens != snapshot.screens { context.livePanes = Set(snapshot.screens.flatMap(\.layout.panes)) }
@@ -380,8 +387,12 @@ public final class LayoutRootView: NSView {
             let canvas = screen.zoomed ? nil : snapshot.canvases[screen.id]
             let layoutChanged = isNew || old?.layout != screen.layout || old?.zoomed != screen.zoomed || sharedChanged
                 || view.holdsRowDragPreview || canvas != (old?.zoomed == true ? nil : previous?.canvases[screen.id])
+            // An automation burst's structural change takes the path `ui.animations.panes` off takes:
+            // its panes, scroll and camera land in this frame, springs in flight included; chrome still fades.
+            var landsAtOnce = false
             if layoutChanged {
                 let structureChanged = old.map { !$0.layout.hasSameStructure(as: screen.layout) } ?? true
+                landsAtOnce = structureChanged && self.landsAtOnce(screen.id, steps: automationSteps[screen.id])
                 // An explicit equalize (same structure, new ratios) springs whenever motion is allowed (Lawrence
                 // 2026-10-16); the sizing after a split or close, and released drags, follow `ui.paneAnimations`.
                 let reflows = chromeAnimated && !structureChanged && !snapshot.gestureActive && model.animatesReflow
@@ -389,7 +400,7 @@ public final class LayoutRootView: NSView {
                 // spring started there (a restore, a daemon echo) froze its panes mid-motion, their
                 // content held wider than the pane and pinned to its edge (Leo 2026-10-21).
                 if view.update(layout: screen.layout, zoomed: screen.zoomed, canvas: canvas,
-                               animated: (animated || reflows) && !view.isHidden) {
+                               animated: (animated || reflows) && !view.isHidden && !landsAtOnce) {
                     screenNeedsFrames = true
                 }
                 // The focus ring of a split's new pane appears with the pane; the focus flash still
@@ -415,18 +426,19 @@ public final class LayoutRootView: NSView {
                 // Only a snap that stands in for Reduce Motion's spring shows the
                 // scrollbar, not one at launch or while out of the window.
                 if view.syncScroll(focused: focused, source: source, mode: snapshot.centerMode,
-                                   animated: previous != nil && canAnimate && context.animatesPaneLayout, reveals: !snapshot.gestureActive,
+                                   animated: previous != nil && canAnimate && context.animatesPaneLayout && !landsAtOnce,
+                                   reveals: !snapshot.gestureActive,
                                    showsScrollbarOnSnap: previous != nil && window != nil && driver.isAttached) {
                     screenNeedsFrames = true
                 }
             }
             if let request = snapshot.centerRequest, request != previous?.centerRequest, screen.layout.contains(request.pane),
-               view.center(request.pane, animated: animated) {
+               view.center(request.pane, animated: animated && !landsAtOnce) {
                 screenNeedsFrames = true
             }
             if let request = snapshot.revealRequest, request != appliedReveal, screen.layout.contains(request.pane) {
                 appliedReveal = request
-                if view.center(request.pane, animated: animated, reveal: true) { screenNeedsFrames = true }
+                if view.center(request.pane, animated: animated && !landsAtOnce, reveal: true) { screenNeedsFrames = true }
             }
             if view.endMotionTurn(needsFrames: screenNeedsFrames) { needsFrames = true }
         }
@@ -436,6 +448,7 @@ public final class LayoutRootView: NSView {
             view.removeFromSuperview()
             screenViews[id] = nil
             screenFrames[id] = nil
+            lastAutomationChange[id] = nil
         }
 
         // Screen switch.
@@ -458,6 +471,24 @@ public final class LayoutRootView: NSView {
         if needsFrames, driver.isAttached { motionTrace.beginRun() }
         // A change that starts springs (a split, a close) is in motion from the frame it lands in.
         if needsFrames && driver.isRunning { setLayoutInMotion(true) }
+    }
+
+    /// Whether a structural change of `screen` lands with no spring, as part of an automation burst
+    /// (`LayoutModel.snapsAutomationBursts`; `steps`: the panes its automation changes moved, nil
+    /// when anyone else changed it). A burst moved several panes at once (commands coalesced into
+    /// one apply), or comes within a split spring's time of the screen's last automation change
+    /// (one command per frame), whose spring it would restart before it lands. A single automation
+    /// change after a pause springs as a person's does.
+    private func landsAtOnce(_ screen: ScreenID, steps: Int?) -> Bool {
+        guard let steps else {
+            lastAutomationChange[screen] = nil
+            return false
+        }
+        let now = burstClock()
+        let last = lastAutomationChange.updateValue(now, forKey: screen)
+        guard steps > 1 || last.map({ now - $0 < Motion.panes.spring(.split).perceivedDuration }) == true else { return false }
+        automationBurstSnaps += 1
+        return true
     }
 
     // MARK: Frames
