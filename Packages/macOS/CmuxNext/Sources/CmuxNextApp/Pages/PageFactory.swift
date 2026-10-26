@@ -6,6 +6,7 @@ import CmuxNextCompat
 import CmuxNextDesign
 import CmuxNextHomeEngine
 import CmuxNextMacScreen
+import CmuxNextMemory
 import CmuxNextPages
 import CmuxNextServer
 import CmuxNextSettings
@@ -53,7 +54,7 @@ struct PageFactory {
         let native = AppPageNativeProvider(services: services, page: .apps)
         let routes = [PageRoute(prefix: "cmux.apps.", provider: confirming), PageRoute(prefix: "cmux.app.", provider: native)]
         guard let page = services.webUI.open(PageOpenRequest(descriptor: .apps, routes: routes, route: route,
-                                                             dynamicResources: AppsGlyphResource())) else { return nil }
+                                                             dynamicResources: AppsGlyphResource(memory: services.memoryCoordinator))) else { return nil }
         confirming.anchor = { [weak page] in page }
         native.anchor = { [weak page] in page }
         PageConnectionWatch(page: page, store: services.machines.local.store, on: services.mainWork).start()
@@ -238,7 +239,7 @@ struct PageFactory {
                                                           userImages: SettingsWindowService.userImages, museum: museumArt,
                                                           iconPNG: { [weak services] icon in
                                                               await SettingsIconAssets.png(icon, owner: services?.machines.local)
-                                                          })
+                                                          }, memory: services.memoryCoordinator)
         let page = services.pageHostPool.claim(.settings, routes: routes, route: route, options: Self.settingsEngineOptions,
                                                surface: .settings,
                                                dynamicResources: dynamicResources,

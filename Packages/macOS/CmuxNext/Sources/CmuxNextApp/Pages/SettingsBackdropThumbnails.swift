@@ -19,10 +19,14 @@ final class SettingsBackdropThumbnails: PageDynamicResourceSource {
     private let userImages: BackdropUserImages?
     private let museum: MuseumArtSession?
     private let iconPNG: ((String) async -> Data?)?
-    private var cache: [String: Data] = [:]
+    /// The PNGs served, by id or icon key: a memory consumer of `memory` (critical pressure empties it).
+    let cache: PageResourceDataCache
 
+    /// - Parameter memory: The app's memory coordinator; nil keeps every PNG for the page's life (tests).
     init(choices: [BackdropSelection], currentChoices: (@MainActor () -> [BackdropSelection])? = nil,
-         userImages: BackdropUserImages?, museum: MuseumArtSession? = nil, iconPNG: ((String) async -> Data?)? = nil) {
+         userImages: BackdropUserImages?, museum: MuseumArtSession? = nil, iconPNG: ((String) async -> Data?)? = nil,
+         memory: (any MemoryConsumerRegistry)? = nil) {
+        cache = PageResourceDataCache(name: "settings-backdrop-thumbnails", memory: memory)
         allowed = Set(choices.map(\.id))
         self.currentChoices = currentChoices
         self.userImages = userImages
@@ -42,7 +46,7 @@ final class SettingsBackdropThumbnails: PageDynamicResourceSource {
             let key = SettingsIconAssets.prefix + "/" + icon
             if let data = cache[key] { return PageResource(data: data, mimeType: "image/png") }
             guard let data = await iconPNG?(icon) else { return nil }
-            cache[key] = data
+            cache.store(data, for: key)
             return PageResource(data: data, mimeType: "image/png")
         }
         guard request.prefix == Self.prefix, request.path.count == 1,
@@ -59,7 +63,7 @@ final class SettingsBackdropThumbnails: PageDynamicResourceSource {
             data = selection.image().flatMap(Self.thumbnail)
         }
         guard let data else { return nil }
-        cache[id] = data
+        cache.store(data, for: id)
         return PageResource(data: data, mimeType: "image/png")
     }
 
