@@ -466,17 +466,14 @@ export function QuickModelMenu({
       rows:
         Math.max(
           1,
-          Math.min(
-            FILTER_ROWS,
-            (families?.list ?? [])
-              .filter((family) => !family.starred && !family.note)
-              .flatMap((family) => [...family.models, ...family.more])
-              .slice(0, FILTER_ROWS)
-              .reduce(
-                (rows, model) => rows + (menu.providers === "expanded" && model.offers ? 1 + model.offers.length : 1),
-                0,
-              ),
-          ),
+          (families?.list ?? [])
+            .filter((family) => !family.starred && !family.note)
+            .flatMap((family) => [...family.models, ...family.more])
+            .slice(0, FILTER_ROWS)
+            .reduce(
+              (rows, model) => rows + (menu.providers === "expanded" && model.offers ? 1 + model.offers.length : 1),
+              0,
+            ),
         ) + (families ? 1 : 0),
       separators: 0,
     },

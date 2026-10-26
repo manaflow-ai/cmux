@@ -216,7 +216,7 @@ function searchModels(
       const matching = group.offers.filter((offer) => fitsQuery(offer.model, entry.name, query));
       if (matching.length === 0) return [];
       const landing =
-        matching.find((offer) => offer.model.id === current) ??
+        matching.find((offer) => offer.model.id === current && !offer.model.unavailable) ??
         matching.find((offer) => !offer.model.unavailable) ??
         matching[0]!;
       const model: ModelChoice = {
@@ -785,7 +785,9 @@ export function ModelPicker(props: ModelPickerProps) {
         .filter((model) => favorites.has(model.id) || model.offers?.some((offer) => favorites.has(offer.id)))
         .map((model) => {
           // Preserve a favorite provider as the landing offer while retaining every provider row.
-          const favorite = model.offers?.find((offer) => favorites.has(offer.id));
+          const favorite =
+            model.offers?.find((offer) => favorites.has(offer.id) && !offer.unavailable) ??
+            model.offers?.find((offer) => favorites.has(offer.id));
           return row(entry, favorite ? { ...model, ...favorite, name: model.name, offers: model.offers } : model);
         });
     });
