@@ -1,6 +1,7 @@
 @testable import CmuxNextApp
 import CmuxNextCompat
 import CmuxNextDaemon
+import CmuxNextDaemonService
 import CmuxNextPages
 import CmuxNextSettings
 import CmuxNextWakeups
