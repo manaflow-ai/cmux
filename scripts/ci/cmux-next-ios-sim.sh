@@ -176,7 +176,9 @@ qa!
 VIM
   record vim "vim -u NONE -i NONE -N -n -S '$corpus/scroll.vim' '$corpus/big.txt'"
   if command -v htop >/dev/null; then top_cmd="htop -d 10"; top_name="htop"; else top_cmd="top -s 1"; top_name="top (htop not installed)"; fi
-  record top "$top_cmd & p=\$!; sleep 12; kill \$p"
+  # In the foreground (a background job is stopped by SIGTTOU when it sets the
+  # tty mode); the alarm survives exec and ends it after 12 s.
+  record top "perl -e 'alarm 12; exec @ARGV' $top_cmd"
   note ""
   note "## Flood benchmark (Demo build, in-app TerminalFloodBench, fake Mac daemon, real DaemonClient + Ghostty renderer)"
   note ""
