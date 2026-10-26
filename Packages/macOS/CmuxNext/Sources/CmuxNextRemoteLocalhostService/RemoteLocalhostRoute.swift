@@ -31,9 +31,10 @@ public enum RemoteLocalhostStorePlan: Equatable {
     /// A remote machine's loopback URL gets the derived store; any other URL
     /// of a remote tab stays in the profile's store and may not navigate to
     /// loopback. Tabs of this Mac, and remote tabs whose localhost is this Mac
-    /// on purpose (update, turned off, WebKit), are unrestricted.
+    /// on purpose (update, turned off, WebKit), may go anywhere but an Open
+    /// Desktop page, which reroutes to its machine's store.
     public static func plan(route: RemoteLocalhostRoute, url: URL?) -> RemoteLocalhostStorePlan {
-        guard case .machine = route else { return .profile(.none) }
+        guard case .machine = route else { return .profile(.exceptCloudDesktop) }
         return url.flatMap(LoopbackHost.init(url:))?.isLoopback == true ? .derived : .profile(.noLoopback)
     }
 }
