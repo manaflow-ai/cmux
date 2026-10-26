@@ -11,6 +11,11 @@
 //! cmux-next app reads new lines and sends them to Sentry under the user's
 //! telemetry choice. The line format and hook live in `cmux-panic-log`,
 //! which the acpmux daemon uses too.
+//!
+//! The owner's hang watcher (cmux-panic-log `hang`) writes beside it, to
+//! `owner-hangs-<session>.jsonl` with the same fields: one line per watched
+//! scope (a request, a journal commit, a holder-link frame) busy past its
+//! hang tier, with the method and the hung thread's stack.
 
 /// Debug builds only: `thread` makes a worker thread panic once the hook is
 /// installed (tests/owner_panic.rs). Its line carries `"test": true`.
@@ -23,22 +28,48 @@ const TEST_PANIC_THREAD: &str = "owner-panic-test";
 /// the same path).
 pub(super) use cmux_tui_core::diagnostics::owner_panic_log_path as log_path;
 
-/// Install the owner's panic hook. Call once, in the headless owner only.
+/// Install the owner's panic hook and hang watcher. Call once, in the
+/// headless owner only.
 pub(super) fn install(session: &str) {
     if let Some(path) = log_path(session) {
-        let mut fields = cmux_panic_log::Fields::new();
-        fields.insert("session".into(), session.into());
-        fields.insert("owner_pid".into(), std::process::id().into());
-        // The release and build a tester runs, so crash reports group by
-        // release and platform (plans/cmux-next/tui-tester-rollout.md).
-        fields.insert("version".into(), crate::version_report::DISTRIBUTION_VERSION.into());
-        fields.insert("build_identity".into(), build_identity().into());
-        fields.insert("os".into(), std::env::consts::OS.into());
-        fields.insert("arch".into(), std::env::consts::ARCH.into());
-        cmux_panic_log::install(path, fields, is_test_thread);
+        cmux_panic_log::install(path, fields(session), is_test_thread);
     }
+    install_hang_watcher(session);
     #[cfg(debug_assertions)]
     panic_for_test();
+}
+
+/// Every line's fields: the session and the build that wrote it.
+fn fields(session: &str) -> cmux_panic_log::Fields {
+    let mut fields = cmux_panic_log::Fields::new();
+    fields.insert("session".into(), session.into());
+    fields.insert("owner_pid".into(), std::process::id().into());
+    // The release and build a tester runs, so crash reports group by
+    // release and platform (plans/cmux-next/tui-tester-rollout.md).
+    fields.insert("version".into(), crate::version_report::DISTRIBUTION_VERSION.into());
+    fields.insert("build_identity".into(), build_identity().into());
+    fields.insert("os".into(), std::env::consts::OS.into());
+    fields.insert("arch".into(), std::env::consts::ARCH.into());
+    fields
+}
+
+/// Start the process's hang watcher on the owner's hang log. Its thread
+/// parks with no timeout until a watched scope opens.
+fn install_hang_watcher(session: &str) {
+    use cmux_panic_log::hang;
+    let Some(path) = cmux_tui_core::diagnostics::owner_hang_log_path(session) else { return };
+    let sink = hang::file_sink(path, fields(session));
+    match hang::HangWatcher::start(sink, cmux_tui_core::diagnostics::hang_stack_sampler()) {
+        Ok(watcher) => {
+            // A second install keeps the first watcher (one per process).
+            let _ = hang::install(watcher);
+        }
+        Err(error) => crate::client_log::stderr_log!(
+            "startup",
+            "{}: cannot start the hang watcher: {error}",
+            crate::cli::BIN
+        ),
+    }
 }
 
 /// The debug test trigger's thread; its line carries `"test": true`.

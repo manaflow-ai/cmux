@@ -41,6 +41,11 @@
 //! the run was still busy once the thread ran again; a run first seen after
 //! it ended has no stack (`run-ended`): its thread has moved on to other
 //! work. Nothing is captured for a run that ends under the threshold.
+//!
+//! This is the jank tier of a request. Its hang tier is the process's hang
+//! watcher (cmux-panic-log `hang`): each watched run also opens a
+//! [`MUX_CONN_HANG`] scope, and a run busy for 2 s is written once to the
+//! owner's hang log with its method and its thread's stack.
 
 use std::borrow::Cow;
 use std::cell::Cell;
@@ -50,6 +55,7 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::thread::Thread;
 use std::time::{Duration, Instant};
 
+use cmux_panic_log::hang::{self, HangKind, HangScope};
 use cmux_tui_platform::thread_backtrace::{self, Backtrace, BacktraceError, ThreadHandle};
 
 use super::Command;
@@ -60,6 +66,17 @@ use crate::resource::ResourceOperation;
 
 /// How long a request runs before the watchdog records it.
 pub(crate) const REQUEST_WATCHDOG_THRESHOLD: Duration = Duration::from_millis(250);
+
+/// A request busy this long is a hang: written to the owner's hang log.
+pub(crate) const REQUEST_HANG_THRESHOLD: Duration = Duration::from_secs(2);
+
+/// The hang tier of every watched run (the jank tier is this watchdog).
+pub(crate) static MUX_CONN_HANG: HangKind =
+    HangKind::new("mux-conn", None, REQUEST_HANG_THRESHOLD, watched_method_name);
+
+fn watched_method_name(method: u32) -> &'static str {
+    WatchedMethod(method).name()
+}
 
 /// Runs watched at once: a frame and a dispatched command for every
 /// connection (`MAX_SERVER_CONNECTIONS`), the clear-history workers
@@ -595,7 +612,8 @@ impl RequestWatchdog {
         let word = busy_word(start);
         slot.busy.store(word, Ordering::SeqCst);
         shared.arm();
-        Some(RequestScope { shared, slot, word, ended: Cell::new(false) })
+        let hang = hang::watch_scope(&MUX_CONN_HANG, method.0);
+        Some(RequestScope { shared, slot, word, ended: Cell::new(false), hang })
     }
 
     /// Watch one run of `command`; a command that waits by design is
@@ -645,12 +663,15 @@ pub(crate) struct RequestScope<'a> {
     slot: &'a Slot,
     word: u64,
     ended: Cell<bool>,
+    /// The run's hang tier.
+    hang: HangScope<'static>,
 }
 
 impl RequestScope<'_> {
     /// The run is now doing `method` (a frame reaching its handler).
     pub(crate) fn set_method(&self, method: WatchedMethod) {
         self.slot.method.store(method.0, Ordering::Relaxed);
+        self.hang.set_method(method.0);
     }
 
     /// The run is now `command`; a command that waits by design ends the
@@ -677,6 +698,7 @@ impl RequestScope<'_> {
         if self.ended.replace(true) {
             return;
         }
+        self.hang.end();
         let shared = self.shared;
         let start = word_start_us(self.word).unwrap_or(0);
         let end = shared.now_us();

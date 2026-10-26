@@ -1168,12 +1168,17 @@ fn run(mux: Weak<Mux>, receivers: JournalIngressReceivers) {
                     }
                 }
                 let events = batch.iter().map(|queued| &queued.event).collect::<Vec<_>>();
+                let hang = cmux_panic_log::hang::watch_scope(
+                    &crate::workspace_registry::session_journal::JOURNAL_WRITER_HANG,
+                    crate::workspace_registry::session_journal::JOURNAL_WRITER_COMMIT,
+                );
                 let committed = mux.commit_session_journal_events(
                     &events,
                     retry_deadline,
                     JOURNAL_SQLITE_RETRY_SLICE,
                     || admit_batch_commit(&receivers.state, &batch, retry_deadline),
                 );
+                drop(hang);
                 match committed {
                     Ok(commits) => {
                         let terminal_events =

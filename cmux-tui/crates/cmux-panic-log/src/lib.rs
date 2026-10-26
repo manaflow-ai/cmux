@@ -14,6 +14,11 @@
 //! `message`, `location` (`file:line:col`), `thread`, `at_ms`, `test`
 //! (true for a debug test panic, which the app never sends) and
 //! `backtrace` (at most [`MAX_BACKTRACE_BYTES`]).
+//!
+//! The hang log beside it ([`hang`]) gets one JSON line per watched scope
+//! that runs past its hang deadline, with the hung thread's stack.
+
+pub mod hang;
 
 use std::io::Write;
 use std::path::{Path, PathBuf};

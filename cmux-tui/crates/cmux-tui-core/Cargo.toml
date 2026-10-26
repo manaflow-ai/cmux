@@ -29,6 +29,8 @@ cmux-holder.workspace = true
 cmux-process.workspace = true
 cmux-flow-trace.workspace = true
 cmux-threads.workspace = true
+# The process's hang watcher: request, journal writer and holder-link scopes.
+cmux-panic-log.workspace = true
 cmux-trace.workspace = true
 cmux-remote-protocol.workspace = true
 cmux-conversation.workspace = true

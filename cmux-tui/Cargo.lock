@@ -1332,6 +1332,9 @@ dependencies = [
 name = "cmux-panic-log"
 version = "0.1.0"
 dependencies = [
+ "backtrace",
+ "cmux-threads",
+ "cmux-tui-platform",
  "libc",
  "serde_json",
 ]
@@ -1732,6 +1735,7 @@ dependencies = [
  "cmux-layout-reducer",
  "cmux-link",
  "cmux-local-auth",
+ "cmux-panic-log",
  "cmux-process",
  "cmux-pty",
  "cmux-remote-protocol",
