@@ -1891,3 +1891,7 @@ lane = "linux-guard"
 [[test]]
 path = "tests/test_nightly_step_coverage.py"
 lane = "linux-guard"
+
+[[test]]
+path = "tests/test_file_open_line_localization.py"
+lane = "linux-guard"
