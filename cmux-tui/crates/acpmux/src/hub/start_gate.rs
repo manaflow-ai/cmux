@@ -300,7 +300,9 @@ impl Hub {
     /// person widens (`session/set_mode`). A mode that asks needs nothing:
     /// one the asking table lists for `family`, or on the Codex bridge
     /// (`bridge`) its `ask` or `read-only` (`start_mode.rs` `NARROW_MODES`),
-    /// which the table leaves out because it refuses Codex for the Web.
+    /// which the table leaves out because it refuses Codex for the Web. An
+    /// adopt never takes the bridge's: the session it finds may run another
+    /// harness than the one it was created on.
     pub(crate) fn start_mode_check(
         &self,
         caller: Option<&str>,
@@ -309,7 +311,9 @@ impl Hub {
         start: &StartMode,
     ) -> Result<StartGrant, RpcError> {
         if self.web_modes().config_value_asks(family, None, Some(start.mode.as_str()))
-            || (bridge && super::start_mode::NARROW_MODES.contains(&start.mode.as_str()))
+            || (bridge
+                && !start.adopts
+                && super::start_mode::NARROW_MODES.contains(&start.mode.as_str()))
         {
             return Ok(StartGrant::Asks);
         }
@@ -331,6 +335,15 @@ impl Hub {
         } else {
             Err(mode_person_required(&start.mode, start.preset.as_deref(), true, true))
         }
+    }
+
+    /// Whether session `s` runs the Codex bridge both as it was created (its
+    /// recorded argv) and as its harness is configured now, which a respawn
+    /// (`lifecycle.rs` `child_for`) starts (`web_modes::any_mode_for_web`).
+    async fn runs_bridge(&self, s: &Session) -> bool {
+        let meta = s.meta();
+        let cfg = self.config.read().await;
+        crate::web_modes::any_mode_for_web(&meta, cfg.profile(&meta.harness))
     }
 
     /// Whether a `session/new` keeps the harness's own start mode rather
@@ -427,16 +440,23 @@ impl Hub {
             );
             return Ok(());
         }
+        let bridge = !person && self.runs_bridge(s).await;
         let checked = if person {
             Ok(StartGrant::Person)
         } else {
-            let meta = s.meta();
-            // The bridge as this session was started (its recorded argv).
-            let bridge = crate::codex_app_server::is_profile_launch(&meta.harness_argv);
-            self.start_mode_check(caller, &crate::web_modes::family_of(&meta), bridge, &start)
+            self.start_mode_check(caller, &crate::web_modes::family_of(&s.meta()), bridge, &start)
         };
         let applied = match checked {
             Ok(grant) => match self.set_mode(s, &start.mode).await {
+                // The bridge's mode set on what runs now: `set_mode` may have respawned the
+                // harness from a profile changed since the check.
+                Ok(_)
+                    if bridge
+                        && matches!(grant, StartGrant::Asks)
+                        && !self.runs_bridge(s).await =>
+                {
+                    Err(mode_person_required(&start.mode, start.preset.as_deref(), true, true))
+                }
                 Ok(_) => {
                     // A mode granted because the caller runs in it is cmux's own only when the
                     // caller's is: a mode the caller's harness reported by itself passes on no
