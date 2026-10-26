@@ -518,7 +518,7 @@ pub(super) fn run_action(
             _ => {
                 let key = argument_name(&name);
                 // A file or folder of the caller's working directory, for an app that runs elsewhere.
-                let file = matches!(key.as_str(), "path" | "out" | "bootstrapScript")
+                let file = matches!(key.as_str(), "path" | "out" | "bootstrapScript" | "machineConfig")
                     || (key == "cwd" && cwd_is_callers(action));
                 let value = if file { caller_path(value) } else { value };
                 arguments.insert(key, value);

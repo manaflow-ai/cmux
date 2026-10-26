@@ -3,7 +3,7 @@ import { afterAll, beforeAll, describe, expect, setDefaultTimeout, test } from "
 // Every shim run spawns dozens of processes (sh + jq per step); give the suites room.
 setDefaultTimeout(60_000);
 import { runChild } from "./helpers/run-child";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { createServer } from "node:net";
 import { join } from "node:path";
@@ -1324,6 +1324,22 @@ describe("in-VM cmux shim: agent primitives", () => {
       const run = await runStateful(dir, ["agent", "claude", "say hi"]);
       expect(run.status).toBe(0);
       expect(run.stdout.trim()).toBe("from-env");
+    });
+
+    test("agents see the machine config's env (machine.env) under the machine env, which wins; a linked machine.env is skipped", async () => {
+      const dir = makeStatefulDir();
+      mkdirSync(join(dir, ".config", "cmux"), { recursive: true });
+      writeFileSync(join(dir, ".config", "cmux", "machine.env"), "export CMUX_TEST_DECLARED='from-config'\nexport CMUX_TEST_TOKEN='from-config'\n");
+      await runStateful(dir, ["env", "set", "CMUX_TEST_TOKEN=from-env"]);
+      const claude = join(dir, "claude");
+      writeFileSync(claude, "#!/bin/sh\nprintf '%s %s\\n' \"$CMUX_TEST_DECLARED\" \"$CMUX_TEST_TOKEN\"\n");
+      chmodSync(claude, 0o755);
+      expect((await runStateful(dir, ["agent", "claude", "say hi"])).stdout.trim()).toBe("from-config from-env");
+      const elsewhere = join(dir, "elsewhere.env");
+      writeFileSync(elsewhere, "export CMUX_TEST_DECLARED='through-a-link'\n");
+      rmSync(join(dir, ".config", "cmux", "machine.env"));
+      symlinkSync(elsewhere, join(dir, ".config", "cmux", "machine.env"));
+      expect((await runStateful(dir, ["agent", "claude", "say hi"])).stdout.trim()).toBe("from-env");
     });
 
     test("agent --wait/--output are already how this form runs; --timeout caps it with timeout(1)", async () => {
