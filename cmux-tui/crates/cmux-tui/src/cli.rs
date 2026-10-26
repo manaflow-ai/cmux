@@ -31,6 +31,8 @@ mod chief;
 mod chief_target;
 #[cfg(unix)]
 mod cloud_machines;
+#[cfg(unix)]
+mod cloud_secret;
 mod code_mode;
 #[cfg(unix)]
 mod coderouter;
@@ -48,8 +50,6 @@ mod frontend_browser;
 mod host_mount;
 mod launch_credential;
 mod lifecycle;
-#[cfg(unix)]
-mod cloud_secret;
 // Like the other scopes its dispatch is in (`run`, `#[cfg(unix)]`): Unix only.
 #[cfg(unix)]
 mod vm;
