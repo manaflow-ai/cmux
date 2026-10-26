@@ -295,6 +295,20 @@ class WheelPixelCarry {
   int64_t dy_ = 0;
 };
 
+// The time Chromium gives an input frame's event (task p04-input-065): its t0,
+// the NSEvent's timestamp, as Chrome stamps each event with
+// ui::EventTimeStampFromSeconds([event timestamp])
+// (content/browser/renderer_host/input/web_input_event_builders_mac.mm), so
+// EventLatency and the page's event.timeStamp start at the OS event, not at the
+// host's dispatch. 0 (the time it is sent) for a frame that is not input or has
+// no event time, and for a t0 later than `now_ns`, which is not of this clock
+// (ui::ValidateEventTimeClock in ui/events/base_event_utils.cc replaces such a
+// time with now).
+inline uint64_t EventTimeOf(const Header& frame, uint64_t now_ns) {
+  if (frame.kind != kMouse && frame.kind != kWheel && frame.kind != kKey) return 0;
+  return frame.t0 <= now_ns ? frame.t0 : 0;
+}
+
 // One ordered input stream (task p01-process-092). Chrome sends input and the
 // view's state (focus, IME, edit commands, geometry) to the renderer host on
 // one ordered pipe, RenderWidgetHostNSViewHost
