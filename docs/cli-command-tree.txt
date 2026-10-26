@@ -430,6 +430,8 @@ command  capture-pane  aliases=-
   arg  --window  kind=option  completion=custom
   arg  --workspace  kind=option  completion=custom
   arg  arguments  kind=argument  completion=-
+command  chief  aliases=-
+  arg  arguments  kind=argument  completion=-
 command  claude-hook  aliases=-
   arg  arguments  kind=argument  completion=-
 command  claude-teams  aliases=-
