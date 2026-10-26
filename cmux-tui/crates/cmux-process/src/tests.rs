@@ -147,41 +147,64 @@ fn wait_timeout_without_pidfd_open_waits_for_the_exit() {
     assert_eq!(status.code(), Some(3));
 }
 
+/// Set for the child run of [`qos_report_child`].
+#[cfg(target_vendor = "apple")]
+const QOS_REPORT: &str = "CMUX_PROCESS_QOS_REPORT";
+
+/// The child run of [`qos_sets_the_childs_class_and_leaves_the_spawning_thread_alone`]:
+/// this test binary started again, printing the class it runs at. Its test
+/// thread has the class of the process's first thread, which the spawn set
+/// (a pthread created without a QoS attribute takes its creator's class,
+/// sys/qos.h). Without the variable it does nothing.
+#[cfg(target_vendor = "apple")]
+#[test]
+fn qos_report_child() {
+    if std::env::var_os(QOS_REPORT).is_some() {
+        println!("cmux-qos={:?}", cmux_threads::current());
+    }
+}
+
 /// macOS: a child spawned from a UserInteractive thread with
 /// `qos(USER_CHILD)` runs at Default and one with `qos(HELPER_CHILD)` at
-/// Utility, while the spawning thread stays UserInteractive throughout (the
-/// class goes in the spawn attributes). One spawned without `qos` inherits
-/// UserInteractive: the bug `qos` fixes (p02-threads 223).
+/// Utility, while the spawning thread stays UserInteractive (the class goes
+/// in the spawn attributes). One spawned without `qos` inherits
+/// UserInteractive: the bug `qos` fixes (p02-threads 223). The child reports
+/// its own class: a base priority does not tell Utility from Default on
+/// every host.
 #[cfg(target_vendor = "apple")]
 #[test]
 fn qos_sets_the_childs_class_and_leaves_the_spawning_thread_alone() {
-    use cmux_threads::process::probe;
     use cmux_threads::{HELPER_CHILD, LiveQos, QosChange, ThreadQos, USER_CHILD, current};
 
-    let at = |qos| probe::base_priority_at(qos).unwrap();
-    let (default, utility, interactive) =
-        (at(ThreadQos::Default), at(ThreadQos::Utility), at(ThreadQos::UserInteractive));
-    assert!(utility < default && default < interactive, "{utility} {default} {interactive}");
-    let child_priority = |qos: Option<ThreadQos>| {
-        let mut command = Command::new("/bin/sleep");
-        command.arg("30");
+    let class_of_child = |qos: Option<ThreadQos>| {
+        let mut command = Command::new(std::env::current_exe().unwrap());
+        command
+            .args(["--exact", "tests::qos_report_child", "--nocapture", "--test-threads=1"])
+            .env(QOS_REPORT, "1");
         if let Some(qos) = qos {
             command.qos(qos);
         }
-        let mut child = command.spawn().unwrap();
+        let output = command.output().unwrap();
         assert_eq!(current(), LiveQos::Class(ThreadQos::UserInteractive));
-        let priority = probe::first_thread_base_priority(child.id() as libc::pid_t);
-        let _ = child.kill();
-        let _ = child.wait();
-        priority.unwrap()
+        assert!(output.status.success(), "{output:?}");
+        let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
+        stdout
+            .lines()
+            .find_map(|line| line.strip_prefix("cmux-qos="))
+            .unwrap_or_else(|| panic!("no class report: {stdout}"))
+            .to_owned()
     };
     let (user, helper, unset) = std::thread::spawn(move || {
         assert_eq!(cmux_threads::set_current(ThreadQos::UserInteractive), QosChange::Applied);
-        (child_priority(Some(USER_CHILD)), child_priority(Some(HELPER_CHILD)), child_priority(None))
+        (class_of_child(Some(USER_CHILD)), class_of_child(Some(HELPER_CHILD)), class_of_child(None))
     })
     .join()
     .unwrap();
-    assert_eq!(user, default, "user child {user}: default {default}, ui {interactive}");
-    assert_eq!(helper, utility, "helper child {helper}: utility {utility}, ui {interactive}");
-    assert_eq!(unset, interactive, "a child without qos inherits the thread's class");
+    assert_eq!(user, format!("{:?}", LiveQos::Class(ThreadQos::Default)));
+    assert_eq!(helper, format!("{:?}", LiveQos::Class(ThreadQos::Utility)));
+    assert_eq!(
+        unset,
+        format!("{:?}", LiveQos::Class(ThreadQos::UserInteractive)),
+        "a child without qos inherits the thread's class"
+    );
 }
