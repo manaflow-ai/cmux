@@ -64,12 +64,14 @@ export function SubagentTrayMotionStage({ start = 0 }: { start?: number }) {
         </button>
       </div>
       <main className="acpmux-main" data-dock="float" style={{ position: "relative", flex: 1, minHeight: 0 }}>
-        <div className="acpmux-stage" style={{ padding: "12px 16px", overflow: "hidden" }}>
+        {/* Plain rows: the transcript's own `.acpmux-row` is placed by its virtualizer. A live one takes
+            the live row's entrance class, as App.tsx gives it. */}
+        <div style={{ display: "flex", flexDirection: "column", padding: "12px 16px", overflow: "hidden" }}>
           {messages.map((message) => (
             <div
               key={message.id}
-              className={`acpmux-row acpmux-assistant${message.live ? " acpmux-row--enter" : ""}`}
-              style={{ padding: "6px 0", color: "var(--agent-text)" }}
+              className={message.live ? "acpmux-row--enter" : undefined}
+              style={{ padding: "6px 0", color: "var(--agent-text)", font: "13px/18px system-ui" }}
             >
               {message.text}
             </div>

@@ -130,7 +130,8 @@ export const SubagentTray = memo(function SubagentTray({
   // Read once per tray: the arm is the gallery's override or a dogfood key, never a per-tick read.
   const [look] = useState(() => experimentArm(trayPanelLook));
   const [motion] = useState(() => experimentArm(trayMotionLook));
-  const motionRef = useTrayMotion(shown, enters);
+  // Only the bottom stack's tray leaves on a snapshot: one placed in the transcript moves with it.
+  const motionRef = useTrayMotion(placement === "tray" ? shown : undefined, enters);
   // The header stays while the tray has more than one line, running or ended: one of two running
   // ending never takes it (and its collapse) away.
   const headed = items.length + finished.length > 1;
