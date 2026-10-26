@@ -194,6 +194,21 @@ jobs:
           OWNED_WARM: ${{ vars.CI_OWNED_WARM }}
         run: python3 scripts/ci/queue_janitor.py
 
+      # Early warning for the GITHUB_TOKEN budget every workflow shares: when it ran out on
+      # 2026-10-25 every NEXT nightly's legacy publish failed and nothing said so first. One
+      # GET /rate_limit (it costs no budget) per sweep that ran, about one every 5-10 minutes;
+      # under 20% left it warns here and files one issue with the cmux-bot token, commenting at
+      # most once an hour while it stays low. Never fails the sweep.
+      - name: Warn when the GITHUB_TOKEN budget runs low
+        if: ${{ !cancelled() && steps.fresh.outputs.skip != 'true' }}
+        continue-on-error: true
+        timeout-minutes: 2
+        env:
+          # The token whose budget is measured; not GH_TOKEN, which in this job is cmux-bot.
+          BUDGET_TOKEN: ${{ github.token }}
+          ISSUE_TOKEN: ${{ steps.cmux-bot-token.outputs.token }}
+        run: python3 scripts/ci/github_token_budget.py
+
       - name: Alert on starved fleet runner labels
         if: ${{ !cancelled() && steps.fresh.outputs.skip != 'true' }}
         env:
@@ -215,47 +230,3 @@ jobs:
           path: ${{ runner.temp }}/macos-pool-load.json
           retention-days: 1
           if-no-files-found: ignore
-
-
-  # CLA Assistant and CLA policy guard fail when the GITHUB_TOKEN budget is
-  # spent and stay red until someone re-runs them. Every scheduled sweep
-  # re-runs the ones that failed for that reason once the budget is back
-  # (scripts/ci/cla_quota_rerun.py). Cost: one free rate_limit read of
-  # GITHUB_TOKEN; reads and re-runs on the glaeda-route App's own budget. Its
-  # own job, so the sweep's freshness gate and token order stay as they are.
-  cla-quota-rerun:
-    name: Re-run CLA checks the spent budget failed
-    if: github.event_name == 'schedule' && vars.GLAEDA_ROUTE_APP_ID != ''
-    runs-on: ${{ github.repository_owner != 'manaflow-ai' && 'ubuntu-24.04' || vars.LINUX_RUNNER || 'blacksmith-4vcpu-ubuntu-2404' }}
-    timeout-minutes: 5
-    continue-on-error: true
-    permissions:
-      contents: read
-    steps:
-      - name: Mint the glaeda-route token
-        id: glaeda-token
-        continue-on-error: true
-        timeout-minutes: 1
-        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
-        with:
-          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
-          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
-          owner: ${{ github.repository_owner }}
-          repositories: ${{ github.event.repository.name }}
-          permission-actions: write
-
-      - name: Check out the CLA quota re-run
-        if: steps.glaeda-token.outputs.token != ''
-        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
-        with:
-          persist-credentials: false
-          sparse-checkout: scripts/ci/cla_quota_rerun.py
-          sparse-checkout-cone-mode: false
-
-      - name: Re-run CLA checks the spent budget failed
-        if: steps.glaeda-token.outputs.token != ''
-        timeout-minutes: 3
-        env:
-          GH_TOKEN: ${{ steps.glaeda-token.outputs.token }}
-          RATE_TOKEN: ${{ github.token }}
-        run: python3 scripts/ci/cla_quota_rerun.py

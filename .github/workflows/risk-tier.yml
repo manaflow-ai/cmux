@@ -72,36 +72,85 @@ jobs:
           else
             echo "::warning::recent-revert check skipped: base history unavailable"
           fi
+      # The manaflow-glaeda-route App's token, so the grading reads (files, the pull request, the
+      # compare, and for high the comments, reviews and label events) draw on the App's own budget
+      # rather than the GITHUB_TOKEN budget every workflow shares (it ran out again on 2026-10-26).
+      # A failed mint leaves GITHUB_TOKEN, and a refused read is graded again on GITHUB_TOKEN.
+      - name: Mint the glaeda-route token
+        id: glaeda-token
+        if: vars.GLAEDA_ROUTE_APP_ID != ''
+        continue-on-error: true
+        timeout-minutes: 1
+        uses: actions/create-github-app-token@bcd2ba49218906704ab6c1aa796996da409d3eb1 # v3.2.0
+        with:
+          app-id: ${{ vars.GLAEDA_ROUTE_APP_ID }}
+          private-key: ${{ secrets.GLAEDA_ROUTE_APP_KEY }}
+          owner: ${{ github.repository_owner }}
+          repositories: ${{ github.event.repository.name }}
+          permission-contents: read
+          permission-issues: read
+          permission-pull-requests: read
       - name: Grade the pull request
         id: grade
         env:
+          READ_TOKEN: ${{ steps.glaeda-token.outputs.token }}
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           NUMBER: ${{ github.event.pull_request.number }}
         run: |
-          python3 scripts/ci/risk_tier.py pr --repo "$REPO" --number "$NUMBER" ${BASE_HISTORY:+--repo-dir "$BASE_HISTORY"} \
-            --github-output "$GITHUB_OUTPUT" --summary "$GITHUB_STEP_SUMMARY"
+          grade() {
+            : > "$RUNNER_TEMP/grade.out"; : > "$RUNNER_TEMP/grade.md"
+            python3 scripts/ci/risk_tier.py pr --repo "$REPO" --number "$NUMBER" ${BASE_HISTORY:+--repo-dir "$BASE_HISTORY"} \
+              --github-output "$RUNNER_TEMP/grade.out" --summary "$RUNNER_TEMP/grade.md"
+          }
+          if [ -z "${READ_TOKEN:-}" ] || ! GH_TOKEN="$READ_TOKEN" grade; then
+            [ -z "${READ_TOKEN:-}" ] || echo "::warning::the glaeda-route App's read failed; grading on GITHUB_TOKEN"
+            grade
+          elif ! grep -qx 'ready=true' "$RUNNER_TEMP/grade.out"; then
+            # A held verdict is read again on GITHUB_TOKEN: the classifier treats an unreadable
+            # sign-off (a refused comments, reviews or label-events read) as none, so the App's
+            # budget may only ever cost a held pull request extra calls, never its sign-off.
+            echo "held on the App's read; grading again on GITHUB_TOKEN"
+            grade
+          fi
+          cat "$RUNNER_TEMP/grade.out" >> "$GITHUB_OUTPUT"
+          cat "$RUNNER_TEMP/grade.md" >> "$GITHUB_STEP_SUMMARY"
       # The label is a convenience; the check's verdict is the gate, so a label API error never fails it.
+      # The risk labels are in .github/labels.json (labels-sync.yml keeps them, risk:human-ok
+      # included), so this step creates them only when adding one fails: creating all four on every
+      # run spent four GITHUB_TOKEN calls on 422s. The read goes on the App's budget; writes stay on
+      # GITHUB_TOKEN, whose label events start no workflow (this one would re-grade itself otherwise).
       - name: Set the risk label
         continue-on-error: true
         env:
+          READ_TOKEN: ${{ steps.glaeda-token.outputs.token }}
           GH_TOKEN: ${{ github.token }}
           REPO: ${{ github.repository }}
           NUMBER: ${{ github.event.pull_request.number }}
           LABEL: ${{ steps.grade.outputs.label }}
         run: |
-          for tier in low normal high; do
-            gh label create "risk:$tier" --repo "$REPO" --color "$(case $tier in low) echo 0E8A16;; normal) echo FBCA04;; high) echo B60205;; esac)" \
-              --description "Risk tier (docs/ci/risk-tiers.md)" 2>/dev/null || true
-          done
-          gh label create "risk:human-ok" --repo "$REPO" --color 5319E7 \
-            --description "A maintainer looked at this high-risk PR (agents never add it)" 2>/dev/null || true
-          current=$(gh pr view "$NUMBER" --repo "$REPO" --json labels --jq '.labels[].name')
+          create_labels() {
+            for tier in low normal high; do
+              gh label create "risk:$tier" --repo "$REPO" --color "$(case $tier in low) echo 0E8A16;; normal) echo FBCA04;; high) echo B60205;; esac)" \
+                --description "Risk tier (docs/ci/risk-tiers.md)" 2>/dev/null || true
+            done
+            gh label create "risk:human-ok" --repo "$REPO" --color 5319E7 \
+              --description "A maintainer looked at this high-risk PR (agents never add it)" 2>/dev/null || true
+          }
+          labels() { gh pr view "$NUMBER" --repo "$REPO" --json labels --jq '.labels[].name'; }
+          if [ -z "${READ_TOKEN:-}" ] || ! current=$(GH_TOKEN="$READ_TOKEN" labels); then
+            current=$(labels)
+          fi
           # risk:medium is the old name for risk:normal.
           for old in $(grep -E '^risk:(low|medium|normal|high)$' <<<"$current" || true); do
             [ "$old" = "$LABEL" ] || gh pr edit "$NUMBER" --repo "$REPO" --remove-label "$old"
           done
-          grep -qx "$LABEL" <<<"$current" || gh pr edit "$NUMBER" --repo "$REPO" --add-label "$LABEL"
+          if ! grep -qx "$LABEL" <<<"$current"; then
+            gh pr edit "$NUMBER" --repo "$REPO" --add-label "$LABEL" || {
+              create_labels
+              gh pr edit "$NUMBER" --repo "$REPO" --add-label "$LABEL"
+            }
+          fi
       # Enforced from ENFORCE_FROM: the feat-cmux-next copy's advisory window (to 2026-10-24) let high
       # pull requests merge unchecked, so this one holds from the start. gh-merge-green reads the value
       # from the base's copy.

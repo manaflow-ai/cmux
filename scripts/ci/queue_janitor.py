@@ -157,6 +157,7 @@ from __future__ import annotations
 import argparse
 import dataclasses
 import datetime as dt
+import http.client
 import io
 import json
 import os
@@ -191,6 +192,14 @@ DEFAULT_MAX_CANCELS = 10
 MAX_RUN_PAGES = 3
 MAX_JOB_PAGES = 3
 GRAPHQL_BATCH = 25
+# A read that meets a 5xx or a dropped connection is made again after each of these delays (seconds),
+# then fails. At 08:08Z on 2026-10-26 one 502 on a run's job listing ended the sweep before it wrote
+# the macOS pool snapshot; the snapshot went stale, the cascade then sent no job to Blacksmith, and a
+# feat-cmux-next push's Release compile waited on a busy owned label (run 40291067104).
+RETRY_DELAYS = (2.0, 6.0)
+RETRY_STATUSES = frozenset({500, 502, 503, 504})
+# Snapshot key: the in-flight runs whose job listing failed this sweep (read_run_jobs()).
+UNREAD_RUNS_KEY = "unread_runs"
 
 # Statuses a run can hold runner demand in. `pending` is a run parked behind a
 # concurrency group, which is how a label-triggered CI rerun waits.
@@ -499,6 +508,8 @@ def starved_result(github: "GitHub", runs: Sequence[Mapping[str, Any]],
             known = set(fleet_jobs) | set(evidence)
             for run in [run for run in recent if run.get("id") not in known][:LOST_EVIDENCE_RUNS_PER_WORKFLOW]:
                 evidence[run["id"]] = github.jobs(run["id"])
+        except RateLimited:
+            raise
         except RuntimeError as error:
             incomplete = True
             print(f"queue-janitor: starved-label evidence for {workflow}: {error}", file=sys.stderr)
@@ -2476,6 +2487,10 @@ def rate_limited(error: urllib.error.HTTPError) -> bool:
     return b"rate limit" in body.lower()
 
 
+class RateLimited(RuntimeError):
+    """The token is out of budget: the sweep stops (GitHub.request())."""
+
+
 class GitHub:
     """The Actions and GraphQL APIs. `token` is an App's when one was minted (its own budget, not
     the GITHUB_TOKEN budget every workflow shares); `fallback_token` is the workflow's, which takes
@@ -2501,6 +2516,21 @@ class GitHub:
         }
 
     def request(self, method: str, path: str, body: Any | None = None, *, app_only: bool = False) -> Any:
+        """One API call. A read (GET, or a GraphQL query) that meets a 5xx or a dropped connection is
+        made again after each RETRY_DELAYS delay; a write is not, since it may have taken effect."""
+        retry = method == "GET" or path == "/graphql"
+        for delay in (*RETRY_DELAYS, None):
+            try:
+                return self._request(method, path, body, app_only=app_only)
+            except _Transient as error:
+                if not retry or delay is None:
+                    raise RuntimeError(f"{method} {path.split('?')[0]} failed ({error})") from error.__cause__
+                print(f"queue-janitor: {method} {path.split('?')[0]} failed ({error}); again in {delay:.0f} s",
+                      file=sys.stderr)
+                time.sleep(delay)
+        raise AssertionError("unreachable")
+
+    def _request(self, method: str, path: str, body: Any | None = None, *, app_only: bool = False) -> Any:
         self.calls += 1
         data = json.dumps(body).encode() if body is not None else None
         headers = dict(self.headers)
@@ -2515,7 +2545,7 @@ class GitHub:
         except urllib.error.HTTPError as error:
             self.note_rate_limit(error.headers)
             if error.code in (403, 429) and rate_limited(error):
-                raise RuntimeError(f"{method} {path.split('?')[0]} failed ({error.code}: rate limit; "
+                raise RateLimited(f"{method} {path.split('?')[0]} failed ({error.code}: rate limit; "
                                    "the sweep stops rather than spend the workflow token)") from error
             if error.code in (401, 403) and self.fallback_token and not app_only:
                 print(f"queue-janitor: App token refused ({error.code}) on {path.split('?')[0]}; "
@@ -2526,9 +2556,15 @@ class GitHub:
                 self.fallback_token = ""
                 self.app_token = False
                 return self.request(method, path, body)
+            if error.code in RETRY_STATUSES:
+                raise _Transient(str(error.code)) from error
             raise RuntimeError(f"{method} {path.split('?')[0]} failed ({error.code})") from error
         except urllib.error.URLError as error:
-            raise RuntimeError(f"{method} {path.split('?')[0]} failed ({error.reason})") from error
+            raise _Transient(str(error.reason)) from error
+        except (http.client.HTTPException, OSError) as error:
+            # A dropped or truncated response, opening it or reading it: IncompleteRead, BadStatusLine,
+            # RemoteDisconnected, a reset or a timeout.
+            raise _Transient(repr(error)) from error
 
     def note_rate_limit(self, headers: Any) -> None:
         found = read_rate_limit(headers)
@@ -2728,6 +2764,31 @@ def env_int(name: str, default: int) -> int:
     return int(raw) if raw else default
 
 
+class _Transient(Exception):
+    """A 5xx or a dropped connection: GitHub.request() makes a read again."""
+
+
+def read_run_jobs(github: GitHub, runs: Sequence[Mapping[str, Any]], linux_only: frozenset[str],
+                  now: dt.datetime) -> tuple[dict[int, list[dict[str, Any]]], set[int]]:
+    """({run id: jobs} for the runs needs_jobs() lists, the ids whose listing failed).
+
+    One run's failed listing skips that run, not the sweep (a rate limit still ends it): the sweep
+    that ended on one 502 at 08:08Z on 2026-10-26 wrote no pool snapshot (RETRY_DELAYS)."""
+    jobs_by_run: dict[int, list[dict[str, Any]]] = {}
+    unread: set[int] = set()
+    for run in runs:
+        if not needs_jobs(run, linux_only, now):
+            continue
+        try:
+            jobs_by_run[run["id"]] = github.jobs(run["id"])
+        except RateLimited:
+            raise
+        except RuntimeError as error:
+            unread.add(run["id"])
+            print(f"queue-janitor: run {run['id']} skipped this sweep: {error}", file=sys.stderr)
+    return jobs_by_run, unread
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     parser.add_argument("--repo", default=os.environ.get("GH_REPO") or os.environ.get("GITHUB_REPOSITORY"))
@@ -2779,7 +2840,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     linux_only = linux_only_workflow_paths(args.workflows_dir)
     try:
         runs = github.in_flight_runs()
-        jobs_by_run = {run["id"]: github.jobs(run["id"]) for run in runs if needs_jobs(run, linux_only, now)}
+        jobs_by_run, unread = read_run_jobs(github, runs, linux_only, now)
+        # A run whose jobs could not be read: the snapshot below is still written from every other run,
+        # and then the sweep decides nothing (no cancel, re-run or orphan), since a partial inventory
+        # misjudges the others too (a newer run at the same head, the pool's wait p90).
+        runs = [run for run in runs if run["id"] not in unread]
         # Category e: a suspect whose evidence the in-flight jobs lack gets a
         # few completed runs of its own workflow listed (evidence_queries()),
         # only when such a suspect exists.
@@ -2790,6 +2855,8 @@ def main(argv: Sequence[str] | None = None) -> int:
                 for run in evidence_runs(listed, known=set(jobs_by_run) | set(evidence_jobs),
                                          cap=LOST_EVIDENCE_RUNS_PER_WORKFLOW):
                     evidence_jobs[run["id"]] = github.jobs(run["id"])
+            except RateLimited:
+                raise
             except RuntimeError as error:
                 print(f"queue-janitor: lost-assignment evidence for {workflow}: {error}", file=sys.stderr)
         lost = find_lost(runs, jobs_by_run, now=now, evidence_jobs=evidence_jobs)
@@ -2866,7 +2933,19 @@ def main(argv: Sequence[str] | None = None) -> int:
             snapshot[WAIT_P90_KEY] = waits
         # Fleet labels no runner is taking jobs from; the workflow's alert step
         # (starved_labels.py) annotates them and keeps one issue per label.
-        snapshot.update(starved_result(github, runs, jobs_by_run, evidence_jobs, now=now))
+        try:
+            snapshot.update(starved_result(github, runs, jobs_by_run, evidence_jobs, now=now))
+        except RateLimited as error:
+            print(f"queue-janitor: {error}", file=sys.stderr)
+            print(render_rate_limits(github.rate_limits), file=sys.stderr)
+            return 1
+        if unread:
+            # Read from every run but these: their jobs are missing, so a label one of them is running on
+            # can look starved and one it waits on can look recovered. No starved-label issue is opened,
+            # updated or closed on this sweep (starved_labels.py), and readers can tell it is partial.
+            snapshot["starved"] = []
+            snapshot["starved_incomplete"] = True
+            snapshot[UNREAD_RUNS_KEY] = sorted(unread)
         # Warm affinity on: which root runner kept a build of which main
         # commits (owned_warm_state.py). A failure leaves `warm` out, and the
         # picker then routes admission by the root label as before.
@@ -2876,6 +2955,20 @@ def main(argv: Sequence[str] | None = None) -> int:
             except Exception as error:  # noqa: BLE001 a routing hint never fails the sweep
                 print(f"queue-janitor: owned warm state: {error}", file=sys.stderr)
         args.pool_load.write_text(json.dumps(snapshot, indent=2) + "\n", encoding="utf-8")
+
+    if unread:
+        # Nothing is acted on, so the pending re-runs an earlier sweep left are carried forward as they were.
+        if snapshot is not None and args.pool_load and pending is not None:
+            snapshot[LOST_RERUNS_KEY] = [dict(entry) for entry in pending][-LOST_PENDING_MAX:]
+            args.pool_load.write_text(json.dumps(snapshot, indent=2) + "\n", encoding="utf-8")
+        summary = (f"\n_The job listings of {len(unread)} run(s) failed ({', '.join(map(str, sorted(unread)))}): "
+                   f"the pool snapshot was written from the other {len(runs)}, and this sweep decided nothing._\n"
+                   f"\n_{render_rate_limits(github.rate_limits)}_\n")
+        print(summary)
+        if args.summary:
+            with args.summary.open("a", encoding="utf-8") as handle:
+                handle.write(summary)
+        return 0
 
     plan = build_plan(
         runs, jobs_by_run, prs_by_branch,
