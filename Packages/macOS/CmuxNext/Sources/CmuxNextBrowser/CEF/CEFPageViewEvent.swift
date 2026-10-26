@@ -10,4 +10,7 @@ nonisolated enum CEFPageViewEvent: Equatable, Sendable {
     case dragOperation(Int64)
     /// The page's tooltip changed (TOOLTIP, task 054; host mode turns it on): the text, "" for none.
     case tooltip(String)
+    /// Chromium's ack of one of the page's trackpad wheels, named by its input seq (WHEEL_ACK, task
+    /// p01-process-234): what the swipe navigation decides from, with no probe of the page.
+    case wheelAck(BrowserWheelAck)
 }

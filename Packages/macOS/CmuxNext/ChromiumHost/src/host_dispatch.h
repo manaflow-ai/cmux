@@ -69,6 +69,9 @@
 //   kOpReply   reply flag, token, the op's result and out-parameters
 //   kOpTextInputState  a watched browser's text input state, at most once per
 //              display frame (host_text_input.h)
+//   kOpEvent   CMUX_SHIM_WHEEL_ACK: the fork's ack of one of a page's wheels,
+//              with that wheel's input seq (host_wheel_ack.h); the HELLO lists
+//              kWheelAcksHelloName when the fork has the handler
 //
 // Everything here runs on the host's main thread (Chromium's UI thread), so
 // it holds no lock (p01-process section 4, rule 1).
@@ -92,6 +95,7 @@
 #include "host_mirror.h"
 #include "host_resize.h"
 #include "host_text_input.h"
+#include "host_wheel_ack.h"
 
 namespace cmux_host {
 
@@ -204,6 +208,10 @@ class HostContext {
   HostContext(const HostContext&) = delete;
   HostContext& operator=(const HostContext&) = delete;
 
+  // The fork's cmux_set_wheel_ack_handler (host_wheel_ack.h), nullptr when
+  // it has none. Before Attach: the HELLO lists kWheelAcksHelloName with it,
+  // and Resume installs OnWheelAck through it.
+  void SetWheelAckHandler(SetWheelAckHandlerFn set) { set_wheel_ack_handler_ = set; }
   // The mirrors whose only refresh is attach, then the hello. Once, before
   // the first OnMessages; the framework is loaded, CEF not started.
   void Attach();
@@ -219,6 +227,15 @@ class HostContext {
   // cmux_shim_browser_text_input_watch's fn; ctx is this HostContext and
   // `state` the fork's cmux_text_input_state_t.
   static void OnTextInput(void* ctx, int browser_id, const void* state);
+  // The fork's wheel ack handler; ctx is this HostContext and `ack` the
+  // fork's cmux_wheel_ack_t. Forwards CMUX_SHIM_WHEEL_ACK with the input seq
+  // of the browser's oldest unacked wheel (WheelSent).
+  static void OnWheelAck(void* ctx, int browser_id, const void* ack);
+  // The input dispatch gave Chromium's `chromium_id` the wheel of input seq
+  // `seq` through the fork's wheel call (a momentum wheel when `momentum`):
+  // the fork's first ack of that browser after the acks of the wheels sent
+  // before it answers it.
+  void WheelSent(int chromium_id, uint32_t seq, bool momentum) { wheel_acks_.Sent(chromium_id, seq, momentum); }
   static int OnWindowRequest(void* ctx, int kind, int disposition, int source_browser_id, int has_bounds, int x,
                              int y, int width, int height, int user_gesture, const char* url,
                              const char* profile_path);
@@ -275,6 +292,7 @@ class HostContext {
   const GeometryStats& geometry_stats() const { return geometry_stats_; }
 
   const TextInputPushes& text_input() const { return text_input_; }
+  const WheelAcks& wheel_acks() const { return wheel_acks_; }
 
   // Where kOpPageResize's fences go (browser_host_main.mm, before Attach);
   // nullptr resizes with no fence.
@@ -410,6 +428,10 @@ class HostContext {
   // Browsers cmux watches the text input of, by Chromium id.
   TextInputPushes text_input_;
   PageResizes* resizes_ = nullptr;
+  // The fork's wheel ack handler setter (SetWheelAckHandler) and each page's
+  // unacked wheels, by Chromium id.
+  SetWheelAckHandlerFn set_wheel_ack_handler_ = nullptr;
+  WheelAcks wheel_acks_;
   // Text input watches of minted ids whose creation has not come, by the
   // minted id: the watch tokens Bind arms and answers. Bounded with
   // pending_binds_ (AwaitsCreation).

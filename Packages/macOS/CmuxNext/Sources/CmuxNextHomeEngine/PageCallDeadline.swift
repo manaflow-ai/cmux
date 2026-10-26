@@ -1,5 +1,7 @@
 import CmuxNextWakeups
 import Foundation
+import class CmuxSafeConcurrency.OnceContinuation
+import func CmuxSafeConcurrency.withOnceThrowingContinuation
 
 /// A page call that answers by a deadline, also when its work never ends: the first of the work's
 /// end and the deadline answers (once). The deadline is a ``DemandTimer`` on the injected clock, so
@@ -14,9 +16,12 @@ enum PageCallDeadline {
         let timer = DemandTimer(owner: "PageCallDeadline", clock: clock)
         defer { timer.cancel() }
         return try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { continuation in
+            try await withOnceThrowingContinuation { (continuation: OnceContinuation<T, any Error>) in
                 // Cancelled before it started: the cancel handler found nothing to answer.
-                guard !Task.isCancelled else { return continuation.resume(throwing: CancellationError()) }
+                guard !Task.isCancelled else {
+                    continuation.resume(throwing: CancellationError())
+                    return
+                }
                 once.continuation = continuation
                 // task-owner: the call's work; cancelled when the deadline or the caller's cancel answers first
                 once.task = Task { @MainActor in
@@ -39,7 +44,7 @@ enum PageCallDeadline {
     /// The continuation and the work's task; the first ``finish(_:)`` resumes, later ones are dropped.
     @MainActor
     private final class Once<T: Sendable> {
-        var continuation: CheckedContinuation<T, any Error>?
+        var continuation: OnceContinuation<T, any Error>?
         var task: Task<Void, Never>?
 
         var isWaiting: Bool { continuation != nil }
