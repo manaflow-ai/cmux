@@ -229,7 +229,8 @@ def stop_test_binary(path: str, limit: int) -> None:
     reports it failed and goes on (--no-fail-fast)."""
     pids = subprocess.run(["pgrep", "-f", path], capture_output=True, text=True, check=False).stdout.split()
     for pid in pids:
-        subprocess.run(["pkill", "-TERM", "-P", pid], check=False)
+        # A daemon stays up on SIGTERM (docs/cloud-guest-upgrades.md); these are test daemons.
+        subprocess.run(["pkill", "-KILL", "-P", pid], check=False)
         subprocess.run(["kill", "-TERM", pid], check=False)
     print(f"SWEEP stopped {path} after {limit} s ({len(pids)} processes)", flush=True)
 
