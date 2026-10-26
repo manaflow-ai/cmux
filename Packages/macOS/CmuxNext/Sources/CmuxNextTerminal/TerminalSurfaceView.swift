@@ -173,12 +173,9 @@ public final class TerminalSurfaceView: NSView {
     /// :627-629). `GHOSTTY_SURFACE_IO_MANUAL_MIRROR` for the daemon,
     /// `GHOSTTY_SURFACE_IO_MANUAL` for a bare PTY.
     private func createSurface(mode: ghostty_surface_io_mode_e, echoStages: TerminalEchoStages) {
-        let started = ContinuousClock.now
-        let signpost = TerminalTimings.signposter.beginInterval("createSurface")
-        defer {
-            TerminalTimings.signposter.endInterval("createSurface", signpost)
-            TerminalTimings.surfaceCreated(started.duration(to: .now))
-        }
+        let timings = TerminalTimings()
+        let signpost = timings.surfaceCreateBegan()
+        defer { timings.surfaceCreated(signpost) }
         guard let app = GhosttyRuntime.shared.app else { return }
         let userdata = bridge.toOpaque()
         var config = ghostty_surface_config_new()
