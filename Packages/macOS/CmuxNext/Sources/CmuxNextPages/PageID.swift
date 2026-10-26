@@ -69,6 +69,7 @@ public extension PageDescriptor {
             throw .reservedNamespace(reserved)
         }
         // An app's own content decides what sits under a click that only brings the window forward.
-        return PageDescriptor(id: host, resource: resource, namespaces: namespaces, acceptsFirstMouse: false)
+        // Its content is the app's own, so it shares a renderer with no other page.
+        return PageDescriptor(id: host, resource: resource, processGroup: .solo, namespaces: namespaces, acceptsFirstMouse: false)
     }
 }

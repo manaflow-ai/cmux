@@ -14,6 +14,7 @@ use std::process::{ChildStderr, ChildStdin, ChildStdout};
 
 use crate::child::Child;
 use crate::command::Command;
+use crate::fd::dup_above;
 use crate::stdio::{Kind, Stdio};
 
 // From <spawn.h>; not bound by the pinned libc.
@@ -23,6 +24,10 @@ unsafe extern "C" {
     fn posix_spawn_file_actions_addchdir_np(
         actions: *mut libc::posix_spawn_file_actions_t,
         path: *const libc::c_char,
+    ) -> libc::c_int;
+    fn posix_spawn_file_actions_addfchdir_np(
+        actions: *mut libc::posix_spawn_file_actions_t,
+        fd: libc::c_int,
     ) -> libc::c_int;
     fn posix_spawn_file_actions_addinherit_np(
         actions: *mut libc::posix_spawn_file_actions_t,
@@ -55,12 +60,23 @@ enum Start {
 
 fn start(command: &mut Command, how: Start) -> io::Result<Child> {
     let env = child_env(command);
-    let path = resolve(&command.program, command, &env)?;
-    let argv0 = command.arg0.clone().unwrap_or_else(|| command.program.clone());
-    let argv: Vec<CString> = std::iter::once(&argv0)
-        .chain(&command.args)
-        .map(|arg| c_string(arg))
-        .collect::<io::Result<_>>()?;
+    let program = resolve(&command.program, command, &env)?;
+    let (path, argv) = match command.open_file_limit {
+        None => {
+            let argv0 = command.arg0.clone().unwrap_or_else(|| command.program.clone());
+            (program, std::iter::once(argv0).chain(command.args.iter().cloned()).collect())
+        }
+        Some(soft) => {
+            if command.arg0.is_some() {
+                return Err(io::Error::new(
+                    io::ErrorKind::InvalidInput,
+                    "open_file_limit cannot keep an arg0 on macOS",
+                ));
+            }
+            open_file_limit_launcher(soft, program, &command.args)?
+        }
+    };
+    let argv: Vec<CString> = argv.iter().map(|arg| c_string(arg)).collect::<io::Result<_>>()?;
     let envp: Vec<CString> = env
         .iter()
         .map(|(key, value)| {
@@ -72,6 +88,9 @@ fn start(command: &mut Command, how: Start) -> io::Result<Child> {
         .collect::<io::Result<_>>()?;
     let path = c_string(path.as_os_str())?;
     let cwd = command.cwd.as_ref().map(|dir| c_string(dir.as_os_str())).transpose()?;
+    // Open until the spawn returned; the child changes to it before its exec
+    // (close-on-exec, so it is not passed on).
+    let cwd_fd = command.cwd_fd.take();
 
     // The child's descriptor plan: (source, target). Parent ends of pipes
     // go to the Child; the child ends and every source close after the spawn.
@@ -161,6 +180,14 @@ fn start(command: &mut Command, how: Start) -> io::Result<Child> {
             check(libc::posix_spawnattr_setpgroup(&mut setup.attr, pgid))?;
         }
         check(libc::posix_spawnattr_setflags(&mut setup.attr, flags))?;
+        // The directory first: a later dup2 may reuse the number of the
+        // descriptor `cwd_fd` holds.
+        if let Some(dir) = &cwd {
+            check(posix_spawn_file_actions_addchdir_np(&mut setup.actions, dir.as_ptr()))?;
+        }
+        if let Some(dir) = &cwd_fd {
+            check(posix_spawn_file_actions_addfchdir_np(&mut setup.actions, dir.as_raw_fd()))?;
+        }
         for (source, target) in &plan {
             check(match source {
                 Source::DevNull => libc::posix_spawn_file_actions_addopen(
@@ -190,9 +217,6 @@ fn start(command: &mut Command, how: Start) -> io::Result<Child> {
                 ),
             })?;
         }
-        if let Some(dir) = &cwd {
-            check(posix_spawn_file_actions_addchdir_np(&mut setup.actions, dir.as_ptr()))?;
-        }
     }
     let mut argv_ptrs: Vec<*mut libc::c_char> =
         argv.iter().map(|arg| arg.as_ptr().cast_mut()).collect();
@@ -214,6 +238,7 @@ fn start(command: &mut Command, how: Start) -> io::Result<Child> {
         )
     })?;
     drop(plan);
+    drop(cwd_fd);
     let [stdin, stdout, stderr] = parents;
     Ok(Child::from_pid(
         pid,
@@ -267,6 +292,33 @@ impl Drop for Setup {
             libc::posix_spawnattr_destroy(&mut self.attr);
         }
     }
+}
+
+/// `Command::open_file_limit`: the path and argv of `/bin/sh -c 'ulimit -S
+/// -n N; exec "$@"' sh <program> <args>`, which sets the soft limit and
+/// execs the program in the same process. The program was resolved first,
+/// so a missing one still fails the spawn.
+fn open_file_limit_launcher(
+    soft: u64,
+    program: PathBuf,
+    args: &[OsString],
+) -> io::Result<(PathBuf, Vec<OsString>)> {
+    let mut limit = libc::rlimit { rlim_cur: 0, rlim_max: 0 };
+    // SAFETY: `limit` is valid storage for one rlimit.
+    if unsafe { libc::getrlimit(libc::RLIMIT_NOFILE, &raw mut limit) } != 0 {
+        return Err(io::Error::last_os_error());
+    }
+    let soft = soft.min(limit.rlim_max);
+    let shell = PathBuf::from("/bin/sh");
+    let mut argv = vec![
+        shell.clone().into_os_string(),
+        OsString::from("-c"),
+        OsString::from(format!("ulimit -S -n {soft}; exec \"$@\"")),
+        OsString::from("sh"),
+        program.into_os_string(),
+    ];
+    argv.extend(args.iter().cloned());
+    Ok((shell, argv))
 }
 
 /// The child's environment: this process's (unless cleared) with the
@@ -333,17 +385,6 @@ fn pipe() -> io::Result<(OwnedFd, OwnedFd)> {
         }
     }
     Ok(ends)
-}
-
-/// A close-on-exec copy of `fd` numbered `floor` or more.
-fn dup_above(fd: &OwnedFd, floor: RawFd) -> io::Result<OwnedFd> {
-    // SAFETY: F_DUPFD_CLOEXEC returns a new descriptor or -1.
-    let copy = unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_DUPFD_CLOEXEC, floor) };
-    if copy < 0 {
-        return Err(io::Error::last_os_error());
-    }
-    // SAFETY: a new descriptor this function owns.
-    Ok(unsafe { OwnedFd::from_raw_fd(copy) })
 }
 
 fn c_string(value: &OsStr) -> io::Result<CString> {

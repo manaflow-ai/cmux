@@ -251,30 +251,57 @@ pub(super) fn intercept(
     })
 }
 
-/// Every frame of a remote client, from the top of the connection handler:
-/// one path, so no local router or error path (url-open, vt-state,
-/// shutdown, the pending-handoff refusal, a bad-request text) ever answers
-/// a remote client. Refusals are codes only.
+/// Tests: [`handle_watched_frame`] with no request watch.
+#[cfg(test)]
 pub(super) fn handle_frame(
     mux: &Arc<Mux>,
     client: u64,
     message: &str,
     writer: &MessageWriter,
 ) -> bool {
+    handle_watched_frame(mux, client, message, writer, None)
+}
+
+/// Every frame of a remote client, from the top of the connection handler:
+/// one path, so no local router or error path (url-open, vt-state,
+/// shutdown, the pending-handoff refusal, a bad-request text) ever answers
+/// a remote client. Refusals are codes only. `watched` is the connection's
+/// request watch, named here by the handler the frame is in.
+pub(super) fn handle_watched_frame(
+    mux: &Arc<Mux>,
+    client: u64,
+    message: &str,
+    writer: &MessageWriter,
+    watched: Option<&super::RequestScope<'_>>,
+) -> bool {
+    let stage = |stage: super::FrameStage| {
+        if let Some(scope) = watched {
+            scope.set_method(super::WatchedMethod::frame(stage));
+        }
+    };
     if mux.daemon_handoff_in_progress() {
         return writer.send_control(&refusal(message, REMOTE_ERROR)).is_ok();
     }
     // The seven `fs-v1` ops (exactly; fs_wire.rs) have their own owner and
     // checks, outside the conversation allowlist.
     #[cfg(unix)]
-    if let Some(keep_open) = super::fs_wire::try_handle(mux, client, message, writer) {
-        return keep_open;
+    {
+        stage(super::FrameStage::Fs);
+        if let Some(keep_open) = super::fs_wire::try_handle(mux, client, message, writer) {
+            return keep_open;
+        }
     }
+    stage(super::FrameStage::RemoteRelay);
     if gate::check_frame(message).is_err() {
         return writer.send_control(&refusal(message, REMOTE_DENIED)).is_ok();
     }
     match serde_json::from_str::<super::Request>(message) {
-        Ok(request) => super::handle_request(mux, client, request, writer),
+        Ok(request) => {
+            if let Some(scope) = watched {
+                scope.command(&request.cmd);
+            }
+            super::handle_request(mux, client, request, writer)
+        }
         Err(_) => writer.send_control(&refusal(message, REMOTE_ERROR)).is_ok(),
     }
 }

@@ -1592,7 +1592,30 @@ class ServerStatsResult:
     uptime_ms: int
     request_path_io: Union[ServerStatsRequestPathIo, MissingType] = field(default=MISSING)
     resource_projection: Union[ServerStatsResourceProjection, MissingType] = field(default=MISSING)
+    slow_requests: Union[ServerStatsSlowRequests, MissingType] = field(default=MISSING)
     write_path: Union[ServerStatsWritePath, MissingType] = field(default=MISSING)
+
+
+@dataclass(frozen=True)
+class ServerStatsSlowRequest:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsSlowRequest'
+    client: int
+    busy_ms: int
+    duration_ms: Union[int, None]
+    method: str
+    started_ms: int
+
+
+@dataclass(frozen=True)
+class ServerStatsSlowRequests:
+    __cmux_schema_path__: ClassVar[str] = 'types/ServerStatsSlowRequests'
+    expected_waits: int
+    recent: List[ServerStatsSlowRequest]
+    spawn_failures: int
+    threshold_ms: int
+    total: int
+    unwatched: int
+    watchdog_wakeups: int
 
 
 @dataclass(frozen=True)
@@ -6139,6 +6162,8 @@ __all__ = [
     'ServerStatsRequestPathSite',
     'ServerStatsResourceProjection',
     'ServerStatsResult',
+    'ServerStatsSlowRequest',
+    'ServerStatsSlowRequests',
     'ServerStatsWritePath',
     'SetCellPixelsResult',
     'SetHostSizePolicyResult',

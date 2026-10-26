@@ -36,20 +36,6 @@ final class LineTransport: Sendable {
     /// reports it: a line is a few microseconds, so 100 ms means the reader thread is stuck.
     static let lineHangDeadline: Duration = .milliseconds(100)
 
-    enum Waiter {
-        case reply(cmd: String, ReplySlot)
-        case discard(cmd: String, onError: (@Sendable (DaemonError) -> Void)?)
-        /// Its deadline passed; the late reply is dropped. The id stays in
-        /// `order` so an id-less error still maps to the right request.
-        case expired(cmd: String)
-
-        var cmd: String {
-            switch self {
-            case .reply(let cmd, _), .discard(let cmd, _), .expired(let cmd): cmd
-            }
-        }
-    }
-
     private struct State {
         var nextID: UInt64 = 1
         var pending: [UInt64: Waiter] = [:]
@@ -57,8 +43,11 @@ final class LineTransport: Sendable {
         var order: [UInt64] = []
         var closed: TransportCloseReason?
         var sawShutdown = false
-        /// Events routed so far; responses capture it as their barrier.
+        /// Stream-0 events routed so far (raw events and `controlStreams`
+        /// lines); responses capture it as their barrier.
         var eventCount: UInt64 = 0
+        /// Streams the daemon writes in its reply FIFO (`session.events`).
+        var controlStreams: Set<String> = []
         /// Gets resource API stream lines (`stream_item`, `stream_end`).
         var streamHandler: (@Sendable (_ streamID: String, _ line: Data) -> Void)?
 
@@ -204,6 +193,11 @@ final class LineTransport: Sendable {
 
     var isClosed: Bool { state.withLock { $0.closed != nil } }
     func setStreamHandler(_ handler: (@Sendable (_ streamID: String, _ line: Data) -> Void)?) { state.withLock { $0.streamHandler = handler } }
+
+    /// Counts `streamID`'s lines as stream-0 events until its `stream_end`;
+    /// call before the request that opens it, `endControlSequence` if that fails.
+    func routeOnControlSequence(streamID: String) { _ = state.withLock { $0.controlStreams.insert(streamID) } }
+    func endControlSequence(streamID: String) { _ = state.withLock { $0.controlStreams.remove(streamID) } }
 
     /// Sends one command and returns the raw `ok:true` response line.
     /// `body` receives the allocated id and returns the encoded JSON object
@@ -387,8 +381,11 @@ final class LineTransport: Sendable {
         onClose(reason)
     }
 
-    /// Events routed so far. Read after a command's reply, it bounds every
-    /// event the daemon emitted before that reply (a write barrier).
+    /// Stream-0 events routed so far; a reply captures it as its barrier.
+    /// After p05-ipc-120 it bounds every event the daemon emitted before that
+    /// reply (cmux-tui/spec/transports.md "Reply and event order", rule 2).
+    /// Until then the daemon's subscription hop can write the reply before
+    /// the request's own events, so the barrier can miss them.
     var routedEventCount: UInt64 { state.withLock { $0.eventCount } }
 
     /// Routes one line inside a hang scope of ``lineHangDeadline`` (Chrome watches each IO-thread task
@@ -408,9 +405,24 @@ final class LineTransport: Sendable {
         // travels with the raw events, in socket order (`session.events`).
         let streamed = envelope.type == "stream_item" || envelope.type == "stream_end"
         let streamKind: DaemonWireStats.FrameKind = envelope.type == "stream_end" ? .streamEnd : .streamItem
-        if streamed, let streamID = envelope.streamID, let handler = state.withLock({ $0.streamHandler }) {
-            recorder?.lineRead(streamKind)
-            return handler(streamID, line)
+        if streamed, let streamID = envelope.streamID {
+            let streamRoute = state.withLock { state -> StreamRoute in
+                if state.controlStreams.contains(streamID) {
+                    if envelope.type == "stream_end" { state.controlStreams.remove(streamID) }
+                    return .control
+                }
+                if let handler = state.streamHandler { return .handler(handler) }
+                return .unrouted
+            }
+            switch streamRoute {
+            case .control: break
+            case .handler(let handler):
+                recorder?.lineRead(streamKind)
+                return handler(streamID, line)
+            case .unrouted:
+                recorder?.lineRead(.ignored)
+                return
+            }
         }
         if let name = streamed ? Self.streamEvent : envelope.event {
             let index = state.withLock { state -> UInt64 in

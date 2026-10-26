@@ -22,7 +22,8 @@ extension BrowserHibernation {
             return PageProbe(playingMedia: muted || floating || (object["media"] ?? true), editedForm: busy.editedForm ?? object["form"] ?? true,
                              capturing: busy.capturing, webAudio: busy.audio, beforeUnload: busy.beforeUnload,
                              unloadHandler: busy.unloadHandler, webRTC: busy.webRTC,
-                             connectedDevice: busy.connectedDevice, unreadableFrame: busy.unreadableFrame)
+                             connectedDevice: busy.connectedDevice, unreadableFrame: busy.unreadableFrame,
+                             audible: object["sound"] == true || busy.audio)
         } catch {
             return unanswered(tab)
         }
@@ -37,6 +38,28 @@ extension BrowserHibernation {
         let media = tab.state.media
         let playing = media.map { $0.isAudible || ($0.isPlaying && tab.state.isAudioMuted) || $0.isPictureInPicture } ?? false
         return PageProbe(playingMedia: playing, answered: false)
+    }
+
+    /// The host of the page tab `key` shows (Never Hibernate This Site); nil for none.
+    func host(of key: String) -> String? {
+        guard let host = cache?.browsers[key]?.tab.state.url?.host(), !host.isEmpty else { return nil }
+        return host
+    }
+
+    /// An agent called hidden page `key` within `agentGrace` or holds its lease (its next call
+    /// would wait on a thaw); what the page shows then is the agent's doing.
+    func isAgentDriven(_ key: String) -> Bool {
+        if let used = agentUsedAt[key], ContinuousClock.now - used < .seconds(Self.agentGrace) { return true }
+        return leased.contains(key)
+    }
+
+    /// Watches hidden page `key`'s title and icon (`PageActivityWatch`, when on): the first change
+    /// of the page's own keeps it from the timeout and from freezing until it shows
+    /// (`DiscardRule.backgroundActivity`); an agent's changes do not count.
+    func watchActivity(_ key: String, _ tab: any BrowserTab) {
+        activity.hide(key, look: { [weak tab] in
+            tab.map { PageBackgroundActivity.Look(document: $0.state.documentGeneration, title: $0.state.title, icon: $0.state.faviconURL) }
+        }, isAgentDriven: { [weak self] in self?.isAgentDriven(key) ?? false }, onActive: { [weak self] in self?.replan() })
     }
 
     /// The planner's facts of hidden page `key`, before any probe (`PageProbe.fill(_:)` adds its answer).
@@ -54,7 +77,29 @@ extension BrowserHibernation {
         candidate.isDownloading = isDownloading(key)
         candidate.hasAgentLease = leased.contains(key)
         candidate.allowsNotifications = (tab as? any BrowserHibernationSource)?.allowsNotifications ?? false
+        candidate.hasBackgroundActivity = activity.contains(key)
+        if let audible {
+            // The tab's own media report keeps it with no probe; the end of its sound starts the minute.
+            candidate.isAudible = (tab as? any BrowserAudibleReporting)?.isAudible == true
+            candidate.secondsSinceAudible = audible.secondsSinceAudible(key)
+        }
         return candidate
+    }
+
+    /// Page `page` became tab `key`'s page (`TabContentCache.mount`: a new tab, a swap, a restore,
+    /// a stand-in's move): with `recentlyAudibleProtection` its sound is followed from now on, shown
+    /// or hidden, through its one audible bit (`BrowserAudibleReporting`), as Chrome's page node
+    /// follows its audio from creation. A page that plays nothing (a hibernated placeholder, an app
+    /// page) drops the old page's watch.
+    func pageDidMount(_ key: String, _ page: any BrowserTab) {
+        guard let audible else { return }
+        guard let speaker = page as? any BrowserAudibleReporting else { return audible.unwatch(key) }
+        audible.watch(key, speaker) { [weak speaker] in speaker?.isAudible == true }
+    }
+
+    /// A page's sound ended: a hidden page is planned again, so its minute's end joins the deadline.
+    func soundDidEnd(_ key: String) {
+        if cache?.lifecycle.phase(key) == .mountedHidden { replan() }
     }
 
     /// Whether hidden page `key` would ask before it unloads (`BrowserTab.asksBeforeUnload()`): runs
