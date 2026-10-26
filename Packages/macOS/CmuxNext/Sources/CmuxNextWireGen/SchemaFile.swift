@@ -9,6 +9,7 @@ struct SchemaFile<Header: Decodable> {
         let path = url.path(percentEncoded: false)
         let bytes: Data
         do {
+            // blocking-allow: a host build tool's one-shot CLI, never the app; it imports no CmuxNextCompat so a Compat edit does not rerun the generator.
             bytes = try Data(contentsOf: url)
         } catch {
             throw WireGenError.unreadable(path: path, reason: "\(error)")

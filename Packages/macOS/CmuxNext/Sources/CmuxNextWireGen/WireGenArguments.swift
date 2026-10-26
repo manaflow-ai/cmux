@@ -54,10 +54,9 @@ struct GeneratedFile {
     /// Writes `text` atomically, so a build that stops mid-write never compiles half a file.
     func write(_ text: String) throws(WireGenError) {
         do {
-            try FileManager.default.createDirectory(
-                at: url.deletingLastPathComponent(),
-                withIntermediateDirectories: true
-            )
+            // blocking-allow: a host build tool's one-shot CLI, never the app; it imports no CmuxNextCompat so a Compat edit does not rerun the generator.
+            try FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            // blocking-allow: the same host build tool writing its one output file.
             try Data(text.utf8).write(to: url, options: .atomic)
         } catch {
             throw WireGenError.unwritable(path: url.path(percentEncoded: false), reason: "\(error)")
