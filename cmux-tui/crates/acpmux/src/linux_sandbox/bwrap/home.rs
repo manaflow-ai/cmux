@@ -238,7 +238,7 @@ pub(super) fn rebuild(
             .map_err(|e| format!("HOME lookup refused at {}: {e}", dir.display()))?;
         let parent_fd = parent.as_raw_fd();
         let pinned = PathBuf::from(format!("/proc/self/fd/{parent_fd}"));
-        let children = match fs::read_dir(&pinned) {
+        let mut children = match fs::read_dir(&pinned) {
             Ok(entries) => entries
                 .map(|entry| {
                     let entry = entry?;
