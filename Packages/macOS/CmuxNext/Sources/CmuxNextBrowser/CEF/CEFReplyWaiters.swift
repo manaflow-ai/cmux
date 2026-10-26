@@ -1,3 +1,4 @@
+import CmuxSafeConcurrency
 import Foundation
 
 /// Continuations waiting for a reply by key, each with a deadline on the
@@ -8,7 +9,7 @@ import Foundation
 @MainActor
 final class CEFReplyWaiters<Key: Hashable & Sendable, Value: Sendable> {
     private struct Waiter {
-        let continuation: CheckedContinuation<Value, any Error>
+        let continuation: OnceContinuation<Value, any Error>
         let deadline: Task<Void, Never>
 
         func finish(_ result: Result<Value, any Error>) {
@@ -33,7 +34,7 @@ final class CEFReplyWaiters<Key: Hashable & Sendable, Value: Sendable> {
 
     /// Suspends until `resolve(key, ...)`, failing with `timeoutError` after `timeout`.
     func reply(for key: Key, timeout: Duration, timeoutError: @escaping @Sendable () -> any Error) async throws -> Value {
-        try await withCheckedThrowingContinuation { continuation in
+        try await withOnceThrowingContinuation { continuation in
             let clock = clock
             let deadline = Task { [weak self] in
                 // wakeup-allow: one-shot DevTools reply deadline (5 s), cancelled when the reply arrives

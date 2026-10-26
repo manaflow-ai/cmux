@@ -1,4 +1,5 @@
 import CmuxNextCompat
+import CmuxSafeConcurrency
 public import CmuxNextDaemon
 import CmuxNextDesign
 public import CmuxNextHome
@@ -140,7 +141,7 @@ public final class HomeDock {
         let respawn: SplitRespawn? = stays || alone ? nil : .terminal(SpawnOptions(workspace: workspace()?.key))
         moveInFlight = true
         defer { moveInFlight = false }
-        let moved = await withCheckedContinuation { (done: CheckedContinuation<Bool, Never>) in
+        let moved = await withOnceContinuation(ifDropped: false) { (done: OnceContinuation<Bool, Never>) in
             dock(placed.tab, placed.pane, respawn, alone) { done.resume(returning: $0) }
         }
         guard moved else { return "home dock move failed (see the app log)" }

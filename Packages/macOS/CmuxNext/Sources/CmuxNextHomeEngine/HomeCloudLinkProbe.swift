@@ -1,5 +1,6 @@
 import Foundation
 import CmuxNextCompat
+import CmuxSafeConcurrency
 
 #if DEBUG
 /// What a `HomeCloudLink` started and tests wait for: the main-actor hops
@@ -22,7 +23,7 @@ nonisolated final class HomeCloudLinkProbe: Sendable {
 
     private struct Waiter {
         var ready: @Sendable (Counts) -> Bool
-        var continuation: CheckedContinuation<Void, Never>
+        var continuation: OnceContinuation<Void, Never>
     }
 
     private struct State {
@@ -31,7 +32,7 @@ nonisolated final class HomeCloudLinkProbe: Sendable {
         var waiters: [Int: Waiter] = [:]
     }
 
-    private let state = Mutex(State())
+    private let state = CmuxNextCompat.Mutex(State())
 
     var counts: Counts { state.withLock { $0.counts } }
     var fires: Int { counts.fires }
@@ -50,7 +51,7 @@ nonisolated final class HomeCloudLinkProbe: Sendable {
             return state.nextID
         }
         await withTaskCancellationHandler {
-            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            await withOnceContinuation(ifDropped: ()) { (continuation: OnceContinuation<Void, Never>) in
                 let done = state.withLock { state -> Bool in
                     if ready(state.counts) || Task.isCancelled { return true }
                     state.waiters[id] = Waiter(ready: ready, continuation: continuation)
@@ -64,7 +65,7 @@ nonisolated final class HomeCloudLinkProbe: Sendable {
     }
 
     private func change(_ body: (inout Counts) -> Void) {
-        let woken = state.withLock { state -> [CheckedContinuation<Void, Never>] in
+        let woken = state.withLock { state -> [OnceContinuation<Void, Never>] in
             body(&state.counts)
             let counts = state.counts
             let ready = state.waiters.filter { $0.value.ready(counts) }

@@ -1,3 +1,4 @@
+import CmuxSafeConcurrency
 import Foundation
 
 // HomeStore's attachment upload pipeline: upload passes, the per-conversation
@@ -117,7 +118,7 @@ extension HomeStore {
     func waitForTurn(_ key: IdempotencyKey, in conversation: ConversationID) async {
         guard !stopped, let keys = sendQueue[conversation], keys.contains(key), keys.first != key else { return }
         log.setQueued(key, true)
-        await withCheckedContinuation { turnWaiters[key] = $0 }
+        await withOnceContinuation(ifDropped: ()) { turnWaiters[key] = $0 }
         log.setQueued(key, false)
     }
 

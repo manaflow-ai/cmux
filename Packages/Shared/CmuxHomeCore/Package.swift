@@ -19,11 +19,16 @@ let package = Package(
     dependencies: [
         // Agent questions (plans/cmux-next/agent-questions.md): the `question` part's model.
         .package(path: "../CmuxAgentQuestion"),
+        // OnceContinuation (plans/cmux-next/chrome-parity/p10-stability.md).
+        .package(path: "../CmuxSafeConcurrency"),
     ],
     targets: [
         .target(
             name: "CmuxHomeCore",
-            dependencies: [.product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion")],
+            dependencies: [
+                .product(name: "CmuxAgentQuestion", package: "CmuxAgentQuestion"),
+                .product(name: "CmuxSafeConcurrency", package: "CmuxSafeConcurrency"),
+            ],
             swiftSettings: [.swiftLanguageMode(.v6)]
         ),
         // One condition-polling wait for every suite (no per-suite yield loops).

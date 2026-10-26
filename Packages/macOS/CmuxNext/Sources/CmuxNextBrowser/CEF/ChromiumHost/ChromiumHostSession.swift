@@ -1,3 +1,4 @@
+import CmuxSafeConcurrency
 public import AppKit
 import Darwin
 import Observation
@@ -51,8 +52,8 @@ public final class ChromiumHostSession {
     private var closing = false
     private var geometry: ChromiumHostGeometry?
     private var seq: UInt32 = 0
-    private var pongs: [UInt32: CheckedContinuation<ChromiumHostFrame?, Never>] = [:]
-    private var statsWaiters: [CheckedContinuation<ChromiumHostFrame?, Never>] = []
+    private var pongs: [UInt32: OnceContinuation<ChromiumHostFrame?, Never>] = [:]
+    private var statsWaiters: [OnceContinuation<ChromiumHostFrame?, Never>] = []
     private var tasks: [Task<Void, Never>] = []
 
     public init(configuration: ChromiumHostConfiguration) {
@@ -116,7 +117,7 @@ public final class ChromiumHostSession {
             let sent = clock_gettime_nsec_np(CLOCK_UPTIME_RAW)
             var frame = ChromiumHostFrame(.ping, t0: sent)
             frame.seq = id
-            let pong = await withCheckedContinuation { continuation in
+            let pong = await withOnceContinuation(ifDropped: nil) { (continuation: OnceContinuation<ChromiumHostFrame?, Never>) in
                 pongs[id] = continuation
                 if !send(frame) { pongs.removeValue(forKey: id)?.resume(returning: nil) }
             }
@@ -129,7 +130,7 @@ public final class ChromiumHostSession {
     /// The host's input timing: from each event's time in cmux to the host's
     /// `Send*Event` on its UI thread, in microseconds.
     public func hostInputStats() async -> [String: Int]? {
-        let reply = await withCheckedContinuation { continuation in
+        let reply = await withOnceContinuation(ifDropped: nil) { (continuation: OnceContinuation<ChromiumHostFrame?, Never>) in
             statsWaiters.append(continuation)
             if !send(ChromiumHostFrame(.stats)) { statsWaiters.removeLast().resume(returning: nil) }
         }

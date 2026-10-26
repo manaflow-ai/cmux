@@ -1,3 +1,4 @@
+import CmuxSafeConcurrency
 import Foundation
 import os
 
@@ -39,9 +40,10 @@ final class URLSessionHomeWireSocket: HomeWireSocket {
 
     func ping() async -> Bool {
         // A synchronous one-shot resume guard: URLSession may call the pong
-        // handler more than once while the socket tears down (lock carve-out).
+        // handler more than once while the socket tears down (lock carve-out), which is no bug for
+        // OnceContinuation's double-resume fault to report.
         let claimed = OSAllocatedUnfairLock(initialState: false)
-        return await withCheckedContinuation { (continuation: CheckedContinuation<Bool, Never>) in
+        return await withOnceContinuation(ifDropped: false) { (continuation: OnceContinuation<Bool, Never>) in
             task.sendPing { error in
                 let first = claimed.withLock { done -> Bool in
                     defer { done = true }

@@ -1,3 +1,4 @@
+import CmuxSafeConcurrency
 public import Foundation
 
 /// The Passwords page's saved sign-ins (plans/cmux-next/passwords.md 1.4): the fork's password
@@ -60,7 +61,7 @@ extension CEFEngine {
                                copy: @escaping (UnsafeRawBufferPointer) -> Void) async throws -> Bool {
         let shim = try await coreShim()
         let path = CEFRuntime.shared.profileCachePath(profile)
-        return try await withCheckedThrowingContinuation { continuation in
+        return try await withOnceThrowingContinuation { continuation in
             let box = PasswordRevealBox(copy: copy, continuation: continuation)
             let context = Unmanaged.passRetained(box).toOpaque()
             let started = path.withCString { pathText in
@@ -132,9 +133,9 @@ let cefPasswordRevealCallback: CEFShimLibrary.PasswordRevealCallback = { context
 /// One reveal in flight: the caller's copy closure and its continuation, resumed once.
 final class PasswordRevealBox {
     private let copy: (UnsafeRawBufferPointer) -> Void
-    private var continuation: CheckedContinuation<Bool, any Error>?
+    private var continuation: OnceContinuation<Bool, any Error>?
 
-    init(copy: @escaping (UnsafeRawBufferPointer) -> Void, continuation: CheckedContinuation<Bool, any Error>) {
+    init(copy: @escaping (UnsafeRawBufferPointer) -> Void, continuation: OnceContinuation<Bool, any Error>) {
         self.copy = copy
         self.continuation = continuation
     }

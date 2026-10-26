@@ -1,3 +1,4 @@
+import CmuxSafeConcurrency
 public import Foundation
 
 /// The memory store's own import and export (`optchat-chief memory`,
@@ -40,7 +41,7 @@ public nonisolated struct BundledChiefMemoryTool: ChiefMemoryTool {
         process.arguments = arguments
         process.standardOutput = FileHandle.nullDevice
         process.standardError = try FileHandle(forWritingTo: errors)
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+        try await withOnceThrowingContinuation { (continuation: OnceContinuation<Void, any Error>) in
             process.terminationHandler = { _ in continuation.resume() }
             do { try process.run() } catch {
                 process.terminationHandler = nil

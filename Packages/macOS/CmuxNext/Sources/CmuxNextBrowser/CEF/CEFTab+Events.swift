@@ -1,3 +1,4 @@
+import CmuxSafeConcurrency
 public import AppKit
 import Foundation
 
@@ -233,7 +234,7 @@ extension CEFTab {
 
     public func find(_ text: String, direction: BrowserFindDirection, caseSensitive: Bool) async -> BrowserFindResult {
         guard let browserID, !text.isEmpty, let shim = runtime.shim else { return .none }
-        return await withCheckedContinuation { continuation in
+        return await withOnceContinuation(ifDropped: BrowserFindResult.none) { (continuation: OnceContinuation<BrowserFindResult, Never>) in
             let findID = findRequests.begin(continuation)
             shim.find(browserID, findID, text, direction == .forward ? 1 : 0, caseSensitive ? 1 : 0, 1)
         }

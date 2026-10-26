@@ -1,4 +1,5 @@
 import CmuxNextCompat
+import CmuxSafeConcurrency
 import Darwin
 import Dispatch
 
@@ -44,12 +45,12 @@ public final class BackgroundWork: Sendable {
     private let lanes: [LaneScheduler]
     private let onQueued: @Sendable (BlockingLane, WorkPriority) -> Void
     // concurrency-allow: id counter and the shutdown count, read and written synchronously by submitters and lane threads (lock carve-out: a counter, no I/O under it).
-    private let state = Mutex(DrainState())
+    private let state = CmuxNextCompat.Mutex(DrainState())
 
     private struct DrainState {
         var nextID: UInt64 = 1
         var blocking = 0
-        var waiters: [CheckedContinuation<Void, Never>] = []
+        var waiters: [OnceContinuation<Void, Never>] = []
     }
 
     /// Creates the lanes.
@@ -121,7 +122,7 @@ public final class BackgroundWork: Sendable {
                                       _ body: @escaping @Sendable () throws -> T) async throws -> T {
         let scheduler = lanes[lane.rawValue]
         return try await withTaskCancellationHandler {
-            try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<T, any Error>) in
+            try await withOnceThrowingContinuation { (continuation: OnceContinuation<T, any Error>) in
                 let job = makeJob(id: id, shutdown: shutdown,
                                   work: { continuation.resume(with: Result { try body() }) },
                                   abandoned: { continuation.resume(throwing: CancellationError()) })
@@ -179,7 +180,7 @@ public final class BackgroundWork: Sendable {
         for lane in lanes {
             for job in lane.close() { job.abandon() }
         }
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+        await withOnceContinuation(ifDropped: ()) { (continuation: OnceContinuation<Void, Never>) in
             let now = state.withLock { state -> Bool in
                 if state.blocking == 0 { return true }
                 state.waiters.append(continuation)
@@ -202,7 +203,7 @@ public final class BackgroundWork: Sendable {
         if blocks { state.withLock { $0.blocking += 1 } }
         return LaneJob(id: id, shutdown: shutdown, work: work, abandoned: abandoned, done: { [self] in
             guard blocks else { return }
-            let waiters = state.withLock { state -> [CheckedContinuation<Void, Never>] in
+            let waiters = state.withLock { state -> [OnceContinuation<Void, Never>] in
                 state.blocking -= 1
                 guard state.blocking == 0 else { return [] }
                 defer { state.waiters = [] }

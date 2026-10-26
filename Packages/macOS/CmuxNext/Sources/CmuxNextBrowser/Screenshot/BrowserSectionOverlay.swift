@@ -1,3 +1,4 @@
+import CmuxSafeConcurrency
 public import AppKit
 
 /// The drag-to-select overlay of Screenshot Section: a borderless panel over
@@ -15,7 +16,7 @@ public import AppKit
 public final class BrowserSectionOverlay: NSObject, NSWindowDelegate {
     private let pageView: NSView
     private var panel: NSPanel?
-    private var continuation: CheckedContinuation<BrowserSectionSelection?, Never>?
+    private var continuation: OnceContinuation<BrowserSectionSelection?, Never>?
     private var started = false
 
     /// An overlay for `pageView` (a ``BrowserTab``'s `contentView`).
@@ -32,7 +33,7 @@ public final class BrowserSectionOverlay: NSObject, NSWindowDelegate {
         guard !started, let window = pageView.window else { return nil }
         started = true
         let frame = window.convertToScreen(pageView.convert(pageView.bounds, to: nil))
-        return await withCheckedContinuation { continuation in
+        return await withOnceContinuation(ifDropped: nil) { (continuation: OnceContinuation<BrowserSectionSelection?, Never>) in
             self.continuation = continuation
             let panel = BrowserSectionOverlayPanel(frame: frame)
             let view = BrowserSectionOverlayView(size: frame.size)

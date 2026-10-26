@@ -1,3 +1,4 @@
+import CmuxSafeConcurrency
 package import WebKit
 
 /// A script in a WebKit page without a user gesture (`BrowserScriptGesture.cmux`). Every public
@@ -99,7 +100,7 @@ package struct WebKitGestureFreeEvaluation {
     }
 
     private func answer(_ send: (@escaping Completion) -> Void) async throws -> BrowserJSValue {
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<BrowserJSValue, any Error>) in
+        try await withOnceThrowingContinuation { (continuation: OnceContinuation<BrowserJSValue, any Error>) in
             send { value, error in
                 if let error { continuation.resume(throwing: error) } else { continuation.resume(returning: BrowserJSValue(foundation: value)) }
             }

@@ -1,3 +1,4 @@
+import CmuxSafeConcurrency
 import Darwin
 import Foundation
 
@@ -88,7 +89,7 @@ nonisolated struct ChromiumHostLauncher: ChromiumHostLaunching {
     }
 
     func exit(of pid: pid_t) async -> ChromiumHostExit {
-        await withCheckedContinuation { continuation in
+        await withOnceContinuation(ifDropped: ChromiumHostExit(signal: nil, status: nil)) { (continuation: OnceContinuation<ChromiumHostExit, Never>) in
             // One blocked thread per host for its lifetime (no async process-exit
             // API for a posix_spawn'ed pid). WNOWAIT keeps the zombie until reap(_:).
             let thread = Thread {

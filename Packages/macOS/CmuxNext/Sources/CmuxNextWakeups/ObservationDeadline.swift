@@ -1,4 +1,5 @@
 import CmuxNextCompat
+import CmuxSafeConcurrency
 
 /// Waits until `condition` holds (an Observation of a store) or `limit`
 /// passes on a `DemandTimer`, whichever comes first; resumes once. An undo
@@ -6,7 +7,7 @@ import CmuxNextCompat
 /// CmuxNextApp, code-quality.md SW14).
 @MainActor
 public final class ObservationDeadline {
-    private var continuation: CheckedContinuation<Void, Never>?
+    private var continuation: OnceContinuation<Void, Never>?
     private var watch: Task<Void, Never>?
     private let timer: DemandTimer
 
@@ -15,7 +16,7 @@ public final class ObservationDeadline {
     }
 
     public func until(_ condition: @escaping @MainActor @Sendable () -> Bool, limit: Duration) async {
-        await withCheckedContinuation { continuation in
+        await withOnceContinuation(ifDropped: ()) { (continuation: OnceContinuation<Void, Never>) in
             self.continuation = continuation
             // task-owner: this wait (cancelled in finish); event-driven (Observation)
             watch = Task { @MainActor [weak self] in

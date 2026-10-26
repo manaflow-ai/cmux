@@ -1,6 +1,7 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 public import Foundation
 import CmuxNextCompat
+import CmuxSafeConcurrency
 
 /// DEBUG builds: one "new terminal action -> first visible prompt" timeline,
 /// stage by stage (`debug.new_terminal_trace`, cx-6so.58).
@@ -78,12 +79,12 @@ public final class NewTerminalTrace: Sendable {
         var current: Record?
         var watch = Watch()
         var finished: [Record] = []
-        var waiter: CheckedContinuation<Void, Never>?
+        var waiter: OnceContinuation<Void, Never>?
         var expired = false
     }
 
     private let armed = Atomic<Bool>(false)
-    private let state = Mutex(State())
+    private let state = CmuxNextCompat.Mutex(State())
 
     /// Whether a trace runs. Mark sites check it before anything else.
     public var isArmed: Bool { armed.load(ordering: .relaxed) }
@@ -105,7 +106,7 @@ public final class NewTerminalTrace: Sendable {
     /// Disarms the trace and keeps its record; nil when none ran.
     public func finish(timedOut: Bool) -> Record? {
         armed.store(false, ordering: .relaxed)
-        let (record, waiter) = state.withLock { state -> (Record?, CheckedContinuation<Void, Never>?) in
+        let (record, waiter) = state.withLock { state -> (Record?, OnceContinuation<Void, Never>?) in
             guard var record = state.current else { return (nil, nil) }
             record.timedOut = timedOut
             state.current = nil
@@ -228,7 +229,7 @@ public final class NewTerminalTrace: Sendable {
     /// first after the prompt's parse `prompt_contents`, which ends ``waitForPrompt(timeout:)``.
     public func contents(layer: ObjectIdentifier) {
         let now = Self.now()
-        let waiter = state.withLock { state -> CheckedContinuation<Void, Never>? in
+        let waiter = state.withLock { state -> OnceContinuation<Void, Never>? in
             guard var record = state.current, state.watch.layer == layer else { return nil }
             if record.marks[Mark.firstParsed.rawValue] != nil { record.set(.firstContents, now) }
             var prompted = false
@@ -252,7 +253,7 @@ public final class NewTerminalTrace: Sendable {
             expire()
         }
         defer { deadline.cancel() }
-        await withCheckedContinuation { (waiter: CheckedContinuation<Void, Never>) in
+        await withOnceContinuation(ifDropped: ()) { (waiter: OnceContinuation<Void, Never>) in
             let resumeNow = state.withLock { state -> Bool in
                 guard !state.expired, let record = state.current, record.marks[Mark.promptContents.rawValue] == nil else {
                     return true
@@ -266,7 +267,7 @@ public final class NewTerminalTrace: Sendable {
     }
 
     private func expire() {
-        let waiter = state.withLock { state -> CheckedContinuation<Void, Never>? in
+        let waiter = state.withLock { state -> OnceContinuation<Void, Never>? in
             state.expired = true
             defer { state.waiter = nil }
             return state.waiter

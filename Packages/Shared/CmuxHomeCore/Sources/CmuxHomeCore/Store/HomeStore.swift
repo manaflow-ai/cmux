@@ -1,3 +1,4 @@
+import CmuxSafeConcurrency
 import Foundation
 public import Observation
 
@@ -95,7 +96,7 @@ public final class HomeStore {
     /// cancelled or failed its upload. So a text sent while a photo uploads
     /// waits for the photo, and the owner commits them in that order.
     @ObservationIgnored var sendQueue: [ConversationID: [IdempotencyKey]] = [:]
-    @ObservationIgnored var turnWaiters: [IdempotencyKey: CheckedContinuation<Void, Never>] = [:]
+    @ObservationIgnored var turnWaiters: [IdempotencyKey: OnceContinuation<Void, Never>] = [:]
     /// Delayed resends (and upload passes) of sends that got no answer
     /// while the connection stayed up, and how many each has had.
     @ObservationIgnored var backoffTasks: [IdempotencyKey: Task<Void, Never>] = [:]

@@ -1,4 +1,5 @@
 public import Foundation
+import CmuxSafeConcurrency
 import Dispatch
 
 /// Starts and stops long-lived child processes (a stream, a helper) off the caller's thread, in call order.
@@ -47,7 +48,7 @@ public final class ProcessLauncher: Sendable {
     /// - Throws: the launch error.
     public func launched(_ process: Process) async throws {
         prepare(process)
-        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+        try await withOnceThrowingContinuation { (continuation: OnceContinuation<Void, any Error>) in
             queue.async {
                 do {
                     try process.run()

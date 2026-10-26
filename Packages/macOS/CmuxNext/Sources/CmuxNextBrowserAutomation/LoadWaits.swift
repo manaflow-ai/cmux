@@ -1,4 +1,5 @@
 import CmuxNextBrowser
+import CmuxSafeConcurrency
 public import CmuxNextWakeups
 import Foundation
 
@@ -196,7 +197,9 @@ final class LoadWaits {
         if ticket.navigation != nil, !started, loadingEnds > ticket.loadingEnds { return }
         if ticket.navigation == nil, generation > ticket.generation, let state, state >= target { return }
         let id = UUID()
-        let result: Result<Void, DriverError> = await withCheckedContinuation { continuation in
+        let dropped = DriverError(.closed, "\(what): the tab dropped its \(target.name) wait")
+        let result: Result<Void, DriverError> = await withOnceContinuation(ifDropped: .failure(dropped)) {
+            (continuation: OnceContinuation<Result<Void, DriverError>, Never>) in
             let timer = timeout.map { _ in DemandTimer(owner: "BrowserAutomation.loadWait") }
             waits[id] = Wait(target: target, navigation: ticket.navigation, followsNextNavigation: false, started: started,
                              requestedURL: ticket.requestedURL, generation: ticket.generation, timer: timer) {

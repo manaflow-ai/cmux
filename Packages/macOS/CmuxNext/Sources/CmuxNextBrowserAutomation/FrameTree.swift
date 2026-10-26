@@ -1,3 +1,4 @@
+import CmuxSafeConcurrency
 import Foundation
 public import WebKit
 
@@ -26,7 +27,7 @@ enum FrameTree {
         guard webView.responds(to: selector) else { return [] }
         let imp = unsafeBitCast(webView.method(for: selector), to: FramesIMP.self)
         // WebKit calls back on the main thread with the tree it owns.
-        let root = await withCheckedContinuation { (continuation: CheckedContinuation<UncheckedNode, Never>) in
+        let root = await withOnceContinuation(ifDropped: UncheckedNode(value: nil)) { (continuation: OnceContinuation<UncheckedNode, Never>) in
             imp(webView, selector) { node in continuation.resume(returning: UncheckedNode(value: node)) }
         }.value
         var out: [FrameRecord] = []

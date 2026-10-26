@@ -1,3 +1,4 @@
+import CmuxSafeConcurrency
 public import AuthenticationServices
 import Foundation
 
@@ -55,7 +56,7 @@ public final class WebKitPasskeyAuthorization {
         var state: State { Self.map(manager.authorizationStateForPlatformCredentials) }
 
         func request() async -> State {
-            await withCheckedContinuation { continuation in
+            await withOnceContinuation(ifDropped: State.notDetermined) { (continuation: OnceContinuation<State, Never>) in
                 manager.requestAuthorizationForPublicKeyCredentials { state in
                     continuation.resume(returning: Self.map(state))
                 }

@@ -1,4 +1,5 @@
 import CmuxAgentQuestion
+import CmuxSafeConcurrency
 public import Foundation
 import UniformTypeIdentifiers
 
@@ -62,7 +63,7 @@ public actor MockHomeSource: HomeSource {
     /// each belongs to its attachment's record.
     private var posterBlobs: [String: Data] = [:]
     private var uploadsPaused = false
-    private var pausedUploads: [UUID: CheckedContinuation<Void, Never>] = [:]
+    private var pausedUploads: [UUID: OnceContinuation<Void, Never>] = [:]
     /// Paused uploads whose task was cancelled before they registered.
     private var cancelledPauses: Set<UUID> = []
     private var failingUploads: [String: (times: Int, error: HomeRejection)] = [:]
@@ -77,7 +78,7 @@ public actor MockHomeSource: HomeSource {
     private var withheldEvents: [HomeEvent] = []
     /// True while `holdSubmits` holds every submit before the owner looks at it.
     private var holdingSubmits = false
-    private var heldSubmits: [CheckedContinuation<Void, Never>] = []
+    private var heldSubmits: [OnceContinuation<Void, Never>] = []
     /// The progress callback of every upload call, in call order (tests
     /// replay late callbacks with `replayProgress`).
     private var progressCallbacks: [@Sendable (Double) -> Void] = []
@@ -150,7 +151,7 @@ public actor MockHomeSource: HomeSource {
 
     public func submit(_ intent: HomeIntent) async throws -> HomeOpResult {
         if options.latency > .zero { try? await clock.sleep(for: options.latency) }
-        if holdingSubmits { await withCheckedContinuation { heldSubmits.append($0) } }
+        if holdingSubmits { await withOnceContinuation(ifDropped: ()) { heldSubmits.append($0) } }
         guard online else { throw HomeRejection.ownerUnreachable }
         if let failing = failingSubmits[intent.key] {
             failingSubmits[intent.key] = failing.times > 1 ? (failing.times - 1, failing.error) : nil
@@ -358,7 +359,7 @@ public actor MockHomeSource: HomeSource {
     private func pause() async throws {
         let id = UUID()
         await withTaskCancellationHandler {
-            await withCheckedContinuation { continuation in
+            await withOnceContinuation(ifDropped: ()) { (continuation: OnceContinuation<Void, Never>) in
                 if cancelledPauses.remove(id) != nil {
                     continuation.resume()
                 } else {

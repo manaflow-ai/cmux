@@ -1,3 +1,4 @@
+import CmuxSafeConcurrency
 public import Foundation
 
 /// A `HomeSource` over another one that can hold transcript reads until a
@@ -8,7 +9,7 @@ public final class GatedHomeSource: HomeSource, @unchecked Sendable {
     private let inner: any HomeSource
     private let lock = NSLock()
     private var holding = false
-    private var held: [CheckedContinuation<Void, Never>] = []
+    private var held: [OnceContinuation<Void, Never>] = []
     private var reads: [ConversationID] = []
     private var closed: [ConversationID] = []
     private var steps: [Step] = []
@@ -40,7 +41,7 @@ public final class GatedHomeSource: HomeSource, @unchecked Sendable {
 
     /// Lets every held read go, and stops holding.
     public func release() {
-        let waiters = lock.withLock { () -> [CheckedContinuation<Void, Never>] in
+        let waiters = lock.withLock { () -> [OnceContinuation<Void, Never>] in
             holding = false
             defer { held = [] }
             return held
@@ -52,7 +53,7 @@ public final class GatedHomeSource: HomeSource, @unchecked Sendable {
     public func inbox() async throws -> InboxSnapshot { try await inner.inbox() }
 
     public func snapshot(of conversation: ConversationID, tail: Int) async throws -> ConversationPage {
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+        await withOnceContinuation(ifDropped: ()) { (continuation: OnceContinuation<Void, Never>) in
             let wait = lock.withLock { () -> Bool in
                 reads.append(conversation)
                 steps.append(.read(conversation))

@@ -1,6 +1,7 @@
 package import CmuxNextAgentPane
 package import CmuxNextCompat
 package import CmuxNextWakeups
+import CmuxSafeConcurrency
 package import Foundation
 package import os
 
@@ -96,7 +97,7 @@ package import os
         // task-owner: this wait; cancelled when it ends, ends when the relay exits
         let watch = Task { if await router.waitUntilGone(pid: pid) { wake.wake() } }
         await withTaskCancellationHandler {
-            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            await withOnceContinuation(ifDropped: ()) { (continuation: OnceContinuation<Void, Never>) in
                 wake.begin(continuation)
                 renewal.schedule(after: wait) { wake.wake() }
             }
@@ -113,13 +114,13 @@ package import os
 /// a wake before the wait begins resumes it at once.
 private nonisolated final class RenewalWake: Sendable {
     private struct State {
-        var continuation: CheckedContinuation<Void, Never>?
+        var continuation: OnceContinuation<Void, Never>?
         var woken = false
     }
 
-    private let state = Mutex(State())
+    private let state = CmuxNextCompat.Mutex(State())
 
-    func begin(_ continuation: CheckedContinuation<Void, Never>) {
+    func begin(_ continuation: OnceContinuation<Void, Never>) {
         let woken = state.withLock { state -> Bool in
             if !state.woken { state.continuation = continuation }
             return state.woken
@@ -128,7 +129,7 @@ private nonisolated final class RenewalWake: Sendable {
     }
 
     func wake() {
-        let continuation = state.withLock { state -> CheckedContinuation<Void, Never>? in
+        let continuation = state.withLock { state -> OnceContinuation<Void, Never>? in
             state.woken = true
             defer { state.continuation = nil }
             return state.continuation

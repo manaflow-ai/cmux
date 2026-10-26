@@ -1,5 +1,6 @@
 #if DEBUG || CMUX_BENCH_HOOKS
 public import AppKit
+import CmuxSafeConcurrency
 
 /// DEBUG builds: one agent chat open, from the action to the chat's content on screen, stage by
 /// stage, in either engine (`debug.chat_open_trace`; Leo 2026-10-22: "flickers the initial thing
@@ -149,7 +150,7 @@ public final class ChatOpenTrace {
     private var surface: (() -> Surface)?
     private var engine: (() -> String)?
     private var sampler: FrameClient?
-    private var waiter: CheckedContinuation<Void, Never>?
+    private var waiter: OnceContinuation<Void, Never>?
 
     /// Arms a trace; false while one runs. A launch trace has no action: its origin is the arming.
     public func begin(launch: Bool = false) -> Bool {
@@ -248,7 +249,7 @@ public final class ChatOpenTrace {
         if chatShown { return true }
         let deadline = DemandTimer(owner: "chatOpenTrace.wait")
         deadline.schedule(after: timeout) { @MainActor [weak self] in self?.resume() }
-        await withCheckedContinuation { waiter = $0 }
+        await withOnceContinuation(ifDropped: ()) { waiter = $0 }
         deadline.cancel()
         return chatShown
     }
@@ -256,7 +257,7 @@ public final class ChatOpenTrace {
     /// Lets `duration` of frames be sampled before the caller finishes the trace.
     public func settle(for duration: Duration) async {
         let timer = DemandTimer(owner: "chatOpenTrace.settle")
-        await withCheckedContinuation { (done: CheckedContinuation<Void, Never>) in
+        await withOnceContinuation(ifDropped: ()) { (done: OnceContinuation<Void, Never>) in
             timer.schedule(after: duration) { @MainActor in done.resume() }
         }
         withExtendedLifetime(timer) {}

@@ -1,3 +1,4 @@
+import CmuxSafeConcurrency
 import AppKit
 import CmuxNextCompat
 import CmuxNextDesign
@@ -101,7 +102,7 @@ final class CEFRuntime {
     var earlySiteReplies: [Int32: CEFSiteReply] = [:]
     var nextSiteReply: Int32 = 1
     var shutdownSequence: CEFShutdownSequence?
-    var shutdownWaiter: CheckedContinuation<Void, Never>?
+    var shutdownWaiter: OnceContinuation<Void, Never>?
     var shutdownTimeout: Task<Void, Never>?
     /// Recent renderer and helper process failures (`debug.crashes`).
     let crashLog = BrowserCrashLog()

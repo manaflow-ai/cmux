@@ -1,3 +1,4 @@
+import CmuxSafeConcurrency
 import AppKit
 import Foundation
 import os
@@ -364,7 +365,7 @@ extension CEFRuntime {
         pump?.pumpNow()
         shutdownProgressed()
         if shutdownSequence?.phase != .readyToShutdown {
-            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            await withOnceContinuation(ifDropped: ()) { (continuation: OnceContinuation<Void, Never>) in
                 shutdownWaiter = continuation
                 shutdownTimeout = Task { @MainActor [weak self] in
                     // wakeup-allow: one-shot shutdown deadline, cancelled when Chromium reports closed

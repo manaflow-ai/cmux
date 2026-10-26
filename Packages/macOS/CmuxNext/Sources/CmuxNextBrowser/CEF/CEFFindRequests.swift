@@ -1,3 +1,4 @@
+import CmuxSafeConcurrency
 import Foundation
 
 /// The find-in-page request of one Chromium tab. Chromium answers each
@@ -5,12 +6,12 @@ import Foundation
 /// caller. A new search, Clear Find or the page ending answers a pending
 /// request with `.none`, so a caller never waits forever.
 struct CEFFindRequests {
-    private var continuation: CheckedContinuation<BrowserFindResult, Never>?
+    private var continuation: OnceContinuation<BrowserFindResult, Never>?
     private var nextID: Int32 = 1
 
     /// Starts a request (answering any pending one with `.none`) and returns
     /// the find id to pass to Chromium.
-    mutating func begin(_ continuation: CheckedContinuation<BrowserFindResult, Never>) -> Int32 {
+    mutating func begin(_ continuation: OnceContinuation<BrowserFindResult, Never>) -> Int32 {
         cancel()
         self.continuation = continuation
         defer { nextID += 1 }
