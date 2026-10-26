@@ -15,4 +15,8 @@ final class PageLoadState {
         isLoading = loading
         lifecycle?.pageReasonsDidChange(page)
     }
+
+    /// Sets the state with no call to the lifecycle: the lifecycle's own step changed it (a discard
+    /// ends the document, and a pass needs no second look at a page it just discarded).
+    func set(loading: Bool) { isLoading = loading }
 }

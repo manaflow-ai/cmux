@@ -62,6 +62,11 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     var chromiumDeadline: Duration = .seconds(8)
     /// The deadline's clock (tests pass one that returns at once or never).
     var chromiumClock: any Clock<Duration> = ContinuousClock()
+    /// The Chromium host the view was made with (its ``WebUIHost``'s); a discarded page makes its
+    /// Chromium page again through it (PageWebView+Discard.swift).
+    let chromiumHost: (any PageChromiumHosting)?
+    /// What the page keeps for its discard and shows while it comes back (PageWebView+Discard.swift).
+    var discardShell = PageDiscardShell()
     /// Makes Chromium pages: a forwarder the app sets once at startup to its ``WebUIHost``'s (``WebUIHost/chromium``), for
     /// views not yet made through ``WebUIHost/open(_:)``; removed by p13-webui-010. Nil keeps every page on WebKit (tests, a build without Chromium).
     public static var chromiumHosting: (any PageChromiumHosting)?
@@ -268,6 +273,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
         let constructionStart = openRequested ?? ProcessInfo.processInfo.systemUptime
         self.trace = trace
         self.descriptor = descriptor
+        chromiumHost = chromium
         engineOptions = options
         isPooled = pooled
         pooledOwner = nil
@@ -439,6 +445,7 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public override func layout() {
         super.layout()
         webView.frame = bounds
+        layoutDiscardCover()
         if !nativeRects.isEmpty { applyNativeRects() } // the unflipped Chromium view's rects move with the height
         // Not while the claim is pending: a refused document reloads, and its paint would end the
         // pane's hold before the reloaded one drew (finishClaim runs the probe on acknowledgement).
@@ -456,6 +463,8 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
     public func open(route: String) {
         let fragment = route.hasPrefix("#") ? route : "#" + route
         self.route = fragment
+        // A discarded page loads the route when it comes back; it has no document to show it in now.
+        if isDiscarded { return }
         guard loaded else {
             // Chromium mode before its page exists: the page loads `route` when it starts.
             if engineDecision.engine == .cef, chromiumSession == nil { return }
@@ -479,6 +488,8 @@ public final class PageWebView: NSView, PageSurface, WKNavigationDelegate {
 
     /// Reloads the page document (its subscriptions end with the old document).
     public func reload() {
+        // A discarded page loads its document when it shows again; there is none to reload now.
+        guard !isDiscarded else { return }
         reloadPage()
     }
 

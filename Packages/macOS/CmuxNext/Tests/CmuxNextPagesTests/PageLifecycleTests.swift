@@ -339,7 +339,7 @@ struct PageLifecycleTests {
 /// whose uptime only the test moves, and a main-thread scheduler whose posted work runs only in a
 /// hand-fired frame.
 @MainActor
-private final class LifecycleDeadlineRig {
+final class LifecycleDeadlineRig {
     let queue: MainWakeUpQueue
     let scheduler: MainDeadlineScheduler
     private let uptime: RigUptime

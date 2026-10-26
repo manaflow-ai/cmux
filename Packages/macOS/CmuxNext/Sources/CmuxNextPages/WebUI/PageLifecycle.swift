@@ -23,9 +23,9 @@ package protocol PageLifecycleTarget {
     func discard()
 }
 
-/// A ``PageWebView`` as the lifecycle drives it. The steps are no-ops until the engine steps land:
-/// freeze and thaw in p13-webui-028 (Chromium SetPageFrozen, WebKit hidden in its window), the
-/// discard in p13-webui-030.
+/// A ``PageWebView`` as the lifecycle drives it. Freeze, and thaw of a frozen page, are no-ops until
+/// p13-webui-028 (Chromium SetPageFrozen, WebKit hidden in its window); the discard ends the document
+/// and thaw brings a discarded page back behind its snapshot (PageWebView+Discard.swift).
 package struct PageWebViewLifecycle: PageLifecycleTarget {
     package private(set) weak var view: PageWebView?
 
@@ -49,8 +49,8 @@ package struct PageWebViewLifecycle: PageLifecycleTarget {
     package func reportsReasonChanges(to lifecycle: PageLifecycle) { view?.loadState.lifecycle = lifecycle }
 
     package func freeze() {}
-    package func thaw() {}
-    package func discard() {}
+    package func thaw() { view?.restoreDiscardedPage() }
+    package func discard() { view?.discardPage() }
 }
 
 /// The page lifecycle controller (plans/cmux-next/chrome-parity/p13-webui.md 3.C): it takes each

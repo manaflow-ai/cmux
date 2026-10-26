@@ -2,7 +2,7 @@
 // held events arrive as one `evs` envelope and are handled in order as if sent one by one, and a
 // stream that lost events while the page was hidden passes `gap` to its subscriber so it reads again.
 import { describe, expect, test } from "bun:test";
-import { BridgePageClient, type PageEventMeta, type ReplyHandler } from "./pageClient";
+import { BridgePageClient, RESTORE_NAME, takePageRestore, type PageEventMeta, type ReplyHandler } from "./pageClient";
 
 /** A host that answers every subscribe with the next sub id, from 7. */
 function makeClient(): BridgePageClient {
@@ -62,5 +62,30 @@ describe("pageClient held events", () => {
     await client.subscribe("cmux.test.state", (_data, _seq, meta) => metas.push(meta));
     client.receive({ t: "ev", sub: 7, seq: 1, data: {}, opid: "op-1" });
     expect(metas).toEqual([{ opid: "op-1" }]);
+  });
+});
+
+// A document that comes back after a discard (PageWebView+Discard.swift) reads the state its page
+// saved when it hid, once, before its first paint.
+describe("takePageRestore", () => {
+  test("a restored document gets its saved state once", () => {
+    const target: Record<string, unknown> = {
+      [RESTORE_NAME]: { wasDiscarded: true, state: { route: "#/a", scroll: 120 } },
+    };
+    expect(takePageRestore(target)).toEqual({ wasDiscarded: true, state: { route: "#/a", scroll: 120 } });
+    expect(takePageRestore(target)).toBeNull();
+    expect(RESTORE_NAME in target).toBe(false);
+  });
+
+  test("a restored page that saved nothing gets null state", () => {
+    expect(takePageRestore({ [RESTORE_NAME]: { wasDiscarded: true, state: null } })).toEqual({
+      wasDiscarded: true,
+      state: null,
+    });
+  });
+
+  test("a document that was not discarded gets nothing", () => {
+    expect(takePageRestore({})).toBeNull();
+    expect(takePageRestore({ [RESTORE_NAME]: { wasDiscarded: false, state: 1 } })).toBeNull();
   });
 });

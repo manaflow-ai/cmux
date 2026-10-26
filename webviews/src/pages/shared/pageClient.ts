@@ -98,6 +98,34 @@ export const PARKED_NAME = "__cmuxPageParked";
  */
 export const CLAIM_OP = "cmux.page.claim";
 
+/**
+ * Set by the host before page code runs when the document comes back after a discard
+ * (PageWebView+Discard.swift): `{wasDiscarded: true, state}`, where `state` is what the page saved
+ * when it hid (null when it saved none). Chrome's `document.wasDiscarded` plus the page's own state.
+ */
+export const RESTORE_NAME = "__cmuxPageRestore";
+
+/** What a document that comes back after a discard gets (`takePageRestore`). */
+export interface PageRestore {
+  wasDiscarded: true;
+  /** The state the page saved when it hid; null when it saved none. */
+  state: unknown;
+}
+
+/**
+ * The restore the host handed this document, once: a page reads it while its module runs, before
+ * its first paint, and applies `state` to its store. Null when the document is not a restored one
+ * or the restore was taken already.
+ */
+export function takePageRestore(
+  target: Record<string, unknown> = globalThis as unknown as Record<string, unknown>,
+): PageRestore | null {
+  const value = target[RESTORE_NAME] as { wasDiscarded?: unknown; state?: unknown } | null | undefined;
+  delete target[RESTORE_NAME];
+  if (!value || value.wasDiscarded !== true) return null;
+  return { wasDiscarded: true, state: value.state ?? null };
+}
+
 /** How many not-yet-registered subscriptions, and events per subscription, the client holds. */
 const EARLY_SUBS = 16;
 const EARLY_EVENTS = 64;
