@@ -23,8 +23,14 @@ Two ways to run (macOS only, a fleet or capture mini, never a laptop):
   attach  --socket PATH --app-pid PID: an app someone else launched, for
           example by `capture-host launch` into a capture slot (capture
           leases end after 10 minutes, so churn there stays short).
-  launch  no --socket: starts the bundle's app with a scratch HOME,
-          TMPDIR and config, and quits it at the end.
+  launch  no --socket: starts the tagged `cmux DEV <tag>.app` through
+          bench_launch.BenchApp (the lab's bench env, a scratch config, an
+          empty saved session for the tag) and ends it and every process of
+          its tag at the end (BenchApp.stop, tag_teardown.py).
+
+--out DIR writes cmux-perf-result/v1 (--hidden-slope only) through
+BenchApp.record into DIR, and the full report as DIR/bench-memory.json. An
+--out path that ends in .json is only the report file, as before.
 
 Usage:
   bench_memory.py --app BUNDLE [--socket PATH --app-pid PID]
@@ -33,6 +39,8 @@ Usage:
       [--url URL] [--top 15] [--config JSON] [--fake-agent SCRIPT] [--out FILE.json]
   bench_memory.py --app BUNDLE --tabs 1,10,20 [--urls local|real|URL,URL,...] [--settle 30]
   bench_memory.py --app BUNDLE --hidden-workspaces 100 [--grace 960] [--mix terminal] [--terminal-host-model hosts|holder]
+  bench_memory.py --app BUNDLE --hidden-slope [--engine chromium|webkit] [--slope-counts 10,60] [--slope-samples 3]
+      [--hibernate-after 1] [--out DIR]
   bench_memory.py --app BUNDLE --pressure warning|critical [--pressure-window 10]
   bench_memory.py --app BUNDLE ... --kernel-pressure warn|critical [--kernel-pressure-window 5]
 
@@ -60,6 +68,25 @@ Phases (plans/cmux-next/chrome-parity/p07-memory.md, DC6 and DC10):
   On a build without debug.memory both phases report process footprint only;
   a build without the override skips the pressure phase and says so; any
   other override failure is printed and recorded as the phase's error.
+
+--hidden-slope (p12-perf-process-035, target "hidden-workspace memory slope
+<= 0.5 MB per workspace"): opens terminal+<engine> workspaces (a terminal and
+one page of --engine, each workspace its own local site, served here) until
+the first --slope-counts count, shows the launch workspace again so all of
+them are hidden, waits the hibernation grace, then sums phys_footprint (not
+RSS) of the app, its daemons, terminal hosts and holders, its Chromium
+helpers or its WebKit processes, --slope-samples times, --slope-interval
+seconds apart; then the same at the second count. The slope is
+(F_high - F_low) / (high - low) bytes per hidden workspace, one per sample
+pair. result-v1: memory.hidden_slope (target row memory-slope.<engine>) and
+memory.hidden_footprint.<count>, every sample stored. The grace is the page
+hibernation timeout plus the planner's normal pace for that many pages
+(HibernationPlanner.normalPace); a launch shortens the timeout with the
+documented setting `browser.hibernation` = --hibernate-after minutes
+(BrowserHibernationSetting: a number is minutes) in its scratch config. An
+attached app keeps its own setting: the bench reads it from debug.surfaces,
+or takes --grace. Lab stories: scripts/perf-lab/stories.d/memory-hidden.json
+(Chromium) and memory-hidden-webkit.json (WebKit).
 
 --kernel-pressure warn|critical then feeds real kernel pressure
 (`/usr/bin/memory_pressure -S -l LEVEL`, root or passwordless sudo; without
@@ -89,6 +116,12 @@ import sys
 import tempfile
 import time
 import uuid
+
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from bench_launch import PERF_LAB, BenchApp, RecordError, load_by_path  # noqa: E402
+
+perf_stats = load_by_path("perf_stats", os.path.join(PERF_LAB, "perf_stats.py"))
+perf_result = load_by_path("perf_result", os.path.join(PERF_LAB, "perf_result.py"))
 
 MB = 1048576.0
 
@@ -157,9 +190,10 @@ def kind_of(cmd: str, bundle: str) -> str:
         return "cef-host"
     if rel.startswith("/Contents/MacOS/"):
         return "app"
+    terminal = terminal_kind(rel)
+    if terminal:
+        return terminal
     if "/bin/cmux-tui" in rel or "/bin/cmux " in rel or rel.endswith("/bin/cmux"):
-        if "__terminal-host" in rel:
-            return "terminal-host"
         if "--session cmux-chief" in rel:
             return "tui-daemon-chief"
         return "tui-daemon"
@@ -172,15 +206,60 @@ def kind_of(cmd: str, bundle: str) -> str:
     return os.path.basename(cmd.split()[0])
 
 
+def terminal_kind(cmd: str) -> str | None:
+    """`terminal-host` (`__terminal-host`) or `terminal-holder` (the standalone `cmux-holder`, or the host binary's
+    built-in `__holder`; holder_runtime/service.rs launch), else None."""
+    if "__terminal-host" in cmd:
+        return "terminal-host"
+    words = cmd.split()
+    if words and (os.path.basename(words[0]) == "cmux-holder" or "__holder" in words[1:]):
+        return "terminal-holder"
+    return None
+
+
+# A terminal host's or holder's `--owner <bundle>:<tag>@<daemon pid>` (host_session.rs host_owner_args): both run
+# from a content-addressed copy outside the bundle (host_exe.rs), so only the daemon pid ties them to this app.
+OWNER_ARG = re.compile(r"--owner \S+@(\d+)")
+
+# WebKit processes that ran before this run launched the app through BenchApp; None for an attached app or one
+# started through LaunchServices (`launch`), whose WebKit processes name the app as their responsible process.
+_foreign_webkit: set[int] | None = None
+
+
+def webkit_pids() -> set[int]:
+    return {pid for pid, _, cmd in process_table() if "com.apple.WebKit." in cmd}
+
+
+def webkit_is_apps(pid: int, app_pid: int, app_responsible: int | None) -> bool:
+    """WebKit's processes are launchd's children; macOS holds the app responsible for them, or, for an app this run
+    started as its child (BenchApp; a fleet step has no LaunchServices session), the process responsible for the
+    app. In that case a WebKit process counts only when it did not run before the launch (``_foreign_webkit``)."""
+    if _responsible is None:
+        return False
+    owner = _responsible(pid)
+    if owner == app_pid:
+        return True
+    return (_foreign_webkit is not None and pid not in _foreign_webkit and app_responsible not in (None, app_pid)
+            and owner == app_responsible)
+
+
 def owned(app_pid: int, bundle: str):
-    """{pid: (kind, command)} for every process from the bundle, plus the
-    WebKit processes the app is responsible for."""
+    """{pid: (kind, command)} for every process from the bundle, the terminal hosts and holders its running daemons
+    started, and the WebKit processes that are the app's (``webkit_is_apps``)."""
+    table = process_table()
     found = {}
-    for pid, _ppid, cmd in process_table():
+    for pid, _ppid, cmd in table:
         if in_bundle(cmd, bundle) is not None:
             _run_pids.add(pid)
             found[pid] = (kind_of(cmd, bundle), cmd)
-        elif _responsible is not None and "com.apple.WebKit." in cmd and _responsible(pid) == app_pid:
+    app_responsible = _responsible(app_pid) if _responsible is not None else None
+    for pid, _ppid, cmd in table:
+        if pid in found:
+            continue
+        owner = OWNER_ARG.search(cmd)
+        if owner and int(owner.group(1)) in found and terminal_kind(cmd):
+            found[pid] = (terminal_kind(cmd), cmd)
+        elif "com.apple.WebKit." in cmd and webkit_is_apps(pid, app_pid, app_responsible):
             found[pid] = (kind_of(cmd, bundle), cmd)
     return found
 
@@ -222,6 +301,7 @@ def sample(app_pid: int, bundle: str, label: str, workspaces: int, measure: floa
     return {"measure_s": measure, "label": label, "workspaces": workspaces, "time": round(time.time()),
             "total_rss_mb": round(sum(r["rss_mb"] for r in rows), 1),
             "total_footprint_mb": round(sum(r["footprint_mb"] for r in rows), 1),
+            "total_footprint_bytes": sum(r["footprint_bytes"] for r in rows),
             "kinds": dict(sorted(kinds.items(), key=lambda item: -item[1]["footprint_mb"])),
             "processes": rows}
 
@@ -394,8 +474,10 @@ def open_workspace(app: App, recipe: str, url: str, index: int, chats: FakeChats
             continue
         if kind == "terminal":
             response = app.run("newSurface")
-        elif kind == "browser":
+        elif kind in ("browser", "chromium"):
             response = app.run("openBrowser.chromium", url=url)
+        elif kind == "webkit":
+            response = app.run("openBrowser.webkit", url=url)
         elif kind == "chat":
             # A prompt opens an agent chat tab. It waits in the composer for a
             # Send (fleet minis carry no agent credentials either): --fake-agent
@@ -789,6 +871,131 @@ def hidden_workspaces_phase(app: App, count: int, grace: float, recipes: list[st
     return phase
 
 
+# HibernationPlanner.normalPace (CmuxNextHibernation/HibernationPlanner.swift): without memory pressure the planner
+# hibernates two due pages per pass, one pass every 5 s while more are due, so a burst of hidden pages never closes
+# at once.
+HIBERNATION_PER_PASS = 2
+HIBERNATION_PASS_S = 5
+# BrowserHibernationSetting.hiddenMinutes of each named `browser.hibernation` mode.
+HIBERNATION_MODE_MINUTES = {"moderate": 30.0, "aggressive": 10.0}
+SLOPE_METRIC = "memory.hidden_slope"
+# The `browser.hibernation` minutes a --hidden-slope launch sets (the bench hook that shortens the grace from the
+# default 30 minutes; BrowserHibernationSetting reads a number as minutes).
+SLOPE_HIBERNATE_AFTER_MINUTES = 1.0
+SLOPE_STORIES = {"chromium": "memory-hidden", "webkit": "memory-hidden-webkit"}
+
+
+def hibernation_minutes(mode) -> float | None:
+    """Minutes hidden before a page hibernates, for debug.surfaces' `hibernation.mode` (the `browser.hibernation`
+    value: a mode name or a number of minutes); None when off or unknown."""
+    if isinstance(mode, bool):
+        return None
+    if isinstance(mode, (int, float)):
+        return float(mode) if mode > 0 else None
+    return HIBERNATION_MODE_MINUTES.get(mode)
+
+
+def slope_hibernation_minutes(state: dict, configured: float | None) -> float | None:
+    """The hibernation timeout the grace waits for: what the app reports (debug.surfaces, DEBUG and bench-hook
+    builds), else what this run configured, else the app's default mode (BrowserHibernationSetting.fallback)."""
+    if "mode" in state:
+        return hibernation_minutes(state["mode"])
+    return configured if configured is not None else HIBERNATION_MODE_MINUTES["moderate"]
+
+
+def hibernation_grace(minutes: float | None, pages: int) -> float:
+    """Seconds from the moment `pages` browser pages went hidden until the planner's normal pace has hibernated the
+    last of them; 0 when hibernation is off."""
+    if minutes is None:
+        return 0.0
+    return minutes * 60 + math.ceil(pages / HIBERNATION_PER_PASS) * HIBERNATION_PASS_S
+
+
+def hibernation_state(app: App) -> dict:
+    """debug.surfaces' hibernation summary: the `mode` and how many pages are hibernated; {} on a build without it."""
+    reply = app.call("debug.surfaces", timeout=60)
+    state = reply.get("hibernation") if isinstance(reply, dict) else None
+    if not isinstance(state, dict):
+        return {}
+    hibernated = state.get("hibernated")
+    return {"mode": state.get("mode"), "pressure": state.get("pressure"),
+            "hibernated": len(hibernated) if isinstance(hibernated, list) else None}
+
+
+def slope_samples(low: list[int], high: list[int], low_count: int, high_count: int) -> list[float]:
+    """Bytes each hidden workspace adds, one per sample pair: (F_high - F_low) / (high_count - low_count)."""
+    return [(after - before) / (high_count - low_count) for before, after in zip(low, high)]
+
+
+def hidden_slope_phase(app: App, recipe: str, counts: list[int], samples: int, interval: float,
+                       grace_s, settle: float, take_sample, urls: list[str], opened: list, chats=None) -> dict:
+    """Footprint at each of the two `counts` of hidden `recipe` workspaces after the hibernation grace, and the slope
+    between them. `grace_s(pages)` is the grace for that many hidden pages; `take_sample(label, workspaces)` is one
+    ``sample``. Every sample is kept: `counts[n]["footprint_bytes"]` holds `samples` totals."""
+    low, high = counts
+    phase: dict = {"recipe": recipe, "counts": {}, "samples_per_count": samples, "interval_s": interval}
+    for count in counts:
+        while len(opened) < count:
+            workspace = open_workspace(app, recipe, urls[len(opened) % len(urls)], 3000 + len(opened), chats)
+            if workspace is None:
+                break
+            opened.append(workspace)
+        if len(opened) < count:
+            phase["error"] = f"opened {len(opened)} of {count} workspaces"
+            print(f"bench-memory: --hidden-slope: {phase['error']}", file=sys.stderr, flush=True)
+            return phase
+        app.run("workspace.selectFirst")
+        hidden_at = time.monotonic()
+        grace = grace_s(count)
+        time.sleep(max(0.0, hidden_at + grace + settle - time.monotonic()))  # test script: the hibernation grace
+        taken = []
+        for index in range(samples):
+            if index:
+                time.sleep(interval)  # test script: spacing between the samples of one count
+            taken.append(take_sample(f"slope-{count}-{index + 1}", count + 1))
+        phase["counts"][str(count)] = {
+            "grace_s": grace, "hibernation": hibernation_state(app),
+            "footprint_bytes": [result["total_footprint_bytes"] for result in taken],
+            "kinds_mb": [{kind: entry["footprint_mb"] for kind, entry in result["kinds"].items()} for result in taken]}
+    phase["slope_bytes"] = slope_samples(phase["counts"][str(low)]["footprint_bytes"],
+                                         phase["counts"][str(high)]["footprint_bytes"], low, high)
+    phase["slope_summary"] = perf_stats.summary(phase["slope_bytes"])
+    slope_p50 = phase["slope_summary"]["p50"]
+    footprints = {count: perf_stats.pct(phase["counts"][str(count)]["footprint_bytes"], 0.5) for count in counts}
+    print(f"== hidden slope ({recipe}): footprint p50 {footprints[low] / MB:.1f} MB at {low} hidden, "
+          f"{footprints[high] / MB:.1f} MB at {high} hidden; slope p50 {slope_p50 / MB:.3f} MB per hidden workspace "
+          f"({samples} samples per count)")
+    for count in counts:
+        entry = phase["counts"][str(count)]
+        hibernation = entry["hibernation"]
+        print(f"   {count:>4} hidden: grace {entry['grace_s']:.0f} s, hibernation mode "
+              f"{hibernation.get('mode', 'unknown')}, {hibernation.get('hibernated', 'unknown')} pages hibernated; "
+              "footprint MB " + ", ".join(f"{value / MB:.1f}" for value in entry["footprint_bytes"]))
+    print(f"PERF-HIDDEN-SLOPE recipe={recipe} slope_bytes_p50={slope_p50:.0f} "
+          f"samples={','.join(f'{value:.0f}' for value in phase['slope_bytes'])}", flush=True)
+    return phase
+
+
+def record_slope(bench, story: str, engine: str, phase: dict) -> dict:
+    """Writes the slope phase as result-v1 through `bench`.record (a BenchApp): memory.hidden_slope against target row
+    memory-slope.<engine>, and memory.hidden_footprint.<count> for each count, every sample. Returns {metric: path or
+    "not recorded: <reason>"}."""
+    series = [(SLOPE_METRIC, phase.get("slope_bytes"), f"memory-slope.{engine}")]
+    series += [(f"memory.hidden_footprint.{count}", entry["footprint_bytes"], None)
+               for count, entry in phase.get("counts", {}).items()]
+    written = {}
+    for metric, samples, target in series:
+        if not samples:
+            written[metric] = f"not recorded: {phase.get('error', 'no samples')}"
+            continue
+        try:
+            written[metric] = str(bench.record(story, metric, "bytes", samples, better="lower", engine=engine,
+                                               target_ref=target))
+        except (RecordError, perf_result.ResultError) as error:
+            written[metric] = f"not recorded: {error}"
+    return written
+
+
 def set_pressure(app: App, level: str) -> tuple[str, str | None]:
     """The debug pressure override (DEBUG and bench-hook builds), which the memory coordinator and browser
     hibernation both take (p07-memory-004); `none` clears it and hands both the kernel's level again.
@@ -1007,7 +1214,77 @@ def interrupted(_signum, _frame):
     raise KeyboardInterrupt
 
 
-def main():
+def check_args(parser: argparse.ArgumentParser, args) -> list[int]:
+    """Refuses the option combinations a run cannot honor; returns the two --slope-counts, low first ([] without
+    --hidden-slope)."""
+    if args.grace and args.hidden_workspaces is None and not args.hidden_slope:
+        parser.error("--grace needs --hidden-workspaces or --hidden-slope")
+    if args.hidden_workspaces is not None and args.tabs:
+        parser.error("--hidden-workspaces and --tabs are separate runs")
+    if args.terminal_host_model and args.socket:
+        parser.error("--terminal-host-model sets the model of an app this run launches, not of an attached one")
+    if args.hibernate_after is not None and (args.socket or args.hibernate_after <= 0):
+        parser.error("--hibernate-after is a number of minutes > 0, for an app this run launches")
+    if not args.hidden_slope:
+        return []
+    if args.tabs or args.hidden_workspaces is not None or args.workspaces or args.churn_minutes:
+        parser.error("--hidden-slope is a run of its own (no --tabs, --hidden-workspaces, --workspaces or churn)")
+    try:
+        counts = sorted(int(n) for n in args.slope_counts.split(",") if n)
+    except ValueError:
+        parser.error(f"--slope-counts {args.slope_counts!r}: two workspace counts, e.g. 10,60")
+    if len(counts) != 2 or counts[0] < 1 or counts[0] == counts[1]:
+        parser.error(f"--slope-counts {args.slope_counts!r}: two different workspace counts >= 1, e.g. 10,60")
+    if args.slope_samples < 1:
+        parser.error("--slope-samples is at least 1")
+    return counts
+
+
+def out_paths(out: str | None) -> tuple[str | None, str | None]:
+    """(report file, result-v1 folder) of --out: a .json path is the report alone (the older form); any other path
+    is a folder that gets the result-v1 files and bench-memory.json."""
+    if not out:
+        return None, None
+    if out.endswith(".json"):
+        return out, None
+    os.makedirs(out, exist_ok=True)
+    return os.path.join(out, "bench-memory.json"), out
+
+
+def run_hidden_slope(app: App, args, counts: list[int], opened: list, chats, app_pid: int, bundle: str, report: dict,
+                     bench, results_dir: str | None) -> dict:
+    """The --hidden-slope run: its local sites, its grace (--grace, else the app's hibernation timeout plus the
+    planner's pace), the phase, and its result-v1 files when there is a results folder."""
+    state = hibernation_state(app)
+    minutes = slope_hibernation_minutes(state, args.hibernate_after)
+    if args.hibernate_after is not None and minutes != args.hibernate_after:
+        print(f"bench-memory: the app reports hibernation mode {state.get('mode')!r}, not the "
+              f"{args.hibernate_after:g} minutes its config sets; the grace follows the app", file=sys.stderr, flush=True)
+    report["hibernation_mode"] = state.get("mode")
+    report["hibernation_minutes"] = minutes
+
+    def grace_s(pages: int) -> float:
+        return args.grace if args.grace else hibernation_grace(minutes, pages)
+
+    def take_sample(label: str, workspaces: int) -> dict:
+        result = sample(app_pid, bundle, label, workspaces, 0)
+        report["samples"].append(result)
+        print_sample(result, args.top)
+        return result
+
+    urls = tab_urls(args.urls, counts[1])
+    phase = hidden_slope_phase(app, f"terminal+{args.engine}", counts, args.slope_samples, args.slope_interval,
+                               grace_s, args.settle, take_sample, urls, opened, chats)
+    if results_dir and bench is not None:
+        story = args.story or SLOPE_STORIES[args.engine]
+        phase["results"] = record_slope(bench, story, args.engine, phase)
+        for metric, outcome in phase["results"].items():
+            print(f"bench-memory: {metric}: {outcome}")
+    return phase
+
+
+def parse_args(argv=None):
+    """(args, the two --slope-counts low first or []) of a command line; exits 2 on an invalid one."""
     parser = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--app", required=True, help="the .app bundle")
     parser.add_argument("--socket", help="attach: the running app's control socket")
@@ -1021,7 +1298,8 @@ def main():
     parser.add_argument("--sample-minutes", type=float, default=5)
     parser.add_argument("--url", default="https://example.com")
     parser.add_argument("--tabs", help="browser-tab counts to sample, e.g. 1,10,20 (instead of --workspaces)")
-    parser.add_argument("--urls", default="local", help="--tabs: local, real or a comma list of URLs")
+    parser.add_argument("--urls", default="local",
+                        help="--tabs and --hidden-slope: local, real or a comma list of URLs")
     parser.add_argument("--cef-switches", default="",
                         help="launch, DEBUG builds: extra Chromium switches, colon-separated (CMUX_NEXT_CEF_EXTRA_SWITCHES)")
     parser.add_argument("--top", type=int, default=15)
@@ -1036,7 +1314,26 @@ def main():
                              "after --grace")
     parser.add_argument("--grace", type=float, default=0, metavar="S",
                         help="--hidden-workspaces: seconds after the workspaces went hidden for the second sample "
-                             "(960 is past the 15 min parked idle timeout)")
+                             "(960 is past the 15 min parked idle timeout); --hidden-slope: the grace before each "
+                             "count's samples instead of the hibernation timeout plus the planner's pace")
+    parser.add_argument("--hidden-slope", action="store_true",
+                        help="hidden-workspace memory slope: footprint at the two --slope-counts of hidden "
+                             "terminal+<--engine> workspaces after the hibernation grace, and the bytes each adds")
+    parser.add_argument("--engine", choices=sorted(SLOPE_STORIES), default="chromium",
+                        help="--hidden-slope: the page engine of each workspace (and result-v1's engine)")
+    parser.add_argument("--slope-counts", default="10,60", metavar="LOW,HIGH",
+                        help="--hidden-slope: the two hidden workspace counts")
+    parser.add_argument("--slope-samples", type=int, default=3, metavar="N",
+                        help="--hidden-slope: footprint samples per count, all stored")
+    parser.add_argument("--slope-interval", type=float, default=10, metavar="S",
+                        help="--hidden-slope: seconds between the samples of one count")
+    parser.add_argument("--hibernate-after", type=float, metavar="MINUTES",
+                        help="launch: `browser.hibernation` minutes in the scratch config, the documented hook that "
+                             "shortens the hibernation grace (default 1 with --hidden-slope)")
+    parser.add_argument("--story", help="--hidden-slope: result-v1 story (default memory-hidden for chromium, "
+                                        "memory-hidden-webkit for webkit)")
+    parser.add_argument("--build-config", choices=["bench", "bench-checks", "release", "debug"],
+                        help="result-v1 build config of a bench-hooks bundle that does not stamp it (BenchApp.record)")
     parser.add_argument("--terminal-host-model", choices=("hosts", "holder"),
                         help="launch: the daemon's terminal host model (CMUX_NEXT_TUI_TERMINAL_HOST_MODEL on the app, "
                              "which its daemon launch passes on as CMUX_TUI_TERMINAL_HOST_MODEL); default hosts, the "
@@ -1051,38 +1348,60 @@ def main():
                              "or passwordless sudo) and sample the footprint before, during and after")
     parser.add_argument("--kernel-pressure-window", type=float, default=5,
                         help="--kernel-pressure: seconds to sample under pressure")
-    parser.add_argument("--out")
-    args = parser.parse_args()
-    if args.grace and args.hidden_workspaces is None:
-        parser.error("--grace needs --hidden-workspaces")
-    if args.hidden_workspaces is not None and args.tabs:
-        parser.error("--hidden-workspaces and --tabs are separate runs")
-    if args.terminal_host_model and args.socket:
-        parser.error("--terminal-host-model sets the model of an app this run launches, not of an attached one")
+    parser.add_argument("--out", help="a folder for result-v1 files and bench-memory.json, or a .json report file")
+    args = parser.parse_args(argv)
+    return args, check_args(parser, args)
+
+
+def main(argv=None):
+    args, slope_counts = parse_args(argv)
+    report_path, results_dir = out_paths(args.out)
     # SIGTERM (a timeout, a scheduler) ends the run through its cleanup, as Ctrl-C does.
     signal.signal(signal.SIGTERM, interrupted)
     if sys.platform != "darwin":
         raise SystemExit("bench-memory: macOS only (run it on a fleet or capture mini)")
 
+    global _foreign_webkit
     bundle = os.path.realpath(args.app)
-    launched = scratch = None
+    bench = None
     if args.socket:
         if not args.app_pid:
             raise SystemExit("bench-memory: --socket needs --app-pid")
         socket_path, app_pid = args.socket, args.app_pid
         host_model = "unknown-attach"
+        if results_dir:
+            # result-v1 for an attached app: its build, this host, and the features it answers now.
+            bench = BenchApp(bundle, out=results_dir, teardown=False, build_config=args.build_config)
+            bench.socket = socket_path
+            bench.features = bench.read_features()
     else:
         host_model = args.terminal_host_model or "hosts"
-        launched, socket_path, scratch = launch(bundle, json.loads(args.config),
-                                                launch_env(args.cef_switches, args.terminal_host_model))
-        app_pid = launched
+        config = merged({"updates": {"checkAutomatically": False, "downloadAutomatically": False}},
+                        json.loads(args.config))
+        if args.hibernate_after is None and args.hidden_slope:
+            args.hibernate_after = SLOPE_HIBERNATE_AFTER_MINUTES
+        if args.hibernate_after is not None:
+            config = merged(config, {"browser": {"hibernation": args.hibernate_after}})
+        env = launch_env(args.cef_switches, args.terminal_host_model)
+        if args.fake_agent:
+            # The fake agent is a real ACP process: the bench env's agent-pane mock and launch denial would stop it.
+            env.update({"CMUX_NEXT_AGENT_PANE_MOCK": None, "ACPMUX_AGENT_LAUNCH": None})
+        bench = BenchApp(bundle, out=results_dir, env=env, config=config, build_config=args.build_config)
+        _foreign_webkit = webkit_pids()
+        try:
+            bench.launch()
+        except BaseException:
+            bench.stop()
+            raise
+        socket_path, app_pid = bench.socket, bench.process.pid
     app = App(bundle, socket_path)
     chats = None
     recipes = args.mix.split(",")
     workspaces = args.workspaces or ("1" if args.hidden_workspaces is not None else "1,10,30")
-    counts = sorted(int(n) for n in workspaces.split(",") if n)
+    counts = [] if args.hidden_slope else sorted(int(n) for n in workspaces.split(",") if n)
     report = {"app": bundle, "mix": recipes, "settle_s": args.settle, "samples": [], "cef_switches": args.cef_switches,
-              "webkit_attributed": _responsible is not None}
+              "webkit_attributed": _responsible is not None,
+              "webkit_attribution": "app-responsible" if _foreign_webkit is None else "app-or-its-launcher"}
     opened = []
 
     def settle_and_sample(label):
@@ -1123,6 +1442,9 @@ def main():
             report["hidden_workspaces"] = hidden_workspaces_phase(app, args.hidden_workspaces, args.grace, recipes,
                                                                   args.url, opened, chats, settle_and_sample,
                                                                   host_model)
+        if args.hidden_slope:
+            report["hidden_slope"] = run_hidden_slope(app, args, slope_counts, opened, chats, app_pid, bundle,
+                                                      report, bench, results_dir)
         if args.kernel_pressure:
             report["kernel_pressure"] = kernel_pressure(app_pid, bundle, args.kernel_pressure,
                                                         args.kernel_pressure_window, len(opened) + 1, args.top)
@@ -1157,20 +1479,16 @@ def main():
             report["pressure"] = pressure_phase(app, app_pid, args.pressure, args.pressure_window, 0.1,
                                                 settle_and_sample)
     finally:
-        for workspace in opened:
-            close_workspace(app, workspace)
-        if launched is not None:
-            app.run("quit")
-            # A quit the app holds (a confirmation) and SIGTERM can both leave
-            # it running, and a live app respawns its daemons: end it first.
-            wait_gone(launched, 20)
-            end_bundle(bundle)
-        if args.out:
-            with open(args.out, "w") as handle:
+        if args.socket:
+            # Someone else's app: leave it as it was. A launched app ends whole with its tag below.
+            for workspace in opened:
+                close_workspace(app, workspace)
+        elif bench is not None:
+            bench.stop()
+        if report_path:
+            with open(report_path, "w") as handle:
                 json.dump(report, handle, indent=2)
-            print(f"bench-memory: wrote {args.out}")
-        if scratch:
-            shutil.rmtree(scratch, ignore_errors=True)
+            print(f"bench-memory: wrote {report_path}")
 
 
 if __name__ == "__main__":
